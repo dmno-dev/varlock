@@ -1,0 +1,14 @@
+node_modules
+dist
+*.ignore
+ignore
+.DS_Store
+
+.turbo
+vite.config.ts.timestamp*
+changesets-summary.json
+
+.env.local
+.env.*.local
+
+

@@ -1,0 +1,45 @@
+{
+  "name": "@env-spec/parser",
+  "version": "0.0.0",
+  "description": "Parser for @env-spec enabled dotenv files",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "run-p dev:grammar dev:ts",
+    "dev:grammar": "pnpm run build:grammar -w",
+    "dev:ts": "tsup --watch",
+    "build:grammar": "peggy -c peggy.config.cjs",
+    "build:lib": "tsup",
+    "build": "pnpm run build:grammar && pnpm run build:lib",
+    "test": "run-p \"build:grammar -w\" _test:watch",
+    "_test:watch": "vitest",
+    "test:once": "pnpm build:grammar && vitest --run"
+  },
+  "keywords": [
+    "env-spec",
+    "dotenv",
+    "env",
+    "env vars",
+    "environment variables",
+    "validation",
+    "schema",
+    "config"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "devDependencies": {
+    "ansis": "^3.17.0",
+    "npm-run-all": "^4.1.5",
+    "peggy": "^4.2.0",
+    "tsup": "catalog:",
+    "vitest": "catalog:"
+  }
+}

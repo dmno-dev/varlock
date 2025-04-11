@@ -1,0 +1,54 @@
+{
+  // use the project's TS version rather than the VSCode's built-in one
+  "typescript.tsdk": "./node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "files.associations": {
+    // package.json needs to be "json" rather than "json with comments" so that the "version lens" plugin works
+    "package.json": "json"
+  },
+  "eslint.workingDirectories": [
+    // {
+    //   "mode": "auto"
+    // }
+  ],
+  "eslint.validate": [
+    // enable eslint on file types other than js/ts
+    "typescript",
+    "astro",
+    "mdx",
+    "markdown",
+    "vue",
+  ],
+  "eslint.format.enable": true,
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  // these are written out individually because if written as a group
+  // users cannot override individual items in their settings.json
+  "[typescript]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
+  },
+  "[vue]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
+  },
+  "[astro]": {
+    "editor.defaultFormatter": "astro-build.astro-vscode"
+  },
+  "[mdx]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
+  },
+  "[markdown]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
+  },
+  "[env]": {
+    "editor.formatOnSave": false,
+  },
+
+  // vscode's built-in json formatter is removing the extra newline at the end which conflicts with editorconfig
+  "json.format.keepLines": true,
+
+}

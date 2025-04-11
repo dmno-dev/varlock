@@ -1,0 +1,38 @@
+{
+  "name": "root",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/core.git"
+  },
+  "scripts": {
+    "build": "turbo build",
+    "build:libs": "turbo build --filter=\"!@varlock/website\"",
+    "preinstall": "npx only-allow pnpm",
+    "dev": "turbo run dev --concurrency=40 --parallel",
+    "lint": "eslint .",
+    "changeset:add": "changeset add",
+    "changeset:version": "changeset version",
+    "changeset:publish": "pnpm build:libs && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "^0.5.1",
+    "@changesets/cli": "^2.28.1",
+    "@eslint/js": "^9.24.0",
+    "@stylistic/eslint-plugin": "^4.2.0",
+    "eslint": "^9.24.0",
+    "eslint-nofix-plugin": "workspace:*",
+    "eslint-stylistic-airbnb": "^2.0.0",
+    "globals": "^16.0.0",
+    "turbo": "^2.5.0",
+    "typescript": "catalog:",
+    "typescript-eslint": "^8.29.1"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "packageManager": "pnpm@10.8.0+sha512.0e82714d1b5b43c74610193cb20734897c1d00de89d0e18420aebc5977fa13d780a9cb05734624e81ebd81cc876cd464794850641c48b9544326b5622ca29971"
+}

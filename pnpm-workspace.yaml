@@ -1,0 +1,13 @@
+---
+packages:
+  - 'packages/*'
+
+catalog:
+  "debug": "^4.3.4"
+  "tsup": "^8.2.4"
+  "typescript": "^5.8.2"
+  "vite": "^5.4.6"
+  "vite-node": "^2.1.2"
+  "vitest": "^2.1.5"
+  "@types/debug": "^4.1.12"
+  "@types/node": "^20.14.11"
