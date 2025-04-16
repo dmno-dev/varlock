@@ -1,0 +1,43 @@
+---
+interface Props {
+  name: string;
+  args?: string;
+  description?: string;
+  notes?: string;
+}
+
+const { name, args, description, notes } = Astro.props;
+---
+
+<div class="decorator-docs-entry">
+  <div class="decorator-docs-entry__name">@{name}</div>
+  <div class="decorator-docs-entry__args">
+    <slot name="args">
+      {args && <p>{args}</p>}
+    </slot>
+  </div>
+  <div class="decorator-docs-entry__info">
+    <div class="decorator-docs-entry__description">
+      <slot name="description">
+        {description && <p>{description}</p>}
+      </slot>
+    </div>
+    <div class="decorator-docs-entry__notes">
+      <slot name="notes">
+        {notes && <p>{notes}</p>}
+      </slot>
+    </div>
+  </div>
+</div>
+
+<style>
+  .decorator-docs-entry {
+    margin: 2rem 0;
+    padding: 1rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+  }
+  .decorator-docs-entry__name {
+    font-weight: bold;
+  }
+</style>

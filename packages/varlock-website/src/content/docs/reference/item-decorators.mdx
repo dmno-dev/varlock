@@ -1,0 +1,68 @@
+---
+title: "Config item @decorators"
+description: A reference page of available env-spec decorators for items
+---
+import Decorator from '@/components/decorator-doc-entry.astro'
+
+<Decorator name="required" args="boolean">
+  <Fragment slot="description">
+    toggles whether the setting a value for the item is required
+  </Fragment>
+  <Fragment slot="notes">
+    default value can be toggled using the `@defaultRequired` root decorator
+  </Fragment>
+</Decorator>
+
+<Decorator name="sensitive" args="boolean">
+  <Fragment slot="description">
+    toggles whether the item should be considered sensitive (and must be protected from leaks)
+  </Fragment>
+  <Fragment slot="notes">
+    default value can be toggled using the `@defaultSensitive` root decorator
+  </Fragment>
+</Decorator>
+
+<Decorator name="type" args="enum">
+  <Fragment slot="description">
+    sets the type of the item, will default to `string` if not set.
+  </Fragment>
+  <Fragment slot="notes">
+    some types take additional arguments, see below for more details
+  </Fragment>
+</Decorator>
+
+<Decorator name="example" args="any">
+  <Fragment slot="description">
+    provide an example value for the item
+  </Fragment>
+</Decorator>
+
+<Decorator name="trim" args="boolean">
+  <Fragment slot="description">
+    trim leading and trailing whitespace (including newlines) from the value
+  </Fragment>
+</Decorator>
+
+<Decorator name="deindent" args="boolean">
+  <Fragment slot="description">
+    trim leading whitespace from each line, will trim the number of spaces found on the first line only
+  </Fragment>
+  <Fragment slot="notes">
+    only works if the value is a multi-line string
+  </Fragment>
+</Decorator>
+
+## Built-in base types
+- `string`
+- `number`
+  - `integer`/`int`
+  - `float`/`decimal`
+- `boolean`/`bool`
+- `url`
+- `email`
+- `port`
+- `path`
+- `ip`
+- `hostname`
+- `uuid`
+- `date`
