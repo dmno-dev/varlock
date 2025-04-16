@@ -1,0 +1,28 @@
+---
+title: "Root level @decorators"
+description: A reference page of available env-spec decorators that apply to the schema itself, rather than individual items
+---
+import Decorator from '@/components/decorator-doc-entry.astro'
+
+
+<Decorator name="envFlag">
+  <Fragment slot="description">
+    sets the key of your environment flag, which will be used when determining if environment-specific env files will be loaded (e.g. `.env.production`). This will usually be something like `APP_ENV`.
+  </Fragment>
+  <Fragment slot="notes">
+    can only be used once - usually in your `.env.schema` file
+  </Fragment>
+</Decorator>
+
+<Decorator name="defaultRequired" args="boolean">
+  <Fragment slot="description">
+    toggle whether the default value of `@required` for each item within the schema
+  </Fragment>
+</Decorator>
+
+<Decorator name="defaultSensitive" args="boolean">
+  <Fragment slot="description">
+    toggle whether the default value of `@sensitive` for each item within the schema
+  </Fragment>
+</Decorator>
+
