@@ -8,7 +8,6 @@
       "outputs": [ "dist/**" ]
     },
     "dev": {
-      "dependsOn": [ "db:local" ],
       "cache": false,
       "persistent": true
     },
