@@ -1,7 +1,8 @@
 import { execa, type ResultPromise } from 'execa';
 import which from 'which';
 
-import { loadEnvGraph } from '@env-spec/env-graph';
+import { loadVarlockEnvGraph } from '../../lib/load-graph';
+import { checkForConfigErrors, checkForSchemaErrors } from '../helpers/error-checks';
 
 export const commandSpec = {
   name: 'run',
@@ -42,10 +43,15 @@ export const commandFn = async (ctx: any) => {
 
   // console.log('running command', pathAwareCommand || rawCommand, commandArgsOnly);
 
-  const envGraph = await loadEnvGraph();
-  await envGraph.resolveEnvValues();
-  const resolvedEnv = envGraph.getResolvedEnvObject();
 
+  const envGraph = await loadVarlockEnvGraph();
+  checkForSchemaErrors(envGraph);
+  await envGraph.resolveEnvValues();
+  checkForConfigErrors(envGraph);
+
+  // will fail above if there are any errors
+
+  const resolvedEnv = envGraph.getResolvedEnvObject();
   // console.log(resolvedEnv);
 
   // needs more thought here

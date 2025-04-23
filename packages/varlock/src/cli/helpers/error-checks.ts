@@ -4,6 +4,45 @@ import { _ } from '@env-spec/env-graph/utils';
 import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import { CliExitError } from './exit-error';
 
+
+export function checkForSchemaErrors(envGraph: EnvGraph) {
+  // first we check for loading/parse errors - some cases we may want to let it fail silently?
+  for (const source of envGraph.dataSources) {
+    // do we care about loading errors from disabled sources?
+    // if (source.disabled) continue;
+
+    // console.log(source);
+
+    // TODO: use a formatting helper to show the error - which will include location/stack/etc appropriately
+    if (source.loadingError) {
+      console.log(`🚨 Error encountered while loading ${source.label}`);
+      console.log(source.loadingError.message);
+      console.log(source.loadingError.location);
+
+      const errLoc = source.loadingError.location as any;
+
+      const errPreview = [
+        errLoc.lineStr,
+        `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
+      ].join('\n');
+
+      console.log('Error parsing .env file');
+      console.log(` ${errLoc.path}:${errLoc.lineNumber}:${errLoc.colNumber}`);
+      console.log(errPreview);
+
+      process.exit(1);
+    }
+  }
+
+  // now we check for any schema errors - where something about how things are wired up is invalid
+  // NOTE - we should not have run any resolution yet
+  // TODO: make sure we are calling this before attempting to resolve values
+  // const failingItems = _.filter(_.values(envGraph.configSchema), (item) => item.validationState === 'error');
+  // if (failingItems.length > 0) {
+  //   throw new CliExitError('Schema is currently invalid');
+  // }
+}
+
 export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
   showAll?: boolean
 }) {

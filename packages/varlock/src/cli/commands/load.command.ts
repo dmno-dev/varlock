@@ -4,7 +4,7 @@ import { _ } from '@env-spec/env-graph/utils';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { getItemSummary } from '../../lib/formatting';
-import { checkForConfigErrors } from '../helpers/error-checks';
+import { checkForConfigErrors, checkForSchemaErrors } from '../helpers/error-checks';
 
 export const commandSpec = define({
   name: 'load',
@@ -30,41 +30,9 @@ export const commandFn: CommandRunner<ExtractArgs<typeof commandSpec>> = async (
   const { format, 'show-all': showAll } = ctx.values;
 
   const envGraph = await loadVarlockEnvGraph();
-
-  // check for load/parse errors - some cases we may want to let it fail silently?
-
-  for (const source of envGraph.dataSources) {
-    // do we care about loading errors from disabled sources?
-    // if (source.disabled) continue;
-
-    // console.log(source);
-
-    // TODO: use a formatting helper to show the error - which will include location/stack/etc appropriately
-    if (source.loadingError) {
-      console.log(`🚨 Error encountered while loading ${source.label}`);
-      console.log(source.loadingError.message);
-      console.log(source.loadingError.location);
-
-      const errLoc = source.loadingError.location as any;
-
-      const errPreview = [
-        errLoc.lineStr,
-        `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
-      ].join('\n');
-
-      console.log('Error parsing .env file');
-      console.log(` ${errLoc.path}:${errLoc.lineNumber}:${errLoc.colNumber}`);
-      console.log(errPreview);
-
-      process.exit(1);
-    }
-  }
-
-  // resolve the values
+  checkForSchemaErrors(envGraph);
   await envGraph.resolveEnvValues();
-
   checkForConfigErrors(envGraph, { showAll });
-
 
   if (format === 'pretty') {
     for (const itemKey in envGraph.configSchema) {

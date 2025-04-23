@@ -24,6 +24,8 @@ export const commandFn = async (args: any) => {
   await envGraph.resolveEnvValues();
   const resolvedEnv = envGraph.getResolvedEnvObject();
 
+  // TODO: need to reimplement using the new parser
+
   // const client = new VarlockNativeAppClient();
   // await client.initializeSocket();
 

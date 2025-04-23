@@ -54,6 +54,14 @@ export class EnvGraph {
     // first pass to figure out an envFlag and enable/disable env-specific sources
     const sortedDataSources = this.sortedDataSources;
     for (const source of sortedDataSources) {
+      // TODO: not sure how we want to surface this exactly
+      // we dont necessarily always want any loading error to fail the entire load
+      // but for example if the main schema is failing and we dont know the envFlag
+      // we don't know which env-specific sources to enable
+      if (source.loadingError) {
+        throw new Error(`Error loading ${source.label}: ${source.loadingError.message}`);
+      }
+
       // check for @envFlag so we know which item should control loading env-specific files (eg: .env.production)
       if (source.decorators?.envFlag) {
         if (source.applyForEnv) {
@@ -76,7 +84,7 @@ export class EnvGraph {
         // if this is the first env-specific file, we check and set the value of the env flag
         if (!this.envFlagValue) {
           if (!this.envFlagKey) {
-            throw new Error('You must sepcify the @envFlag in your schema to load any env-specific files');
+            throw new Error('You must specify the @envFlag in your schema to load any env-specific files');
           }
           if (!this.configSchema[this.envFlagKey]) {
             throw new Error(`@envFlag key ${this.envFlagKey} not found in schema`);
