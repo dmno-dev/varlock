@@ -8,6 +8,7 @@ import {
   ParsedEnvSpecFile, ParsedEnvSpecConfigItem, ParsedEnvSpecCommentBlock,
   ParsedEnvSpecDivider, ParsedEnvSpecDecoratorComment, ParsedEnvSpecComment,
   ParsedEnvSpecDecorator, ParsedEnvSpecStaticValue, ParsedEnvSpecFunctionCall,
+  ParsedEnvSpecBlankLine, ParsedEnvSpecFunctionArgs, ParsedEnvSpecKeyValuePair,
 } from './classes';
 }}
 
@@ -73,10 +74,17 @@ DecoratorComment = "#" _ first:Decorator rest:(_ @(Decorator))* _ postComment:Co
   })
 }
 
-Decorator = "@" name:DecoratorName value:("=" @(DecoratorValue))? {
+Decorator = 
+  "@" name:DecoratorName
+  valueOrFnArgs:( 
+    "()" { return new ParsedEnvSpecFunctionArgs({ values: [] })}
+    / ("(" @FunctionArgs? ")")
+    / ("=" @(DecoratorValue))
+  )?
+  {
   return new ParsedEnvSpecDecorator({
     name,
-    value,
+    valueOrFnArgs,
     _location: location(),
   })
 }
@@ -88,17 +96,22 @@ FunctionCall =
   name:FunctionName "(" args:FunctionArgs? ")" {
     return new ParsedEnvSpecFunctionCall({
       name,
-      args,
+      args: args || new ParsedEnvSpecFunctionArgs({ values: [] }),
       _location: location(),
     });
   }
 FunctionName = $([a-zA-Z] [a-zA-Z0-9_]*)
 FunctionArgs =
-  (
+  values:(
     // combine key=val pairs into a single object
-    (key:FunctionArgKeyName "=" val:FunctionArgValue { return { key, val }})|1.., _ "," _|
+    (key:FunctionArgKeyName "=" val:FunctionArgValue { return new ParsedEnvSpecKeyValuePair({ key, val })})|1.., _ "," _|
     / FunctionArgValue|1.., _ "," _|
-  )
+  ) {
+    return new ParsedEnvSpecFunctionArgs({
+      values,
+      _location: location(),
+    });
+  }
 FunctionArgKeyName = $([a-zA-Z] [a-zA-Z0-9_]*)
 FunctionArgValue =
   quotedString

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import ansis from 'ansis';
-import { parseEnvSpecDotEnvFile } from '../src';
+import { ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile } from '../src';
+import { expectInstanceOf } from './test-utils';
 
 
 function basicValueTests(tests: Array<[string, any]>) {
@@ -23,13 +24,14 @@ function basicValueTests(tests: Array<[string, any]>) {
           expect(() => parseEnvSpecDotEnvFile(inputString)).toThrow();
         } else {
           const result = parseEnvSpecDotEnvFile(inputString);
+          const valNode = result.configItems[0].value;
           if (typeof expectedValue === 'object' && 'fnName' in expectedValue) {
-            const fnCall = result.configItems[0].functionCall;
-            expect(fnCall.name).toEqual(expectedValue.fnName);
-            expect(fnCall.argsValue).toEqual(expectedValue.fnArgs);
+            expectInstanceOf(valNode, ParsedEnvSpecFunctionCall);
+            expect(valNode.name).toEqual(expectedValue.fnName);
+            expect(valNode.simplifiedArgs).toEqual(expectedValue.fnArgs);
           } else {
-            expect(result.configItems[0].valueIsStatic).toBe(true);
-            expect(result.configItems[0].staticValue).toEqual(expectedValue);
+            expectInstanceOf(valNode, ParsedEnvSpecStaticValue);
+            expect(valNode.value).toEqual(expectedValue);
           }
         }
       });

@@ -36,7 +36,7 @@
   "author": "dmno-dev",
   "license": "MIT",
   "devDependencies": {
-    "ansis": "^3.17.0",
+    "ansis": "catalog:",
     "npm-run-all": "^4.1.5",
     "peggy": "^4.2.0",
     "tsup": "catalog:",

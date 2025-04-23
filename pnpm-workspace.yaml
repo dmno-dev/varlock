@@ -3,6 +3,7 @@ packages:
   - 'packages/*'
 
 catalog:
+  "ansis": "^3.17.0"
   "debug": "^4.3.4"
   "tsup": "^8.2.4"
   "typescript": "^5.8.2"
