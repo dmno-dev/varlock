@@ -18,7 +18,8 @@ export class ParsedEnvSpecStaticValue {
   constructor(private data: {
     rawValue: any;
     quote?: '"' | "'" | '`' | undefined;
-    _location: any;
+    isImplicit?: boolean;
+    _location?: any;
   }) {
     if (!data.quote) {
       this.value = autoCoerce(this.data.rawValue);
@@ -31,32 +32,57 @@ export class ParsedEnvSpecStaticValue {
   }
 }
 
+export class ParsedEnvSpecKeyValuePair {
+  constructor(private data: {
+    key: string;
+    val: ParsedEnvSpecStaticValue;
+  }) {}
+
+  get key() {
+    return this.data.key;
+  }
+
+  get value() {
+    return this.data.val.value;
+  }
+}
+export class ParsedEnvSpecFunctionArgs {
+  constructor(private data: {
+    values: Array<ParsedEnvSpecStaticValue> | Array<ParsedEnvSpecKeyValuePair>;
+    _location: any;
+  }) {}
+
+  get values() {
+    return this.data.values;
+  }
+
+  get simplifiedValues(): Array<any> | Record<string, any> {
+    if (this.data.values.length === 0) {
+      return [];
+    } else if (this.data.values[0] instanceof ParsedEnvSpecStaticValue) {
+      return this.data.values.map((val) => val.value);
+    } else {
+      const obj = {};
+      this.data.values.forEach((val) => {
+        obj[val.key] = val.value;
+      });
+      return obj;
+    }
+  }
+}
+
 export class ParsedEnvSpecFunctionCall {
   constructor(private data: {
     name: string;
-    args: Array<ParsedEnvSpecStaticValue> | Array<{ key: string, val: ParsedEnvSpecStaticValue }>;
+    args: ParsedEnvSpecFunctionArgs;
     _location: any;
   }) {}
 
   get name() {
     return this.data.name;
   }
-
-  get argsValue() {
-    // `fn()` -- no args passed is equivalent to an empty array or args
-    if (!this.data.args) {
-      return [];
-    // `fn(k1=v1, k2=v2)` -- args are an array of key=value pairs, which we'll convert to an object
-    } else if ('key' in this.data.args[0]) {
-      const obj = {};
-      this.data.args.forEach((arg) => {
-        obj[arg.key] = arg.val.value;
-      });
-      return obj;
-    // `fn(v1, v2)` -- args are an array of values, which we'll just map to an array
-    } else {
-      return this.data.args.map((arg) => arg.value);
-    }
+  get simplifiedArgs() {
+    return this.data.args.simplifiedValues;
   }
 }
 
@@ -64,43 +90,33 @@ export class ParsedEnvSpecFunctionCall {
 export class ParsedEnvSpecDecorator {
   constructor(private data: {
     name: string;
-    value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+    valueOrFnArgs: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs | undefined;
     _location: any;
-  }) {}
+  }) {
+  }
 
   get name() {
     return this.data.name;
   }
 
-  // SIMILAR TO CONFIG ITEM
-  // might want to refactor to clean this up a bit - it's a little clunky
-
-  get valueIsStatic() {
-    // no value is equivalent to static `true` ex: `@required`
-    if (!this.data.value) return true;
-    return this.data.value instanceof ParsedEnvSpecStaticValue;
-  }
-
-  get valueIsFunctionCall() {
-    return this.data.value instanceof ParsedEnvSpecFunctionCall;
-  }
-
-  get staticValue() {
-    // no value is equivalent to static `true` ex: `@required`
-    if (!this.data.value) {
-      return true;
-    } else if (this.data.value instanceof ParsedEnvSpecStaticValue) {
-      return this.data.value.value;
-    } else {
-      throw new Error('Value is not a static value');
+  get bareFnArgs() {
+    if (this.data.valueOrFnArgs && this.data.valueOrFnArgs instanceof ParsedEnvSpecFunctionArgs) {
+      return this.data.valueOrFnArgs;
     }
   }
 
-  get functionCall() {
-    if (this.data.value instanceof ParsedEnvSpecFunctionCall) {
-      return this.data.value;
-    } else {
-      throw new Error('Value is not a function call');
+  get value() {
+    // bare decorator is equivalent to `@decorator=true`
+    // `@required` === `@required=true`
+    if (!this.data.valueOrFnArgs) {
+      return new ParsedEnvSpecStaticValue({ rawValue: true, isImplicit: true });
+    } else if (!(this.data.valueOrFnArgs instanceof ParsedEnvSpecFunctionArgs)) {
+      return this.data.valueOrFnArgs;
+    }
+  }
+  get simplifiedValue() {
+    if (this.value instanceof ParsedEnvSpecStaticValue) {
+      return this.value.value;
     }
   }
 }
@@ -111,6 +127,10 @@ export class ParsedEnvSpecComment {
     contents: string;
     _location: any;
   }) {}
+
+  get contents() {
+    return this.data.contents;
+  }
 }
 export class ParsedEnvSpecDecoratorComment {
   constructor(private data: {
@@ -128,6 +148,22 @@ export class ParsedEnvSpecDecoratorComment {
   }
 }
 
+export type ParsedEnvSpecDecoratorValue =
+  ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs;
+
+function getDecoratorsObject(
+  comments: Array<ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment | undefined>,
+) {
+  const decObj = {} as Record<string, ParsedEnvSpecDecorator>;
+  comments.forEach((comment) => {
+    if (comment instanceof ParsedEnvSpecDecoratorComment) {
+      comment.decorators.forEach((decorator) => {
+        decObj[decorator.name] = decorator;
+      });
+    }
+  });
+  return decObj;
+}
 
 export class ParsedEnvSpecCommentBlock {
   constructor(private data: {
@@ -143,6 +179,10 @@ export class ParsedEnvSpecCommentBlock {
   get divider() {
     return this.data.divider || undefined;
   }
+
+  get decoratorsObject() {
+    return getDecoratorsObject(this.data.comments);
+  }
 }
 
 export class ParsedEnvSpecBlankLine {
@@ -157,62 +197,93 @@ export class ParsedEnvSpecConfigItem {
     key: string;
     value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
     preComments: Array<ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment>;
-    postComment: ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment;
+    postComment: ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment | undefined;
     _location: any;
   }) {}
 
-
-  get valueIsStatic() {
-    if (!this.data.value) return true; // no value is equivalent to static `undefined`
-    return this.data.value instanceof ParsedEnvSpecStaticValue;
+  get key() {
+    return this.data.key;
   }
-
-  get valueIsFunctionCall() {
-    return this.data.value instanceof ParsedEnvSpecFunctionCall;
-  }
-
-  get staticValue() {
+  get value() {
+    // no value is equivalent to `undefined`
+    // `ITEM=` === `ITEM=undefined`
     if (!this.data.value) {
-      return undefined;
-    } else if (this.data.value instanceof ParsedEnvSpecStaticValue) {
-      return this.data.value.value;
-    } else {
-      throw new Error('Value is not a static value');
+      return new ParsedEnvSpecStaticValue({ rawValue: undefined, isImplicit: true });
     }
-  }
-
-  get functionCall() {
-    if (this.data.value instanceof ParsedEnvSpecFunctionCall) {
-      return this.data.value;
-    } else {
-      throw new Error('Value is not a function call');
-    }
+    return this.data.value;
   }
 
   get decoratorsObject() {
-    const decObj = {};
-    [...this.data.preComments, this.data.postComment].forEach((comment) => {
-      if (!comment) return;
-      if (comment instanceof ParsedEnvSpecDecoratorComment) {
-        comment.decorators.forEach((decorator) => {
-          if (decorator.valueIsStatic) {
-            // only adding static values for now
-            decObj[decorator.name] = decorator.staticValue;
-          }
-        });
-      }
-    });
-    return decObj;
+    return getDecoratorsObject([...this.data.preComments, this.data.postComment]);
+  }
+
+  get description() {
+    const regularComments = this.data.preComments.filter((comment) => (comment instanceof ParsedEnvSpecComment));
+    return regularComments.map((comment) => comment.contents).join('\n');
+  }
+
+  toConfigItemDef() {
+    return {
+      key: this.key,
+      valueResolver: this.resolverDef,
+      description: this.description,
+      decorators: this.decoratorsObject,
+    };
+  }
+
+  private get resolverDef() {
+    if (!this.data.value) {
+      return {
+        type: 'static' as const,
+        value: undefined,
+      };
+    } else if (this.data.value instanceof ParsedEnvSpecStaticValue) {
+      return {
+        type: 'static' as const,
+        value: this.data.value.value,
+      };
+    } else if (this.data.value instanceof ParsedEnvSpecFunctionCall) {
+      return {
+        type: 'function' as const,
+        functionName: this.data.value.name,
+        functionArgs: this.data.value.simplifiedArgs,
+      };
+    } else {
+      throw new Error('Unknown value resolver type');
+    }
   }
 }
 
+// these are the 4 types that can be at the root level
+type ParsedEnvSpecFileNode =
+  ParsedEnvSpecCommentBlock |
+  ParsedEnvSpecDivider |
+  ParsedEnvSpecConfigItem |
+  ParsedEnvSpecBlankLine;
+
+
 export class ParsedEnvSpecFile {
-  contents: any;
-  constructor(_contents: any) {
+  contents: Array<ParsedEnvSpecFileNode>;
+  constructor(_contents: Array<ParsedEnvSpecFileNode>) {
     this.contents = _contents;
   }
 
   get configItems() {
     return this.contents.filter((item) => item instanceof ParsedEnvSpecConfigItem);
+  }
+  get header() {
+    // header is a comment block at the the start of the file
+    // it may be preceeded by blank lines only
+    for (const item of this.contents) {
+      if (item instanceof ParsedEnvSpecCommentBlock) {
+        return item;
+      } else if (!(item instanceof ParsedEnvSpecBlankLine)) {
+        return;
+      }
+    }
+  }
+
+  get decoratorsObject() {
+    return this.header?.decoratorsObject ?? {};
   }
 }
