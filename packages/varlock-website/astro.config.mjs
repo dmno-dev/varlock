@@ -34,6 +34,7 @@ export default defineConfig({
       components: {
         Head: '@/components/CustomHead.astro',
       },
+      customCss: ['@/styles/global.css'],
       sidebar: [
         {
           label: 'Getting Started',

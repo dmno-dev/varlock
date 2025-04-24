@@ -4,18 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-catalogs:
-  default:
-    tsup:
-      specifier: ^8.2.4
-      version: 8.4.0
-    typescript:
-      specifier: ^5.8.2
-      version: 5.8.3
-    vitest:
-      specifier: ^2.1.5
-      version: 2.1.9
-
 importers:
 
   .:

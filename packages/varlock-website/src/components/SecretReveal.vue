@@ -6,7 +6,7 @@
       </div>
       
       <div class="code-section">
-        <div class="code-container" :class="{ 'fade-out': isAuthenticated }">
+        <div class="code-container expressive-code" :class="{ 'fade-out': isAuthenticated }">
           <div class="code-header">
             <span class="code-title">Unsafe .env</span>
             <div class="code-actions">
@@ -21,7 +21,7 @@
           <pre class="code-block"><code>{{ unprotectedCode }}</code></pre>
         </div>
         
-        <div v-if="isAuthenticated" class="code-container protected" :class="{ 'fade-in': isAuthenticated }">
+        <div v-if="isAuthenticated" class="code-container expressive-code protected" :class="{ 'fade-in': isAuthenticated }">
           <div class="code-header">
             <span class="code-title">Safe .env</span>
             <div class="code-actions">
@@ -81,7 +81,7 @@ SECRET_KEY_3=varlock(fpodijajfd;laijf;dja)`,
 
 <style scoped>
 .secret-reveal {
-  max-width: 1200px;
+  max-width: var(--sl-content-width);
   margin: 0 auto;
   padding: 0 20px;
 }
@@ -122,8 +122,6 @@ SECRET_KEY_3=varlock(fpodijajfd;laijf;dja)`,
 }
 
 .code-container {
-  background-color: #1e1e1e;
-  border-radius: 8px;
   overflow: hidden;
   transition: all 0.3s ease;
 }
@@ -133,12 +131,11 @@ SECRET_KEY_3=varlock(fpodijajfd;laijf;dja)`,
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background-color: #2d2d2d;
-  border-bottom: 1px solid #3d3d3d;
+  border-bottom: 1px solid var(--brand-cyan--t1);
 }
 
 .code-title {
-  color: #e0e0e0;
+  color: var(--brand-cyan);
   font-size: 14px;
   font-weight: 500;
 }
@@ -151,7 +148,7 @@ SECRET_KEY_3=varlock(fpodijajfd;laijf;dja)`,
 .copy-btn {
   background: none;
   border: none;
-  color: #e0e0e0;
+  color: var(--brand-cyan);
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
@@ -159,7 +156,7 @@ SECRET_KEY_3=varlock(fpodijajfd;laijf;dja)`,
 }
 
 .copy-btn:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--brand-cyan--t1);
 }
 
 .copy-icon {
@@ -171,8 +168,8 @@ SECRET_KEY_3=varlock(fpodijajfd;laijf;dja)`,
 .code-block {
   margin: 0;
   padding: 16px;
-  color: #e0e0e0;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  color: var(--brand-white);
+  font-family: var(--code-font);
   font-size: 14px;
   line-height: 1.5;
   overflow-x: auto;

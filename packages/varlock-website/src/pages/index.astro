@@ -1,0 +1,94 @@
+---
+import Layout from "../layouts/Layout.astro";
+import SecretReveal from "../components/SecretReveal.vue";
+import { LinkButton } from "@astrojs/starlight/components";
+---
+
+<Layout>
+  <main>
+    <div class="container">
+      <h1>varlock - magical secrets</h1>
+      <p class="description">
+        `varlock` gives your environment variables superpowers. Just add a few
+        decorators and you're good to go. Or run `varlock init` and it will
+        handle it all for you.
+      </p>
+
+      <SecretReveal client:load />
+
+      <LinkButton href="getting-started/installation">Get Started</LinkButton>
+
+      <div class="info-section">
+        <h2>How it works</h2>
+        <p>
+          Using a combination of a CLI and Desktop app, your secrets are
+          securely encrypted. They are never stored on disk and secured via your
+          fingerprint.
+        </p>
+
+        <h3>Benefits</h3>
+        <ul>
+          <li>Validation of environment variables</li>
+          <li>Coercion based on types</li>
+          <li>Encryption backed by biometrics</li>
+          <li>Drop-in replacement for dotenv</li>
+        </ul>
+
+        <h3>Workflow with varlock</h3>
+        <ul>
+          <li>Run `varlock init`</li>
+          <li>Add any secret values</li>
+          <li>Run `varlock encrypt`</li>
+          <li>Use encrypted values via `varlock run`</li>
+        </ul>
+      </div>
+    </div>
+  </main>
+</Layout>
+
+<style>
+  .container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem 1rem;
+  }
+
+  h1 {
+    text-align: center;
+  }
+
+  body {
+    font-family: "courier new", monospace;
+  }
+
+  .description {
+    margin-bottom: 2rem;
+    font-size: 1.1rem;
+  }
+
+  .component-container {
+    margin-bottom: 3rem;
+  }
+
+  .info-section {
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  }
+
+  .info-section h2 {
+    margin-top: 0;
+  }
+
+  .info-section h3 {
+    margin-top: 1.5rem;
+  }
+
+  .info-section ul {
+    padding-left: 1.5rem;
+  }
+
+  .info-section li {
+    margin-bottom: 0.5rem;
+  }
+</style>
