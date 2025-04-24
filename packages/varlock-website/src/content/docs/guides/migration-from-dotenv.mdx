@@ -1,0 +1,64 @@
+---
+title: Migration from dotenv
+description: How to migrate your project from dotenv to Varlock
+---
+import SyncedCodeTabs from '@/components/SyncedCodeTabs.astro'
+
+`varlock` makes it easy to migrate from `dotenv`. 
+
+## Why Migrate?
+
+Benefits of migrating to Varlock:
+- Type safety for environment variables
+- Better validation
+- Improved security features
+
+## Migration Steps
+
+There are a few ways to migrate:
+
+### Option 1: using `overrides`
+
+1. Run [`varlock init`](/reference/cli#init) 
+2. Update your package manager to use `varlock` instead of `dotenv` via an `override`
+
+<SyncedCodeTabs 
+  group="package-manager"
+  tabs={[
+    {
+      label: "npm",
+      code: `
+        // package.json
+        "overrides": {
+          "dotenv": "varlock"
+        }
+      `,
+      lang: "json"
+    },
+    {
+      label: "yarn",
+      code: `
+      // package.json
+      "overrides": {
+        "dotenv": "varlock"
+      }`,
+      lang: "json"
+    },
+    {
+      label: "pnpm",
+      code: `
+// pnpm-workspace.yaml
+overrides:
+        dotenv: varlock
+      `,
+      lang: "yaml"
+    },
+  ]}
+/>
+
+
+## Next Steps
+
+- Learn about [security best practices](/docs/guides/security)
+- Explore [secrets management](/docs/guides/secrets)
+- Check out [JavaScript ecosystem integration](/docs/guides/javascript-ecosystem) 

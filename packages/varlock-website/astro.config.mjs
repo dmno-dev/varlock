@@ -1,8 +1,8 @@
 // @ts-check
-import { defineConfig } from 'astro/config';
+import { defineConfig, fontProviders } from 'astro/config';
 import starlight from '@astrojs/starlight';
-
 import mdx from '@astrojs/mdx';
+import vue from '@astrojs/vue';
 
 // https://astro.build/config
 export default defineConfig({
@@ -13,16 +13,42 @@ export default defineConfig({
       },
     },
   },
+  experimental: {
+    fonts: [
+      {
+        provider: fontProviders.google(),
+        name: "Pixelify Sans",
+        cssVariable: "--font-pixelify"
+      },
+      {
+        provider: fontProviders.google(),
+        name: "JetBrains Mono",
+        cssVariable: "--font-jetbrains-mono"
+      },
+    ],
+  },
   integrations: [
     starlight({
-      title: 'My Docs',
+      title: 'varlock 🔐 🧙‍♂️',
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/withastro/starlight' }],
+      components: {
+        Head: '@/components/CustomHead.astro',
+      },
       sidebar: [
+        {
+          label: 'Getting Started',
+          items: [
+            { label: 'Installation', slug: 'getting-started/installation' },
+          ],
+        },
         {
           label: 'Guides',
           items: [
-          // Each item here is one entry in the navigation menu.
-            { label: 'Example Guide', slug: 'guides/example' },
+            { label: 'Secrets', slug: 'guides/secrets' },
+            { label: 'Security', slug: 'guides/security' },
+            { label: 'Migration from dotenv', slug: 'guides/migration-from-dotenv' },
+            { label: 'Javascript ecosystem', slug: 'guides/javascript-ecosystem' },
+            { label: 'Other languages', slug: 'guides/other-languages' },
           ],
         },
         {
@@ -32,5 +58,6 @@ export default defineConfig({
       ],
     }),
     mdx(),
+    vue(),
   ],
 });

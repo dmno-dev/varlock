@@ -1,26 +1,25 @@
 ---
-title: Welcome to Starlight
-description: Get started building your docs site with Starlight.
+title: varlock 🔐 🧙‍♂️
+description: Magically safe secrets
 template: splash
 hero:
-  tagline: Congrats on setting up a new Starlight project!
-  image:
-    file: ../../assets/houston.webp
+  tagline: .env secured with ⚡️ magic ⚡️
   actions:
-    - text: Example Guide
-      link: /guides/example/
+    - text: Get Started
+      link: /getting-started/installation
       icon: right-arrow
-    - text: Read the Starlight docs
-      link: https://starlight.astro.build
-      icon: external
+    - text: Reference
+      link: /reference/item-decorators
+      icon: right-arrow
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Card, CardGrid, Code } from '@astrojs/starlight/components';
+import SecretReveal from '@/components/SecretReveal.vue';
 
-## Next steps
+<SecretReveal client:load />
 
-<CardGrid stagger>
+{/* <CardGrid stagger>
 	<Card title="Update content" icon="pencil">
 		Edit `src/content/docs/index.mdx` to see this page change.
 	</Card>
@@ -33,4 +32,4 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 	<Card title="Read the docs" icon="open-book">
 		Learn more in [the Starlight Docs](https://starlight.astro.build/).
 	</Card>
-</CardGrid>
+</CardGrid> */}

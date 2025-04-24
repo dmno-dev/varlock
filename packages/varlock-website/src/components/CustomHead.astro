@@ -1,0 +1,21 @@
+---
+import Head from "@astrojs/starlight/components/Head.astro";
+import { Font } from "astro:assets";
+---
+
+<Font cssVariable="--font-pixelify" preload />
+<Font cssVariable="--font-jetbrains-mono" preload />
+<Head>
+  <slot />
+</Head>
+
+<style is:global>
+  /* TODO move somewhere better */
+  h1 {
+    font-family: var(--font-pixelify);
+  }
+
+  code {
+    font-family: var(--font-jetbrains-mono);
+  }
+</style>

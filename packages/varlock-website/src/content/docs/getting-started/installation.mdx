@@ -1,0 +1,71 @@
+---
+title: Installation
+description: How to install and set up Varlock in your project
+---
+
+import SyncedCodeTabs from "@/components/SyncedCodeTabs.astro";
+
+`varlock` makes your environment variables validated and secure. It is based on the [env-spec](https://github.com/dmno-dev/env-spec) standard.
+
+There are two ways to install `varlock`:
+
+1. Install as a dependency in javascript/typescript projects
+2. Install as a binary in other languages
+
+## As a js/ts dependency
+
+Requires:
+
+- OSX or Linux (WSL supported)
+- Node.js version 22 or higher
+
+### Installation
+
+To install `varlock` in your project, run:
+
+<SyncedCodeTabs
+  group="package-manager"
+  tabs={[
+    {
+      label: "npm",
+      code: "npx varlock init",
+      lang: "bash",
+    },
+    {
+      label: "yarn",
+      code: "yarn dlx varlock init",
+      lang: "bash",
+    },
+    {
+      label: "pnpm",
+      code: "pnpm dlx varlock init",
+      lang: "bash",
+    },
+  ]}
+/>
+
+This will install `varlock` as a dependency and scan your project for `.env` files and create a `.env.schema` file in the root of your project. It will optionally:
+- Remove your existing `.env.example` file
+- Add decorators to your `.env.schema` file to specify the type of each environment variable
+- Install the `varlock` CLI binary
+- Install the desktop app
+- Encrypt secrets in your `.env` file
+
+## As a binary
+
+To install Varlock as a binary, run:
+
+```bash
+brew install varlock
+```
+
+This will install the `varlock` CLI binary and the desktop app.
+## Desktop App
+
+The `varlock` CLI also includes a desktop app that hooks into system level APIs to encrypt and decrypt environment variables. This means that you never have secrets sitting in plaintext on your system.
+
+## Next Steps
+
+- Learn more about [env-spec](/docs/getting-started/about-env-spec)
+- Explore [CLI commands](/docs/reference/cli-commands)
+- Check out [security best practices](/docs/guides/security) 

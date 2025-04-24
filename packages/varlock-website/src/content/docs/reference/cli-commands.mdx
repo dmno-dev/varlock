@@ -1,0 +1,121 @@
+---
+title: CLI Commands
+description: Reference documentation for Varlock CLI commands
+---
+
+import InitCommand from "@/components/InitCommand.astro";
+
+Varlock provides a command-line interface for managing environment variables and secrets. This reference documents all available CLI commands.
+
+## Installation
+
+See [installation](/docs/getting-started/installation) for instructions on how to install Varlock.
+
+## Commands
+
+### `varlock init`
+
+<InitCommand />
+
+Scans your project for `.env.*` files and scans code for environment variable usage and creates a `.env.schema` file with the appropriate variables.
+
+It will prompt you to mark items as required and sensitive and do its best to infer the type.
+
+:::tip
+All further examples assume you are using the CLI, but the same commands can be run via your package manager if `varlock` is installed as a dependency. For example, `varlock doctor` can be run as `pnpm exec varlock doctor`.
+:::
+
+### `varlock load`
+
+Loads environment variables from your `.env.schema` file and any additional `.env.*` files it finds colocated. This command ensures all required variables are validated per the schema.
+
+```bash
+varlock load [options]
+
+Options:
+  --format     # Format of output [pretty|json|env]
+  --show-all   # Shows all items, not just the failing ones 
+```
+
+Examples:
+```bash
+# Load and validate environment variables
+varlock load
+
+# Output validation results in JSON format
+varlock load --format json
+
+# Show all environment variables, including valid ones
+varlock load --show-all
+```
+
+### `varlock run`
+
+Executes a command with the environment variables loaded from your schema. This is useful for running your application with the correct environment configuration.
+
+```bash
+varlock run <command> [options]
+
+Options:
+  --watch Watch for changes and reload the environment variables
+```
+
+Examples:
+```bash
+# Run a Node.js application
+varlock run node app.js
+
+# Run with environment variable watching enabled
+varlock run --watch npm start
+
+# Run a Python script
+varlock run python script.py
+```
+
+### `varlock encrypt`
+
+Encrypts sensitive environment variables in your `.env.*` files and replaces the values with the encrypted values.
+
+```bash
+varlock encrypt [options]
+```
+
+Examples:
+```bash
+# Encrypt all sensitive variables in .env files
+varlock encrypt
+
+# Encrypt a specific .env file
+varlock encrypt .env.production
+```
+
+### `varlock doctor`
+
+Diagnoses your environment configuration and provides recommendations for improvements. This command checks for common issues and best practices.
+
+```bash
+varlock doctor [options]
+```
+
+Examples:
+```bash
+# Run diagnostics on your environment setup
+varlock doctor
+
+# Check a specific .env file
+varlock doctor .env.production
+```
+
+### `varlock help`
+
+Displays help information about Varlock commands and options.
+
+```bash
+varlock help [command]
+
+Examples:
+  varlock help             # Show general help
+  varlock help init        # Show help for init command
+  varlock init --help      # Alternative way to show command help
+```
+

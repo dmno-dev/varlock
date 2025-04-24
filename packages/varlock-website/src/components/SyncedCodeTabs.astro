@@ -1,0 +1,26 @@
+---
+import { Tabs, TabItem, Code } from "@astrojs/starlight/components";
+
+interface Tab {
+  label: string;
+  code: string;
+  lang: string;
+}
+
+interface Props {
+  tabs: Tab[];
+  group: string;
+}
+
+const { tabs, group } = Astro.props;
+---
+
+<Tabs syncKey={group}>
+  {
+    tabs.map((tab) => (
+      <TabItem label={tab.label}>
+        <Code code={tab.code} lang={tab.lang} />
+      </TabItem>
+    ))
+  }
+</Tabs>

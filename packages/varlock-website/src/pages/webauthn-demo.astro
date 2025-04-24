@@ -1,0 +1,94 @@
+---
+import Layout from '../layouts/Layout.astro';
+import WebAuthn from '../components/WebAuthn.vue';
+---
+
+<Layout title="WebAuthn Demo">
+  <main>
+    <div class="container">
+      <h1>WebAuthn Authentication Demo</h1>
+      <p class="description">
+        This is a demonstration of the WebAuthn component integrated with Varlock.
+        WebAuthn (Web Authentication) is a web standard for secure, passwordless authentication.
+      </p>
+      
+      <div class="component-container">
+        <WebAuthn client:load />
+      </div>
+      
+      <div class="info-section">
+        <h2>About WebAuthn</h2>
+        <p>
+          WebAuthn is part of the FIDO2 framework, which enables passwordless authentication
+          using public key cryptography. It allows users to authenticate using biometrics,
+          mobile devices, or security keys.
+        </p>
+        
+        <h3>Benefits</h3>
+        <ul>
+          <li>Eliminates password-related security risks</li>
+          <li>Provides strong authentication with phishing resistance</li>
+          <li>Works across different devices and platforms</li>
+          <li>Supports various authentication methods (biometrics, security keys)</li>
+        </ul>
+        
+        <h3>Integration with Varlock</h3>
+        <p>
+          Varlock can be used to securely manage WebAuthn credentials and integrate
+          with your authentication system. The component above demonstrates the user
+          interface for WebAuthn registration and authentication.
+        </p>
+      </div>
+    </div>
+  </main>
+</Layout>
+
+<style>
+  .container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem 1rem;
+  }
+  
+  h1 {
+    text-align: center;
+    margin-bottom: 1rem;
+    color: #333;
+  }
+  
+  .description {
+    text-align: center;
+    margin-bottom: 2rem;
+    color: #666;
+    font-size: 1.1rem;
+  }
+  
+  .component-container {
+    margin-bottom: 3rem;
+  }
+  
+  .info-section {
+    background-color: #f8f9fa;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  }
+  
+  .info-section h2 {
+    margin-top: 0;
+    color: #333;
+  }
+  
+  .info-section h3 {
+    margin-top: 1.5rem;
+    color: #444;
+  }
+  
+  .info-section ul {
+    padding-left: 1.5rem;
+  }
+  
+  .info-section li {
+    margin-bottom: 0.5rem;
+  }
+</style> 
