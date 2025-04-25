@@ -500,3 +500,21 @@ will move to component */
         display: none;
     }
 }
+
+/* custom cursors */
+body {
+    cursor: url('../assets/gauntlet_default.svg') 16 16, default;
+}
+
+*:active {
+    cursor: url('../assets/gauntlet_open.svg') 16 16, pointer;
+}
+
+a,
+button:hover {
+    cursor: url('../assets/gauntlet_point.svg') 16 16, pointer;
+}
+
+summary {
+    cursor: url('../assets/gauntlet_point.svg') 16 16, pointer;
+}
