@@ -14,12 +14,12 @@ h2,
 h3,
 h4,
 h5 {
-    font-family: var(--body-font);
+    font-family: var(--font-pixelify);
 }
 
 :root {
     /* loaded in CustomHead.astro via Astro font API */
-    --body-font: var(--font-pixelify);
+    --body-font: "courier new", monospace;
     --logo-font: var(--font-pixelify);
     --code-font: var(--font-jetbrains-mono);
 
@@ -104,7 +104,7 @@ h5 {
 
 /* starlight css var customizations */
 :root {
-    --sl-color-text-accent: var(--brand-purple) !important;
+    --sl-color-text-accent: var(--brand-red) !important;
     --sl-color-text-invert: #FFF !important;
     --color-text-full-shade: #000;
     --color-text-full-shade-invert: #FFF;
@@ -112,17 +112,17 @@ h5 {
 }
 
 :root[data-theme='dark'] {
-    --sl-color-text-accent: var(--brand-cyan) !important;
+    --sl-color-text-accent: var(--brand-red) !important;
     --sl-color-text-invert: #000 !important;
     --color-text-full-shade: #FFF;
     --color-text-full-shade-invert: #000;
 }
 
 .sidebar-content .sl-badge.default {
-    background: linear-gradient(35deg, var(--brand-purple) 0%, var(--brand-blue) 100%);
+    background: linear-gradient(35deg, var(--brand-red) 0%, var(--brand-blue--dark) 100%);
     border: none;
     border-radius: 2px;
-    border: 1px solid var(--brand-purple);
+    border: 1px solid var(--brand-red);
 }
 
 /* hide the starlight blog's inserted link to the blog on the docs mobile sidebar */
@@ -138,15 +138,15 @@ h5 {
 /* borders around code blocks, file trees, images */
 starlight-file-tree,
 .expressive-code {
-    --border-gradient-color-1: var(--brand-cyan--t1);
-    --border-gradient-color-2: var(--brand-blue--t1);
+    --border-gradient-color-1: var(--brand-red--t1);
+    --border-gradient-color-2: var(--brand-orange--t1);
     border: 1px dotted var(--border-gradient-color-1);
     position: relative;
 }
 
 /* make terminal code blocks a different color */
 .expressive-code:has(.frame.is-terminal) {
-    --border-gradient-color-1: var(--brand-green--t1);
+    --border-gradient-color-1: var(--brand-orange--t1);
     --border-gradient-color-2: var(--brand-cyan--t1);
 }
 
@@ -192,8 +192,8 @@ li>p>img:last-child {
 .expressive-code {
     --ec-tm-delBg: var(--brand-red--t2);
     --ec-tm-delBrdCol: var(--brand-red);
-    --ec-tm-insBg: var(--brand-green--t2);
-    --ec-tm-insBrdCol: var(--brand-green);
+    --ec-tm-insBg: var(--brand-orange--t2);
+    --ec-tm-insBrdCol: var(--brand-orange);
 }
 
 .expressive-code pre {
@@ -209,7 +209,7 @@ li>p>img:last-child {
 }
 
 .expressive-code figcaption .title:after {
-    border-top-color: var(--brand-cyan) !important;
+    border-top-color: var(--brand-red) !important;
 }
 
 /* hide empty header on "terminal" code blocks */
@@ -239,11 +239,11 @@ html[data-theme='light'] .expressive-code .ec-line.tm-label .code::before {
 }
 
 .expressive-code .ec-line.ins.tm-label .code::before {
-    color: var(--brand-green) !important;
+    color: var(--brand-orange) !important;
 }
 
 html[data-theme='light'] .expressive-code .ec-line.ins.tm-label .code::before {
-    color: var(--brand-green--dark) !important;
+    color: var(--brand-orange--dark) !important;
 }
 
 .expressive-code .ec-line.del.tm-label .code::before {
@@ -311,13 +311,14 @@ html[data-theme='light'] .starlight-aside .starlight-aside__title {
     border-right: 2px dotted var(--aside-color-1);
 }
 
+/* TODO update these colors to match the new palette */
 .starlight-aside.starlight-aside--note {
-    --aside-color-1: var(--brand-cyan);
-    --aside-color-2: var(--brand-blue);
+    --aside-color-1: var(--brand-blue--dark);
+    --aside-color-2: var(--brand-orange--dark);
 }
 
 .starlight-aside.starlight-aside--tip {
-    --aside-color-1: var(--brand-pink);
+    --aside-color-1: var(--brand-blue);
     --aside-color-2: var(--brand-blue);
 }
 
@@ -333,7 +334,7 @@ html[data-theme='light'] .starlight-aside .starlight-aside__title {
 
 /* starlight steps component */
 .sl-steps {
-    --sl-color-hairline-light: var(--brand-purple--t1);
+    --sl-color-hairline-light: var(--brand-orange--t1);
 }
 
 .sl-steps>li:before {

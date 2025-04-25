@@ -4,14 +4,28 @@ import { Font } from "astro:assets";
 
 interface Props {
   title?: string;
+  showTopBar?: boolean;
+  showSearch?: boolean;
+  showTableOfContents?: boolean;
+  showSidebar?: boolean;
 }
 
-const { title } = Astro.props;
+const {
+  title,
+  showTopBar = true,
+  showSearch = true,
+  showTableOfContents = false,
+  showSidebar = false,
+} = Astro.props;
+
 ---
 
 <StarlightPage
-  frontmatter={{ title: title ?? "Varlock", tableOfContents: false }}
-  hasSidebar={false}
+  frontmatter={{
+    title: title ?? "varlock",
+    tableOfContents: showTableOfContents,
+  }}
+  hasSidebar={showSidebar}
 >
   <slot />
 </StarlightPage>
@@ -21,4 +35,33 @@ const { title } = Astro.props;
   .content-panel:first-of-type {
     display: none;
   }
+
 </style>
+
+
+<!-- // janky but can't use css vars for display -->
+{showTopBar ? (
+  <style is:global>
+    header {
+      display: block;
+    }
+  </style>
+) : (
+  <style is:global>
+  header {
+    display: none;
+  }
+
+  .main-frame {
+    padding-top: 0;
+  }
+  </style>
+)}
+
+{!showSearch ? (
+  <style is:global>
+    site-search {
+      display: none;
+    }
+  </style>
+) : null}
