@@ -1,0 +1,23 @@
+{
+  "name": "example-repo",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "example:auto": "node src/example-autoload.js",
+    "example:run": "varlock run -- node src/example-needs-run.js",
+    "example:dotenv": "node src/example-dotenv.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [ ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "varlock": "link:../packages/varlock"
+  },
+  "packageManager": "pnpm@10.8.1",
+  "devDependencies": {
+    "@types/node": "^22.14.1"
+  }
+}
