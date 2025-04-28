@@ -52,8 +52,12 @@ describe('value parsing', () => {
     ['"this has spaces"', 'this has spaces'],
     ['"mixed`quote"', 'mixed`quote'],
     ['"escaped\\"quote"', 'escaped"quote'],
+    ["'no end quote", "'no end quote"],
+    ['unquoted spaces', 'unquoted spaces'],
+    ['  extra-spaces  ', 'extra-spaces'],
+
     ["'not'escaped'", new Error()],
-    ["'no end quote", new Error()],
+
   ]));
 
   describe('multi-line strings', basicValueTests([

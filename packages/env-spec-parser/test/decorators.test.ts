@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ParsedEnvSpecFunctionArgs, ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
+  ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
 } from '../src';
 import { expectInstanceOf } from './test-utils';
 
@@ -18,12 +18,24 @@ function basicDecoratorTests(tests: Array<[string, any] | { label: string, comme
       if ('label' in spec) testName = spec.label;
 
       it(testName, () => {
-        try {
+        if (expectedDecorators instanceof Error) {
+          expect(() => parseEnvSpecDotEnvFile(fullInputString)).toThrow();
+        } else {
           const result = parseEnvSpecDotEnvFile(fullInputString);
           // find first config item, flatten decorators into object, check against expected
           const configItem = result.configItems[0];
           const decoratorObject = configItem.decoratorsObject;
+
+          if (Object.keys(expectedDecorators).length === 0) {
+            expect(Object.keys(decoratorObject).length).toBe(0);
+          }
+
           for (const key in expectedDecorators) {
+            if (key.startsWith('!')) {
+              expect(decoratorObject).not.toHaveProperty(key);
+              continue;
+            }
+
             const expectedValue = expectedDecorators[key];
             if (typeof expectedValue === 'object' && 'fnName' in expectedValue) {
               // if we passed a function name, expecting a function call with a fn name and args
@@ -41,9 +53,6 @@ function basicDecoratorTests(tests: Array<[string, any] | { label: string, comme
               expect(decoratorObject[key].value.value).toEqual(expectedValue);
             }
           }
-        } catch (error) {
-          // check if we expected an error
-          if (!(expectedDecorators instanceof Error)) throw error;
         }
       });
     });
@@ -88,17 +97,24 @@ describe('decorator parsing', () => {
     ['#   @dec=1', { dec: 1 }],
   ]));
 
-  describe('errors', basicDecoratorTests([
+  describe('errors / weird cases', basicDecoratorTests([
     ['# @dec=', new Error()],
-    ['# @dec=', new Error()],
-    ['# @dec="', new Error()],
+    ['# @dec="', { dec: '"' }],
+    ['# @dec=foo bar', new Error()],
     ['# @dec="""', new Error()],
     ['# @dec="foo" not commented', new Error()],
     ['# @dec1@dec2', new Error()],
-    ['# @dec1()', new Error()],
     ['# @', new Error()],
     ['# @0badDecorator', new Error()],
     ['# @bad-decorator', new Error()],
+    ['# @okDec @badDecWithColon:', new Error()],
+
+    // want to gracefully handle these, since we've seen them in the wild
+    // so instead of dying, we'll just treat them as normal comments
+    ['# @see https://example.com for info', { '!see': true }],
+    ['# @see @something https://example.com for info', new Error()],
+    ['# @todo:', { '!todo': true, '!todo:': true }],
+    ['# @todo: fix me later', { '!todo': true, '!todo:': true }],
   ]));
 
   describe('comments and line breaks', basicDecoratorTests([
@@ -116,6 +132,11 @@ describe('decorator parsing', () => {
       label: 'multiple decorators on one line',
       comments: '# @bool  @email="me@example.com" \t @num=123 ',
       expected: { bool: true, email: 'me@example.com', num: 123 },
+    },
+    {
+      label: 'multiple decorators on one line',
+      comments: '# @foo=bar @bool',
+      expected: { foo: 'bar', bool: true },
     },
     {
       label: 'multiple decorators on multiple lines',
@@ -145,7 +166,7 @@ describe('decorator parsing', () => {
     {
       label: 'post comments are not parsed for decorators',
       comments: '# @dec # @ignored',
-      expected: { dec: true },
+      expected: { dec: true, '!ignored': true },
     },
   ]));
 });

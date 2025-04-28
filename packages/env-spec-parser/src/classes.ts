@@ -1,28 +1,36 @@
 import { autoCoerce } from './helpers';
 
-
-export class ParsedEnvSpecCommentLine {
-
-}
 export class ParsedEnvSpecDivider {
-  constructor(private data: {
+  constructor(public data: {
     contents: string;
-    _location: any;
+    leadingSpace?: string;
+    _location?: any;
   }) {}
-}
 
+  toString() {
+    return `#${this.data.leadingSpace || ''}${this.data.contents}`;
+  }
+}
 
 export class ParsedEnvSpecStaticValue {
   value: any;
 
-  constructor(private data: {
+  constructor(public data: {
     rawValue: any;
     quote?: '"' | "'" | '`' | undefined;
     isImplicit?: boolean;
     _location?: any;
   }) {
     if (!data.quote) {
-      this.value = autoCoerce(this.data.rawValue);
+      // unquoted strings will get trimmed (leading/trailing spaces)
+      if (typeof data.rawValue === 'string') {
+        const trimmed = data.rawValue.trim();
+        // trimmed empty string without quotes gets treated as undefined
+        if (trimmed === '') this.value = undefined;
+        else this.value = autoCoerce(trimmed);
+      } else {
+        this.value = autoCoerce(data.rawValue);
+      }
     } else {
       const quoteChar = data.quote.substring(0, 1);
       this.value = data.rawValue
@@ -30,10 +38,20 @@ export class ParsedEnvSpecStaticValue {
         .replaceAll(`\\${quoteChar}`, quoteChar);
     }
   }
+
+  toString() {
+    // TODO: smarter logic to preserve the original value
+    // for example with this logic, we may see 123.0 -> 123
+    let strVal = String(this.value);
+    if (this.data.quote) {
+      strVal = strVal.replaceAll(this.data.quote, `\\${this.data.quote}`);
+    }
+    return `${this.data.quote || ''}${strVal}${this.data.quote || ''}`;
+  }
 }
 
 export class ParsedEnvSpecKeyValuePair {
-  constructor(private data: {
+  constructor(public data: {
     key: string;
     val: ParsedEnvSpecStaticValue;
   }) {}
@@ -45,11 +63,15 @@ export class ParsedEnvSpecKeyValuePair {
   get value() {
     return this.data.val.value;
   }
+
+  toString() {
+    return `${this.key}=${this.data.val}`;
+  }
 }
 export class ParsedEnvSpecFunctionArgs {
-  constructor(private data: {
+  constructor(public data: {
     values: Array<ParsedEnvSpecStaticValue> | Array<ParsedEnvSpecKeyValuePair>;
-    _location: any;
+    _location?: any;
   }) {}
 
   get values() {
@@ -69,13 +91,20 @@ export class ParsedEnvSpecFunctionArgs {
       return obj;
     }
   }
+
+  toString() {
+    let s = '(';
+    s += this.data.values.map((val) => val.toString()).join(', ');
+    s += ')';
+    return s;
+  }
 }
 
 export class ParsedEnvSpecFunctionCall {
-  constructor(private data: {
+  constructor(public data: {
     name: string;
     args: ParsedEnvSpecFunctionArgs;
-    _location: any;
+    _location?: any;
   }) {}
 
   get name() {
@@ -84,14 +113,19 @@ export class ParsedEnvSpecFunctionCall {
   get simplifiedArgs() {
     return this.data.args.simplifiedValues;
   }
+
+  toString() {
+    // args will include the `()`
+    return this.data.name + this.data.args.toString();
+  }
 }
 
 
 export class ParsedEnvSpecDecorator {
-  constructor(private data: {
+  constructor(public data: {
     name: string;
     valueOrFnArgs: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs | undefined;
-    _location: any;
+    _location?: any;
   }) {
   }
 
@@ -119,24 +153,40 @@ export class ParsedEnvSpecDecorator {
       return this.value.value;
     }
   }
+
+  toString() {
+    let s = `@${this.name}`;
+    if (!this.data.valueOrFnArgs) return s; // bare decorator, ex: `@required`
+    // bare fn call looks like `@import(asdf)` so no `=`
+    if (!(this.data.valueOrFnArgs instanceof ParsedEnvSpecFunctionArgs)) s += '=';
+    // let the value stringify itself
+    s += this.data.valueOrFnArgs.toString();
+    return s;
+  }
 }
 
 
 export class ParsedEnvSpecComment {
-  constructor(private data: {
+  constructor(public data: {
     contents: string;
-    _location: any;
+    leadingSpace?: string;
+    _location?: any;
   }) {}
 
   get contents() {
     return this.data.contents;
   }
+
+  toString() {
+    return `#${this.data.leadingSpace || ''}${this.data.contents}`;
+  }
 }
 export class ParsedEnvSpecDecoratorComment {
-  constructor(private data: {
+  constructor(public data: {
     decorators: Array<ParsedEnvSpecDecorator>;
-    postComment: any;
-    _location: any;
+    leadingSpace?: string;
+    postComment?: any;
+    _location?: any;
   }) {}
 
   get decorators() {
@@ -145,6 +195,14 @@ export class ParsedEnvSpecDecoratorComment {
 
   get postComment() {
     return this.data.postComment;
+  }
+
+  toString() {
+    let s = '#';
+    s += this.data.leadingSpace || '';
+    s += this.data.decorators.map((d) => d.toString()).join(' ');
+    if (this.data.postComment) s += ` ${this.data.postComment.toString()}`;
+    return s;
   }
 }
 
@@ -166,10 +224,10 @@ function getDecoratorsObject(
 }
 
 export class ParsedEnvSpecCommentBlock {
-  constructor(private data: {
+  constructor(public data: {
     comments: Array<ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment>;
     divider: ParsedEnvSpecDivider | null;
-    _location: any;
+    _location?: any;
   }) {}
 
   get comments() {
@@ -183,22 +241,33 @@ export class ParsedEnvSpecCommentBlock {
   get decoratorsObject() {
     return getDecoratorsObject(this.data.comments);
   }
+
+  toString() {
+    return [
+      ...this.data.comments.map((comment) => comment.toString()),
+      ...this.data.divider ? [this.data.divider.toString()] : [],
+    ].join('\n');
+  }
 }
 
 export class ParsedEnvSpecBlankLine {
-  constructor(private data: {
-    _location: any;
+  constructor(public data: {
+    _location?: any;
   }) {}
+
+  toString() {
+    return '';
+  }
 }
 
 
 export class ParsedEnvSpecConfigItem {
-  constructor(private data: {
+  constructor(public data: {
     key: string;
     value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
     preComments: Array<ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment>;
     postComment: ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment | undefined;
-    _location: any;
+    _location?: any;
   }) {}
 
   get key() {
@@ -252,6 +321,15 @@ export class ParsedEnvSpecConfigItem {
       throw new Error('Unknown value resolver type');
     }
   }
+
+  toString() {
+    let s = '';
+    for (const comment of this.data.preComments) s += `${comment.toString()}\n`;
+    s += `${this.key}=`;
+    if (this.data.value) s += `${this.data.value.toString()}`;
+    if (this.data.postComment) s += ` ${this.data.postComment.toString()}`;
+    return s;
+  }
 }
 
 // these are the 4 types that can be at the root level
@@ -282,8 +360,26 @@ export class ParsedEnvSpecFile {
       }
     }
   }
-
   get decoratorsObject() {
     return this.header?.decoratorsObject ?? {};
+  }
+
+  toString() {
+    return this.contents.map((item) => item.toString()).join('\n');
+  }
+  /**
+   * simple helper to convert an object in a basic case
+   * mostly useful for comparison with other env parsers
+   * */
+  toSimpleObj() {
+    const obj = {};
+    for (const item of this.contents) {
+      if (item instanceof ParsedEnvSpecConfigItem) {
+        if (item.value instanceof ParsedEnvSpecStaticValue) {
+          obj[item.key] = item.value.value ?? '';
+        }
+      }
+    }
+    return obj;
   }
 }
