@@ -6,10 +6,10 @@
 import * as vscode from 'vscode';
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log('Activated env-spec language plugin');
+  console.log('Activated @env-spec language plugin');
 }
 
 // This method is called when your extension is deactivated
 export function deactivate() {
-  console.log('env-spec language plugin now deactivated');
+  console.log('@env-spec language plugin now deactivated');
 }
