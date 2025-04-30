@@ -4,13 +4,8 @@
   "typescript.enablePromptUseWorkspaceTsdk": true,
   "files.associations": {
     // package.json needs to be "json" rather than "json with comments" so that the "version lens" plugin works
-    "package.json": "json"
+    "package.json": "json",
   },
-  "eslint.workingDirectories": [
-    // {
-    //   "mode": "auto"
-    // }
-  ],
   "eslint.validate": [
     // enable eslint on file types other than js/ts
     "typescript",
@@ -18,6 +13,8 @@
     "mdx",
     "markdown",
     "vue",
+    "json",
+    "jsonc",
   ],
   "eslint.format.enable": true,
   "editor.formatOnSave": true,
@@ -44,11 +41,18 @@
   "[markdown]": {
     "editor.defaultFormatter": "dbaeumer.vscode-eslint"
   },
+  "[json]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
+  },
   "[env]": {
-    "editor.formatOnSave": false,
+    "editor.formatOnSave": false
   },
 
   // vscode's built-in json formatter is removing the extra newline at the end which conflicts with editorconfig
-  "json.format.keepLines": true,
+  // "json.format.keepLines": true,
+  // "json.format.enable": false,
 
 }

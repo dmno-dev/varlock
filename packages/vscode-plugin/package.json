@@ -1,0 +1,93 @@
+{
+  "name": "env-spec-language",
+  "displayName": "@env-spec (.env) language support",
+  "description": "Adds syntax highlighting for @env-spec within .env files",
+  "version": "0.0.0",
+  "author": "dmno-dev",
+  "license": "MIT",
+  "homepage": "https://varlock.dev/env-spec",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/vscode-plugin"
+  },
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "categories": ["Programming Languages"],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "languages": [
+      {
+        "id": "env-spec",
+        "aliases": [
+          "@env-spec (.env)",
+          "env-spec",
+          "dotenv",
+          ".env"
+        ],
+        "extensions": [
+          ".env",
+          ".env.schema",
+          ".env-sample",
+          ".env.sample",
+          ".env.example",
+          ".env.local",
+          ".env.dev",
+          ".env.dev.local",
+          ".env.build",
+          ".env.build.local",
+          ".env.development",
+          ".env.development.local",
+          ".env.test",
+          ".env.test.local",
+          ".env.testing",
+          ".env.qa",
+          ".env.qa.local",
+          ".env.ci",
+          ".env.ci.local",
+          ".env.uat",
+          ".env.uat.local",
+          ".env.stag",
+          ".env.stag.local",
+          ".env.stage",
+          ".env.stage.local",
+          ".env.staging",
+          ".env.staging.local",
+          ".env.live",
+          ".env.live.local",
+          ".env.production",
+          ".env.production.local",
+          ".env.prod",
+          ".env.prod.local",
+          ".env.secret",
+          ".env.secrets",
+          ".env.sync",
+          ".env.deploy",
+          ".env.deployment"
+        ],
+        "configuration": "./language/language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "env-spec",
+        "scopeName": "source.env-spec",
+        "path": "./language/env-spec.tmLanguage.json"
+      }
+    ]
+  },
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "package": "pnpm run build && vsce package",
+    "install-locally": "code --install-extension"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/vscode": "^1.99.0",
+    "tsup": "catalog:",
+    "vsce": "^2.15.0"
+  }
+}
