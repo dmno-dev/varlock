@@ -1,12 +1,12 @@
-/*
-  NOTE - we're not doing anything here yet, but this is the shell that will let us start doing more than just highlighting
+import { ExtensionContext } from 'vscode';
+import { addHoverProvider } from './hover-provider';
+import { addLanguageConfig } from './lang-config';
 
-
-*/
-import * as vscode from 'vscode';
-
-export function activate(context: vscode.ExtensionContext) {
+// ---
+export function activate(context: ExtensionContext) {
   console.log('Activated @env-spec language plugin');
+  addLanguageConfig(context);
+  addHoverProvider(context);
 }
 
 // This method is called when your extension is deactivated
