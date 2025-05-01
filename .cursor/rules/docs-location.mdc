@@ -121,4 +121,5 @@ examples:
 
 metadata:
   priority: high
-  v
+  version: 1.0
+  </rule>

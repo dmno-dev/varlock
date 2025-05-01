@@ -45,6 +45,7 @@ export default defineConfig({
         {
           label: 'Guides',
           items: [
+            { label: 'Cursor', slug: 'guides/cursor' },
             { label: 'Secrets', slug: 'guides/secrets' },
             { label: 'Security', slug: 'guides/security' },
             { label: 'Migration from dotenv', slug: 'guides/migration-from-dotenv' },
@@ -55,6 +56,13 @@ export default defineConfig({
         {
           label: 'Reference',
           autogenerate: { directory: 'reference' },
+        },
+        {
+          label: '@env-spec',
+          items: [
+            { label: 'Overview', slug: 'env-spec/overview' },
+            { label: 'VS Code extension', slug: 'env-spec/vs-code-ext' },
+          ],
         },
       ],
     }),

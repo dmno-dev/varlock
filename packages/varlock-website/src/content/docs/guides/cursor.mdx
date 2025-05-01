@@ -1,0 +1,25 @@
+---
+title: Cursor
+description: Using Varlock with Cursor - preventing secrets from being leaked to y
+---
+
+import InitCommand from "@/components/InitCommand.astro";
+
+[Cursor](https://www.cursor.com/) has accelerated workflows for many development teams. This, however, comes with some risks. Unless your team has gone to great lengths to hide secrets from Cursor, you're probably sending secrets to their AI agents and potentially leaking them in the code it generates. 
+
+`varlock` exists to solve both of those problems. By never storing the secret _values_, you never have to worry about sending them to Cursor's servers. But because of the new `.env.schema` format you will have better AX (agent experience) when dealing with environment variables. 
+
+## `varlock` goes the extra mile
+
+In addition to the benefits outlined above of _not_ having secret values leaking to AIs, `varlock` will take additional steps to ensure security. 
+
+1. Audit and update `.gitignore` to prevent `.env.*` leaks
+1. Add `varlock` rules to `.cursor/rules/` so that it understands how to update and maintain your secure environment variables. 
+
+## Get started
+
+To get the most secure experience with Cursor, run: 
+
+<InitCommand />
+
+
