@@ -1,28 +1,19 @@
 {
-  "name": "@env-spec/env-graph",
+  "name": "@env-spec/utils",
+  "private": true,
   "version": "0.0.0",
-  "description": "Tools to load a graph of related env files",
+  "description": "internal utils shared by env-spec and varlock",
   "files": ["src"],
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./utils": "./src/utils.ts"
+    "./*": "./src/*.ts"
   },
   "scripts": {
     "test": "vitest",
     "test:once": "vitest --run"
   },
-  "keywords": [
-    "env-spec",
-    "dotenv",
-    "env",
-    "env vars",
-    "environment variables",
-    "validation",
-    "schema",
-    "config"
-  ],
   "author": "dmno-dev",
   "license": "MIT",
   "devDependencies": {
@@ -31,7 +22,6 @@
     "vitest": "catalog:"
   },
   "dependencies": {
-    "@env-spec/utils": "workspace:*",
-    "@env-spec/parser": "workspace:*"
+    "@sindresorhus/is": "catalog:"
   }
 }

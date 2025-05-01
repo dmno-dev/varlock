@@ -1,4 +1,4 @@
-import _ from '../utils/my-dash';
+import _ from '@env-spec/utils/my-dash';
 // copied these error types from Astro
 // and we will try to keep it compatible so we can interact with their error overlay
 

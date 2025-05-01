@@ -1,5 +1,5 @@
-import _ from '../utils/my-dash';
-import { FallbackIfUnknown } from '../utils/type-utils';
+import _ from '@env-spec/utils/my-dash';
+import { FallbackIfUnknown } from '@env-spec/utils/type-utils';
 import { CoercionError, ValidationError } from './errors';
 
 
@@ -92,7 +92,7 @@ function coerceToNumber(rawVal: any) {
   let numVal!: number;
   if (_.isString(rawVal)) {
     const parsed = parseFloat(rawVal);
-    if (_.isNaN(parsed) || parsed === Infinity || parsed === -Infinity) {
+    if (_.isNan(parsed) || parsed === Infinity || parsed === -Infinity) {
       throw new CoercionError('Unable to coerce string to number');
     }
     numVal = parsed;

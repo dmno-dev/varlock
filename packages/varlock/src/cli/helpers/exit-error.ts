@@ -1,5 +1,5 @@
 import ansis from 'ansis';
-import { _ } from '@env-spec/env-graph/utils';
+import _ from '@env-spec/utils/my-dash';
 import { joinAndCompact } from '../../lib/formatting';
 
 export class CliExitError extends Error {

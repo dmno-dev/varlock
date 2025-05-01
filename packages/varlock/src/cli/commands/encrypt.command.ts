@@ -1,8 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import {
-  log, isCancel, multiselect, intro, outro,
-} from '@clack/prompts';
+
+import { isCancel, log, password } from '@clack/prompts';
 
 import { VarlockNativeAppClient } from '../../lib/native-app-client';
 import { loadEnvGraph } from '@env-spec/env-graph';
@@ -17,12 +16,22 @@ export const commandSpec = {
 
 export const commandFn = async (args: any) => {
   console.log('');
-  intro('🧙 Encrypting environment variables... ✨');
+  console.log('🧙 Encrypting environment variables... ✨');
+  // intro('🧙 Encrypting environment variables... ✨');
 
+  const rawValue = await password({ message: 'Enter the value you want to encrypt' });
+  if (isCancel(rawValue)) process.exit(0);
 
-  const envGraph = await loadEnvGraph();
-  await envGraph.resolveEnvValues();
-  const resolvedEnv = envGraph.getResolvedEnvObject();
+  const client = new VarlockNativeAppClient();
+  await client.initializeSocket();
+  const encryptedValue = await client.encrypt(rawValue);
+
+  console.log('Copy this into your .env.local file and rename the key appropriately:\n');
+  console.log(`SOME_SENSITIVE_KEY=varlock("${encryptedValue}")`);
+
+  // const envGraph = await loadEnvGraph();
+  // await envGraph.resolveEnvValues();
+  // const resolvedEnv = envGraph.getResolvedEnvObject();
 
   // TODO: need to reimplement using the new parser
 

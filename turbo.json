@@ -1,17 +1,16 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalPassThroughEnv": [ ],
+  "globalPassThroughEnv": [],
   "tasks": {
     "build": {
-      "dependsOn": [ "^build" ],
-      "inputs": [ "tsconfig.json", "tsconfig.*.json", "tsup.config.ts", "src/**" ],
-      "outputs": [ "dist/**" ]
+      "dependsOn": ["^build"],
+      "inputs": ["tsconfig.json", "tsconfig.*.json", "tsup.config.ts", "src/**"],
+      "outputs": ["dist/**"]
     },
     "dev": {
       "cache": false,
       "persistent": true
     },
-
-    "lint": { }
+    "lint": {}
   }
 }

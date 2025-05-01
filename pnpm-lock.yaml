@@ -6,6 +6,9 @@ settings:
 
 catalogs:
   default:
+    '@sindresorhus/is':
+      specifier: ^7.0.1
+      version: 7.0.1
     '@types/debug':
       specifier: ^4.1.12
       version: 4.1.12
@@ -77,16 +80,13 @@ importers:
       '@env-spec/parser':
         specifier: workspace:*
         version: link:../env-spec-parser
-      '@sindresorhus/is':
-        specifier: ^7.0.1
-        version: 7.0.1
-      fdir:
-        specifier: ^6.4.3
-        version: 6.4.3(picomatch@4.0.2)
-      picomatch:
-        specifier: ^4.0.2
-        version: 4.0.2
+      '@env-spec/utils':
+        specifier: workspace:*
+        version: link:../utils
     devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 20.17.30
       tsup:
         specifier: 'catalog:'
         version: 8.4.0(postcss@8.5.3)(typescript@5.8.3)
@@ -131,11 +131,24 @@ importers:
         specifier: 'catalog:'
         version: 2.1.9(@types/node@20.17.30)
 
+  packages/utils:
+    dependencies:
+      '@sindresorhus/is':
+        specifier: 'catalog:'
+        version: 7.0.1
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 20.17.30
+      tsup:
+        specifier: 'catalog:'
+        version: 8.4.0(postcss@8.5.3)(typescript@5.8.3)
+      vitest:
+        specifier: 'catalog:'
+        version: 2.1.9(@types/node@20.17.30)
+
   packages/varlock:
     dependencies:
-      '@env-spec/env-graph':
-        specifier: workspace:*
-        version: link:../env-graph
       '@env-spec/parser':
         specifier: workspace:*
         version: link:../env-spec-parser
@@ -145,18 +158,24 @@ importers:
       execa:
         specifier: ^9.5.2
         version: 9.5.2
-      fdir:
-        specifier: ^6.4.3
-        version: 6.4.3(picomatch@4.0.2)
       which:
         specifier: ^5.0.0
         version: 5.0.0
     devDependencies:
+      '@clack/core':
+        specifier: ^0.4.2
+        version: 0.4.2
       '@clack/prompts':
         specifier: ^0.10.1
         version: 0.10.1
+      '@env-spec/env-graph':
+        specifier: workspace:*
+        version: link:../env-graph
+      '@env-spec/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@sindresorhus/is':
-        specifier: ^7.0.1
+        specifier: 'catalog:'
         version: 7.0.1
       '@types/debug':
         specifier: 'catalog:'
@@ -174,8 +193,11 @@ importers:
         specifier: 'catalog:'
         version: 3.17.0
       gunshi:
-        specifier: ^0.14.0
-        version: 0.14.5
+        specifier: ^0.15.0
+        version: 0.15.0
+      is-unicode-supported:
+        specifier: ^2.1.0
+        version: 2.1.0
       outdent:
         specifier: ^0.8.0
         version: 0.8.0
@@ -1264,8 +1286,8 @@ packages:
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
 
-  args-tokens@0.14.0:
-    resolution: {integrity: sha512-hfMDZ3CNKFt2btfachKnxazNMfzhfyD8t6WE9hVupGcfwFTdN37k9AEfY3eXJ8VdhVsmJCaV6dlKjEYpo4TAIg==}
+  args-tokens@0.15.1:
+    resolution: {integrity: sha512-4LXV2S40X0feWR43DEn3DP0iVM+pE2UprUVyYIzgvB5qFU1Gz6h4EcPE6+6waJwl6GpSssfIt05oAz8RmnEo3A==}
     engines: {node: '>= 20'}
 
   aria-query@5.3.2:
@@ -2147,8 +2169,8 @@ packages:
   graphemer@1.4.0:
     resolution: {integrity: sha512-EtKwoO6kxCL9WO5xipiHTZlSzBm7WLT627TqC/uVRd0HKmq8NXyebnNYxDoBi7wt8eTWrUrKXCOVaFq9x1kgag==}
 
-  gunshi@0.14.5:
-    resolution: {integrity: sha512-oOuFRJrm8orQevI+EGY11nT1cUR0kzGEntVt4+ViZtte5mBuDwd2jcPKipb1qx0fOtUUT2xlwcBPomL0zrzHOA==}
+  gunshi@0.15.0:
+    resolution: {integrity: sha512-UroB1hpjp21bVxafFdyF7rgsMr+eVPxcho/JjjiMKk5oqvwQ/VfN/HNH8dcynSev7GQX/ro+JhGKfNC81x6GPA==}
     engines: {node: '>= 20'}
 
   h3@1.15.1:
@@ -5423,7 +5445,7 @@ snapshots:
 
   argparse@2.0.1: {}
 
-  args-tokens@0.14.0: {}
+  args-tokens@0.15.1: {}
 
   aria-query@5.3.2: {}
 
@@ -6549,9 +6571,9 @@ snapshots:
 
   graphemer@1.4.0: {}
 
-  gunshi@0.14.5:
+  gunshi@0.15.0:
     dependencies:
-      args-tokens: 0.14.0
+      args-tokens: 0.15.1
 
   h3@1.15.1:
     dependencies:

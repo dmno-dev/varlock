@@ -7,7 +7,7 @@
 // we'll rely on sindresorhus/is for type checking, but we'll build it into the final bundle
 import {
   isBoolean, isError, isString, isPromise, isFunction,
-  isNumber, isPlainObject, isArray, isInteger,
+  isNumber, isPlainObject, isArray, isInteger, isNan,
 } from '@sindresorhus/is';
 
 function keyBy<T>(array: Array<T>, key: keyof T) {
@@ -83,7 +83,7 @@ const _ = {
   isError,
   isPromise,
   isFunction,
-  isNaN: Number.isNaN,
+  isNan,
   isNumber,
   isPlainObject,
   isArray,

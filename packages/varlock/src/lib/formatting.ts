@@ -1,5 +1,5 @@
 import ansis, { AnsiColors, AnsiStyles } from 'ansis';
-import { _ } from '@env-spec/env-graph/utils';
+import _ from '@env-spec/utils/my-dash';
 
 import { ConfigItem } from '../../../env-graph/src/lib/config-item';
 import { VarlockError } from '../../../env-graph/src/lib/errors';

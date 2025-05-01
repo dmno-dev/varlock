@@ -10,5 +10,6 @@ catalog:
   "vite": "^5.4.6"
   "vite-node": "^2.1.2"
   "vitest": "^2.1.5"
+  "@sindresorhus/is": "^7.0.1"
   "@types/debug": "^4.1.12"
   "@types/node": "^20.14.11"

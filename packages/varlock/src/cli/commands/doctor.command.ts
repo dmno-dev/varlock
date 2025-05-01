@@ -1,8 +1,5 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import {
-  log, isCancel, multiselect, intro, outro,
-} from '@clack/prompts';
 
 import { VarlockNativeAppClient } from '../../lib/native-app-client';
 import { loadEnvGraph } from '@env-spec/env-graph';
@@ -17,7 +14,7 @@ export const commandSpec = {
 
 export const commandFn = async (args: any) => {
   console.log('');
-  intro('🧙 Scanning for issues... ✨');
+  await console.log('🧙 Scanning for issues... ✨');
 
   const envGraph = await loadEnvGraph();
   await envGraph.resolveEnvValues();

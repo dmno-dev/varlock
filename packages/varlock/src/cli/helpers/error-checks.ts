@@ -1,6 +1,6 @@
 import ansis from 'ansis';
 import { EnvGraph } from '@env-spec/env-graph';
-import { _ } from '@env-spec/env-graph/utils';
+import _ from '@env-spec/utils/my-dash';
 import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import { CliExitError } from './exit-error';
 

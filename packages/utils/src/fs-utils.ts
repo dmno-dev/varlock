@@ -1,5 +1,5 @@
-import { accessSync } from 'fs';
-import { access } from 'fs/promises';
+import { accessSync } from 'node:fs';
+import { access } from 'node:fs/promises';
 
 export async function pathExists(p: string) {
   try {

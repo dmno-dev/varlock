@@ -1,5 +1,6 @@
+import _ from '@env-spec/utils/my-dash';
 import {
-  ParsedEnvSpecDecorator, ParsedEnvSpecDecoratorValue, ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue,
+  ParsedEnvSpecDecorator, ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue,
 } from '@env-spec/parser';
 
 import { EnvGraphDataType } from './data-types';
@@ -8,7 +9,7 @@ import {
   CoercionError, EmptyRequiredValueError, ResolutionError, SchemaError,
   ValidationError,
 } from './errors';
-import _ from '../utils/my-dash';
+
 import { EnvGraphDataSource } from './data-source';
 
 type StaticValue = string | number | boolean | undefined;

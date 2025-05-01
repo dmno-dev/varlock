@@ -2,7 +2,8 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig({
   entry: [
-    'src/cli/cli-executable.ts', // cli that gets run via `dmno` command
+    // cli that gets run via `dmno` command
+    'src/cli/cli-executable.ts',
   ],
 
   dts: true,
