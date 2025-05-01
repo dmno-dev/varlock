@@ -1,6 +1,6 @@
 import { Command, CommandRunner, define } from 'gunshi';
 import ansis from 'ansis';
-import { _ } from '@env-spec/env-graph/utils';
+import _ from '@env-spec/utils/my-dash';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { getItemSummary } from '../../lib/formatting';

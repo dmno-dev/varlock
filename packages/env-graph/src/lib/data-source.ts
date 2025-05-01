@@ -1,8 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { checkIsFileGitIgnored } from '../utils/git-utils';
-import { ParsedEnvSpecDecorator, parseEnvSpecDotEnvFile } from '@env-spec/parser';
-import { tryCatch } from '../utils/try-catch';
+import {
+  envSpecUpdater, ParsedEnvSpecDecorator, ParsedEnvSpecFile, parseEnvSpecDotEnvFile,
+} from '@env-spec/parser';
+import { tryCatch } from '@env-spec/utils/try-catch';
+import { checkIsFileGitIgnored } from '@env-spec/utils/git-utils';
 import { ConfigItemDef } from './config-item';
 
 
@@ -17,10 +19,7 @@ const ENV_FILE_EXTENSIONS = [
   'json',
 ];
 
-const DATA_SOURCE_TYPES: Record<string, {
-  fileSuffixes: Array<string>,
-  precedence: number,
-}> = {
+const DATA_SOURCE_TYPES = Object.freeze({
   schema: {
     fileSuffixes: ['schema'],
     precedence: 0,
@@ -41,13 +40,13 @@ const DATA_SOURCE_TYPES: Record<string, {
     fileSuffixes: ['local', 'override'],
     precedence: 4,
   },
-} as const;
+});
 type DataSourceType = keyof typeof DATA_SOURCE_TYPES;
 
 export abstract class EnvGraphDataSource {
   static DATA_SOURCE_TYPES = DATA_SOURCE_TYPES;
 
-  type: DataSourceType = 'values';
+  type = 'values' as DataSourceType;
   applyForEnv?: string;
   disabled?: boolean = false;
   ignoreNewDefs = false;
@@ -179,10 +178,13 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
   static format = 'dotenv';
   static validFileExtensions = []; // no extension for dotenv files!
 
+
+  parsedFile?: ParsedEnvSpecFile;
+
   async _parseContents() {
     const rawContents = this.rawContents!;
 
-    const parsed = await tryCatch(
+    this.parsedFile = await tryCatch(
       () => parseEnvSpecDotEnvFile(rawContents),
       (error) => {
         this.loadingError = new EnvSourceParseError(error.message, {
@@ -196,14 +198,22 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
     );
 
     if (this.loadingError) return;
-    if (!parsed) throw new Error('Failed to parse .env file');
+    if (!this.parsedFile) throw new Error('Failed to parse .env file');
 
     // copying the object just in case
-    this.decorators = parsed.decoratorsObject;
+    this.decorators = this.parsedFile.decoratorsObject;
 
     // TODO: if the file is a .env.example file, we should interpret the values as examples
-    for (const item of parsed?.configItems ?? []) {
+    for (const item of this.parsedFile.configItems) {
       this.configItemDefs[item.key] = item.toConfigItemDef();
     }
   }
+
+  // updateRootDecorator(decoratorName: string, decoratorValue: string) {
+  //   if (!this.decorators[decoratorName]) {
+  //     this.decorators[decoratorName] = {
+  //       type: 'static',
+  //       value: decoratorValue,
+  //     };
+  // }
 }
