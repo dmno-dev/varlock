@@ -166,12 +166,12 @@ Divider =
 // cannot use separate rules for int/decimal/string because they match early and then get confused
 // NOTE - we allow spaces in unquoted strings in item values because some other parsers allow it
 unquotedString =
-  $([^#\n]+)
+  $(_ !['"`] [^#\n]+) // unquoted string cannot start with a quote
   { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
 
 // but we will not allow spaces in unquoted decorator values
 unquotedStringWithoutSpaces =
-  $([^# \n]+)
+  $(!['"`] [^# \n]+)
   { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
 
 quotedString =

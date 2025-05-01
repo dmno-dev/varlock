@@ -99,7 +99,11 @@ describe('decorator parsing', () => {
 
   describe('errors / weird cases', basicDecoratorTests([
     ['# @dec=', new Error()],
-    ['# @dec="', { dec: '"' }],
+    ['# @dec="', new Error()],
+    ['# @dec="foo', new Error()],
+    ['# @dec="`"', { dec: '`' }],
+    ['# @dec="\\""', { dec: '"' }],
+    ['# @dec=qu"ote', { dec: 'qu"ote' }],
     ['# @dec=foo bar', new Error()],
     ['# @dec="""', new Error()],
     ['# @dec="foo" not commented', new Error()],
