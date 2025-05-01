@@ -202,10 +202,6 @@ importers:
         version: 0.32.6
 
   packages/vscode-plugin:
-    dependencies:
-      outdent:
-        specifier: ^0.8.0
-        version: 0.8.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

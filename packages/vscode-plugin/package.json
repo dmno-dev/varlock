@@ -55,6 +55,5 @@
     "vsce": "^2.15.0"
   },
   "dependencies": {
-    "outdent": "^0.8.0"
   }
 }

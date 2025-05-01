@@ -1,4 +1,5 @@
 import { ExtensionContext } from 'vscode';
+
 import { addHoverProvider } from './hover-provider';
 import { addLanguageConfig } from './lang-config';
 
