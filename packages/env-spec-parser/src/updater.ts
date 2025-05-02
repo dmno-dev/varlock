@@ -1,5 +1,6 @@
 import { parseEnvSpecDotEnvFile } from './index';
 import {
+  ParsedEnvSpecBlankLine,
   ParsedEnvSpecComment, ParsedEnvSpecCommentBlock, ParsedEnvSpecConfigItem, ParsedEnvSpecDecoratorComment,
   ParsedEnvSpecDivider, ParsedEnvSpecFile,
 } from './classes';
@@ -7,7 +8,7 @@ import {
 function ensureHeader(file: ParsedEnvSpecFile, newHeaderContents?: string) {
   // update utils
   if (!file.header) {
-    newHeaderContents ||= 'This env file uses @env-spec - see https://varlock.dev/env-spec for more info';
+    newHeaderContents ||= 'This env file uses @env-spec - see https://varlock.dev/env-spec for more info\n';
     file.contents.unshift(
       // header is a comment block at the beginning of the file and must end with a divider
       new ParsedEnvSpecCommentBlock({
@@ -17,6 +18,7 @@ function ensureHeader(file: ParsedEnvSpecFile, newHeaderContents?: string) {
         )),
         divider: new ParsedEnvSpecDivider({ contents: '----------', leadingSpace: ' ' }),
       }),
+      new ParsedEnvSpecBlankLine({}), // add extra blank line after header
     );
   }
 }
@@ -25,13 +27,16 @@ function ensureHeader(file: ParsedEnvSpecFile, newHeaderContents?: string) {
 function createDummyDecoratorNode(
   decoratorName: string,
   valueStr: string,
-  isBareFnArgs?: boolean,
+  opts?: {
+    bareFnArgs?: boolean,
+    explicitTrue?: boolean,
+  }
 ) {
   // we'll use the parser to generate a new decorator value node correctly
   // rather than trying to do it ourselves
   let decStr = `@${decoratorName}`;
-  if (isBareFnArgs) decStr += `(${valueStr})`;
-  else if (valueStr !== 'true') {
+  if (opts?.bareFnArgs) decStr += `(${valueStr})`;
+  else if (valueStr !== 'true' || opts?.explicitTrue) {
     decStr += `=${valueStr}`;
   }
   const parsed = parseEnvSpecDotEnvFile(`# ${decStr}`);
@@ -44,11 +49,11 @@ function setRootDecorator(
   file: ParsedEnvSpecFile,
   decoratorName: string,
   valueStr: string,
-  isBareFnArgs?: boolean,
+  opts?: Parameters<typeof createDummyDecoratorNode>[2] & { comment?: string },
 ) {
   ensureHeader(file);
 
-  const newDecNode = createDummyDecoratorNode(decoratorName, valueStr, isBareFnArgs);
+  const newDecNode = createDummyDecoratorNode(decoratorName, valueStr, opts);
 
   const existingDecorator = file.decoratorsObject[decoratorName];
   if (existingDecorator) {
@@ -63,6 +68,7 @@ function setRootDecorator(
       decCommentLine = new ParsedEnvSpecDecoratorComment({
         decorators: [],
         leadingSpace: ' ',
+        ...opts?.comment && { postComment: `# ${opts.comment}` },
       });
       file.header.data.comments.push(decCommentLine);
     }
@@ -75,7 +81,7 @@ function setItemDecorator(
   key: string,
   decoratorName: string,
   valueStr: string,
-  isBareFnArgs?: boolean,
+  opts?: Parameters<typeof createDummyDecoratorNode>[2],
 ) {
   let item = file.configItems.find((i) => i.key === key);
   if (!item) {
@@ -85,7 +91,7 @@ function setItemDecorator(
     file.contents.push(item);
   }
 
-  const newDecNode = createDummyDecoratorNode(decoratorName, valueStr, isBareFnArgs);
+  const newDecNode = createDummyDecoratorNode(decoratorName, valueStr, opts);
 
   const existingDecorator = item.decoratorsObject[decoratorName];
   if (existingDecorator) {
@@ -106,8 +112,37 @@ function setItemDecorator(
   }
 }
 
+function injectFromStr(
+  file: ParsedEnvSpecFile,
+  content: string,
+  opts?: {
+    location: 'start' | 'after_header' | 'end' | 'items',
+    key?: string,
+  }
+) {
+  const parsed = parseEnvSpecDotEnvFile(content);
+  let injectIndex = file.contents.length; // default to end
+  if (opts?.location === 'start') {
+    injectIndex = 0;
+  } else if (opts?.location === 'after_header') {
+    if (file.header) {
+      injectIndex = file.contents.indexOf(file.header) + 1;
+    } else {
+      injectIndex = 0;
+    }
+  } else if (opts?.location === 'items') {
+    if (file.configItems[0]) {
+      injectIndex = file.contents.indexOf(file.configItems[0]);
+    } else if (file.header) {
+      injectIndex = file.contents.indexOf(file.header) + 1;
+    }
+  }
+  // splice in new items
+  file.contents.splice(injectIndex, 0, ...parsed.contents);
+}
 export const envSpecUpdater = {
   ensureHeader,
   setRootDecorator,
   setItemDecorator,
+  injectFromStr
 };
