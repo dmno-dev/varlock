@@ -39,7 +39,7 @@ function createDummyDecoratorNode(
   else if (valueStr !== 'true' || opts?.explicitTrue) {
     decStr += `=${valueStr}`;
   }
-  const parsed = parseEnvSpecDotEnvFile(`# ${decStr}`);
+  const parsed = parseEnvSpecDotEnvFile(`# ${decStr}\n# ---`);
   const newDecNode = parsed.decoratorsObject[decoratorName];
   if (!newDecNode) throw new Error('Creating new decorator failed');
   return newDecNode;
