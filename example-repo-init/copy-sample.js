@@ -32,4 +32,10 @@ if (isCancel(selectedSampleFile)) process.exit(1);
 
 await fs.copyFile(path.join(samplePath, selectedSampleFile), './.env.example');
 
+// reset gitignore, so the init command adds !.env.schema
+await fs.writeFile('.gitignore', `
+.env
+.env.*
+!.env.example`);
+
 process.exit(0);

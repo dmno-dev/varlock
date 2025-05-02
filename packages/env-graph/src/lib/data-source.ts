@@ -61,6 +61,16 @@ export abstract class EnvGraphDataSource {
 
   configItemDefs: Record<string, ConfigItemDef> = {};
   decorators: Record<string, ParsedEnvSpecDecorator> = {};
+
+  getStaticValues() {
+    const obj: Record<string, string> = {};
+    for (const [key, def] of Object.entries(this.configItemDefs)) {
+      if (def.valueResolver?.type === 'static') {
+        obj[key] = def.valueResolver.value?.toString() || '';
+      }
+    }
+    return obj;
+  }
 }
 
 
@@ -208,12 +218,4 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
       this.configItemDefs[item.key] = item.toConfigItemDef();
     }
   }
-
-  // updateRootDecorator(decoratorName: string, decoratorValue: string) {
-  //   if (!this.decorators[decoratorName]) {
-  //     this.decorators[decoratorName] = {
-  //       type: 'static',
-  //       value: decoratorValue,
-  //     };
-  // }
 }
