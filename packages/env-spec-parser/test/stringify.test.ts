@@ -77,7 +77,7 @@ describe('update helpers', updateTests({
     transform: (file) => {
       envSpecUpdater.ensureHeader(file, 'new header\nwith multiple lines');
     },
-    expected: '# new header\n# with multiple lines\n# ----------\nVAL=foo',
+    expected: '# new header\n# with multiple lines\n# ----------\n\nVAL=foo',
   },
   'add root decorators - empty ': {
     input: '# header\n# ---',
@@ -90,7 +90,7 @@ describe('update helpers', updateTests({
   'add root decorators - existing': {
     input: '# header\n# @foo @bar=hello @import(../.env)\n# ---',
     transform: (file) => {
-      envSpecUpdater.setRootDecorator(file, 'import', '../../.env', true);
+      envSpecUpdater.setRootDecorator(file, 'import', '../../.env', { bareFnArgs: true });
       envSpecUpdater.setRootDecorator(file, 'bar', '"bye bye"');
     },
     expected: '# header\n# @foo @bar="bye bye" @import(../../.env)\n# ---',
@@ -102,7 +102,13 @@ describe('update helpers', updateTests({
     },
     expected: '# header\n# @foo # super long line of comments so it should push new one to the next line\n# @new="on next line"\n# ---',
   },
-
+  'add root decorators - comment': {
+    input: '# header\n# ---',
+    transform: (file) => {
+      envSpecUpdater.setRootDecorator(file, 'foo', 'bar', { comment: 'post comment' });
+    },
+    expected: '# header\n# @foo=bar # post comment\n# ---',
+  },
   'add item decorator - nonexistant item': {
     input: '',
     transform: (file) => {

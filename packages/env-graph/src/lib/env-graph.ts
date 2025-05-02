@@ -1,6 +1,7 @@
+import _ from '@env-spec/utils/my-dash';
 import { ConfigItem } from './config-item';
 import { EnvGraphDataSource } from './data-source';
-import _ from '../utils/my-dash';
+
 import { ResolverDefinition } from './resolver';
 import { BaseDataTypes, EnvGraphDataTypeFactory } from './data-types';
 
@@ -24,6 +25,13 @@ export class EnvGraph {
 
   addDataSource(dataSource: EnvGraphDataSource) {
     this.dataSources.push(dataSource);
+  }
+
+  get schemaDataSource() {
+    const schemas = this.dataSources.filter((f) => f.type === 'schema');
+    if (schemas.length > 1) throw new Error('Multiple schema data sources found');
+    if (schemas.length === 0) return undefined;
+    return schemas[0];
   }
 
   get sortedDataSources() {
@@ -59,7 +67,7 @@ export class EnvGraph {
       // but for example if the main schema is failing and we dont know the envFlag
       // we don't know which env-specific sources to enable
       if (source.loadingError) {
-        throw new Error(`Error loading ${source.label}: ${source.loadingError.message}`);
+        throw source.loadingError;
       }
 
       // check for @envFlag so we know which item should control loading env-specific files (eg: .env.production)

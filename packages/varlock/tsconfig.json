@@ -9,12 +9,10 @@
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
     "declarationMap": true,
-    "lib": [
-      "ES2023"
-    ],
+    "lib": ["ES2023"],
     "strict": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
-    "customConditions": [ "ts-src" ],
+    "customConditions": ["ts-src"],
   }
 }

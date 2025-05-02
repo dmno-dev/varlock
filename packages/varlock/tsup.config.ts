@@ -1,7 +1,5 @@
 import { defineConfig } from 'tsup';
 
-console.log('npm_lifecycle_event', process.env.npm_lifecycle_event);
-
 export default defineConfig({
   entry: [ // Entry point(s)
     'src/index.ts',
@@ -12,7 +10,7 @@ export default defineConfig({
     'src/cli/cli-executable.ts', // cli that gets run via `dmno` command
   ],
 
-  noExternal: ['@env-spec/env-graph'],
+  noExternal: ['@env-spec/env-graph', '@env-spec/utils'],
 
   dts: true,
 
@@ -28,9 +26,11 @@ export default defineConfig({
   splitting: true, // split output into chunks - MUST BE ON! or we get issues with multiple copies of classes and instanceof
   keepNames: true, // stops build from prefixing our class names with `_` in some cases
 
+  // checking if the current command is `dev` and adjusting the watch paths accordingly
   watch: process.env.npm_lifecycle_event === 'dev' ? [
     'src',
     // internal libraries that we are bundling into this one rather than publishing
     '../env-graph/src',
+    '../utils/src',
   ] : false,
 });
