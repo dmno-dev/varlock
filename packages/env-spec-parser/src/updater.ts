@@ -30,7 +30,7 @@ function createDummyDecoratorNode(
   opts?: {
     bareFnArgs?: boolean,
     explicitTrue?: boolean,
-  }
+  },
 ) {
   // we'll use the parser to generate a new decorator value node correctly
   // rather than trying to do it ourselves
@@ -118,7 +118,7 @@ function injectFromStr(
   opts?: {
     location: 'start' | 'after_header' | 'end' | 'items',
     key?: string,
-  }
+  },
 ) {
   const parsed = parseEnvSpecDotEnvFile(content);
   let injectIndex = file.contents.length; // default to end
@@ -140,9 +140,18 @@ function injectFromStr(
   // splice in new items
   file.contents.splice(injectIndex, 0, ...parsed.contents);
 }
+
+function deleteItem(file: ParsedEnvSpecFile, key: string) {
+  const item = file.configItems.find((i) => i.key === key);
+  if (item) {
+    file.contents.splice(file.contents.indexOf(item), 1);
+  }
+}
+
 export const envSpecUpdater = {
   ensureHeader,
   setRootDecorator,
   setItemDecorator,
-  injectFromStr
+  injectFromStr,
+  deleteItem,
 };
