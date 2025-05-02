@@ -1,0 +1,36 @@
+# inspired by https://github.com/systeminit/si/blob/main/.github/workflows/community-check.yml
+
+name: Label community PR
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+jobs:
+  pr-labeler:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Label PR based on maintainer status
+        uses: actions/github-script@v5
+        with:
+          script: |
+            const MAINTAINERS = 'theoephraim philmillman'.split(' ');
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: [
+                MAINTAINERS.includes(context.payload.pull_request.user.login) ? 'maintainer' : 'community'
+              ]
+            });
+      - name: Label PR based on changed files
+        uses: actions/labeler@v5
+        with:
+          configuration-path: .github/config/labeler.yaml

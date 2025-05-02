@@ -10,10 +10,6 @@
     ".": "./src/index.ts",
     "./*": "./src/*.ts"
   },
-  "scripts": {
-    "test": "vitest",
-    "test:once": "vitest --run"
-  },
   "author": "dmno-dev",
   "license": "MIT",
   "devDependencies": {

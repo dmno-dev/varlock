@@ -19,7 +19,7 @@
     "build": "pnpm run build:grammar && pnpm run build:lib",
     "test": "run-p \"build:grammar -w\" _test:watch",
     "_test:watch": "vitest",
-    "test:once": "pnpm build:grammar && vitest --run"
+    "test:ci": "pnpm build:grammar && vitest --run"
   },
   "keywords": [
     "env-spec",

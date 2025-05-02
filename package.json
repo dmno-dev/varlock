@@ -10,6 +10,7 @@
   "scripts": {
     "build": "turbo build",
     "build:libs": "turbo build --filter=\"!@varlock/website\"",
+    "test:ci": "turbo test:ci",
     "preinstall": "npx only-allow pnpm",
     "dev": "turbo run dev --concurrency=40 --parallel",
     "lint": "eslint .",

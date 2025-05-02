@@ -7,6 +7,10 @@
       "inputs": ["tsconfig.json", "tsconfig.*.json", "tsup.config.ts", "src/**"],
       "outputs": ["dist/**"]
     },
+    "test:ci": {
+      "dependsOn": ["^test:ci"],
+      "inputs": ["tsconfig.json", "tsconfig.*.json", "tsup.config.ts", "src/**"]
+    },
     "dev": {
       "cache": false,
       "persistent": true

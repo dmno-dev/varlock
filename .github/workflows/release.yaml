@@ -1,0 +1,43 @@
+name: Release packages
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: 'pnpm'
+      - name: Install node deps
+        run: pnpm i
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@v1.8
+      
+      # ------------------------------------------------------------
+      - name: Create Release Pull Request or Publish to npm
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          title: "[Changesets] Versioned release"
+          commit: "[Changesets] Create versioned packages for publishing"
+          # This expects you to have a script called release which does a build for your packages and calls changeset publish
+          publish: pnpm run changeset:publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # TODO: send notifications?
