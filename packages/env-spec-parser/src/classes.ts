@@ -350,10 +350,10 @@ export class ParsedEnvSpecFile {
     return this.contents.filter((item) => item instanceof ParsedEnvSpecConfigItem);
   }
   get header() {
-    // header is a comment block at the the start of the file
+    // header is a comment block at the the start of the file that ends with a divider
     // it may be preceeded by blank lines only
     for (const item of this.contents) {
-      if (item instanceof ParsedEnvSpecCommentBlock) {
+      if (item instanceof ParsedEnvSpecCommentBlock && item.divider) {
         return item;
       } else if (!(item instanceof ParsedEnvSpecBlankLine)) {
         return;
