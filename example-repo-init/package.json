@@ -1,0 +1,18 @@
+{
+  "name": "example-repo-init",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "init-sample": "node copy-sample.js && varlock init"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@clack/prompts": "^0.10.1",
+    "varlock": "link:../packages/varlock"
+  },
+  "packageManager": "pnpm@10.9.0"
+}

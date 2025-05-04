@@ -8,6 +8,7 @@ import {
   ParsedEnvSpecFile, ParsedEnvSpecConfigItem, ParsedEnvSpecCommentBlock,
   ParsedEnvSpecDivider, ParsedEnvSpecDecoratorComment, ParsedEnvSpecComment,
   ParsedEnvSpecDecorator, ParsedEnvSpecStaticValue, ParsedEnvSpecFunctionCall,
+  ParsedEnvSpecBlankLine, ParsedEnvSpecFunctionArgs, ParsedEnvSpecKeyValuePair,
 } from './classes';
 }}
 
@@ -17,16 +18,19 @@ EnvSpecFile =
     / Divider
     / CommentBlock
     / "\n" { return new ParsedEnvSpecBlankLine({ _location: location() }); }
-  )* {
+  )*
+  {
     return new ParsedEnvSpecFile(contents)
   }
 
 ConfigItem =
-  preComments:(@(DecoratorComment / Comment) "\n")*
+  preComments:(@(IgnoredDecoratorComment / DecoratorComment / Comment) "\n")*
+  "export "? // we'll allow `export SOME_VAR=...` so we can read other env files
   key:ConfigItemKey "=" value:ConfigItemValue?
   _
-  postComment:(@(DecoratorComment / Comment))?
-  _n {
+  postComment:(@(IgnoredDecoratorComment / DecoratorComment / Comment))?
+  _n
+  {
     return new ParsedEnvSpecConfigItem({
       key,
       preComments,
@@ -37,7 +41,7 @@ ConfigItem =
   }
 
 ConfigItemKey = 
-  $([a-zA-Z_] [a-zA-Z0-9_]*)
+  $([a-zA-Z_] [a-zA-Z0-9_.-]*)
 
 ConfigItemValue = FunctionCall / multiLineString / quotedString / unquotedString
 
@@ -45,7 +49,7 @@ ConfigItemValue = FunctionCall / multiLineString / quotedString / unquotedString
 
 CommentBlock =
   // not sure if we want to treat these as decorators if within comment block?
-  comments:(@(DecoratorComment / Comment) "\n")+
+  comments:(@(IgnoredDecoratorComment / DecoratorComment / Comment) _n)+
   end:(Divider / _n)
   {
     return new ParsedEnvSpecCommentBlock({
@@ -57,59 +61,101 @@ CommentBlock =
 
 Comment = 
   !(Divider)
-  "#" _ contents:$([^\n]*) {
+  "#" leadingSpace:$_ contents:$(
+    // $("@" [a-zA-Z]+ ":"? __ [a-zA-Z] [^@\n]*)
+    $( !"@" [^\n]*)?
+  )
+  {
     return new ParsedEnvSpecComment({
       contents,
+      leadingSpace,
+      _location: location(),
+    })
+  }
+
+IgnoredDecoratorComment =
+  "#" leadingSpace:$_
+  contents:$(
+    ("@" [a-zA-Z]+ ":" [^\n]*)
+    / ("@" [a-zA-Z]+ __ !([@#]) [^\n]*)
+  )
+  {
+    return new ParsedEnvSpecComment({ contents, leadingSpace, _location: location() })
+  }
+
+DecoratorComment =
+  "#" leadingSpace:$_
+  first:Decorator
+  rest:(__ @(Decorator))*
+  _
+  postComment:$("#" [^\n]*)? // extra post comments after decorators are not parsed at all
+  {
+    return new ParsedEnvSpecDecoratorComment({
+      decorators: [first, ...rest],
+      leadingSpace,
+      postComment,
+      _location: location(),
+    })
+  }
+
+Decorator = 
+  "@" name:DecoratorName
+  valueOrFnArgs:( 
+    "()" { return new ParsedEnvSpecFunctionArgs({ values: [] })}
+    / ("(" @FunctionArgs? ")")
+    / ("=" @(DecoratorValue))
+  )?
+  {
+    return new ParsedEnvSpecDecorator({
+      name,
+      valueOrFnArgs,
       _location: location(),
     })
   }
 
 
-DecoratorComment = "#" _ first:Decorator rest:(_ @(Decorator))* _ postComment:Comment? {
-  return new ParsedEnvSpecDecoratorComment({
-    decorators: [first, ...rest],
-    postComment,
-    _location: location(),
-  })
-}
-
-Decorator = "@" name:DecoratorName value:("=" @(DecoratorValue))? {
-  return new ParsedEnvSpecDecorator({
-    name,
-    value,
-    _location: location(),
-  })
-}
+// we allow an ending ":", because we don't want to choke on pre-existing comments
+// but we will treat the entire line as a normal comment if we do see that
 DecoratorName = $([a-zA-Z] [a-zA-Z0-9_]*)
-DecoratorValue = FunctionCall / quotedString / unquotedString
+DecoratorValue = FunctionCall / quotedString / unquotedStringWithoutSpaces
 
 
 FunctionCall =
-  name:FunctionName "(" args:FunctionArgs? ")" {
+  name:FunctionName "(" args:FunctionArgs? ")"
+  {
     return new ParsedEnvSpecFunctionCall({
       name,
-      args,
+      args: args || new ParsedEnvSpecFunctionArgs({ values: [] }),
       _location: location(),
     });
   }
 FunctionName = $([a-zA-Z] [a-zA-Z0-9_]*)
 FunctionArgs =
-  (
+  values:(
     // combine key=val pairs into a single object
-    (key:FunctionArgKeyName "=" val:FunctionArgValue { return { key, val }})|1.., _ "," _|
+    (key:FunctionArgKeyName "=" val:FunctionArgValue { return new ParsedEnvSpecKeyValuePair({ key, val })})|1.., _ "," _|
     / FunctionArgValue|1.., _ "," _|
   )
+  {
+    return new ParsedEnvSpecFunctionArgs({
+      values,
+      _location: location(),
+    });
+  }
 FunctionArgKeyName = $([a-zA-Z] [a-zA-Z0-9_]*)
 FunctionArgValue =
   quotedString
-  / $([^ \n,)]+) { // these unquoted are slightly different - can contain "#", cannot contain ")" or ","
+  / $([^ \n,)]+) // these unquoted are slightly different - can contain "#", cannot contain ")" or ","
+  { 
     return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() })
   }
 
 Divider = 
-  "#" " "? contents:$([-=]|3..| [^\n]*) _n {
+  "#" leadingSpace:$_ contents:$([-=*#]|3..| [^\n]*) _n
+  {
     return new ParsedEnvSpecDivider({
       contents,
+      leadingSpace,
       _location: location(),
     });
   }
@@ -118,52 +164,62 @@ Divider =
 // basic values
 
 // cannot use separate rules for int/decimal/string because they match early and then get confused
+// NOTE - we allow spaces in unquoted strings in item values because some other parsers allow it
 unquotedString =
-  $([^ #\n]+) {
-    return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() })
-  }
+  $(_ !['"`] [^#\n]+) // unquoted string cannot start with a quote
+  { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
+
+// but we will not allow spaces in unquoted decorator values
+unquotedStringWithoutSpaces =
+  $(!['"`] [^# \n]+)
+  { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
 
 quotedString =
   DQuotedString / SQuotedString / BQuotedString
 DQuotedString = // double quote wrapped string
-  quote:["] ("\\\"" / [^"\n])* ["] {
-    return new ParsedEnvSpecStaticValue({ quote, rawValue: text(), _location: location() })
-  }
+  quote:["] ("\\\"" / [^"\n])* ["]
+  { return new ParsedEnvSpecStaticValue({ quote, rawValue: text(), _location: location() }) }
 SQuotedString = // single quote wrapped string
-  quote:['] ("\\'" / [^'\n])  * ['] {
-    return new ParsedEnvSpecStaticValue({ quote, rawValue: text(), _location: location() })
-  }
+  quote:['] ("\\'" / [^'\n])  * [']
+  { return new ParsedEnvSpecStaticValue({ quote, rawValue: text(), _location: location() }) }
 BQuotedString = // backtick quote wrapped string
-  quote:[`] ("\\`" / [^`\n])* [`] {
-    return new ParsedEnvSpecStaticValue({ quote, rawValue: text(), _location: location() })
-  }
+  quote:[`] ("\\`" / [^`\n])* [`]
+  { return new ParsedEnvSpecStaticValue({ quote, rawValue: text(), _location: location() }) }
 
 multiLineString =
-  singleDQuotedMultiLineString / tripleDQuotedMultiLineString / tripleBQuotedMultiLineString
+  singleSQuotedMultiLineString
+  / singleDQuotedMultiLineString
+  / tripleDQuotedMultiLineString
+  / tripleBQuotedMultiLineString
+
+
+singleSQuotedMultiLineString = // double quote (single) wrapped multi-line string
+  quote:[']
+  (("\\'" / [^'\n])* "\n")+
+  ("\\'" / [^'\n])*
+  [']
+  { return new ParsedEnvSpecStaticValue({ quote, isMultiLine: true, rawValue: text(), _location: location() }) }
 
 singleDQuotedMultiLineString = // double quote (single) wrapped multi-line string
-  quote:"\""
+  quote:["]
   (("\\\"" / [^"\n])* "\n")+
   ("\\\"" / [^"\n])*
-  "\"" {
-    return new ParsedEnvSpecStaticValue({ quote, isMultiLine: true, rawValue: text(), _location: location() })
-  }
+  ["]
+  { return new ParsedEnvSpecStaticValue({ quote, isMultiLine: true, rawValue: text(), _location: location() }) }
 
 tripleDQuotedMultiLineString = // triple double quote wrapped multi-line string
   quote:"\"\"\""
   (("\\\"\"\"" / (!"\"\"\"" [^\n]))* "\n")+  // handle escapes - `\"""` should not trigger the end
   ( "\\\"\"\"" / (!"\"\"\"" [^\n]))*
-  "\"\"\"" {
-    return new ParsedEnvSpecStaticValue({ quote, isMultiLine: true, rawValue: text(), _location: location() })
-  }
+  "\"\"\""
+  { return new ParsedEnvSpecStaticValue({ quote, isMultiLine: true, rawValue: text(), _location: location() }) }
 
 tripleBQuotedMultiLineString = // triple double quote wrapped multi-line string
   quote:"```"
   (("\\```" / (!"```" [^\n]))* "\n")+ // see above for explanation
   ( "\\```" / (!"```" [^\n]))*
-  "```" {
-    return new ParsedEnvSpecStaticValue({ quote, isMultiLine: true, rawValue: text(), _location: location() })
-  }
+  "```"
+  { return new ParsedEnvSpecStaticValue({ quote, isMultiLine: true, rawValue: text(), _location: location() }) }
 
 _n = "\n" / !.
 _ = [ \t]*

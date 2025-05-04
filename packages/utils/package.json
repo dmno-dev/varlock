@@ -1,0 +1,27 @@
+{
+  "name": "@env-spec/utils",
+  "private": true,
+  "version": "0.0.0",
+  "description": "internal utils shared by env-spec and varlock",
+  "files": ["src"],
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest",
+    "test:once": "vitest --run"
+  },
+  "author": "dmno-dev",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "vitest": "catalog:"
+  },
+  "dependencies": {
+    "@sindresorhus/is": "catalog:"
+  }
+}

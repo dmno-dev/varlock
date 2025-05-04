@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { parseEnvSpecDotEnvFile } from '../src';
+import {
+  ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
+} from '../src';
+import { expectInstanceOf } from './test-utils';
 
 function basicDecoratorTests(tests: Array<[string, any] | { label: string, comments: string, expected: any }>) {
   return () => {
@@ -15,97 +18,159 @@ function basicDecoratorTests(tests: Array<[string, any] | { label: string, comme
       if ('label' in spec) testName = spec.label;
 
       it(testName, () => {
-        try {
+        if (expectedDecorators instanceof Error) {
+          expect(() => parseEnvSpecDotEnvFile(fullInputString)).toThrow();
+        } else {
           const result = parseEnvSpecDotEnvFile(fullInputString);
           // find first config item, flatten decorators into object, check against expected
           const configItem = result.configItems[0];
           const decoratorObject = configItem.decoratorsObject;
-          expect(decoratorObject).toEqual(expectedDecorators);
-        } catch (error) {
-          // check if we expected an error
-          if (!(expectedDecorators instanceof Error)) throw error;
+
+          if (Object.keys(expectedDecorators).length === 0) {
+            expect(Object.keys(decoratorObject).length).toBe(0);
+          }
+
+          for (const key in expectedDecorators) {
+            if (key.startsWith('!')) {
+              expect(decoratorObject).not.toHaveProperty(key);
+              continue;
+            }
+
+            const expectedValue = expectedDecorators[key];
+            if (typeof expectedValue === 'object' && 'fnName' in expectedValue) {
+              // if we passed a function name, expecting a function call with a fn name and args
+              if (expectedValue.fnName) {
+                expectInstanceOf(decoratorObject[key].value, ParsedEnvSpecFunctionCall);
+                expect(decoratorObject[key].value.name).toEqual(expectedValue.fnName);
+                expect(decoratorObject[key].value.simplifiedArgs).toEqual(expectedValue.fnArgs);
+
+              // if we passed undefined, we are expecting a bare function call - ex; `@import(some/path)`
+              } else {
+                expect(decoratorObject[key].bareFnArgs?.simplifiedValues).toEqual(expectedValue.fnArgs);
+              }
+            } else {
+              expectInstanceOf(decoratorObject[key].value, ParsedEnvSpecStaticValue);
+              expect(decoratorObject[key].value.value).toEqual(expectedValue);
+            }
+          }
         }
       });
     });
   };
 }
 
-describe('decorator parsing', basicDecoratorTests([
-  // value parsing
-  ['# @dec', { dec: true }],
-  ['# @dec=true', { dec: true }],
-  ['# @dec=undefined', { dec: undefined }],
-  ['# @dec=foo', { dec: 'foo' }],
-  ['# @dec=foo#bar', { dec: 'foo' }],
-  ['# @dec=null', { dec: 'null' }], // null not treated specially
-  ['# @dec=123', { dec: 123 }],
-  ['# @dec=123.456', { dec: 123.456 }],
-  ['# @dec=123.456.789', { dec: '123.456.789' }],
-  ['# @dec=123e10', { dec: '123e10' }],
-  ['# @dec="foo"', { dec: 'foo' }],
-  ['# @dec="@#\\"()"', { dec: '@#"()' }],
-  ['# @dec=@bar@', { dec: '@bar@' }],
 
-  // whitespace before
-  ['#@dec=1', { dec: 1 }],
-  ['#\t@dec=1', { dec: 1 }],
-  ['#   @dec=1', { dec: 1 }],
+describe('decorator parsing', () => {
+  describe('static value parsing', basicDecoratorTests([
+    ['# @dec', { dec: true }],
+    ['# @dec=true', { dec: true }],
+    ['# @dec=undefined', { dec: undefined }],
+    ['# @dec=foo', { dec: 'foo' }],
+    ['# @dec=foo#bar', { dec: 'foo' }],
+    ['# @dec=null', { dec: 'null' }], // null not treated specially
+    ['# @dec=123', { dec: 123 }],
+    ['# @dec=123.456', { dec: 123.456 }],
+    ['# @dec=123.456.789', { dec: '123.456.789' }],
+    ['# @dec=123e10', { dec: '123e10' }],
+    ['# @dec="foo"', { dec: 'foo' }],
+    ['# @dec="@#\\"()"', { dec: '@#"()' }],
+    ['# @dec=@bar@', { dec: '@bar@' }],
+  ]));
 
+  describe('function call parsing', basicDecoratorTests([
+    // array args
+    ['# @dec=decFn()', { dec: { fnName: 'decFn', fnArgs: [] } }],
+    ['# @dec=decFn(arrArg)', { dec: { fnName: 'decFn', fnArgs: ['arrArg'] } }],
+    ['# @dec=decFn(arrArg1, "arrArg2")', { dec: { fnName: 'decFn', fnArgs: ['arrArg1', 'arrArg2'] } }],
+    // obj args
+    ['# @dec=decFn(k1=v1)', { dec: { fnName: 'decFn', fnArgs: { k1: 'v1' } } }],
+    ['# @dec=decFn(k1=v1, k2="v2")', { dec: { fnName: 'decFn', fnArgs: { k1: 'v1', k2: 'v2' } } }],
+    // bar fn calls - ex: `@import(some/path)`
+    ['# @enableFoo()', { enableFoo: { fnName: undefined, fnArgs: [] } }],
+    ['# @enableFoo(bar)', { enableFoo: { fnName: undefined, fnArgs: ['bar'] } }],
+    ['# @import(../some/path)', { import: { fnName: undefined, fnArgs: ['../some/path'] } }],
+  ]));
 
-  ['# @dec=', new Error()],
-  ['# @dec="', new Error()],
-  ['# @dec="""', new Error()],
-  ['# @dec="foo" not commented', new Error()],
-  ['# @dec1@dec2', new Error()],
-  ['# @dec1()', new Error()],
-  ['# @', new Error()],
-  ['# @0badDecorator', new Error()],
-  ['# @bad-decorator', new Error()],
+  describe('whitespace handling', basicDecoratorTests([
+    ['#@dec=1', { dec: 1 }],
+    ['#\t@dec=1', { dec: 1 }],
+    ['#   @dec=1', { dec: 1 }],
+  ]));
 
-  {
-    label: 'mixed with comments ',
-    comments: [
-      '# comment before',
-      '# @dec1',
-      '# comment after',
-      '#@dec2',
-    ].join('\n'),
-    expected: { dec1: true, dec2: true },
-  },
-  {
-    label: 'multiple decorators on one line',
-    comments: '# @bool  @email="me@example.com" \t @num=123 ',
-    expected: { bool: true, email: 'me@example.com', num: 123 },
-  },
-  {
-    label: 'multiple decorators on multiple lines',
-    comments: '# @dec1 @dec2=123\n# @dec3',
-    expected: { dec1: true, dec2: 123, dec3: true },
-  },
-  {
-    label: 'decorators within text comments ignored',
-    comments: '# will be @ignored\n# @dec',
-    expected: { dec: true },
-  },
-  {
-    label: 'extra blank line will detach comment from config item',
-    comments: '# @dec\n',
-    expected: {},
-  },
-  {
-    label: 'divider will detach comment from config item',
-    comments: '# @dec\n# ---',
-    expected: {},
-  },
-  {
-    label: 'extra post comments allowed after decorators',
-    comments: '# @dec # more comments',
-    expected: { dec: true },
-  },
-  {
-    label: 'post comments are not parsed for decorators',
-    comments: '# @dec # @ignored',
-    expected: { dec: true },
-  },
-]));
+  describe('errors / weird cases', basicDecoratorTests([
+    ['# @dec=', new Error()],
+    ['# @dec="', new Error()],
+    ['# @dec="foo', new Error()],
+    ['# @dec="`"', { dec: '`' }],
+    ['# @dec="\\""', { dec: '"' }],
+    ['# @dec=qu"ote', { dec: 'qu"ote' }],
+    ['# @dec=foo bar', new Error()],
+    ['# @dec="""', new Error()],
+    ['# @dec="foo" not commented', new Error()],
+    ['# @dec1@dec2', new Error()],
+    ['# @', new Error()],
+    ['# @0badDecorator', new Error()],
+    ['# @bad-decorator', new Error()],
+    ['# @okDec @badDecWithColon:', new Error()],
 
+    // want to gracefully handle these, since we've seen them in the wild
+    // so instead of dying, we'll just treat them as normal comments
+    ['# @see https://example.com for info', { '!see': true }],
+    ['# @see @something https://example.com for info', new Error()],
+    ['# @todo:', { '!todo': true, '!todo:': true }],
+    ['# @todo: fix me later', { '!todo': true, '!todo:': true }],
+  ]));
+
+  describe('comments and line breaks', basicDecoratorTests([
+    {
+      label: 'mixed with comments ',
+      comments: [
+        '# comment before',
+        '# @dec1',
+        '# comment after',
+        '#@dec2',
+      ].join('\n'),
+      expected: { dec1: true, dec2: true },
+    },
+    {
+      label: 'multiple decorators on one line',
+      comments: '# @bool  @email="me@example.com" \t @num=123 ',
+      expected: { bool: true, email: 'me@example.com', num: 123 },
+    },
+    {
+      label: 'multiple decorators on one line',
+      comments: '# @foo=bar @bool',
+      expected: { foo: 'bar', bool: true },
+    },
+    {
+      label: 'multiple decorators on multiple lines',
+      comments: '# @dec1 @dec2=123\n# @dec3',
+      expected: { dec1: true, dec2: 123, dec3: true },
+    },
+    {
+      label: 'decorators within text comments ignored',
+      comments: '# will be @ignored\n# @dec',
+      expected: { dec: true },
+    },
+    {
+      label: 'extra blank line will detach comment from config item',
+      comments: '# @dec\n',
+      expected: {},
+    },
+    {
+      label: 'divider will detach comment from config item',
+      comments: '# @dec\n# ---',
+      expected: {},
+    },
+    {
+      label: 'extra post comments allowed after decorators',
+      comments: '# @dec # more comments',
+      expected: { dec: true },
+    },
+    {
+      label: 'post comments are not parsed for decorators',
+      comments: '# @dec # @ignored',
+      expected: { dec: true, '!ignored': true },
+    },
+  ]));
+});

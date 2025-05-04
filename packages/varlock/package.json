@@ -1,0 +1,53 @@
+{
+  "name": "varlock",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "author": "dmno-dev",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup",
+    "test": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "pnpm run lint --fix"
+  },
+  "keywords": [],
+  "files": [
+    "/bin",
+    "/dist"
+  ],
+  "bin": {
+    "varlock": "./bin/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./auto-load": "./dist/auto-load.js",
+    "./config": "./dist/dotenv-compat.js",
+    "./config.js": "./dist/dotenv-compat.js"
+  },
+  "dependencies": {
+    "@env-spec/parser": "workspace:*",
+    "debug": "catalog:",
+    "execa": "^9.5.2",
+    "which": "^5.0.0"
+  },
+  "devDependencies": {
+    "@clack/core": "^0.4.2",
+    "@clack/prompts": "^0.10.1",
+    "@env-spec/env-graph": "workspace:*",
+    "@env-spec/utils": "workspace:*",
+    "@sindresorhus/is": "catalog:",
+    "@types/debug": "catalog:",
+    "@types/node": "catalog:",
+    "@types/which": "^3.0.4",
+    "@yao-pkg/pkg": "^6.4.0",
+    "ansis": "catalog:",
+    "gunshi": "^0.15.0",
+    "is-unicode-supported": "^2.1.0",
+    "outdent": "^0.8.0",
+    "tsup": "catalog:",
+    "vitest": "catalog:"
+  }
+}

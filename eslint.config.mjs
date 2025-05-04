@@ -4,6 +4,7 @@ import stylistic from '@stylistic/eslint-plugin';
 import airbnb from 'eslint-stylistic-airbnb';
 import globals from 'globals';
 import nofixPlugin from 'eslint-nofix-plugin';
+import eslintPluginJsonc from 'eslint-plugin-jsonc';
 
 export default tseslint.config(
   {
@@ -17,9 +18,11 @@ export default tseslint.config(
       },
     },
   },
+
   // @ts-ignore
   airbnb,
   ...tseslint.configs.recommended,
+
   {
     ignores: [
       '**/dist',
@@ -30,8 +33,9 @@ export default tseslint.config(
       '**/.dmno/.typegen',
     ],
   },
-  {
 
+  {
+    files: ['**/*.{js,mjs,cjs,ts,mts,cts}'],
     // NOTE - run `pnpm dlx @eslint/config-inspector@latest`
     // to help audit these rules
     rules: {
@@ -125,5 +129,58 @@ export default tseslint.config(
     rules: {
       'no-console': 0,
     },
+  },
+
+  // set up lint rules for json files
+  // note - the simpler methods were not working properly, so we list the rules here instead
+  {
+    files: ['**/*.json'],
+    plugins: { jsonc: eslintPluginJsonc },
+    languageOptions: { parser: eslintPluginJsonc },
+    rules: {
+      // generic rules
+      '@stylistic/max-len': 0,
+      // json rules
+      'jsonc/no-bigint-literals': 'error',
+      'jsonc/no-binary-expression': 'error',
+      'jsonc/no-escape-sequence-in-identifier': 'error',
+      'jsonc/no-number-props': 'error',
+      'jsonc/no-parenthesized': 'error',
+      'jsonc/no-regexp-literals': 'error',
+      'jsonc/no-template-literals': 'error',
+      'jsonc/no-undefined-value': 'error',
+      'jsonc/no-unicode-codepoint-escapes': 'error',
+      'jsonc/valid-json-number': 'error', // enables/replaces many more specific rules
+      'jsonc/vue-custom-block/no-parsing-error': 'error',
+      'jsonc/array-bracket-newline': ['error', { multiline: true, minItems: null }],
+      'jsonc/array-bracket-spacing': ['error', 'never'],
+      'jsonc/comma-style': ['error', 'last'],
+      'jsonc/indent': ['error', 2, {}],
+      'jsonc/key-spacing': ['error', { beforeColon: false, afterColon: true, mode: 'strict' }],
+      'jsonc/no-dupe-keys': 'error',
+      'jsonc/no-irregular-whitespace': 'error',
+      'jsonc/no-multi-str': 'error',
+      'jsonc/no-octal-escape': 'error',
+      'jsonc/no-sparse-arrays': 'error',
+      'jsonc/no-useless-escape': 'error',
+      'jsonc/object-curly-newline': ['error', { consistent: true }],
+      'jsonc/object-curly-spacing': ['error', 'never'],
+      'jsonc/object-property-newline': 'error',
+      'jsonc/quote-props': ['error', 'always', {}],
+      'jsonc/quotes': ['error', 'double', { avoidEscape: false }],
+      // rules to enable below for jsonc
+      'jsonc/comma-dangle': ['error', 'never'],
+      'jsonc/no-comments': 'error',
+    },
+  },
+
+  { // JSONC
+    files: ['**/tsconfig.json', '**/.vscode/*.json'],
+    rules: {
+      'jsonc/comma-dangle': ['error', 'only-multiline'],
+      'jsonc/no-comments': 0,
+    },
+
+
   },
 );
