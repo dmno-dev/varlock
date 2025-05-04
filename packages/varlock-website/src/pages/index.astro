@@ -1,0 +1,162 @@
+---
+import Layout from "../layouts/Layout.astro";
+import SecretReveal from "../components/SecretReveal.vue";
+import { LinkButton, Code } from "@astrojs/starlight/components";
+import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
+---
+
+<Layout showSearch={false}>
+  <main>
+    <div class="container">
+      <VarlockRetroBanner />
+      <p class="description">
+        `varlock` gives your environment variables superpowers. Just add a few
+        decorators and you're good to go. Or run `varlock init` and it will
+        handle it all for you.
+      </p>
+
+      <!-- <SecretReveal client:load /> -->
+      <Code
+        title="Installation"
+        lang="bash"
+        code=`
+# Install as standalone CLI
+brew install varlock
+cd my-project
+varlock init
+
+# OR init and install as a dependency in a js project
+npx varlock init
+      `
+      />
+      <div class="info-section">
+        <p>
+          `varlock` will scan your project for `.env` and `.env.example` files
+          and create a `.env.schema` file for you.
+        </p>
+      </div>
+      <Code
+        title="Example .env.schema file"
+        lang="bash"
+        code=`
+# This file uses env-spec - see https://github.com/varlock/env-spec for more info
+# @envFlag=APP_ENV
+# @defaultSensitive=false @defaultRequired=false
+# ---
+
+# Env flag
+# @type=enum(development, staging, production, test)
+APP_ENV=development
+
+# this will be overridden in .env.production
+SOME_VAR=default-value
+
+# @type=number(precision=0)
+NUMBER_ITEM=123.45
+
+# @type=email(normalize=true)
+EMAIL_ITEM=HEllO@example.com #output: hello@example.com
+
+# @type=url
+URL_ITEM=https://example.com
+
+# @type=port
+PORT="5678"
+
+INFER_NUM=123
+INFER_BOOL=true
+INFER_STR=asdf
+
+NOT_SENSITIVE_ITEM="not-sensitive"
+
+# @sensitive
+SENSITIVE_ITEM=secret-value
+      `
+      />
+      <div class="button-container">
+        <LinkButton href="getting-started/installation">Get Started</LinkButton>
+        <LinkButton href="reference/item-decorators">Reference Docs</LinkButton>
+      </div>
+
+      <div class="info-section">
+        <h2>How it works</h2>
+        <p>
+          Using a combination of a CLI and Desktop app, your secrets are
+          securely encrypted. They are never stored on disk and secured via your
+          fingerprint.
+        </p>
+
+        <h3>Benefits</h3>
+        <ul>
+          <li>Validation of environment variables</li>
+          <li>Coercion based on types</li>
+          <li>Encryption backed by biometrics</li>
+          <li>Drop-in replacement for dotenv</li>
+        </ul>
+
+        <h3>Workflow with varlock</h3>
+        <ul>
+          <li>Run `varlock init`</li>
+          <li>Add any secret values</li>
+          <li>Run `varlock encrypt`</li>
+          <li>Use encrypted values via `varlock run`</li>
+        </ul>
+      </div>
+    </div>
+  </main>
+</Layout>
+
+<style>
+  .container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem 1rem;
+    gap: 2rem;
+  }
+
+  .button-container {
+    display: flex;
+    justify-content: right;
+    text-align: right;
+    gap: 1rem;
+  }
+
+  h1 {
+    text-align: center;
+  }
+
+  body {
+    font-family: var(--body-font);
+  }
+
+  .description {
+    margin-bottom: 2rem;
+    font-size: 1.1rem;
+  }
+
+  .component-container {
+    margin-bottom: 3rem;
+  }
+
+  .info-section {
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  }
+
+  .info-section h2 {
+    margin-top: 0;
+  }
+
+  .info-section h3 {
+    margin-top: 1.5rem;
+  }
+
+  .info-section ul {
+    padding-left: 1.5rem;
+  }
+
+  .info-section li {
+    margin-bottom: 0.5rem;
+  }
+</style>

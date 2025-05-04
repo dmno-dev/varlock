@@ -1,0 +1,160 @@
+---
+title: Other Languages
+description: Using Varlock with programming languages other than JavaScript
+---
+
+Varlock provides support for multiple programming languages through its language-specific implementations. This guide covers how to use Varlock with different programming languages.
+
+## Python
+
+### Installation
+
+```bash
+pip install varlock
+```
+
+### Usage
+
+```python
+from varlock import Varlock
+
+varlock = Varlock({
+    'spec': {
+        'PORT': {'type': 'number', 'required': True},
+        'API_KEY': {'type': 'string', 'secret': True}
+    }
+})
+
+varlock.load()
+port = varlock.env.PORT
+api_key = varlock.env.API_KEY
+```
+
+## Go
+
+### Installation
+
+```bash
+go get github.com/dmno-dev/varlock
+```
+
+### Usage
+
+```go
+package main
+
+import (
+    "github.com/dmno-dev/varlock"
+)
+
+func main() {
+    varlock := varlock.New(varlock.Config{
+        Spec: map[string]varlock.Spec{
+            "PORT": {Type: "number", Required: true},
+            "API_KEY": {Type: "string", Secret: true},
+        },
+    })
+
+    varlock.Load()
+    port := varlock.Env.PORT
+    apiKey := varlock.Env.API_KEY
+}
+```
+
+## Ruby
+
+### Installation
+
+```bash
+gem install varlock
+```
+
+### Usage
+
+```ruby
+require 'varlock'
+
+varlock = Varlock.new(
+  spec: {
+    PORT: { type: 'number', required: true },
+    API_KEY: { type: 'string', secret: true }
+  }
+)
+
+varlock.load
+port = varlock.env.PORT
+api_key = varlock.env.API_KEY
+```
+
+## Java
+
+### Installation
+
+Add to your `pom.xml`:
+
+```xml
+<dependency>
+    <groupId>dev.dmno</groupId>
+    <artifactId>varlock</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+### Usage
+
+```java
+import dev.dmno.varlock.Varlock;
+
+public class App {
+    public static void main(String[] args) {
+        Varlock varlock = new Varlock.Builder()
+            .spec(Map.of(
+                "PORT", new Spec("number", true),
+                "API_KEY", new Spec("string", true, true)
+            ))
+            .build();
+
+        varlock.load();
+        int port = varlock.getEnv().getPort();
+        String apiKey = varlock.getEnv().getApiKey();
+    }
+}
+```
+
+## Common Features Across Languages
+
+All language implementations provide:
+
+1. Type safety
+2. Validation
+3. Secret management
+4. Environment separation
+5. Documentation generation
+
+## Language-Specific Considerations
+
+### Python
+- Uses Python type hints
+- Integrates with Python's logging system
+- Supports async/await
+
+### Go
+- Strong type system
+- Concurrent-safe operations
+- Standard library integration
+
+### Ruby
+- Ruby-like syntax
+- Rails integration
+- Gem ecosystem support
+
+### Java
+- Spring Boot integration
+- Maven/Gradle support
+- Enterprise features
+
+## Next Steps
+
+- Learn about [security best practices](/docs/guides/security)
+- Explore [secrets management](/docs/guides/secrets)
+- Check out [JavaScript ecosystem integration](/docs/guides/javascript-ecosystem) 

@@ -1,0 +1,520 @@
+@import './reset.css';
+
+
+.logo-font {
+    font-family: var(--logo-font);
+}
+
+body {
+    font-family: var(--body-font);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5 {
+    font-family: var(--font-pixelify);
+}
+
+:root {
+    /* loaded in CustomHead.astro via Astro font API */
+    --body-font: "courier new", monospace;
+    --logo-font: var(--font-pixelify);
+    --code-font: var(--font-jetbrains-mono);
+
+    --sl-content-width: 75rem;
+}
+
+/* custom color palette */
+:root {
+    --cp-s: 89%;
+    --cp-l: 65%;
+    --cp-l2: 50%;
+    --cp-s-dark: 65%;
+    --cp-l-dark: 10%;
+    --cp-t1: 50%;
+    --cp-t2: 15%;
+
+    --brand-white: #FFF;
+    --brand-black: #000;
+
+    /* todo - generate these programatically... */
+    --brand-red: hsl(0, var(--cp-s), var(--cp-l));
+    --brand-orange: hsl(25, var(--cp-s), var(--cp-l));
+    --brand-yellow: hsl(57, var(--cp-s), var(--cp-l));
+    --brand-green: hsl(119, var(--cp-s), var(--cp-l));
+    --brand-cyan: hsl(184, var(--cp-s), var(--cp-l));
+    --brand-blue: hsl(230, var(--cp-s), var(--cp-l));
+    --brand-purple: hsl(266, var(--cp-s), var(--cp-l));
+    --brand-pink: hsl(299, var(--cp-s), var(--cp-l));
+
+    --brand-red--text: hsl(0, var(--cp-s), var(--cp-l));
+    --brand-orange--text: hsl(25, var(--cp-s), var(--cp-l));
+    --brand-yellow--text: hsl(57, var(--cp-s), var(--cp-l));
+    --brand-green--text: hsl(119, var(--cp-s), var(--cp-l));
+    --brand-cyan--text: hsl(184, var(--cp-s), var(--cp-l));
+    --brand-blue--text: hsl(230, var(--cp-s), var(--cp-l));
+    --brand-purple--text: hsl(266, var(--cp-s), var(--cp-l));
+    --brand-pink--text: hsl(299, var(--cp-s), var(--cp-l));
+
+    --brand-red--dark: hsl(0, var(--cp-s-dark), var(--cp-l-dark));
+    --brand-orange--dark: hsl(25, var(--cp-s-dark), var(--cp-l-dark));
+    --brand-yellow--dark: hsl(57, var(--cp-s-dark), var(--cp-l-dark));
+    --brand-green--dark: hsl(119, var(--cp-s-dark), var(--cp-l-dark));
+    --brand-cyan--dark: hsl(184, var(--cp-s-dark), var(--cp-l-dark));
+    --brand-blue--dark: hsl(230, var(--cp-s-dark), var(--cp-l-dark));
+    --brand-purple--dark: hsl(266, var(--cp-s-dark), var(--cp-l-dark));
+    --brand-pink--dark: hsl(299, var(--cp-s-dark), var(--cp-l-dark));
+
+    --brand-red--t1: hsla(0, var(--cp-s), var(--cp-l), var(--cp-t1));
+    --brand-orange--t1: hsla(25, var(--cp-s), var(--cp-l), var(--cp-t1));
+    --brand-yellow--t1: hsla(57, var(--cp-s), var(--cp-l), var(--cp-t1));
+    --brand-green--t1: hsla(119, var(--cp-s), var(--cp-l), var(--cp-t1));
+    --brand-cyan--t1: hsla(184, var(--cp-s), var(--cp-l), var(--cp-t1));
+    --brand-blue--t1: hsla(230, var(--cp-s), var(--cp-l), var(--cp-t1));
+    --brand-purple--t1: hsla(266, var(--cp-s), var(--cp-l), var(--cp-t1));
+    --brand-pink--t1: hsla(299, var(--cp-s), var(--cp-l), var(--cp-t1));
+
+    --brand-red--t2: hsla(0, var(--cp-s), var(--cp-l), var(--cp-t2));
+    --brand-orange--t2: hsla(25, var(--cp-s), var(--cp-l), var(--cp-t2));
+    --brand-yellow--t2: hsla(57, var(--cp-s), var(--cp-l), var(--cp-t2));
+    --brand-green--t2: hsla(119, var(--cp-s), var(--cp-l), var(--cp-t2));
+    --brand-cyan--t2: hsla(184, var(--cp-s), var(--cp-l), var(--cp-t2));
+    --brand-blue--t2: hsla(230, var(--cp-s), var(--cp-l), var(--cp-t2));
+    --brand-purple--t2: hsla(266, var(--cp-s), var(--cp-l), var(--cp-t2));
+    --brand-pink--t2: hsla(299, var(--cp-s), var(--cp-l), var(--cp-t2));
+
+    --tile-drop-shadow: hsla(0, 0%, 100%, 30%);
+}
+
+/* make colors a little darker when being used for text on light mode */
+:root[data-theme='light'] {
+    --brand-red--text: hsl(0, var(--cp-s), var(--cp-l2));
+    --brand-orange--text: hsl(25, var(--cp-s), var(--cp-l2));
+    --brand-yellow--text: hsl(57, var(--cp-s), var(--cp-l2));
+    --brand-green--text: hsl(119, var(--cp-s), var(--cp-l2));
+    --brand-cyan--text: hsl(184, var(--cp-s), var(--cp-l2));
+    --brand-blue--text: hsl(230, var(--cp-s), var(--cp-l2));
+    --brand-purple--text: hsl(266, var(--cp-s), var(--cp-l2));
+    --brand-pink--text: hsl(299, var(--cp-s), var(--cp-l2));
+
+    --tile-drop-shadow: hsla(0, 0%, 0%, 60%);
+}
+
+/* starlight css var customizations */
+:root {
+    --sl-color-text-accent: var(--brand-red) !important;
+    --sl-color-text-invert: #FFF !important;
+    --color-text-full-shade: #000;
+    --color-text-full-shade-invert: #FFF;
+    --dmno-header-highlight-color: var(--sl-color-text-accent);
+}
+
+:root[data-theme='dark'] {
+    --sl-color-text-accent: var(--brand-red) !important;
+    --sl-color-text-invert: #000 !important;
+    --color-text-full-shade: #FFF;
+    --color-text-full-shade-invert: #000;
+}
+
+.sidebar-content .sl-badge.default {
+    background: linear-gradient(35deg, var(--brand-red) 0%, var(--brand-blue--dark) 100%);
+    border: none;
+    border-radius: 2px;
+    border: 1px solid var(--brand-red);
+}
+
+/* hide the starlight blog's inserted link to the blog on the docs mobile sidebar */
+.sidebar-content>div:first-child {
+    display: none;
+}
+
+/* starlight hero page header, can't add style on mdx file */
+.hero h1 {
+    font-family: var(--logo-font);
+}
+
+/* borders around code blocks, file trees, images */
+starlight-file-tree,
+.expressive-code {
+    --border-gradient-color-1: var(--brand-red--t1);
+    --border-gradient-color-2: var(--brand-orange--t1);
+    border: 1px dotted var(--border-gradient-color-1);
+    position: relative;
+}
+
+/* make terminal code blocks a different color */
+.expressive-code:has(.frame.is-terminal) {
+    --border-gradient-color-1: var(--brand-orange--t1);
+    --border-gradient-color-2: var(--brand-cyan--t1);
+}
+
+/* Add dotted corner decorations */
+.expressive-code::before,
+starlight-file-tree::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 10px;
+    height: 10px;
+    border-top: 2px dotted var(--border-gradient-color-1);
+    border-left: 2px dotted var(--border-gradient-color-1);
+}
+
+.expressive-code::after,
+starlight-file-tree::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 10px;
+    height: 10px;
+    border-bottom: 2px dotted var(--border-gradient-color-1);
+    border-right: 2px dotted var(--border-gradient-color-1);
+}
+
+/* image borders */
+.sl-markdown-content p>img:first-child,
+.dmno-cli-command img,
+li>p>img:last-child,
+figure>img,
+.video-block {
+    border: 1px solid var(--brand-blue--t1);
+}
+
+li>p>img:last-child {
+    margin-top: 8px;
+}
+
+/* customize code blocks */
+.expressive-code {
+    --ec-tm-delBg: var(--brand-red--t2);
+    --ec-tm-delBrdCol: var(--brand-red);
+    --ec-tm-insBg: var(--brand-orange--t2);
+    --ec-tm-insBrdCol: var(--brand-orange);
+}
+
+.expressive-code pre {
+    border: none !important;
+}
+
+.expressive-code figcaption {
+    background: none !important;
+}
+
+.expressive-code figcaption:before {
+    display: none !important;
+}
+
+.expressive-code figcaption .title:after {
+    border-top-color: var(--brand-red) !important;
+}
+
+/* hide empty header on "terminal" code blocks */
+.expressive-code .frame.is-terminal figcaption:has(.title:empty) {
+    display: none;
+}
+
+.expressive-code .frame.is-terminal .copy {
+    top: 8px;
+}
+
+html[data-theme='dark'] .expressive-code .frame {
+    --code-background: hsl(0, 0%, 8%) !important;
+}
+
+.expressive-code .code {
+    font-family: var(--code-font);
+}
+
+.expressive-code .ec-line.tm-label .code::before {
+    padding-left: 6px !important;
+    background: rgba(0, 0, 0, .3) !important;
+}
+
+html[data-theme='light'] .expressive-code .ec-line.tm-label .code::before {
+    background: rgba(0, 0, 0, .2) !important;
+}
+
+.expressive-code .ec-line.ins.tm-label .code::before {
+    color: var(--brand-orange) !important;
+}
+
+html[data-theme='light'] .expressive-code .ec-line.ins.tm-label .code::before {
+    color: var(--brand-orange--dark) !important;
+}
+
+.expressive-code .ec-line.del.tm-label .code::before {
+    color: var(--brand-red) !important;
+}
+
+html[data-theme='light'] .expressive-code .ec-line.del.tm-label .code::before {
+    color: var(--brand-red--dark) !important;
+}
+
+/* asides (ex :::[tip]) */
+.starlight-aside {
+    border: 1px dotted var(--aside-color-1);
+    position: relative;
+}
+
+html[data-theme='light'] .starlight-aside {
+    background: white;
+    --aside-bg-opacity: .35;
+}
+
+.starlight-aside .starlight-aside__title {
+    color: var(--aside-color-1);
+    position: relative;
+    z-index: 2;
+}
+
+html[data-theme='light'] .starlight-aside .starlight-aside__title {
+    color: currentColor;
+}
+
+.starlight-aside .starlight-aside__content {
+    position: relative;
+    z-index: 2;
+}
+
+.starlight-aside .starlight-aside__content a {
+    color: var(--sl-color-text-accent);
+}
+
+.starlight-aside .starlight-aside__content a:hover {
+    color: var(--color-text-full-shade);
+}
+
+/* Add dotted corner decorations */
+.starlight-aside::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 10px;
+    height: 10px;
+    border-top: 2px dotted var(--aside-color-1);
+    border-left: 2px dotted var(--aside-color-1);
+}
+
+.starlight-aside::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 10px;
+    height: 10px;
+    border-bottom: 2px dotted var(--aside-color-1);
+    border-right: 2px dotted var(--aside-color-1);
+}
+
+/* TODO update these colors to match the new palette */
+.starlight-aside.starlight-aside--note {
+    --aside-color-1: var(--brand-blue--dark);
+    --aside-color-2: var(--brand-orange--dark);
+}
+
+.starlight-aside.starlight-aside--tip {
+    --aside-color-1: var(--brand-blue);
+    --aside-color-2: var(--brand-blue);
+}
+
+.starlight-aside.starlight-aside--caution {
+    --aside-color-1: var(--brand-orange);
+    --aside-color-2: var(--brand-red);
+}
+
+.starlight-aside.starlight-aside--danger {
+    --aside-color-1: var(--brand-red);
+    --aside-color-2: var(--brand-pink);
+}
+
+/* starlight steps component */
+.sl-steps {
+    --sl-color-hairline-light: var(--brand-orange--t1);
+}
+
+.sl-steps>li:before {
+    background-color: var(--brand-purple) !important;
+    color: white !important;
+    font-family: 'Days One', sans-serif;
+    box-shadow: none !important;
+}
+
+/* customize markdown tables */
+.sl-markdown-content table:not(:where(.not-content *)) {
+    display: table;
+    min-width: 100%;
+    border: 1px solid var(--brand-purple--t1);
+}
+
+.sl-markdown-content table {
+    --sl-color-hairline-light: var(--brand-purple--t1);
+    border: 1px dotted var(--brand-purple--t1);
+    position: relative;
+}
+
+.sl-markdown-content table thead {
+    text-align: left;
+    background: var(--brand-purple--t2);
+    color: var(--color-text-full-shade);
+}
+
+.sl-markdown-content table td,
+.sl-markdown-content table th {
+    padding: 8px;
+}
+
+.sl-markdown-content table :is(th:first-child, td:first-child):not(:where(.not-content *)) {
+    padding-inline-start: 8px;
+}
+
+.sl-markdown-content tr:last-child td:not(:where(.not-content *)) {
+    border-bottom: none;
+}
+
+.sl-markdown-content table::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 10px;
+    height: 10px;
+    border-top: 2px dotted var(--brand-purple--t1);
+    border-left: 2px dotted var(--brand-purple--t1);
+}
+
+.sl-markdown-content table::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 10px;
+    height: 10px;
+    border-bottom: 2px dotted var(--brand-purple--t1);
+    border-right: 2px dotted var(--brand-purple--t1);
+}
+
+.sidebar-content a,
+.right-sidebar a {
+    transition: color .1s;
+}
+
+@media (min-width: 72rem) {
+    .right-sidebar-container {
+        width: var(--sl-sidebar-width);
+    }
+}
+
+#starlight__mobile-toc .toggle {
+    border-radius: 4px;
+}
+
+#starlight__mobile-toc .toggle:hover {
+    border-color: var(--brand-pink);
+}
+
+/* make max width 50% when only one of them is present
+and right align the next button */
+.pagination-links {
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+}
+
+@media (min-width: 50rem) {
+    .pagination-links {
+        flex-direction: row;
+        justify-content: left;
+        gap: 1rem;
+    }
+}
+
+.pagination-links a {
+    flex: 1;
+    box-shadow: none;
+}
+
+@media (min-width: 50rem) {
+    .pagination-links a {
+        max-width: 50%;
+    }
+}
+
+.pagination-links a:hover {
+    border-color: var(--color-text-full-shade);
+}
+
+@media (min-width: 50rem) {
+    .pagination-links a:first-child[rel='next'] {
+        margin-left: 50%;
+    }
+}
+
+/* TODO add variants - make easily reusable */
+.gradient-text {
+    --color-one: var(--brand-orange--text);
+    --color-two: var(--brand-pink--text);
+    background-color: var(--color-one);
+    background: linear-gradient(30deg, var(--color-one) 0%, var(--color-two) 100%);
+    background-clip: text;
+    color: transparent;
+}
+
+.gradient-text.--red {
+    --color-one: var(--brand-red);
+    --color-two: var(--brand-pink);
+}
+
+.gradient-text.--green {
+    --color-one: var(--brand-green--text);
+    --color-two: var(--brand-cyan--text);
+}
+
+/* similar to sl-markdown content, need something to get links looking correct
+will move to component */
+.richtext a {
+    color: var(--sl-color-text-accent);
+}
+
+.richtext a:hover {
+    color: var(--color-text-full-shade);
+}
+
+.responsive-image {
+    width: 100%;
+    height: auto;
+}
+
+@media (min-width: 768px) {
+    .mobile-only {
+        display: none;
+    }
+}
+
+@media (max-width: 767px) {
+    .desktop-only {
+        display: none;
+    }
+}
+
+/* custom cursors */
+body {
+    cursor: url('../assets/gauntlet_default.svg') 16 16, default;
+}
+
+*:active {
+    cursor: url('../assets/gauntlet_open.svg') 16 16, pointer;
+}
+
+a,
+button:hover {
+    cursor: url('../assets/gauntlet_point.svg') 16 16, pointer;
+}
+
+summary {
+    cursor: url('../assets/gauntlet_point.svg') 16 16, pointer;
+}

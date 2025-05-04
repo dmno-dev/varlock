@@ -1,0 +1,33 @@
+---
+const VARLOCK_BANNER = [
+  "",
+  " ██▒   █▓ ▄▄▄       ██▀███   ██▓     ▒█████   ▄████▄   ██ ▄█▀",
+  " ▓██░   █▒▒████▄    ▓██ ▒ ██▒▓██▒    ▒██▒  ██▒▒██▀ ▀█   ██▄█▒ ",
+  "  ▓██  █▒░▒██  ▀█▄  ▓██ ░▄█ ▒▒██░    ▒██░  ██▒▒██    ▄ ▓███▄░ ",
+  "   ▒██ █░░░██▄▄▄▄██ ▒██▀▀█▄  ▒██░    ▒██   ██░▒██▄ ▄██▒▓██ █▄ ",
+  "    ▒▀█░   ▓█   ▓██▒░██▓ ▒██▒░██████▒░ █████▒░▒ ████▀ ░▒██▒ █▄",
+  "    ░ ▐░   ▒▒   ▓▒█░░ ▒▓ ░▒▓░░ ▒░▓  ░░ ▒░▒░▒░ ░ ░▒ ▒  ░▒ ▒▒ ▓▒",
+  "    ░ ░░    ▒   ▒▒ ░  ░▒ ░ ▒░░ ░ ▒  ░  ░ ▒ ▒░   ░  ▒   ░ ░▒ ▒░",
+  "      ░░    ░   ▒     ░░   ░   ░ ░   ░ ░ ░ ▒  ░        ░ ░░ ░ ",
+  "       ░        ░  ░   ░         ░  ░    ░ ░  ░ ░      ░  ░   ",
+  // '      ░                                       ░               ',
+].join("\n");
+---
+
+<div class="varlock-retro-banner-container">
+  <div class="varlock-retro-banner">
+    <pre>{VARLOCK_BANNER}</pre>
+  </div>
+</div>
+
+<style>
+  .varlock-retro-banner {
+    line-height: 1;
+    color: var(--brand-red--text);
+    margin: 1rem;
+  }
+  .varlock-retro-banner-container {
+    display: flex;
+    justify-content: center;
+  }
+</style>

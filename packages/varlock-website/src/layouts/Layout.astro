@@ -1,0 +1,67 @@
+---
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import { Font } from "astro:assets";
+
+interface Props {
+  title?: string;
+  showTopBar?: boolean;
+  showSearch?: boolean;
+  showTableOfContents?: boolean;
+  showSidebar?: boolean;
+}
+
+const {
+  title,
+  showTopBar = true,
+  showSearch = true,
+  showTableOfContents = false,
+  showSidebar = false,
+} = Astro.props;
+
+---
+
+<StarlightPage
+  frontmatter={{
+    title: title ?? "varlock",
+    tableOfContents: showTableOfContents,
+  }}
+  hasSidebar={showSidebar}
+>
+  <slot />
+</StarlightPage>
+
+<style is:global>
+  /* hide the h1 that the starlight page adds */
+  .content-panel:first-of-type {
+    display: none;
+  }
+
+</style>
+
+
+<!-- // janky but can't use css vars for display -->
+{showTopBar ? (
+  <style is:global>
+    header {
+      display: block;
+    }
+  </style>
+) : (
+  <style is:global>
+  header {
+    display: none;
+  }
+
+  .main-frame {
+    padding-top: 0;
+  }
+  </style>
+)}
+
+{!showSearch ? (
+  <style is:global>
+    site-search {
+      display: none;
+    }
+  </style>
+) : null}
