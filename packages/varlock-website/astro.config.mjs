@@ -45,12 +45,14 @@ export default defineConfig({
         {
           label: 'Guides',
           items: [
-            { label: 'Cursor', slug: 'guides/cursor' },
+            { label: 'Schema', slug: 'guides/schema' },
+            { label: 'Integration', slug: 'guides/integration' },
             { label: 'Secrets', slug: 'guides/secrets' },
             { label: 'Security', slug: 'guides/security' },
             { label: 'Migration from dotenv', slug: 'guides/migration-from-dotenv' },
             { label: 'Javascript ecosystem', slug: 'guides/javascript-ecosystem' },
             { label: 'Other languages', slug: 'guides/other-languages' },
+            { label: 'Cursor', slug: 'guides/cursor', badge: 'New' },
           ],
         },
         {

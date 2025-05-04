@@ -27,7 +27,7 @@ export const commandFn = async (args: any) => {
   const encryptedValue = await client.encrypt(rawValue);
 
   console.log('Copy this into your .env.local file and rename the key appropriately:\n');
-  console.log(`SOME_SENSITIVE_KEY=varlock("${encryptedValue}")`);
+  console.log(`REPLACE_WITH_YOUR_KEY=varlock("${encryptedValue}")`);
 
   // const envGraph = await loadEnvGraph();
   // await envGraph.resolveEnvValues();

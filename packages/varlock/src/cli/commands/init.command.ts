@@ -46,7 +46,7 @@ export const commandFn = async (commandsArray: Array<any>) => {
       `It looks like you already have a ${fmt.fileName('.env.schema')} file!`,
       'This init helper is meant to help you get a new project set up.',
       'If you need to make changes to your schema or values, you can update your files directly.',
-      'See more docs at https://varlock.dev/docs/schema-guide', //! make link real');
+      'See more docs at https://varlock.dev/guides/schema', //! make link real');
     ]);
     process.exit(0);
   }
@@ -127,14 +127,14 @@ export const commandFn = async (commandsArray: Array<any>) => {
   logLines([
     '',
     ansis.bold(`🚧 Please review and update your new ${fmt.fileName('.env.schema')} file! 🚧`),
-    `We've done our best to get you started, but you must review and make sure it is correct!`,
+    `We've done our best to get you started, but please review and make sure it is correct.`,
     '',
     `👉 Some helpful pointers to get you started:`,
     `- use ${fmt.decorator('@required')} (or ${fmt.decorator('@optional')}) to tag items that should fail validation when empty`,
     `- use ${fmt.decorator('@sensitive')} to tag items that contain sensitive secrets, and must be handled accordingly`,
-    `- use ${fmt.decorator('@type')} to set an item's data type (if not a basic string), which affects validation and coercion logic`,
-    `- if an item value is purely an ${ansis.italic('example')} rather than a default, move it into an ${fmt.decorator('@example')} decorator, or delete it`,
-    `- if an item value is just a dummy placeholder, delete it`,
+    `- use ${fmt.decorator('@type')} to set an item's data type (default is plain string), which affects validation and coercion logic`,
+    `- if an item's value is an ${ansis.italic('example')} rather than a default, move it into an ${fmt.decorator('@example')} decorator, or delete it`,
+    `- if an item's value is a placeholder, delete it`,
   ]);
   const confirmReviewed = await prompts.confirm({
     message: `Have you reviewed and updated your new ${fmt.fileName('.env.schema')} file?`,
@@ -148,7 +148,7 @@ export const commandFn = async (commandsArray: Array<any>) => {
   if (envGraph.configSchema.EXAMPLE_ITEM) {
     logLines([
       '',
-      ansis.bold(`🚨 Really? ${ansis.red("You didn't remove the EXAMPLE_ITEM!")}`),
+      ansis.bold(`🚨 ${ansis.red("You didn't remove the EXAMPLE_ITEM!")}`),
       `Please make sure your schema is all correct before using it...`,
     ]);
   }
@@ -201,8 +201,8 @@ export const commandFn = async (commandsArray: Array<any>) => {
   logLines([
     '',
     ansis.bold('🎉 Great!'),
-    `You can run ${fmt.command('varlock load')} to attempt loading your env vars validate against your new schema.`,
-    'Check out our integration guide for more info about integrating into your application.',
+    `You can run ${fmt.command('varlock load')} to load your env vars and validate them against your new schema.`,
+    'Check out our integration guide (https://varlock.dev/guides/integration) for more info about integrating into your application.',
   ]);
 
   envGraph = await loadVarlockEnvGraph();
