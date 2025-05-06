@@ -1,4 +1,4 @@
-import { expandStaticValue } from './expand';
+import { expand } from './expand';
 import { autoCoerce } from './helpers';
 
 export class ParsedEnvSpecDivider {
@@ -40,6 +40,20 @@ export class ParsedEnvSpecStaticValue {
     }
   }
 
+  get unescapedValue() {
+    if (typeof this.value !== 'string') return this.value;
+    let unescaped = this.value;
+    // replace escaped "$" (if not in single quotes)
+    if (this.data.quote !== "'") {
+      unescaped = unescaped.replaceAll('\\$', '$');
+    }
+    // replace escaped newlines (if not double quotes or backticks)
+    if (this.data.quote === '"' || this.data.quote === '`') {
+      unescaped = unescaped.replaceAll('\\n', '\n');
+    }
+    return unescaped;
+  }
+
   toString() {
     // TODO: smarter logic to preserve the original value
     // for example with this logic, we may see 123.0 -> 123
@@ -54,7 +68,8 @@ export class ParsedEnvSpecStaticValue {
 export class ParsedEnvSpecKeyValuePair {
   constructor(public data: {
     key: string;
-    val: ParsedEnvSpecStaticValue;
+    // eslint-disable-next-line no-use-before-define
+    val: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall;
   }) {}
 
   get key() {
@@ -62,17 +77,17 @@ export class ParsedEnvSpecKeyValuePair {
   }
 
   get value() {
-    return this.data.val.value;
+    return this.data.val;
   }
 
   toString() {
-    return `${this.key}=${this.data.val}`;
+    return `${this.key}=${this.data.val.toString()}`;
   }
 }
 export class ParsedEnvSpecFunctionArgs {
   constructor(public data: {
     // eslint-disable-next-line no-use-before-define
-    values: Array<ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall> | Array<ParsedEnvSpecKeyValuePair>;
+    values: Array<ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecKeyValuePair>;
     _location?: any;
   }) {}
 
@@ -88,7 +103,9 @@ export class ParsedEnvSpecFunctionArgs {
     } else if (vals.every((i) => i instanceof ParsedEnvSpecKeyValuePair)) {
       const obj = {} as Record<string, any>;
       vals.forEach((val) => {
-        obj[val.key] = val.value;
+        if (val.value instanceof ParsedEnvSpecStaticValue) {
+          obj[val.key] = val.value.value;
+        }
       });
       return obj;
     } else {
@@ -297,11 +314,13 @@ export class ParsedEnvSpecConfigItem {
     return regularComments.map((comment) => comment.contents).join('\n');
   }
 
-  processExpansion(opts?: {}) {
-    if (this.data.value instanceof ParsedEnvSpecStaticValue) {
-      this.expandedValue = expandStaticValue(this.data.value);
+  processExpansion(_opts?: {}) {
+    if (this.data.value) {
+      const expanded = expand(this.data.value);
+      if (expanded instanceof ParsedEnvSpecKeyValuePair) throw new Error('Nested key-value pair found in config item');
+      this.expandedValue = expanded;
     } else {
-      this.expandedValue = this.data.value;
+      this.expandedValue = undefined;
     }
   }
 

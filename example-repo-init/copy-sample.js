@@ -7,7 +7,7 @@ const __dirname = import.meta.dirname;
 async function unlinkIfExists(filePath) {
   try {
     await fs.unlink(filePath);
-  } catch (err) {
+  } catch (err) { // eslint-disable-line @typescript-eslint/no-unused-vars
     // do nothing
   }
 }

@@ -30,7 +30,7 @@ function functionValueTests(
 }
 
 describe('function calls', functionValueTests({
-  // basic tests that are functions and test resolver is working properly
+  // basic tests that our functions parsing and test resolver is working properly
   'concat()': {
     input: 'ITEM=concat("a", "b", "c")',
     expected: { ITEM: 'abc' },
@@ -41,7 +41,6 @@ describe('function calls', functionValueTests({
   },
   'eval()': {
     input: 'ITEM=eval("echo moo")',
-    // we'll fetch whoami from the system
     expected: { ITEM: 'moo' },
   },
   'ref()': {
@@ -106,12 +105,28 @@ describe('ref expansion', functionValueTests({
     input: 'FOO=foo\nITEM=${FOO}',
     expected: { ITEM: 'foo' },
   },
+  'ref fallback - ":-" separator': {
+    input: 'ITEM=${FOO:-defaultfoo}',
+    expected: { ITEM: 'defaultfoo' },
+  },
+  'ref fallback - "-" separator': {
+    input: 'ITEM=${FOO-defaultfoo}',
+    expected: { ITEM: 'defaultfoo' },
+  },
+  'ref fallback - ":" in default value': {
+    input: 'ITEM=${FOO:-default:-foo}',
+    expected: { ITEM: 'default:-foo' },
+  },
+  'ref defaults - default not used': {
+    input: 'FOO=foo\nITEM=${FOO:-defaultfoo}',
+    expected: { ITEM: 'foo' },
+  },
 }));
 
 describe('complex cases', functionValueTests({
   'multiple expansions': {
-    input: 'FOO=foo\nBAR=bar\nITEM=${FOO}-$BAR-$(echo baz)',
-    expected: { ITEM: 'foo-bar-baz' },
+    input: 'FOO=foo\nBAR=bar\nITEM=${FOO}-$BAR-$(echo baz)-${UNDEF:-qux}',
+    expected: { ITEM: 'foo-bar-baz-qux' },
   },
   'multiple expansions w/ pre+post strings': {
     input: 'FOO=foo\nBAR=bar\nITEM=pre-${FOO}-$BAR-$(echo baz)-post',

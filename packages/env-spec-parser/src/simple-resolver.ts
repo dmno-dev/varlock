@@ -17,7 +17,7 @@ export function simpleResolver(
   const resolved = {} as Record<string, any>;
 
   function valueResolver(valOrFn: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall): string | undefined {
-    if (valOrFn instanceof ParsedEnvSpecStaticValue) return valOrFn.value;
+    if (valOrFn instanceof ParsedEnvSpecStaticValue) return valOrFn.unescapedValue;
     if (valOrFn instanceof ParsedEnvSpecFunctionCall) {
       if (valOrFn.name === 'ref') {
         const args = valOrFn.simplifiedArgs;
@@ -44,18 +44,25 @@ export function simpleResolver(
         const args = valOrFn.simplifiedArgs;
         if (Array.isArray(args)) {
           const cmdStr = args[0];
-          return execSync(cmdStr).toString().trim();
+          return execSync(
+            cmdStr,
+            {
+              env: { ...resolved, ...opts?.env },
+            },
+          ).toString().trim();
         } else {
           throw new Error('Invalid `eval` args');
         }
       } else if (valOrFn.name === 'fallback') {
         const args = valOrFn.data.args.values;
-        if (Array.isArray(args) && args.length > 0 && args.every((i) => i instanceof ParsedEnvSpecStaticValue)) {
-          const resolvedArgs = args.map((i) => valueResolver(i));
-          return resolvedArgs.find((i) => i !== '' && i !== undefined);
-        } else {
-          throw new Error('Invalid `fallback` args');
+        for (const arg of args) {
+          if (arg instanceof ParsedEnvSpecKeyValuePair) {
+            throw new Error('Invalid `fallback` arg - should not be key-value pair');
+          }
+          const resolvedArg = valueResolver(arg);
+          if (resolvedArg !== undefined && resolvedArg !== '') return resolvedArg;
         }
+        return undefined;
       } else {
         throw new Error(`Unknown function: ${valOrFn.name}`);
       }
