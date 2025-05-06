@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    // "moduleResolution": "Node",
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "lib": ["ES2023"],
+    "strict": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "customConditions": ["ts-src"],
+    "rootDir": ".",
+    "declarationDir": "./dist",
+    "outDir": "./dist",
+    // "paths": {
+    //   // make our self-imports work in our separate exports / entry points
+    //   "@env-spec/parser": ["./src/index.ts"],
+    // },
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts"],
+}

@@ -1,3 +1,4 @@
+import { expandStaticValue } from './expand';
 import { autoCoerce } from './helpers';
 
 export class ParsedEnvSpecDivider {
@@ -70,7 +71,8 @@ export class ParsedEnvSpecKeyValuePair {
 }
 export class ParsedEnvSpecFunctionArgs {
   constructor(public data: {
-    values: Array<ParsedEnvSpecStaticValue> | Array<ParsedEnvSpecKeyValuePair>;
+    // eslint-disable-next-line no-use-before-define
+    values: Array<ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall> | Array<ParsedEnvSpecKeyValuePair>;
     _location?: any;
   }) {}
 
@@ -79,16 +81,18 @@ export class ParsedEnvSpecFunctionArgs {
   }
 
   get simplifiedValues(): Array<any> | Record<string, any> {
-    if (this.data.values.length === 0) {
-      return [];
-    } else if (this.data.values[0] instanceof ParsedEnvSpecStaticValue) {
-      return this.data.values.map((val) => val.value);
-    } else {
-      const obj = {};
-      this.data.values.forEach((val) => {
+    if (this.data.values.length === 0) return [];
+    const vals = this.data.values;
+    if (vals.every((i) => i instanceof ParsedEnvSpecStaticValue)) {
+      return vals.map((val) => val.value);
+    } else if (vals.every((i) => i instanceof ParsedEnvSpecKeyValuePair)) {
+      const obj = {} as Record<string, any>;
+      vals.forEach((val) => {
         obj[val.key] = val.value;
       });
       return obj;
+    } else {
+      throw new Error('Invalid function args');
     }
   }
 
@@ -262,6 +266,8 @@ export class ParsedEnvSpecBlankLine {
 
 
 export class ParsedEnvSpecConfigItem {
+  expandedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+
   constructor(public data: {
     key: string;
     value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
@@ -289,6 +295,14 @@ export class ParsedEnvSpecConfigItem {
   get description() {
     const regularComments = this.data.preComments.filter((comment) => (comment instanceof ParsedEnvSpecComment));
     return regularComments.map((comment) => comment.contents).join('\n');
+  }
+
+  processExpansion(opts?: {}) {
+    if (this.data.value instanceof ParsedEnvSpecStaticValue) {
+      this.expandedValue = expandStaticValue(this.data.value);
+    } else {
+      this.expandedValue = this.data.value;
+    }
   }
 
   toConfigItemDef() {
@@ -372,7 +386,7 @@ export class ParsedEnvSpecFile {
    * mostly useful for comparison with other env parsers
    * */
   toSimpleObj() {
-    const obj = {};
+    const obj = {} as Record<string, any>;
     for (const item of this.contents) {
       if (item instanceof ParsedEnvSpecConfigItem) {
         if (item.value instanceof ParsedEnvSpecStaticValue) {

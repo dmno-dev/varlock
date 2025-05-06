@@ -7,6 +7,7 @@
 
 import util from 'node:util';
 import { parseEnvSpecDotEnvFile } from '../dist/index.js';
+import { simpleResolver } from '../dist/simple-resolver.js';
 const COMPARISON_SCENARIOS = {
   scenarios: [
     {
@@ -3813,20 +3814,22 @@ let failCount = 0;
 let testCount = 0;
 for (const scenario of COMPARISON_SCENARIOS.scenarios) {
   const scenarioName = scenario.scenario;
-  // skip expand tests for now until it is implemented
-  if (scenarioName.includes('EXPAND') || scenarioName.includes('EVAL')) continue;
   testCount++;
 
   const input = scenario.env.replaceAll('\\n', '\n');
   try {
-    const result = await parseEnvSpecDotEnvFile(input);
-    const resultObj = result.toSimpleObj();
+    const parsedFile = parseEnvSpecDotEnvFile(input);
+    const resultObj = simpleResolver(parsedFile, {
+      env: { MACHINE: 'machine' },
+      stringify: true,
+    });
+
     const expectedObj = JSON.parse(scenario.expected
       .replaceAll('\\n', '__NEWLINE__')
       .replaceAll('\\n', '\n')
       .replaceAll('__NEWLINE__', '\\n'));
 
-    if (util.isDeepStrictEqual(result.toSimpleObj(), expectedObj)) {
+    if (util.isDeepStrictEqual(resultObj, expectedObj)) {
       // console.log('✅ MATCH');
     } else {
       failCount++;
