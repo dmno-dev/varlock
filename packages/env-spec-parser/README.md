@@ -175,7 +175,7 @@ Examples:
 
 - `pnpm dev` - builds and watches everything
 - `pnpm test` builds everything, run tests, and watches for changes to re-run
-- `pnpm test:once` will just build and run the tests once
+- `pnpm test:ci` will just build and run the tests once
 
 If you need to pass extra flags to vitest (for example to run specific tests/files)
 run `pnpm dev:grammar` in one terminal and `pnpm exec vitest ...` in another

@@ -1,0 +1,46 @@
+name: Feature Request
+title: "[Feature Request] "
+labels: ["enhancement"]
+description: Suggest a new feature or enhancement
+assignees: 
+  - philmillman
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before You Start...**
+
+        This form is only for submitting feature requests. Please first: 
+
+        - Read the [docs](https://varlock.dev/docs)
+        - Ask on [Discord Chat](https://chat.dmno.dev)
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of the feature request.
+      placeholder: Please describe the feature request in detail.
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Why do you want this feature? What problem does it solve?
+      placeholder: Explain the motivation behind this feature request.
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: Suggest a possible solution or approach for implementing this feature.
+      placeholder: Describe your proposed solution.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Are there any alternative solutions or features you've considered?
+      placeholder: List any alternative solutions or features you've considered.
+  - type: textarea
+    id: additional-info
+    attributes:
+      label: Additional Information
+      description: Any additional information or context you would like to provide.
+      placeholder: Add any relevant information here.

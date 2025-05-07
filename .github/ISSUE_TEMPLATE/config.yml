@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discord Chat
+    url: https://chat.dmno.dev
+    about: Ask questions and discuss with other Varlock users in real time.
+  - name: LinkedIn
+    url: https://www.linkedin.com/company/dmnodev/
+    about: Connect with the maintainers on LinkedIn.

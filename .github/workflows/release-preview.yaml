@@ -1,0 +1,40 @@
+name: Release _preview_ packages
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # by default only the current commit is fetched
+          # but we need more history to be able to compare to main
+          # TODO: ideally we would just fetch the history between origin/main and the current commit
+          fetch-depth: 0
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: 'pnpm'
+      - name: Install node deps
+        run: pnpm i
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@v1.8
+      
+      # ------------------------------------------------------------
+      - name: Build publishable npm packages
+        run: pnpm build:libs
+      # we use a custom script to run `npx pkg-pr-new publish`
+      # so that we can determine which packages to release
+      - name: Release preview packages
+        run: node scripts/release-preview.js

@@ -1,0 +1,36 @@
+name: CI test suite
+on:
+  pull_request:
+  push:
+
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # by default only the current commit is fetched
+          # but we need more history to be able to compare to main
+          # TODO: ideally we would just fetch the history between origin/main and the current commit
+          fetch-depth: 0
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: 'pnpm'
+      - name: Install node deps
+        run: pnpm i
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@v1.8
+
+      # ------------------------------------------------------------
+      - name: Build libraries
+        run: pnpm run build:libs
+      - name: Run tests
+        run: pnpm run test:ci

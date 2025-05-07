@@ -1,0 +1,18 @@
+# Labeler configuration
+
+## core packages
+varlock:
+- changed-files:
+  - any-glob-to-any-file: 'packages/varlock/*'
+  - any-glob-to-any-file: 'packages/env-graph/*'
+parser:
+- changed-files:
+  - any-glob-to-any-file: 'packages/env-spec-parser/*'
+vscode-plugin:
+- changed-files:
+  - any-glob-to-any-file: 'packages/vscode-plugin/*'
+
+## website + docs
+docs:
+- changed-files:
+  - any-glob-to-any-file: 'packages/varlock-website/*'

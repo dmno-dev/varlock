@@ -1,5 +1,6 @@
 {
   "name": "@env-spec/env-graph",
+  "private": true,
   "version": "0.0.0",
   "description": "Tools to load a graph of related env files",
   "files": ["src"],
@@ -8,10 +9,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./utils": "./src/utils.ts"
-  },
-  "scripts": {
-    "test": "vitest",
-    "test:once": "vitest --run"
   },
   "keywords": [
     "env-spec",
