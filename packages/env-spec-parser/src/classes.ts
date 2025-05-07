@@ -1,3 +1,4 @@
+import { expand } from './expand';
 import { autoCoerce } from './helpers';
 
 export class ParsedEnvSpecDivider {
@@ -39,6 +40,20 @@ export class ParsedEnvSpecStaticValue {
     }
   }
 
+  get unescapedValue() {
+    if (typeof this.value !== 'string') return this.value;
+    let unescaped = this.value;
+    // replace escaped "$" (if not in single quotes)
+    if (this.data.quote !== "'") {
+      unescaped = unescaped.replaceAll('\\$', '$');
+    }
+    // replace escaped newlines (if not double quotes or backticks)
+    if (this.data.quote === '"' || this.data.quote === '`') {
+      unescaped = unescaped.replaceAll('\\n', '\n');
+    }
+    return unescaped;
+  }
+
   toString() {
     // TODO: smarter logic to preserve the original value
     // for example with this logic, we may see 123.0 -> 123
@@ -53,7 +68,8 @@ export class ParsedEnvSpecStaticValue {
 export class ParsedEnvSpecKeyValuePair {
   constructor(public data: {
     key: string;
-    val: ParsedEnvSpecStaticValue;
+    // eslint-disable-next-line no-use-before-define
+    val: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall;
   }) {}
 
   get key() {
@@ -61,16 +77,17 @@ export class ParsedEnvSpecKeyValuePair {
   }
 
   get value() {
-    return this.data.val.value;
+    return this.data.val;
   }
 
   toString() {
-    return `${this.key}=${this.data.val}`;
+    return `${this.key}=${this.data.val.toString()}`;
   }
 }
 export class ParsedEnvSpecFunctionArgs {
   constructor(public data: {
-    values: Array<ParsedEnvSpecStaticValue> | Array<ParsedEnvSpecKeyValuePair>;
+    // eslint-disable-next-line no-use-before-define
+    values: Array<ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecKeyValuePair>;
     _location?: any;
   }) {}
 
@@ -79,16 +96,20 @@ export class ParsedEnvSpecFunctionArgs {
   }
 
   get simplifiedValues(): Array<any> | Record<string, any> {
-    if (this.data.values.length === 0) {
-      return [];
-    } else if (this.data.values[0] instanceof ParsedEnvSpecStaticValue) {
-      return this.data.values.map((val) => val.value);
-    } else {
-      const obj = {};
-      this.data.values.forEach((val) => {
-        obj[val.key] = val.value;
+    if (this.data.values.length === 0) return [];
+    const vals = this.data.values;
+    if (vals.every((i) => i instanceof ParsedEnvSpecStaticValue)) {
+      return vals.map((val) => val.value);
+    } else if (vals.every((i) => i instanceof ParsedEnvSpecKeyValuePair)) {
+      const obj = {} as Record<string, any>;
+      vals.forEach((val) => {
+        if (val.value instanceof ParsedEnvSpecStaticValue) {
+          obj[val.key] = val.value.value;
+        }
       });
       return obj;
+    } else {
+      throw new Error('Invalid function args');
     }
   }
 
@@ -262,6 +283,8 @@ export class ParsedEnvSpecBlankLine {
 
 
 export class ParsedEnvSpecConfigItem {
+  expandedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+
   constructor(public data: {
     key: string;
     value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
@@ -289,6 +312,16 @@ export class ParsedEnvSpecConfigItem {
   get description() {
     const regularComments = this.data.preComments.filter((comment) => (comment instanceof ParsedEnvSpecComment));
     return regularComments.map((comment) => comment.contents).join('\n');
+  }
+
+  processExpansion(_opts?: {}) {
+    if (this.data.value) {
+      const expanded = expand(this.data.value);
+      if (expanded instanceof ParsedEnvSpecKeyValuePair) throw new Error('Nested key-value pair found in config item');
+      this.expandedValue = expanded;
+    } else {
+      this.expandedValue = undefined;
+    }
   }
 
   toConfigItemDef() {
@@ -372,7 +405,7 @@ export class ParsedEnvSpecFile {
    * mostly useful for comparison with other env parsers
    * */
   toSimpleObj() {
-    const obj = {};
+    const obj = {} as Record<string, any>;
     for (const item of this.contents) {
       if (item instanceof ParsedEnvSpecConfigItem) {
         if (item.value instanceof ParsedEnvSpecStaticValue) {

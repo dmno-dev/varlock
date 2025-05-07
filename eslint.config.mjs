@@ -28,9 +28,12 @@ export default tseslint.config(
       '**/dist',
       '**/dist-sea',
       '**/node_modules',
+      '**/.turbo',
       'packages/eslint-custom-rules',
-      'packages/env-spec/src/grammar.js',
+      'packages/env-spec-parser/src/grammar.js',
+      'packages/varlock-website/.astro',
       '**/.dmno/.typegen',
+      '**/*.ignore',
     ],
   },
 

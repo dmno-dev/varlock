@@ -26,7 +26,7 @@ EnvSpecFile =
 ConfigItem =
   preComments:(@(IgnoredDecoratorComment / DecoratorComment / Comment) "\n")*
   "export "? // we'll allow `export SOME_VAR=...` so we can read other env files
-  key:ConfigItemKey "=" value:ConfigItemValue?
+  _ key:ConfigItemKey _ "=" value:ConfigItemValue? // I don't like supporting the extra spaces around the key
   _
   postComment:(@(IgnoredDecoratorComment / DecoratorComment / Comment))?
   _n
@@ -121,7 +121,7 @@ DecoratorValue = FunctionCall / quotedString / unquotedStringWithoutSpaces
 
 
 FunctionCall =
-  name:FunctionName "(" args:FunctionArgs? ")"
+  name:FunctionName "(" _ args:FunctionArgs? _ ")"
   {
     return new ParsedEnvSpecFunctionCall({
       name,
@@ -144,11 +144,10 @@ FunctionArgs =
   }
 FunctionArgKeyName = $([a-zA-Z] [a-zA-Z0-9_]*)
 FunctionArgValue =
-  quotedString
-  / $([^ \n,)]+) // these unquoted are slightly different - can contain "#", cannot contain ")" or ","
-  { 
-    return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() })
-  }
+  FunctionCall
+  / quotedString
+  // slightly different here - can contain "#", cannot contain ")" or ","
+  / $([^ \n,)]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) } 
 
 Divider = 
   "#" leadingSpace:$_ contents:$([-=*#]|3..| [^\n]*) _n

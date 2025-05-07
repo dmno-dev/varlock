@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /* eslint-disable no-template-curly-in-string */
 
 // comparison test suite from dotenvx
@@ -7,6 +8,7 @@
 
 import util from 'node:util';
 import { parseEnvSpecDotEnvFile } from '../dist/index.js';
+import { simpleResolver } from '../dist/simple-resolver.js';
 const COMPARISON_SCENARIOS = {
   scenarios: [
     {
@@ -2118,7 +2120,10 @@ const COMPARISON_SCENARIOS = {
     },
     {
       scenario: '504_EXPAND_PARENTHESES',
-      env: "# https://github.com/bkeepers/dotenv/pull/526\nPARENTHESES='passwo(rd'\nPARENTHESES_EXPAND=\"$(echo \"$PARENTHESES\")\"\n",
+      // ! we do not support nested quotes like this that are not escaped
+      // but swapped with backticks and the test itself works fine
+      env: "# https://github.com/bkeepers/dotenv/pull/526\nPARENTHESES='passwo(rd'\nPARENTHESES_EXPAND=`$(echo \"$PARENTHESES\")`\n",
+      // env: "# https://github.com/bkeepers/dotenv/pull/526\nPARENTHESES='passwo(rd'\nPARENTHESES_EXPAND=\"$(echo \"$PARENTHESES\")\"\n",
       expected: '{\n  "PARENTHESES": "passwo(rd",\n  "PARENTHESES_EXPAND": "passwo(rd"\n}',
       results: {
         dotenvx: {
@@ -2161,7 +2166,8 @@ const COMPARISON_SCENARIOS = {
     },
     {
       scenario: '505_EXPAND_RETAIN_INNER_QUOTES',
-      env: '# https://github.com/bkeepers/dotenv/issues/530\n# Command substitution double-quote expansion\nRETAIN_INNER_QUOTES={"foo": "bar"}\nRETAIN_INNER_QUOTES_EXPAND="$(echo "$RETAIN_INNER_QUOTES")"\n',
+      // ! altered quote style to avoid nested unescaped quotes
+      env: '# https://github.com/bkeepers/dotenv/issues/530\n# Command substitution double-quote expansion\nRETAIN_INNER_QUOTES={"foo": "bar"}\nRETAIN_INNER_QUOTES_EXPAND=`$(echo "$RETAIN_INNER_QUOTES")`\n',
       expected: '{\n  "RETAIN_INNER_QUOTES": "{\\"foo\\": \\"bar\\"}",\n  "RETAIN_INNER_QUOTES_EXPAND": "{\\"foo\\": \\"bar\\"}"\n}',
       results: {
         dotenvx: {
@@ -2204,7 +2210,8 @@ const COMPARISON_SCENARIOS = {
     },
     {
       scenario: '506_EXPAND_SINGLE_QUOTES_RETAIN_INNER_QUOTES',
-      env: "RETAIN_INNER_QUOTES_AS_STRING='{\"foo\": \"bar\"}'\nRETAIN_INNER_QUOTES_AS_STRING_EXPAND=\"$(echo \"$RETAIN_INNER_QUOTES_AS_STRING\")\"\n",
+      // ! altered quote style to avoid nested unescaped quotes
+      env: "RETAIN_INNER_QUOTES_AS_STRING='{\"foo\": \"bar\"}'\nRETAIN_INNER_QUOTES_AS_STRING_EXPAND=`$(echo \"$RETAIN_INNER_QUOTES_AS_STRING\")`\n",
       expected: '{\n  "RETAIN_INNER_QUOTES_AS_STRING": "{\\"foo\\": \\"bar\\"}",\n  "RETAIN_INNER_QUOTES_AS_STRING_EXPAND": "{\\"foo\\": \\"bar\\"}"\n}',
       results: {
         dotenvx: {
@@ -3810,23 +3817,33 @@ const COMPARISON_SCENARIOS = {
 
 
 let failCount = 0;
+let skipCount = 0;
 let testCount = 0;
 for (const scenario of COMPARISON_SCENARIOS.scenarios) {
   const scenarioName = scenario.scenario;
-  // skip expand tests for now until it is implemented
-  if (scenarioName.includes('EXPAND') || scenarioName.includes('EVAL')) continue;
+
+  // we'll skip nested expand tests, since we do not support that
+  if (scenarioName.includes('EXPAND') && (scenarioName.includes('NESTED') || scenarioName.includes('DEEP'))) {
+    skipCount++;
+    continue;
+  }
+
   testCount++;
 
-  const input = scenario.env.replaceAll('\\n', '\n');
+  const input = scenario.env;
   try {
-    const result = await parseEnvSpecDotEnvFile(input);
-    const resultObj = result.toSimpleObj();
+    const parsedFile = parseEnvSpecDotEnvFile(input);
+    const resultObj = simpleResolver(parsedFile, {
+      env: { MACHINE: 'machine' },
+      stringify: true,
+    });
+
     const expectedObj = JSON.parse(scenario.expected
       .replaceAll('\\n', '__NEWLINE__')
       .replaceAll('\\n', '\n')
       .replaceAll('__NEWLINE__', '\\n'));
 
-    if (util.isDeepStrictEqual(result.toSimpleObj(), expectedObj)) {
+    if (util.isDeepStrictEqual(resultObj, expectedObj)) {
       // console.log('✅ MATCH');
     } else {
       failCount++;
@@ -3838,11 +3855,11 @@ for (const scenario of COMPARISON_SCENARIOS.scenarios) {
     }
   } catch (error) {
     failCount++;
-    // console.log(error);
     console.log(`\n💥 ${scenarioName} - PARSING FAILED -----------------`);
+    console.log(scenario.env);
     console.log(input);
     // console.log('ERROR', error);
   }
 }
 console.log(`${failCount} / ${testCount} scenarios have different results`);
-console.log('(skipping expand tests for now)');
+console.log(`(${skipCount} scenarios were skipped)`);
