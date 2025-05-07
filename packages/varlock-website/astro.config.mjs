@@ -37,7 +37,7 @@ export default defineConfig({
   },
   integrations: [starlight({
     title: 'varlock 🔐 🧙‍♂️',
-    social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/withastro/starlight' }],
+    social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/dmno-dev/varlock' }],
     components: {
       Head: '@/components/CustomHead.astro',
     },
@@ -87,7 +87,12 @@ export default defineConfig({
         ],
       },
     ],
-  }), mdx(), vue(), sitemap(), robotsTxt(), partytown({
+  }),
+  mdx(),
+  vue(),
+  sitemap(),
+  robotsTxt(),
+  partytown({
     // Example: Add dataLayer.push as a forwarding-event.
     config: {
       forward: ['dataLayer.push'],
