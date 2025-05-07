@@ -52,6 +52,8 @@ export default defineConfig({
         person_profiles: 'always',
         })`
       },
+      // noindex for all pages, TODO remove before launch
+      { tag: 'meta', attrs: { name: 'robots', content: 'noindex' } },
     ],
     sidebar: [
       {
