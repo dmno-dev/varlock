@@ -324,15 +324,6 @@ export class ParsedEnvSpecConfigItem {
     }
   }
 
-  toConfigItemDef() {
-    return {
-      key: this.key,
-      valueResolver: this.resolverDef,
-      description: this.description,
-      decorators: this.decoratorsObject,
-    };
-  }
-
   private get resolverDef() {
     if (!this.data.value) {
       return {

@@ -2,8 +2,11 @@ import _ from '@env-spec/utils/my-dash';
 import { ConfigItem } from './config-item';
 import { EnvGraphDataSource } from './data-source';
 
-import { ResolverDefinition } from './resolver';
+import {
+  BaseResolvers, ResolverInstance, StaticValueResolver,
+} from './resolver';
 import { BaseDataTypes, EnvGraphDataTypeFactory } from './data-types';
+import { Constructor } from '@env-spec/utils/type-utils';
 
 /** container of the overall graph and current resolution attempt / values */
 export class EnvGraph {
@@ -24,6 +27,7 @@ export class EnvGraph {
   configSchema: Record<string, ConfigItem> = {};
 
   addDataSource(dataSource: EnvGraphDataSource) {
+    dataSource.graph = this;
     this.dataSources.push(dataSource);
   }
 
@@ -41,9 +45,13 @@ export class EnvGraph {
     ));
   }
 
-  registeredResolverFunctions: Record<string, ResolverDefinition> = {};
-  registerResolver(name: string, definition: ResolverDefinition) {
-    this.registeredResolverFunctions[name] = definition;
+  registeredResolverFunctions: Record<string, Constructor<ResolverInstance>> = {};
+  registerResolver(name: string, resolverClass: Constructor<ResolverInstance>) {
+    if (name in this.registeredResolverFunctions) {
+      // TODO: do we want to allow the user to override?
+      throw new Error(`Resolver ${name} already registered`);
+    }
+    this.registeredResolverFunctions[name] = resolverClass;
   }
 
   dataTypesRegistry: Record<string, EnvGraphDataTypeFactory> = {};
@@ -52,11 +60,15 @@ export class EnvGraph {
   }
 
   constructor() {
+    // register base data types (string, number, boolean, etc)
     for (const dataType of _.values(BaseDataTypes)) {
       this.registerDataType(dataType);
     }
+    // register base resolvers (concat, ref, etc)
+    _.each(BaseResolvers, (resolverDef, resolverName) => {
+      this.registerResolver(resolverName, resolverDef);
+    });
   }
-
 
   async finishLoad() {
     // first pass to figure out an envFlag and enable/disable env-specific sources
@@ -102,10 +114,9 @@ export class EnvGraph {
             this.envFlagValue = process.env[this.envFlagKey];
           } else {
             const envFlagResolver = this.configSchema[this.envFlagKey].valueResolver;
-            if (envFlagResolver?.type === 'static') {
-              const staticEnvFlagValue = envFlagResolver.value;
-              if (!_.isString(staticEnvFlagValue)) throw new Error('expected a static string value for envFlag');
-              this.envFlagValue = staticEnvFlagValue;
+            if (envFlagResolver instanceof StaticValueResolver) {
+              if (!_.isString(envFlagResolver.staticValue)) throw new Error('expected a static string value for envFlag');
+              this.envFlagValue = envFlagResolver.staticValue;
             } else {
               throw new Error('envFlag value must be a static string');
             }
@@ -119,9 +130,11 @@ export class EnvGraph {
         }
       }
 
+      // TODO: here we'll probably want to allow registering more resolvers and data types via root decorators
+
       // create config items, or update their definitions if they already exist
       for (const itemKey in source.configItemDefs) {
-        // if a source is marekd as `ignoreNewDefs` (like the process.env source)
+        // if a source is marked as `ignoreNewDefs` (like the process.env source)
         // then only items already existing in another source will take effect
         if (source.ignoreNewDefs && !this.configSchema[itemKey]) continue;
 
