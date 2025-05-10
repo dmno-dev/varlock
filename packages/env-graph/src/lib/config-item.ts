@@ -181,6 +181,8 @@ export class ConfigItem {
       return;
     }
 
+    if (this.isResolved) throw new Error('item already resolved');
+
     try {
       // TODO: pass in some ctx object?
       this.resolvedRawValue = await this.valueResolver.resolve();

@@ -7,6 +7,8 @@ import {
 } from './resolver';
 import { BaseDataTypes, EnvGraphDataTypeFactory } from './data-types';
 import { Constructor } from '@env-spec/utils/type-utils';
+import { findGraphCycles, GraphAdjacencyList } from './graph-utils';
+import { ResolutionError, SchemaError } from './errors';
 
 /** container of the overall graph and current resolution attempt / values */
 export class EnvGraph {
@@ -147,23 +149,106 @@ export class EnvGraph {
       // TODO: here we would probably want to check for `@import` statements, and load those sources as well
     }
 
-
+    // process items - this adds dataTypes, checks resolver args, and dependencies
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
       await item.process();
-      if (item.schemaErrors.length > 0) {
-        console.log(itemKey, item.schemaErrors.map((e) => e.message).join('\n'));
-      } else {
-        // console.log(itemKey, item.dataType!.name);
+    }
+
+    // check for cycles in resolver dependencies
+    const cycles = findGraphCycles(this.graphAdjacencyList);
+    for (const cycleItemKeys of cycles) {
+      for (const itemKey of cycleItemKeys) {
+        const item = this.configSchema[itemKey];
+        item.schemaErrors.push(
+          new SchemaError(
+            cycleItemKeys.length === 1
+              ? 'Item cannot have dependency on itself'
+              : `Dependency cycle detected: (${cycleItemKeys.join(', ')})`,
+          ),
+        );
       }
     }
   }
 
-  async resolveEnvValues() {
+  get graphAdjacencyList() {
+    const adjList: GraphAdjacencyList = {};
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
-      await item.resolve();
+      adjList[itemKey] = item.valueResolver?.deps || [];
     }
+    return adjList;
+  }
+
+  async resolveEnvValues(): Promise<void> {
+    const adjList = this.graphAdjacencyList;
+    const reverseAdjList: Record<string, Array<string>> = {};
+    for (const itemKey in adjList) {
+      const itemDeps = adjList[itemKey];
+      for (const dep of itemDeps) {
+        reverseAdjList[dep] ??= [];
+        reverseAdjList[dep].push(itemKey);
+      }
+    }
+
+    // obj tracking items left to resolve and if we've started resolving them
+    // - true = in progress
+    // - false = not yet started
+    // - items are removed when completed
+    const itemsToResolveStatus = _.mapValues(this.configSchema, () => false);
+
+    // code is a bit awkward here because we are resolving items in parallel
+    // and need to continue resolving dependent items as each finishes
+
+    const deferred = new Promise<void>((resolve, reject) => {
+      const markItemCompleted = (itemKey: string) => {
+        delete itemsToResolveStatus[itemKey];
+        if (reverseAdjList[itemKey]) {
+          // eslint-disable-next-line no-use-before-define
+          reverseAdjList[itemKey].forEach(resolveItem);
+        }
+        if (_.keys(itemsToResolveStatus).length === 0) resolve();
+      };
+
+      const resolveItem = async (itemKey: string) => {
+        // due to cycles and how we attempt items when each of their deps finishes
+        // we may arrive hit this multiple times for an item, so we need to bail in some cases
+
+        // true means items is already in progress, not present means it has been resolved
+        if (itemsToResolveStatus[itemKey] !== false) return;
+
+        const item = this.configSchema[itemKey];
+
+        // if item is already invalid, we are done
+        if (item.errors.length) {
+          markItemCompleted(itemKey);
+          return;
+        }
+
+        for (const depKey of adjList[itemKey]) {
+          const depItem = this.configSchema[depKey];
+          // if a dependency is invalid, we mark the item as invalid too
+          if (depItem.validationState === 'error') {
+            item.resolutionError = new ResolutionError(`Dependency ${depKey} is invalid`);
+            markItemCompleted(itemKey);
+            return;
+          // if any dependency is not yet resolved, we need to wait for it
+          } else if (depKey in itemsToResolveStatus) {
+            return;
+          }
+        }
+
+        // mark item as beginning to actually resolve
+        itemsToResolveStatus[itemKey] = true; // true means in progress
+        await item.resolve();
+        markItemCompleted(itemKey);
+      };
+
+      for (const itemKey in this.configSchema) {
+        resolveItem(itemKey);
+      }
+    });
+    return deferred;
   }
 
   getResolvedEnvObject() {

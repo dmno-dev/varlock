@@ -18,15 +18,6 @@ export type ResolvedValue =
 
 // eslint-disable-next-line no-use-before-define
 type ResolverFunctionArgs = Array<ResolverInstance> | Record<string, ResolverInstance>;
-
-// type ResolverDef = {
-//   icon: string;
-//   label: string;
-//   resolve: (ctx: any) => Promise<ConfigValue>;
-//   process?: (ctx: any) => void | (() => void);
-//   inferredType?: string;
-// };
-
 export abstract class ResolverInstance {
   constructor(readonly fnArgs: ResolverFunctionArgs) {}
 
@@ -96,19 +87,10 @@ export abstract class ResolverInstance {
   }
 }
 
-// export type ResolverInstanceFactory = (args: ResolverFunctionArgs) => ResolverInstance;
-
-// function createResolver(defFn: (a: ResolverFunctionArgs) => ResolverDef): ResolverInstanceFactory {
-//   return (args: ResolverFunctionArgs) => {
-//     const def = defFn(args);
-//     return new ResolverInstance(def);
-//   };
-// }
-
-
 // Built-in resolver fns ---------------------------------------------------------
 
 // special resolver class that just holds a static value
+// only used internally, not via `static(x)`
 export class StaticValueResolver extends ResolverInstance {
   constructor(readonly staticValue: ResolvedValue) {
     super([]);
@@ -122,6 +104,8 @@ export class StaticValueResolver extends ResolverInstance {
   protected async _process() {}
 }
 
+// special resolver class that represents an error when an unknown resolver is used
+// only used internally, not via `error(x)`
 export class ErrorResolver extends ResolverInstance {
   constructor(err: SchemaError) {
     super([]);
@@ -155,7 +139,6 @@ export class ConcatResolver extends ResolverInstance {
     // maybe a subclass that already handles the args-must-be-an-array case?
     // or could be an option on the base class? but need to figure out TS
     if (!Array.isArray(this.fnArgs)) {
-      console.log(this.fnArgs);
       throw new Error('concat() expects an array of arguments, not a key-value object');
     }
 
@@ -265,23 +248,7 @@ export class RefResolver extends ResolverInstance {
   }
 }
 
-
-// const RefResolver = createResolver({
-//   label: 'ref',
-//   icon: 'mdi-light:content-duplicate',
-//   resolve: async (ctx) => {
-//     return 'ref';
-//   },
-// });
-
-// const EvalResolver = createResolver({
-//   label: 'eval',
-//   icon: 'iconoir:terminal',
-//   resolve: async (ctx) => {
-//     return 'eval';
-//   },
-// });
-
+// these are the resolvers which are accessible to end-users as fn calls
 export const BaseResolvers: Record<string, Constructor<ResolverInstance>> = {
   concat: ConcatResolver,
   fallback: FallbackResolver,
