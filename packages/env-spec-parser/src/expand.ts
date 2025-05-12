@@ -131,28 +131,29 @@ function expandHelper(
 ): ParsedEnvSpecValueNode {
   // if function call, expand each arg
   if (val instanceof ParsedEnvSpecFunctionCall) {
-    if (val.name === 'concat') {
-      // expand each arg, and then flatten unnecessery nested concat fns
-      const newConcatArgs = [] as Array<ParsedEnvSpecValueNode>;
-      val.data.args.values.forEach((v) => {
-        const expandedArg = expandHelper(v, expandStaticFn);
-        if (expandedArg instanceof ParsedEnvSpecFunctionCall && expandedArg.name === 'concat') {
-          newConcatArgs.push(...expandedArg.data.args.values);
-        } else {
-          newConcatArgs.push(expandedArg);
-        }
-      });
-      // TODO: could simplify and flatten...
-      return new ParsedEnvSpecFunctionCall({
-        name: 'concat',
-        args: new ParsedEnvSpecFunctionArgs({
-          values: newConcatArgs,
-        }),
-      });
-    } else {
-      // TODO: expand in other fns?
-      return val;
-    }
+    const fnName = val.name;
+    // expand each arg, and then flatten unnecessery nested concat fns
+    const newConcatArgs = [] as Array<ParsedEnvSpecValueNode>;
+    val.data.args.values.forEach((v) => {
+      const expandedArg = expandHelper(v, expandStaticFn);
+      // special case for concat so we flatten unnecessery nested concat fns
+      if (
+        fnName === 'concat'
+        && expandedArg instanceof ParsedEnvSpecFunctionCall
+        && expandedArg.name === 'concat'
+      ) {
+        newConcatArgs.push(...expandedArg.data.args.values);
+      } else {
+        newConcatArgs.push(expandedArg);
+      }
+    });
+
+    return new ParsedEnvSpecFunctionCall({
+      name: fnName,
+      args: new ParsedEnvSpecFunctionArgs({
+        values: newConcatArgs,
+      }),
+    });
   // if key-value pair, expand value
   } else if (val instanceof ParsedEnvSpecKeyValuePair) {
     const expandedVal = expandHelper(val.value, expandStaticFn);

@@ -52,7 +52,10 @@ function filter<T>(array: Array<T>, fn: (item: T) => boolean) {
 
 function each<T>(
   array: Array<T> | Record<string, T>,
-  fn: (item: T, key?: string) => void,
+  fn: (
+    ((item: T, key: string) => void) |
+    ((item: T) => void)
+  ),
 ) {
   if (Array.isArray(array)) {
     array.forEach((item, index) => fn(item, String(index)));
@@ -65,6 +68,9 @@ function castArray<T>(value: T | Array<T>) {
   return Array.isArray(value) ? value : [value];
 }
 
+function mapValues<T, U>(obj: Record<string, T>, fn: (value: T) => U) {
+  return Object.fromEntries(Object.entries(obj).map(([key, value]) => [key, fn(value)]));
+}
 
 
 const _ = {
@@ -77,6 +83,7 @@ const _ = {
   filter,
   each,
   castArray,
+  mapValues,
   // type checks
   isString,
   isBoolean,

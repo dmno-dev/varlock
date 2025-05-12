@@ -3,6 +3,7 @@ import { DotEnvFileDataSource, EnvGraph } from '@env-spec/env-graph';
 import {
   envSpecUpdater, ParsedEnvSpecFile, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
 } from '@env-spec/parser';
+import { StaticValueResolver } from '../../../../env-graph/src/lib/resolver';
 
 
 const PUBLIC_PREFIXES = [
@@ -112,9 +113,9 @@ export function ensureAllItemsExist(envGraph: EnvGraph, schemaFile: ParsedEnvSpe
       addedItemKeys.push(itemKey);
       envSpecUpdater.injectFromStr(schemaFile, [`${itemKey}=`].join('\n'));
       const itemValue = (
-        item.valueResolver?.type === 'static' && item.valueResolver.value?.toString()
+        item.valueResolver instanceof StaticValueResolver && item.valueResolver.staticValue
       ) || '';
-      inferItemDecorators(schemaFile, itemKey, itemValue);
+      inferItemDecorators(schemaFile, itemKey, String(itemValue));
     }
   }
 }

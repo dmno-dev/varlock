@@ -1,12 +1,21 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {
-  envSpecUpdater, ParsedEnvSpecDecorator, ParsedEnvSpecFile, parseEnvSpecDotEnvFile,
-} from '@env-spec/parser';
+
+import _ from '@env-spec/utils/my-dash';
 import { tryCatch } from '@env-spec/utils/try-catch';
 import { checkIsFileGitIgnored } from '@env-spec/utils/git-utils';
-import { ConfigItemDef } from './config-item';
+import {
+  ParsedEnvSpecDecorator, ParsedEnvSpecFile, ParsedEnvSpecFunctionCall,
+  ParsedEnvSpecKeyValuePair, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
+} from '@env-spec/parser';
 
+import { ConfigItemDef } from './config-item';
+import {
+  ErrorResolver, ResolverInstance, StaticValueResolver,
+} from './resolver';
+import { EnvGraph } from './env-graph';
+
+import { SchemaError } from './errors';
 
 const ENV_FILE_EXTENSIONS = [
   'js',
@@ -46,6 +55,9 @@ type DataSourceType = keyof typeof DATA_SOURCE_TYPES;
 export abstract class EnvGraphDataSource {
   static DATA_SOURCE_TYPES = DATA_SOURCE_TYPES;
 
+  // reference back to the graph
+  graph?: EnvGraph;
+
   type = 'values' as DataSourceType;
   applyForEnv?: string;
   disabled?: boolean = false;
@@ -65,8 +77,8 @@ export abstract class EnvGraphDataSource {
   getStaticValues() {
     const obj: Record<string, string> = {};
     for (const [key, def] of Object.entries(this.configItemDefs)) {
-      if (def.valueResolver?.type === 'static') {
-        obj[key] = def.valueResolver.value?.toString() || '';
+      if (def.resolver instanceof StaticValueResolver) {
+        obj[key] = String(def.resolver.staticValue ?? '');
       }
     }
     return obj;
@@ -88,11 +100,7 @@ export class ProcessEnvDataSource extends EnvGraphDataSource {
 
     for (const itemKey of Object.keys(process.env)) {
       this.configItemDefs[itemKey] = {
-        key: itemKey,
-        valueResolver: {
-          type: 'static',
-          value: process.env[itemKey],
-        },
+        resolver: new StaticValueResolver(process.env[itemKey]),
       };
     }
   }
@@ -127,10 +135,20 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
     return (this.constructor as typeof FileBasedDataSource).validFileExtensions;
   }
 
-  constructor(fullPath: string) {
+  constructor(fullPath: string, opts?: {
+    overrideContents?: string;
+    overrideGitIgnored?: boolean;
+  }) {
     super();
+
     this.fullPath = fullPath;
     this.fileName = path.basename(fullPath);
+
+    // easy way to allow tests to override contents or other non-standard ways of loading content
+    if (opts?.overrideContents) {
+      this.rawContents = opts.overrideContents;
+      this.isGitIgnored = opts.overrideGitIgnored;
+    }
 
     // we will infer some properties from the file name
     // so we may want to provide a way to opt out of this to set them manually
@@ -176,9 +194,11 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
 
   // no async constructors... :(
   async finishInit() {
-    // TODO: check perf on exec based check, possibly switch to `ignored` package
-    this.isGitIgnored = await checkIsFileGitIgnored(this.fullPath);
-    this.rawContents = await fs.readFile(this.fullPath, 'utf8');
+    if (!this.rawContents) {
+      // TODO: check perf on exec based check, possibly switch to `ignored` package
+      this.isGitIgnored = await checkIsFileGitIgnored(this.fullPath);
+      this.rawContents = await fs.readFile(this.fullPath, 'utf8');
+    }
     await this._parseContents();
   }
   abstract _parseContents(): Promise<void>;
@@ -190,6 +210,39 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
 
 
   parsedFile?: ParsedEnvSpecFile;
+
+  private convertParserValueToResolvers(
+    value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined,
+  ): ResolverInstance {
+    if (!this.graph) throw new Error('expected graph to be set');
+
+    if (value === undefined) {
+      return new StaticValueResolver(undefined);
+    } else if (value instanceof ParsedEnvSpecStaticValue) {
+      return new StaticValueResolver(value.unescapedValue);
+    } else if (value instanceof ParsedEnvSpecFunctionCall) {
+      const ResolverFnClass = this.graph.registeredResolverFunctions[value.name];
+      if (!ResolverFnClass) {
+        return new ErrorResolver(new SchemaError(`Unknown resolver function: ${value.name}()`));
+      }
+      const argsFromParser = value.data.args.values;
+      if (argsFromParser.length && argsFromParser.every((arg) => arg instanceof ParsedEnvSpecKeyValuePair)) {
+        const argsAsResolversObj = {} as Record<string, ResolverInstance>;
+        for (const arg of argsFromParser) {
+          argsAsResolversObj[arg.key] = this.convertParserValueToResolvers(arg.value);
+        }
+        return new ResolverFnClass(argsAsResolversObj);
+      } else {
+        const argsAsResolversArray = argsFromParser.map((arg) => {
+          if (arg instanceof ParsedEnvSpecKeyValuePair) throw new Error('KeyValuePair not supported as a function argument');
+          return this.convertParserValueToResolvers(arg);
+        });
+        return new ResolverFnClass(argsAsResolversArray);
+      }
+    } else {
+      throw new Error('Unknown value typexxx');
+    }
+  }
 
   async _parseContents() {
     const rawContents = this.rawContents!;
@@ -213,9 +266,18 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
     // copying the object just in case
     this.decorators = this.parsedFile.decoratorsObject;
 
+    if (!this.graph) throw new Error('expected graph to be set');
+
     // TODO: if the file is a .env.example file, we should interpret the values as examples
     for (const item of this.parsedFile.configItems) {
-      this.configItemDefs[item.key] = item.toConfigItemDef();
+      // triggers $ expansion (eg: "${VAR}" => `ref(VAR)`)
+      item.processExpansion();
+
+      this.configItemDefs[item.key] = {
+        resolver: this.convertParserValueToResolvers(item.expandedValue!),
+        description: item.description,
+        decorators: item.decoratorsObject,
+      };
     }
   }
 }

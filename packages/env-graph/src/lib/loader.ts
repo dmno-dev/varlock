@@ -29,8 +29,9 @@ export async function loadEnvGraph(opts?: {
 
   for (const envFilePath of envFilePaths) {
     const fileDataSource = new DotEnvFileDataSource(envFilePath);
-    await fileDataSource.finishInit();
+    // must call before finishInit so the dataSource has a reference to the graph
     graph.addDataSource(fileDataSource);
+    await fileDataSource.finishInit();
   }
   graph.addDataSource(new ProcessEnvDataSource());
 

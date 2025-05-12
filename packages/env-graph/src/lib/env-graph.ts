@@ -2,8 +2,13 @@ import _ from '@env-spec/utils/my-dash';
 import { ConfigItem } from './config-item';
 import { EnvGraphDataSource } from './data-source';
 
-import { ResolverDefinition } from './resolver';
+import {
+  BaseResolvers, ResolverInstance, StaticValueResolver,
+} from './resolver';
 import { BaseDataTypes, EnvGraphDataTypeFactory } from './data-types';
+import { Constructor } from '@env-spec/utils/type-utils';
+import { findGraphCycles, GraphAdjacencyList } from './graph-utils';
+import { ResolutionError, SchemaError } from './errors';
 
 /** container of the overall graph and current resolution attempt / values */
 export class EnvGraph {
@@ -24,6 +29,7 @@ export class EnvGraph {
   configSchema: Record<string, ConfigItem> = {};
 
   addDataSource(dataSource: EnvGraphDataSource) {
+    dataSource.graph = this;
     this.dataSources.push(dataSource);
   }
 
@@ -41,9 +47,13 @@ export class EnvGraph {
     ));
   }
 
-  registeredResolverFunctions: Record<string, ResolverDefinition> = {};
-  registerResolver(name: string, definition: ResolverDefinition) {
-    this.registeredResolverFunctions[name] = definition;
+  registeredResolverFunctions: Record<string, Constructor<ResolverInstance>> = {};
+  registerResolver(name: string, resolverClass: Constructor<ResolverInstance>) {
+    if (name in this.registeredResolverFunctions) {
+      // TODO: do we want to allow the user to override?
+      throw new Error(`Resolver ${name} already registered`);
+    }
+    this.registeredResolverFunctions[name] = resolverClass;
   }
 
   dataTypesRegistry: Record<string, EnvGraphDataTypeFactory> = {};
@@ -52,11 +62,15 @@ export class EnvGraph {
   }
 
   constructor() {
+    // register base data types (string, number, boolean, etc)
     for (const dataType of _.values(BaseDataTypes)) {
       this.registerDataType(dataType);
     }
+    // register base resolvers (concat, ref, etc)
+    _.each(BaseResolvers, (resolverDef, resolverName) => {
+      this.registerResolver(resolverName, resolverDef);
+    });
   }
-
 
   async finishLoad() {
     // first pass to figure out an envFlag and enable/disable env-specific sources
@@ -102,10 +116,9 @@ export class EnvGraph {
             this.envFlagValue = process.env[this.envFlagKey];
           } else {
             const envFlagResolver = this.configSchema[this.envFlagKey].valueResolver;
-            if (envFlagResolver?.type === 'static') {
-              const staticEnvFlagValue = envFlagResolver.value;
-              if (!_.isString(staticEnvFlagValue)) throw new Error('expected a static string value for envFlag');
-              this.envFlagValue = staticEnvFlagValue;
+            if (envFlagResolver instanceof StaticValueResolver) {
+              if (!_.isString(envFlagResolver.staticValue)) throw new Error('expected a static string value for envFlag');
+              this.envFlagValue = envFlagResolver.staticValue;
             } else {
               throw new Error('envFlag value must be a static string');
             }
@@ -119,9 +132,11 @@ export class EnvGraph {
         }
       }
 
+      // TODO: here we'll probably want to allow registering more resolvers and data types via root decorators
+
       // create config items, or update their definitions if they already exist
       for (const itemKey in source.configItemDefs) {
-        // if a source is marekd as `ignoreNewDefs` (like the process.env source)
+        // if a source is marked as `ignoreNewDefs` (like the process.env source)
         // then only items already existing in another source will take effect
         if (source.ignoreNewDefs && !this.configSchema[itemKey]) continue;
 
@@ -134,23 +149,106 @@ export class EnvGraph {
       // TODO: here we would probably want to check for `@import` statements, and load those sources as well
     }
 
-
+    // process items - this adds dataTypes, checks resolver args, and dependencies
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
       await item.process();
-      if (item.schemaErrors.length > 0) {
-        console.log(itemKey, item.schemaErrors.map((e) => e.message).join('\n'));
-      } else {
-        // console.log(itemKey, item.dataType!.name);
+    }
+
+    // check for cycles in resolver dependencies
+    const cycles = findGraphCycles(this.graphAdjacencyList);
+    for (const cycleItemKeys of cycles) {
+      for (const itemKey of cycleItemKeys) {
+        const item = this.configSchema[itemKey];
+        item.schemaErrors.push(
+          new SchemaError(
+            cycleItemKeys.length === 1
+              ? 'Item cannot have dependency on itself'
+              : `Dependency cycle detected: (${cycleItemKeys.join(', ')})`,
+          ),
+        );
       }
     }
   }
 
-  async resolveEnvValues() {
+  get graphAdjacencyList() {
+    const adjList: GraphAdjacencyList = {};
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
-      await item.resolve();
+      adjList[itemKey] = item.valueResolver?.deps || [];
     }
+    return adjList;
+  }
+
+  async resolveEnvValues(): Promise<void> {
+    const adjList = this.graphAdjacencyList;
+    const reverseAdjList: Record<string, Array<string>> = {};
+    for (const itemKey in adjList) {
+      const itemDeps = adjList[itemKey];
+      for (const dep of itemDeps) {
+        reverseAdjList[dep] ??= [];
+        reverseAdjList[dep].push(itemKey);
+      }
+    }
+
+    // obj tracking items left to resolve and if we've started resolving them
+    // - true = in progress
+    // - false = not yet started
+    // - items are removed when completed
+    const itemsToResolveStatus = _.mapValues(this.configSchema, () => false);
+
+    // code is a bit awkward here because we are resolving items in parallel
+    // and need to continue resolving dependent items as each finishes
+
+    const deferred = new Promise<void>((resolve, reject) => {
+      const markItemCompleted = (itemKey: string) => {
+        delete itemsToResolveStatus[itemKey];
+        if (reverseAdjList[itemKey]) {
+          // eslint-disable-next-line no-use-before-define
+          reverseAdjList[itemKey].forEach(resolveItem);
+        }
+        if (_.keys(itemsToResolveStatus).length === 0) resolve();
+      };
+
+      const resolveItem = async (itemKey: string) => {
+        // due to cycles and how we attempt items when each of their deps finishes
+        // we may arrive hit this multiple times for an item, so we need to bail in some cases
+
+        // true means items is already in progress, not present means it has been resolved
+        if (itemsToResolveStatus[itemKey] !== false) return;
+
+        const item = this.configSchema[itemKey];
+
+        // if item is already invalid, we are done
+        if (item.errors.length) {
+          markItemCompleted(itemKey);
+          return;
+        }
+
+        for (const depKey of adjList[itemKey]) {
+          const depItem = this.configSchema[depKey];
+          // if a dependency is invalid, we mark the item as invalid too
+          if (depItem.validationState === 'error') {
+            item.resolutionError = new ResolutionError(`Dependency ${depKey} is invalid`);
+            markItemCompleted(itemKey);
+            return;
+          // if any dependency is not yet resolved, we need to wait for it
+          } else if (depKey in itemsToResolveStatus) {
+            return;
+          }
+        }
+
+        // mark item as beginning to actually resolve
+        itemsToResolveStatus[itemKey] = true; // true means in progress
+        await item.resolve();
+        markItemCompleted(itemKey);
+      };
+
+      for (const itemKey in this.configSchema) {
+        resolveItem(itemKey);
+      }
+    });
+    return deferred;
   }
 
   getResolvedEnvObject() {

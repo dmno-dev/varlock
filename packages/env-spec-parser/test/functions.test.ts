@@ -132,4 +132,8 @@ describe('complex cases', functionValueTests({
     input: 'FOO=foo\nBAR=bar\nITEM=pre-${FOO}-$BAR-$(echo baz)-post',
     expected: { ITEM: 'pre-foo-bar-baz-post' },
   },
+  'expansion nested in function': {
+    input: 'OTHERVAL=other\nITEM=fallback("", "${OTHERVAL}")',
+    expected: { ITEM: 'other' },
+  },
 }));

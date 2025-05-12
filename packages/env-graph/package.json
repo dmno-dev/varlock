@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "description": "Tools to load a graph of related env files",
+  "scripts": {
+    "test": "vitest"
+  },
   "files": ["src"],
   "type": "module",
   "main": "./src/index.ts",

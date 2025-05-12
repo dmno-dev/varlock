@@ -90,8 +90,8 @@ const VALIDATION_STATE_COLORS = {
 
 export function getItemSummary(item: ConfigItem) {
   const summary: Array<string> = [];
-  const icon = item.coercionError?.icon || item.resolutionError?.icon || item?.validationErrors?.[0]?.icon || '✅';
-  // item.resolvedValue === undefined ? '✅' : '✅';
+  const itemErrors = item.errors;
+  const icon = itemErrors.length ? itemErrors[0].icon : '✅';
   const isSensitive = item.isSensitive;
   const isRequired = item.isRequired;
   summary.push(joinAndCompact([
@@ -121,11 +121,10 @@ export function getItemSummary(item: ConfigItem) {
   //   summary.push(`      ${overrideNote}`);
   // }
 
-  const errors = _.compact([item.coercionError, item.resolutionError, ...item.validationErrors || []]);
-  errors?.forEach((err) => {
+  itemErrors?.forEach((err) => {
     summary.push(ansis[err.isWarning ? 'yellow' : 'red'](`   - ${err.isWarning ? '[WARNING] ' : ''}${err.message}`));
 
-    // We may want to standardize here how we show parse error locations and stack info
+    // TODO: standardize here how we show parse error locations and stack info?
 
     // summary.push(...err.cleanedStack || '');
     if (err.tip) {

@@ -11,22 +11,12 @@ import {
 } from './errors';
 
 import { EnvGraphDataSource } from './data-source';
-
-type StaticValue = string | number | boolean | undefined;
-
-type ConfigItemResolver = {
-  type: 'static',
-  value: StaticValue;
-} | {
-  type: 'function',
-  functionName: string;
-  functionArgs: Array<StaticValue> | Record<string, StaticValue>;
-};
+import { ResolvedValue, ResolverInstance } from './resolver';
 
 export type ConfigItemDef = {
-  key: string;
   description?: string;
-  valueResolver?: ConfigItemResolver;
+  resolver?: ResolverInstance;
+  // TODO: translate parser decorator class into our own generic version
   decorators?: Record<string, ParsedEnvSpecDecorator>;
 };
 export type ConfigItemDefAndSource = {
@@ -37,7 +27,7 @@ export type ConfigItemDefAndSource = {
 
 export class ConfigItem {
   constructor(
-    private readonly envGraph: EnvGraph,
+    readonly envGraph: EnvGraph,
     readonly key: string,
   ) {
     // nothing to do here?
@@ -57,7 +47,7 @@ export class ConfigItem {
 
   get valueResolver() {
     for (const def of this.defs) {
-      if (def.itemDef.valueResolver) return def.itemDef.valueResolver;
+      if (def.itemDef.resolver) return def.itemDef.resolver;
     }
   }
 
@@ -81,8 +71,16 @@ export class ConfigItem {
 
   dataType?: EnvGraphDataType;
   schemaErrors: Array<SchemaError> = [];
+  get resolverSchemaErrors() {
+    return this.valueResolver?.schemaErrors || [];
+  }
 
   async process() {
+    // process resolvers
+    for (const def of this.defs) {
+      await def.itemDef.resolver?.process(this);
+    }
+
     const typeDecoratorValue = this.getDecoratorValue('type');
     let dataTypeName: string | undefined;
     let dataTypeArgs: any;
@@ -93,18 +91,12 @@ export class ConfigItem {
       dataTypeArgs = typeDecoratorValue.simplifiedArgs;
     }
 
-    // if no type is set explicitly, we can try to infer the type from a static value
-    // (maybe we only want to do this if the value is set in a schema file? or if all types match?)
+    // if no type is set explicitly, we can try to use inferred type from the resolver
+    // currently only static value resolver does this - but you can imagine another resolver knowing the type ahead of time
+    // (maybe we only want to do this if the value is set in a schema file? or if all inferred types match?)
     if (!dataTypeName) {
-      if (this.valueResolver?.type === 'static') {
-        const staticValue = this.valueResolver.value;
-        if (typeof staticValue === 'string') {
-          dataTypeName = 'string';
-        } else if (typeof staticValue === 'number') {
-          dataTypeName = 'number';
-        } else if (typeof staticValue === 'boolean') {
-          dataTypeName = 'boolean';
-        }
+      if (this.valueResolver?.inferredType) {
+        dataTypeName = this.valueResolver.inferredType;
       }
     }
 
@@ -147,22 +139,27 @@ export class ConfigItem {
   }
 
 
-  get validationState(): 'warn' | 'error' | 'valid' {
-    if (this.schemaErrors.length) return 'error';
-    const errors = _.compact([
-      this.coercionError,
+  get errors() {
+    return _.compact([
+      ...this.schemaErrors || [],
+      ...this.resolverSchemaErrors || [],
       this.resolutionError,
+      this.coercionError,
       ...this.validationErrors || [],
     ]);
+  }
+
+  get validationState(): 'warn' | 'error' | 'valid' {
+    const errors = this.errors;
     if (!errors.length) return 'valid';
     return _.some(errors, (e) => !e.isWarning) ? 'error' : 'warn';
   }
 
   /** resolved value _before coercion_ */
-  resolvedRawValue?: StaticValue;
+  resolvedRawValue?: ResolvedValue;
   isResolved = false;
   /** resolved value after coercion */
-  resolvedValue?: StaticValue;
+  resolvedValue?: ResolvedValue;
   isValidated = false;
 
   resolutionError?: ResolutionError;
@@ -174,27 +171,27 @@ export class ConfigItem {
   }
 
   async resolve() {
-    const resolver = this.valueResolver;
-    if (!resolver) {
+    // bail early if we have a schema error
+    if (this.schemaErrors.length) return;
+    if (this.resolverSchemaErrors.length) return;
+
+    // not sure in what cases this may happen - we'll likely always have a resolver?
+    if (!this.valueResolver) {
       this.resolvedRawValue = undefined;
-    } else if (resolver.type === 'static') {
-      this.resolvedRawValue = resolver.value;
-    } else if (resolver.type === 'function') {
-      const registeredResolver = this.envGraph.registeredResolverFunctions[resolver.functionName];
-      if (!registeredResolver) {
-        this.resolutionError = new ResolutionError(`resolvers function not registered: ${resolver.functionName}`);
-      } else {
-        try {
-          const resolverInstance = registeredResolver(resolver.functionArgs);
-          this.resolvedRawValue = (await resolverInstance.resolve({})) as any;
-        } catch (err) {
-          this.resolutionError = new ResolutionError(`error resolving value: ${err}`);
-          this.resolutionError.cause = err;
-        }
-      }
+      return;
     }
 
-    // bail if we have an error already
+    if (this.isResolved) throw new Error('item already resolved');
+
+    try {
+      // TODO: pass in some ctx object?
+      this.resolvedRawValue = await this.valueResolver.resolve();
+    } catch (err) {
+      this.resolutionError = new ResolutionError(`error resolving value: ${err}`);
+      this.resolutionError.cause = err;
+    }
+
+    // bail if we have an resolution error
     if (this.resolutionError) return;
 
     this.isResolved = true;
