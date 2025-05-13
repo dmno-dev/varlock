@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 
 const VARLOCK_DIR = 'packages/varlock';
 const DIST_DIR = './dist-sea';
@@ -11,6 +12,9 @@ if (!fs.existsSync(`${VARLOCK_DIR}/${executableCjsFile}`)) {
 }
 
 const VERSION = process.env.RELEASE_VERSION;
+if (!VERSION) {
+  throw new Error('RELEASE_VERSION env var must be set');
+}
 
 // see https://github.com/yao-pkg/pkg
 const NODE_RANGE = 'node22';
@@ -40,19 +44,23 @@ for (const pkgTarget of TARGETS) {
   console.log(`Pkg-ing target: ${pkgTarget}`);
   const outputName = pkgTarget.replace('linuxstatic', 'linux');
   const targetPkgDir = `${DIST_DIR}/${outputName}`;
-  const targetBinName = `varlock${outputName.startsWith('windows') ? '.exe' : ''}`;
+  const targetBinName = `varlock${outputName.startsWith('win-') ? '.exe' : ''}`;
 
   // run pkg to build binary
   exec(`./node_modules/.bin/pkg ${executableCjsFile} --public-packages "*" --public --target ${NODE_RANGE}-${pkgTarget} --output ${targetPkgDir}/${targetBinName}`);
 
   // create .tar.gz file
-  const archiveName = `varlock-${VERSION}-${outputName}.tar.gz`;
-  exec(`tar --gzip -cf ${DIST_DIR}/${archiveName} -C ${targetPkgDir}/ .`);
-
+  let archiveName = `varlock-${VERSION}-${outputName}.tar.gz`;
+  let archiveCmd = `tar --gzip -cf ${DIST_DIR}/${archiveName} -C ${targetPkgDir}/ .`;
   // create .zip for windows only
-  if (outputName.startsWith('windows')) {
-    const zipName = `varlock-${VERSION}-${outputName}.zip`;
-    exec(`zip -j ${DIST_DIR}/${zipName} ${targetPkgDir}/${targetBinName}`);
+  if (outputName.startsWith('win-')) {
+    archiveName = `varlock-${VERSION}-${outputName}.zip`;
+    archiveCmd = `zip -j ${DIST_DIR}/${archiveName} ${targetPkgDir}/${targetBinName}`;
   }
+
+  exec(archiveCmd);
+  execSync(`sha256sum ${archiveName} >> checksums.txt`, {
+    cwd: path.join(VARLOCK_DIR, DIST_DIR),
+  });
 }
 
