@@ -3,6 +3,7 @@ name: Release varlock CLI binaries
 # normal CI release workflow handles publishing multiple packages from the monorepo
 # this workflow triggered by a release `varlock@x.y.z`
 on:
+  workflow_dispatch:
   release:
     types: [published]
     tags:
@@ -12,7 +13,6 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
   release:
-    # if: startsWith(github.ref, 'refs/tags/varlock@') && contains(github.ref, '.')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,44 +32,69 @@ jobs:
       # ------------------------------------------------------------
 
       - name: get version from release tag
+        if: ${{ github.event_name == 'release' }}
         run: |
           # get the full release tag name - ex: varlock@1.2.3
           echo "RELEASE_TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
           # get the version only from the tag - ex: 1.2.3
           echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/varlock@}" >> $GITHUB_ENV
+      
+      - name: use test version (x.x.x)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "RELEASE_TAG=varlock@x.x.x" >> $GITHUB_ENV
+          echo "RELEASE_VERSION=x.x.x" >> $GITHUB_ENV
 
-      # necessary to bundle macos binaries from linux machine
+      # necessary to bundle macos binaries (from linux)
       - name: install ldid
         uses: MOZGIII/install-ldid-action@v1
         with:
-          tag: v2.1.5-procursus2
+          tag: v2.1.5-procursus7
+      # necessary for cross-arch linux binaries
+      - name: Install qemu-user-binfmt
+        run: |
+          # sudo apt-get update
+          sudo apt-get install --assume-yes qemu-user-binfmt
 
+      - name: build libs
+        run: pnpm build:libs
       - name: build SEA dist files (CJS, no deps)
         run: pnpm run --filter varlock build:sea
 
-      - name: pkg binaries
-        run: node scripts/build-binaries.js
-      
+      - name: Restore pkg Node.js base binaries
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.pkg-cache
+          key: pkg-nodejs-base-binaries-node-22
+      - name: build varlock SEA binaries (pkg)
+        run: PKG_CACHE_PATH=~/.pkg-cache node scripts/build-binaries.js
+      - name: Cache pkg Node.js base binaries
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.pkg-cache
+          key: pkg-nodejs-base-binaries-node-22
       - name: add binaries to GH release
-        run: gh release upload ${{ env.RELEASE_TAG }} packages/varlock/dist-sea/*.{tar.gz,zip}
-
-      - name: Add release checksums
-        uses: wangzuo/action-release-checksums@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: packages/varlock/dist-sea
+        run: gh release upload ${{ env.RELEASE_TAG }} *.{tar.gz,zip} checksums.txt --clobber
     
       # UPDATE HOMEBREW FORMULA --- 
       - name: checkout homebrew tap repo
         uses: actions/checkout@v4
         with:
-          repository: "dmno-dev/homebrew-tap"
-          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-      - name: 'update formula'
-        run: node scripts/update-homebrew-formula.js ${{ env.RELEASE_VERSION }}
-      - name: commit and push homebrew tap
+          repository: dmno-dev/homebrew-tap
+          token: ${{ secrets.HOMEBREW_REPO_GITHUB_ACCESS_TOKEN }}
+          path: homebrew-tap
+          clean: false
+      - name: update homebrew formula
+        run: node scripts/update-homebrew-formula.js
+      - name: commit and push homebrew tap update
         run: |
           cd homebrew-tap
           git config --global user.name 'theoephraim'
           git config --global user.email 'theo@dmno.dev'
           git add .
-          git commit -m "${{ env.RELEASE_VERSION }}"
-          git tag "${{ env.RELEASE_VERSION }}"
+          git commit -m "varlock@${{ env.RELEASE_VERSION }}"
+          git tag "varlock@${{ env.RELEASE_VERSION }}"
           git push origin HEAD --tags
