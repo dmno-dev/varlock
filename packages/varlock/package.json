@@ -8,6 +8,7 @@
   "license": "MIT",
   "scripts": {
     "build": "tsup",
+    "build:sea": "tsup --config tsup-sea.config.ts",
     "dev": "tsup",
     "test": "vitest",
     "lint": "eslint .",
@@ -42,7 +43,7 @@
     "@types/debug": "catalog:",
     "@types/node": "catalog:",
     "@types/which": "^3.0.4",
-    "@yao-pkg/pkg": "^6.4.0",
+    "@yao-pkg/pkg": "^6.4.1",
     "ansis": "catalog:",
     "gunshi": "^0.15.0",
     "is-unicode-supported": "^2.1.0",

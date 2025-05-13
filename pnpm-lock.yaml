@@ -190,8 +190,8 @@ importers:
         specifier: ^3.0.4
         version: 3.0.4
       '@yao-pkg/pkg':
-        specifier: ^6.4.0
-        version: 6.4.0
+        specifier: ^6.4.1
+        version: 6.4.1
       ansis:
         specifier: 'catalog:'
         version: 3.17.0
@@ -1518,8 +1518,8 @@ packages:
     resolution: {integrity: sha512-nlJ+rXersw70CQVSph7OfIN8lN6nCStjU7koXzh0WXiPvztZGqkoQTScHQCe1K8/tuKpeL0bEOYW0rP4QqMJ9A==}
     hasBin: true
 
-  '@yao-pkg/pkg@6.4.0':
-    resolution: {integrity: sha512-UxH+FoqEtf+g+cw4VWtaj1bsQpP1RGxZruAKI/7a34eZ+aVew1hIcpn0YZ+T9QP1130MkZ+2JHLp5AFVnJeqHA==}
+  '@yao-pkg/pkg@6.4.1':
+    resolution: {integrity: sha512-pjePVt+DQP+HaJI5DfEZDX1pGsMMFjv1wuqfy/BwXlnffVIRk8lXjw7yVYvLQRcomf8Eaz2chDE5B6gR2SSaQw==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -6313,7 +6313,7 @@ snapshots:
       - encoding
       - supports-color
 
-  '@yao-pkg/pkg@6.4.0':
+  '@yao-pkg/pkg@6.4.1':
     dependencies:
       '@babel/generator': 7.27.0
       '@babel/parser': 7.27.0
