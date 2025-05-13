@@ -1,32 +1,46 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
+// this is run in a Github Action where this env var is set
+const VERSION = process.env.RELEASE_VERSION;
 
-function generateVarlockFormula(version, checksums) {
-  return `
+// get checksums file from dist-sea since we are running this script just after building the binaries
+const checksumsStr = await fs.readFile(path.join(import.meta.dirname, '../packages/varlock/dist-sea/checksums.txt'), 'utf-8');
+const checksums = {};
+checksumsStr.split('\n').forEach((line) => {
+  if (!line.trim()) return; // skip trailing blank line
+  const [sha256, fileName] = line.split('  ');
+  const fileNameParts = fileName.replace(/(\.tar\.gz|\.zip)$/, '').split('-');
+  const platform = fileNameParts[1];
+  const arch = fileNameParts[2];
+  checksums[`${platform}-${arch}`] = sha256;
+});
+
+const formulaSrc = `
 class Varlock < Formula
   desc "varlock is a tool to load and validate .env files"
   homepage "https://varlock.dev"
-  version "${version}"
+  version "${VERSION}"
 
   on_macos do
     on_intel do
-      url "https://github.com/dmno-dev/varlock/releases/download/varlock@${version}/varlock-${version}-macos-x64.tar.gz"
+      url "https://github.com/dmno-dev/varlock/releases/download/varlock@#{version}/varlock-macos-x64.tar.gz"
       sha256 "${checksums['macos-x64']}"
     end
 
     on_arm do
-      url "https://github.com/dmno-dev/varlock/releases/download/varlock@${version}/varlock-${version}-macos-arm64.tar.gz"
+      url "https://github.com/dmno-dev/varlock/releases/download/varlock@#{version}/varlock-macos-arm64.tar.gz"
       sha256 "${checksums['macos-arm64']}"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/dmno-dev/varlock/releases/download/varlock@${version}/varlock-${version}-linux-x64.tar.gz"
+      url "https://github.com/dmno-dev/varlock/releases/download/varlock@#{version}/varlock-linux-x64.tar.gz"
       sha256 "${checksums['linux-x64']}"
     end
 
     on_arm do
-      url "https://github.com/dmno-dev/varlock/releases/download/varlock@${version}/varlock-${version}-linux-arm64.tar.gz"
+      url "https://github.com/dmno-dev/varlock/releases/download/varlock@#{version}/varlock-linux-arm64.tar.gz"
       sha256 "${checksums['linux-arm64']}"
     end
   end
@@ -40,25 +54,7 @@ class Varlock < Formula
   end
 end
 `;
-}
-
-// download checksums file from release
-const checksumsReq = await fetch(`https://github.com/dmno-dev/varlock/releases/download/varlock@${version}/checksums.txt`);
-const checksumsStr = await checksumsReq.text();
-const checksums = {};
-checksumsStr.split('\n').forEach((line) => {
-  const [sha256, fileName] = line.split('  ');
-  const fileNameParts = fileName.split('-');
-  const platform = fileNameParts[2];
-  const arch = fileNameParts[3];
-  checksums[`${platform}-${arch}`] = sha256;
-});
-
-const args = process.argv.slice(2);
-const version = args[0];
-
-const formulaStr = generateVarlockFormula(version, checksums);
 
 // this is meant to be used in a github action
 // when we have checked out the homebrew-tap repo
-await fs.writeFile('homebrew-tap/Formula/varlock.rb', formulaStr, 'utf-8');
+await fs.writeFile('homebrew-tap/Formula/varlock.rb', formulaSrc, 'utf-8');

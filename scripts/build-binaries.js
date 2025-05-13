@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 
 const VARLOCK_DIR = 'packages/varlock';
 const DIST_DIR = './dist-sea';
@@ -11,6 +12,9 @@ if (!fs.existsSync(`${VARLOCK_DIR}/${executableCjsFile}`)) {
 }
 
 const VERSION = process.env.RELEASE_VERSION;
+if (!VERSION) {
+  throw new Error('RELEASE_VERSION env var must be set');
+}
 
 // see https://github.com/yao-pkg/pkg
 const NODE_RANGE = 'node22';
@@ -23,6 +27,7 @@ const TARGETS = [
   'linuxstatic-arm64',
   'linuxstatic-armv7',
   'win-x64',
+  'win-arm64',
 ];
 
 // reusable exec fn with some pre-set options
@@ -38,21 +43,26 @@ function exec(cmd) {
 
 for (const pkgTarget of TARGETS) {
   console.log(`Pkg-ing target: ${pkgTarget}`);
-  const outputName = pkgTarget.replace('linuxstatic', 'linux');
-  const targetPkgDir = `${DIST_DIR}/${outputName}`;
-  const targetBinName = `varlock${outputName.startsWith('windows') ? '.exe' : ''}`;
+  const targetOutputName = pkgTarget.replace('linuxstatic', 'linux');
+  const targetPkgDir = `${DIST_DIR}/${targetOutputName}`;
+  const targetBinName = `varlock${targetOutputName.startsWith('win-') ? '.exe' : ''}`;
 
   // run pkg to build binary
   exec(`./node_modules/.bin/pkg ${executableCjsFile} --public-packages "*" --public --target ${NODE_RANGE}-${pkgTarget} --output ${targetPkgDir}/${targetBinName}`);
 
   // create .tar.gz file
-  const archiveName = `varlock-${VERSION}-${outputName}.tar.gz`;
-  exec(`tar --gzip -cf ${DIST_DIR}/${archiveName} -C ${targetPkgDir}/ .`);
-
+  let archiveName = `varlock-${targetOutputName}.tar.gz`;
+  let archiveCmd = `tar --gzip -cf ${DIST_DIR}/${archiveName} -C ${targetPkgDir}/ .`;
   // create .zip for windows only
-  if (outputName.startsWith('windows')) {
-    const zipName = `varlock-${VERSION}-${outputName}.zip`;
-    exec(`zip -j ${DIST_DIR}/${zipName} ${targetPkgDir}/${targetBinName}`);
+  if (targetOutputName.startsWith('win-')) {
+    archiveName = `varlock-${targetOutputName}.zip`;
+    archiveCmd = `zip -j ${DIST_DIR}/${archiveName} ${targetPkgDir}/${targetBinName}`;
   }
+
+  exec(archiveCmd);
+  // we set the cwd so that the checksums.txt has the filename only without any directory
+  execSync(`sha256sum ${archiveName} >> checksums.txt`, {
+    cwd: path.join(VARLOCK_DIR, DIST_DIR),
+  });
 }
 
