@@ -8,50 +8,56 @@ set -e
 GITHUB_URL="https://github.com/dmno-dev/varlock"
 GITHUB_RELEASES_URL="${GITHUB_URL}/releases"
 HOMEBREW_FORMULA_URL="https://raw.githubusercontent.com/dmno-dev/homebrew-tap/refs/heads/main/Formula/varlock.rb"
+HOMEBREW_TAP_NAME="dmno-dev/tap/varlock"
 
 OS=""
 ARCH=""
 VERSION=""
 LATEST_VERSION=""
+INSTALL_DIR="${HOME}/.varlock/bin"
+INSTALL_DIR_UNEXPANDED="~/.varlock/bin"
+REINSTALL=""
+FORCE_NO_BREW="false"
 
 usage() {
-    require_cmd cat
-    this=$1
-    cat 1>&2 <<EOF
-$this: download + install binary for varlock
-
-USAGE:
-    $this [FLAGS] [OPTIONS] <tag>
-
-FLAGS:
-    -h, --help      Prints help information
-
-OPTIONS:
-    -b, --bindir <DIR_PATH>     Sets bindir or installation directory. Defaults to ./bin
-
-ARGS:
-    <version>       is a specific varlock version from ${GITHUB_RELEASES_URL}. (defaults to latest)
-EOF
-    exit 2
+  echo "Usage: $0 [options]"
+  echo ""
+  echo "install varlock binary"
+  echo ""
+  echo "Options:"
+  echo "  --dir             directory to install varlock to (default: \"${INSTALL_DIR}\")"
+  echo "  --reinstall       reinstall even if already installed (default: false)"
+  echo "  --version         version of varlock to install (defaults to latest)"
+  echo "  --force-no-brew   force install without homebrew even when detected (default: false)"
+  echo ""
 }
 
 parse_args() {
-  BINDIR=${BINDIR:-./bin}
-  while [ "$#" -gt 0 ]; do
-    case $1 in
-      -h|--help)
-        usage "$0"
-        # shellcheck disable=SC2317
-        shift # past argument
-      ;;
-      -b|--bindir)
-        BINDIR="$2"
-        shift # past argument
-        shift # past value
-      ;;
-      *) VERSION=$1
-        shift # past argument
-      ;;
+  # parse arguments
+  for arg in "$@"; do
+    case $arg in
+    version=* | --version=*)
+      VERSION="${arg#*=}"
+    ;;
+    dir=* | --dir=*)
+      INSTALL_DIR="${arg#*=}"
+    ;;
+    reinstall | --reinstall)
+      REINSTALL="1"
+    ;;
+    force-no-brew | --force-no-brew)
+      FORCE_NO_BREW="true"
+    ;;
+    help | --help)
+      usage
+      return 0
+    ;;
+    *)
+      # Unknown option
+      echo "Unknown option: $arg"
+      usage
+      return 1
+    ;;
     esac
   done
 }
@@ -94,12 +100,29 @@ get_varlock_latest_version() {
 main() {
   parse_args "$@"
 
-  require_cmd uname
+  get_architecture || return 1
+
+  # if homebrew is detected, we just use it
+  if cmd_exists brew && [ "$FORCE_NO_BREW" = "false" ]; then
+    echo "Detected homebrew 🍺 - installing varlock via brew"
+    echo "(rerun with \`--force-no-brew\` to install binary directly instead)"
+    echo ""
+    brew install "$HOMEBREW_TAP_NAME"
+    return 0;
+  fi
+
   require_cmd mktemp
   require_cmd grep
   require_cmd rm
   
-  get_architecture || return 1
+
+  # check installation directory is writable
+  mkdir -p "${INSTALL_DIR}"
+
+  if [ ! -w "${INSTALL_DIR}" ]; then
+    # TODO - how to let the user specify the directory when installing via curl
+    err "Installation directory (${INSTALL_DIR}) is not writable by the current user"
+  fi
 
   case $OS in
     win-*) _ext=".zip" ;;
@@ -110,10 +133,10 @@ main() {
 
   if [ -z "${VERSION}" ]; then
     VERSION=$(get_varlock_latest_version)
-    println "The latest version (${VERSION}) will be installed."
+    echo "The latest version (${VERSION}) will be installed."
   else
     check_requested_version "${VERSION}"
-    println "Version ${VERSION} will be installed"
+    echo "Version ${VERSION} will be installed"
   fi
   _url="${GITHUB_RELEASES_URL}/download/varlock@${VERSION}/${_archive_name}"
 
@@ -135,19 +158,29 @@ main() {
     ;;
   esac
 
-  test ! -d "${BINDIR}" && install -d "${BINDIR}"
+  test ! -d "${INSTALL_DIR}" && install -d "${INSTALL_DIR}"
 
-  install "${_temp_dir}/${_bin_name}" "${BINDIR}/" || err "Failed to install"
-  _bin_path=${BINDIR}/${_bin_name}
+  install "${_temp_dir}/${_bin_name}" "${INSTALL_DIR}/" || err "Failed to install"
+  _bin_path=${INSTALL_DIR}/${_bin_name}
 
-  println "✅ Successfully installed varlock @ $($_bin_path --version) to ${_bin_path}"
+  chmod u+x "$_bin_path"
 
+  echo "✅ Successfully installed varlock @ $($_bin_path --version) to ${_bin_path}"
   rm -rf "${_temp_dir}"
+
+  echo ""
+  echo "You must add this folder to your PATH!"
+  echo "(For example add this to your ~/.zshrc, ~/.bashrc, etc)"
+  echo ""
+  echo "export PATH=\"${INSTALL_DIR_UNEXPANDED}:\$PATH\""
+  echo ""
 
   return 0;
 }
 
 get_architecture() {
+  require_cmd uname
+
   _ostype="$(uname -s | tr '[:upper:]' '[:lower:]')"
   _cputype="$(uname -m | tr '[:upper:]' '[:lower:]')"
 
@@ -193,9 +226,19 @@ download() {
   fi
 }
 
+
+ensure_containing_dir_exists() {
+  local CONTAINING_DIR
+  CONTAINING_DIR="$(dirname "$1")"
+  if [ ! -d "$CONTAINING_DIR" ]; then
+    echo " >> Creating directory $CONTAINING_DIR"
+    mkdir -p "$CONTAINING_DIR"
+  fi
+}
+
 require_cmd() {
   if ! cmd_exists "$1"; then
-    err "'$1' is required (command not found)."
+    err "\`$1\` is required (command not found)."
   fi
 }
 
@@ -204,12 +247,8 @@ cmd_exists() {
 }
 
 err() {
-  println "🚨 INSTALLATION ERROR - $1" >&2
+  printf "🚨 VARLOCK INSTALLATION ERROR - %s\n" "$1"
   exit 1
-}
-
-println() {
-  printf 'varlock installer: %s\n' "$1"
 }
 
 main "$@" || exit 1
