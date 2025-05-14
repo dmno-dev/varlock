@@ -33,4 +33,9 @@ export default defineConfig({
     '../env-graph/src',
     '../utils/src',
   ] : false,
+
+  esbuildOptions(options) {
+    options.define ||= {};
+    options.define.__VARLOCK_SEA_BUILD__ = 'false';
+  },
 });
