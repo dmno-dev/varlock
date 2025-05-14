@@ -17,8 +17,10 @@ export type ResolvedValue =
   // Array<ConfigValue>;
 
 // eslint-disable-next-line no-use-before-define
-type ResolverFunctionArgs = Array<ResolverInstance> | Record<string, ResolverInstance>;
-export abstract class ResolverInstance {
+type ResolverFunctionArgs = Array<Resolver> | Record<string, Resolver>;
+export abstract class Resolver {
+  static fnName?: string;
+
   constructor(readonly fnArgs: ResolverFunctionArgs) {}
 
   abstract label: string;
@@ -91,7 +93,7 @@ export abstract class ResolverInstance {
 
 // special resolver class that just holds a static value
 // only used internally, not via `static(x)`
-export class StaticValueResolver extends ResolverInstance {
+export class StaticValueResolver extends Resolver {
   constructor(readonly staticValue: ResolvedValue) {
     super([]);
     this.inferredType = typeof staticValue;
@@ -106,7 +108,7 @@ export class StaticValueResolver extends ResolverInstance {
 
 // special resolver class that represents an error when an unknown resolver is used
 // only used internally, not via `error(x)`
-export class ErrorResolver extends ResolverInstance {
+export class ErrorResolver extends Resolver {
   constructor(err: SchemaError) {
     super([]);
     this._schemaErrors.push(err);
@@ -120,7 +122,8 @@ export class ErrorResolver extends ResolverInstance {
 }
 
 
-export class ConcatResolver extends ResolverInstance {
+export class ConcatResolver extends Resolver {
+  static fnName = 'concat';
   label = 'concat';
   icon = 'material-symbols:join';
   inferredType = 'string';
@@ -153,7 +156,8 @@ export class ConcatResolver extends ResolverInstance {
   }
 }
 
-export class FallbackResolver extends ResolverInstance {
+export class FallbackResolver extends Resolver {
+  static fnName = 'fallback';
   label = 'fallback';
   icon = 'memory:table-top-stairs-up';
 
@@ -182,7 +186,8 @@ export class FallbackResolver extends ResolverInstance {
   }
 }
 
-export class EvalResolver extends ResolverInstance {
+export class EvalResolver extends Resolver {
+  static fnName = 'eval';
   label = 'eval';
   icon = 'iconoir:terminal';
 
@@ -217,7 +222,8 @@ export class EvalResolver extends ResolverInstance {
   }
 }
 
-export class RefResolver extends ResolverInstance {
+export class RefResolver extends Resolver {
+  static fnName = 'ref';
   label = 'ref';
   icon = 'mdi-light:content-duplicate';
 
@@ -248,10 +254,13 @@ export class RefResolver extends ResolverInstance {
   }
 }
 
+export type ResolverChildClass<ChildClass extends Resolver = Resolver> =
+  { new (...args: Array<any>): ChildClass } & typeof Resolver;
+
 // these are the resolvers which are accessible to end-users as fn calls
-export const BaseResolvers: Record<string, Constructor<ResolverInstance>> = {
-  concat: ConcatResolver,
-  fallback: FallbackResolver,
-  ref: RefResolver,
-  eval: EvalResolver,
-};
+export const BaseResolvers: Array<ResolverChildClass> = [
+  ConcatResolver,
+  FallbackResolver,
+  RefResolver,
+  EvalResolver,
+];

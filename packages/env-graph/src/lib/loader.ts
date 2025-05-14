@@ -14,14 +14,19 @@ function autoDetectContextPath() {
 
 export async function loadEnvGraph(opts?: {
   contextPath?: string,
-  relativePaths: Array<string>,
+  relativePaths?: Array<string>,
   checkGitIgnored?: boolean,
   excludeDirs?: Array<string>,
+  afterInit?: (graph: EnvGraph) => Promise<void>,
 }) {
   const contextPath = opts?.contextPath ?? autoDetectContextPath();
 
   const graph = new EnvGraph();
   graph.basePath = contextPath;
+
+  if (opts?.afterInit) {
+    await opts.afterInit(graph);
+  }
 
   const envFilePaths = await findEnvFiles({
     cwd: contextPath,
