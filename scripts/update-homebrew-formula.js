@@ -19,6 +19,7 @@ const formulaSrc = `
 class Varlock < Formula
   desc "varlock is a tool to load and validate .env files"
   homepage "https://varlock.dev"
+  # ! the version number in this file is fetched and used by our install.sh script
   version "${VERSION}"
 
   on_macos do

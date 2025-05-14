@@ -17,4 +17,8 @@ export default defineConfig({
   format: ['cjs'], // pkg likes cjs
   splitting: false,
   keepNames: true,
+  esbuildOptions(options) {
+    options.define ||= {};
+    options.define.__VARLOCK_SEA_BUILD__ = 'true';
+  },
 });
