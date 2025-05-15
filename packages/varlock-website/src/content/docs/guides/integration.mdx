@@ -2,5 +2,81 @@
 title: Integration
 description: Integrating Varlock into your application
 ---
+import SyncedCodeTabs from '@/components/SyncedCodeTabs.astro'
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+There are a few different ways to integrate Varlock into your application.
+
+## Universal
+
+The most universal way to use `varlock` in your code is via [varlock run](/reference/cli-commands/#varlock-run). 
+
+```bash
+varlock run -- <your-command>
+```
+
+This will validate your environment variables and then run the command you provided with the validated environment variables injected into the process.
+
+
+
+## JavaScript ecosystem
+
+### Node - `auto-load`
+
+`varlock` can be used in any Node.js application by importing the `auto-load` module. This will automatically load the environment variables into `process.env`.
+
+```js title="example-index.js"
+import 'varlock/auto-load';
+
+const MY_CONFIG_ITEM = process.env.MY_CONFIG_ITEM;
+```
+
+### Overrides - dotenv
+
+If you are using `dotenv` to load your environment variables, you can use the `overrides` feature to use `varlock` instead.
+
+<SyncedCodeTabs 
+  group="package-manager"
+  tabs={[
+    {
+      label: "npm",
+      code: `
+        // package.json
+        "overrides": {
+          "dotenv": "varlock"
+        }
+      `,
+      lang: "json"
+    },
+    {
+      label: "yarn",
+      code: `
+      // package.json
+      "overrides": {
+        "dotenv": "varlock"
+      }`,
+      lang: "json"
+    },
+    {
+      label: "pnpm",
+      code: `
+// pnpm-workspace.yaml
+overrides:
+        dotenv: varlock
+      `,
+      lang: "yaml"
+    },
+  ]}
+/>
+
+### package.json scripts
+
+You can also use `varlock` in your `package.json` scripts by using the `varlock run` command. 
+
+```json title="package.json"
+"scripts": {
+  "start": "varlock run -- node index.js"
+}
+```
+
+
+

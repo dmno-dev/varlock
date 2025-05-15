@@ -7,6 +7,11 @@ import sitemap from '@astrojs/sitemap';
 import robotsTxt from 'astro-robots-txt';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import partytown from '@astrojs/partytown';
+import fs from 'fs';
+
+const envSpecGrammar = JSON.parse(fs.readFileSync('../vscode-plugin/language/env-spec.tmLanguage.json', 'utf8'));
+
+
 
 // https://astro.build/config
 export default defineConfig({
@@ -68,10 +73,6 @@ export default defineConfig({
           { label: 'Schema', slug: 'guides/schema' },
           { label: 'Integration', slug: 'guides/integration' },
           { label: 'Secrets', slug: 'guides/secrets' },
-          { label: 'Security', slug: 'guides/security' },
-          { label: 'Migration from dotenv', slug: 'guides/migration-from-dotenv' },
-          { label: 'Javascript ecosystem', slug: 'guides/javascript-ecosystem' },
-          { label: 'Other languages', slug: 'guides/other-languages' },
           { label: 'Cursor', slug: 'guides/cursor', badge: 'New' },
         ],
       },
@@ -87,6 +88,18 @@ export default defineConfig({
         ],
       },
     ],
+    expressiveCode: {
+      shiki: {
+        langs: [
+          {
+            name: 'env-spec',
+            scopeName: 'source.env-spec',
+            extensions: ['.env-spec'],
+            ...envSpecGrammar,
+          },
+        ]
+      }
+    }
   }),
   mdx(),
   vue(),

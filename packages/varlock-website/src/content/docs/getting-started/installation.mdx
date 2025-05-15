@@ -5,18 +5,15 @@ description: How to install and set up Varlock in your project
 
 import SyncedCodeTabs from "@/components/SyncedCodeTabs.astro";
 
-`varlock` makes your environment variables validated and secure. It is based on the [env-spec](https://github.com/dmno-dev/env-spec) standard.
-
 There are two ways to install `varlock`:
 
-1. Install as a dependency in javascript/typescript projects
-2. Install as a binary in other languages
+1. Install as a dependency in JavaScript/TypeScript projects
+2. Install as a standalone binary
 
-## As a js/ts dependency
+## As a JavaScript/TypeScript dependency
 
 Requires:
 
-- OSX or Linux (WSL supported)
 - Node.js version 22 or higher
 
 ### Installation
@@ -44,10 +41,9 @@ To install `varlock` in your project, run:
   ]}
 />
 
-This will install `varlock` as a dependency and scan your project for `.env` files and create a `.env.schema` file in the root of your project. It will optionally:
+This will install `varlock` as a dependency and scan your project for `.env` files and create a `.env.schema` file in the root of your project. Depending on your project configuration, it will optionally:
 - Remove your existing `.env.example` file
 - Add decorators to your `.env.schema` file to specify the type of each environment variable
-- Install the `varlock` CLI binary
 - Install the desktop app
 - Encrypt secrets in your `.env` file
 
@@ -56,16 +52,15 @@ This will install `varlock` as a dependency and scan your project for `.env` fil
 To install Varlock as a binary, run:
 
 ```bash
-brew install varlock
+curl -sSfL https://varlock.dev/install.sh | sh -s
 ```
 
-This will install the `varlock` CLI binary and the desktop app.
-## Desktop App
+This will install the `varlock` CLI binary and (optionally) the desktop app.
+
+## Desktop app
 
 The `varlock` CLI also includes a desktop app that hooks into system level APIs to encrypt and decrypt environment variables. This means that you never have secrets sitting in plaintext on your system.
 
-## Next Steps
-
-- Learn more about [env-spec](/docs/getting-started/about-env-spec)
-- Explore [CLI commands](/docs/reference/cli-commands)
-- Check out [security best practices](/docs/guides/security) 
+:::tip[MacOS Only]
+During our beta phase, the desktop app is only available on macOS. Windows and Linux users can use the CLI without the desktop app.
+:::
