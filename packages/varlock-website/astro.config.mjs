@@ -41,7 +41,7 @@ export default defineConfig({
     service: passthroughImageService()
   },
   integrations: [starlight({
-    title: 'varlock 🔐 🧙‍♂️',
+    title: 'varlock',
     social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/dmno-dev/varlock' }],
     components: {
       Head: '@/components/CustomHead.astro',
