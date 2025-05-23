@@ -78,7 +78,12 @@ export default defineConfig({
       },
       {
         label: 'Reference',
-        autogenerate: { directory: 'reference' },
+        items: [
+          { label: 'CLI', slug: 'reference/cli-commands' },
+          { label: 'Root decorators', slug: 'reference/root-decorators' },
+          { label: 'Item decorators', slug: 'reference/item-decorators' },
+          { label: 'Functions', slug: 'reference/functions' },
+        ],
       },
       {
         label: '@env-spec',

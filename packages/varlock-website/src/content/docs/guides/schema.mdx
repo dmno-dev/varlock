@@ -101,3 +101,48 @@ MY_KEY=eval(`op read "op://dev test/${OP_VAULT}/credential"`)
 # Reference another item
 MY_KEY=ref(“OTHER_KEY”) # equivalent to MY_KEY=${OTHER_KEY}
 ```
+
+## Expansion
+
+
+`varlock` supports variable expansion in a few different ways.
+
+### Traditional variable expansion
+
+You can use variable expansion in your `.env.schema` file like any other `.env` file. 
+
+```env-spec
+VARIABLE1=value1
+VARIABLE2=value2
+
+# outputs "value1"
+VARIABLE3=${VARIABLE1}
+# outputs "value1-value2"
+VARIABLE4=${VARIABLE1}-${VARIABLE2}
+```
+
+### Using `ref` function
+
+You can also use `varlock`'s special `ref` function. 
+
+```env-spec
+VARIABLE1=value1
+
+# outputs "value1"
+VARIABLE2=ref("VARIABLE1")
+```
+
+And using it in conjunction with other functions. 
+
+```env-spec
+VARIABLE1=value1
+VARIABLE2=value2
+
+# outputs "value1-value2"
+VARIABLE3=concat(ref("VARIABLE1"), ref("VARIABLE2"))
+```
+
+:::tip[Fun fact]
+`varlock` actually uses `ref` under the hood when dealing with `${ITEM}` style expansion.
+:::
+

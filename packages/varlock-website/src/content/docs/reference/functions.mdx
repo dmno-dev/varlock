@@ -1,0 +1,114 @@
+---
+title: Functions Reference
+description: A comprehensive reference of all available functions in varlock
+---
+
+# Functions Reference
+
+varlock provides several powerful functions that allow for dynamic and composable environment variable values. This reference covers all available functions, their arguments, and usage examples.
+
+## varlock()
+
+The `varlock()` function is used to handle encrypted values. It decrypts the provided encrypted string at runtime.
+
+```env-spec
+# @sensitive
+API_KEY=varlock("encrypted_string_here")
+```
+
+### Arguments
+- `encrypted_string` (string, required): The encrypted value to be decrypted
+
+### Example
+```env-spec
+# @sensitive
+DATABASE_PASSWORD=varlock("oipjfdopiajpfoidjpaoijpofdjpoa...")
+```
+
+## fallback()
+
+The `fallback()` function provides a way to specify multiple possible values, using the first non-empty value in the list.
+
+```env-spec
+VALUE=fallback("", undefined, "default-value")
+```
+
+### Arguments
+- Multiple values (any type): The function will use the first non-empty value in the list
+
+### Example
+```env-spec
+# TODO: add examples
+```
+
+## concat()
+
+The `concat()` function combines multiple strings into a single string.
+
+```env-spec
+PATH=concat("base/", ref("ENV"), "/config.json")
+```
+
+### Arguments
+- Multiple strings (string): The strings to be concatenated
+
+### Example
+```env-spec
+# Simple concatenation
+API_URL=concat("https://", ref("DOMAIN"), "/api")
+
+# Complex path construction
+CONFIG_PATH=concat("config/", ref("ENV"), "/", ref("REGION"), ".json")
+```
+
+## eval()
+
+The `eval()` function executes a command and uses its output as the value. This is useful for integrating with external tools and services.
+
+```env-spec
+SECRET=eval(`op read "op://vault/item/credential"`)
+```
+
+### Arguments
+- `command` (string, required): The command to execute
+
+### Example
+```env-spec
+# Using 1Password CLI
+API_KEY=eval(`op read "op://dev test/${OP_VAULT}/credential"`)
+
+# Using AWS CLI
+AWS_CREDENTIALS=eval(`aws sts get-session-token --profile prod`)
+```
+
+## ref()
+
+The `ref()` function references the value of another environment variable. This is equivalent to using `${VARIABLE}` syntax.
+
+```env-spec
+NEW_VAR=ref("EXISTING_VAR")
+```
+
+### Arguments
+- `variable_name` (string, required): The name of the variable to reference
+
+### Example
+```env-spec
+# Simple reference
+API_URL=concat("https://", ref("DOMAIN"), "/api")
+
+# Nested references
+CONFIG_PATH=concat("config/", ref("ENV"), "/", ref("REGION"), ".json")
+```
+
+## Function Composition
+
+Functions can be composed together to create complex value resolution logic. Here are some examples:
+
+```env-spec
+# Using multiple functions together
+API_URL=concat("https://", ref("DOMAIN"), "/", ref("API_VERSION"))
+
+# Dynamic configuration with eval
+CONFIG=eval(`aws ssm get-parameter --name "/config/${ENV}" --with-decryption`)
+```
