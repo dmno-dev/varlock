@@ -135,6 +135,10 @@ h5 {
     font-family: var(--logo-font);
 }
 
+.site-title {
+    font-family: var(--logo-font);
+}
+
 /* borders around code blocks, file trees, images */
 starlight-file-tree,
 .expressive-code {
@@ -503,18 +507,23 @@ will move to component */
 
 /* custom cursors */
 body {
-    cursor: url('../assets/gauntlet_default.svg') 16 16, default;
+    cursor: url('../assets/gauntlet_default.svg') 8 8, default;
 }
 
 *:active {
-    cursor: url('../assets/gauntlet_open.svg') 16 16, pointer;
+    cursor: url('../assets/gauntlet_open.svg') 8 8, pointer;
 }
 
 a,
 button:hover {
-    cursor: url('../assets/gauntlet_point.svg') 16 16, pointer;
+    cursor: url('../assets/gauntlet_point.svg') 8 8, pointer;
 }
 
 summary {
-    cursor: url('../assets/gauntlet_point.svg') 16 16, pointer;
+    cursor: url('../assets/gauntlet_point.svg') 8 8, pointer;
+}
+
+/* fix for anchor link appearing on next line */
+.sl-anchor-link {
+    display: inline-block;
 }

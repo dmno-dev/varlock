@@ -7,6 +7,11 @@ import sitemap from '@astrojs/sitemap';
 import robotsTxt from 'astro-robots-txt';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import partytown from '@astrojs/partytown';
+import fs from 'fs';
+
+const envSpecGrammar = JSON.parse(fs.readFileSync('../vscode-plugin/language/env-spec.tmLanguage.json', 'utf8'));
+
+
 
 // https://astro.build/config
 export default defineConfig({
@@ -36,7 +41,7 @@ export default defineConfig({
     service: passthroughImageService()
   },
   integrations: [starlight({
-    title: 'varlock 🔐 🧙‍♂️',
+    title: 'varlock',
     social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/dmno-dev/varlock' }],
     components: {
       Head: '@/components/CustomHead.astro',
@@ -68,16 +73,17 @@ export default defineConfig({
           { label: 'Schema', slug: 'guides/schema' },
           { label: 'Integration', slug: 'guides/integration' },
           { label: 'Secrets', slug: 'guides/secrets' },
-          { label: 'Security', slug: 'guides/security' },
-          { label: 'Migration from dotenv', slug: 'guides/migration-from-dotenv' },
-          { label: 'Javascript ecosystem', slug: 'guides/javascript-ecosystem' },
-          { label: 'Other languages', slug: 'guides/other-languages' },
           { label: 'Cursor', slug: 'guides/cursor', badge: 'New' },
         ],
       },
       {
         label: 'Reference',
-        autogenerate: { directory: 'reference' },
+        items: [
+          { label: 'CLI', slug: 'reference/cli-commands' },
+          { label: 'Root decorators', slug: 'reference/root-decorators' },
+          { label: 'Item decorators', slug: 'reference/item-decorators' },
+          { label: 'Functions', slug: 'reference/functions' },
+        ],
       },
       {
         label: '@env-spec',
@@ -87,6 +93,18 @@ export default defineConfig({
         ],
       },
     ],
+    expressiveCode: {
+      shiki: {
+        langs: [
+          {
+            name: 'env-spec',
+            scopeName: 'source.env-spec',
+            extensions: ['.env-spec'],
+            ...envSpecGrammar,
+          },
+        ]
+      }
+    }
   }),
   mdx(),
   vue(),

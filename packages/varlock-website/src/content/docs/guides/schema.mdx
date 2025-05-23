@@ -3,4 +3,146 @@ title: Schema
 description: Using the schema to manage your environment variables
 ---
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua
+One of the core features of varlock is its schema-driven approach to environment variables. Using a combination of [root-level](/reference/root-decorators) and [config item](/reference/item-decorators) decorators, you can add guardrails to your environment and eliminate entire classes of bugs. 
+
+:::tip
+If you prefer, you can jump straight to the reference documentation for the the [root](/reference/root-decorators) and [item](reference/item-decorators) decorators. 
+:::
+
+## Root
+
+Root level decorators are used to specify global settings for the environment variables in your `.env.schema` file. For example, if you tend to mostly store sensitive variables, you can set the `@defaultSensitive` flag to `true` to avoid having to specify the `@sensitive` flag for each variable.
+
+```env-spec title="example .env.schema"
+# My schema file
+# @envFlag=APP_ENV
+# @defaultSensitive=false @defaultRequired=false
+# ---
+
+# override defaults flags
+# @required @sensitive
+REQ_SENS_VAR=eval("some cli command")
+```
+
+> See the full reference of [root-level decorators](/reference/root-decorators) for more information.
+
+### @envFlag
+
+`@envFlag` allows you dynamically load values from other `.env.*` files based on the value of the supplied env var.
+
+```env-spec title="example .env.schema"
+# My schema file
+# @envFlag=APP_ENV
+# @defaultSensitive=false @defaultRequired=false
+# ---
+
+# My .env.dev file
+# @type=enum(dev, test, staging, prod)
+APP_ENV=dev # sets default to "dev"
+```
+
+This will load the values in `.env.dev` and validate them against the `.env.schema` file.
+
+To load a different file, you just need to override the `APP_ENV` variable.
+
+```bash
+# loads .env.test
+APP_ENV=test varlock run -- node my-test-script.js
+```
+
+## Item 
+
+Item specific decorators can be used to override the root-level ones, such as `@required` and `@sensitive`. There are also item-only decorators like `@type` that allow you to further validate, and coerce, your values. 
+
+```env-spec title="example .env.schema"
+# My schema file
+# @envFlag=APP_ENV
+# @defaultSensitive=false @defaultRequired=false
+# ---
+
+# basic type
+# @type=url
+URL_ITEM=https://example.com
+
+# type with settings
+# @type=number(precision=0)
+NUMBER_ITEM=123.45 # outputs 123
+```
+
+> See the full list of [item-level decorators](/reference/item-decorators) for more information.
+
+### Value types
+
+`varlock` includes a comprehensive set of built-in types with options to customize their behavior. See the [base types reference docs](/reference/item-decorators/#built-in-base-types) for more information. 
+
+### Functions
+
+One of the most powerful features of `varlock` is its function syntax that allows for a more composable way to load values. 
+
+```env-spec title="example .env.schema"
+# My schema file
+# @envFlag=APP_ENV
+# @defaultSensitive=false @defaultRequired=false
+# ---
+
+# Encrypted value
+# @sensitive
+MY_KEY=varlock(“oipjfdopiajpfoidjpaoijpofdjpoa…”) # outputs decrypted value
+
+# Fallback value
+MY_KEY=fallback("", undefined, "fallback-value") # outputs "fallback-value"
+
+# Concatenated value
+MY_KEY=concat("part1", "part2") # outputs "part1part2"
+
+# Eval to load a value from an external command
+MY_KEY=eval(`op read "op://dev test/${OP_VAULT}/credential"`)
+
+# Reference another item
+MY_KEY=ref(“OTHER_KEY”) # equivalent to MY_KEY=${OTHER_KEY}
+```
+
+## Expansion
+
+
+`varlock` supports variable expansion in a few different ways.
+
+### Traditional variable expansion
+
+You can use variable expansion in your `.env.schema` file like any other `.env` file. 
+
+```env-spec
+VARIABLE1=value1
+VARIABLE2=value2
+
+# outputs "value1"
+VARIABLE3=${VARIABLE1}
+# outputs "value1-value2"
+VARIABLE4=${VARIABLE1}-${VARIABLE2}
+```
+
+### Using `ref` function
+
+You can also use `varlock`'s special `ref` function. 
+
+```env-spec
+VARIABLE1=value1
+
+# outputs "value1"
+VARIABLE2=ref("VARIABLE1")
+```
+
+And using it in conjunction with other functions. 
+
+```env-spec
+VARIABLE1=value1
+VARIABLE2=value2
+
+# outputs "value1-value2"
+VARIABLE3=concat(ref("VARIABLE1"), ref("VARIABLE2"))
+```
+
+:::tip[Fun fact]
+`varlock` actually uses `ref` under the hood when dealing with `${ITEM}` style expansion.
+:::
+
