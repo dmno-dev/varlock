@@ -1,4 +1,3 @@
-import { loadEnvGraph } from '@env-spec/env-graph';
 import { checkForConfigErrors } from './cli/helpers/error-checks';
 import { loadVarlockEnvGraph } from './lib/load-graph';
 
