@@ -106,6 +106,18 @@ varlock doctor
 varlock doctor .env.production
 ```
 
+### `varlock opt-out`
+
+Opts out of anonymous usage analytics. This command creates a configuration file at `~/.varlock/config.json` that permanently disables analytics collection.
+
+```bash
+varlock opt-out
+```
+
+:::note
+You can also temporarily opt out by setting the `PH_OPT_OUT=true` environment variable. See the [analytics guide](/docs/guides/analytics) for more information about our analytics and privacy practices.
+:::
+
 ### `varlock help`
 
 Displays help information about Varlock commands and options.
