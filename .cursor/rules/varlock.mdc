@@ -1,0 +1,124 @@
+---
+description: 
+globs: .env.schema
+alwaysApply: false
+---
+# Varlock Environment Specification Rules
+
+Rules for working with varlock env-spec files, providing syntax highlighting, autocompletion, and validation for environment variable specifications.
+
+<rule>
+name: env_spec_rules
+description: Standards for working with env-spec files in varlock projects
+filters:
+  # Match env-spec files
+  - type: file_extension
+    pattern: "\\.env\\.(schema|.*)$"
+  # Match files that look like env-spec files
+  - type: content
+    pattern: "^\\s*#.*$|^\\s*[A-Z_][A-Z0-9_]*\\s*="
+  # Match file creation and modification events
+  - type: event
+    pattern: "file_(create|modify)"
+
+actions:
+  - type: suggest
+    message: |
+      When working with env-spec files:
+
+      1. File Structure:
+         ```
+         .env.schema          # Schema definition with decorators
+         .env                 # Local development values
+         .env.production      # Production values
+         .env.staging         # Staging values
+         ```
+
+      2. Syntax Rules:
+         - Comments must start with #
+         - Decorators must start with @
+         - Variable names must be uppercase with underscores
+         - Values can be strings, numbers, booleans, or function calls
+
+      3. Root Level Decorators:
+         - @envFlag - Sets environment flag key
+         - @defaultRequired - Sets default required state for all items
+         - @defaultSensitive - Sets default sensitive state for all items
+         
+         Note: When using default decorators, you only need to specify item-level decorators
+         when you want to override the default value. For example, if @defaultRequired=true,
+         you don't need to add @required to individual items.
+
+      4. Item Level Decorators:
+         - @required - Makes item required (omit if @defaultRequired=true)
+         - @sensitive - Marks item as sensitive (omit if @defaultSensitive=true)
+         - @type - Sets value type
+         - @example - Provides example value
+         - @trim - Trims whitespace
+         - @deindent - Trims leading whitespace
+
+      5. Value Types:
+         - string
+         - number (integer/float)
+         - boolean
+         - url
+         - email
+         - port
+         - path
+         - ip
+         - hostname
+         - uuid
+         - date
+
+      6. Function Calls:
+         - varlock() - For encrypted values
+         - fallback() - For fallback values
+         - concat() - For concatenated values
+         - eval() - For command output
+         - ref() - For referencing other variables
+
+examples:
+  - input: |
+      # Bad: Redundant decorators with defaults
+      # @defaultSensitive=true
+      # @defaultRequired=true
+      # ---
+      # @sensitive @required
+      SECRET_KEY=value
+
+      # Good: Using defaults
+      # @defaultSensitive=true
+      # @defaultRequired=true
+      # ---
+      SECRET_KEY=value
+    output: "Properly using default decorators"
+
+  - input: |
+      # Bad: Redundant required decorator
+      # @defaultSensitive=true
+      # @defaultRequired=true
+      # ---
+      # @sensitive=false @required
+      PUBLIC_KEY=value
+
+      # Good: Only overriding sensitive
+      # @defaultSensitive=true
+      # @defaultRequired=true
+      # ---
+      # @sensitive=false
+      PUBLIC_KEY=value
+    output: "Properly overriding only necessary defaults"
+
+  - input: |
+      # Bad: Missing type decorator
+      PORT=3000
+
+      # Good: With type decorator
+      # @type=port
+      PORT=3000
+    output: "Environment variable with proper type"
+
+metadata:
+  priority: high
+  version: 1.0
+</rule>

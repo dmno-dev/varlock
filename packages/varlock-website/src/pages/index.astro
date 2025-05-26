@@ -1,7 +1,7 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import SecretReveal from "../components/SecretReveal.vue";
-import { LinkButton, Code } from "@astrojs/starlight/components";
+import { LinkButton, Code, Card } from "@astrojs/starlight/components";
 import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
 ---
 
@@ -9,11 +9,10 @@ import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
   <main>
     <div class="container">
       <VarlockRetroBanner />
-      <p class="description">
-        `varlock` gives your environment variables superpowers. Just add a few
-        decorators and you're good to go. Or run `varlock init` and it will
-        handle it all for you.
-      </p>
+      <h2 class="description">
+        Varlock gives your environment variables guardrails with validation,
+        type-safety, coercion, and secure secret integrations.
+      </h2>
 
       <!-- <SecretReveal client:load /> -->
       <Code
@@ -29,15 +28,16 @@ varlock init
 npx varlock init
       `
       />
-      <div class="info-section">
-        <p>
-          `varlock` will scan your project for `.env` and `.env.example` files
-          and create a `.env.schema` file for you.
-        </p>
+      <div class="button-container">
+        <LinkButton href="getting-started/installation">Get Started</LinkButton>
       </div>
+      <h2 class="description">
+        It scans your project for `.env` and `.env.example` files and creates a
+        `.env.schema` file for you.
+      </h2>
       <Code
         title="Example .env.schema file"
-        lang="bash"
+        lang="env-spec"
         code=`
 # This file uses env-spec - see https://github.com/varlock/env-spec for more info
 # @envFlag=APP_ENV
@@ -74,33 +74,35 @@ SENSITIVE_ITEM=secret-value
       `
       />
       <div class="button-container">
-        <LinkButton href="getting-started/installation">Get Started</LinkButton>
         <LinkButton href="reference/item-decorators">Reference Docs</LinkButton>
       </div>
 
       <div class="info-section">
-        <h2>How it works</h2>
-        <p>
-          Using a combination of a CLI and Desktop app, your secrets are
-          securely encrypted. They are never stored on disk and secured via your
-          fingerprint.
-        </p>
+        <Card title="How it works" icon="magnifier">
+          <p>
+            Using a combination of a CLI and Desktop app, your secrets are
+            securely encrypted. They are never stored on disk and secured via
+            your fingerprint.
+          </p>
+        </Card>
 
-        <h3>Benefits</h3>
-        <ul>
-          <li>Validation of environment variables</li>
-          <li>Coercion based on types</li>
-          <li>Encryption backed by biometrics</li>
-          <li>Drop-in replacement for dotenv</li>
-        </ul>
+        <Card title="Benefits" icon="star">
+          <ul>
+            <li>Validation of environment variables</li>
+            <li>Coercion based on types</li>
+            <li>Encryption backed by biometrics</li>
+            <li>Drop-in replacement for dotenv</li>
+          </ul>
+        </Card>
 
-        <h3>Workflow with varlock</h3>
-        <ul>
-          <li>Run `varlock init`</li>
-          <li>Add any secret values</li>
-          <li>Run `varlock encrypt`</li>
-          <li>Use encrypted values via `varlock run`</li>
-        </ul>
+        <Card title="Workflow" icon="approve-check-circle">
+          <ul>
+            <li>Run `varlock init`</li>
+            <li>Add any secret values</li>
+            <li>Run `varlock encrypt`</li>
+            <li>Use encrypted values via `varlock run`</li>
+          </ul>
+        </Card>
       </div>
     </div>
   </main>
@@ -116,9 +118,42 @@ SENSITIVE_ITEM=secret-value
 
   .button-container {
     display: flex;
-    justify-content: right;
-    text-align: right;
+    justify-content: center;
     gap: 1rem;
+  }
+
+  .button-container > .sl-link-button {
+    min-width: 25%;
+  }
+
+  .button-container > .sl-link-button:hover {
+    background-color: var(--sl-color-black);
+    color: var(--sl-color-text-accent);
+    border: 2px solid var(--sl-color-text-accent);
+    animation: pixelate 1.25s infinite;
+  }
+
+  @keyframes pixelate {
+    0% {
+      border-style: solid;
+    }
+    25% {
+      border-style: dotted;
+    }
+    50% {
+      border-style: dashed;
+    }
+    75% {
+      border-style: dotted;
+    }
+    100% {
+      border-style: solid;
+    }
+  }
+
+  .button-container > .sl-link-button::after {
+    content: "-->";
+    margin-left: 0.5rem;
   }
 
   h1 {
@@ -131,7 +166,7 @@ SENSITIVE_ITEM=secret-value
 
   .description {
     margin-bottom: 2rem;
-    font-size: 1.1rem;
+    font-size: 1.5rem;
   }
 
   .component-container {
