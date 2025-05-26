@@ -52,6 +52,10 @@ class Varlock < Formula
 
   test do
     system bin/"varlock", "--version"
+    # send anonymous analytics install event
+    unless ENV["PH_OPT_OUT"] == "true"
+      system bin/"varlock", "--post-install", "brew"
+    end
   end
 end
 `;
