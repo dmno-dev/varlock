@@ -66,3 +66,23 @@ export async function trackCommand(posthog: PostHog, command: string, properties
     console.debug('Failed to track command:', error);
   }
 }
+
+export async function trackInstall(posthog: PostHog, source: 'brew' | 'curl') {
+  if (!posthog || await isOptedOut()) {
+    return;
+  }
+
+  try {
+    await posthog.capture({
+      distinctId: 'anonymous',
+      event: 'cli_install',
+      properties: {
+        source,
+      },
+    });
+
+    await posthog.shutdown();
+  } catch (error) {
+    console.debug('Failed to track install:', error);
+  }
+}
