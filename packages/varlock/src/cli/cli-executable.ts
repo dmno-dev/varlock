@@ -5,6 +5,7 @@ import { CliExitError } from './helpers/exit-error';
 import { EnvSourceParseError } from '@env-spec/env-graph';
 import ansis from 'ansis';
 import { fmt } from './helpers/pretty-format';
+import { initAnalytics, trackCommand } from './helpers/analytics';
 
 // these will be added as sub-commands and will lazy load the command files
 const commandNames = [
@@ -14,6 +15,7 @@ const commandNames = [
   'encrypt',
   'doctor',
   'help',
+  'opt-out',
 ] as const;
 
 const mainCommand = {
@@ -22,15 +24,27 @@ const mainCommand = {
   },
 };
 
-
-
 const subCommands = new Map();
+
+// Initialize analytics
+const posthog = await initAnalytics();
+
 commandNames.forEach(async (commandName) => {
   subCommands.set(commandName, async () => {
     const commandSpecAndFn = await import(`./commands/${commandName}.command.ts`);
     return {
       ...commandSpecAndFn.commandSpec,
-      run: commandSpecAndFn.commandFn,
+      run: async (...args: any[]) => {
+        // Track command execution
+        if (posthog) {
+          await trackCommand(posthog, commandName, {
+            command: commandName,
+            ...args,
+          });
+        }
+        // Run the actual command
+        return commandSpecAndFn.commandFn(...args);
+      },
     };
   });
 });
@@ -80,7 +94,6 @@ commandNames.forEach(async (commandName) => {
     } else {
       throw error;
     }
-
 
     process.exit(1);
   }
