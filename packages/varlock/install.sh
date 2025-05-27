@@ -175,6 +175,8 @@ main() {
   echo "export PATH=\"${INSTALL_DIR_UNEXPANDED}:\$PATH\""
   echo ""
 
+# TODO verify this command completes successfully
+$_bin_path --post-install curl
   return 0;
 }
 

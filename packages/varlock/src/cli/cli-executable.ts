@@ -5,6 +5,7 @@ import { CliExitError } from './helpers/exit-error';
 import { EnvSourceParseError } from '@env-spec/env-graph';
 import ansis from 'ansis';
 import { fmt } from './helpers/pretty-format';
+import { initAnalytics, trackCommand, trackInstall } from './helpers/analytics';
 
 // these will be added as sub-commands and will lazy load the command files
 const commandNames = [
@@ -14,6 +15,7 @@ const commandNames = [
   'encrypt',
   'doctor',
   'help',
+  'opt-out',
 ] as const;
 
 const mainCommand = {
@@ -22,15 +24,26 @@ const mainCommand = {
   },
 };
 
-
-
 const subCommands = new Map();
+
+// Initialize analytics
+const posthog = await initAnalytics();
+
 commandNames.forEach(async (commandName) => {
   subCommands.set(commandName, async () => {
     const commandSpecAndFn = await import(`./commands/${commandName}.command.ts`);
     return {
       ...commandSpecAndFn.commandSpec,
-      run: commandSpecAndFn.commandFn,
+      run: async (...args: any[]) => {
+        // Track command execution
+        if (posthog) {
+          await trackCommand(posthog, commandName, {
+            command: commandName,
+          });
+        }
+        // Run the actual command
+        return commandSpecAndFn.commandFn(...args);
+      },
     };
   });
 });
@@ -43,6 +56,17 @@ commandNames.forEach(async (commandName) => {
 
     // TODO: remove this once we have a better way to re-trigger help
     if (args[0] === 'help') args = ['--help'];
+
+    // track standalone installs via hombrew/curl
+    if (__VARLOCK_SEA_BUILD__) {
+      if (args[0] === '--post-install') {
+        if (posthog) {
+          await trackInstall(posthog, args[1] as 'brew' | 'curl');
+          // TODO track version, inject post build?
+          process.exit(0);
+        }
+      }
+    }
 
     await cli(args, mainCommand, {
       name: 'varlock',
@@ -80,7 +104,6 @@ commandNames.forEach(async (commandName) => {
     } else {
       throw error;
     }
-
 
     process.exit(1);
   }

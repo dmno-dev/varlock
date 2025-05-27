@@ -51,7 +51,7 @@ class Varlock < Formula
   end
 
   test do
-    system bin/"varlock", "--version"
+    system bin/"varlock", "--post-install", "brew"
   end
 end
 `;
