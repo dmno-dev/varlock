@@ -1,5 +1,7 @@
 # `@env-spec`
 
+> We're actively seeking feedback on @env-spec. Please share your thoughts and ideas in the [RFC](https://github.com/dmno-dev/varlock/discussions/17).
+
 **@env-spec** is a simple DSL/language that extends normal dotenv syntax, allowing you to:
 - add structured metadata using `@decorator` style comments similar to [JSDoc](https://jsdoc.app/)
 - formalizes a syntax for setting values via function calls
