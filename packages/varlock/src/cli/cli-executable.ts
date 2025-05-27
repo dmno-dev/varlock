@@ -16,6 +16,7 @@ const commandNames = [
   'doctor',
   'help',
   'opt-out',
+  'login',
 ] as const;
 
 const mainCommand = {
@@ -24,17 +25,17 @@ const mainCommand = {
   },
 };
 
-const subCommands = new Map();
-
 // Initialize analytics
 const posthog = await initAnalytics();
+
+const subCommands = new Map();
 
 commandNames.forEach(async (commandName) => {
   subCommands.set(commandName, async () => {
     const commandSpecAndFn = await import(`./commands/${commandName}.command.ts`);
     return {
       ...commandSpecAndFn.commandSpec,
-      run: async (...args: any[]) => {
+      run: async (...args: Array<any>) => {
         // Track command execution
         if (posthog) {
           await trackCommand(posthog, commandName, {
