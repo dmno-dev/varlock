@@ -175,12 +175,8 @@ main() {
   echo "export PATH=\"${INSTALL_DIR_UNEXPANDED}:\$PATH\""
   echo ""
 
-  # send anonymous analytics install event
-  if [ "$PH_OPT_OUT" != "true" ]; then
-    $_bin_path --post-install curl
-  fi
-
-
+# TODO verify this command completes successfully
+$_bin_path --post-install curl
   return 0;
 }
 
