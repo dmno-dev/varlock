@@ -19,10 +19,11 @@ import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
         title="Installation"
         lang="bash"
         code=`
-# Install as standalone CLI
+# Install as standalone CLI via homebrew
 brew install varlock
-cd my-project
-varlock init
+
+# OR Install via cURL
+curl -sSfL https://varlock.dev/install.sh | sh -s
 
 # OR init and install as a dependency in a js project
 npx varlock init
@@ -108,7 +109,7 @@ SENSITIVE_ITEM=secret-value
   </main>
 </Layout>
 
-<style>
+<style is:global>
   .container {
     max-width: 800px;
     margin: 0 auto;
@@ -173,25 +174,65 @@ SENSITIVE_ITEM=secret-value
     margin-bottom: 3rem;
   }
 
-  .info-section {
-    padding: 2rem;
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  /* Card styles */
+  .card {
+    border: 1px dotted var(--brand-purple--t1);
+    position: relative;
+    background: var(--sl-color-background);
+    transition: transform 0.2s ease;
   }
 
-  .info-section h2 {
-    margin-top: 0;
+  .card:hover {
+    transform: translateY(-2px);
   }
 
-  .info-section h3 {
-    margin-top: 1.5rem;
+  .card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 10px;
+    height: 10px;
+    border-top: 2px dotted var(--brand-purple--t1);
+    border-left: 2px dotted var(--brand-purple--t1);
   }
 
-  .info-section ul {
+  .card::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 10px;
+    height: 10px;
+    border-bottom: 2px dotted var(--brand-purple--t1);
+    border-right: 2px dotted var(--brand-purple--t1);
+  }
+
+  .card {
+    border-bottom: 1px dotted var(--brand-purple--t1);
+    padding: 1rem;
+  }
+
+  .card {
+    padding: 1rem;
+  }
+
+  .card > .title {
+    /* color: var(--brand-purple--text); */
+    font-family: var(--logo-font);
+    margin: 0;
+  }
+
+  .card ul {
+    margin: 0;
     padding-left: 1.5rem;
   }
 
-  .info-section li {
+  .card li {
     margin-bottom: 0.5rem;
+  }
+
+  .card li:last-child {
+    margin-bottom: 0;
   }
 </style>

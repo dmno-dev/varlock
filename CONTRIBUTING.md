@@ -30,8 +30,7 @@ pnpm build:libs
 - [packages/varlock-website](./packages/varlock-website) - Website for varlock and env-spec
 - [packages/vscode-plugin](./packages/vscode-plugin) - VSCode extension for env-spec
 
-
-See the README.md for each package for more details. 
+> See the README.md for each package for more details. 
 
 
 
