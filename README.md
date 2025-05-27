@@ -35,7 +35,7 @@ npx varlock init
 ```
 
 
-## Contributing
+## Development
 
 This monorepo contains the following packages:
 
