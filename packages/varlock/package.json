@@ -32,7 +32,6 @@
     "@env-spec/parser": "workspace:*",
     "debug": "catalog:",
     "execa": "^9.5.2",
-    "posthog-node": "^4.17.2",
     "which": "^5.0.0"
   },
   "devDependencies": {
