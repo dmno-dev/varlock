@@ -6,7 +6,9 @@
   "scripts": {
     "test": "vitest"
   },
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
