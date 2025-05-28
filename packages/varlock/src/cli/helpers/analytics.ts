@@ -1,15 +1,11 @@
-import { PostHog } from 'posthog-node';
 import { homedir } from 'os';
 import { join } from 'path';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 
-const POSTHOG_API_KEY = 'phc_bfzH97VIta8yQa8HrsgmitqS6rTydjMISs0m8aqJTnq';
-const POSTHOG_HOST = 'https://ph.varlock.dev';
+import { CONFIG } from '../../config';
 
-let posthog: PostHog | null = null;
-
-async function isOptedOut(): Promise<boolean> {
+async function checkIsOptedOut(): Promise<boolean> {
   // Check environment variable first
   if (process.env.PH_OPT_OUT === 'true') {
     return true;
@@ -26,63 +22,47 @@ async function isOptedOut(): Promise<boolean> {
       console.debug('Failed to read analytics config:', error);
     }
   }
-
   return false;
 }
 
-export async function initAnalytics() {
-  // Check if analytics is opted out
-  if (await isOptedOut()) {
-    return;
-  }
+const DEBUG_PH = !!process.env.DEBUG_PH;
 
-  try {
-    return new PostHog(POSTHOG_API_KEY, {
-      host: POSTHOG_HOST,
-    });
-  } catch (error) {
-    console.error('Failed to initialize PostHog:', error);
-  }
+const isOptedOut = await checkIsOptedOut();
+if (DEBUG_PH) console.log('posthog opted out: ', isOptedOut);
+
+async function posthogCapture(event: string, properties?: Record<string, any>) {
+  if (isOptedOut) return;
+
+  const payload = {
+    api_key: CONFIG.POSTHOG_API_KEY,
+    event,
+    properties: {
+      $process_person_profile: false,
+      ...properties,
+    },
+    distinct_id: 'anonymous',
+  };
+
+  const res = await fetch(`${CONFIG.POSTHOG_HOST}/i/v0/e/`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+  if (DEBUG_PH) console.log('res', await res.text());
 }
 
-export async function trackCommand(posthog: PostHog, command: string, properties?: Record<string, any>) {
-  if (!posthog || await isOptedOut()) {
-    return;
-  }
-
-  try {
-    await posthog.capture({
-      distinctId: 'anonymous',
-      event: 'cli_command_executed',
-      properties: {
-        command,
-        ...properties,
-      },
-    });
-
-    await posthog.shutdown();
-  } catch (error) {
-    // Silently fail - we don't want analytics errors to affect the CLI
-    console.debug('Failed to track command:', error);
-  }
+export async function trackCommand(command: string, properties?: Record<string, any>) {
+  await posthogCapture('cli_command_executed', {
+    command,
+    ...properties,
+  });
 }
 
-export async function trackInstall(posthog: PostHog, source: 'brew' | 'curl') {
-  if (!posthog || await isOptedOut()) {
-    return;
-  }
-
-  try {
-    await posthog.capture({
-      distinctId: 'anonymous',
-      event: 'cli_install',
-      properties: {
-        source,
-      },
-    });
-
-    await posthog.shutdown();
-  } catch (error) {
-    console.debug('Failed to track install:', error);
-  }
+export async function trackInstall(source: 'brew' | 'curl') {
+  await posthogCapture('cli_install', {
+    source,
+  });
 }
+
