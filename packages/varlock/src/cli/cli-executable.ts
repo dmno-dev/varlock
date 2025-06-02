@@ -5,7 +5,7 @@ import { CliExitError } from './helpers/exit-error';
 import { EnvSourceParseError } from '@env-spec/env-graph';
 import ansis from 'ansis';
 import { fmt } from './helpers/pretty-format';
-import { initAnalytics, trackCommand, trackInstall } from './helpers/analytics';
+import { trackCommand, trackInstall } from './helpers/analytics';
 
 // these will be added as sub-commands and will lazy load the command files
 const commandNames = [
@@ -25,9 +25,6 @@ const mainCommand = {
   },
 };
 
-// Initialize analytics
-const posthog = await initAnalytics();
-
 const subCommands = new Map();
 
 commandNames.forEach(async (commandName) => {
@@ -37,11 +34,7 @@ commandNames.forEach(async (commandName) => {
       ...commandSpecAndFn.commandSpec,
       run: async (...args: Array<any>) => {
         // Track command execution
-        if (posthog) {
-          await trackCommand(posthog, commandName, {
-            command: commandName,
-          });
-        }
+        await trackCommand(commandName, { command: commandName });
         // Run the actual command
         return commandSpecAndFn.commandFn(...args);
       },
@@ -61,11 +54,9 @@ commandNames.forEach(async (commandName) => {
     // track standalone installs via hombrew/curl
     if (__VARLOCK_SEA_BUILD__) {
       if (args[0] === '--post-install') {
-        if (posthog) {
-          await trackInstall(posthog, args[1] as 'brew' | 'curl');
-          // TODO track version, inject post build?
-          process.exit(0);
-        }
+        await trackInstall(args[1] as 'brew' | 'curl');
+        // TODO track version, inject post build?
+        process.exit(0);
       }
     }
 
