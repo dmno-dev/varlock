@@ -6,6 +6,7 @@ export const fmt = {
   filePath: (s: string) => `📂 ${ansis.cyan.italic(s)}`,
   fileName: (s: string) => `${ansis.cyan.italic(s)}`,
   command: (s: string) => ansis.green.italic(s),
+  packageName: (s: string) => ansis.green.italic(s),
 };
 
 export const logLines = (lines: Array<string | false | undefined>) => {
