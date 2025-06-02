@@ -3,6 +3,7 @@ import _ from '@env-spec/utils/my-dash';
 
 import { ConfigItem } from '../../../env-graph/src/lib/config-item';
 import { VarlockError } from '../../../env-graph/src/lib/errors';
+import { redactString } from './redaction-helpers';
 
 type ColorMod = AnsiStyles | AnsiColors;
 type ColorMods = ColorMod | Array<ColorMod>;
@@ -104,9 +105,14 @@ export function getItemSummary(item: ConfigItem) {
     // item.useAt ? ansis.gray.italic(`(${item.useAt?.join(', ')})`) : undefined,
   ]));
 
+  let valAsStr = formattedValue(item.resolvedValue, false);
+  if (isSensitive && item.resolvedValue && _.isString(item.resolvedValue)) {
+    valAsStr = redactString(item.resolvedValue)!;
+  }
+
   summary.push(joinAndCompact([
     ansis.gray('   └'),
-    isSensitive ? formattedValue(item.resolvedValue) : formattedValue(item.resolvedValue, false),
+    valAsStr,
     item.isCoerced && (
       ansis.gray.italic('< coerced from ')
       + (isSensitive ? formattedValue(item.resolvedRawValue) : formattedValue(item.resolvedRawValue, false))
