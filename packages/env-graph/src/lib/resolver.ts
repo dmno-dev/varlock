@@ -6,6 +6,7 @@ import { Constructor } from '@env-spec/utils/type-utils';
 
 import { ResolutionError, SchemaError } from './errors';
 import { ConfigItem } from './config-item';
+import { SimpleQueue } from './simple-queue';
 
 const execAsync = promisify(exec);
 
@@ -195,6 +196,8 @@ export class ExecResolver extends ResolverInstance {
     }
   }
 
+  static execQueue = new SimpleQueue();
+
   protected async _resolve() {
     if (!Array.isArray(this.fnArgs) || this.fnArgs.length !== 1) {
       throw new Error('exec() expects a single child arg');
@@ -206,7 +209,10 @@ export class ExecResolver extends ResolverInstance {
     }
 
     try {
-      const { stdout, stderr } = await execAsync(commandStr);
+      // ? NOTE - putting these calls through a simple queue for now
+      // this avoids multiple 1password auth popups, but it also makes multiple 1p calls very slow
+      // we likely want to remove this once we have the specific 1Password plugin re-implemented
+      const { stdout, stderr } = await ExecResolver.execQueue.enqueue(() => execAsync(commandStr));
       // trim trailing newline by default
       // we could allow options here?
       return stdout.replace(/\n$/, '');
