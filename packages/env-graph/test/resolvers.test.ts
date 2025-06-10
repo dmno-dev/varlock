@@ -114,17 +114,17 @@ describe('fallback()', functionValueTests({
   },
 }));
 
-describe('eval()', functionValueTests({
+describe('exec()', functionValueTests({
   'working example': {
-    input: 'ITEM=eval("echo moo")',
+    input: 'ITEM=exec("echo moo")',
     expected: { ITEM: 'moo' },
   },
   'error - no command': {
-    input: 'ITEM=eval()',
+    input: 'ITEM=exec()',
     expected: { ITEM: SchemaError },
   },
   'error - key/val args': {
-    input: 'ITEM=eval(cmd="echo moo")',
+    input: 'ITEM=exec(cmd="echo moo")',
     expected: { ITEM: SchemaError },
   },
 }));

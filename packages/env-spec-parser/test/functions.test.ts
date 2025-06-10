@@ -39,8 +39,8 @@ describe('function calls', functionValueTests({
     input: 'ITEM=fallback("", undefined, "default-val")',
     expected: { ITEM: 'default-val' },
   },
-  'eval()': {
-    input: 'ITEM=eval("echo moo")',
+  'exec()': {
+    input: 'ITEM=exec("echo moo")',
     expected: { ITEM: 'moo' },
   },
   'ref()': {
@@ -51,30 +51,30 @@ describe('function calls', functionValueTests({
     },
   },
   'nested function calls': {
-    input: 'OTHERVAL=d\nITEM=concat("a", fallback("", "b"), eval("echo c"), ref(OTHERVAL))',
+    input: 'OTHERVAL=d\nITEM=concat("a", fallback("", "b"), exec("echo c"), ref(OTHERVAL))',
     expected: { ITEM: 'abcd' },
   },
 }));
 
 
-describe('eval expansion', functionValueTests({
-  'eval expansion - unquoted': {
+describe('exec expansion', functionValueTests({
+  'exec expansion - unquoted': {
     input: 'ITEM=$(echo foo)',
     expected: { ITEM: 'foo' },
   },
-  'eval expansion within quotes - double quotes': {
+  'exec expansion within quotes - double quotes': {
     input: 'ITEM="$(echo foo)"',
     expected: { ITEM: 'foo' },
   },
-  'eval expansion within quotes - backticks': {
+  'exec expansion within quotes - backticks': {
     input: 'ITEM=`$(echo foo)`',
     expected: { ITEM: 'foo' },
   },
-  'eval expansion within quotes - single quotes (NOT EXPANDED)': {
+  'exec expansion within quotes - single quotes (NOT EXPANDED)': {
     input: "ITEM='$(echo foo)'",
     expected: { ITEM: '$(echo foo)' },
   },
-  'eval expansion with quotes inside': {
+  'exec expansion with quotes inside': {
     input: 'ITEM=$(echo "foo bar")',
     expected: { ITEM: 'foo bar' },
   },

@@ -74,7 +74,7 @@ actions:
          - varlock() - For encrypted values
          - fallback() - For fallback values
          - concat() - For concatenated values
-         - eval() - For command output
+         - exec() - For command output
          - ref() - For referencing other variables
 
 examples:

@@ -182,27 +182,27 @@ export class FallbackResolver extends ResolverInstance {
   }
 }
 
-export class EvalResolver extends ResolverInstance {
-  label = 'eval';
+export class ExecResolver extends ResolverInstance {
+  label = 'exec';
   icon = 'iconoir:terminal';
 
   async _process() {
     if (!Array.isArray(this.fnArgs)) {
-      throw new SchemaError('eval() expects a single child arg, not a key-value object');
+      throw new SchemaError('exec() expects a single child arg, not a key-value object');
     }
     if (this.fnArgs.length !== 1) {
-      throw new SchemaError('eval() expects a single child arg');
+      throw new SchemaError('exec() expects a single child arg');
     }
   }
 
   protected async _resolve() {
     if (!Array.isArray(this.fnArgs) || this.fnArgs.length !== 1) {
-      throw new Error('eval() expects a single child arg');
+      throw new Error('exec() expects a single child arg');
     }
 
     const commandStr = await this.fnArgs[0].resolve();
     if (typeof commandStr !== 'string') {
-      throw new ResolutionError('eval() expects a string child arg');
+      throw new ResolutionError('exec() expects a string child arg');
     }
 
     try {
@@ -211,8 +211,8 @@ export class EvalResolver extends ResolverInstance {
       // we could allow options here?
       return stdout.replace(/\n$/, '');
     } catch (err) {
-      console.log('eval() failed', err);
-      throw new ResolutionError(`eval() command failed: ${commandStr}`);
+      console.log('exec() failed', err);
+      throw new ResolutionError(`exec() command failed: ${commandStr}`);
     }
   }
 }
@@ -253,5 +253,5 @@ export const BaseResolvers: Record<string, Constructor<ResolverInstance>> = {
   concat: ConcatResolver,
   fallback: FallbackResolver,
   ref: RefResolver,
-  eval: EvalResolver,
+  exec: ExecResolver,
 };

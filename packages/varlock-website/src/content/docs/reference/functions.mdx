@@ -61,12 +61,12 @@ API_URL=concat("https://", ref("DOMAIN"), "/api")
 CONFIG_PATH=concat("config/", ref("ENV"), "/", ref("REGION"), ".json")
 ```
 
-## eval()
+## exec()
 
-The `eval()` function executes a command and uses its output as the value. This is useful for integrating with external tools and services.
+The `exec()` function executes a command and uses its output as the value. This is useful for integrating with external tools and services.
 
 ```env-spec
-SECRET=eval(`op read "op://vault/item/credential"`)
+SECRET=exec(`op read "op://vault/item/credential"`)
 ```
 
 ### Arguments
@@ -75,10 +75,10 @@ SECRET=eval(`op read "op://vault/item/credential"`)
 ### Example
 ```env-spec
 # Using 1Password CLI
-API_KEY=eval(`op read "op://dev test/${OP_VAULT}/credential"`)
+API_KEY=exec(`op read "op://dev test/${OP_VAULT}/credential"`)
 
 # Using AWS CLI
-AWS_CREDENTIALS=eval(`aws sts get-session-token --profile prod`)
+AWS_CREDENTIALS=exec(`aws sts get-session-token --profile prod`)
 ```
 
 ## ref()
@@ -109,6 +109,6 @@ Functions can be composed together to create complex value resolution logic. Her
 # Using multiple functions together
 API_URL=concat("https://", ref("DOMAIN"), "/", ref("API_VERSION"))
 
-# Dynamic configuration with eval
-CONFIG=eval(`aws ssm get-parameter --name "/config/${ENV}" --with-decryption`)
+# Dynamic configuration with exec
+CONFIG=exec(`aws ssm get-parameter --name "/config/${ENV}" --with-decryption`)
 ```

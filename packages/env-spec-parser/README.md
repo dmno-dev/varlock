@@ -175,8 +175,8 @@ Examples:
 ## Notable differences with dotenv/dotenv-expand/dotenvx
 - we do not support _nested_ default expansion (ex: `VAR=${FOO:-${BAR}}`
   - instead you can use the `fallback` function directly `VAR=fallback(ref(FOO), ref(BAR))`
-- we do not support _unescaped_ quotes within eval expansion (ex: `VAR="$(echo "foo")"`)
-  - we support backtick quotes, escaped quotes, or you can use `eval` function directly `VAR=eval(echo "foo")`
+- we do not support _unescaped_ quotes within exec expansion (ex: `VAR="$(echo "foo")"`)
+  - we support backtick quotes, escaped quotes, or you can use `exec` function directly `VAR=exec(echo "foo")`
 ------------------
 
 ## Local dev and testing workflow
