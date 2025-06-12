@@ -31,6 +31,10 @@ export const commandFn: CommandRunner<ExtractArgs<typeof commandSpec>> = async (
 
   const envGraph = await loadVarlockEnvGraph();
   checkForSchemaErrors(envGraph);
+
+  // TODO: should probably be moved into a more general post-load hook system
+  await envGraph.generateTypes();
+
   await envGraph.resolveEnvValues();
   checkForConfigErrors(envGraph, { showAll });
 

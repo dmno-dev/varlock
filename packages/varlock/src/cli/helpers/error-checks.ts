@@ -2,8 +2,6 @@ import ansis from 'ansis';
 import { EnvGraph } from '@env-spec/env-graph';
 import _ from '@env-spec/utils/my-dash';
 import { getItemSummary, joinAndCompact } from '../../lib/formatting';
-import { CliExitError } from './exit-error';
-
 
 export function checkForSchemaErrors(envGraph: EnvGraph) {
   // first we check for loading/parse errors - some cases we may want to let it fail silently?
@@ -43,6 +41,15 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
   // }
 }
 
+export class InvalidEnvError extends Error {
+  constructor() {
+    super('Resolved config/env did not pass validation');
+  }
+  getFormattedOutput() {
+    return `\n💥 ${ansis.red(this.message)} 💥\n`;
+  }
+}
+
 export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
   showAll?: boolean
 }) {
@@ -70,6 +77,6 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
       });
     }
 
-    throw new CliExitError('Resolved config did not pass validation');
+    throw new InvalidEnvError();
   }
 }

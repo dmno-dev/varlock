@@ -1,10 +1,7 @@
-/// <reference types="./env.d.ts" />
 import 'varlock/auto-load';
-import { ENV, patchGlobalConsoleToRedactSensitiveLogs } from 'varlock';
+import { ENV } from 'varlock';
 
-patchGlobalConsoleToRedactSensitiveLogs();
-
-ENV.SENSITIVE_ITEM = 'test';
+ENV.SENSITIVE_ITEM;
 
 import { logEnv } from './log-env.js';
 

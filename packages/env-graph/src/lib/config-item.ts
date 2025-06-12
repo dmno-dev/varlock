@@ -38,11 +38,23 @@ export class ConfigItem {
     this.defs.unshift({ itemDef, source });
   }
 
-
   get description() {
     for (const def of this.defs) {
       if (def.itemDef.description) return def.itemDef.description;
     }
+  }
+  get icon() {
+    const explicitIcon = this.getDecoratorValueString('icon');
+    if (explicitIcon) return explicitIcon;
+    return this.dataType?.icon;
+  }
+  get docsLinks() {
+    // matching { url, description } from OpenAPI
+    const links: Array<{ url: string, description?: string }> = [];
+    const docsUrl = this.getDecoratorValueString('docsUrl');
+    if (docsUrl) links.push({ url: docsUrl });
+    // TODO: add ability to have multiple links, set labels
+    return links;
   }
 
   get valueResolver() {
@@ -59,13 +71,17 @@ export class ConfigItem {
       }
     }
   }
-  getDecoratorValue(decoratorName: string) {
+  getDecoratorValueRaw(decoratorName: string) {
     for (const def of this.defs) {
       const defDecorators = def.itemDef.decorators || {};
       if (decoratorName in defDecorators) {
         return defDecorators[decoratorName].value;
       }
     }
+  }
+  getDecoratorValueString(decoratorName: string) {
+    const dec = this.getDecoratorValueRaw(decoratorName);
+    if (dec instanceof ParsedEnvSpecStaticValue) return String(dec.value);
   }
 
 
@@ -81,7 +97,7 @@ export class ConfigItem {
       await def.itemDef.resolver?.process(this);
     }
 
-    const typeDecoratorValue = this.getDecoratorValue('type');
+    const typeDecoratorValue = this.getDecoratorValueRaw('type');
     let dataTypeName: string | undefined;
     let dataTypeArgs: any;
     if (typeDecoratorValue instanceof ParsedEnvSpecStaticValue) {
