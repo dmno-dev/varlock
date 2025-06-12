@@ -1,5 +1,9 @@
-.vscode/**
-.vscode-test/**
+.gitignore
+.turbo
+.vscode
+src
 .gitignore
 *.vsix
-vsc-extension-quickstart.md
+*.ignore
+tsconfig.json
+tsup.config.ts

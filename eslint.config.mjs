@@ -167,7 +167,7 @@ export default tseslint.config(
       'jsonc/no-sparse-arrays': 'error',
       'jsonc/no-useless-escape': 'error',
       'jsonc/object-curly-newline': ['error', { consistent: true }],
-      'jsonc/object-curly-spacing': ['error', 'never'],
+      'jsonc/object-curly-spacing': ['error', 'always'],
       'jsonc/object-property-newline': 'error',
       'jsonc/quote-props': ['error', 'always', {}],
       'jsonc/quotes': ['error', 'double', { avoidEscape: false }],
