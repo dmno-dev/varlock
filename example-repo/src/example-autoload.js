@@ -1,6 +1,8 @@
 /// <reference types="./env.d.ts" />
 import 'varlock/auto-load';
-import { ENV } from 'varlock';
+import { ENV, patchGlobalConsoleToRedactSensitiveLogs } from 'varlock';
+
+patchGlobalConsoleToRedactSensitiveLogs();
 
 ENV.SENSITIVE_ITEM = 'test';
 

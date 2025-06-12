@@ -1,6 +1,7 @@
-import { loadEnvGraph } from '@env-spec/env-graph';
 import { checkForConfigErrors } from './cli/helpers/error-checks';
 import { loadVarlockEnvGraph } from './lib/load-graph';
+import { resetRedactionMap } from './lib/redaction-helpers';
+
 
 let envValues = {} as Record<string, any>;
 
@@ -14,9 +15,8 @@ const EnvProxy = new Proxy({}, {
 export const ENV = EnvProxy;
 
 export function loadSync() {
-  console.log('loading varlock (sync)');
+  throw new Error('Not yet supported');
 }
-
 
 export async function load() {
   // TODO: add some options
@@ -29,6 +29,11 @@ export async function load() {
   checkForConfigErrors(envGraph);
 
   const resolvedEnv = envGraph.getResolvedEnvObject();
+
+  resetRedactionMap(envGraph);
+
+  // reset env values
+  envValues = {};
 
   for (const key in resolvedEnv) {
     const resolvedValue = resolvedEnv[key];
@@ -43,3 +48,9 @@ export async function load() {
 
   // TODO: return resolved env and schema / meta info
 }
+
+// expose redaction utils
+export {
+  redactSensitiveConfig,
+  patchGlobalConsoleToRedactSensitiveLogs, unpatchGlobalConsoleSensitiveLogRedaction,
+} from './lib/redaction-helpers';
