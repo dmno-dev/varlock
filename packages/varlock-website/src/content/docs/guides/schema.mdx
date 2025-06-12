@@ -21,7 +21,7 @@ Root level decorators are used to specify global settings for the environment va
 
 # override defaults flags
 # @required @sensitive
-REQ_SENS_VAR=eval("some cli command")
+REQ_SENS_VAR=exec("some cli command")
 ```
 
 > See the full reference of [root-level decorators](/reference/root-decorators) for more information.
@@ -95,8 +95,8 @@ MY_KEY=fallback("", undefined, "fallback-value") # outputs "fallback-value"
 # Concatenated value
 MY_KEY=concat("part1", "part2") # outputs "part1part2"
 
-# Eval to load a value from an external command
-MY_KEY=eval(`op read "op://dev test/${OP_VAULT}/credential"`)
+# Exec to load a value from an external cli command
+MY_KEY=exec(`op read "op://dev test/${OP_VAULT}/credential"`)
 
 # Reference another item
 MY_KEY=ref(“OTHER_KEY”) # equivalent to MY_KEY=${OTHER_KEY}

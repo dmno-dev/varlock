@@ -5,45 +5,45 @@ import {
 // const EXPAND_VAR_REGEX_WITH_SIMPLE = /\$({([a-zA-Z_][a-zA-Z0-9_.]*)}|([a-zA-Z_][a-zA-Z0-9_]*))/g;
 const EXPAND_VAR_BRACKETED_REGEX = /(?<!\\)\${([a-zA-Z_][a-zA-Z0-9_.]*)((:?-)([^}]+))?}/g;
 const EXPAND_VAR_SIMPLE_REGEX = /(?<!\\)\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
-const EXPAND_EVAL_REGEX = /\$\(([^)]+)\)/g;
+const EXPAND_EXEC_REGEX = /\$\(([^)]+)\)/g;
 
 
 type ParsedEnvSpecValueNode = ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecKeyValuePair;
 
-function expandEvals(staticVal: ParsedEnvSpecStaticValue, _opts?: {}) {
+function expandExecs(staticVal: ParsedEnvSpecStaticValue, _opts?: {}) {
   if (typeof staticVal.value !== 'string') return staticVal;
   const quote = staticVal.data.quote;
   const quoteStr = quote ?? '';
   // single quoted strings are not expanded!
   if (quote === "'") return staticVal;
 
-  const evalMatches = Array.from(staticVal.value.matchAll(EXPAND_EVAL_REGEX));
+  const execMatches = Array.from(staticVal.value.matchAll(EXPAND_EXEC_REGEX));
 
   // if no matches - we just return the original value
-  if (evalMatches.length === 0) return staticVal;
+  if (execMatches.length === 0) return staticVal;
 
-  // otherwise, we expand the transform each match into `eval` fn calls
+  // otherwise, we expand the transform each match into `exec` fn calls
   // and return a concat with everything together
   let lastIndex = 0;
   const parts = [] as Array<ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall>;
-  for (const match of evalMatches) {
-    // extract text before eval -- ex: `pretext-$(eval command)`
+  for (const match of execMatches) {
+    // extract text before exec -- ex: `pretext-$(exec command)`
     if (lastIndex < match.index) {
       const preText = staticVal.value.slice(lastIndex, match.index);
       parts.push(new ParsedEnvSpecStaticValue({ rawValue: `${quoteStr}${preText}${quoteStr}`, quote }));
     }
 
-    // extract eval command
+    // extract exec command
     const shellCmd = match[1];
     parts.push(new ParsedEnvSpecFunctionCall({
-      name: 'eval',
+      name: 'exec',
       args: new ParsedEnvSpecFunctionArgs({
         values: [new ParsedEnvSpecStaticValue({ rawValue: `${quoteStr}${shellCmd}${quoteStr}`, quote })],
       }),
     }));
     lastIndex = match.index + match[0].length;
   }
-  // extract any remaining text after the last eval
+  // extract any remaining text after the last exec
   if (lastIndex < staticVal.value.length) {
     const postText = staticVal.value.slice(lastIndex);
     parts.push(new ParsedEnvSpecStaticValue({ rawValue: `${quoteStr}${postText}${quoteStr}`, quote }));
@@ -72,7 +72,7 @@ function expandRefs(staticVal: ParsedEnvSpecStaticValue, mode: 'simple' | 'brack
   let lastIndex = 0;
   const parts = [] as Array<any>;
   for (const match of varMatches) {
-    // extract text before eval
+    // extract text before exec
     if (lastIndex < match.index) {
       const preText = staticVal.value.slice(lastIndex, match.index);
       parts.push(new ParsedEnvSpecStaticValue({ rawValue: `${quoteStr}${preText}${quoteStr}`, quote }));
@@ -176,7 +176,7 @@ function expandHelper(
 }
 
 /**
- * takes in a value node and runs expansion (evals, refs) according to options
+ * takes in a value node and runs expansion (execs, refs) according to options
  * returns a new value node with all expansions applied
  * */
 export function expand(
@@ -186,7 +186,7 @@ export function expand(
 ): ParsedEnvSpecValueNode {
   // TODO: add options
   let expandedVal = val;
-  expandedVal = expandHelper(expandedVal, (v) => expandEvals(v));
+  expandedVal = expandHelper(expandedVal, (v) => expandExecs(v));
   expandedVal = expandHelper(expandedVal, (v) => expandRefs(v, 'simple'));
   expandedVal = expandHelper(expandedVal, (v) => expandRefs(v, 'bracketed'));
   return expandedVal;

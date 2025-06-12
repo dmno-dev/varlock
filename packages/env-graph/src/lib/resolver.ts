@@ -6,6 +6,7 @@ import { Constructor } from '@env-spec/utils/type-utils';
 
 import { ResolutionError, SchemaError } from './errors';
 import { ConfigItem } from './config-item';
+import { SimpleQueue } from './simple-queue';
 
 const execAsync = promisify(exec);
 
@@ -182,37 +183,42 @@ export class FallbackResolver extends ResolverInstance {
   }
 }
 
-export class EvalResolver extends ResolverInstance {
-  label = 'eval';
+export class ExecResolver extends ResolverInstance {
+  label = 'exec';
   icon = 'iconoir:terminal';
 
   async _process() {
     if (!Array.isArray(this.fnArgs)) {
-      throw new SchemaError('eval() expects a single child arg, not a key-value object');
+      throw new SchemaError('exec() expects a single child arg, not a key-value object');
     }
     if (this.fnArgs.length !== 1) {
-      throw new SchemaError('eval() expects a single child arg');
+      throw new SchemaError('exec() expects a single child arg');
     }
   }
 
+  static execQueue = new SimpleQueue();
+
   protected async _resolve() {
     if (!Array.isArray(this.fnArgs) || this.fnArgs.length !== 1) {
-      throw new Error('eval() expects a single child arg');
+      throw new Error('exec() expects a single child arg');
     }
 
     const commandStr = await this.fnArgs[0].resolve();
     if (typeof commandStr !== 'string') {
-      throw new ResolutionError('eval() expects a string child arg');
+      throw new ResolutionError('exec() expects a string child arg');
     }
 
     try {
-      const { stdout, stderr } = await execAsync(commandStr);
+      // ? NOTE - putting these calls through a simple queue for now
+      // this avoids multiple 1password auth popups, but it also makes multiple 1p calls very slow
+      // we likely want to remove this once we have the specific 1Password plugin re-implemented
+      const { stdout, stderr } = await ExecResolver.execQueue.enqueue(() => execAsync(commandStr));
       // trim trailing newline by default
       // we could allow options here?
       return stdout.replace(/\n$/, '');
     } catch (err) {
-      console.log('eval() failed', err);
-      throw new ResolutionError(`eval() command failed: ${commandStr}`);
+      console.log('exec() failed', err);
+      throw new ResolutionError(`exec() command failed: ${commandStr}`);
     }
   }
 }
@@ -253,5 +259,5 @@ export const BaseResolvers: Record<string, Constructor<ResolverInstance>> = {
   concat: ConcatResolver,
   fallback: FallbackResolver,
   ref: RefResolver,
-  eval: EvalResolver,
+  exec: ExecResolver,
 };

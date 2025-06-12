@@ -40,7 +40,7 @@ export function simpleResolver(
           }
         });
         return resolvedArgs.join('');
-      } else if (valOrFn.name === 'eval') {
+      } else if (valOrFn.name === 'exec') {
         const args = valOrFn.simplifiedArgs;
         if (Array.isArray(args)) {
           const cmdStr = args[0];
@@ -51,7 +51,7 @@ export function simpleResolver(
             },
           ).toString().trim();
         } else {
-          throw new Error('Invalid `eval` args');
+          throw new Error('Invalid `exec` args');
         }
       } else if (valOrFn.name === 'fallback') {
         const args = valOrFn.data.args.values;
