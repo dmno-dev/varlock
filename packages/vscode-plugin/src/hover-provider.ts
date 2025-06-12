@@ -3,7 +3,9 @@
 
   for now we'll just give info about known decorators
 */
-import { ExtensionContext, Hover, languages } from 'vscode';
+import {
+  ExtensionContext, Hover, languages, MarkdownString,
+} from 'vscode';
 import { LANG_ID } from './constants';
 import { deindent } from './utils/deindent';
 
@@ -12,19 +14,23 @@ const ITEM_DECORATORS: Record<string, any> = {
   required: {
     hoverContent: `
       Sets whether item must be set to pass validation - can be set to true or false.
+
       Overrides default behaviour set by \`@defaultRequired\` root decorator.
+
       Opposite decorator \`@optional\` is also available.
     `,
   },
   optional: {
     hoverContent: `
       Sets whether an item is required, as the opposite of \`@required\`.
+
       Overrides default behaviour set by \`@defaultRequired\` root decorator.
     `,
   },
   sensitive: {
     hoverContent: `
-      Sets whether an item should be treated as a sensitive secret
+      Sets whether an item should be treated as a sensitive secret.
+
       Overrides default behaviour set by \`@defaultSensitive\` root decorator.
     `,
   },
@@ -83,7 +89,10 @@ export function addHoverProvider(context: ExtensionContext) {
           const decName = hoveredText.substring(1);
           const dec = ITEM_DECORATORS[decName] || ROOT_DECORATORS[decName];
           if (dec) {
-            return new Hover(deindent(dec.hoverContent));
+            const mds = new MarkdownString();
+            mds.supportThemeIcons = true;
+            mds.appendMarkdown(deindent(dec.hoverContent));
+            return new Hover(mds);
           }
         }
       }
