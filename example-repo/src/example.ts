@@ -1,8 +1,7 @@
-/// <reference types="./env.d.ts" />
 import 'varlock/auto-load';
 import { ENV } from 'varlock';
 
-ENV.SENSITIVE_ITEM = 'test';
+ENV.SENSITIVE_ITEM;
 
 import { logEnv } from './log-env.js';
 

@@ -48,7 +48,10 @@ export class EnvGraphDataType {
   ) {}
 
   get name() { return this.def.name; }
+  get icon() { return this.def.icon; }
 
+  /** @internal */
+  get _rawDef() { return this.def; }
 
   coerce(val: any) {
     return this.def.coerce ? this.def.coerce(val) : val;
