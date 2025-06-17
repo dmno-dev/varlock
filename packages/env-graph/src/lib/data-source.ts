@@ -92,15 +92,26 @@ export class ProcessEnvDataSource extends EnvGraphDataSource {
   label = 'Process Environment Variables';
   ignoreNewDefs = true;
 
+  static processEnvValues: Record<string, string | undefined> | undefined;
+
   // ? do we want to set decorator values from env vars here? -- ex: _ENV_FLAG_KEY
   // depends if we want those to work only within process.env
 
   constructor() {
     super();
 
-    for (const itemKey of Object.keys(process.env)) {
+    // we want to make sure we only load the original process.env values once
+    // so that if we are reloading, we'll skip any new values we have added in a previous load
+    if (!ProcessEnvDataSource.processEnvValues) {
+      ProcessEnvDataSource.processEnvValues = {};
+      for (const itemKey of Object.keys(process.env)) {
+        ProcessEnvDataSource.processEnvValues[itemKey] = process.env[itemKey];
+      }
+    }
+
+    for (const itemKey of Object.keys(ProcessEnvDataSource.processEnvValues)) {
       this.configItemDefs[itemKey] = {
-        resolver: new StaticValueResolver(process.env[itemKey]),
+        resolver: new StaticValueResolver(ProcessEnvDataSource.processEnvValues[itemKey]),
       };
     }
   }

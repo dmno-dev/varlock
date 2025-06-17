@@ -95,7 +95,9 @@ export abstract class ResolverInstance {
 export class StaticValueResolver extends ResolverInstance {
   constructor(readonly staticValue: ResolvedValue) {
     super([]);
-    this.inferredType = typeof staticValue;
+    if (staticValue !== undefined) {
+      this.inferredType = typeof staticValue;
+    }
   }
 
   label = 'static';
@@ -169,7 +171,6 @@ export class FallbackResolver extends ResolverInstance {
 
   protected async _resolve() {
     if (!Array.isArray(this.fnArgs)) {
-      console.log(this.fnArgs);
       throw new Error('concat() expects an array of arguments, not a key-value object');
     }
 

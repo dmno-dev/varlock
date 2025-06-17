@@ -5,10 +5,9 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "example:auto": "node src/example-autoload.js",
-    "example:run": "varlock run -- node src/example-needs-run.js",
-    "example:dotenv": "node src/example-dotenv.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "example:auto": "node --experimental-strip-types src/example-autoload.ts",
+    "example:run": "varlock run -- node --experimental-strip-types src/example-needs-run.ts",
+    "example:dotenv": "node --experimental-strip-types src/example-dotenv.ts"
   },
   "keywords": [],
   "author": "",

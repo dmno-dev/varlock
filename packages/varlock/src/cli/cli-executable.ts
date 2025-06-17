@@ -6,6 +6,7 @@ import { EnvSourceParseError } from '@env-spec/env-graph';
 import ansis from 'ansis';
 import { fmt } from './helpers/pretty-format';
 import { trackCommand, trackInstall } from './helpers/analytics';
+import { InvalidEnvError } from './helpers/error-checks';
 
 // these will be added as sub-commands and will lazy load the command files
 const commandNames = [
@@ -73,7 +74,7 @@ commandNames.forEach(async (commandName) => {
     });
     process.exit(0);
   } catch (error) {
-    if (error instanceof CliExitError) {
+    if (error instanceof CliExitError || error instanceof InvalidEnvError) {
       // in watch mode, we just log but do not actually exit
       console.error(error.getFormattedOutput());
       // TODO: we'll probably want to implement watch mode, so it wont actually exit
