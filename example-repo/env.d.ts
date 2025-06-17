@@ -140,19 +140,6 @@ export type CoercedEnvSchema = {
   readonly SENSITIVE_ITEM?: string;
   
   /**
-   * **REQUIRED_UNDEF_FAIL**  
-   * UNCOMMENT TO SEE VALIDATION ERRORS (empty required)  
-   * ![icon](data:image/svg+xml;utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2220%22%20height%3D%2220%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%23808080%22%20d%3D%22M29%2022h-5a2.003%202.003%200%200%201-2-2v-6a2%202%200%200%201%202-2h5v2h-5v6h5zM18%2012h-4V8h-2v14h6a2.003%202.003%200%200%200%202-2v-6a2%202%200%200%200-2-2m-4%208v-6h4v6zm-6-8H3v2h5v2H4a2%202%200%200%200-2%202v2a2%202%200%200%200%202%202h6v-8a2%202%200%200%200-2-2m0%208H4v-2h4z%22%2F%3E%3C%2Fsvg%3E)   
-   */
-  readonly REQUIRED_UNDEF_FAIL: string;
-  
-  /**
-   * **REQUIRED_EMPTY_STR_FAIL**  
-   * ![icon](data:image/svg+xml;utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2220%22%20height%3D%2220%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%23808080%22%20d%3D%22M29%2022h-5a2.003%202.003%200%200%201-2-2v-6a2%202%200%200%201%202-2h5v2h-5v6h5zM18%2012h-4V8h-2v14h6a2.003%202.003%200%200%200%202-2v-6a2%202%200%200%200-2-2m-4%208v-6h4v6zm-6-8H3v2h5v2H4a2%202%200%200%200-2%202v2a2%202%200%200%200%202%202h6v-8a2%202%200%200%200-2-2m0%208H4v-2h4z%22%2F%3E%3C%2Fsvg%3E)   
-   */
-  readonly REQUIRED_EMPTY_STR_FAIL: string;
-  
-  /**
    * **SERVICE_XYZ_API_KEY** 🔐 _sensitive_  
    * ![icon](data:image/svg+xml;utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2220%22%20height%3D%2220%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%23808080%22%20d%3D%22M29%2022h-5a2.003%202.003%200%200%201-2-2v-6a2%202%200%200%201%202-2h5v2h-5v6h5zM18%2012h-4V8h-2v14h6a2.003%202.003%200%200%200%202-2v-6a2%202%200%200%200-2-2m-4%208v-6h4v6zm-6-8H3v2h5v2H4a2%202%200%200%200-2%202v2a2%202%200%200%200%202%202h6v-8a2%202%200%200%200-2-2m0%208H4v-2h4z%22%2F%3E%3C%2Fsvg%3E)   
    */
@@ -162,6 +149,7 @@ export type CoercedEnvSchema = {
 
 
 declare module 'varlock' {
-  export const ENV: CoercedEnvSchema;
-  export const PUBLIC_ENV: Pick<CoercedEnvSchema, 'CONCAT_EXAMPLE' | 'FALLBACK_EXAMPLE' | 'EXEC_EXAMPLE' | 'FOO' | 'REF_EXAMPLE' | 'REF_EXAMPLE2' | 'EXEC_OP_EXAMPLE' | 'OP_VAULT' | 'EXEC_EXAMPLE1' | 'EXEC_EXAMPLE2' | 'EXEC_EXAMPLE3' | 'APP_ENV' | 'SOME_VAR' | 'NUMBER_ITEM' | 'EMAIL_ITEM' | 'URL_ITEM' | 'PORT' | 'INFER_NUM' | 'INFER_BOOL' | 'INFER_STR' | 'NOT_SENSITIVE_ITEM' | 'REQUIRED_UNDEF_FAIL' | 'REQUIRED_EMPTY_STR_FAIL'>;
+  export interface TypedEnvSchema extends CoercedEnvSchema {}
+  
+  export interface PublicTypedEnvSchema extends Pick<CoercedEnvSchema, 'CONCAT_EXAMPLE' | 'FALLBACK_EXAMPLE' | 'EXEC_EXAMPLE' | 'FOO' | 'REF_EXAMPLE' | 'REF_EXAMPLE2' | 'EXEC_OP_EXAMPLE' | 'OP_VAULT' | 'EXEC_EXAMPLE1' | 'EXEC_EXAMPLE2' | 'EXEC_EXAMPLE3' | 'APP_ENV' | 'SOME_VAR' | 'NUMBER_ITEM' | 'EMAIL_ITEM' | 'URL_ITEM' | 'PORT' | 'INFER_NUM' | 'INFER_BOOL' | 'INFER_STR' | 'NOT_SENSITIVE_ITEM'> {}
 }

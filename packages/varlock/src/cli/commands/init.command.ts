@@ -82,6 +82,8 @@ export const commandFn = async (commandsArray: Array<any>) => {
   ].join('\n'));
   envSpecUpdater.setRootDecorator(parsedEnvFile, 'defaultRequired', 'false', { explicitTrue: true });
   envSpecUpdater.setRootDecorator(parsedEnvFile, 'defaultSensitive', 'false', { explicitTrue: true });
+  // TODO: detect js/ts project before adding this
+  envSpecUpdater.setRootDecorator(parsedEnvFile, 'generateTypes', 'lang=ts, path=env.d.ts', { bareFnArgs: true });
   // envSpecUpdater.setRootDecorator(parsedEnvFile, 'envFlag', 'APP_ENV', { comment: 'controls automatic loading of env-specific files (e.g. .env.test, .env.prod, etc.)' });
 
   // add example item

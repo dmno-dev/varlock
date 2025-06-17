@@ -1,6 +1,10 @@
 import 'varlock/auto-load';
+import { VarlockRedactor } from 'varlock';
 
-import { logEnv } from './log-env.js';
+VarlockRedactor.patchConsole();
+
+import { logEnv } from './log-env.ts';
+
 
 // import { load } from 'varlock';
 

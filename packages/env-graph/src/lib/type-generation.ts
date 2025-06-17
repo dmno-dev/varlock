@@ -188,18 +188,20 @@ export async function generateTsTypesSrc(graph: EnvGraph) {
 
   tsSrc.push(`
 declare module 'varlock' {
-  export const ENV: CoercedEnvSchema;
-  export const PUBLIC_ENV: Pick<CoercedEnvSchema, '${exposedNonSensitiveKeys.join("' | '")}'>;
+  export interface TypedEnvSchema extends CoercedEnvSchema {}
+  
+  export interface PublicTypedEnvSchema extends Pick<CoercedEnvSchema, '${exposedNonSensitiveKeys.join("' | '")}'> {}
 }
 `);
 
   return tsSrc.join('\n');
 }
 
-export async function generateTypes(graph: EnvGraph) {
-  // TODO: should check root decorators if type-gen is enabled and for settings (language, path)
+export async function generateTypes(graph: EnvGraph, lang: string, outputPath: string) {
+  if (lang !== 'ts') throw new Error(`Unsupported @generateTypes lang: ${lang}`);
+
   const tsSrc = await generateTsTypesSrc(graph);
   if (!graph.basePath) return;
-  const typesPath = path.join(graph.basePath, 'env.d.ts');
+  const typesPath = path.join(graph.basePath, outputPath);
   await fs.promises.writeFile(typesPath, tsSrc, 'utf-8');
 }

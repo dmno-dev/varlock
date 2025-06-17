@@ -265,7 +265,7 @@ export class EnvGraph {
     return _.some(_.values(this.configSchema), (i) => !i.isValid);
   }
 
-  async generateTypes() {
-    await generateTypes(this);
+  async generateTypes(lang: string, outputPath: string) {
+    await generateTypes(this, lang, outputPath);
   }
 }

@@ -95,6 +95,14 @@ describe('update helpers', updateTests({
     },
     expected: '# header\n# @foo @bar="bye bye" @import(../../.env)\n# ---',
   },
+  'add root decorators - bare fn call w/ key value args': {
+    input: '# header\n# ---',
+    transform: (file) => {
+      envSpecUpdater.setRootDecorator(file, 'generateTypes', 'lang=ts, path=env.d.ts', { bareFnArgs: true });
+    },
+    expected: '# header\n# @generateTypes(lang=ts, path=env.d.ts)\n# ---',
+  },
+
   'add root decorators - new line': {
     input: '# header\n# @foo # super long line of comments so it should push new one to the next line\n# ---',
     transform: (file) => {

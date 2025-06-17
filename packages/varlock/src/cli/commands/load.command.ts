@@ -32,8 +32,19 @@ export const commandFn: CommandRunner<ExtractArgs<typeof commandSpec>> = async (
   const envGraph = await loadVarlockEnvGraph();
   checkForSchemaErrors(envGraph);
 
-  // TODO: should probably be moved into a more general post-load hook system
-  await envGraph.generateTypes();
+  // TODO: move into a more general post-load hook system
+  if (envGraph.schemaDataSource?.decorators.generateTypes) {
+    // TODO: much of this logic should move to the definition of the decorator itself
+    const typeGenSettings = envGraph.schemaDataSource?.decorators.generateTypes.bareFnArgs?.simplifiedValues;
+    if (!_.isPlainObject(typeGenSettings)) {
+      throw new Error('@generateTypes - must be a fn call with key/value args');
+    }
+    if (!typeGenSettings.lang) throw new Error('@generateTypes - must set `lang` arg');
+    if (typeGenSettings.lang !== 'ts') throw new Error(`@generateTypes - unsupported language: ${typeGenSettings.lang}`);
+    if (!typeGenSettings.path) throw new Error('@generateTypes - must set `path` arg');
+    if (!_.isString(typeGenSettings.path)) throw new Error('@generateTypes - `path` arg must be a string');
+    await envGraph.generateTypes(typeGenSettings.lang, typeGenSettings.path);
+  }
 
   await envGraph.resolveEnvValues();
   checkForConfigErrors(envGraph, { showAll });
