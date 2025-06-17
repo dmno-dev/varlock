@@ -3,32 +3,29 @@ import Layout from "../layouts/Layout.astro";
 import SecretReveal from "../components/SecretReveal.vue";
 import { LinkButton, Code, Card } from "@astrojs/starlight/components";
 import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
+import SignUpForm from "../components/SignUpForm.astro";
 ---
 
 <Layout showSearch={false}>
   <main>
     <div class="container">
       <VarlockRetroBanner />
-      <h2 class="description">
+      <h2>Secure Environment Variables</h2>
+      <h3 class="description">
         Varlock gives your environment variables guardrails with validation,
         type-safety, coercion, and secure secret integrations.
-      </h2>
+      </h3>
+      <Code
+        lang="env-spec"
+        code=`
+# OpenAI API Key
+# @required @sensitive @type=string(startsWith=sk)
+OPENAI_API_KEY=exec('op read "op://productions/openai/api-key"')
+    `
+      />
 
       <!-- <SecretReveal client:load /> -->
-      <Code
-        title="Installation"
-        lang="bash"
-        code=`
-# Install as standalone CLI via homebrew
-brew install varlock
 
-# OR Install via cURL
-curl -sSfL https://varlock.dev/install.sh | sh -s
-
-# OR init and install as a dependency in a js project
-npx varlock init
-      `
-      />
       <div class="button-container">
         <LinkButton href="getting-started/installation">Get Started</LinkButton>
       </div>
@@ -79,32 +76,37 @@ SENSITIVE_ITEM=secret-value
       </div>
 
       <div class="info-section">
-        <Card title="How it works" icon="magnifier">
-          <p>
-            Using a combination of a CLI and Desktop app, your secrets are
-            securely encrypted. They are never stored on disk and secured via
-            your fingerprint.
-          </p>
-        </Card>
-
         <Card title="Benefits" icon="star">
           <ul>
             <li>Validation of environment variables</li>
             <li>Coercion based on types</li>
-            <li>Encryption backed by biometrics</li>
+            <li>Secure third-party secrets</li>
             <li>Drop-in replacement for dotenv</li>
           </ul>
         </Card>
-
-        <Card title="Workflow" icon="approve-check-circle">
+        <Card title="Secure Secrets" icon="approve-check-circle">
           <ul>
-            <li>Run `varlock init`</li>
-            <li>Add any secret values</li>
-            <li>Run `varlock encrypt`</li>
-            <li>Use encrypted values via `varlock run`</li>
+            <li>Use any secrets provider with a CLI</li>
+            <li>Load via `exec` functions</li>
+            <li>Keep secure references in your codebase</li>
           </ul>
         </Card>
+        <h2>Installation</h2>
       </div>
+      <Code
+        lang="bash"
+        code=`
+# Install as standalone CLI via homebrew
+brew install varlock
+
+# OR Install via cURL
+curl -sSfL https://varlock.dev/install.sh | sh -s
+
+# OR init and install as a dependency in a js project
+npx varlock init
+    `
+      />
+      <SignUpForm />
     </div>
   </main>
 </Layout>
