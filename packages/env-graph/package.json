@@ -4,7 +4,8 @@
   "version": "0.0.0",
   "description": "Tools to load a graph of related env files",
   "scripts": {
-    "test": "vitest"
+    "test": "vitest",
+    "test:ci": "vitest --run"
   },
   "files": ["src"],
   "type": "module",

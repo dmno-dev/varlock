@@ -72,6 +72,16 @@ function mapValues<T, U>(obj: Record<string, T>, fn: (value: T) => U) {
   return Object.fromEntries(Object.entries(obj).map(([key, value]) => [key, fn(value)]));
 }
 
+function times<T>(count: number, fn: (index: number) => T): Array<T> {
+  return Array.from({ length: count }, (_, i) => fn(i));
+}
+
+function map<T, U>(array: Array<T>, fn: (item: T) => U): Array<U> {
+  return array.map(fn);
+}
+function flatMap<T, U>(array: Array<T>, fn: (item: T) => Array<U>): Array<U> {
+  return array.flatMap(fn);
+}
 
 const _ = {
   keyBy,
@@ -84,6 +94,9 @@ const _ = {
   each,
   castArray,
   mapValues,
+  times,
+  map,
+  flatMap,
   // type checks
   isString,
   isBoolean,

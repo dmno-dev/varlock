@@ -9,6 +9,7 @@ import { BaseDataTypes, EnvGraphDataTypeFactory } from './data-types';
 import { Constructor } from '@env-spec/utils/type-utils';
 import { findGraphCycles, GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
+import { generateTypes } from './type-generation';
 
 /** container of the overall graph and current resolution attempt / values */
 export class EnvGraph {
@@ -262,5 +263,9 @@ export class EnvGraph {
 
   get isInvalid() {
     return _.some(_.values(this.configSchema), (i) => !i.isValid);
+  }
+
+  async generateTypes() {
+    await generateTypes(this);
   }
 }

@@ -20,3 +20,6 @@ Some more considerations / complex cases:
 - individual values can refer to each other - in simple string templates, or as function args
 - plugins / functions may need to be loaded, and may need to access values as well
 - in a monorepo, we may want to be able to reference values from another service
+
+
+> **NOTE** - this repo is currently being bundled directly into varlock, rather than being built and published on its own

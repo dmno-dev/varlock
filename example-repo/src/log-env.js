@@ -1,6 +1,3 @@
-/// <reference types="../.env.d.ts" />
-// ^ hopefully not necessary w/ jsconfig.json or in a TS project?
-
 import { ENV } from 'varlock';
 
 export function logEnv() {
