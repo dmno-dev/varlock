@@ -13,6 +13,6 @@
     "strict": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
-    "customConditions": ["ts-src"],
+    "customConditions": ["ts-src"]
   }
 }

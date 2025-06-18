@@ -1,26 +1,29 @@
 import { execa, type ResultPromise } from 'execa';
 import which from 'which';
+import { define } from 'gunshi';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForSchemaErrors } from '../helpers/error-checks';
+import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
-export const commandSpec = {
+
+export const commandSpec = define({
   name: 'run',
   description: 'Run a command with the environment variables loaded from the .env file',
-  options: {
+  args: {
     watch: {
       type: 'boolean',
       short: 'w',
       description: 'Watch mode',
     },
   },
-};
+});
 
 let commandProcess: ResultPromise | undefined;
 let childCommandKilledFromRestart = false;
 let isWatchModeRestart = false;
 
-export const commandFn = async (ctx: any) => {
+export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   // if "--" is present, split the args into our command and the rest, which will be another external command
   const argv = process.argv.slice(2);
   let commandArgs: Array<string> = [];

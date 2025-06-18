@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import ansis from 'ansis';
 import { isCancel, select } from '@clack/prompts';
+import { define } from 'gunshi';
 
 import _ from '@env-spec/utils/my-dash';
 import { DotEnvFileDataSource } from '@env-spec/env-graph';
@@ -15,16 +16,15 @@ import prompts from '../helpers/prompts';
 import { fmt, logLines } from '../helpers/pretty-format';
 import { detectRedundantValues, ensureAllItemsExist, inferSchemaUpdates } from '../helpers/infer-schema';
 import { detectJsPackageManager, installJsDependency } from '../helpers/js-package-manager-utils';
+import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
-export const commandSpec = {
+export const commandSpec = define({
   name: 'init',
   description: 'Set up varlock in the current project',
-  options: {
+  args: {},
+});
 
-  },
-};
-
-export const commandFn = async (commandsArray: Array<any>) => {
+export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   let showOnboarding = true;
 
   if (showOnboarding) {
@@ -45,7 +45,7 @@ export const commandFn = async (commandsArray: Array<any>) => {
       `It looks like you already have a ${fmt.fileName('.env.schema')} file 🎉`,
       'This init helper is meant to help you get a new project set up.',
       'If you need to make changes to your schema or values, you can update your files directly.',
-      'See more docs at https://varlock.dev/docs/schema-guide', //! make link real');
+      'See more docs at https://varlock.dev/guides/schema',
     ]);
   } else {
     // find/select example file to use for schema gereration
@@ -208,13 +208,15 @@ export const commandFn = async (commandsArray: Array<any>) => {
   // * MAKE SURE VARLOCK IS INSTALLED ------------------------------------------
   const jsPackageManager = detectJsPackageManager();
   if (jsPackageManager && await pathExists(path.join(process.cwd(), 'package.json'))) {
-    installJsDependency({
+    const installResult = installJsDependency({
       packageManager: jsPackageManager.name,
       packageName: 'varlock',
     });
-    logLines([
-      '',
-      `✅ Added ${fmt.packageName('varlock')} as a dependency in your package.json`,
-    ]);
+    if (installResult) {
+      logLines([
+        '',
+        `✅ Added ${fmt.packageName('varlock')} as a dependency in your package.json`,
+      ]);
+    }
   }
 };

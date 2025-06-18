@@ -1,20 +1,17 @@
-import path from 'node:path';
-import fs from 'node:fs/promises';
 
-import { isCancel, log, password } from '@clack/prompts';
+import { define } from 'gunshi';
+import { isCancel, password } from '@clack/prompts';
 
 import { VarlockNativeAppClient } from '../../lib/native-app-client';
-import { loadEnvGraph } from '@env-spec/env-graph';
+import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
-export const commandSpec = {
+export const commandSpec = define({
   name: 'encrypt',
   description: 'Encrypt environment variables in your .env file',
-  options: {
+  args: {},
+});
 
-  },
-};
-
-export const commandFn = async (args: any) => {
+export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   console.log('');
   console.log('🧙 Encrypting environment variables... ✨');
   // intro('🧙 Encrypting environment variables... ✨');

@@ -1,19 +1,15 @@
-import path from 'node:path';
-import fs from 'node:fs/promises';
-
-import { VarlockNativeAppClient } from '../../lib/native-app-client';
+import { define } from 'gunshi';
 import { loadEnvGraph } from '@env-spec/env-graph';
 import { isBundledSEA } from '../helpers/install-detection';
+import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
-export const commandSpec = {
+export const commandSpec = define({
   name: 'doctor',
   description: 'Debug and diagnose issues with your env file(s) and system',
-  options: {
+  args: {},
+});
 
-  },
-};
-
-export const commandFn = async (args: any) => {
+export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   console.log('');
   await console.log('🧙 Scanning for issues... ✨');
 
