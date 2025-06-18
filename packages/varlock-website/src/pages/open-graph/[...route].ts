@@ -13,7 +13,7 @@ export const { getStaticPaths, GET } = OGImageRoute({
   // In this case it's `route`, because the file is named `[...route].ts`.
   param: 'route',
 
-  pages: pages,
+  pages,
 
   getImageOptions: (path, page) => ({
     title: page.title,

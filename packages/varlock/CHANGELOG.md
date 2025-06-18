@@ -1,5 +1,11 @@
 # varlock
 
+## 0.0.2
+
+### Patch Changes
+
+- [`6d1b5dc`](https://github.com/dmno-dev/varlock/commit/6d1b5dc397d5024f52b07a2449959f2696683239) Thanks [@theoephraim](https://github.com/theoephraim)! - remove top level await, to fix SEA build
+
 ## 0.0.1
 
 ### Patch Changes
