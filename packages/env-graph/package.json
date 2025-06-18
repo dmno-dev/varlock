@@ -7,7 +7,9 @@
     "test": "vitest",
     "test:ci": "vitest --run"
   },
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
