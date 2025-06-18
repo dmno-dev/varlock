@@ -3,11 +3,18 @@ import os from 'node:os';
 import net from 'node:net';
 import crypto from 'node:crypto';
 import Debug from 'debug';
+import fs from 'node:fs/promises';
+import { pathExists } from '@env-spec/utils/fs-utils';
+import { createKeyPair } from './apple-crypto';
 
 const debug = Debug('varlock:native-app-client');
 
-const MAC_APP_PATH = 'Library/Containers/dev.dmno.macapp';
-const IPC_SOCKET_FILE_PATH = 'Data/dmno-ipc';
+const APP_PATH = path.resolve(
+  os.homedir(),
+  'Library/Containers/dev.dmno.macapp',
+);
+const IPC_SOCKET_PATH = path.join(APP_PATH, 'Data/dmno-ipc');
+const VARLOCK_DIR = path.resolve(os.homedir(), '.varlock');
 
 export class VarlockNativeAppClient {
   private socket: net.Socket;
@@ -15,18 +22,17 @@ export class VarlockNativeAppClient {
   private messageQueue: Map<string, { resolve: (value: any) => void; reject: (error: Error) => void }>;
 
   private isInitialized: boolean = false;
-  private isConnected: boolean;
-  private socketPath: string;
+  private isConnected: boolean = false;
 
-  constructor(opts?: { socketPath?: string }) {
+  private isAppInstalled: boolean = false;
+  private isAppRunning: boolean = false;
+
+  constructor(opts?: { }) {
     this.socket = new net.Socket();
     this.messageQueue = new Map();
     this.isConnected = false;
-    this.socketPath = opts?.socketPath ?? path.resolve(
-      os.homedir(),
-      'Library/Containers/dev.dmno.macapp/Data/dmno-ipc',
-    );
   }
+
 
   private generateMessageId(): string {
     // Generate a unique ID using timestamp and random bytes
@@ -35,9 +41,29 @@ export class VarlockNativeAppClient {
     return `${timestamp}-${random}`;
   }
 
-  initializeSocket() {
-    this.isInitialized = true;
 
+  private async init() {
+    this.isInitialized = true;
+    this.isAppInstalled = await pathExists(APP_PATH);
+    if (!this.isAppInstalled) {
+      throw new Error('App is not installed!');
+    }
+    await this.initializeSocket();
+  }
+
+  static async initHomeFolderKeypair(githubUsername?: string) {
+    if (!await pathExists(VARLOCK_DIR)) await fs.mkdir(VARLOCK_DIR, { recursive: true });
+
+    const identityFile = path.join(VARLOCK_DIR, 'identity.json');
+
+    const newKeyPair = await createKeyPair();
+    await fs.writeFile(identityFile, JSON.stringify({
+      githubUsername,
+      privateKey: newKeyPair.privateKey,
+    }));
+  }
+
+  initializeSocket() {
     return new Promise((resolve, _reject) => {
       this.socket.on('connect', () => {
         debug('Connected to native app');
@@ -86,11 +112,13 @@ export class VarlockNativeAppClient {
         this.cleanup();
       });
 
-      this.socket.connect(this.socketPath);
+      this.socket.connect(IPC_SOCKET_PATH);
     });
   }
 
-  private sendMessage(message: any): Promise<any> {
+  private async sendIpcMessage(message: any): Promise<any> {
+    if (!this.isInitialized) await this.init();
+
     return new Promise((resolve, reject) => {
       if (!this.isConnected) {
         reject(new Error('Socket is not connected'));
@@ -125,16 +153,14 @@ export class VarlockNativeAppClient {
   }
 
   public async encrypt(plaintext: string): Promise<any> {
-    if (!this.isInitialized) await this.initializeSocket();
-    return this.sendMessage({
+    return this.sendIpcMessage({
       action: 'encrypt',
       payload: { plaintext },
     });
   }
 
   public async decrypt(ciphertext: string): Promise<any> {
-    if (!this.isInitialized) await this.initializeSocket();
-    return this.sendMessage({
+    return this.sendIpcMessage({
       action: 'decrypt',
       payload: { ciphertext },
     });
@@ -148,31 +174,24 @@ export class VarlockNativeAppClient {
     this.messageQueue.clear();
     this.socket.end();
   }
+
+
+  // --------------
+  static async isNativeAppInstalled() {
+    return await pathExists(APP_PATH);
+  }
+  static async isNativeAppInstallable() {
+    const platform = os.platform();
+    // check if darwin = MacOS
+    if (platform === 'darwin') {
+      // this gets the version of _darwin_ not MacOS
+      const releaseMajorVersion = Number((os.release()).split('.')[0]);
+      // Darwin v22 = macOS 13 (Ventura)
+      // techincally the app is set to have 13.6 the minimum version, but this should be ok
+      return releaseMajorVersion >= 22;
+    }
+    return false;
+  }
 }
 
-// // Example usage:
-// async function main() {
-//   const client = new VarlockNativeAppClient();
 
-//   try {
-//     await client.initializeSocket();
-
-//     // Send multiple messages
-//     const encryptedHello = await client.encrypt('hello world');
-//     console.log('Encrypted data:', encryptedHello);
-
-//     const decryptedHello = await client.decrypt(encryptedHello);
-//     console.log('Decrypted data:', decryptedHello);
-
-//     // Keep the process running
-//     process.on('SIGINT', () => {
-//       client.cleanup();
-//       process.exit(0);
-//     });
-//   } catch (error) {
-//     console.error('Error:', error);
-//     process.exit(1);
-//   }
-// }
-
-// main();

@@ -1,8 +1,10 @@
 /* eslint-disable @stylistic/quotes */
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { execSync } from 'node:child_process';
 import ansis from 'ansis';
 import { isCancel, select } from '@clack/prompts';
+import which from 'which';
 
 import _ from '@env-spec/utils/my-dash';
 import { DotEnvFileDataSource } from '@env-spec/env-graph';
@@ -15,6 +17,7 @@ import prompts from '../helpers/prompts';
 import { fmt, logLines } from '../helpers/pretty-format';
 import { detectRedundantValues, ensureAllItemsExist, inferSchemaUpdates } from '../helpers/infer-schema';
 import { detectJsPackageManager, installJsDependency } from '../helpers/js-package-manager-utils';
+import { VarlockNativeAppClient } from '../../lib/native-app-client';
 
 export const commandSpec = {
   name: 'init',
@@ -203,6 +206,40 @@ export const commandFn = async (commandsArray: Array<any>) => {
       `You can run ${fmt.command('varlock load')} to attempt loading your env vars validate against your new schema.`,
       'Check out our integration guide for more info about integrating into your application.',
     ]);
+  }
+
+  // * SET UP APP / KEYPAIR / IDENTITY ------------------------------------------
+  let setupLocalKeypair = true;
+  if (await VarlockNativeAppClient.isNativeAppInstalled()) {
+    // not sure if we want to do anything else here?
+    setupLocalKeypair = false;
+  } else if (await VarlockNativeAppClient.isNativeAppInstallable()) {
+    logLines([
+      '',
+      'To keep sensitive secrets out of plaintext, we recommend encrypting them using the native Varlock MacOS app.',
+    ]);
+    const confirmNativeAppInstall = await prompts.confirm({
+      message: 'Would you like to install it now?',
+    });
+    if (isCancel(confirmNativeAppInstall)) process.exit(0);
+    if (!confirmNativeAppInstall) {
+      logLines([`Ok! You can run ${fmt.command('varlock app-setup')} to set it up later.`]);
+    } else {
+      setupLocalKeypair = false;
+      const isBrewInstalled = await which('brew', { nothrow: true });
+      if (isBrewInstalled) {
+        logLines([`Great! Running ${fmt.command('brew install dmno-dev/tap/varlock-macos')}`]);
+        execSync('brew install dmno-dev/tap/varlock-macos', { stdio: 'inherit' });
+      } else {
+        logLines([`Great! Running ${fmt.command('curl -fsSL https://varlock.dev/install-macos.sh | bash')}`]);
+        execSync('curl -fsSL https://varlock.dev/install-macos.sh | bash', { stdio: 'inherit' });
+      }
+    }
+  }
+  if (setupLocalKeypair) {
+    // for now, we'll just set up the keypair without an attached github identity
+    // but we may want to prompt them to log in
+    await VarlockNativeAppClient.initHomeFolderKeypair();
   }
 
   // * MAKE SURE VARLOCK IS INSTALLED ------------------------------------------
