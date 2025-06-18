@@ -1,11 +1,10 @@
 import { homedir } from 'os';
 import { join } from 'path';
-import { readFile } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 import { CONFIG } from '../../config';
 
-async function checkIsOptedOut(): Promise<boolean> {
+function checkIsOptedOut() {
   // Check environment variable first
   if (process.env.PH_OPT_OUT === 'true') {
     return true;
@@ -15,7 +14,7 @@ async function checkIsOptedOut(): Promise<boolean> {
   const configPath = join(homedir(), '.varlock', 'config.json');
   if (existsSync(configPath)) {
     try {
-      const configContent = await readFile(configPath, 'utf-8');
+      const configContent = readFileSync(configPath, 'utf-8');
       const config = JSON.parse(configContent);
       return config.analytics_opt_out === true;
     } catch (error) {
@@ -27,7 +26,7 @@ async function checkIsOptedOut(): Promise<boolean> {
 
 const DEBUG_PH = !!process.env.DEBUG_PH;
 
-const isOptedOut = await checkIsOptedOut();
+const isOptedOut = checkIsOptedOut();
 if (DEBUG_PH) console.log('posthog opted out: ', isOptedOut);
 
 async function posthogCapture(event: string, properties?: Record<string, any>) {

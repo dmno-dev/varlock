@@ -5,12 +5,14 @@ import airbnb from 'eslint-stylistic-airbnb';
 import globals from 'globals';
 import nofixPlugin from 'eslint-nofix-plugin';
 import eslintPluginJsonc from 'eslint-plugin-jsonc';
+import pluginESx from 'eslint-plugin-es-x';
 
 export default tseslint.config(
   {
     plugins: {
       '@stylistic': stylistic,
       '@nofix': nofixPlugin,
+      'es-x': pluginESx,
     },
     languageOptions: {
       globals: {
@@ -119,6 +121,13 @@ export default tseslint.config(
       // commenting out var modifications in later code means auto changing let to const, and then getting angry when uncommenting
       'prefer-const': 0,
       '@nofix/prefer-const': 'warn',
+    },
+  },
+  {
+    files: ['packages/varlock/src/**'],
+    rules: {
+      // top level await not allowed in CJS build needed for bundled SEA
+      'es-x/no-top-level-await': 'error',
     },
   },
   {

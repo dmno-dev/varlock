@@ -27,9 +27,6 @@ catalogs:
     typescript:
       specifier: ^5.8.2
       version: 5.8.3
-    vite-node:
-      specifier: ^3.2.4
-      version: 3.2.4
     vitest:
       specifier: ^3.2.4
       version: 3.2.4
@@ -56,6 +53,9 @@ importers:
       eslint-nofix-plugin:
         specifier: workspace:*
         version: link:packages/eslint-custom-rules
+      eslint-plugin-es-x:
+        specifier: ^8.7.0
+        version: 8.7.0(eslint@9.24.0)
       eslint-plugin-jsonc:
         specifier: ^2.20.0
         version: 2.20.0(eslint@9.24.0)
@@ -2336,6 +2336,12 @@ packages:
     peerDependenciesMeta:
       '@eslint/json':
         optional: true
+
+  eslint-plugin-es-x@8.7.0:
+    resolution: {integrity: sha512-Du5Sb067sjqzmglaPhsfcEQgE1EYfL8sko+4jOMcAB/XKGoCxntSrOmTYuVzswA1rzM9+MZwH6+GOp0G3/wVCg==}
+    engines: {node: ^14.18.0 || >=16.0.0}
+    peerDependencies:
+      eslint: '>=8'
 
   eslint-plugin-jsonc@2.20.0:
     resolution: {integrity: sha512-FRgCn9Hzk5eKboCbVMrr9QrhM0eO4G+WKH8IFXoaeqhM/2kuWzbStJn4kkr0VWL8J5H8RYZF+Aoam1vlBaZVkw==}
@@ -7734,6 +7740,13 @@ snapshots:
       eslint: 9.24.0
       esquery: 1.6.0
       jsonc-eslint-parser: 2.4.0
+
+  eslint-plugin-es-x@8.7.0(eslint@9.24.0):
+    dependencies:
+      '@eslint-community/eslint-utils': 4.5.1(eslint@9.24.0)
+      '@eslint-community/regexpp': 4.12.1
+      eslint: 9.24.0
+      eslint-compat-utils: 0.6.5(eslint@9.24.0)
 
   eslint-plugin-jsonc@2.20.0(eslint@9.24.0):
     dependencies:

@@ -14,8 +14,9 @@
     "preinstall": "npx only-allow pnpm",
     "dev": "turbo run dev --concurrency=40 --parallel",
     "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "changeset:add": "changeset add",
-    "changeset:version": "changeset version",
+    "changeset:version": "changeset version && pnpm lint:fix",
     "changeset:publish": "pnpm build:libs && changeset publish"
   },
   "devDependencies": {
@@ -25,6 +26,7 @@
     "@stylistic/eslint-plugin": "^4.2.0",
     "eslint": "^9.24.0",
     "eslint-nofix-plugin": "workspace:*",
+    "eslint-plugin-es-x": "^8.7.0",
     "eslint-plugin-jsonc": "^2.20.0",
     "eslint-stylistic-airbnb": "^2.0.0",
     "globals": "^16.0.0",

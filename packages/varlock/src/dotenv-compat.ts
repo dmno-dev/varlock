@@ -10,4 +10,5 @@
 import { load } from './index';
 
 // TODO: this should probably not be async
+// eslint-disable-next-line es-x/no-top-level-await
 await load();

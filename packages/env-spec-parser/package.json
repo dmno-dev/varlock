@@ -2,9 +2,7 @@
   "name": "@env-spec/parser",
   "version": "0.0.1",
   "description": "Parser for @env-spec enabled dotenv files",
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

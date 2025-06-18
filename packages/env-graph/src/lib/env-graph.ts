@@ -3,10 +3,9 @@ import { ConfigItem } from './config-item';
 import { EnvGraphDataSource } from './data-source';
 
 import {
-  BaseResolvers, Resolver, ResolverChildClass, StaticValueResolver,
+  BaseResolvers, ResolverChildClass, StaticValueResolver,
 } from './resolver';
 import { BaseDataTypes, EnvGraphDataTypeFactory } from './data-types';
-import { Constructor } from '@env-spec/utils/type-utils';
 import { findGraphCycles, GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
 import { generateTypes } from './type-generation';

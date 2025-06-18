@@ -11,22 +11,11 @@ import {
 
 import { ConfigItemDef } from './config-item';
 import {
-  ErrorResolver, Resolver, ResolverChildClass, StaticValueResolver,
+  ErrorResolver, Resolver, StaticValueResolver,
 } from './resolver';
 import { EnvGraph } from './env-graph';
 
 import { SchemaError } from './errors';
-
-const ENV_FILE_EXTENSIONS = [
-  'js',
-  'mjs',
-  'ts',
-  'mts',
-  'yaml',
-  'yml',
-  'toml',
-  'json',
-];
 
 const DATA_SOURCE_TYPES = Object.freeze({
   schema: {
