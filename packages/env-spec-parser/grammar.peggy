@@ -25,7 +25,7 @@ EnvSpecFile =
 
 ConfigItem =
   preComments:(@(IgnoredDecoratorComment / DecoratorComment / Comment) "\n")*
-  "export "? // we'll allow `export SOME_VAR=...` so we can read other env files
+  (_ "export " _)? // we'll allow `export SOME_VAR=...` so we can read other env files
   _ key:ConfigItemKey _ "=" value:ConfigItemValue? // I don't like supporting the extra spaces around the key
   _
   postComment:(@(IgnoredDecoratorComment / DecoratorComment / Comment))?
@@ -192,28 +192,28 @@ multiLineString =
   / tripleBQuotedMultiLineString
 
 
-singleSQuotedMultiLineString = // double quote (single) wrapped multi-line string
+singleSQuotedMultiLineString = // 1x single quote wrapped multi-line string
   quote:[']
   (("\\'" / [^'\n])* "\n")+
   ("\\'" / [^'\n])*
   [']
   { return new ParsedEnvSpecStaticValue({ quote, isMultiLine: true, rawValue: text(), _location: location() }) }
 
-singleDQuotedMultiLineString = // double quote (single) wrapped multi-line string
+singleDQuotedMultiLineString = // 1x double quote wrapped multi-line string
   quote:["]
   (("\\\"" / [^"\n])* "\n")+
   ("\\\"" / [^"\n])*
   ["]
   { return new ParsedEnvSpecStaticValue({ quote, isMultiLine: true, rawValue: text(), _location: location() }) }
 
-tripleDQuotedMultiLineString = // triple double quote wrapped multi-line string
+tripleDQuotedMultiLineString = // 3x double quote wrapped multi-line string
   quote:"\"\"\""
   (("\\\"\"\"" / (!"\"\"\"" [^\n]))* "\n")+  // handle escapes - `\"""` should not trigger the end
   ( "\\\"\"\"" / (!"\"\"\"" [^\n]))*
   "\"\"\""
   { return new ParsedEnvSpecStaticValue({ quote, isMultiLine: true, rawValue: text(), _location: location() }) }
 
-tripleBQuotedMultiLineString = // triple double quote wrapped multi-line string
+tripleBQuotedMultiLineString = // 3x backtick wrapped multi-line string
   quote:"```"
   (("\\```" / (!"```" [^\n]))* "\n")+ // see above for explanation
   ( "\\```" / (!"```" [^\n]))*

@@ -1,8 +1,14 @@
 {
   "name": "env-spec-language",
   "displayName": "@env-spec (.env) language support",
-  "description": "Adds syntax highlighting for @env-spec within .env files",
-  "version": "0.0.0",
+  "description": "Adds syntax highlighting and additional tooling for @env-spec enabled .env files",
+  "icon": "images/marketplace-icon.png",
+  "galleryBanner": {
+    "color": "#4F0049",
+    "theme": "dark"
+  },
+  "version": "0.0.1",
+  "publisher": "varlock",
   "author": "dmno-dev",
   "license": "MIT",
   "homepage": "https://varlock.dev/env-spec",
@@ -14,7 +20,6 @@
   "engines": {
     "vscode": "^1.99.0"
   },
-  "categories": ["Programming Languages"],
   "main": "./dist/extension.js",
   "activationEvents": [],
   "contributes": {
@@ -23,6 +28,7 @@
         "id": "env-spec",
         "aliases": [
           "@env-spec (.env)",
+          "@env-spec",
           "env-spec",
           "dotenv",
           ".env"
@@ -31,7 +37,11 @@
           ".env",
           ".env.*"
         ],
-        "configuration": "./language/language-configuration.json"
+        "configuration": "./language/language-configuration.json",
+        "icon": {
+          "light": "images/file-icon.png",
+          "dark": "images/file-icon.png"
+        }
       }
     ],
     "grammars": [
@@ -42,17 +52,21 @@
       }
     ]
   },
+  "categories": ["Programming Languages", "Other"],
+  "keywords": ["env-spec", "dotenv", "env", ".env", "environment variables", "config"],
+  "pricing": "Free",
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
     "package": "pnpm run build && vsce package",
-    "install-locally": "code --install-extension"
+    "install-locally": "code --install-extension",
+    "publish:prerelease": "vsce publish --pre-release --no-git-tag-version --no-update-package-json"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "@types/vscode": "^1.99.0",
     "tsup": "catalog:",
-    "vsce": "^2.15.0"
+    "@vscode/vsce": "3.5.0"
   },
   "dependencies": {
   }

@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
-  "changelog": ["@changesets/changelog-github", {"repo": "dmno-dev/varlock"}],
+  "changelog": ["@changesets/changelog-github", { "repo": "dmno-dev/varlock" }],
   "commit": false,
   "fixed": [],
   "linked": [],
