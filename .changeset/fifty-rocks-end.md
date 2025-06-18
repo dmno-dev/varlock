@@ -1,5 +1,0 @@
----
-"varlock": patch
----
-
-update deps
