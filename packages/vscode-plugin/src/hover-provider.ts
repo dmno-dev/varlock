@@ -72,6 +72,17 @@ const ROOT_DECORATORS: Record<string, any> = {
       Overridden by \`@sensitive\` decorator on individual items.
     `,
   },
+  generateTypes: {
+    hoverContent: `
+      Enables generation of language specific types based on the decorators in your .env file(s)
+
+      Takes 2 required arguments:
+      - \`lang\`: language to generate types for (currently only TypeScript (\`ts\`) is supported)
+      - \`path\`: path to the generated type file
+
+      Example: \`@generateTypes(lang=ts, path=env.d.ts)\`
+    `,
+  },
 };
 
 export function addHoverProvider(context: ExtensionContext) {

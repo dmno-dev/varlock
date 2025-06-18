@@ -7,7 +7,7 @@
     "color": "#4F0049",
     "theme": "dark"
   },
-  "version": "0.0.0",
+  "version": "0.0.1",
   "publisher": "varlock",
   "author": "dmno-dev",
   "license": "MIT",
@@ -27,6 +27,8 @@
       {
         "id": "env-spec",
         "aliases": [
+          "@env-spec (.env)",
+          "@env-spec",
           "env-spec",
           "dotenv",
           ".env"
@@ -64,7 +66,7 @@
     "@types/node": "catalog:",
     "@types/vscode": "^1.99.0",
     "tsup": "catalog:",
-    "vsce": "^2.15.0"
+    "@vscode/vsce": "3.5.0"
   },
   "dependencies": {
   }
