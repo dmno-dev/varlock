@@ -7,10 +7,11 @@
     "color": "#4F0049",
     "theme": "dark"
   },
-  "version": "0.0.1",
+  "version": "0.0.0",
   "publisher": "varlock",
   "author": "dmno-dev",
   "license": "MIT",
+  "private": true,
   "homepage": "https://varlock.dev/env-spec",
   "repository": {
     "type": "git",
@@ -58,15 +59,14 @@
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
-    "package": "pnpm run build && vsce package",
-    "install-locally": "code --install-extension",
-    "publish:prerelease": "vsce publish --pre-release --no-git-tag-version --no-update-package-json"
+    "package": "pnpm run build && vsce package --baseImagesUrl https://raw.githubusercontent.com/dmno-dev/varlock/HEAD/packages/vscode-plugin --baseContentUrl https://raw.githubusercontent.com/dmno-dev/varlock/HEAD/packages/vscode-plugin",
+    "publish": "vsce publish --no-update-package-json --baseImagesUrl https://raw.githubusercontent.com/dmno-dev/varlock/HEAD/packages/vscode-plugin --baseContentUrl https://raw.githubusercontent.com/dmno-dev/varlock/HEAD/packages/vscode-plugin"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "@types/vscode": "^1.99.0",
     "tsup": "catalog:",
-    "@vscode/vsce": "3.5.0"
+    "@vscode/vsce": "^3.5.0"
   },
   "dependencies": {
   }

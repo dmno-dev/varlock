@@ -14,6 +14,9 @@ try {
   const changeSetsSummary = JSON.parse(changeSetsSummaryRaw);
   // console.log(changeSetsSummary);
 
+  // filter out vscode extension which is not released via npm
+  changeSetsSummary.releases = changeSetsSummary.releases.filter((r) => r.name !== 'env-spec-language');
+
   if (!changeSetsSummary.releases.length) {
     console.log('No preview packages to release!');
     process.exit(0);
