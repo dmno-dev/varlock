@@ -38,7 +38,9 @@ jobs:
           publish: pnpm run changeset:publish
           version: pnpm run changeset:version
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # we use a personal token instead of the automatic repo one so that the binary release workflow will be triggered
+          # (see https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow#triggering-a-workflow-from-a-workflow)
+          GITHUB_TOKEN: ${{ secrets.PUBLISHING_GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # TODO: send notifications?

@@ -4,6 +4,11 @@ name: Release varlock CLI binaries
 # this workflow triggered by a release `varlock@x.y.z`
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (ex: "1.2.3")'
+        required: true
+        type: string
   release:
     types: [published]
 
@@ -38,11 +43,11 @@ jobs:
           # get the version only from the tag - ex: 1.2.3
           echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/varlock@}" >> $GITHUB_ENV
       
-      - name: use test version (x.x.x)
+      - name: use manual version from input
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          echo "RELEASE_TAG=varlock@x.x.x" >> $GITHUB_ENV
-          echo "RELEASE_VERSION=x.x.x" >> $GITHUB_ENV
+          echo "RELEASE_TAG=varlock@${{ inputs.version }}" >> $GITHUB_ENV
+          echo "RELEASE_VERSION=${{ inputs.version }}" >> $GITHUB_ENV
 
       # necessary to bundle macos binaries (from linux)
       - name: install ldid
