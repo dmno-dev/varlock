@@ -35,8 +35,8 @@
     "which": "^5.0.0"
   },
   "devDependencies": {
-    "@clack/core": "^0.4.2",
-    "@clack/prompts": "^0.10.1",
+    "@clack/core": "^0.5.0",
+    "@clack/prompts": "^0.11.0",
     "@env-spec/env-graph": "workspace:*",
     "@env-spec/utils": "workspace:*",
     "@sindresorhus/is": "catalog:",
@@ -45,7 +45,7 @@
     "@types/which": "^3.0.4",
     "@yao-pkg/pkg": "^6.4.1",
     "ansis": "catalog:",
-    "gunshi": "^0.15.0",
+    "gunshi": "^0.26.3",
     "is-unicode-supported": "^2.1.0",
     "outdent": "^0.8.0",
     "tsup": "catalog:",

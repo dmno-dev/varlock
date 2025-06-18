@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs, { existsSync } from 'node:fs';
 import { pathExistsSync } from '@env-spec/utils/fs-utils';
 
 import { CliExitError } from './exit-error';
@@ -124,6 +125,15 @@ export function installJsDependency(opts: {
   packagePath?: string,
   isMonoRepoRoot?: boolean,
 }) {
+  const packageJsonPath = path.join(opts.packagePath || process.cwd(), 'package.json');
+
+  // for now, we'll just bail if we dont see a package.json
+  if (!existsSync(packageJsonPath)) return false;
+
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  // bail if already installed
+  if (packageJson.dependencies?.varlock) return false;
+
   // TODO: might want to check first if it's already installed?
   execSync([
     opts.packagePath ? `cd ${opts.packagePath} &&` : '',
@@ -131,5 +141,7 @@ export function installJsDependency(opts: {
     `${opts.packageManager} add ${opts.packageName}`,
     (opts.isMonoRepoRoot && opts.packageManager === 'pnpm') ? '-w' : '',
   ].join(' '));
+
+  return true;
 }
 

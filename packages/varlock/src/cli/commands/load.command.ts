@@ -1,15 +1,15 @@
-import { Command, CommandRunner, define } from 'gunshi';
-import ansis from 'ansis';
+import { define } from 'gunshi';
 import _ from '@env-spec/utils/my-dash';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { getItemSummary } from '../../lib/formatting';
 import { checkForConfigErrors, checkForSchemaErrors } from '../helpers/error-checks';
+import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
 export const commandSpec = define({
   name: 'load',
   description: 'Load env according to schema and resolve values',
-  options: {
+  args: {
     format: {
       type: 'string',
       short: 'f',
@@ -21,12 +21,10 @@ export const commandSpec = define({
       description: 'When load is fialing, show all items rather than only failing items',
     },
   },
-  run: async (ctx) => {},
 });
 
-type ExtractArgs<C> = C extends Command<infer Args> ? Args : never;
 
-export const commandFn: CommandRunner<ExtractArgs<typeof commandSpec>> = async (ctx) => {
+export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const { format, 'show-all': showAll } = ctx.values;
 
   const envGraph = await loadVarlockEnvGraph();

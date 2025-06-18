@@ -1,11 +1,12 @@
-import { cli } from 'gunshi';
+import { define } from 'gunshi';
+import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
-export const commandSpec = {
+export const commandSpec = define({
   name: 'help',
   description: 'Show help info for varlock',
-  options: {},
-};
+  args: {},
+});
 
-export const commandFn = async (commandsArray: Array<any>) => {
+export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   // no-op - we'll trigger help from main entry point
 };

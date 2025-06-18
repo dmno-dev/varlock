@@ -1,13 +1,17 @@
-import { homedir } from 'os';
-import { join } from 'path';
-import { mkdir, writeFile, readFile } from 'fs/promises';
-import { existsSync } from 'fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { define } from 'gunshi';
+import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
-export const commandSpec = {
+
+export const commandSpec = define({
+  name: 'opt-out',
   description: 'Opt out of anonymous usage analytics',
-};
+});
 
-export async function commandFn() {
+export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const configDir = join(homedir(), '.varlock');
   const configPath = join(configDir, 'config.json');
 
@@ -39,4 +43,4 @@ export async function commandFn() {
     console.error('Failed to opt out of analytics:', error);
     process.exit(1);
   }
-} 
+};

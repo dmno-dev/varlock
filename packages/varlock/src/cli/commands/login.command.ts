@@ -1,19 +1,22 @@
 
-import ansis from 'ansis';
 import { setTimeout as delay } from 'node:timers/promises';
+import ansis from 'ansis';
+import { define } from 'gunshi';
 import { logLines } from '../helpers/pretty-format';
 import { CONFIG } from '../../config';
 import { openUrl } from '../helpers/open-url';
 import { keyPressed } from '../helpers/key-press';
+import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
-export const commandSpec = {
+
+export const commandSpec = define({
   name: 'login',
   description: 'Authenticate (using GitHub)',
-  options: {},
-};
+  args: {},
+});
 
 
-export const commandFn = async () => {
+export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const codeReq = await fetch('https://github.com/login/device/code', {
     method: 'POST',
     body: JSON.stringify({

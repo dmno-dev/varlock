@@ -1,4 +1,4 @@
-import { cli } from 'gunshi';
+import { cli, Command, define } from 'gunshi';
 
 import { VARLOCK_BANNER, VARLOCK_BANNER_COLOR } from '../lib/ascii-art';
 import { CliExitError } from './helpers/exit-error';
@@ -7,18 +7,18 @@ import ansis from 'ansis';
 import { fmt } from './helpers/pretty-format';
 import { trackCommand, trackInstall } from './helpers/analytics';
 import { InvalidEnvError } from './helpers/error-checks';
+import packageJson from '../../package.json';
 
-// these will be added as sub-commands and will lazy load the command files
-const commandNames = [
-  'init',
-  'load',
-  'run',
-  'encrypt',
-  'doctor',
-  'help',
-  'opt-out',
-  'login',
-] as const;
+// we'll import just the spec from each, so the implementations can be lazy loaded
+import { commandSpec as initCommandSpec } from './commands/init.command';
+import { commandSpec as loadCommandSpec } from './commands/load.command';
+import { commandSpec as runCommandSpec } from './commands/run.command';
+import { commandSpec as encryptCommandSpec } from './commands/encrypt.command';
+import { commandSpec as doctorCommandSpec } from './commands/doctor.command';
+import { commandSpec as helpCommandSpec } from './commands/help.command';
+import { commandSpec as optOutCommandSpec } from './commands/opt-out.command';
+import { commandSpec as loginCommandSpec } from './commands/login.command';
+
 
 const mainCommand = {
   run: () => {
@@ -26,24 +26,50 @@ const mainCommand = {
   },
 };
 
-const subCommands = new Map();
 
-commandNames.forEach(async (commandName) => {
-  subCommands.set(commandName, async () => {
-    const commandSpecAndFn = await import(`./commands/${commandName}.command.ts`);
-    return {
-      ...commandSpecAndFn.commandSpec,
-      run: async (...args: Array<any>) => {
-        // Track command execution
-        await trackCommand(commandName, { command: commandName });
-        // Run the actual command
-        return commandSpecAndFn.commandFn(...args);
-      },
-    };
-  });
-});
-// subCommands.set('subcommand1', { description: 'first subcommand' });
-// subCommands.set('subcommand2', { description: 'second subcommand' });
+// TODO: this is not splitting the bundle correctly to actually lazy load the command fns
+
+function buildLazyCommand(
+  commandSpec: Command<any>,
+  loadCommandFn: () => Promise<{ commandSpec: Command<any>, commandFn: any }>,
+) {
+  const commandName = commandSpec.name!;
+  return {
+    ...commandSpec,
+    run: async (...args: Array<any>) => {
+      // Track command execution
+      await trackCommand(commandName, { command: commandName });
+      // load the command fn and run it
+      const commandSpecAndFn = await loadCommandFn();
+      return commandSpecAndFn.commandFn(...args);
+    },
+  };
+}
+
+const subCommands = new Map();
+subCommands.set('init', buildLazyCommand(initCommandSpec, async () => await import('./commands/init.command')));
+subCommands.set('load', buildLazyCommand(loadCommandSpec, async () => await import('./commands/load.command')));
+subCommands.set('run', buildLazyCommand(runCommandSpec, async () => await import('./commands/run.command')));
+subCommands.set('encrypt', buildLazyCommand(encryptCommandSpec, async () => await import('./commands/encrypt.command')));
+subCommands.set('doctor', buildLazyCommand(doctorCommandSpec, async () => await import('./commands/doctor.command')));
+subCommands.set('help', buildLazyCommand(helpCommandSpec, async () => await import('./commands/help.command')));
+subCommands.set('opt-out', buildLazyCommand(optOutCommandSpec, async () => await import('./commands/opt-out.command')));
+subCommands.set('login', buildLazyCommand(loginCommandSpec, async () => await import('./commands/login.command')));
+
+// subCommandsArray.forEach((commandSpec) => {
+//   const commandName = commandSpec.name!;
+//   subCommands.set(commandName, {
+//     ...commandSpec,
+//     run: async (...args: Array<any>) => {
+//       const commandSpecAndFn = await import(`./commands/${commandName}.command.ts`);
+//       // Track command execution
+//       await trackCommand(commandName, { command: commandName });
+//       // Run the actual command
+//       return commandSpecAndFn.commandFn(...args);
+//     },
+//   });
+// });
+
 
 (async function go() {
   try {
@@ -64,7 +90,7 @@ commandNames.forEach(async (commandName) => {
     await cli(args, mainCommand, {
       name: 'varlock',
       description: 'Encrypt and protect your env vars',
-      version: '0.0.1',
+      version: packageJson.version,
       subCommands,
       renderHeader: async (ctx) => {
         // do not show header if we are running a sub-command
