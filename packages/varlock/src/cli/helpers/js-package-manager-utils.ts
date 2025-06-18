@@ -2,6 +2,7 @@ import path from 'node:path';
 import { pathExistsSync } from '@env-spec/utils/fs-utils';
 
 import { CliExitError } from './exit-error';
+import { execSync } from 'node:child_process';
 
 export type JsPackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'deno';
 
@@ -61,6 +62,7 @@ export const JS_PACKAGE_MANAGERS: Record<JsPackageManager, JsPackageManagerMeta>
 export function detectJsPackageManager(opts?: {
   cwd?: string,
   workspaceRootPath?: string,
+  exitIfNotFound?: boolean,
 }) {
   let cwd = opts?.cwd || process.cwd();
   const cwdParts = cwd.split(path.sep);
@@ -88,7 +90,12 @@ export function detectJsPackageManager(opts?: {
 
     cwdParts.pop();
     cwd = path.join(...cwdParts);
-    if (opts?.workspaceRootPath && opts.workspaceRootPath === cwd) break;
+    if (opts?.workspaceRootPath) {
+      if (opts.workspaceRootPath === cwd) break;
+    } else {
+      // if we don't have a workspace root path, we'll break if we hit the git repo root
+      if (pathExistsSync(path.join(cwd, '.git'))) break;
+    }
   } while (cwd);
 
   // if we did not find a lockfile, we'll look at env vars for other hints
@@ -99,10 +106,30 @@ export function detectJsPackageManager(opts?: {
     }
   }
 
-  // show some hopefully useful error messaging if we hit the root folder without finding anything
-  throw new CliExitError('Unable to find detect your js package manager!', {
-    suggestion: 'We look for lock files (ex: package-lock.json) so you may just need to run a dependency install (ie `npm install`)',
-    forceExit: true,
-  });
+  if (opts?.exitIfNotFound) {
+    // show some hopefully useful error messaging if we hit the root folder without finding anything
+    throw new CliExitError('Unable to find detect your JavaScript package manager!', {
+      suggestion: 'We look for lock files (ex: package-lock.json) so you may just need to run a dependency install (ie `npm install`)',
+      forceExit: true,
+    });
+  }
+}
+
+
+
+
+export function installJsDependency(opts: {
+  packageName: string,
+  packageManager: JsPackageManager,
+  packagePath?: string,
+  isMonoRepoRoot?: boolean,
+}) {
+  // TODO: might want to check first if it's already installed?
+  execSync([
+    opts.packagePath ? `cd ${opts.packagePath} &&` : '',
+    // `add` works in all of them
+    `${opts.packageManager} add ${opts.packageName}`,
+    (opts.isMonoRepoRoot && opts.packageManager === 'pnpm') ? '-w' : '',
+  ].join(' '));
 }
 

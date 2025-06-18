@@ -11,7 +11,7 @@ import {
 
 import { ConfigItemDef } from './config-item';
 import {
-  ErrorResolver, ResolverInstance, StaticValueResolver,
+  ErrorResolver, Resolver, ResolverChildClass, StaticValueResolver,
 } from './resolver';
 import { EnvGraph } from './env-graph';
 
@@ -224,7 +224,7 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
 
   private convertParserValueToResolvers(
     value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined,
-  ): ResolverInstance {
+  ): Resolver {
     if (!this.graph) throw new Error('expected graph to be set');
 
     if (value === undefined) {
@@ -232,13 +232,14 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
     } else if (value instanceof ParsedEnvSpecStaticValue) {
       return new StaticValueResolver(value.unescapedValue);
     } else if (value instanceof ParsedEnvSpecFunctionCall) {
-      const ResolverFnClass = this.graph.registeredResolverFunctions[value.name];
+      // TODO: fix ts any
+      const ResolverFnClass = this.graph.registeredResolverFunctions[value.name] as any;
       if (!ResolverFnClass) {
         return new ErrorResolver(new SchemaError(`Unknown resolver function: ${value.name}()`));
       }
       const argsFromParser = value.data.args.values;
       if (argsFromParser.length && argsFromParser.every((arg) => arg instanceof ParsedEnvSpecKeyValuePair)) {
-        const argsAsResolversObj = {} as Record<string, ResolverInstance>;
+        const argsAsResolversObj = {} as Record<string, Resolver>;
         for (const arg of argsFromParser) {
           argsAsResolversObj[arg.key] = this.convertParserValueToResolvers(arg.value);
         }
@@ -251,7 +252,7 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
         return new ResolverFnClass(argsAsResolversArray);
       }
     } else {
-      throw new Error('Unknown value typexxx');
+      throw new Error('Unknown value type');
     }
   }
 

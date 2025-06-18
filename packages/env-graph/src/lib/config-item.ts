@@ -11,11 +11,11 @@ import {
 } from './errors';
 
 import { EnvGraphDataSource } from './data-source';
-import { ResolvedValue, ResolverInstance } from './resolver';
+import { ResolvedValue, Resolver } from './resolver';
 
 export type ConfigItemDef = {
   description?: string;
-  resolver?: ResolverInstance;
+  resolver?: Resolver;
   // TODO: translate parser decorator class into our own generic version
   decorators?: Record<string, ParsedEnvSpecDecorator>;
 };
