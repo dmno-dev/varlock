@@ -10,10 +10,11 @@
 import { describe, it, expect } from 'vitest';
 import { DotEnvFileDataSource, EnvGraph } from '../src';
 import { SchemaError } from '../src/lib/errors';
-import { ResolverInstance } from '../src/lib/resolver';
+import { Resolver } from '../src/lib/resolver';
 
 // define special increment resolver used only for tests
-class IncrementResolver extends ResolverInstance {
+class IncrementResolver extends Resolver {
+  static fnName = 'increment';
   label = 'increment';
   icon = '';
   static counter = 0;
@@ -38,7 +39,7 @@ function functionValueTests(
 
         // reset the increment counter for each test
         IncrementResolver.counter = 0;
-        g.registerResolver('increment', IncrementResolver);
+        g.registerResolver(IncrementResolver);
 
         const testDataSource = new DotEnvFileDataSource('.env.schema', { overrideContents: input });
         g.addDataSource(testDataSource);

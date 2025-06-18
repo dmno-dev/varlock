@@ -3,7 +3,7 @@ import { ConfigItem } from './config-item';
 import { EnvGraphDataSource } from './data-source';
 
 import {
-  BaseResolvers, ResolverInstance, StaticValueResolver,
+  BaseResolvers, Resolver, ResolverChildClass, StaticValueResolver,
 } from './resolver';
 import { BaseDataTypes, EnvGraphDataTypeFactory } from './data-types';
 import { Constructor } from '@env-spec/utils/type-utils';
@@ -48,13 +48,15 @@ export class EnvGraph {
     ));
   }
 
-  registeredResolverFunctions: Record<string, Constructor<ResolverInstance>> = {};
-  registerResolver(name: string, resolverClass: Constructor<ResolverInstance>) {
-    if (name in this.registeredResolverFunctions) {
+  registeredResolverFunctions: Record<string, ResolverChildClass> = {};
+  registerResolver(resolverClass: ResolverChildClass) {
+    // TODO: fix ts any
+    const fnName = (resolverClass as any).fnName;
+    if (fnName in this.registeredResolverFunctions) {
       // TODO: do we want to allow the user to override?
-      throw new Error(`Resolver ${name} already registered`);
+      throw new Error(`Resolver ${fnName} already registered`);
     }
-    this.registeredResolverFunctions[name] = resolverClass;
+    this.registeredResolverFunctions[fnName] = resolverClass;
   }
 
   dataTypesRegistry: Record<string, EnvGraphDataTypeFactory> = {};
@@ -68,9 +70,9 @@ export class EnvGraph {
       this.registerDataType(dataType);
     }
     // register base resolvers (concat, ref, etc)
-    _.each(BaseResolvers, (resolverDef, resolverName) => {
-      this.registerResolver(resolverName, resolverDef);
-    });
+    for (const resolverClass of BaseResolvers) {
+      this.registerResolver(resolverClass);
+    }
   }
 
   async finishLoad() {
