@@ -22,15 +22,15 @@ export default defineConfig({
   },
   experimental: {
     fonts: [
-      // {
-      //   provider: fontProviders.fontsource(),
-      //   name: 'fusion-pixel-10px-proportional-tc',
-      //   cssVariable: '--font-pixel',
-      // },
       {
         provider: fontProviders.google(),
         name: 'JetBrains Mono',
         cssVariable: '--font-jetbrains-mono',
+      },
+      {
+        provider: fontProviders.google(),
+        name: 'Inter',
+        cssVariable: '--font-default',
       },
     ],
   },
@@ -87,9 +87,9 @@ export default defineConfig({
           label: '@env-spec',
           items: [
             { label: 'Overview', slug: 'env-spec/overview' },
-            { label: 'VS Code extension', slug: 'env-spec/vs-code-ext' },
             { label: 'Reference', slug: 'env-spec/reference' },
             { label: 'Best practices', slug: 'env-spec/best-practices' },
+            { label: 'VS Code extension', slug: 'env-spec/vs-code-ext' },
           ],
         },
       ],

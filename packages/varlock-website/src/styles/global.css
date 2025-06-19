@@ -1,38 +1,52 @@
 @import './reset.css';
 
-/* fusion-pixel-12px-proportional-sc-latin-400-normal */
+/* fusion-pixel-10px-proportional-tc-latin-400-normal */
 @font-face {
-  font-family: 'Fusion Pixel 12px Proportional SC';
+  font-family: 'Fusion Pixel 10px Proportional TC';
   font-style: normal;
   font-display: swap;
   font-weight: 400;
-  src: url(https://cdn.jsdelivr.net/fontsource/fonts/fusion-pixel-12px-proportional-sc@latest/latin-400-normal.woff2) format('woff2'), url(https://cdn.jsdelivr.net/fontsource/fonts/fusion-pixel-12px-proportional-sc@latest/latin-400-normal.woff) format('woff');
+  src: url(https://cdn.jsdelivr.net/fontsource/fonts/fusion-pixel-10px-proportional-tc@latest/latin-400-normal.woff2) format('woff2'), url(https://cdn.jsdelivr.net/fontsource/fonts/fusion-pixel-10px-proportional-tc@latest/latin-400-normal.woff) format('woff');
 }
+
 
 body {
-  font-family: var(--body-font);
+  font-family: var(--font-default);
 }
 
-h1,
+h1 {
+  font-size: 50px;
+  /* color: var(--brand-orange--text); */
+  font-family: var(--font-pixel);
+  font-weight: 400;
+}
+
+@media screen and (max-width: 700px) {
+  h1 {
+    font-size: 30px;
+  }
+}
+
+
 h2,
 h3,
 h4,
 h5 {
-  font-family: var(--pixel-font);
-  font-weight: var(--pixel-font-weight);
+  font-weight: 500;
+  color: var(--brand-red--text);
+  /* font-family: var(--font-pixel);
+  font-weight: var(--font-pixel-weight); */
+
 }
 
 :root {
   /* loaded in CustomHead.astro via Astro font API */
-  --body-font: "courier new", monospace;
   --code-font: var(--font-jetbrains-mono);
 
-
-
-  --pixel-font: 'Fusion Pixel 12px Proportional SC', monospace;
-  /* --pixel-font: 'Dungeon', monospace; */
+  --font-pixel: 'Fusion Pixel 10px Proportional TC', monospace;
+  /* --font-pixel: 'Dungeon', monospace; */
   /* this font only has a single weight */
-  /* --pixel-font-weight: 200; */
+  /* --font-pixel-weight: 200; */
 
   --sl-content-width: 75rem;
 }
@@ -41,7 +55,7 @@ h5 {
 :root {
   --cp-s: 89%;
   --cp-l: 65%;
-  --cp-l2: 50%;
+  --cp-l2: 40%;
   --cp-s-dark: 65%;
   --cp-l-dark: 10%;
   --cp-t1: 50%;
@@ -101,8 +115,8 @@ h5 {
 
 /* make colors a little darker when being used for text on light mode */
 :root[data-theme='light'] {
-  --brand-red--text: hsl(0, var(--cp-s), var(--cp-l2));
-  --brand-orange--text: hsl(25, var(--cp-s), var(--cp-l2));
+  --brand-red--text: hsl(0, var(--cp-s), 40%);
+  --brand-orange--text: hsl(25, var(--cp-s), 55%);
   --brand-yellow--text: hsl(57, var(--cp-s), var(--cp-l2));
   --brand-green--text: hsl(119, var(--cp-s), var(--cp-l2));
   --brand-cyan--text: hsl(184, var(--cp-s), var(--cp-l2));
@@ -142,13 +156,9 @@ h5 {
 }
 
 /* starlight hero page header, can't add style on mdx file */
-.hero h1 {
-  font-family: var(--pixel-font);
-}
-
 .site-title {
-  font-family: var(--pixel-font);
-  font-weight: var(--pixel-font-weight);
+  font-family: var(--font-pixel);
+  font-weight: var(--font-pixel-weight);
   gap: .5em;
 
   &:hover {
@@ -164,43 +174,47 @@ h5 {
 
 /* borders around code blocks, file trees, images */
 starlight-file-tree,
-.expressive-code {
-  --border-gradient-color-1: var(--brand-red--t1);
-  --border-gradient-color-2: var(--brand-orange--t1);
-  border: 1px dotted var(--border-gradient-color-1);
+.expressive-code,
+.img-with-border {
+  --border-color: var(--brand-red--t1);
+  --shadow-color: var(--brand-red--t2);
+  border: 1px dotted var(--border-color);
   position: relative;
+  box-shadow: 5px 5px 0px var(--shadow-color);
 }
 
 /* make terminal code blocks a different color */
-.expressive-code:has(.frame.is-terminal) {
-  --border-gradient-color-1: var(--brand-orange--t1);
-  --border-gradient-color-2: var(--brand-cyan--t1);
-}
+.expressive-code:has(.frame.is-terminal) {}
 
 /* Add dotted corner decorations */
 .expressive-code::before,
-starlight-file-tree::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 10px;
-  height: 10px;
-  border-top: 2px dotted var(--border-gradient-color-1);
-  border-left: 2px dotted var(--border-gradient-color-1);
-}
-
+starlight-file-tree::before,
 .expressive-code::after,
 starlight-file-tree::after {
   content: '';
   position: absolute;
-  bottom: 0;
-  right: 0;
   width: 10px;
   height: 10px;
-  border-bottom: 2px dotted var(--border-gradient-color-1);
-  border-right: 2px dotted var(--border-gradient-color-1);
+  border: 2px dotted var(--border-color);
 }
+
+.expressive-code::before,
+starlight-file-tree::before {
+  top: 0;
+  left: 0;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.expressive-code::after,
+starlight-file-tree::after {
+  bottom: 0;
+  right: 0;
+  border-left: 0;
+  border-top: 0;
+}
+
+
 
 /* image borders */
 .sl-markdown-content p>img:first-child,
@@ -285,6 +299,8 @@ html[data-theme='light'] .expressive-code .ec-line.del.tm-label .code::before {
 .starlight-aside {
   border: 1px dotted var(--aside-color-1);
   position: relative;
+  box-shadow: 5px 5px 0px var(--aside-color-shadow);
+  background: rgba(255, 255, 255, .07);
 }
 
 html[data-theme='light'] .starlight-aside {
@@ -340,28 +356,32 @@ html[data-theme='light'] .starlight-aside .starlight-aside__title {
 
 /* TODO update these colors to match the new palette */
 .starlight-aside.starlight-aside--note {
-  --aside-color-1: var(--brand-blue--dark);
-  --aside-color-2: var(--brand-orange--dark);
+  --aside-color-1: var(--brand-blue);
+  --aside-color-shadow: var(--brand-blue--t2);
+  --aside-color-2: var(--brand-orange);
 }
 
 .starlight-aside.starlight-aside--tip {
   --aside-color-1: var(--brand-blue);
+  --aside-color-shadow: var(--brand-blue--t2);
   --aside-color-2: var(--brand-blue);
 }
 
 .starlight-aside.starlight-aside--caution {
   --aside-color-1: var(--brand-orange);
+  --aside-color-shadow: var(--brand-orange--t2);
   --aside-color-2: var(--brand-red);
 }
 
 .starlight-aside.starlight-aside--danger {
   --aside-color-1: var(--brand-red);
+  --aside-color-shadow: var(--brand-red--t2);
   --aside-color-2: var(--brand-pink);
 }
 
 /* starlight steps component */
 .sl-steps {
-  --sl-color-hairline-light: var(--brand-orange--t1);
+  --sl-color-hairline-light: var(--brand-orange--t2);
 }
 
 .sl-steps>li:before {
@@ -442,6 +462,21 @@ html[data-theme='light'] .starlight-aside .starlight-aside__title {
 
 #starlight__mobile-toc .toggle:hover {
   border-color: var(--brand-pink);
+}
+
+/* mobile menu icons */
+svg.close-menu {
+  display: none;
+}
+
+body[data-mobile-menu-expanded] {
+  svg.open-menu {
+    display: none;
+  }
+
+  svg.close-menu {
+    display: block;
+  }
 }
 
 /* make max width 50% when only one of them is present

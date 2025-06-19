@@ -5,17 +5,7 @@ import { Font } from "astro:assets";
 
 <!-- <Font cssVariable="--font-pixel" preload /> -->
 <Font cssVariable="--font-jetbrains-mono" preload />
+<Font cssVariable="--font-default" preload />
 <Head>
   <slot />
 </Head>
-
-<style is:global>
-  /* TODO move somewhere better */
-  h1 {
-    font-family: var(--font-pixel);
-  }
-
-  code {
-    font-family: var(--font-jetbrains-mono);
-  }
-</style>

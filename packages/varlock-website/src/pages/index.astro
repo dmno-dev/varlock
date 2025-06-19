@@ -14,49 +14,83 @@ import intellisenseImg from "../assets/demo-images/intellisense.png";
 <Layout showSearch={false}>
   <main>
     <div class="container">
-      <VarlockRetroBanner />
-      <h2>universal configuration toolkit</h2>
-      <h3 class="description">
-        Varlock loads <a href="/env-spec">@env-spec</a> enabled .env files to give
-        your environment variables guardrails
-      </h3>
+      <div class="homepage-hero not-content">
+        <VarlockRetroBanner />
+        <!-- <img src="/favicon.svg" alt="Varlock hero" /> -->
+        <h1>
+          Environment variables<br />with the right amount of magic
+        </h1>
+        <!-- <h3 class="description">
+          Validate, load, protect - declarative configuj
+        </h3> -->
+      </div>
       <Code
         title=".env.schema"
         lang="env-spec"
         code=`
-# Use @decorator comments in your .env file(s) to create a declarative schema for your config
-# and a new function call syntax to securely load secrets from external sources
-# ---
+# API key with validation, securely fetched from 1Password
 # @required @sensitive @type=string(startsWith=sk-)
 OPENAI_API_KEY=exec('op read "op://api-prod/openai/api-key"')
+
+# Non-secret values can be included directly
+# @type=url
+SOME_SERVICE_API_URL=https://api.someservice.com
     `
       />
+      <p class="env-spec-example-note">
+        Use <i>@decorator comments</i> in your .env file(s) to create a declarative
+        schema for your config and a <i>new function call syntax</i> to securely
+        load secrets from external sources.
+      </p>
+
+      <div class="button-container">
+        <LinkButton href="getting-started/installation">Get Started</LinkButton>
+        <LinkButton href="reference/item-decorators">Reference Docs</LinkButton>
+      </div>
 
       <div class="features-grid">
         <div>
           <div>
             <h3>Validation</h3>
             <p>
-              Powerful validation capabilities, without writing any custom code.
+              Powerful validation capabilities, without custom logic.
               Misconfiguration errors are surfaced much earlier in your
               development cycle, with clear error messages.
             </p>
           </div>
-          <Image src={validationImg} alt="Validation demo" />
+          <Image
+            src={validationImg}
+            alt="Validation demo"
+            class="img-with-border"
+          />
         </div>
         <div>
           <div>
             <h3>Type-safety</h3>
-            <p>Automatically generate types according to your schema.</p>
+            <p>
+              Automatically generate types according to your schema instead of
+              writing them by hand.
+            </p>
           </div>
-          <Image src={intellisenseImg} alt="Intellisense demo" />
+          <Image
+            src={intellisenseImg}
+            alt="Intellisense demo"
+            class="img-with-border"
+          />
         </div>
         <div>
           <div>
             <h3>Extra security</h3>
-            <p>Log redaction, http interception, pre-commit scanning.</p>
+            <p>
+              Protect your secrets from accidental leaks. Redact secrets in
+              stdout and global console methods.
+            </p>
           </div>
-          <Image src={intellisenseImg} alt="Intellisense demo" />
+          <Image
+            src={intellisenseImg}
+            alt="Intellisense demo"
+            class="img-with-border"
+          />
         </div>
         <div>
           <div>
@@ -66,78 +100,34 @@ OPENAI_API_KEY=exec('op read "op://api-prod/openai/api-key"')
               files, and local git-ignored overrides.
             </p>
           </div>
-          <Image src={intellisenseImg} alt="Intellisense demo" />
+          <Image
+            src={intellisenseImg}
+            alt="Intellisense demo"
+            class="img-with-border"
+          />
+        </div>
+        <div>
+          <div>
+            <h3>External secret providers</h3>
+            <p>Securely load from any external provider via CLI commands.</p>
+          </div>
+          <Image
+            src={intellisenseImg}
+            alt="Intellisense demo"
+            class="img-with-border"
+          />
         </div>
       </div>
       <!-- <SecretReveal client:load /> -->
 
       <div class="button-container">
         <LinkButton href="getting-started/installation">Get Started</LinkButton>
-      </div>
-      <h2 class="description">
-        Convert your <code>.env.example</code> to an <code>.env.schema</code>
-      </h2>
-      <Code
-        title=".env.schema - example"
-        lang="env-spec"
-        code=`
-# Header contains decorators which affect overall loading and settings
-# @defaultSensitive=false @defaultRequired=false
-# ---
-
-# each item can use decorators to affect validation
-
-# Env flag
-# @type=enum(development, staging, production, test)
-APP_ENV=development
-
-# this will be overridden in .env.production
-SOME_VAR=default-value
-
-# @type=number(precision=0)
-NUMBER_ITEM=123.45
-
-# @type=email(normalize=true)
-EMAIL_ITEM=HEllO@example.com #output: hello@example.com
-
-# @type=url
-URL_ITEM=https://example.com
-
-# @type=port
-PORT="5678"
-
-INFER_NUM=123
-INFER_BOOL=true
-INFER_STR=asdf
-
-NOT_SENSITIVE_ITEM="not-sensitive"
-
-# @sensitive
-SENSITIVE_ITEM=secret-value
-      `
-      />
-      <div class="button-container">
         <LinkButton href="reference/item-decorators">Reference Docs</LinkButton>
       </div>
 
-      <div class="info-section">
-        <Card title="Benefits" icon="star">
-          <ul>
-            <li>Validation of environment variables</li>
-            <li>Coercion based on types</li>
-            <li>Secure third-party secrets</li>
-            <li>Drop-in replacement for dotenv</li>
-          </ul>
-        </Card>
-        <Card title="Secure Secrets" icon="approve-check-circle">
-          <ul>
-            <li>Use any secrets provider with a CLI</li>
-            <li>Load via `exec` functions</li>
-            <li>Keep secure references in your codebase</li>
-          </ul>
-        </Card>
-        <h2>Installation</h2>
-      </div>
+      <div class="button-container"></div>
+
+      <h2>Installation</h2>
       <Code
         lang="bash"
         code=`
@@ -168,10 +158,15 @@ npx varlock init
     display: flex;
     justify-content: center;
     gap: 1rem;
+    a {
+      display: block;
+      text-align: center;
+    }
   }
 
   .button-container > .sl-link-button {
     min-width: 25%;
+    border: 2px solid transparent;
   }
 
   .button-container > .sl-link-button:hover {
@@ -206,10 +201,6 @@ npx varlock init
 
   h1 {
     text-align: center;
-  }
-
-  body {
-    font-family: var(--body-font);
   }
 
   .description {
@@ -266,8 +257,8 @@ npx varlock init
 
   .card > .title {
     /* color: var(--brand-purple--text); */
-    font-family: var(--pixel-font);
-    font-weight: var(--pixel-font-weight);
+    font-family: var(--font-pixel);
+    font-weight: var(--font-pixel-weight);
     margin: 0;
   }
 
@@ -291,14 +282,25 @@ npx varlock init
       grid-template-columns: 3fr 5fr;
       gap: 1rem;
       align-items: center;
+      @media screen and (max-width: 700px) {
+        grid-template-columns: 1fr;
+      }
     }
     h3 {
-      font-size: 36px;
-      color: var(--brand-green);
+      /* font-size: 36px; */
     }
     img {
       margin: 0;
-      border: 1px solid var(--brand-red--t1);
     }
+  }
+  .homepage-hero {
+    text-align: center;
+    h1 {
+      zoom: 0.8;
+      margin: 0.5em 0 1em;
+    }
+  }
+  .env-spec-example-note {
+    padding: 0 1em;
   }
 </style>
