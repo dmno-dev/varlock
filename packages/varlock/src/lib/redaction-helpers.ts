@@ -1,4 +1,4 @@
-import { EnvGraph } from '@env-spec/env-graph';
+import { EnvGraph, SerializedEnvGraph } from '@env-spec/env-graph';
 import _ from '@env-spec/utils/my-dash';
 
 const UNMASK_STR = '👁';
@@ -33,15 +33,15 @@ let sensitiveSecretsMap: Record<string, string> = {};
 type ReplaceFn = (match: string, pre: string, val: string, post: string) => string;
 let redactorFindReplace: undefined | { find: RegExp, replace: ReplaceFn };
 
-export function resetRedactionMap(graph: EnvGraph) {
+export function resetRedactionMap(graph: SerializedEnvGraph) {
   // reset map of { [sensitive] => redacted }
   sensitiveSecretsMap = {};
-  for (const itemKey in graph.configSchema) {
-    const item = graph.configSchema[itemKey];
-    if (item.isSensitive && item.resolvedValue && _.isString(item.resolvedValue)) {
+  for (const itemKey in graph.config) {
+    const item = graph.config[itemKey];
+    if (item.isSensitive && item.value && _.isString(item.value)) {
       // TODO: we want to respect masking settings from the schema (once added)
-      const redacted = redactString(item.resolvedValue);
-      if (redacted) sensitiveSecretsMap[item.resolvedValue] = redacted;
+      const redacted = redactString(item.value);
+      if (redacted) sensitiveSecretsMap[item.value] = redacted;
     }
   }
 
