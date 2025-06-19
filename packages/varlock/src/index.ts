@@ -1,7 +1,7 @@
+import { SerializedEnvGraph } from '@env-spec/env-graph';
 import { checkForConfigErrors } from './cli/helpers/error-checks';
 import { loadVarlockEnvGraph } from './lib/load-graph';
 import { resetRedactionMap } from './lib/redaction-helpers';
-
 
 let envValues = {} as Record<string, any>;
 let publicKeys = [] as Array<string>;
@@ -29,32 +29,17 @@ const PublicEnvProxy = new Proxy<PublicTypedEnvSchema>({}, {
 export const ENV = EnvProxy;
 export const PUBLIC_ENV = PublicEnvProxy;
 
-export function loadSync() {
-  throw new Error('Not yet supported');
-}
-
-export async function load() {
-  // TODO: add some options
-  // console.log('loading varlock (async)');
-
-
-  const envGraph = await loadVarlockEnvGraph();
-  await envGraph.resolveEnvValues();
-
-  checkForConfigErrors(envGraph);
-
-  const resolvedEnv = envGraph.getResolvedEnvObject();
-
-  resetRedactionMap(envGraph);
+export async function loadFromSerializedGraph(serializedGraph: SerializedEnvGraph) {
+  resetRedactionMap(serializedGraph);
 
   // reset env values
   envValues = {};
   publicKeys = [];
 
-  for (const key in resolvedEnv) {
-    if (!envGraph.configSchema[key].isSensitive) publicKeys.push(key);
+  for (const key in serializedGraph.config) {
+    if (!serializedGraph.config[key].isSensitive) publicKeys.push(key);
 
-    const resolvedValue = resolvedEnv[key];
+    const resolvedValue = serializedGraph.config[key].value;
     if (resolvedValue === undefined || resolvedValue === null) {
       envValues[key] = undefined;
       process.env[key] = undefined; // not sure what to do here
@@ -63,6 +48,15 @@ export async function load() {
       process.env[key] = resolvedValue.toString();
     }
   }
+}
+
+export async function load() {
+  // TODO: add some options
+  const envGraph = await loadVarlockEnvGraph();
+  await envGraph.resolveEnvValues();
+  checkForConfigErrors(envGraph);
+
+  loadFromSerializedGraph(envGraph.getSerializedGraph());
 
   // TODO: return resolved env and schema / meta info
 }
