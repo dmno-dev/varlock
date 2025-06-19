@@ -27,6 +27,9 @@ catalogs:
     typescript:
       specifier: ^5.8.2
       version: 5.8.3
+    vite-node:
+      specifier: ^3.2.4
+      version: 3.2.4
     vitest:
       specifier: ^3.2.4
       version: 3.2.4

@@ -13,6 +13,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "openai": "^5.5.1",
     "varlock": "link:../packages/varlock"
   },
   "packageManager": "pnpm@10.8.1",

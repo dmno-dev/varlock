@@ -1,46 +1,91 @@
 ---
+import { Image } from "astro:assets";
+
 import Layout from "../layouts/Layout.astro";
 import SecretReveal from "../components/SecretReveal.vue";
 import { LinkButton, Code, Card } from "@astrojs/starlight/components";
 import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
 import SignUpForm from "../components/SignUpForm.astro";
+
+import validationImg from "../assets/demo-images/failing-validation.png";
+import intellisenseImg from "../assets/demo-images/intellisense.png";
 ---
 
 <Layout showSearch={false}>
   <main>
     <div class="container">
       <VarlockRetroBanner />
-      <h2>Secure Environment Variables</h2>
+      <h2>universal configuration toolkit</h2>
       <h3 class="description">
-        Varlock gives your environment variables guardrails with validation,
-        type-safety, coercion, and secure secret integrations.
+        Varlock loads <a href="/env-spec">@env-spec</a> enabled .env files to give
+        your environment variables guardrails
       </h3>
       <Code
+        title=".env.schema"
         lang="env-spec"
         code=`
-# OpenAI API Key
-# @required @sensitive @type=string(startsWith=sk)
-OPENAI_API_KEY=exec('op read "op://productions/openai/api-key"')
+# Use @decorator comments in your .env file(s) to create a declarative schema for your config
+# and a new function call syntax to securely load secrets from external sources
+# ---
+# @required @sensitive @type=string(startsWith=sk-)
+OPENAI_API_KEY=exec('op read "op://api-prod/openai/api-key"')
     `
       />
 
+      <div class="features-grid">
+        <div>
+          <div>
+            <h3>Validation</h3>
+            <p>
+              Powerful validation capabilities, without writing any custom code.
+              Misconfiguration errors are surfaced much earlier in your
+              development cycle, with clear error messages.
+            </p>
+          </div>
+          <Image src={validationImg} alt="Validation demo" />
+        </div>
+        <div>
+          <div>
+            <h3>Type-safety</h3>
+            <p>Automatically generate types according to your schema.</p>
+          </div>
+          <Image src={intellisenseImg} alt="Intellisense demo" />
+        </div>
+        <div>
+          <div>
+            <h3>Extra security</h3>
+            <p>Log redaction, http interception, pre-commit scanning.</p>
+          </div>
+          <Image src={intellisenseImg} alt="Intellisense demo" />
+        </div>
+        <div>
+          <div>
+            <h3>Multi-environment</h3>
+            <p>
+              Automatically load and combine defaults, environment-specific env
+              files, and local git-ignored overrides.
+            </p>
+          </div>
+          <Image src={intellisenseImg} alt="Intellisense demo" />
+        </div>
+      </div>
       <!-- <SecretReveal client:load /> -->
 
       <div class="button-container">
         <LinkButton href="getting-started/installation">Get Started</LinkButton>
       </div>
       <h2 class="description">
-        It scans your project for `.env` and `.env.example` files and creates a
-        `.env.schema` file for you.
+        Convert your <code>.env.example</code> to an <code>.env.schema</code>
       </h2>
       <Code
-        title="Example .env.schema file"
+        title=".env.schema - example"
         lang="env-spec"
         code=`
-# This file uses env-spec - see https://github.com/varlock/env-spec for more info
-# @envFlag=APP_ENV
+# Header contains decorators which affect overall loading and settings
 # @defaultSensitive=false @defaultRequired=false
 # ---
+
+# each item can use decorators to affect validation
 
 # Env flag
 # @type=enum(development, staging, production, test)
@@ -113,7 +158,7 @@ npx varlock init
 
 <style is:global>
   .container {
-    max-width: 800px;
+    max-width: 1000px;
     margin: 0 auto;
     padding: 2rem 1rem;
     gap: 2rem;
@@ -221,7 +266,8 @@ npx varlock init
 
   .card > .title {
     /* color: var(--brand-purple--text); */
-    font-family: var(--logo-font);
+    font-family: var(--pixel-font);
+    font-weight: var(--pixel-font-weight);
     margin: 0;
   }
 
@@ -236,5 +282,23 @@ npx varlock init
 
   .card li:last-child {
     margin-bottom: 0;
+  }
+
+  .features-grid {
+    > div {
+      margin-top: 3rem;
+      display: grid;
+      grid-template-columns: 3fr 5fr;
+      gap: 1rem;
+      align-items: center;
+    }
+    h3 {
+      font-size: 36px;
+      color: var(--brand-green);
+    }
+    img {
+      margin: 0;
+      border: 1px solid var(--brand-red--t1);
+    }
   }
 </style>
