@@ -16,13 +16,9 @@ import intellisenseImg from "../assets/demo-images/intellisense.png";
     <div class="container">
       <div class="homepage-hero not-content">
         <VarlockRetroBanner />
-        <!-- <img src="/favicon.svg" alt="Varlock hero" /> -->
         <h1>
           Environment variables<br />with the right amount of magic
         </h1>
-        <!-- <h3 class="description">
-          Validate, load, protect - declarative configuj
-        </h3> -->
       </div>
       <Code
         title=".env.schema"
@@ -32,7 +28,7 @@ import intellisenseImg from "../assets/demo-images/intellisense.png";
 # @required @sensitive @type=string(startsWith=sk-)
 OPENAI_API_KEY=exec('op read "op://api-prod/openai/api-key"')
 
-# Non-secret values can be included directly
+# Non-secret value, included directly
 # @type=url
 SOME_SERVICE_API_URL=https://api.someservice.com
     `
@@ -80,7 +76,7 @@ SOME_SERVICE_API_URL=https://api.someservice.com
         </div>
         <div>
           <div>
-            <h3>Extra security</h3>
+            <h3>Security</h3>
             <p>
               Protect your secrets from accidental leaks. Redact secrets in
               stdout and global console methods.
@@ -94,10 +90,10 @@ SOME_SERVICE_API_URL=https://api.someservice.com
         </div>
         <div>
           <div>
-            <h3>Multi-environment</h3>
+            <h3>Environments</h3>
             <p>
-              Automatically load and combine defaults, environment-specific env
-              files, and local git-ignored overrides.
+              Compose defaults, environment-specific .env files, and local
+              git-ignored overrides.
             </p>
           </div>
           <Image
@@ -108,8 +104,8 @@ SOME_SERVICE_API_URL=https://api.someservice.com
         </div>
         <div>
           <div>
-            <h3>External secret providers</h3>
-            <p>Securely load from any external provider via CLI commands.</p>
+            <h3>Secure secrets</h3>
+            <p>Read from any external provider via CLI commands.</p>
           </div>
           <Image
             src={intellisenseImg}

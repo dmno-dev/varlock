@@ -70,7 +70,7 @@ export default defineConfig({
             { label: 'Schema', slug: 'guides/schema' },
             { label: 'Integration', slug: 'guides/integration' },
             { label: 'Secrets', slug: 'guides/secrets' },
-            { label: 'Cursor', slug: 'guides/cursor', badge: 'New' },
+            // { label: 'Cursor', slug: 'guides/cursor', badge: 'New' },
             { label: 'Telemetry', slug: 'guides/telemetry' },
           ],
         },
