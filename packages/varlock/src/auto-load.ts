@@ -1,4 +1,6 @@
-import { load } from './index';
+import { execSync } from 'node:child_process';
+import { loadFromSerializedGraph } from './index';
 
-// eslint-disable-next-line es-x/no-top-level-await
-await load();
+const execResult = execSync('varlock load --format json-full');
+const serializedGraph = JSON.parse(execResult.toString());
+loadFromSerializedGraph(serializedGraph);

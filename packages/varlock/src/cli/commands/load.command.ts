@@ -53,8 +53,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       console.log(getItemSummary(item));
     }
   } else if (format === 'json') {
-    const resolvedEnv = envGraph.getResolvedEnvObject();
-    console.log(JSON.stringify(resolvedEnv, null, 2));
+    console.log(JSON.stringify(envGraph.getResolvedEnvObject(), null, 2));
+  } else if (format === 'json-full') {
+    console.log(JSON.stringify(envGraph.getSerializedGraph(), null, 2));
   } else if (format === 'env') {
     const resolvedEnv = envGraph.getResolvedEnvObject();
     for (const key in resolvedEnv) {

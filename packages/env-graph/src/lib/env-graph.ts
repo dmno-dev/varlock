@@ -10,6 +10,13 @@ import { findGraphCycles, GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
 import { generateTypes } from './type-generation';
 
+export type SerializedEnvGraph = {
+  config: Record<string, {
+    value: any;
+    isSensitive: boolean;
+  }>;
+}
+
 /** container of the overall graph and current resolution attempt / values */
 export class EnvGraph {
   // TODO: not sure if this should be the graph of _everything_ in a workspace/project
@@ -260,6 +267,20 @@ export class EnvGraph {
       envObject[itemKey] = item.resolvedValue;
     }
     return envObject;
+  }
+
+  getSerializedGraph(): SerializedEnvGraph {
+    const serializedGraph: SerializedEnvGraph = {
+      config: {},
+    };
+    for (const itemKey in this.configSchema) {
+      const item = this.configSchema[itemKey];
+      serializedGraph.config[itemKey] = {
+        value: item.resolvedValue,
+        isSensitive: item.isSensitive,
+      };
+    }
+    return serializedGraph;
   }
 
   get isInvalid() {
