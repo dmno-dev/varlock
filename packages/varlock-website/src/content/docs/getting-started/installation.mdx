@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: How to install and set up Varlock in your project
+description: How to install and set up varlock in your project
 ---
 
 import SyncedCodeTabs from "@/components/SyncedCodeTabs.astro";
@@ -44,23 +44,26 @@ To install `varlock` in your project, run:
 This will install `varlock` as a dependency and scan your project for `.env` files and create a `.env.schema` file in the root of your project. Depending on your project configuration, it will optionally:
 - Remove your existing `.env.example` file
 - Add decorators to your `.env.schema` file to specify the type of each environment variable
-- Install the desktop app
 - Encrypt secrets in your `.env` file
 
 ## As a binary
 
-To install Varlock as a binary, run:
+To install `varlock` CLI as a binary, run:
 
 ```bash
+# Install via homebrew
+brew install varlock
+
+# OR Install via cURL
 curl -sSfL https://varlock.dev/install.sh | sh -s
 ```
 
-This will install the `varlock` CLI binary and (optionally) the desktop app.
+After installation, you can run `varlock --help` to see the available commands or read the [CLI Reference](/reference/cli-commands/).
 
-## Desktop app
+{/* ## Desktop app
 
 The `varlock` CLI also includes a desktop app that hooks into system level APIs to encrypt and decrypt environment variables. This means that you never have secrets sitting in plaintext on your system.
 
 :::tip[MacOS Only]
 During our beta phase, the desktop app is only available on macOS. Windows and Linux users can use the CLI without the desktop app.
-:::
+::: */}

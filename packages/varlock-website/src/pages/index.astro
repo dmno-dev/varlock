@@ -1,22 +1,174 @@
 ---
+import { Image } from "astro:assets";
+
 import Layout from "../layouts/Layout.astro";
 import SecretReveal from "../components/SecretReveal.vue";
 import { LinkButton, Code, Card } from "@astrojs/starlight/components";
 import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
+
+import validationImg from "../assets/demo-images/failing-validation.png";
+import intellisenseImg from "../assets/demo-images/intellisense.png";
+import redactionImg from "../assets/demo-images/redaction.png";
+import multiEnvImg from "../assets/demo-images/multi-env.png";
+import externalProvidersImg from "../assets/demo-images/external-providers.png";
+import EmailSignup from "../components/EmailSignup.vue";
 ---
 
 <Layout showSearch={false}>
   <main>
     <div class="container">
-      <VarlockRetroBanner />
-      <h2 class="description">
-        Varlock gives your environment variables guardrails with validation,
-        type-safety, coercion, and secure secret integrations.
-      </h2>
-
-      <!-- <SecretReveal client:load /> -->
+      <div class="homepage-hero not-content">
+        <VarlockRetroBanner />
+        <h1>
+          <img
+            src="https://varlock-pixel-art.dmno.workers.dev/characters/warlock1.gif"
+          />
+          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/effects/black-hole.gif" /> -->
+          <div>
+            Environment variables with<br />the right amount of magic
+          </div>
+          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/effects/black-hole.gif" /> -->
+          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/characters/demon1.gif" /> -->
+          <img
+            src="https://varlock-pixel-art.dmno.workers.dev/characters/warlock1.gif"
+          />
+        </h1>
+      </div>
       <Code
-        title="Installation"
+        title=".env.schema"
+        lang="env-spec"
+        code=`
+# API key with validation, securely fetched from 1Password
+# @required @sensitive @type=string(startsWith=sk-)
+OPENAI_API_KEY=exec('op read "op://api-prod/openai/api-key"')
+
+# Non-secret value, included directly
+# @type=url
+SOME_SERVICE_API_URL=https://api.someservice.com
+    `
+      />
+      <p class="env-spec-example-note">
+        Use <i>@decorator comments</i> in your .env file(s) to create a declarative
+        schema for your config and a <i>new function call syntax</i> to securely
+        load secrets from external sources.
+      </p>
+
+      <div class="button-container">
+        <LinkButton href="getting-started/installation">Get Started</LinkButton>
+        <LinkButton href="reference/item-decorators">Reference Docs</LinkButton>
+      </div>
+
+      <div class="features-grid">
+        <div>
+          <div>
+            <h3>
+              <img
+                src="https://varlock-pixel-art.dmno.workers.dev/potions/2.gif"
+              />
+              Validation
+            </h3>
+            <p>
+              Powerful validation capabilities, without custom logic.
+              Misconfiguration errors are surfaced much earlier in your
+              development cycle, with clear error messages.
+            </p>
+          </div>
+          <Image
+            src={validationImg}
+            alt="Validation demo"
+            class="img-with-border"
+          />
+        </div>
+        <div>
+          <div>
+            <h3>
+              <img
+                src="https://varlock-pixel-art.dmno.workers.dev/potions/7.gif"
+              />
+              Type-safety
+            </h3>
+            <p>
+              Automatically generate types according to your schema instead of
+              writing them by hand.
+            </p>
+          </div>
+          <Image
+            src={intellisenseImg}
+            alt="Intellisense demo"
+            class="img-with-border"
+          />
+        </div>
+        <div>
+          <div>
+            <h3>
+              <img
+                src="https://varlock-pixel-art.dmno.workers.dev/potions/8.gif"
+              />
+              Security
+            </h3>
+            <p>
+              Protect your secrets from accidental leaks. Redact secrets in
+              stdout and global console methods.
+            </p>
+          </div>
+          <Image
+            src={redactionImg}
+            alt="Redaction demo"
+            class="img-with-border"
+          />
+        </div>
+        <div>
+          <div>
+            <h3>
+              <img
+                src="https://varlock-pixel-art.dmno.workers.dev/potions/4.gif"
+              />
+              Environments
+            </h3>
+            <p>
+              Compose defaults, environment-specific .env files, and local
+              git-ignored overrides.
+            </p>
+          </div>
+          <Image
+            src={multiEnvImg}
+            alt="Multi-env demo"
+            class="img-with-border"
+          />
+        </div>
+        <div>
+          <div>
+            <h3>
+              <img
+                src="https://varlock-pixel-art.dmno.workers.dev/potions/1.gif"
+              />
+              Secure secrets
+            </h3>
+            <p>Read from any external provider via CLI commands.</p>
+          </div>
+          <Image
+            src={externalProvidersImg}
+            alt="External providers demo"
+            class="img-with-border"
+          />
+        </div>
+      </div>
+      <!-- <SecretReveal client:load /> -->
+
+      <div class="button-container">
+        <LinkButton href="getting-started/installation">Get Started</LinkButton>
+        <LinkButton href="reference/item-decorators">Reference Docs</LinkButton>
+      </div>
+
+      <div class="button-container"></div>
+
+      <h2>
+        <img
+          src="https://varlock-pixel-art.dmno.workers.dev/effects/fire.gif"
+        />
+        Installation
+      </h2>
+      <Code
         lang="bash"
         code=`
 # Install as standalone CLI via homebrew
@@ -27,91 +179,16 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
 
 # OR init and install as a dependency in a js project
 npx varlock init
-      `
+    `
       />
-      <div class="button-container">
-        <LinkButton href="getting-started/installation">Get Started</LinkButton>
-      </div>
-      <h2 class="description">
-        It scans your project for `.env` and `.env.example` files and creates a
-        `.env.schema` file for you.
-      </h2>
-      <Code
-        title="Example .env.schema file"
-        lang="env-spec"
-        code=`
-# This file uses env-spec - see https://github.com/varlock/env-spec for more info
-# @envFlag=APP_ENV
-# @defaultSensitive=false @defaultRequired=false
-# ---
-
-# Env flag
-# @type=enum(development, staging, production, test)
-APP_ENV=development
-
-# this will be overridden in .env.production
-SOME_VAR=default-value
-
-# @type=number(precision=0)
-NUMBER_ITEM=123.45
-
-# @type=email(normalize=true)
-EMAIL_ITEM=HEllO@example.com #output: hello@example.com
-
-# @type=url
-URL_ITEM=https://example.com
-
-# @type=port
-PORT="5678"
-
-INFER_NUM=123
-INFER_BOOL=true
-INFER_STR=asdf
-
-NOT_SENSITIVE_ITEM="not-sensitive"
-
-# @sensitive
-SENSITIVE_ITEM=secret-value
-      `
-      />
-      <div class="button-container">
-        <LinkButton href="reference/item-decorators">Reference Docs</LinkButton>
-      </div>
-
-      <div class="info-section">
-        <Card title="How it works" icon="magnifier">
-          <p>
-            Using a combination of a CLI and Desktop app, your secrets are
-            securely encrypted. They are never stored on disk and secured via
-            your fingerprint.
-          </p>
-        </Card>
-
-        <Card title="Benefits" icon="star">
-          <ul>
-            <li>Validation of environment variables</li>
-            <li>Coercion based on types</li>
-            <li>Encryption backed by biometrics</li>
-            <li>Drop-in replacement for dotenv</li>
-          </ul>
-        </Card>
-
-        <Card title="Workflow" icon="approve-check-circle">
-          <ul>
-            <li>Run `varlock init`</li>
-            <li>Add any secret values</li>
-            <li>Run `varlock encrypt`</li>
-            <li>Use encrypted values via `varlock run`</li>
-          </ul>
-        </Card>
-      </div>
+      <EmailSignup client:load />
     </div>
   </main>
 </Layout>
 
 <style is:global>
   .container {
-    max-width: 800px;
+    max-width: 1000px;
     margin: 0 auto;
     padding: 2rem 1rem;
     gap: 2rem;
@@ -121,10 +198,15 @@ SENSITIVE_ITEM=secret-value
     display: flex;
     justify-content: center;
     gap: 1rem;
+    a {
+      display: block;
+      text-align: center;
+    }
   }
 
   .button-container > .sl-link-button {
     min-width: 25%;
+    border: 2px solid transparent;
   }
 
   .button-container > .sl-link-button:hover {
@@ -159,10 +241,6 @@ SENSITIVE_ITEM=secret-value
 
   h1 {
     text-align: center;
-  }
-
-  body {
-    font-family: var(--body-font);
   }
 
   .description {
@@ -219,7 +297,8 @@ SENSITIVE_ITEM=secret-value
 
   .card > .title {
     /* color: var(--brand-purple--text); */
-    font-family: var(--logo-font);
+    font-family: var(--font-pixel);
+    font-weight: var(--font-pixel-weight);
     margin: 0;
   }
 
@@ -234,5 +313,53 @@ SENSITIVE_ITEM=secret-value
 
   .card li:last-child {
     margin-bottom: 0;
+  }
+
+  .features-grid {
+    > div {
+      margin-top: 3rem;
+      display: grid;
+      grid-template-columns: 3fr 5fr;
+      gap: 1rem;
+      align-items: center;
+      @media screen and (max-width: 700px) {
+        grid-template-columns: 1fr;
+      }
+    }
+    img {
+      margin: 0;
+    }
+  }
+  .homepage-hero {
+    text-align: center;
+    h1 {
+      zoom: 0.8;
+      margin: 0.5em 0 1em;
+      display: flex;
+      gap: 1em;
+      justify-content: center;
+      align-items: center;
+      img {
+        display: block;
+        flex-shrink: 0;
+
+        /* scale: 2; */
+        &:first-child {
+          /* transform: scaleX(-1); */
+        }
+        &:last-child {
+          transform: scaleX(-1);
+          margin-bottom: 8px;
+        }
+      }
+    }
+  }
+  .env-spec-example-note {
+    padding: 0 1em;
+  }
+
+  h2 {
+    border: none !important;
+    gap: 0.3em !important;
   }
 </style>

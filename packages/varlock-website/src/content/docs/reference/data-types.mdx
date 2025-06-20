@@ -1,0 +1,211 @@
+---
+title: "@type data types"
+description: A reference page of available data types to be used with the `@type` item decorator
+tableOfContents: false
+---
+import Decorator from '@/components/decorator-doc-entry.astro'
+
+Built-in data types to be used with the [`@type` item decorator](/reference/item-decorators/#@type).
+
+<Decorator name="string">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=string(minLength=5, maxLength=10, toUpperCase=true)
+    MY_STRING=value
+    ```
+  </Fragment>    
+  <Fragment slot="settings">    
+    - `minLength` (number): Minimum length of the string
+    - `maxLength` (number): Maximum length of the string
+    - `isLength` (number): Exact length required
+    - `startsWith` (string): Required starting substring
+    - `endsWith` (string): Required ending substring
+    - `matches` (string|RegExp): Regular expression pattern to match
+    - `toUpperCase` (boolean): Convert to uppercase
+    - `toLowerCase` (boolean): Convert to lowercase
+    - `allowEmpty` (boolean): Allow empty string (default: false)
+  </Fragment>
+</Decorator>
+
+<Decorator name="number">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=number(min=0, max=100, precision=2)
+    MY_NUMBER=42.5
+    ```
+
+  </Fragment>    
+  <Fragment slot="settings">    
+    - `min` (number): Minimum allowed value
+    - `max` (number): Maximum allowed value
+    - `coerceToMinMaxRange` (boolean): Coerce value to be within min/max range
+    - `isDivisibleBy` (number): Value must be divisible by this number
+    - `isInt` (boolean): Value must be an integer
+    - `precision` (number): Number of decimal places allowed (for non-integers)
+  </Fragment>
+</Decorator>
+
+<Decorator name="boolean">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=boolean
+    MY_BOOL=true
+    ```
+  </Fragment>    
+  <Fragment slot="description">    
+    The boolean type accepts various string representations:
+    - True values: `"t"`, `"true"`, `true`, `"yes"`, `"on"`, `"1"`, `1`
+    - False values: `"f"`, `"false"`, `false`, `"no"`, `"off"`, `"0"`, `0`
+  </Fragment>
+</Decorator>
+
+<Decorator name="url">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=url(prependHttps=true, allowedDomains=["example.com"])
+    MY_URL=example.com/foobar
+    ```
+  </Fragment>    
+  <Fragment slot="settings">    
+    - `prependHttps` (boolean): Automatically prepend "https://" if missing
+    - `allowedDomains` (string[]): List of allowed domains
+  </Fragment>
+</Decorator>
+
+<Decorator name="email">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=email(normalize=true)
+    MY_EMAIL=User@Example.com
+    ```
+  </Fragment>    
+  <Fragment slot="settings">    
+    - `normalize` (boolean): Convert email to lowercase
+  </Fragment>
+</Decorator>
+
+<Decorator name="port">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=port(min=1024, max=65535)
+    MY_PORT=3000
+    ```
+  </Fragment>    
+  <Fragment slot="settings">    
+    - `min` (number): Minimum port number (default: 0)
+    - `max` (number): Maximum port number (default: 65535)
+  </Fragment>
+</Decorator>
+
+<Decorator name="ip">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=ip(version=4, normalize=true)
+    MY_IP=192.168.1.1
+    ```
+  </Fragment>    
+  <Fragment slot="settings">    
+    - `version` (4|6): IP version (4 or 6)
+    - `normalize` (boolean): Convert to lowercase
+  </Fragment>
+</Decorator>
+
+<Decorator name="semver">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=semver
+    MY_VERSION=1.2.3-beta.1
+    ```
+  </Fragment>    
+  <Fragment slot="settings">    
+    Validates semantic version strings according to the semver specification.
+    - `min` (number): Minimum port number (default: 0)
+    - `max` (number): Maximum port number (default: 65535)
+  </Fragment>
+</Decorator>
+
+<Decorator name="ip">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=ip(version=4, normalize=true)
+    MY_IP=192.168.1.1
+    ```
+  </Fragment>    
+  <Fragment slot="settings">    
+    - `version` (4|6): IP version (4 or 6)
+    - `normalize` (boolean): Convert to lowercase
+  </Fragment>
+</Decorator>
+
+<Decorator name="semver">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=semver
+    MY_VERSION=1.2.3-beta.1
+    ```
+  </Fragment>    
+  <Fragment slot="description">    
+    Validates semantic version strings according to the semver specification.
+  </Fragment>
+</Decorator>
+
+<Decorator name="isoDate">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=isoDate
+    MY_DATE=2024-03-20T15:30:00Z
+    ```
+  </Fragment>    
+  <Fragment slot="description">    
+    Validates ISO 8601 date strings with optional time and milliseconds.
+  </Fragment>
+</Decorator>
+
+<Decorator name="uuid">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=uuid
+    MY_UUID=123e4567-e89b-12d3-a456-426614174000
+    ```
+  </Fragment>    
+  <Fragment slot="description">    
+    Validates UUID strings (versions 1-5 per RFC4122, including NIL).
+  </Fragment>
+</Decorator>
+
+<Decorator name="md5">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=md5
+    MY_HASH=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+    ```
+  </Fragment>    
+  <Fragment slot="description">    
+    Validates MD5 hash strings.
+  </Fragment>
+</Decorator>
+
+<Decorator name="enum">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=enum(development, staging, production)
+    ENV=development
+    ```
+  </Fragment>    
+  <Fragment slot="description">    
+    Takes a list of possible values. The value must match one of the provided options exactly.
+  </Fragment>
+</Decorator>
+
+<Decorator name="simple-object">
+  <Fragment slot="example">
+    ```env-spec
+    # @type=simple-object
+    MY_OBJECT={"key": "value"}
+    ```
+  </Fragment>    
+  <Fragment slot="description">    
+    Validates and coerces JSON strings into plain objects.
+  </Fragment>
+</Decorator>
+

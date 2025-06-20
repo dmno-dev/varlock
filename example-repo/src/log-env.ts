@@ -1,6 +1,12 @@
 import { ENV, PUBLIC_ENV } from 'varlock';
 
+
 export function logEnv() {
+
+  console.log('\n\n')
+  console.log('console.logging the API key: ', ENV.OPENAI_API_KEY, '\n\n');
+  console.log('\n\n')
+
   console.log({
     'process.env.APP_ENV': process.env.APP_ENV,
     'process.env.SOME_VAR': process.env.SOME_VAR,

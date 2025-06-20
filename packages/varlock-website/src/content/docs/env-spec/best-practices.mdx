@@ -1,0 +1,18 @@
+---
+title: "Best Practices for using @env-spec"
+description: "Recommended best practices for writing .env files with @env-spec"
+---
+
+While the parser itself is fairly flexible to maintain backwards-compatibility, we recommend some best practices if you are writing a new .env file or cleaning up an existing one.
+
+- Only use triple quotes for multi-line strings. Either backticks or double quotes are fine, but stay consistent.
+- Only use unwrapped values for simple strings that do not contain any spaces or special characters.
+- Single quotes do not support expansion, so use them if an item contains $ characters you do not want expanded.
+- Stay consistent with quote usage in general
+- Be generous with descriptions, unless it is totally obvious
+- Add documentation links wherever possible
+- For ref expansion, always use brackets - `` GOOD=`pre-${OTHERVAR}` `` `BAD=pre-$OTHERVAR`
+- use `# --- dividers ---` to organize sections of related items
+- Make all keys `ALL_CAPS`, and don't use any "-" or "."
+- Don't use extra whitespace around item definitions (ex: `KEY="good!"` `KEY = "bad!"`)
+- Don't use optional `export` prefix

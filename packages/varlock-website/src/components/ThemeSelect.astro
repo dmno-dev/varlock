@@ -1,0 +1,87 @@
+<div class="theme-select">
+  <div class="theme-select__inner">
+    <div class="theme-select__dark">
+      <img src="https://varlock-pixel-art.dmno.workers.dev/icons/moon.png" />
+    </div>
+    <div class="theme-select__light">
+      <img src="https://varlock-pixel-art.dmno.workers.dev/icons/sun.png" />
+    </div>
+  </div>
+</div>
+
+<script>
+  document
+    .querySelector(".theme-select")
+    ?.addEventListener("click", toggleTheme);
+
+  function toggleTheme() {
+    const currentTheme = document.documentElement.dataset.theme;
+    const newTheme = currentTheme === "light" ? "dark" : "light";
+    localStorage.setItem("starlight-theme", newTheme);
+    document.documentElement.dataset.theme = newTheme;
+  }
+</script>
+
+<style>
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .theme-select {
+    width: 30px;
+    height: 30px;
+    position: relative;
+    cursor: pointer;
+    perspective: 1000px;
+
+    animation: spin 60s linear infinite;
+
+    img {
+      color: currentColor;
+      position: absolute;
+    }
+
+    html[data-theme="light"] & {
+    }
+
+    &:hover {
+      .theme-select__inner {
+        > div {
+          margin-left: var(--hover-offset-x);
+          margin-top: var(--hover-offset-y);
+        }
+      }
+    }
+  }
+
+  .theme-select__inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    text-align: center;
+    transition: transform 0.25s;
+    transform-style: preserve-3d;
+
+    html[data-theme="light"] & {
+      transform: rotateY(180deg);
+    }
+  }
+
+  .theme-select__dark,
+  .theme-select__light {
+    height: 100%;
+    width: 100%;
+    position: absolute;
+    backface-visibility: hidden;
+  }
+  .theme-select__dark {
+  }
+  .theme-select__light {
+    transform: rotateY(180deg);
+  }
+</style>

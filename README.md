@@ -15,7 +15,7 @@ MY_SECRET=my-secret
 ```
 Read the RFC for more details: https://github.com/dmno-dev/varlock/discussions/17
 
-## varlock
+## Varlock
 
 Varlock is our tool that uses this parser to actually load your .env files, and then applies the schema
 that you have defined. It is a CLI, library, and will communicate with a native Mac application that 
