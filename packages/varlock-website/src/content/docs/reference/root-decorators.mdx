@@ -1,28 +1,38 @@
 ---
 title: "Root level @decorators"
 description: A reference page of available env-spec decorators that apply to the schema itself, rather than individual items
+tableOfContents: false
 ---
 import Decorator from '@/components/decorator-doc-entry.astro'
 
 
-<Decorator name="envFlag">
+<Decorator name="@envFlag" args="string" guidesLink="/guides/schema/#envflag">
   <Fragment slot="description">
-    sets the key of your environment flag, which will be used when determining if environment-specific env files will be loaded (e.g. `.env.production`). This will usually be something like `APP_ENV`.
+    
+    sets the key of your environment flag, which will be used when determining if environment-specific env files will be loaded (e.g. `.env.production`). This will usually be something like 
   </Fragment>
   <Fragment slot="notes">
     can only be used once - usually in your `.env.schema` file
   </Fragment>
 </Decorator>
 
-<Decorator name="defaultRequired" args="boolean">
+<Decorator name="@defaultRequired" args="boolean">
   <Fragment slot="description">
-    toggle whether the default value of `@required` for each item within the schema
+    Sets the the default state of each item being required. Can be overridden on individual items using `@required` or `@optional`.
   </Fragment>
 </Decorator>
 
-<Decorator name="defaultSensitive" args="boolean">
+<Decorator name="@defaultSensitive" args="boolean">
   <Fragment slot="description">
-    toggle whether the default value of `@sensitive` for each item within the schema
+    Sets the the default state of each item being treated sensitive. Can be overridden on individual items using `@sensitive`.
   </Fragment>
 </Decorator>
 
+<Decorator name="@generateTypes" args="lang=string, path=string" isFnCall>
+  <Fragment slot="description">
+    Enables automatic type generation based on your schema.
+    <br/>
+    - `lang`: Language to generate types for. Currently only `ts` (typescript) is supported
+    - `path`: Relative filepath to output generated type file
+  </Fragment>
+</Decorator>

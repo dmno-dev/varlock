@@ -41,9 +41,11 @@ export default defineConfig({
     starlight({
       title: 'varlock',
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/dmno-dev/varlock' }],
-      logo: { src: './src/assets/logos/logo.svg' },
+      logo: { src: './src/assets/logos/logo-pixel.png' },
       components: {
         Head: '@/components/CustomHead.astro',
+        ThemeSelect: '@/components/ThemeSelect.astro',
+        ThemeProvider: '@/components/CustomStarlightThemeProvider.astro',
       },
       customCss: ['@/styles/global.css'],
       plugins: [starlightLlmsTxt()],
@@ -80,6 +82,7 @@ export default defineConfig({
             { label: 'CLI', slug: 'reference/cli-commands' },
             { label: 'Root decorators', slug: 'reference/root-decorators' },
             { label: 'Item decorators', slug: 'reference/item-decorators' },
+            { label: '> @type data types', slug: 'reference/data-types' },
             { label: 'Functions', slug: 'reference/functions' },
           ],
         },

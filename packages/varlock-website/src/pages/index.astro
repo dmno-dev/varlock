@@ -5,10 +5,13 @@ import Layout from "../layouts/Layout.astro";
 import SecretReveal from "../components/SecretReveal.vue";
 import { LinkButton, Code, Card } from "@astrojs/starlight/components";
 import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
-import SignUpForm from "../components/SignUpForm.astro";
 
 import validationImg from "../assets/demo-images/failing-validation.png";
 import intellisenseImg from "../assets/demo-images/intellisense.png";
+import redactionImg from "../assets/demo-images/redaction.png";
+import multiEnvImg from "../assets/demo-images/multi-env.png";
+import externalProvidersImg from "../assets/demo-images/external-providers.png";
+import EmailSignup from "../components/EmailSignup.vue";
 ---
 
 <Layout showSearch={false}>
@@ -17,7 +20,18 @@ import intellisenseImg from "../assets/demo-images/intellisense.png";
       <div class="homepage-hero not-content">
         <VarlockRetroBanner />
         <h1>
-          Environment variables<br />with the right amount of magic
+          <img
+            src="https://varlock-pixel-art.dmno.workers.dev/characters/warlock1.gif"
+          />
+          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/effects/black-hole.gif" /> -->
+          <div>
+            Environment variables with<br />the right amount of magic
+          </div>
+          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/effects/black-hole.gif" /> -->
+          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/characters/demon1.gif" /> -->
+          <img
+            src="https://varlock-pixel-art.dmno.workers.dev/characters/warlock1.gif"
+          />
         </h1>
       </div>
       <Code
@@ -47,7 +61,12 @@ SOME_SERVICE_API_URL=https://api.someservice.com
       <div class="features-grid">
         <div>
           <div>
-            <h3>Validation</h3>
+            <h3>
+              <img
+                src="https://varlock-pixel-art.dmno.workers.dev/potions/2.gif"
+              />
+              Validation
+            </h3>
             <p>
               Powerful validation capabilities, without custom logic.
               Misconfiguration errors are surfaced much earlier in your
@@ -62,7 +81,12 @@ SOME_SERVICE_API_URL=https://api.someservice.com
         </div>
         <div>
           <div>
-            <h3>Type-safety</h3>
+            <h3>
+              <img
+                src="https://varlock-pixel-art.dmno.workers.dev/potions/7.gif"
+              />
+              Type-safety
+            </h3>
             <p>
               Automatically generate types according to your schema instead of
               writing them by hand.
@@ -76,40 +100,55 @@ SOME_SERVICE_API_URL=https://api.someservice.com
         </div>
         <div>
           <div>
-            <h3>Security</h3>
+            <h3>
+              <img
+                src="https://varlock-pixel-art.dmno.workers.dev/potions/8.gif"
+              />
+              Security
+            </h3>
             <p>
               Protect your secrets from accidental leaks. Redact secrets in
               stdout and global console methods.
             </p>
           </div>
           <Image
-            src={intellisenseImg}
-            alt="Intellisense demo"
+            src={redactionImg}
+            alt="Redaction demo"
             class="img-with-border"
           />
         </div>
         <div>
           <div>
-            <h3>Environments</h3>
+            <h3>
+              <img
+                src="https://varlock-pixel-art.dmno.workers.dev/potions/4.gif"
+              />
+              Environments
+            </h3>
             <p>
               Compose defaults, environment-specific .env files, and local
               git-ignored overrides.
             </p>
           </div>
           <Image
-            src={intellisenseImg}
-            alt="Intellisense demo"
+            src={multiEnvImg}
+            alt="Multi-env demo"
             class="img-with-border"
           />
         </div>
         <div>
           <div>
-            <h3>Secure secrets</h3>
+            <h3>
+              <img
+                src="https://varlock-pixel-art.dmno.workers.dev/potions/1.gif"
+              />
+              Secure secrets
+            </h3>
             <p>Read from any external provider via CLI commands.</p>
           </div>
           <Image
-            src={intellisenseImg}
-            alt="Intellisense demo"
+            src={externalProvidersImg}
+            alt="External providers demo"
             class="img-with-border"
           />
         </div>
@@ -123,7 +162,12 @@ SOME_SERVICE_API_URL=https://api.someservice.com
 
       <div class="button-container"></div>
 
-      <h2>Installation</h2>
+      <h2>
+        <img
+          src="https://varlock-pixel-art.dmno.workers.dev/effects/fire.gif"
+        />
+        Installation
+      </h2>
       <Code
         lang="bash"
         code=`
@@ -137,7 +181,7 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
 npx varlock init
     `
       />
-      <SignUpForm />
+      <EmailSignup client:load />
     </div>
   </main>
 </Layout>
@@ -282,9 +326,6 @@ npx varlock init
         grid-template-columns: 1fr;
       }
     }
-    h3 {
-      /* font-size: 36px; */
-    }
     img {
       margin: 0;
     }
@@ -294,9 +335,31 @@ npx varlock init
     h1 {
       zoom: 0.8;
       margin: 0.5em 0 1em;
+      display: flex;
+      gap: 1em;
+      justify-content: center;
+      align-items: center;
+      img {
+        display: block;
+        flex-shrink: 0;
+
+        /* scale: 2; */
+        &:first-child {
+          /* transform: scaleX(-1); */
+        }
+        &:last-child {
+          transform: scaleX(-1);
+          margin-bottom: 8px;
+        }
+      }
     }
   }
   .env-spec-example-note {
     padding: 0 1em;
+  }
+
+  h2 {
+    border: none !important;
+    gap: 0.3em !important;
   }
 </style>

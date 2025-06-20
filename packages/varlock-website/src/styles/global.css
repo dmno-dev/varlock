@@ -27,17 +27,44 @@ h1 {
   }
 }
 
+h2 {
+  /* color: var(--brand-red--text); */
+  border-bottom: 1px solid currentColor;
+  width: 100%;
+  font-size: 30px;
+}
+
+h3 {
+  color: var(--color-text-full-shade);
+  font-size: 22px;
+}
 
 h2,
 h3,
 h4,
 h5 {
   font-weight: 500;
-  color: var(--brand-red--text);
+
   /* font-family: var(--font-pixel);
   font-weight: var(--font-pixel-weight); */
 
+
+  display: flex;
+
+  /* font-size: 36px; */
+  gap: .6em;
+
+  img {
+    height: 1.2em;
+  }
 }
+
+img[src^="https://varlock-pixel-art.dmno.workers.dev/"] {
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+}
+
 
 :root {
   /* loaded in CustomHead.astro via Astro font API */
@@ -65,7 +92,7 @@ h5 {
   --brand-black: #000;
 
   /* todo - generate these programatically... */
-  --brand-red: hsl(0, var(--cp-s), var(--cp-l));
+  --brand-red: #ec3030;
   --brand-orange: hsl(25, var(--cp-s), var(--cp-l));
   --brand-yellow: hsl(57, var(--cp-s), var(--cp-l));
   --brand-green: hsl(119, var(--cp-s), var(--cp-l));
@@ -74,7 +101,7 @@ h5 {
   --brand-purple: hsl(266, var(--cp-s), var(--cp-l));
   --brand-pink: hsl(299, var(--cp-s), var(--cp-l));
 
-  --brand-red--text: hsl(0, var(--cp-s), var(--cp-l));
+  --brand-red--text: var(--brand-red);
   --brand-orange--text: hsl(25, var(--cp-s), var(--cp-l));
   --brand-yellow--text: hsl(57, var(--cp-s), var(--cp-l));
   --brand-green--text: hsl(119, var(--cp-s), var(--cp-l));
@@ -131,6 +158,7 @@ h5 {
 :root {
   --sl-color-text-accent: var(--brand-red) !important;
   --sl-color-text-invert: #FFF !important;
+  --sl-color-bg: #edeae4;
   --color-text-full-shade: #000;
   --color-text-full-shade-invert: #FFF;
   --dmno-header-highlight-color: var(--sl-color-text-accent);
@@ -139,6 +167,7 @@ h5 {
 :root[data-theme='dark'] {
   --sl-color-text-accent: var(--brand-red) !important;
   --sl-color-text-invert: #000 !important;
+  --sl-color-bg: #2a292e;
   --color-text-full-shade: #FFF;
   --color-text-full-shade-invert: #000;
 }
@@ -169,8 +198,24 @@ h5 {
 
   img {
     transition: transform .2s;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
   }
 }
+
+.social-icons {
+  a {
+    padding: 0;
+    margin-right: 4px;
+  }
+
+  svg {
+    width: 24px;
+    height: 24px;
+  }
+}
+
 
 /* borders around code blocks, file trees, images */
 starlight-file-tree,
@@ -563,9 +608,11 @@ will move to component */
   }
 }
 
+
 /* custom cursors */
 body {
   cursor: url('../assets/gauntlet_default.svg') 8 8, default;
+  /* cursor: url('https://varlock-pixel-art.dmno.workers.dev/icons/finger.png') 8 8, default; */
 }
 
 *:active {
@@ -582,6 +629,6 @@ summary {
 }
 
 /* fix for anchor link appearing on next line */
-.sl-anchor-link {
-  display: inline-block;
+.sl-heading-wrapper {
+  display: flex;
 }

@@ -1,19 +1,27 @@
 ---
 title: "Config item @decorators"
 description: A reference page of available env-spec decorators for items
+tableOfContents: false
 ---
 import Decorator from '@/components/decorator-doc-entry.astro'
 
-<Decorator name="required" args="boolean">
+<Decorator name="@required" args="boolean">
   <Fragment slot="description">
-    toggles whether the setting a value for the item is required
+    toggles whether the setting a value for the item is required.
+    
+    Both `undefined` or an `empty` string will be considered invalid.
   </Fragment>
   <Fragment slot="notes">
     default value can be toggled using the `@defaultRequired` root decorator
   </Fragment>
 </Decorator>
+<Decorator name="@optional" args="boolean">
+  <Fragment slot="description">
+    Opposite of `@required`. Equivalent to writing `@required=false`.
+  </Fragment>
+</Decorator>
 
-<Decorator name="sensitive" args="boolean">
+<Decorator name="@sensitive" args="boolean">
   <Fragment slot="description">
     toggles whether the item should be considered sensitive (and must be protected from leaks)
   </Fragment>
@@ -22,162 +30,27 @@ import Decorator from '@/components/decorator-doc-entry.astro'
   </Fragment>
 </Decorator>
 
-<Decorator name="example" args="any">
+<Decorator name="@example" args="any">
   <Fragment slot="description">
     provide an example value for the item
   </Fragment>
 </Decorator>
 
-<Decorator name="trim" args="boolean">
+<Decorator name="@type" args="enum">
   <Fragment slot="description">
-    trim leading and trailing whitespace (including newlines) from the value
-  </Fragment>
-</Decorator>
+    sets the type of the item, will default to inferring the type from a static value if set, or `string` otherwise.
 
-<Decorator name="deindent" args="boolean">
-  <Fragment slot="description">
-    trim leading whitespace from each line, will trim the number of spaces found on the first line only
-  </Fragment>
-  <Fragment slot="notes">
-    only works if the value is a multi-line string
-  </Fragment>
-</Decorator>
-
-<Decorator name="type" args="enum">
-  <Fragment slot="description">
-    sets the type of the item, will default to `string` if not set.
+    <br/>
+    See [data types reference](/reference/data-types) for more details.
   </Fragment>
   <Fragment slot="notes">
     some types take additional arguments, see below for more details
   </Fragment>
 </Decorator>
 
-## Built-in base types
+<Decorator name="@docsUrl" args="string (url)">
+  <Fragment slot="description">
+    Where to find related documentation.
+  </Fragment>
+</Decorator>
 
-### string
-```env-spec
-# @type=string(minLength=5, maxLength=10, toUpperCase=true)
-MY_STRING=value
-```
-
-Settings:
-- `minLength` (number): Minimum length of the string
-- `maxLength` (number): Maximum length of the string
-- `isLength` (number): Exact length required
-- `startsWith` (string): Required starting substring
-- `endsWith` (string): Required ending substring
-- `matches` (string|RegExp): Regular expression pattern to match
-- `toUpperCase` (boolean): Convert to uppercase
-- `toLowerCase` (boolean): Convert to lowercase
-- `allowEmpty` (boolean): Allow empty string (default: false)
-
-### number
-```env-spec
-# @type=number(min=0, max=100, precision=2)
-MY_NUMBER=42.5
-```
-
-Settings:
-- `min` (number): Minimum allowed value
-- `max` (number): Maximum allowed value
-- `coerceToMinMaxRange` (boolean): Coerce value to be within min/max range
-- `isDivisibleBy` (number): Value must be divisible by this number
-- `isInt` (boolean): Value must be an integer
-- `precision` (number): Number of decimal places allowed (for non-integers)
-
-### boolean
-```env-spec
-# @type=boolean
-MY_BOOL=true
-```
-
-The boolean type accepts various string representations:
-- True values: "t", "true", "yes", "on", "1"
-- False values: "f", "false", "no", "off", "0"
-
-### url
-```env-spec
-# @type=url(prependHttps=true, allowedDomains=["example.com"])
-MY_URL=example.com
-```
-
-Settings:
-- `prependHttps` (boolean): Automatically prepend "https://" if missing
-- `allowedDomains` (string[]): List of allowed domains
-
-### email
-```env-spec
-# @type=email(normalize=true)
-MY_EMAIL=User@Example.com
-```
-
-Settings:
-- `normalize` (boolean): Convert email to lowercase
-
-### port
-```env-spec
-# @type=port(min=1024, max=65535)
-MY_PORT=3000
-```
-
-Settings:
-- `min` (number): Minimum port number (default: 0)
-- `max` (number): Maximum port number (default: 65535)
-
-### ip
-```env-spec
-# @type=ip(version=4, normalize=true)
-MY_IP=192.168.1.1
-```
-
-Settings:
-- `version` (4|6): IP version (4 or 6)
-- `normalize` (boolean): Convert to lowercase
-
-### semver
-```env-spec
-# @type=semver
-MY_VERSION=1.2.3-beta.1
-```
-
-Validates semantic version strings according to the semver specification.
-
-### isoDate
-```env-spec
-# @type=isoDate
-MY_DATE=2024-03-20T15:30:00Z
-```
-
-Validates ISO 8601 date strings with optional time and milliseconds.
-
-### uuid
-```env-spec
-# @type=uuid
-MY_UUID=123e4567-e89b-12d3-a456-426614174000
-```
-
-Validates UUID strings (versions 1-5 per RFC4122, including NIL).
-
-### md5
-```env-spec
-# @type=md5
-MY_HASH=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
-```
-
-Validates MD5 hash strings.
-
-### enum
-```env-spec
-# @type=enum(development, staging, production)
-ENV=development
-```
-
-Takes a list of possible values. The value must match one of the provided options exactly.
-
-### simple-object
-```env-spec
-# @type=simple-object
-MY_OBJECT={"key": "value"}
-```
-
-Validates and coerces JSON strings into plain objects.
