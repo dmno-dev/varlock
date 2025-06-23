@@ -1,13 +1,37 @@
 ---
-title: Functions Reference
-description: A comprehensive reference of all available functions in varlock
+title: Item Value Functions
+description: A comprehensive reference of all available function resolvers in varlock
 ---
 
-# Functions Reference
+You may set config items values using _functions_ rather than simple static values. Functions can be composed together to create complex value resolution logic.
+```env-spec
+ITEM=fn(arg1, arg2)
+COMPOSITION=fn1(fn1Arg1, fn2(fn2Arg1, fn2Arg2))
+```
 
-varlock provides several powerful functions that allow for dynamic and composable environment variable values. This reference covers all available functions, their arguments, and usage examples.
 
-## varlock()
+Note that the built-in utility functions have _expansion_ equivalents and often it will be more clear to use them that way. For example:
+```env-spec
+EXPANSION_EQUIVALENT="pre-${OTHER}-post"
+USING_FN_CALLS=concat("pre-", ref(OTHER), "-post")
+
+# mixed example
+CONFIG=exec(`aws ssm get-parameter --name "/config/${APP_ENV}" --with-decryption`)
+```
+
+
+
+
+
+Currently, there are built-in utility functions, and soon there will be functions to handle values encrypted using varlock provided tools.
+
+In the future, plugins will be able to register additional functions that fetch values from external providers.
+
+
+
+
+
+{/* ## varlock()
 
 The `varlock()` function is used to handle encrypted values. It decrypts the provided encrypted string at runtime.
 
@@ -19,96 +43,64 @@ API_KEY=varlock("encrypted_string_here")
 ### Arguments
 - `encrypted_string` (string, required): The encrypted value to be decrypted
 
-### Example
 ```env-spec
 # @sensitive
 DATABASE_PASSWORD=varlock("oipjfdopiajpfoidjpaoijpofdjpoa...")
-```
+``` */}
 
-## fallback()
+<div class="reference-docs">
+<div>
+### `concat()`
 
-The `fallback()` function provides a way to specify multiple possible values, using the first non-empty value in the list.
+Concatenates multiple values into a single string.
 
-```env-spec
-VALUE=fallback("", undefined, "default-value")
-```
-
-### Arguments
-- Multiple values (any type): The function will use the first non-empty value in the list
-
-### Example
-```env-spec
-# TODO: add examples
-```
-
-## concat()
-
-The `concat()` function combines multiple strings into a single string.
+Expansion uses `concat()` to combine multiple parts of strings when they include multiple parts.
 
 ```env-spec
-PATH=concat("base/", ref("ENV"), "/config.json")
+PATH=concat("base/", ref("APP_ENV"), "/config.json")
+PATH2=`base/${APP_ENV}/config.json` # equivalent using expansion
 ```
+</div>
 
-### Arguments
-- Multiple strings (string): The strings to be concatenated
+<div>
+### `exec()`
 
-### Example
-```env-spec
-# Simple concatenation
-API_URL=concat("https://", ref("DOMAIN"), "/api")
+Executes a CLI command and uses its output as the value. This is particularly useful for integrating with external tools and services.
 
-# Complex path construction
-CONFIG_PATH=concat("config/", ref("ENV"), "/", ref("REGION"), ".json")
-```
+NOTE - many CLI tools output an additional newline. `exec()` will trim this automatically.
 
-## exec()
+Expansion equivalent: `exec(command)` === `$(command)`
 
-The `exec()` function executes a command and uses its output as the value. This is useful for integrating with external tools and services.
-
-```env-spec
-SECRET=exec(`op read "op://vault/item/credential"`)
-```
-
-### Arguments
-- `command` (string, required): The command to execute
-
-### Example
 ```env-spec
 # Using 1Password CLI
-API_KEY=exec(`op read "op://dev test/${OP_VAULT}/credential"`)
-
+API_KEY=exec(`op read "op://dev test/service x/api key"`)
 # Using AWS CLI
 AWS_CREDENTIALS=exec(`aws sts get-session-token --profile prod`)
 ```
+</div>
 
-## ref()
+<div>
+### `ref()`
 
-The `ref()` function references the value of another environment variable. This is equivalent to using `${VARIABLE}` syntax.
+References another environment variable - which is very useful when composing multiple functions together.
 
-```env-spec
-NEW_VAR=ref("EXISTING_VAR")
-```
-
-### Arguments
-- `variable_name` (string, required): The name of the variable to reference
-
-### Example
-```env-spec
-# Simple reference
-API_URL=concat("https://", ref("DOMAIN"), "/api")
-
-# Nested references
-CONFIG_PATH=concat("config/", ref("ENV"), "/", ref("REGION"), ".json")
-```
-
-## Function Composition
-
-Functions can be composed together to create complex value resolution logic. Here are some examples:
+Expansion equivalent: `ref(OTHER_VARL)` === `${OTHER_VAR}` (and `$OTHER_VAR`)
 
 ```env-spec
-# Using multiple functions together
-API_URL=concat("https://", ref("DOMAIN"), "/", ref("API_VERSION"))
-
-# Dynamic configuration with exec
-CONFIG=exec(`aws ssm get-parameter --name "/config/${ENV}" --with-decryption`)
+API_URL=https://api.example.com
+USERS_API_URL=concat(ref("API_URL"), "/users")
 ```
+</div>
+
+<div>
+### `fallback()`
+
+Returns the first non-empty value in a list of possible values.
+
+```env-spec
+POSSIBLY_EMPTY=
+ANOTHER=
+EXAMPLE=fallback(ref(POSSIBLY_EMPTY), ref(ANOTHER), "default-val")
+```
+</div>
+</div>

@@ -1,0 +1,208 @@
+---
+title: "@type Data Types"
+description: A reference page of available data types to be used with the `@type` item decorator
+---
+import Decorator from '@/components/decorator-doc-entry.astro'
+
+The [`@type` item decorator](/reference/item-decorators/#type) sets the data type associated with an item. The data type affects coercion, validation, and [generated type files](/reference/root-decorators/#generatetypes).
+
+### Additional data type options
+All types (except `enum`) can be used without any arguments, but most take optional arguments that further narrow the type's behavior.
+
+```env-spec
+# @type=string
+NO_ARGS=
+# @type=string(minLength=5, maxLength=10, toUpperCase=true)
+WITH_ARGS=
+```
+
+### Coercion & Validation Process
+
+Once a raw value is resolved - which could from a static value in an `.env` file, a [function](/reference/functions), or an override passed into the process - the raw value will be coerced and validated based on the type, respecting additional arguments provided to the type.
+
+Consider the following example:
+```env-spec
+# @type=number(precision=0, max=100)
+ITEM="123.45"
+```
+
+The internal coercion/validation process would look like -- 
+`"123.45"` -> `123.45` -> `123` -> ❌ invalid (greater than max)
+
+
+
+### Default Behavior
+When no `@type` is specified and the schema contains a static value, a type will be inferred. Otherwise, the item type will default to `string`.
+```env-spec
+INFERRED_STRING="foo"
+INFERRED_NUMBER=123
+INFERRED_BOOLEAN=true
+DEFAULTS_TO_STRING_FN=someFn()
+DEFAULTS_TO_STRING=
+```
+
+
+## Built-in Data types
+
+These are the built-in data types. In the future, plugins will be able to register additional data types.
+
+<div class="reference-docs">
+<div>
+### `string`
+**Options:**
+- `minLength` (number): Minimum length of the string
+- `maxLength` (number): Maximum length of the string
+- `isLength` (number): Exact length required
+- `startsWith` (string): Required starting substring
+- `endsWith` (string): Required ending substring
+- `matches` (string|RegExp): Regular expression pattern to match
+- `toUpperCase` (boolean): Convert to uppercase
+- `toLowerCase` (boolean): Convert to lowercase
+- `allowEmpty` (boolean): Allow empty string (default: false)
+
+```env-spec
+# @type=string(minLength=5, maxLength=10, toUpperCase=true)
+MY_STRING=value
+```
+</div>
+
+<div>
+### `number`
+**Options:**
+- `min` (number): Minimum allowed value (inclusive)
+- `max` (number): Maximum allowed value (inclusive)
+- `coerceToMinMaxRange` (boolean): Coerce value to be within `min`/`max` range
+- `isDivisibleBy` (number): Value must be divisible by this number
+- `isInt` (boolean): Value must be an integer (equivalent to `precision=0`)
+- `precision` (number): Number of decimal places to keep
+
+```env-spec
+# @type=number(min=0, max=100, precision=1)
+MY_NUMBER=42.5
+```
+</div>
+
+<div>
+### `boolean`
+The following values will be coerced to a boolean and considered valid:
+- True values: `"t"`, `"true"`, `true`, `"yes"`, `"on"`, `"1"`, `1`
+- False values: `"f"`, `"false"`, `false`, `"no"`, `"off"`, `"0"`, `0`
+
+Anything else will be considered invalid.
+
+```env-spec
+# @type=boolean
+MY_BOOL=true
+```
+
+</div>
+
+<div>
+### `url`
+**Options:**
+- `prependHttps` (boolean): Automatically prepend "https://" if no protocol is specified
+{/* - `allowedDomains` (string[]): List of allowed domains */}
+
+```env-spec
+# @type=url(prependHttps=true)
+MY_URL=example.com/foobar
+```
+</div>
+
+<div>
+### `enum`
+Checks a value is contained in a list of possible values - it must match one exactly.
+
+**NOTE** - this is the only type that cannot be used without any additional arguments
+
+```env-spec
+# @type=enum(development, staging, production)
+ENV=development
+```
+</div>
+
+<div>
+### `email`
+**Options:**
+- `normalize` (boolean): Convert email to lowercase
+
+```env-spec
+# @type=email(normalize=true)
+MY_EMAIL=User@Example.com
+```
+</div>
+
+<div>
+### `port`
+Checks for valid port number. Coerces to a number.
+
+**Options:**
+- `min` (number): Minimum port number (default: 0)
+- `max` (number): Maximum port number (default: 65535)
+
+```env-spec
+# @type=port(min=1024, max=9999)
+MY_PORT=3000
+```
+</div>
+
+<div>
+### `ip`
+Checks for a valid [IP address](https://en.wikipedia.org/wiki/IP_address).
+
+**Options:**
+- `version` (`4|6`): IPv4 or IPv6
+- `normalize` (boolean): Convert to lowercase
+
+```env-spec
+# @type=ip(version=4, normalize=true)
+MY_IP=192.168.1.1
+```
+</div>
+
+<div>
+### `semver`
+Checks for a valid [semantic version](https://semver.org/).
+```env-spec
+# @type=semver
+MY_VERSION=1.2.3-beta.1
+```
+
+</div>
+
+<div>
+### `isoDate`
+Checks for valid [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) date strings with optional time and milliseconds.
+```env-spec
+# @type=isoDate
+MY_DATE=2024-03-20T15:30:00Z
+```
+</div>
+
+<div>
+### `uuid`
+Checks for valid [UUID](https://en.wikipedia.org/wiki/UUID) (versions 1-5 per RFC4122, including `NIL`).
+```env-spec
+# @type=uuid
+MY_UUID=123e4567-e89b-12d3-a456-426614174000
+```
+</div>
+
+<div>
+### `md5`
+Checks for valid [MD5 hash](https://en.wikipedia.org/wiki/MD5).
+```env-spec
+# @type=md5
+MY_HASH=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+```
+</div>
+
+<div>
+### `simple-object`
+Validates and coerces JSON strings into objects.
+```env-spec
+# @type=simple-object
+MY_OBJECT={"key": "value"}
+```
+</div>
+</div>

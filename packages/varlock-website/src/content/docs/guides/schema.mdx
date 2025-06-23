@@ -3,146 +3,99 @@ title: Schema
 description: Using the schema to manage your environment variables
 ---
 
-One of the core features of varlock is its schema-driven approach to environment variables. Using a combination of [root-level](/reference/root-decorators) and [config item](/reference/item-decorators) decorators, you can add guardrails to your environment and eliminate entire classes of bugs. 
+One of the core features of varlock is its schema-driven approach to environment variables - which is best when shared with your team and committed to version control. We recommend creating a new `.env.schema` file to hold schema info set by [config item decorators](/reference/item-decorators), non-sensitive default values, and [root decorators](/reference/root-decorators) to specify global settings that affect `varlock` itself.
 
-:::tip
-If you prefer, you can jump straight to the reference documentation for the the [root](/reference/root-decorators) and [item](reference/item-decorators) decorators. 
-:::
+This schema should include all of the environment variables that your application depends on, along with comments and documentation about them, and decorators which affect coercion, validation, and generated types / documentation.
 
-## Root
+The more complete your schema is, the more validation and coercion `varlock` can perform, and the more it can help you catch errors earlier in your development cycle.
 
-Root level decorators are used to specify global settings for the environment variables in your `.env.schema` file. For example, if you tend to mostly store sensitive variables, you can set the `@defaultSensitive` flag to `true` to avoid having to specify the `@sensitive` flag for each variable.
+> Running [`varlock init`](/reference/cli-commands#init) will attempt to convert an existing `.env.example` file into a `.env.schema` file. It must be reviewed, but it should be a good starting point.
 
-```env-spec title="example .env.schema"
-# My schema file
+
+## Root Decorators
+The _header_ section of a `.env` file is a comment block at the beginning of the file that ends with a divider. Within this header, you can use [root decorators](/reference/root-decorators) to specify global settings and default behavior for all config items.
+
+```env-spec title=".env.schema"
+# This is the header, and may contain root decorators
 # @envFlag=APP_ENV
 # @defaultSensitive=false @defaultRequired=false
+# @generateTypes(lang=ts, path=env.d.ts)
 # ---
 
-# override defaults flags
-# @required @sensitive
-REQ_SENS_VAR=exec("some cli command")
+# This is a config item comment block and may contain decorators which affect only the item
+# @required @type=enum(dev, test, staging, prod)
+APP_ENV=dev
 ```
 
-> See the full reference of [root-level decorators](/reference/root-decorators) for more information.
+More details:
+- [Root decorators reference](/reference/root-decorators)
 
-### @envFlag
+## Config Items
 
-`@envFlag` allows you dynamically load values from other `.env.*` files based on the value of the supplied env var.
+Config items are the environment variables that your application depends on. Like normal `.env` syntax, each item is a key-value pair of the form `KEY=value`. The key is the name of the environment variable, and a value may be specified or not. 
 
-```env-spec title="example .env.schema"
-# My schema file
-# @envFlag=APP_ENV
-# @defaultSensitive=false @defaultRequired=false
-# ---
+While simply enumerating all of them in your `.env.schema` is useful (like a `.env.example` file), [@env-spec](/env-spec/) allows us to attach additional comments and [item decorators](/reference/item-decorators), making our schema much more powerful.
 
-# My .env.dev file
-# @type=enum(dev, test, staging, prod)
-APP_ENV=dev # sets default to "dev"
+
+### Item Values
+Values may be static, or set using [functions](/reference/functions), which can facilitate loading values from external sources without exposing any sensitive values.
+
+**Quote rules:**
+- Static values can be wrapped in quotes or not -- all quotes styles (<code>\`</code>, `"`, `'`) are supported
+- Values wrapped in single quotes do not support [expansion](#expansion)
+- Single line values may not contain newlines, but `\n` will be converted to an actual newline except in single quotes
+- Multiline values can be wrapped in <code>```</code>, `"""`. Also supported is `"` and `'` but not recommended.
+- Unquoted values will be parsed as a number/boolean/undefined where possible (`ITEM=foo` -> `"foo"`, while `ITEM=true` -> `true`), however data-types may further coerce values
+
+```env-spec title=".env.schema"
+NO_VALUE=
+STATIC_VALUE_UNQUOTED=quotes are optional # but are recommended!
+STATIC_VALUE_QUOTED="#hashtag" # and are necessary in some cases
+FUNCTION_VALUE=exec(`op read "op://api-config/item/credential"`)
+MULTILINE_VALUE="""
+multiple
+lines
+"""
 ```
 
-This will load the values in `.env.dev` and validate them against the `.env.schema` file.
+### Item comments
+Comments are used to attach additional documentation and metadata to config items using [item decorators](/reference/item-decorators). This additional metadata is used by varlock to perform validation, coercion, and generate types / documentation.
 
-To load a different file, you just need to override the `APP_ENV` variable.
-
-```bash
-# loads .env.test
-APP_ENV=test varlock run -- node my-test-script.js
-```
-
-## Item 
-
-Item specific decorators can be used to override the root-level ones, such as `@required` and `@sensitive`. There are also item-only decorators like `@type` that allow you to further validate, and coerce, your values. 
-
-```env-spec title="example .env.schema"
-# My schema file
-# @envFlag=APP_ENV
-# @defaultSensitive=false @defaultRequired=false
-# ---
-
-# basic type
-# @type=url
-URL_ITEM=https://example.com
-
-# type with settings
-# @type=number(precision=0)
-NUMBER_ITEM=123.45 # outputs 123
-```
-
-> See the full list of [item-level decorators](/reference/item-decorators) for more information.
-
-### Value types
-
-`varlock` includes a comprehensive set of built-in types with options to customize their behavior. See the [base types reference docs](/reference/item-decorators/#built-in-base-types) for more information. 
-
-### Functions
-
-One of the most powerful features of `varlock` is its function syntax that allows for a more composable way to load values. 
-
-```env-spec title="example .env.schema"
-# My schema file
-# @envFlag=APP_ENV
-# @defaultSensitive=false @defaultRequired=false
-# ---
-
-# Encrypted value
-# @sensitive
-MY_KEY=varlock(“oipjfdopiajpfoidjpaoijpofdjpoa…”) # outputs decrypted value
-
-# Fallback value
-MY_KEY=fallback("", undefined, "fallback-value") # outputs "fallback-value"
-
-# Concatenated value
-MY_KEY=concat("part1", "part2") # outputs "part1part2"
-
-# Exec to load a value from an external cli command
-MY_KEY=exec(`op read "op://dev test/${OP_VAULT}/credential"`)
-
-# Reference another item
-MY_KEY=ref(“OTHER_KEY”) # equivalent to MY_KEY=${OTHER_KEY}
-```
-
-## Expansion
-
-
-`varlock` supports variable expansion in a few different ways.
-
-### Traditional variable expansion
-
-You can use variable expansion in your `.env.schema` file like any other `.env` file. 
+Multiple comment lines _directly_ preceeding an item will be attached to that item. A blank line or a divider (`# ---`) break a comment block, and detach it from the following config item.
+Comment lines can either contain regular comments or [item decorators](/reference/item-decorators). Note that if a line does not start with a decorator, it will be treated as a regular comment.
 
 ```env-spec
-VARIABLE1=value1
-VARIABLE2=value2
-
-# outputs "value1"
-VARIABLE3=${VARIABLE1}
-# outputs "value1-value2"
-VARIABLE4=${VARIABLE1}-${VARIABLE2}
+# description of item can be multiple lines
+# this @decorator will be ignored because the line does not start with @
+# @sensitive=false @required # decorator lines can end with a comment
+# @type=string(startsWith=pk-) # multiple lines of decorators are allowed
+SERVICE_X_PUBLISHABLE_KEY=pk-abc123
 ```
 
-### Using `ref` function
+More details:
+- [Item decorators reference](/reference/item-decorators)
+- [@type data types reference](/reference/data-types)
+- [Functions reference](/reference/functions)
 
-You can also use `varlock`'s special `ref` function. 
+
+### Value Expansion ||expansion||
+
+`varlock` supports _expansion_ like other .env tools - such as [dotenv-expand](https://github.com/motdotla/dotenv-expand). However unlike other tools, it uses [function calls](/reference/functions) to implement this.
+
+- `prefix-${OTHER}` -> `concat("prefix", ref("OTHER"))`
+- `${OTHER}` -> `ref("OTHER")`
+- `${OTHER:-defaultval}` -> `fallback(ref("OTHER"), "defaultval")`
+- `$(whoami)` -> `exec("whoami")`
+
+While you could call those functions directly, in many cases it will be more clear to use expansion, or a mix of function calls and expansion. For example:
 
 ```env-spec
-VARIABLE1=value1
-
-# outputs "value1"
-VARIABLE2=ref("VARIABLE1")
+OP_VAULT_NAME=api-config-prod
+MY_KEY=exec(`op read "op://${OP_VAULT_NAME}/service/api-key"`)
 ```
 
-And using it in conjunction with other functions. 
+More details:
+- [Functions reference](/reference/functions)
 
-```env-spec
-VARIABLE1=value1
-VARIABLE2=value2
 
-# outputs "value1-value2"
-VARIABLE3=concat(ref("VARIABLE1"), ref("VARIABLE2"))
-```
-
-:::tip[Fun fact]
-`varlock` actually uses `ref` under the hood when dealing with `${ITEM}` style expansion.
-:::
 

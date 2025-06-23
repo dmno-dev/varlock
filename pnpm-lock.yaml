@@ -27,6 +27,9 @@ catalogs:
     typescript:
       specifier: ^5.8.2
       version: 5.8.3
+    vite-node:
+      specifier: ^3.2.4
+      version: 3.2.4
     vitest:
       specifier: ^3.2.4
       version: 3.2.4
@@ -240,6 +243,9 @@ importers:
       canvaskit-wasm:
         specifier: ^0.40.0
         version: 0.40.0
+      remark-custom-header-id:
+        specifier: ^1.0.0
+        version: 1.0.0
       starlight-llms-txt:
         specifier: ^0.5.1
         version: 0.5.1(@astrojs/starlight@0.34.0(astro@5.7.5(@azure/identity@4.10.1)(@types/node@22.15.32)(rollup@4.39.0)(typescript@5.8.3)))(astro@5.7.5(@azure/identity@4.10.1)(@types/node@22.15.32)(rollup@4.39.0)(typescript@5.8.3))
@@ -4065,6 +4071,10 @@ packages:
 
   rehype@13.0.2:
     resolution: {integrity: sha512-j31mdaRFrwFRUIlxGeuPXXKWQxet52RBQRvCmzl5eCefn/KGbomK5GMHNMsOJf55fgo3qw5tST5neDuarDYR2A==}
+
+  remark-custom-header-id@1.0.0:
+    resolution: {integrity: sha512-xs1MAgCg1HoiIfqSVV5BPydB4/sc1tT8OHDoqt8Lnf1JHPMUDVumY2Szm/P9MIxIzOT9+tu4IYJTql0vCzldoA==}
+    engines: {node: '>=18'}
 
   remark-directive@3.0.1:
     resolution: {integrity: sha512-gwglrEQEZcZYgVyG1tQuA+h58EZfq5CSULw7J90AFuCTyib1thgHPoqQ+h9iFvU6R+vnZ5oNFQR5QKgGpk741A==}
@@ -9999,6 +10009,11 @@ snapshots:
       rehype-parse: 9.0.1
       rehype-stringify: 10.0.1
       unified: 11.0.5
+
+  remark-custom-header-id@1.0.0:
+    dependencies:
+      '@types/unist': 3.0.3
+      unist-util-visit: 5.0.0
 
   remark-directive@3.0.1:
     dependencies:
