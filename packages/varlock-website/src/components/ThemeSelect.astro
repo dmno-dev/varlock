@@ -1,4 +1,4 @@
-<div class="theme-select">
+<div class="theme-select" onclick="toggleTheme()">
   <div class="theme-select__inner">
     <div class="theme-select__dark">
       <img src="https://varlock-pixel-art.dmno.workers.dev/icons/moon.png" />
@@ -9,17 +9,13 @@
   </div>
 </div>
 
-<script>
-  document
-    .querySelector(".theme-select")
-    ?.addEventListener("click", toggleTheme);
-
-  function toggleTheme() {
+<script is:inline>
+  window.toggleTheme = function () {
     const currentTheme = document.documentElement.dataset.theme;
     const newTheme = currentTheme === "light" ? "dark" : "light";
     localStorage.setItem("starlight-theme", newTheme);
     document.documentElement.dataset.theme = newTheme;
-  }
+  };
 </script>
 
 <style>
