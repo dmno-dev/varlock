@@ -7,6 +7,8 @@ import sitemap from '@astrojs/sitemap';
 import robotsTxt from 'astro-robots-txt';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import partytown from '@astrojs/partytown';
+import remarkCustomHeaderId from 'remark-custom-header-id';
+
 
 import envSpecGrammar from '../vscode-plugin/language/env-spec.tmLanguage.json' assert { type: 'json' };
 
@@ -72,6 +74,7 @@ export default defineConfig({
             { label: 'Schema', slug: 'guides/schema' },
             { label: 'Integration', slug: 'guides/integration' },
             { label: 'Secrets', slug: 'guides/secrets' },
+            { label: 'Environments', slug: 'guides/environments' },
             // { label: 'Cursor', slug: 'guides/cursor', badge: 'New' },
             { label: 'Telemetry', slug: 'guides/telemetry' },
           ],
@@ -83,7 +86,7 @@ export default defineConfig({
             { label: 'Root decorators', slug: 'reference/root-decorators' },
             { label: 'Item decorators', slug: 'reference/item-decorators' },
             { label: '> @type data types', slug: 'reference/data-types' },
-            { label: 'Functions', slug: 'reference/functions' },
+            { label: 'Value functions', slug: 'reference/functions' },
           ],
         },
         {
@@ -91,7 +94,7 @@ export default defineConfig({
           items: [
             { label: 'Overview', slug: 'env-spec/overview' },
             { label: 'Reference', slug: 'env-spec/reference' },
-            { label: 'Best practices', slug: 'env-spec/best-practices' },
+            // { label: 'Best practices', slug: 'env-spec/best-practices' },
             { label: 'VS Code extension', slug: 'env-spec/vs-code-ext' },
           ],
         },
@@ -120,4 +123,7 @@ export default defineConfig({
       },
     }),
   ],
+  markdown: {
+    remarkPlugins: [remarkCustomHeaderId],
+  },
 });

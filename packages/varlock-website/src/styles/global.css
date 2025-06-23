@@ -1,4 +1,5 @@
 @import './reset.css';
+@import './reference.css';
 
 /* fusion-pixel-10px-proportional-tc-latin-400-normal */
 @font-face {
@@ -27,10 +28,11 @@ h1 {
   }
 }
 
-h2 {
-  /* color: var(--brand-red--text); */
+.sl-heading-wrapper.level-h2 {
   border-bottom: 1px solid currentColor;
-  width: 100%;
+}
+
+h2 {
   font-size: 30px;
 }
 
@@ -631,4 +633,9 @@ summary {
 /* fix for anchor link appearing on next line */
 .sl-heading-wrapper {
   display: flex;
+  gap: .5rem;
+}
+
+.sl-markdown-content .sl-anchor-icon>svg {
+  transform: none;
 }

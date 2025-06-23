@@ -1,0 +1,11 @@
+.reference-docs {
+  >div {
+    margin-bottom: 2rem;
+    padding: 1rem;
+    border: 1px dotted var(--brand-purple);
+
+    .sl-heading-wrapper {
+      border: none;
+    }
+  }
+}

@@ -13,6 +13,9 @@ See [installation](/docs/getting-started/installation) for instructions on how t
 
 ## Commands
 
+<div class="reference-docs">
+
+<div>
 ### `varlock init`
 
 <InitCommand />
@@ -24,7 +27,9 @@ It will prompt you to mark items as required and sensitive and do its best to in
 :::tip
 All further examples assume you are using the CLI, but the same commands can be run via your package manager if `varlock` is installed as a dependency. For example, `varlock doctor` can be run as `pnpm exec varlock doctor`.
 :::
+</div>
 
+<div>
 ### `varlock load`
 
 Loads environment variables from your `.env.schema` file and any additional `.env.*` files it finds colocated. This command ensures all required variables are validated per the schema.
@@ -49,6 +54,9 @@ varlock load --format json
 varlock load --show-all
 ```
 
+</div>
+
+<div>
 ### `varlock run`
 
 Executes a command with the environment variables loaded from your schema. This is useful for running your application with the correct environment configuration.
@@ -72,6 +80,9 @@ varlock run --watch npm start
 varlock run python script.py
 ```
 
+</div>
+
+<div>
 ### `varlock encrypt`
 
 Encrypts sensitive environment variables in your `.env.*` files and replaces the values with the encrypted values.
@@ -88,7 +99,9 @@ varlock encrypt
 # Encrypt a specific .env file
 varlock encrypt .env.production
 ```
+</div>
 
+<div>
 ### `varlock doctor`
 
 Diagnoses your environment configuration and provides recommendations for improvements. This command checks for common issues and best practices.
@@ -106,6 +119,9 @@ varlock doctor
 varlock doctor .env.production
 ```
 
+</div>
+
+<div>
 ### `varlock opt-out`
 
 Opts out of anonymous usage analytics. This command creates a configuration file at `~/.varlock/config.json` that permanently disables analytics collection.
@@ -117,7 +133,9 @@ varlock opt-out
 :::note
 You can also temporarily opt out by setting the `PH_OPT_OUT=true` environment variable. See the [Telemetry guide](/guides/telemetry/) for more information about our analytics and privacy practices.
 :::
+</div>
 
+<div>
 ### `varlock help`
 
 Displays help information about Varlock commands and options.
@@ -130,4 +148,6 @@ Examples:
   varlock help init        # Show help for init command
   varlock init --help      # Alternative way to show command help
 ```
+</div>
+</div>
 

@@ -1,56 +1,94 @@
 ---
-title: "Config item @decorators"
+title: "Config Item @decorators"
 description: A reference page of available env-spec decorators for items
-tableOfContents: false
 ---
 import Decorator from '@/components/decorator-doc-entry.astro'
 
-<Decorator name="@required" args="boolean">
-  <Fragment slot="description">
-    toggles whether the setting a value for the item is required.
-    
-    Both `undefined` or an `empty` string will be considered invalid.
-  </Fragment>
-  <Fragment slot="notes">
-    default value can be toggled using the `@defaultRequired` root decorator
-  </Fragment>
-</Decorator>
-<Decorator name="@optional" args="boolean">
-  <Fragment slot="description">
-    Opposite of `@required`. Equivalent to writing `@required=false`.
-  </Fragment>
-</Decorator>
+Item decorators in a comment block _directly_ preceeding an env item are attached to that item. Multiple decorators can be specified on the same line. A comment block is broken by either an empty line or a divider.
 
-<Decorator name="@sensitive" args="boolean">
-  <Fragment slot="description">
-    toggles whether the item should be considered sensitive (and must be protected from leaks)
-  </Fragment>
-  <Fragment slot="notes">
-    default value can be toggled using the `@defaultSensitive` root decorator
-  </Fragment>
-</Decorator>
+```env-spec
+# @required @sensitive @type=string(startsWith=sk-)
+# @docsUrl=https://docs.servicex.com/api-keys
+SERVICE_X_API_KEY=
+```
 
-<Decorator name="@example" args="any">
-  <Fragment slot="description">
-    provide an example value for the item
-  </Fragment>
-</Decorator>
+<div class="reference-docs">
+<div>
+### `@required`
+Sets whether an item is _required_ - meaning validation will fail if the value resolves to `undefined` or an empty string.
 
-<Decorator name="@type" args="enum">
-  <Fragment slot="description">
-    sets the type of the item, will default to inferring the type from a static value if set, or `string` otherwise.
+Default behavior for all items can be toggled using the [`@defaultRequired` root decorator](/reference/root-decorators/#@defaultRequired)
 
-    <br/>
-    See [data types reference](/reference/data-types) for more details.
-  </Fragment>
-  <Fragment slot="notes">
-    some types take additional arguments, see below for more details
-  </Fragment>
-</Decorator>
+```env-spec
+# @defaultRequired=false
+# ---
+# @required
+REQUIRED_ITEM=
+```
+</div>
 
-<Decorator name="@docsUrl" args="string (url)">
-  <Fragment slot="description">
-    Where to find related documentation.
-  </Fragment>
-</Decorator>
+<div>
+### `@optional`
+Opposite of [`@required`](#required). Equivalent to writing `@required=false`.
 
+```env-spec
+# @defaultRequired=true
+# ---
+# @optional
+REQUIRED_ITEM=
+```
+</div>
+
+<div>
+### `@sensitive`
+
+Sets whether the item should be considered _sensitive_ - meaning it must be protected from leaking. The value will be always be redacted in CLI output, and client integrations can take further action to prevent leaks.
+
+Default behavior for all items can be set using the [`@defaultSensitive` root decorator](/reference/root-decorators/#@defaultSensitive)
+
+```env-spec
+# @sensitive
+SERVICE_X_PRIVATE_KEY=
+# @sensitive=false
+SERVICE_X_CLIENT_ID=
+```
+</div>
+
+<div>
+### `@type`
+Sets the data type of the item - which affects validation, coercion, and generated types.
+Note that some data types take additional arguments. See [data types reference](/reference/data-types) for more details.
+
+If not specified, a data type will be inferred if a static value is set, or default to `string` otherwise.
+
+```env-spec
+# @type=url
+SOME_URL=
+
+# @type=string(startsWith=abc)
+EXAMPLE_WITH_TYPE_OPTIONS=
+
+INFER_NUMBER=123 # data type of `number` will be inferred from the value
+```
+</div>
+
+<div>
+### `@example`
+Provide an example value for the item. This lets you avoid setting placeholder values that are not meant to be used.
+
+```env-spec
+# @example="sk-abc123"
+SECRET_KEY=
+```
+</div>
+
+<div>
+### `@docsUrl`
+URL of documentation related to the item.
+
+```env-spec
+# @docsUrl=https://platform.openai.com/docs/api-reference/authentication
+OPENAI_API_KEY=
+```
+</div>
+</div>

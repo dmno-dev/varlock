@@ -1,38 +1,68 @@
 ---
-title: "Root level @decorators"
+title: "Root @decorators"
 description: A reference page of available env-spec decorators that apply to the schema itself, rather than individual items
-tableOfContents: false
 ---
 import Decorator from '@/components/decorator-doc-entry.astro'
 
+Root decorators appear in the _header_ section of a .env file - which is a comment block at the beginning of the file that ends with a divider. Usually root decorators are used only in your `.env.schema` file.
 
-<Decorator name="@envFlag" args="string" guidesLink="/guides/schema/#envflag">
-  <Fragment slot="description">
-    
-    sets the key of your environment flag, which will be used when determining if environment-specific env files will be loaded (e.g. `.env.production`). This will usually be something like 
-  </Fragment>
-  <Fragment slot="notes">
-    can only be used once - usually in your `.env.schema` file
-  </Fragment>
-</Decorator>
 
-<Decorator name="@defaultRequired" args="boolean">
-  <Fragment slot="description">
-    Sets the the default state of each item being required. Can be overridden on individual items using `@required` or `@optional`.
-  </Fragment>
-</Decorator>
+<div class="reference-docs">
 
-<Decorator name="@defaultSensitive" args="boolean">
-  <Fragment slot="description">
-    Sets the the default state of each item being treated sensitive. Can be overridden on individual items using `@sensitive`.
-  </Fragment>
-</Decorator>
+<div>
+### `@envFlag`
+Sets the key of your _environment flag_, which will be used when determining if environment-specific env files will be loaded (e.g. `.env.production`).
+This will usually be something like `APP_ENV`
 
-<Decorator name="@generateTypes" args="lang=string, path=string" isFnCall>
-  <Fragment slot="description">
-    Enables automatic type generation based on your schema.
-    <br/>
-    - `lang`: Language to generate types for. Currently only `ts` (typescript) is supported
-    - `path`: Relative filepath to output generated type file
-  </Fragment>
-</Decorator>
+See [schema guide](/guides/schema/#envflag) for more info
+
+```env-spec
+# @envFlag=APP_ENV
+# ---
+# @type=enum(development, staging, production)
+APP_ENV=development
+```
+</div>
+
+<div>
+### `@defaultRequired  `
+Sets the the default behavior of each item being _required_. Can be overridden on individual items using [`@required`](/reference/item-decorators/#required) or [`@optional`](/reference/item-decorators/#optional).
+
+```env-spec
+# @defaultRequired=true
+# ---
+# @optional
+OPTIONAL_ITEM=
+```
+</div>
+
+<div>
+### `@defaultSensitive  `
+Sets the the default state of each item being treated sensitive. Can be overridden on individual items using [`@sensitive`](/reference/item-decorators/#sensitive).
+
+```env-spec
+# @defaultSensitive=false
+# ---
+# @sensitive
+SERVICE_X_AUTH_TOKEN=
+```
+</div>
+
+<div>
+### `@generateTypes`
+
+Enables automatic type generation based on your schema.
+
+**Key-value args:**
+- `lang`: Language to generate types for. Supported languages:
+  - `ts` - TypeScript
+- `path`: Relative filepath to output generated type file
+
+
+```env-spec
+# @generateTypes(lang=ts, path=./env.d.ts)
+# ---
+```
+</div>
+
+</div>
