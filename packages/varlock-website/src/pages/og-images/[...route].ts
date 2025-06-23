@@ -13,10 +13,24 @@ export const { getStaticPaths, GET } = OGImageRoute({
   // In this case it's `route`, because the file is named `[...route].ts`.
   param: 'route',
 
-  pages: pages,
+  pages: {
+    ...pages,
+    index: {
+      title: 'varlock',
+      description: 'varlock',
+    },
+  },
 
   getImageOptions: (path, page) => ({
     title: page.title,
     description: page.description,
+    logo: {
+      path: './src/assets/logos/wordmark-sm.png',
+    },
+    font: {
+      title: {
+        color: [236, 48, 48],
+      },
+    },
   }),
 });

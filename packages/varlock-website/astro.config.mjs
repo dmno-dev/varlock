@@ -7,10 +7,9 @@ import sitemap from '@astrojs/sitemap';
 import robotsTxt from 'astro-robots-txt';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import partytown from '@astrojs/partytown';
-import remarkCustomHeaderId from 'remark-custom-header-id';
-
 
 import envSpecGrammar from '../vscode-plugin/language/env-spec.tmLanguage.json' assert { type: 'json' };
+import remarkCustomHeaderId from 'remark-custom-header-id';
 
 // https://astro.build/config
 export default defineConfig({
@@ -44,6 +43,7 @@ export default defineConfig({
       title: 'varlock',
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/dmno-dev/varlock' }],
       logo: { src: './src/assets/logos/logo-pixel.png' },
+      routeMiddleware: './src/route-data.ts', // adds the Open Graph images.
       components: {
         Head: '@/components/CustomHead.astro',
         ThemeSelect: '@/components/ThemeSelect.astro',
@@ -60,8 +60,6 @@ export default defineConfig({
         api_host: 'https://ph.varlock.dev',
         })`,
         },
-        // noindex for all pages, TODO remove before launch
-        { tag: 'meta', attrs: { name: 'robots', content: 'noindex' } },
       ],
       sidebar: [
         {
@@ -115,7 +113,17 @@ export default defineConfig({
     mdx(),
     vue(),
     sitemap(),
-    robotsTxt(),
+    robotsTxt({
+      sitemap: false,
+      policy: [
+        {
+          userAgent: '*',
+          // The next line enables or disables the crawling on the `robots.txt` level
+          // TODO: use varlock, check more general APP_ENV
+          disallow: process.env.CF_PAGES_BRANCH !== 'main' ? '/' : '',
+        },
+      ],
+    }),
     partytown({
       // Example: Add dataLayer.push as a forwarding-event.
       config: {

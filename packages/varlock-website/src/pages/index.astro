@@ -23,12 +23,7 @@ import EmailSignup from "../components/EmailSignup.vue";
           <img
             src="https://varlock-pixel-art.dmno.workers.dev/characters/warlock1.gif"
           />
-          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/effects/black-hole.gif" /> -->
-          <div>
-            Environment variables with<br />the right amount of magic
-          </div>
-          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/effects/black-hole.gif" /> -->
-          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/characters/demon1.gif" /> -->
+          <div>Environment variables with the right amount of magic</div>
           <img
             src="https://varlock-pixel-art.dmno.workers.dev/characters/warlock1.gif"
           />
@@ -332,16 +327,32 @@ npx varlock init
   }
   .homepage-hero {
     text-align: center;
+    padding-bottom: 1em;
     h1 {
-      zoom: 0.8;
-      margin: 0.5em 0 1em;
+      margin: 1em 0;
       display: flex;
       gap: 1em;
       justify-content: center;
-      align-items: center;
+      align-items: flex-start;
+      font-size: 36px;
+      text-wrap: balance;
+
+      @media screen and (max-width: 700px) {
+        font-size: 24px;
+        gap: 0em;
+        flex-direction: column;
+        align-items: center;
+      }
+
       img {
         display: block;
+        @media screen and (max-width: 700px) {
+          &:first-child {
+            display: none;
+          }
+        }
         flex-shrink: 0;
+        margin-top: -30px;
 
         /* scale: 2; */
         &:first-child {
