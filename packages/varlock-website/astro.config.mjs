@@ -75,6 +75,7 @@ export default defineConfig({
             { label: 'Environments', slug: 'guides/environments' },
             // { label: 'Cursor', slug: 'guides/cursor', badge: 'New' },
             { label: 'Telemetry', slug: 'guides/telemetry' },
+            { label: 'Migrate from dotenv', slug: 'guides/migrate-from-dotenv' },
           ],
         },
         {
