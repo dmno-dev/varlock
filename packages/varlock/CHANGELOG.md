@@ -1,5 +1,13 @@
 # varlock
 
+## 0.0.2
+
+### Patch Changes
+
+- [`6d1b5dc`](https://github.com/dmno-dev/varlock/commit/6d1b5dc397d5024f52b07a2449959f2696683239) Thanks [@theoephraim](https://github.com/theoephraim)! - remove top level await, to fix SEA build
+
+- [#38](https://github.com/dmno-dev/varlock/pull/38) [`93e0337`](https://github.com/dmno-dev/varlock/commit/93e03371ea29399b739a01d54256a071b13b3692) Thanks [@theoephraim](https://github.com/theoephraim)! - load via execSync instead of in same process
+
 ## 0.0.1
 
 ### Patch Changes
