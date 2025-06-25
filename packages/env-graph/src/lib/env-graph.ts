@@ -11,11 +11,15 @@ import { ResolutionError, SchemaError } from './errors';
 import { generateTypes } from './type-generation';
 
 export type SerializedEnvGraph = {
+  sources: Array<{
+    label: string;
+    enabled: boolean;
+  }>,
   config: Record<string, {
     value: any;
     isSensitive: boolean;
   }>;
-}
+};
 
 /** container of the overall graph and current resolution attempt / values */
 export class EnvGraph {
@@ -271,8 +275,15 @@ export class EnvGraph {
 
   getSerializedGraph(): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
+      sources: [],
       config: {},
     };
+    for (const source of this.sortedDataSources) {
+      serializedGraph.sources.push({
+        label: source.label,
+        enabled: !source.disabled,
+      });
+    }
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
       serializedGraph.config[itemKey] = {

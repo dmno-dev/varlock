@@ -1,4 +1,6 @@
 import { SerializedEnvGraph } from '@env-spec/env-graph';
+export { SerializedEnvGraph };
+
 import { checkForConfigErrors } from './cli/helpers/error-checks';
 import { loadVarlockEnvGraph } from './lib/load-graph';
 import { resetRedactionMap } from './lib/redaction-helpers';
@@ -6,28 +8,7 @@ import { resetRedactionMap } from './lib/redaction-helpers';
 let envValues = {} as Record<string, any>;
 let publicKeys = [] as Array<string>;
 
-// these types will be overridden/augmented by the generated types
-export interface TypedEnvSchema {}
-export interface PublicTypedEnvSchema {}
-
-const EnvProxy = new Proxy<TypedEnvSchema>({}, {
-  get(target, prop) {
-    if (typeof prop !== 'string') throw new Error('prop keys cannot be symbols');
-    if (!(prop in envValues)) throw new Error(`Env key \`${prop}\` does not exist`);
-    return envValues[prop.toString()];
-  },
-});
-const PublicEnvProxy = new Proxy<PublicTypedEnvSchema>({}, {
-  get(target, prop) {
-    if (typeof prop !== 'string') throw new Error('prop keys cannot be symbols');
-    if (!(prop in envValues)) throw new Error(`Env key \`${prop}\` does not exist`);
-    if (!publicKeys.includes(prop.toString())) throw new Error(`${prop.toString()} is sensitive, use ENV instead of PUBLIC_ENV`);
-    return envValues[prop.toString()];
-  },
-});
-
-export const ENV = EnvProxy;
-export const PUBLIC_ENV = PublicEnvProxy;
+let envLoaded = false;
 
 export async function loadFromSerializedGraph(serializedGraph: SerializedEnvGraph) {
   resetRedactionMap(serializedGraph);
@@ -62,4 +43,41 @@ export async function load() {
 }
 
 // expose redaction utils
-export { VarlockRedactor } from './lib/redaction-helpers';
+export { VarlockRedactor, resetRedactionMap } from './lib/redaction-helpers';
+
+
+// -------
+
+// these types will be overridden/augmented by the generated types
+export interface TypedEnvSchema {}
+export interface PublicTypedEnvSchema {}
+
+
+const EnvProxy = new Proxy<TypedEnvSchema>({}, {
+  get(target, prop) {
+    if (typeof prop !== 'string') throw new Error('prop keys cannot be symbols');
+
+    // when using some integrations, we may not be able to call load directly
+    // so we just look for the injected env info instead
+    if (process.env.__VARLOCK_ENV && !envLoaded) {
+      loadFromSerializedGraph(JSON.parse(process.env.__VARLOCK_ENV));
+      envLoaded = true;
+    }
+
+    if (!(prop in envValues)) throw new Error(`Env key \`${prop}\` does not exist`);
+    return envValues[prop.toString()];
+  },
+});
+const PublicEnvProxy = new Proxy<PublicTypedEnvSchema>({}, {
+  get(target, prop) {
+    if (typeof prop !== 'string') throw new Error('prop keys cannot be symbols');
+    if (!(prop in envValues)) throw new Error(`Env key \`${prop}\` does not exist`);
+    if (!publicKeys.includes(prop.toString())) throw new Error(`${prop.toString()} is sensitive, use ENV instead of PUBLIC_ENV`);
+    return envValues[prop.toString()];
+  },
+});
+
+export const ENV = EnvProxy;
+export const PUBLIC_ENV = PublicEnvProxy;
+
+

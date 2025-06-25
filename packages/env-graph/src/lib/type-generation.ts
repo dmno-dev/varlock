@@ -194,6 +194,29 @@ declare module 'varlock' {
 }
 `);
 
+  // add types for process.env too
+  // remap types for process.env
+  // - enums - stay string unions if all options are strings
+  // - boolean -> 'true' | 'false'
+  // - everything else -> string
+  tsSrc.push(`
+export type EnvSchemaAsStrings = {
+  [Property in keyof CoercedEnvSchema]:
+    CoercedEnvSchema[Property] extends string ? CoercedEnvSchema[Property]
+      : (CoercedEnvSchema[Property] extends boolean ? ('true' | 'false') : string)
+};
+`);
+
+
+
+  // TODO: should add an option to enable/disable
+  tsSrc.push(`
+declare global {
+  namespace NodeJS {
+    interface ProcessEnv extends EnvSchemaAsStrings {}
+  }
+}`);
+
   return tsSrc.join('\n');
 }
 
