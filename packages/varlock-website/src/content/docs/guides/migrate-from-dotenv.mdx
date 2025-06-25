@@ -40,7 +40,7 @@ APP_ENV=staging varlock run -- node app.js
 
 ## Migrating from dotenv npm package
 
-Initialize your project with `varlock init` to install `varlock` and convert any existing `.env.example` to a `.env.schema`.
+Initialize your project with `varlock init` to install `varlock` and generate a `.env.schema` from any existing `.env` files.
 
 <SyncedCodeTabs
   group="package-manager"
@@ -96,7 +96,7 @@ Finally, you can remove `dotenv` from your dependencies:
 
 ## Using overrides
 
-If you prefer to keep `dotenv` as a dependency, you can use `overrides` to use `varlock` instead.
+If `dotenv` is being used under the hood of one of your dependencies, you can use `overrides` to seamlessly swap in `varlock` instead.
 
 <SyncedCodeTabs 
   group="package-manager"
