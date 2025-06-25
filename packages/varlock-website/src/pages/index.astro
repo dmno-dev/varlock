@@ -2,7 +2,6 @@
 import { Image } from "astro:assets";
 
 import Layout from "../layouts/Layout.astro";
-import SecretReveal from "../components/SecretReveal.vue";
 import { LinkButton, Code, Card } from "@astrojs/starlight/components";
 import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
 
@@ -23,7 +22,19 @@ import EmailSignup from "../components/EmailSignup.vue";
           <img
             src="https://varlock-pixel-art.dmno.workers.dev/characters/warlock1.gif"
           />
-          <div>Environment variables with the right amount of magic</div>
+          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/effects/black-hole.gif" /> -->
+          <div>
+            <!-- <span class="tagline">Env files you can share!</span> -->
+            <!-- <br /> -->
+            <span class="sparkle">Magic</span> .env files built for sharing: <br
+            />
+            Human-first, AI-friendly
+          </div>
+          <!-- <div>
+            Environment variables with<br />the right amount of magic
+          </div> -->
+          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/effects/black-hole.gif" /> -->
+          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/characters/demon1.gif" /> -->
           <img
             src="https://varlock-pixel-art.dmno.workers.dev/characters/warlock1.gif"
           />
@@ -176,6 +187,32 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
 npx varlock init
     `
       />
+
+      <h2>
+        <img
+          src="https://varlock-pixel-art.dmno.workers.dev/effects/fire.gif"
+        />
+        Drop-in replacement for dotenv
+      </h2>
+
+      <Code
+        title="Replace dotenv with varlock"
+        lang="diff"
+        code={`// auto-load
+- import 'dotenv/config';
++ import 'varlock/auto-load';
+
+// CLI
+- dotenv -- node app.js
++ varlock run -- node app.js
+        `}
+      />
+      <p class="env-spec-example-note">
+        <b>varlock</b> can be used as a direct replacement for <code
+          >dotenv</code
+        > in most projects. Just swap your CLI or import and get validation, security,
+        and more. No other code changes required!
+      </p>
       <EmailSignup client:load />
     </div>
   </main>
@@ -236,6 +273,31 @@ npx varlock init
 
   h1 {
     text-align: center;
+  }
+
+  .tagline {
+    text-decoration: underline;
+    color: var(--brand-cyan);
+  }
+
+  .sparkle {
+    /* color: var(--brand-purple--t1); */
+    text-shadow: 0 0 5px var(--brand-cyan);
+    animation: sparkle-pulse 4s ease-in-out infinite;
+  }
+
+  @keyframes sparkle-pulse {
+    0% {
+      text-shadow: 0 0 5px var(--brand-cyan);
+    }
+    50% {
+      text-shadow:
+        0 0 10px var(--brand-cyan),
+        0 0 15px var(--brand-cyan);
+    }
+    100% {
+      text-shadow: 0 0 5px var(--brand-cyan);
+    }
   }
 
   .description {

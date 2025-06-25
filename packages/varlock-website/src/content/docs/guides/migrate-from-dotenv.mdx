@@ -1,0 +1,142 @@
+---
+title: Migrate from dotenv
+description: How to migrate from dotenv (CLI and npm package) to varlock
+---
+import SyncedCodeTabs from "@/components/SyncedCodeTabs.astro";
+
+## Why migrate from dotenv?
+
+- **Validation**: Catch misconfigurations early with schema-driven validation.
+- **Security**: Redact secrets and prevent accidental leaks.
+- **Type-safety**: Generate types automatically for your config.
+- **External secrets**: Load secrets from providers like 1Password, AWS, and more.
+
+---
+
+## Migrating from dotenvx CLI
+
+If you use `dotenvx` via the CLI, you can switch to `varlock run`:
+
+```bash
+# Before (dotenv CLI)
+dotenvx run -- node app.js
+
+# env specific
+dotenvx run -f .env.staging -- node app.js
+
+# install varlock
+brew install varlock
+
+# After (varlock CLI)
+varlock run -- node app.js
+
+# To specify an environment, set your env flag (see your .env.schema)
+APP_ENV=staging varlock run -- node app.js
+```
+
+> You can use multiple `.env` files (see [Environments guide](/guides/environments)).
+
+---
+
+## Migrating from dotenv npm package
+
+Initialize your project with `varlock init` to install `varlock` and generate a `.env.schema` from any existing `.env` files.
+
+<SyncedCodeTabs
+  group="package-manager"
+  tabs={[
+    {
+      label: "npm",
+      code: "npx varlock init",
+      lang: "bash",
+    },
+    {
+      label: "yarn",
+      code: "yarn dlx varlock init",
+      lang: "bash",
+    },
+    {
+      label: "pnpm",
+      code: "pnpm dlx varlock init",
+      lang: "bash",
+    },
+  ]}
+/>
+
+Then to use `varlock` in your code, you can replace `dotenv/config` with `varlock/auto-load`:
+
+```diff title="index.js" 
+// Before (dotenv)
+- import 'dotenv/config';
++ import 'varlock/auto-load';
+```
+
+Finally, you can remove `dotenv` from your dependencies:
+
+<SyncedCodeTabs
+  group="package-manager"
+  tabs={[
+    {
+      label: "npm",
+      code: "npm uninstall dotenv",
+      lang: "bash",
+    },
+    {
+      label: "yarn",
+      code: "yarn remove dotenv",
+      lang: "bash",
+    },
+    {
+      label: "pnpm",
+      code: "pnpm remove dotenv",
+      lang: "bash",
+    },
+  ]}
+/>
+
+## Using overrides
+
+If `dotenv` is being used under the hood of one of your dependencies, you can use `overrides` to seamlessly swap in `varlock` instead.
+
+<SyncedCodeTabs 
+  group="package-manager"
+  tabs={[
+    {
+      label: "npm",
+      code: `
+        // package.json
+        "overrides": {
+          "dotenv": "varlock"
+        }
+      `,
+      lang: "json"
+    },
+    {
+      label: "yarn",
+      code: `
+      // package.json
+      "overrides": {
+        "dotenv": "varlock"
+      }`,
+      lang: "json"
+    },
+    {
+      label: "pnpm",
+      code: `
+// pnpm-workspace.yaml
+overrides:
+        dotenv: varlock
+      `,
+      lang: "yaml"
+    },
+  ]}
+/>
+
+---
+
+## Further reading
+
+- [Environments guide](/guides/environments)
+- [Schema guide](/guides/schema)
+- [Reference: CLI commands](/reference/cli-commands)
+- [Reference: Item decorators](/reference/item-decorators) 
