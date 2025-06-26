@@ -47,6 +47,8 @@ export abstract class EnvGraphDataSource {
   // reference back to the graph
   graph?: EnvGraph;
 
+  abstract typeLabel: string;
+
   type = 'values' as DataSourceType;
   applyForEnv?: string;
   disabled?: boolean = false;
@@ -78,7 +80,8 @@ export abstract class EnvGraphDataSource {
 
 export class ProcessEnvDataSource extends EnvGraphDataSource {
   type = 'overrides' as const;
-  label = 'Process Environment Variables';
+  typeLabel = 'process';
+  label = 'process.env';
   ignoreNewDefs = true;
 
   static processEnvValues: Record<string, string | undefined> | undefined;
@@ -126,9 +129,14 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
   fullPath: string;
   fileName: string;
   rawContents?: string;
-  format?: string;
 
-  get label() { return `File: ${this.fullPath}`; }
+  get typeLabel() {
+    return (this.constructor as typeof FileBasedDataSource).format;
+  }
+
+  get label() { return this.fileName; }
+
+  static format = 'unknown'; // no abstract static
 
   static validFileExtensions: Array<string> = [];
   get validFileExtensions() {
@@ -205,9 +213,8 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
 }
 
 export class DotEnvFileDataSource extends FileBasedDataSource {
-  static format = 'dotenv';
+  static format = '.env';
   static validFileExtensions = []; // no extension for dotenv files!
-
 
   parsedFile?: ParsedEnvSpecFile;
 

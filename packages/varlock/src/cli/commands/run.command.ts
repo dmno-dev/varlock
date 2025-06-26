@@ -28,6 +28,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const argv = process.argv.slice(2);
   let commandArgs: Array<string> = [];
   let restCommandArgs: Array<string> = [];
+
+  console.log(argv);
   if (argv.includes('--')) {
     const doubleDashIndex = argv.indexOf('--');
     commandArgs = argv.slice(0, doubleDashIndex);

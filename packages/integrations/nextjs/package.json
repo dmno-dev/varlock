@@ -1,0 +1,29 @@
+{
+  "name": "@varlock/nextjs-integration",
+  "description": "drop-in replacement for @next/env that uses varlock instead of dotenv",
+  "version": "0.0.0",
+  "main": "dist/next-env-compat.js",
+  "types": "dist/next-env-compat.d.ts",
+  "exports": {
+    ".": "./dist/next-env-compat.js",
+    "./runtime": "./dist/runtime.js",
+    "./plugin": "./dist/plugin.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "varlock": "workspace:*",
+    "next": ">=14"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "varlock": "workspace:*"
+  }
+}
