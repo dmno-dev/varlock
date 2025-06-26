@@ -2,7 +2,9 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig({
   entry: [ // Entry point(s)
-    'src/index.ts',
+    'src/next-env-compat.ts',
+    'src/runtime.ts',
+    'src/plugin.ts',
   ],
 
   dts: true,

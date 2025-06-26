@@ -187,9 +187,8 @@ export async function generateTsTypesSrc(graph: EnvGraph) {
   tsSrc.push('};\n');
 
   tsSrc.push(`
-declare module 'varlock' {
+declare module 'varlock/env' {
   export interface TypedEnvSchema extends CoercedEnvSchema {}
-  
   export interface PublicTypedEnvSchema extends Pick<CoercedEnvSchema, '${exposedNonSensitiveKeys.join("' | '")}'> {}
 }
 `);

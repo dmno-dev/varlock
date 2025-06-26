@@ -6,7 +6,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync, spawnSync } from 'child_process';
+import { execSync, type spawnSync } from 'child_process';
 import { VarlockRedactor, resetRedactionMap, type SerializedEnvGraph } from 'varlock';
 
 export type Env = { [key: string]: string | undefined };
@@ -52,7 +52,7 @@ function debug(...args: Array<any>) {
     ...args,
   );
 }
-debug('✨ LOADED @next/env module!', process.env);
+debug('✨ LOADED @next/env module!');
 
 
 // Next.js only watches .env, .env.local, .env.development, .env.development.local
@@ -129,11 +129,11 @@ function replaceProcessEnv(sourceEnv: Env) {
 
 // in original module, but does not appear to be used
 export function processEnv(
-  loadedEnvFiles: LoadedEnvFiles,
-  dir?: string,
-  log: Log = console,
-  forceReload = false,
-  onReload?: (envFilePath: string) => void,
+  _loadedEnvFiles: LoadedEnvFiles,
+  _dir?: string,
+  _log: Log = console,
+  _forceReload = false,
+  _onReload?: (envFilePath: string) => void,
 ) {
   return [process.env];
 }
@@ -174,9 +174,21 @@ export function loadEnvConfig(
   }
 
   if (useCachedEnv) {
-    parsedEnv = JSON.parse(process.env.__VARLOCK_ENV || '{}');
+    if (!varlockLoadedEnv) {
+      varlockLoadedEnv = JSON.parse(process.env.__VARLOCK_ENV || '{}');
+      parsedEnv = Object.fromEntries(
+        Object.entries(varlockLoadedEnv.config).map(([key, value]) => [key, value.value]),
+      );
+
+      resetRedactionMap(varlockLoadedEnv);
+      debug('patching console with varlock redactor');
+      VarlockRedactor.patchConsole();
+    }
+
     combinedEnv = { ...initialEnv, ...parsedEnv };
+
     debug('>> USING CACHED ENV');
+
     return { combinedEnv, parsedEnv, loadedEnvFiles };
   }
 
@@ -202,14 +214,12 @@ export function loadEnvConfig(
 
   // hack to automatically set our env flag the same way next is doing
   initialEnv._NEXT_ENV_MODE = mode;
-
   const envFlagFromMode = mode;
-
-  // TODO: pass through envFlagFromMode to varlock?
+  // TODO: pass through envFlagFromMode as cli flag to varlock?
 
   try {
     const varlockLoadedEnvBuf = execSync('varlock load --format json-full', {
-      env: initialEnv,
+      env: initialEnv as any,
     });
     varlockLoadedEnv = JSON.parse(varlockLoadedEnvBuf.toString());
   } catch (err) {

@@ -1,4 +1,5 @@
-import { EnvGraph, SerializedEnvGraph } from '@env-spec/env-graph';
+import ansis from 'ansis';
+import { type SerializedEnvGraph } from '@env-spec/env-graph';
 import _ from '@env-spec/utils/my-dash';
 
 const UNMASK_STR = '👁';
@@ -27,8 +28,9 @@ export function redactString(valStr: string | undefined, mode?: RedactMode, hide
 }
 
 
+
 /** key value lookup of sensitive values to their redacted version */
-let sensitiveSecretsMap: Record<string, string> = {};
+let sensitiveSecretsMap: Record<string, { key: string, redacted: string }> = {};
 
 type ReplaceFn = (match: string, pre: string, val: string, post: string) => string;
 let redactorFindReplace: undefined | { find: RegExp, replace: ReplaceFn };
@@ -41,7 +43,7 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
     if (item.isSensitive && item.value && _.isString(item.value)) {
       // TODO: we want to respect masking settings from the schema (once added)
       const redacted = redactString(item.value);
-      if (redacted) sensitiveSecretsMap[item.value] = redacted;
+      if (redacted) sensitiveSecretsMap[item.value] = { key: itemKey, redacted };
     }
   }
 
@@ -66,11 +68,10 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
     // the pre and post matches only will be populated if they were present
     // and they are used to unmask the secret - so we do not want to replace in this case
     if (pre && post) return match;
-    return sensitiveSecretsMap[val];
+    return sensitiveSecretsMap[val].redacted;
   };
   redactorFindReplace = { find: findRegex, replace: replaceFn };
 }
-
 
 const CONSOLE_METHODS = ['trace', 'debug', 'info', 'log', 'info', 'warn', 'error'];
 
@@ -189,3 +190,74 @@ export const VarlockRedactor = {
     delete (globalThis as any)._varlockOrigWriteToConsoleFn;
   },
 };
+
+
+
+// // this does not cover all cases, but serves our needs so far for Next.js
+// function isString(s: any) {
+//   return Object.prototype.toString.call(s) === '[object String]';
+// }
+
+// reusable leak scanning helper function, used by various integrations
+export function scanForLeaks(
+  toScan: string | Response | ReadableStream,
+  // optional additional information about what is being scanned to be used in error messages
+  meta?: {
+    method?: string,
+    file?: string,
+  },
+) {
+  function scanStrForLeaks(strToScan: string) {
+    // console.log('[varlock leak scanner] ', strToScan.substr(0, 100));
+
+    // TODO: probably should use a single regex
+    for (const sensitiveValue in sensitiveSecretsMap) {
+      if (strToScan.includes(sensitiveValue)) {
+        const itemKey = sensitiveSecretsMap[sensitiveValue].key;
+
+        // error stack can gets awkwardly buried since we're so deep in the internals
+        // so we'll write a nicer error message to help the user debug
+        console.error([
+          '',
+          `🚨 ${ansis.red('DETECTED LEAKED SENSITIVE CONFIG')} 🚨`,
+          `> Config item key: ${ansis.blue(itemKey)}`,
+          ...meta?.method ? [`> Scan method: ${meta.method}`] : [],
+          ...meta?.file ? [`> File: ${meta.file}`] : [],
+          '',
+        ].join('\n'));
+
+        throw new Error(`🚨 DETECTED LEAKED SENSITIVE CONFIG - ${itemKey}`);
+      }
+    }
+  }
+
+  // scan a string
+  if (_.isString(toScan)) {
+    scanStrForLeaks(toScan as string);
+    return toScan;
+  } else if (toScan instanceof Buffer) {
+    scanStrForLeaks(toScan.toString());
+    return toScan;
+  // scan a ReadableStream by piping it through a scanner
+  } else if (toScan instanceof ReadableStream) {
+    if (toScan.locked) {
+      // console.log('> stream already locked');
+      return toScan;
+    } else {
+      // console.log('> stream will be scanned!');
+    }
+    const chunkDecoder = new TextDecoder();
+    return toScan.pipeThrough(
+      new TransformStream({
+        transform(chunk, controller) {
+          const chunkStr = chunkDecoder.decode(chunk);
+          scanStrForLeaks(chunkStr);
+          controller.enqueue(chunk);
+        },
+      }),
+    );
+  }
+  // other things may be passed in like Buffer... but we'll ignore for now
+  return toScan;
+}
+
