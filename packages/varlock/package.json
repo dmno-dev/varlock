@@ -24,6 +24,7 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./env": "./dist/env.js",
     "./auto-load": "./dist/auto-load.js",
     "./config": "./dist/dotenv-compat.js",
     "./config.js": "./dist/dotenv-compat.js"
@@ -45,6 +46,7 @@
     "@types/which": "^3.0.4",
     "@yao-pkg/pkg": "^6.4.1",
     "ansis": "catalog:",
+    "browser-or-node": "^3.0.0",
     "gunshi": "^0.26.3",
     "is-unicode-supported": "^2.1.0",
     "outdent": "^0.8.0",
