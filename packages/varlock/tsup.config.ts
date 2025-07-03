@@ -1,8 +1,24 @@
 import { defineConfig } from 'tsup';
 
+// // plugin to remove missing `node:` prefix - which vercel/nextjs doesnt like
+// function removeNodeImportPrefix() {
+//   return {
+//     name: 'removeNodeImportPrefix',
+//     setup(build: any) {
+//       build.onResolve({ filter: /node:.*/ }, (args: any) => ({
+//         path: args.path.substring(5),
+//         external: true,
+//       }));
+//     },
+//   };
+// }
+
+
+
 export default defineConfig({
   entry: [ // Entry point(s)
     'src/index.ts',
+    'src/env.ts',
     'src/auto-load.ts',
     'src/dotenv-compat.ts', // exposed under `/config` to match dotenv
 
@@ -11,6 +27,8 @@ export default defineConfig({
   ],
 
   noExternal: ['@env-spec/env-graph', '@env-spec/utils'],
+
+  // esbuildPlugins: [removeNodeImportPrefix()],
 
   dts: true,
 
@@ -25,6 +43,9 @@ export default defineConfig({
 
   splitting: true, // split output into chunks - MUST BE ON! or we get issues with multiple copies of classes and instanceof
   keepNames: true, // stops build from prefixing our class names with `_` in some cases
+
+  platform: 'node',
+  target: 'node22',
 
   // checking if the current command is `dev` and adjusting the watch paths accordingly
   watch: process.env.npm_lifecycle_event === 'dev' ? [

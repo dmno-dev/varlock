@@ -1,6 +1,6 @@
 ---
 packages:
-  - 'packages/*'
+  - 'packages/**/*'
 
 catalog:
   "ansis": "^4.1.0"
