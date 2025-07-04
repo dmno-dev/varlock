@@ -1,0 +1,110 @@
+---
+title: AI Tools
+description: Using varlock with AI tools - preventing secrets from being leaked to your AI agents
+draft: true
+---
+
+import InitCommand from "@/components/InitCommand.astro";
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+AI tools like [Cursor](https://www.cursor.com/), [Gemini](https://gemini.google.com), [Claude](https://claude.ai/), and [GitHub Copilot](https://github.com/features/copilot) have accelerated workflows for many development teams. This, however, comes with some risks. Unless your team has gone to great lengths to hide secrets from your AI tools, you're probably sending secrets to their AI agents and potentially leaking them in the code it generates.
+
+`varlock` exists to solve both of those problems. By never storing the secret _values_, you never have to worry about sending them to AI servers. And because of the new [@env-spec](/env-spec/overview) format you will have better AX (agent experience) when dealing with environment variables.
+
+## Get started
+
+To get the most secure experience with your AI tools, run:
+
+<InitCommand />
+
+## Ignore files
+
+By default, most AI tools ignore `.env.*` files. This is a good thing, but it means that you need to explicitly allow the files you want your AI tools to interact with. In most cases, you should be able to use the `.gitignore` file to do this by adding the following:
+```
+!.env.schema
+```
+If this doesn't work, see below for instructions pertaining to each AI tool.
+
+<Tabs syncKey="ai-tools">
+  <TabItem label="Cursor">
+    To do this, create a `.cursorignore` file in the root of your project and add the following:
+    ```
+    !.env.schema
+    ```
+  </TabItem>
+  <TabItem label="Gemini">
+    ### CLI
+    The Gemini CLI respects `.gitignore` files by default. Read more about this configuration [here](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/configuration.md#available-settings-in-settingsjson) To ensure the CLI can access your schema, add the following to your `.gitignore` file:
+    ```
+    !.env.schema
+    ```
+    ### Code Assist
+    Gemini Code Assist uses `.aiexclude` files. Create a `.aiexclude` file in your project root and add the following to ensure it can access your schema:
+    ```
+    !.env.schema
+    ```
+  </TabItem>
+  <TabItem label="Claude Code">
+    To do this, add the following to your [settings.json](https://docs.anthropic.com/en/docs/claude-code/settings#settings-files) file:
+
+    ```json
+{
+  "permissions": {
+      "allow": [
+        "Read(.env.schema)",
+        "Write(.env.schema)"
+      ],
+}
+    ```
+
+  </TabItem>
+  <TabItem label="GitHub Copilot">
+    GitHub Copilot can be configured to ignore files through your repository settings. See the [GitHub documentation](https://docs.github.com/en/copilot/managing-copilot-business/configuring-content-exclusions-for-github-copilot) for instructions on how to exclude files.
+  </TabItem>
+</Tabs>
+
+:::tip[Multiple ignore files?]
+If you have a monorepo, you may need to configure your AI tool to handle hierarchical ignore files.
+:::
+
+## Custom Instructions and Rules
+
+To give your AI tool the full context of what `varlock` is capable of, you can add custom instructions, documents and rules to your project.
+
+<Tabs syncKey="ai-tools">
+  <TabItem label="Cursor">
+    Follow the instructions to [add custom docs](https://docs.cursor.com/context/@-symbols/@-docs#add-custom-docs) and point it to:
+    ```txt
+    https://varlock.dev/llms-full.txt
+    ```
+    To add rules to your repo, follow the instructions to [add a project rule](https://docs.cursor.com/context/rules#project-rules) and copy our latest [Cursor rules](https://github.com/dmno-dev/varlock/blob/main/.cursor/rules/varlock.mdc). Adjust as needed.
+  </TabItem>
+  <TabItem label="Gemini">
+    ### CLI
+    The Gemini CLI uses a `GEMINI.md` file for custom instructions. Create a `GEMINI.md` file in your project root with the following content to give the CLI context about Varlock:
+    ```markdown
+    You are an expert in Varlock. You can find the documentation at https://varlock.dev/llms-full.txt.
+    ```
+    For more specific rules about how to manage your environment variables, copy the contents of our latest [Gemini rules](https://github.com/dmno-dev/varlock/blob/main/.gemini/varlock.md) into your project's `GEMINI.md` file.
+    
+    ### Code Assist
+    Gemini Code Assist does not have a dedicated custom instructions file. Instead, you can provide context by including relevant files in your prompts. For example, you can reference the Varlock documentation:
+    ```
+    https://varlock.dev/llms-full.txt
+    ```
+  </TabItem>
+  <TabItem label="Claude Code">
+    Follow the instructions to create a new [Project](https://claude.ai/projects) and in the custom instructions, point it to:
+    ```txt
+    https://varlock.dev/llms-full.txt
+    ```
+    To add rules to your repo, copy our latest [Claude rules](https://github.com/dmno-dev/varlock/blob/main/.claude/varlock.md) and adjust as needed.
+  </TabItem>
+  <TabItem label="GitHub Copilot">
+    Create a `copilot-instructions.md` file in the `.github` directory of your repository and add, at minimum, the following to give Copilot context about Varlock:
+    ```markdown
+    You are an expert in Varlock. You can find the documentation at https://varlock.dev/llms-full.txt.
+    ```
+    For more specific rules, copy the contents of our latest [Varlock rules for Copilot](https://github.com/dmno-dev/varlock/blob/main/.github/copilot-instructions.md) into your project's `.github/copilot-instructions.md` file.
+  </TabItem>
+</Tabs>

@@ -1,0 +1,7 @@
+{
+  "rules": [
+    "./gemini-rules-location.md",
+    "./docs-location.md",
+    "./varlock.md"
+  ]
+}
