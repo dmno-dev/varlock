@@ -6,6 +6,11 @@
   "type": "module",
   "author": "dmno-dev",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/varlock"
+  },
   "scripts": {
     "build": "tsup",
     "build:sea": "tsup --config tsup-sea.config.ts",
