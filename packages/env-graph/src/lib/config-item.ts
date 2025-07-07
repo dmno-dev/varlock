@@ -11,8 +11,7 @@ import {
 } from './errors';
 
 import { EnvGraphDataSource } from './data-source';
-import { ResolvedValue, Resolver } from './resolver';
-import { StaticValueResolver } from './resolver';
+import { ResolvedValue, Resolver, StaticValueResolver } from './resolver';
 
 export type ConfigItemDef = {
   description?: string;
@@ -143,7 +142,7 @@ export class ConfigItem {
         const val = defDecorators.optional.simplifiedValue;
         if (typeof val === 'boolean') return !val;
         if (typeof val === 'string') return val !== 'true';
-        return !Boolean(val);
+        return !val;
       }
 
       // Root-level @defaultRequired

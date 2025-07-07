@@ -11,7 +11,9 @@ function requiredInferenceTests(
   }>,
 ) {
   return () => {
-    tests.forEach(({ label, headers, values, expected }) => {
+    tests.forEach(({
+      label, headers, values, expected,
+    }) => {
       it(label, async () => {
         const g = new EnvGraph();
         const input = `${headers}\n# ---\n\n${values}`;
@@ -137,4 +139,4 @@ describe('@defaultRequired root decorator', requiredInferenceTests([
     `,
     expected: { BAR: false },
   },
-])); 
+]));

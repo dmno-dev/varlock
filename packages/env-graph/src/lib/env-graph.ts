@@ -15,7 +15,7 @@ export type SerializedEnvGraph = {
     value: any;
     isSensitive: boolean;
   }>;
-}
+};
 
 /** container of the overall graph and current resolution attempt / values */
 export class EnvGraph {
@@ -139,6 +139,12 @@ export class EnvGraph {
           source.disabled = true;
           continue;
         }
+      }
+
+      // check for @disable root decorator
+      if (source.decorators?.disable && source.decorators.disable.simplifiedValue) {
+        source.disabled = true;
+        continue;
       }
 
       // TODO: here we'll probably want to allow registering more resolvers and data types via root decorators
