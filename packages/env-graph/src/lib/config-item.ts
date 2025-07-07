@@ -12,6 +12,7 @@ import {
 
 import { EnvGraphDataSource } from './data-source';
 import { ResolvedValue, Resolver } from './resolver';
+import { StaticValueResolver } from './resolver';
 
 export type ConfigItemDef = {
   description?: string;
@@ -130,15 +131,27 @@ export class ConfigItem {
   get isRequired() {
     for (const def of this.defs) {
       const defDecorators = def.itemDef.decorators || {};
-      if ('required' in defDecorators) {
-        return defDecorators.required.simplifiedValue;
-      } else if ('optional' in defDecorators) {
-        return !defDecorators.optional.simplifiedValue;
-      } else if ('defaultRequired' in def.source.decorators) {
-        return def.source.decorators.defaultRequired.simplifiedValue;
+
+      // Explicit per-item decorators
+      if ('required' in defDecorators) return true;
+      if ('optional' in defDecorators) return false;
+
+      // Root-level @defaultRequired
+      if ('defaultRequired' in def.source.decorators) {
+        const val = def.source.decorators.defaultRequired.simplifiedValue;
+        if (val === 'infer') {
+          const resolver = def.itemDef.resolver;
+          if (resolver instanceof StaticValueResolver) {
+            return resolver.staticValue !== undefined && resolver.staticValue !== '';
+          } else {
+            return true; // function value
+          }
+        }
+        return val; // explicit true or false
       }
     }
-    return true; // otherwise default to true
+    // defaults to true
+    return true;
   }
 
   get isSensitive() {
@@ -254,29 +267,8 @@ export class ConfigItem {
       if ((validateResult as any) === false) {
         throw new ValidationError('validation failed with `false` return value');
       }
-      this.isValidated = true;
     } catch (err) {
-      if (_.isArray(err)) {
-        // could do more checking...
-        this.validationErrors = err as Array<ValidationError>;
-      } else if (err instanceof ValidationError) {
-        this.validationErrors = [err];
-      } else if (err instanceof Error) {
-        const validationError = new ValidationError('Unexpected error during validation');
-        validationError.cause = err;
-        console.log(err);
-        this.validationErrors = [validationError];
-      } else {
-        const validationError = new ValidationError(`Unexpected non-error thrown during validation - ${err}`);
-        validationError.cause = err;
-        this.validationErrors = [validationError];
-      }
-      return;
+      this.validationErrors = [new ValidationError(`validation failed: ${err}`)];
     }
   }
-
-  get isValid() {
-    return this.validationState === 'valid';
-  }
 }
-
