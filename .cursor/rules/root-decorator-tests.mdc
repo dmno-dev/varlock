@@ -1,0 +1,56 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+<rule>
+name: root_decorator_tests_structure
+version: 1.0
+priority: medium
+
+# Rule: Root Decorator Test Structure
+
+## Description
+Root decorator tests (such as for @disable, @defaultRequired, etc.) must follow a table-driven, DRY structure. Each test case should be represented as an object with fields for label, headers, values, and expected results. A single setup function should run all cases using describe().
+
+## Rationale
+- Ensures consistency and maintainability across all root decorator tests.
+- Makes it easy to add new cases and reduces code duplication.
+- Matches the style used in PR #47 and root-decorators.test.ts.
+
+## Requirements
+- Each root decorator test file must export a function that takes an array of test case objects and runs them using describe/it.
+- Each test case object must include at least: label, headers, values, and expected results (e.g., expectedKeys, expectedDisabled, etc.).
+- The test runner function must be used in describe() to run all cases.
+- Avoid copy-pasting individual it() blocks for each case; use the table-driven approach.
+
+## Example
+```ts
+function rootDecoratorTests(
+  tests: Array<{
+    label: string;
+    headers: string;
+    values: string;
+    expectedKeys: string[];
+    expectedDisabled: boolean;
+  }>,
+) {
+  return () => {
+    tests.forEach(({ label, headers, values, expectedKeys, expectedDisabled }) => {
+      it(label, async () => {
+        // ...setup and assertions...
+      });
+    });
+  };
+}
+
+describe('@disable root decorator', rootDecoratorTests([
+  // ...test cases...
+]));
+```
+
+## Enforcement
+- PRs adding or modifying root decorator tests must follow this structure.
+- Reviewers should request changes if tests are not table-driven or DRY.
+
+</rule>
