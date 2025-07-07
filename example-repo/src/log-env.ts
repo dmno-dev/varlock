@@ -1,4 +1,4 @@
-import { ENV } from 'varlock';
+import { ENV } from 'varlock/env';
 
 // import OpenAI from 'openai';
 

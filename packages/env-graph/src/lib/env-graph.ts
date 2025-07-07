@@ -11,6 +11,14 @@ import { ResolutionError, SchemaError } from './errors';
 import { generateTypes } from './type-generation';
 
 export type SerializedEnvGraph = {
+  sources: Array<{
+    label: string;
+    enabled: boolean;
+  }>,
+  settings: {
+    redactLogs?: boolean;
+    preventLeaks?: boolean;
+  },
   config: Record<string, {
     value: any;
     isSensitive: boolean;
@@ -277,8 +285,16 @@ export class EnvGraph {
 
   getSerializedGraph(): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
+      sources: [],
       config: {},
+      settings: {},
     };
+    for (const source of this.sortedDataSources) {
+      serializedGraph.sources.push({
+        label: source.label,
+        enabled: !source.disabled,
+      });
+    }
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
       serializedGraph.config[itemKey] = {
@@ -286,6 +302,11 @@ export class EnvGraph {
         isSensitive: item.isSensitive,
       };
     }
+
+    // expose a few root level settings
+    serializedGraph.settings.redactLogs = this.getRootDecoratorValue('redactLogs') ?? true;
+    serializedGraph.settings.preventLeaks = this.getRootDecoratorValue('preventLeaks') ?? true;
+
     return serializedGraph;
   }
 
@@ -295,5 +316,10 @@ export class EnvGraph {
 
   async generateTypes(lang: string, outputPath: string) {
     await generateTypes(this, lang, outputPath);
+  }
+
+  getRootDecoratorValue(decoratorName: string) {
+    const dec = this.schemaDataSource?.decorators?.[decoratorName];
+    return dec?.simplifiedValue;
   }
 }

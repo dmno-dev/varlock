@@ -162,8 +162,8 @@ importers:
         specifier: 'catalog:'
         version: 4.4.0
       execa:
-        specifier: ^9.5.2
-        version: 9.5.2
+        specifier: ^9.6.0
+        version: 9.6.0
       which:
         specifier: ^5.0.0
         version: 5.0.0
@@ -193,11 +193,14 @@ importers:
         specifier: ^3.0.4
         version: 3.0.4
       '@yao-pkg/pkg':
-        specifier: ^6.4.1
-        version: 6.4.1
+        specifier: ^6.5.1
+        version: 6.5.1
       ansis:
         specifier: 'catalog:'
         version: 4.1.0
+      browser-or-node:
+        specifier: ^3.0.0
+        version: 3.0.0
       gunshi:
         specifier: ^0.26.3
         version: 0.26.3
@@ -1576,12 +1579,12 @@ packages:
   '@webgpu/types@0.1.21':
     resolution: {integrity: sha512-pUrWq3V5PiSGFLeLxoGqReTZmiiXwY3jRkIG5sLLKjyqNxrwm/04b4nw7LSmGWJcKk59XOM/YRTUwOzo4MMlow==}
 
-  '@yao-pkg/pkg-fetch@3.5.21':
-    resolution: {integrity: sha512-nlJ+rXersw70CQVSph7OfIN8lN6nCStjU7koXzh0WXiPvztZGqkoQTScHQCe1K8/tuKpeL0bEOYW0rP4QqMJ9A==}
+  '@yao-pkg/pkg-fetch@3.5.23':
+    resolution: {integrity: sha512-rn45sqVQSkcJNSBdTnYze3n+kyub4CN8aiWYlPgA9yp9FZeEF+BlpL68kSIm3HaVuANniF+7RBMH5DkC4zlHZA==}
     hasBin: true
 
-  '@yao-pkg/pkg@6.4.1':
-    resolution: {integrity: sha512-pjePVt+DQP+HaJI5DfEZDX1pGsMMFjv1wuqfy/BwXlnffVIRk8lXjw7yVYvLQRcomf8Eaz2chDE5B6gR2SSaQw==}
+  '@yao-pkg/pkg@6.5.1':
+    resolution: {integrity: sha512-z6XlySYfnqfm1AfVlBN8A3yeAQniIwL7TKQfDCGsswYSVYLt2snbRefQYsfQQ3pw5lVXrZdLqgTjzaqID9IkWA==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -1811,6 +1814,9 @@ packages:
 
   brotli@1.3.3:
     resolution: {integrity: sha512-oTKjJdShmDuGW94SyyaoQvAjf30dZaHnjJ8uAF+u2/vGJkJbJPJAT1gDiOJP5v1Zb6f9KEyW/1HpuaWIXtGHPg==}
+
+  browser-or-node@3.0.0:
+    resolution: {integrity: sha512-iczIdVJzGEYhP5DqQxYM9Hh7Ztpqqi+CXZpSmX8ALFs9ecXkQIeqRyM6TfxEfMVpwhl3dSuDvxdzzo9sUOIVBQ==}
 
   browserslist@4.24.4:
     resolution: {integrity: sha512-KDi1Ny1gSePi1vm0q4oxSF8b4DR44GF4BbmS2YdhPLOEqd8pDviZOGH/GsmRwoWJ2+5Lr085X7naowMwKHDG1A==}
@@ -2439,8 +2445,8 @@ packages:
   eventemitter3@5.0.1:
     resolution: {integrity: sha512-GWkBvjiSZK87ELrYOSESUYeVIc9mvLLf/nXalMOS5dYrgZq9o5OVkbZAVM06CVxYsCwH9BDZFPlQTlPA1j4ahA==}
 
-  execa@9.5.2:
-    resolution: {integrity: sha512-EHlpxMCpHWSAh1dgS6bVeoLAXGnJNdR93aabr4QCGbzOM73o5XmRfM/e5FUqsw3aagP8S8XEWUWFAxnRBnAF0Q==}
+  execa@9.6.0:
+    resolution: {integrity: sha512-jpWzZ1ZhwUmeWRhS7Qv3mhpOhLfwI+uAX4e5fOcXqwMR7EcJ0pj2kV1CVzHVMX/LphnKWD3LObjZCoJ71lKpHw==}
     engines: {node: ^18.19.0 || >=20.5.0}
 
   exit-hook@2.2.1:
@@ -6842,7 +6848,7 @@ snapshots:
 
   '@webgpu/types@0.1.21': {}
 
-  '@yao-pkg/pkg-fetch@3.5.21':
+  '@yao-pkg/pkg-fetch@3.5.23':
     dependencies:
       https-proxy-agent: 5.0.1
       node-fetch: 2.7.0
@@ -6855,12 +6861,12 @@ snapshots:
       - encoding
       - supports-color
 
-  '@yao-pkg/pkg@6.4.1':
+  '@yao-pkg/pkg@6.5.1':
     dependencies:
       '@babel/generator': 7.27.0
       '@babel/parser': 7.27.0
       '@babel/types': 7.27.0
-      '@yao-pkg/pkg-fetch': 3.5.21
+      '@yao-pkg/pkg-fetch': 3.5.23
       into-stream: 6.0.0
       minimist: 1.2.8
       multistream: 4.1.0
@@ -6870,7 +6876,7 @@ snapshots:
       resolve: 1.22.10
       stream-meter: 1.0.4
       tar: 7.4.3
-      tinyglobby: 0.2.12
+      tinyglobby: 0.2.14
       unzipper: 0.12.3
     transitivePeerDependencies:
       - encoding
@@ -6888,7 +6894,7 @@ snapshots:
 
   agent-base@6.0.2:
     dependencies:
-      debug: 4.4.0
+      debug: 4.4.1
     transitivePeerDependencies:
       - supports-color
 
@@ -7186,6 +7192,8 @@ snapshots:
   brotli@1.3.3:
     dependencies:
       base64-js: 1.5.1
+
+  browser-or-node@3.0.0: {}
 
   browserslist@4.24.4:
     dependencies:
@@ -7890,7 +7898,7 @@ snapshots:
 
   eventemitter3@5.0.1: {}
 
-  execa@9.5.2:
+  execa@9.6.0:
     dependencies:
       '@sindresorhus/merge-streams': 4.0.0
       cross-spawn: 7.0.6
@@ -8461,7 +8469,7 @@ snapshots:
   https-proxy-agent@5.0.1:
     dependencies:
       agent-base: 6.0.2
-      debug: 4.4.0
+      debug: 4.4.1
     transitivePeerDependencies:
       - supports-color
 
@@ -11003,7 +11011,7 @@ snapshots:
       '@vue/devtools-core': 7.7.5(vite@6.3.2(@types/node@22.15.32))(vue@3.5.13(typescript@5.8.3))
       '@vue/devtools-kit': 7.7.5
       '@vue/devtools-shared': 7.7.5
-      execa: 9.5.2
+      execa: 9.6.0
       sirv: 3.0.1
       vite: 6.3.2(@types/node@22.15.32)
       vite-plugin-inspect: 0.8.9(rollup@4.39.0)(vite@6.3.2(@types/node@22.15.32))

@@ -1,54 +1,9 @@
 import { SerializedEnvGraph } from '@env-spec/env-graph';
+export { SerializedEnvGraph };
+
 import { checkForConfigErrors } from './cli/helpers/error-checks';
 import { loadVarlockEnvGraph } from './lib/load-graph';
-import { resetRedactionMap } from './lib/redaction-helpers';
-
-let envValues = {} as Record<string, any>;
-let publicKeys = [] as Array<string>;
-
-// these types will be overridden/augmented by the generated types
-export interface TypedEnvSchema {}
-export interface PublicTypedEnvSchema {}
-
-const EnvProxy = new Proxy<TypedEnvSchema>({}, {
-  get(target, prop) {
-    if (typeof prop !== 'string') throw new Error('prop keys cannot be symbols');
-    if (!(prop in envValues)) throw new Error(`Env key \`${prop}\` does not exist`);
-    return envValues[prop.toString()];
-  },
-});
-const PublicEnvProxy = new Proxy<PublicTypedEnvSchema>({}, {
-  get(target, prop) {
-    if (typeof prop !== 'string') throw new Error('prop keys cannot be symbols');
-    if (!(prop in envValues)) throw new Error(`Env key \`${prop}\` does not exist`);
-    if (!publicKeys.includes(prop.toString())) throw new Error(`${prop.toString()} is sensitive, use ENV instead of PUBLIC_ENV`);
-    return envValues[prop.toString()];
-  },
-});
-
-export const ENV = EnvProxy;
-export const PUBLIC_ENV = PublicEnvProxy;
-
-export async function loadFromSerializedGraph(serializedGraph: SerializedEnvGraph) {
-  resetRedactionMap(serializedGraph);
-
-  // reset env values
-  envValues = {};
-  publicKeys = [];
-
-  for (const key in serializedGraph.config) {
-    if (!serializedGraph.config[key].isSensitive) publicKeys.push(key);
-
-    const resolvedValue = serializedGraph.config[key].value;
-    if (resolvedValue === undefined || resolvedValue === null) {
-      envValues[key] = undefined;
-      process.env[key] = undefined; // not sure what to do here
-    } else {
-      envValues[key] = resolvedValue;
-      process.env[key] = resolvedValue.toString();
-    }
-  }
-}
+import { initVarlockEnv } from './runtime/env';
 
 export async function load() {
   // TODO: add some options
@@ -56,10 +11,30 @@ export async function load() {
   await envGraph.resolveEnvValues();
   checkForConfigErrors(envGraph);
 
-  loadFromSerializedGraph(envGraph.getSerializedGraph());
-
+  // loadFromSerializedGraph(envGraph.getSerializedGraph());
+  process.env.__VARLOCK_ENV = JSON.stringify(envGraph.getSerializedGraph());
+  initVarlockEnv();
   // TODO: return resolved env and schema / meta info
 }
 
-// expose redaction utils
-export { VarlockRedactor } from './lib/redaction-helpers';
+
+export function getBuildTimeReplacements(opts?: {
+  objectKey?: string,
+  includeSensitive?: boolean,
+}) {
+  if (!process.env.__VARLOCK_ENV) return {};
+  const envInfo = JSON.parse(process.env.__VARLOCK_ENV) as SerializedEnvGraph;
+  const replacements = {} as Record<string, string>;
+  for (const key in envInfo.config) {
+    const itemInfo = envInfo.config[key];
+    const replaceItem = !itemInfo.isSensitive || opts?.includeSensitive;
+    if (!replaceItem) continue;
+    replacements[`${opts?.objectKey || 'ENV'}.${key}`] = JSON.stringify(envInfo.config[key].value);
+  }
+  return replacements;
+}
+
+export { patchGlobalConsole } from './runtime/patch-console';
+export { patchGlobalServerResponse } from './runtime/patch-server-response';
+export { patchGlobalResponse } from './runtime/patch-response';
+export { ENV } from './runtime/env';

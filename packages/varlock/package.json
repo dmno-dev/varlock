@@ -27,16 +27,55 @@
   "bin": {
     "varlock": "./bin/cli.js"
   },
+  "engines": {
+    "node": ">=22"
+  },
   "exports": {
-    ".": "./dist/index.js",
-    "./auto-load": "./dist/auto-load.js",
-    "./config": "./dist/dotenv-compat.js",
-    "./config.js": "./dist/dotenv-compat.js"
+    ".": {
+      "ts-src": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./env": {
+      "ts-src": "./src/runtime/env.ts",
+      "types": "./dist/runtime/env.d.ts",
+      "default": "./dist/runtime/env.js"
+    },
+    "./auto-load": {
+      "ts-src": "./src/auto-load.ts",
+      "types": "./dist/auto-load.d.ts",
+      "default": "./dist/auto-load.js"
+    },
+    "./patch-console": {
+      "ts-src": "./src/runtime/patch-console.ts",
+      "types": "./dist/runtime/patch-console.d.ts",
+      "default": "./dist/runtime/patch-console.js"
+    },
+    "./patch-response": {
+      "ts-src": "./src/runtime/patch-response.ts",
+      "types": "./dist/runtime/patch-response.d.ts",
+      "default": "./dist/runtime/patch-response.js"
+    },
+    "./patch-server-response": {
+      "ts-src": "./src/runtime/patch-server-response.ts",
+      "types": "./dist/runtime/patch-server-response.d.ts",
+      "default": "./dist/runtime/patch-server-response.js"
+    },
+    "./config": {
+      "ts-src": "./src/config.ts",
+      "types": "./dist/dotenv-compat.d.ts",
+      "default": "./dist/dotenv-compat.js"
+    },
+    "./config.js": {
+      "ts-src": "./src/config.ts",
+      "types": "./dist/dotenv-compat.d.ts",
+      "default": "./dist/dotenv-compat.js"
+    }
   },
   "dependencies": {
     "@env-spec/parser": "workspace:*",
     "debug": "catalog:",
-    "execa": "^9.5.2",
+    "execa": "^9.6.0",
     "which": "^5.0.0"
   },
   "devDependencies": {
@@ -48,8 +87,9 @@
     "@types/debug": "catalog:",
     "@types/node": "catalog:",
     "@types/which": "^3.0.4",
-    "@yao-pkg/pkg": "^6.4.1",
+    "@yao-pkg/pkg": "^6.5.1",
     "ansis": "catalog:",
+    "browser-or-node": "^3.0.0",
     "gunshi": "^0.26.3",
     "is-unicode-supported": "^2.1.0",
     "outdent": "^0.8.0",

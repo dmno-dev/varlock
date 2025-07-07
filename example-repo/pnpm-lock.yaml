@@ -5,12 +5,15 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  dotenv: link:../packages/varlock
+  dotenv: ../packages/varlock
 
 importers:
 
   .:
     dependencies:
+      dotenv:
+        specifier: link:../packages/varlock
+        version: link:../packages/varlock
       openai:
         specifier: ^5.5.1
         version: 5.5.1

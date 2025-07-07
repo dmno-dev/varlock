@@ -61,7 +61,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const fullInjectedEnv = {
     ...process.env,
     ...resolvedEnv,
-    _VARLOCK_RUN: '1', // flag so we know our env is already injected
+    __VARLOCK_RUN: '1', // flag for a child process to detect it is runnign via `varlock run`
+    __VARLOCK_ENV: JSON.stringify(envGraph.getSerializedGraph()),
   };
 
   commandProcess = execa(pathAwareCommand || rawCommand, commandArgsOnly, {
