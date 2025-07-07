@@ -267,8 +267,28 @@ export class ConfigItem {
       if ((validateResult as any) === false) {
         throw new ValidationError('validation failed with `false` return value');
       }
+      this.isValidated = true;
     } catch (err) {
-      this.validationErrors = [new ValidationError(`validation failed: ${err}`)];
+      if (_.isArray(err)) {
+        // could do more checking...
+        this.validationErrors = err as Array<ValidationError>;
+      } else if (err instanceof ValidationError) {
+        this.validationErrors = [err];
+      } else if (err instanceof Error) {
+        const validationError = new ValidationError('Unexpected error during validation');
+        validationError.cause = err;
+        console.log(err);
+        this.validationErrors = [validationError];
+      } else {
+        const validationError = new ValidationError(`Unexpected non-error thrown during validation - ${err}`);
+        validationError.cause = err;
+        this.validationErrors = [validationError];
+      } 
+      return;
     }
+  }
+
+  get isValid() {
+    return this.validationState === 'valid';
   }
 }
