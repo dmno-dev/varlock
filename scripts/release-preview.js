@@ -12,8 +12,10 @@ try {
   const workspacePackagesInfo = JSON.parse(workspacePackagesInfoRaw);
 
   // Check if we're on changeset-release/main branch
-  const currentBranch = execSync('git branch --show-current').toString().trim();
+  const currentBranch = process.env.GITHUB_HEAD_REF || execSync('git branch --show-current').toString().trim();
   let releasePackagePaths;
+
+  console.log('current branch = ', currentBranch);
 
   if (currentBranch === 'changeset-release/main') {
     // On changeset-release/main branch, find modified package.json files
@@ -34,6 +36,7 @@ try {
       .map((filePath) => `${MONOREPO_ROOT}/${filePath.replace('/package.json', '')}`)
       .filter((filePath) => workspacePackagesInfo.some((p) => p.path === filePath));
   } else {
+    console.log('Running on normal PR, using changesets to determine packages to release...');
     // Regular changeset-based logic
     // generate summary of changed (publishable) modules according to changesets
     execSync('pnpm exec changeset status --output=changesets-summary.json');
@@ -57,7 +60,7 @@ try {
 
   console.log('Updated packages to release:', releasePackagePaths);
 
-  const publishResult = execSync(`pnpm dlx pkg-pr-new publish --pnpm --compact ${releasePackagePaths.join(' ')}`);
+  const publishResult = execSync(`pnpm dlx pkg-pr-new publish --pnpm ${releasePackagePaths.join(' ')}`);
   console.log('published preview packages!');
   console.log(publishResult);
 } catch (_err) {
