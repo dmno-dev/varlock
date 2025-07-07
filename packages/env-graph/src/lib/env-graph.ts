@@ -141,6 +141,12 @@ export class EnvGraph {
         }
       }
 
+      // check for @disable root decorator
+      if (source.decorators?.disable && source.decorators.disable.simplifiedValue) {
+        source.disabled = true;
+        continue;
+      }
+
       // TODO: here we'll probably want to allow registering more resolvers and data types via root decorators
 
       // create config items, or update their definitions if they already exist
