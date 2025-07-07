@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../src';
 
 function disableRootDecoratorTests(
@@ -6,12 +7,14 @@ function disableRootDecoratorTests(
     label: string;
     headers: string;
     values: string;
-    expectedKeys: string[];
+    expectedKeys: Array<string>;
     expectedDisabled: boolean;
   }>,
 ) {
   return () => {
-    tests.forEach(({ label, headers, values, expectedKeys, expectedDisabled }) => {
+    tests.forEach(({
+      label, headers, values, expectedKeys, expectedDisabled,
+    }) => {
       it(label, async () => {
         const g = new EnvGraph();
         const input = `${headers}\n# ---\n\n${values}`;
@@ -29,22 +32,31 @@ function disableRootDecoratorTests(
 describe('@disable root decorator', disableRootDecoratorTests([
   {
     label: 'skips loading config items from a disabled data source',
-    headers: '# @disable=true',
-    values: 'FOO=bar\nBAR=baz',
+    headers: outdent`# @disable=true`,
+    values: outdent`
+      FOO=bar
+      BAR=baz
+    `,
     expectedKeys: [],
     expectedDisabled: true,
   },
   {
     label: 'does not disable data source when @disable is false',
-    headers: '# @disable=false',
-    values: 'FOO=bar\nBAR=baz',
+    headers: outdent`# @disable=false`,
+    values: outdent`
+      FOO=bar
+      BAR=baz
+    `,
     expectedKeys: ['BAR', 'FOO'],
     expectedDisabled: false,
   },
   {
     label: 'disables data source with just @disable (no value)',
-    headers: '# @disable',
-    values: 'FOO=bar\nBAR=baz',
+    headers: outdent`# @disable`,
+    values: outdent`
+      FOO=bar
+      BAR=baz
+    `,
     expectedKeys: [],
     expectedDisabled: true,
   },

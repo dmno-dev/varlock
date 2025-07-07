@@ -15,7 +15,7 @@ export type SerializedEnvGraph = {
     value: any;
     isSensitive: boolean;
   }>;
-}
+};
 
 /** container of the overall graph and current resolution attempt / values */
 export class EnvGraph {
