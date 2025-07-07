@@ -133,8 +133,18 @@ export class ConfigItem {
       const defDecorators = def.itemDef.decorators || {};
 
       // Explicit per-item decorators
-      if ('required' in defDecorators) return true;
-      if ('optional' in defDecorators) return false;
+      if ('required' in defDecorators) {
+        const val = defDecorators.required.simplifiedValue;
+        if (typeof val === 'boolean') return val;
+        if (typeof val === 'string') return val === 'true';
+        return Boolean(val);
+      }
+      if ('optional' in defDecorators) {
+        const val = defDecorators.optional.simplifiedValue;
+        if (typeof val === 'boolean') return !val;
+        if (typeof val === 'string') return val !== 'true';
+        return !Boolean(val);
+      }
 
       // Root-level @defaultRequired
       if ('defaultRequired' in def.source.decorators) {
@@ -283,7 +293,7 @@ export class ConfigItem {
         const validationError = new ValidationError(`Unexpected non-error thrown during validation - ${err}`);
         validationError.cause = err;
         this.validationErrors = [validationError];
-      } 
+      }
       return;
     }
   }

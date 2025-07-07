@@ -27,9 +27,6 @@ catalogs:
     typescript:
       specifier: ^5.8.2
       version: 5.8.3
-    vite-node:
-      specifier: ^3.2.4
-      version: 3.2.4
     vitest:
       specifier: ^3.2.4
       version: 3.2.4
@@ -68,6 +65,9 @@ importers:
       globals:
         specifier: ^16.0.0
         version: 16.0.0
+      outdent:
+        specifier: ^0.8.0
+        version: 0.8.0
       turbo:
         specifier: ^2.5.0
         version: 2.5.0

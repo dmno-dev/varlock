@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../src';
 
 function requiredInferenceTests(
@@ -30,62 +31,110 @@ function requiredInferenceTests(
 describe('@defaultRequired root decorator', requiredInferenceTests([
   {
     label: 'static value is required',
-    headers: '# @defaultRequired=infer',
-    values: 'FOO=bar',
+    headers: outdent`# @defaultRequired=infer`,
+    values: outdent`FOO=bar`,
     expected: { FOO: true },
   },
   {
     label: 'static value with empty string is not required',
-    headers: '# @defaultRequired=infer',
-    values: "FOO=''",
+    headers: outdent`# @defaultRequired=infer`,
+    values: outdent`FOO=''`,
     expected: { FOO: false },
   },
   {
     label: 'no value is not required',
-    headers: '# @defaultRequired=infer',
-    values: 'FOO=',
+    headers: outdent`# @defaultRequired=infer`,
+    values: outdent`FOO=`,
     expected: { FOO: false },
   },
   {
     label: 'function value is required',
-    headers: '# @defaultRequired=infer',
-    values: 'BAR=fnCall()',
+    headers: outdent`# @defaultRequired=infer`,
+    values: outdent`BAR=fnCall()`,
     expected: { BAR: true },
   },
   {
     label: 'explicit optional overrides infer',
-    headers: '# @defaultRequired=infer',
-    values: '# @optional\nBAZ=qux\n\nBAR=val',
+    headers: outdent`# @defaultRequired=infer`,
+    values: outdent`
+      # @optional
+      BAZ=qux
+
+      BAR=val
+    `,
     expected: { BAZ: false, BAR: true },
   },
   {
     label: 'explicit required overrides infer',
-    headers: '# @defaultRequired=infer',
-    values: '# @required\nQUUX=',
+    headers: outdent`# @defaultRequired=infer`,
+    values: outdent`
+      # @required
+      QUUX=
+    `,
     expected: { QUUX: true },
   },
   {
     label: 'static value with explicit required',
-    headers: '# @defaultRequired=infer',
-    values: '# @required\nFOO=bar',
+    headers: outdent`# @defaultRequired=infer`,
+    values: outdent`
+      # @required
+      FOO=bar
+    `,
     expected: { FOO: true },
   },
   {
     label: 'static value with explicit optional',
-    headers: '# @defaultRequired=infer',
-    values: '# @optional\nFOO=bar',
+    headers: outdent`# @defaultRequired=infer`,
+    values: outdent`
+      # @optional
+      FOO=bar
+    `,
     expected: { FOO: false },
   },
   {
     label: '@defaultRequired=true makes all required',
-    headers: '# @defaultRequired=true',
-    values: 'FOO=bar\nBAR=',
+    headers: outdent`# @defaultRequired=true`,
+    values: outdent`
+      FOO=bar
+      BAR=
+    `,
     expected: { FOO: true, BAR: true },
   },
   {
     label: '@defaultRequired=false makes all not required',
-    headers: '# @defaultRequired=false',
-    values: 'FOO=bar\nBAR=\nBAZ=fnCall()',
+    headers: outdent`# @defaultRequired=false`,
+    values: outdent`
+      FOO=bar
+      BAR=
+      BAZ=fnCall()
+    `,
     expected: { FOO: false, BAR: false, BAZ: false },
+  },
+  {
+    label: 'no @defaultRequired set, required by default',
+    headers: outdent``,
+    values: outdent`
+      FOO=bar
+      BAR=
+    `,
+    expected: { FOO: true, BAR: true },
+  },
+  {
+    label: '@optional=false makes required',
+    headers: outdent`# @defaultRequired=false`,
+    values: outdent`
+      # @optional=false
+      FOO=bar
+    `,
+    expected: { FOO: true },
+  },
+  {
+    label: '@required=false makes not required',
+    headers: outdent`# @defaultRequired=true`,
+    values: outdent`
+      # @required=false
+      BAR=val
+    `,
+    expected: { BAR: false },
   },
 ])); 
