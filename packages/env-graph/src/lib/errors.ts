@@ -50,12 +50,12 @@ export class VarlockError extends Error {
     /** free-form additional metadata */
     extraMetadata?: Record<string, any>,
   }) {
+    // super must be root level statement
+    super(_.isError(errOrMessage) ? errOrMessage.message : errOrMessage);
     if (_.isError(errOrMessage)) {
-      super(errOrMessage.message);
       this.originalError = errOrMessage;
       this.icon = '💥';
     } else { // string
-      super(errOrMessage);
       this.originalError = more?.err;
     }
     if (_.isArray(more?.tip)) more.tip = more.tip.join('\n');

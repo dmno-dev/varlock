@@ -5,6 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
+    "example:load": "node --experimental-strip-types src/example-load.ts",
     "example:auto": "node --experimental-strip-types src/example-autoload.ts",
     "example:run": "varlock run -- node --experimental-strip-types src/example-needs-run.ts",
     "example:dotenv": "node --experimental-strip-types src/example-dotenv.ts"
@@ -13,6 +14,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "dotenv": "link:../packages/varlock",
     "openai": "^5.5.1",
     "varlock": "link:../packages/varlock"
   },

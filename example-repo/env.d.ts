@@ -115,8 +115,21 @@ export type CoercedEnvSchema = {
 };
 
 
-declare module 'varlock' {
+declare module 'varlock/env' {
   export interface TypedEnvSchema extends CoercedEnvSchema {}
-  
   export interface PublicTypedEnvSchema extends Pick<CoercedEnvSchema, 'NOT_SENSITIVE_ITEM' | 'NUMBER_ITEM' | 'EXEC_OP_EXAMPLE' | 'APP_ENV' | 'SOME_VAR' | 'EMAIL_ITEM' | 'URL_ITEM' | 'PORT' | 'INFER_NUM' | 'INFER_BOOL' | 'INFER_STR' | 'ENABLE_SOME_FEATURE' | 'X_SERVICE_CLIENT_ID' | 'X_SERVICE_CLIENT_TOKEN'> {}
+}
+
+
+export type EnvSchemaAsStrings = {
+  [Property in keyof CoercedEnvSchema]:
+    CoercedEnvSchema[Property] extends string ? CoercedEnvSchema[Property]
+      : (CoercedEnvSchema[Property] extends boolean ? ('true' | 'false') : string)
+};
+
+
+declare global {
+  namespace NodeJS {
+    interface ProcessEnv extends EnvSchemaAsStrings {}
+  }
 }

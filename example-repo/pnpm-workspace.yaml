@@ -2,4 +2,4 @@
 packages:
 
 overrides:
-  dotenv: "$varlock"
+  dotenv: "../packages/varlock"

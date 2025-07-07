@@ -3,7 +3,7 @@ import _ from '@env-spec/utils/my-dash';
 
 import { ConfigItem } from '../../../env-graph/src/lib/config-item';
 import { VarlockError } from '../../../env-graph/src/lib/errors';
-import { redactString } from './redaction-helpers';
+import { redactString } from '../runtime/lib/redaction';
 
 type ColorMod = AnsiStyles | AnsiColors;
 type ColorMods = ColorMod | Array<ColorMod>;
