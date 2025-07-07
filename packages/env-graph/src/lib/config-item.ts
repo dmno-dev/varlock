@@ -12,6 +12,7 @@ import {
 
 import { EnvGraphDataSource } from './data-source';
 import { ResolvedValue, Resolver } from './resolver';
+import { StaticValueResolver } from './resolver';
 
 export type ConfigItemDef = {
   description?: string;
@@ -130,15 +131,37 @@ export class ConfigItem {
   get isRequired() {
     for (const def of this.defs) {
       const defDecorators = def.itemDef.decorators || {};
+
+      // Explicit per-item decorators
       if ('required' in defDecorators) {
-        return defDecorators.required.simplifiedValue;
-      } else if ('optional' in defDecorators) {
-        return !defDecorators.optional.simplifiedValue;
-      } else if ('defaultRequired' in def.source.decorators) {
-        return def.source.decorators.defaultRequired.simplifiedValue;
+        const val = defDecorators.required.simplifiedValue;
+        if (typeof val === 'boolean') return val;
+        if (typeof val === 'string') return val === 'true';
+        return Boolean(val);
+      }
+      if ('optional' in defDecorators) {
+        const val = defDecorators.optional.simplifiedValue;
+        if (typeof val === 'boolean') return !val;
+        if (typeof val === 'string') return val !== 'true';
+        return !Boolean(val);
+      }
+
+      // Root-level @defaultRequired
+      if ('defaultRequired' in def.source.decorators) {
+        const val = def.source.decorators.defaultRequired.simplifiedValue;
+        if (val === 'infer') {
+          const resolver = def.itemDef.resolver;
+          if (resolver instanceof StaticValueResolver) {
+            return resolver.staticValue !== undefined && resolver.staticValue !== '';
+          } else {
+            return true; // function value
+          }
+        }
+        return val; // explicit true or false
       }
     }
-    return true; // otherwise default to true
+    // defaults to true
+    return true;
   }
 
   get isSensitive() {
@@ -279,4 +302,3 @@ export class ConfigItem {
     return this.validationState === 'valid';
   }
 }
-
