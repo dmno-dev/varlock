@@ -132,9 +132,10 @@ FunctionCall =
 FunctionName = $([a-zA-Z] [a-zA-Z0-9_]*)
 FunctionArgs =
   values:(
-    // combine key=val pairs into a single object
-    (key:FunctionArgKeyName "=" val:FunctionArgValue { return new ParsedEnvSpecKeyValuePair({ key, val })})|1.., _ "," _|
-    / FunctionArgValue|1.., _ "," _|
+    (
+      (key:FunctionArgKeyName "=" val:FunctionArgValue { return new ParsedEnvSpecKeyValuePair({ key, val })})
+      / FunctionArgValue
+    )|1.., _ "," _|
   )
   {
     return new ParsedEnvSpecFunctionArgs({
