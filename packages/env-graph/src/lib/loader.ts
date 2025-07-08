@@ -43,7 +43,8 @@ export async function loadEnvGraph(opts?: {
     graph.addDataSource(fileDataSource);
     await fileDataSource.finishInit();
   }
-  graph.addDataSource(new ProcessEnvDataSource());
+  // proocss.env overrides get some special treatment
+  graph.finalOverridesDataSource = new ProcessEnvDataSource();
 
   await graph.finishLoad();
 

@@ -9,8 +9,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { DotEnvFileDataSource, EnvGraph } from '../src';
-import { SchemaError } from '../src/lib/errors';
+import { ResolutionError, SchemaError } from '../src/lib/errors';
 import { Resolver } from '../src/lib/resolver';
+import { outdent } from 'outdent';
 
 // define special increment resolver used only for tests
 class IncrementResolver extends Resolver {
@@ -41,7 +42,13 @@ function functionValueTests(
         IncrementResolver.counter = 0;
         g.registerResolver(IncrementResolver);
 
-        const testDataSource = new DotEnvFileDataSource('.env.schema', { overrideContents: input });
+        const testDataSource = new DotEnvFileDataSource('.env.schema', {
+          overrideContents: outdent`
+            # @defaultRequired=false
+            # ---
+            ${input}
+          `,
+        });
         g.addDataSource(testDataSource);
         await testDataSource.finishInit();
         await g.finishLoad();
@@ -56,7 +63,10 @@ function functionValueTests(
             if (expectedValue === SchemaError) {
               expect(item.errors.length).toBeGreaterThan(0);
               expect(item.errors[0]).toBeInstanceOf(SchemaError);
+            } else if (expectedValue === ResolutionError) {
+              expect(item.resolutionError).toBeInstanceOf(ResolutionError);
             } else {
+              expect(item.isValid, `Expected item ${key} to be valid`).toBeTruthy();
               expect(item.resolvedValue).toEqual(expectedValue);
             }
           }
@@ -177,6 +187,57 @@ describe('ref()', functionValueTests({
     expected: { ITEM: SchemaError },
   },
 }));
+
+describe('regex()', functionValueTests({
+  'error - regex used as value': {
+    input: 'ITEM=regex(.*)',
+    expected: { ITEM: ResolutionError },
+  },
+}));
+
+describe('remap()', functionValueTests({
+  'keeps original value if no match found': {
+    input: outdent`
+      REMAP_ME=foo
+      ITEM=remap($REMAP_ME, a=b, b=c)
+    `,
+    expected: { ITEM: 'foo' },
+  },
+  'remaps exact match': {
+    input: outdent`
+      REMAP_ME=foo
+      ITEM=remap($REMAP_ME, biz=buz, bar=foo)
+    `,
+    expected: { ITEM: 'bar' },
+  },
+  'remaps regex match': {
+    input: outdent`
+      REMAP_ME=foo
+      ITEM=remap($REMAP_ME, biz=buz, bar=regex(fo+))
+    `,
+    expected: { ITEM: 'bar' },
+  },
+  'remaps undefined match': {
+    input: outdent`
+      REMAP_ME=
+      ITEM=remap($REMAP_ME, biz=buz, bar=undefined)
+    `,
+    expected: { REMAP_ME: undefined, ITEM: 'bar' },
+  },
+  'error - no args': {
+    input: 'ITEM=remap()',
+    expected: { ITEM: SchemaError },
+  },
+  'error - no value': {
+    input: 'ITEM=remap(key=val)',
+    expected: { ITEM: SchemaError },
+  },
+  'error - extra arg': {
+    input: 'ITEM=remap("value", key=val, "extra")',
+    expected: { ITEM: SchemaError },
+  },
+}));
+
 
 describe('dependency cycles', functionValueTests({
   'detect cycle - self': {
