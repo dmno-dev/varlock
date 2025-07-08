@@ -170,7 +170,19 @@ export class ConfigItem {
         return defDecorators.sensitive.simplifiedValue;
         // TODO: do we want an opposite decorator similar to @required/@optional -- maybe @public?
       } else if ('defaultSensitive' in def.source.decorators) {
-        return def.source.decorators.defaultSensitive.simplifiedValue;
+        const dec = def.source.decorators.defaultSensitive;
+        // Handle function call: inferFromPrefix(PREFIX)
+        if (dec.value instanceof ParsedEnvSpecFunctionCall && dec.value.name === 'inferFromPrefix') {
+          const args = dec.value.simplifiedArgs;
+          // Accepts a single string prefix as first arg
+          const prefix = Array.isArray(args) && args.length > 0 ? args[0] : undefined;
+          if (typeof prefix === 'string' && this.key.startsWith(prefix)) {
+            return false; // Not sensitive if matches prefix
+          }
+          return true; // Sensitive otherwise
+        }
+        // Fallback to static/boolean value
+        return dec.simplifiedValue;
       }
     }
     return true;
