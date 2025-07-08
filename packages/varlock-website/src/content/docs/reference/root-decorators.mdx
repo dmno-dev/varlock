@@ -25,26 +25,65 @@ APP_ENV=development
 </div>
 
 <div>
-### `@defaultRequired  `
-Sets the the default behavior of each item being _required_. Can be overridden on individual items using [`@required`](/reference/item-decorators/#required) or [`@optional`](/reference/item-decorators/#optional).
+### `@defaultRequired`
+Sets the default behavior of each item being _required_. Can be overridden on individual items using [`@required`](/reference/item-decorators/#required) or [`@optional`](/reference/item-decorators/#optional).
+
+**Options:**
+- `true` (default): All items are required unless marked optional.
+- `false`: All items are optional unless marked required.
+- `infer`: Items with a value set in `.env.schema` will be required; items with an empty string or no value are optional. Can be overridden per item.
 
 ```env-spec
-# @defaultRequired=true
+# @defaultRequired=infer
 # ---
+
+FOO=bar        # required (static value)
+BAR=fnCall()   # required (function value)
+BAZ=           # optional (no value)
+QUX=''         # optional (empty string)
+
 # @optional
-OPTIONAL_ITEM=
+OPTIONAL_ITEM= # optional (explicit)
+
+# @required
+REQUIRED_ITEM= # required (explicit)
 ```
 </div>
 
 <div>
-### `@defaultSensitive  `
-Sets the the default state of each item being treated sensitive. Can be overridden on individual items using [`@sensitive`](/reference/item-decorators/#sensitive).
+### `@defaultSensitive`
+Sets the default state of each item being treated as _sensitive_. Can be overridden on individual items using [`@sensitive`](/reference/item-decorators/#sensitive).
+
+**Options:**
+- `true` (default): All items are sensitive unless marked otherwise.
+- `false`: All items are not sensitive unless marked otherwise.
+- `inferFromPrefix(PREFIX)`: Items whose key starts with the given `PREFIX` are _not_ sensitive; all others are sensitive. Useful for marking e.g. `PUBLIC_` keys as non-sensitive by default.
 
 ```env-spec
-# @defaultSensitive=false
+# @defaultSensitive=inferFromPrefix(PUBLIC_)
 # ---
-# @sensitive
-SERVICE_X_AUTH_TOKEN=
+
+PUBLIC_FOO=  # not sensitive (due to matching prefix)
+OTHER_FOO=  # sensitive (default when prefix does not match)
+
+# @sensitive=true
+PUBLIC_BAR=  # sensitive (explicit decorator overrides prefix)
+# @sensitive=false
+OTHER_BAR=  # not sensitive (explicit)
+```
+</div>
+
+<div>
+### `@disable`
+Skips loading config items from a file or data source. If true, the file is ignored and no items are loaded from it. Useful for conditionally disabling a schema or env file.
+
+```env-spec
+# @disable  # (shorthand for @disable=true)
+# ---
+
+FOO=bar  # will be ignored
+BAR=baz  # will be ignored
+
 ```
 </div>
 
