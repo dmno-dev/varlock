@@ -591,6 +591,7 @@
         }
       },
       "patterns": [
+        { "include": "#env-item-value-fn-call" },
         { "include": "#literal-value" },
         { "include": "#quoted-value" },
         { "include": "#unquoted-string-within-fn-call" }
@@ -628,11 +629,10 @@
       "comment": "env item value fn call arg",
       "patterns": [
         { "include": "#literal-value" },
+        { "include": "#key-value-pair" },
         { "include": "#env-item-value-fn-call" },
         { "include": "#expansion" },
         { "include": "#quoted-value" },
-        { "include": "#env-item-value-fn-call" },
-        { "include": "#key-value-pair" },
         { "include": "#unquoted-string-within-fn-call" }
       ]
     }
