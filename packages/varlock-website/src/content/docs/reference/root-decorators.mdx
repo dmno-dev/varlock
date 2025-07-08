@@ -31,7 +31,7 @@ Sets the default behavior of each item being _required_. Can be overridden on in
 **Options:**
 - `true` (default): All items are required unless marked optional.
 - `false`: All items are optional unless marked required.
-- `infer`: Items with a static or function value are required; items with an empty string or no value are optional. Can be overridden per item.
+- `infer`: Items with a value set in `.env.schema` will be required; items with an empty string or no value are optional. Can be overridden per item.
 
 ```env-spec
 # @defaultRequired=infer
@@ -52,7 +52,7 @@ REQUIRED_ITEM= # required (explicit)
 
 <div>
 ### `@defaultSensitive`
-Sets the default state of each item being treated as sensitive. Can be overridden on individual items using [`@sensitive`](/reference/item-decorators/#sensitive).
+Sets the default state of each item being treated as _sensitive_. Can be overridden on individual items using [`@sensitive`](/reference/item-decorators/#sensitive).
 
 **Options:**
 - `true` (default): All items are sensitive unless marked otherwise.
@@ -63,23 +63,22 @@ Sets the default state of each item being treated as sensitive. Can be overridde
 # @defaultSensitive=inferFromPrefix(PUBLIC_)
 # ---
 
-PUBLIC_FOO=bar   # not sensitive
-SECRET_BAR=baz   # sensitive
-
-# @sensitive=false
-FOO=bar          # not sensitive (explicit)
+PUBLIC_FOO=  # not sensitive (due to matching prefix)
+OTHER_FOO=  # sensitive (default when prefix does not match)
 
 # @sensitive=true
-PUBLIC_BAR=baz   # sensitive (explicit)
+PUBLIC_BAR=  # sensitive (explicit decorator overrides prefix)
+# @sensitive=false
+OTHER_BAR=  # not sensitive (explicit)
 ```
 </div>
 
 <div>
 ### `@disable`
-Skips loading config items from a file or data source. If present (or set to `true`), the file is ignored and no items are loaded from it. Useful for conditionally disabling a schema or env file.
+Skips loading config items from a file or data source. If true, the file is ignored and no items are loaded from it. Useful for conditionally disabling a schema or env file.
 
 ```env-spec
-# @disable
+# @disable  # (shorthand for @disable=true)
 # ---
 
 FOO=bar  # will be ignored
