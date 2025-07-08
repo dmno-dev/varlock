@@ -32,22 +32,33 @@ function sensitiveInferenceTests(
 
 describe('@defaultSensitive inferFromPrefix', sensitiveInferenceTests([
   {
-    label: 'key matches prefix is not sensitive',
+    label: 'base case @defaultSensitive=inferFromPrefix',
     headers: outdent`# @defaultSensitive=inferFromPrefix(PUBLIC_)`,
     values: outdent`
       PUBLIC_FOO=bar
+      BAR=baz
+    `,
+    expected: { PUBLIC_FOO: false, BAR: true },
+  },
+  {
+    label: 'key matches prefix is not sensitive (with explicit override)',
+    headers: outdent`# @defaultSensitive=inferFromPrefix(PUBLIC_)`,
+    values: outdent`
+      PUBLIC_FOO=bar
+      # @sensitive=true
       SECRET_BAR=baz
     `,
     expected: { PUBLIC_FOO: false, SECRET_BAR: true },
   },
   {
-    label: 'key does not match prefix is sensitive',
+    label: 'key does not match prefix is sensitive (with explicit override)',
     headers: outdent`# @defaultSensitive=inferFromPrefix(PUBLIC_)`,
     values: outdent`
+      # @sensitive=false
       FOO=bar
       PUBLIC_BAR=baz
     `,
-    expected: { FOO: true, PUBLIC_BAR: false },
+    expected: { FOO: false, PUBLIC_BAR: false },
   },
   {
     label: 'explicit @sensitive overrides defaultSensitive',
@@ -61,7 +72,7 @@ describe('@defaultSensitive inferFromPrefix', sensitiveInferenceTests([
     expected: { SECRET_BAR: false, PUBLIC_FOO: true },
   },
   {
-    label: 'static @defaultSensitive=true/false still works',
+    label: 'static @defaultSensitive=true still works',
     headers: outdent`# @defaultSensitive=true`,
     values: outdent`
       FOO=bar
@@ -77,5 +88,14 @@ describe('@defaultSensitive inferFromPrefix', sensitiveInferenceTests([
       BAR=baz
     `,
     expected: { FOO: false, BAR: false },
+  },
+  {
+    label: 'no @defaultSensitive set, sensitive by default',
+    headers: outdent``,
+    values: outdent`
+      FOO=bar
+      BAR=baz
+    `,
+    expected: { FOO: true, BAR: true },
   },
 ]));
