@@ -17,6 +17,7 @@ export async function loadEnvGraph(opts?: {
   relativePaths?: Array<string>,
   checkGitIgnored?: boolean,
   excludeDirs?: Array<string>,
+  currentEnvFallback?: string,
   afterInit?: (graph: EnvGraph) => Promise<void>,
 }) {
   const contextPath = opts?.contextPath ?? autoDetectContextPath();
@@ -26,6 +27,10 @@ export async function loadEnvGraph(opts?: {
 
   if (opts?.afterInit) {
     await opts.afterInit(graph);
+  }
+
+  if (opts?.currentEnvFallback) {
+    graph.envFlagValue = opts.currentEnvFallback;
   }
 
   const envFilePaths = await findEnvFiles({
