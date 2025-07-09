@@ -4,12 +4,12 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "inputs": ["tsconfig.json", "tsconfig.*.json", "tsup.config.ts", "src/**"],
+      "inputs": ["package.json", "tsconfig.json", "tsconfig.*.json", "tsup.config.ts", "src/**"],
       "outputs": ["dist/**"]
     },
     "test:ci": {
       "dependsOn": ["^test:ci"],
-      "inputs": ["tsconfig.json", "tsconfig.*.json", "tsup.config.ts", "src/**"]
+      "inputs": ["package.json", "tsconfig.json", "tsconfig.*.json", "tsup.config.ts", "src/**", "test/**"]
     },
     "dev": {
       "cache": false,

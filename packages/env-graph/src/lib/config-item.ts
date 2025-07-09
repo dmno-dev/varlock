@@ -149,11 +149,17 @@ export class ConfigItem {
       if ('defaultRequired' in def.source.decorators) {
         const val = def.source.decorators.defaultRequired.simplifiedValue;
         if (val === 'infer') {
-          const resolver = def.itemDef.resolver;
-          if (resolver instanceof StaticValueResolver) {
-            return resolver.staticValue !== undefined && resolver.staticValue !== '';
+          // Only apply infer logic for schema source
+          if (def.source.type === 'schema') {
+            const resolver = def.itemDef.resolver;
+            if (resolver instanceof StaticValueResolver) {
+              return resolver.staticValue !== undefined && resolver.staticValue !== '';
+            } else {
+              return true; // function value
+            }
           } else {
-            return true; // function value
+            // Not schema source, skip this def and continue
+            continue;
           }
         }
         return val; // explicit true or false
