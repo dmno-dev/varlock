@@ -1,2 +1,3 @@
 .env.local
 .env.*.local
+env.d.ts

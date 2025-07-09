@@ -20,6 +20,10 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'When load is fialing, show all items rather than only failing items',
     },
+    env: {
+      type: 'string',
+      description: 'Set the environment (e.g., production, development, etc) - will be overridden by @envFlag in the schema if present',
+    },
   },
 });
 
@@ -27,7 +31,9 @@ export const commandSpec = define({
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const { format, 'show-all': showAll } = ctx.values;
 
-  const envGraph = await loadVarlockEnvGraph();
+  const envGraph = await loadVarlockEnvGraph({
+    currentEnvFallback: ctx.values.env,
+  });
   checkForSchemaErrors(envGraph);
 
   // TODO: move into a more general post-load hook system

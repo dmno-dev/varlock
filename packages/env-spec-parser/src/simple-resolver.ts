@@ -63,6 +63,21 @@ export function simpleResolver(
           if (resolvedArg !== undefined && resolvedArg !== '') return resolvedArg;
         }
         return undefined;
+      } else if (valOrFn.name === 'remap') {
+        const args = valOrFn.data.args.data.values;
+        if (
+          !(args[0] instanceof ParsedEnvSpecStaticValue)
+          && !(args[0] instanceof ParsedEnvSpecFunctionCall)
+        ) throw new Error('Expected first arg to be a static value or function call');
+        const val = valueResolver(args[0]);
+        for (const remapArg of args.slice(1)) {
+          if (!(remapArg instanceof ParsedEnvSpecKeyValuePair)) {
+            throw new Error('`remap` args after first should all be key-value pairs');
+          }
+          const remapVal = valueResolver(remapArg.value);
+          if (val === remapVal) return remapArg.key;
+        }
+        return val;
       } else {
         throw new Error(`Unknown function: ${valOrFn.name}`);
       }

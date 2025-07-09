@@ -92,7 +92,7 @@
     "browser-or-node": "^3.0.0",
     "gunshi": "^0.26.3",
     "is-unicode-supported": "^2.1.0",
-    "outdent": "^0.8.0",
+    "outdent": "catalog:",
     "tsup": "catalog:",
     "vitest": "catalog:"
   }

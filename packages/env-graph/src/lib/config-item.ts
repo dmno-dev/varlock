@@ -92,6 +92,12 @@ export class ConfigItem {
   }
 
   async process() {
+    // we add the final override def here so that if we process the item early (like when resolving our envFlag) it will be respected
+    const finalOverrideDef = this.envGraph.finalOverridesDataSource?.configItemDefs[this.key];
+    if (finalOverrideDef) {
+      this.defs.unshift({ itemDef: finalOverrideDef, source: this.envGraph.finalOverridesDataSource! });
+    }
+
     // process resolvers
     for (const def of this.defs) {
       await def.itemDef.resolver?.process(this);
@@ -231,20 +237,24 @@ export class ConfigItem {
     if (this.schemaErrors.length) return;
     if (this.resolverSchemaErrors.length) return;
 
-    // not sure in what cases this may happen - we'll likely always have a resolver?
-    if (!this.valueResolver) {
-      this.resolvedRawValue = undefined;
+    // we should always have a resolver set, even if its a static resolver with undefined value
+    if (!this.valueResolver) throw new Error('Expected a resolver to be set');
+
+    if (this.isResolved) {
+      // previously we would throw an error, now we resolve the envFlag early, so we can just return
+      // but we may want further checks, as this could help us identify buggy logic calling resolve multiple times
       return;
     }
 
-    if (this.isResolved) throw new Error('item already resolved');
-
     try {
-      // TODO: pass in some ctx object?
       this.resolvedRawValue = await this.valueResolver.resolve();
     } catch (err) {
       this.resolutionError = new ResolutionError(`error resolving value: ${err}`);
       this.resolutionError.cause = err;
+    }
+
+    if (this.resolvedRawValue instanceof RegExp) {
+      this.resolutionError = new ResolutionError('regex() is meant to be used within function args, not as a final resolved value');
     }
 
     // bail if we have an resolution error

@@ -30,7 +30,6 @@
     "eslint-plugin-jsonc": "^2.20.0",
     "eslint-stylistic-airbnb": "^2.0.0",
     "globals": "^16.0.0",
-    "outdent": "^0.8.0",
     "turbo": "^2.5.0",
     "typescript": "catalog:",
     "typescript-eslint": "^8.29.1"

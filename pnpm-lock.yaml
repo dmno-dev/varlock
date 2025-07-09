@@ -21,12 +21,18 @@ catalogs:
     debug:
       specifier: ^4.3.4
       version: 4.4.0
+    outdent:
+      specifier: ^0.8.0
+      version: 0.8.0
     tsup:
       specifier: ^8.2.4
       version: 8.4.0
     typescript:
       specifier: ^5.8.2
       version: 5.8.3
+    vite-node:
+      specifier: ^3.2.4
+      version: 3.2.4
     vitest:
       specifier: ^3.2.4
       version: 3.2.4
@@ -65,9 +71,6 @@ importers:
       globals:
         specifier: ^16.0.0
         version: 16.0.0
-      outdent:
-        specifier: ^0.8.0
-        version: 0.8.0
       turbo:
         specifier: ^2.5.0
         version: 2.5.0
@@ -90,6 +93,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 22.15.32
+      outdent:
+        specifier: 'catalog:'
+        version: 0.8.0
       tsup:
         specifier: 'catalog:'
         version: 8.4.0(postcss@8.5.3)(typescript@5.8.3)
@@ -208,7 +214,7 @@ importers:
         specifier: ^2.1.0
         version: 2.1.0
       outdent:
-        specifier: ^0.8.0
+        specifier: 'catalog:'
         version: 0.8.0
       tsup:
         specifier: 'catalog:'
