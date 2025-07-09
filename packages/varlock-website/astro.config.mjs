@@ -78,11 +78,12 @@ export default defineConfig({
           items: [
             { label: 'Schema', slug: 'guides/schema' },
             { label: 'Integration', slug: 'guides/integration' },
+            { label: 'Next.js', slug: 'guides/nextjs' },
             { label: 'Secrets', slug: 'guides/secrets' },
             { label: 'Environments', slug: 'guides/environments' },
             // { label: 'Cursor', slug: 'guides/cursor', badge: 'New' },
-            { label: 'Telemetry', slug: 'guides/telemetry' },
             { label: 'Migrate from dotenv', slug: 'guides/migrate-from-dotenv' },
+            { label: 'Telemetry', slug: 'guides/telemetry' },
           ],
         },
         {

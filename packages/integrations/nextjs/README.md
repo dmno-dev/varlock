@@ -6,7 +6,7 @@ It is designed as a drop-in replacement for `@next/env`, which is the internal p
 
 It also provides a plugin for your `next.config.*` file to enable additional security features, such as:
 - Redacting sensitive config values from logs
-- Preventing sensitive config values from being leaked - both at build time and runtime
+- Preventing sensitive config values from being leaked – both at build time and runtime
 
 
 ## Installation
@@ -23,7 +23,7 @@ The method for doing this depends on your package manager:
 **NPM**
 See [NPM overrides docs](https://docs.npmjs.com/cli/v9/configuring-npm/package-json#overrides)
 
-NPM lets you reference an another installed dependency in overrides, for example `"dep-to-override": "$other-installed-dep"`.
+NPM lets you reference another installed dependency in overrides. For example: `"dep-to-override": "$other-installed-dep"`.
 
 _package.json_
 ```
@@ -51,7 +51,7 @@ _package.json_
 **pnpm**
 See [pnpm overrides docs](https://pnpm.io/settings#overrides)
 
-> ⚠️ This must be set in `pnpm-workspace.yaml`, regardless of if you are using a monorepo or not
+> ⚠️ This must be set in `pnpm-workspace.yaml`, regardless of whether you are using a monorepo or not
 
 _pnpm-workspace.yaml_
 ```
@@ -82,7 +82,7 @@ export default varlockNextConfigPlugin()(nextConfig);
 
 
 ## Accessing env vars in your code
-While your resolved config will be re-injected as normal env vars and you can continue to use `process.env.SOMEVAR` as normal, however we recommend using varlock's imported `ENV` object instead. For example:
+While your resolved config will be re-injected as normal env vars and you can continue to use `process.env.SOMEVAR` as usual, we recommend using varlock's imported `ENV` object instead. For example:
 
 ```ts
 import { ENV } from 'varlock/env';
@@ -93,7 +93,7 @@ console.log(ENV.SOMEVAR);         // ✨ but this is recommended
 
 ### Type-safety
 
-To enable type-safety and intellisense for your env vars, you must enable the [`@generateTypes` root decorator](https://varlock.dev/reference/root-decorators/#generatetypes) in your `.env.schema`.
+To enable type-safety and IntelliSense for your env vars, you must enable the [`@generateTypes` root decorator](https://varlock.dev/reference/root-decorators/#generatetypes) in your `.env.schema`.
 > ⚠️ If you ran `npx varlock init`, this will likely already be enabled for you.
 
 ```env-spec
@@ -107,16 +107,16 @@ This will make types available both for `process.env` and for varlock's `ENV` ob
 ### Why use `ENV` instead of `process.env`?
 - Any non-string values (e.g., number, boolean) will actually be their coerced value, rather than a string
 - _All_ non-sensitive items will be replaced at build time, not just `NEXT_PUBLIC_` prefixed items
-- Better error messages when using invalid keys, or server-side keys that are not availble on the client
-- Makes further DX improvements possible in the future, such as tighter control over which items are bundled at build-time
+- Better error messages when using invalid keys, or server-side keys that are not available on the client
+- Enables further DX improvements in the future, such as tighter control over which items are bundled at build time.
 
 
 
 ## Managing multiple environments (dev, preview, prod, etc)
 
-Varlock excels at managing multiple environments, and can load multiple _environment-specific_ .env files (e.g., `.env.development`, `.env.preview`, `.env.production`, etc).
+Varlock excels at managing multiple environments and can load multiple _environment-specific_ .env files (e.g., `.env.development`, `.env.preview`, `.env.production`, etc.).
 
-While `.env.schema`, `.env`, and `.env.local` will always be loaded, loading env-specific files is controlled by a notion of an "environment flag".
+While `.env.schema`, `.env`, and `.env.local` will always be loaded, loading env-specific files is controlled by a notion of an _environment flag_.
 
 [Next.js .env handling](https://nextjs.org/docs/pages/guides/environment-variables#loading-environment-variables-with-nextenv) has the following behavior to set the env flag and control loading env-specific .env files:
 - use `test` if `NODE_ENV` is set to `test`
@@ -163,19 +163,19 @@ VERCEL_ENV=
 APP_ENV=fallback($VERCEL_ENV, development)
 ```
 
-If you need more specific environments based on branch names, `VERCEL_GIT_COMMIT_REF` can be used instead. See Cloudflare example below for more details.
+If you need more specific environments based on branch names, you can use `VERCEL_GIT_COMMIT_REF` instead. See the Cloudflare example below for more details.
 
 ### Cloudflare Workers Build
 
-In Cloudflare Workers Builds, it is not possible to alter our build command for prod versus non-prod builds, and there is no concept of branch specific env vars.
+In Cloudflare Workers Builds, it is not possible to alter our build command for prod versus non-prod builds, and there is no concept of branch-specific env vars.
 
-We must rely on the current branch name, injected as `WORKERS_CI_BRANCH` to determine what our env flag should be.
+We must rely on the current branch name, injected as `WORKERS_CI_BRANCH`, to determine what our env flag should be.
 
 We can use the following strategy to set our env flag:
-- `production` - if `WORKERS_CI_BRANCH` is set to `main`, this must be a production deployment
-- `preview` - if `WORKERS_CI_BRANCH` is set to anything else, this means we are in a preview deployment
-- `development` - if `WORKERS_CI_BRANCH` is not set, this means we are not within CI, so we must be doing local development
-- `test` - we can set this explicitly in our test command, for example in our `package.json` scripts, we could use `"test": "APP_ENV=test jest"`
+- `production` – if `WORKERS_CI_BRANCH` is set to `main`, this is a production deployment  
+- `preview` – if `WORKERS_CI_BRANCH` is set to anything else, this is a preview deployment  
+- `development` – if `WORKERS_CI_BRANCH` is not set, this means we are not within CI, so we must be doing local development  
+- `test` – we can set this explicitly in our test command. For example, in our `package.json` scripts, we could use `"test": "APP_ENV=test jest"`.
 
 ```env-spec
 # @envFlag=APP_ENV
@@ -192,9 +192,9 @@ APP_ENV=remap($WORKERS_CI_BRANCH, production="main", preview=regex(.*), developm
 
 Next.js itself uses the [`NEXT_PUBLIC_` prefix](https://nextjs.org/docs/pages/guides/environment-variables#bundling-environment-variables-for-the-browser) to determine which env vars can be considered _public_ (i.e., not sensitive). These public vars will be bundled at build-time made available in the browser.
 
-Varlock controls default sensitive behavior via the [`@defaultSensitive` root decorator](https://varlock.dev/reference/root-decorators/#defaultsensitive).
+Varlock controls the default sensitive behavior via the [`@defaultSensitive` root decorator](https://varlock.dev/reference/root-decorators/#defaultsensitive).
 
-If you want to continue to using the prefix, you can use the  `# @defaultSensitive=inferFromPrefix('NEXT_PUBLIC_')` in your `.env.schema` file.
+If you want to continue using the prefix, you can use `# @defaultSensitive=inferFromPrefix('NEXT_PUBLIC_')` in your `.env.schema` file.
 
 ```env-spec
 # @defaultSensitive=inferFromPrefix('NEXT_PUBLIC_')
@@ -203,7 +203,8 @@ FOO= # sensitive
 NEXT_PUBLIC_FOO= # non-sensitive, due to prefix
 ```
 
-However we recommend you set `@defaultSensitive` to `true`/`false` and then explicitly tag individual items using the [`@sensitive`](https://varlock.dev/reference/item-decorators/#sensitive) item decorator, for example:
+However, we recommend you set `@defaultSensitive` to `true` or `false` and then explicitly tag individual items using the [`@sensitive`](https://varlock.dev/reference/item-decorators/#sensitive) item decorator. For example:
+
 ```env-spec
 # @defaultSensitive=true
 # ---
