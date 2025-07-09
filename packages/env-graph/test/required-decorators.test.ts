@@ -140,3 +140,108 @@ describe('@defaultRequired root decorator', requiredInferenceTests([
     expected: { BAR: false },
   },
 ]));
+
+function requiredInferenceTestsMultipleFiles(
+  tests: Array<{
+    label: string;
+    envSchema?: string;
+    envOverride?: string;
+    overrideFileName?: string;
+    expected: Record<string, boolean>;
+  }>,
+) {
+  return () => {
+    tests.forEach(({ label, envSchema, envOverride, overrideFileName, expected }) => {
+      it(label, async () => {
+        const { DotEnvFileDataSource, EnvGraph } = await import('../src');
+        const g = new EnvGraph();
+        if (envSchema) {
+          const schemaSource = new DotEnvFileDataSource('.env.schema', { overrideContents: envSchema });
+          g.addDataSource(schemaSource);
+          await schemaSource.finishInit();
+        }
+        if (envOverride) {
+          const fileName = overrideFileName || '.env';
+          const overrideSource = new DotEnvFileDataSource(fileName, { overrideContents: envOverride });
+          g.addDataSource(overrideSource);
+          await overrideSource.finishInit();
+        }
+        await g.finishLoad();
+        for (const key of Object.keys(expected)) {
+          const item = g.configSchema[key];
+          expect(item.isRequired).toBe(expected[key]);
+        }
+      });
+    });
+  };
+}
+
+describe('@defaultRequired root decorator (schema/override combos)', requiredInferenceTestsMultipleFiles([
+  {
+    label: 'required inferred from schema, no override',
+    envSchema: outdent`
+      # @defaultRequired=infer
+      # ---
+
+      FOO=bar
+      BAR=
+    `,
+    expected: { FOO: true, BAR: false },
+  },
+  {
+    label: 'required inferred from schema, override present (should not affect required)',
+    envSchema: outdent`
+      # @defaultRequired=infer
+      # ---
+
+      FOO=bar
+      BAR=
+    `,
+    envOverride: outdent`
+      FOO=
+      BAR=someval
+    `,
+    expected: { FOO: true, BAR: false },
+  },
+  {
+    label: 'override only, @defaultRequired=infer in override (should not infer)',
+    envOverride: outdent`
+      # @defaultRequired=infer
+      # ---
+
+      FOO=
+      BAR=
+    `,
+    overrideFileName: '.env',
+    expected: { FOO: true, BAR: true },
+  },
+  {
+    label: 'override only, @defaultRequired=infer in .env.local (should not infer)',
+    envOverride: outdent`
+      # @defaultRequired=infer
+      # ---
+
+      FOO=
+      BAR=val
+    `,
+    overrideFileName: '.env.local',
+    expected: { FOO: true, BAR: true },
+  },
+  {
+    label: 'schema with explicit required/optional, override present',
+    envSchema: outdent`
+      # @defaultRequired=infer
+      # ---
+
+      # @required
+      FOO=
+      # @optional
+      BAR=val
+    `,
+    envOverride: outdent`
+      FOO=val
+      BAR=
+    `,
+    expected: { FOO: true, BAR: false },
+  },
+]));
