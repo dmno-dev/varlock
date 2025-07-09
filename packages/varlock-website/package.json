@@ -7,7 +7,7 @@
     "dev": "astro dev",
     "start": "astro dev",
     "build": "astro build",
-    "build:cloudflare": "astro build && wrangler dev",
+    "build:cloudflare": "turbo build",
     "preview": "astro preview",
     "astro": "astro"
   },
@@ -26,6 +26,11 @@
     "vue": "^3.5.13"
   },
   "devDependencies": {
+    "varlock": "workspace:*",
     "wrangler": "^4.14.2"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
   }
 }

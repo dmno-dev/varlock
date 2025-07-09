@@ -262,6 +262,9 @@ importers:
         specifier: ^3.5.13
         version: 3.5.13(typescript@5.8.3)
     devDependencies:
+      varlock:
+        specifier: workspace:*
+        version: link:../varlock
       wrangler:
         specifier: ^4.14.2
         version: 4.14.2

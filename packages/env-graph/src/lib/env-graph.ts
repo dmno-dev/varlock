@@ -166,6 +166,9 @@ export class EnvGraph {
         // process and resolve any other items our env flag depends on
         for (const depKey of envFlagItem.valueResolver?.deps || []) {
           const depItem = this.configSchema[depKey];
+          if (!depItem) {
+            throw new Error(`envFlag resolver is using non-existant dependency: ${depKey}`);
+          }
           await depItem.process();
           // we are not going to follow a chain of dependencies here
           if (depItem.valueResolver?.deps.length) {

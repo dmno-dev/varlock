@@ -29,7 +29,7 @@ import { ref } from 'vue';
 // import { Icon } from '@iconify/vue';
 // import TileButton from './TileButton.vue';
 
-const DISCORD_URL = 'https://chat.dmno.dev';
+const DISCORD_URL = import.meta.env.PUBLIC_DISCORD_URL;
 
 const email = ref();
 const isSubmitting = ref(false);
@@ -40,7 +40,8 @@ async function onSubmit() {
   
   isSubmitting.value = true;
   try {
-    const response = await fetch(`https://api.dmno.dev/varlock-signup`, {
+
+    const response = await fetch(import.meta.env.PUBLIC_API_URL + '/varlock-signup', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
