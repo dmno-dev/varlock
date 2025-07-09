@@ -16,7 +16,9 @@ This will usually be something like `APP_ENV`.
 
 This will override the `--env` flag when running [`varlock load`](/reference/cli-commands#varlock-load).
 
-See [schema guide](/guides/schema/#envflag) for more info
+**⚠️ NOTE: We do not recommend using `NODE_ENV` as your environment flag, as it has other implications, and is often set out of your control.**
+
+See [environments guide](/guides/environments) for more info
 
 ```env-spec
 # @envFlag=APP_ENV
@@ -65,11 +67,11 @@ Sets the default state of each item being treated as _sensitive_. Can be overrid
 # @defaultSensitive=inferFromPrefix(PUBLIC_)
 # ---
 
-PUBLIC_FOO=  # not sensitive (due to matching prefix)
+PUBLIC_FOO= # not sensitive (due to matching prefix)
 OTHER_FOO=  # sensitive (default when prefix does not match)
 
 # @sensitive=true
-PUBLIC_BAR=  # sensitive (explicit decorator overrides prefix)
+PUBLIC_BAR= # sensitive (explicit decorator overrides prefix)
 # @sensitive=false
 OTHER_BAR=  # not sensitive (explicit)
 ```
