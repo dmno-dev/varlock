@@ -40,3 +40,35 @@ In order to load and apply your env vars for a specific environment, you must se
 APP_ENV=test varlock run -- node my-test-script.js
 ```
 
+## Advanced logic with remap() and regex()
+
+You can use the [`remap()`](/reference/functions#remap) and [`regex()`](/reference/functions#regex) functions to handle more complex environment-specific logic in your configuration. This is especially useful when you don't have control over build or boot commands. 
+
+For example, with Cloudflare Workers builds: 
+
+```env-spec
+# .env.schema
+# @envFlag=APP_ENV
+# ---
+# env var that is set by Cloudfare
+WORKERS_CI_BRANCH=
+# @type=enum(development, preview, production)
+APP_ENV=remap($WORKERS_CI_BRANCH, production="main", preview=regex(.*), development=undefined)
+
+```
+
+This will allow you set your `APP_ENV` based on the the value of `WORKERS_CI_BRANCH`. In this case, if `WORKERS_CI_BRANCH` is set to `main`, `APP_ENV` will be set to `production`. If `WORKERS_CI_BRANCH` is set to anything else, `APP_ENV` will be set to `preview`. If `WORKERS_CI_BRANCH` is not set, for example in local development, `APP_ENV` will be set to `development`.
+
+## Setting the default environment flag
+
+You can set the default environment flag directly when running CLI commands using the `varlock load --env` flag:
+
+```bash
+varlock load --env production
+```
+
+This is useful for scripting or CI/CD pipelines where you want to explicitly control which environment configuration is loaded and you have full control over the build or boot commands.
+
+:::caution
+Note this will be overridden by the `envFlag` in your `.env.schema` file.
+:::

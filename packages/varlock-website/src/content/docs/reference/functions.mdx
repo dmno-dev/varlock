@@ -103,4 +103,37 @@ ANOTHER=
 EXAMPLE=fallback(ref(POSSIBLY_EMPTY), ref(ANOTHER), "default-val")
 ```
 </div>
+
+<div>
+### `remap()`
+
+Maps a value to a new value based on a set of remapping rules. This is useful for translating environment values (such as environment names) to other values, including using regular expressions for flexible matching.
+
+```env-spec
+# env var that is set by CI/platform
+CI_BRANCH=
+
+# @type=enum(development, preview, production)
+APP_ENV=remap($CI_BRANCH, production="main", preview=regex(.*), development=undefined)
+
+```
+
+- The first argument is the value to remap (often a `ref()` to another variable).
+- All following arguments are key=value pairs, where the key is the remapped value and the value is what to match against (can be a string or a `regex()` call).
+</div>
+
+<div>
+### `regex()`
+
+Creates a regular expression for use in other functions, such as `remap()`.
+
+**This cannot be used as a standalone value. It must be used in other functions.**
+
+```env-spec
+# Example usage within remap
+ENV_TYPE=remap($APP_ENV, dev=regex("^dev.*$"), prod="production")
+```
+
+- Takes a single string argument, which is the regex pattern.
+</div>
 </div>

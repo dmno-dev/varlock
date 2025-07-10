@@ -40,6 +40,7 @@ varlock load [options]
 Options:
   --format     # Format of output [pretty|json|env]
   --show-all   # Shows all items, not just the failing ones 
+  --env        # Set the default environment flag (e.g., --env production)
 ```
 
 Examples:
@@ -47,12 +48,19 @@ Examples:
 # Load and validate environment variables
 varlock load
 
+# Load and validate for a specific environment
+varlock load --env production
+
 # Output validation results in JSON format
 varlock load --format json
 
 # Show all environment variables, including valid ones
 varlock load --show-all
 ```
+
+:::caution
+Setting `envFlag` in your `.env.schema` will override the `--env` flag.
+:::
 
 </div>
 
