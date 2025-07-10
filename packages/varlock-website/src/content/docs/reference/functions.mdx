@@ -10,7 +10,7 @@ COMPOSITION=fn1(fn1Arg1, fn2(fn2Arg1, fn2Arg2))
 ```
 
 
-Note that the built-in utility functions have _expansion_ equivalents and often it will be more clear to use them that way. For example:
+Note that many built-in utility functions have _expansion_ equivalents and often it will be more clear to use them that way. For example:
 ```env-spec
 EXPANSION_EQUIVALENT="pre-${OTHER}-post"
 USING_FN_CALLS=concat("pre-", ref(OTHER), "-post")
@@ -56,7 +56,7 @@ Concatenates multiple values into a single string.
 
 Expansion uses `concat()` to combine multiple parts of strings when they include multiple parts.
 
-```env-spec
+```env-spec "concat"
 PATH=concat("base/", ref("APP_ENV"), "/config.json")
 PATH2=`base/${APP_ENV}/config.json` # equivalent using expansion
 ```
@@ -71,7 +71,7 @@ NOTE - many CLI tools output an additional newline. `exec()` will trim this auto
 
 Expansion equivalent: `exec(command)` === `$(command)`
 
-```env-spec
+```env-spec "exec"
 # Using 1Password CLI
 API_KEY=exec(`op read "op://dev test/service x/api key"`)
 # Using AWS CLI
@@ -86,7 +86,7 @@ References another environment variable - which is very useful when composing mu
 
 Expansion equivalent: `ref(OTHER_VARL)` === `${OTHER_VAR}` (and `$OTHER_VAR`)
 
-```env-spec
+```env-spec "ref"
 API_URL=https://api.example.com
 USERS_API_URL=concat(ref("API_URL"), "/users")
 ```
@@ -97,7 +97,7 @@ USERS_API_URL=concat(ref("API_URL"), "/users")
 
 Returns the first non-empty value in a list of possible values.
 
-```env-spec
+```env-spec "fallback"
 POSSIBLY_EMPTY=
 ANOTHER=
 EXAMPLE=fallback(ref(POSSIBLY_EMPTY), ref(ANOTHER), "default-val")
@@ -107,19 +107,19 @@ EXAMPLE=fallback(ref(POSSIBLY_EMPTY), ref(ANOTHER), "default-val")
 <div>
 ### `remap()`
 
-Maps a value to a new value based on a set of remapping rules. This is useful for translating environment values (such as environment names) to other values, including using regular expressions for flexible matching.
+Maps a value to a new value based on a set of remapping rules. This is useful for translating one value, often provided by an external platform, into another.
 
-```env-spec
+- The first argument is the value to remap (often a `ref()` to another variable).
+- All following arguments are key=value pairs, where the key is the new value and the value is what to match against, which can be a string, `undefined`, or a `regex()` call.
+- If no match is found, the original value is returned.
+
+```env-spec "remap"
 # env var that is set by CI/platform
 CI_BRANCH=
 
 # @type=enum(development, preview, production)
 APP_ENV=remap($CI_BRANCH, production="main", preview=regex(.*), development=undefined)
-
 ```
-
-- The first argument is the value to remap (often a `ref()` to another variable).
-- All following arguments are key=value pairs, where the key is the remapped value and the value is what to match against (can be a string or a `regex()` call).
 </div>
 
 <div>
@@ -127,13 +127,12 @@ APP_ENV=remap($CI_BRANCH, production="main", preview=regex(.*), development=unde
 
 Creates a regular expression for use in other functions, such as `remap()`.
 
-**This cannot be used as a standalone value. It must be used in other functions.**
+- Takes a single string argument, which is the regex pattern (using JavaScript regex syntax)
+- **This cannot be used as a standalone value. It must be used only as a function argument.**
 
-```env-spec
+```env-spec "regex"
 # Example usage within remap
-ENV_TYPE=remap($APP_ENV, dev=regex("^dev.*$"), prod="production")
+ENV_TYPE=remap($APP_ENV, dev=regex("^dev.*"), prod="production")
 ```
-
-- Takes a single string argument, which is the regex pattern.
 </div>
 </div>

@@ -1,0 +1,20 @@
+---
+title: esbuild / tsup
+description: How to integrate Varlock with simple JS build tools like esbuild and tsup
+---
+
+Here is a simple example of an integration with [tsup](https://tsup.egoist.dev/).
+
+```ts title="tsup.config.ts"
+import { defineConfig } from 'tsup';
+import 'varlock/auto-load';
+import { getBuildTimeReplacements } from 'varlock';
+
+export default defineConfig({
+  // ...
+  esbuildOptions(options) {
+    options.define ||= {};
+    Object.assign(options.define, getBuildTimeReplacements());
+  },
+});
+```

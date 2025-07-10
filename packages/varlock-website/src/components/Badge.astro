@@ -1,0 +1,13 @@
+---
+interface Props {
+  npmPackage: string;
+}
+
+const { npmPackage } = Astro.props;
+---
+
+<a href=`https://www.npmjs.com/package/${npmPackage}`>
+  <img
+    src=`https://img.shields.io/npm/v/${npmPackage}?label=${encodeURIComponent(npmPackage)}&color=9B55F5&logo=npm`
+  />
+</a>

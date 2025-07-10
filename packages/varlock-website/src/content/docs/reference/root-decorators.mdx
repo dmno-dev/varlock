@@ -11,10 +11,10 @@ Root decorators appear in the _header_ section of a .env file - which is a comme
 
 <div>
 ### `@envFlag`
-Sets the key of your _environment flag_, which will be used when determining if environment-specific env files will be loaded (e.g. `.env.production`).
+Sets the key of your _environment flag_, which will be used when determining if environment-specific .env files will be loaded (e.g. `.env.production`).
 This will usually be something like `APP_ENV`. 
 
-This will override the `--env` flag when running [`varlock load`](/reference/cli-commands#varlock-load).
+This will override the `--env` CLI flag if it is set.
 
 **⚠️ NOTE: We do not recommend using `NODE_ENV` as your environment flag, as it has other implications, and is often set out of your control.**
 
