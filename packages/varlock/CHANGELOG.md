@@ -1,5 +1,11 @@
 # varlock
 
+## 0.0.3
+
+### Patch Changes
+
+- [#61](https://github.com/dmno-dev/varlock/pull/61) [`9e7b898`](https://github.com/dmno-dev/varlock/commit/9e7b898ab37359e271adc8d677626d841fa69dfb) Thanks [@theoephraim](https://github.com/theoephraim)! - re-publish varlock
+
 ## 0.0.2
 
 ### Patch Changes
