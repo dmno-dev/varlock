@@ -79,7 +79,6 @@ export default defineConfig({
             { label: 'Schema', slug: 'guides/schema' },
             { label: 'Secrets', slug: 'guides/secrets' },
             { label: 'Environments', slug: 'guides/environments' },
-            // { label: 'Cursor', slug: 'guides/cursor', badge: 'New' },
             { label: 'Migrate from dotenv', slug: 'guides/migrate-from-dotenv' },
             { label: 'Telemetry', slug: 'guides/telemetry' },
           ],
@@ -90,6 +89,7 @@ export default defineConfig({
             { label: 'JavaScript / Node.js', slug: 'integrations/javascript' },
             { label: 'Next.js', slug: 'integrations/nextjs' },
             { label: 'Other languages', slug: 'integrations/other-languages' },
+            { label: 'AI Tools', slug: 'guides/ai-tools'},
           ],
         },
         {
