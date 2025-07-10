@@ -1,5 +1,11 @@
 # @env-spec/parser
 
+## 0.0.2
+
+### Patch Changes
+
+- [#56](https://github.com/dmno-dev/varlock/pull/56) [`cdd4b4f`](https://github.com/dmno-dev/varlock/commit/cdd4b4f1d11d696a6b71cbbb8c7500e64d16e0b8) Thanks [@theoephraim](https://github.com/theoephraim)! - allow nested fn calls in key-value fn call args
+
 ## 0.0.1
 
 ### Patch Changes
