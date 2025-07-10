@@ -1,3 +1,5 @@
+/* eslint-disable no-console */
+
 import fs from 'node:fs';
 import path from 'node:path';
 import type { NextConfig } from 'next';
@@ -102,6 +104,18 @@ export function varlockNextConfigPlugin(pluginOptions?: VarlockPluginOptions) {
         resolvedNextConfig = await nextConfigFnResult;
       } else {
         resolvedNextConfig = nextConfig;
+      }
+
+      if (process.env.TURBOPACK || process.env.npm_config_turbopack) {
+        console.error([
+          '🚨 @varlock/nextjs-integration: Turbopack is not yet supported for varlockNextConfigPlugin 🚨',
+          '',
+          'You can either stop using the `--turbopack` flag',
+          'or remove this plugin from your config, and only use the @next/env override.',
+          "However if you don't use the plugin, you will not get all the benefits of this integration.",
+          '',
+        ].join('\n'));
+        throw new Error('varlockNextConfigPlugin: Turbopack is not yet supported');
       }
 
       return {

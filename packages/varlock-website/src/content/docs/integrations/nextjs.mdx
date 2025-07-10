@@ -11,9 +11,9 @@ import Badge from '@/components/Badge.astro';
   <Badge npmPackage="@varlock/nextjs-integration" />
 </div>
 
-Varlock provides a huge upgrade over the [default Next.js environment variable tooling](https://nextjs.org/docs/pages/guides/environment-variables) - adding validation, type safety, easier multi-environment management, log redaction, leak detection, and more.
+Varlock provides a huge upgrade over the [default Next.js environment variable tooling](https://nextjs.org/docs/pages/guides/environment-variables) - adding validation, type safety, flexible multi-environment management, log redaction, leak detection, and more.
 
-To integrate varlock into a Next.js application, you must use our `@varlock/nextjs-integration` package. This package provides a drop-in replacement for [`@next/env`](https://www.npmjs.com/package/@next/env), its internal .env loader, plus a small config plugin which extends the internal Next.js webpack config to inject additional security features.
+To integrate varlock into a Next.js application, you must use our [`@varlock/nextjs-integration`](https://www.npmjs.com/package/@varlock/nextjs-integration) package. This package provides a drop-in replacement for [`@next/env`](https://www.npmjs.com/package/@next/env), the internal package that handles .env loading, plus a small config plugin which extends the Next.js webpack config to inject our additional security features.
 
 :::note[Turbopack not yet supported]
 Turbopack does not yet provide any plugin system, so using the config plugin is not supported. You can use the `@next/env` override only, but you will not get the additional security features.
@@ -111,7 +111,6 @@ Turbopack does not yet provide any plugin system, so using the config plugin is 
 
           </TabItem>
           <TabItem label="pnpm version 9">
-            ### pnpm version 9
             See [pnpm v9 overrides docs](https://pnpm.io/9.x/package_json#pnpmoverrides)
 
             ```diff lang="json" title="package.json"
@@ -132,9 +131,10 @@ Turbopack does not yet provide any plugin system, so using the config plugin is 
 
 
 
-1. **Enable the Next.js Config Plugin**
+1. **Enable the Next.js config plugin**
 
-    To enable log redaction and leak detection, add `varlockNextConfigPlugin` to your `next.config.ts` (or `.js`) file.
+    At this point, varlock will now load your .env files into `process.env`.
+    But to get the full benefits of this integration, you must add `varlockNextConfigPlugin` to your `next.config.ts` (or `.js`) file.
 
     ```diff lang="ts" title="next.config.ts" add="varlockNextConfigPlugin"
     import type { NextConfig } from "next";
@@ -162,8 +162,8 @@ console.log(process.env.SOMEVAR); // 🆗 still works
 console.log(ENV.SOMEVAR);         // ✨ recommended
 ```
 
-:::tip
-If you have not set up `varlockNextConfigPlugin`, only `process.env` will work.
+:::caution
+If you are not using the `varlockNextConfigPlugin`, only `process.env` will work.
 :::
 
 ### Type-safety and IntelliSense
