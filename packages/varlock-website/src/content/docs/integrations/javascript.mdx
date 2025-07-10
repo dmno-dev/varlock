@@ -1,0 +1,95 @@
+---
+title: JavaScript / Node.js
+description: How to integrate Varlock with JavaScript and Node.js for secure, type-safe environment management
+---
+import SyncedCodeTabs from '@/components/SyncedCodeTabs.astro'
+import { TabItem, Tabs } from "@astrojs/starlight/components";
+import outdent from 'outdent';
+
+There are a few different ways to integrate Varlock into a JavaScript / Node.js application.
+
+Some tools/frameworks may require an additional package, or have more specific instructions. The following integrations/guides are available, with more to come soon:
+- [Next.js](/integrations/nextjs)
+
+**Want to help us build more integrations? Join our <a href={process.env.PUBLIC_DISCORD_URL}>Discord</a>!**
+
+## Node.js - `varlock/auto-load`
+
+The best way to integrate varlock into a Node.js application (⚠️ version 22 or higher) is to import the `varlock/auto-load` module. This uses `execSync` to call out to the varlock CLI, sets resolved env vars into `process.env`, and initializes varlock's runtime code, including:
+
+- varlock's `ENV` object
+- log redaction (if enabled)
+- leak detection (if enabled)
+
+```js title="example-index.js"
+import 'varlock/auto-load';
+import { ENV } from 'varlock/env';
+
+const FROM_VARLOCK_ENV = ENV.MY_CONFIG_ITEM; // ✨ recommended
+const FROM_PROCESS_ENV = process.env.MY_CONFIG_ITEM; // 🆗 still works
+```
+
+:::note[dotenv drop-in replacement]
+If you are using [`dotenv`](https://www.npmjs.com/package/dotenv), or a package you are using is using it under the hood - you can seamlessly swap in varlock using your package manager's override feature. See the [migrate from dotenv](/guides/migrate-from-dotenv) guide for more information.
+:::
+
+
+## Boot via `varlock run`
+
+A less invasive way to use varlock with your application is to run your application via [`varlock run`](/reference/cli-commands/#varlock-run).
+
+```bash
+varlock run -- <your-command>
+```
+
+This will load and validate your environment variables, then run the command you provided with those environment variables injected into the process. This will not inject any runtime code, and varlock's `ENV` object will not be available.
+
+If you have installed varlock as a project dependency instead of globally, you should run this via your package manager:
+<SyncedCodeTabs
+  group="package-manager"
+  tabs={[
+    {
+      label: "npm",
+      code: "npm exec -- varlock run -- <your-command>",
+      lang: "bash",
+    },
+    {
+      label: "yarn",
+      code: "yarn exec -- varlock run -- <your-command>",
+      lang: "bash",
+    },
+    {
+      label: "pnpm",
+      code: "pnpm exec varlock run -- <your-command>",
+      lang: "bash",
+    },
+  ]}
+/>
+
+In `package.json` scripts, calling `varlock` directly will work, as your package manager handles path issues:
+```json title="package.json"
+"scripts": {
+  "start": "varlock run -- node index.js"
+}
+```
+
+Even when using a deeper integration for your code, you may still need to use `varlock run` when calling external scripts/tools, like database migrations, to pass along resolved env vars.
+
+
+
+## Front-end frameworks
+
+While environment variables are not available in the browser, many frameworks expose some env vars that are available _at build time_ to the client by embedding them into your bundled code. This is best accomplished using tool-specific integrations, especially for frameworks that are handling both client and server-side code.
+
+
+:::tip[Isomorphic env vars]
+The `varlock/env` module is designed to be imported on both the client and server, so frameworks that run code in both places (like Next.js) can import it.
+:::
+
+<br/><br/>
+:::note[Help us build more integrations!]
+If you are using a tool/framework that is not listed here, and you'd like to see support for it, or collaborate on building it, we'd love to hear from you. Please hop into our <a href={process.env.PUBLIC_DISCORD_URL}>Discord</a>!
+:::
+
+
+

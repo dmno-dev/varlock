@@ -1,0 +1,45 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+<rule>
+name: add_docs_page
+
+filters:
+  # Applies to all new .mdx files in the docs directory
+  - type: file_extension
+    pattern: "\.mdx$"
+  - type: event
+    pattern: "file_create"
+  - type: path
+    pattern: "packages/varlock-website/src/content/docs/*/"
+
+actions:
+  - type: suggest
+    message: |
+      When adding a new documentation page:
+
+      - Follow all requirements in the [docs-location] rule for file placement, naming, and sidebar navigation.
+      - Additionally, follow these style and content conventions:
+        - Use the same heading structure, intro, and code block formatting as other guides.
+        - Use Starlight's Markdown asides (triple colon syntax) for notes, tips, cautions, and warnings ([see docs](mdc:https:/starlight.astro.build/guides/authoring-content/#asides)).
+        - Use Astro Starlight tab components for alternative instructions (e.g., package manager differences).
+        - Reference and link to other docs where relevant.
+        - Test the docs site locally to ensure the new page appears in the sidebar and is accessible.
+
+examples:
+  - input: |
+      Used `>` for notes and tips in the new guide.
+    output: |
+      Use Starlight's Markdown asides (triple colon syntax, e.g., `:::tip ... :::`) for notes and tips.
+
+  - input: |
+      Added a new guide but did not follow the directory or sidebar requirements.
+    output: |
+      See the [docs-location] rule for correct file placement and sidebar navigation requirements.
+
+metadata:
+  priority: high
+  version: 1.0
+</rule>

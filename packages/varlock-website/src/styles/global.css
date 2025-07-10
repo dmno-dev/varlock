@@ -29,6 +29,7 @@ h1 {
 }
 
 .sl-heading-wrapper.level-h2 {
+  padding-bottom: 2px;
   border-bottom: 1px solid currentColor;
 }
 
@@ -41,6 +42,10 @@ h3 {
   font-size: 22px;
 }
 
+h4 {
+  font-size: 18px;
+}
+
 h2,
 h3,
 h4,
@@ -50,14 +55,25 @@ h5 {
   /* font-family: var(--font-pixel);
   font-weight: var(--font-pixel-weight); */
 
-
   display: flex;
-
-  /* font-size: 36px; */
-  gap: .6em;
 
   img {
     height: 1.2em;
+
+    &:first-child {
+      margin-right: .2em;
+    }
+  }
+
+  gap: .4em;
+
+  code {
+    margin-left: .4em;
+    margin-right: .4em;
+
+    &:first-child {
+      margin-left: 0;
+    }
   }
 }
 

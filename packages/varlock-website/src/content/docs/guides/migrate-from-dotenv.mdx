@@ -3,6 +3,7 @@ title: Migrate from dotenv
 description: How to migrate from dotenv (CLI and npm package) to varlock
 ---
 import SyncedCodeTabs from "@/components/SyncedCodeTabs.astro";
+import { TabItem, Tabs } from "@astrojs/starlight/components";
 
 ## Why migrate from dotenv?
 
@@ -98,39 +99,66 @@ Finally, you can remove `dotenv` from your dependencies:
 
 If `dotenv` is being used under the hood of one of your dependencies, you can use `overrides` to seamlessly swap in `varlock` instead.
 
-<SyncedCodeTabs 
-  group="package-manager"
-  tabs={[
+
+<Tabs syncKey='package-manager'>
+      
+  <TabItem label="npm">
+    See [NPM overrides docs](https://docs.npmjs.com/cli/v9/configuring-npm/package-json#overrides)
+
+    ```diff lang="json" title="package.json"
     {
-      label: "npm",
-      code: `
-        // package.json
-        "overrides": {
-          "dotenv": "varlock"
+    +  "overrides": {
+    +    "dotenv": "varlock@^1.2.3"
+    +  }
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="yarn">
+    See [yarn resolutions docs](https://yarnpkg.com/configuration/manifest#resolutions)
+
+    ```diff lang="json" title="package.json"
+    {
+    +  "resolutions": {
+    +    "**/dotenv": "npm:varlock@^1.2.3"
+    +  },
+    }
+    ```
+    **In a monorepo, this override must be done in the monorepo's root package.json file!**
+  </TabItem>
+
+  <TabItem label="pnpm">
+    <Tabs syncKey='pnpm-version'>
+      <TabItem label="pnpm version 10+">
+        See [pnpm v10 overrides docs](https://pnpm.io/settings#overrides)
+
+        ```diff lang="yaml" title="pnpm-workspace.yaml"
+        +overrides:
+        +  "dotenv": "npm:varlock@^1.2.3"
+        ```
+        
+        **This must be set in `pnpm-workspace.yaml`, which lives at the root of your repo, regardless of whether you are using a monorepo or not.**
+
+      </TabItem>
+      <TabItem label="pnpm version 9">
+        ### pnpm version 9
+        See [pnpm v9 overrides docs](https://pnpm.io/9.x/package_json#pnpmoverrides)
+
+        ```diff lang="json" title="package.json"
+        {
+        +  "pnpm": {
+        +    "overrides": {
+        +      "dotenv": "npm:varlock@^1.2.3"
+        +    }
+        +  }
         }
-      `,
-      lang: "json"
-    },
-    {
-      label: "yarn",
-      code: `
-      // package.json
-      "overrides": {
-        "dotenv": "varlock"
-      }`,
-      lang: "json"
-    },
-    {
-      label: "pnpm",
-      code: `
-// pnpm-workspace.yaml
-overrides:
-        dotenv: varlock
-      `,
-      lang: "yaml"
-    },
-  ]}
-/>
+        ```
+        **In a monorepo, this override must be done in the monorepo's root package.json file!**
+        
+      </TabItem>
+    </Tabs>
+  </TabItem>
+</Tabs>
 
 ---
 

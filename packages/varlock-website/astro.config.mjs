@@ -77,12 +77,19 @@ export default defineConfig({
           label: 'Guides',
           items: [
             { label: 'Schema', slug: 'guides/schema' },
-            { label: 'Integration', slug: 'guides/integration' },
             { label: 'Secrets', slug: 'guides/secrets' },
             { label: 'Environments', slug: 'guides/environments' },
             // { label: 'Cursor', slug: 'guides/cursor', badge: 'New' },
-            { label: 'Telemetry', slug: 'guides/telemetry' },
             { label: 'Migrate from dotenv', slug: 'guides/migrate-from-dotenv' },
+            { label: 'Telemetry', slug: 'guides/telemetry' },
+          ],
+        },
+        {
+          label: 'Integrations',
+          items: [
+            { label: 'JavaScript / Node.js', slug: 'integrations/javascript' },
+            { label: 'Next.js', slug: 'integrations/nextjs' },
+            { label: 'Other languages', slug: 'integrations/other-languages' },
           ],
         },
         {

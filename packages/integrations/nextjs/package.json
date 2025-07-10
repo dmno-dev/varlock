@@ -1,0 +1,37 @@
+{
+  "name": "@varlock/nextjs-integration",
+  "description": "drop-in replacement for @next/env that uses varlock to load .env files with validation and extra security features",
+  "version": "0.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/integrations/nextjs"
+  },
+  "main": "dist/next-env-compat.js",
+  "types": "dist/next-env-compat.d.ts",
+  "exports": {
+    ".": "./dist/next-env-compat.js",
+    "./runtime": "./dist/runtime.js",
+    "./plugin": "./dist/plugin.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup"
+  },
+  "keywords": ["varlock", "nextjs", "next.js", "env", ".env", "environment variables", "env vars", "config", "security", "validation", "leak protection"],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:*",
+    "next": ">=14"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "varlock": "workspace:*"
+  }
+}

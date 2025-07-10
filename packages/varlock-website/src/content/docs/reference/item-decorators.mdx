@@ -17,7 +17,7 @@ SERVICE_X_API_KEY=
 ### `@required`
 Sets whether an item is _required_ - meaning validation will fail if the value resolves to `undefined` or an empty string.
 
-Default behavior for all items can be toggled using the [`@defaultRequired` root decorator](/reference/root-decorators/#@defaultRequired)
+Default behavior for all items can be toggled using the [`@defaultRequired` root decorator](/reference/root-decorators/#defaultRequired)
 
 ```env-spec
 # @defaultRequired=false
@@ -44,7 +44,7 @@ REQUIRED_ITEM=
 
 Sets whether the item should be considered _sensitive_ - meaning it must be protected from leaking. The value will be always be redacted in CLI output, and client integrations can take further action to prevent leaks.
 
-Default behavior for all items can be set using the [`@defaultSensitive` root decorator](/reference/root-decorators/#@defaultSensitive)
+Default behavior for all items can be set using the [`@defaultSensitive` root decorator](/reference/root-decorators/#defaultSensitive)
 
 ```env-spec
 # @sensitive
