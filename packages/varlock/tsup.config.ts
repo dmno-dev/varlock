@@ -3,6 +3,13 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: [ // Entry point(s)
     'src/index.ts',
+
+    'src/runtime/env.ts',
+    'src/runtime/patch-server-response.ts',
+    'src/runtime/patch-console.ts',
+    'src/runtime/patch-response.ts',
+
+    'src/env.ts',
     'src/auto-load.ts',
     'src/dotenv-compat.ts', // exposed under `/config` to match dotenv
 
@@ -14,7 +21,6 @@ export default defineConfig({
 
   dts: true,
 
-  // minify: true, // Minify output
   sourcemap: true, // Generate sourcemaps
   treeshake: true, // Remove unused code
 
@@ -25,6 +31,9 @@ export default defineConfig({
 
   splitting: true, // split output into chunks - MUST BE ON! or we get issues with multiple copies of classes and instanceof
   keepNames: true, // stops build from prefixing our class names with `_` in some cases
+
+  platform: 'node',
+  target: 'node22',
 
   // checking if the current command is `dev` and adjusting the watch paths accordingly
   watch: process.env.npm_lifecycle_event === 'dev' ? [

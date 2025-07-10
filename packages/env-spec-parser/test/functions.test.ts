@@ -31,7 +31,15 @@ function functionValueTests(
 
 describe('function calls', functionValueTests({
   // basic tests that our functions parsing and test resolver is working properly
-  'concat()': {
+  'concat() - no args': {
+    input: 'ITEM=concat()',
+    expected: { ITEM: '' },
+  },
+  'concat() - single arg': {
+    input: 'ITEM=concat("a")',
+    expected: { ITEM: 'a' },
+  },
+  'concat() - multiple args': {
     input: 'ITEM=concat("a", "b", "c")',
     expected: { ITEM: 'abc' },
   },
@@ -50,9 +58,13 @@ describe('function calls', functionValueTests({
       ITEM: 'foo-val',
     },
   },
-  'nested function calls': {
+  'nested function calls - array': {
     input: 'OTHERVAL=d\nITEM=concat("a", fallback("", "b"), exec("echo c"), ref(OTHERVAL))',
     expected: { ITEM: 'abcd' },
+  },
+  'nested function calls - key/value': {
+    input: 'ITEM=remap("foo", zzz=aaa, bar=fallback("", "foo"))',
+    expected: { ITEM: 'bar' },
   },
 }));
 

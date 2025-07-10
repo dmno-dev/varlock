@@ -11,13 +11,14 @@ const execAsync = promisify(exec);
 
 export type ResolvedValue =
   undefined |
-  string | number | boolean;
+  string | number | boolean |
+  RegExp; // regex is only used internally as function args, not as a final resolved value
   // TODO: will probably want to re-enable object/array values
   // { [key: string]: ConfigValue } |
   // Array<ConfigValue>;
 
 // eslint-disable-next-line no-use-before-define
-type ResolverFunctionArgs = Array<Resolver> | Record<string, Resolver>;
+type ResolverFunctionArgs = Array<Resolver | Record<string, Resolver>>;
 export abstract class Resolver {
   static fnName?: string;
 
@@ -29,8 +30,8 @@ export abstract class Resolver {
   _schemaErrors: Array<SchemaError> = [];
   private _depsObj: Record<string, boolean> = {};
 
-  get childResolvers() {
-    return _.isArray(this.fnArgs) ? this.fnArgs : _.values(this.fnArgs);
+  get childResolvers(): Array<Resolver> {
+    return this.fnArgs.flatMap((r) => (_.isPlainObject(r) ? _.values(r) : r));
   }
 
   get schemaErrors(): Array<SchemaError> {
@@ -131,8 +132,8 @@ export class ConcatResolver extends Resolver {
   inferredType = 'string';
 
   async _process() {
-    if (!Array.isArray(this.fnArgs)) {
-      throw new SchemaError('concat() expects an array of arguments, not a key-value object');
+    if (this.fnArgs.some((arg) => _.isPlainObject(arg))) {
+      throw new SchemaError('concat() does not support key-value arguments');
     }
     if (this.fnArgs.length < 2) {
       throw new SchemaError('concat() expects at least two arguments');
@@ -140,15 +141,12 @@ export class ConcatResolver extends Resolver {
   }
 
   protected async _resolve() {
-    // TODO: generalize this so it becomes reusable for other resolvers
-    // maybe a subclass that already handles the args-must-be-an-array case?
-    // or could be an option on the base class? but need to figure out TS
-    if (!Array.isArray(this.fnArgs)) {
-      throw new Error('concat() expects an array of arguments, not a key-value object');
-    }
-
     const resolvedValues = [];
     for (const arg of this.fnArgs) {
+      // key value args come through as an object
+      if (_.isPlainObject(arg)) {
+        throw new Error('concat() does not support key-value arguments');
+      }
       // TODO: handle child resolver failure?
       const resolvedChildValue = await arg.resolve();
       // do we need to worry about non-string-ish things here?
@@ -164,8 +162,8 @@ export class FallbackResolver extends Resolver {
   icon = 'memory:table-top-stairs-up';
 
   async _process() {
-    if (!Array.isArray(this.fnArgs)) {
-      throw new SchemaError('fallback() expects an array of arguments, not a key-value object');
+    if (this.fnArgs.some((arg) => _.isPlainObject(arg))) {
+      throw new SchemaError('fallback() does not support key-value arguments');
     }
     if (this.fnArgs.length < 2) {
       throw new SchemaError('fallback() expects at least two arguments');
@@ -173,11 +171,8 @@ export class FallbackResolver extends Resolver {
   }
 
   protected async _resolve() {
-    if (!Array.isArray(this.fnArgs)) {
-      throw new Error('concat() expects an array of arguments, not a key-value object');
-    }
-
     for (const arg of this.fnArgs) {
+      if (_.isPlainObject(arg)) throw new Error('fallback() does not support key-value arguments');
       // TODO: handle child resolver failure?
       const resolvedChildValue = await arg.resolve();
       if (resolvedChildValue !== undefined && resolvedChildValue !== '') {
@@ -192,20 +187,18 @@ export class ExecResolver extends Resolver {
   icon = 'iconoir:terminal';
 
   async _process() {
-    if (!Array.isArray(this.fnArgs)) {
-      throw new SchemaError('exec() expects a single child arg, not a key-value object');
-    }
     if (this.fnArgs.length !== 1) {
       throw new SchemaError('exec() expects a single child arg');
+    }
+    if (this.fnArgs.some((arg) => _.isPlainObject(arg))) {
+      throw new SchemaError('exec() does not support key-value arguments');
     }
   }
 
   static execQueue = new SimpleQueue();
 
   protected async _resolve() {
-    if (!Array.isArray(this.fnArgs) || this.fnArgs.length !== 1) {
-      throw new Error('exec() expects a single child arg');
-    }
+    if (_.isPlainObject(this.fnArgs[0])) throw new Error('exec() does not support key-value arguments');
 
     const commandStr = await this.fnArgs[0].resolve();
     if (typeof commandStr !== 'string') {
@@ -235,9 +228,6 @@ export class RefResolver extends Resolver {
   private refKey?: string;
 
   async _process() {
-    if (!Array.isArray(this.fnArgs)) {
-      throw new SchemaError('ref() expects a single child arg, not a key-value object');
-    }
     if (this.fnArgs.length !== 1) {
       throw new SchemaError('ref() expects a single child arg');
     }
@@ -259,6 +249,80 @@ export class RefResolver extends Resolver {
   }
 }
 
+// regex() is only used internally as function args to be used by other functions
+// we will check final resoled values to make sure they are not regexes
+export class RegexResolver extends Resolver {
+  static fnName = 'regex';
+  label = 'regex';
+  icon = 'mdi:regex';
+
+  private regex?: RegExp;
+
+  async _process() {
+    if (this.fnArgs.length !== 1) {
+      throw new SchemaError('regex() expects a single child arg');
+    }
+    if (!(this.fnArgs[0] instanceof StaticValueResolver)) {
+      throw new SchemaError('regex() expects a single static value passed in');
+    }
+    const regexStr = this.fnArgs[0].staticValue;
+    if (typeof regexStr !== 'string') {
+      throw new SchemaError('regex() expects a string');
+    }
+    this.regex = new RegExp(regexStr);
+  }
+
+  protected async _resolve() {
+    if (!this.regex) throw new Error('expected regex to be set');
+    return this.regex;
+  }
+}
+
+export class RemapResolver extends Resolver {
+  static fnName = 'remap';
+  label = 'remap';
+  icon = 'codicon:replace';
+
+  private remappings?: Record<string, Resolver>;
+
+  async _process() {
+    if (_.isPlainObject(this.fnArgs[0])) {
+      throw new SchemaError('remap() expects the first arg to be the value to remap');
+    }
+    if (!_.isPlainObject(this.fnArgs[1])) {
+      throw new SchemaError('remap() expects the all args after the first to be key-value pairs of remappings');
+    }
+    if (this.fnArgs.length !== 2) {
+      throw new SchemaError('remap() should not have any additional non key-value args after remappings');
+    }
+    this.remappings = this.fnArgs[1];
+  }
+
+  protected async _resolve() {
+    if (_.isPlainObject(this.fnArgs[0])) {
+      throw new SchemaError('remap() expects the first arg to be the value to remap');
+    }
+    if (!_.isPlainObject(this.fnArgs[1])) {
+      throw new SchemaError('remap() expects the all args after the first to be key-value pairs of remappings');
+    }
+    const originalValue = await this.fnArgs[0].resolve();
+
+    if (!this.remappings) throw new Error('expected remappings to be set');
+    for (const [remappedVal, matchValResolver] of Object.entries(this.remappings)) {
+      const matchVal = await matchValResolver.resolve();
+      if (matchVal instanceof RegExp && originalValue !== undefined) {
+        if (matchVal.test(String(originalValue))) return remappedVal;
+      } else {
+        if (matchVal === originalValue) return remappedVal;
+      }
+    }
+    return originalValue;
+  }
+}
+
+
+
+
 export type ResolverChildClass<ChildClass extends Resolver = Resolver> =
   { new (...args: Array<any>): ChildClass } & typeof Resolver;
 
@@ -268,4 +332,6 @@ export const BaseResolvers: Array<ResolverChildClass> = [
   FallbackResolver,
   RefResolver,
   ExecResolver,
+  RemapResolver,
+  RegexResolver,
 ];

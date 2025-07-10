@@ -7,7 +7,7 @@
     "dev": "astro dev",
     "start": "astro dev",
     "build": "astro build",
-    "build:cloudflare": "astro build && wrangler dev",
+    "build:cloudflare": "turbo build --filter=varlock && varlock load && turbo build",
     "preview": "astro preview",
     "astro": "astro"
   },
@@ -21,11 +21,17 @@
     "astro-og-canvas": "^0.7.0",
     "astro-robots-txt": "^1.0.0",
     "canvaskit-wasm": "^0.40.0",
+    "outdent": "catalog:",
     "remark-custom-header-id": "^1.0.0",
     "starlight-llms-txt": "^0.5.1",
     "vue": "^3.5.13"
   },
   "devDependencies": {
+    "varlock": "workspace:*",
     "wrangler": "^4.14.2"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
   }
 }

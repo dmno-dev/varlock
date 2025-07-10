@@ -1,0 +1,19 @@
+---
+title: Other Languages
+description: Integrating varlock into other languages
+---
+
+To use varlock with other languages, you'll likely want to [install the standalone binary](/getting-started/installation/#as-a-binary), rather than using a JS package manager.
+
+To use it with your applciation code, you must use [`varlock run`](/reference/cli-commands/#varlock-run) to load and validate your environment variables, then run the command you provided with those environment variables injected into the process.
+
+```bash
+varlock run -- <your-command>
+```
+
+We are working on language-specific helper libraries, that will make this integration better, and provide additional security features like we do in JavaScript.
+
+We will also be implementing automatic type-generation based on your schema for various languages.
+
+**Want to help us build these integrations? Join our <a href={process.env.PUBLIC_DISCORD_URL}>Discord</a>.**
+

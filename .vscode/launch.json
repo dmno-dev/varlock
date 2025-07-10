@@ -10,7 +10,7 @@
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}/packages/vscode-plugin",
         "--disable-extensions",
-        "${workspaceFolder}/example-repo", // using our example repo as the folder to open
+        "${workspaceFolder}/packages/vscode-plugin", // using our example repo as the folder to open
       ],
       "outFiles": ["${workspaceFolder}/packages/vscode-plugin/**/*.js"]
     },

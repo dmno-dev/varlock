@@ -1,0 +1,284 @@
+---
+title: Next.js
+description: How to integrate Varlock with Next.js for secure, type-safe environment management
+---
+import SyncedCodeTabs from '@/components/SyncedCodeTabs.astro'
+import { TabItem, Tabs, Steps, Step } from "@astrojs/starlight/components";
+import outdent from 'outdent';
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/nextjs-integration" />
+</div>
+
+Varlock provides a huge upgrade over the [default Next.js environment variable tooling](https://nextjs.org/docs/pages/guides/environment-variables) - adding validation, type safety, easier multi-environment management, log redaction, leak detection, and more.
+
+To integrate varlock into a Next.js application, you must use our `@varlock/nextjs-integration` package. This package provides a drop-in replacement for [`@next/env`](https://www.npmjs.com/package/@next/env), its internal .env loader, plus a small config plugin which extends the internal Next.js webpack config to inject additional security features.
+
+:::note[Turbopack not yet supported]
+Turbopack does not yet provide any plugin system, so using the config plugin is not supported. You can use the `@next/env` override only, but you will not get the additional security features.
+:::
+
+## Setup
+
+<Steps>
+
+1. **Install varlock and the Next.js integration package**
+    <SyncedCodeTabs
+      group="package-manager"
+      tabs={[
+        {
+          label: "npm",
+          code: "npm install @varlock/nextjs-integration varlock",
+          lang: "bash",
+        },
+        {
+          label: "yarn",
+          code: "yarn add @varlock/nextjs-integration varlock",
+          lang: "bash",
+        },
+        {
+          label: "pnpm",
+          code: "pnpm add @varlock/nextjs-integration varlock",
+          lang: "bash",
+        },
+      ]}
+    />
+1. **Run `varlock init` to set up your `.env.schema` file**
+
+    This will guide you through setting up your `.env.schema` file, based on your existing `.env` file(s). Make sure to review it carefully.
+
+    <SyncedCodeTabs
+      group="package-manager"
+      tabs={[
+        {
+          label: "npm",
+          code: "npm exec -- varlock init",
+          lang: "bash",
+        },
+        {
+          label: "yarn",
+          code: "yarn exec -- varlock init",
+          lang: "bash",
+        },
+        {
+          label: "pnpm",
+          code: "pnpm exec varlock init",
+          lang: "bash",
+        },
+      ]}
+    />
+
+1. **Override `@next/env` with our drop-in replacement**
+    <Tabs syncKey='package-manager'>
+          
+      <TabItem label="npm">
+        See [NPM overrides docs](https://docs.npmjs.com/cli/v9/configuring-npm/package-json#overrides)
+
+        ```diff lang="json" title="package.json"
+        {
+        +  "overrides": {
+        +    "@next/env": "$@varlock/nextjs-integration"
+        +  }
+        }
+        ```
+      </TabItem>
+
+      <TabItem label="yarn">
+        See [yarn resolutions docs](https://yarnpkg.com/configuration/manifest#resolutions)
+
+        ```diff lang="json" title="package.json"
+        {
+        +  "resolutions": {
+        +    "**/@next/env": "npm:@varlock/nextjs-integration@^1.2.3"
+        +  },
+        }
+        ```
+        **In a monorepo, this override must be done in the monorepo's root package.json file!**
+      </TabItem>
+
+      <TabItem label="pnpm">
+        <Tabs syncKey='pnpm-version'>
+          <TabItem label="pnpm version 10+">
+            See [pnpm v10 overrides docs](https://pnpm.io/settings#overrides)
+
+            ```diff lang="yaml" title="pnpm-workspace.yaml"
+            +overrides:
+            +  "@next/env": "$@varlock/nextjs-integration"
+            ```
+            
+            **This must be set in `pnpm-workspace.yaml`, which lives at the root of your repo, regardless of whether you are using a monorepo or not.**
+
+          </TabItem>
+          <TabItem label="pnpm version 9">
+            ### pnpm version 9
+            See [pnpm v9 overrides docs](https://pnpm.io/9.x/package_json#pnpmoverrides)
+
+            ```diff lang="json" title="package.json"
+            {
+            +  "pnpm": {
+            +    "overrides": {
+            +      "@next/env": "$@varlock/nextjs-integration"
+            +    }
+            +  }
+            }
+            ```
+            **In a monorepo, this override must be done in the monorepo's root package.json file!**
+            
+          </TabItem>
+        </Tabs>
+      </TabItem>
+    </Tabs>
+
+
+
+1. **Enable the Next.js Config Plugin**
+
+    To enable log redaction and leak detection, add `varlockNextConfigPlugin` to your `next.config.ts` (or `.js`) file.
+
+    ```diff lang="ts" title="next.config.ts" add="varlockNextConfigPlugin"
+    import type { NextConfig } from "next";
+    +import { varlockNextConfigPlugin } from '@varlock/nextjs-integration/plugin';
+
+    const nextConfig: NextConfig = {
+      // your existing config...
+    };
+
+    -export default nextConfig;
+    +export default varlockNextConfigPlugin()(nextConfig);
+    ```
+</Steps>
+
+---
+
+## Accessing Environment Variables
+
+You can continue to use `process.env.SOMEVAR` as usual, but we recommend using Varlock's imported `ENV` object for better type-safety and improved developer experience:
+
+```ts title="example.ts"
+import { ENV } from 'varlock/env';
+
+console.log(process.env.SOMEVAR); // 🆗 still works
+console.log(ENV.SOMEVAR);         // ✨ recommended
+```
+
+:::tip
+If you have not set up `varlockNextConfigPlugin`, only `process.env` will work.
+:::
+
+### Type-safety and IntelliSense
+
+To enable type-safety and IntelliSense for your env vars, enable the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
+
+```diff lang="env-spec" title=".env.schema"
++# @generateTypes(lang='ts', path='env.d.ts')
+# ---
+# your config items...
+```
+
+This generates types for both `process.env` and `ENV`.
+
+#### Why use `ENV` instead of `process.env`?
+- Non-string values (e.g., number, boolean) are properly typed and coerced
+- All non-sensitive items are replaced at build time (not just `NEXT_PUBLIC_`)
+- Better error messages for invalid or unavailable keys
+- Enables future DX improvements and tighter control over what is bundled
+
+---
+
+## Managing Multiple Environments
+
+Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`).
+
+By default, the environment flag is determined as follows (matching Next.js):
+- `test` if `NODE_ENV` is `test`
+- `development` if running `next dev`
+- `production` otherwise
+
+:::tip
+Without a custom env flag, you cannot use non-production env files (like `.env.preview`, `.env.staging`) for non-prod deployments.
+:::
+
+Instead, we recommend explicitly setting your own environment flag using the [`@envFlag` root decorator](/reference/root-decorators/#envflag), e.g. `APP_ENV`. See the [environments guide](/guides/environments) for more information.
+
+### Setting the Environment Flag
+
+When running locally, or on a platform you control, you can set the env flag explicitly as an environment variable. However on some cloud platforms, there is a lot of magic happening, and the ability to set environment variables per branch is limited. In these cases you can use functions to transform env vars injected by the platform, like a current branch name, into the value you need.
+
+#### Local/Custom Scripts
+
+You can set the env var explicitly when you run a command, but often you will set it in `package.json` scripts:
+
+```diff lang="json" title="package.json" add=/APP_ENV=[a-z]+/
+"scripts": {
+  "build:preview": "APP_ENV=preview next build",
+  "start:preview": "APP_ENV=preview next start",
+  "build:prod": "APP_ENV=production next build",
+  "start:prod": "APP_ENV=production next start",
+  "test": "APP_ENV=test jest"
+}
+```
+
+#### Vercel
+
+You can use the injected `VERCEL_ENV` variable to match their concept of environment types:
+
+```env-spec title=".env.schema"
+# @envFlag=APP_ENV
+# ---
+# @type=enum(development, preview, production)
+VERCEL_ENV=
+# @type=enum(development, preview, production, test)
+APP_ENV=fallback($VERCEL_ENV, development)
+```
+
+For more granular environments, use the branch name in `VERCEL_GIT_COMMIT_REF` (see Cloudflare example below).
+
+#### Cloudflare Workers Build
+
+Use the branch name in `WORKERS_CI_BRANCH` to determine the environment:
+
+```env-spec title=".env.schema"
+# @envFlag=APP_ENV
+# ---
+WORKERS_CI_BRANCH=
+# @type=enum(development, preview, production, test)
+APP_ENV=remap($WORKERS_CI_BRANCH, production="main", preview=regex(.*), development=undefined)
+```
+
+---
+
+## Managing Sensitive Config Values
+
+Next.js uses the `NEXT_PUBLIC_` prefix to determine which env vars are public (bundled for the browser). Varlock lets you control this with the [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) root decorator.
+
+To keep the prefix behavior:
+
+```diff lang="env-spec title=".env.schema"
++# @defaultSensitive=inferFromPrefix('NEXT_PUBLIC_')
+# ---
+FOO= # sensitive
+NEXT_PUBLIC_FOO= # non-sensitive, due to prefix
+```
+
+Or, set a default and explicitly mark items:
+
+```diff lang="env-spec" title=".env.schema"
++# @defaultSensitive=true
+# ---
+SECRET_FOO= # sensitive by default
+# @sensitive=false
+NON_SECRET_FOO=
+```
+
+:::caution[Bundling behavior]
+All non-sensitive items are bundled at build time via `ENV`, while `process.env` replacements only include `NEXT_PUBLIC_`-prefixed items.
+:::
+
+---
+
+## Reference
+- [Root decorators reference](/reference/root-decorators)
+- [Item decorators reference](/reference/item-decorators)
+- [Functions reference](/reference/functions)
+- [Next.js environment variable docs](https://nextjs.org/docs/pages/guides/environment-variables) 

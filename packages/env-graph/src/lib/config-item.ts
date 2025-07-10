@@ -11,7 +11,7 @@ import {
 } from './errors';
 
 import { EnvGraphDataSource } from './data-source';
-import { ResolvedValue, Resolver } from './resolver';
+import { ResolvedValue, Resolver, StaticValueResolver } from './resolver';
 
 export type ConfigItemDef = {
   description?: string;
@@ -92,6 +92,12 @@ export class ConfigItem {
   }
 
   async process() {
+    // we add the final override def here so that if we process the item early (like when resolving our envFlag) it will be respected
+    const finalOverrideDef = this.envGraph.finalOverridesDataSource?.configItemDefs[this.key];
+    if (finalOverrideDef) {
+      this.defs.unshift({ itemDef: finalOverrideDef, source: this.envGraph.finalOverridesDataSource! });
+    }
+
     // process resolvers
     for (const def of this.defs) {
       await def.itemDef.resolver?.process(this);
@@ -130,15 +136,43 @@ export class ConfigItem {
   get isRequired() {
     for (const def of this.defs) {
       const defDecorators = def.itemDef.decorators || {};
+
+      // Explicit per-item decorators
       if ('required' in defDecorators) {
-        return defDecorators.required.simplifiedValue;
-      } else if ('optional' in defDecorators) {
-        return !defDecorators.optional.simplifiedValue;
-      } else if ('defaultRequired' in def.source.decorators) {
-        return def.source.decorators.defaultRequired.simplifiedValue;
+        const val = defDecorators.required.simplifiedValue;
+        if (typeof val === 'boolean') return val;
+        if (typeof val === 'string') return val === 'true';
+        return Boolean(val);
+      }
+      if ('optional' in defDecorators) {
+        const val = defDecorators.optional.simplifiedValue;
+        if (typeof val === 'boolean') return !val;
+        if (typeof val === 'string') return val !== 'true';
+        return !val;
+      }
+
+      // Root-level @defaultRequired
+      if ('defaultRequired' in def.source.decorators) {
+        const val = def.source.decorators.defaultRequired.simplifiedValue;
+        if (val === 'infer') {
+          // Only apply infer logic for schema source
+          if (def.source.type === 'schema') {
+            const resolver = def.itemDef.resolver;
+            if (resolver instanceof StaticValueResolver) {
+              return resolver.staticValue !== undefined && resolver.staticValue !== '';
+            } else {
+              return true; // function value
+            }
+          } else {
+            // Not schema source, skip this def and continue
+            continue;
+          }
+        }
+        return val; // explicit true or false
       }
     }
-    return true; // otherwise default to true
+    // defaults to true
+    return true;
   }
 
   get isSensitive() {
@@ -148,7 +182,19 @@ export class ConfigItem {
         return defDecorators.sensitive.simplifiedValue;
         // TODO: do we want an opposite decorator similar to @required/@optional -- maybe @public?
       } else if ('defaultSensitive' in def.source.decorators) {
-        return def.source.decorators.defaultSensitive.simplifiedValue;
+        const dec = def.source.decorators.defaultSensitive;
+        // Handle function call: inferFromPrefix(PREFIX)
+        if (dec.value instanceof ParsedEnvSpecFunctionCall && dec.value.name === 'inferFromPrefix') {
+          const args = dec.value.simplifiedArgs;
+          // Accepts a single string prefix as first arg
+          const prefix = Array.isArray(args) && args.length > 0 ? args[0] : undefined;
+          if (typeof prefix === 'string' && this.key.startsWith(prefix)) {
+            return false; // Not sensitive if matches prefix
+          }
+          return true; // Sensitive otherwise
+        }
+        // Fallback to static/boolean value
+        return dec.simplifiedValue;
       }
     }
     return true;
@@ -191,20 +237,24 @@ export class ConfigItem {
     if (this.schemaErrors.length) return;
     if (this.resolverSchemaErrors.length) return;
 
-    // not sure in what cases this may happen - we'll likely always have a resolver?
-    if (!this.valueResolver) {
-      this.resolvedRawValue = undefined;
+    // we should always have a resolver set, even if its a static resolver with undefined value
+    if (!this.valueResolver) throw new Error('Expected a resolver to be set');
+
+    if (this.isResolved) {
+      // previously we would throw an error, now we resolve the envFlag early, so we can just return
+      // but we may want further checks, as this could help us identify buggy logic calling resolve multiple times
       return;
     }
 
-    if (this.isResolved) throw new Error('item already resolved');
-
     try {
-      // TODO: pass in some ctx object?
       this.resolvedRawValue = await this.valueResolver.resolve();
     } catch (err) {
       this.resolutionError = new ResolutionError(`error resolving value: ${err}`);
       this.resolutionError.cause = err;
+    }
+
+    if (this.resolvedRawValue instanceof RegExp) {
+      this.resolutionError = new ResolutionError('regex() is meant to be used within function args, not as a final resolved value');
     }
 
     // bail if we have an resolution error
@@ -279,4 +329,3 @@ export class ConfigItem {
     return this.validationState === 'valid';
   }
 }
-

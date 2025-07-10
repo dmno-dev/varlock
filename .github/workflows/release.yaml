@@ -13,6 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # this is needed so that pushes to the version release branch will use the token we pass in below
+          # otherwise the default token will be used, and we will not get an updated pkg.pr.new preview for that branch
+          persist-credentials: false
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:

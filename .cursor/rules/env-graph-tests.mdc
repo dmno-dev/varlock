@@ -1,0 +1,56 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+<rule>
+name: env_graph_tests_general
+version: 1.0
+priority: medium
+
+# Rule: General Test Structure for env-graph
+
+## Description
+All tests in the env-graph package must follow best practices for maintainability, clarity, and extensibility. This includes using DRY setup, table-driven tests where appropriate, and clear assertion of expected behavior.
+
+## Rationale
+- Ensures tests are easy to read, extend, and maintain.
+- Reduces code duplication and encourages consistent patterns across the codebase.
+- Makes it easier to add new test cases and spot regressions.
+
+## Requirements
+- Use a single setup function or helper for repeated test logic (e.g., graph setup, data source creation).
+- Prefer table-driven tests (array of test case objects) for scenarios with multiple similar cases.
+- Each test case object should include a label/description and all relevant input/expected output fields.
+- Use `describe()` and `it()` blocks to organize tests by feature or function.
+- Assertions must clearly check the expected behavior (e.g., resolved values, errors, config keys, etc.).
+- Avoid copy-pasting similar `it()` blocks; use iteration over test cases where possible.
+- Use meaningful variable names and keep test logic concise.
+
+## Example
+```ts
+function featureTests(
+  tests: Array<{
+    label: string;
+    input: string;
+    expected: any;
+  }>,
+) {
+  return () => {
+    tests.forEach(({ label, input, expected }) => {
+      it(label, async () => {
+        // ...setup and assertions...
+      });
+    });
+  };
+}
+
+describe('some feature', featureTests([
+  // ...test cases...
+]));
+```
+
+## Enforcement
+- All new and modified tests in env-graph must follow these guidelines.
+- Reviewers should request changes if tests are not DRY, table-driven (where appropriate), or lack clear assertions.
+</rule>

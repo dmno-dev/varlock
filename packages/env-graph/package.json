@@ -28,6 +28,7 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "catalog:",
+    "outdent": "catalog:",
     "tsup": "catalog:",
     "vitest": "catalog:"
   },

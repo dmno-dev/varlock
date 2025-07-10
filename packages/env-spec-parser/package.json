@@ -2,6 +2,11 @@
   "name": "@env-spec/parser",
   "version": "0.0.1",
   "description": "Parser for @env-spec enabled dotenv files",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/env-spec-parser"
+  },
   "files": ["dist"],
   "exports": {
     ".": {

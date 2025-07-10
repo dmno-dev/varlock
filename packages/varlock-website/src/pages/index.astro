@@ -203,7 +203,7 @@ npx varlock init
 + import 'varlock/auto-load';
 
 // CLI
-- dotenv -- node app.js
+- dotenvx run -- node app.js
 + varlock run -- node app.js
         `}
       />
@@ -282,21 +282,25 @@ npx varlock init
 
   .sparkle {
     /* color: var(--brand-purple--t1); */
-    text-shadow: 0 0 5px var(--brand-cyan);
+    --sparkle-color: var(--brand-cyan);
+    /* text-shadow: 0 0 2px var(--sparkle-color); */
     animation: sparkle-pulse 4s ease-in-out infinite;
+  }
+  :root[data-theme="light"] .sparkle {
+    --sparkle-color: var(--brand-purple);
   }
 
   @keyframes sparkle-pulse {
     0% {
-      text-shadow: 0 0 5px var(--brand-cyan);
+      text-shadow: 0 0 0px var(--sparkle-color);
     }
     50% {
       text-shadow:
-        0 0 10px var(--brand-cyan),
-        0 0 15px var(--brand-cyan);
+        0 0 3px var(--color-text-full-shade-invert),
+        0 0 15px var(--sparkle-color);
     }
     100% {
-      text-shadow: 0 0 5px var(--brand-cyan);
+      text-shadow: 0 0 0px var(--sparkle-color);
     }
   }
 
