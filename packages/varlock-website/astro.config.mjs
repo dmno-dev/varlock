@@ -73,7 +73,7 @@ export default defineConfig({
             { label: 'Integration', slug: 'guides/integration' },
             { label: 'Secrets', slug: 'guides/secrets' },
             { label: 'Environments', slug: 'guides/environments' },
-            // { label: 'AI Tools', slug: 'guides/ai-tools', badge: 'New' },
+            { label: 'AI Tools', slug: 'guides/ai-tools'},
             { label: 'Telemetry', slug: 'guides/telemetry' },
             { label: 'Migrate from dotenv', slug: 'guides/migrate-from-dotenv' },
           ],
