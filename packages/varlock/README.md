@@ -6,7 +6,7 @@ To install the CLI, run:
 
 ```bash
 # Install as standalone CLI via homebrew
-brew install varlock
+brew install dmno-dev/tap/varlock
 
 # OR install via cURL
 curl -sSfL https://varlock.dev/install.sh | sh -s
