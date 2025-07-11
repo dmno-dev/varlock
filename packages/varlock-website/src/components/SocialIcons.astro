@@ -1,0 +1,39 @@
+---
+import DefaultSocialIcons from "@astrojs/starlight/components/SocialIcons.astro";
+import StarArrow from "./StarArrow.vue";
+---
+
+<div class="custom-social-icons-wrapper">
+  <div class="star-arrow-header">
+    <StarArrow client:load />
+  </div>
+  <DefaultSocialIcons><slot /></DefaultSocialIcons>
+</div>
+
+<style>
+  .custom-social-icons-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    position: relative;
+  }
+  .star-arrow-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    /* Position the arrow above the icons for visibility */
+    margin-bottom: -0.5rem;
+    margin-right: 0.2rem;
+  }
+  @media (max-width: 600px) {
+    .custom-social-icons-wrapper {
+      flex-direction: column;
+      align-items: flex-end;
+    }
+    .star-arrow-header {
+      margin-bottom: 0;
+      margin-right: 0;
+    }
+  }
+</style>
