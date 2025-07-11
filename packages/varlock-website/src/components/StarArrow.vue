@@ -48,6 +48,11 @@ onMounted(() => {
   user-select: none;
   position: relative;
 }
+@media (max-width: 600px) {
+  .star-arrow-container {
+    display: none;
+  }
+}
 .star-arrow-label {
   font-family: var(--font-pixel);
   color: var(--brand-red);
