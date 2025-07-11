@@ -8,6 +8,6 @@
     "skipLibCheck": false,
     "customConditions": ["ts-src"]
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "!test/test-project/*"],
   "exclude": ["node_modules", "dist"]
 }
