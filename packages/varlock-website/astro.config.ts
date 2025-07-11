@@ -1,4 +1,3 @@
-// @ts-check
 import { defineConfig, fontProviders, passthroughImageService } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import mdx from '@astrojs/mdx';
@@ -7,15 +6,15 @@ import sitemap from '@astrojs/sitemap';
 import robotsTxt from 'astro-robots-txt';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import partytown from '@astrojs/partytown';
+import remarkCustomHeaderId from 'remark-custom-header-id';
 
-// TODO: figure out why this does not like `import 'varlock/auto-load';`
 import { load as varlockLoad } from 'varlock';
+varlockLoad();
+
 import { ENV } from 'varlock/env';
 
-await varlockLoad();
 
 import envSpecGrammar from '../vscode-plugin/language/env-spec.tmLanguage.json' assert { type: 'json' };
-import remarkCustomHeaderId from 'remark-custom-header-id';
 
 // https://astro.build/config
 export default defineConfig({
@@ -131,7 +130,7 @@ export default defineConfig({
         {
           userAgent: '*',
           // The next line enables or disables the crawling on the `robots.txt` level
-          disallow: ENV.APP_ENV !== 'production' ? '/' : '',
+          disallow: ENV.APP_ENV === 'production' ? '' : '/',
         },
       ],
     }),

@@ -1,10 +1,14 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  // super annoying - turbo will swallow env vars unless we include them here
+  // anything that would affect the build output needs to be included here
+  // otherwise things that need to be passed through but do not affect caching should be in passThroughEnv
+  "globalEnv": ["WORKERS_CI_BRANCH", "APP_ENV"],
   "globalPassThroughEnv": [],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "inputs": ["package.json", "tsconfig.json", "tsconfig.*.json", "tsup.config.ts", "src/**"],
+      "inputs": ["package.json", "tsconfig.json", "tsconfig.*.json", "tsup.config.ts", "src/**", "astro.config.mjs"],
       "outputs": ["dist/**"]
     },
     "test:ci": {

@@ -3,8 +3,7 @@ title: Next.js
 description: How to integrate Varlock with Next.js for secure, type-safe environment management
 ---
 import SyncedCodeTabs from '@/components/SyncedCodeTabs.astro'
-import { TabItem, Tabs, Steps, Step } from "@astrojs/starlight/components";
-import outdent from 'outdent';
+import { TabItem, Tabs, Steps } from "@astrojs/starlight/components";
 import Badge from '@/components/Badge.astro';
 
 <div class="page-badges">
@@ -257,7 +256,7 @@ Next.js uses the `NEXT_PUBLIC_` prefix to determine which env vars are public (b
 
 To keep the prefix behavior:
 
-```diff lang="env-spec title=".env.schema"
+```diff lang="env-spec" title=".env.schema"
 +# @defaultSensitive=inferFromPrefix('NEXT_PUBLIC_')
 # ---
 FOO= # sensitive
