@@ -73,7 +73,7 @@
     }
   },
   "dependencies": {
-    "@env-spec/parser": "workspace:*",
+    "@env-spec/parser": "workspace:^",
     "debug": "catalog:",
     "execa": "^9.6.0",
     "which": "^5.0.0"

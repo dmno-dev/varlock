@@ -38,12 +38,13 @@
     "node": ">=22"
   },
   "peerDependencies": {
-    "varlock": "workspace:*",
+    "varlock": "workspace:^",
     "next": ">=14"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "tsup": "catalog:",
-    "varlock": "workspace:*"
+    "varlock": "workspace:^",
+    "vitest": "catalog:"
   }
 }
