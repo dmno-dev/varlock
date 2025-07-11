@@ -56,12 +56,12 @@ importers:
       eslint:
         specifier: ^9.24.0
         version: 9.24.0
-      eslint-nofix-plugin:
-        specifier: workspace:*
-        version: link:packages/eslint-custom-rules
       eslint-plugin-es-x:
         specifier: ^8.7.0
         version: 8.7.0(eslint@9.24.0)
+      eslint-plugin-fix-disabled-rules:
+        specifier: ^0.0.2
+        version: 0.0.2(eslint@9.24.0)
       eslint-plugin-jsonc:
         specifier: ^2.20.0
         version: 2.20.0(eslint@9.24.0)
@@ -124,12 +124,6 @@ importers:
         specifier: 'catalog:'
         version: 3.2.4(@types/debug@4.1.12)(@types/node@22.15.32)
 
-  packages/eslint-custom-rules:
-    dependencies:
-      eslint:
-        specifier: ^9.24.0
-        version: 9.24.0
-
   packages/integrations/nextjs:
     dependencies:
       next:
@@ -143,8 +137,11 @@ importers:
         specifier: 'catalog:'
         version: 8.4.0(postcss@8.5.3)(typescript@5.8.3)
       varlock:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../varlock
+      vitest:
+        specifier: 'catalog:'
+        version: 3.2.4(@types/debug@4.1.12)(@types/node@22.15.32)
 
   packages/scripts.ignore:
     dependencies:
@@ -178,7 +175,7 @@ importers:
   packages/varlock:
     dependencies:
       '@env-spec/parser':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../env-spec-parser
       debug:
         specifier: 'catalog:'
@@ -2560,6 +2557,11 @@ packages:
     peerDependencies:
       eslint: '>=8'
 
+  eslint-plugin-fix-disabled-rules@0.0.2:
+    resolution: {integrity: sha512-fuHQ24TkhmESQeqmTW14qG3WdD3v+pzldetsGODZJei/a4qCNFaaBPlpksD37CLCwO5vwV7j0J7zBIzeKVPQjw==}
+    peerDependencies:
+      eslint: '>=9.0.0'
+
   eslint-plugin-jsonc@2.20.0:
     resolution: {integrity: sha512-FRgCn9Hzk5eKboCbVMrr9QrhM0eO4G+WKH8IFXoaeqhM/2kuWzbStJn4kkr0VWL8J5H8RYZF+Aoam1vlBaZVkw==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
@@ -3455,9 +3457,6 @@ packages:
 
   longest-streak@3.1.0:
     resolution: {integrity: sha512-9Ri+o0JYgehTaVBBDoMqIl8GXtbWg711O3srftcHhZ0dqnETqLaoIK0x17fUw9rFSlK/0NlsKe0Ahhyl5pXE2g==}
-
-  loupe@3.1.3:
-    resolution: {integrity: sha512-kkIp7XSkP78ZxJEsSxW3712C6teJVoeHHwgo9zJ380de7IYyJ2ISlxojcH2pC5OFLewESmnRi/+XCDIEEVyoug==}
 
   loupe@3.1.4:
     resolution: {integrity: sha512-wJzkKwJrheKtknCOKNEtDK4iqg/MxmZheEMtSTYvnzRdEYaZzmgH976nenp8WdJRdx5Vc1X/9MO0Oszl6ezeXg==}
@@ -7638,7 +7637,7 @@ snapshots:
       assertion-error: 2.0.1
       check-error: 2.1.1
       deep-eql: 5.0.2
-      loupe: 3.1.3
+      loupe: 3.1.4
       pathval: 2.0.0
 
   chalk@2.4.2:
@@ -8145,6 +8144,10 @@ snapshots:
       '@eslint-community/regexpp': 4.12.1
       eslint: 9.24.0
       eslint-compat-utils: 0.6.5(eslint@9.24.0)
+
+  eslint-plugin-fix-disabled-rules@0.0.2(eslint@9.24.0):
+    dependencies:
+      eslint: 9.24.0
 
   eslint-plugin-jsonc@2.20.0(eslint@9.24.0):
     dependencies:
@@ -9236,8 +9239,6 @@ snapshots:
   lodash@4.17.21: {}
 
   longest-streak@3.1.0: {}
-
-  loupe@3.1.3: {}
 
   loupe@3.1.4: {}
 
