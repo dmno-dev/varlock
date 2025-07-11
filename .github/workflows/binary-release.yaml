@@ -15,8 +15,18 @@ on:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: print github context
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }} 
+        run: |
+          echo "$GITHUB_CONTEXT"
+
   release-binaries:
-    if: ${{ github.event_name == 'workflow_dispatch' }} || (github.event.action == 'published' && startsWith(github.event.release.tag_name, 'varlock@'))
+    # was using github.ref.tag_name, but it seems that when publishing multiple tags at once, it was behaving weirdly
+    if: ${{ github.event_name == 'workflow_dispatch' }} || (github.event.action == 'published' && startsWith(github.ref_name, 'varlock@'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,9 +49,9 @@ jobs:
         if: ${{ github.event_name == 'release' }}
         run: |
           # get the full release tag name - ex: varlock@1.2.3
-          echo "RELEASE_TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> $GITHUB_ENV
           # get the version only from the tag - ex: 1.2.3
-          echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/varlock@}" >> $GITHUB_ENV
+          echo "RELEASE_VERSION=${GITHUB_REF_NAME#varlock@}" >> $GITHUB_ENV
       
       - name: use manual version from input
         if: ${{ github.event_name == 'workflow_dispatch' }}
