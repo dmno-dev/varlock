@@ -296,8 +296,8 @@ li>p>img:last-child {
 .expressive-code {
   --ec-tm-delBg: var(--brand-red--t2);
   --ec-tm-delBrdCol: var(--brand-red);
-  --ec-tm-insBg: var(--brand-orange--t2);
-  --ec-tm-insBrdCol: var(--brand-orange);
+  --ec-tm-insBg: var(--brand-green--t2);
+  --ec-tm-insBrdCol: var(--brand-green);
 }
 
 .expressive-code pre {

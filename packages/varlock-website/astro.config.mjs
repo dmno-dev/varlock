@@ -116,12 +116,8 @@ export default defineConfig({
       expressiveCode: {
         shiki: {
           langs: [
-            {
-              name: 'env-spec',
-              scopeName: 'source.env-spec',
-              extensions: ['.env-spec'],
-              ...envSpecGrammar,
-            },
+            // @ts-ignore
+            { name: 'env-spec', ...envSpecGrammar },
           ],
         },
       },
@@ -135,8 +131,7 @@ export default defineConfig({
         {
           userAgent: '*',
           // The next line enables or disables the crawling on the `robots.txt` level
-          // TODO: use varlock, check more general APP_ENV
-          disallow: ENV.CF_PAGES_BRANCH !== 'main' ? '/' : '',
+          disallow: ENV.APP_ENV !== 'production' ? '/' : '',
         },
       ],
     }),
