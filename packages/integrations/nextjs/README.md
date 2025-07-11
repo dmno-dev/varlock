@@ -27,28 +27,24 @@ NPM lets you reference another installed dependency in overrides. For example: `
 
 _package.json_
 ```
-  "dependencies": {
-    // ...
-    "@varlock/nextjs-integration": "^1.2.3"
-  },
   "overrides": {
-    "@next/env": "$@varlock/nextjs-integration"
+    "@next/env": "npm:@varlock/nextjs-integration"
   }
 ```
 
 **Yarn**
 See [yarn resolutions docs](https://yarnpkg.com/configuration/manifest#resolutions)
 
-_package.json_
+_root package.json_
 ```
   "resolutions": {
-    "**/@next/env": "npm:@varlock/nextjs-integration@^1.2.3"
+    "**/@next/env": "npm:@varlock/nextjs-integration"
   }
 ```
 
-> ⚠️ If in a monorepo, this must be done in the monorepo root package.json file
+> ⚠️ If in a monorepo, this must be done in the monorepo root `package.json` file
 
-**pnpm**
+**pnpm (version 10+)**
 See [pnpm overrides docs](https://pnpm.io/settings#overrides)
 
 > ⚠️ This must be set in `pnpm-workspace.yaml`, regardless of whether you are using a monorepo or not
@@ -56,7 +52,21 @@ See [pnpm overrides docs](https://pnpm.io/settings#overrides)
 _pnpm-workspace.yaml_
 ```
 overrides:
-  "@next/env": "npm:@varlock/nextjs-integration@^1.2.3"
+  "@next/env": "npm:@varlock/nextjs-integration"
+```
+
+**pnpm (version 9)**
+See [pnpm overrides docs](https://pnpm.io/settings#overrides)
+
+> ⚠️ If in a monorepo, this must be set in the root `package.json` file
+
+_root package.json_
+```
+  "pnpm": {
+    "overrides": {
+      "@next/env": "npm:@varlock/nextjs-integration"
+    }
+  }
 ```
 
 

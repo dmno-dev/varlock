@@ -3,7 +3,7 @@ import tseslint from 'typescript-eslint';
 import stylistic from '@stylistic/eslint-plugin';
 import airbnb from 'eslint-stylistic-airbnb';
 import globals from 'globals';
-import nofixPlugin from 'eslint-nofix-plugin';
+import nofixPlugin from 'eslint-plugin-fix-disabled-rules';
 import eslintPluginJsonc from 'eslint-plugin-jsonc';
 import pluginESx from 'eslint-plugin-es-x';
 

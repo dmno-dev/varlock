@@ -108,7 +108,7 @@ If `dotenv` is being used under the hood of one of your dependencies, you can us
     ```diff lang="json" title="package.json"
     {
     +  "overrides": {
-    +    "dotenv": "varlock@^1.2.3"
+    +    "dotenv": "varlock"
     +  }
     }
     ```
@@ -120,7 +120,7 @@ If `dotenv` is being used under the hood of one of your dependencies, you can us
     ```diff lang="json" title="package.json"
     {
     +  "resolutions": {
-    +    "**/dotenv": "npm:varlock@^1.2.3"
+    +    "**/dotenv": "npm:varlock"
     +  },
     }
     ```
@@ -134,7 +134,7 @@ If `dotenv` is being used under the hood of one of your dependencies, you can us
 
         ```diff lang="yaml" title="pnpm-workspace.yaml"
         +overrides:
-        +  "dotenv": "npm:varlock@^1.2.3"
+        +  "dotenv": "npm:varlock"
         ```
         
         **This must be set in `pnpm-workspace.yaml`, which lives at the root of your repo, regardless of whether you are using a monorepo or not.**
@@ -148,7 +148,7 @@ If `dotenv` is being used under the hood of one of your dependencies, you can us
         {
         +  "pnpm": {
         +    "overrides": {
-        +      "dotenv": "npm:varlock@^1.2.3"
+        +      "dotenv": "npm:varlock"
         +    }
         +  }
         }

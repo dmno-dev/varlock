@@ -78,7 +78,7 @@ Turbopack does not yet provide any plugin system, so using the config plugin is 
         ```diff lang="json" title="package.json"
         {
         +  "overrides": {
-        +    "@next/env": "$@varlock/nextjs-integration"
+        +    "@next/env": "npm:@varlock/nextjs-integration"
         +  }
         }
         ```
@@ -90,7 +90,7 @@ Turbopack does not yet provide any plugin system, so using the config plugin is 
         ```diff lang="json" title="package.json"
         {
         +  "resolutions": {
-        +    "**/@next/env": "npm:@varlock/nextjs-integration@^1.2.3"
+        +    "**/@next/env": "npm:@varlock/nextjs-integration"
         +  },
         }
         ```
@@ -104,7 +104,7 @@ Turbopack does not yet provide any plugin system, so using the config plugin is 
 
             ```diff lang="yaml" title="pnpm-workspace.yaml"
             +overrides:
-            +  "@next/env": "$@varlock/nextjs-integration"
+            +  "@next/env": "npm:@varlock/nextjs-integration"
             ```
             
             **This must be set in `pnpm-workspace.yaml`, which lives at the root of your repo, regardless of whether you are using a monorepo or not.**
@@ -117,7 +117,7 @@ Turbopack does not yet provide any plugin system, so using the config plugin is 
             {
             +  "pnpm": {
             +    "overrides": {
-            +      "@next/env": "$@varlock/nextjs-integration"
+            +      "@next/env": "npm:@varlock/nextjs-integration"
             +    }
             +  }
             }
@@ -136,7 +136,7 @@ Turbopack does not yet provide any plugin system, so using the config plugin is 
     At this point, varlock will now load your .env files into `process.env`.
     But to get the full benefits of this integration, you must add `varlockNextConfigPlugin` to your `next.config.ts` (or `.js`) file.
 
-    ```diff lang="ts" title="next.config.ts" add="varlockNextConfigPlugin"
+    ```diff lang="ts" title="next.config.ts" "varlockNextConfigPlugin"
     import type { NextConfig } from "next";
     +import { varlockNextConfigPlugin } from '@varlock/nextjs-integration/plugin';
 
@@ -147,6 +147,9 @@ Turbopack does not yet provide any plugin system, so using the config plugin is 
     -export default nextConfig;
     +export default varlockNextConfigPlugin()(nextConfig);
     ```
+
+
+
 </Steps>
 
 ---
@@ -274,6 +277,30 @@ NON_SECRET_FOO=
 :::caution[Bundling behavior]
 All non-sensitive items are bundled at build time via `ENV`, while `process.env` replacements only include `NEXT_PUBLIC_`-prefixed items.
 :::
+
+
+## Extra setup for standalone ||standalone||
+
+**⚠️ This is only needed if you are using `output: standalone`**
+
+The standalone build process will not copy all our `.env` files to the `.next/standalone` directory, so we must copy them manually. Add this to your build command:
+```diff lang="json" title="package.json" add=/ && [^"]+/
+{
+  "scripts": {
+    "build": "next build && cp .env.* .next/standalone",
+  }
+}
+```
+_you may need to adjust if you don't want to copy certain .local files_
+
+
+Standalone builds do not copy dependency binaries, and varlock depends on the CLI to load.
+So wherever you are booting your standalone server, you will also need to [install the varlock binary](/getting-started/installation/) and boot your server via [`varlock run`](/reference/cli-commands/#varlock-run)
+
+```bash
+varlock run -- node .next/standalone/server.js
+```
+
 
 ---
 
