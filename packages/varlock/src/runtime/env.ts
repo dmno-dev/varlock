@@ -31,6 +31,11 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
       if (redacted) sensitiveSecretsMap[item.value] = { key: itemKey, redacted };
     }
   }
+  // if no sensitive items exist, we dont need to do any redaction, but the redact fn is checking for undefined
+  if (!Object.keys(sensitiveSecretsMap).length) {
+    redactorFindReplace = undefined;
+    return;
+  }
 
   // reset find/replace regex+fn used for redacting secrets in strings
   const findRegex = new RegExp(

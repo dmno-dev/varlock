@@ -8,11 +8,8 @@ import starlightLlmsTxt from 'starlight-llms-txt';
 import partytown from '@astrojs/partytown';
 import remarkCustomHeaderId from 'remark-custom-header-id';
 
-import { load as varlockLoad } from 'varlock';
-varlockLoad();
-
+import 'varlock/auto-load';
 import { ENV } from 'varlock/env';
-
 
 import envSpecGrammar from '../vscode-plugin/language/env-spec.tmLanguage.json' assert { type: 'json' };
 
