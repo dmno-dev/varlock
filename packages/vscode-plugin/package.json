@@ -7,7 +7,7 @@
     "color": "#4F0049",
     "theme": "dark"
   },
-  "version": "0.0.0",
+  "version": "0.0.2",
   "publisher": "varlock",
   "author": "dmno-dev",
   "license": "MIT",
@@ -53,21 +53,38 @@
       }
     ]
   },
-  "categories": ["Programming Languages", "Other"],
-  "keywords": ["env-spec", "dotenv", "env", ".env", "environment variables", "config"],
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "env-spec",
+    "dotenv",
+    "env",
+    ".env",
+    "environment variables",
+    "config"
+  ],
   "pricing": "Free",
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
-    "package": "pnpm run build && vsce package --baseImagesUrl https://raw.githubusercontent.com/dmno-dev/varlock/HEAD/packages/vscode-plugin --baseContentUrl https://raw.githubusercontent.com/dmno-dev/varlock/HEAD/packages/vscode-plugin",
-    "publish": "vsce publish --no-update-package-json --baseImagesUrl https://raw.githubusercontent.com/dmno-dev/varlock/HEAD/packages/vscode-plugin --baseContentUrl https://raw.githubusercontent.com/dmno-dev/varlock/HEAD/packages/vscode-plugin"
+    "package": "pnpm run build && vsce package -o env-spec-language.vsix",
+    "publish:vsce": "vsce publish -i env-spec-language.vsix",
+    "publish:ovsx": "ovsx publish -i env-spec-language.vsix",
+    "publish": "pnpm run package && pnpm run publish:vsce && pnpm run publish:ovsx"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "@types/vscode": "^1.99.0",
-    "tsup": "catalog:",
-    "@vscode/vsce": "^3.5.0"
+    "@vscode/vsce": "^3.6.0",
+    "ovsx": "^0.10.5",
+    "tsup": "catalog:"
   },
-  "dependencies": {
+  "vsce": {
+    "baseImagesUrl": "https://raw.githubusercontent.com/dmno-dev/varlock/HEAD/packages/vscode-plugin",
+    "baseContentUrl": "https://raw.githubusercontent.com/dmno-dev/varlock/HEAD/packages/vscode-plugin",
+    "dependencies": true,
+    "yarn": false
   }
 }
