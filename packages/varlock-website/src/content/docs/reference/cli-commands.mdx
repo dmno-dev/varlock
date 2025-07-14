@@ -91,45 +91,6 @@ varlock run python script.py
 </div>
 
 <div>
-### `varlock encrypt`
-
-Encrypts sensitive environment variables in your `.env.*` files and replaces the values with the encrypted values.
-
-```bash
-varlock encrypt [options]
-```
-
-Examples:
-```bash
-# Encrypt all sensitive variables in .env files
-varlock encrypt
-
-# Encrypt a specific .env file
-varlock encrypt .env.production
-```
-</div>
-
-<div>
-### `varlock doctor`
-
-Diagnoses your environment configuration and provides recommendations for improvements. This command checks for common issues and best practices.
-
-```bash
-varlock doctor [options]
-```
-
-Examples:
-```bash
-# Run diagnostics on your environment setup
-varlock doctor
-
-# Check a specific .env file
-varlock doctor .env.production
-```
-
-</div>
-
-<div>
 ### `varlock opt-out`
 
 Opts out of anonymous usage analytics. This command creates a configuration file at `~/.varlock/config.json` that permanently disables analytics collection.
