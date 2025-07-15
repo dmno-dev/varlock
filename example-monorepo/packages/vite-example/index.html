@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vite + Varlock demo</title>
+</head>
+
+<body>
+  <ul>
+    <li>APP_ENV = %ENV.APP_ENV%</li>
+    <li>VITE_ITEM1 = %VITE_ITEM1%</li>
+    <li>PUBLIC_FOO = %ENV.PUBLIC_FOO%</li>
+    <li>SECRET_FOO = %SECRET_FOO%</li>
+    <li>ITEM1 = %ITEM1%</li>
+    <li>ENV.ITEM1 = %ENV.ITEM1%</li>
+    <li>ENV.ITEM1 = %ENV.BAD_KEY %</li><!-- remove extra trailing space to see error-->
+    <li>ENV.SECRET_FOO = %ENV.SECRET_FOO %</li><!-- remove extra trailing space to see error-->
+  </ul>
+  <hr />
+
+  <div id="app"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>
