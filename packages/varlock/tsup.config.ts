@@ -19,7 +19,9 @@ export default defineConfig({
 
   noExternal: ['@env-spec/env-graph', '@env-spec/utils'],
 
-  dts: true,
+  dts: {
+    resolve: true,
+  },
 
   sourcemap: true, // Generate sourcemaps
   treeshake: true, // Remove unused code
