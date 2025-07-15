@@ -11,6 +11,12 @@ parser:
 vscode-plugin:
 - changed-files:
   - any-glob-to-any-file: 'packages/vscode-plugin/*'
+nextjs-integration:
+- changed-files:
+  - any-glob-to-any-file: 'packages/integrations/nextjs/*'
+vite-integration:
+- changed-files:
+  - any-glob-to-any-file: 'packages/integrations/vite/*'
 
 ## website + docs
 docs:
