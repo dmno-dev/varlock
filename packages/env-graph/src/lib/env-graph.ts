@@ -1,6 +1,7 @@
 import _ from '@env-spec/utils/my-dash';
+import path from 'node:path';
 import { ConfigItem } from './config-item';
-import { EnvGraphDataSource, ProcessEnvDataSource } from './data-source';
+import { EnvGraphDataSource, FileBasedDataSource, ProcessEnvDataSource } from './data-source';
 
 import {
   BaseResolvers, type ResolverChildClass, StaticValueResolver,
@@ -11,9 +12,11 @@ import { ResolutionError, SchemaError } from './errors';
 import { generateTypes } from './type-generation';
 
 export type SerializedEnvGraph = {
+  basePath?: string;
   sources: Array<{
     label: string;
     enabled: boolean;
+    path?: string;
   }>,
   settings: {
     redactLogs?: boolean;
@@ -313,6 +316,7 @@ export class EnvGraph {
 
   getSerializedGraph(): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
+      basePath: this.basePath,
       sources: [],
       config: {},
       settings: {},
@@ -321,6 +325,7 @@ export class EnvGraph {
       serializedGraph.sources.push({
         label: source.label,
         enabled: !source.disabled,
+        path: source instanceof FileBasedDataSource ? path.relative(this.basePath ?? '', source.fullPath) : undefined,
       });
     }
     for (const itemKey in this.configSchema) {

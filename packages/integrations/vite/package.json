@@ -1,0 +1,57 @@
+{
+  "name": "@varlock/vite-integration",
+  "description": "Helpers to use varlock with vite - including a plugin to load .env files with validation and extra security features",
+  "version": "0.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/integrations/vite"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup"
+  },
+  "keywords": [
+    "varlock",
+    "vite",
+    "env",
+    ".env",
+    "environment variables",
+    "env vars",
+    "config",
+    "security",
+    "validation",
+    "leak protection",
+    "vite-plugin"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^",
+    "vite": ">=5"
+  },
+  "dependencies": {
+    "@rollup/plugin-replace": "^6.0.2",
+    "debug": "catalog:"
+  },
+  "devDependencies": {
+    "@types/debug": "catalog:",
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "varlock": "workspace:^",
+    "vite": "^7.0.4",
+    "vitest": "catalog:"
+  }
+}

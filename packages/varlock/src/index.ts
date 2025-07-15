@@ -1,4 +1,4 @@
-import { type SerializedEnvGraph } from '@env-spec/env-graph';
+import { type SerializedEnvGraph } from './serialized-env-graph';
 export { type SerializedEnvGraph };
 
 import { checkForConfigErrors } from './cli/helpers/error-checks';
