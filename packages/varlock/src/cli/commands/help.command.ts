@@ -1,5 +1,5 @@
 import { define } from 'gunshi';
-import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
 export const commandSpec = define({
   name: 'help',

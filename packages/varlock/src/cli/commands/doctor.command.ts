@@ -1,7 +1,7 @@
 import { define } from 'gunshi';
 import { loadEnvGraph } from '@env-spec/env-graph';
 import { isBundledSEA } from '../helpers/install-detection';
-import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
 export const commandSpec = define({
   name: 'doctor',
