@@ -1,5 +1,5 @@
 import _ from '@env-spec/utils/my-dash';
-import { FallbackIfUnknown } from '@env-spec/utils/type-utils';
+import { type FallbackIfUnknown } from '@env-spec/utils/type-utils';
 import { CoercionError, ValidationError } from './errors';
 
 

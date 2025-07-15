@@ -1,5 +1,5 @@
-import { SerializedEnvGraph } from '@env-spec/env-graph';
-export { SerializedEnvGraph };
+import { type SerializedEnvGraph } from '@env-spec/env-graph';
+export { type SerializedEnvGraph };
 
 import { checkForConfigErrors } from './cli/helpers/error-checks';
 import { loadVarlockEnvGraph } from './lib/load-graph';

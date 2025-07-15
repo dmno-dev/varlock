@@ -1,4 +1,4 @@
-import { Command, CommandRunner } from 'gunshi';
+import { type Command, type CommandRunner } from 'gunshi';
 
 type ExtractArgs<C> = C extends Command<infer Args> ? Args : never;
 

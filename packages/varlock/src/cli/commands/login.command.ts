@@ -6,7 +6,7 @@ import { logLines } from '../helpers/pretty-format';
 import { CONFIG } from '../../config';
 import { openUrl } from '../helpers/open-url';
 import { keyPressed } from '../helpers/key-press';
-import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { gracefulExit } from 'exit-hook';
 
 

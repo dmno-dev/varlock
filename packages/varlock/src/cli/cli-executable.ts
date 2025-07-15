@@ -1,4 +1,4 @@
-import { cli, Command, define } from 'gunshi';
+import { cli, type Command, define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
 import { VARLOCK_BANNER, VARLOCK_BANNER_COLOR } from '../lib/ascii-art';

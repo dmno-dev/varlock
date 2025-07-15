@@ -1,4 +1,4 @@
-import ansis, { AnsiColors, AnsiStyles } from 'ansis';
+import ansis, { type AnsiColors, type AnsiStyles } from 'ansis';
 import _ from '@env-spec/utils/my-dash';
 
 import { ConfigItem } from '../../../env-graph/src/lib/config-item';

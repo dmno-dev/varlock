@@ -4,7 +4,7 @@ import _ from '@env-spec/utils/my-dash';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { getItemSummary } from '../../lib/formatting';
 import { checkForConfigErrors, checkForSchemaErrors } from '../helpers/error-checks';
-import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
 export const commandSpec = define({
   name: 'load',
