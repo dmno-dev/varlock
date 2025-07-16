@@ -1,25 +1,35 @@
-# Varlock + Env-Spec Monorepo
+# Varlock
 
-> https://varlock.dev
+![og-image](/packages/varlock-website/public/default-og-image.png)
 
-## env-spec
+> See https://varlock.dev for docs and examples. 
 
-env-spec is a new language / DSL for attaching a schema and additional functionality to .env files
-using JSDoc style comments. The env-spec package contains a parser and info about the spec/language itself.
-
-A sample .env file with a schema:
+_A sample `.env.schema`_: 
 ```bash
-# Description
-# @required @sensitive
-MY_SECRET=my-secret
+# @envFlag=APP_ENV
+# ---
+
+# @type=enum(development, staging, production)
+APP_ENV=development #sets default value
+
+# API port
+# @type=port @example=3000
+API_PORT= 
+
+# API url including expansion of another env var
+# @required @type=url
+API_URL=localhost:${API_PORT} 
+
+# API key with validation, securely fetched from 1Password
+# @required @sensitive @type=string(startsWith=sk-)
+OPENAI_API_KEY=exec('op read "op://api-prod/openai/api-key"')
+
+# Non-secret value, included directly
+# @type=url
+SOME_SERVICE_API_URL=https://api.someservice.com
 ```
-Read the RFC for more details: https://github.com/dmno-dev/varlock/discussions/17
 
-## Varlock
-
-Varlock is our tool that uses this parser to actually load your .env files, and then applies the schema
-that you have defined. It is a CLI, library, and will communicate with a native Mac application that 
-enables using biometric auth to securely encrypt your local secrets.
+## Installation
 
 You can get started with varlock by installing the CLI: 
 
@@ -31,26 +41,35 @@ brew install dmno-dev/tap/varlock
 curl -sSfL https://varlock.dev/install.sh | sh -s
 
 # OR install as a dependency in a js project
-npx varlock init
+npm install varlock
 ```
+
+See the full installation [docs](https://varlock.dev/getting-started/installation/). 
+
+## Workflow
+
+Validate your `.env.schema` with: 
+
+```bash
+varlock load
+```
+
+If you need to pass resolved env vars into another process, you can run: 
+
+```bash
+varlock run -- python script.py
+```
+
+Or you can integrate more deeply with one of our [integrations](https://varlock.dev/integrations/javascript/) to get log redaction and leak prevention. 
+
+## @env-spec
+
+Varlock is built on top of @env-spec, a new DSL for attaching a schema and additional functionality to .env files using JSDoc style comments. The @env-spec package contains a parser and info about the spec itself.
+
+- @env-spec [docs](https://varlock.dev/env-spec/overview/) 
+- @env-spec [RFC](https://github.com/dmno-dev/varlock/discussions/17)
 
 
 ## Development
 
-This monorepo contains the following packages:
-
-- [`env-spec-parser`](./packages/env-spec-parser): The parser and info about the spec/language itself.
-- [`varlock`](./packages/varlock): The CLI that uses the parser to load your .env files, and then applies the schema to validate and load your env vars.
-- [`varlock-website`](./packages/varlock-website): The website for varlock and env-spec.
-- [`vscode-plugin`](./packages/vscode-plugin): The VSCode extension for env-spec. It provides basic syntax highlighting and IntelliSense for the env-spec language.
-
-To get started, run: 
-
-```bash
-# Install dependencies
-pnpm install
-
-# Build the libraries
-pnpm build:libs
-```
-> See individual package READMEs for more details more details.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for more information.
