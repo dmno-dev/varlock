@@ -17,6 +17,7 @@ export default defineConfig({
   clean: true, // Clean output directory before building
   outDir: 'dist', // Output directory
 
+  // ! we are exporting cjs to match @next/env
   format: ['cjs'], // Output format(s)
   splitting: false,
 });

@@ -283,8 +283,8 @@ export function loadEnvConfig(
     varlockLoadedEnv = JSON.parse(varlockLoadedEnvBuf.toString());
   } catch (err) {
     const { status, stdout, stderr } = err as ReturnType<typeof spawnSync>;
-    const stdoutStr = stdout?.toString();
-    const stderrStr = stderr?.toString();
+    const stdoutStr = stdout?.toString() || '';
+    const stderrStr = stderr?.toString() || '';
     if (stderrStr.includes('command not found')) {
       console.error([
         '',

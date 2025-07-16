@@ -214,7 +214,11 @@ if (process.env.__VARLOCK_ENV && !initializedEnv) {
   initVarlockEnv({ setProcessEnv: false });
 }
 
-
+// this gets exported and then augmented by our type generation
+// ideally we'd start with a loose type `Record<string,any>` and then override it with the actual schema
+// so that if type generation was disabled, a user could still use `ENV`
+// but TS wont let us, so instead we start with it being empty, which will cause type errors
+// unless type generation is enabled
 export interface TypedEnvSchema {}
 
 const EnvProxy = new Proxy<TypedEnvSchema>({}, {

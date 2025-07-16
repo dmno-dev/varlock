@@ -7,6 +7,19 @@ import Decorator from '@/components/decorator-doc-entry.astro'
 Root decorators appear in the _header_ section of a .env file - which is a comment block at the beginning of the file that ends with a divider. Usually root decorators are used only in your `.env.schema` file.
 
 
+```env-spec title=".env.schema"
+# @defaultSensitive=false @defaultRequired=infer
+# @generateTypes(lang=ts, path=./env.d.ts)
+# ---
+
+# ...
+```
+
+
+More details of the minutiae of decorator handling can be found in the [@env-spec reference](/env-spec/reference/#comments-and-decorators).
+
+## Built-in root decorators
+
 <div class="reference-docs">
 
 <div>
@@ -70,7 +83,7 @@ Sets the default state of each item being treated as _sensitive_. Can be overrid
 PUBLIC_FOO= # not sensitive (due to matching prefix)
 OTHER_FOO=  # sensitive (default when prefix does not match)
 
-# @sensitive=true
+# @sensitive
 PUBLIC_BAR= # sensitive (explicit decorator overrides prefix)
 # @sensitive=false
 OTHER_BAR=  # not sensitive (explicit)

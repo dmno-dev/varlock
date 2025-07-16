@@ -25,12 +25,9 @@ export const commandSpec = define({
 });
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
-  let showOnboarding = true;
+  const jsPackageManager = detectJsPackageManager();
 
-  if (showOnboarding) {
-    console.log('🧙 Hello and welcome to Varlock 🔒🔥✨');
-    // console.log(VARLOCK_BANNER_COLOR);
-  }
+  console.log('🧙 Hello and welcome to Varlock 🔒🔥✨');
 
   let envGraph = await loadVarlockEnvGraph();
   const existingSchemaFile = envGraph.dataSources.find((dataSource) => {
@@ -86,7 +83,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // add example item
     envSpecUpdater.injectFromStr(parsedEnvFile, [
       '',
-      '# example env variable injected by `varlock init`',
+      '# example env variable injected by `varlock init` ⚠️ DELETE THIS ITEM! ⚠️',
       '# @required @sensitive @example="example value"',
       'EXAMPLE_ITEM="delete me!"',
       '',
@@ -129,10 +126,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       `We've done our best to get you started, but you must review and make sure it is correct!`,
       '',
       `👉 Some helpful pointers to get you started:`,
+      `- add a description to each item when the name is not self explanitory - it will come through in generated types`,
       `- use ${fmt.decorator('@required')} (or ${fmt.decorator('@optional')}) to tag items that should fail validation when empty`,
       `- use ${fmt.decorator('@sensitive')} to tag items that contain sensitive secrets, and must be handled accordingly`,
       `- use ${fmt.decorator('@type')} to set an item's data type (if not a basic string), which affects validation and coercion logic`,
-      `- if an item value is purely an ${ansis.italic('example')} rather than a default, move it into an ${fmt.decorator('@example')} decorator, or delete it`,
+      `- if an item value is a ${ansis.italic('useful example')} rather than a default, use ${fmt.decorator('@example')}`,
       `- if an item value is just a dummy placeholder, delete it`,
     ]);
     const confirmReviewed = await prompts.confirm({
@@ -200,13 +198,16 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     logLines([
       '',
       ansis.bold('🎉 Great!'),
-      `You can run ${fmt.command('varlock load')} to attempt loading your env vars validate against your new schema.`,
-      'Check out our integration guide for more info about integrating into your application.',
+      `You can run ${fmt.command('varlock load', { jsPackageManager })} to attempt loading your env vars validate against your new schema.`,
+      '',
+      'Check out our docs for more info about integrating into your application.',
+      '',
+      '📖 https://varlock.dev 👈',
+      '',
     ]);
   }
 
   // * MAKE SURE VARLOCK IS INSTALLED ------------------------------------------
-  const jsPackageManager = detectJsPackageManager();
   if (jsPackageManager && await pathExists(path.join(process.cwd(), 'package.json'))) {
     const installResult = installJsDependency({
       packageManager: jsPackageManager.name,

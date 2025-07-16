@@ -4,13 +4,19 @@ description: A reference page of available env-spec decorators for items
 ---
 import Decorator from '@/components/decorator-doc-entry.astro'
 
-Item decorators in a comment block _directly_ preceeding an env item are attached to that item. Multiple decorators can be specified on the same line. A comment block is broken by either an empty line or a divider.
+Decorators in a comment block _directly_ preceeding a config item will be attached to that item.
+Multiple decorators can be specified on the same line.
+A comment block is broken by either an empty line or a divider.
 
 ```env-spec
 # @required @sensitive @type=string(startsWith=sk-)
 # @docsUrl=https://docs.servicex.com/api-keys
 SERVICE_X_API_KEY=
 ```
+
+More details of the minutiae of decorator handling can be found in the [@env-spec reference](/env-spec/reference/#comments-and-decorators).
+
+## Built-in item decorators
 
 <div class="reference-docs">
 <div>
@@ -74,7 +80,7 @@ INFER_NUMBER=123 # data type of `number` will be inferred from the value
 
 <div>
 ### `@example`
-Provide an example value for the item. This lets you avoid setting placeholder values that are not meant to be used.
+Provides an example value for the item. This lets you avoid setting placeholder values that are not meant to be used.
 
 ```env-spec
 # @example="sk-abc123"

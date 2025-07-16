@@ -3,114 +3,183 @@ title: "@env-spec Reference"
 description: "Reference docs and details for @env-spec"
 ---
 
-We don't make any assumptions about the meaning of specific decorators, or function calls.
-Comments
+:::tip
+In this spec, we don't make any assumptions about the meaning of specific decorators, or function calls. This document just deals with how the syntax itself is parsed and structured.
+:::
 
-Comments in env-spec (like dotenv) start with a `#`. Comments can be either on their own line, or at the end of a line after something else.
-- `# this is a comment`
-- `KEY=val # so is this`
-- `  # but this is invalid` 
+## Config Items
+Config items define individual env vars.
 
-We give these comments additional meaning by letting them contain `@decorators` and attaching them to specific config items.
+- Each has a key, an optional value, and optional attached comments
+- Keys must start with `[a-ZA-Z_]`, followed by any of `[a-ZA-Z0-9_]` -- ✅ `SOME_ITEM`, ❌ `BAD-KEY`, ❌ `2BAD_KEY`
+- Setting no value is allowed and will be treated as `undefined` -- `UNDEF_VAR=`
+- An explicit empty string is allowed -- `EMPTY_STRING_VAR=""`
+- Single-line values may be wrapped in quotes or not, and will follow the common value-handling rules (see below)
+- Multi-line string values may be wrapped in either ``( ' | " | """ | ``` )`` - but we **strongly** recommend using triple backticks only for consistency
 
-`Comment`
-A regular comment is a comment that does not start with `@`
-- Leading whitespace is optional -- `#these`, `# are`, `#    all valid `
-- Decorators within are ignored -- `# this @decorator is ignored`
 
-`DecoratorComment`
-A decorator comment is a comment that starts with an `@` and contains decorators
-- It may contain one or multiple decorators -- `# @type=integer`, `# @sensitive @required`
-- There may be an additional regular comment after the decorator(s) -- `# @sensitive=false   # key is published in final build`
-`Divider`
-A divider is a comment that serves as a separator, like a horizontal line
-- A comment starting with `---` or `===` is considered a divider -- `# ---`, `# ===`
-- A _single_ leading whitespace is optional -- `# ---`, `#---`
-- Anything after that is ignored and valid -- `# --- some info`, `# ------------`
-`CommentBlock`
-A comment block is a group of continuous comments that is not attached to a specific config item.
-- The comment block is ended by an empty line, a `Divider`, or the end of the file.
-- Both `DecoratorComment`s and `RegularComment`s may be interpersed
+````env-spec
+NO_VALUE=
+UNQUOTED_VALUE=asdf
+QUOTED_VALUE="asdf"
+FN_VALUE=fn(foo, "bar")
+MULTILINE_VALUE=```
+multiple
+lines
+```
+````
 
-`DocumentHeader`
-If a `CommentBlock` ends with a `Divider` and is the first element of the document, it will be considered the Header.
-- Decorators from this header can be used to configure all contained elements, or the loading process itself
+## Comments and @decorators
+Comments in env-spec (like traditional .env files) start with a `#`. Unlike traditional .env files, comments may contain additional metadata by using `@decorators`, which may be attached to specific config items, sections, or the entire document.
 
+- Comments can be either on their own line, or at the end of a line after something else
+- Leading whitespace after the `#` is optional, but a single space is recommended
+- If a comment line starts with a @decorator, it will be considered a _decorator comment line_
+- Otherwise it is a _regular comment line_ and any contained @decorators will be ignored
+- A decorator comment line may contain multiple decorators
+- A decorator comment line may end with an additional comment, in which decorators will be ignored
+- A post-value comment may also contain decorators, but is not recommended
+
+
+```env-spec
+   # ❌ leading space makes this invalid
+# this is a regular comment line
+# @dec2 @dec2=foo # this is a decorator comment line
+FOO=val # this is a post-value comment
+BAR=val # @dec # post-value comments may also contain decorators
+
+# regular comment lines @ignore contained @decorators
+# @dec # as are @decorators within an extra comment after a decorator comment line
+BAZ= # @dec # this is @ignored too
+```
 
 ### Decorators
 
-A `Decorator` is used within comments to attach structured data to specific config items or to the entire document and loading process.
+Decorators are used within comments to attach structured data to specific config items, or within a standalone comment blockto alter a group of items or the entire document and loading process.
 
-- Each decorator has a name and optional value -- `@name=value`
+- Each decorator has a name and optional value (`@name=value`) or is a bare function call `@func()`
+- Decorators with values may only be used once per comment block, while function calls may be used multiple times
 - Using the name only is equivalent to setting the value to true -- `@required` === `@required=true`
+- Multiple decorators may be specified on the same line
 - Decorator values will be parsed using the common value-handling rules (see below)
 
-**Valid decorator examples:**
+
 ```env-spec title=".env.schema"
 # @willBeTrue @willBeFalse=false @explicitTrue=true @undef=undefined @trueString="true"
 # @int=123 @float=123.456 @willBeString=123.456.789
 # @doubleQuoted="with spaces" @singleQuote='hi' @backTickQuote=`hi`
 # @unquoted=this-works-too @withNewline="new\nline"
 # @funcCallNoArgs=func() @dec=funcCallArray(val1, "val2") @dec=funcCallObj(k1=v1, k2="v2")
+# @anotherOne # and some comments, this @decorator is ignored
+# this is a comment and this @decorator is ignored
 ```
 
-**Invalid decorator examples:**
-```env-spec title=".env.schema"
-# @
-# @int=
-# @noNewLines="new
-#              laksdjf"
+
+
+### Dividers
+A divider is a comment that serves as a separator, like a `<hr/>` in HTML.
+
+- A comment starting with `---` or `===` is considered a divider -- `# ---`, `# ===`
+- A _single_ leading whitespace is optional (but recommended -- `# ---`, `#---` )
+- Anything after that is ignored and valid -- `# --- some info`, `# ------------`
+
+
+```env-spec
+# the header comment block (see below) must end with a divider
+# ---
+ITEM1=
+ITEM2=
+# --- another divider --- 
+ITEM3=
 ```
 
-### Config Items
 
-Config items define individual env vars.
-Each has a key, an optional value, and optional attached comments.
 
-- Keys must start with [a-ZA-Z_], followed by any of [a-ZA-Z0-9_] -- ✅ `SOME_ITEM`, ❌ `BAD-KEY`, ❌ `2BAD_KEY`
-- Setting no value is allowed and will be treated as `undefined` -- `UNDEF_VAR=`
-- An explicit empty string is allowed -- `EMPTY_STRING_VAR=""`
-- Single-line values may be wrapped in quotes or not, and will follow the common value-handling rules (see below)
-- Multi-line string values may be wrapped in either ``( ' | " | """ | ``` )`` - but we **strongly** recommend using triple backticks only for consistency
-- Only comments _directly_ preceeding the item will be attached to the item
-- However a `Divider` will break the above comments into a `CommentBlock` that is not attached to the item
-- An additional post-comment can appear after an item `ITEM1=foo # post comment`
-  - This post-comment may contain decorators too `ITEM1=foo # @required` (not recommended)
+### Config Item Comments
+Comment lines directly preceeding an item will be attached to that item, along with the decorators contained within.
 
-### Common Value-Handling Rules
+- A blank line or a divider will break the above comments from being attached to the item
+- Both decorator and regular comment lines may be interspersed
+- Post-value comments may also contain decorators, but is not recommended
 
-Values are interpreted similarly for config item values, decorator values, and values within function call arguments. Values may be wrapped in quotes or not, but handling varies slightly.
+```env-spec
+# these comments are attached to ITEM1 below
+# @dec1 @dec2 # meaning these decorators will affect the item
+# additional comments can be interspersed with decorators
+ITEM1= # @dec3 # and a post-value comment can be used too
 
-- Values may never contain actual newlines, but may contain the string `\n`
-- Values do not have to be wrapped in quotes if they do not contain spaces
-- Unquoted values also may not contain other characters depending on the context:
-  - `ConfigItem` values may not contain `[ #]`
-  - `Decorator` values may not contain `[ #]`
-  - `FunctionCall` args may not contain `[ ,)]`
-- Unquoted values will coerce `true`, `false`, `undefined` -- `@foo=false`
-- Unquoted values will coerce numeric values -- `@int=123 @float=123.456`
-- Otherwise unquoted values will be treated as a string
-- A value in quotes is _always_ be treated as a string -- `@d1="with spaces" @trueString="true"`, `@numStr="123"`
+# not attached due to blank line
+
+# also not attached due to divider
+# ---
+ITEM2=
+```
+
+
+### Comment blocks & document header
+
+A comment block is a group of continuous comments that is not attached to a specific config item.
+
+- The comment block is ended by an empty line, a divider, or the end of the file
+- A comment block that is the first element of the document and ends with a divider is the _document header_
+- Decorators from this header can be used to configure all contained elements, or the loading process itself
+
+```env-spec
+# this is the document header and usually contains root decorators
+# which affect default settings and the behavior of the tool that will be parsing this file
+# @dec1 @dec2
+# ---
+
+# this is another comment block
+# and is not attached to an item
+
+# this comment is attached to the item below
+ITEM1=
+
+
+
+```
+
+## Common rules
+
+### Value handling
+
+Values are interpreted similarly for config item values, decorator values, and values within function call arguments. Values may be wrapped in quotes or not, but handling varies slightly:
+
+#### Unquoted values
+- Will coerce `true`, `false`, `undefined` -- `@foo=false`
+- Will coerce numeric values -- `@int=123 @float=123.456`
+- May be interpreted as a function call (see below)
+- Otherwise will be treated as a string
+- May not contain other characters depending on the context:
+  - config item values - may not contain `#`
+  - decorator values - may not contain `[ #]`
+  - function call arg values - may not contain `[),]`
+
+#### Quoted values
+- A value in quotes is _always_ treated as a string -- `@d1="with spaces"`, `@trueString="true"`, `@numStr="123"`
 - All quote styles ``[`'"]`` are ok -- ``@dq="c" @bt=`b` @sq='a'``
 - Escaped quotes matching the wrapping quote style are ok -- `@ok="escaped\"quote"`
-- In quote-wrapped values, the string `\n` will be converted to an actual newline
+- In `"` or `` ` `` wrapped values, the string `\n` will be converted to an actual newline
+- Multi-line strings may be wrapped in ``(```|"""|"|')``
+  - only available for config item values, not decorators or within function args
+
 
 ### Function calls
 
-If a value is not wrapped in quotes and looks like a function call - for example `encrypted(ASDF123...)` - we will interpret it as a `FunctionCall`. This is relevant both for config item values and decorator values.
+Function calls may be used for item values `ITEM=fn()`, decorator values `# @dec=fn()`, and bare decorator functions `# @func()`.
+In each case, much of the handling is the same.
 
+- a value must not be wrapped in quotes to be interpreted as a function call
 - function names must start with a letter, and can then contain letters, numbers, and underscores `/[a-ZA-Z][a-ZA-Z0-9_]*/`
-- function args are always interpreted as either an array or object
-- you can pass no args, a single value, or multiple
-- or you may pass key value pairs, and the args will be interpreted as an object
+- you can pass no args, a single arg, or multiple args
+- you may also pass key value pairs at the end of the list, and they will be combined into a single object at the end of the array
 - each value will be interpreted using common value-handling rules (see above)
 
-**Examples:**
-```env-spec title=".env.schema functions"
-# @noArgs=fn()
-# @oneArg=fn(asdf) @oneArgQuoted=fn("with quotes")
-# @multipleArgs=fn(one, "two", three, 123.456)
-# @objArgs=fn(key1=v1, key2="v2", key3=true)
+```env-spec
+NO_ARGS=fn()
+SINGLE_ARG=fn(asdf)
+MULTIPLE_ARGS=fn(one, "two", three, 123.456)
+KEY_VALUE_ARGS=fn(key1=v1, key2="v2", key3=true)
+MIXED_ARGS=fn(item1, item2, key1=v1, key2="v2", key3=true)
 ```
-
-------------------
