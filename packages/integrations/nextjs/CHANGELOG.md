@@ -1,5 +1,16 @@
 # @varlock/nextjs-integration
 
+## 0.0.3
+
+### Patch Changes
+
+- [#63](https://github.com/dmno-dev/varlock/pull/63) [`bde6758`](https://github.com/dmno-dev/varlock/commit/bde6758ebcddfccf0ab38835714c5fc1e7c45960) Thanks [@theoephraim](https://github.com/theoephraim)! - detect turbopack and throw an error if using plugin
+
+- [#79](https://github.com/dmno-dev/varlock/pull/79) [`eb27ce8`](https://github.com/dmno-dev/varlock/commit/eb27ce89b6e0c8cfd1693a5430cb65000421e1ac) Thanks [@theoephraim](https://github.com/theoephraim)! - onboarding tweaks from user feedback
+
+- Updated dependencies [[`eb27ce8`](https://github.com/dmno-dev/varlock/commit/eb27ce89b6e0c8cfd1693a5430cb65000421e1ac), [`6c1065f`](https://github.com/dmno-dev/varlock/commit/6c1065f628f43d004986783fccbf8fd4f1145bf2)]:
+  - varlock@0.0.4
+
 ## 0.0.2
 
 ### Patch Changes
