@@ -85,3 +85,46 @@ Mostly it is used internally by some integrations to match existing default beha
 :::caution
 If `@envFlag` is used, this will be ignored!
 :::
+
+## Using `envFlag` in Turborepo
+
+Turborepo users should be aware of a common pitfall when using `varlock`'s `@envFlag` in monorepos managed by Turborepo, especially since Turborepo v2.0+ now enables **Strict Environment Mode** by default.
+
+### The Problem
+
+Turborepo, when running tasks, filters the environment variables available to each task. By default in Strict Mode, **only** variables listed in the `env` or `globalEnv` keys in your `turbo.json` are passed to your scripts. This means that if your `@envFlag` (e.g., `APP_ENV`) is not explicitly listed, it will not be available to your process, even if you set it in your shell or CI environment. This can cause `varlock` to load the wrong environment, or fail to load the correct `.env.[envFlag]` file.
+
+### Solution: Add your envFlag to turbo.json
+
+To ensure your environment flag variable is always available to your scripts, add it to the `env` or `globalEnv` section of your `turbo.json`:
+
+```json title="turbo.json"
+{
+  "globalEnv": ["APP_ENV"],
+  "tasks": {
+    "build": {
+      "env": ["APP_ENV"]
+    },
+    "dev": {
+      "env": ["APP_ENV"]
+    }
+  }
+}
+```
+
+- Use `globalEnv` if the variable should be available to all tasks.
+- Use `env` under a specific task if only needed for that task.
+
+Now when you run the following: 
+
+```bash
+APP_ENV=production turbo run build
+```
+
+it will load the correct `.env.production` file because the override for `APP_ENV` is passed correctly to `turbo` and in turn to `varlock`.
+
+> Substitute whatever your env flag is for `APP_ENV` in the above example.
+
+:::tip
+In the above example, we're _only_ passing the `APP_ENV` because that's the variable you are most likely going to want to override in your scripts. If there are other variables you want to pass to your scripts, they will need to be explicitly added as well.
+:::
