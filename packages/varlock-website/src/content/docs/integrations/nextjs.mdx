@@ -336,13 +336,16 @@ varlock run -- node .next/standalone/server.js
 ---
 ## Troubleshooting
 
-- ❌ `process.env.__VARLOCK_ENV is not set` -
-  This error appears when the plugin has been set up, but the `@next/env` override has not been set up properly.
-  You may need to re-run your package manager's install command.
-- ❌ `Error [ERR_REQUIRE_ESM]: require() of ES Module ...` -
-  Varlock requires node v22 or higher - which has better CJS/ESM interoperability.
-- ❌ `Property 'SOMEVAR' does not exist on type 'TypedEnvSchema'` -
-  If you are sure the item does exist in your schema, make sure the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) is enabled, and that the path to the generated types file is included in your `tsconfig.json`.
+- ❌ `process.env.__VARLOCK_ENV is not set`
+  <br/>💡 This error appears when the `@next/env` override has not been set up properly
+  - You may need to re-run your package manager's install command
+  - If using pnpm, check if you are using pnpm v9 or v10, because overrides config changed (see above)
+- ❌ `Error [ERR_REQUIRE_ESM]: require() of ES Module ...`
+  <br/>💡 Varlock requires node v22 or higher - which has better CJS/ESM interoperability
+- ❌ `Property 'SOMEVAR' does not exist on type 'TypedEnvSchema'`
+  <br/>💡 If the item does exist in your schema, then the generated types are not being loaded properly by TypeScript
+  - make sure the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) is enabled
+  - ensure the path to the generated types file is included in your `tsconfig.json`
 
 
 ---

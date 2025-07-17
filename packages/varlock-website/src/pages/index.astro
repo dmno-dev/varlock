@@ -44,19 +44,20 @@ import EmailSignup from "../components/EmailSignup.vue";
         title=".env.schema"
         lang="env-spec"
         code=`
-# API key with validation, securely fetched from 1Password
-# @required @sensitive @type=string(startsWith=sk-)
-OPENAI_API_KEY=exec('op read "op://api-prod/openai/api-key"')
+# Add declarative schema info to your env vars using @decorator comments
+# @sensitive @required @type=string(startsWith=sk-)
+OPENAI_API_KEY=
 
-# Non-secret value, included directly
-# @type=url
-SOME_SERVICE_API_URL=https://api.someservice.com
+# @type=enum(development, preview, production, test)
+APP_ENV=development # set non-sensitive default values directly
+
+# use function calls to securely fetch data from external sources
+XYZ_TOKEN=exec('op read "op://api-prod/xyz/auth-token"')
     `
       />
       <p class="env-spec-example-note">
-        Use <i>@decorator comments</i> in your .env file(s) to create a declarative
-        schema for your config and a <i>new function call syntax</i> to securely
-        load secrets from external sources.
+        Unlike <i>.env.example</i>, your <i>.env.schema</i> is a single source of
+        truth, built for collaboration, that will never be out of sync.
       </p>
 
       <div class="button-container">
@@ -94,8 +95,8 @@ SOME_SERVICE_API_URL=https://api.someservice.com
               Type-safety
             </h3>
             <p>
-              Automatically generate types according to your schema instead of
-              writing them by hand.
+              Automatically generate types according to your schema - the single
+              source of truth - instead of writing them by hand.
             </p>
           </div>
           <Image
@@ -113,8 +114,8 @@ SOME_SERVICE_API_URL=https://api.someservice.com
               Security
             </h3>
             <p>
-              Protect your secrets from accidental leaks. Redact secrets in
-              stdout and global console methods.
+              Redact sensitive info from stdout and global console methods.
+              Detect leaks in bundled client code and outgoing server responses.
             </p>
           </div>
           <Image
@@ -132,8 +133,9 @@ SOME_SERVICE_API_URL=https://api.someservice.com
               Environments
             </h3>
             <p>
-              Compose defaults, environment-specific .env files, and local
-              git-ignored overrides.
+              Combine defaults, environment-specific .env files, local
+              git-ignored overrides, and process env vars. Compose values
+              together using functions.
             </p>
           </div>
           <Image
@@ -150,7 +152,10 @@ SOME_SERVICE_API_URL=https://api.someservice.com
               />
               Secure secrets
             </h3>
-            <p>Read from any external provider via CLI commands.</p>
+            <p>
+              Read from any external providers via CLI commands. Plugin system,
+              local encryption utilities, and shared team vaults coming soon.
+            </p>
           </div>
           <Image
             src={externalProvidersImg}
@@ -177,14 +182,13 @@ SOME_SERVICE_API_URL=https://api.someservice.com
       <Code
         lang="bash"
         code=`
-# Install as standalone CLI via homebrew
-brew install dmno-dev/tap/varlock
-
-# OR Install via cURL
-curl -sSfL https://varlock.dev/install.sh | sh -s
-
-# OR init and install as a dependency in a js project
+# Install as a dependency in a js project
 npx varlock init
+
+# OR install as standalone binary via homebrew
+brew install dmno-dev/tap/varlock
+# OR via cURL
+curl -sSfL https://varlock.dev/install.sh | sh -s
     `
       />
 
@@ -196,23 +200,39 @@ npx varlock init
       </h2>
 
       <Code
-        title="Replace dotenv with varlock"
+        title="my-app.ts"
         lang="diff"
-        code={`// auto-load
+        meta="lang='ts'"
+        code={`
 - import 'dotenv/config';
 + import 'varlock/auto-load';
 
-// CLI
-- dotenvx run -- node app.js
-+ varlock run -- node app.js
-        `}
+// *optional* type-safe env access
++ import { ENV } from 'varlock/env';
+- const client = new AbcApi(process.env.ABC_API_KEY);
++ const client = new AbcApi(ENV.ABC_API_KEY);
+`}
       />
       <p class="env-spec-example-note">
         <b>varlock</b> can be used as a direct replacement for <code
           >dotenv</code
-        > in most projects. Just swap your CLI or import and get validation, security,
-        and more. No other code changes required!
+        > in most projects. Just swap your import and get validation, security, and
+        more. No other code changes required!
       </p>
+
+      <h2>
+        <img
+          src="https://varlock-pixel-art.dmno.workers.dev/effects/fire.gif"
+        />
+        Run anywhere - with any language
+      </h2>
+
+      <Code lang="bash" code={`varlock run -- python my_script.py`} />
+      <p class="env-spec-example-note">
+        Use <code>varlock run</code> to inject resolved, validated env vars into
+        another process.
+      </p>
+
       <EmailSignup client:load />
     </div>
   </main>
