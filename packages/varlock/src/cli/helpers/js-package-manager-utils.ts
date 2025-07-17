@@ -7,7 +7,7 @@ import { execSync } from 'node:child_process';
 
 export type JsPackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'deno';
 
-type JsPackageManagerMeta = {
+export type JsPackageManagerMeta = {
   name: JsPackageManager;
   lockfile: string;
   add: string;

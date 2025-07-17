@@ -7,13 +7,12 @@ import SyncedCodeTabs from "@/components/SyncedCodeTabs.astro";
 
 There are two ways to install `varlock`:
 
-1. Install as a dependency in JavaScript/TypeScript projects
+1. Install as a `package.json` dependency in JavaScript/TypeScript projects
 2. Install as a standalone binary
 
 ## As a JavaScript/TypeScript dependency
 
 Requires:
-
 - Node.js version 22 or higher
 
 ### Installation
@@ -46,7 +45,7 @@ This will install `varlock` as a dependency and scan your project for `.env` fil
 - Add decorators to your `.env.schema` file to specify the type of each environment variable
 - Encrypt secrets in your `.env` file
 
-## As a binary
+## As a standalone binary
 
 To install `varlock` CLI as a binary, run:
 

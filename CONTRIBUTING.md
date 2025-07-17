@@ -8,7 +8,7 @@ If you have any questions please reach out to us on [Discord](https://chat.dmno.
 
 You'll need, at minimum, node 22 and pnpm 10+ installed.
 
-We recommend using [fnm](https://github.com/Schniz/fnm) to manage node versions. If you use `fnm` with `corepack` you can run `corepack enable` to enable pnpm and you should be good to go.
+We recommend using [fnm](https://github.com/Schniz/fnm) to manage node versions. If you use `fnm` with [`corepack`](https://github.com/nodejs/corepack) you can run `corepack enable` to enable pnpm and you should be good to go.
 
 Then install the dependencies:
 
@@ -26,9 +26,10 @@ pnpm build:libs
 ## Packages
 
 - [packages/env-spec-parser](./packages/env-spec-parser) - Parser for the @env-spec language
-- [packages/varlock](./packages/varlock) - CLI for loading .env files and applying schemas
-- [packages/varlock-website](./packages/varlock-website) - Website for varlock and env-spec
-- [packages/vscode-plugin](./packages/vscode-plugin) - VSCode extension for env-spec
+- [packages/varlock](./packages/varlock) - CLI for loading .env files, and library for integration into JS projects
+- [packages/varlock-website](./packages/varlock-website) - Docs website for varlock and @env-spec
+- [packages/vscode-plugin](./packages/vscode-plugin) - VSCode extension for @env-spec
+- [packages/integrations/nextjs](./packages/integrations/nextjs) - Next.js integration for varlock
 
 > See the README.md for each package for more details. 
 

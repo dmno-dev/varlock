@@ -102,6 +102,11 @@ export class EnvGraph {
       if (source.loadingError) {
         throw source.loadingError;
       }
+      // example files will always be ignored, except during init flow
+      if (source.type === 'example') {
+        source.disabled = true;
+        continue;
+      }
 
       // check for @envFlag so we know which item should control loading env-specific files (eg: .env.production)
       if (source.decorators?.envFlag) {

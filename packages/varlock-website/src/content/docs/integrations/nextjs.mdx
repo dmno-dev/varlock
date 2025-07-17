@@ -12,13 +12,18 @@ import Badge from '@/components/Badge.astro';
 
 Varlock provides a huge upgrade over the [default Next.js environment variable tooling](https://nextjs.org/docs/pages/guides/environment-variables) - adding validation, type safety, flexible multi-environment management, log redaction, leak detection, and more.
 
-To integrate varlock into a Next.js application, you must use our [`@varlock/nextjs-integration`](https://www.npmjs.com/package/@varlock/nextjs-integration) package. This package provides a drop-in replacement for [`@next/env`](https://www.npmjs.com/package/@next/env), the internal package that handles .env loading, plus a small config plugin which extends the Next.js webpack config to inject our additional security features.
+To integrate varlock into a Next.js application, you must use our [`@varlock/nextjs-integration`](https://www.npmjs.com/package/@varlock/nextjs-integration) package. This package provides a drop-in replacement for [`@next/env`](https://www.npmjs.com/package/@next/env), the internal package that handles .env loading, plus a small config plugin which injects our additional security features.
 
 :::note[Turbopack not yet supported]
-Turbopack does not yet provide any plugin system, so using the config plugin is not supported. You can use the `@next/env` override only, but you will not get the additional security features.
+[Turbopack](https://nextjs.org/docs/app/api-reference/turbopack) does not yet provide a plugin system, so using the config plugin is not supported. You can use the `@next/env` override only, but you will not get the additional security features.
 :::
 
 ## Setup
+
+:::caution[Requirements]
+- Node.js v22 or higher
+- Next.js v14 or higher
+:::
 
 <Steps>
 
@@ -69,8 +74,11 @@ Turbopack does not yet provide any plugin system, so using the config plugin is 
     />
 
 1. **Override `@next/env` with our drop-in replacement**
+    
+    Next.js does not have APIs we can hook into, so we must override their internal .env-loading package.
+    Overriding dependencies is a bit different for each package manager:
+
     <Tabs syncKey='package-manager'>
-          
       <TabItem label="npm">
         See [NPM overrides docs](https://docs.npmjs.com/cli/v9/configuring-npm/package-json#overrides)
 
@@ -86,7 +94,7 @@ Turbopack does not yet provide any plugin system, so using the config plugin is 
       <TabItem label="yarn">
         See [yarn resolutions docs](https://yarnpkg.com/configuration/manifest#resolutions)
 
-        ```diff lang="json" title="package.json"
+        ```diff lang="json" title="root/package.json"
         {
         +  "resolutions": {
         +    "**/@next/env": "npm:@varlock/nextjs-integration"
@@ -101,18 +109,18 @@ Turbopack does not yet provide any plugin system, so using the config plugin is 
           <TabItem label="pnpm version 10+">
             See [pnpm v10 overrides docs](https://pnpm.io/settings#overrides)
 
-            ```diff lang="yaml" title="pnpm-workspace.yaml"
+            ```diff lang="yaml" title="root/pnpm-workspace.yaml"
+            packages: # <- ⚠️ this field is also required
+              - .     # set this to '.' if not in a monorepo
             +overrides:
             +  "@next/env": "npm:@varlock/nextjs-integration"
             ```
-            
             **This must be set in `pnpm-workspace.yaml`, which lives at the root of your repo, regardless of whether you are using a monorepo or not.**
-
           </TabItem>
           <TabItem label="pnpm version 9">
             See [pnpm v9 overrides docs](https://pnpm.io/9.x/package_json#pnpmoverrides)
 
-            ```diff lang="json" title="package.json"
+            ```diff lang="json" title="root/package.json"
             {
             +  "pnpm": {
             +    "overrides": {
@@ -122,18 +130,38 @@ Turbopack does not yet provide any plugin system, so using the config plugin is 
             }
             ```
             **In a monorepo, this override must be done in the monorepo's root package.json file!**
-            
           </TabItem>
         </Tabs>
       </TabItem>
     </Tabs>
 
+    Then re-run your package manager's install command to apply the override:
+    <SyncedCodeTabs
+      group="package-manager"
+      tabs={[
+        {
+          label: "npm",
+          code: "npm install",
+          lang: "bash",
+        },
+        {
+          label: "yarn",
+          code: "yarn install",
+          lang: "bash",
+        },
+        {
+          label: "pnpm",
+          code: "pnpm install",
+          lang: "bash",
+        },
+      ]}
+    />
 
 
 1. **Enable the Next.js config plugin**
 
     At this point, varlock will now load your .env files into `process.env`.
-    But to get the full benefits of this integration, you must add `varlockNextConfigPlugin` to your `next.config.ts` (or `.js`) file.
+    But to get the full benefits of this integration, you must add `varlockNextConfigPlugin` to your `next.config.*` file.
 
     ```diff lang="ts" title="next.config.ts" "varlockNextConfigPlugin"
     import type { NextConfig } from "next";
@@ -178,7 +206,11 @@ To enable type-safety and IntelliSense for your env vars, enable the [`@generate
 # your config items...
 ```
 
-This generates types for both `process.env` and `ENV`.
+:::tip[Using `ENV` needs `@generateTypes` enabled]
+If `@generateTypes` is not enabled, using `ENV` will likely cause type errors.
+
+You can still use `process.env` either way, but you would not get additional types without `@generateTypes`.
+:::
 
 #### Why use `ENV` instead of `process.env`?
 - Non-string values (e.g., number, boolean) are properly typed and coerced
@@ -278,11 +310,11 @@ All non-sensitive items are bundled at build time via `ENV`, while `process.env`
 :::
 
 
-## Extra setup for standalone ||standalone||
+## Extra setup for standalone mode ||standalone||
 
 **⚠️ This is only needed if you are using `output: standalone`**
 
-The standalone build process will not copy all our `.env` files to the `.next/standalone` directory, so we must copy them manually. Add this to your build command:
+Next's standalone build command will not copy all our `.env` files to the `.next/standalone` directory, so we must copy them manually. Add this to your build command:
 ```diff lang="json" title="package.json" add=/ && [^"]+/
 {
   "scripts": {
@@ -299,6 +331,18 @@ So wherever you are booting your standalone server, you will also need to [insta
 ```bash
 varlock run -- node .next/standalone/server.js
 ```
+
+
+---
+## Troubleshooting
+
+- ❌ `process.env.__VARLOCK_ENV is not set` -
+  This error appears when the plugin has been set up, but the `@next/env` override has not been set up properly.
+  You may need to re-run your package manager's install command.
+- ❌ `Error [ERR_REQUIRE_ESM]: require() of ES Module ...` -
+  Varlock requires node v22 or higher - which has better CJS/ESM interoperability.
+- ❌ `Property 'SOMEVAR' does not exist on type 'TypedEnvSchema'` -
+  If you are sure the item does exist in your schema, make sure the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) is enabled, and that the path to the generated types file is included in your `tsconfig.json`.
 
 
 ---
