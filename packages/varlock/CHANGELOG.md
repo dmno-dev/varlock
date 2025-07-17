@@ -1,5 +1,13 @@
 # varlock
 
+## 0.0.4
+
+### Patch Changes
+
+- [#79](https://github.com/dmno-dev/varlock/pull/79) [`eb27ce8`](https://github.com/dmno-dev/varlock/commit/eb27ce89b6e0c8cfd1693a5430cb65000421e1ac) Thanks [@theoephraim](https://github.com/theoephraim)! - onboarding tweaks from user feedback
+
+- [#74](https://github.com/dmno-dev/varlock/pull/74) [`6c1065f`](https://github.com/dmno-dev/varlock/commit/6c1065f628f43d004986783fccbf8fd4f1145bf2) Thanks [@theoephraim](https://github.com/theoephraim)! - fix log redaction when there are no sensitive config items
+
 ## 0.0.3
 
 ### Patch Changes
