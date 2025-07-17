@@ -1,7 +1,5 @@
 # Varlock Website
 
-just a placeholder so we can add some docs as we go...
+See https://varlock.dev for docs and examples. 
 
-this is a basic astro + starlight website
-
-Will likely want to split out the env-spec site from this eventually?
+Or [CONTRIBUTING.md](https://github.com/dmno-dev/varlock/blob/main/CONTRIBUTING.md) if you want to help out. 
