@@ -44,7 +44,6 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   margin-bottom: 0.5rem;
-  margin-right: 0.5rem;
   user-select: none;
   position: relative;
 }
