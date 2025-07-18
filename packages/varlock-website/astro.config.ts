@@ -43,7 +43,10 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'varlock',
-      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/dmno-dev/varlock' }],
+      social: [
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/dmno-dev/varlock' },
+        { icon: 'discord', label: 'Discord', href: 'https://chat.dmno.dev' },
+      ],
       logo: { src: './src/assets/logos/logo-pixel.png' },
       routeMiddleware: './src/route-data.ts', // adds the Open Graph images.
       components: {
