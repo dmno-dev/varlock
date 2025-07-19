@@ -9,7 +9,7 @@ import {
   ParsedEnvSpecKeyValuePair, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
 } from '@env-spec/parser';
 
-import { ConfigItemDef } from './config-item';
+import { type ConfigItemDef } from './config-item';
 import {
   ErrorResolver, Resolver, StaticValueResolver,
 } from './resolver';

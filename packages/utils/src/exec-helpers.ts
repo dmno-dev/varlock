@@ -1,4 +1,4 @@
-import { spawn, exec, SpawnOptions } from 'node:child_process';
+import { spawn, exec, type SpawnOptions } from 'node:child_process';
 import { promisify } from 'node:util';
 
 export class ExecError extends Error {

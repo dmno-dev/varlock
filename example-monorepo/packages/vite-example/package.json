@@ -1,0 +1,18 @@
+{
+  "name": "varlock-vite-example",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@rollup/plugin-replace": "^6.0.2",
+    "@varlock/vite-integration": "link:../../../packages/integrations/vite",
+    "typescript": "catalog:",
+    "varlock": "link:../../../packages/varlock",
+    "vite": "^7.0.4"
+  }
+}

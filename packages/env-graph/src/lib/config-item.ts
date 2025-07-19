@@ -11,7 +11,7 @@ import {
 } from './errors';
 
 import { EnvGraphDataSource } from './data-source';
-import { ResolvedValue, Resolver, StaticValueResolver } from './resolver';
+import { type ResolvedValue, type Resolver, StaticValueResolver } from './resolver';
 
 export type ConfigItemDef = {
   description?: string;
