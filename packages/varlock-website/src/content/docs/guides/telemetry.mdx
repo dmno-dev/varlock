@@ -28,10 +28,10 @@ This will create a configuration file at `~/.varlock/config.json` with the opt-o
 
 ### Using an Environment Variable
 
-You can also opt out temporarily by setting the `PH_OPT_OUT` environment variable:
+You can also opt out temporarily by setting the `VARLOCK_TELEMETRY_DISABLED` environment variable:
 
 ```bash
-export PH_OPT_OUT=true
+export VARLOCK_TELEMETRY_DISABLED=true
 ```
 
 This will disable analytics for the current session only, which is useful in CI/CD pipelines.

@@ -1,12 +1,20 @@
 import { homedir } from 'os';
 import { join } from 'path';
 import { existsSync, readFileSync } from 'node:fs';
+import Debug from 'debug';
+
+const debug = Debug('varlock:telemetry');
 
 import { CONFIG } from '../../config';
 
+const TRUE_ENV_VAR_VALUES = ['true', '1', 't'];
+
 function checkIsOptedOut() {
   // Check environment variable first
-  if (process.env.PH_OPT_OUT === 'true') {
+  if (
+    process.env.PH_OPT_OUT === 'true' // legacy
+    || TRUE_ENV_VAR_VALUES.includes((process.env.b || '').toLowerCase())
+  ) {
     return true;
   }
 
@@ -24,10 +32,10 @@ function checkIsOptedOut() {
   return false;
 }
 
-const DEBUG_PH = !!process.env.DEBUG_PH;
+
 
 const isOptedOut = checkIsOptedOut();
-if (DEBUG_PH) console.log('posthog opted out: ', isOptedOut);
+debug('telemetry opted out?', isOptedOut);
 
 async function posthogCapture(event: string, properties?: Record<string, any>) {
   if (isOptedOut) return;
@@ -49,7 +57,7 @@ async function posthogCapture(event: string, properties?: Record<string, any>) {
       'Content-Type': 'application/json',
     },
   });
-  if (DEBUG_PH) console.log('res', await res.text());
+  debug('res', await res.text());
 }
 
 export async function trackCommand(command: string, properties?: Record<string, any>) {
