@@ -4,11 +4,19 @@ import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { define } from 'gunshi';
 import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { gracefulExit } from 'exit-hook';
+import { fmt } from '../helpers/pretty-format';
 
 
 export const commandSpec = define({
-  name: 'opt-out',
-  description: 'Opt out of anonymous usage analytics',
+  name: 'telemetry',
+  description: 'Enable/disable anonymous usage analytics',
+  args: {
+    isEnabled: {
+      type: 'positional',
+      description: '"enable" or "disable"',
+    },
+  },
 });
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
@@ -22,25 +30,25 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
 
     // Read existing config if it exists
-    let config = {};
+    let config: Record<string, any> = {};
     if (existsSync(configPath)) {
       const configContent = await readFile(configPath, 'utf-8');
       config = JSON.parse(configContent);
     }
 
-    // Update config with opt-out setting
-    config = {
-      ...config,
-      analytics_opt_out: true,
-    };
-
-    // Write updated config
+    // update config `telemetryDisabled` setting
+    if (ctx.values.isEnabled === 'disable') config.telemetryDisabled = true;
+    else delete config.telemetryDisabled;
     await writeFile(configPath, JSON.stringify(config, null, 2));
 
-    console.log('✅ Successfully opted out of anonymous usage analytics');
-    console.log('This setting is stored in:', configPath);
+    if (ctx.values.isEnabled) {
+      console.log('✅ Successfully enabled anonymous usage analytics');
+    } else {
+      console.log('✅ Successfully disabled anonymous usage analytics');
+    }
+    console.log('> saved in:', fmt.filePath(configPath));
   } catch (error) {
     console.error('Failed to opt out of analytics:', error);
-    process.exit(1);
+    return gracefulExit(1);
   }
 };

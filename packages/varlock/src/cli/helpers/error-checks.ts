@@ -2,6 +2,7 @@ import ansis from 'ansis';
 import { EnvGraph } from '@env-spec/env-graph';
 import _ from '@env-spec/utils/my-dash';
 import { getItemSummary, joinAndCompact } from '../../lib/formatting';
+import { gracefulExit } from 'exit-hook';
 
 export function checkForSchemaErrors(envGraph: EnvGraph) {
   // first we check for loading/parse errors - some cases we may want to let it fail silently?
@@ -28,7 +29,7 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
       console.log(` ${errLoc.path}:${errLoc.lineNumber}:${errLoc.colNumber}`);
       console.log(errPreview);
 
-      process.exit(1);
+      return gracefulExit(1);
     }
   }
 

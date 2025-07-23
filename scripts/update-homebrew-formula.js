@@ -51,7 +51,7 @@ class Varlock < Formula
   end
 
   test do
-    system bin/"varlock", "--post-install", "brew"
+    assert_equal "${VERSION}", shell_output("#{bin}/varlock --post-install brew").strip
   end
 end
 `;

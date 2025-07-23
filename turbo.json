@@ -3,7 +3,7 @@
   // super annoying - turbo will swallow env vars unless we include them here
   // anything that would affect the build output needs to be included here
   // otherwise things that need to be passed through but do not affect caching should be in passThroughEnv
-  "globalEnv": ["WORKERS_CI_BRANCH", "APP_ENV"],
+  "globalEnv": ["WORKERS_CI_BRANCH", "APP_ENV", "BUILD_TYPE"],
   "globalPassThroughEnv": [],
   "tasks": {
     "build": {

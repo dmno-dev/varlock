@@ -28,6 +28,7 @@
     "eslint-plugin-es-x": "^8.7.0",
     "eslint-plugin-fix-disabled-rules": "^0.0.2",
     "eslint-plugin-jsonc": "^2.20.0",
+    "eslint-plugin-n": "^17.21.0",
     "eslint-stylistic-airbnb": "^2.0.0",
     "globals": "^16.0.0",
     "turbo": "^2.5.0",

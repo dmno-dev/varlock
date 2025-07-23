@@ -3,58 +3,94 @@ title: CLI Commands
 description: Reference documentation for Varlock CLI commands
 ---
 
+import SyncedCodeTabs from "@/components/SyncedCodeTabs.astro";
 import InitCommand from "@/components/InitCommand.astro";
 
 Varlock provides a command-line interface for managing environment variables and secrets. This reference documents all available CLI commands.
 
-## Installation
+See [installation](/getting-started/installation) for instructions on how to install Varlock.
 
-See [installation](/docs/getting-started/installation) for instructions on how to install Varlock.
 
-## Commands
+### Running commands in JS projects
+
+If you have installed varlock as a `package.json` dependency, rather than a standalone binary, the best way to invoke the CLI is via your package manager:
+
+<SyncedCodeTabs
+  group="package-manager"
+  tabs={[
+    {
+      label: "npm",
+      code: "npm exec -- varlock ...",
+      lang: "bash",
+    },
+    {
+      label: "yarn",
+      code: "yarn exec -- varlock ...",
+      lang: "bash",
+    },
+    {
+      label: "pnpm",
+      code: "pnpm exec varlock ...",
+      lang: "bash",
+    },
+  ]}
+/>
+
+
+
+Also note that within package.json scripts, you can use it directly:
+```json title="package.json"
+{
+  "scripts": {
+    "start": "varlock run -- node app.js"
+  }
+}
+```
+
+
+## Commands reference
 
 <div class="reference-docs">
 
 <div>
 ### `varlock init`
+Starts an interactive onboarding process to help you get started. Will help create your `.env.schema` and install varlock as a dependency if necessary.
 
-<InitCommand />
+```bash
+varlock init
+```
 
-Scans your project for `.env.*` files and scans code for environment variable usage and creates a `.env.schema` file with the appropriate variables.
 
-It will prompt you to mark items as required and sensitive and do its best to infer the type.
-
-:::tip
-All further examples assume you are using the CLI, but the same commands can be run via your package manager if `varlock` is installed as a dependency. For example, `varlock doctor` can be run as `pnpm exec varlock doctor`.
-:::
 </div>
 
 <div>
 ### `varlock load`
 
-Loads environment variables from your `.env.schema` file and any additional `.env.*` files it finds colocated. This command ensures all required variables are validated per the schema.
+Loads and validates environment variables according to your .env files, and prints the results. Default prints a nicely formatted, colorized summary of the results, but can also print out machine-readable formats.
+
+Useful for debugging locally, and in CI to print out a summary of env vars.
 
 ```bash
 varlock load [options]
-
-Options:
-  --format     # Format of output [pretty|json|env]
-  --show-all   # Shows all items, not just the failing ones 
-  --env        # Set the default environment flag (e.g., --env production)
 ```
 
-Examples:
+**Options:**
+- `--format`:     Format of output [pretty|json|env]
+- `--show-all`:   Shows all items, not just failing ones, when validation is failing
+- `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@envFlag` in `.env.schema`
+
+**Examples:**
 ```bash
 # Load and validate environment variables
 varlock load
 
-# Load and validate for a specific environment
+# Load and validate for a specific environment (when not using @envFlag in .env.schema)
 varlock load --env production
 
 # Output validation results in JSON format
 varlock load --format json
 
-# Show all environment variables, including valid ones
+# When validation is failing, will show all items, rather than just failing ones
 varlock load --show-all
 ```
 
@@ -67,36 +103,28 @@ Setting `envFlag` in your `.env.schema` will override the `--env` flag.
 <div>
 ### `varlock run`
 
-Executes a command with the environment variables loaded from your schema. This is useful for running your application with the correct environment configuration.
+Executes a command in a child process, injecting your resolved and validated environment variables from your .env files. This is useful when a code-level integration is not possible.
 
 ```bash
-varlock run <command> [options]
-
-Options:
-  --watch Watch for changes and reload the environment variables
+varlock run -- <command>
 ```
 
-Examples:
+**Examples:**
 ```bash
-# Run a Node.js application
-varlock run node app.js
-
-# Run with environment variable watching enabled
-varlock run --watch npm start
-
-# Run a Python script
-varlock run python script.py
+varlock run -- node app.js      # Run a Node.js application
+varlock run -- python script.py # Run a Python script
 ```
 
 </div>
 
 <div>
-### `varlock opt-out`
+### `varlock telemetry`
 
-Opts out of anonymous usage analytics. This command creates a configuration file at `~/.varlock/config.json` that permanently disables analytics collection.
+Opts in/out of anonymous usage analytics. This command creates/updates a configuration file at `~/.varlock/config.json` saving your preference.
 
 ```bash
-varlock opt-out
+varlock telemetry disable
+varlock telemetry enable
 ```
 
 :::note
@@ -107,16 +135,18 @@ You can also temporarily opt out by setting the `VARLOCK_TELEMETRY_DISABLED` env
 <div>
 ### `varlock help`
 
-Displays help information about Varlock commands and options.
+Displays general help information, alias for `varlock --help`
 
 ```bash
-varlock help [command]
-
-Examples:
-  varlock help             # Show general help
-  varlock help init        # Show help for init command
-  varlock init --help      # Alternative way to show command help
+varlock help
 ```
+
+For help about specific commands, use:
+
+```bash
+varlock subcommand --help
+```
+
 </div>
 </div>
 
