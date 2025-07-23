@@ -2,8 +2,8 @@
 title: JavaScript / Node.js
 description: How to integrate Varlock with JavaScript and Node.js for secure, type-safe environment management
 ---
-import SyncedCodeTabs from '@/components/SyncedCodeTabs.astro'
 import { TabItem, Tabs } from "@astrojs/starlight/components";
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
 
 There are a few different ways to integrate Varlock into a JavaScript / Node.js application.
 
@@ -44,26 +44,7 @@ varlock run -- <your-command>
 This will load and validate your environment variables, then run the command you provided with those environment variables injected into the process. This will not inject any runtime code, and varlock's `ENV` object will not be available.
 
 If you have installed varlock as a project dependency instead of globally, you should run this via your package manager:
-<SyncedCodeTabs
-  group="package-manager"
-  tabs={[
-    {
-      label: "npm",
-      code: "npm exec -- varlock run -- <your-command>",
-      lang: "bash",
-    },
-    {
-      label: "yarn",
-      code: "yarn exec -- varlock run -- <your-command>",
-      lang: "bash",
-    },
-    {
-      label: "pnpm",
-      code: "pnpm exec varlock run -- <your-command>",
-      lang: "bash",
-    },
-  ]}
-/>
+<ExecCommandWidget command="varlock run -- <your-command>" showBinary={false} />
 
 In `package.json` scripts, calling `varlock` directly will work, as your package manager handles path issues:
 ```json title="package.json"

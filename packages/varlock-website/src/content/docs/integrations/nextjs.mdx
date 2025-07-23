@@ -5,6 +5,8 @@ description: How to integrate Varlock with Next.js for secure, type-safe environ
 import SyncedCodeTabs from '@/components/SyncedCodeTabs.astro'
 import { TabItem, Tabs, Steps } from "@astrojs/starlight/components";
 import Badge from '@/components/Badge.astro';
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
 
 <div class="page-badges">
   <Badge npmPackage="@varlock/nextjs-integration" />
@@ -28,50 +30,13 @@ To integrate varlock into a Next.js application, you must use our [`@varlock/nex
 <Steps>
 
 1. **Install varlock and the Next.js integration package**
-    <SyncedCodeTabs
-      group="package-manager"
-      tabs={[
-        {
-          label: "npm",
-          code: "npm install @varlock/nextjs-integration varlock",
-          lang: "bash",
-        },
-        {
-          label: "yarn",
-          code: "yarn add @varlock/nextjs-integration varlock",
-          lang: "bash",
-        },
-        {
-          label: "pnpm",
-          code: "pnpm add @varlock/nextjs-integration varlock",
-          lang: "bash",
-        },
-      ]}
-    />
+    <InstallJsDepsWidget packages="@varlock/nextjs-integration varlock" />
+
 1. **Run `varlock init` to set up your `.env.schema` file**
 
     This will guide you through setting up your `.env.schema` file, based on your existing `.env` file(s). Make sure to review it carefully.
 
-    <SyncedCodeTabs
-      group="package-manager"
-      tabs={[
-        {
-          label: "npm",
-          code: "npm exec -- varlock init",
-          lang: "bash",
-        },
-        {
-          label: "yarn",
-          code: "yarn exec -- varlock init",
-          lang: "bash",
-        },
-        {
-          label: "pnpm",
-          code: "pnpm exec varlock init",
-          lang: "bash",
-        },
-      ]}
-    />
+    <ExecCommandWidget command="varlock init" showBinary={false} />
 
 1. **Override `@next/env` with our drop-in replacement**
     

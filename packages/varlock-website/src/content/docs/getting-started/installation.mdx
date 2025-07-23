@@ -3,7 +3,7 @@ title: Installation
 description: How to install and set up varlock in your project
 ---
 
-import SyncedCodeTabs from "@/components/SyncedCodeTabs.astro";
+import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
 
 There are two ways to install `varlock`:
 
@@ -19,26 +19,7 @@ Requires:
 
 To install `varlock` in your project, run:
 
-<SyncedCodeTabs
-  group="package-manager"
-  tabs={[
-    {
-      label: "npm",
-      code: "npx varlock init",
-      lang: "bash",
-    },
-    {
-      label: "yarn",
-      code: "yarn dlx varlock init",
-      lang: "bash",
-    },
-    {
-      label: "pnpm",
-      code: "pnpm dlx varlock init",
-      lang: "bash",
-    },
-  ]}
-/>
+<ExecCommandWidget command="varlock init" showBinary={false} dlx={true} />
 
 This will install `varlock` as a dependency and scan your project for `.env` files and create a `.env.schema` file in the root of your project. Depending on your project configuration, it will optionally:
 - Remove your existing `.env.example` file

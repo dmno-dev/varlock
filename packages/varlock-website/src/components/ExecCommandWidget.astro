@@ -1,0 +1,30 @@
+---
+import { Tabs, TabItem, Code } from "@astrojs/starlight/components";
+
+interface Props {
+  command: string;
+  showBinary?: boolean;
+  dlx?: boolean;
+}
+
+const { command, showBinary = true, dlx = false } = Astro.props;
+---
+
+<Tabs syncKey="package-manager">
+  <TabItem label="npm">
+    <Code code={`${dlx ? "npx" : "npm exec --"} ${command}`} lang="bash" />
+  </TabItem>
+  <TabItem label="yarn">
+    <Code code={`yarn ${dlx ? "dlx" : "exec --"} ${command}`} lang="bash" />
+  </TabItem>
+  <TabItem label="pnpm">
+    <Code code={`pnpm ${dlx ? "dlx" : "exec --"} ${command}`} lang="bash" />
+  </TabItem>
+  {
+    showBinary && (
+      <TabItem label="standalone binary">
+        <Code code={command} lang="bash" />
+      </TabItem>
+    )
+  }
+</Tabs>

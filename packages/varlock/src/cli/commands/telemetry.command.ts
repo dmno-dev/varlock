@@ -6,13 +6,14 @@ import { define } from 'gunshi';
 import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { gracefulExit } from 'exit-hook';
 import { fmt } from '../helpers/pretty-format';
+import { CliExitError } from '../helpers/exit-error';
 
 
 export const commandSpec = define({
   name: 'telemetry',
   description: 'Enable/disable anonymous usage analytics',
   args: {
-    isEnabled: {
+    mode: {
       type: 'positional',
       description: '"enable" or "disable"',
     },
@@ -20,6 +21,13 @@ export const commandSpec = define({
 });
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
+  // TODO: remove this when gunshi supports types/validation for positional args
+  if (!['enable', 'disable'].includes(ctx.values.mode)) {
+    throw new CliExitError('additional arg must be "enable" or "disable"', {
+      forceExit: true,
+    });
+  }
+
   const configDir = join(homedir(), '.varlock');
   const configPath = join(configDir, 'config.json');
 
@@ -37,11 +45,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
 
     // update config `telemetryDisabled` setting
-    if (ctx.values.isEnabled === 'disable') config.telemetryDisabled = true;
+    if (ctx.values.mode === 'disable') config.telemetryDisabled = true;
     else delete config.telemetryDisabled;
     await writeFile(configPath, JSON.stringify(config, null, 2));
 
-    if (ctx.values.isEnabled) {
+    if (ctx.values.mode) {
       console.log('✅ Successfully enabled anonymous usage analytics');
     } else {
       console.log('✅ Successfully disabled anonymous usage analytics');
