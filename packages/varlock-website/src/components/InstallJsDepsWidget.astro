@@ -1,0 +1,33 @@
+---
+import { Tabs, TabItem, Code } from "@astrojs/starlight/components";
+
+interface Props {
+  packages: string | Array<string>;
+  dev?: boolean;
+  remove?: boolean;
+}
+
+const { packages, dev = false, remove = false } = Astro.props;
+const packagesStr = Array.isArray(packages) ? packages.join(" ") : packages;
+---
+
+<Tabs syncKey="package-manager">
+  <TabItem label="npm">
+    <Code
+      code={`npm ${remove ? "uninstall" : "install"} ${dev ? "--save-dev " : ""}${packagesStr}`}
+      lang="bash"
+    />
+  </TabItem>
+  <TabItem label="yarn">
+    <Code
+      code={`yarn ${remove ? "remove" : "add"} ${dev ? "-D " : ""}${packagesStr}`}
+      lang="bash"
+    />
+  </TabItem>
+  <TabItem label="pnpm">
+    <Code
+      code={`pnpm ${remove ? "remove" : "add"} ${dev ? "-D " : ""}${packagesStr}`}
+      lang="bash"
+    />
+  </TabItem>
+</Tabs>

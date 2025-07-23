@@ -7,6 +7,7 @@ import { CONFIG } from '../../config';
 import { openUrl } from '../helpers/open-url';
 import { keyPressed } from '../helpers/key-press';
 import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { gracefulExit } from 'exit-hook';
 
 
 export const commandSpec = define({
@@ -29,7 +30,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   });
   if (codeReq.status !== 200) {
     console.log('Failed to initiate GitHub device flow login!');
-    process.exit(1);
+    return gracefulExit(1);
   }
 
   const ghCodeInfo = await codeReq.json() as {
@@ -82,7 +83,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // probably a few more error types we could bail early on
     if (oauthStatus.error === 'access_denied') {
       console.log('❌ Login attempt was cancelled! Please try again.');
-      process.exit(1);
+      return gracefulExit(1);
     }
 
     // if we got the token, we break and continue
@@ -91,7 +92,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // if we've been polling for too long, give up
     if (new Date().getTime() - startAt.getTime() > expiresMs) {
       console.log('❌ Login timed out! Please try again.');
-      process.exit(1);
+      return gracefulExit(1);
     }
   }
 
@@ -123,7 +124,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   });
   if (authReq.status !== 200) {
     console.log(await authReq.json());
-    process.exit(1);
+    return gracefulExit(1);
   }
 
   const authRes = await authReq.json() as {

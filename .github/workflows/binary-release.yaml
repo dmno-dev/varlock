@@ -72,8 +72,12 @@ jobs:
 
       - name: build libs
         run: pnpm build:libs
+        env:
+          BUILD_TYPE: release
       - name: build SEA dist files (CJS, no deps)
         run: pnpm run --filter varlock build:sea
+        env:
+          BUILD_TYPE: release
 
       - name: Restore pkg Node.js base binaries
         uses: actions/cache/restore@v4

@@ -1,3 +1,4 @@
+import { gracefulExit } from 'exit-hook';
 
 export async function keyPressed(keys: Array<string> | true = true) {
   process.stdin.setRawMode(true);
@@ -6,7 +7,7 @@ export async function keyPressed(keys: Array<string> | true = true) {
       const keyStr = d.toString();
       // exit on ctrl+c or ctrl+d
       if (['\u0003', '\u0004'].includes(keyStr)) {
-        process.exit(1);
+        return gracefulExit(1);
       }
       if (keys === true || keys.includes(keyStr)) {
         process.stdin.setRawMode(false);

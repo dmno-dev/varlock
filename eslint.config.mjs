@@ -6,6 +6,7 @@ import globals from 'globals';
 import nofixPlugin from 'eslint-plugin-fix-disabled-rules';
 import eslintPluginJsonc from 'eslint-plugin-jsonc';
 import pluginESx from 'eslint-plugin-es-x';
+import pluginN from 'eslint-plugin-n';
 
 export default tseslint.config(
   {
@@ -13,6 +14,7 @@ export default tseslint.config(
       '@stylistic': stylistic,
       '@nofix': nofixPlugin,
       'es-x': pluginESx,
+      n: pluginN,
     },
     languageOptions: {
       globals: {
@@ -70,6 +72,7 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': [
         'warn',
         {
+          caughtErrors: 'none',
           argsIgnorePattern: '^_|^(response)$',
           varsIgnorePattern: '^_|^(props|emit)$',
         },
@@ -128,6 +131,13 @@ export default tseslint.config(
     rules: {
       // top level await not allowed in CJS build needed for bundled SEA
       'es-x/no-top-level-await': 'error',
+    },
+  },
+  {
+    files: ['packages/varlock/src/cli/**'],
+    rules: {
+      // use `gracefulExit` instead of process.exit in the CLI
+      'n/no-process-exit': 'error',
     },
   },
   {

@@ -3,14 +3,17 @@ title: Telemetry
 description: Learn about varlock's anonymous usage analytics and how to opt out
 ---
 
-Varlock collects anonymous usage statistics to help us understand how the tool is being used and improve the product. This data is completely anonymous and is only used to make varlock better.
+import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
+
+The `varlock` CLI collects **anonymous telemetry data** about usage to help us understand how the tool is being used and to make it better. Participation is optional, and you may opt-out at any time.
 
 ## What We Collect
 
-We collect anonymous information about:
-- Which commands are being used
-- Basic command execution statistics
-- No personal or sensitive data is ever collected
+We track general usage information, and the environment in which `varlock` is being used. Specifically we collect _anonymous_ information about:
+- Which varlock command is being invoked
+- Version and settings for varlock, Node.js, and any plugins
+- General system/machine information
+- Anonymous user + project ID
 
 ## How to Opt Out
 
@@ -20,21 +23,22 @@ You can opt out of analytics in two ways:
 
 Run the following command to permanently opt out:
 
-```bash
-varlock opt-out
-```
 
-This will create a configuration file at `~/.varlock/config.json` with the opt-out setting.
+<ExecCommandWidget command="varlock telemetry disable" />
+
+This will create/update a configuration file saving your preference at `~/.varlock/config.json`.
+
+_You may re-enable telemetry by running `varlock telemetry enable`_
 
 ### Using an Environment Variable
 
-You can also opt out temporarily by setting the `PH_OPT_OUT` environment variable:
+You can also opt out temporarily by setting the `VARLOCK_TELEMETRY_DISABLED` environment variable:
 
 ```bash
-export PH_OPT_OUT=true
+export VARLOCK_TELEMETRY_DISABLED=true
 ```
 
-This will disable analytics for the current session only, which is useful in CI/CD pipelines.
+This will disable analytics for the current session only, which is useful in CI/CD pipelines, or while running a specific command.
 
 ## Privacy
 

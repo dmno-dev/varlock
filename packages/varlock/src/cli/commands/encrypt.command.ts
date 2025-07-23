@@ -4,6 +4,7 @@ import { isCancel, password } from '@clack/prompts';
 
 import { VarlockNativeAppClient } from '../../lib/native-app-client';
 import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { gracefulExit } from 'exit-hook';
 
 export const commandSpec = define({
   name: 'encrypt',
@@ -17,7 +18,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // intro('🧙 Encrypting environment variables... ✨');
 
   const rawValue = await password({ message: 'Enter the value you want to encrypt' });
-  if (isCancel(rawValue)) process.exit(0);
+  if (isCancel(rawValue)) return gracefulExit();
 
   const client = new VarlockNativeAppClient();
   await client.initializeSocket();

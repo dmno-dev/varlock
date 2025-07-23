@@ -2,7 +2,8 @@
 title: Migrate from dotenv
 description: How to migrate from dotenv (CLI and npm package) to varlock
 ---
-import SyncedCodeTabs from "@/components/SyncedCodeTabs.astro";
+import InstallJsDepsWidget from "@/components/InstallJsDepsWidget.astro";
+import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
 import { TabItem, Tabs } from "@astrojs/starlight/components";
 
 ## Why migrate from dotenv?
@@ -43,26 +44,7 @@ APP_ENV=staging varlock run -- node app.js
 
 Initialize your project with `varlock init` to install `varlock` and generate a `.env.schema` from any existing `.env` files.
 
-<SyncedCodeTabs
-  group="package-manager"
-  tabs={[
-    {
-      label: "npm",
-      code: "npx varlock init",
-      lang: "bash",
-    },
-    {
-      label: "yarn",
-      code: "yarn dlx varlock init",
-      lang: "bash",
-    },
-    {
-      label: "pnpm",
-      code: "pnpm dlx varlock init",
-      lang: "bash",
-    },
-  ]}
-/>
+<ExecCommandWidget command="varlock init" showBinary={false} dlx={true} />
 
 Then to use `varlock` in your code, you can replace `dotenv/config` with `varlock/auto-load`:
 
@@ -74,26 +56,7 @@ Then to use `varlock` in your code, you can replace `dotenv/config` with `varloc
 
 Finally, you can remove `dotenv` from your dependencies:
 
-<SyncedCodeTabs
-  group="package-manager"
-  tabs={[
-    {
-      label: "npm",
-      code: "npm uninstall dotenv",
-      lang: "bash",
-    },
-    {
-      label: "yarn",
-      code: "yarn remove dotenv",
-      lang: "bash",
-    },
-    {
-      label: "pnpm",
-      code: "pnpm remove dotenv",
-      lang: "bash",
-    },
-  ]}
-/>
+<InstallJsDepsWidget packages="dotenv" remove />
 
 ## Using overrides
 

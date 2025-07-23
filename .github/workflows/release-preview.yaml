@@ -34,6 +34,8 @@ jobs:
       # ------------------------------------------------------------
       - name: Build publishable npm packages
         run: pnpm build:libs
+        env:
+          BUILD_TYPE: preview
       # we use a custom script to run `npx pkg-pr-new publish`
       # so that we can determine which packages to release
       - name: Release preview packages

@@ -1,14 +1,20 @@
 import ansis from 'ansis';
-import { JsPackageManagerMeta } from './js-package-manager-utils';
+import { detectJsPackageManager, JsPackageManagerMeta } from './js-package-manager-utils';
 
 
 export const fmt = {
   decorator: (s: string) => ansis.magenta(s),
   filePath: (s: string) => `📂 ${ansis.cyan.italic(s)}`,
   fileName: (s: string) => `${ansis.cyan.italic(s)}`,
-  command: (s: string, opts?: { jsPackageManager?: JsPackageManagerMeta }) => {
-    if (opts?.jsPackageManager) {
-      s = `${opts.jsPackageManager.exec} ${s}`;
+  command: (s: string, opts?: { jsPackageManager?: JsPackageManagerMeta | true }) => {
+    let jsPackageManager: JsPackageManagerMeta | undefined;
+    if (opts?.jsPackageManager === true) {
+      jsPackageManager = detectJsPackageManager();
+    } else if (opts?.jsPackageManager) {
+      jsPackageManager = opts.jsPackageManager;
+    }
+    if (jsPackageManager) {
+      s = `${jsPackageManager.exec} ${s}`;
     }
     return ansis.green.italic(s);
   },

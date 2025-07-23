@@ -5,17 +5,18 @@ import { define } from 'gunshi';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForSchemaErrors } from '../helpers/error-checks';
 import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { gracefulExit } from 'exit-hook';
 
 
 export const commandSpec = define({
   name: 'run',
-  description: 'Run a command with the environment variables loaded from the .env file',
+  description: 'Run a command with your environment variables injected',
   args: {
-    watch: {
-      type: 'boolean',
-      short: 'w',
-      description: 'Watch mode',
-    },
+    // watch: {
+    //   type: 'boolean',
+    //   short: 'w',
+    //   description: 'Watch mode',
+    // },
   },
 });
 
@@ -42,7 +43,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const commandArgsOnly = commandToRunAsArgs.slice(1);
   const pathAwareCommand = which.sync(rawCommand, { nothrow: true });
 
-  const isWatchEnabled = ctx.values.watch;
+  // const isWatchEnabled = ctx.values.watch;
+  const isWatchEnabled = false;
 
   // console.log('running command', pathAwareCommand || rawCommand, commandArgsOnly);
 
@@ -88,7 +90,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       process.on(signal, () => {
         // console.log('SIGNAL = ', signal);
         commandProcess?.kill(9);
-        process.exit(1);
+        gracefulExit(1);
       });
     });
     // TODO: handle other signals?
@@ -109,7 +111,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
     // console.log('child command result error', error);
     if ((error as any).signal === 'SIGINT' || (error as any).signal === 'SIGKILL') {
-      process.exit(1);
+      gracefulExit(1);
     } else {
       console.log((error as Error).message);
       console.log(`command [${commandToRunStr}] failed`);
@@ -131,9 +133,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   if (!isWatchEnabled) {
-    process.exit(exitCode);
+    return gracefulExit(exitCode);
   } else {
     console.log('... watching for changes ...');
-    // TODO: watch for changes and restart the command
   }
 };

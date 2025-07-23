@@ -20,5 +20,6 @@ export default defineConfig({
   esbuildOptions(options) {
     options.define ||= {};
     options.define.__VARLOCK_SEA_BUILD__ = 'true';
+    options.define.__VARLOCK_BUILD_TYPE__ = JSON.stringify(process.env.BUILD_TYPE || 'dev');
   },
 });

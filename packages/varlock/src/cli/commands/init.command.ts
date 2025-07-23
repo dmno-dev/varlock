@@ -17,6 +17,7 @@ import { fmt, logLines } from '../helpers/pretty-format';
 import { detectRedundantValues, ensureAllItemsExist, inferSchemaUpdates } from '../helpers/infer-schema';
 import { detectJsPackageManager, installJsDependency } from '../helpers/js-package-manager-utils';
 import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { gracefulExit } from 'exit-hook';
 
 export const commandSpec = define({
   name: 'init',
@@ -62,7 +63,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
           value: file,
         })),
       });
-      if (isCancel(selectedExample)) process.exit(0);
+      if (isCancel(selectedExample)) return gracefulExit(0);
       exampleFileToConvert = selectedExample;
     }
 
@@ -136,7 +137,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     const confirmReviewed = await prompts.confirm({
       message: `Have you reviewed and updated your new ${fmt.fileName('.env.schema')} file?`,
     });
-    if (isCancel(confirmReviewed)) process.exit(0);
+    if (isCancel(confirmReviewed)) return gracefulExit(0);
 
     // reload the graph
     envGraph = await loadVarlockEnvGraph();
@@ -155,7 +156,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       const confirmDeleteExample = await prompts.confirm({
         message: `Should we delete your ${fmt.fileName(exampleFileToConvert.fileName)} file? ${ansis.italic.gray('(you can always do this yourself later)')}`,
       });
-      if (isCancel(confirmDeleteExample)) process.exit(0);
+      if (isCancel(confirmDeleteExample)) return gracefulExit(0);
       if (confirmDeleteExample) {
         await fs.unlink(exampleFileToConvert.fullPath);
       }
@@ -188,7 +189,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       const confirmDeleteRedundant = await prompts.confirm({
         message: 'Should we delete these redundant values from your other .env files?',
       });
-      if (isCancel(confirmDeleteRedundant)) process.exit(0);
+      if (isCancel(confirmDeleteRedundant)) return gracefulExit(0);
       if (confirmDeleteRedundant) {
         await detectRedundantValues(envGraph, { delete: true });
       }
