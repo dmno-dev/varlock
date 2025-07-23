@@ -90,13 +90,20 @@ subCommands.set('login', buildLazyCommand(loginCommandSpec, async () => await im
     });
     gracefulExit();
   } catch (error) {
-    if (error instanceof CliExitError || error instanceof InvalidEnvError) {
+    if (error instanceof Error && error.message.startsWith('Command not found: ')) {
+      const badCommandName = error.message.split(': ')[1];
+      const badCommandErr = new CliExitError(`Invalid subcommand: ${badCommandName}`, {
+        suggestion: `Run \`${fmt.command('varlock --help', { jsPackageManager: true })}\` for more info.`,
+      });
+      console.error(badCommandErr.getFormattedOutput());
+      gracefulExit(1);
+    } else if (error instanceof CliExitError || error instanceof InvalidEnvError) {
       // in watch mode, we just log but do not actually exit
       console.error(error.getFormattedOutput());
       // TODO: we'll probably want to implement watch mode, so it wont actually exit
     } else if (error instanceof EnvSourceParseError) {
-      console.log(`🚨 Error encountered while loading ${error.location.path}`);
-      console.log(error.message);
+      console.error(`🚨 Error encountered while loading ${error.location.path}`);
+      console.error(error.message);
 
       const errLoc = error.location as any;
 
@@ -105,9 +112,9 @@ subCommands.set('login', buildLazyCommand(loginCommandSpec, async () => await im
         `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
       ].join('\n');
 
-      console.log('Error parsing .env file');
-      console.log(fmt.filePath(`${errLoc.path}:${errLoc.lineNumber}:${errLoc.colNumber}`));
-      console.log(errPreview);
+      console.error('Error parsing .env file');
+      console.error(fmt.filePath(`${errLoc.path}:${errLoc.lineNumber}:${errLoc.colNumber}`));
+      console.error(errPreview);
 
       gracefulExit(1);
     } else {
