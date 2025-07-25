@@ -11,14 +11,15 @@ export const commandSpec = define({
   description: 'Load env according to schema and resolve values',
   args: {
     format: {
-      type: 'string',
+      type: 'enum',
       short: 'f',
-      description: 'Format of output (if not pretty printed to console)',
+      choices: ['pretty', 'json', 'env', 'json-full'],
+      description: 'Format of output',
       default: 'pretty',
     },
     'show-all': {
       type: 'boolean',
-      description: 'When load is fialing, show all items rather than only failing items',
+      description: 'When load is failing, show all items rather than only failing items',
     },
     env: {
       type: 'string',
