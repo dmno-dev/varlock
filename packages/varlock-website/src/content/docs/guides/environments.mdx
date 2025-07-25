@@ -128,3 +128,53 @@ it will load the correct `.env.production` file because the override for `APP_EN
 :::tip
 In the above example, we're _only_ passing the `APP_ENV` because that's the variable you are most likely going to want to override in your scripts. If there are other variables you want to pass to your scripts, they will need to be explicitly added as well.
 :::
+
+
+
+---
+
+### Setting the Environment Flag
+
+When running locally, or on a platform you control, you can set the env flag explicitly as an environment variable. However on some cloud platforms, there is a lot of magic happening, and the ability to set environment variables per branch is limited. In these cases you can use functions to transform env vars injected by the platform, like a current branch name, into the value you need.
+
+#### Local/Custom Scripts
+
+You can set the env var explicitly when you run a command, but often you will set it in `package.json` scripts:
+
+```diff lang="json" title="package.json" add=/APP_ENV=[a-z]+/
+"scripts": {
+  "build:preview": "APP_ENV=preview next build",
+  "start:preview": "APP_ENV=preview next start",
+  "build:prod": "APP_ENV=production next build",
+  "start:prod": "APP_ENV=production next start",
+  "test": "APP_ENV=test jest"
+}
+```
+
+#### Vercel
+
+You can use the injected `VERCEL_ENV` variable to match their concept of environment types:
+
+```env-spec title=".env.schema"
+# @envFlag=APP_ENV
+# ---
+# @type=enum(development, preview, production)
+VERCEL_ENV=
+# @type=enum(development, preview, production, test)
+APP_ENV=fallback($VERCEL_ENV, development)
+```
+
+For more granular environments, use the branch name in `VERCEL_GIT_COMMIT_REF` (see Cloudflare example below).
+
+#### Cloudflare Workers Build
+
+Use the branch name in `WORKERS_CI_BRANCH` to determine the environment:
+
+```env-spec title=".env.schema"
+# @envFlag=APP_ENV
+# ---
+WORKERS_CI_BRANCH=
+# @type=enum(development, preview, production, test)
+APP_ENV=remap($WORKERS_CI_BRANCH, production="main", preview=regex(.*), development=undefined)
+```
+

@@ -3,7 +3,7 @@ import { define } from 'gunshi';
 import { isCancel, password } from '@clack/prompts';
 
 import { VarlockNativeAppClient } from '../../lib/native-app-client';
-import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { gracefulExit } from 'exit-hook';
 
 export const commandSpec = define({

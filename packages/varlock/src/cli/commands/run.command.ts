@@ -4,7 +4,7 @@ import { define } from 'gunshi';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForSchemaErrors } from '../helpers/error-checks';
-import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { gracefulExit } from 'exit-hook';
 
 

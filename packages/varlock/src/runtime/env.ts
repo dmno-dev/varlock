@@ -1,6 +1,8 @@
-import { type SerializedEnvGraph } from '@env-spec/env-graph';
 import { debug } from './lib/debug';
 import { redactString } from './lib/redaction';
+
+import type { SerializedEnvGraph } from '../serialized-env-graph';
+
 
 // TODO: would like to move all of the redaction utils out of this file
 // but its complicated since it is imported by code that may be run in the backend and frontend
@@ -208,10 +210,17 @@ export function initVarlockEnv(opts?: {
   initializedEnv = true;
 }
 
-if (process.env.__VARLOCK_ENV && !initializedEnv) {
-  // if we are automatically loading because __VARLOCK_ENV is already set
-  // then we assume process.env vars have also already been set (although might not harm anything?)
-  initVarlockEnv({ setProcessEnv: false });
+// we will attempt to call initVarlockEnv automatically, but in most cases it should be called explicitly
+// note that if this is being imported in the browser, process.env may not exist, so we do this in a try/catch
+try {
+  if (process.env.__VARLOCK_ENV && !initializedEnv) {
+    // if we are automatically loading because __VARLOCK_ENV is already set
+    // then we assume process.env vars have also already been set (although might not harm anything?)
+    initVarlockEnv({ setProcessEnv: false });
+  }
+} catch (err) {
+  // expected that this will fail when process.env does not exist
+  // but we may want to look for specific errors
 }
 
 // this gets exported and then augmented by our type generation
@@ -223,8 +232,17 @@ export interface TypedEnvSchema {}
 
 const EnvProxy = new Proxy<TypedEnvSchema>({}, {
   get(target, prop) {
-    if (typeof prop !== 'string') throw new Error('prop keys cannot be symbols');
-    return envValues[prop];
+    if (typeof prop !== 'string') throw new Error('ENV prop key must be a string');
+    if (prop in envValues) return envValues[prop];
+    if ((globalThis as any).__varlockThrowOnMissingKeys) {
+      // during development, we can feed in extra metadata and show more helpful errors
+      if ((globalThis as any).__varlockValidKeys && (globalThis as any).__varlockValidKeys.includes(prop)) {
+        throw new Error(`\`ENV.${prop}\` exists, but is not available in this environment`);
+      } else {
+        throw new Error(`\`ENV.${prop}\` does not exist`);
+      }
+    }
+    return undefined;
   },
 });
 

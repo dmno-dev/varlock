@@ -1,0 +1,171 @@
+---
+title: Vite
+description: How to integrate varlock with Vite for secure, type-safe environment management
+---
+import SyncedCodeTabs from '@/components/SyncedCodeTabs.astro'
+import { TabItem, Tabs, Steps } from "@astrojs/starlight/components";
+import Badge from '@/components/Badge.astro';
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/vite-integration" />
+</div>
+
+While many frameworks use Vite under the hood, some projects use Vite directly. When doing so, Vite does do some [automatic loading of .env files](https://vite.dev/guide/env-and-mode.html), but it is fairly limited.
+
+To integrate varlock into a Vite application, you must use our [`@varlock/vite-integration`](https://www.npmjs.com/package/@varlock/vite-integration) package, which is a [Vite plugin](https://vite.dev/guide/using-plugins.html).
+
+:::note[Vite-powered frameworks]
+This integration is intended for use with projects that are using Vite directly. For frameworks that use Vite under the hood, you may need a framework-specific integration.
+:::
+
+## Setup
+
+:::caution[Requirements]
+- Node.js v22 or higher
+- Vite v5 or higher
+:::
+{/* check vite versions compat? */}
+
+<Steps>
+
+1. **Install varlock and the Vite integration package**
+    <InstallJsDepsWidget packages="@varlock/vite-integration varlock" />
+
+1. **Run `varlock init` to set up your `.env.schema` file**
+
+    This will guide you through setting up your `.env.schema` file, based on your existing `.env` file(s). Make sure to review it carefully.
+
+    <ExecCommandWidget command="varlock init" showBinary={false} />
+
+1. **Enable the Vite config plugin**
+
+    You must add our `varlockVitePlugin` to your `vite.config.*` file:
+
+    ```diff lang="ts" title="vite.config.ts" add="varlockVitePlugin()"
+    import { defineConfig } from 'vite';
+    +import { varlockVitePlugin } from '@varlock/vite-integration';
+
+    export default defineConfig({
+      plugins: [ varlockVitePlugin(), /* other plugins... */ ]
+    });
+    ```
+</Steps>
+
+---
+
+## Accessing environment variables
+
+You can continue to use `import.meta.env.SOMEVAR` as usual, but we recommend using varlock's imported `ENV` object for better type-safety and improved developer experience:
+
+```ts title="example.ts"
+import { ENV } from 'varlock/env';
+
+console.log(import.meta.env.SOMEVAR); // 🆗 still works
+console.log(ENV.SOMEVAR);             // ✨ recommended
+```
+
+#### Why use `ENV` instead of `import.meta.env`?
+- Non-string values (e.g., number, boolean) are properly typed and coerced
+- All non-sensitive items are replaced at build time (not just `VITE_` prefixed ones)
+- Better error messages for invalid or unavailable keys
+- Enables future DX improvements and tighter control over what is bundled
+
+### Within `vite.config.*`
+It's often useful to be able to access env vars in your Vite config. Without varlock, it's a bit awkward, but varlock makes it dead simple - in fact it's already available! Just import varlocks `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
+
+```diff lang="ts" title="vite.config.ts"
+import { defineConfig } from 'vite';
+import { varlockVitePlugin } from '@varlock/vite-integration';
++import { ENV } from 'varlock/env';
+
++doSomethingWithEnvVar(ENV.FOO);
+
+export default defineConfig({ /* ... */ });
+```
+
+:::caution[TypeScript config]
+If you find you are not getting type completion on `ENV`, you may need to add your vite config and generated type files (usually `env.d.ts`) to your `tsconfig.json`'s `include` array.
+:::
+
+### Within HTML templates
+Vite [natively supports](https://vite.dev/guide/env-and-mode.html#html-constant-replacement) injecting env vars into HTML files using a special syntax like `%SOME_VAR%`.
+
+This plugin injects additional replacements for strings like `%ENV.SOME_VAR%`.
+
+Note that unlike the native functionality which does not replace missing/non-existant items, we will try to replace all items, and will throw helpful errors if something goes wrong.
+
+:::tip[HTML comments]
+Note that replacements anywhere in the file, including HTML comments, are still attempted and can cause errors. For example `<!-- %ENV.BAD_ITEM_KEY% -->` will still fail!
+:::
+
+### Within other scripts
+
+Even in a static front-end project, you may have other scripts in your project that rely on sensitive config.
+
+You can use [`varlock run`](/reference/cli-commands/#varlock-run) to inject resolved config into other scripts as regular environment vars.
+
+<ExecCommandWidget command="varlock run -- node ./script.js" showBinary={false} />
+
+
+### Type-safety and IntelliSense
+
+To enable type-safety and IntelliSense for your env vars, enable the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
+
+```diff lang="env-spec" title=".env.schema"
++# @generateTypes(lang='ts', path='env.d.ts')
+# ---
+# your config items...
+```
+
+
+---
+
+## Managing multiple environments
+
+Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`).
+
+By default, vite uses its [`MODE` flag](https://vite.dev/guide/env-and-mode.html#modes) to determine which env file(s) to load.
+
+With varlock, instead you set your own environment flag using the [`@envFlag` root decorator](/reference/root-decorators/#envflag), e.g. `APP_ENV`. See the [environments guide](/guides/environments) for more information.
+
+
+## Managing sensitive config values
+
+Vite uses the `VITE_` prefix to determine which env vars are public (bundled for the browser). Varlock decouples the concept of being _sensitive_ from key names, and instead you control this with the [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) root decorator and the [`@sensitive`](/reference/item-decorators/#sensitive) item decorator. See the [secrets guide](/guides/secrets) for more information.
+
+Set a default and explicitly mark items:
+
+```diff lang="env-spec" title=".env.schema" add="@sensitive"
++# @defaultSensitive=false
+# ---
+NON_SECRET_FOO= # sensitive by default
+# @sensitive
+SECRET_FOO= 
+```
+
+Or if you'd like to continue using Vite's prefix behavior:
+
+```diff lang="env-spec" title=".env.schema"
++# @defaultSensitive=inferFromPrefix('VITE_')
+# ---
+FOO= # sensitive
+VITE_FOO= # non-sensitive, due to prefix
+```
+
+
+
+:::caution[Bundling behavior]
+All non-sensitive items are bundled at build time via `ENV`, while `import.meta.env` replacements continue to only include `VITE_`-prefixed items.
+:::
+
+
+
+---
+
+## Reference
+- [Root decorators reference](/reference/root-decorators)
+- [Item decorators reference](/reference/item-decorators)
+- [Functions reference](/reference/functions)
+- [Vite environment variable docs](https://vite.dev/guide/env-and-mode.html#modes)

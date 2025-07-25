@@ -16,7 +16,7 @@ import prompts from '../helpers/prompts';
 import { fmt, logLines } from '../helpers/pretty-format';
 import { detectRedundantValues, ensureAllItemsExist, inferSchemaUpdates } from '../helpers/infer-schema';
 import { detectJsPackageManager, installJsDependency } from '../helpers/js-package-manager-utils';
-import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { gracefulExit } from 'exit-hook';
 
 export const commandSpec = define({

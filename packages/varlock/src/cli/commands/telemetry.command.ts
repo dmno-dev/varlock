@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { define } from 'gunshi';
-import { TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { gracefulExit } from 'exit-hook';
 import { fmt } from '../helpers/pretty-format';
 import { CliExitError } from '../helpers/exit-error';

@@ -206,15 +206,31 @@ export type EnvSchemaAsStrings = {
 };
 `);
 
+  // TODO: allow user to pass in options to control this?
+  // although because we add the @generateTypes decorator an init time
+  // we may need our integrations to specify what settings they prefer
+  const importMetaEnvTypes = true;
+  const processEnvTypes = true;
 
-
-  // TODO: should add an option to enable/disable
-  tsSrc.push(`
-declare global {
+  const IMPORT_META_AUGMENTATION = `
+  // add types for global import.meta.env
+  interface ImportMetaEnv extends EnvSchemaAsStrings {}
+  interface ImportMeta {
+    readonly env: ImportMetaEnv;
+  }`;
+  const PROCESS_ENV_AUGMENTATION = `
+  // add types for global process.env
   namespace NodeJS {
     interface ProcessEnv extends EnvSchemaAsStrings {}
-  }
-}`);
+  }`;
+
+  // TODO: should add an option to enable/disable
+  tsSrc.push(...[
+    'declare global {',
+    importMetaEnvTypes && IMPORT_META_AUGMENTATION,
+    processEnvTypes && PROCESS_ENV_AUGMENTATION,
+    '}',
+  ].filter(Boolean));
 
   return tsSrc.join('\n');
 }

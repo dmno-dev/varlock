@@ -13,6 +13,7 @@
     "strict": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
+    "verbatimModuleSyntax": true,
     "customConditions": ["ts-src"],
   }
 }

@@ -3,7 +3,7 @@ import { EnvGraph } from './env-graph';
 import { DotEnvFileDataSource, ProcessEnvDataSource } from './data-source';
 import { findEnvFiles } from '@env-spec/utils/find-env-files';
 
-function autoDetectContextPath() {
+function autoDetectBasePath() {
   const PWD = process.env.PWD;
   if (!PWD) {
     throw new Error('PWD is not set');
@@ -13,17 +13,15 @@ function autoDetectContextPath() {
 
 
 export async function loadEnvGraph(opts?: {
-  contextPath?: string,
+  basePath?: string,
   relativePaths?: Array<string>,
   checkGitIgnored?: boolean,
   excludeDirs?: Array<string>,
   currentEnvFallback?: string,
   afterInit?: (graph: EnvGraph) => Promise<void>,
 }) {
-  const contextPath = opts?.contextPath ?? autoDetectContextPath();
-
   const graph = new EnvGraph();
-  graph.basePath = contextPath;
+  graph.basePath = opts?.basePath ?? autoDetectBasePath();
 
   if (opts?.afterInit) {
     await opts.afterInit(graph);
@@ -34,7 +32,7 @@ export async function loadEnvGraph(opts?: {
   }
 
   const envFilePaths = await findEnvFiles({
-    cwd: contextPath,
+    cwd: graph.basePath,
   });
 
   for (const envFilePath of envFilePaths) {

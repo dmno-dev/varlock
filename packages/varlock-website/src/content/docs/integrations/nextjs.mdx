@@ -146,7 +146,7 @@ To integrate varlock into a Next.js application, you must use our [`@varlock/nex
 
 ---
 
-## Accessing Environment Variables
+## Accessing environment variables
 
 You can continue to use `process.env.SOMEVAR` as usual, but we recommend using Varlock's imported `ENV` object for better type-safety and improved developer experience:
 
@@ -185,7 +185,7 @@ You can still use `process.env` either way, but you would not get additional typ
 
 ---
 
-## Managing Multiple Environments
+## Managing multiple environments
 
 Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`).
 
@@ -200,11 +200,11 @@ Without a custom env flag, you cannot use non-production env files (like `.env.p
 
 Instead, we recommend explicitly setting your own environment flag using the [`@envFlag` root decorator](/reference/root-decorators/#envflag), e.g. `APP_ENV`. See the [environments guide](/guides/environments) for more information.
 
-### Setting the Environment Flag
+### Setting the environment flag
 
 When running locally, or on a platform you control, you can set the env flag explicitly as an environment variable. However on some cloud platforms, there is a lot of magic happening, and the ability to set environment variables per branch is limited. In these cases you can use functions to transform env vars injected by the platform, like a current branch name, into the value you need.
 
-#### Local/Custom Scripts
+#### Local/custom scripts
 
 You can set the env var explicitly when you run a command, but often you will set it in `package.json` scripts:
 
@@ -247,20 +247,11 @@ APP_ENV=remap($WORKERS_CI_BRANCH, production="main", preview=regex(.*), developm
 
 ---
 
-## Managing Sensitive Config Values
+## Managing sensitive config values
 
 Next.js uses the `NEXT_PUBLIC_` prefix to determine which env vars are public (bundled for the browser). Varlock lets you control this with the [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) root decorator.
 
-To keep the prefix behavior:
-
-```diff lang="env-spec" title=".env.schema"
-+# @defaultSensitive=inferFromPrefix('NEXT_PUBLIC_')
-# ---
-FOO= # sensitive
-NEXT_PUBLIC_FOO= # non-sensitive, due to prefix
-```
-
-Or, set a default and explicitly mark items:
+Set a default and explicitly mark items:
 
 ```diff lang="env-spec" title=".env.schema"
 +# @defaultSensitive=true
@@ -269,6 +260,16 @@ SECRET_FOO= # sensitive by default
 # @sensitive=false
 NON_SECRET_FOO=
 ```
+
+Or, if you'd like to continue using Next.js's prefix behavior:
+
+```diff lang="env-spec" title=".env.schema"
++# @defaultSensitive=inferFromPrefix('NEXT_PUBLIC_')
+# ---
+FOO= # sensitive
+NEXT_PUBLIC_FOO= # non-sensitive, due to prefix
+```
+
 
 :::caution[Bundling behavior]
 All non-sensitive items are bundled at build time via `ENV`, while `process.env` replacements only include `NEXT_PUBLIC_`-prefixed items.
