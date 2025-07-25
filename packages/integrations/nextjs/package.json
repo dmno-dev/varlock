@@ -1,7 +1,7 @@
 {
   "name": "@varlock/nextjs-integration",
   "description": "drop-in replacement for @next/env that uses varlock to load .env files with validation and extra security features",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "repository": {
     "type": "git",
     "url": "https://github.com/dmno-dev/varlock.git",

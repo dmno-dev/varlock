@@ -1,5 +1,15 @@
 # varlock
 
+## 0.0.5
+
+### Patch Changes
+
+- [#84](https://github.com/dmno-dev/varlock/pull/84) [`7407999`](https://github.com/dmno-dev/varlock/commit/7407999d58394fe5ce6e5f9667cd1a540d9e4951) Thanks [@theoephraim](https://github.com/theoephraim)! - improve anonymous telemetry setup
+
+- [#77](https://github.com/dmno-dev/varlock/pull/77) [`f49fd2a`](https://github.com/dmno-dev/varlock/commit/f49fd2a2c07f8fc58654d4a1c1bac9fd9ba7df3e) Thanks [@theoephraim](https://github.com/theoephraim)! - vite integration
+
+- [#88](https://github.com/dmno-dev/varlock/pull/88) [`33874e8`](https://github.com/dmno-dev/varlock/commit/33874e863227759b299b1745158018fe2393a142) Thanks [@philmillman](https://github.com/philmillman)! - Add additional format options to load command help
+
 ## 0.0.4
 
 ### Patch Changes
