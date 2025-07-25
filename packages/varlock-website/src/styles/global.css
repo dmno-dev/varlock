@@ -66,15 +66,6 @@ h5 {
   }
 
   gap: .4em;
-
-  code {
-    margin-left: .4em;
-    margin-right: .4em;
-
-    &:first-child {
-      margin-left: 0;
-    }
-  }
 }
 
 img[src^="https://varlock-pixel-art.dmno.workers.dev/"] {

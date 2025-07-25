@@ -1,6 +1,6 @@
 {
   "name": "@varlock/vite-integration",
-  "description": "Helpers to use varlock with vite - including a plugin to load .env files with validation and extra security features",
+  "description": "Vite plugin to use varlock for .env file loading - adds validation, type-safety, and extra security features",
   "version": "0.0.0",
   "repository": {
     "type": "git",
@@ -13,9 +13,7 @@
   "exports": {
     ".": "./dist/index.js"
   },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup"

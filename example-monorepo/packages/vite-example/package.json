@@ -9,10 +9,9 @@
     "preview": "vite preview"
   },
   "devDependencies": {
-    "@rollup/plugin-replace": "^6.0.2",
     "@varlock/vite-integration": "link:../../../packages/integrations/vite",
     "typescript": "catalog:",
     "varlock": "link:../../../packages/varlock",
-    "vite": "^7.0.4"
+    "vite": "^7.0.6"
   }
 }

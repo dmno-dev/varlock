@@ -14,12 +14,12 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "dotenv": "link:../packages/varlock",
+    "dotenv": "link:../../../packages/varlock",
     "openai": "^5.5.1",
-    "varlock": "link:../packages/varlock"
+    "varlock": "link:../../../packages/varlock"
   },
   "packageManager": "pnpm@10.8.1",
   "devDependencies": {
-    "@types/node": "^22.14.1"
+    "@types/node": "catalog:"
   }
 }

@@ -25,11 +25,6 @@ let varlockLoadedEnv: SerializedEnvGraph;
 let staticReplacements: Record<string, any> = {};
 let rollupReplacePlugin: ReturnType<typeof replace>;
 
-// let dmnoHasTriggeredReload = false;
-// let dmnoConfigValid = true;
-// let dmnoServer: DmnoServer;
-// let dmnoInjectionResult: ReturnType<typeof injectDmnoGlobals>;
-
 function reloadConfig() {
   try {
     const execResult = execSync('varlock load --format json-full', { env: originalProcessEnv });
@@ -53,10 +48,11 @@ function reloadConfig() {
   staticReplacements = {};
   for (const itemKey in varlockLoadedEnv?.config) {
     const itemInfo = varlockLoadedEnv.config[itemKey];
-    if (itemInfo.isSensitive) continue;
-    const val = JSON.stringify(itemInfo.value);
-    // staticReplacements[`import.meta.env.${itemKey}`] = val;
-    staticReplacements[`ENV.${itemKey}`] = val;
+    // TODO: probably reimplement static/dynamic controls here too
+    if (!itemInfo.isSensitive) {
+      const val = JSON.stringify(itemInfo.value);
+      staticReplacements[`ENV.${itemKey}`] = val;
+    }
   }
 
 
@@ -70,22 +66,15 @@ function reloadConfig() {
 reloadConfig();
 
 export function varlockVitePlugin(
-  options?: {
-    /**
-     * option to bundle DMNO_CONFIG as well, which will include all config items
-     * should be used carefully as it could leak secrets...
-     * but necessary if bundling _backend_ code using vite
-     * */
-    injectSensitiveConfig: boolean,
-  },
+  options?: {}, // TODO: add options? like allow injecting sensitive config?
 ): Plugin {
   return {
-    name: 'inject-dmno-config',
+    name: 'inject-varlock-config',
     enforce: 'pre', // not quite sure in what cases this may be important, but it seems right
 
     // hook to modify config before it is resolved
     async config(config, env) {
-      console.log('vite plugin - config fn called');
+      debug('vite plugin - config fn called');
       isDevMode = env.command === 'serve';
 
       if (!isFirstLoad && isDevMode) {
@@ -101,7 +90,6 @@ export function varlockVitePlugin(
           // adjust vite's setting so it doesnt bury the error messages
           config.clearScreen = false;
         } else {
-          // dmnoServer.shutdown();
           console.log('💥 Varlock config validation failed 💥');
           // throwing an error spits out a big useless stack trace... so better to just exit?
           process.exit(1);
@@ -110,7 +98,7 @@ export function varlockVitePlugin(
     },
     // hook to observe/modify config after it is resolved
     configResolved(config) {
-      console.log('vite plugin - configResolved fn called');
+      debug('vite plugin - configResolved fn called');
       // inject all .env files that varlock loaded into `configFileDependencies`
       // so that vite will watch them and reload if they change
       for (const varlockSource of varlockLoadedEnv.sources) {
@@ -122,7 +110,7 @@ export function varlockVitePlugin(
     },
     // hook tp configure vite dev server
     async configureServer(server) {
-      console.log('vite plugin - configureServer fn called');
+      debug('vite plugin - configureServer fn called');
       if (!configIsValid) {
         // triggers the built-in vite error overlay
         server.middlewares.use((req, res, next) => {
@@ -204,12 +192,5 @@ export function varlockVitePlugin(
         tags: [{ tag: 'script', attrs: { type: 'module' }, children: injectGlobalCode.join('\n') }],
       };
     },
-
-    // handleHotUpdate({ file, server }) {
-    //   console.log('hot update', file);
-    // },
-    // buildEnd() {
-    //   if (!isDevMode) dmnoServer.shutdown();
-    // },
   };
 }
