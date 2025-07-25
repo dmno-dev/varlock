@@ -13,7 +13,7 @@ export const commandSpec = define({
     format: {
       type: 'string',
       short: 'f',
-      description: 'Format of output (if not pretty printed to console)',
+      description: 'Format of output (default: pretty) [pretty|json|env|json-full]',
       default: 'pretty',
     },
     'show-all': {
