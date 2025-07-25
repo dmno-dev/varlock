@@ -88,6 +88,7 @@ function enableExtraFileWatchers() {
   debug('set up extra file watchers', envFilePathToUpdate, destroyFile);
 
   fs.watchFile(envSchemaPath, { interval: 500 }, (curr, prev) => {
+    debug('.env.schema changed', envFilePathToUpdate, destroyFile);
     if (destroyFile) {
       fs.writeFileSync(envFilePathToUpdate, '# trigger reload', 'utf-8');
       setTimeout(() => {
@@ -225,10 +226,13 @@ export function loadEnvConfig(
     parsedEnv: Env | undefined
     loadedEnvFiles: LoadedEnvFiles
   } {
-  if (!initialEnv) {
-    initialEnv ||= { ...process.env };
-  }
+  // store actual process.env so we can restore it later
+  initialEnv ||= { ...process.env };
+
   debug('loadEnvConfig!', 'forceReload = ', forceReload);
+
+  // onReload is used to show a log of which .env file changed
+  // TODO: add similar log to show which env file changed
 
   rootDir ||= dir;
   if (rootDir !== dir) throw new Error('root directory changed');
@@ -300,6 +304,14 @@ export function loadEnvConfig(
 
     // in a build, we want to fail and exit, while in dev we can keep retrying when changes are detected
     if (!dev) process.exit(1);
+
+    // if we dont do this, we'll see an error that looks like `process.env.__VARLOCK_ENV is not set` which is misleading.
+    // Ideally we would pass through an error of some kind and trigger the webpack runtime error popup
+    process.env.__VARLOCK_ENV = JSON.stringify({
+      sources: [],
+      config: {},
+      settings: {},
+    });
 
     return { combinedEnv: {}, parsedEnv: {}, loadedEnvFiles: [] };
   }

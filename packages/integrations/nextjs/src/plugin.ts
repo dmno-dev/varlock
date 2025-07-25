@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { NextConfig } from 'next';
 
-import { redactSensitiveConfig, scanForLeaks, varlockSettings } from 'varlock/env';
+import {
+  redactSensitiveConfig, scanForLeaks, varlockSettings,
+} from 'varlock/env';
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 import { patchGlobalConsole } from 'varlock/patch-console';
 
@@ -85,6 +87,43 @@ function patchGlobalFsMethods() {
 }
 
 
+// We use a proxy object for the static replacements that we pass to webpack.DefinePlugin
+// because this plugin/webpack code is not invoked again when env files change
+// instead next is direcly messing with the existing plugins for their own changes
+// so instead we use a proxy object, and grab the values off of process.env.__VARLOCK_ENV
+// which will have been updated by our next-env-compat code
+let latestLoadedVarlockEnv: SerializedEnvGraph | undefined;
+const StaticReplacementsProxy = new Proxy({} as Record<string, string>, {
+  ownKeys(_target) {
+    latestLoadedVarlockEnv = JSON.parse(process.env.__VARLOCK_ENV || '{}') as SerializedEnvGraph;
+    const replaceKeys = [] as Array<string>;
+    for (const itemKey in latestLoadedVarlockEnv.config) {
+      const item = latestLoadedVarlockEnv.config[itemKey];
+      if (!item.isSensitive) replaceKeys.push(`ENV.${itemKey}`);
+    }
+    debug('reloaded static replacements keys', replaceKeys);
+    return replaceKeys;
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    const itemKey = prop.toString().split('.')[1];
+    const item = latestLoadedVarlockEnv?.config[itemKey];
+    if (!item || item.isSensitive) return;
+    return {
+      value: '', // this value is not used, the get handler will return the value
+      writable: false,
+      enumerable: true,
+      configurable: true,
+    };
+  },
+  get(_target, prop) {
+    const itemKey = prop.toString().split('.')[1];
+    const item = latestLoadedVarlockEnv?.config[itemKey];
+    if (item && !item.isSensitive) return JSON.stringify(item.value);
+  },
+});
+
+
+
 
 export type NextConfigFunction = (
   phase: string,
@@ -97,6 +136,8 @@ export function varlockNextConfigPlugin(pluginOptions?: VarlockPluginOptions) {
   // nextjs doesnt have a proper plugin system :(
   // so we use a function which takes in a config object and returns an augmented one
   return (nextConfig: any | NextConfig | NextConfigFunction): NextConfigFunction => {
+    debug('varlockNextConfigPlugin init fn');
+
     return async (phase: string, defaults: { defaultConfig: NextConfig }) => {
       let resolvedNextConfig: NextConfig;
       if (typeof nextConfig === 'function') {
@@ -121,6 +162,8 @@ export function varlockNextConfigPlugin(pluginOptions?: VarlockPluginOptions) {
       return {
         ...resolvedNextConfig,
         webpack(webpackConfig, options) {
+          debug('varlockNextConfigPlugin webpack config patching');
+
           const { isServer, dev, nextRuntime } = options;
 
           if (varlockSettings.preventLeaks) {
@@ -145,29 +188,19 @@ export function varlockNextConfigPlugin(pluginOptions?: VarlockPluginOptions) {
             webpackConfig = resolvedNextConfig.webpack(webpackConfig, options);
           }
 
-
-          // Set up build-time replacements / rewrites (using webpack.DefinePlugin)
-          const staticReplacements = {} as Record<string, string>;
-          // TODO: use shared helper function?
           if (!process.env.__VARLOCK_ENV) throw new Error('VarlockNextWebpackPlugin: __VARLOCK_ENV is not set');
-          const varlockEnv = JSON.parse(process.env.__VARLOCK_ENV) as SerializedEnvGraph;
-          for (const itemKey in varlockEnv.config) {
-            const item = varlockEnv.config[itemKey];
-            // TODO: probably want to reimplement static/dynamic logic, and allow sensitive+static / public+dynamic
-            if (!item.isSensitive) {
-              staticReplacements[`ENV.${itemKey}`] = JSON.stringify(item.value);
-            }
-          }
 
-          debug('adding static replacements!', staticReplacements);
-          webpackConfig.plugins.push(new webpack.DefinePlugin(staticReplacements));
+          // Set up build-time replacements / rewrites - using webpack.DefinePlugin and a proxy
+          // TODO: use shared helpers from core library?
+          debug('adding ENV.xxx static replacements proxy object');
+          webpackConfig.plugins.push(new webpack.DefinePlugin(StaticReplacementsProxy));
 
           if (varlockSettings.preventLeaks) {
             webpackConfig.plugins.push({
               apply(compiler: any) {
                 compiler.hooks.assetEmitted.tap(WEBPACK_PLUGIN_NAME, (file: any, assetDetails: any) => {
                   const { content, targetPath } = assetDetails;
-                  debug('emit file: ', targetPath);
+                  // debug('emit file: ', targetPath);
 
                   if (
                     targetPath.includes('/.next/static/chunks/')
@@ -217,31 +250,12 @@ export function varlockNextConfigPlugin(pluginOptions?: VarlockPluginOptions) {
 
 
               const updatedSourceStr = [
-                // we use `headers()` to force next into dynamic rendering mode, but on the edge runtime it's always dynamic
-                // (see below for where headers is used)
-                // !edgeRuntime ? 'const { headers } = require("next/headers");' : '',
+                // TODO: reimplement dynamic/static functionality, which triggers a call to next/headers (or similar)
+                // when accessing a dynamic env item. This will force the page into dynamic rendering mode
+                // see DMNO integration for more details
 
-                // // code built for edge runtime does not have `module.exports` or `exports` but we are inlining some already built common-js code
-                // // so we just create them. It's not needed since it is inlined and we call the function right away
-                // edgeRuntime ? 'const module = { exports: {} }; const exports = {}' : '',
-
-                // inline the dmno injector code and then call it
+                // inline the dmno injector code
                 injectorSrc,
-
-                // 'injectDmnoGlobals({',
-                // injectResolvedConfigAtBuildTime ? `injectedConfig: ${JSON.stringify(injectedDmnoEnv)},` : '',
-
-                // // attempts to force the route into dynamic rendering mode so it wont put our our dynamic value into a pre-rendered page
-                // // however we have to wrap in try/catch because you can only call headers() within certain parts of the page... so it's not 100% foolproof
-                // !edgeRuntime ? `
-                //   onItemAccess: async (item) => {
-                //     if (item.dynamic) {
-                //       try { headers(); }
-                //       catch (err) {}
-                //     }
-                //   },` : '',
-                // '});',
-
                 origSourceStr,
               ].join('\n');
 
