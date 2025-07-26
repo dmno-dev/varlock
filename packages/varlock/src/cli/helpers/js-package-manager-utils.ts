@@ -1,9 +1,12 @@
 import path from 'node:path';
 import fs, { existsSync } from 'node:fs';
 import { pathExistsSync } from '@env-spec/utils/fs-utils';
+import Debug from 'debug';
 
 import { CliExitError } from './exit-error';
 import { execSync } from 'node:child_process';
+
+const debug = Debug('varlock:js-package-manager-utils');
 
 export type JsPackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'deno';
 
@@ -65,9 +68,10 @@ export function detectJsPackageManager(opts?: {
   workspaceRootPath?: string,
   exitIfNotFound?: boolean,
 }) {
+  debug('Detecting js package manager');
   let cwd = opts?.cwd || process.cwd();
-  const cwdParts = cwd.split(path.sep);
   do {
+    debug(`> scanning ${cwd}`);
     let pm: JsPackageManager;
     let detectedPm: JsPackageManager | undefined;
     for (pm in JS_PACKAGE_MANAGERS) {
@@ -84,25 +88,32 @@ export function detectJsPackageManager(opts?: {
             forceExit: true,
           });
         }
+        debug(`> found ${JS_PACKAGE_MANAGERS[pm].lockfile}`);
         detectedPm = pm;
       }
     }
     if (detectedPm) return JS_PACKAGE_MANAGERS[detectedPm];
 
-    cwdParts.pop();
-    cwd = path.join(...cwdParts);
+    cwd = path.join(cwd, '..');
     if (opts?.workspaceRootPath) {
-      if (opts.workspaceRootPath === cwd) break;
+      if (opts.workspaceRootPath === cwd) {
+        debug('> found workspace root');
+        break;
+      }
     } else {
       // if we don't have a workspace root path, we'll break if we hit the git repo root
-      if (pathExistsSync(path.join(cwd, '.git'))) break;
+      if (pathExistsSync(path.join(cwd, '.git'))) {
+        debug('> found git root');
+        break;
+      }
     }
-  } while (cwd);
+  } while (cwd && cwd !== '.' && cwd !== '/');
 
   // if we did not find a lockfile, we'll look at env vars for other hints
   if (process.env.npm_config_user_agent) {
     const pmFromAgent = process.env.npm_config_user_agent.split('/')[0];
     if (Object.keys(JS_PACKAGE_MANAGERS).includes(pmFromAgent)) {
+      debug(`> found ${pmFromAgent} using npm_config_user_agent`);
       return JS_PACKAGE_MANAGERS[pmFromAgent as JsPackageManager];
     }
   }
@@ -136,11 +147,14 @@ export function installJsDependency(opts: {
 
   // TODO: might want to check first if it's already installed?
   execSync([
-    opts.packagePath ? `cd ${opts.packagePath} &&` : '',
+    // move to the correct directory if needed
+    opts.packagePath && `cd ${opts.packagePath} &&`,
     // `add` works in all of them
     `${opts.packageManager} add ${opts.packageName}`,
-    (opts.isMonoRepoRoot && opts.packageManager === 'pnpm') ? '-w' : '',
-  ].join(' '));
+    // tells pnpm to either install in the workspace root explicitly
+    // or to not check if we are the in the root
+    opts.packageManager === 'pnpm' && (opts.isMonoRepoRoot ? '-w' : '--ignore-workspace-root-check'),
+  ].filter(Boolean).join(' '));
 
   return true;
 }
