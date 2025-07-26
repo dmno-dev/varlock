@@ -48,9 +48,13 @@ This integration is intended for use with projects that are using Vite directly.
     +import { varlockVitePlugin } from '@varlock/vite-integration';
 
     export default defineConfig({
-      plugins: [ varlockVitePlugin(), /* other plugins... */ ]
+      plugins: [ /* plugin1, plugin2, ... */ varlockVitePlugin() ]
     });
     ```
+
+    :::caution[Plugin ordering]
+    In many cases, plugin ordering does not matter, but `varlockVitePlugin` must come _after_ any plugins which do parsing of non-standard files into JavaScript, such as `@vitejs/plugin-vue`.
+    :::
 </Steps>
 
 ---

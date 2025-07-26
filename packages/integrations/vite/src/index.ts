@@ -25,7 +25,9 @@ let varlockLoadedEnv: SerializedEnvGraph;
 let staticReplacements: Record<string, any> = {};
 let rollupReplacePlugin: ReturnType<typeof replace>;
 
+let loadCount = 0;
 function reloadConfig() {
+  debug('loading config - count =', ++loadCount);
   try {
     const execResult = execSync('varlock load --format json-full', { env: originalProcessEnv });
     process.env.__VARLOCK_ENV = execResult.toString();
@@ -77,9 +79,10 @@ export function varlockVitePlugin(
       debug('vite plugin - config fn called');
       isDevMode = env.command === 'serve';
 
-      if (!isFirstLoad && isDevMode) {
-        reloadConfig();
+      if (isFirstLoad) {
         isFirstLoad = false;
+      } else if (isDevMode) {
+        reloadConfig();
       }
 
       // console.log('adding static replacements', staticReplacements);
@@ -191,6 +194,10 @@ export function varlockVitePlugin(
         html: replacedHtml,
         tags: [{ tag: 'script', attrs: { type: 'module' }, children: injectGlobalCode.join('\n') }],
       };
+    },
+
+    handleHotUpdate({ file, server }) {
+      console.log('hot update', file);
     },
   };
 }
