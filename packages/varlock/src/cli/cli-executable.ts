@@ -58,7 +58,7 @@ subCommands.set('login', buildLazyCommand(loginCommandSpec, async () => await im
     // TODO: remove this once we have a better way to re-trigger help
     if (args[0] === 'help') args = ['--help'];
 
-    // track standalone installs via hombrew/curl
+    // track standalone installs via homebrew/curl
     if (__VARLOCK_SEA_BUILD__) {
       if (args[0] === '--post-install') {
         await trackInstall(args[1] as 'brew' | 'curl');
