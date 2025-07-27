@@ -14,6 +14,11 @@ export async function checkIsFileGitIgnored(path: string, warnIfNotGitRepo = fal
       }
       return false;
     }
+    // Handle case where git CLI is not available
+    if ((err as any).code === 'ENOENT' || (err as any).stderr?.includes('command not found') || (err as any).stderr?.includes('git: command not found')) {
+      // Git is not available, assume file is not ignored
+      return false;
+    }
     // otherwise we'll let it throw since something else is happening
     throw err;
   }
