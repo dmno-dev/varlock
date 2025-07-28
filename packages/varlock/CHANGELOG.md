@@ -1,5 +1,11 @@
 # varlock
 
+## 0.0.6
+
+### Patch Changes
+
+- [#91](https://github.com/dmno-dev/varlock/pull/91) [`186d6ed`](https://github.com/dmno-dev/varlock/commit/186d6ed2fdf0ace184510b99c222d15a1c1d83a9) Thanks [@theoephraim](https://github.com/theoephraim)! - init bugfixes
+
 ## 0.0.5
 
 ### Patch Changes
