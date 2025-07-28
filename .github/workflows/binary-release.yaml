@@ -26,7 +26,7 @@ jobs:
 
   release-binaries:
     # was using github.ref.tag_name, but it seems that when publishing multiple tags at once, it was behaving weirdly
-    if: ${{ github.event_name == 'workflow_dispatch' }} || (github.event.action == 'published' && startsWith(github.ref_name, 'varlock@'))
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'varlock@')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +67,7 @@ jobs:
       # necessary for cross-arch linux binaries
       - name: Install qemu-user-binfmt
         run: |
-          # sudo apt-get update
+          sudo apt-get update
           sudo apt-get install --assume-yes qemu-user-binfmt
 
       - name: build libs
