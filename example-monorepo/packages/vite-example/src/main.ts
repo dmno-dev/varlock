@@ -1,6 +1,4 @@
 import './style.css';
-import typescriptLogo from './typescript.svg';
-import viteLogo from '/vite.svg';
 import { setupCounter } from './counter.ts';
 
 import { ENV } from 'varlock/env';
@@ -29,6 +27,13 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       <tr><td>SECRET_FOO</td><td>${import.meta.env.SECRET_FOO}</td><td>❌ triggers error</td></tr>
       <tr><td>BAD_KEY</td><td>${import.meta.env.BAD_KEY}</td><td>❌ triggers error</td></tr>
     </table>
+    <div>
+      <p>
+        Should not be transformed:<br/>
+        ENV.PUBLIC_FOO, import.meta.env.PUBLIC_FOO, process.env.PUBLIC_FOO
+      </p>
+    </div>
+
     <div class="card">
       <button id="counter" type="button"></button>
     </div>

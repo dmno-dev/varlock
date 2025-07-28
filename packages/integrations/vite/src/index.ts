@@ -2,13 +2,14 @@ import { execSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 import Debug from 'debug';
-import replace from '@rollup/plugin-replace';
 
 import { initVarlockEnv } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 import { patchGlobalResponse } from 'varlock/patch-response';
 import { SerializedEnvGraph } from 'varlock';
+
+import { definePlugin } from './define-plugin';
 
 // need to track original process.env, since we will be modifying it
 const originalProcessEnv = { ...process.env };
@@ -23,7 +24,7 @@ let isDevMode: boolean;
 let configIsValid = true;
 let varlockLoadedEnv: SerializedEnvGraph;
 let staticReplacements: Record<string, any> = {};
-let rollupReplacePlugin: ReturnType<typeof replace>;
+let rollupDefinePlugin: ReturnType<typeof definePlugin>;
 
 let loadCount = 0;
 function reloadConfig() {
@@ -57,10 +58,8 @@ function reloadConfig() {
     }
   }
 
-
-  rollupReplacePlugin = replace({
-    preventAssignment: true,
-    values: staticReplacements,
+  rollupDefinePlugin = definePlugin({
+    replacements: staticReplacements,
   });
 }
 
@@ -72,7 +71,6 @@ export function varlockVitePlugin(
 ): Plugin {
   return {
     name: 'inject-varlock-config',
-    enforce: 'pre', // not quite sure in what cases this may be important, but it seems right
 
     // hook to modify config before it is resolved
     async config(config, env) {
@@ -130,18 +128,14 @@ export function varlockVitePlugin(
       }
     },
 
-    // Delegate replacement to @rollup/plugin-replace plugin
-    buildStart(...args) {
-      // @ts-ignore
-      return rollupReplacePlugin.buildStart(...args);
-    },
-    renderChunk(...args) {
-      // @ts-ignore
-      return rollupReplacePlugin.renderChunk(...args);
-    },
+    // Delegate replacement to our slightly modified rollup define plugin
     transform(...args) {
       // @ts-ignore
-      return rollupReplacePlugin.transform(...args);
+      return rollupDefinePlugin.transform.call(this, ...args);
+    },
+    renderChunk(code, chunk) {
+      // @ts-ignore
+      return rollupDefinePlugin.transform.call(this, code, chunk.fileName);
     },
 
     // this enables replacing %ENV.xxx% constants in html entry-point files
@@ -194,10 +188,6 @@ export function varlockVitePlugin(
         html: replacedHtml,
         tags: [{ tag: 'script', attrs: { type: 'module' }, children: injectGlobalCode.join('\n') }],
       };
-    },
-
-    handleHotUpdate({ file, server }) {
-      console.log('hot update', file);
     },
   };
 }
