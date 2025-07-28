@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vue + Vite + Varlock demo</title>
+</head>
+
+<body>
+  <h1>Vue + Vite + Varlock Test</h1>
+  <h3>These vars are injected via index.html</h3>
+  <table>
+    <tr>
+      <th>KEY</th>
+      <th>%{KEY}%</th>
+      <th>%ENV.${KEY}%</th>
+    </tr>
+    <tr>
+      <td>APP_ENV</td>
+      <td>%APP_ENV%</td>
+      <td>%ENV.APP_ENV%</td>
+    </tr>
+    <tr>
+      <td>PUBLIC_FOO</td>
+      <td>%PUBLIC_FOO%</td>
+      <td>%ENV.PUBLIC_FOO%</td>
+    </tr>
+    <tr>
+      <td>SECRET_FOO</td>
+      <td>%SECRET_FOO%</td>
+      <td>❌ triggers error</td>
+    </tr>
+    <tr>
+      <td>BAD_KEY</td>
+      <td>%BAD_KEY%</td>
+      <td>❌ triggers error</td>
+    </tr>
+    <tr>
+      <td>ITEM1</td>
+      <td>%ITEM1%</td>
+      <td>%ENV.ITEM1%</td>
+    </tr>
+    <tr>
+      <td>VITE_ITEM1</td>
+      <td>%VITE_ITEM1%</td>
+      <td>%ENV.VITE_ITEM1%</td>
+    </tr>
+    <tr>
+      <td>ENV_SPECIFIC_ITEM</td>
+      <td>%ENV_SPECIFIC_ITEM%</td>
+      <td>%ENV.ENV_SPECIFIC_ITEM%</td>
+    </tr>
+    <tr>
+      <td>VITE_ENV_SPECIFIC_ITEM</td>
+      <td>%VITE_ENV_SPECIFIC_ITEM%</td>
+      <td>%ENV.VITE_ENV_SPECIFIC_ITEM%</td>
+    </tr>
+  </table>
+  <hr />
+
+  <div id="app"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>
