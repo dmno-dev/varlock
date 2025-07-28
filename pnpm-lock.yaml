@@ -6,33 +6,18 @@ settings:
 
 catalogs:
   default:
-    '@sindresorhus/is':
-      specifier: ^7.0.1
-      version: 7.0.1
     '@types/debug':
       specifier: ^4.1.12
       version: 4.1.12
     '@types/node':
       specifier: ^22.15.32
       version: 22.15.32
-    ansis:
-      specifier: ^4.1.0
-      version: 4.1.0
     debug:
       specifier: ^4.3.4
       version: 4.4.1
-    outdent:
-      specifier: ^0.8.0
-      version: 0.8.0
     tsup:
       specifier: ^8.2.4
       version: 8.4.0
-    typescript:
-      specifier: ^5.8.2
-      version: 5.8.3
-    vite-node:
-      specifier: ^3.2.4
-      version: 3.2.4
     vitest:
       specifier: ^3.2.4
       version: 3.2.4

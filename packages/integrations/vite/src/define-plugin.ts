@@ -44,7 +44,7 @@ export function definePlugin(opts: {
   replacements: Record<string, string>,
 }): Plugin {
   const keys = Object.keys(opts.replacements);
-  let matchers: Array<ReturnType<typeof astMatcher>>;
+  let matchers: Array<{ matcher: ReturnType<typeof astMatcher>, replacement: string }>;
 
   const findAnyReplacementRegex = new RegExp(`(?:${keys.map(escapeStringRegexp).join('|')})`, 'g');
 
@@ -71,16 +71,31 @@ export function definePlugin(opts: {
 
     const ast = parse(code, id);
 
-    matchers ||= keys.map((key) => astMatcher(parse(key)));
+    if (!matchers) {
+      matchers = [];
+      keys.forEach((key) => {
+        matchers.push({
+          matcher: astMatcher(parse(key)),
+          replacement: opts.replacements[key],
+        });
+        // in vue script+setup files, ENV.X in template blocks gets replaced with `$setup.ENV.X`
+        if (fileExt === 'vue') {
+          matchers.push({
+            matcher: astMatcher(parse(`$setup.${key}`)),
+            replacement: opts.replacements[key],
+          });
+        }
+      });
+    }
+
+    // matchers ||= keys.map((key) => astMatcher(parse(key)));
 
     const magicString = new MagicString(code);
     const edits: Array<Edit> = [];
 
-    matchers.forEach((matcher, index) => {
+    Object.values(matchers).forEach(({ matcher, replacement }) => {
       for (const { node } of (matcher(ast) || []) as Array<{ node: AstNode }>) {
         if (markEdited(node, edits)) {
-          const replacement = opts.replacements[keys[index]];
-
           magicString.overwrite(
             node.start,
             node.end,

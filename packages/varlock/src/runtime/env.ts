@@ -223,6 +223,18 @@ try {
   // but we may want to look for specific errors
 }
 
+
+
+// some object keys are checked by various tools when handling arbitrary data, especially in templates
+// because our proxy objects throw errors when unknown keys are accessed, this causes problems
+// for now we can just filter out a these keys and it should be fairly harmless
+// TODO: ideally this could be customized by the user, and not specific to vue
+const IGNORED_PROXY_KEYS = [
+  // vue - see https://github.com/vuejs/core/blob/70773d00985135a50556c61fb9855ed6b930cb82/packages/reactivity/src/ref.ts#L101
+  '__v_isRef',
+];
+
+
 // this gets exported and then augmented by our type generation
 // ideally we'd start with a loose type `Record<string,any>` and then override it with the actual schema
 // so that if type generation was disabled, a user could still use `ENV`
@@ -232,7 +244,11 @@ export interface TypedEnvSchema {}
 
 const EnvProxy = new Proxy<TypedEnvSchema>({}, {
   get(target, prop) {
-    if (typeof prop !== 'string') throw new Error('ENV prop key must be a string');
+    // ignore symbols, as it likely an external tool checking something
+    if (typeof prop === 'symbol') return;
+    // special cases to avoid throwing on invalid keys
+    if (IGNORED_PROXY_KEYS.includes(prop)) return;
+
     if (prop in envValues) return envValues[prop];
     if ((globalThis as any).__varlockThrowOnMissingKeys) {
       // during development, we can feed in extra metadata and show more helpful errors
