@@ -1,17 +1,24 @@
 {
-  "name": "varlock-vite-example",
+  "name": "vite-vue-example",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vue-tsc -b && vite build",
     "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.5.17"
   },
   "devDependencies": {
     "@varlock/vite-integration": "link:../../../packages/integrations/vite",
+
+    "@vitejs/plugin-vue": "^6.0.0",
+    "@vue/tsconfig": "^0.7.0",
     "typescript": "catalog:",
     "varlock": "link:../../../packages/varlock",
-    "vite": "^7.0.6"
+    "vite": "^7.0.4",
+    "vue-tsc": "^2.2.12"
   }
 }

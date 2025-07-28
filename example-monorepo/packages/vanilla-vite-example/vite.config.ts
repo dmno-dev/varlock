@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
 import { varlockVitePlugin } from '@varlock/vite-integration';
 import { ENV } from 'varlock';
 
@@ -8,5 +9,5 @@ console.log('loaded env from varlock: ', {
 });
 
 export default defineConfig({
-  plugins: [varlockVitePlugin() as any],
+  plugins: [vue(), varlockVitePlugin() as any],
 });

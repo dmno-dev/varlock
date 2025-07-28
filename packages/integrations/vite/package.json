@@ -41,12 +41,14 @@
     "vite": ">=5"
   },
   "dependencies": {
-    "@rollup/plugin-replace": "^6.0.2",
     "debug": "catalog:"
   },
   "devDependencies": {
     "@types/debug": "catalog:",
     "@types/node": "catalog:",
+    "ast-matcher": "^1.2.0",
+    "magic-string": "^0.30.17",
+    "rollup": "^4.46.1",
     "tsup": "catalog:",
     "varlock": "workspace:^",
     "vite": "^7.0.4",
