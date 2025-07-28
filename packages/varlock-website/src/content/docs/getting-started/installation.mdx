@@ -24,7 +24,7 @@ To install `varlock` in your project, run:
 This will install `varlock` as a dependency and scan your project for `.env` files and create a `.env.schema` file in the root of your project. Depending on your project configuration, it will optionally:
 - Remove your existing `.env.example` file
 - Add decorators to your `.env.schema` file to specify the type of each environment variable
-- Encrypt secrets in your `.env` file
+{/* - Encrypt secrets in your `.env` file */}
 
 ## As a standalone binary
 
@@ -34,11 +34,16 @@ To install `varlock` CLI as a binary, run:
 # Install via homebrew
 brew install dmno-dev/tap/varlock
 
-# OR Install via cURL
+# OR via cURL
 curl -sSfL https://varlock.dev/install.sh | sh -s
 ```
 
-After installation, you can run `varlock --help` to see the available commands or read the [CLI Reference](/reference/cli-commands/).
+Then run the setup wizard to help you get started:
+```bash
+varlock init
+```
+
+You can then run `varlock --help` to see the available commands or read the [CLI Reference](/reference/cli-commands/).
 
 {/* ## Desktop app
 

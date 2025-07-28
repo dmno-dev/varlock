@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://varlock.dev" target="_blank" rel="noopener noreferrer">
-    <img src="/packages/varlock-website/public/default-og-image.png" alt="Varlock banner">
+    <img src="/packages/varlock-website/public/github-readme-banner.png" alt="Varlock banner">
   </a>
 </p>
 <br/>
@@ -16,26 +16,17 @@
 ## Varlock
 > add declarative schema to your .env files using @env-spec decorator comments
 
-- 🛡️ validation, coercion, type safety
+- 🛡️ validation, coercion, type safety w/ Intellisense
 - 🔏 protection for sensitive config values (log redaction, leak prevention)
 - 🌐 flexible multi-environment management
-- 📦 composition of values
+- 💫 composition of values, functions, load from external sources
 
-### Published Packages
-| Package | Published listing page |
-| --- | --- |
-| [varlock](packages/varlock) | [![npm version](https://img.shields.io/npm/v/varlock.svg)](https://npmjs.com/package/varlock) |
-| [@env-spec/parser](packages/env-spec-parser) | [![npm version](https://img.shields.io/npm/v/@env-spec/parser.svg)](https://npmjs.com/package/@env-spec/parser) |
-| [@env-spec VSCode extension](packages/vscode-plugin) | [VSCode Marketplace](https://marketplace.visualstudio.com/items?itemName=varlock.env-spec-language), [Open VSX Registry](https://open-vsx.org/extension/varlock/env-spec-language) |
-| [@varlock/nextjs-integration](packages/integrations/nextjs) | [![npm version](https://img.shields.io/npm/v/@varlock/nextjs-integration.svg)](https://npmjs.com/package/@varlock/nextjs-integration) |
+Your `.env.schema` is a declarative schema of your environment variables that lives within version control, so it will never be out of sync.
 
-By adding these comments to a `.env.schema` that lives within version control, you can safely share this with your team.
-
-_A sample `.env.schema`_: 
 ```bash
 # @defaultSensitive=false @defaultRequired=infer @envFlag=APP_ENV
 # ---
-# our environment flag, will control loading of `.env.xxx` files
+# our environment flag, will control automatic loading of `.env.xxx` files
 # @type=enum(development, preview, production, test
 APP_ENV=development # default value, can override
 
@@ -43,7 +34,7 @@ APP_ENV=development # default value, can override
 # @type=port @example=3000
 API_PORT= 
 
-# API url including expansion of another env var
+# API url including _expansion_ referencing another env var
 # @required @type=url
 API_URL=http://localhost:${API_PORT} 
 
@@ -61,21 +52,19 @@ SOME_SERVICE_API_URL=https://api.someservice.com
 You can get started with varlock by installing the CLI: 
 
 ```bash
-# Install as standalone CLI via homebrew
-brew install dmno-dev/tap/varlock
+# Run the installation wizard, which will install as a dependency in a JavaScript project
+npx varlock init
 
-# OR install via cURL
-curl -sSfL https://varlock.dev/install.sh | sh -s
-
-# OR install as a dependency in a js project
-npm install varlock
+# Or install as standalone binary
+brew install dmno-dev/tap/varlock # via homebrew
+curl -sSfL https://varlock.dev/install.sh | sh -s # via cURL
 ```
 
-See the full installation [docs](https://varlock.dev/getting-started/installation/). 
+See the full [installation docs](https://varlock.dev/getting-started/installation/). 
 
 ## Workflow
 
-Validate your `.env.schema` with: 
+Validate your `.env.schema` and pretty print your environment variables with: 
 
 ```bash
 varlock load
@@ -87,7 +76,7 @@ If you need to pass resolved env vars into another process, you can run:
 varlock run -- python script.py
 ```
 
-Or you can integrate more deeply with one of our [integrations](https://varlock.dev/integrations/javascript/) to get log redaction and leak prevention. 
+Or you can integrate more deeply with one of our [integrations](https://varlock.dev/integrations/javascript/) to enable security guardrails, like log redaction and leak prevention.
 
 ## @env-spec
 
@@ -96,6 +85,15 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 - @env-spec [docs](https://varlock.dev/env-spec/overview/) 
 - @env-spec [RFC](https://github.com/dmno-dev/varlock/discussions/17)
 
+
+## Published Packages
+| Package | Published listing page |
+| --- | --- |
+| [varlock](packages/varlock) | [![npm version](https://img.shields.io/npm/v/varlock.svg)](https://npmjs.com/package/varlock) |
+| [@varlock/nextjs-integration](packages/integrations/nextjs) | [![npm version](https://img.shields.io/npm/v/@varlock/nextjs-integration.svg)](https://npmjs.com/package/@varlock/nextjs-integration) |
+| [@varlock/vite-integration](packages/integrations/vite) | [![npm version](https://img.shields.io/npm/v/@varlock/vite-integration.svg)](https://npmjs.com/package/@varlock/vite-integration) |
+| [@env-spec/parser](packages/env-spec-parser) | [![npm version](https://img.shields.io/npm/v/@env-spec/parser.svg)](https://npmjs.com/package/@env-spec/parser) |
+| [@env-spec VSCode extension](packages/vscode-plugin) | [VSCode Marketplace](https://marketplace.visualstudio.com/items?itemName=varlock.env-spec-language), [Open VSX Registry](https://open-vsx.org/extension/varlock/env-spec-language) |
 
 ## Development & Contribution
 
