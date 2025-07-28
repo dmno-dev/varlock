@@ -1,5 +1,16 @@
 # @varlock/vite-integration
 
+## 0.0.2
+
+### Patch Changes
+
+- [#91](https://github.com/dmno-dev/varlock/pull/91) [`186d6ed`](https://github.com/dmno-dev/varlock/commit/186d6ed2fdf0ace184510b99c222d15a1c1d83a9) Thanks [@theoephraim](https://github.com/theoephraim)! - fix vite reloading logic
+
+- [#91](https://github.com/dmno-dev/varlock/pull/91) [`186d6ed`](https://github.com/dmno-dev/varlock/commit/186d6ed2fdf0ace184510b99c222d15a1c1d83a9) Thanks [@theoephraim](https://github.com/theoephraim)! - use ast-based replacement method instead of naive string replacement
+
+- Updated dependencies [[`186d6ed`](https://github.com/dmno-dev/varlock/commit/186d6ed2fdf0ace184510b99c222d15a1c1d83a9)]:
+  - varlock@0.0.6
+
 ## 0.0.1
 
 ### Patch Changes
