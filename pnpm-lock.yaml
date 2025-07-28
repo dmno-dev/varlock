@@ -6,18 +6,30 @@ settings:
 
 catalogs:
   default:
+    '@sindresorhus/is':
+      specifier: ^7.0.1
+      version: 7.0.1
     '@types/debug':
       specifier: ^4.1.12
       version: 4.1.12
     '@types/node':
       specifier: ^22.15.32
       version: 22.15.32
+    ansis:
+      specifier: ^4.1.0
+      version: 4.1.0
     debug:
       specifier: ^4.3.4
       version: 4.4.1
+    outdent:
+      specifier: ^0.8.0
+      version: 0.8.0
     tsup:
       specifier: ^8.2.4
       version: 8.4.0
+    typescript:
+      specifier: ^5.8.2
+      version: 5.8.3
     vitest:
       specifier: ^3.2.4
       version: 3.2.4
@@ -164,19 +176,6 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 3.2.4(@types/debug@4.1.12)(@types/node@22.15.32)
-
-  packages/scripts.ignore:
-    dependencies:
-      jose:
-        specifier: ^6.0.10
-        version: 6.0.12
-    devDependencies:
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.15.32
-      vite-node:
-        specifier: 'catalog:'
-        version: 3.2.4(@types/node@22.15.32)
 
   packages/utils:
     dependencies:
@@ -3581,9 +3580,6 @@ packages:
   jackspeak@4.1.1:
     resolution: {integrity: sha512-zptv57P3GpL+O0I7VdMJNBZCu+BPHVQUk55Ft8/QCJjTVxrnJHuVuX/0Bl2A6/+2oyR/ZMEuFKwmzqqZ/U5nPQ==}
     engines: {node: 20 || >=22}
-
-  jose@6.0.12:
-    resolution: {integrity: sha512-T8xypXs8CpmiIi78k0E+Lk7T2zlK4zDyg+o1CZ4AkOHgDg98ogdP2BeZ61lTFKFyoEwJ9RgAgN+SdM3iPgNonQ==}
 
   joycon@3.1.1:
     resolution: {integrity: sha512-34wB/Y7MW7bzjKRjUKTa46I2Z7eV62Rkhva+KkopW7Qvv/OSWBqvkSY7vusOPrNuZcUG3tApvdVgNB8POj3SPw==}
@@ -9644,8 +9640,6 @@ snapshots:
   jackspeak@4.1.1:
     dependencies:
       '@isaacs/cliui': 8.0.2
-
-  jose@6.0.12: {}
 
   joycon@3.1.1: {}
 

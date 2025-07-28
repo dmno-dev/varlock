@@ -143,7 +143,7 @@ export default tseslint.config(
   {
     files: [
       'scripts/**',
-      'example-repo/**',
+      'example-monorepo/**',
       'packages/*.ignore/**',
       'packages/varlock/src/cli/**',
       'packages/varlock/scripts/**',
@@ -197,7 +197,7 @@ export default tseslint.config(
   },
 
   { // JSONC
-    files: ['**/tsconfig.json', '**/.vscode/*.json', 'turbo.json'],
+    files: ['**/tsconfig.json', '**/tsconfig.*.json', '**/.vscode/*.json', 'turbo.json'],
     rules: {
       'jsonc/comma-dangle': ['error', 'only-multiline'],
       'jsonc/no-comments': 0,

@@ -1,15 +1,15 @@
+/* eslint-disable no-use-before-define, no-shadow */
 /**
  * This is the base config for vite.
  * When building, the adapter config is used which loads this file and extends it.
  */
-import { defineConfig, type UserConfig } from "vite";
-import { qwikVite } from "@builder.io/qwik/optimizer";
-import { qwikCity } from "@builder.io/qwik-city/vite";
-import tsconfigPaths from "vite-tsconfig-paths";
+import { defineConfig, type UserConfig } from 'vite';
+import { qwikVite } from '@builder.io/qwik/optimizer';
+import { qwikCity } from '@builder.io/qwik-city/vite';
+import tsconfigPaths from 'vite-tsconfig-paths';
 import { varlockVitePlugin } from '@varlock/vite-integration';
-import { ENV } from 'varlock';
 
-import pkg from "./package.json";
+import pkg from './package.json';
 
 type PkgDep = Record<string, string>;
 const { dependencies = {}, devDependencies = {} } = pkg as any as {
@@ -26,7 +26,9 @@ export default defineConfig(({ command, mode }): UserConfig => {
   return {
     plugins: [
       varlockVitePlugin(),
-      qwikCity(), qwikVite(), tsconfigPaths({ root: "." })
+      qwikCity(),
+      qwikVite(),
+      tsconfigPaths({ root: '.' }),
     ],
     // This tells Vite which dependencies to pre-build in dev mode.
     optimizeDeps: {
@@ -55,13 +57,13 @@ export default defineConfig(({ command, mode }): UserConfig => {
     server: {
       headers: {
         // Don't cache the server response in dev mode
-        "Cache-Control": "public, max-age=0",
+        'Cache-Control': 'public, max-age=0',
       },
     },
     preview: {
       headers: {
         // Do cache the server response in preview (non-adapter production build)
-        "Cache-Control": "public, max-age=600",
+        'Cache-Control': 'public, max-age=600',
       },
     },
   };
@@ -78,7 +80,7 @@ function errorOnDuplicatesPkgDeps(
   devDependencies: PkgDep,
   dependencies: PkgDep,
 ) {
-  let msg = "";
+  let msg = '';
   // Create an array 'duplicateDeps' by filtering devDependencies.
   // If a dependency also exists in dependencies, it is considered a duplicate.
   const duplicateDeps = Object.keys(devDependencies).filter(
@@ -86,13 +88,11 @@ function errorOnDuplicatesPkgDeps(
   );
 
   // include any known qwik packages
-  const qwikPkg = Object.keys(dependencies).filter((value) =>
-    /qwik/i.test(value),
-  );
+  const qwikPkg = Object.keys(dependencies).filter((value) => /qwik/i.test(value));
 
   // any errors for missing "qwik-city-plan"
   // [PLUGIN_ERROR]: Invalid module "@qwik-city-plan" is not a valid package
-  msg = `Move qwik packages ${qwikPkg.join(", ")} to devDependencies`;
+  msg = `Move qwik packages ${qwikPkg.join(', ')} to devDependencies`;
 
   if (qwikPkg.length > 0) {
     throw new Error(msg);
@@ -101,7 +101,7 @@ function errorOnDuplicatesPkgDeps(
   // Format the error message with the duplicates list.
   // The `join` function is used to represent the elements of the 'duplicateDeps' array as a comma-separated string.
   msg = `
-    Warning: The dependency "${duplicateDeps.join(", ")}" is listed in both "devDependencies" and "dependencies".
+    Warning: The dependency "${duplicateDeps.join(', ')}" is listed in both "devDependencies" and "dependencies".
     Please move the duplicated dependencies to "devDependencies" only and remove it from "dependencies"
   `;
 
