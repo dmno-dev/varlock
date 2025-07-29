@@ -9,16 +9,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "vue": "^3.5.17"
+    "vue": "^3.5.18"
   },
   "devDependencies": {
     "@varlock/vite-integration": "link:../../../packages/integrations/vite",
 
-    "@vitejs/plugin-vue": "^6.0.0",
+    "@vitejs/plugin-vue": "^6.0.1",
     "@vue/tsconfig": "^0.7.0",
     "typescript": "catalog:",
     "varlock": "link:../../../packages/varlock",
-    "vite": "^7.0.4",
-    "vue-tsc": "^2.2.12"
+    "vite": "^7.0.6",
+    "vue-tsc": "^3.0.4"
   }
 }

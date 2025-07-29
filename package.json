@@ -21,23 +21,28 @@
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.1",
-    "@changesets/cli": "^2.28.1",
-    "@eslint/js": "^9.24.0",
-    "@stylistic/eslint-plugin": "^4.2.0",
-    "eslint": "^9.24.0",
-    "eslint-plugin-es-x": "^8.7.0",
+    "@changesets/cli": "^2.29.5",
+    "@eslint/js": "^9.32.0",
+    "@stylistic/eslint-plugin": "^5.2.2",
+    "eslint": "^9.32.0",
+    "eslint-plugin-es-x": "^9.0.0",
     "eslint-plugin-fix-disabled-rules": "^0.0.2",
-    "eslint-plugin-jsonc": "^2.20.0",
-    "eslint-plugin-n": "^17.21.0",
+    "eslint-plugin-jsonc": "^2.20.1",
+    "eslint-plugin-n": "^17.21.3",
     "eslint-stylistic-airbnb": "^2.0.0",
-    "globals": "^16.0.0",
-    "turbo": "^2.5.0",
+    "globals": "^16.3.0",
+    "turbo": "^2.5.5",
     "typescript": "catalog:",
-    "typescript-eslint": "^8.29.1"
+    "typescript-eslint": "^8.38.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "form-data": "4.0.4"
+    }
   },
   "engines": {
     "node": ">=22",
     "pnpm": ">=10"
   },
-  "packageManager": "pnpm@10.8.1+sha512.c50088ba998c67b8ca8c99df8a5e02fd2ae2e2b29aaf238feaa9e124248d3f48f9fb6db2424949ff901cffbb5e0f0cc1ad6aedb602cd29450751d11c35023677"
+  "packageManager": "pnpm@10.13.1"
 }
