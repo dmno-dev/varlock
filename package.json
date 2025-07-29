@@ -35,6 +35,11 @@
     "typescript": "catalog:",
     "typescript-eslint": "^8.38.0"
   },
+  "pnpm": {
+    "overrides": {
+      "form-data": "4.0.4"
+    }
+  },
   "engines": {
     "node": ">=22",
     "pnpm": ">=10"
