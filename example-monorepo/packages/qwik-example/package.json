@@ -26,18 +26,18 @@
     "@builder.io/qwik": "^1.15.0",
     "@builder.io/qwik-city": "^1.15.0",
     "@eslint/js": "latest",
-    "@types/node": "20.14.11",
+    "@types/node": "24.1.0",
     "@varlock/vite-integration": "link:../../../packages/integrations/vite",
-    "eslint": "9.25.1",
+    "eslint": "9.32.0",
     "eslint-plugin-qwik": "^1.15.0",
-    "globals": "16.0.0",
-    "prettier": "3.3.3",
+    "globals": "16.3.0",
+    "prettier": "3.6.2",
     "typescript": "catalog:",
-    "typescript-eslint": "8.26.1",
+    "typescript-eslint": "8.38.0",
     "typescript-plugin-css-modules": "latest",
     "undici": "*",
     "varlock": "link:../../../packages/varlock",
-    "vite": "5.3.5",
-    "vite-tsconfig-paths": "^4.2.1"
+    "vite": "7.0.6",
+    "vite-tsconfig-paths": "^5.1.4"
   }
 }

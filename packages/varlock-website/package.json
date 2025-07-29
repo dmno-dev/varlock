@@ -12,23 +12,23 @@
     "astro": "astro"
   },
   "dependencies": {
-    "@astrojs/mdx": "^4.2.4",
+    "@astrojs/mdx": "^4.3.1",
     "@astrojs/partytown": "^2.1.4",
-    "@astrojs/sitemap": "^3.3.1",
-    "@astrojs/starlight": "^0.34.0",
-    "@astrojs/vue": "^5.0.10",
-    "astro": "^5.7.4",
+    "@astrojs/sitemap": "^3.4.2",
+    "@astrojs/starlight": "^0.35.1",
+    "@astrojs/vue": "^5.1.0",
+    "astro": "^5.12.4",
     "astro-og-canvas": "^0.7.0",
     "astro-robots-txt": "^1.0.0",
     "canvaskit-wasm": "^0.40.0",
     "outdent": "catalog:",
     "remark-custom-header-id": "^1.0.0",
     "starlight-llms-txt": "^0.5.1",
-    "vue": "^3.5.13"
+    "vue": "^3.5.18"
   },
   "devDependencies": {
     "varlock": "workspace:*",
-    "wrangler": "^4.14.2"
+    "wrangler": "^4.26.0"
   },
   "engines": {
     "node": ">=22",

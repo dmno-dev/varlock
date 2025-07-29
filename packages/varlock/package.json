@@ -87,7 +87,7 @@
     "@types/debug": "catalog:",
     "@types/node": "catalog:",
     "@types/which": "^3.0.4",
-    "@yao-pkg/pkg": "^6.5.1",
+    "@yao-pkg/pkg": "^6.6.0",
     "ansis": "catalog:",
     "browser-or-node": "^3.0.0",
     "ci-info": "^4.3.0",
