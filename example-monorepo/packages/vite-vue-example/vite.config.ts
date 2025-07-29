@@ -10,5 +10,5 @@ console.log('loaded env from varlock: ', {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [vue(), varlockVitePlugin() as any],
+  plugins: [varlockVitePlugin() as any, vue()],
 });

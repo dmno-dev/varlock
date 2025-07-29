@@ -11,8 +11,14 @@ const ENV_SPECIFIC_ITEM = import.meta.env.ENV_SPECIFIC_ITEM;
 const SECRET_FOO = import.meta.env.SECRET_FOO;
 const BAD_KEY = import.meta.env.BAD_KEY;
 
-const APP_ENV_VAR = ENV.APP_ENV;
+const fn = (x: any) => x;
 
+const APP_ENV_VAR = ENV.APP_ENV;
+const AST_TESTS = {
+  objectVal: ENV.APP_ENV,
+  [`objectkey-${ENV.APP_ENV}`]: true,
+  fnArg: fn(ENV.APP_ENV),
+}
 </script>
 
 <template>
@@ -40,9 +46,10 @@ const APP_ENV_VAR = ENV.APP_ENV;
     
     <h4>Additional AST checks</h4>
     <ul>
-      <li>direct: {{ENV.APP_ENV}}</li>
+      <li>direct in template: {{ENV.APP_ENV}}</li>
       <li>within string template: {{`in-string-template-${ENV.APP_ENV}`}}</li>
       <li>use var from script block: {{APP_ENV_VAR}}</li>
+      <li>more tests: {{ AST_TESTS }}</li>
     </ul>
     
     <h4>Should not be transformed</h4>

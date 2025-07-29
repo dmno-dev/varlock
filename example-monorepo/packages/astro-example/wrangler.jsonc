@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "astro-workers-example",
+  "main": "./dist/_worker.js/index.js",
+  "compatibility_date": "2025-03-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "VAR_FROM_WRANGLER_CONFIG": "wrangler-config-value"
+  },
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist",
+    // "not_found_handling": "404-page" // If you have a custom `src/pages/404.astro` page
+  },
+  "observability": {
+    "enabled": true
+  },
+}
