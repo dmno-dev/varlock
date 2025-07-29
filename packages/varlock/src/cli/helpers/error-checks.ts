@@ -1,8 +1,9 @@
 import ansis from 'ansis';
-import { EnvGraph } from '@env-spec/env-graph';
+import { EnvGraph, ConfigItem } from '@env-spec/env-graph';
 import _ from '@env-spec/utils/my-dash';
 import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import { gracefulExit } from 'exit-hook';
+import { EnvSourceParseError } from '@env-spec/env-graph';
 
 export function checkForSchemaErrors(envGraph: EnvGraph) {
   // first we check for loading/parse errors - some cases we may want to let it fail silently?
@@ -16,18 +17,22 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
     if (source.loadingError) {
       console.log(`🚨 Error encountered while loading ${source.label}`);
       console.log(source.loadingError.message);
-      console.log(source.loadingError.location);
+      
+      // Check if the error has a location property (like EnvSourceParseError)
+      if ('location' in source.loadingError) {
+        console.log((source.loadingError as EnvSourceParseError).location);
 
-      const errLoc = source.loadingError.location as any;
+        const errLoc = (source.loadingError as EnvSourceParseError).location;
 
-      const errPreview = [
-        errLoc.lineStr,
-        `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
-      ].join('\n');
+        const errPreview = [
+          errLoc.lineStr,
+          `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
+        ].join('\n');
 
-      console.log('Error parsing .env file');
-      console.log(` ${errLoc.path}:${errLoc.lineNumber}:${errLoc.colNumber}`);
-      console.log(errPreview);
+        console.log('Error parsing .env file');
+        console.log(` ${errLoc.path}:${errLoc.lineNumber}:${errLoc.colNumber}`);
+        console.log(errPreview);
+      }
 
       return gracefulExit(1);
     }
@@ -54,14 +59,14 @@ export class InvalidEnvError extends Error {
 export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
   showAll?: boolean
 }) {
-  const failingItems = _.filter(_.values(envGraph.configSchema), (item) => item.validationState === 'error');
+  const failingItems = _.filter(_.values(envGraph.configSchema), (item: ConfigItem) => item.validationState === 'error');
 
   // TODO: use service.isValid?
   if (failingItems.length > 0) {
     console.log(`\n🚨 🚨 🚨  ${ansis.bold.underline('Configuration is currently invalid ')}  🚨 🚨 🚨\n`);
     console.log('Invalid items:\n');
 
-    _.each(failingItems, (item) => {
+    _.each(failingItems, (item: ConfigItem) => {
       console.log(getItemSummary(item));
       console.log();
     });
@@ -72,8 +77,8 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
         ansis.italic.gray('(remove `--show-all` flag to hide)'),
       ]));
       console.log();
-      const validItems = _.filter(_.values(envGraph.configSchema), (i) => !!i.isValid);
-      _.each(validItems, (item) => {
+      const validItems = _.filter(_.values(envGraph.configSchema), (i: ConfigItem) => !!i.isValid);
+      _.each(validItems, (item: ConfigItem) => {
         console.log(getItemSummary(item));
       });
     }
