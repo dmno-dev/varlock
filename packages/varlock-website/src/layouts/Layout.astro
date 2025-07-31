@@ -1,6 +1,7 @@
 ---
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 import { Font } from "astro:assets";
+import MobileStarDialog from "../components/MobileStarDialog.vue";
 
 interface Props {
   title?: string;
@@ -29,6 +30,9 @@ const {
 >
   <slot />
 </StarlightPage>
+
+<!-- Mobile star dialog -->
+<MobileStarDialog client:load />
 
 <style is:global>
   /* hide the h1 that the starlight page adds */

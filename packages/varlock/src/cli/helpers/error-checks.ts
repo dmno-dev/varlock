@@ -1,9 +1,8 @@
 import ansis from 'ansis';
-import { EnvGraph, ConfigItem } from '@env-spec/env-graph';
+import { EnvGraph, ConfigItem, EnvSourceParseError } from '@env-spec/env-graph';
 import _ from '@env-spec/utils/my-dash';
 import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import { gracefulExit } from 'exit-hook';
-import { EnvSourceParseError } from '@env-spec/env-graph';
 
 export function checkForSchemaErrors(envGraph: EnvGraph) {
   // first we check for loading/parse errors - some cases we may want to let it fail silently?
@@ -17,7 +16,7 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
     if (source.loadingError) {
       console.log(`🚨 Error encountered while loading ${source.label}`);
       console.log(source.loadingError.message);
-      
+
       // Check if the error has a location property (like EnvSourceParseError)
       if ('location' in source.loadingError) {
         console.log((source.loadingError as EnvSourceParseError).location);

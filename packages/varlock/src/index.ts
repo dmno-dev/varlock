@@ -6,8 +6,8 @@ import { loadVarlockEnvGraph } from './lib/load-graph';
 import { initVarlockEnv } from './runtime/env';
 
 // Import env-graph components for internal API
-import { 
-  EnvGraph, 
+import {
+  EnvGraph,
   loadEnvGraph,
   DotEnvFileDataSource,
   ProcessEnvDataSource,
@@ -15,7 +15,7 @@ import {
   SchemaError,
   ValidationError,
   CoercionError,
-  ResolutionError
+  ResolutionError,
 } from '@env-spec/env-graph';
 
 export async function load() {
@@ -53,17 +53,17 @@ export const internal = {
   EnvGraph,
   DotEnvFileDataSource,
   ProcessEnvDataSource,
-  
+
   // Loader function
   loadEnvGraph,
-  
+
   // Error classes
   ConfigLoadError,
   SchemaError,
   ValidationError,
   CoercionError,
   ResolutionError,
-  
+
   // Varlock-specific utilities
   loadVarlockEnvGraph,
   checkForConfigErrors,
