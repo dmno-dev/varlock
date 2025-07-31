@@ -1,0 +1,28 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        # Combine all images of last week
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directories:
+      - /
+      - example-*
+      - example-monorepo/packages/*
+      - packages/*
+      - packages/integrations/*
+    schedule:
+      interval: weekly
+    # https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference#groups--
+    # 1 PR per week and group
+    groups:
+      major:
+        update-types: ["major"]
+      minor:
+        update-types: ["minor"]
+      patch:
+        update-types: ["patch"]
