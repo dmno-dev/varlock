@@ -1,6 +1,6 @@
 {
   "name": "@env-spec/parser",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Parser for @env-spec enabled dotenv files",
   "repository": {
     "type": "git",
