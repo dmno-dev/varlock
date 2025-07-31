@@ -1,5 +1,12 @@
 # @varlock/nextjs-integration
 
+## 0.0.6
+
+### Patch Changes
+
+- Updated dependencies [[`48d1c4d`](https://github.com/dmno-dev/varlock/commit/48d1c4d76eb40e0b44321fc5ff7073daa4707702)]:
+  - varlock@0.0.7
+
 ## 0.0.5
 
 ### Patch Changes
