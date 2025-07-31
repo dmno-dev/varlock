@@ -355,6 +355,9 @@ importers:
         specifier: ^3.5.13
         version: 3.5.13(typescript@5.8.3)
     devDependencies:
+      '@varlock/astro-integration':
+        specifier: workspace:*
+        version: link:../integrations/astro
       varlock:
         specifier: workspace:*
         version: link:../varlock
