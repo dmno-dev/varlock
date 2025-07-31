@@ -1,0 +1,36 @@
+{
+  "name": "astro-example",
+  "type": "module",
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "dev:ssr": "TEST_ASTRO_ADAPTER=node astro dev",
+    "build:ssr": "astro check && TEST_ASTRO_ADAPTER=node astro build",
+    "preview:ssr": "node dist/server/entry.mjs",
+    "build:cloudflare": "TEST_ASTRO_ADAPTER=cloudflare astro build",
+    "preview:cloudflare": "wrangler dev --port 9876",
+    "build:netlify": "TEST_ASTRO_ADAPTER=netlify astro build",
+    "dev:netlify": "TEST_ASTRO_ADAPTER=netlify astro dev",
+    "build:vercel": "TEST_ASTRO_ADAPTER=vercel astro build",
+    "dev:vercel": "TEST_ASTRO_ADAPTER=vercel astro dev",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@astrojs/cloudflare": "^12.6.0",
+    "@astrojs/mdx": "^4.3.1",
+    "@astrojs/netlify": "^6.5.3",
+    "@astrojs/node": "^9.3.0",
+    "@astrojs/vercel": "^8.2.3",
+    "@astrojs/vue": "^5.1.0",
+    "@varlock/astro-integration": "link:../../../packages/integrations/astro",
+    "@varlock/vite-integration": "link:../../../packages/integrations/vite",
+    "astro": "^5.12.4",
+    "typescript": "catalog:",
+    "varlock": "link:../../../packages/varlock",
+    "vue": "^3.5.18",
+    "wrangler": "^4.26.1"
+  }
+}

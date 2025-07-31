@@ -171,12 +171,6 @@ To enable type-safety and IntelliSense for your env vars, enable the [`@generate
 # your config items...
 ```
 
-:::tip[Using `ENV` needs `@generateTypes` enabled]
-If `@generateTypes` is not enabled, using `ENV` will likely cause type errors.
-
-You can still use `process.env` either way, but you would not get additional types without `@generateTypes`.
-:::
-
 #### Why use `ENV` instead of `process.env`?
 - Non-string values (e.g., number, boolean) are properly typed and coerced
 - All non-sensitive items are replaced at build time (not just `NEXT_PUBLIC_`)

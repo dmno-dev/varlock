@@ -119,13 +119,15 @@ export function revealSensitiveConfig(secretStr: string) {
 
 // reusable leak scanning helper function, used by various integrations
 export function scanForLeaks(
-  toScan: string | Response | ReadableStream,
+  toScan: string | ReadableStream | null,
   // optional additional information about what is being scanned to be used in error messages
   meta?: {
     method?: string,
     file?: string,
   },
 ) {
+  if (!toScan) return toScan;
+
   function scanStrForLeaks(strToScan: string) {
     // console.log('[varlock leak scanner] ', strToScan.substr(0, 100));
 
@@ -196,7 +198,12 @@ export function initVarlockEnv(opts?: {
 }) {
   // console.log('⚡️ INIT VARLOCK ENV!', initializedEnv, !!process.env.__VARLOCK_ENV);
   try {
-    const serializedEnvData: SerializedEnvGraph = JSON.parse(process.env.__VARLOCK_ENV || '{}');
+    const serializedEnvData: SerializedEnvGraph = (
+      // when we inject resolved config at build time, we store it here
+      (globalThis as any).__varlockLoadedEnv
+      // otherwise if we inject via `varlock run` or have already loaded, it will be in process.env
+      || JSON.parse(process.env.__VARLOCK_ENV || '{}')
+    );
     Object.assign(varlockSettings, serializedEnvData.settings);
     resetRedactionMap(serializedEnvData);
     for (const itemKey in serializedEnvData.config) {
@@ -213,7 +220,10 @@ export function initVarlockEnv(opts?: {
 // we will attempt to call initVarlockEnv automatically, but in most cases it should be called explicitly
 // note that if this is being imported in the browser, process.env may not exist, so we do this in a try/catch
 try {
-  if (process.env.__VARLOCK_ENV && !initializedEnv) {
+  if (
+    !initializedEnv
+    && ((globalThis as any).__varlockLoadedEnv || process.env.__VARLOCK_ENV)
+  ) {
     // if we are automatically loading because __VARLOCK_ENV is already set
     // then we assume process.env vars have also already been set (although might not harm anything?)
     initVarlockEnv({ setProcessEnv: false });

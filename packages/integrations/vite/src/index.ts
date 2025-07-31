@@ -22,7 +22,7 @@ debug('varlock vite plugin loaded. first load = ', isFirstLoad);
 
 let isDevMode: boolean;
 let configIsValid = true;
-let varlockLoadedEnv: SerializedEnvGraph;
+export let varlockLoadedEnv: SerializedEnvGraph;
 let staticReplacements: Record<string, any> = {};
 let rollupDefinePlugin: ReturnType<typeof definePlugin>;
 
@@ -71,6 +71,7 @@ export function varlockVitePlugin(
 ): Plugin {
   return {
     name: 'inject-varlock-config',
+    enforce: 'post',
 
     // hook to modify config before it is resolved
     async config(config, env) {

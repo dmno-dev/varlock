@@ -1,0 +1,163 @@
+---
+title: Astro
+description: How to integrate varlock with Astro for secure, type-safe environment management
+---
+import SyncedCodeTabs from '@/components/SyncedCodeTabs.astro'
+import { TabItem, Tabs, Steps } from "@astrojs/starlight/components";
+import Badge from '@/components/Badge.astro';
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/astro-integration" />
+</div>
+
+While Astro has [`astro:env`](https://docs.astro.build/en/guides/environment-variables/) to help with environment variables, we think Varlock has more to offer:
+
+- Your `.env.schema` is not tied to JavaScript, and is a better place to store this schema info versus your `astro.config.*` file
+- Facilitates loading and composing multiple `.env` files
+- You can use validated env vars right away within your `astro.config.*` file
+- Facilitates setting values and handling multiple environments, not just setting defaults
+- More data types and options available
+- Leak detection, log redaction, and more security guardrails
+
+To integrate varlock into an Astro application, you must use our [`@varlock/astro-integration`](https://www.npmjs.com/package/@varlock/astro-integration) package, which is an [Astro integration](https://docs.astro.build/en/guides/integrations-guide/).
+
+## Setup
+
+:::caution[Requirements]
+- Node.js v22 or higher
+- Astro v4 or higher
+:::
+{/* check astro versions compat? */}
+
+<Steps>
+
+1. **Install varlock and the Astro integration package**
+    <InstallJsDepsWidget packages="@varlock/astro-integration varlock" />
+
+1. **Run `varlock init` to set up your `.env.schema` file**
+
+    This will guide you through setting up your `.env.schema` file, based on your existing `.env` file(s). Make sure to review it carefully.
+
+    <ExecCommandWidget command="varlock init" showBinary={false} />
+
+1. **Enable the Astro integration**
+
+    You must add our `varlockAstroIntegration` to your `astro.config.*` file:
+
+    ```diff lang="ts" title="astro.config.ts" add="varlockAstroIntegration()"
+    import { defineConfig } from 'astro/config';
+    +import varlockAstroIntegration from '@varlock/astro-integration';
+
+    export default defineConfig({
+      integrations: [varlockAstroIntegration(), otherIntegration()],
+    });
+    ```
+</Steps>
+
+---
+
+## Accessing environment variables
+
+You can continue to use `import.meta.env.SOMEVAR` as usual, but we recommend using varlock's imported `ENV` object for better type-safety and improved developer experience:
+
+```ts title="example.ts"
+import { ENV } from 'varlock/env';
+
+console.log(import.meta.env.SOMEVAR); // 🆗 still works
+console.log(ENV.SOMEVAR);             // ✨ recommended
+```
+
+#### Why use `ENV` instead of `import.meta.env`?
+- Non-string values (e.g., number, boolean) are properly typed and coerced
+- All non-sensitive items are replaced at build time (not just `VITE_` prefixed ones)
+- Better error messages for invalid or unavailable keys
+- Enables future DX improvements and tighter control over what is bundled
+
+### Within `astro.config.*`
+It's often useful to be able to access env vars in your Astro config. Without varlock, it's a bit awkward, but varlock makes it dead simple - in fact it's already available! Just import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
+
+```diff lang="ts" title="astro.config.ts"
+import { defineConfig } from 'astro/config';
+import varlockAstroIntegration from '@varlock/astro-integration';
++import { ENV } from 'varlock/env';
+
++doSomethingWithEnvVar(ENV.FOO);
+
+export default defineConfig({ /* ... */ });
+```
+
+:::caution[TypeScript config]
+If you find you are not getting type completion on `ENV`, you may need to add your generated type files (usually `env.d.ts`) to your `tsconfig.json`'s `include` array.
+:::
+
+### Within other scripts
+
+Even in a static front-end project, you may have other scripts in your project that rely on sensitive config.
+
+You can use [`varlock run`](/reference/cli-commands/#varlock-run) to inject resolved config into other scripts as regular env vars.
+
+<ExecCommandWidget command="varlock run -- node ./script.js" showBinary={false} />
+
+### Type-safety and IntelliSense
+
+To enable type-safety and IntelliSense for your env vars, enable the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
+
+```diff lang="env-spec" title=".env.schema"
++# @generateTypes(lang='ts', path='env.d.ts')
+# ---
+# your config items...
+```
+
+---
+
+## Managing multiple environments
+
+Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`).
+
+By default, Astro relies on Vite's [`MODE` flag](https://vite.dev/guide/env-and-mode.html#modes) to determine which env file(s) to load.
+
+With varlock, instead you set your own environment flag using the [`@envFlag` root decorator](/reference/root-decorators/#envflag), e.g. `APP_ENV`. See the [environments guide](/guides/environments) for more information.
+
+
+## Managing sensitive config values
+
+Astro uses the `PUBLIC_` prefix to determine which env vars are public (bundled for the browser). Varlock decouples the concept of being _sensitive_ from key names, and instead you control this with the [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) root decorator and the [`@sensitive`](/reference/item-decorators/#sensitive) item decorator. See the [secrets guide](/guides/secrets) for more information.
+
+Set a default and explicitly mark items:
+
+```diff lang="env-spec" title=".env.schema" add="@sensitive"
++# @defaultSensitive=false
+# ---
+NON_SECRET_FOO= # sensitive by default
+# @sensitive
+SECRET_FOO= 
+```
+
+Or if you'd like to continue using Astro's prefix behavior:
+
+```diff lang="env-spec" title=".env.schema"
++# @defaultSensitive=inferFromPrefix('PUBLIC_')
+# ---
+FOO= # sensitive
+PUBLIC_FOO= # non-sensitive, due to prefix
+```
+
+:::caution[Bundling behavior]
+All non-sensitive items are bundled at build time via `ENV`, while `import.meta.env` replacements continue to only include `PUBLIC_`-prefixed items.
+:::
+
+### Leak Detection
+
+This integration will automatically inject a new middleware that scans outgoing http responses for any sensitive values.
+
+
+
+---
+
+## Reference
+- [Root decorators reference](/reference/root-decorators)
+- [Item decorators reference](/reference/item-decorators)
+- [Functions reference](/reference/functions)
+- [Astro's environment variable docs](https://docs.astro.build/en/guides/environment-variables/)

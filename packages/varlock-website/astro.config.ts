@@ -8,7 +8,7 @@ import starlightLlmsTxt from 'starlight-llms-txt';
 import partytown from '@astrojs/partytown';
 import remarkCustomHeaderId from 'remark-custom-header-id';
 
-import 'varlock/auto-load';
+import varlockAstroIntegration from '@varlock/astro-integration';
 import { ENV } from 'varlock/env';
 
 import envSpecGrammar from '../vscode-plugin/language/env-spec.tmLanguage.json' assert { type: 'json' };
@@ -41,6 +41,7 @@ export default defineConfig({
     service: passthroughImageService(),
   },
   integrations: [
+    varlockAstroIntegration(),
     starlight({
       title: 'varlock',
       social: [
@@ -89,6 +90,7 @@ export default defineConfig({
             { label: 'JavaScript / Node.js', slug: 'integrations/javascript' },
             { label: 'Next.js', slug: 'integrations/nextjs' },
             { label: 'Vite', slug: 'integrations/vite' },
+            { label: 'Astro', slug: 'integrations/astro' },
             { label: 'Other languages', slug: 'integrations/other-languages' },
             { label: 'AI Tools', slug: 'guides/ai-tools' },
           ],

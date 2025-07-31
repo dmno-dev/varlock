@@ -29,7 +29,8 @@
     "security",
     "validation",
     "leak protection",
-    "vite-plugin"
+    "vite-plugin",
+    "varlock-integration"
   ],
   "author": "dmno-dev",
   "license": "MIT",
