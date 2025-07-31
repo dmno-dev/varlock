@@ -40,11 +40,14 @@ function markEdited(node: AstNode, edits: Array<Edit>): number | false {
 
 const SUPPORTED_FILES = ['js', 'ts', 'mjs', 'mts', 'cjs', 'cts', 'jsx', 'tsx', 'vue', 'svelte'];
 
+type MatchersArray = Array<{ matcher: ReturnType<typeof astMatcher>, replacement: string }>;
+
 export function definePlugin(opts: {
   replacements: Record<string, string>,
 }): Plugin {
   const keys = Object.keys(opts.replacements);
-  let matchers: Array<{ matcher: ReturnType<typeof astMatcher>, replacement: string }>;
+  let matchers: MatchersArray;
+  const extraMatchersForFileType: Record<string, MatchersArray> = {};
 
   const findAnyReplacementRegex = new RegExp(`(?:${keys.map(escapeStringRegexp).join('|')})`, 'g');
 
@@ -71,29 +74,23 @@ export function definePlugin(opts: {
 
     const ast = parse(code, id);
 
-    if (!matchers) {
-      matchers = [];
-      keys.forEach((key) => {
-        matchers.push({
-          matcher: astMatcher(parse(key)),
-          replacement: opts.replacements[key],
-        });
-        // in vue script+setup files, ENV.X in template blocks gets replaced with `$setup.ENV.X`
-        if (fileExt === 'vue') {
-          matchers.push({
-            matcher: astMatcher(parse(`$setup.${key}`)),
-            replacement: opts.replacements[key],
-          });
-        }
-      });
-    }
+    matchers ||= keys.map((key) => ({
+      matcher: astMatcher(parse(key)),
+      replacement: opts.replacements[key],
+    }));
 
-    // matchers ||= keys.map((key) => astMatcher(parse(key)));
+    if (fileExt === 'vue') {
+      // in vue script+setup files, ENV.X in template blocks gets replaced with `$setup.ENV.X`
+      extraMatchersForFileType.vue ||= keys.map((key) => ({
+        matcher: astMatcher(parse(`$setup.${key}`)),
+        replacement: opts.replacements[key],
+      }));
+    }
 
     const magicString = new MagicString(code);
     const edits: Array<Edit> = [];
 
-    Object.values(matchers).forEach(({ matcher, replacement }) => {
+    Object.values([...matchers, ...extraMatchersForFileType[fileExt] || []]).forEach(({ matcher, replacement }) => {
       for (const { node } of (matcher(ast) || []) as Array<{ node: AstNode }>) {
         if (markEdited(node, edits)) {
           magicString.overwrite(
@@ -105,7 +102,10 @@ export function definePlugin(opts: {
       }
     });
 
-    if (edits.length === 0) return null;
+    if (edits.length === 0) {
+      // console.log(code);
+      return null;
+    }
 
     return {
       code: magicString.toString(),

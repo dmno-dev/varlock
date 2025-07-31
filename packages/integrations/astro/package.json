@@ -1,17 +1,17 @@
 {
-  "name": "@varlock/nextjs-integration",
-  "description": "drop-in replacement for @next/env that uses varlock to load .env files with validation and extra security features",
-  "version": "0.0.5",
+  "name": "@varlock/astro-integration",
+  "description": "Astro integration to use varlock for .env file loading - adds validation, type-safety, and extra security features",
+  "version": "0.0.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/dmno-dev/varlock.git",
-    "directory": "packages/integrations/nextjs"
+    "directory": "packages/integrations/astro"
   },
-  "main": "dist/next-env-compat.js",
-  "types": "dist/next-env-compat.d.ts",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
-    ".": "./dist/next-env-compat.js",
-    "./plugin": "./dist/plugin.js"
+    ".": "./dist/index.js"
   },
   "files": ["dist"],
   "scripts": {
@@ -20,8 +20,7 @@
   },
   "keywords": [
     "varlock",
-    "nextjs",
-    "next.js",
+    "astro",
     "env",
     ".env",
     "environment variables",
@@ -30,6 +29,7 @@
     "security",
     "validation",
     "leak protection",
+    "astro-integration",
     "varlock-integration"
   ],
   "author": "dmno-dev",
@@ -39,10 +39,16 @@
   },
   "peerDependencies": {
     "varlock": "workspace:^",
-    "next": ">=14"
+    "astro": ">=4"
+  },
+  "dependencies": {
+    "debug": "catalog:"
   },
   "devDependencies": {
+    "@types/debug": "catalog:",
     "@types/node": "catalog:",
+    "@varlock/vite-integration": "workspace:*",
+    "astro": ">=5.12.4",
     "tsup": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"
