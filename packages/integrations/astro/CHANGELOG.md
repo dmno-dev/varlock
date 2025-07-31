@@ -1,5 +1,11 @@
 # @varlock/astro-integration
 
+## 0.0.2
+
+### Patch Changes
+
+- [`91999c5`](https://github.com/dmno-dev/varlock/commit/91999c505ec24146f2357ff9640b8a43ba555141) Thanks [@theoephraim](https://github.com/theoephraim)! - fix astro integration readme
+
 ## 0.0.1
 
 ### Patch Changes
