@@ -53,8 +53,8 @@ function filter<T>(array: Array<T>, fn: (item: T) => boolean) {
 function each<T>(
   array: Array<T> | Record<string, T>,
   fn: (
-    ((item: T, key: string) => void) |
-    ((item: T) => void)
+    ((item: T, key: string) => void)
+    | ((item: T) => void)
   ),
 ) {
   if (Array.isArray(array)) {

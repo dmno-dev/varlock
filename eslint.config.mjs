@@ -8,6 +8,14 @@ import eslintPluginJsonc from 'eslint-plugin-jsonc';
 import pluginESx from 'eslint-plugin-es-x';
 import pluginN from 'eslint-plugin-n';
 
+// fix renamed rule
+if (airbnb.rules['@stylistic/func-call-spacing']) {
+  airbnb.rules['@stylistic/function-call-spacing'] = airbnb.rules['@stylistic/func-call-spacing'];
+  // @ts-ignore
+  delete airbnb.rules['@stylistic/func-call-spacing'];
+}
+
+
 export default tseslint.config(
   {
     plugins: {

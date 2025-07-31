@@ -68,7 +68,7 @@ export class ParsedEnvSpecStaticValue {
 export class ParsedEnvSpecKeyValuePair {
   constructor(public data: {
     key: string;
-    // eslint-disable-next-line no-use-before-define
+
     val: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall;
   }) {}
 
@@ -86,7 +86,7 @@ export class ParsedEnvSpecKeyValuePair {
 }
 export class ParsedEnvSpecFunctionArgs {
   constructor(public data: {
-    // eslint-disable-next-line no-use-before-define
+
     values: Array<ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecKeyValuePair>;
     _location?: any;
   }) {}
@@ -227,8 +227,9 @@ export class ParsedEnvSpecDecoratorComment {
   }
 }
 
-export type ParsedEnvSpecDecoratorValue =
-  ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs;
+export type ParsedEnvSpecDecoratorValue = (
+  ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs
+);
 
 function getDecoratorsObject(
   comments: Array<ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment | undefined>,
@@ -357,11 +358,10 @@ export class ParsedEnvSpecConfigItem {
 }
 
 // these are the 4 types that can be at the root level
-type ParsedEnvSpecFileNode =
-  ParsedEnvSpecCommentBlock |
-  ParsedEnvSpecDivider |
-  ParsedEnvSpecConfigItem |
-  ParsedEnvSpecBlankLine;
+type ParsedEnvSpecFileNode = ParsedEnvSpecCommentBlock
+  | ParsedEnvSpecDivider
+  | ParsedEnvSpecConfigItem
+  | ParsedEnvSpecBlankLine;
 
 
 export class ParsedEnvSpecFile {

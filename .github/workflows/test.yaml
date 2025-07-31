@@ -30,6 +30,8 @@ jobs:
         uses: rharkor/caching-for-turbo@v2.2.3
 
       # ------------------------------------------------------------
+      - name: ESLint
+        run: pnpm run lint
       - name: Build libraries
         run: pnpm run build:libs
       - name: Run tests

@@ -9,15 +9,14 @@ import { SimpleQueue } from './simple-queue';
 
 const execAsync = promisify(exec);
 
-export type ResolvedValue =
-  undefined |
-  string | number | boolean |
-  RegExp; // regex is only used internally as function args, not as a final resolved value
+export type ResolvedValue = undefined
+  | string | number | boolean
+  | RegExp; // regex is only used internally as function args, not as a final resolved value
   // TODO: will probably want to re-enable object/array values
   // { [key: string]: ConfigValue } |
   // Array<ConfigValue>;
 
-// eslint-disable-next-line no-use-before-define
+
 type ResolverFunctionArgs = Array<Resolver | Record<string, Resolver>>;
 export abstract class Resolver {
   static fnName?: string;
@@ -323,8 +322,9 @@ export class RemapResolver extends Resolver {
 
 
 
-export type ResolverChildClass<ChildClass extends Resolver = Resolver> =
-  { new (...args: Array<any>): ChildClass } & typeof Resolver;
+export type ResolverChildClass<ChildClass extends Resolver = Resolver> = (
+  { new (...args: Array<any>): ChildClass } & typeof Resolver
+);
 
 // these are the resolvers which are accessible to end-users as fn calls
 export const BaseResolvers: Array<ResolverChildClass> = [

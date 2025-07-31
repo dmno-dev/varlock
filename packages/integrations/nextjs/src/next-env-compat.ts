@@ -222,10 +222,10 @@ export function loadEnvConfig(
   forceReload = false,
   onReload?: (envFilePath: string) => void,
 ): {
-    combinedEnv: Env
-    parsedEnv: Env | undefined
-    loadedEnvFiles: LoadedEnvFiles
-  } {
+  combinedEnv: Env
+  parsedEnv: Env | undefined
+  loadedEnvFiles: LoadedEnvFiles
+} {
   // store actual process.env so we can restore it later
   initialEnv ||= { ...process.env };
 
