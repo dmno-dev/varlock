@@ -48,13 +48,9 @@ This integration is intended for use with projects that are using Vite directly.
     +import { varlockVitePlugin } from '@varlock/vite-integration';
 
     export default defineConfig({
-      plugins: [ /* plugin1, plugin2, ... */ varlockVitePlugin() ]
+      plugins: [varlockVitePlugin(), otherPlugin()]
     });
     ```
-
-    :::caution[Plugin ordering]
-    In many cases, plugin ordering does not matter, but `varlockVitePlugin` must come _after_ any plugins which do parsing of non-standard files into JavaScript, such as `@vitejs/plugin-vue`.
-    :::
 </Steps>
 
 ---
@@ -77,7 +73,7 @@ console.log(ENV.SOMEVAR);             // ✨ recommended
 - Enables future DX improvements and tighter control over what is bundled
 
 ### Within `vite.config.*`
-It's often useful to be able to access env vars in your Vite config. Without varlock, it's a bit awkward, but varlock makes it dead simple - in fact it's already available! Just import varlocks `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
+It's often useful to be able to access env vars in your Vite config. Without varlock, it's a bit awkward, but varlock makes it dead simple - in fact it's already available! Just import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
 
 ```diff lang="ts" title="vite.config.ts"
 import { defineConfig } from 'vite';
@@ -111,7 +107,6 @@ Even in a static front-end project, you may have other scripts in your project t
 You can use [`varlock run`](/reference/cli-commands/#varlock-run) to inject resolved config into other scripts as regular environment vars.
 
 <ExecCommandWidget command="varlock run -- node ./script.js" showBinary={false} />
-
 
 ### Type-safety and IntelliSense
 
@@ -172,4 +167,4 @@ All non-sensitive items are bundled at build time via `ENV`, while `import.meta.
 - [Root decorators reference](/reference/root-decorators)
 - [Item decorators reference](/reference/item-decorators)
 - [Functions reference](/reference/functions)
-- [Vite environment variable docs](https://vite.dev/guide/env-and-mode.html#modes)
+- [Vite environment variable docs](https://vite.dev/guide/env-and-mode.html)

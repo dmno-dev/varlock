@@ -89,6 +89,7 @@ export default defineConfig({
             { label: 'JavaScript / Node.js', slug: 'integrations/javascript' },
             { label: 'Next.js', slug: 'integrations/nextjs' },
             { label: 'Vite', slug: 'integrations/vite' },
+            { label: 'Astro', slug: 'integrations/astro' },
             { label: 'Other languages', slug: 'integrations/other-languages' },
             { label: 'AI Tools', slug: 'guides/ai-tools' },
           ],
