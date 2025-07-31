@@ -5,6 +5,19 @@ import { checkForConfigErrors } from './cli/helpers/error-checks';
 import { loadVarlockEnvGraph } from './lib/load-graph';
 import { initVarlockEnv } from './runtime/env';
 
+// Import env-graph components for internal API
+import { 
+  EnvGraph, 
+  loadEnvGraph,
+  DotEnvFileDataSource,
+  ProcessEnvDataSource,
+  ConfigLoadError,
+  SchemaError,
+  ValidationError,
+  CoercionError,
+  ResolutionError
+} from '@env-spec/env-graph';
+
 export async function load() {
   // TODO: add some options
   const envGraph = await loadVarlockEnvGraph();
@@ -33,6 +46,29 @@ export function getBuildTimeReplacements(opts?: {
   }
   return replacements;
 }
+
+// Internal API for direct env graph manipulation
+export const internal = {
+  // Core classes
+  EnvGraph,
+  DotEnvFileDataSource,
+  ProcessEnvDataSource,
+  
+  // Loader function
+  loadEnvGraph,
+  
+  // Error classes
+  ConfigLoadError,
+  SchemaError,
+  ValidationError,
+  CoercionError,
+  ResolutionError,
+  
+  // Varlock-specific utilities
+  loadVarlockEnvGraph,
+  checkForConfigErrors,
+  initVarlockEnv,
+};
 
 export { patchGlobalConsole } from './runtime/patch-console';
 export { patchGlobalServerResponse } from './runtime/patch-server-response';
