@@ -1,5 +1,16 @@
 # varlock
 
+## 0.0.7
+
+### Patch Changes
+
+- [#101](https://github.com/dmno-dev/varlock/pull/101) [`48d1c4d`](https://github.com/dmno-dev/varlock/commit/48d1c4d76eb40e0b44321fc5ff7073daa4707702) Thanks [@theoephraim](https://github.com/theoephraim)! - new astro integration, based on vite integration
+
+- [#103](https://github.com/dmno-dev/varlock/pull/103) [`d657b50`](https://github.com/dmno-dev/varlock/commit/d657b501013ce88ac65cb523ca8d61cb4f941a1f) Thanks [@theoephraim](https://github.com/theoephraim)! - chore: update dependencies
+
+- Updated dependencies [[`d657b50`](https://github.com/dmno-dev/varlock/commit/d657b501013ce88ac65cb523ca8d61cb4f941a1f)]:
+  - @env-spec/parser@0.0.3
+
 ## 0.0.6
 
 ### Patch Changes
