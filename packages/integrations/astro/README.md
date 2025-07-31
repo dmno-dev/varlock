@@ -1,4 +1,4 @@
-# @varlock/vite-integration
+# @varlock/astro-integration
 
 This package helps you integrate [varlock](https://varlock.dev) into an [Astro](https://astro.build) project.
 
