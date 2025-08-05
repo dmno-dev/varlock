@@ -11,8 +11,6 @@ updates:
   - package-ecosystem: npm
     directories:
       - /
-      - example-*
-      - example-monorepo/packages/*
       - packages/*
       - packages/integrations/*
     schedule:
