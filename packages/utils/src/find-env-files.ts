@@ -15,7 +15,7 @@ export async function findEnvFiles(opts?: {
 
   // Filter for files starting with .env and check if they exist
   for (const fileName of filesWithinDir) {
-    if (fileName.startsWith('.env')) {
+    if (fileName === '.env' || fileName.startsWith('.env.')) { // this ignores `.envrc` files
       let skip = false;
       for (const fileType of SKIP_FILE_TYPES) {
         if (fileName.endsWith(fileType)) skip = true;
