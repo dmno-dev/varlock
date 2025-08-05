@@ -5,7 +5,7 @@ export async function loadVarlockEnvGraph(opts?: {
 }) {
   const envGraph = await loadEnvGraph({
     ...opts,
-    afterInit: async (g) => {
+    afterInit: async (_g) => {
       // TODO: register varlock resolver
     },
   });

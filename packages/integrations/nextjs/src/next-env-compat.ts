@@ -50,6 +50,7 @@ function getVarlockSourcesAsLoadedEnvFiles(): LoadedEnvFiles {
 const IS_WORKER = !!process.env.NEXT_PRIVATE_WORKER;
 function debug(...args: Array<any>) {
   if (!process.env.DEBUG_VARLOCK_NEXT_INTEGRATION) return;
+  // eslint-disable-next-line no-console
   console.log(
     IS_WORKER ? 'worker -- ' : 'server -- ',
     ...args,
@@ -87,7 +88,7 @@ function enableExtraFileWatchers() {
 
   debug('set up extra file watchers', envFilePathToUpdate, destroyFile);
 
-  fs.watchFile(envSchemaPath, { interval: 500 }, (curr, prev) => {
+  fs.watchFile(envSchemaPath, { interval: 500 }, (_curr, _prev) => {
     debug('.env.schema changed', envFilePathToUpdate, destroyFile);
     if (destroyFile) {
       fs.writeFileSync(envFilePathToUpdate, '# trigger reload', 'utf-8');
@@ -215,17 +216,19 @@ export function resetEnv() {
   }
 }
 
-export function loadEnvConfig(
-  dir: string,
-  dev?: boolean,
-  log: Log = console,
-  forceReload = false,
-  onReload?: (envFilePath: string) => void,
-): {
+type LoadedEnvConfig = {
   combinedEnv: Env
   parsedEnv: Env | undefined
   loadedEnvFiles: LoadedEnvFiles
-} {
+};
+
+export function loadEnvConfig(
+  dir: string,
+  dev?: boolean,
+  _log: Log = console,
+  forceReload = false,
+  _onReload?: (envFilePath: string) => void,
+): LoadedEnvConfig {
   // store actual process.env so we can restore it later
   initialEnv ||= { ...process.env };
 
@@ -286,10 +289,11 @@ export function loadEnvConfig(
     });
     varlockLoadedEnv = JSON.parse(varlockLoadedEnvBuf.toString());
   } catch (err) {
-    const { status, stdout, stderr } = err as ReturnType<typeof spawnSync>;
+    const { stdout, stderr } = err as ReturnType<typeof spawnSync>;
     const stdoutStr = stdout?.toString() || '';
     const stderrStr = stderr?.toString() || '';
     if (stderrStr.includes('command not found')) {
+      // eslint-disable-next-line no-console
       console.error([
         '',
         '❌ ERROR: varlock not found',
@@ -299,8 +303,9 @@ export function loadEnvConfig(
       ].join('\n'));
       throw new Error('missing peer dependency - varlock');
     }
-    if (stdoutStr) console.log(stdoutStr);
-    if (stderrStr) console.error(stderrStr);
+
+    if (stdoutStr) console.log(stdoutStr); // eslint-disable-line no-console
+    if (stderrStr) console.error(stderrStr); // eslint-disable-line no-console
 
     // in a build, we want to fail and exit, while in dev we can keep retrying when changes are detected
     if (!dev) process.exit(1);

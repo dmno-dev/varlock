@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+
 // this is a slightly modified version of @clack/prompts
 // mostly to remove the additional left border
 

@@ -1,11 +1,9 @@
 import _ from '@env-spec/utils/my-dash';
 import path from 'node:path';
 import { ConfigItem } from './config-item';
-import { EnvGraphDataSource, FileBasedDataSource, ProcessEnvDataSource } from './data-source';
+import { EnvGraphDataSource, FileBasedDataSource } from './data-source';
 
-import {
-  BaseResolvers, type ResolverChildClass, StaticValueResolver,
-} from './resolver';
+import { BaseResolvers, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
@@ -254,7 +252,7 @@ export class EnvGraph {
     // code is a bit awkward here because we are resolving items in parallel
     // and need to continue resolving dependent items as each finishes
 
-    const deferred = new Promise<void>((resolve, reject) => {
+    const deferred = new Promise<void>((resolve, _reject) => {
       const markItemCompleted = (itemKey: string) => {
         delete itemsToResolveStatus[itemKey];
         if (reverseAdjList[itemKey]) {

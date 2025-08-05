@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { DotEnvFileDataSource, EnvGraph } from '@env-spec/env-graph';
 import {
-  envSpecUpdater, ParsedEnvSpecFile, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
+  envSpecUpdater, ParsedEnvSpecFile, ParsedEnvSpecStaticValue,
 } from '@env-spec/parser';
 import { StaticValueResolver } from '../../../../env-graph/src/lib/resolver';
 
@@ -24,6 +24,7 @@ const SENSITIVE_KEYWORDS = [
 
 function isValidUrl(val: string) {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const u = new URL(val);
     return true;
   } catch (err) {

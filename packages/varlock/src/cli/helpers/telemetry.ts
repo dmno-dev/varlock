@@ -1,8 +1,8 @@
 import os from 'node:os';
-import crypto, { BinaryLike, createHash } from 'node:crypto';
+import crypto, { type BinaryLike, createHash } from 'node:crypto';
 import { join } from 'node:path';
 import {
-  existsSync, readFileSync, writeFileSync, readdirSync,
+  existsSync, readFileSync, writeFileSync,
   mkdirSync,
 } from 'node:fs';
 import { asyncExitHook } from 'exit-hook';

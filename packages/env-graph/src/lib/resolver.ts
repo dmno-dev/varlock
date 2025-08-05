@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-empty-function */
+
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -120,7 +122,7 @@ export class ErrorResolver extends Resolver {
   icon = 'bi:dash';
 
   protected async _resolve() { return undefined; }
-  protected async _process() { }
+  protected async _process() {}
 }
 
 
@@ -208,11 +210,12 @@ export class ExecResolver extends Resolver {
       // ? NOTE - putting these calls through a simple queue for now
       // this avoids multiple 1password auth popups, but it also makes multiple 1p calls very slow
       // we likely want to remove this once we have the specific 1Password plugin re-implemented
-      const { stdout, stderr } = await ExecResolver.execQueue.enqueue(() => execAsync(commandStr));
+      const { stdout } = await ExecResolver.execQueue.enqueue(() => execAsync(commandStr));
       // trim trailing newline by default
       // we could allow options here?
       return stdout.replace(/\n$/, '');
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.log('exec() failed', err);
       throw new ResolutionError(`exec() command failed: ${commandStr}`);
     }

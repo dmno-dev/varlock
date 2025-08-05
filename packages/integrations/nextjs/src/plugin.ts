@@ -132,7 +132,7 @@ export type NextConfigFunction = (
 
 
 // we make this a plugin a function because we'll likely end up adding some options
-export function varlockNextConfigPlugin(pluginOptions?: VarlockPluginOptions) {
+export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
   // nextjs doesnt have a proper plugin system :(
   // so we use a function which takes in a config object and returns an augmented one
   return (nextConfig: any | NextConfig | NextConfigFunction): NextConfigFunction => {
@@ -164,7 +164,7 @@ export function varlockNextConfigPlugin(pluginOptions?: VarlockPluginOptions) {
         webpack(webpackConfig, options) {
           debug('varlockNextConfigPlugin webpack config patching');
 
-          const { isServer, dev, nextRuntime } = options;
+          const { dev } = options; // also available - isServer, nextRuntime
 
           if (varlockSettings.preventLeaks) {
             // we patch fs methods - ideally we would just path them to scan while files are written
@@ -239,8 +239,8 @@ export function varlockNextConfigPlugin(pluginOptions?: VarlockPluginOptions) {
 
           // updates the webpack source to inject dmno global logic and call it
           // we run this on the runtimes for serverless and edge
-          function injectVarlockInitIntoWebpackRuntime(edgeRuntime = false) {
-            return function (origSource: any) {
+          function injectVarlockInitIntoWebpackRuntime(_edgeRuntime = false) {
+            return function assetUpdateFn(origSource: any) {
               const origSourceStr = origSource.source();
 
               // we will inline the injector code, but need a different version if we are running in the edge runtime

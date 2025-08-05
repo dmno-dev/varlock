@@ -46,6 +46,10 @@ export default tseslint.config(
       'packages/varlock-website/.astro',
       '**/.dmno/.typegen',
       '**/*.ignore',
+      '**/.vercel',
+      '**/.netlify',
+      '**/.astro',
+
     ],
   },
 
@@ -81,7 +85,7 @@ export default tseslint.config(
         'warn',
         {
           caughtErrors: 'none',
-          argsIgnorePattern: '^_|^(response)$',
+          argsIgnorePattern: '^_|^(response|ctx)$',
           varsIgnorePattern: '^_|^(props|emit)$',
         },
       ],

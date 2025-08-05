@@ -33,7 +33,7 @@ function functionValueTests(
 ) {
   return () => {
     Object.entries(tests).forEach(([label, spec]) => {
-      const { input, env, expected } = spec;
+      const { input, expected } = spec;
       it(label, async () => {
         const g = new EnvGraph();
 

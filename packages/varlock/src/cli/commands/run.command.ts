@@ -22,16 +22,14 @@ export const commandSpec = define({
 
 let commandProcess: ResultPromise | undefined;
 let childCommandKilledFromRestart = false;
-let isWatchModeRestart = false;
+const isWatchModeRestart = false; // TODO: re-enable watch mode
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   // if "--" is present, split the args into our command and the rest, which will be another external command
   const argv = process.argv.slice(2);
-  let commandArgs: Array<string> = [];
   let restCommandArgs: Array<string> = [];
   if (argv.includes('--')) {
     const doubleDashIndex = argv.indexOf('--');
-    commandArgs = argv.slice(0, doubleDashIndex);
     restCommandArgs = argv.slice(doubleDashIndex + 1);
   } else {
     throw new Error('No command to run! Your command should look like `varlock run -- <your-command>`');
@@ -77,7 +75,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // if first run, we need to attach some extra exit handling
   if (!isWatchModeRestart) {
     // try to make sure we shut down cleanly and kill the child process
-    process.on('exit', (code: any, signal: any) => {
+    process.on('exit', (_code: any, _signal: any) => {
       // if (childCommandKilledFromRestart) {
       //   childCommandKilledFromRestart = false;
       //   return;
