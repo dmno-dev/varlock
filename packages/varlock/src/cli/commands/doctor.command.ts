@@ -17,7 +17,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   const envGraph = await loadEnvGraph();
   await envGraph.resolveEnvValues();
-  const resolvedEnv = envGraph.getResolvedEnvObject();
+  // const resolvedEnv = envGraph.getResolvedEnvObject();
 
   // TODO: Mac app checks
   // - installed, running, logged in, set up (keys exist), locked/unlocked state

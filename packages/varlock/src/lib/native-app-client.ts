@@ -1,3 +1,5 @@
+/* eslint-disable no-console */
+
 import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
@@ -6,8 +8,8 @@ import Debug from 'debug';
 
 const debug = Debug('varlock:native-app-client');
 
-const MAC_APP_PATH = 'Library/Containers/dev.dmno.macapp';
-const IPC_SOCKET_FILE_PATH = 'Data/dmno-ipc';
+// const MAC_APP_PATH = 'Library/Containers/dev.dmno.macapp';
+// const IPC_SOCKET_FILE_PATH = 'Data/dmno-ipc';
 
 export class VarlockNativeAppClient {
   private socket: net.Socket;

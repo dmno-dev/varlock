@@ -85,9 +85,9 @@ const ROOT_DECORATORS: Record<string, any> = {
   },
 };
 
-export function addHoverProvider(context: ExtensionContext) {
+export function addHoverProvider(_context: ExtensionContext) {
   languages.registerHoverProvider(LANG_ID, {
-    provideHover(document, position, token) {
+    provideHover(document, position, _token) {
       const hoveredLine = document.lineAt(position.line);
       const lineStr = hoveredLine.text;
 

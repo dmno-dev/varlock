@@ -33,7 +33,7 @@
     "globals": "^16.3.0",
     "turbo": "^2.5.5",
     "typescript": "catalog:",
-    "typescript-eslint": "^8.38.0"
+    "typescript-eslint": "^8.39.0"
   },
   "pnpm": {
     "overrides": {
@@ -44,5 +44,5 @@
     "node": ">=22",
     "pnpm": ">=10"
   },
-  "packageManager": "pnpm@10.13.1"
+  "packageManager": "pnpm@10.14.0"
 }

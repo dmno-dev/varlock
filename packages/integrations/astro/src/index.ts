@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 import Debug from 'debug';
 import { varlockVitePlugin, varlockLoadedEnv } from '@varlock/vite-integration';
 import type { AstroIntegration } from 'astro';
-import { initVarlockEnv, scanForLeaks } from 'varlock/env';
 
 const debug = Debug('varlock:astro-integration');
 

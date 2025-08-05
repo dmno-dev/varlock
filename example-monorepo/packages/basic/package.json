@@ -18,7 +18,7 @@
     "openai": "^5.10.2",
     "varlock": "link:../../../packages/varlock"
   },
-  "packageManager": "pnpm@10.13.1",
+  "packageManager": "pnpm@10.14.0",
   "devDependencies": {
     "@types/node": "catalog:"
   }

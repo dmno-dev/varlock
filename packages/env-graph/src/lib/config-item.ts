@@ -314,7 +314,6 @@ export class ConfigItem {
       } else if (err instanceof Error) {
         const validationError = new ValidationError('Unexpected error during validation');
         validationError.cause = err;
-        console.log(err);
         this.validationErrors = [validationError];
       } else {
         const validationError = new ValidationError(`Unexpected non-error thrown during validation - ${err}`);

@@ -1,4 +1,3 @@
-import { debug } from './lib/debug';
 import { redactString } from './lib/redaction';
 
 import type { SerializedEnvGraph } from '../serialized-env-graph';
@@ -138,6 +137,7 @@ export function scanForLeaks(
 
         // error stack can gets awkwardly buried since we're so deep in the internals
         // so we'll write a nicer error message to help the user debug
+        // eslint-disable-next-line no-console
         console.error([
           '',
           `🚨 ${'DETECTED LEAKED SENSITIVE CONFIG'} 🚨`,
@@ -212,6 +212,7 @@ export function initVarlockEnv(opts?: {
       if (opts?.setProcessEnv !== false && itemValue !== undefined) process.env[itemKey] = String(itemValue);
     }
   } catch (err) {
+    // eslint-disable-next-line no-console
     console.error('failed to load varlock env', err, process.env.__VARLOCK_ENV);
   }
   initializedEnv = true;

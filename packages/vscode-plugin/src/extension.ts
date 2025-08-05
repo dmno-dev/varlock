@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { ExtensionContext } from 'vscode';
 
 import { addHoverProvider } from './hover-provider';

@@ -1,3 +1,5 @@
+/* eslint-disable no-console */
+
 import { execSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import type { Plugin } from 'vite';
@@ -67,7 +69,7 @@ function reloadConfig() {
 reloadConfig();
 
 export function varlockVitePlugin(
-  options?: {}, // TODO: add options? like allow injecting sensitive config?
+  _options?: {}, // TODO: add options? like allow injecting sensitive config?
 ): Plugin {
   return {
     name: 'inject-varlock-config',
