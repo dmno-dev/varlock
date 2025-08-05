@@ -1,6 +1,6 @@
 <template>
   <!-- Mobile-only dialog -->
-  <transition name="dialog-fade">
+  <transition name="dialog-slide">
     <div
       v-if="showMobileDialog"
       class="mobile-dialog-overlay"
@@ -39,27 +39,17 @@ function hideMobileDialog() {
 }
 
 onMounted(() => {
-  console.log('MobileStarDialog component mounted');
   if (typeof window !== 'undefined') {
     const starArrowMobileDialogShown = localStorage.getItem('starArrowMobileDialogShown');
     
     // Check if we're on mobile (screen width <= 600px)
     const isMobile = window.innerWidth <= 600;
     
-    console.log('MobileStarDialog Debug:', {
-      isMobile,
-      windowWidth: window.innerWidth,
-      starArrowMobileDialogShown
-    });
-    
     if (isMobile && starArrowMobileDialogShown !== '1') {
-      console.log('Showing mobile dialog');
-      showMobileDialog.value = true;
-      // setTimeout(() => {
-      //   hideMobileDialog();
-      // }, 5000);
-    } else {
-      console.log('Not showing mobile dialog - conditions not met');
+      // Show dialog after 3 seconds to allow page to fully load
+      setTimeout(() => {
+        showMobileDialog.value = true;
+      }, 3000);
     }
   }
 });
@@ -73,22 +63,31 @@ onMounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: transparent;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
   z-index: 1000;
-  padding: 1rem;
+  padding: 0;
+  pointer-events: none;
+}
+
+.mobile-dialog-overlay > * {
+  pointer-events: auto;
 }
 
 .mobile-dialog {
   background: var(--brand-yellow);
   border: 3px solid var(--brand-red);
-  border-radius: 12px;
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
   box-shadow: 4px 4px 0 #000;
-  max-width: 90vw;
-  width: 320px;
+  width: 100%;
+  height: 25vh;
+  max-height: 250px;
   font-family: var(--font-pixel);
+  display: flex;
+  flex-direction: column;
 }
 
 .mobile-dialog-header {
@@ -97,6 +96,7 @@ onMounted(() => {
   align-items: center;
   padding: 1rem 1rem 0.5rem 1rem;
   border-bottom: 2px solid var(--brand-red);
+  flex-shrink: 0;
 }
 
 .mobile-dialog-header h3 {
@@ -124,6 +124,10 @@ onMounted(() => {
 .mobile-dialog-content {
   padding: 1rem;
   text-align: center;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .mobile-dialog-content p {
@@ -155,12 +159,18 @@ onMounted(() => {
   transform: translateY(0);
 }
 
-.dialog-fade-enter-active, .dialog-fade-leave-active {
-  transition: opacity 0.3s ease;
+.dialog-slide-enter-active, .dialog-slide-leave-active {
+  transition: all 0.3s ease;
 }
 
-.dialog-fade-enter-from, .dialog-fade-leave-to {
+.dialog-slide-enter-from {
   opacity: 0;
+  transform: translateY(100%);
+}
+
+.dialog-slide-leave-to {
+  opacity: 0;
+  transform: translateY(100%);
 }
 
 /* Only show mobile dialog on mobile devices */
