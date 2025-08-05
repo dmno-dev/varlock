@@ -1,5 +1,11 @@
 # @env-spec/parser
 
+## 0.0.4
+
+### Patch Changes
+
+- [#111](https://github.com/dmno-dev/varlock/pull/111) [`429b7cc`](https://github.com/dmno-dev/varlock/commit/429b7ccf084f9d7630f31e0fcb9e5366c1c199a4) Thanks [@theoephraim](https://github.com/theoephraim)! - update deps
+
 ## 0.0.3
 
 ### Patch Changes

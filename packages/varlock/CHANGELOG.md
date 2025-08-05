@@ -1,5 +1,18 @@
 # varlock
 
+## 0.0.8
+
+### Patch Changes
+
+- [#98](https://github.com/dmno-dev/varlock/pull/98) [`f4ed06e`](https://github.com/dmno-dev/varlock/commit/f4ed06eb62c7aa0bc858e0e710e620bd330604fa) Thanks [@philmillman](https://github.com/philmillman)! - add internal export
+
+- [#109](https://github.com/dmno-dev/varlock/pull/109) [`1bc2650`](https://github.com/dmno-dev/varlock/commit/1bc26508760c8dd4940393f40e94b00d9a2f2688) Thanks [@theoephraim](https://github.com/theoephraim)! - ignore .envrc files - only .env and .env.\* will be loaded
+
+- [#111](https://github.com/dmno-dev/varlock/pull/111) [`429b7cc`](https://github.com/dmno-dev/varlock/commit/429b7ccf084f9d7630f31e0fcb9e5366c1c199a4) Thanks [@theoephraim](https://github.com/theoephraim)! - update deps
+
+- Updated dependencies [[`429b7cc`](https://github.com/dmno-dev/varlock/commit/429b7ccf084f9d7630f31e0fcb9e5366c1c199a4)]:
+  - @env-spec/parser@0.0.4
+
 ## 0.0.7
 
 ### Patch Changes
