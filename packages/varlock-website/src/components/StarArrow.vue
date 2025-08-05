@@ -1,7 +1,9 @@
 <template>
   <div class="star-arrow-container">
-    <div class="star-arrow-label" title="Star varlock on GitHub">★</div>
-    <div class="star-arrow-img">→</div>
+    <div class="star-arrow-star" title="Star varlock on GitHub">
+      <img src="https://varlock-pixel-art.dmno.workers.dev/icons/star.png" />
+    </div>
+    <div class="star-arrow-arrow">→</div>
     <transition name="popup-fade">
       <div
         v-if="showPopup"
@@ -52,21 +54,16 @@ onMounted(() => {
     display: none;
   }
 }
-.star-arrow-label {
-  font-family: var(--font-pixel);
-  color: var(--brand-red);
-  font-size: 1.1rem;
-  letter-spacing: 1px;
-  text-shadow: 2px 2px 0 #000, 0 0 2px #fff;
+.star-arrow-star {
   margin-bottom: 0.2rem;
   white-space: nowrap;
-  animation: arrow-label-pulse 2s infinite;
+  animation: arrow-label-pulse 3s infinite;
 }
-.star-arrow-img {
-  font-size: 2rem;
+.star-arrow-arrow {
+  font-size: .75rem;
   margin-left: 0.2rem;
-  margin-right: 0.2rem;
-  color: var(--brand-red);
+  margin-right: 0rem;
+  /* color: var(--brand-yellow); */
   /* text-shadow: 2px 2px 0 #000, 0 0 2px #fff; */
   /* animation: arrow-bounce 1.2s infinite cubic-bezier(.5,1.8,.5,1); */
 }
@@ -75,8 +72,14 @@ onMounted(() => {
   50% { transform: translateY(10px) rotate(20deg); }
 }
 @keyframes arrow-label-pulse {
-  0%, 100% { color: var(--brand-red); text-shadow: 2px 2px 0 #000, 0 0 2px #fff; }
-  50% { color: var(--brand-yellow); text-shadow: 2px 2px 0 #000, 0 0 8px var(--brand-yellow); }
+  0%, 100% {
+    filter: drop-shadow(0 0 0.75rem rgba(255, 217, 0, 0));
+    /* color: var(--brand-red); text-shadow: 2px 2px 0 #000, 0 0 2px #fff; */
+  }
+  50% {
+    filter: drop-shadow(0 0 0.25rem rgb(255, 217, 0));
+    color: var(--brand-yellow); text-shadow: 2px 2px 0 #000, 0 0 8px var(--brand-yellow);
+  }
 }
 .star-arrow-popup {
   position: absolute;
