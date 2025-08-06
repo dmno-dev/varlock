@@ -7,7 +7,7 @@ export async function checkIsFileGitIgnored(path: string, warnIfNotGitRepo = fal
   } catch (err) {
     const stderr = (err as any).stderr as string;
     // git is not installed, so we don't know
-    if (stderr.includes('command not found')) return undefined;
+    if (stderr.includes('not found')) return undefined;
     // other file related issues could throw this
     if ((err as any).code === 'ENOENT') return undefined;
     // `git check-ignore -q` exits with code 1 but no other error if is not ignored
