@@ -1,0 +1,120 @@
+---
+title: Docker
+description: Using varlock with Docker containers and CI/CD pipelines
+---
+
+Varlock provides an official Docker image for use in containerized environments and CI/CD pipelines. This makes it easy to integrate varlock into your Docker workflows and ensures consistent behavior across different environments.
+
+## Quick Start
+
+```bash
+# Pull the latest version
+docker pull dmno/varlock:latest
+
+# Run varlock help
+docker run --rm dmno/varlock:latest --help
+
+# Run varlock load in a directory
+docker run --rm -v $(pwd):/work -w /work -e PWD=/work dmno/varlock:latest load
+```
+
+## Available Tags
+
+- `dmno/varlock:latest` - Latest stable release
+- `dmno/varlock:1.2.3` - Specific version (replace with actual version)
+
+## Usage Examples
+
+### Basic Usage
+
+```bash
+# Validate and load environment variables
+docker run --rm -v $(pwd):/work -w /work -e PWD=/work dmno/varlock:latest load
+
+# Run a command with loaded environment variables
+docker run --rm -v $(pwd):/work -w /work -e PWD=/work dmno/varlock:latest run -- node app.js
+```
+
+### CI/CD Pipeline
+
+```yaml
+# GitHub Actions example
+- name: Validate environment schema
+  run: |
+    docker run --rm \
+      -v ${{ github.workspace }}:/work \
+      -w /work \
+      -e PWD=/work \
+      dmno/varlock:latest load
+```
+
+### Multi-stage Docker Builds
+
+Use varlock in multi-stage builds to copy the binary into your application:
+
+```dockerfile
+# Use varlock in a multi-stage build
+FROM dmno/varlock:latest as varlock
+
+FROM node:18-alpine
+COPY --from=varlock /usr/local/bin/varlock /usr/local/bin/varlock
+
+# Now varlock is available in your application container
+RUN varlock --help
+```
+
+### Docker Compose
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+services:
+  app:
+    build: .
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: ["varlock", "run", "--", "node", "app.js"]
+```
+
+## Security
+
+The Docker image is built from the official varlock binary releases and includes:
+
+- Minimal Alpine Linux base for reduced attack surface
+- Non-root user execution (when possible)
+- Regular security updates through Alpine package updates
+
+## Troubleshooting
+
+### Permission Issues
+
+If you encounter permission issues when mounting volumes:
+
+```bash
+# Run with appropriate user permissions
+docker run --rm -u $(id -u):$(id -g) -v $(pwd):/work -w /work -e PWD=/work dmno/varlock:latest load
+```
+
+### Network Issues
+
+If you need to access external services (like 1Password CLI):
+
+```bash
+# Pass through host network
+docker run --rm --network host -v $(pwd):/work -w /work -e PWD=/work dmno/varlock:latest load
+```
+
+## Building Locally
+
+To build the Docker image locally:
+
+```bash
+# Build with specific version
+docker build --build-arg VARLOCK_VERSION=1.2.3 -t varlock:local .
+
+# Build with latest version
+docker build --build-arg VARLOCK_VERSION=latest -t varlock:local .
+``` 
