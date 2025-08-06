@@ -58,9 +58,12 @@ npx varlock init
 # Or install as standalone binary
 brew install dmno-dev/tap/varlock # via homebrew
 curl -sSfL https://varlock.dev/install.sh | sh -s # via cURL
-```
 
-See the full [installation docs](https://varlock.dev/getting-started/installation/). 
+# Or use the official Docker image
+docker pull dmno/varlock:latest
+```
+See the full [installation docs](https://varlock.dev/getting-started/installation/) or the [Docker guide](https://varlock.dev/guides/docker/) for more information.
+
 
 ## Workflow
 
