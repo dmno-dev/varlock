@@ -93,7 +93,7 @@ export default defineConfig({
             { label: 'Astro', slug: 'integrations/astro' },
             { label: 'Other languages', slug: 'integrations/other-languages' },
             { label: 'AI Tools', slug: 'guides/ai-tools' },
-            { label: 'Docker', slug: 'guides/docker'},
+            { label: 'Docker', slug: 'guides/docker' },
           ],
         },
         {
