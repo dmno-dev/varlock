@@ -3,7 +3,7 @@ import { debug } from './lib/debug';
 
 export function patchGlobalResponse() {
   debug('⚡️ PATCHING global Response');
-  if (!(globalThis.Response as any)._patchedByVarlock) {
+  if ((globalThis.Response as any)._patchedByVarlock) {
     debug('> already patched');
     return;
   }
