@@ -3,25 +3,25 @@ title: Docker
 description: Using varlock with Docker containers and CI/CD pipelines
 ---
 
-Varlock provides an official Docker image for use in containerized environments and CI/CD pipelines. This makes it easy to integrate varlock into your Docker workflows and ensures consistent behavior across different environments.
+Varlock provides an official Docker image for use in containerized environments and CI/CD pipelines. The image is hosted on GitHub Container Registry (GHCR) and makes it easy to integrate varlock into your Docker workflows and ensures consistent behavior across different environments.
 
 ## Quick Start
 
 ```bash
 # Pull the latest version
-docker pull dmno/varlock:latest
+docker pull ghcr.io/dmno-dev/varlock:latest
 
 # Run varlock help
-docker run --rm dmno/varlock:latest --help
+docker run --rm ghcr.io/dmno-dev/varlock:latest --help
 
 # Run varlock load in a directory
-docker run --rm -v $(pwd):/work -w /work -e PWD=/work dmno/varlock:latest load
+docker run --rm -v $(pwd):/work -w /work -e PWD=/work ghcr.io/dmno-dev/varlock:latest load
 ```
 
 ## Available Tags
 
-- `dmno/varlock:latest` - Latest stable release
-- `dmno/varlock:1.2.3` - Specific version (replace with actual version)
+- `ghcr.io/dmno-dev/varlock:latest` - Latest stable release
+- `ghcr.io/dmno-dev/varlock:1.2.3` - Specific version (replace with actual version)
 
 ## Usage Examples
 
@@ -29,10 +29,10 @@ docker run --rm -v $(pwd):/work -w /work -e PWD=/work dmno/varlock:latest load
 
 ```bash
 # Validate and load environment variables
-docker run --rm -v $(pwd):/work -w /work -e PWD=/work dmno/varlock:latest load
+docker run --rm -v $(pwd):/work -w /work -e PWD=/work ghcr.io/dmno-dev/varlock:latest load
 
 # Run a command with loaded environment variables
-docker run --rm -v $(pwd):/work -w /work -e PWD=/work dmno/varlock:latest run -- node app.js
+docker run --rm -v $(pwd):/work -w /work -e PWD=/work ghcr.io/dmno-dev/varlock:latest run -- node app.js
 ```
 
 ### CI/CD Pipeline
@@ -45,7 +45,7 @@ docker run --rm -v $(pwd):/work -w /work -e PWD=/work dmno/varlock:latest run --
       -v ${{ github.workspace }}:/work \
       -w /work \
       -e PWD=/work \
-      dmno/varlock:latest load
+      ghcr.io/dmno-dev/varlock:latest load
 ```
 
 ### Multi-stage Docker Builds
@@ -54,7 +54,7 @@ Use varlock in multi-stage builds to copy the binary into your application:
 
 ```dockerfile
 # Use varlock in a multi-stage build
-FROM dmno/varlock:latest as varlock
+FROM ghcr.io/dmno-dev/varlock:latest AS varlock
 
 FROM node:18-alpine
 COPY --from=varlock /usr/local/bin/varlock /usr/local/bin/varlock
@@ -95,8 +95,7 @@ If you encounter permission issues when mounting volumes:
 
 ```bash
 # Run with appropriate user permissions
-docker run --rm -u $(id -u):$(id -g) -v $(pwd):/work -w /work -e PWD=/work dmno/varlock:latest load
-```
+docker run --rm -u $(id -u):$(id -g) -v $(pwd):/work -w /work -e PWD=/work ghcr.io/dmno-dev/varlock:latest load
 
 ### Network Issues
 
@@ -104,8 +103,7 @@ If you need to access external services (like 1Password CLI):
 
 ```bash
 # Pass through host network
-docker run --rm --network host -v $(pwd):/work -w /work -e PWD=/work dmno/varlock:latest load
-```
+docker run --rm --network host -v $(pwd):/work -w /work -e PWD=/work ghcr.io/dmno-dev/varlock:latest load
 
 ## Building Locally
 

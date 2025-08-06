@@ -60,7 +60,7 @@ brew install dmno-dev/tap/varlock # via homebrew
 curl -sSfL https://varlock.dev/install.sh | sh -s # via cURL
 
 # Or use the official Docker image
-docker pull dmno/varlock:latest
+docker pull ghcr.io/dmno-dev/varlock:latest
 ```
 See the full [installation docs](https://varlock.dev/getting-started/installation/) or the [Docker guide](https://varlock.dev/guides/docker/) for more information.
 
@@ -97,6 +97,7 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 | [@varlock/vite-integration](packages/integrations/vite) | [![npm version](https://img.shields.io/npm/v/@varlock/vite-integration.svg)](https://npmjs.com/package/@varlock/vite-integration) |
 | [@env-spec/parser](packages/env-spec-parser) | [![npm version](https://img.shields.io/npm/v/@env-spec/parser.svg)](https://npmjs.com/package/@env-spec/parser) |
 | [@env-spec VSCode extension](packages/vscode-plugin) | [VSCode Marketplace](https://marketplace.visualstudio.com/items?itemName=varlock.env-spec-language), [Open VSX Registry](https://open-vsx.org/extension/varlock/env-spec-language) |
+| [varlock Docker image](Dockerfile) | [GitHub Container Registry](https://github.com/orgs/dmno-dev/packages/container/package/varlock) |
 
 ## Development & Contribution
 

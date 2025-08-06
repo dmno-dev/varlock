@@ -123,6 +123,9 @@ jobs:
     needs: release-binaries
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'varlock@')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
       
@@ -140,11 +143,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -153,8 +157,8 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            dmno/varlock:${{ env.RELEASE_VERSION }}
-            dmno/varlock:latest
+            ghcr.io/dmno-dev/varlock:${{ env.RELEASE_VERSION }}
+            ghcr.io/dmno-dev/varlock:latest
           build-args: |
             VARLOCK_VERSION=${{ env.RELEASE_VERSION }}
             VARLOCK_ARCH=linux-x64
