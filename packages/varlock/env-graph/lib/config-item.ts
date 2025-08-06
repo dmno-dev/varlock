@@ -26,12 +26,20 @@ export type ConfigItemDefAndSource = {
 
 
 export class ConfigItem {
+  // annoyingly we cannot use readonly if we want to support `erasableSyntaxOnly`
+  #envGraph: EnvGraph;
+  #key: string;
+
   constructor(
-    readonly envGraph: EnvGraph,
-    readonly key: string,
+    _envGraph: EnvGraph,
+    _key: string,
   ) {
-    // nothing to do here?
+    this.#envGraph = _envGraph;
+    this.#key = _key;
   }
+
+  get envGraph() { return this.#envGraph; }
+  get key() { return this.#key; }
 
   defs: Array<ConfigItemDefAndSource> = [];
   addDef(itemDef: ConfigItemDef, source: EnvGraphDataSource) {

@@ -8,10 +8,10 @@
 
 
 import { describe, it, expect } from 'vitest';
-import { DotEnvFileDataSource, EnvGraph } from '../src';
-import { ResolutionError, SchemaError } from '../src/lib/errors';
-import { Resolver } from '../src/lib/resolver';
 import { outdent } from 'outdent';
+import { DotEnvFileDataSource, EnvGraph } from '../index';
+import { ResolutionError, SchemaError } from '../lib/errors';
+import { Resolver } from '../lib/resolver';
 
 // define special increment resolver used only for tests
 class IncrementResolver extends Resolver {

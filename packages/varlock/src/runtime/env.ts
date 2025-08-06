@@ -1,7 +1,6 @@
 import { redactString } from './lib/redaction';
 
-import type { SerializedEnvGraph } from '../serialized-env-graph';
-
+import type { SerializedEnvGraph } from '../../env-graph';
 
 // TODO: would like to move all of the redaction utils out of this file
 // but its complicated since it is imported by code that may be run in the backend and frontend

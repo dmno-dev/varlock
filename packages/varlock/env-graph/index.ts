@@ -4,8 +4,9 @@ export { EnvGraph, type SerializedEnvGraph } from './lib/env-graph';
 export {
   EnvSourceParseError, FileBasedDataSource, DotEnvFileDataSource, ProcessEnvDataSource,
 } from './lib/data-source';
-export { Resolver } from './lib/resolver';
+export { Resolver, StaticValueResolver } from './lib/resolver';
 export { ConfigItem } from './lib/config-item';
 export {
+  VarlockError,
   ConfigLoadError, SchemaError, ValidationError, CoercionError, ResolutionError,
 } from './lib/errors';

@@ -15,5 +15,10 @@
     "esModuleInterop": true,
     "verbatimModuleSyntax": true,
     "customConditions": ["ts-src"],
-  }
+  },
+  "include": [
+    "src/**/*.ts",
+    "env-graph/**/*.ts",
+    "*.ts"
+  ],
 }
