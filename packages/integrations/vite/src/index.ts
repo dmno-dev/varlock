@@ -14,6 +14,8 @@ import { SerializedEnvGraph } from 'varlock';
 
 import { createReplacerTransformFn } from './transform';
 
+// enables throwing when user accesses a bad key on ENV
+(globalThis as any).__varlockThrowOnMissingKeys = true;
 
 // need to track original process.env, since we will be modifying it
 const originalProcessEnv = { ...process.env };
@@ -83,7 +85,9 @@ function reloadConfig() {
 reloadConfig();
 
 export function varlockVitePlugin(
-  _vitePluginOptions?: {
+  vitePluginOptions?: {
+    /** controls if/how varlock init code is injected into the built SSR application code */
+    ssrInjectMode?: 'auto-load' | 'init-only' | 'resolved-env',
   }, // TODO: add options? like allow injecting sensitive config?
 ): Plugin {
   return {
@@ -93,6 +97,7 @@ export function varlockVitePlugin(
     // hook to modify config before it is resolved
     async config(config, env) {
       debug('vite plugin - config fn called');
+
       isDevMode = env.command === 'serve';
 
       const allPlugins = config.plugins?.flatMap((p) => p);
@@ -101,12 +106,6 @@ export function varlockVitePlugin(
           detectedPreset = DETECT_PRESETS_USING_PLUGINS[p.name as keyof typeof DETECT_PRESETS_USING_PLUGINS];
         }
       });
-
-      if (isFirstLoad) {
-        isFirstLoad = false;
-      } else if (isDevMode) {
-        reloadConfig();
-      }
 
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
 
@@ -133,9 +132,18 @@ export function varlockVitePlugin(
         }
       }
     },
-    // hook tp configure vite dev server
+    // hook to configure vite dev server
     async configureServer(server) {
       debug('vite plugin - configureServer fn called');
+
+      // this gets re-triggered after .env file updates
+      // TODO: be smarter about only reloading if the env files changed?
+      if (isFirstLoad) {
+        isFirstLoad = false;
+      } else if (isDevMode) {
+        reloadConfig();
+      }
+
       if (!configIsValid) {
         // triggers the built-in vite error overlay
         server.middlewares.use((req, res, next) => {
@@ -164,43 +172,66 @@ export function varlockVitePlugin(
       if (moduleIds[0] === id) isEntry = true;
 
       if (isEntry) {
+        // using env.command (in config hook) is misleading
+        // because some frameworks (react router) boot dev servers during the build process
+        // even during the build, there are multiple environments
+        // but at least this seems to work for our needs
+        const isDevEnv = this.environment.mode === 'dev';
+
         const injectCode = [
           '// INJECTED BY @varlock/vite-integration ----',
           'globalThis.__varlockThrowOnMissingKeys = true;',
         ];
 
-        let injectInitCode = false;
-        let injectResolvedEnv = false;
+        // on the code intended for the backend we'll inject init logic
+        // and code to load our env, or the already resolved env
+        // TODO: keep an eye on environments API, as single ssr flag may be phased out
+        if (options?.ssr) {
+          let ssrInjectMode = vitePluginOptions?.ssrInjectMode;
 
-        // This will likely end up having more cases to detect
-        if (detectedPreset === 'cloudflare-workers' && options?.ssr) {
-          injectInitCode = true;
-          injectResolvedEnv = true;
-        }
+          // This will likely end up having more cases to detect
+          if (detectedPreset === 'cloudflare-workers') {
+            ssrInjectMode ??= 'resolved-env';
+          }
 
-        if (isDevMode && !injectResolvedEnv) {
-          injectCode.push(
-            '// NOTE - __varlockValidKeys is only injected during development',
-            `globalThis.__varlockValidKeys = ${JSON.stringify(Object.keys(varlockLoadedEnv?.config || {}))};`,
-          );
-        }
+          // default to injecting varlock init code only
+          ssrInjectMode ??= 'init-only';
 
-        if (injectResolvedEnv) {
-          injectCode.push(
-            `globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`,
-          );
-        }
-        if (injectInitCode) {
-          injectCode.push(
-            'import { initVarlockEnv } from \'varlock/env\';',
-            'import { patchGlobalConsole } from \'varlock/patch-console\';',
-            'import { patchGlobalServerResponse } from \'varlock/patch-server-response\';',
-            'import { patchGlobalResponse } from \'varlock/patch-response\';',
-            'initVarlockEnv();',
-            'patchGlobalConsole();',
-            'patchGlobalServerResponse();',
-            'patchGlobalResponse();',
-          );
+          // in dev mode, we only need to inject init code
+          // because we'll already have the resolved env available
+          // from the vite plugin itself already loading it
+          if (isDevEnv) ssrInjectMode = 'init-only';
+
+          if (ssrInjectMode === 'auto-load') {
+            injectCode.push(
+              "import 'varlock/auto-load';",
+            );
+          } else {
+            if (ssrInjectMode === 'resolved-env') {
+              injectCode.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
+            }
+            // TODO: we may want to move this to a single module we import
+            injectCode.push(
+              "import { initVarlockEnv } from 'varlock/env';",
+              "import { patchGlobalConsole } from 'varlock/patch-console';",
+              "import { patchGlobalServerResponse } from 'varlock/patch-server-response';",
+              "import { patchGlobalResponse } from 'varlock/patch-response';",
+              'initVarlockEnv();',
+              'patchGlobalConsole();',
+              'patchGlobalServerResponse();',
+              'patchGlobalResponse();',
+            );
+          }
+
+        // this build is for the client
+        } else {
+          // in dev mode, on the client we'll inject a list of the existing keys, to provide better error messages
+          if (isDevEnv) {
+            injectCode.push(
+              '// NOTE - __varlockValidKeys is only injected during development',
+              `globalThis.__varlockValidKeys = ${JSON.stringify(Object.keys(varlockLoadedEnv?.config || {}))};`,
+            );
+          }
         }
 
         injectCode.push('// -------- ');
