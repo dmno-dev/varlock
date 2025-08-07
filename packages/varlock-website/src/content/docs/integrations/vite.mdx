@@ -12,12 +12,16 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
   <Badge npmPackage="@varlock/vite-integration" />
 </div>
 
-While many frameworks use Vite under the hood, some projects use Vite directly. When doing so, Vite does do some [automatic loading of .env files](https://vite.dev/guide/env-and-mode.html), but it is fairly limited.
+Some frameworks use Vite under the hood, and some projects use Vite directly. Either way, often there is some [automatic loading of .env files](https://vite.dev/guide/env-and-mode.html) happening, but it is fairly limited. To integrate varlock into a Vite-powered application, you must use our [`@varlock/vite-integration`](https://www.npmjs.com/package/@varlock/vite-integration) package, which is a [Vite plugin](https://vite.dev/guide/using-plugins.html).
 
-To integrate varlock into a Vite application, you must use our [`@varlock/vite-integration`](https://www.npmjs.com/package/@varlock/vite-integration) package, which is a [Vite plugin](https://vite.dev/guide/using-plugins.html).
+This plugin does a few things:
+- Loading and validating your .env files using varlock, injecting resolved env into process.env at build/dev time
+- Simplifies using env vars within your `vite.config.*` file
+- Build time replacements of `ENV.xxx` of non-sensitive items (no prefix required)
+- Within SSR contexts, injecting additional initialization code and enabling additional [security features](https://varlock.dev/guides/secrets/#security-enhancements)
 
-:::note[Vite-powered frameworks]
-This integration is intended for use with projects that are using Vite directly. For frameworks that use Vite under the hood, you may need a framework-specific integration.
+:::note[Astro users]
+For [Astro](https://astro.build) - which is also powered by Vite - you should use our [Astro integration](/integrations/astro/).
 :::
 
 ## Setup
@@ -26,7 +30,6 @@ This integration is intended for use with projects that are using Vite directly.
 - Node.js v22 or higher
 - Vite v5 or higher
 :::
-{/* check vite versions compat? */}
 
 <Steps>
 
@@ -54,6 +57,22 @@ This integration is intended for use with projects that are using Vite directly.
 </Steps>
 
 ---
+
+## SSR Code Injection
+Within SSR builds, this plugin will automatically inject varlock initialization code into your entry points.
+There are 3 "modes" to choose from and specify during plugin initialization. For example:
+
+```ts
+varlockVitePlugin({ ssrInjectMode: 'auto-load' })
+```
+
+- `init-only` - injects varlock initialization code, but does not load the env vars. You must still boot your app via `varlock run` in this mode.
+- `auto-load` - injects `import 'varlock/auto-load';` to load your resolved env via the varlock CLI
+- `resolved-env` - injects the fully resolved env data into your built code. This is useful in environments like Vercel/Cloudflare/etc where you have no control over your build command, and limited access to use CLI commands or the filesystem
+
+**If not specified, we will attempt to infer the correct mode based on the presence of other vite plugins and environment variables, which give us hints about how your application will be run.**
+Otherwise defaulting to `init-only`.
+
 
 ## Accessing environment variables
 
