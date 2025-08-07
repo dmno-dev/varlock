@@ -22,4 +22,4 @@ Some more considerations / complex cases:
 - in a monorepo, we may want to be able to reference values from another service
 
 
-> **NOTE** - this was previously set up as internal package, but was causing headaches with build and typescript, so we moved it within the main package, but keeping in a separate folder
+> **NOTE** - this was previously set up as internal package, but was causing headaches with build and TypeScript, so we moved it within the main package, but keeping in a separate folder
