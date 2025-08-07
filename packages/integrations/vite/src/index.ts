@@ -26,7 +26,7 @@ let isFirstLoad = !(process as any).__VARLOCK_ENV;
 
 debug('varlock vite plugin loaded. first load = ', isFirstLoad);
 
-let isDevMode: boolean;
+let isDevCommand: boolean;
 let configIsValid = true;
 export let varlockLoadedEnv: SerializedEnvGraph;
 let staticReplacements: Record<string, any> = {};
@@ -98,7 +98,7 @@ export function varlockVitePlugin(
     async config(config, env) {
       debug('vite plugin - config fn called');
 
-      isDevMode = env.command === 'serve';
+      isDevCommand = env.command === 'serve';
 
       const allPlugins = config.plugins?.flatMap((p) => p);
       allPlugins?.forEach((p) => {
@@ -110,7 +110,7 @@ export function varlockVitePlugin(
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
 
       if (!configIsValid) {
-        if (isDevMode) {
+        if (isDevCommand) {
           // adjust vite's setting so it doesnt bury the error messages
           config.clearScreen = false;
         } else {
@@ -140,7 +140,7 @@ export function varlockVitePlugin(
       // TODO: be smarter about only reloading if the env files changed?
       if (isFirstLoad) {
         isFirstLoad = false;
-      } else if (isDevMode) {
+      } else if (isDevCommand) {
         reloadConfig();
       }
 
@@ -176,7 +176,15 @@ export function varlockVitePlugin(
         // because some frameworks (react router) boot dev servers during the build process
         // even during the build, there are multiple environments
         // but at least this seems to work for our needs
-        const isDevEnv = this.environment.mode === 'dev';
+        let isDevEnv = false;
+
+        // ! environments are only supported in vite 6+
+        // so we try to make sure it still works in vite 5 too
+        if (this.environment) {
+          isDevEnv = this.environment.mode === 'dev';
+        } else {
+          isDevEnv = isDevCommand;
+        }
 
         const injectCode = [
           '// INJECTED BY @varlock/vite-integration ----',
