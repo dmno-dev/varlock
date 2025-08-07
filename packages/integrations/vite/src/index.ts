@@ -4,6 +4,7 @@ import { execSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 import Debug from 'debug';
+import MagicString from 'magic-string';
 
 import { initVarlockEnv } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
@@ -11,7 +12,8 @@ import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 import { patchGlobalResponse } from 'varlock/patch-response';
 import { SerializedEnvGraph } from 'varlock';
 
-import { definePlugin } from './define-plugin';
+import { createReplacerTransformFn } from './transform';
+
 
 // need to track original process.env, since we will be modifying it
 const originalProcessEnv = { ...process.env };
@@ -26,7 +28,32 @@ let isDevMode: boolean;
 let configIsValid = true;
 export let varlockLoadedEnv: SerializedEnvGraph;
 let staticReplacements: Record<string, any> = {};
-let rollupDefinePlugin: ReturnType<typeof definePlugin>;
+let replacerFn: ReturnType<typeof createReplacerTransformFn>;
+
+const DETECT_PRESETS_USING_PLUGINS = {
+  'vite-plugin-cloudflare': 'cloudflare-workers',
+} as const;
+
+let detectedPreset: typeof DETECT_PRESETS_USING_PLUGINS[keyof typeof DETECT_PRESETS_USING_PLUGINS] | null = null;
+
+function resetStaticReplacements() {
+  staticReplacements = {};
+  for (const itemKey in varlockLoadedEnv?.config) {
+    const itemInfo = varlockLoadedEnv.config[itemKey];
+    // TODO: probably reimplement static/dynamic controls here too
+    if (!itemInfo.isSensitive) {
+      const val = JSON.stringify(itemInfo.value);
+      staticReplacements[`ENV.${itemKey}`] = val;
+    }
+  }
+
+  debug('static replacements', staticReplacements);
+
+  replacerFn = createReplacerTransformFn({
+    replacements: staticReplacements,
+  });
+}
+
 
 let loadCount = 0;
 function reloadConfig() {
@@ -49,27 +76,15 @@ function reloadConfig() {
   patchGlobalServerResponse();
   patchGlobalResponse();
 
-
-  staticReplacements = {};
-  for (const itemKey in varlockLoadedEnv?.config) {
-    const itemInfo = varlockLoadedEnv.config[itemKey];
-    // TODO: probably reimplement static/dynamic controls here too
-    if (!itemInfo.isSensitive) {
-      const val = JSON.stringify(itemInfo.value);
-      staticReplacements[`ENV.${itemKey}`] = val;
-    }
-  }
-
-  rollupDefinePlugin = definePlugin({
-    replacements: staticReplacements,
-  });
+  resetStaticReplacements();
 }
 
 // we run this right away so the globals get injected into the vite.config file
 reloadConfig();
 
 export function varlockVitePlugin(
-  _options?: {}, // TODO: add options? like allow injecting sensitive config?
+  _vitePluginOptions?: {
+  }, // TODO: add options? like allow injecting sensitive config?
 ): Plugin {
   return {
     name: 'inject-varlock-config',
@@ -80,13 +95,19 @@ export function varlockVitePlugin(
       debug('vite plugin - config fn called');
       isDevMode = env.command === 'serve';
 
+      const allPlugins = config.plugins?.flatMap((p) => p);
+      allPlugins?.forEach((p) => {
+        if (p && 'name' in p && p.name in DETECT_PRESETS_USING_PLUGINS) {
+          detectedPreset = DETECT_PRESETS_USING_PLUGINS[p.name as keyof typeof DETECT_PRESETS_USING_PLUGINS];
+        }
+      });
+
       if (isFirstLoad) {
         isFirstLoad = false;
       } else if (isDevMode) {
         reloadConfig();
       }
 
-      // console.log('adding static replacements', staticReplacements);
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
 
       if (!configIsValid) {
@@ -131,14 +152,81 @@ export function varlockVitePlugin(
       }
     },
 
-    // Delegate replacement to our slightly modified rollup define plugin
-    transform(...args) {
-      // @ts-ignore
-      return rollupDefinePlugin.transform.call(this, ...args);
+    transform(code, id, options) {
+      // replace build-time ENV.x references
+      let magicString = replacerFn(this, code, id);
+
+      // we need to detect if this module is one of our worker entry points
+      // when running `vite build`, we could use `this.getModuleInfo(id).isEntry`
+      // but that doesnt work in dev, so we try to detect it another way
+      let isEntry = false;
+      const moduleIds = Array.from(this.getModuleIds());
+      if (moduleIds[0] === id) isEntry = true;
+
+      if (isEntry) {
+        const injectCode = [
+          '// INJECTED BY @varlock/vite-integration ----',
+          'globalThis.__varlockThrowOnMissingKeys = true;',
+        ];
+
+        let injectInitCode = false;
+        let injectResolvedEnv = false;
+
+        // This will likely end up having more cases to detect
+        if (detectedPreset === 'cloudflare-workers' && options?.ssr) {
+          injectInitCode = true;
+          injectResolvedEnv = true;
+        }
+
+        if (isDevMode && !injectResolvedEnv) {
+          injectCode.push(
+            '// NOTE - __varlockValidKeys is only injected during development',
+            `globalThis.__varlockValidKeys = ${JSON.stringify(Object.keys(varlockLoadedEnv?.config || {}))};`,
+          );
+        }
+
+        if (injectResolvedEnv) {
+          injectCode.push(
+            `globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`,
+          );
+        }
+        if (injectInitCode) {
+          injectCode.push(
+            'import { initVarlockEnv } from \'varlock/env\';',
+            'import { patchGlobalConsole } from \'varlock/patch-console\';',
+            'import { patchGlobalServerResponse } from \'varlock/patch-server-response\';',
+            'import { patchGlobalResponse } from \'varlock/patch-response\';',
+            'initVarlockEnv();',
+            'patchGlobalConsole();',
+            'patchGlobalServerResponse();',
+            'patchGlobalResponse();',
+          );
+        }
+
+        injectCode.push('// -------- ');
+
+        magicString ||= new MagicString(code);
+        magicString.prepend(`${injectCode.join('\n')}\n`);
+      }
+
+      if (!magicString) return null;
+      return {
+        code: magicString.toString(),
+        map: magicString.generateMap({ source: code, includeContent: true, hires: true }),
+      };
     },
     renderChunk(code, chunk) {
-      // @ts-ignore
-      return rollupDefinePlugin.transform.call(this, code, chunk.fileName);
+      // Not 100% positive this is necessary if we've already replaced in transform
+      // but the rollup-plugin-define we used as a reference did it, so we'll keep it
+
+      // replace build-time ENV.x references
+      const magicString = replacerFn(this, code, chunk.fileName);
+
+      if (!magicString) return null;
+      return {
+        code: magicString.toString(),
+        map: magicString.generateMap({ source: code, includeContent: true, hires: true }),
+      };
     },
 
     // this enables replacing %ENV.xxx% constants in html entry-point files
@@ -178,19 +266,7 @@ export function varlockVitePlugin(
         },
       );
 
-      const injectGlobalCode = [] as Array<string>;
-      injectGlobalCode.push('globalThis.__varlockThrowOnMissingKeys = true;');
-      if (isDevMode) {
-        injectGlobalCode.push(...[
-          '// NOTE - this is only injected during development',
-          `globalThis.__varlockValidKeys = ${JSON.stringify(Object.keys(varlockLoadedEnv?.config || {}))};`,
-        ]);
-      }
-
-      return {
-        html: replacedHtml,
-        tags: [{ tag: 'script', attrs: { type: 'module' }, children: injectGlobalCode.join('\n') }],
-      };
+      return replacedHtml;
     },
   };
 }
