@@ -1,5 +1,11 @@
 # varlock
 
+## 0.0.9
+
+### Patch Changes
+
+- [#114](https://github.com/dmno-dev/varlock/pull/114) [`86c02bf`](https://github.com/dmno-dev/varlock/commit/86c02bf7f5283c487c576e884699f94863b4773e) Thanks [@philmillman](https://github.com/philmillman)! - Fixed git not installed error
+
 ## 0.0.8
 
 ### Patch Changes
