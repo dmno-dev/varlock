@@ -1,0 +1,58 @@
+{
+  "name": "@varlock/github-action",
+  "description": "GitHub Action for varlock - load and validate environment variables with schema validation",
+  "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/varlock-github-action"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": ["dist", "action.yml"],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:verbose": "vitest --reporter=verbose"
+  },
+  "keywords": [
+    "varlock",
+    "github-action",
+    "env",
+    ".env",
+    "environment variables",
+    "env vars",
+    "config",
+    "security",
+    "validation",
+    "leak protection",
+    "github-actions",
+    "varlock-integration"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^"
+  },
+  "dependencies": {
+    "@actions/core": "^1.10.1",
+    "@actions/github": "^6.0.0",
+    "debug": "catalog:"
+  },
+  "devDependencies": {
+    "@types/debug": "catalog:",
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "vitest": "catalog:",
+    "varlock": "workspace:^"
+  }
+} 
