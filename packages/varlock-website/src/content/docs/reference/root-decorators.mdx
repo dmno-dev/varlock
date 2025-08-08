@@ -121,4 +121,54 @@ Enables automatic type generation based on your schema.
 ```
 </div>
 
+<div>
+### `@redactLogs`
+Controls whether sensitive config values are automatically redacted from console output. When enabled, any sensitive values will be replaced with `▒▒▒▒▒` in logs.
+
+**Options:**
+- `true` (default): Console logs are automatically redacted
+- `false`: Console logs are not redacted (useful for debugging)
+
+```env-spec
+# @redactLogs=false
+# ---
+
+# @sensitive
+SECRET_KEY=my-secret-value
+```
+
+```js
+console.log(SECRET_KEY)
+// This will log "my▒▒▒▒▒" instead of "my-secret-value" when @redactLogs=true
+```
+
+</div>
+
+:::caution
+There is a potential performance impact for both `@preventLeaks` and `@redactLogs` when enabled. It depends on the integration and how your application is served. Please [reach out](https://chat.dmno.dev) if you have any questions.
+
+We feel that they are beneficial enough to have them on by default but you can always opt out if you prefer.
+:::
+
+<div>
+### `@preventLeaks`
+Controls whether leak prevention is enabled. When enabled, varlock will scan outgoing HTTP responses to detect if sensitive values are being leaked.
+
+**Options:**
+- `true` (default): Leak detection is enabled
+- `false`: Leak detection is disabled (useful for debugging)
+
+```env-spec
+# @preventLeaks=false
+# ---
+
+# @sensitive
+SECRET_KEY=my-secret-value
+```
+
+![Leak prevention](../../../assets/demo-images/leak.png)
+_a sample leak detection warning in an Astro project_
+
+</div>
+
 </div>
