@@ -6,7 +6,7 @@ import { isCancel, select } from '@clack/prompts';
 import { define } from 'gunshi';
 
 import _ from '@env-spec/utils/my-dash';
-import { DotEnvFileDataSource } from '@env-spec/env-graph';
+import { DotEnvFileDataSource } from '../../../env-graph';
 import { envSpecUpdater, parseEnvSpecDotEnvFile } from '@env-spec/parser';
 import { checkIsFileGitIgnored } from '@env-spec/utils/git-utils';
 import { pathExists } from '@env-spec/utils/fs-utils';

@@ -3,7 +3,7 @@ import { gracefulExit } from 'exit-hook';
 
 import { VARLOCK_BANNER_COLOR } from '../lib/ascii-art';
 import { CliExitError } from './helpers/exit-error';
-import { EnvSourceParseError } from '@env-spec/env-graph';
+import { EnvSourceParseError } from '../../env-graph';
 import ansis from 'ansis';
 import { fmt } from './helpers/pretty-format';
 import { trackCommand, trackInstall } from './helpers/telemetry';

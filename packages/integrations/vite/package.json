@@ -49,10 +49,10 @@
     "@types/node": "catalog:",
     "ast-matcher": "^1.2.0",
     "magic-string": "^0.30.17",
-    "rollup": "^4.46.1",
+    "rollup": "^4.46.2",
     "tsup": "catalog:",
     "varlock": "workspace:^",
-    "vite": "^7.0.6",
+    "vite": "^7.1.0",
     "vitest": "catalog:"
   }
 }

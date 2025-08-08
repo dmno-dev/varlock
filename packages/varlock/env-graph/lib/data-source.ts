@@ -111,16 +111,19 @@ export class ProcessEnvDataSource extends EnvGraphDataSource {
 
 
 export class EnvSourceParseError extends Error {
+  location: {
+    path: string,
+    lineNumber: number,
+    colNumber: number,
+    lineStr: string,
+  };
+
   constructor(
     message: string,
-    public location: {
-      path: string,
-      lineNumber: number,
-      colNumber: number,
-      lineStr: string,
-    },
+    _location: EnvSourceParseError['location'],
   ) {
     super(message);
+    this.location = _location;
   }
 }
 

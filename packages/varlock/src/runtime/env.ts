@@ -1,7 +1,8 @@
 import { redactString } from './lib/redaction';
 
-import type { SerializedEnvGraph } from '../serialized-env-graph';
-
+import type { SerializedEnvGraph } from '../../env-graph';
+import { isBrowser } from '../lib/detect-runtime';
+import { debug } from './lib/debug';
 
 // TODO: would like to move all of the redaction utils out of this file
 // but its complicated since it is imported by code that may be run in the backend and frontend
@@ -125,6 +126,7 @@ export function scanForLeaks(
     file?: string,
   },
 ) {
+  debug('⚡️ varlock scanning for leaks');
   if (!toScan) return toScan;
 
   function scanStrForLeaks(strToScan: string) {
@@ -194,26 +196,43 @@ const envValues = {} as Record<string, any>;
 export const varlockSettings = {} as Record<string, any>;
 
 export function initVarlockEnv(opts?: {
-  setProcessEnv?: boolean,
+  allowFail?: boolean,
 }) {
-  // console.log('⚡️ INIT VARLOCK ENV!', initializedEnv, !!process.env.__VARLOCK_ENV);
-  try {
-    const serializedEnvData: SerializedEnvGraph = (
-      // when we inject resolved config at build time, we store it here
-      (globalThis as any).__varlockLoadedEnv
-      // otherwise if we inject via `varlock run` or have already loaded, it will be in process.env
-      || JSON.parse(process.env.__VARLOCK_ENV || '{}')
-    );
-    Object.assign(varlockSettings, serializedEnvData.settings);
-    resetRedactionMap(serializedEnvData);
-    for (const itemKey in serializedEnvData.config) {
-      const itemValue = serializedEnvData.config[itemKey].value;
-      envValues[itemKey] = itemValue;
-      if (opts?.setProcessEnv !== false && itemValue !== undefined) process.env[itemKey] = String(itemValue);
-    }
-  } catch (err) {
+  debug('⚡️ INIT VARLOCK ENV!', initializedEnv, !!(globalThis as any).__varlockLoadedEnv, !!process.env.__VARLOCK_ENV);
+
+  if (isBrowser) {
+    return;
+  }
+
+
+  let serializedEnvData: SerializedEnvGraph;
+  // when we inject resolved config at build time, we store it here
+  if ((globalThis as any).__varlockLoadedEnv) {
+    serializedEnvData = (globalThis as any).__varlockLoadedEnv;
+
+  // otherwise if we inject via `varlock run` or have already loaded, it will be in process.env
+  } else if (process.env.__VARLOCK_ENV) {
+    serializedEnvData = JSON.parse(process.env.__VARLOCK_ENV);
+  } else {
+    if (opts?.allowFail) return;
     // eslint-disable-next-line no-console
-    console.error('failed to load varlock env', err, process.env.__VARLOCK_ENV);
+    console.error([
+      '',
+      '🚨 initVarlockEnv failed  🚨',
+      'try rerunning your command via `varlock run`',
+      '',
+    ].join('\n'));
+    throw new Error('initVarlockEnv failed');
+  }
+  Object.assign(varlockSettings, serializedEnvData.settings);
+  resetRedactionMap(serializedEnvData);
+
+  const setProcessEnv = !process.env.__VARLOCK_ENV;
+
+  for (const itemKey in serializedEnvData.config) {
+    const itemValue = serializedEnvData.config[itemKey].value;
+    envValues[itemKey] = itemValue;
+    if (setProcessEnv && itemValue !== undefined) process.env[itemKey] = String(itemValue);
   }
   initializedEnv = true;
 }
@@ -221,13 +240,10 @@ export function initVarlockEnv(opts?: {
 // we will attempt to call initVarlockEnv automatically, but in most cases it should be called explicitly
 // note that if this is being imported in the browser, process.env may not exist, so we do this in a try/catch
 try {
-  if (
-    !initializedEnv
-    && ((globalThis as any).__varlockLoadedEnv || process.env.__VARLOCK_ENV)
-  ) {
+  if (!initializedEnv) {
     // if we are automatically loading because __VARLOCK_ENV is already set
     // then we assume process.env vars have also already been set (although might not harm anything?)
-    initVarlockEnv({ setProcessEnv: false });
+    initVarlockEnv({ allowFail: true });
   }
 } catch (err) {
   // expected that this will fail when process.env does not exist
@@ -259,6 +275,10 @@ const EnvProxy = new Proxy<TypedEnvSchema>({}, {
     if (typeof prop === 'symbol') return;
     // special cases to avoid throwing on invalid keys
     if (IGNORED_PROXY_KEYS.includes(prop)) return;
+
+    if (!isBrowser && !initializedEnv) {
+      throw new Error('varlock ENV not initialized');
+    }
 
     if (prop in envValues) return envValues[prop];
     if ((globalThis as any).__varlockThrowOnMissingKeys) {

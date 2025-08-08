@@ -1,6 +1,3 @@
-import { type SerializedEnvGraph } from './serialized-env-graph';
-export { type SerializedEnvGraph };
-
 import { checkForConfigErrors } from './cli/helpers/error-checks';
 import { loadVarlockEnvGraph } from './lib/load-graph';
 import { initVarlockEnv } from './runtime/env';
@@ -16,7 +13,8 @@ import {
   ValidationError,
   CoercionError,
   ResolutionError,
-} from '@env-spec/env-graph';
+  type SerializedEnvGraph,
+} from '../env-graph';
 
 export async function load() {
   // TODO: add some options
@@ -74,3 +72,4 @@ export { patchGlobalConsole } from './runtime/patch-console';
 export { patchGlobalServerResponse } from './runtime/patch-server-response';
 export { patchGlobalResponse } from './runtime/patch-response';
 export { ENV } from './runtime/env';
+export type { SerializedEnvGraph };

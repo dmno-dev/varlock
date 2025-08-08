@@ -1,15 +1,11 @@
 /*
-  This is adapted from https://www.npmjs.com/package/rollup-plugin-define
-
+  Used https://www.npmjs.com/package/rollup-plugin-define as a starting point
   Initially we were using @rollup/plugin-replace, but it would replace text in strings
 
   This instead replaces nodes in a parsed AST rather than text in a string.
-
   But we've simplified things slightly and removed some dependencies.
 */
-import type {
-  Plugin, PluginContext, TransformPluginContext, SourceDescription,
-} from 'rollup';
+import type { PluginContext, TransformPluginContext } from 'rollup';
 
 import MagicString from 'magic-string';
 import astMatcher from 'ast-matcher';
@@ -42,20 +38,23 @@ const SUPPORTED_FILES = ['js', 'ts', 'mjs', 'mts', 'cjs', 'cts', 'jsx', 'tsx', '
 
 type MatchersArray = Array<{ matcher: ReturnType<typeof astMatcher>, replacement: string }>;
 
-export function definePlugin(opts: {
+export function createReplacerTransformFn(opts: {
   replacements: Record<string, string>,
-}): Plugin {
+}) {
   const keys = Object.keys(opts.replacements);
   let matchers: MatchersArray;
   const extraMatchersForFileType: Record<string, MatchersArray> = {};
 
   const findAnyReplacementRegex = new RegExp(`(?:${keys.map(escapeStringRegexp).join('|')})`, 'g');
 
-  function transform(
-    this: { parse: TransformPluginContext['parse']; warn: TransformPluginContext['warn'] },
+  return function transform(
+    rollupPluginCtx: {
+      parse: TransformPluginContext['parse'];
+      warn: TransformPluginContext['warn']
+    },
     code: string,
     id: string,
-  ): SourceDescription | null {
+  ) {
     if (keys.length === 0) return null;
 
     const fileExt = id.split('.').pop() || '';
@@ -65,7 +64,7 @@ export function definePlugin(opts: {
 
     const parse = (codeToParse: string, source = code): ReturnType<PluginContext['parse']> => {
       try {
-        return this.parse(codeToParse, undefined);
+        return rollupPluginCtx.parse(codeToParse, undefined);
       } catch (error) {
         (error as Error).message += ` in ${source}`;
         throw error;
@@ -102,22 +101,9 @@ export function definePlugin(opts: {
       }
     });
 
-    if (edits.length === 0) {
-      // console.log(code);
-      return null;
-    }
+    if (edits.length === 0) return null;
 
-    return {
-      code: magicString.toString(),
-      map: magicString.generateMap({ source: code, includeContent: true, hires: true }),
-    };
-  }
-
-  return {
-    name: 'define',
-    transform,
-    renderChunk(code, chunk) {
-      return transform.call(this, code, chunk.fileName);
-    },
+    // return the MagicString so the plugin can make further modifications
+    return magicString;
   };
 }

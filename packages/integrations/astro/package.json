@@ -48,7 +48,7 @@
     "@types/debug": "catalog:",
     "@types/node": "catalog:",
     "@varlock/vite-integration": "workspace:*",
-    "astro": ">=5.12.4",
+    "astro": ">=5.12.8",
     "tsup": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"

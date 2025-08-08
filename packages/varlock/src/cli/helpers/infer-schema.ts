@@ -1,9 +1,8 @@
 import fs from 'node:fs/promises';
-import { DotEnvFileDataSource, EnvGraph } from '@env-spec/env-graph';
+import { DotEnvFileDataSource, EnvGraph, StaticValueResolver } from '../../../env-graph';
 import {
   envSpecUpdater, ParsedEnvSpecFile, ParsedEnvSpecStaticValue,
 } from '@env-spec/parser';
-import { StaticValueResolver } from '../../../../env-graph/src/lib/resolver';
 
 
 const PUBLIC_PREFIXES = [

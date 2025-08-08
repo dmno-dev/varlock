@@ -81,7 +81,6 @@
   "devDependencies": {
     "@clack/core": "^0.5.0",
     "@clack/prompts": "^0.11.0",
-    "@env-spec/env-graph": "workspace:*",
     "@env-spec/utils": "workspace:*",
     "@sindresorhus/is": "catalog:",
     "@types/debug": "catalog:",

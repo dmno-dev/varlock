@@ -22,4 +22,4 @@ Some more considerations / complex cases:
 - in a monorepo, we may want to be able to reference values from another service
 
 
-> **NOTE** - this repo is currently being bundled directly into varlock, rather than being built and published on its own
+> **NOTE** - this was previously set up as internal package, but was causing headaches with build and TypeScript, so we moved it within the main package, but keeping in a separate folder

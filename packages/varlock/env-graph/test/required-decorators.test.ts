@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import outdent from 'outdent';
-import { DotEnvFileDataSource, EnvGraph } from '../src';
+import { DotEnvFileDataSource, EnvGraph } from '../index';
 
 function requiredDecoratorTests(
   tests: Array<{

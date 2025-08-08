@@ -1,5 +1,5 @@
 import ansis from 'ansis';
-import { EnvGraph, ConfigItem, EnvSourceParseError } from '@env-spec/env-graph';
+import { EnvGraph, ConfigItem, EnvSourceParseError } from '../../../env-graph';
 import _ from '@env-spec/utils/my-dash';
 import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import { gracefulExit } from 'exit-hook';

@@ -1,8 +1,7 @@
 import ansis, { type AnsiColors, type AnsiStyles } from 'ansis';
 import _ from '@env-spec/utils/my-dash';
 
-import { ConfigItem } from '../../../env-graph/src/lib/config-item';
-import { VarlockError } from '../../../env-graph/src/lib/errors';
+import { ConfigItem, VarlockError } from '../../env-graph';
 import { redactString } from '../runtime/lib/redaction';
 
 type ColorMod = AnsiStyles | AnsiColors;
