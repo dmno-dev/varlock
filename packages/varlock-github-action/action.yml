@@ -1,0 +1,42 @@
+name: 'Varlock Environment Loader'
+description: 'Load and validate environment variables using varlock schema validation'
+author: 'dmno-dev'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  working-directory:
+    description: 'Directory containing .env.schema files'
+    required: false
+    default: '.'
+  environment:
+    description: 'Environment to load (e.g., production, development)'
+    required: false
+  show-summary:
+    description: 'Show a summary of loaded environment variables'
+    required: false
+    default: 'true'
+  fail-on-error:
+    description: 'Fail the action if validation errors are found'
+    required: false
+    default: 'true'
+  output-format:
+    description: 'Format for environment variable output (env, json)'
+    required: false
+    default: 'env'
+
+outputs:
+  summary:
+    description: 'Summary of loaded environment variables'
+    value: ${{ steps.varlock.outputs.summary }}
+  error-count:
+    description: 'Number of validation errors found'
+    value: ${{ steps.varlock.outputs.error-count }}
+  warning-count:
+    description: 'Number of validation warnings found'
+    value: ${{ steps.varlock.outputs.warning-count }}
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js' 
