@@ -12,7 +12,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # this is needed so that pushes to the version release branch will use the token we pass in below
           # otherwise the default token will be used, and we will not get an updated pkg.pr.new preview for that branch
