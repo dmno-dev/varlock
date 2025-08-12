@@ -9,4 +9,4 @@ export default defineConfig({
   clean: true,
   treeshake: true,
   external: ['varlock'],
-}); 
+});

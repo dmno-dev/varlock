@@ -1,15 +1,17 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import {
+  describe, it, expect, beforeEach, afterEach, vi,
+} from 'vitest';
 import { execSync } from 'child_process';
 import { existsSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
 // Import the actual functions from the action
-import { 
-  checkVarlockInstalled, 
-  checkForEnvFiles, 
-  runVarlockLoad, 
-  setEnvironmentVariables 
-} from './index';
+import {
+  checkVarlockInstalled,
+  checkForEnvFiles,
+  runVarlockLoad,
+  setEnvironmentVariables,
+} from '../src/index';
 
 // Mock the GitHub Actions core module for testing
 vi.mock('@actions/core', () => ({
@@ -30,10 +32,21 @@ vi.mock('@actions/core', () => ({
 }));
 
 describe('Varlock GitHub Action Integration Tests - Testing Actual Worker Functions', () => {
+  const testDir = join(__dirname);
+
   beforeEach(() => {
-    // Clean up any test files
+    // Clean up any test files from the test directory
     try {
-      execSync('rm -f .env.schema .env', { stdio: 'ignore' });
+      execSync(`rm -f ${join(testDir, '.env.schema')} ${join(testDir, '.env')}`, { stdio: 'ignore' });
+    } catch {
+      // Ignore errors if files don't exist
+    }
+  });
+
+  afterEach(() => {
+    // Clean up any test files from the test directory after each test
+    try {
+      execSync(`rm -f ${join(testDir, '.env.schema')} ${join(testDir, '.env')}`, { stdio: 'ignore' });
     } catch {
       // Ignore errors if files don't exist
     }
@@ -41,7 +54,7 @@ describe('Varlock GitHub Action Integration Tests - Testing Actual Worker Functi
 
   describe('End-to-end workflow', () => {
     it('should complete full workflow: check installation -> check files -> load -> parse', () => {
-      // Ensure the .env.schema file exists for this test
+      // Ensure the .env.schema file exists for this test in the test directory
       const envSchemaContent = `# @generateTypes(lang='ts', path='env.d.ts')
 # @defaultSensitive=false
 # @envFlag=APP_ENV
@@ -66,30 +79,32 @@ PORT=3000
 # Node environment
 # @example=development
 NODE_ENV=development`;
-      
-      writeFileSync('.env.schema', envSchemaContent);
-      
+
+      writeFileSync(join(testDir, '.env.schema'), envSchemaContent);
+
       // Verify the file was created and test the function immediately
-      expect(existsSync('.env.schema')).toBe(true);
-      const hasEnvFiles = checkForEnvFiles('.');
+      expect(existsSync(join(testDir, '.env.schema'))).toBe(true);
+      const hasEnvFiles = checkForEnvFiles(testDir);
       expect(hasEnvFiles).toBe(true);
-      
+
       // Step 1: Check varlock installation using actual function
       const varlockInstalled = checkVarlockInstalled();
       expect(typeof varlockInstalled).toBe('boolean');
-      
+
       // Step 3: Run varlock load using actual function
       try {
-        const inputs = { workingDirectory: '.', environment: undefined, showSummary: false, failOnError: false, outputFormat: 'env' as const };
+        const inputs = {
+          workingDirectory: testDir, environment: undefined, showSummary: false, failOnError: false, outputFormat: 'env' as const,
+        };
         const result = runVarlockLoad(inputs);
         expect(result.output).toBeDefined();
         expect(typeof result.output).toBe('string');
         expect(typeof result.errorCount).toBe('number');
         expect(typeof result.warningCount).toBe('number');
-        
+
         // Step 4: Parse environment variables using actual function
         setEnvironmentVariables(result.output, 'env');
-        
+
         // The function doesn't return anything, but we can verify it was called
         // by checking that no errors were thrown
         expect(true).toBe(true);
@@ -100,7 +115,7 @@ NODE_ENV=development`;
     });
 
     it('should handle JSON format workflow using actual functions', () => {
-      // Ensure the .env.schema file exists for this test
+      // Ensure the .env.schema file exists for this test in the test directory
       const envSchemaContent = `# @generateTypes(lang='ts', path='env.d.ts')
 # @defaultSensitive=false
 # @envFlag=APP_ENV
@@ -125,36 +140,38 @@ PORT=3000
 # Node environment
 # @example=development
 NODE_ENV=development`;
-      
-      writeFileSync('.env.schema', envSchemaContent);
-      
+
+      writeFileSync(join(testDir, '.env.schema'), envSchemaContent);
+
       // Verify the file was created
-      expect(existsSync('.env.schema')).toBe(true);
-      
+      expect(existsSync(join(testDir, '.env.schema'))).toBe(true);
+
       // Step 1: Check varlock installation using actual function
       const varlockInstalled = checkVarlockInstalled();
       expect(typeof varlockInstalled).toBe('boolean');
-      
+
       // Step 2: Check for environment files using actual function
-      const hasEnvFiles = checkForEnvFiles('.');
+      const hasEnvFiles = checkForEnvFiles(testDir);
       expect(hasEnvFiles).toBe(true);
-      
+
       // Step 3: Run varlock load with JSON format using actual function
       try {
-        const inputs = { workingDirectory: '.', environment: undefined, showSummary: false, failOnError: false, outputFormat: 'json' as const };
+        const inputs = {
+          workingDirectory: testDir, environment: undefined, showSummary: false, failOnError: false, outputFormat: 'json' as const,
+        };
         const result = runVarlockLoad(inputs);
         expect(result.output).toBeDefined();
         expect(typeof result.output).toBe('string');
         expect(typeof result.errorCount).toBe('number');
         expect(typeof result.warningCount).toBe('number');
-        
+
         // Step 4: Parse JSON environment variables using actual function
         setEnvironmentVariables(result.output, 'json');
-        
+
         // The function doesn't return anything, but we can verify it was called
         // by checking that no errors were thrown
         expect(true).toBe(true);
-        
+
         // Try to validate JSON structure
         try {
           const parsed = JSON.parse(result.output);
@@ -179,8 +196,10 @@ NODE_ENV=development`;
 
     it('should handle varlock execution errors in integration workflow', () => {
       // This test verifies the full workflow handles varlock errors gracefully
-      const inputs = { workingDirectory: '.', environment: undefined, showSummary: false, failOnError: false, outputFormat: 'env' as const };
-      
+      const inputs = {
+        workingDirectory: testDir, environment: undefined, showSummary: false, failOnError: false, outputFormat: 'env' as const,
+      };
+
       try {
         const result = runVarlockLoad(inputs);
         // If varlock succeeds, verify the result structure
@@ -197,12 +216,12 @@ NODE_ENV=development`;
 
     it('should handle missing environment files gracefully', () => {
       // Test the actual function with no environment files
-      const result = checkForEnvFiles('.');
+      const result = checkForEnvFiles(testDir);
       expect(result).toBe(false);
     });
 
     it('should handle invalid .env.schema files gracefully', () => {
-      // Create an invalid .env.schema file
+      // Create an invalid .env.schema file in the test directory
       const invalidEnvSchemaContent = `# @generateTypes(lang='ts', path='env.d.ts')
 # @defaultSensitive=false
 # @envFlag=APP_ENV
@@ -219,16 +238,18 @@ API_KEY=
 # Debug mode
 # @example=false
 DEBUG=false`;
-      
-      writeFileSync('.env.schema', invalidEnvSchemaContent);
-      
+
+      writeFileSync(join(testDir, '.env.schema'), invalidEnvSchemaContent);
+
       // Test that the file is detected
-      const hasEnvFiles = checkForEnvFiles('.');
+      const hasEnvFiles = checkForEnvFiles(testDir);
       expect(hasEnvFiles).toBe(true);
-      
+
       // Test that varlock load handles the invalid file
       try {
-        const inputs = { workingDirectory: '.', environment: undefined, showSummary: false, failOnError: false, outputFormat: 'env' as const };
+        const inputs = {
+          workingDirectory: testDir, environment: undefined, showSummary: false, failOnError: false, outputFormat: 'env' as const,
+        };
         const result = runVarlockLoad(inputs);
         expect(result.output).toBeDefined();
         expect(typeof result.output).toBe('string');
@@ -242,10 +263,10 @@ DEBUG=false`;
 
     it('should handle JSON parsing errors gracefully', () => {
       const invalidJson = '{"invalid": json}';
-      
+
       // Test the actual function with invalid JSON
       setEnvironmentVariables(invalidJson, 'json');
-      
+
       // The function should handle errors gracefully
       expect(true).toBe(true);
     });
@@ -253,20 +274,20 @@ DEBUG=false`;
 
   describe('File detection edge cases with actual worker functions', () => {
     it('should handle .env file without @env-spec decorators', () => {
-      // Create a regular .env file without @env-spec decorators
+      // Create a regular .env file without @env-spec decorators in the test directory
       const regularEnvContent = `DATABASE_URL=postgresql://localhost:5432/db
 API_KEY=sk-1234567890abcdef
 DEBUG=false`;
-      
-      writeFileSync('.env', regularEnvContent);
-      
+
+      writeFileSync(join(testDir, '.env'), regularEnvContent);
+
       // Test the actual function
-      const result = checkForEnvFiles('.');
+      const result = checkForEnvFiles(testDir);
       expect(result).toBe(false);
     });
 
     it('should handle .env file with partial @env-spec decorators', () => {
-      // Create a .env file with only some @env-spec decorators
+      // Create a .env file with only some @env-spec decorators in the test directory
       const partialEnvContent = `# @generateTypes(lang='ts', path='env.d.ts')
 # @defaultSensitive=false
 # ---
@@ -274,16 +295,16 @@ DEBUG=false`;
 DATABASE_URL=postgresql://localhost:5432/db
 API_KEY=sk-1234567890abcdef
 DEBUG=false`;
-      
-      writeFileSync('.env', partialEnvContent);
-      
+
+      writeFileSync(join(testDir, '.env'), partialEnvContent);
+
       // Test the actual function
-      const result = checkForEnvFiles('.');
+      const result = checkForEnvFiles(testDir);
       expect(result).toBe(true);
     });
 
     it('should handle .env file with only root decorators', () => {
-      // Create a .env file with only root decorators
+      // Create a .env file with only root decorators in the test directory
       const rootOnlyEnvContent = `# @generateTypes(lang='ts', path='env.d.ts')
 # @defaultSensitive=false
 # @envFlag=APP_ENV
@@ -292,12 +313,12 @@ DEBUG=false`;
 DATABASE_URL=postgresql://localhost:5432/db
 API_KEY=sk-1234567890abcdef
 DEBUG=false`;
-      
-      writeFileSync('.env', rootOnlyEnvContent);
-      
+
+      writeFileSync(join(testDir, '.env'), rootOnlyEnvContent);
+
       // Test the actual function
-      const result = checkForEnvFiles('.');
+      const result = checkForEnvFiles(testDir);
       expect(result).toBe(true);
     });
   });
-}); 
+});
