@@ -1,8 +1,6 @@
 import * as core from '@actions/core';
-import * as github from '@actions/github';
 import { execSync } from 'child_process';
-import { existsSync } from 'fs';
-import { join } from 'path';
+import { readdirSync } from 'fs';
 
 interface ActionInputs {
   workingDirectory: string;
@@ -49,8 +47,6 @@ export function checkVarlockInstalled(): boolean {
 }
 
 export function checkForEnvFiles(workingDir: string): boolean {
-  const { readdirSync } = require('fs');
-
   try {
     const files = readdirSync(workingDir);
     const envFiles = files.filter((file: string) => file.startsWith('.env'));
@@ -82,7 +78,11 @@ export function installVarlock(): void {
   }
 }
 
-export function runVarlockLoad(inputs: ActionInputs): { output: string; errorCount: number; envGraph?: SerializedEnvGraph } {
+export function runVarlockLoad(inputs: ActionInputs): {
+  output: string;
+  errorCount: number;
+  envGraph?: SerializedEnvGraph;
+} {
   const args = ['load'];
 
   if (inputs.environment) {
