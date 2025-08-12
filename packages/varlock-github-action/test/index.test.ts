@@ -11,6 +11,7 @@ import {
   checkForEnvFiles,
   runVarlockLoad,
   setEnvironmentVariables,
+  outputJsonBlob,
   getInputs,
 } from '../src/index';
 
@@ -23,6 +24,7 @@ vi.mock('@actions/core', () => ({
     setFailed: vi.fn(),
     setOutput: vi.fn(),
     exportVariable: vi.fn(),
+    setSecret: vi.fn(),
   },
   getInput: vi.fn(),
   info: vi.fn(),
@@ -30,6 +32,7 @@ vi.mock('@actions/core', () => ({
   setFailed: vi.fn(),
   setOutput: vi.fn(),
   exportVariable: vi.fn(),
+  setSecret: vi.fn(),
 }));
 
 describe('Varlock GitHub Action - Testing Actual Worker Functions', () => {
@@ -38,7 +41,7 @@ describe('Varlock GitHub Action - Testing Actual Worker Functions', () => {
   beforeEach(() => {
     // Clean up any test files from the test directory
     try {
-      execSync(`rm -f ${join(testDir, '.env.schema')} ${join(testDir, '.env')}`, { stdio: 'ignore' });
+      execSync(`rm -f ${join(testDir, '.env*')}`, { stdio: 'ignore' });
     } catch {
       // Ignore errors if files don't exist
     }
@@ -47,7 +50,7 @@ describe('Varlock GitHub Action - Testing Actual Worker Functions', () => {
   afterEach(() => {
     // Clean up any test files from the test directory after each test
     try {
-      execSync(`rm -f ${join(testDir, '.env.schema')} ${join(testDir, '.env')}`, { stdio: 'ignore' });
+      execSync(`rm -f ${join(testDir, '.env*')}`, { stdio: 'ignore' });
     } catch {
       // Ignore errors if files don't exist
     }
@@ -71,7 +74,20 @@ describe('Varlock GitHub Action - Testing Actual Worker Functions', () => {
   });
 
   describe('checkForEnvFiles', () => {
-    it('should detect .env.schema', () => {
+    it('should detect .env file', () => {
+      // Create a test .env file in the test directory
+      const envContent = `DATABASE_URL=postgresql://localhost:5432/db
+API_KEY=sk-1234567890abcdef
+DEBUG=false`;
+
+      writeFileSync(join(testDir, '.env'), envContent);
+
+      // Test the actual function
+      const result = checkForEnvFiles(testDir);
+      expect(result).toBe(true);
+    });
+
+    it('should detect .env.schema file', () => {
       // Create a test .env.schema file in the test directory
       const envSchemaContent = `# @generateTypes(lang='ts', path='env.d.ts')
 # @defaultSensitive=false
@@ -89,49 +105,105 @@ DATABASE_URL=encrypted("postgresql://user:pass@localhost:5432/db")`;
       expect(result).toBe(true);
     });
 
-    it('should detect .env file with @env-spec decorators', () => {
-      // Create a test .env file with @env-spec decorators in the test directory
-      const envContent = `# @generateTypes(lang='ts', path='env.d.ts')
-# @defaultSensitive=false
-# @envFlag=APP_ENV
-# ---
+    it('should detect .env.local file', () => {
+      // Create a test .env.local file in the test directory
+      const envLocalContent = `DATABASE_URL=postgresql://localhost:5432/db
+API_KEY=sk-1234567890abcdef`;
 
-# Database connection URL
-# @required @sensitive @type=string(startsWith="postgresql://")
-DATABASE_URL=encrypted("postgresql://user:pass@localhost:5432/db")
-
-# API key for authentication
-# @required @sensitive @type=string(startsWith="sk_")
-API_KEY=encrypted("sk-1234567890abcdef")
-
-# Debug mode
-# @example=false
-DEBUG=false`;
-
-      writeFileSync(join(testDir, '.env'), envContent);
+      writeFileSync(join(testDir, '.env.local'), envLocalContent);
 
       // Test the actual function
       const result = checkForEnvFiles(testDir);
       expect(result).toBe(true);
     });
 
-    it('should not detect files without @env-spec decorators', () => {
-      // Create a regular .env file without @env-spec decorators in the test directory
-      const regularEnvContent = `DATABASE_URL=postgresql://localhost:5432/db
-API_KEY=sk-1234567890abcdef
-DEBUG=false`;
+    it('should detect .env.production file', () => {
+      // Create a test .env.production file in the test directory
+      const envProdContent = `DATABASE_URL=postgresql://prod-server:5432/db
+API_KEY=sk-prod-key`;
 
-      writeFileSync(join(testDir, '.env'), regularEnvContent);
+      writeFileSync(join(testDir, '.env.production'), envProdContent);
 
       // Test the actual function
+      const result = checkForEnvFiles(testDir);
+      expect(result).toBe(true);
+    });
+
+    it('should not detect files when no .env* files exist', () => {
+      // Test the actual function with no files
       const result = checkForEnvFiles(testDir);
       expect(result).toBe(false);
     });
 
-    it('should not detect files when neither .env.schema nor .env exists', () => {
-      // Test the actual function with no files
+    it('should detect .env.schema with complex decorators', () => {
+      // Create a test .env.schema file with complex decorators in the test directory
+      const envSchemaContent = `# @generateTypes(lang='ts', path='env.d.ts')
+# @defaultSensitive=false
+# @envFlag=APP_ENV
+# @docsUrl=https://example.com/docs
+# ---
+
+# Database connection URL
+# @required @sensitive @type=string(startsWith="postgresql://")
+# @example=postgresql://user:pass@localhost:5432/db
+DATABASE_URL=encrypted("postgresql://user:pass@localhost:5432/db")
+
+# API key for authentication
+# @required @sensitive @type=string(startsWith="sk_")
+# @example=sk-1234567890abcdef
+API_KEY=encrypted("sk-1234567890abcdef")
+
+# Debug mode
+# @example=false
+DEBUG=false
+
+# Server port
+# @example=3000
+PORT=3000
+
+# Optional feature flag
+# @envFlag=FEATURE_FLAG
+FEATURE_ENABLED=true`;
+
+      writeFileSync(join(testDir, '.env.schema'), envSchemaContent);
+
+      // Test the actual function
       const result = checkForEnvFiles(testDir);
-      expect(result).toBe(false);
+      expect(result).toBe(true);
+    });
+
+    it('should detect .env.schema with minimal decorators', () => {
+      // Create a test .env.schema file with minimal decorators in the test directory
+      const envSchemaContent = `# @generateTypes(lang='ts', path='env.d.ts')
+# ---
+
+DATABASE_URL=postgresql://localhost:5432/db
+API_KEY=sk-1234567890abcdef
+DEBUG=false`;
+
+      writeFileSync(join(testDir, '.env.schema'), envSchemaContent);
+
+      // Test the actual function
+      const result = checkForEnvFiles(testDir);
+      expect(result).toBe(true);
+    });
+
+    it('should detect .env.schema with only root decorators', () => {
+      // Create a test .env.schema file with only root decorators in the test directory
+      const envSchemaContent = `# @generateTypes(lang='ts', path='env.d.ts')
+# @defaultSensitive=false
+# @envFlag=APP_ENV
+# ---
+
+DATABASE_URL=postgresql://localhost:5432/db
+API_KEY=sk-1234567890abcdef
+DEBUG=false`;
+
+      writeFileSync(join(testDir, '.env.schema'), envSchemaContent);
+
+      // Test the actual function
+      const result = checkForEnvFiles(testDir);
+      expect(result).toBe(true);
     });
   });
 
@@ -171,7 +243,6 @@ PORT=3000`;
         expect(result.output).toBeDefined();
         expect(typeof result.output).toBe('string');
         expect(typeof result.errorCount).toBe('number');
-        expect(typeof result.warningCount).toBe('number');
       } catch (error) {
         // If varlock is not installed or fails, that's a valid test case
         expect(error).toBeDefined();
@@ -187,7 +258,6 @@ PORT=3000`;
         expect(result.output).toBeDefined();
         expect(typeof result.output).toBe('string');
         expect(typeof result.errorCount).toBe('number');
-        expect(typeof result.warningCount).toBe('number');
       } catch (error) {
         // If varlock is not installed or fails, that's a valid test case
         expect(error).toBeDefined();
@@ -203,7 +273,6 @@ PORT=3000`;
         expect(result.output).toBeDefined();
         expect(typeof result.output).toBe('string');
         expect(typeof result.errorCount).toBe('number');
-        expect(typeof result.warningCount).toBe('number');
 
         // Try to parse as JSON to validate format
         try {
@@ -231,68 +300,126 @@ PORT=3000`;
         expect(result.output).toBeDefined();
         expect(typeof result.output).toBe('string');
         expect(typeof result.errorCount).toBe('number');
-        expect(typeof result.warningCount).toBe('number');
       } catch (error) {
         // If varlock fails (which is expected in some environments), verify it's an error
         expect(error).toBeDefined();
         expect(error instanceof Error).toBe(true);
       }
     });
+
+    it('should handle .env.schema files with validation', () => {
+      // This test specifically verifies that .env.schema files with validation work properly
+      const inputs = {
+        workingDirectory: testDir, environment: undefined, showSummary: false, failOnError: false, outputFormat: 'env' as const,
+      };
+
+      try {
+        const result = runVarlockLoad(inputs);
+        // If varlock succeeds, verify the result structure
+        expect(result.output).toBeDefined();
+        expect(typeof result.output).toBe('string');
+        expect(typeof result.errorCount).toBe('number');
+
+        // For .env.schema files, we might get validation errors if values don't match types
+        // This is expected behavior and should be handled gracefully
+      } catch (error) {
+        // If varlock fails due to validation errors, that's expected for .env.schema files
+        expect(error).toBeDefined();
+        expect(error instanceof Error).toBe(true);
+      }
+    });
   });
 
-  // TODO FIX THESE, the functionality is all related to setting env vars, so we need to figure out how to test that
   describe('setEnvironmentVariables', () => {
-    it('should parse env format correctly', () => {
-      const output = 'DATABASE_URL=postgresql://localhost:5432/db\nAPI_KEY=sk-1234567890abcdef\nDEBUG=false\nPORT=3000';
+    it('should handle sensitive and non-sensitive values correctly', () => {
+      const envGraph = {
+        sources: [],
+        settings: {},
+        config: {
+          DATABASE_URL: { value: 'postgresql://localhost:5432/db', isSensitive: true },
+          API_KEY: { value: 'sk-1234567890abcdef', isSensitive: true },
+          DEBUG: { value: false, isSensitive: false },
+          PORT: { value: 3000, isSensitive: false },
+          NODE_ENV: { value: 'development', isSensitive: false },
+        },
+      };
 
       // Test the actual function
-      setEnvironmentVariables(output, 'env');
+      setEnvironmentVariables(envGraph);
 
       // The function doesn't return anything, but we can verify it was called
       // by checking that no errors were thrown
       expect(true).toBe(true);
     });
 
-    it('should parse json format correctly', () => {
-      const output = '{"DATABASE_URL":"postgresql://localhost:5432/db","API_KEY":"sk-1234567890abcdef","DEBUG":false,"PORT":3000}';
+    it('should handle undefined and null values gracefully', () => {
+      const envGraph = {
+        sources: [],
+        settings: {},
+        config: {
+          DEFINED_VALUE: { value: 'test', isSensitive: false },
+          UNDEFINED_VALUE: { value: undefined, isSensitive: false },
+          NULL_VALUE: { value: null, isSensitive: false },
+        },
+      };
 
       // Test the actual function
-      setEnvironmentVariables(output, 'json');
+      setEnvironmentVariables(envGraph);
 
       // The function doesn't return anything, but we can verify it was called
       // by checking that no errors were thrown
       expect(true).toBe(true);
     });
 
-    it('should handle quoted values with special characters', () => {
-      const output = 'DATABASE_URL="postgresql://user:pass@localhost:5432/db"\nAPI_KEY="sk-1234567890abcdef"';
+    it('should handle empty config object', () => {
+      const envGraph = {
+        sources: [],
+        settings: {},
+        config: {},
+      };
 
       // Test the actual function
-      setEnvironmentVariables(output, 'env');
+      setEnvironmentVariables(envGraph);
+
+      // The function doesn't return anything, but we can verify it was called
+      // by checking that no errors were thrown
+      expect(true).toBe(true);
+    });
+  });
+
+  describe('outputJsonBlob', () => {
+    it('should output JSON blob correctly', () => {
+      const envGraph = {
+        sources: [],
+        settings: {},
+        config: {
+          DATABASE_URL: { value: 'postgresql://localhost:5432/db', isSensitive: true },
+          API_KEY: { value: 'sk-1234567890abcdef', isSensitive: true },
+          DEBUG: { value: false, isSensitive: false },
+          PORT: { value: 3000, isSensitive: false },
+        },
+      };
+
+      // Test the function
+      outputJsonBlob(envGraph);
 
       // The function doesn't return anything, but we can verify it was called
       // by checking that no errors were thrown
       expect(true).toBe(true);
     });
 
-    it('should handle newlines in quoted values', () => {
-      const output = 'MULTILINE_VALUE="line1\\nline2\\nline3"';
+    it('should handle empty config object', () => {
+      const envGraph = {
+        sources: [],
+        settings: {},
+        config: {},
+      };
 
-      // Test the actual function
-      setEnvironmentVariables(output, 'env');
+      // Test the function
+      outputJsonBlob(envGraph);
 
       // The function doesn't return anything, but we can verify it was called
       // by checking that no errors were thrown
-      expect(true).toBe(true);
-    });
-
-    it('should handle JSON parsing errors gracefully', () => {
-      const invalidJson = '{"invalid": json}';
-
-      // Test the actual function with invalid JSON
-      setEnvironmentVariables(invalidJson, 'json');
-
-      // The function should handle errors gracefully
       expect(true).toBe(true);
     });
   });

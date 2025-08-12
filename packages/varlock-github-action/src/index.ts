@@ -12,6 +12,23 @@ interface ActionInputs {
   outputFormat: 'env' | 'json';
 }
 
+interface SerializedEnvGraph {
+  basePath?: string;
+  sources: Array<{
+    label: string;
+    enabled: boolean;
+    path?: string;
+  }>;
+  settings: {
+    redactLogs?: boolean;
+    preventLeaks?: boolean;
+  };
+  config: Record<string, {
+    value: any;
+    isSensitive: boolean;
+  }>;
+}
+
 export function getInputs(): ActionInputs {
   return {
     workingDirectory: core.getInput('working-directory') || '.',
@@ -32,38 +49,22 @@ export function checkVarlockInstalled(): boolean {
 }
 
 export function checkForEnvFiles(workingDir: string): boolean {
-  const envSchemaPath = join(workingDir, '.env.schema');
-  const envPath = join(workingDir, '.env');
+  const { readdirSync } = require('fs');
 
-  if (existsSync(envSchemaPath)) {
-    core.info('Found .env.schema file');
-    return true;
-  }
+  try {
+    const files = readdirSync(workingDir);
+    const envFiles = files.filter((file: string) => file.startsWith('.env'));
 
-  if (existsSync(envPath)) {
-    // Check if .env file has varlock @env-spec decorators
-    // TODO improve this
-    try {
-      const envContent = execSync('cat .env', { cwd: workingDir, stdio: 'pipe' }).toString();
-      if (envContent.includes('@') && (
-        envContent.includes('@required')
-        || envContent.includes('@sensitive')
-        || envContent.includes('@example')
-        || envContent.includes('@type=')
-        || envContent.includes('@generateTypes')
-        || envContent.includes('@defaultSensitive')
-        || envContent.includes('@envFlag')
-        || envContent.includes('@docsUrl')
-      )) {
-        core.info('Found .env file with @env-spec decorators');
-        return true;
-      }
-    } catch {
-      // Ignore errors when checking .env content
+    if (envFiles.length > 0) {
+      core.info(`Found environment files: ${envFiles.join(', ')}`);
+      return true;
     }
-  }
 
-  return false;
+    return false;
+  } catch (error) {
+    core.warning(`Error reading directory ${workingDir}: ${error}`);
+    return false;
+  }
 }
 
 export function installVarlock(): void {
@@ -81,18 +82,15 @@ export function installVarlock(): void {
   }
 }
 
-export function runVarlockLoad(inputs: ActionInputs): { output: string; errorCount: number; warningCount: number } {
+export function runVarlockLoad(inputs: ActionInputs): { output: string; errorCount: number; envGraph?: SerializedEnvGraph } {
   const args = ['load'];
 
   if (inputs.environment) {
     args.push('--env', inputs.environment);
   }
 
-  if (inputs.outputFormat === 'json') {
-    args.push('--format', 'json');
-  } else {
-    args.push('--format', 'env');
-  }
+  // Always use json-full format to get sensitive information
+  args.push('--format', 'json-full');
 
   core.info(`Running: varlock ${args.join(' ')}`);
 
@@ -103,54 +101,68 @@ export function runVarlockLoad(inputs: ActionInputs): { output: string; errorCou
       encoding: 'utf8',
     }).toString();
 
-    return { output, errorCount: 0, warningCount: 0 };
+    // Parse the json-full output to get the environment graph
+    const envGraph = JSON.parse(output) as SerializedEnvGraph;
+
+    return { output, errorCount: 0, envGraph };
   } catch (error: any) {
     if (error.stdout) {
       const output = error.stdout.toString();
       // Parse error count from output if available
       const errorCount = (output.match(/error/gi) || []).length;
-      const warningCount = (output.match(/warning/gi) || []).length;
 
-      return { output, errorCount, warningCount };
+      // Try to parse as json-full if possible
+      let envGraph: SerializedEnvGraph | undefined;
+      try {
+        envGraph = JSON.parse(output) as SerializedEnvGraph;
+      } catch {
+        core.setFailed('Failed to parse varlock output.');
+      }
+
+      return { output, errorCount, envGraph };
     }
 
     throw error;
   }
 }
 
-export function setEnvironmentVariables(output: string, format: 'env' | 'json'): void {
-  if (format === 'json') {
-    try {
-      const envVars = JSON.parse(output);
-      for (const [key, value] of Object.entries(envVars)) {
-        if (value !== undefined && value !== null) {
-          core.exportVariable(key, String(value));
-        }
-      }
-    } catch (error) {
-      core.warning(`Failed to parse JSON output: ${error}`);
-    }
-  } else {
-    // Parse env format (key=value pairs)
-    const lines = output.split('\n');
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#')) {
-        const equalIndex = trimmed.indexOf('=');
-        if (equalIndex > 0) {
-          const key = trimmed.substring(0, equalIndex);
-          let value = trimmed.substring(equalIndex + 1);
+export function setEnvironmentVariables(envGraph: SerializedEnvGraph): void {
+  let regularVars = 0;
+  let secretVars = 0;
 
-          // Handle quoted values
-          if (value.startsWith('"') && value.endsWith('"')) {
-            value = value.slice(1, -1).replace(/\\"/g, '"').replace(/\\n/g, '\n');
-          }
+  for (const [key, itemInfo] of Object.entries(envGraph.config)) {
+    if (itemInfo.value !== undefined && itemInfo.value !== null) {
+      const value = String(itemInfo.value);
 
-          core.exportVariable(key, value);
-        }
+      if (itemInfo.isSensitive) {
+        // Export sensitive values as secrets
+        core.setSecret(value);
+        core.exportVariable(key, value);
+        secretVars++;
+      } else {
+        // Export non-sensitive values as regular environment variables
+        core.exportVariable(key, value);
+        regularVars++;
       }
     }
   }
+
+  core.info(`✅ Exported ${regularVars} regular environment variables and ${secretVars} secrets`);
+}
+
+export function outputJsonBlob(envGraph: SerializedEnvGraph): void {
+  // Create a clean JSON object with just the values (no sensitive flags)
+  const jsonOutput: Record<string, any> = {};
+
+  for (const [key, itemInfo] of Object.entries(envGraph.config)) {
+    if (itemInfo.value !== undefined && itemInfo.value !== null) {
+      jsonOutput[key] = itemInfo.value;
+    }
+  }
+
+  // Output the JSON blob
+  core.setOutput('json-env', JSON.stringify(jsonOutput, null, 2));
+  core.info('✅ Output JSON blob with environment variables');
 }
 
 async function run(): Promise<void> {
@@ -173,26 +185,23 @@ async function run(): Promise<void> {
 
     core.info('✅ Varlock is available');
 
-    core.info('🔍 Checking for @env-spec environment files...');
+    core.info('🔍 Checking for environment files...');
     const hasEnvFiles = checkForEnvFiles(inputs.workingDirectory);
 
     if (!hasEnvFiles) {
-      core.warning('No .env.schema or .env files with @env-spec decorators found');
-      core.info('This action requires either:');
-      core.info('  - A .env.schema file with @env-spec decorators');
-      core.info('  - A .env file with @env-spec decorators (e.g., @required, @sensitive, @example)');
-      core.setFailed('No @env-spec environment files found');
+      core.warning('No .env files detected');
+      core.info('This action requires environment files (e.g., .env, .env.local, .env.production)');
+      core.setFailed('No environment files found');
       return;
     }
 
-    core.info('✅ @env-spec environment files found');
+    core.info('✅ Environment files found');
 
     core.info('🚀 Loading environment variables with varlock...');
-    const { output, errorCount, warningCount } = runVarlockLoad(inputs);
+    const { output, errorCount, envGraph } = runVarlockLoad(inputs);
 
     // Set outputs
     core.setOutput('error-count', errorCount.toString());
-    core.setOutput('warning-count', warningCount.toString());
 
     if (inputs.showSummary) {
       core.setOutput('summary', output);
@@ -200,9 +209,22 @@ async function run(): Promise<void> {
       core.info(output);
     }
 
-    // Set environment variables for use in subsequent steps
-    core.info('🔧 Setting environment variables...');
-    setEnvironmentVariables(output, inputs.outputFormat);
+    if (envGraph) {
+      if (inputs.outputFormat === 'env') {
+        // Export as environment variables and secrets
+        core.info('🔧 Setting environment variables...');
+        setEnvironmentVariables(envGraph);
+      } else if (inputs.outputFormat === 'json') {
+        // Output as JSON blob
+        core.info('📄 Outputting JSON blob...');
+        outputJsonBlob(envGraph);
+      }
+    } else {
+      core.warning('Could not parse varlock output as json-full');
+      if (inputs.outputFormat === 'json') {
+        core.setFailed('JSON output format requires valid varlock json-full output');
+      }
+    }
 
     if (errorCount > 0) {
       const message = `Found ${errorCount} validation error(s)`;
@@ -213,9 +235,7 @@ async function run(): Promise<void> {
       }
     }
 
-    if (warningCount > 0) {
-      core.warning(`Found ${warningCount} validation warning(s)`);
-    }
+
 
     core.info('✅ Environment variables loaded successfully');
   } catch (error: any) {

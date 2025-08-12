@@ -13,11 +13,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
+      - name: Set environment flag
+        run: echo "APP_ENV=testing" >> $GITHUB_ENV
+      
       - name: Load environment variables with varlock
         uses: dmno-dev/varlock-github-action@v1
         with:
           working-directory: '.'
-          environment: 'test'
           show-summary: 'true'
           fail-on-error: 'true'
           output-format: 'env'
@@ -46,11 +48,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
+      - name: Set environment flag
+        run: echo "APP_ENV=production" >> $GITHUB_ENV
+      
       - name: Load production environment variables
         uses: dmno-dev/varlock-github-action@v1
         with:
           working-directory: './config'
-          environment: 'production'
           show-summary: 'true'
           fail-on-error: 'true'
           output-format: 'json'
