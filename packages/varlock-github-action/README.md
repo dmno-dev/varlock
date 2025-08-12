@@ -4,11 +4,12 @@ A GitHub Action that loads and validates environment variables using [varlock](h
 
 ## Features
 
-- 🔍 **Automatic Detection**: Checks for varlock installation or compatible env files
-- 📦 **Auto-Installation**: Installs varlock if not found
-- 🔒 **Schema Validation**: Validates environment variables against your schema
-- 📋 **Summary Output**: Provides detailed summaries of loaded variables
-- ⚙️ **Flexible Configuration**: Supports different output formats and environments
+- 🔍 **Automatic detection**: Checks for varlock installation or compatible env files
+- 📦 **Auto-installation**: Installs varlock if not found
+- 🔒 **Schema validation**: Validates environment variables against your schema
+- 📋 **Summary output**: Provides detailed summaries of loaded variables
+- ⚙️ **Flexible configuration**: Supports different output formats and environments
+- ✅ **All .env.* files are supported**: You can use any .env.* file to load environment variables (not just .env.schema)
 
 ## Usage
 
@@ -45,14 +46,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Set environment flag
+        run: echo "APP_ENV=production" >> $GITHUB_ENV
+      
       - name: Load environment variables
         uses: dmno-dev/varlock-github-action@v1
         with:
           working-directory: './config'
-          environment: 'production'
           show-summary: 'true'
           fail-on-error: 'true'
-          output-format: 'env'
       
       - name: Use loaded variables
         run: |
@@ -64,7 +66,6 @@ jobs:
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
 | `working-directory` | Directory containing @env-spec files | No | `.` |
-| `environment` | Environment to load (e.g., production, development) | No | - |
 | `show-summary` | Show a summary of loaded environment variables | No | `true` |
 | `fail-on-error` | Fail the action if validation errors are found | No | `true` |
 | `output-format` | Format for environment variable output (env, json) | No | `env` |
@@ -75,14 +76,7 @@ jobs:
 |--------|-------------|
 | `summary` | Summary of loaded environment variables |
 | `error-count` | Number of validation errors found |
-| `warning-count` | Number of validation warnings found |
-
-## @env-spec Environment File Detection
-
-The action automatically detects @env-spec environment files in the following order:
-
-1. **`.env.schema`** - Primary schema file with @env-spec decorators
-2. **`.env` with @env-spec decorators** - .env file containing @env-spec decorators
+| `json-env` | JSON blob containing all environment variables (only available when output-format is "json") |
 
 ### Example .env.schema file
 
@@ -161,10 +155,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Set environment flag
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "APP_ENV=production" >> $GITHUB_ENV
+          else
+            echo "APP_ENV=staging" >> $GITHUB_ENV
+          fi
+      
       - name: Load environment variables
         uses: dmno-dev/varlock-github-action@v1
         with:
-          environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
           show-summary: 'true'
       
       - name: Deploy to environment
@@ -185,11 +186,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Set environment flag
+        run: echo "APP_ENV=production" >> $GITHUB_ENV
+      
       - name: Load environment variables
         uses: dmno-dev/varlock-github-action@v1
         with:
           working-directory: './config/environments'
-          environment: 'production'
       
       - name: Use loaded variables
         run: |
@@ -204,7 +207,7 @@ The action provides comprehensive error handling:
 - **Validation Errors**: Fails if required variables are missing or invalid (configurable)
 - **Schema Errors**: Fails if schema file has syntax errors
 - **Installation Errors**: Fails if varlock cannot be installed
-- **File Not Found**: Warns if no .env.schema or .env.* (with @env-spec decorators) files are detected
+- **File Not Found**: Warns if no .env.* files are detected
 
 ### Error Output Example
 
@@ -220,12 +223,83 @@ The action provides comprehensive error handling:
 
 This action leverages varlock's security features:
 
-- **Sensitive Data Protection**: Variables marked with `@sensitive` are protected from leaks
+- **Sensitive Data Protection**: Variables marked with `@sensitive` are automatically exported as GitHub secrets, preventing them from appearing in logs
 - **Schema Validation**: Ensures all required variables are present and valid
 - **Type Safety**: Validates variable types (string, number, boolean, enum)
 - **Environment Isolation**: Supports different environments with different schemas
 - **Third Party Secrets Support**: Loads secrets from third party secrets providers like 1Password, LastPass, etc.
   - Note: any CLIs you need to retrieve third party secrets will also need to be installed
+- **Automatic Secret Masking**: Sensitive values are automatically masked in GitHub Actions logs using `core.setSecret()`
+
+## Output Formats
+
+The action always uses varlock's `json-full` format internally to get complete information including sensitive flags. The `output-format` parameter determines how the final output is presented:
+
+- **`env`** (default): Exports variables as environment variables and secrets
+  - Non-sensitive values are exported as regular environment variables
+  - Sensitive values are exported as both secrets (for masking) and environment variables (for use)
+- **`json`**: Outputs a single JSON blob with all environment variables
+  - Available as the `json-env` action output
+  - Useful for passing to other tools or storing as artifacts
+
+## Sensitive Data Handling
+
+The action automatically detects and handles sensitive environment variables based on your `.env.schema` configuration:
+
+### How it works:
+
+1. **Detection**: Variables marked with `@sensitive` decorator in your schema are identified
+2. **Secret Export**: Sensitive values are exported using `core.setSecret()` to mask them in logs
+3. **Environment Variables**: Both sensitive and non-sensitive values are available as environment variables in subsequent steps
+
+### Example Schema:
+
+```env-spec
+# @defaultSensitive=false
+# ---
+# Public configuration
+NODE_ENV=development
+API_URL=https://api.example.com
+
+# Sensitive configuration
+# @sensitive
+DATABASE_PASSWORD=your-secure-password
+# @sensitive
+API_KEY=sk-1234567890abcdef
+```
+
+### In GitHub Actions:
+
+```yaml
+- name: Load environment variables
+  uses: dmno-dev/varlock-github-action@v1
+
+- name: Use variables
+  run: |
+    echo "Environment: $NODE_ENV"           # Visible in logs
+    echo "API URL: $API_URL"               # Visible in logs
+    echo "Database: $DATABASE_PASSWORD"    # Masked in logs
+    echo "API Key: $API_KEY"               # Masked in logs
+```
+
+The sensitive values (`DATABASE_PASSWORD` and `API_KEY`) will be automatically masked in the GitHub Actions logs, while non-sensitive values remain visible for debugging purposes.
+
+### JSON Output Format
+
+```yaml
+- name: Load environment variables as JSON
+  uses: dmno-dev/varlock-github-action@v1
+  with:
+    output-format: 'json'
+  id: varlock
+
+- name: Use JSON output
+  run: |
+    echo "JSON output: ${{ steps.varlock.outputs.json-env }}"
+    
+    # Parse and use specific values
+    echo "Database URL: $(echo '${{ steps.varlock.outputs.json-env }}' | jq -r '.DATABASE_URL')"
+```
 
 ## Contributing
 

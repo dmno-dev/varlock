@@ -10,9 +10,6 @@ inputs:
     description: 'Directory containing .env.schema files'
     required: false
     default: '.'
-  environment:
-    description: 'Environment to load (e.g., production, development)'
-    required: false
   show-summary:
     description: 'Show a summary of loaded environment variables'
     required: false
@@ -22,7 +19,7 @@ inputs:
     required: false
     default: 'true'
   output-format:
-    description: 'Format for environment variable output (env, json)'
+    description: 'Output format: "env" exports variables as environment variables/secrets, "json" outputs a single JSON blob'
     required: false
     default: 'env'
 
@@ -33,9 +30,9 @@ outputs:
   error-count:
     description: 'Number of validation errors found'
     value: ${{ steps.varlock.outputs.error-count }}
-  warning-count:
-    description: 'Number of validation warnings found'
-    value: ${{ steps.varlock.outputs.warning-count }}
+  json-env:
+    description: 'JSON blob containing all environment variables (only available when output-format is "json"). This will contain all environment variables, including sensitive ones. Be careful.'
+    value: ${{ steps.varlock.outputs.json-env }}
 
 runs:
   using: 'node20'
