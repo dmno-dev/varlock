@@ -10,8 +10,6 @@ import {
   checkVarlockInstalled,
   checkForEnvFiles,
   runVarlockLoad,
-  setEnvironmentVariables,
-  outputJsonBlob,
 } from '../src/index';
 
 // Mock the GitHub Actions core module for testing
@@ -155,7 +153,9 @@ NODE_ENV=development`;
 
       // Step 2: Check for environment files using actual function
       // Add a small delay to ensure file system operations complete
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10);
+      });
       const hasEnvFiles = checkForEnvFiles(testDir);
       expect(hasEnvFiles).toBe(true);
 
