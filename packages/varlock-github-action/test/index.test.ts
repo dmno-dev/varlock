@@ -1,16 +1,18 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import {
+  describe, it, expect, beforeEach, afterEach, vi,
+} from 'vitest';
 import { execSync } from 'child_process';
 import { existsSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
 // Import the actual functions from the worker code
-import { 
-  checkVarlockInstalled, 
-  checkForEnvFiles, 
-  runVarlockLoad, 
+import {
+  checkVarlockInstalled,
+  checkForEnvFiles,
+  runVarlockLoad,
   setEnvironmentVariables,
-  getInputs 
-} from './index';
+  getInputs,
+} from '../src/index';
 
 // Mock the GitHub Actions core module for testing
 vi.mock('@actions/core', () => ({
@@ -31,10 +33,21 @@ vi.mock('@actions/core', () => ({
 }));
 
 describe('Varlock GitHub Action - Testing Actual Worker Functions', () => {
+  const testDir = join(__dirname);
+
   beforeEach(() => {
-    // Clean up any test files
+    // Clean up any test files from the test directory
     try {
-      execSync('rm -f .env.schema .env', { stdio: 'ignore' });
+      execSync(`rm -f ${join(testDir, '.env.schema')} ${join(testDir, '.env')}`, { stdio: 'ignore' });
+    } catch {
+      // Ignore errors if files don't exist
+    }
+  });
+
+  afterEach(() => {
+    // Clean up any test files from the test directory after each test
+    try {
+      execSync(`rm -f ${join(testDir, '.env.schema')} ${join(testDir, '.env')}`, { stdio: 'ignore' });
     } catch {
       // Ignore errors if files don't exist
     }
@@ -59,7 +72,7 @@ describe('Varlock GitHub Action - Testing Actual Worker Functions', () => {
 
   describe('checkForEnvFiles', () => {
     it('should detect .env.schema', () => {
-      // Create a test .env.schema file
+      // Create a test .env.schema file in the test directory
       const envSchemaContent = `# @generateTypes(lang='ts', path='env.d.ts')
 # @defaultSensitive=false
 # @envFlag=APP_ENV
@@ -68,16 +81,16 @@ describe('Varlock GitHub Action - Testing Actual Worker Functions', () => {
 # Database connection URL
 # @required @sensitive @type=string(startsWith="postgresql://")
 DATABASE_URL=encrypted("postgresql://user:pass@localhost:5432/db")`;
-      
-      writeFileSync('.env.schema', envSchemaContent);
-      
+
+      writeFileSync(join(testDir, '.env.schema'), envSchemaContent);
+
       // Test the actual function
-      const result = checkForEnvFiles('.');
+      const result = checkForEnvFiles(testDir);
       expect(result).toBe(true);
     });
 
     it('should detect .env file with @env-spec decorators', () => {
-      // Create a test .env file with @env-spec decorators
+      // Create a test .env file with @env-spec decorators in the test directory
       const envContent = `# @generateTypes(lang='ts', path='env.d.ts')
 # @defaultSensitive=false
 # @envFlag=APP_ENV
@@ -94,37 +107,37 @@ API_KEY=encrypted("sk-1234567890abcdef")
 # Debug mode
 # @example=false
 DEBUG=false`;
-      
-      writeFileSync('.env', envContent);
-      
+
+      writeFileSync(join(testDir, '.env'), envContent);
+
       // Test the actual function
-      const result = checkForEnvFiles('.');
+      const result = checkForEnvFiles(testDir);
       expect(result).toBe(true);
     });
 
     it('should not detect files without @env-spec decorators', () => {
-      // Create a regular .env file without @env-spec decorators
+      // Create a regular .env file without @env-spec decorators in the test directory
       const regularEnvContent = `DATABASE_URL=postgresql://localhost:5432/db
 API_KEY=sk-1234567890abcdef
 DEBUG=false`;
-      
-      writeFileSync('.env', regularEnvContent);
-      
+
+      writeFileSync(join(testDir, '.env'), regularEnvContent);
+
       // Test the actual function
-      const result = checkForEnvFiles('.');
+      const result = checkForEnvFiles(testDir);
       expect(result).toBe(false);
     });
 
     it('should not detect files when neither .env.schema nor .env exists', () => {
       // Test the actual function with no files
-      const result = checkForEnvFiles('.');
+      const result = checkForEnvFiles(testDir);
       expect(result).toBe(false);
     });
   });
 
   describe('runVarlockLoad', () => {
     beforeEach(() => {
-      // Create a test .env.schema file for varlock load tests
+      // Create a test .env.schema file for varlock load tests in the test directory
       const envSchemaContent = `# @generateTypes(lang='ts', path='env.d.ts')
 # @defaultSensitive=false
 # @envFlag=APP_ENV
@@ -145,13 +158,15 @@ DEBUG=false
 # Server port
 # @example=3000
 PORT=3000`;
-      
-      writeFileSync('.env.schema', envSchemaContent);
+
+      writeFileSync(join(testDir, '.env.schema'), envSchemaContent);
     });
 
     it('should execute varlock load command', () => {
       try {
-        const inputs = { workingDirectory: '.', environment: undefined, showSummary: false, failOnError: false, outputFormat: 'env' as const };
+        const inputs = {
+          workingDirectory: testDir, environment: undefined, showSummary: false, failOnError: false, outputFormat: 'env' as const,
+        };
         const result = runVarlockLoad(inputs);
         expect(result.output).toBeDefined();
         expect(typeof result.output).toBe('string');
@@ -165,7 +180,9 @@ PORT=3000`;
 
     it('should execute varlock load with environment flag', () => {
       try {
-        const inputs = { workingDirectory: '.', environment: 'development', showSummary: false, failOnError: false, outputFormat: 'env' as const };
+        const inputs = {
+          workingDirectory: testDir, environment: 'development', showSummary: false, failOnError: false, outputFormat: 'env' as const,
+        };
         const result = runVarlockLoad(inputs);
         expect(result.output).toBeDefined();
         expect(typeof result.output).toBe('string');
@@ -179,13 +196,15 @@ PORT=3000`;
 
     it('should execute varlock load with json format', () => {
       try {
-        const inputs = { workingDirectory: '.', environment: undefined, showSummary: false, failOnError: false, outputFormat: 'json' as const };
+        const inputs = {
+          workingDirectory: testDir, environment: undefined, showSummary: false, failOnError: false, outputFormat: 'json' as const,
+        };
         const result = runVarlockLoad(inputs);
         expect(result.output).toBeDefined();
         expect(typeof result.output).toBe('string');
         expect(typeof result.errorCount).toBe('number');
         expect(typeof result.warningCount).toBe('number');
-        
+
         // Try to parse as JSON to validate format
         try {
           const parsed = JSON.parse(result.output);
@@ -202,8 +221,10 @@ PORT=3000`;
     it('should handle varlock execution errors gracefully', () => {
       // This test verifies that runVarlockLoad properly handles errors from varlock execution
       // The actual error depends on the specific varlock command and environment
-      const inputs = { workingDirectory: '.', environment: undefined, showSummary: false, failOnError: false, outputFormat: 'env' as const };
-      
+      const inputs = {
+        workingDirectory: testDir, environment: undefined, showSummary: false, failOnError: false, outputFormat: 'env' as const,
+      };
+
       try {
         const result = runVarlockLoad(inputs);
         // If varlock succeeds, verify the result structure
@@ -223,10 +244,10 @@ PORT=3000`;
   describe('setEnvironmentVariables', () => {
     it('should parse env format correctly', () => {
       const output = 'DATABASE_URL=postgresql://localhost:5432/db\nAPI_KEY=sk-1234567890abcdef\nDEBUG=false\nPORT=3000';
-      
+
       // Test the actual function
       setEnvironmentVariables(output, 'env');
-      
+
       // The function doesn't return anything, but we can verify it was called
       // by checking that no errors were thrown
       expect(true).toBe(true);
@@ -234,10 +255,10 @@ PORT=3000`;
 
     it('should parse json format correctly', () => {
       const output = '{"DATABASE_URL":"postgresql://localhost:5432/db","API_KEY":"sk-1234567890abcdef","DEBUG":false,"PORT":3000}';
-      
+
       // Test the actual function
       setEnvironmentVariables(output, 'json');
-      
+
       // The function doesn't return anything, but we can verify it was called
       // by checking that no errors were thrown
       expect(true).toBe(true);
@@ -245,10 +266,10 @@ PORT=3000`;
 
     it('should handle quoted values with special characters', () => {
       const output = 'DATABASE_URL="postgresql://user:pass@localhost:5432/db"\nAPI_KEY="sk-1234567890abcdef"';
-      
+
       // Test the actual function
       setEnvironmentVariables(output, 'env');
-      
+
       // The function doesn't return anything, but we can verify it was called
       // by checking that no errors were thrown
       expect(true).toBe(true);
@@ -256,10 +277,10 @@ PORT=3000`;
 
     it('should handle newlines in quoted values', () => {
       const output = 'MULTILINE_VALUE="line1\\nline2\\nline3"';
-      
+
       // Test the actual function
       setEnvironmentVariables(output, 'env');
-      
+
       // The function doesn't return anything, but we can verify it was called
       // by checking that no errors were thrown
       expect(true).toBe(true);
@@ -267,10 +288,10 @@ PORT=3000`;
 
     it('should handle JSON parsing errors gracefully', () => {
       const invalidJson = '{"invalid": json}';
-      
+
       // Test the actual function with invalid JSON
       setEnvironmentVariables(invalidJson, 'json');
-      
+
       // The function should handle errors gracefully
       expect(true).toBe(true);
     });
@@ -286,4 +307,4 @@ PORT=3000`;
       expect(inputs.outputFormat).toBe('env');
     });
   });
-}); 
+});
