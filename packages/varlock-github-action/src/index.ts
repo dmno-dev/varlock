@@ -4,7 +4,6 @@ import { readdirSync } from 'fs';
 
 interface ActionInputs {
   workingDirectory: string;
-  environment?: string;
   showSummary: boolean;
   failOnError: boolean;
   outputFormat: 'env' | 'json';
@@ -30,7 +29,6 @@ interface SerializedEnvGraph {
 export function getInputs(): ActionInputs {
   return {
     workingDirectory: core.getInput('working-directory') || '.',
-    environment: core.getInput('environment') || undefined,
     showSummary: core.getInput('show-summary') === 'true',
     failOnError: core.getInput('fail-on-error') === 'true',
     outputFormat: (core.getInput('output-format') as 'env' | 'json') || 'env',
@@ -65,6 +63,7 @@ export function checkForEnvFiles(workingDir: string): boolean {
 
 export function installVarlock(): void {
   core.info('Installing varlock...');
+  // TODO: Add a check to see if varlock is already installed and use that
   try {
     // Try to install varlock using npm
     execSync('npm install -g varlock', { stdio: 'inherit' });
@@ -83,19 +82,39 @@ export function runVarlockLoad(inputs: ActionInputs): {
   errorCount: number;
   envGraph?: SerializedEnvGraph;
 } {
-  const args = ['load'];
+  const defaultArgs = ['load'];
 
-  if (inputs.environment) {
-    args.push('--env', inputs.environment);
+  // If show-summary is true, run without format options to get human-readable output
+  if (inputs.showSummary) {
+    core.info(`Running: varlock ${defaultArgs.join(' ')}`);
+
+    try {
+      const output = execSync(`varlock ${defaultArgs.join(' ')}`, {
+        cwd: inputs.workingDirectory,
+        stdio: 'pipe',
+        encoding: 'utf8',
+      }).toString();
+
+      return { output, errorCount: 0 };
+    } catch (error: any) {
+      if (error.stdout) {
+        const output = error.stdout.toString();
+        // Parse error count from output if available
+        const errorCount = (output.match(/error/gi) || []).length;
+        return { output, errorCount };
+      }
+      throw error;
+    }
   }
 
-  // Always use json-full format to get sensitive information
-  args.push('--format', 'json-full');
+  // Otherwise, use json-full format to get sensitive information
+  const internalArgs = [...defaultArgs, '--format', 'json-full'];
 
-  core.info(`Running: varlock ${args.join(' ')}`);
+  // we may not want to show this in the output
+  // core.info(`Running: varlock ${internalArgs.join(' ')}`);
 
   try {
-    const output = execSync(`varlock ${args.join(' ')}`, {
+    const output = execSync(`varlock ${internalArgs.join(' ')}`, {
       cwd: inputs.workingDirectory,
       stdio: 'pipe',
       encoding: 'utf8',
