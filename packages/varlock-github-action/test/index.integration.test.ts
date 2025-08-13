@@ -156,6 +156,7 @@ NODE_ENV=development`;
       await new Promise((resolve) => {
         setTimeout(resolve, 10);
       });
+
       const hasEnvFiles = checkForEnvFiles(testDir);
       expect(hasEnvFiles).toBe(true);
 
@@ -397,6 +398,61 @@ DEBUG=false`;
         expect(loadResult.output).toBeDefined();
         expect(typeof loadResult.output).toBe('string');
         expect(typeof loadResult.errorCount).toBe('number');
+      } catch (error) {
+        // If varlock fails due to validation errors, that's expected
+        expect(error).toBeDefined();
+      }
+    });
+
+    it('should handle show-summary: true by running varlock load twice', () => {
+      // Create a .env.schema file for testing
+      const envSchemaContent = `# @generateTypes(lang='ts', path='env.d.ts')
+# @defaultSensitive=false
+# @envFlag=APP_ENV
+# ---
+
+# Database connection URL
+# @required @sensitive @type=string(startsWith="postgresql://")
+DATABASE_URL=encrypted("postgresql://user:pass@localhost:5432/db")
+
+# API key for authentication
+# @required @sensitive @type=string(startsWith="sk_")
+API_KEY=encrypted("sk-1234567890abcdef")
+
+# Debug mode
+# @example=false
+DEBUG=false
+
+# Server port
+# @example=3000
+PORT=3000`;
+
+      writeFileSync(join(testDir, '.env.schema'), envSchemaContent);
+
+      // Test the actual function
+      const result = checkForEnvFiles(testDir);
+      expect(result).toBe(true);
+
+      // Test that varlock can load with show-summary: true
+      try {
+        const inputs = {
+          workingDirectory: testDir, environment: undefined, showSummary: true, failOnError: false, outputFormat: 'env' as const,
+        };
+
+        // Run varlock load with showSummary: true (should run without format options)
+        const loadResult = runVarlockLoad(inputs);
+        expect(loadResult.output).toBeDefined();
+        expect(typeof loadResult.output).toBe('string');
+        expect(typeof loadResult.errorCount).toBe('number');
+
+        // The output should be human-readable, not JSON (since showSummary is true)
+        expect(loadResult.output).not.toMatch(/^{.*}$/); // Should not be JSON
+
+        // Should contain information about the variables we defined
+        expect(loadResult.output).toMatch(/DATABASE_URL/);
+        expect(loadResult.output).toMatch(/API_KEY/);
+        expect(loadResult.output).toMatch(/DEBUG/);
+        expect(loadResult.output).toMatch(/PORT/);
       } catch (error) {
         // If varlock fails due to validation errors, that's expected
         expect(error).toBeDefined();

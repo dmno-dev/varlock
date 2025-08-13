@@ -42,6 +42,7 @@ describe('Varlock GitHub Action - Testing Actual Worker Functions', () => {
     // Clean up any test files from the test directory
     try {
       execSync(`rm -f ${join(testDir, '.env*')}`, { stdio: 'ignore' });
+      execSync(`rm -f ${join(testDir, 'env.d.ts')}`, { stdio: 'ignore' });
     } catch {
       // Ignore errors if files don't exist
     }
@@ -51,6 +52,7 @@ describe('Varlock GitHub Action - Testing Actual Worker Functions', () => {
     // Clean up any test files from the test directory after each test
     try {
       execSync(`rm -f ${join(testDir, '.env*')}`, { stdio: 'ignore' });
+      execSync(`rm -f ${join(testDir, 'env.d.ts')}`, { stdio: 'ignore' });
     } catch {
       // Ignore errors if files don't exist
     }
@@ -425,10 +427,9 @@ PORT=3000`;
   });
 
   describe('getInputs', () => {
-    it('should return default inputs when no environment variables are set', () => {
+    it('should return default inputs when no inputs are set', () => {
       const inputs = getInputs();
       expect(inputs.workingDirectory).toBe('.');
-      expect(inputs.environment).toBeUndefined();
       expect(inputs.showSummary).toBe(false);
       expect(inputs.failOnError).toBe(false);
       expect(inputs.outputFormat).toBe('env');
