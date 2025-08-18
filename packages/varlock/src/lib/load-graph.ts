@@ -1,4 +1,4 @@
-import { loadEnvGraph } from '@env-spec/env-graph';
+import { loadEnvGraph } from '../../env-graph';
 
 export async function loadVarlockEnvGraph(opts?: {
   currentEnvFallback?: string,

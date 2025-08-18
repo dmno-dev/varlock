@@ -17,7 +17,7 @@ export default defineConfig({
     'src/cli/cli-executable.ts', // cli that gets run via `dmno` command
   ],
 
-  noExternal: ['@env-spec/env-graph', '@env-spec/utils'],
+  noExternal: ['@env-spec/utils'],
 
   dts: {
     resolve: true,
@@ -41,7 +41,6 @@ export default defineConfig({
   watch: process.env.npm_lifecycle_event === 'dev' ? [
     'src',
     // internal libraries that we are bundling into this one rather than publishing
-    '../env-graph/src',
     '../utils/src',
   ] : false,
 

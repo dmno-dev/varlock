@@ -1,5 +1,5 @@
 import { define } from 'gunshi';
-import { loadEnvGraph } from '@env-spec/env-graph';
+import { loadEnvGraph } from '../../../env-graph';
 import { isBundledSEA } from '../helpers/install-detection';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
