@@ -1,5 +1,16 @@
 # @varlock/astro-integration
 
+## 0.0.4
+
+### Patch Changes
+
+- [#116](https://github.com/dmno-dev/varlock/pull/116) [`9e8b40a`](https://github.com/dmno-dev/varlock/commit/9e8b40a04360dc78c82d29da261f378a0d2d92f5) Thanks [@theoephraim](https://github.com/theoephraim)! - - make Vite plugin work for SSR scenarios, injecting code and resolved env (in some cases)
+  - detect Cloudflare Vite plugin
+  - make compatible with React Router 7
+  - simplify astro integration to rely on vite integration more
+- Updated dependencies [[`9e8b40a`](https://github.com/dmno-dev/varlock/commit/9e8b40a04360dc78c82d29da261f378a0d2d92f5), [`86c02bf`](https://github.com/dmno-dev/varlock/commit/86c02bf7f5283c487c576e884699f94863b4773e)]:
+  - varlock@0.0.9
+
 ## 0.0.3
 
 ### Patch Changes
