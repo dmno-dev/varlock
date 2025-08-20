@@ -1,0 +1,374 @@
+---
+title: Environment Schema Store
+description: A centralized registry of environment variable schemas for popular packages
+---
+
+# Environment Schema Store
+
+The Environment Schema Store is a community-driven registry that provides pre-built environment variable schemas for popular packages and services. It enables zero-configuration validation, type safety, and security best practices for your environment variables.
+
+## What is the Environment Schema Store?
+
+Similar to the [JSON Schema Store](https://schemastore.org/) but specifically designed for environment variables, the Environment Schema Store:
+
+- **Auto-discovers** required environment variables from your installed packages
+- **Validates** your configuration against official schemas
+- **Generates** TypeScript types for type-safe access
+- **Prevents** security leaks with built-in redaction and detection
+- **Adapts** to different frameworks (Next.js, Vite, Astro, etc.)
+
+## Key Features
+
+### 🚀 Zero Configuration
+
+When you install a package like Sentry or Stripe, Varlock automatically:
+1. Detects the package in your `package.json`
+2. Loads the appropriate schema from the store
+3. Validates your `.env` file
+4. Alerts you to missing or misconfigured variables
+
+```bash
+# Just install and go!
+npm install @sentry/nextjs
+# Varlock automatically knows you need SENTRY_DSN, etc.
+```
+
+### 📦 Version-Aware Schemas
+
+Schemas are versioned to match package releases:
+
+```env
+# Automatically loads the right schema for your version
+# @load sentry@8.0.0  # Explicit version
+# @load stripe        # Uses your package.json version
+```
+
+### 🎯 Framework-Specific Support
+
+Different frameworks use different environment variable conventions:
+
+```env
+# Next.js uses NEXT_PUBLIC_ prefix
+NEXT_PUBLIC_SENTRY_DSN=https://...
+
+# Vite uses VITE_ prefix  
+VITE_SENTRY_DSN=https://...
+
+# Varlock handles this automatically!
+```
+
+### 🔒 Security by Default
+
+Every schema includes security metadata:
+
+```env
+# @required @secret
+STRIPE_SECRET_KEY=sk_test_...  # Automatically redacted in logs
+
+# @required @public
+NEXT_PUBLIC_APP_URL=https://...  # Safe to expose
+```
+
+## How It Works
+
+### 1. Auto-Discovery
+
+Varlock scans your `package.json` and automatically loads relevant schemas:
+
+```json
+{
+  "dependencies": {
+    "@sentry/nextjs": "^8.0.0",
+    "stripe": "^13.0.0",
+    "@supabase/supabase-js": "^2.0.0"
+  }
+}
+```
+
+Automatically loads schemas for Sentry, Stripe, and Supabase!
+
+### 2. Schema Loading Priority
+
+Schemas are loaded in priority order:
+
+1. **Explicit loads** (`@load` in your `.env`)
+2. **Vendor-provided** (from `node_modules/package/package.env.schema`)
+3. **Auto-discovered** (from the schema store)
+
+### 3. Validation & Type Generation
+
+```typescript
+// Generated types from schemas
+export interface ProcessEnv {
+  SENTRY_DSN: string;           // Required
+  SENTRY_ENVIRONMENT?: string;  // Optional with default
+  STRIPE_SECRET_KEY: string;    // Required
+  STRIPE_PUBLISHABLE_KEY: string;
+}
+```
+
+## Configuration
+
+### Loading Specific Schemas
+
+```env
+# Load specific version
+# @load sentry@8.0.0
+
+# Load with framework override
+# @load stripe(nextjs)
+
+# Load from custom source
+# @load ./custom-schemas/my-service.env.schema
+```
+
+### Excluding Schemas
+
+```env
+# Don't auto-load Prisma schema
+# @exclude prisma
+
+# Exclude multiple
+# @exclude prisma, redis
+```
+
+### Overriding Variables
+
+```env
+# Make an optional variable required
+# @override SENTRY_RELEASE required
+
+# Ignore a variable entirely
+# @override SENTRY_DEBUG ignore
+```
+
+### Disabling Auto-Discovery
+
+```env
+# Disable auto-discovery entirely
+# @schema-store auto-discovery=false
+```
+
+## Schema Format
+
+Schemas use the extended `@env-spec` syntax:
+
+```env
+# Package metadata
+# @package @sentry/node @sentry/nextjs
+# @version ^8.0.0
+# @framework nextjs, vite
+
+# Variable definition with priority
+# @required @secret
+# @desc Your Sentry DSN for error tracking
+# @pattern ^https:\/\/[a-f0-9]+@.+\.ingest\.sentry\.io\/\d+$
+# @example https://abc123@o0.ingest.sentry.io/0
+SENTRY_DSN=
+
+# Optional with default
+# @optional @public
+# @desc Environment name
+# @default process.env.NODE_ENV || 'development'
+# @enum production staging development
+SENTRY_ENVIRONMENT=
+
+# Suggested for optimal experience
+# @suggested @public
+# @desc Release version for tracking deployments
+SENTRY_RELEASE=
+```
+
+## Priority Levels
+
+### @required
+Must be set for the application to function properly. Validation fails if missing.
+
+### @optional  
+Can be omitted without breaking functionality. May have defaults.
+
+### @suggested
+Recommended for optimal experience but not essential. Shows warnings if missing.
+
+## Supported Decorators
+
+### Metadata
+- `@package` - NPM package names that trigger this schema
+- `@version` - Semver version constraint
+- `@framework` - Framework-specific variants
+- `@extends` - Inherit from another schema
+- `@url` - Documentation link
+
+### Priority
+- `@required` - Variable must be set
+- `@optional` - Variable can be omitted
+- `@suggested` - Variable is recommended
+
+### Security
+- `@secret` - Contains sensitive data (auto-redacted)
+- `@public` - Safe to expose publicly
+
+### Types
+- `@number` - Numeric value
+- `@boolean` - Boolean value (true/false)
+- `@array` - Array of values
+- `@json` - JSON object
+
+### Validation
+- `@pattern` - Regex pattern to match
+- `@enum` - List of allowed values
+- `@min` - Minimum value (for numbers)
+- `@max` - Maximum value (for numbers)
+
+### Documentation
+- `@desc` - Description of the variable
+- `@example` - Example value(s)
+- `@default` - Default value or expression
+- `@alias` - Alternative variable name
+
+## API Endpoints
+
+### Validation API
+
+```bash
+POST https://env-schema-store.varlock.io/api/validate
+Content-Type: application/json
+
+{
+  "env": {
+    "SENTRY_DSN": "https://...",
+    "STRIPE_SECRET_KEY": "sk_test_..."
+  },
+  "packages": ["sentry@8.0.0", "stripe"],
+  "framework": "nextjs"
+}
+```
+
+### Discovery API
+
+```bash
+GET https://env-schema-store.varlock.io/api/discover?packages=sentry,stripe&framework=nextjs
+```
+
+### Catalog API
+
+```bash
+GET https://env-schema-store.varlock.io/api/catalog.json
+```
+
+## Contributing
+
+We welcome contributions! You can:
+
+### Add a New Schema
+
+1. Fork the repository
+2. Create your schema in `env-schema-store/schemas/[category]/[name].env.schema`
+3. Add an entry to `catalog.json`
+4. Submit a pull request
+
+### Improve Existing Schemas
+
+- Add missing variables
+- Improve descriptions and examples
+- Add framework-specific variants
+- Update for new package versions
+
+### Schema Guidelines
+
+- Use clear, concise descriptions
+- Provide meaningful examples
+- Mark security-sensitive variables appropriately
+- Include validation patterns where applicable
+- Test with real applications
+
+## Vendor-Provided Schemas
+
+Package authors can include their own schemas:
+
+### Option 1: Root File
+
+```
+my-package/
+├── package.json
+├── package.env.schema  # Auto-detected schema file
+└── ...
+```
+
+### Option 2: Package.json Entry
+
+```json
+{
+  "name": "my-package",
+  "env-schema": "./schemas/env.schema"
+}
+```
+
+## Performance
+
+### Caching
+
+Schema resolution is cached to minimize overhead:
+
+- Cache key based on dependencies + configuration
+- 24-hour cache lifetime
+- Stored in `.varlock/schema-cache/`
+
+### Lazy Loading
+
+Schemas are only loaded when needed:
+
+- During `varlock load` or `varlock run`
+- When explicitly imported
+- Not loaded in production by default
+
+## Telemetry
+
+Anonymous usage data helps us prioritize schema development:
+
+- Which schemas are used most
+- Missing schemas that should be added
+- Framework usage patterns
+- Version adoption rates
+
+Telemetry can be disabled:
+
+```env
+# @schema-store telemetry=false
+```
+
+## Roadmap
+
+### Near Term
+- [ ] VS Code extension integration
+- [ ] Schema generation tool
+- [ ] More package schemas
+- [ ] Schema testing framework
+
+### Future
+- [ ] AI-powered schema generation
+- [ ] Schema composition and inheritance
+- [ ] Multi-language support
+- [ ] IDE plugins for other editors
+
+## FAQ
+
+### How do I know which variables are required?
+
+Run `varlock doctor` to see a report of missing required variables based on your installed packages.
+
+### Can I use my own schemas?
+
+Yes! You can load local schemas with `@load ./path/to/schema.env.schema` or disable auto-discovery entirely.
+
+### What if a schema is wrong?
+
+Please [open an issue](https://github.com/your-org/varlock/issues) or submit a PR with the correction. Community contributions keep schemas accurate!
+
+### How are schemas versioned?
+
+Schemas can specify version constraints using semver. The best matching version is automatically selected based on your installed package version.
+
+### Is this secure?
+
+Yes! Schemas are static files with no executable code. They only provide metadata for validation and type generation.

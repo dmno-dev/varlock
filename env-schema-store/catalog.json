@@ -1,0 +1,154 @@
+{
+  "$schema": "./catalog.schema.json",
+  "version": "1.0.0",
+  "schemas": [
+    {
+      "name": "sentry",
+      "displayName": "Sentry",
+      "description": "Error tracking and performance monitoring",
+      "category": "monitoring",
+      "url": "https://sentry.io",
+      "packageNames": ["@sentry/node", "@sentry/browser", "@sentry/nextjs", "@sentry/react"],
+      "schemaFile": "schemas/monitoring/sentry.env.schema",
+      "versions": {
+        "8.0.0": "schemas/monitoring/sentry.env.schema",
+        "7.0.0": "schemas/monitoring/sentry-v7.env.schema"
+      },
+      "frameworks": {
+        "nextjs": {
+          "envPrefix": ["NEXT_PUBLIC_", ""],
+          "schemaFile": "schemas/monitoring/sentry-nextjs.env.schema"
+        },
+        "vite": {
+          "envPrefix": ["VITE_", ""],
+          "schemaFile": "schemas/monitoring/sentry-vite.env.schema"
+        }
+      }
+    },
+    {
+      "name": "stripe",
+      "displayName": "Stripe",
+      "description": "Payment processing platform",
+      "category": "payments",
+      "url": "https://stripe.com",
+      "packageNames": ["stripe", "@stripe/stripe-js"],
+      "schemaFile": "schemas/payments/stripe.env.schema",
+      "versions": {
+        "13.0.0": "schemas/payments/stripe.env.schema",
+        "12.0.0": "schemas/payments/stripe-v12.env.schema"
+      }
+    },
+    {
+      "name": "openai",
+      "displayName": "OpenAI",
+      "description": "OpenAI API client",
+      "category": "ai",
+      "url": "https://openai.com",
+      "packageNames": ["openai", "@ai-sdk/openai"],
+      "schemaFile": "schemas/ai/openai.env.schema"
+    },
+    {
+      "name": "anthropic",
+      "displayName": "Anthropic",
+      "description": "Anthropic Claude API",
+      "category": "ai",
+      "url": "https://anthropic.com",
+      "packageNames": ["@anthropic-ai/sdk", "@ai-sdk/anthropic"],
+      "schemaFile": "schemas/ai/anthropic.env.schema"
+    },
+    {
+      "name": "supabase",
+      "displayName": "Supabase",
+      "description": "Open source Firebase alternative",
+      "category": "database",
+      "url": "https://supabase.com",
+      "packageNames": ["@supabase/supabase-js", "@supabase/auth-helpers-nextjs"],
+      "schemaFile": "schemas/database/supabase.env.schema",
+      "frameworks": {
+        "nextjs": {
+          "envPrefix": ["NEXT_PUBLIC_", ""],
+          "schemaFile": "schemas/database/supabase-nextjs.env.schema"
+        }
+      }
+    },
+    {
+      "name": "prisma",
+      "displayName": "Prisma",
+      "description": "Next-generation Node.js and TypeScript ORM",
+      "category": "database",
+      "url": "https://prisma.io",
+      "packageNames": ["prisma", "@prisma/client"],
+      "schemaFile": "schemas/database/prisma.env.schema"
+    },
+    {
+      "name": "postgres",
+      "displayName": "PostgreSQL",
+      "description": "PostgreSQL database connection",
+      "category": "database",
+      "packageNames": ["pg", "postgres", "@vercel/postgres"],
+      "schemaFile": "schemas/database/postgres.env.schema"
+    },
+    {
+      "name": "redis",
+      "displayName": "Redis",
+      "description": "Redis database connection",
+      "category": "database",
+      "packageNames": ["redis", "ioredis", "@upstash/redis"],
+      "schemaFile": "schemas/database/redis.env.schema"
+    },
+    {
+      "name": "resend",
+      "displayName": "Resend",
+      "description": "Email API for developers",
+      "category": "email",
+      "url": "https://resend.com",
+      "packageNames": ["resend"],
+      "schemaFile": "schemas/email/resend.env.schema"
+    },
+    {
+      "name": "sendgrid",
+      "displayName": "SendGrid",
+      "description": "Email delivery service",
+      "category": "email",
+      "url": "https://sendgrid.com",
+      "packageNames": ["@sendgrid/mail"],
+      "schemaFile": "schemas/email/sendgrid.env.schema"
+    },
+    {
+      "name": "auth0",
+      "displayName": "Auth0",
+      "description": "Authentication and authorization platform",
+      "category": "auth",
+      "url": "https://auth0.com",
+      "packageNames": ["@auth0/nextjs-auth0", "auth0"],
+      "schemaFile": "schemas/auth/auth0.env.schema"
+    },
+    {
+      "name": "clerk",
+      "displayName": "Clerk",
+      "description": "User management and authentication",
+      "category": "auth",
+      "url": "https://clerk.com",
+      "packageNames": ["@clerk/nextjs", "@clerk/clerk-sdk-node"],
+      "schemaFile": "schemas/auth/clerk.env.schema",
+      "frameworks": {
+        "nextjs": {
+          "envPrefix": ["NEXT_PUBLIC_", ""],
+          "schemaFile": "schemas/auth/clerk-nextjs.env.schema"
+        }
+      }
+    }
+  ],
+  "categories": {
+    "ai": "AI & Machine Learning",
+    "auth": "Authentication & Authorization",
+    "database": "Databases & ORMs",
+    "email": "Email Services",
+    "monitoring": "Monitoring & Analytics",
+    "payments": "Payment Processing",
+    "storage": "File Storage",
+    "messaging": "Messaging & Communication",
+    "deployment": "Deployment & Hosting",
+    "testing": "Testing & CI/CD"
+  }
+}

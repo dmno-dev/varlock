@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Environment Schema Store Catalog",
+  "type": "object",
+  "required": ["version", "schemas", "categories"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Catalog version in semver format"
+    },
+    "schemas": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/schema"
+      }
+    },
+    "categories": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "definitions": {
+    "schema": {
+      "type": "object",
+      "required": ["name", "displayName", "description", "category", "packageNames", "schemaFile"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$",
+          "description": "Unique identifier for the schema"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Human-readable name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Brief description of the service/package"
+        },
+        "category": {
+          "type": "string",
+          "description": "Category identifier"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Official website or documentation"
+        },
+        "packageNames": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "NPM package names that trigger this schema"
+        },
+        "schemaFile": {
+          "type": "string",
+          "description": "Path to the default schema file"
+        },
+        "versions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Version-specific schema files"
+        },
+        "frameworks": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "envPrefix": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "schemaFile": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "Framework-specific configurations"
+        }
+      }
+    }
+  }
+}
