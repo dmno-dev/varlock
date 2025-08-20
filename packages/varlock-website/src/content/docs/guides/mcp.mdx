@@ -1,0 +1,508 @@
+---
+title: MCP Security
+description: Using varlock to secure MCP clients and servers - protecting secrets in AI agent connections
+---
+import { TabItem, Tabs } from "@astrojs/starlight/components";
+
+The [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) enables AI agents to connect to external data sources and tools. When using MCP, you often need to handle sensitive configuration like API keys, database credentials, and authentication tokens. `varlock` provides a secure way to manage these secrets without exposing them in your configuration files or to AI agents.
+
+This guide covers three scenarios:
+- **Local MCP servers** using stdio transport with `varlock run`
+- **Remote MCP servers** using varlock's Node.js integration
+- **Third-party MCP servers** using varlock to load secrets and pass them to the server
+
+## Local MCP Servers with stdio
+
+For local development and testing, MCP servers often use stdio transport for communication with clients. This is perfect for using `varlock run` to securely load environment variables before starting your server.
+
+### Server Setup
+
+Create a `.env.schema` file for your MCP server:
+
+```env-spec title=".env.schema"
+# @defaultSensitive=true
+# @defaultRequired=true
+# ---
+
+# Database connection for MCP server
+# @type=string(startsWith="postgresql://")
+DATABASE_URL=
+
+# API key for external service
+# @type=string(startsWith="sk_")
+EXTERNAL_API_KEY=
+
+# Authentication secret
+# @type=string(minLength=32)
+AUTH_SECRET=
+
+# Server configuration
+# @sensitive=false
+# @type=number(min=1024, max=65535)
+SERVER_PORT=3000
+
+# @sensitive=false
+# @type=enum(debug, info, warn, error)
+LOG_LEVEL=info
+```
+
+Create your local `.env` file with values from your 1Password vault:
+
+```env-spec title=".env"
+DATABASE_URL=exec(`op read "op://devTest/myVault/database-url"`)
+EXTERNAL_API_KEY=exec(`op read "op://devTest/myVault/external-api-key"`)
+AUTH_SECRET=exec(`op read "op://devTest/myVault/auth-secret"`)
+LOG_LEVEL=debug
+```
+
+:::note
+We're using 1Password as an example here, but you can use any secret management tool you prefer as long as it has a CLI to load values.
+:::
+
+Update your MCP server's `package.json` to use `varlock run`:
+
+```json title="package.json"
+{
+  "name": "my-mcp-server",
+  "scripts": {
+    "start": "varlock run -- node server.js",
+    "dev": "varlock run -- node --watch server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.4.0"
+  }
+}
+```
+
+### Docker (local)
+
+For containerized local development, create a Dockerfile that uses varlock:
+
+```dockerfile title="Dockerfile"
+FROM node:22-alpine
+
+# Install varlock
+RUN npm install -g @varlock/cli
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY pnpm-lock.yaml ./
+
+# Install dependencies
+RUN npm install -g pnpm && pnpm install
+
+# Copy application files
+COPY . .
+
+# Build the application
+RUN pnpm build
+
+# Use varlock run to start the server
+CMD ["varlock", "run", "--", "node", "dist/server.js"]
+```
+
+Build and run your Docker container:
+
+```bash
+# Build the image
+docker build -t my-mcp-server:latest .
+
+# Run the container (for testing)
+docker run --rm -it my-mcp-server:latest
+```
+
+### Client Configuration
+
+<Tabs syncKey="mcp-clients">
+
+  <TabItem label="Cursor">
+
+Create a Cursor configuration file to connect to your local MCP server:
+
+```json title="~/.cursor/mcp-servers.json"
+{
+  "mcpServers": {
+    "my-local-server": {
+      "command": "npm",
+      "args": ["start"],
+      "cwd": "/path/to/your/mcp-server",
+      "env": {
+        "NODE_ENV": "development"
+      }
+    }
+  }
+}
+```
+
+For local MCP servers running in Docker: In this case an off-the-shelf MCP server is used, so we need to use `varlock run` to load the `GITHUB_TOKEN` environment variable and pass it to the server.
+
+```json title="~/.cursor/mcp-servers.json"
+{
+  "mcpServers": {
+    "github": {
+      "command": "varlock",
+      "args": [
+        "run", 
+        "--", 
+        "docker", 
+        "run", 
+        "--rm", 
+        "-i", 
+        "ghcr.io/github/github-mcp-server:latest"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    }
+  }
+}
+```
+And the corresponding `.env.schema` file would look something like this:
+
+```env-spec title=".env.schema"
+# @defaultSensitive=true
+# @defaultRequired=true
+# ---
+
+# GitHub token
+# @type=string(startsWith="ghp_")
+GITHUB_TOKEN=exec(`op read "op://devTest/myVault/github-token"`)
+```
+  </TabItem>
+
+  <TabItem label="Claude Desktop">
+
+For Claude Desktop, create a configuration file:
+
+```json title="~/.config/claude/desktop_config.json"
+{
+  "mcpServers": {
+    "my-local-server": {
+      "command": "npm",
+      "args": ["start"],
+      "cwd": "/path/to/your/mcp-server"
+    }
+  }
+}
+```
+
+For local MCP servers running in Docker: In this case an off-the-shelf MCP server is used, so we need to use `varlock run` to load the `GITHUB_TOKEN` environment variable and pass it to the server.
+
+```json title="~/.config/claude/desktop_config.json"
+{
+  "mcpServers": {
+    "github": {
+      "command": "varlock",
+      "args": [
+        "run", 
+        "--", 
+        "docker", 
+        "run", 
+        "--rm", 
+        "-i", 
+        "ghcr.io/github/github-mcp-server:latest"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+  </TabItem>
+
+  <TabItem label="Custom Client">
+
+Here's an example of a custom MCP client that uses varlock for its own configuration:
+
+```typescript title="client.ts"
+import 'varlock/auto-load';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { spawn } from 'child_process';
+import { ENV } from 'varlock/env';
+
+const client = new Client(
+  {
+    name: 'my-mcp-client',
+    version: '1.0.0'
+  },
+  {
+    capabilities: {
+      tools: {}
+    }
+  }
+);
+
+// Start the server process with varlock
+const serverProcess = spawn('pnpm', ['start'], {
+  cwd: ENV.MCP_SERVER_PATH,
+  stdio: ['pipe', 'pipe', 'pipe']
+});
+
+const transport = new StdioClientTransport(serverProcess.stdin, serverProcess.stdout);
+await client.connect(transport);
+
+// Use the client to interact with your MCP server
+const result = await client.callTool({
+  name: 'my-tool',
+  arguments: {}
+});
+```
+
+For third-party MCP servers that require API keys:
+
+```typescript title="third-party-client.ts"
+import 'varlock/auto-load';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { spawn } from 'child_process';
+import { ENV } from 'varlock/env';
+
+async function connectToOpenAIServer() {
+  const client = new Client(
+    { name: 'openai-mcp-client', version: '1.0.0' },
+    { capabilities: { tools: {} } }
+  );
+
+  const serverProcess = spawn('npx', [
+    '@modelcontextprotocol/server-openai',
+    '--api-key', ENV.OPENAI_API_KEY
+  ], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, OPENAI_API_KEY: ENV.OPENAI_API_KEY }
+  });
+
+  const transport = new StdioClientTransport(serverProcess.stdin, serverProcess.stdout);
+  await client.connect(transport);
+  return client;
+}
+
+async function connectToGitHubServer() {
+  const client = new Client(
+    { name: 'github-mcp-client', version: '1.0.0' },
+    { capabilities: { tools: {} } }
+  );
+
+  const serverProcess = spawn('npx', [
+    '@modelcontextprotocol/server-github',
+    '--token', ENV.GITHUB_TOKEN
+  ], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, GITHUB_TOKEN: ENV.GITHUB_TOKEN }
+  });
+
+  const transport = new StdioClientTransport(serverProcess.stdin, serverProcess.stdout);
+  await client.connect(transport);
+  return client;
+}
+```
+
+  </TabItem>
+
+</Tabs>
+
+## Remote MCP Servers
+
+For production deployments, you'll want to run MCP servers as standalone processes with varlock integrated directly into the server code.
+
+:::note
+Code is for example purposes only. Server implementations will vary depending on the MCP server you're using. See the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) for more information.
+:::
+
+### Server Implementation
+
+```typescript title="server.ts"
+import 'varlock/auto-load';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { ENV } from 'varlock/env';
+
+async function main() {
+  const server = new Server(
+    {
+      name: 'my-mcp-server',
+      version: '1.0.0'
+    },
+    {
+      capabilities: {
+        tools: {}
+      }
+    }
+  );
+
+  // Register tools with access to secure configuration
+  server.setRequestHandler('tools/call', async (request) => {
+    const { name, arguments: args } = request.params;
+
+    switch (name) {
+      case 'query-database':
+        // Use secure database connection from config
+        return await queryDatabase(ENV.DATABASE_URL, args);
+      
+      case 'call-external-api':
+        // Use secure API key from config
+        return await callExternalAPI(ENV.EXTERNAL_API_KEY, args);
+      
+      default:
+        throw new Error(`Unknown tool: ${name}`);
+    }
+  });
+
+  const transport = new StdioServerTransport(process.stdin, process.stdout);
+  await server.connect(transport);
+}
+
+async function queryDatabase(databaseUrl: string, args: any) {
+  // Implementation using secure database URL
+  console.log('Querying database with secure connection');
+  return { result: 'database query result' };
+}
+
+async function callExternalAPI(apiKey: string, args: any) {
+  // Implementation using secure API key
+  console.log('Calling external API with secure key');
+  return { result: 'api call result' };
+}
+
+main().catch(console.error);
+```
+
+### Production Deployment
+
+For production, create environment-specific schema files. See the [environments guide](/guides/environments) for detailed information on managing multiple environments with varlock.
+
+```env-spec title=".env.schema"
+# @defaultSensitive=true
+# @defaultRequired=true
+# @envFlag=APP_ENV
+# ---
+
+# env flag is used to determine which environment to load
+# default is development
+# @type=enum(development, staging, test, production)
+APP_ENV=development
+
+# Database connection
+# @type=string(startsWith="postgresql://")
+DATABASE_URL=
+
+# External API credentials
+# @type=string(startsWith="sk_")
+EXTERNAL_API_KEY=
+
+# Authentication
+# @type=string(minLength=32)
+AUTH_SECRET=
+
+# Server settings
+# @sensitive=false
+# @type=number(min=1024, max=65535)
+SERVER_PORT=3000
+
+# @sensitive=false
+# @type=enum(debug, info, warn, error)
+LOG_LEVEL=info
+```
+
+```env-spec title=".env.production"
+DATABASE_URL=exec(`op read "op://prodTest/prodVault/prod-database-url"`)
+EXTERNAL_API_KEY=exec(`op read "op://prodTest/prodVault/prod-external-api-key"`)
+AUTH_SECRET=exec(`op read "op://prodTest/prodVault/prod-auth-secret"`)
+SERVER_PORT=3000
+LOG_LEVEL=warn
+```
+
+Then in the command to start the server, you can use the `varlock run` command to load the environment variables with the correct `envFlag`environment override.
+
+```bash
+APP_ENV=production varlock run -- node server.js
+```
+
+
+
+
+## Security Best Practices
+
+### 1. Never Store Secrets in Plain Text
+
+Always use external secret management such as 1Password or the built-in env var management in your deployment platform.
+
+```env-spec
+# ❌ Never do this
+API_KEY=sk_live_1234567890abcdef
+
+# ✅ Use external secret management
+API_KEY=exec(`op read "op://devTest/myVault/api-key"`)
+
+# ✅ Use external secret management
+API_KEY=exec(`op read "op://devTest/myVault/api-key"`)
+```
+
+### 2. Use Environment-Specific Schemas
+
+Create separate schema files for different environments. See the [environments guide](/guides/environments) for detailed information on managing multiple environments with varlock.
+
+```env-spec title=".env.schema"
+# @defaultSensitive=true
+# @envFlag=APP_ENV
+# ---
+
+# env flag is used to determine which environment to load
+# default is development
+# @type=enum(development, staging, test, production)
+APP_ENV=development
+
+# Common configuration
+DATABASE_URL=
+API_KEY=
+```
+
+```env-spec title=".env.development"
+DATABASE_URL=postgresql://localhost:5432/dev_db
+API_KEY=exec(`op read "op://devTest/myVault/dev-api-key"`)
+```
+
+```env-spec title=".env.production"
+DATABASE_URL=exec(`op read "op://prodTest/prodVault/prod-database-url"`)
+API_KEY=exec(`op read "op://prodTest/prodVault/prod-api-key"`)
+```
+
+### 3. Validate Sensitive Data
+
+Use varlock's validation features to ensure data integrity:
+
+```env-spec title=".env.schema"
+# @type=string(startsWith="sk_", minLength=20)
+API_KEY=
+
+# @type=string(startsWith="postgresql://", contains="mydomain.com")
+DATABASE_URL=
+```
+
+### 4. Monitor and Log Securely
+
+Use varlock's redaction features to prevent sensitive data from appearing in logs:
+
+```typescript
+import 'varlock/auto-load';
+import { ENV } from 'varlock/env';
+
+// Sensitive values are automatically redacted in logs
+console.log('API Key:', ENV.API_KEY); // Shows: [xx▒▒▒▒▒]
+console.log('Database URL:', ENV.DATABASE_URL); // Shows: [xx▒▒▒▒▒]
+```
+
+:::note
+Redaction is on by default, see [root decorators - redactLogs](/reference/root-decorators/#redactlogs) for more information.
+:::
+
+## Next Steps
+
+- Learn more about [varlock's environment specification](/env-spec/overview)
+- Explore [available data types](/reference/data-types) for validation
+- Check out [function reference](/reference/functions) for external integrations
+- Read about [secrets management](/guides/secrets) best practices
