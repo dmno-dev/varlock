@@ -13,8 +13,8 @@ export const commandSpec = define({
   args: {
     'schema-store': {
       type: 'boolean',
-      description: 'Enable schema store validation',
-      default: true,
+      description: 'Enable experimental schema store validation (set VARLOCK_SCHEMA_STORE=true to enable by default)',
+      default: false,
     },
     verbose: {
       type: 'boolean',
@@ -39,9 +39,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   await envGraph.resolveEnvValues();
   const resolvedEnv = envGraph.getResolvedEnvObject();
 
-  // Schema Store validation
-  if (ctx.args['schema-store']) {
-    console.log(chalk.bold('Environment Schema Validation:'));
+  // Schema Store validation (experimental feature)
+  const schemaStoreEnabled = ctx.args['schema-store'] || process.env.VARLOCK_SCHEMA_STORE === 'true';
+  if (schemaStoreEnabled) {
+    console.log(chalk.bold('Environment Schema Validation (Experimental):'));
     
     try {
       const store = new EnvSchemaStore({

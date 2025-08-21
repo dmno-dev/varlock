@@ -1,6 +1,7 @@
 /**
  * MCP Server for Environment Schema Generation
  * Generates environment variable schemas from package documentation
+ * Enhanced with AI SDK for intelligent schema generation
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -11,6 +12,10 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import fetch from 'node-fetch';
 import * as cheerio from 'cheerio';
+import { generateText } from 'ai';
+import { openai } from '@ai-sdk/openai';
+import { anthropic } from '@ai-sdk/anthropic';
+import { google } from '@ai-sdk/google';
 
 interface EnvVariable {
   name: string;
@@ -23,38 +28,109 @@ interface EnvVariable {
   type?: 'string' | 'number' | 'boolean' | 'array' | 'json';
 }
 
+interface AIProvider {
+  name: string;
+  model: any;
+  apiKey: string;
+}
+
 class EnvSchemaGenerator {
+  private aiProvider: AIProvider | null = null;
+
+  constructor() {
+    this.detectAIProvider();
+  }
+
   /**
-   * Search for environment variables in documentation
+   * Auto-detect available AI provider from environment variables
    */
-  async searchEnvVars(packageName: string, searchTerms: string[] = []): Promise<EnvVariable[]> {
+  private detectAIProvider(): void {
+    // Check for OpenAI
+    if (process.env.OPENAI_API_KEY) {
+      this.aiProvider = {
+        name: 'openai',
+        model: openai('gpt-4-turbo-preview'),
+        apiKey: process.env.OPENAI_API_KEY,
+      };
+      console.error('Detected OpenAI API key, using GPT-4 for enhanced schema generation');
+      return;
+    }
+
+    // Check for Anthropic
+    if (process.env.ANTHROPIC_API_KEY) {
+      this.aiProvider = {
+        name: 'anthropic',
+        model: anthropic('claude-3-opus-20240229'),
+        apiKey: process.env.ANTHROPIC_API_KEY,
+      };
+      console.error('Detected Anthropic API key, using Claude 3 for enhanced schema generation');
+      return;
+    }
+
+    // Check for Google Gemini
+    if (process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY) {
+      this.aiProvider = {
+        name: 'google',
+        model: google('gemini-1.5-pro'),
+        apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || '',
+      };
+      console.error('Detected Google AI API key, using Gemini for enhanced schema generation');
+      return;
+    }
+
+    console.error('No AI API keys detected. Using regex-based parsing only.');
+  }
+
+  /**
+   * Search for environment variables in documentation with optional AI enhancement
+   */
+  async searchEnvVars(
+    packageName: string,
+    searchTerms: string[] = [],
+    useAI: boolean = true
+  ): Promise<EnvVariable[]> {
     const envVars: EnvVariable[] = [];
     
     try {
-      // Try multiple documentation sources
-      const sources = [
-        `https://www.npmjs.com/package/${packageName}`,
-        `https://github.com/search?q=repo:${packageName}+env+OR+environment+OR+config`,
-        `https://raw.githubusercontent.com/${packageName}/main/README.md`,
-        `https://raw.githubusercontent.com/${packageName}/master/README.md`,
-      ];
+      // Fetch documentation from multiple sources
+      const documentation = await this.fetchDocumentation(packageName);
+      
+      if (!documentation) {
+        return [];
+      }
 
-      for (const url of sources) {
+      // First, use regex-based parsing
+      const regexVars = this.parseEnvVarsFromContent(documentation, searchTerms);
+      envVars.push(...regexVars);
+
+      // If AI is available and enabled, enhance with AI
+      if (useAI && this.aiProvider && documentation) {
         try {
-          const response = await fetch(url);
-          if (!response.ok) continue;
+          const aiVars = await this.enhanceWithAI(packageName, documentation, regexVars);
           
-          const content = await response.text();
-          
-          // Parse environment variables from content
-          const vars = this.parseEnvVarsFromContent(content, searchTerms);
-          envVars.push(...vars);
-        } catch {
-          // Continue to next source
+          // Merge AI results with regex results
+          for (const aiVar of aiVars) {
+            const existing = envVars.find(v => v.name === aiVar.name);
+            if (existing) {
+              // Enhance existing variable with AI insights
+              existing.description = aiVar.description || existing.description;
+              existing.required = aiVar.required ?? existing.required;
+              existing.secret = aiVar.secret ?? existing.secret;
+              existing.pattern = aiVar.pattern || existing.pattern;
+              existing.example = aiVar.example || existing.example;
+              existing.defaultValue = aiVar.defaultValue || existing.defaultValue;
+              existing.type = aiVar.type || existing.type;
+            } else {
+              // Add new variable discovered by AI
+              envVars.push(aiVar);
+            }
+          }
+        } catch (error) {
+          console.error('AI enhancement failed, using regex results only:', error);
         }
       }
 
-      // Deduplicate by name
+      // Deduplicate and clean up
       const uniqueVars = new Map<string, EnvVariable>();
       for (const v of envVars) {
         if (!uniqueVars.has(v.name) || (v.description && !uniqueVars.get(v.name)?.description)) {
@@ -70,7 +146,104 @@ class EnvSchemaGenerator {
   }
 
   /**
-   * Parse environment variables from text content
+   * Fetch documentation from multiple sources
+   */
+  private async fetchDocumentation(packageName: string): Promise<string | null> {
+    const sources = [
+      `https://www.npmjs.com/package/${packageName}`,
+      `https://raw.githubusercontent.com/${packageName}/main/README.md`,
+      `https://raw.githubusercontent.com/${packageName}/master/README.md`,
+      `https://raw.githubusercontent.com/${packageName}/main/docs/configuration.md`,
+      `https://raw.githubusercontent.com/${packageName}/main/.env.example`,
+    ];
+
+    let allContent = '';
+
+    for (const url of sources) {
+      try {
+        const response = await fetch(url);
+        if (response.ok) {
+          const content = await response.text();
+          allContent += `\n\n--- Source: ${url} ---\n\n${content}`;
+        }
+      } catch {
+        // Continue to next source
+      }
+    }
+
+    return allContent || null;
+  }
+
+  /**
+   * Enhance environment variables with AI
+   */
+  private async enhanceWithAI(
+    packageName: string,
+    documentation: string,
+    existingVars: EnvVariable[]
+  ): Promise<EnvVariable[]> {
+    if (!this.aiProvider) {
+      return [];
+    }
+
+    const prompt = `You are an expert at analyzing package documentation to identify environment variables.
+
+Package: ${packageName}
+
+Documentation (truncated to 10000 chars):
+${documentation.substring(0, 10000)}
+
+Existing variables found by regex:
+${existingVars.map(v => `- ${v.name}: ${v.description || 'no description'}`).join('\n')}
+
+Please analyze the documentation and:
+1. Identify ALL environment variables mentioned
+2. Determine if each is required or optional
+3. Identify if it contains sensitive data (secret)
+4. Provide a clear description
+5. Suggest a regex pattern for validation if applicable
+6. Provide a realistic example value
+7. Identify the type (string, number, boolean, array, json)
+
+Return a JSON array of environment variables with this structure:
+[
+  {
+    "name": "ENV_VAR_NAME",
+    "description": "Clear description",
+    "required": true/false,
+    "secret": true/false,
+    "pattern": "^regex-pattern$" or null,
+    "example": "example-value" or null,
+    "defaultValue": "default" or null,
+    "type": "string|number|boolean|array|json"
+  }
+]
+
+IMPORTANT: Only return valid JSON array, no other text.`;
+
+    try {
+      const { text } = await generateText({
+        model: this.aiProvider.model,
+        prompt,
+        temperature: 0.3,
+        maxTokens: 2000,
+      });
+
+      // Parse AI response
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const aiVars = JSON.parse(jsonMatch[0]) as EnvVariable[];
+        return aiVars.filter(v => v.name && /^[A-Z_][A-Z0-9_]*$/.test(v.name));
+      }
+    } catch (error) {
+      console.error('AI parsing error:', error);
+    }
+
+    return [];
+  }
+
+  /**
+   * Parse environment variables from text content using regex
    */
   private parseEnvVarsFromContent(content: string, searchTerms: string[]): EnvVariable[] {
     const envVars: EnvVariable[] = [];
@@ -87,12 +260,6 @@ class EnvSchemaGenerator {
       /process\.env\.([A-Z_][A-Z0-9_]*)/g,
       // Environment variable in headers
       /^#+\s*([A-Z_][A-Z0-9_]*)\s*$/gm,
-    ];
-
-    // Search for API keys and tokens
-    const secretPatterns = [
-      /([A-Z_]*(?:API|SECRET|TOKEN|KEY|PASSWORD|PRIVATE|AUTH|CREDENTIAL)[A-Z_]*)/g,
-      /([A-Z_]*(?:DSN|URL|URI|ENDPOINT|HOST|PORT)[A-Z_]*)/g,
     ];
 
     // Extract variables using patterns
@@ -206,6 +373,9 @@ class EnvSchemaGenerator {
       lines.push(`# @framework ${framework}`);
     }
     lines.push(`# @url https://www.npmjs.com/package/${packageName}`);
+    if (this.aiProvider) {
+      lines.push(`# @generated-with AI-enhanced analysis (${this.aiProvider.name})`);
+    }
     lines.push('');
     
     // Group variables by type
@@ -231,6 +401,9 @@ class EnvSchemaGenerator {
         if (variable.example) {
           lines.push(`# @example ${variable.example}`);
         }
+        if (variable.defaultValue) {
+          lines.push(`# @default ${variable.defaultValue}`);
+        }
         lines.push(`${variable.name}=`);
         lines.push('');
       }
@@ -247,6 +420,12 @@ class EnvSchemaGenerator {
         }
         if (variable.type && variable.type !== 'string') {
           lines.push(`# @${variable.type}`);
+        }
+        if (variable.pattern) {
+          lines.push(`# @pattern ${variable.pattern}`);
+        }
+        if (variable.example) {
+          lines.push(`# @example ${variable.example}`);
         }
         if (variable.defaultValue) {
           lines.push(`# @default ${variable.defaultValue}`);
@@ -267,6 +446,12 @@ class EnvSchemaGenerator {
         }
         if (variable.type && variable.type !== 'string') {
           lines.push(`# @${variable.type}`);
+        }
+        if (variable.pattern) {
+          lines.push(`# @pattern ${variable.pattern}`);
+        }
+        if (variable.example) {
+          lines.push(`# @example ${variable.example}`);
         }
         if (variable.defaultValue) {
           lines.push(`# @default ${variable.defaultValue}`);
@@ -358,7 +543,7 @@ class EnvSchemaGenerator {
 const server = new Server(
   {
     name: 'env-schema-generator',
-    version: '0.1.0',
+    version: '0.2.0',
   },
   {
     capabilities: {
@@ -375,7 +560,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: 'generate_schema',
-        description: 'Generate an environment schema from a package name',
+        description: 'Generate an environment schema from a package name (AI-enhanced)',
         inputSchema: {
           type: 'object',
           properties: {
@@ -392,13 +577,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: 'Target framework (optional)',
               enum: ['nextjs', 'vite', 'astro', 'remix', 'nuxt', 'sveltekit'],
             },
+            useAI: {
+              type: 'boolean',
+              description: 'Use AI to enhance schema generation (auto-detects available API keys)',
+              default: true,
+            },
           },
           required: ['packageName'],
         },
       },
       {
         name: 'search_env_vars',
-        description: 'Search for environment variables in package documentation',
+        description: 'Search for environment variables in package documentation (AI-enhanced)',
         inputSchema: {
           type: 'object',
           properties: {
@@ -412,6 +602,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 type: 'string',
               },
               description: 'Additional search terms',
+            },
+            useAI: {
+              type: 'boolean',
+              description: 'Use AI to enhance search (auto-detects available API keys)',
+              default: true,
             },
           },
           required: ['packageName'],
@@ -441,10 +636,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   switch (name) {
     case 'generate_schema': {
-      const { packageName, version, framework } = args as any;
+      const { packageName, version, framework, useAI = true } = args as any;
       
       // Search for environment variables
-      const variables = await generator.searchEnvVars(packageName);
+      const variables = await generator.searchEnvVars(packageName, [], useAI);
       
       if (variables.length === 0) {
         return {
@@ -471,9 +666,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     case 'search_env_vars': {
-      const { packageName, searchTerms } = args as any;
+      const { packageName, searchTerms, useAI = true } = args as any;
       
-      const variables = await generator.searchEnvVars(packageName, searchTerms || []);
+      const variables = await generator.searchEnvVars(packageName, searchTerms || [], useAI);
       
       if (variables.length === 0) {
         return {
@@ -535,7 +730,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('MCP Server started');
+  console.error('MCP Server started (v0.2.0 with AI enhancement)');
 }
 
 main().catch(console.error);

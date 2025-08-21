@@ -107,6 +107,29 @@ export class EnvSchemaStore {
   private packageJson: any = null;
   private cacheKey: string | null = null;
 
+  /**
+   * Check if the schema store feature is enabled
+   * @returns true if enabled via environment variable or .env file
+   */
+  static isEnabled(): boolean {
+    // Check environment variable
+    if (process.env.VARLOCK_SCHEMA_STORE === 'true') {
+      return true;
+    }
+
+    // Check .env file for @schema-store enabled directive
+    const envPath = join(process.cwd(), '.env');
+    if (existsSync(envPath)) {
+      const content = readFileSync(envPath, 'utf-8');
+      if (content.includes('# @schema-store enabled') || 
+          content.includes('#@schema-store enabled')) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   constructor(config: SchemaStoreConfig = {}) {
     this.config = {
       autoDiscovery: config.autoDiscovery ?? true,
@@ -125,6 +148,13 @@ export class EnvSchemaStore {
    * Initialize the schema store
    */
   async initialize(projectRoot?: string): Promise<void> {
+    // Skip initialization if feature is not enabled (unless explicitly configured)
+    if (!EnvSchemaStore.isEnabled() && 
+        !this.config.localSchemaDir && 
+        this.config.load?.length === 0) {
+      console.log('Environment Schema Store is disabled. Set VARLOCK_SCHEMA_STORE=true to enable.');
+      return;
+    }
     const root = projectRoot || process.cwd();
     
     // Load package.json

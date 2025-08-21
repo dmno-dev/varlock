@@ -11,6 +11,10 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.5.0",
+    "ai": "^3.0.0",
+    "@ai-sdk/openai": "^0.0.30",
+    "@ai-sdk/anthropic": "^0.0.30",
+    "@ai-sdk/google": "^0.0.30",
     "cheerio": "^1.0.0-rc.12",
     "node-fetch": "^3.3.2"
   },
@@ -44,6 +48,11 @@
               "type": "string",
               "description": "Target framework (optional)",
               "enum": ["nextjs", "vite", "astro", "remix", "nuxt", "sveltekit"]
+            },
+            "useAI": {
+              "type": "boolean",
+              "description": "Use AI to enhance schema generation (auto-detects available API keys)",
+              "default": true
             }
           },
           "required": ["packageName"]
@@ -65,6 +74,11 @@
                 "type": "string"
               },
               "description": "Additional search terms"
+            },
+            "useAI": {
+              "type": "boolean",
+              "description": "Use AI to enhance search (auto-detects available API keys)",
+              "default": true
             }
           },
           "required": ["packageName"]

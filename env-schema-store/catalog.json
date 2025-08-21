@@ -57,6 +57,15 @@
       "schemaFile": "schemas/ai/anthropic.env.schema"
     },
     {
+      "name": "gemini",
+      "displayName": "Google Gemini",
+      "description": "Google Gemini AI",
+      "category": "ai",
+      "url": "https://ai.google.dev",
+      "packageNames": ["@google/generative-ai"],
+      "schemaFile": "schemas/ai/gemini.env.schema"
+    },
+    {
       "name": "supabase",
       "displayName": "Supabase",
       "description": "Open source Firebase alternative",
@@ -79,6 +88,33 @@
       "url": "https://prisma.io",
       "packageNames": ["prisma", "@prisma/client"],
       "schemaFile": "schemas/database/prisma.env.schema"
+    },
+    {
+      "name": "drizzle",
+      "displayName": "Drizzle ORM",
+      "description": "TypeScript ORM for SQL databases",
+      "category": "database",
+      "url": "https://orm.drizzle.team",
+      "packageNames": ["drizzle-orm", "drizzle-kit"],
+      "schemaFile": "schemas/database/drizzle.env.schema"
+    },
+    {
+      "name": "convex",
+      "displayName": "Convex",
+      "description": "Backend platform for web apps",
+      "category": "database",
+      "url": "https://convex.dev",
+      "packageNames": ["convex"],
+      "schemaFile": "schemas/database/convex.env.schema"
+    },
+    {
+      "name": "neon",
+      "displayName": "Neon",
+      "description": "Serverless PostgreSQL",
+      "category": "database",
+      "url": "https://neon.tech",
+      "packageNames": ["@neondatabase/serverless"],
+      "schemaFile": "schemas/database/neon.env.schema"
     },
     {
       "name": "postgres",
@@ -137,6 +173,78 @@
           "schemaFile": "schemas/auth/clerk-nextjs.env.schema"
         }
       }
+    },
+    {
+      "name": "datadog",
+      "displayName": "Datadog",
+      "description": "Monitoring and analytics platform",
+      "category": "monitoring",
+      "url": "https://datadoghq.com",
+      "packageNames": ["dd-trace", "@datadog/browser-rum"],
+      "schemaFile": "schemas/monitoring/datadog.env.schema"
+    },
+    {
+      "name": "posthog",
+      "displayName": "PostHog",
+      "description": "Product analytics platform",
+      "category": "monitoring",
+      "url": "https://posthog.com",
+      "packageNames": ["posthog-js", "posthog-node"],
+      "schemaFile": "schemas/monitoring/posthog.env.schema"
+    },
+    {
+      "name": "statsig",
+      "displayName": "Statsig",
+      "description": "Feature management and experimentation",
+      "category": "monitoring",
+      "url": "https://statsig.com",
+      "packageNames": ["statsig-js", "statsig-node", "statsig-react"],
+      "schemaFile": "schemas/monitoring/statsig.env.schema"
+    },
+    {
+      "name": "vercel",
+      "displayName": "Vercel",
+      "description": "Deployment and hosting platform",
+      "category": "deployment",
+      "url": "https://vercel.com",
+      "packageNames": ["@vercel/node", "vercel"],
+      "schemaFile": "schemas/deployment/vercel.env.schema"
+    },
+    {
+      "name": "cloudflare-workers",
+      "displayName": "Cloudflare Workers",
+      "description": "Edge computing platform",
+      "category": "deployment",
+      "url": "https://workers.cloudflare.com",
+      "packageNames": ["wrangler", "@cloudflare/workers-types", "miniflare"],
+      "schemaFile": "schemas/deployment/cloudflare-workers.env.schema"
+    },
+    {
+      "name": "twilio",
+      "displayName": "Twilio",
+      "description": "Communication platform",
+      "category": "communication",
+      "url": "https://twilio.com",
+      "packageNames": ["twilio"],
+      "schemaFile": "schemas/communication/twilio.env.schema"
+    },
+    {
+      "name": "expo",
+      "displayName": "Expo",
+      "description": "React Native development platform",
+      "category": "frameworks",
+      "url": "https://expo.dev",
+      "packageNames": ["expo", "expo-cli"],
+      "schemaFile": "schemas/frameworks/expo.env.schema"
+    },
+    {
+      "name": "hono",
+      "displayName": "Hono",
+      "description": "Ultrafast web framework",
+      "category": "frameworks",
+      "url": "https://hono.dev",
+      "packageNames": ["hono", "@hono/node-server"],
+      "schemaFile": "schemas/frameworks/hono.env.schema"
     }
   ],
   "categories": {
@@ -147,8 +255,9 @@
     "monitoring": "Monitoring & Analytics",
     "payments": "Payment Processing",
     "storage": "File Storage",
-    "messaging": "Messaging & Communication",
+    "communication": "Messaging & Communication",
     "deployment": "Deployment & Hosting",
+    "frameworks": "Frameworks & Platforms",
     "testing": "Testing & CI/CD"
   }
 }
