@@ -227,7 +227,7 @@ export function initVarlockEnv(opts?: {
   Object.assign(varlockSettings, serializedEnvData.settings);
   resetRedactionMap(serializedEnvData);
 
-  const setProcessEnv = !process.env.__VARLOCK_ENV;
+  const setProcessEnv = true;
 
   for (const itemKey in serializedEnvData.config) {
     const itemValue = serializedEnvData.config[itemKey].value;
