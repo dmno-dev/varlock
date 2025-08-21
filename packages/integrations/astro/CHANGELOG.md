@@ -1,5 +1,14 @@
 # @varlock/astro-integration
 
+## 0.0.5
+
+### Patch Changes
+
+- [#130](https://github.com/dmno-dev/varlock/pull/130) [`17206e8`](https://github.com/dmno-dev/varlock/commit/17206e86e10ca178ce2e6115ecf1d42b4e8dce7e) Thanks [@theoephraim](https://github.com/theoephraim)! - fix for astro+vite plugin
+
+- Updated dependencies [[`17206e8`](https://github.com/dmno-dev/varlock/commit/17206e86e10ca178ce2e6115ecf1d42b4e8dce7e)]:
+  - varlock@0.0.10
+
 ## 0.0.4
 
 ### Patch Changes
