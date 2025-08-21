@@ -17,7 +17,7 @@ function varlockAstroIntegration(
   return {
     name: 'varlock-astro-integration',
     hooks: {
-      // docs sasy to use astro:config:setup hook to adjust vite config
+      // docs say to use astro:config:setup hook to adjust vite config
       // but we wait to until here because we don't know the adapter yet
       // and we want to use that to infer ssrInjectMode
       'astro:config:done': async (opts) => {
@@ -30,6 +30,7 @@ function varlockAstroIntegration(
           ssrInjectMode ??= 'auto-load';
         }
 
+        opts.config.vite.plugins ||= [];
         opts.config.vite?.plugins?.push(
           varlockVitePlugin({
             ...integrationOptions,
