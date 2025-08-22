@@ -1,5 +1,11 @@
 # varlock
 
+## 0.0.11
+
+### Patch Changes
+
+- [#132](https://github.com/dmno-dev/varlock/pull/132) [`330bd92`](https://github.com/dmno-dev/varlock/commit/330bd921bbbae0b64a7c98e321711d6e87c49843) Thanks [@theoephraim](https://github.com/theoephraim)! - fix logic around setting process.env and handling empty/undefined vals
+
 ## 0.0.10
 
 ### Patch Changes
