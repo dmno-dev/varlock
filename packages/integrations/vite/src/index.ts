@@ -44,7 +44,8 @@ function resetStaticReplacements() {
     const itemInfo = varlockLoadedEnv.config[itemKey];
     // TODO: probably reimplement static/dynamic controls here too
     if (!itemInfo.isSensitive) {
-      const val = JSON.stringify(itemInfo.value);
+      // we have to pass in a string of 'undefined' so it gets replaced properly
+      const val = itemInfo.value === undefined ? 'undefined' : JSON.stringify(itemInfo.value);
       staticReplacements[`ENV.${itemKey}`] = val;
     }
   }
@@ -100,6 +101,14 @@ export function varlockVitePlugin(
 
       isDevCommand = env.command === 'serve';
 
+      // this gets re-triggered after .env file updates
+      // TODO: be smarter about only reloading if the env files changed?
+      if (isFirstLoad) {
+        isFirstLoad = false;
+      } else if (isDevCommand) {
+        reloadConfig();
+      }
+
       const allPlugins = config.plugins?.flatMap((p) => p);
       allPlugins?.forEach((p) => {
         if (p && 'name' in p && p.name in DETECT_PRESETS_USING_PLUGINS) {
@@ -135,14 +144,6 @@ export function varlockVitePlugin(
     // hook to configure vite dev server
     async configureServer(server) {
       debug('vite plugin - configureServer fn called');
-
-      // this gets re-triggered after .env file updates
-      // TODO: be smarter about only reloading if the env files changed?
-      if (isFirstLoad) {
-        isFirstLoad = false;
-      } else if (isDevCommand) {
-        reloadConfig();
-      }
 
       if (!configIsValid) {
         // triggers the built-in vite error overlay
@@ -300,7 +301,8 @@ export function varlockVitePlugin(
           } else if (varlockLoadedEnv.config[itemKey].isSensitive) {
             throw new Error(`Config item \`${itemKey}\` is sensitive and cannot be used in html replacements`);
           } else {
-            return varlockLoadedEnv.config[itemKey].value;
+            // undefined will be turned into empty string in html replacements
+            return varlockLoadedEnv.config[itemKey].value ?? '';
           }
         },
       );

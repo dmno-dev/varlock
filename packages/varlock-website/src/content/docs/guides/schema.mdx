@@ -46,11 +46,15 @@ Values may be static, or set using [functions](/reference/functions), which can 
 - Single line values may not contain newlines, but `\n` will be converted to an actual newline except in single quotes
 - Multiline values can be wrapped in <code>```</code>, `"""`. Also supported is `"` and `'` but not recommended.
 - Unquoted values will be parsed as a number/boolean/undefined where possible (`ITEM=foo` -> `"foo"`, while `ITEM=true` -> `true`), however data-types may further coerce values
+- No value (undefined) and empty string ("") are distinct
 
 ```env-spec title=".env.schema"
-NO_VALUE=
+NO_VALUE= # will resolve to undefined
+EMPTY_STRING_VALUE="" # will resolve to empty string
 STATIC_VALUE_UNQUOTED=quotes are optional # but are recommended!
 STATIC_VALUE_QUOTED="#hashtag" # and are necessary in some cases
+BOOLEAN_VALUE=true
+NUMERIC_VALUE=123.456
 FUNCTION_VALUE=exec(`op read "op://api-config/item/credential"`)
 MULTILINE_VALUE="""
 multiple

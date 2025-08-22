@@ -1,6 +1,6 @@
 # @varlock/vite-integration
 
-This package helps you integrate [varlock](https://varlock.dev) into a [Vite](https://vite.dev) project.
+This package helps you integrate [varlock](https://varlock.dev) into a [Vite](https://vite.dev)-powered project.
 
 It is designed as a [Vite plugin](https://vite.dev/guide/using-plugins.html), which will override Vite's default `.env` file loading logic, and instead use varlock.
 
@@ -13,4 +13,9 @@ Compared to the default Vite behavior, this package provides:
 
 See [our docs site](https://varlock.dev/integrations/vite/) for complete installation and usage instructions.
 
-> ⚠️ This is meant to be used in projects that are using Vite directly. For frameworks that use Vite under the hood, you may need a specific integration for it.
+Some web frameworks use Vite and have their own plugins to enable very complex client/server hybrid rendering, or complex build processes. This plugin is designed to work with simple vanilla Vite projects, and complex framework powered projects. While this plugin should work with most frameworks, so far it has specifically been tested with:
+
+- [React Router](https://reactrouter.com/)
+- [Qwik](http://qwik.dev/)
+- [Cloudflare Workers](https://developers.cloudflare.com/workers/)
+- [Astro](https://astro.build/)* (please use the [Astro integration](https://varlock.dev/integrations/astro/))

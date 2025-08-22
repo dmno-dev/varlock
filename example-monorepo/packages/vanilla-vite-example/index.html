@@ -28,24 +28,19 @@
       <td>%ENV.PUBLIC_FOO%</td>
     </tr>
     <tr>
-      <td>SECRET_FOO</td>
-      <td>%SECRET_FOO%</td>
-      <td>❌ triggers error</td>
+      <td>VITE_PUBLIC_FOO</td>
+      <td>%VITE_PUBLIC_FOO%</td>
+      <td>%ENV.VITE_PUBLIC_FOO%</td>
     </tr>
     <tr>
-      <td>BAD_KEY</td>
-      <td>%BAD_KEY%</td>
-      <td>❌ triggers error</td>
+      <td>ENV_ITEM1</td>
+      <td>%ENV_ITEM1%</td>
+      <td>%ENV.ENV_ITEM1%</td>
     </tr>
     <tr>
-      <td>ITEM1</td>
-      <td>%ITEM1%</td>
-      <td>%ENV.ITEM1%</td>
-    </tr>
-    <tr>
-      <td>VITE_ITEM1</td>
-      <td>%VITE_ITEM1%</td>
-      <td>%ENV.VITE_ITEM1%</td>
+      <td>VITE_ENV_ITEM1</td>
+      <td>%VITE_ENV_ITEM1%</td>
+      <td>%ENV.VITE_ENV_ITEM1%</td>
     </tr>
     <tr>
       <td>ENV_SPECIFIC_ITEM</td>
@@ -56,6 +51,16 @@
       <td>VITE_ENV_SPECIFIC_ITEM</td>
       <td>%VITE_ENV_SPECIFIC_ITEM%</td>
       <td>%ENV.VITE_ENV_SPECIFIC_ITEM%</td>
+    </tr>
+    <tr>
+      <td>SECRET_FOO</td>
+      <td>%SECRET_FOO%</td>
+      <td>❌ triggers error</td>
+    </tr>
+    <tr>
+      <td>BAD_KEY</td>
+      <td>%BAD_KEY%</td>
+      <td>❌ triggers error</td>
     </tr>
   </table>
   <hr />
