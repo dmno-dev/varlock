@@ -13,7 +13,7 @@ Compared to the default Vite behavior, this package provides:
 
 See [our docs site](https://varlock.dev/integrations/vite/) for complete installation and usage instructions.
 
-Some web frameworks use vite and have their own plugins to enable very complex client/server hybrid rendering, or complex build processes. This plugin is designed to work with simple vanilla Vite projects, and complex framework powered projects. While this plugin should work with most frameworks, so far it has specifcally been tested with:
+Some web frameworks use Vite and have their own plugins to enable very complex client/server hybrid rendering, or complex build processes. This plugin is designed to work with simple vanilla Vite projects, and complex framework powered projects. While this plugin should work with most frameworks, so far it has specifically been tested with:
 
 - [React Router](https://reactrouter.com/)
 - [Qwik](http://qwik.dev/)
