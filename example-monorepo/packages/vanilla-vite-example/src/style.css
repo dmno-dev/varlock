@@ -37,11 +37,20 @@ h1 {
   line-height: 1.1;
 }
 
+h3 {
+  text-align: center;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0 20px;
+}
+
 #app {
   max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
-  text-align: center;
 }
 
 .logo {

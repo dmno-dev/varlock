@@ -195,10 +195,14 @@ let initializedEnv = false;
 const envValues = {} as Record<string, any>;
 export const varlockSettings = {} as Record<string, any>;
 
+const processExists = !!globalThis.process;
+const originalProcessEnv = { ...processExists && process.env };
+let varlockInjectedProcessEnvKeys: Array<string> | undefined;
+
 export function initVarlockEnv(opts?: {
   allowFail?: boolean,
 }) {
-  debug('⚡️ INIT VARLOCK ENV!', initializedEnv, !!(globalThis as any).__varlockLoadedEnv, !!process.env.__VARLOCK_ENV);
+  debug('⚡️ INIT VARLOCK ENV!', initializedEnv, !!(globalThis as any).__varlockLoadedEnv, processExists && !!process.env.__VARLOCK_ENV);
 
   if (isBrowser) {
     return;
@@ -211,7 +215,7 @@ export function initVarlockEnv(opts?: {
     serializedEnvData = (globalThis as any).__varlockLoadedEnv;
 
   // otherwise if we inject via `varlock run` or have already loaded, it will be in process.env
-  } else if (process.env.__VARLOCK_ENV) {
+  } else if (processExists && process.env.__VARLOCK_ENV) {
     serializedEnvData = JSON.parse(process.env.__VARLOCK_ENV);
   } else {
     if (opts?.allowFail) return;
@@ -227,12 +231,26 @@ export function initVarlockEnv(opts?: {
   Object.assign(varlockSettings, serializedEnvData.settings);
   resetRedactionMap(serializedEnvData);
 
-  const setProcessEnv = true;
+  const setProcessEnv = processExists;
+
+  // if we've already injected process.env vars in the past, we'll reset those now
+  if (setProcessEnv) {
+    if (varlockInjectedProcessEnvKeys) {
+      for (const key of varlockInjectedProcessEnvKeys) delete process.env[key];
+      for (const key of Object.keys(originalProcessEnv)) process.env[key] = originalProcessEnv[key];
+    }
+    varlockInjectedProcessEnvKeys = [];
+  }
 
   for (const itemKey in serializedEnvData.config) {
     const itemValue = serializedEnvData.config[itemKey].value;
     envValues[itemKey] = itemValue;
-    if (setProcessEnv && itemValue !== undefined) process.env[itemKey] = String(itemValue);
+    if (setProcessEnv) {
+      varlockInjectedProcessEnvKeys?.push(itemKey);
+      // when re-injecting into process.env, we treat undefined as empty string
+      // this more closely matches expected behaviour from other .env loaders
+      process.env[itemKey] = itemValue === undefined ? '' : String(itemValue);
+    }
   }
   initializedEnv = true;
 }
