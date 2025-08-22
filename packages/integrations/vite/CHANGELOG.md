@@ -1,5 +1,14 @@
 # @varlock/vite-integration
 
+## 0.0.7
+
+### Patch Changes
+
+- [#132](https://github.com/dmno-dev/varlock/pull/132) [`330bd92`](https://github.com/dmno-dev/varlock/commit/330bd921bbbae0b64a7c98e321711d6e87c49843) Thanks [@theoephraim](https://github.com/theoephraim)! - fix logic around setting process.env and handling empty/undefined vals
+
+- Updated dependencies [[`330bd92`](https://github.com/dmno-dev/varlock/commit/330bd921bbbae0b64a7c98e321711d6e87c49843)]:
+  - varlock@0.0.11
+
 ## 0.0.6
 
 ### Patch Changes
