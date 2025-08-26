@@ -50,7 +50,9 @@ To integrate varlock into a Next.js application, you must use our [`@varlock/nex
         ```diff lang="json" title="package.json"
         {
         +  "overrides": {
-        +    "@next/env": "npm:@varlock/nextjs-integration"
+        +    "next": {
+        +      "@next/env": "npm:@varlock/nextjs-integration"
+        +    }
         +  }
         }
         ```

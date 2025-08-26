@@ -71,7 +71,9 @@ If `dotenv` is being used under the hood of one of your dependencies, you can us
     ```diff lang="json" title="package.json"
     {
     +  "overrides": {
-    +    "dotenv": "varlock"
+    +    "other-dep": {
+    +      "dotenv": "npm:varlock"
+    +    }
     +  }
     }
     ```
