@@ -139,24 +139,57 @@ export class ConfigItem {
       const dataTypeFactory = this.envGraph.dataTypesRegistry[dataTypeName];
       this.dataType = dataTypeFactory(..._.isPlainObject(dataTypeArgs) ? [dataTypeArgs] : dataTypeArgs);
     }
+
+    this.processRequired();
   }
 
-  get isRequired() {
+  _isRequired: boolean = true;
+  /**
+   * need to track if required-ness is dynamic, e.g. based on current env
+   * because that will affect type generation (only _always_ required items are never undefined)
+   * */
+  _isRequiredDynamic: boolean = false;
+
+  private processRequired() {
     for (const def of this.defs) {
       const defDecorators = def.itemDef.decorators || {};
 
       // Explicit per-item decorators
-      if ('required' in defDecorators) {
-        const val = defDecorators.required.simplifiedValue;
-        if (typeof val === 'boolean') return val;
-        if (typeof val === 'string') return val === 'true';
-        return Boolean(val);
-      }
-      if ('optional' in defDecorators) {
-        const val = defDecorators.optional.simplifiedValue;
-        if (typeof val === 'boolean') return !val;
-        if (typeof val === 'string') return val !== 'true';
-        return !val;
+      if ('required' in defDecorators || 'optional' in defDecorators) {
+        // cannot use both @required and @optional at same time
+        if ('required' in defDecorators && 'optional' in defDecorators) {
+          this.schemaErrors.push(new SchemaError('@required and @optional cannot both be set'));
+          return;
+        }
+
+        const requiredDecoratorVal = defDecorators.required?.value || defDecorators.optional?.value;
+        const usingOptional = 'optional' in defDecorators;
+        // static value of  `true` or `false`
+        if (requiredDecoratorVal instanceof ParsedEnvSpecStaticValue) {
+          const staticVal = requiredDecoratorVal.value;
+          if (_.isBoolean(staticVal)) {
+            this._isRequired = usingOptional ? !staticVal : staticVal;
+          } else {
+            this.schemaErrors.push(new SchemaError('@required/@optional can only be set to true/false if using a static value'));
+          }
+
+        // dynamic / function value - setting based on other values
+        } else if (requiredDecoratorVal instanceof ParsedEnvSpecFunctionCall) {
+          this._isRequiredDynamic = true;
+          const requiredFnName = requiredDecoratorVal.name;
+          const requiredFnArgs = requiredDecoratorVal.simplifiedArgs;
+
+          // set required based on current envFlag
+          if (requiredFnName === 'env') {
+            const currentEnv = this.#envGraph.envFlagValue;
+            if (!currentEnv) {
+              this.schemaErrors.push(new SchemaError('Cannot set @required using env() because current env is not set'));
+            }
+            const envMatches = requiredFnArgs.includes(currentEnv);
+            this._isRequired = usingOptional ? !envMatches : envMatches;
+          }
+        }
+        return;
       }
 
       // Root-level @defaultRequired
@@ -167,21 +200,24 @@ export class ConfigItem {
           if (def.source.type === 'schema') {
             const resolver = def.itemDef.resolver;
             if (resolver instanceof StaticValueResolver) {
-              return resolver.staticValue !== undefined && resolver.staticValue !== '';
+              this._isRequired = resolver.staticValue !== undefined && resolver.staticValue !== '';
             } else {
-              return true; // function value
+              this._isRequired = true;
             }
+            return;
           } else {
             // Not schema source, skip this def and continue
             continue;
           }
         }
-        return val; // explicit true or false
+        // explicit true or false
+        this._isRequired = val;
+        return;
       }
     }
-    // defaults to true
-    return true;
   }
+  get isRequired() { return this._isRequired; }
+  get isRequiredDynamic() { return this._isRequiredDynamic; }
 
   get isSensitive() {
     for (const def of this.defs) {
