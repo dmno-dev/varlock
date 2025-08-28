@@ -193,13 +193,6 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
       throw Error(`Unsure how to interpret filename - ${this.fileName}`);
     } else if (fileNameParts.length === 2) {
       this.applyForEnv = fileNameParts[1];
-
-      // some tools use shorthands of dev/stage/prod
-      // so we standardize those to normal env values just in case?
-      // ? not sure about this - might want to leave it as the user wrote it?
-      if (this.applyForEnv === 'dev') this.applyForEnv = 'development';
-      if (this.applyForEnv === 'stage') this.applyForEnv = 'staging';
-      if (this.applyForEnv === 'prod') this.applyForEnv = 'production';
     }
   }
 
