@@ -76,7 +76,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "@types/vscode": "^1.102.0",
+    "@types/vscode": "^1.103.0",
     "@vscode/vsce": "^3.6.0",
     "ovsx": "^0.10.5",
     "tsup": "catalog:"
