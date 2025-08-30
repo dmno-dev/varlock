@@ -19,9 +19,12 @@ export async function loadEnvGraph(opts?: {
   excludeDirs?: Array<string>,
   currentEnvFallback?: string,
   afterInit?: (graph: EnvGraph) => Promise<void>,
+  excludeLocal?: boolean,
+  respectExistingEnv?: boolean,
 }) {
   const graph = new EnvGraph();
   graph.basePath = opts?.basePath ?? autoDetectBasePath();
+  graph.respectExistingEnv = opts?.respectExistingEnv;
 
   if (opts?.afterInit) {
     await opts.afterInit(graph);
@@ -40,6 +43,13 @@ export async function loadEnvGraph(opts?: {
     // must call before finishInit so the dataSource has a reference to the graph
     graph.addDataSource(fileDataSource);
     await fileDataSource.finishInit();
+
+    // Optionally disable .env.local and .env.<env>.local only when explicitly excluded
+    if (opts?.excludeLocal === true) {
+      if (fileDataSource.type === 'overrides' && /\.local(\.|$)/.test(fileDataSource.fileName)) {
+        fileDataSource.disabled = true;
+      }
+    }
   }
   // proocss.env overrides get some special treatment
   graph.finalOverridesDataSource = new ProcessEnvDataSource();

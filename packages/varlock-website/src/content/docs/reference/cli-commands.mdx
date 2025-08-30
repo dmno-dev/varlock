@@ -50,12 +50,16 @@ Useful for debugging locally, and in CI to print out a summary of env vars.
 
 ```bash
 varlock load [options]
+# --exclude-local            Exclude .env.local and .env.[env].local from loading
+# --respect-existing-env     Allow ambient process.env to override schema-defined keys
 ```
 
 **Options:**
 - `--format`:     Format of output [pretty|json|env]
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@envFlag` in `.env.schema`
+ - `--exclude-local`: Exclude `.env.local` and `.env.[env].local`
+ - `--respect-existing-env`: Allow ambient `process.env` to override schema-defined keys
 
 **Examples:**
 ```bash
@@ -85,6 +89,9 @@ Executes a command in a child process, injecting your resolved and validated env
 
 ```bash
 varlock run -- <command>
+# --exclude-local            Exclude .env.local and .env.[env].local from loading
+# --respect-existing-env     Allow ambient process.env to override schema-defined keys
+# --bun-sync-node-env        When running Bun, set NODE_ENV to the resolved @envFlag value
 ```
 
 **Examples:**
