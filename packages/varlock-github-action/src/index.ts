@@ -47,7 +47,7 @@ export function checkVarlockInstalled(): boolean {
 export function checkForEnvFiles(workingDir: string): boolean {
   try {
     const files = readdirSync(workingDir);
-    const envFiles = files.filter((file: string) => file.startsWith('.env'));
+    const envFiles = files.filter((file: string) => file === '.env' || file.startsWith('.env.'));
 
     if (envFiles.length > 0) {
       core.info(`Found environment files: ${envFiles.join(', ')}`);

@@ -17,6 +17,6 @@
     "outDir": "./dist",
     "rootDir": "./src"
   },
-  "include": ["src/**/*", "test/index.integration.test.ts", "test/index.test.ts"],
+  "include": ["src/**/*", "test/**/*"],
   "exclude": ["dist", "node_modules", "**/*.test.ts"]
 }

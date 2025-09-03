@@ -35,5 +35,5 @@ outputs:
     value: ${{ steps.varlock.outputs.json-env }}
 
 runs:
-  using: 'node20'
+  using: 'node22'
   main: 'dist/index.js' 

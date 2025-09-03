@@ -1,5 +1,5 @@
 import {
-  describe, it, expect, vi,
+  describe, it, vi,
 } from 'vitest';
 import { setEnvironmentVariables, outputJsonBlob } from '../src/index';
 
@@ -39,10 +39,6 @@ describe('Sensitive Data Handling', () => {
 
     // Test the function - it should not throw any errors
     setEnvironmentVariables(envGraph);
-
-    // The function doesn't return anything, but we can verify it was called
-    // by checking that no errors were thrown
-    expect(true).toBe(true);
   });
 
   it('should handle undefined and null values gracefully', () => {
@@ -58,10 +54,6 @@ describe('Sensitive Data Handling', () => {
 
     // Test the function - it should not throw any errors
     setEnvironmentVariables(envGraph);
-
-    // The function doesn't return anything, but we can verify it was called
-    // by checking that no errors were thrown
-    expect(true).toBe(true);
   });
 
   it('should handle empty config object', () => {
@@ -73,10 +65,6 @@ describe('Sensitive Data Handling', () => {
 
     // Test the function - it should not throw any errors
     setEnvironmentVariables(envGraph);
-
-    // The function doesn't return anything, but we can verify it was called
-    // by checking that no errors were thrown
-    expect(true).toBe(true);
   });
 
   it('should handle mixed sensitive and non-sensitive values', () => {
@@ -93,10 +81,6 @@ describe('Sensitive Data Handling', () => {
 
     // Test the function - it should not throw any errors
     setEnvironmentVariables(envGraph);
-
-    // The function doesn't return anything, but we can verify it was called
-    // by checking that no errors were thrown
-    expect(true).toBe(true);
   });
 
   it('should output JSON blob correctly', () => {
@@ -113,9 +97,5 @@ describe('Sensitive Data Handling', () => {
 
     // Test the function - it should not throw any errors
     outputJsonBlob(envGraph);
-
-    // The function doesn't return anything, but we can verify it was called
-    // by checking that no errors were thrown
-    expect(true).toBe(true);
   });
 });
