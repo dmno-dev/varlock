@@ -58,6 +58,26 @@ If you need to pass resolved env vars into another process, you can run:
 varlock run -- node script.js
 ```
 
+### New flags
+
+```bash
+varlock load [--format json] [--env production]
+# --exclude-local            Exclude .env.local and .env.[env].local from loading
+# --respect-existing-env     Allow ambient process.env to override schema-defined keys
+
+varlock run -- <command>
+# --exclude-local            Exclude .env.local and .env.[env].local from loading
+# --respect-existing-env     Allow ambient process.env to override schema-defined keys
+# --bun-sync-node-env        When running Bun, set NODE_ENV to the resolved @envFlag value
+```
+
+- `.env.local` and `.env.[env].local` are included by default. Use `--exclude-local` to disable them.
+- By default, ambient `process.env` does not override schema-defined keys. Use `--respect-existing-env` to allow ambient overrides.
+
+#### Notes on using Varlock with Bun
+
+- When running `bun`/`bunx` via `varlock run`, Varlock neutralizes Bun’s dotenv by passing an empty `--env-file` and injects the resolved environment into the child process. Optionally sync `NODE_ENV` with `--bun-sync-node-env`.
+
 Or you can integrate more deeply with one of our [integrations](https://varlock.dev/integrations/javascript/) to get log redaction and leak prevention. 
 
 ## @env-spec

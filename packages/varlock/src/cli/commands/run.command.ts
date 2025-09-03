@@ -1,4 +1,7 @@
 import { execa, type ResultPromise } from 'execa';
+import { writeFileSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import which from 'which';
 import { define } from 'gunshi';
 
@@ -7,11 +10,26 @@ import { checkForConfigErrors, checkForSchemaErrors } from '../helpers/error-che
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { gracefulExit } from 'exit-hook';
 
-
 export const commandSpec = define({
   name: 'run',
   description: 'Run a command with your environment variables injected',
   args: {
+    'exclude-local': {
+      type: 'boolean',
+      description: 'Exclude .env.local and .env.[env].local from loading',
+    },
+    'bun-sync-node-env': {
+      type: 'boolean',
+      description: 'When running Bun, set NODE_ENV to the resolved @envFlag value',
+    },
+    'respect-existing-env': {
+      type: 'boolean',
+      description: 'Allow process.env to override schema-defined keys',
+    },
+    env: {
+      type: 'string',
+      description: 'Set the environment (e.g., production, development, etc) - will be overridden by @envFlag in the schema if present',
+    },
     // watch: {
     //   type: 'boolean',
     //   short: 'w',
@@ -47,7 +65,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // console.log('running command', pathAwareCommand || rawCommand, commandArgsOnly);
 
 
-  const envGraph = await loadVarlockEnvGraph();
+  // pass through options for local files and existing env behavior
+  const excludeLocal = ctx.values['exclude-local'] === true ? true : undefined;
+  const respectExistingEnv = Boolean(ctx.values['respect-existing-env']);
+  const currentEnvFallback = ctx.values.env as string | undefined;
+  const envGraph = await loadVarlockEnvGraph({ excludeLocal, respectExistingEnv, currentEnvFallback });
   checkForSchemaErrors(envGraph);
   await envGraph.resolveEnvValues();
   checkForConfigErrors(envGraph);
@@ -58,16 +80,62 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // console.log(resolvedEnv);
 
   // needs more thought here
-  const fullInjectedEnv = {
-    ...process.env,
-    ...resolvedEnv,
-    __VARLOCK_RUN: '1', // flag for a child process to detect it is runnign via `varlock run`
-    __VARLOCK_ENV: JSON.stringify(envGraph.getSerializedGraph()),
-  };
+  function buildChildEnv(resolved: Record<string, any>, mode: 'whitelist' | 'all' | 'none' = 'whitelist') {
+    const whitelist = new Set(['PATH', 'HOME', 'SHELL', 'TERM', 'TZ', 'LANG', 'LC_ALL', 'PWD', 'TMPDIR', 'TEMP', 'TMP']);
+    let base: Record<string, string> = {};
+    if (mode === 'all') {
+      base = { ...process.env } as Record<string, string>;
+    } else if (mode === 'whitelist') {
+      for (const key of whitelist) {
+        if (process.env[key] != null) base[key] = String(process.env[key]);
+      }
+    }
+    // mode === 'none' → base remains empty
+    const merged: Record<string, string> = { ...base };
+    for (const k in resolved) merged[k] = resolved[k] === undefined ? '' : String(resolved[k]);
+    merged.__VARLOCK_RUN = '1';
+    merged.__VARLOCK_ENV = JSON.stringify(envGraph.getSerializedGraph());
+    return merged;
+  }
 
-  commandProcess = execa(pathAwareCommand || rawCommand, commandArgsOnly, {
+  const fullInjectedEnv = buildChildEnv(resolvedEnv);
+
+  const isBun = (cmd?: string) => (cmd === 'bun' || cmd === 'bunx');
+  const finalCommand = pathAwareCommand || rawCommand;
+  let finalArgs = commandArgsOnly.slice();
+
+  let emptyEnvPath: string | undefined;
+  if (isBun(rawCommand)) {
+    // Neutralize Bun dotenv by passing an explicit empty env file
+    // Create a temporary empty file to ensure Bun does not auto-load dotenv
+    emptyEnvPath = join(tmpdir(), `.varlock-empty-${process.pid}-${Date.now()}.env`);
+    try {
+      writeFileSync(emptyEnvPath, '');
+    } catch (e) {
+      // noop
+    }
+    finalArgs = ['--env-file', emptyEnvPath, ...finalArgs];
+    // .env.local handling is resolved in Varlock; Bun dotenv stays disabled
+    if (ctx.values['bun-sync-node-env']) {
+      const envFlagKey = envGraph.envFlagKey;
+      const envFlagVal = envFlagKey ? String(resolvedEnv[envFlagKey] ?? '') : '';
+      if (envFlagVal) fullInjectedEnv.NODE_ENV = envFlagVal;
+    }
+  }
+
+  commandProcess = execa(finalCommand, finalArgs, {
     stdio: 'inherit',
     env: fullInjectedEnv,
+  });
+  // cleanup temp empty env file after process exits
+  commandProcess.finally(() => {
+    if (emptyEnvPath) {
+      try {
+        unlinkSync(emptyEnvPath);
+      } catch (e) {
+        // noop
+      }
+    }
   });
   // console.log('PARENT PID = ', process.pid);
   // console.log('CHILD PID = ', commandProcess.pid);

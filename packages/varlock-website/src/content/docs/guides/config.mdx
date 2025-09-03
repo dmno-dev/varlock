@@ -1,0 +1,27 @@
+---
+title: Project configuration (example)
+description: Example of a future .varlockrc project configuration
+---
+
+:::caution
+This is a forward-looking example of a potential `.varlockrc` format and is not yet part of the stable API. It illustrates how teams might centralize defaults introduced by recent CLI flags.
+:::
+
+```json title=".varlockrc"
+{
+  "resolver": {
+    "respectExistingEnv": false
+  },
+  "bun": {
+    "dotenv": "none",
+    "syncNodeEnv": false
+  }
+}
+```
+
+Notes:
+- `resolver.respectExistingEnv`: when false, ambient `process.env` will not override schema-defined keys. Equivalent to the default CLI behavior; pass `--respect-existing-env` to opt in per-command.
+- `bun.dotenv: none`: documents the default behavior of the Bun-aware runner, which neutralizes Bun’s dotenv by supplying an empty `--env-file`.
+- `bun.syncNodeEnv`: when true, `varlock run` sets `NODE_ENV` to the resolved `@envFlag` value for Bun child processes (equivalent to `--bun-sync-node-env`).
+
+

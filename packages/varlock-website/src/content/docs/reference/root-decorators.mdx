@@ -39,6 +39,11 @@ See [environments guide](/guides/environments) for more info
 # @type=enum(development, staging, production)
 APP_ENV=development
 ```
+
+:::note
+- `.env.local` and `.env.[env].local` are included by default and can be excluded with `--exclude-local`.
+- By default, ambient `process.env` does not override schema-defined keys; use `--respect-existing-env` to allow ambient overrides.
+:::
 </div>
 
 <div>

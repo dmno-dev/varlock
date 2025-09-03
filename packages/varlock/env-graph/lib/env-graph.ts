@@ -34,6 +34,9 @@ export class EnvGraph {
 
   basePath?: string;
 
+  /** control if process.env should override schema-defined keys */
+  respectExistingEnv?: boolean;
+
   /** array of data sources */
   dataSources: Array<EnvGraphDataSource> = [];
   finalOverridesDataSource?: EnvGraphDataSource;

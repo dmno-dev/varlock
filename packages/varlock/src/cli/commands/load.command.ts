@@ -25,6 +25,14 @@ export const commandSpec = define({
       type: 'string',
       description: 'Set the environment (e.g., production, development, etc) - will be overridden by @envFlag in the schema if present',
     },
+    'respect-existing-env': {
+      type: 'boolean',
+      description: 'Allow process.env to override schema-defined keys',
+    },
+    'exclude-local': {
+      type: 'boolean',
+      description: 'Exclude .env.local and .env.[env].local from loading',
+    },
   },
 });
 
@@ -34,6 +42,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
+    respectExistingEnv: Boolean(ctx.values['respect-existing-env']),
+    excludeLocal: ctx.values['exclude-local'] === true ? true : undefined,
   });
   checkForSchemaErrors(envGraph);
 

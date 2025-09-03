@@ -21,9 +21,9 @@
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.1",
-    "@changesets/cli": "^2.29.5",
-    "@eslint/js": "^9.32.0",
-    "@stylistic/eslint-plugin": "^5.2.2",
+    "@changesets/cli": "^2.29.6",
+    "@eslint/js": "^9.34.0",
+    "@stylistic/eslint-plugin": "^5.2.3",
     "eslint": "^9.32.0",
     "eslint-plugin-es-x": "^9.0.0",
     "eslint-plugin-fix-disabled-rules": "^0.0.2",
@@ -31,9 +31,9 @@
     "eslint-plugin-n": "^17.21.3",
     "eslint-stylistic-airbnb": "^2.0.0",
     "globals": "^16.3.0",
-    "turbo": "^2.5.5",
+    "turbo": "^2.5.6",
     "typescript": "catalog:",
-    "typescript-eslint": "^8.39.0"
+    "typescript-eslint": "^8.41.0"
   },
   "pnpm": {
     "overrides": {

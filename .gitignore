@@ -3,6 +3,7 @@ dist
 *.ignore
 ignore
 .DS_Store
+.pnpm-store
 
 .turbo
 vite.config.ts.timestamp*
@@ -10,5 +11,3 @@ changesets-summary.json
 
 .env.local
 .env.*.local
-
-

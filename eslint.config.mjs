@@ -40,6 +40,7 @@ export default tseslint.config(
       '**/dist',
       '**/dist-sea',
       '**/node_modules',
+      '**/.pnpm-store',
       '**/.turbo',
       'packages/eslint-custom-rules',
       'packages/env-spec-parser/src/grammar.js',

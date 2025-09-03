@@ -100,10 +100,19 @@ export class ConfigItem {
   }
 
   async process() {
-    // we add the final override def here so that if we process the item early (like when resolving our envFlag) it will be respected
+    // We add the final override def here so that if we process the item early (like when resolving our envFlag) it will be respected
+    // But also add it conditionally since process.env can override any item
     const finalOverrideDef = this.envGraph.finalOverridesDataSource?.configItemDefs[this.key];
     if (finalOverrideDef) {
-      this.defs.unshift({ itemDef: finalOverrideDef, source: this.envGraph.finalOverridesDataSource! });
+      const hasSchemaDef = this.defs.some((d) => d.source.type === 'schema');
+      // Special-case: always allow ambient process.env to set the envFlag value.
+      // This enables selecting the environment externally (e.g., APP_ENV=production)
+      // while still guarding other schema-defined keys unless explicitly opted in.
+      const isEnvFlagKey = this.envGraph.envFlagKey === this.key;
+      const allowProcessEnvOverride = isEnvFlagKey || this.envGraph.respectExistingEnv || !hasSchemaDef;
+      if (allowProcessEnvOverride) {
+        this.defs.unshift({ itemDef: finalOverrideDef, source: this.envGraph.finalOverridesDataSource! });
+      }
     }
 
     // process resolvers

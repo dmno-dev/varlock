@@ -11,14 +11,12 @@ While many have traditionally shied away from using environment-specific `.env` 
 
 
 ### Process overrides
-`varlock` will always treat environment variables passed into the process with the most precedence. This means you can rely on your external hosting platform to inject environment-specific values and still benefit from `varlock`'s validation and coercion logic.
-
-However we recommend using injected overrides sparingly, and instead moving more config into your `.env` files.
+By default, ambient `process.env` values do not override schema-defined keys. To allow ambient overrides (legacy behavior), use the CLI flag `--respect-existing-env`. We recommend using injected overrides sparingly, and instead moving more config into your `.env` files.
 
 
 ### Loading environment-specific `.env` files
 
-`varlock` automatically detects all `.env.*` files in the current directory. However any environment-specific files (e.g., `.env.development`) will only be loaded if they match the value of the env var set by the [`@envFlag`](/reference/root-decorators/#envflag) root decorator.
+`varlock` automatically detects all `.env.*` files in the current directory. Environment-specific files (e.g., `.env.development`) will only be loaded when they match the value of the env var set by the [`@envFlag`](/reference/root-decorators/#envflag) root decorator. `.env.local` and `.env.[env].local` are included by default and can be excluded via `--exclude-local`.
 
 The files are applied with a specific precedence (increasing):
 - `.env.schema` - your schema file, which can also contain default values
