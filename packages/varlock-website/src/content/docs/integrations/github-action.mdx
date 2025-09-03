@@ -1,0 +1,307 @@
+---
+title: GitHub Action
+description: Use Varlock in GitHub Actions to securely load and validate environment variables
+---
+import SyncedCodeTabs from '@/components/SyncedCodeTabs.astro'
+import { TabItem, Tabs, Steps } from "@astrojs/starlight/components";
+import Badge from '@/components/Badge.astro';
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
+
+[![GitHub Actions Marketplace](https://img.shields.io/badge/GitHub%20Actions-Marketplace-blue?logo=github)](https://github.com/marketplace/actions/varlock-action)
+
+The Varlock GitHub Action provides a secure way to load and validate environment variables in your GitHub Actions workflows. It automatically detects your `.env.schema` file, validates all environment variables against your schema, and exports them as either environment variables or a JSON blob for use in subsequent steps.
+
+## Features
+
+- 🔒 **Schema Validation**: Validates all environment variables against your `.env.schema` file
+- 🚀 **Auto-installation**: Automatically installs varlock if not present
+- 🔍 **Smart Detection**: Automatically finds `.env` and `.env.*` files
+- 🛡️ **Security**: Handles sensitive values as GitHub secrets
+- 📊 **Flexible Output**: Export as environment variables or JSON blob
+- ✅ **All .env. files are supported**: You can use any .env.* file to load environment variables (not just .env.schema)
+
+:::note[.env.schema not required]
+While you are encouraged to use `varlock` and create a `.env.schema` file, you can still use the GitHub Action without one. If you do not have a `.env.schema` file, the action will automatically detect your `.env` and `.env.*` files and load them. You can update your code later to use a `.env.schema` file and get all the benefits of `varlock`.
+:::
+
+## Setup
+
+
+<Steps>
+
+1. **Create or update your `.env.schema` file**
+
+   Make sure you have a `.env.schema` file in your repository that defines your environment variables and their validation rules.
+
+   ```env-spec title=".env.schema"
+   # @envFlag=APP_ENV
+   # @defaultSensitive=false @defaultRequired=false
+   # @generateTypes(lang='ts', path='env.d.ts')
+   # ---
+   
+   # Environment flag
+   # @type=enum(development, staging, production)
+   APP_ENV=development
+   
+   # Database configuration
+   # @type=url @required
+   DATABASE_URL=
+   
+   # API configuration
+   # @type=string(startsWith=sk-) @sensitive
+   API_KEY=
+   
+   # Feature flags
+   # @type=boolean
+   ENABLE_FEATURE_X=false
+   ```
+
+2. **Add the action to your workflow**
+
+   ```yaml title=".github/workflows/deploy.yml"
+   name: Deploy Application
+   
+   on:
+     push:
+       branches: [main]
+   
+   jobs:
+     deploy:
+       runs-on: ubuntu-latest
+       
+       steps:
+         - name: Checkout code
+           uses: actions/checkout@v4
+           
+         - name: Load environment variables
+           uses: dmno-dev/varlock@v1
+   ```
+
+</Steps>
+
+
+## Inputs
+
+| Input | Description | Required | Default |
+|-------|-------------|----------|---------|
+| `working-directory` | Directory containing `.env.schema` files | No | `.` |
+| `show-summary` | Show a summary of loaded environment variables | No | `true` |
+| `fail-on-error` | Fail the action if validation errors are found | No | `true` |
+| `output-format` | Output format: `env` or `json` | No | `env` |
+
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `summary` | Summary of loaded environment variables using `varlock load` |
+| `error-count` | Number of validation errors found |
+| `json-env` | JSON blob containing all environment variables (only available when `output-format` is `json`) |
+
+## Usage Examples
+
+### Basic Environment Variable Loading
+
+This example loads environment variables and exports them for use in subsequent steps:
+
+```yaml title=".github/workflows/basic.yml"
+name: Basic Environment Loading
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Load environment variables
+        uses: dmno-dev/varlock@v1
+        
+      - name: Use environment variables
+        run: |
+          echo "Database URL: $DATABASE_URL"
+          echo "API Key: $API_KEY"
+          echo "Environment: $APP_ENV"
+```
+
+### JSON Output Format
+
+Use JSON output when you need to reuse environment variables in multi-job workflows or pass them to other tools:
+
+```yaml title=".github/workflows/json-output.yml"
+name: JSON Output Example
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  load-env:
+    runs-on: ubuntu-latest
+    outputs:
+      env-vars: ${{ steps.varlock.outputs.json-env }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Load environment variables as JSON
+        uses: dmno-dev/varlock@v1
+        with:
+          show-summary: false
+          output-format: 'json'
+          
+  build:
+    needs: load-env
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Process environment variables
+        run: |
+          # Access the JSON blob from the previous job
+          echo '${{ needs.load-env.outputs.env-vars }}' > env-vars.json
+          
+          # Use jq to process the JSON
+          echo "Database URL: $(jq -r '.DATABASE_URL' env-vars.json)"
+          echo "API Key: $(jq -r '.API_KEY' env-vars.json)"
+          
+      - name: Build application
+        run: |
+          # Use environment variables from JSON in build process
+          DATABASE_URL=$(jq -r '.DATABASE_URL' env-vars.json)
+          API_KEY=$(jq -r '.API_KEY' env-vars.json)
+          
+          echo "Building with DATABASE_URL: $DATABASE_URL"
+          echo "Building with API_KEY: $API_KEY"
+          # Your build logic here
+          
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Deploy with environment variables
+        run: |
+          # Access the same environment variables from the first job
+          echo '${{ needs.load-env.outputs.env-vars }}' > env-vars.json
+          
+          # Use environment variables in deployment
+          DATABASE_URL=$(jq -r '.DATABASE_URL' env-vars.json)
+          API_KEY=$(jq -r '.API_KEY' env-vars.json)
+          
+          echo "Deploying with DATABASE_URL: $DATABASE_URL"
+          echo "Deploying with API_KEY: $API_KEY"
+          # Your deployment logic here
+```
+
+### Multi-Environment Workflows
+
+Handle different environments based on branch or deployment context:
+
+```yaml title=".github/workflows/multi-env.yml"
+name: Multi-Environment Deployment
+
+on:
+  push:
+    branches: [main, staging, develop]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Load environment variables
+        uses: dmno-dev/varlock@v1
+        env:
+          # Set environment-specific values
+          APP_ENV: ${{ github.ref_name == 'main' && 'production' || github.ref_name == 'staging' && 'staging' || 'development' }}
+          
+      - name: Deploy to environment
+        run: |
+          echo "Deploying to $APP_ENV environment"
+          # Your deployment logic here
+```
+
+## Error Handling
+
+The action provides comprehensive error handling and reporting:
+
+### Validation Errors
+
+When environment variables fail validation, the action will:
+
+1. **Show detailed error messages** in the action logs
+2. **Set the `error-count` output** with the number of errors found
+3. **Fail the action** if `fail-on-error` is set to `true` (default)
+
+```yaml title=".github/workflows/error-handling.yml"
+name: Error Handling Example
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Load environment variables
+        uses: dmno-dev/varlock@v1
+        with:
+          fail-on-error: false  # Don't fail on validation errors
+          
+      - name: Handle validation errors
+        if: steps.varlock.outputs.error-count > '0'
+        run: |
+          echo "Found ${{ steps.varlock.outputs.error-count }} validation errors"
+          echo "Check the varlock output above for details"
+          # Your error handling logic here
+```
+
+## Security Considerations
+
+### Sensitive Data Handling
+
+The action automatically detects sensitive values based on your `.env.schema` configuration and handles them securely:
+
+- **Sensitive values** are exported as GitHub secrets available in the current workflow run
+- **Non-sensitive values** are exported as regular environment variables
+- **All values** are available in subsequent steps, but sensitive ones are masked in logs
+
+### Environment Variable Scope
+
+- Environment variables are only available within the job where the action runs
+- They are not persisted across jobs or workflow runs
+- Use the `json-env` output if you need to pass values between jobs, keeping in mind that this could possibly leak sensitive data if not handled correctly. You can also re-run the varlock action in a subsequent job to get the latest values.
+
+## Best Practices
+
+1. **Always use `.env.schema` and `.env.***: Define your environment structure and validation rules, see [environments guide](/guides/environments) for more information.
+2. **Set `fail-on-error: true` (default)**: Catch configuration issues early in your CI/CD pipeline
+4. **Handle errors gracefully**: Check the `error-count` output and provide meaningful feedback
+5. **Secure sensitive data**: Mark sensitive values in your schema and let the action handle them securely
+
+## Related Documentation
+
+- [Environment Variables Guide](/guides/environments) - Learn about managing multiple environments
+- [Schema Reference](/reference/root-decorators) - Understand schema decorators and validation
+- [Getting Started](/getting-started) - Set up varlock in your project
+- [CLI Reference](/reference/cli) - Command-line interface documentation
