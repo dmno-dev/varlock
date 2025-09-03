@@ -111,8 +111,9 @@ export class EnvGraph {
 
       // check for @envFlag so we know which item should control loading env-specific files (eg: .env.production)
       if (source.decorators?.envFlag) {
-        if (source.applyForEnv) {
-          throw new Error(`@envFlag cannot be set from within an env-specific data source - ${source.label}`);
+        if (source.type !== 'schema') {
+          // ? Do we want to allow using a single .env file instead of .env.schema?
+          throw new Error(`@envFlag must only be used in .env.schema, but was found in ${source.label}`);
         } else if (this.envFlagKey) {
           throw new Error('only a single @envFlag setting is allowed');
         } else {

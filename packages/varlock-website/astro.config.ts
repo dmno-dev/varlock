@@ -97,6 +97,7 @@ export default defineConfig({
             { label: 'Other languages', slug: 'integrations/other-languages' },
             { label: 'AI Tools', slug: 'guides/ai-tools' },
             { label: 'Docker', slug: 'guides/docker' },
+            { label: 'GitHub Actions', slug: 'integrations/github-action' },
           ],
         },
         {

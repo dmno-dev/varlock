@@ -1,5 +1,5 @@
 ---
-title: GitHub Action
+title: GitHub Actions
 description: Use Varlock in GitHub Actions to securely load and validate environment variables
 ---
 import SyncedCodeTabs from '@/components/SyncedCodeTabs.astro'
@@ -10,19 +10,19 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
 
 [![GitHub Actions Marketplace](https://img.shields.io/badge/GitHub%20Actions-Marketplace-blue?logo=github)](https://github.com/marketplace/actions/varlock-action)
 
-The Varlock GitHub Action provides a secure way to load and validate environment variables in your GitHub Actions workflows. It automatically detects your `.env.schema` file, validates all environment variables against your schema, and exports them as either environment variables or a JSON blob for use in subsequent steps.
+The Varlock GitHub Action provides a secure way to load and validate environment variables in your GitHub Actions workflows. It automatically detects and loads your `.env.schema` file and all relevant `.env.*` files, validates all environment variables against your schema, and exports them as either environment variables or a JSON blob for use in subsequent steps.
 
 ## Features
 
 - 🔒 **Schema Validation**: Validates all environment variables against your `.env.schema` file
 - 🚀 **Auto-installation**: Automatically installs varlock if not present
-- 🔍 **Smart Detection**: Automatically finds `.env` and `.env.*` files
+- 🔍 **Smart Detection**: Automatically loads `.env` and relevant `.env.*` files
 - 🛡️ **Security**: Handles sensitive values as GitHub secrets
 - 📊 **Flexible Output**: Export as environment variables or JSON blob
-- ✅ **All .env. files are supported**: You can use any .env.* file to load environment variables (not just .env.schema)
 
 :::note[.env.schema not required]
-While you are encouraged to use `varlock` and create a `.env.schema` file, you can still use the GitHub Action without one. If you do not have a `.env.schema` file, the action will automatically detect your `.env` and `.env.*` files and load them. You can update your code later to use a `.env.schema` file and get all the benefits of `varlock`.
+While you are encouraged to create a `.env.schema` file while using varlock, you can still use this GitHub Action without one.
+If you do not have a `.env.schema` file, the action will only load `.env`, since we won't know what to use as your [environment flag](/guides/environments), and therefore which other `.env.*` files to load. 
 :::
 
 ## Setup
