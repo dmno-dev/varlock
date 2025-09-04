@@ -135,4 +135,39 @@ Creates a regular expression for use in other functions, such as `remap()`.
 ENV_TYPE=remap($APP_ENV, dev=regex("^dev.*"), prod="production")
 ```
 </div>
+
+<div>
+### `forEnv()`
+
+The `forEnv()` helper function is used in some decorators to dynamically set whether an item is required or optional based on the current environment.
+
+**Usage:**
+- `@required=forEnv(env1, env2)` - Item is required if current environment matches any of the specified environments
+- `@optional=forEnv(env1, env2)` - Item is optional if current environment matches any of the specified environments
+
+**Requirements:**
+- Must be used with `@required` or `@optional` decorators
+- Requires an `@envFlag` to be set in your `.env.schema` file
+- Takes one or more environment names as arguments
+
+```env-spec
+# @envFlag=APP_ENV @defaultRequired=false
+# ---
+APP_ENV=staging
+
+# Required only in development
+# @required=forEnv(development)
+DEV_API_KEY=      
+
+# Required in staging and production  
+# @required=forEnv(staging, production)
+PROD_API_KEY=     
+
+# Optional in development, required otherwise
+# @optional=forEnv(development)
+DEBUG_FLAG=       
+```
+
+**Note:** This helper cannot be used as an item value - it's only for decorator arguments.
+</div>
 </div>
