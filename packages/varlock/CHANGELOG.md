@@ -1,5 +1,15 @@
 # varlock
 
+## 0.0.12
+
+### Patch Changes
+
+- [#125](https://github.com/dmno-dev/varlock/pull/125) [`0d00628`](https://github.com/dmno-dev/varlock/commit/0d00628cf3ecc33211abc18f40636233a7141928) Thanks [@philmillman](https://github.com/philmillman)! - restrict @envFlag to being used in .env.schema
+
+- [#138](https://github.com/dmno-dev/varlock/pull/138) [`89d4255`](https://github.com/dmno-dev/varlock/commit/89d4255d7e32dffe660d486a18ca5ddb1b2ceb88) Thanks [@philmillman](https://github.com/philmillman)! - remove envFlag normalization
+
+- [#136](https://github.com/dmno-dev/varlock/pull/136) [`851aaf0`](https://github.com/dmno-dev/varlock/commit/851aaf0e4f575882e97079c8fdfe6c1a2dba5c08) Thanks [@theoephraim](https://github.com/theoephraim)! - add new `forEnv()` helper for @required decorator, to allow dynamically setting required-ness based on current env flag
+
 ## 0.0.11
 
 ### Patch Changes
