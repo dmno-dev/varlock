@@ -191,7 +191,7 @@ describe('required decorators', requiredDecoratorTests([
       ERROR1= # @required=123
       ERROR2= # @required="true"
       ERROR3= # @optional=123
-      ERROR4= # @optional="false"
+      ERROR4= # @optional=undefined
     `,
     expected: {
       ERROR1: SchemaError,
@@ -201,15 +201,14 @@ describe('required decorators', requiredDecoratorTests([
     },
   },
   {
-    label: '@required can use `env()` helper to be set based on current envFlag',
+    label: '@required can use `forEnv()` helper to be set based on current envFlag',
     envSchema: outdent`
-      # @envFlag=APP_ENV
+      # @envFlag=APP_ENV @defaultRequired=false
       # ---
       APP_ENV=staging
-      REQ_FOR_DEV=      # @required=env(dev)
-      REQ_FOR_STAGING=  # @required=env(staging)
-      REQ_FOR_MULTIPLE= # @required=env(staging, prod)
-      OPTIONAL_FOR_STAGING=  # @optional=env(staging)
+      REQ_FOR_DEV=      # @required=forEnv(dev)
+      REQ_FOR_STAGING=  # @required=forEnv(staging)
+      REQ_FOR_MULTIPLE= # @required=forEnv(staging, prod)
     `,
     expected: {
       REQ_FOR_DEV: false,
@@ -218,9 +217,25 @@ describe('required decorators', requiredDecoratorTests([
     },
   },
   {
-    label: '`env()` helper is not usable if no envFlag is set',
+    label: '@optional can also use `forEnv()`',
     envSchema: outdent`
-      REQ_FOR_DEV=      # @required=env(dev)
+      # @envFlag=APP_ENV @defaultRequired=true
+      # ---
+      APP_ENV=staging
+      OPT_FOR_DEV=      # @optional=forEnv(dev)
+      OPT_FOR_STAGING=  # @optional=forEnv(staging)
+      OPT_FOR_MULTIPLE= # @optional=forEnv(staging, prod)
+    `,
+    expected: {
+      OPT_FOR_DEV: true,
+      OPT_FOR_STAGING: false,
+      OPT_FOR_MULTIPLE: false,
+    },
+  },
+  {
+    label: '`forEnv()` helper is not usable if no envFlag is set',
+    envSchema: outdent`
+      REQ_FOR_DEV=      # @required=forEnv(dev)
     `,
     expected: {
       REQ_FOR_DEV: SchemaError,
