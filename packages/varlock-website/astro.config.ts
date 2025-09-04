@@ -82,6 +82,7 @@ export default defineConfig({
             { label: 'Environments', slug: 'guides/environments' },
             { label: 'Migrate from dotenv', slug: 'guides/migrate-from-dotenv' },
             { label: 'Telemetry', slug: 'guides/telemetry' },
+            { label: 'MCP', slug: 'guides/mcp', badge: 'new' },
           ],
         },
         {
