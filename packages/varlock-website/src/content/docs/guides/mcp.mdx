@@ -25,7 +25,7 @@ Create a `.env.schema` file for your MCP server:
 # ---
 
 # Database connection for MCP server
-# @type=string(startsWith="postgresql://")
+# @type=url
 DATABASE_URL=
 
 # API key for external service
@@ -387,7 +387,7 @@ For production, create environment-specific schema files. See the [environments 
 APP_ENV=development
 
 # Database connection
-# @type=string(startsWith="postgresql://")
+# @type=url
 DATABASE_URL=
 
 # External API credentials
@@ -479,7 +479,7 @@ Use varlock's validation features to ensure data integrity:
 # @type=string(startsWith="sk_", minLength=20)
 API_KEY=
 
-# @type=string(startsWith="postgresql://", contains="mydomain.com")
+# @type=url
 DATABASE_URL=
 ```
 
