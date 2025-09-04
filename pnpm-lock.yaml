@@ -2079,9 +2079,6 @@ packages:
   '@types/node@17.0.45':
     resolution: {integrity: sha512-w+tIMs3rq2afQdsPJlODhoUEKzFP1ayaoyl1CcnwtIlsVe7K7bA1NGm4s3PraqTLlXnbIN84zuBlxBWo1u9BLw==}
 
-  '@types/node@24.2.0':
-    resolution: {integrity: sha512-3xyG3pMCq3oYCNg7/ZP+E1ooTaGB4cG8JWRsqqOYQdbWNY4zbaV0Ennrd7stjiJEFZCaybcIgpTjJWHRfBSIDw==}
-
   '@types/node@24.3.0':
     resolution: {integrity: sha512-aPTXCrfwnDLj4VvXrm+UUCQjNEvJgNA8s5F1cvwQU+3KNltTOkBm1j30uNLyqqPNe7gE3KFzImYoZEfLhp4Yow==}
 
@@ -8051,10 +8048,6 @@ snapshots:
 
   '@types/node@17.0.45': {}
 
-  '@types/node@24.2.0':
-    dependencies:
-      undici-types: 7.10.0
-
   '@types/node@24.3.0':
     dependencies:
       undici-types: 7.10.0
@@ -8065,7 +8058,7 @@ snapshots:
 
   '@types/sax@1.2.7':
     dependencies:
-      '@types/node': 24.2.0
+      '@types/node': 24.3.0
 
   '@types/unist@2.0.11': {}
 
@@ -12959,7 +12952,7 @@ snapshots:
 
   vite@6.3.5(@types/node@24.3.0):
     dependencies:
-      esbuild: 0.25.2
+      esbuild: 0.25.4
       fdir: 6.4.6(picomatch@4.0.3)
       picomatch: 4.0.3
       postcss: 8.5.6

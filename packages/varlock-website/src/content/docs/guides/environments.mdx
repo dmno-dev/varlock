@@ -18,7 +18,7 @@ However we recommend using injected overrides sparingly, and instead moving more
 
 ### Loading environment-specific `.env` files
 
-`varlock` automatically detects all `.env.*` files in the current directory. However any environment-specific files (e.g., `.env.development`) will only be loaded if they match the value of the env var set by the [`@envFlag`](/reference/root-decorators/#envflag) root decorator.
+`varlock` automatically detects all `.env.*` files in the current directory. However any environment-specific files (e.g., `.env.development`) will only be loaded if they match the value of the env var set by the [`@envFlag`](/reference/root-decorators/#envflag) root decorator in your `.env.schema` file.
 
 The files are applied with a specific precedence (increasing):
 - `.env.schema` - your schema file, which can also contain default values
