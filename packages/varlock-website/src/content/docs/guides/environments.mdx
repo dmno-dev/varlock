@@ -71,6 +71,10 @@ APP_ENV=test your-test-command
 
 or you could run a production style build locally `APP_ENV=production varlock run -- your-build-command`
 
+:::tip
+You can also use the [`forEnv()` helper](/reference/functions/#forenv) to dynamically set whether configuration items are required or optional based on the current environment.
+:::
+
 ## Setting a _default_ environment flag
 
 You can set the default environment flag directly when running CLI commands using the `--env` flag:
