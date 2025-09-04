@@ -1,5 +1,12 @@
 # @varlock/vite-integration
 
+## 0.0.8
+
+### Patch Changes
+
+- Updated dependencies [[`0d00628`](https://github.com/dmno-dev/varlock/commit/0d00628cf3ecc33211abc18f40636233a7141928), [`89d4255`](https://github.com/dmno-dev/varlock/commit/89d4255d7e32dffe660d486a18ca5ddb1b2ceb88), [`851aaf0`](https://github.com/dmno-dev/varlock/commit/851aaf0e4f575882e97079c8fdfe6c1a2dba5c08)]:
+  - varlock@0.0.12
+
 ## 0.0.7
 
 ### Patch Changes
