@@ -12,6 +12,7 @@ import { outdent } from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../index';
 import { ResolutionError, SchemaError } from '../lib/errors';
 import { Resolver } from '../lib/resolver';
+import type { Constructor } from '@env-spec/utils/type-utils';
 
 // define special increment resolver used only for tests
 class IncrementResolver extends Resolver {
@@ -28,7 +29,7 @@ function functionValueTests(
   tests: Record<string, {
     input: string;
     env?: Record<string, string>;
-    expected: Record<string, any> | Error
+    expected: Record<string, any | Constructor<Error>>
   }>,
 ) {
   return () => {

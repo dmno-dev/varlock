@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import outdent from 'outdent';
-import { DotEnvFileDataSource, EnvGraph } from '../index';
+import { DotEnvFileDataSource, EnvGraph, SchemaError } from '../index';
+import type { Constructor } from '@env-spec/utils/type-utils';
 
 function requiredDecoratorTests(
   tests: Array<{
@@ -8,7 +9,7 @@ function requiredDecoratorTests(
     envSchema?: string;
     envOverride?: string;
     overrideFileName?: string;
-    expected: Record<string, boolean>;
+    expected: Record<string, boolean | Constructor<Error>>;
   }>,
 ) {
   return () => {
@@ -30,7 +31,12 @@ function requiredDecoratorTests(
         await g.finishLoad();
         for (const key of Object.keys(expected)) {
           const item = g.configSchema[key];
-          expect(item.isRequired, `expected ${key} to be ${expected[key] ? 'required' : 'NOT required'}`).toBe(expected[key]);
+          if (expected[key] === SchemaError) {
+            expect(item.schemaErrors.length).toBe(1);
+            expect(item.schemaErrors[0]).toBeInstanceOf(expected[key]);
+          } else {
+            expect(item.isRequired, `expected ${key} to be ${expected[key] ? 'required' : 'NOT required'}`).toBe(expected[key]);
+          }
         }
       });
     });
@@ -171,5 +177,68 @@ describe('required decorators', requiredDecoratorTests([
       BAR=
     `,
     expected: { FOO: true, BAR: true },
+  },
+  {
+    label: 'cannot use @required and @optional together',
+    envSchema: outdent`
+      ERROR= # @required @optional
+    `,
+    expected: { ERROR: SchemaError },
+  },
+  {
+    label: '@required and @optional only accept boolean static values',
+    envSchema: outdent`
+      ERROR1= # @required=123
+      ERROR2= # @required="true"
+      ERROR3= # @optional=123
+      ERROR4= # @optional=undefined
+    `,
+    expected: {
+      ERROR1: SchemaError,
+      ERROR2: SchemaError,
+      ERROR3: SchemaError,
+      ERROR4: SchemaError,
+    },
+  },
+  {
+    label: '@required can use `forEnv()` helper to be set based on current envFlag',
+    envSchema: outdent`
+      # @envFlag=APP_ENV @defaultRequired=false
+      # ---
+      APP_ENV=staging
+      REQ_FOR_DEV=      # @required=forEnv(dev)
+      REQ_FOR_STAGING=  # @required=forEnv(staging)
+      REQ_FOR_MULTIPLE= # @required=forEnv(staging, prod)
+    `,
+    expected: {
+      REQ_FOR_DEV: false,
+      REQ_FOR_STAGING: true,
+      REQ_FOR_MULTIPLE: true,
+    },
+  },
+  {
+    label: '@optional can also use `forEnv()`',
+    envSchema: outdent`
+      # @envFlag=APP_ENV @defaultRequired=true
+      # ---
+      APP_ENV=staging
+      OPT_FOR_DEV=      # @optional=forEnv(dev)
+      OPT_FOR_STAGING=  # @optional=forEnv(staging)
+      OPT_FOR_MULTIPLE= # @optional=forEnv(staging, prod)
+    `,
+    expected: {
+      OPT_FOR_DEV: true,
+      OPT_FOR_STAGING: false,
+      OPT_FOR_MULTIPLE: false,
+    },
+  },
+  {
+    label: '`forEnv()` helper is not usable if no envFlag is set',
+    envSchema: outdent`
+      REQ_FOR_DEV=      # @required=forEnv(dev)
+    `,
+    expected: {
+      REQ_FOR_DEV: SchemaError,
+    },
   },
 ]));

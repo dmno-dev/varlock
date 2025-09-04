@@ -157,7 +157,8 @@ export async function getTsDefinitionForItem(item: ConfigItem, indentLevel = 0) 
     // TODO: eventually handle objects, arrays, dictionaries
   }
 
-  itemSrc.push(`readonly ${item.key}${item.isRequired ? '' : '?'}: ${itemTsType};`);
+  const isRequired = item.isRequired && !item.isRequiredDynamic;
+  itemSrc.push(`readonly ${item.key}${isRequired ? '' : '?'}: ${itemTsType};`);
   itemSrc.push('');
   return _.map(itemSrc, (line) => `${i}${line}`);
 }

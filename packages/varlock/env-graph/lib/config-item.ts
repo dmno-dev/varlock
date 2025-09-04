@@ -139,49 +139,89 @@ export class ConfigItem {
       const dataTypeFactory = this.envGraph.dataTypesRegistry[dataTypeName];
       this.dataType = dataTypeFactory(..._.isPlainObject(dataTypeArgs) ? [dataTypeArgs] : dataTypeArgs);
     }
+
+    this.processRequired();
   }
 
-  get isRequired() {
-    for (const def of this.defs) {
-      const defDecorators = def.itemDef.decorators || {};
+  _isRequired: boolean = true;
+  /**
+   * need to track if required-ness is dynamic, e.g. based on current env
+   * because that will affect type generation (only _always_ required items are never undefined)
+   * */
+  _isRequiredDynamic: boolean = false;
 
-      // Explicit per-item decorators
-      if ('required' in defDecorators) {
-        const val = defDecorators.required.simplifiedValue;
-        if (typeof val === 'boolean') return val;
-        if (typeof val === 'string') return val === 'true';
-        return Boolean(val);
-      }
-      if ('optional' in defDecorators) {
-        const val = defDecorators.optional.simplifiedValue;
-        if (typeof val === 'boolean') return !val;
-        if (typeof val === 'string') return val !== 'true';
-        return !val;
-      }
+  private processRequired() {
+    try {
+      for (const def of this.defs) {
+        const defDecorators = def.itemDef.decorators || {};
 
-      // Root-level @defaultRequired
-      if ('defaultRequired' in def.source.decorators) {
-        const val = def.source.decorators.defaultRequired.simplifiedValue;
-        if (val === 'infer') {
-          // Only apply infer logic for schema source
-          if (def.source.type === 'schema') {
-            const resolver = def.itemDef.resolver;
-            if (resolver instanceof StaticValueResolver) {
-              return resolver.staticValue !== undefined && resolver.staticValue !== '';
-            } else {
-              return true; // function value
-            }
-          } else {
-            // Not schema source, skip this def and continue
-            continue;
+        // Explicit per-item decorators
+        if ('required' in defDecorators || 'optional' in defDecorators) {
+          // cannot use both @required and @optional at same time
+          if ('required' in defDecorators && 'optional' in defDecorators) {
+            throw new SchemaError('@required and @optional cannot both be set');
           }
+
+          const requiredDecoratorVal = defDecorators.required?.value || defDecorators.optional?.value;
+          const usingOptional = 'optional' in defDecorators;
+          // static value of  `true` or `false`
+          if (requiredDecoratorVal instanceof ParsedEnvSpecStaticValue) {
+            const staticVal = requiredDecoratorVal.value;
+            if (_.isBoolean(staticVal)) {
+              this._isRequired = usingOptional ? !staticVal : staticVal;
+            } else {
+              throw new SchemaError('@required/@optional can only be set to true/false if using a static value');
+            }
+
+          // dynamic / function value - setting based on other values
+          } else if (requiredDecoratorVal instanceof ParsedEnvSpecFunctionCall) {
+            this._isRequiredDynamic = true;
+            const requiredFnName = requiredDecoratorVal.name;
+            const requiredFnArgs = requiredDecoratorVal.simplifiedArgs;
+
+            // set required based on current envFlag
+            if (requiredFnName === 'forEnv') {
+              const currentEnv = this.#envGraph.envFlagValue;
+              if (!currentEnv) {
+                throw new SchemaError('Cannot set @required using forEnv() because environment flag is not set');
+              }
+              const envMatches = requiredFnArgs.includes(currentEnv);
+              this._isRequired = usingOptional ? !envMatches : envMatches;
+            }
+          }
+          return;
         }
-        return val; // explicit true or false
+
+        // Root-level @defaultRequired
+        if ('defaultRequired' in def.source.decorators) {
+          const val = def.source.decorators.defaultRequired.simplifiedValue;
+          if (val === 'infer') {
+            // Only apply infer logic for schema source
+            // ? not sure about this - we could probably still apply it for other sources?
+            if (def.source.type === 'schema') {
+              const resolver = def.itemDef.resolver;
+              if (resolver instanceof StaticValueResolver) {
+                this._isRequired = resolver.staticValue !== undefined && resolver.staticValue !== '';
+              } else {
+                this._isRequired = true;
+              }
+              return;
+            } else {
+              // Not schema source, skip this def and continue
+              continue;
+            }
+          }
+          // explicit true or false
+          this._isRequired = val;
+          return;
+        }
       }
+    } catch (err) {
+      this.schemaErrors.push(err instanceof SchemaError ? err : new SchemaError(err as Error));
     }
-    // defaults to true
-    return true;
   }
+  get isRequired() { return this._isRequired; }
+  get isRequiredDynamic() { return this._isRequiredDynamic; }
 
   get isSensitive() {
     for (const def of this.defs) {
