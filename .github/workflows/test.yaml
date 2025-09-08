@@ -20,7 +20,7 @@ jobs:
         with:
           run_install: false
       - name: Use Node.js 22.x
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22.x"
           cache: 'pnpm'
