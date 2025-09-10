@@ -216,11 +216,11 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
 
   private convertParserValueToResolvers(
     value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined,
-  ): Resolver {
+  ): Resolver | undefined {
     if (!this.graph) throw new Error('expected graph to be set');
 
     if (value === undefined) {
-      return new StaticValueResolver(undefined);
+      return undefined;
     } else if (value instanceof ParsedEnvSpecStaticValue) {
       return new StaticValueResolver(value.unescapedValue);
     } else if (value instanceof ParsedEnvSpecFunctionCall) {
@@ -235,12 +235,16 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
       for (const arg of argsFromParser) {
         if (arg instanceof ParsedEnvSpecKeyValuePair) {
           keyValueArgs ??= {};
-          keyValueArgs[arg.key] = this.convertParserValueToResolvers(arg.value);
+          const valResolver = this.convertParserValueToResolvers(arg.value);
+          if (!valResolver) throw new Error('Did not expect to find undefined resolver in key-value arg');
+          keyValueArgs[arg.key] = valResolver;
         } else {
           if (keyValueArgs) {
             return new ErrorResolver(new SchemaError('After switching to key-value function args, cannot switch back'));
           }
-          argsAsResolversArray.push(this.convertParserValueToResolvers(arg));
+          const argResolver = this.convertParserValueToResolvers(arg);
+          if (!argResolver) throw new Error('Did not expect to find undefined resolver in array arg');
+          argsAsResolversArray.push(argResolver);
         }
       }
       // add key/value args as object as last arg into array

@@ -13,17 +13,19 @@ Config items define individual env vars.
 - Each has a key, an optional value, and optional attached comments
 - Keys must start with `[a-ZA-Z_]`, followed by any of `[a-ZA-Z0-9_]` -- ✅ `SOME_ITEM`, ❌ `BAD-KEY`, ❌ `2BAD_KEY`
 - Setting no value is allowed and will be treated as `undefined` -- `UNDEF_VAR=`
+  - note that no value (`ITEM=`) is treated slightly differently than an explicit `ITEM=undefined` when combining multiple definitions
 - An explicit empty string is allowed -- `EMPTY_STRING_VAR=""`
 - Single-line values may be wrapped in quotes or not, and will follow the common value-handling rules (see below)
 - Multi-line string values may be wrapped in either ``( ' | " | """ | ``` )`` - but we **strongly** recommend using triple backticks only for consistency
 
 ````env-spec
 NO_VALUE=
-EMPTY_STRING_VALUE=""
-UNQUOTED_VALUE=asdf
-QUOTED_VALUE="asdf"
-FN_VALUE=fn(foo, "bar")
-MULTILINE_VALUE=```
+EXPLICIT_UNDEFINED=undefined
+EMPTY_STRING=""
+UNQUOTED=asdf
+QUOTED="asdf"
+FUNCTION_CALL=fn(foo, "bar")
+MULTILINE_STRING=```
 multiple
 lines
 ```

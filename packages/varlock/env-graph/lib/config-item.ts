@@ -200,7 +200,9 @@ export class ConfigItem {
             // ? not sure about this - we could probably still apply it for other sources?
             if (def.source.type === 'schema') {
               const resolver = def.itemDef.resolver;
-              if (resolver instanceof StaticValueResolver) {
+              if (resolver === undefined) {
+                this._isRequired = false;
+              } else if (resolver instanceof StaticValueResolver) {
                 this._isRequired = resolver.staticValue !== undefined && resolver.staticValue !== '';
               } else {
                 this._isRequired = true;
@@ -284,21 +286,22 @@ export class ConfigItem {
     // bail early if we have a schema error
     if (this.schemaErrors.length) return;
     if (this.resolverSchemaErrors.length) return;
-
-    // we should always have a resolver set, even if its a static resolver with undefined value
-    if (!this.valueResolver) throw new Error('Expected a resolver to be set');
-
     if (this.isResolved) {
       // previously we would throw an error, now we resolve the envFlag early, so we can just return
       // but we may want further checks, as this could help us identify buggy logic calling resolve multiple times
       return;
     }
 
-    try {
-      this.resolvedRawValue = await this.valueResolver.resolve();
-    } catch (err) {
-      this.resolutionError = new ResolutionError(`error resolving value: ${err}`);
-      this.resolutionError.cause = err;
+    if (!this.valueResolver) {
+      this.isResolved = true;
+      this.resolvedRawValue = undefined;
+    } else {
+      try {
+        this.resolvedRawValue = await this.valueResolver.resolve();
+      } catch (err) {
+        this.resolutionError = new ResolutionError(`error resolving value: ${err}`);
+        this.resolutionError.cause = err;
+      }
     }
 
     if (this.resolvedRawValue instanceof RegExp) {
