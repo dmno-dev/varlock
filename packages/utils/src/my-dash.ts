@@ -82,6 +82,9 @@ function map<T, U>(array: Array<T>, fn: (item: T) => U): Array<U> {
 function flatMap<T, U>(array: Array<T>, fn: (item: T) => Array<U>): Array<U> {
   return array.flatMap(fn);
 }
+function intersection<T>(...arrays: Array<Array<T>>): Array<T> {
+  return arrays.reduce((a, b) => a.filter((value) => b.includes(value)));
+}
 
 const _ = {
   keyBy,
@@ -97,6 +100,7 @@ const _ = {
   times,
   map,
   flatMap,
+  intersection,
   // type checks
   isString,
   isBoolean,

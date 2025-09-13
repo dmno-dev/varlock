@@ -48,12 +48,41 @@ export abstract class EnvGraphDataSource {
   /** child data sources */
   children: Array<EnvGraphDataSource> = [];
 
+  /**
+   * tracks if this data source was imported, and additional settings about the import (restricting keys)
+   * */
+  importMeta?: {
+    isImport?: boolean,
+    importKeys?: Array<string>,
+  };
+  get isImport(): boolean {
+    return !!this.importMeta?.isImport || !!this.parent?.isImport;
+  }
+  get importKeys(): Array<string> | undefined {
+    const importKeysArrays = [];
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    let currentSource: EnvGraphDataSource | undefined = this;
+    while (currentSource) {
+      if (currentSource.importMeta?.importKeys && currentSource.importMeta.importKeys.length) {
+        importKeysArrays.push(currentSource.importMeta.importKeys);
+      }
+      currentSource = currentSource.parent;
+    }
+
+    // in most cases we import all keys, but if there have been specific keys imported we walk up the chain
+    if (importKeysArrays.length) {
+      const keysToImport = _.intersection(...importKeysArrays);
+      return keysToImport;
+    }
+  }
+
   /** adds a child data source and sets up the correct references in both directions */
-  async addChild(child: EnvGraphDataSource) {
+  async addChild(child: EnvGraphDataSource, importMeta?: EnvGraphDataSource['importMeta']) {
     if (!this.graph) throw new Error('expected graph to be set');
     this.children.push(child);
     child.parent = this;
     child.graph = this.graph;
+    if (importMeta) child.importMeta = importMeta;
     await child.finishInit();
   }
 
@@ -140,9 +169,67 @@ export abstract class EnvGraphDataSource {
       this._envFlagKey = envFlagDecoratorValue;
     }
 
+    // handle imports before we process config items
+    // because the imported defs will be overridden by anything within this source
+    const importDecorators = this.getRootDecorators('import');
+    if (importDecorators.length) {
+      for (const importDecorator of importDecorators) {
+        // TODO: eventually some of this logic can move to generic decorator processing
+        const importArgs = importDecorator.bareFnArgs?.simplifiedValues;
+        if (!_.isArray(importArgs)) {
+          throw new Error('expected @import args to be array');
+        }
+        const importPath = importArgs[0];
+
+        if (!importPath) throw new Error('@import decorator must have a value');
+        if (!_.isString(importPath)) throw new Error('expected @import path to be string');
+
+        const importKeys = importArgs.slice(1);
+        if (!importKeys.every(_.isString)) {
+          throw new Error('expected @import keys to all be strings');
+        }
+
+        if (importPath.startsWith('./') || importPath.startsWith('../')) {
+          // eslint-disable-next-line no-use-before-define
+          if (!(this instanceof FileBasedDataSource)) {
+            throw new Error('@import of files can only be used from a file-based data source');
+          }
+          const fullImportPath = path.resolve(path.dirname(this.fullPath), importPath);
+          const fileName = path.basename(fullImportPath);
+          // TODO: once we have more file types, here we would detect the type and import it correctly
+          if (!fileName.startsWith('.env.')) {
+            this._loadingError = new Error('imported file must be a .env.* file');
+            return;
+          }
+
+          // TODO: might be nice to move this logic somewhere else
+          if (this.graph.virtualImports) {
+            if (this.graph.virtualImports[fullImportPath]) {
+              // eslint-disable-next-line no-use-before-define
+              const source = new DotEnvFileDataSource(fullImportPath, {
+                overrideContents: this.graph.virtualImports[fullImportPath],
+              });
+              await this.addChild(source, { isImport: true, importKeys });
+            } else {
+              this._loadingError = new Error(`Virtual import ${fullImportPath} not found`);
+              return;
+            }
+          } else {
+            // eslint-disable-next-line no-use-before-define
+            await this.addChild(new DotEnvFileDataSource(fullImportPath), { isImport: true, importKeys });
+          }
+        } else if (importPath.startsWith('http://') || importPath.startsWith('https://')) {
+          console.log('handle http import', importPath);
+        } else {
+          console.log('handle npm import?');
+        }
+      }
+    }
+
     // create config items, or add additional definitions if they already exist
-    for (const itemKey in this.configItemDefs) {
+    for (const itemKey of this.importKeys || _.keys(this.configItemDefs)) {
       const itemDef = this.configItemDefs[itemKey];
+      if (!itemDef) continue;
       this.graph.configSchema[itemKey] ??= new ConfigItem(this.graph, itemKey);
       this.graph.configSchema[itemKey].addDef(itemDef, this);
       // TODO: we probably want to track the definition back to the source
