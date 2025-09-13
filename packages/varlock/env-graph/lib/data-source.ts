@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-
 import _ from '@env-spec/utils/my-dash';
 import { tryCatch } from '@env-spec/utils/try-catch';
 import { checkIsFileGitIgnored } from '@env-spec/utils/git-utils';
@@ -9,34 +8,32 @@ import {
   ParsedEnvSpecKeyValuePair, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
 } from '@env-spec/parser';
 
-import { type ConfigItemDef } from './config-item';
+import { ConfigItem, type ConfigItemDef } from './config-item';
 import {
   ErrorResolver, Resolver, StaticValueResolver,
 } from './resolver';
 import { EnvGraph } from './env-graph';
 
 import { SchemaError } from './errors';
+import { pathExists } from '@env-spec/utils/fs-utils';
 
 const DATA_SOURCE_TYPES = Object.freeze({
   schema: {
     fileSuffixes: ['schema'],
-    precedence: 0,
   },
   example: {
     fileSuffixes: ['sample', 'example'],
-    precedence: 1,
   },
   defaults: {
     fileSuffixes: ['default', 'defaults'],
-    precedence: 2,
   },
   values: {
     fileSuffixes: [] as Array<string>,
-    precedence: 3,
   },
   overrides: {
     fileSuffixes: ['local', 'override'],
-    precedence: 4,
+  },
+  container: {
   },
 });
 type DataSourceType = keyof typeof DATA_SOURCE_TYPES;
@@ -44,27 +41,176 @@ type DataSourceType = keyof typeof DATA_SOURCE_TYPES;
 export abstract class EnvGraphDataSource {
   static DATA_SOURCE_TYPES = DATA_SOURCE_TYPES;
 
-  // reference back to the graph
+  /** reference back to the graph */
   graph?: EnvGraph;
+  /** parent data source - everything except the root will have a parent */
+  parent?: EnvGraphDataSource;
+  /** child data sources */
+  children: Array<EnvGraphDataSource> = [];
+
+  /** adds a child data source and sets up the correct references in both directions */
+  async addChild(child: EnvGraphDataSource) {
+    if (!this.graph) throw new Error('expected graph to be set');
+    this.children.push(child);
+    child.parent = this;
+    child.graph = this.graph;
+    await child.finishInit();
+  }
+
+  /** environment flag key (as set by @envFlag decorator) - only if set within this source */
+  _envFlagKey?: string;
+  /** environment flag key getter that will follow up the parent chain */
+  get envFlagKey(): string | undefined {
+    return this._envFlagKey || this.parent?.envFlagKey;
+  }
+  /** environment flag config item getter (follows up the parent chain) */
+  get envFlagConfigItem() {
+    const envFlagKey = this.envFlagKey;
+    return envFlagKey ? this.graph?.configSchema[envFlagKey] : undefined;
+  }
+  /** environment flag value getter (follows up the parent chain), and checks the graph-level fallback */
+  get envFlagValue() {
+    const envFlagItem = this.envFlagConfigItem;
+    if (envFlagItem) return envFlagItem.resolvedValue;
+    return this.graph!.envFlagFallback;
+  }
+  /** helper to resolve the envFlag value */
+  async resolveCurrentEnv() {
+    const envFlagItem = this.envFlagConfigItem;
+    if (envFlagItem) {
+      // TODO: do not re-resolve every time!!
+      // instead we should probably only be resolving once
+      // and then triggering an error if the value/definition changes
+      await envFlagItem.earlyResolve();
+      return envFlagItem.resolvedValue;
+    }
+    // fallback to the graph-level env flag - which can be set using a CLI flag
+    // this is currently only used by Next.js integration to match the default behaviour
+    // of setting dev/prod based on the current command (next dev/next build)
+    return this.graph!.envFlagFallback;
+  }
+
+  /** finish init process for this data source */
+  async finishInit() {
+    if (!this.graph) throw new Error('expected graph to be set');
+
+    // each child class can redefine this method to handle additional init code
+    await this._finishInit();
+
+    // we dont necessarily always want any loading error to fail the entire load
+    // but for example if the main schema is failing and we dont know the envFlag
+    // we don't know which env-specific sources to enable
+    if (this.loadingError) {
+      return;
+    }
+
+    const disableDecorator = this.getRootDecorators('disable')?.[0];
+    if (disableDecorator) {
+      if (disableDecorator.value instanceof ParsedEnvSpecFunctionCall) {
+        if (disableDecorator.value.name === 'forEnv') {
+          const disableForEnvs = disableDecorator.value.simplifiedArgs;
+          if (!_.isArray(disableForEnvs)) {
+            this._loadingError = new Error('expected disable decorator args to be array');
+            return;
+          }
+
+          const currentEnv = await this.resolveCurrentEnv();
+          if (disableForEnvs.includes(currentEnv)) {
+            this._disabled = true;
+          }
+        } else {
+          this._loadingError = new Error(`unknown disable decorator function: ${disableDecorator.name}`);
+          return;
+        }
+      } else if (disableDecorator.simplifiedValue) {
+        this._disabled = true;
+      }
+    }
+
+    // this will also respect if the parent is disabled
+    if (this.disabled) return;
+
+    // process @envFlag decorator if present in this source
+    const envFlagDecoratorValue = this.getRootDecoratorSimpleValue('envFlag');
+    if (envFlagDecoratorValue) {
+      if (!this.configItemDefs[envFlagDecoratorValue]) {
+        this._loadingError = new Error(`@envFlag key ${envFlagDecoratorValue} must be an item within this schema`);
+        return;
+      }
+      this._envFlagKey = envFlagDecoratorValue;
+    }
+
+    // create config items, or add additional definitions if they already exist
+    for (const itemKey in this.configItemDefs) {
+      const itemDef = this.configItemDefs[itemKey];
+      this.graph.configSchema[itemKey] ??= new ConfigItem(this.graph, itemKey);
+      this.graph.configSchema[itemKey].addDef(itemDef, this);
+      // TODO: we probably want to track the definition back to the source
+    }
+
+    // if we did set the @envFlag in this source, now we'll do an early resolution of the value
+    if (envFlagDecoratorValue) {
+      // TODO: probably want to move this logic to the graph itself, as some kind "earlyResolve" helper?
+      const envFlagItem = this.envFlagConfigItem!;
+      await envFlagItem.earlyResolve();
+      if (!envFlagItem.isValid) {
+        const err = new Error('resolved @envFlag value is not valid');
+        err.cause = envFlagItem.errors[0];
+        throw err;
+      }
+      if (!_.isString(envFlagItem.resolvedValue)) {
+        throw new Error('expected resolved @envFlag value to be a string');
+      }
+    }
+  }
+
+  /**
+   * called by the finishInit - meant to be overridden by subclasses
+   * to add specific behaviour for that data source type
+   * @internal
+   * */
+  async _finishInit() {
+    // override me!
+  }
 
   abstract typeLabel: string;
+  abstract get label(): string;
 
   type = 'values' as DataSourceType;
   applyForEnv?: string;
-  disabled?: boolean = false;
-  ignoreNewDefs = false;
-  abstract get label(): string;
+
+  _disabled?: boolean = false;
+  get disabled() {
+    return this._disabled || this.parent?._disabled;
+  }
 
   /** an error encountered while loading/parsing the data source */
-  loadingError?: Error;
+  _loadingError?: Error;
+  get loadingError() {
+    return this._loadingError;
+  }
 
   get isValid() {
     return !this.loadingError;
   }
 
   configItemDefs: Record<string, ConfigItemDef> = {};
-  decorators: Record<string, ParsedEnvSpecDecorator> = {};
+  decorators: Array<ParsedEnvSpecDecorator> = [];
 
+  getRootDecorators(decName: string) {
+    return this.decorators.filter((d) => d.name === decName);
+  }
+  getRootDecoratorSimpleValue(decName: string) {
+    const decorators = this.getRootDecorators(decName);
+    if (decorators.length === 0) return undefined;
+    if (decorators.length > 1) throw new Error(`Multiple ${decName} decorators found`);
+    return decorators[0].simplifiedValue;
+  }
+
+  /**
+   * helper to get static values only from the source
+   * used during init flow to infer schema info from existing .env files
+   * */
   getStaticValues() {
     const obj: Record<string, string> = {};
     for (const [key, def] of Object.entries(this.configItemDefs)) {
@@ -73,39 +219,6 @@ export abstract class EnvGraphDataSource {
       }
     }
     return obj;
-  }
-}
-
-
-
-export class ProcessEnvDataSource extends EnvGraphDataSource {
-  type = 'overrides' as const;
-  typeLabel = 'process';
-  label = 'process.env';
-  ignoreNewDefs = true;
-
-  static processEnvValues: Record<string, string | undefined> | undefined;
-
-  // ? do we want to set decorator values from env vars here? -- ex: _ENV_FLAG_KEY
-  // depends if we want those to work only within process.env
-
-  constructor() {
-    super();
-
-    // we want to make sure we only load the original process.env values once
-    // so that if we are reloading, we'll skip any new values we have added in a previous load
-    if (!ProcessEnvDataSource.processEnvValues) {
-      ProcessEnvDataSource.processEnvValues = {};
-      for (const itemKey of Object.keys(process.env)) {
-        ProcessEnvDataSource.processEnvValues[itemKey] = process.env[itemKey];
-      }
-    }
-
-    for (const itemKey of Object.keys(ProcessEnvDataSource.processEnvValues)) {
-      this.configItemDefs[itemKey] = {
-        resolver: new StaticValueResolver(ProcessEnvDataSource.processEnvValues[itemKey]),
-      };
-    }
   }
 }
 
@@ -146,10 +259,13 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
     return (this.constructor as typeof FileBasedDataSource).validFileExtensions;
   }
 
-  constructor(fullPath: string, opts?: {
-    overrideContents?: string;
-    overrideGitIgnored?: boolean;
-  }) {
+  constructor(
+    fullPath: string,
+    opts?: {
+      overrideContents?: string;
+      overrideGitIgnored?: boolean;
+    },
+  ) {
     super();
 
     this.fullPath = fullPath;
@@ -161,49 +277,50 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
       this.isGitIgnored = opts.overrideGitIgnored;
     }
 
-    // we will infer some properties from the file name
-    // so we may want to provide a way to opt out of this to set them manually
-    if (!this.fileName.startsWith('.env')) {
-      throw new Error('file name must start with ".env"');
-    }
-
-
-    // we'll break up the filename into parts to detect some info
-    // note that a file can have several parts - for example `.env.production.local`
-    const fileNameParts = this.fileName.substring(1).split('.');
-    const maybeExtension = fileNameParts[fileNameParts.length - 1];
-    if (this.validFileExtensions.includes(maybeExtension)) {
-      fileNameParts.pop(); // remove the extension
-    }
-
-    const maybeFileType = fileNameParts[fileNameParts.length - 1];
-    for (const [possibleSourceType, possibleSourceSpec] of Object.entries(DATA_SOURCE_TYPES)) {
-      if (possibleSourceSpec.fileSuffixes.includes(maybeFileType)) {
-        this.type = possibleSourceType as DataSourceType;
-        break;
+    // may may infer some properties from the file name
+    if (this.fileName.startsWith('.env')) {
+      // we'll break up the filename into parts to detect some info
+      // note that a file can have several parts - for example `.env.production.local`
+      const fileNameParts = this.fileName.substring(1).split('.');
+      const maybeExtension = fileNameParts[fileNameParts.length - 1];
+      if (this.validFileExtensions.includes(maybeExtension)) {
+        fileNameParts.pop(); // remove the extension
       }
-    }
-    // default is already set to 'values', so we pop the last part if sometihng different
-    if (this.type !== 'values') fileNameParts.pop(); // remove the type suffix
 
-    // check for a specific env (ex: .env[.production])
-    // ? do we want to disallow env qualifier for certain file types?
-    // ? ex: .env.production.defaults
-    if (fileNameParts.length > 2) {
-      throw Error(`Unsure how to interpret filename - ${this.fileName}`);
-    } else if (fileNameParts.length === 2) {
-      this.applyForEnv = fileNameParts[1];
+      const maybeFileType = fileNameParts[fileNameParts.length - 1];
+      for (const [possibleSourceType, possibleSourceSpec] of Object.entries(DATA_SOURCE_TYPES)) {
+        if (!('fileSuffixes' in possibleSourceSpec)) continue;
+        if (possibleSourceSpec.fileSuffixes.includes(maybeFileType)) {
+          this.type = possibleSourceType as DataSourceType;
+          break;
+        }
+      }
+      // default is already set to 'values', so we pop the last part if sometihng different
+      if (this.type !== 'values') fileNameParts.pop(); // remove the type suffix
+
+      // check for a specific env (ex: .env[.production])
+      // ? do we want to disallow env qualifier for certain file types?
+      // ? ex: .env.production.defaults
+      if (fileNameParts.length > 2) {
+        throw Error(`Unsure how to interpret filename - ${this.fileName}`);
+      } else if (fileNameParts.length === 2) {
+        this.applyForEnv = fileNameParts[1];
+      }
     }
   }
 
   // no async constructors... :(
-  async finishInit() {
+  async _finishInit() {
     if (!this.rawContents) {
+      if (!await pathExists(this.fullPath)) {
+        this._loadingError = new Error(`File does not exist: ${this.fullPath}`);
+        return;
+      }
       // TODO: check perf on exec based check, possibly switch to `ignored` package
       this.isGitIgnored = await checkIsFileGitIgnored(this.fullPath);
       this.rawContents = await fs.readFile(this.fullPath, 'utf8');
     }
-    await this._parseContents();
+    if (this.rawContents) await this._parseContents();
   }
   abstract _parseContents(): Promise<void>;
 }
@@ -261,23 +378,22 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
     this.parsedFile = await tryCatch(
       () => parseEnvSpecDotEnvFile(rawContents),
       (error) => {
-        this.loadingError = new EnvSourceParseError(error.message, {
+        this._loadingError = new EnvSourceParseError(error.message, {
           path: this.fullPath,
           lineNumber: error.location.start.line,
           colNumber: error.location.start.column,
           lineStr: rawContents.split('\n')[error.location.start.line - 1],
         });
-        this.loadingError.cause = error;
+        this._loadingError.cause = error;
       },
     );
 
     if (this.loadingError) return;
     if (!this.parsedFile) throw new Error('Failed to parse .env file');
 
-    // copying the object just in case
-    this.decorators = this.parsedFile.decoratorsObject;
-
     if (!this.graph) throw new Error('expected graph to be set');
+
+    this.decorators = this.parsedFile.decoratorsArray;
 
     // TODO: if the file is a .env.example file, we should interpret the values as examples
     for (const item of this.parsedFile.configItems) {
@@ -289,6 +405,81 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
         description: item.description,
         decorators: item.decoratorsObject,
       };
+    }
+  }
+}
+
+/**
+ * Handles a directory as a source, automatically importing .env files from that directory
+ * This is usually the root in most cases, but additional directories can also be imported
+ *
+ * This will load the following files (if they exist), in precedence order
+ * - .env.schema
+ * - .env
+ * - .env.local
+ * - .env.ENV
+ * - .env.ENV.local
+ *
+ * where ENV represents the current value of the environment flag (e.g. development,staging,etc)
+ */
+export class DirectoryDataSource extends EnvGraphDataSource {
+  type = 'container' as const;
+  typeLabel = 'directory';
+  get label() { return `directory - ${this.basePath}`; }
+
+  schemaDataSource?: DotEnvFileDataSource;
+
+  get loadingError() {
+    return this._loadingError || this.schemaDataSource?.loadingError;
+  }
+
+  constructor(
+    readonly basePath: string,
+  ) {
+    super();
+  }
+
+  get envFlagKey() {
+    return this.schemaDataSource?._envFlagKey || this.parent?.envFlagKey;
+  }
+
+  private async addAutoLoadedFile(fileName: string) {
+    if (!this.graph) throw new Error('expected graph to be set');
+    const filePath = path.join(this.basePath, fileName);
+
+    if (this.graph.virtualImports) {
+      if (this.graph.virtualImports[filePath]) {
+        const source = new DotEnvFileDataSource(filePath, { overrideContents: this.graph.virtualImports[filePath] });
+        await this.addChild(source);
+        return source;
+      }
+      return;
+    }
+
+    if (!await pathExists(filePath)) return;
+    const source = new DotEnvFileDataSource(filePath);
+    await this.addChild(source);
+    return source;
+  }
+
+  async _finishInit() {
+    if (!this.graph) throw new Error('expected graph to be set');
+
+    await this.addAutoLoadedFile('.env.schema');
+    await this.addAutoLoadedFile('.env');
+
+    // .env.schema is usually the "schema data source" but this allows for a single .env file being the main source
+    if (this.children.length) {
+      this.schemaDataSource = this.children[0] as DotEnvFileDataSource;
+    }
+
+    await this.addAutoLoadedFile('.env.local');
+
+    // and finally load the env-specific files
+    const currentEnv = await this.resolveCurrentEnv();
+    if (currentEnv) {
+      await this.addAutoLoadedFile(`.env.${currentEnv}`);
+      await this.addAutoLoadedFile(`.env.${currentEnv}.local`);
     }
   }
 }

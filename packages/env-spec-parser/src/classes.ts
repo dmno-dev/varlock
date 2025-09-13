@@ -245,6 +245,18 @@ function getDecoratorsObject(
   return decObj;
 }
 
+function getDecoratorsArray(
+  comments: Array<ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment | undefined>,
+) {
+  const decArr = [] as Array<ParsedEnvSpecDecorator>;
+  comments.forEach((comment) => {
+    if (comment instanceof ParsedEnvSpecDecoratorComment) {
+      decArr.push(...comment.decorators);
+    }
+  });
+  return decArr;
+}
+
 export class ParsedEnvSpecCommentBlock {
   constructor(public data: {
     comments: Array<ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment>;
@@ -262,6 +274,9 @@ export class ParsedEnvSpecCommentBlock {
 
   get decoratorsObject() {
     return getDecoratorsObject(this.data.comments);
+  }
+  get decoratorsArray() {
+    return getDecoratorsArray(this.data.comments);
   }
 
   toString() {
@@ -386,6 +401,9 @@ export class ParsedEnvSpecFile {
   }
   get decoratorsObject() {
     return this.header?.decoratorsObject ?? {};
+  }
+  get decoratorsArray() {
+    return this.header?.decoratorsArray ?? [];
   }
 
   toString() {

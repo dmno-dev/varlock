@@ -6,7 +6,7 @@ import { gracefulExit } from 'exit-hook';
 
 export function checkForSchemaErrors(envGraph: EnvGraph) {
   // first we check for loading/parse errors - some cases we may want to let it fail silently?
-  for (const source of envGraph.dataSources) {
+  for (const source of envGraph.sortedDataSources) {
     // do we care about loading errors from disabled sources?
     // if (source.disabled) continue;
 

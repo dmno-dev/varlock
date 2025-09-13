@@ -40,6 +40,7 @@ export default defineConfig({
   // checking if the current command is `dev` and adjusting the watch paths accordingly
   watch: process.env.npm_lifecycle_event === 'dev' ? [
     'src',
+    'env-graph',
     // internal libraries that we are bundling into this one rather than publishing
     '../utils/src',
   ] : false,

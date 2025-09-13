@@ -9,6 +9,9 @@ import { findGraphCycles, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
 import { generateTypes } from './type-generation';
 
+const processExists = !!globalThis.process;
+const originalProcessEnv = { ...processExists && process.env };
+
 export type SerializedEnvGraph = {
   basePath?: string;
   sources: Array<{
@@ -34,34 +37,34 @@ export class EnvGraph {
 
   basePath?: string;
 
-  /** array of data sources */
-  dataSources: Array<EnvGraphDataSource> = [];
-  finalOverridesDataSource?: EnvGraphDataSource;
+  /** root data source (.env.schema) */
+  rootDataSource?: EnvGraphDataSource;
+
+  /** place to store process.env overrides */
+  overrideValues: Record<string, string | undefined> = {};
 
   /** config item key of env flag (toggles env-specific data sources enabled) */
   envFlagKey?: string;
-  /** current value of the environment flag */
-  envFlagValue?: string;
+  /** graph-level fallback value for environment flag */
+  envFlagFallback?: string;
 
   configSchema: Record<string, ConfigItem> = {};
 
-  addDataSource(dataSource: EnvGraphDataSource) {
-    dataSource.graph = this;
-    this.dataSources.push(dataSource);
+  /** virtual imports for testing */
+  virtualImports?: Record<string, string>;
+  setVirtualImports(basePath: string, files: Record<string, string>) {
+    this.virtualImports = {};
+    for (const [fileName, fileContents] of Object.entries(files)) {
+      this.virtualImports[path.join(basePath, fileName)] = fileContents;
+    }
   }
 
-  get schemaDataSource() {
-    const schemas = this.dataSources.filter((f) => f.type === 'schema');
-    if (schemas.length > 1) throw new Error('Multiple schema data sources found');
-    if (schemas.length === 0) return undefined;
-    return schemas[0];
-  }
 
   get sortedDataSources() {
-    return _.sortBy(this.dataSources, (f) => (
-      (10 * EnvGraphDataSource.DATA_SOURCE_TYPES[f.type].precedence)
-      + (f.applyForEnv ? 1 : 0) // boost if for specific env
-    ));
+    function getSourceAndChildren(s: EnvGraphDataSource): Array<EnvGraphDataSource> {
+      return [s, ...s.children ? s.children.flatMap(getSourceAndChildren) : []];
+    }
+    return this.rootDataSource ? getSourceAndChildren(this.rootDataSource) : [];
   }
 
   registeredResolverFunctions: Record<string, ResolverChildClass> = {};
@@ -89,119 +92,17 @@ export class EnvGraph {
     for (const resolverClass of BaseResolvers) {
       this.registerResolver(resolverClass);
     }
+    this.overrideValues = originalProcessEnv;
+  }
+
+  async setRootDataSource(source: EnvGraphDataSource) {
+    if (this.rootDataSource) throw new Error('root data source already set');
+    this.rootDataSource = source;
+    source.graph = this;
+    await source.finishInit();
   }
 
   async finishLoad() {
-    // first pass to figure out an envFlag and enable/disable env-specific sources
-    const sortedDataSources = this.sortedDataSources;
-
-    for (const source of sortedDataSources) {
-      // TODO: not sure how we want to surface this exactly
-      // we dont necessarily always want any loading error to fail the entire load
-      // but for example if the main schema is failing and we dont know the envFlag
-      // we don't know which env-specific sources to enable
-      if (source.loadingError) {
-        throw source.loadingError;
-      }
-      // example files will always be ignored, except during init flow
-      if (source.type === 'example') {
-        source.disabled = true;
-        continue;
-      }
-
-      // check for @envFlag so we know which item should control loading env-specific files (eg: .env.production)
-      if (source.decorators?.envFlag) {
-        if (source.type !== 'schema') {
-          // ? Do we want to allow using a single .env file instead of .env.schema?
-          throw new Error(`@envFlag must only be used in .env.schema, but was found in ${source.label}`);
-        } else if (this.envFlagKey) {
-          throw new Error('only a single @envFlag setting is allowed');
-        } else {
-          const envFlagKey = source.decorators.envFlag.simplifiedValue;
-          if (!_.isString(envFlagKey)) {
-            throw new Error('@envFlag must be a string');
-          } else {
-            this.envFlagKey = envFlagKey;
-          }
-        }
-      }
-
-      // if this is an env-specific file, check if this file should be enabled or not
-      // depending on the current value of the key specified by the `@envFlag` decorator
-      if (source.applyForEnv) {
-        // skip the file if the env doesn't match
-        if (source.applyForEnv && this.envFlagValue !== source.applyForEnv) {
-          source.disabled = true;
-          continue;
-        }
-      }
-
-      // check for @disable root decorator
-      if (source.decorators?.disable && source.decorators.disable.simplifiedValue) {
-        source.disabled = true;
-        continue;
-      }
-
-      // TODO: here we'll probably want to allow registering more resolvers and data types via root decorators
-
-      // create config items, or update their definitions if they already exist
-      for (const itemKey in source.configItemDefs) {
-        // if a source is marked as `ignoreNewDefs` (like the process.env source)
-        // then only items already existing in another source will take effect
-        if (source.ignoreNewDefs && !this.configSchema[itemKey]) continue;
-
-        const itemDef = source.configItemDefs[itemKey];
-        this.configSchema[itemKey] ??= new ConfigItem(this, itemKey);
-        this.configSchema[itemKey].addDef(itemDef, source);
-        // TODO: we probably want to track the definition back to the source
-      }
-
-      // deal with resolving the `@envFlag` if we are loading .env.schema
-      if (source.type === 'schema' && this.envFlagKey) {
-        // we'll throw some errors later if we were expecting an envFlag and one is not set
-        // but in the case we are just loading the graph, but not resolving it (like `varlock init`)
-        // then we want to allow this to proceed, and no files will be marked as disabled
-
-        if (!this.configSchema[this.envFlagKey]) {
-          throw new Error(`@envFlag key ${this.envFlagKey} not found in schema`);
-        }
-
-        // we do a limited early processing and resolution to get the env flag value
-        // TODO: throw errors later if these already processed items are modified in subsequent env files
-        const envFlagItem = this.configSchema[this.envFlagKey];
-        await envFlagItem.process();
-        // process and resolve any other items our env flag depends on
-        for (const depKey of envFlagItem.valueResolver?.deps || []) {
-          const depItem = this.configSchema[depKey];
-          if (!depItem) {
-            throw new Error(`envFlag resolver is using non-existant dependency: ${depKey}`);
-          }
-          await depItem.process();
-          // we are not going to follow a chain of dependencies here
-          if (depItem.valueResolver?.deps.length) {
-            // TODO: probably should allow this, even though its not going to be common
-            throw new Error('envFlag cannot follow a chain of dependencies');
-          }
-          await depItem.resolve();
-        }
-        await envFlagItem.resolve();
-        if (!envFlagItem.isValid) {
-          const err = new Error('resolved @envFlag value is not valid');
-          err.cause = envFlagItem.errors[0];
-          throw err;
-        }
-
-        if (envFlagItem.resolvedValue) {
-          if (!_.isString(envFlagItem.resolvedValue)) {
-            throw new Error('expected resolved @envFlag value to be a string');
-          }
-          this.envFlagValue = envFlagItem.resolvedValue;
-        }
-      }
-
-      // TODO: here we would probably want to check for `@import` statements, and load those sources as well
-    }
-
     // process items - this adds dataTypes, checks resolver args, and dependencies
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
@@ -234,6 +135,8 @@ export class EnvGraph {
   }
 
   async resolveEnvValues(): Promise<void> {
+    if (_.keys(this.configSchema).length === 0) return;
+
     const adjList = this.graphAdjacencyList;
     const reverseAdjList: Record<string, Array<string>> = {};
     for (const itemKey in adjList) {
@@ -351,7 +254,13 @@ export class EnvGraph {
   }
 
   getRootDecoratorValue(decoratorName: string) {
-    const dec = this.schemaDataSource?.decorators?.[decoratorName];
-    return dec?.simplifiedValue;
+    // currently this is just used above, but may want to rework
+    // to track values once as we process sources
+    const sources = Array.from(this.sortedDataSources).reverse();
+    for (const s of sources) {
+      const decs = s.getRootDecorators(decoratorName);
+      if (decs.length) return decs[0].simplifiedValue;
+    }
+    return undefined;
   }
 }

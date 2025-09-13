@@ -38,9 +38,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   checkForSchemaErrors(envGraph);
 
   // TODO: move into a more general post-load hook system
-  if (envGraph.schemaDataSource?.decorators.generateTypes) {
+  if (envGraph.rootDataSource?.decorators.generateTypes) {
     // TODO: much of this logic should move to the definition of the decorator itself
-    const typeGenSettings = envGraph.schemaDataSource?.decorators.generateTypes.bareFnArgs?.simplifiedValues;
+    const typeGenSettings = envGraph.rootDataSource?.decorators.generateTypes.bareFnArgs?.simplifiedValues;
     if (!_.isPlainObject(typeGenSettings)) {
       throw new Error('@generateTypes - must be a fn call with key/value args');
     }

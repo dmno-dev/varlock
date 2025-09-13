@@ -66,6 +66,11 @@ export class ConfigItem {
   }
 
   get valueResolver() {
+    // special case for process.env overrides - always return the static value
+    if (this.key in this.envGraph.overrideValues) {
+      return new StaticValueResolver(this.envGraph.overrideValues[this.key]);
+    }
+
     for (const def of this.defs) {
       if (def.itemDef.resolver) return def.itemDef.resolver;
     }
@@ -100,12 +105,6 @@ export class ConfigItem {
   }
 
   async process() {
-    // we add the final override def here so that if we process the item early (like when resolving our envFlag) it will be respected
-    const finalOverrideDef = this.envGraph.finalOverridesDataSource?.configItemDefs[this.key];
-    if (finalOverrideDef) {
-      this.defs.unshift({ itemDef: finalOverrideDef, source: this.envGraph.finalOverridesDataSource! });
-    }
-
     // process resolvers
     for (const def of this.defs) {
       await def.itemDef.resolver?.process(this);
@@ -141,6 +140,30 @@ export class ConfigItem {
     }
 
     this.processRequired();
+  }
+
+  /**
+   * special early resolution helper
+   * currently used to resolve the envFlag before everything else has been loaded
+   * */
+  async earlyResolve() {
+    await this.process();
+
+    // process and resolve any other items our env flag depends on
+    for (const depKey of this.valueResolver?.deps || []) {
+      const depItem = this.envGraph.configSchema[depKey];
+      if (!depItem) {
+        throw new Error(`eager resolution eror - non-existant dependency: ${depKey}`);
+      }
+      await depItem.process();
+      // we are not going to follow a chain of dependencies here
+      if (depItem.valueResolver?.deps.length) {
+        // TODO: probably should allow this, even though its not going to be common
+        throw new Error('eager resolution cannot follow a chain of dependencies');
+      }
+      await depItem.resolve(true);
+    }
+    await this.resolve(true);
   }
 
   _isRequired: boolean = true;
@@ -181,7 +204,8 @@ export class ConfigItem {
 
             // set required based on current envFlag
             if (requiredFnName === 'forEnv') {
-              const currentEnv = this.#envGraph.envFlagValue;
+              // get current env from the def's source - which will follow up parent chain if necessary
+              const currentEnv = def.source.envFlagValue;
               if (!currentEnv) {
                 throw new SchemaError('Cannot set @required using forEnv() because environment flag is not set');
               }
@@ -193,9 +217,9 @@ export class ConfigItem {
         }
 
         // Root-level @defaultRequired
-        if ('defaultRequired' in def.source.decorators) {
-          const val = def.source.decorators.defaultRequired.simplifiedValue;
-          if (val === 'infer') {
+        const defaultRequiredValue = def.source.getRootDecoratorSimpleValue('defaultRequired');
+        if (defaultRequiredValue !== undefined) {
+          if (defaultRequiredValue === 'infer') {
             // Only apply infer logic for schema source
             // ? not sure about this - we could probably still apply it for other sources?
             if (def.source.type === 'schema') {
@@ -214,7 +238,7 @@ export class ConfigItem {
             }
           }
           // explicit true or false
-          this._isRequired = val;
+          this._isRequired = defaultRequiredValue;
           return;
         }
       }
@@ -231,11 +255,12 @@ export class ConfigItem {
       if ('sensitive' in defDecorators) {
         return defDecorators.sensitive.simplifiedValue;
         // TODO: do we want an opposite decorator similar to @required/@optional -- maybe @public?
-      } else if ('defaultSensitive' in def.source.decorators) {
-        const dec = def.source.decorators.defaultSensitive;
+      }
+      const defaultSensitiveDec = def.source.getRootDecorators('defaultSensitive')[0];
+      if (defaultSensitiveDec) {
         // Handle function call: inferFromPrefix(PREFIX)
-        if (dec.value instanceof ParsedEnvSpecFunctionCall && dec.value.name === 'inferFromPrefix') {
-          const args = dec.value.simplifiedArgs;
+        if (defaultSensitiveDec.value instanceof ParsedEnvSpecFunctionCall && defaultSensitiveDec.value.name === 'inferFromPrefix') {
+          const args = defaultSensitiveDec.value.simplifiedArgs;
           // Accepts a single string prefix as first arg
           const prefix = Array.isArray(args) && args.length > 0 ? args[0] : undefined;
           if (typeof prefix === 'string' && this.key.startsWith(prefix)) {
@@ -244,7 +269,7 @@ export class ConfigItem {
           return true; // Sensitive otherwise
         }
         // Fallback to static/boolean value
-        return dec.simplifiedValue;
+        return defaultSensitiveDec.simplifiedValue;
       }
     }
     return true;
@@ -282,10 +307,20 @@ export class ConfigItem {
     return this.resolvedRawValue !== this.resolvedValue;
   }
 
-  async resolve() {
+  async resolve(reset = false) {
     // bail early if we have a schema error
     if (this.schemaErrors.length) return;
     if (this.resolverSchemaErrors.length) return;
+
+    if (reset) {
+      this.isResolved = false;
+      this.isValidated = false;
+      this.resolutionError = undefined;
+      this.coercionError = undefined;
+      this.validationErrors = undefined;
+      this.resolvedRawValue = undefined;
+      this.resolvedValue = undefined;
+    }
     if (this.isResolved) {
       // previously we would throw an error, now we resolve the envFlag early, so we can just return
       // but we may want further checks, as this could help us identify buggy logic calling resolve multiple times

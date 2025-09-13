@@ -121,11 +121,11 @@ export function ensureAllItemsExist(envGraph: EnvGraph, schemaFile: ParsedEnvSpe
 }
 
 export async function detectRedundantValues(envGraph: EnvGraph, opts: { delete?: boolean } = {}) {
-  const schema = envGraph.schemaDataSource;
+  const schema = envGraph.rootDataSource;
   if (!schema) return {};
   const redundantItemsBySourcePath: Record<string, Array<string>> = {};
   const schemaValues = schema.getStaticValues();
-  for (const source of envGraph.dataSources) {
+  for (const source of envGraph.sortedDataSources) {
     if (source === schema) continue;
     // we'll skip example files, since it is expected to be deleted and full of redundant values
     if (source.type === 'example') continue;
