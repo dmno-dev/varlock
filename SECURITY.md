@@ -34,4 +34,4 @@ We ask that you:
 - Act in good faith and avoid data destruction or service disruption.
 - Allow reasonable time for remediation before public disclosure.
 
-Thank you for helping keep `dmno-dev/varlock` and its users safe!
+Thank you for helping keep `varlock` and its users safe!
