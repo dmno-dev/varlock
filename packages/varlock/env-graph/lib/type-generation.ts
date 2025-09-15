@@ -236,11 +236,9 @@ export type EnvSchemaAsStrings = {
   return tsSrc.join('\n');
 }
 
-export async function generateTypes(graph: EnvGraph, lang: string, outputPath: string) {
+export async function generateTypes(graph: EnvGraph, lang: string, typesPath: string) {
   if (lang !== 'ts') throw new Error(`Unsupported @generateTypes lang: ${lang}`);
 
   const tsSrc = await generateTsTypesSrc(graph);
-  if (!graph.basePath) return;
-  const typesPath = path.join(graph.basePath, outputPath);
   await fs.promises.writeFile(typesPath, tsSrc, 'utf-8');
 }

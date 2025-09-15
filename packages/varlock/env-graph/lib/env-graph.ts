@@ -8,6 +8,7 @@ import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
 import { generateTypes } from './type-generation';
+import type { ParsedEnvSpecDecorator } from '@env-spec/parser';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -258,9 +259,24 @@ export class EnvGraph {
     // to track values once as we process sources
     const sources = Array.from(this.sortedDataSources).reverse();
     for (const s of sources) {
+      if (s.disabled) continue;
+      // we skip root decorators if the file was being _partially_ imported
+      if (s.importKeys) continue;
       const decs = s.getRootDecorators(decoratorName);
       if (decs.length) return decs[0].simplifiedValue;
     }
     return undefined;
+  }
+  getRootDecorators(decoratorName: string) {
+    const sources = Array.from(this.sortedDataSources).reverse();
+    const combinedDecsWithSources: Array<[EnvGraphDataSource, Array<ParsedEnvSpecDecorator>]> = [];
+    for (const source of sources) {
+      if (source.disabled) continue;
+      // we skip root decorators if the file was being _partially_ imported
+      if (source.importKeys) continue;
+      const decs = source.getRootDecorators(decoratorName);
+      combinedDecsWithSources.push([source, decs]);
+    }
+    return combinedDecsWithSources;
   }
 }

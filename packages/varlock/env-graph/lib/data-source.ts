@@ -194,7 +194,7 @@ export abstract class EnvGraphDataSource {
           if (!(this instanceof FileBasedDataSource)) {
             throw new Error('@import of files can only be used from a file-based data source');
           }
-          const fullImportPath = path.resolve(path.dirname(this.fullPath), importPath);
+          const fullImportPath = path.resolve(this.fullPath, '..', importPath);
           const fileName = path.basename(fullImportPath);
           // TODO: once we have more file types, here we would detect the type and import it correctly
           if (!fileName.startsWith('.env.')) {
