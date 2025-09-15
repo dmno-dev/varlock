@@ -6,7 +6,7 @@ If you discover a security vulnerability in this repository (`dmno-dev/varlock`)
 
 1. **Do not create a public issue.**
    - To protect users, please report vulnerabilities privately using GitHub's private reporting [feature](https://github.com/dmno-dev/varlock/security)
-   - OR alternatively email: security@dmno.dev
+   - OR alternatively email: security@varlock.dev
 
 3. **Include Relevant Details:**
    - Describe the vulnerability and potential impact.
