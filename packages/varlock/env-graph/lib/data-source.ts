@@ -79,7 +79,7 @@ export abstract class EnvGraphDataSource {
   /** adds a child data source and sets up the correct references in both directions */
   async addChild(child: EnvGraphDataSource, importMeta?: EnvGraphDataSource['importMeta']) {
     if (!this.graph) throw new Error('expected graph to be set');
-    this.children.push(child);
+    this.children.unshift(child);
     child.parent = this;
     child.graph = this.graph;
     if (importMeta) child.importMeta = importMeta;
@@ -169,6 +169,15 @@ export abstract class EnvGraphDataSource {
       this._envFlagKey = envFlagDecoratorValue;
     }
 
+    // create config items, or add additional definitions if they already exist
+    for (const itemKey of this.importKeys || _.keys(this.configItemDefs)) {
+      const itemDef = this.configItemDefs[itemKey];
+      if (!itemDef) continue;
+      this.graph.configSchema[itemKey] ??= new ConfigItem(this.graph, itemKey);
+      // this.graph.configSchema[itemKey].addDef(itemDef, this);
+      // TODO: we probably want to track the definition back to the source
+    }
+
     // handle imports before we process config items
     // because the imported defs will be overridden by anything within this source
     const importDecorators = this.getRootDecorators('import');
@@ -196,27 +205,64 @@ export abstract class EnvGraphDataSource {
           }
           const fullImportPath = path.resolve(this.fullPath, '..', importPath);
           const fileName = path.basename(fullImportPath);
-          // TODO: once we have more file types, here we would detect the type and import it correctly
-          if (!fileName.startsWith('.env.')) {
-            this._loadingError = new Error('imported file must be a .env.* file');
-            return;
-          }
 
           // TODO: might be nice to move this logic somewhere else
+
           if (this.graph.virtualImports) {
-            if (this.graph.virtualImports[fullImportPath]) {
+            if (importPath.endsWith('/')) {
+              if (!Object.keys(this.graph.virtualImports).some((p) => p.startsWith(fullImportPath))) {
+                this._loadingError = new Error(`Virtual directory import ${fullImportPath} not found`);
+                return;
+              }
+              // eslint-disable-next-line no-use-before-define
+              await this.addChild(new DirectoryDataSource(fullImportPath), {
+                isImport: true, importKeys,
+              });
+            } else {
+              if (!this.graph.virtualImports[fullImportPath]) {
+                this._loadingError = new Error(`Virtual import ${fullImportPath} not found`);
+                return;
+              }
               // eslint-disable-next-line no-use-before-define
               const source = new DotEnvFileDataSource(fullImportPath, {
                 overrideContents: this.graph.virtualImports[fullImportPath],
               });
               await this.addChild(source, { isImport: true, importKeys });
-            } else {
-              this._loadingError = new Error(`Virtual import ${fullImportPath} not found`);
-              return;
             }
           } else {
-            // eslint-disable-next-line no-use-before-define
-            await this.addChild(new DotEnvFileDataSource(fullImportPath), { isImport: true, importKeys });
+            const fsStat = await tryCatch(async () => fs.stat(importPath), (err) => {
+              // TODO: work through possible error types here
+            });
+
+            if (!fsStat) {
+              this._loadingError = new Error(`Import path does not exist: ${fullImportPath}`);
+              return;
+            }
+
+            // directory import -- must end with a "/" to make the intent clearer
+            if (importPath.endsWith('/')) {
+              if (fsStat.isDirectory()) {
+                // eslint-disable-next-line no-use-before-define
+                await this.addChild(new DirectoryDataSource(fullImportPath), {
+                  isImport: true, importKeys,
+                });
+              } else {
+                this._loadingError = new Error(`Imported path ending with "/" is not a directory: ${fullImportPath}`);
+                return;
+              }
+            // File import
+            } else {
+              if (fsStat.isDirectory()) {
+                this._loadingError = new Error('Imported path is a directory, add trailing "/" to import');
+                return;
+              } else if (!fileName.startsWith('.env.')) {
+                this._loadingError = new Error('imported file must be a .env.* file');
+                return;
+              }
+              // TODO: once we have more file types, here we would detect the type and import it correctly
+              // eslint-disable-next-line no-use-before-define
+              await this.addChild(new DotEnvFileDataSource(fullImportPath), { isImport: true, importKeys });
+            }
           }
         } else if (importPath.startsWith('http://') || importPath.startsWith('https://')) {
           console.log('handle http import', importPath);
@@ -224,15 +270,6 @@ export abstract class EnvGraphDataSource {
           console.log('handle npm import?');
         }
       }
-    }
-
-    // create config items, or add additional definitions if they already exist
-    for (const itemKey of this.importKeys || _.keys(this.configItemDefs)) {
-      const itemDef = this.configItemDefs[itemKey];
-      if (!itemDef) continue;
-      this.graph.configSchema[itemKey] ??= new ConfigItem(this.graph, itemKey);
-      this.graph.configSchema[itemKey].addDef(itemDef, this);
-      // TODO: we probably want to track the definition back to the source
     }
 
     // if we did set the @envFlag in this source, now we'll do an early resolution of the value
@@ -557,13 +594,13 @@ export class DirectoryDataSource extends EnvGraphDataSource {
 
     // .env.schema is usually the "schema data source" but this allows for a single .env file being the main source
     if (this.children.length) {
-      this.schemaDataSource = this.children[0] as DotEnvFileDataSource;
+      this.schemaDataSource = this.children[this.children.length - 1] as DotEnvFileDataSource;
     }
 
     await this.addAutoLoadedFile('.env.local');
 
     // and finally load the env-specific files
-    const currentEnv = await this.resolveCurrentEnv();
+    const currentEnv = await this.resolveCurrentEnv() || this.envFlagValue;
     if (currentEnv) {
       await this.addAutoLoadedFile(`.env.${currentEnv}`);
       await this.addAutoLoadedFile(`.env.${currentEnv}.local`);

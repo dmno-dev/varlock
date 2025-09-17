@@ -34,7 +34,7 @@ export function envFilesTest(spec: {
     await g.finishLoad();
 
     if (spec.loadingError) {
-      expect(g.rootDataSource!.loadingError).toBeTruthy();
+      expect(g.sortedDataSources.some((s) => s.loadingError)).toBeTruthy();
     } else {
       await g.resolveEnvValues();
 

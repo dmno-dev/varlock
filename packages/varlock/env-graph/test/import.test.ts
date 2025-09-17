@@ -3,23 +3,120 @@ import outdent from 'outdent';
 import { envFilesTest } from './helpers/generic-test';
 
 describe('@import', () => {
-  test('imported file has less precedence than importing', envFilesTest({
+  test('imported file can add new items', envFilesTest({
     files: {
       '.env.schema': outdent`
         # @import(./.env.import)
         # ---
-        ITEM_ONLY_IN_SCHEMA=value-from-.env.schema
-        ITEM_IN_BOTH=value-from-.env.schema
+        ITEM1=item1
       `,
       '.env.import': outdent`
-        ITEM_ONLY_IN_IMPORT=value-from-.env.import
-        ITEM_IN_BOTH=value-from-.env.import
+        ITEM2=item2
       `,
     },
     expectValues: {
-      ITEM_ONLY_IN_SCHEMA: 'value-from-.env.schema',
-      ITEM_IN_BOTH: 'value-from-.env.schema',
-      ITEM_ONLY_IN_IMPORT: 'value-from-.env.import',
+      ITEM1: 'item1',
+      ITEM2: 'item2',
+    },
+  }));
+  test('imported file is overridden by file that imports it', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./.env.import)
+        # ---
+        ITEM1=value-from-.env.schema
+      `,
+      '.env.import': outdent`
+        ITEM1=value-from-.env.import
+      `,
+    },
+    expectValues: {
+      ITEM1: 'value-from-.env.schema',
+    },
+  }));
+  test('multiple imports - later import overrides earlier', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./.env.import1)
+        # @import(./.env.import2)
+        # ---
+      `,
+      '.env.import1': outdent`
+        ITEM1=value-from-.env.import1
+      `,
+      '.env.import2': outdent`
+        ITEM1=value-from-.env.import2
+      `,
+    },
+    expectValues: {
+      ITEM1: 'value-from-.env.import2',
+    },
+  }));
+
+  test('directory can be imported, which will then import .env.* files appropriately', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./dir/)
+        # ---
+        ITEM1=value-from-.env.schema
+      `,
+      'dir/.env.schema': outdent`
+        ITEM1=value-from-dir/.env.schema   
+        ITEM2=value-from-dir/.env.schema
+        ITEM3=value-from-dir/.env.schema
+      `,
+      'dir/.env.local': outdent`
+        ITEM3=value-from-dir/.env.local
+        ITEM4=value-from-dir/.env.local
+      `,
+    },
+    expectValues: {
+      ITEM1: 'value-from-.env.schema',
+      ITEM2: 'value-from-dir/.env.schema',
+      ITEM3: 'value-from-dir/.env.local',
+      ITEM4: 'value-from-dir/.env.local',
+    },
+  }));
+
+  test('imported directory can reuse the existing envFlag', envFilesTest({
+    overrideValues: { APP_ENV: 'dev' },
+    files: {
+      '.env.schema': outdent`
+        # @envFlag=APP_ENV
+        # @import(./dir/)
+        # ---
+        APP_ENV=dev
+      `,
+      'dir/.env.dev': outdent`
+        IMPORTED_ITEM=foo
+      `,
+    },
+    expectValues: {
+      IMPORTED_ITEM: 'foo',
+    },
+  }));
+  test('imported directory can use a different envFlag', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @envFlag=APP_ENV
+        # @import(./dir/)
+        # ---
+        APP_ENV=dev
+      `,
+      'dir/.env.schema': outdent`
+        # @envFlag=APP_ENV2
+        # ---
+        APP_ENV2=prod
+      `,
+      'dir/.env.dev': outdent`
+        IMPORTED_ITEM=dev
+      `,
+      'dir/.env.prod': outdent`
+        IMPORTED_ITEM=prod
+      `,
+    },
+    expectValues: {
+      IMPORTED_ITEM: 'prod',
     },
   }));
 
@@ -117,6 +214,7 @@ describe('@import', () => {
         ITEM_ONLY_IN_SCHEMA: 'value-from-.env.schema',
         ITEM_IN_BOTH: 'value-from-.env.schema',
       },
+      expectNotInSchema: ['ITEM_ONLY_IN_IMPORT'],
     }));
 
     test('a file marked with @disable will also disable its imports', envFilesTest({
@@ -139,6 +237,7 @@ describe('@import', () => {
       expectValues: {
         ITEM_ONLY_IN_SCHEMA: 'value-from-.env.schema',
       },
+      expectNotInSchema: ['ITEM_ONLY_IN_IMPORT1', 'ITEM_ONLY_IN_IMPORT2'],
     }));
   });
 });

@@ -41,9 +41,22 @@ export class ConfigItem {
   get envGraph() { return this.#envGraph; }
   get key() { return this.#key; }
 
-  defs: Array<ConfigItemDefAndSource> = [];
-  addDef(itemDef: ConfigItemDef, source: EnvGraphDataSource) {
-    this.defs.unshift({ itemDef, source });
+  /**
+   * fetch ordered list of definitions for this item, by following up sorted data sources list
+   */
+  get defs() {
+    // TODO: this is somewhat inneficient, because some of the checks on the data source follow up the parent chain
+    // we may want to cache the definition list at some point when loading is complete
+    // although we need it to be dynamic during the loading process when doing any early resolution of the envFlag
+    const defs: Array<ConfigItemDefAndSource> = [];
+    for (const source of this.#envGraph.sortedDataSources) {
+      if (!source.configItemDefs[this.#key]) continue;
+      if (source.disabled) continue;
+      if (source.importKeys && !source.importKeys.includes(this.#key)) continue;
+      const itemDef = source.configItemDefs[this.#key];
+      if (itemDef) defs.push({ itemDef, source });
+    }
+    return defs;
   }
 
   get description() {
