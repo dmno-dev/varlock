@@ -230,7 +230,7 @@ export abstract class EnvGraphDataSource {
               await this.addChild(source, { isImport: true, importKeys });
             }
           } else {
-            const fsStat = await tryCatch(async () => fs.stat(importPath), (err) => {
+            const fsStat = await tryCatch(async () => fs.stat(importPath), (_err) => {
               // TODO: work through possible error types here
             });
 
@@ -265,9 +265,14 @@ export abstract class EnvGraphDataSource {
             }
           }
         } else if (importPath.startsWith('http://') || importPath.startsWith('https://')) {
-          console.log('handle http import', importPath);
+          this._loadingError = new Error('http imports not supported yet');
+          return;
+        } else if (importPath.startsWith('npm:')) {
+          this._loadingError = new Error('npm imports not supported yet');
+          return;
         } else {
-          console.log('handle npm import?');
+          this._loadingError = new Error('unsupported import type');
+          return;
         }
       }
     }

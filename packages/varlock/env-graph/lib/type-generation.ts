@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import _ from '@env-spec/utils/my-dash';
 import { EnvGraph } from './env-graph';
 import { ConfigItem } from './config-item';

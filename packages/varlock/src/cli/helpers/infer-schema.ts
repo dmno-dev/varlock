@@ -1,5 +1,4 @@
 import fs from 'node:fs/promises';
-import { DotEnvFileDataSource, EnvGraph, StaticValueResolver } from '../../../env-graph';
 import {
   envSpecUpdater, ParsedEnvSpecFile, ParsedEnvSpecStaticValue,
 } from '@env-spec/parser';

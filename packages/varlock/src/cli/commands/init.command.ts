@@ -6,12 +6,11 @@ import { isCancel, select } from '@clack/prompts';
 import { define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
-import { envSpecUpdater, ParsedEnvSpecFile, parseEnvSpecDotEnvFile } from '@env-spec/parser';
+import { envSpecUpdater, parseEnvSpecDotEnvFile } from '@env-spec/parser';
 import { checkIsFileGitIgnored } from '@env-spec/utils/git-utils';
 import { pathExists } from '@env-spec/utils/fs-utils';
 import _ from '@env-spec/utils/my-dash';
 
-import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import prompts from '../helpers/prompts';
 import { fmt, logLines } from '../helpers/pretty-format';
 import {
