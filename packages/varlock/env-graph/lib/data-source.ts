@@ -330,20 +330,6 @@ export abstract class EnvGraphDataSource {
     if (decorators.length > 1) throw new Error(`Multiple ${decName} decorators found`);
     return decorators[0].simplifiedValue;
   }
-
-  /**
-   * helper to get static values only from the source
-   * used during init flow to infer schema info from existing .env files
-   * */
-  getStaticValues() {
-    const obj: Record<string, string> = {};
-    for (const [key, def] of Object.entries(this.configItemDefs)) {
-      if (def.resolver instanceof StaticValueResolver) {
-        obj[key] = String(def.resolver.staticValue ?? '');
-      }
-    }
-    return obj;
-  }
 }
 
 

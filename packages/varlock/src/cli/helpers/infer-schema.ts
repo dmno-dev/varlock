@@ -5,6 +5,12 @@ import {
 } from '@env-spec/parser';
 
 
+export type DetectedEnvFile = {
+  fileName: string,
+  fullPath: string,
+  parsedFile: ParsedEnvSpecFile
+};
+
 const PUBLIC_PREFIXES = [
   'PUBLIC',
   'VITE',
@@ -93,57 +99,62 @@ export function inferSchemaUpdates(file: ParsedEnvSpecFile) {
 }
 
 
-export function ensureAllItemsExist(envGraph: EnvGraph, schemaFile: ParsedEnvSpecFile) {
+export function ensureAllItemsExist(schemaFile: ParsedEnvSpecFile, otherFiles: Array<DetectedEnvFile>) {
   const addedItemKeys: Array<string> = [];
-  for (const itemKey in envGraph.configSchema) {
-    const item = envGraph.configSchema[itemKey];
-    const itemInSchema = schemaFile.configItems.find((i) => i.key === itemKey);
+  for (const otherFile of otherFiles) {
+    for (const item of otherFile.parsedFile.configItems) {
+      const itemInSchema = schemaFile.configItems.find((i) => i.key === item.key);
+      if (itemInSchema) continue;
 
-    if (!itemInSchema) {
       if (addedItemKeys.length === 0) {
         envSpecUpdater.injectFromStr(schemaFile, [
           '',
           '# items added to schema by `varlock init`',
-          '# that were missing in example, but detected in other env files',
+          '# that were missing in example, but detected in other .env files',
           '# PLEASE REVIEW THESE!',
           '# ---',
           '',
         ].join('\n'), { location: 'end' });
       }
-      addedItemKeys.push(itemKey);
-      envSpecUpdater.injectFromStr(schemaFile, [`${itemKey}=`].join('\n'));
+      addedItemKeys.push(item.key);
+      envSpecUpdater.injectFromStr(schemaFile, `${item.key}=`);
       const itemValue = (
-        item.valueResolver instanceof StaticValueResolver && item.valueResolver.staticValue
+        item.value instanceof ParsedEnvSpecStaticValue && item.value.value?.toString()
       ) || '';
-      inferItemDecorators(schemaFile, itemKey, String(itemValue));
+      inferItemDecorators(schemaFile, item.key, String(itemValue));
     }
   }
 }
 
-export async function detectRedundantValues(envGraph: EnvGraph, opts: { delete?: boolean } = {}) {
-  const schema = envGraph.rootDataSource;
-  if (!schema) return {};
+export async function detectRedundantValues(
+  schemaFile: ParsedEnvSpecFile,
+  otherFiles: Record<string, DetectedEnvFile>,
+  opts: { delete?: boolean } = {},
+) {
   const redundantItemsBySourcePath: Record<string, Array<string>> = {};
-  const schemaValues = schema.getStaticValues();
-  for (const source of envGraph.sortedDataSources) {
-    if (source === schema) continue;
-    // we'll skip example files, since it is expected to be deleted and full of redundant values
-    if (source.type === 'example') continue;
-    if (!(source instanceof DotEnvFileDataSource) || !source.parsedFile) continue;
+  const schemaValues = schemaFile.toSimpleObj();
+  for (const otherFile of Object.values(otherFiles)) {
+    if (
+      otherFile.fileName.startsWith('.env.schema')
+      || otherFile.fileName.startsWith('.env.example')
+      || otherFile.fileName.startsWith('.env.sample')
+      || otherFile.fileName.startsWith('.env.default')
+    ) continue;
 
-    const sourceValues = source.getStaticValues();
-    for (const [key, value] of Object.entries(sourceValues)) {
-      if (schemaValues[key] !== value) continue;
+    const otherFileValues = otherFile.parsedFile.toSimpleObj();
+    for (const itemKey in otherFileValues) {
+      if (!(itemKey in schemaValues)) continue;
+      if (otherFileValues[itemKey] !== schemaValues[itemKey]) continue;
 
-      redundantItemsBySourcePath[source.fullPath] ||= [];
-      redundantItemsBySourcePath[source.fullPath].push(key);
+      redundantItemsBySourcePath[otherFile.fullPath] ||= [];
+      redundantItemsBySourcePath[otherFile.fullPath].push(itemKey);
       if (opts.delete) {
-        envSpecUpdater.deleteItem(source.parsedFile, key);
+        envSpecUpdater.deleteItem(otherFile.parsedFile, itemKey);
       }
     }
 
     if (opts.delete) {
-      await fs.writeFile(source.fullPath, source.parsedFile.toString(), 'utf8');
+      await fs.writeFile(otherFile.fullPath, otherFile.parsedFile.toString(), 'utf8');
     }
   }
 
