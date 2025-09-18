@@ -109,6 +109,24 @@ BAR=baz  # will be ignored
 </div>
 
 <div>
+### `@import`
+
+Imports config items from another `.env` file or a directory containing `.env*` files. Useful for sharing values across services, splitting large schemas, or pulling selected keys from another source.
+
+```env-spec
+# @import(./.env.import)
+# ---
+ITEM1=local
+
+# ./.env.import
+ITEM2=shared
+```
+
+See the [@import guide](/guides/import) for detailed examples and advanced usage.
+
+</div>
+
+<div>
 ### `@generateTypes`
 
 Enables automatic type generation based on your schema.

@@ -1,0 +1,272 @@
+---
+title: "@import guide"
+description: Learn how to use the @import decorator to share environment variables across files and services
+---
+
+The `@import` decorator allows you to import config items from other `.env` files or directories, making it easy to share values across services, split large schemas, or pull selected keys from another source.
+
+Syntax supports either a single path, or a path followed by a list of keys to import (partial import).
+
+## Considerations:
+- Later imports override earlier imports; the importing file overrides all imported values.
+- Importing a directory loads its `.env*` files using the appropriate environment suffixes.
+- The imported directory can reuse the current env flag or specify its own via `@envFlag` in the imported `.env.schema`.
+- Partial imports only bring in the specified keys; for chained imports, a key must be included at every hop.
+- Non-`.env*` targets or missing files cause a loading error.
+- If an imported file is marked `@disable`, it and its imports are skipped.
+
+## Basic usage
+
+The simplest form imports all items from another file:
+
+```env-spec title=".env.schema"
+# @import(./.env.import)
+# ---
+ITEM1=local
+```
+
+```env-spec title=".env.import"
+ITEM2=shared
+ITEM3=also-shared
+```
+
+This will make `ITEM2` and `ITEM3` available in your schema, while `ITEM1` remains local.
+
+## Import precedence
+
+The importing file always takes precedence over imported values:
+
+```env-spec title=".env.schema"
+# @import(./.env.import)
+# ---
+ITEM=from-schema
+```
+
+```env-spec title=".env.import"
+ITEM=from-import
+```
+
+**Result:** `ITEM` will be `from-schema` (the importing file wins).
+
+## Multiple imports
+
+You can import from multiple sources. Later imports override earlier ones:
+
+```env-spec title=".env.schema"
+# @import(./.env.import1)
+# @import(./.env.import2)
+# ---
+```
+
+```env-spec title=".env.import1"
+ITEM=from-import1
+```
+
+```env-spec title=".env.import2"
+ITEM=from-import2
+```
+
+**Result:** `ITEM` will be `from-import2` (later import wins).
+
+## Directory imports
+
+Importing a directory will load all `.env*` files within it, respecting environment-specific files:
+
+```env-spec title=".env.schema"
+# @import(./shared/)
+# ---
+ITEM1=from-root
+```
+
+```env-spec title="./shared/.env.schema"
+ITEM2=shared-schema
+ITEM3=shared-schema
+```
+
+```env-spec title="./shared/.env.local"
+ITEM3=shared-local
+ITEM4=shared-local
+```
+
+**Result:**
+- `ITEM1=from-root` (from importing file)
+- `ITEM2=shared-schema` (from directory's schema)
+- `ITEM3=shared-local` (environment-specific override)
+- `ITEM4=shared-local` (from environment-specific file)
+
+## Environment flags across directories
+
+Imported directories can either reuse the current environment flag or specify their own:
+
+### Reusing the current flag
+
+```env-spec title=".env.schema"
+# @envFlag=APP_ENV
+# @import(./shared/)
+# ---
+APP_ENV=dev
+```
+
+```env-spec title="./shared/.env.dev"
+SHARED_ITEM=dev-value
+```
+
+**Result:** `SHARED_ITEM=dev-value` (uses the same `APP_ENV=dev`).
+
+### Using a different flag
+
+```env-spec title=".env.schema"
+# @envFlag=APP_ENV
+# @import(./shared/)
+# ---
+APP_ENV=dev
+```
+
+```env-spec title="./shared/.env.schema"
+# @envFlag=SHARED_ENV
+# ---
+SHARED_ENV=prod
+```
+
+```env-spec title="./shared/.env.prod"
+SHARED_ITEM=prod-value
+```
+
+**Result:** `SHARED_ITEM=prod-value` (uses `SHARED_ENV=prod` from the imported directory).
+
+## Partial imports
+
+You can import only specific keys by listing them after the path:
+
+```env-spec title=".env.schema"
+# @import(./.env.import, IMPORTED1, IMPORTED2, IMPORTED3)
+# ---
+```
+
+```env-spec title=".env.import"
+IMPORTED1=value1
+IMPORTED2=value2
+SKIP1=ignored
+SKIP2=ignored
+IMPORTED3=value3
+```
+
+**Result:** Only `IMPORTED1`, `IMPORTED2`, and `IMPORTED3` are imported. `SKIP1` and `SKIP2` are ignored.
+
+## Chained partial imports
+
+When using partial imports across chained imports, a key must be included at every level:
+
+```env-spec title=".env.schema"
+# @import(./.env.import, ITEM1)
+# ---
+ITEM1=from-schema
+```
+
+```env-spec title=".env.import"
+# @import(./.env.import2, ITEM1, ITEM2)
+# ---
+```
+
+```env-spec title=".env.import2"
+ITEM1=from-import2
+ITEM2=from-import2
+```
+
+**Result:** Only `ITEM1` is imported (it's present in all import chains). `ITEM2` is excluded because it's not in the root import.
+
+## Error handling
+
+### Invalid file types
+
+Only `.env*` files and directories are supported:
+
+```env-spec
+# @import(./config.json)  # ❌ Error: only .env* files supported
+# @import(./data.txt)    # ❌ Error: only .env* files supported
+```
+
+### Missing files
+
+```env-spec
+# @import(./.env.missing)  # ❌ Error: file not found
+```
+
+## Interaction with @disable
+
+If an imported file is marked with `@disable`, it and its imports are skipped:
+
+```env-spec title=".env.schema"
+# @import(./.env.import)
+# ---
+ITEM_ONLY_IN_SCHEMA=value
+```
+
+```env-spec title=".env.import"
+# @disable
+# @import(./.env.import2)
+# ---
+ITEM_ONLY_IN_IMPORT1=value
+```
+
+```env-spec title=".env.import2"
+ITEM_ONLY_IN_IMPORT2=value
+```
+
+**Result:** Only `ITEM_ONLY_IN_SCHEMA` is available. Both imported items are skipped because the first import is disabled.
+
+## Use cases
+
+### Monorepo shared configuration
+
+```env-spec title="apps/web/.env.schema"
+# @import(../../shared/.env)
+# ---
+WEB_SPECIFIC=value
+```
+
+```env-spec title="apps/api/.env.schema"
+# @import(../../shared/.env)
+# ---
+API_SPECIFIC=value
+```
+
+```env-spec title="shared/.env"
+DATABASE_URL=postgres://...
+REDIS_URL=redis://...
+```
+
+### Service-specific imports
+
+```env-spec title="apps/web/.env.schema"
+# @import(../api/.env, API_URL, API_KEY)
+# ---
+WEB_SPECIFIC=value
+```
+
+```env-spec title="apps/api/.env"
+API_URL=http://localhost:3001
+API_KEY=secret-key
+INTERNAL_SECRET=internal-only
+```
+
+**Result:** Only `API_URL` and `API_KEY` are imported into the web app, while `INTERNAL_SECRET` remains private to the API service.
+
+### Environment-specific overrides
+
+```env-spec title=".env.schema"
+# @import(./configs/)
+# ---
+```
+
+```env-spec title="./configs/.env.schema"
+# Base configuration
+DATABASE_URL=postgres://localhost:5432/app
+```
+
+```env-spec title="./configs/.env.production"
+# Production overrides
+DATABASE_URL=postgres://prod-server:5432/app
+```
+
+This allows you to maintain environment-specific configurations in a separate directory while keeping your main schema clean.
