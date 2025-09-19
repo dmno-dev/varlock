@@ -18,7 +18,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Label PR based on maintainer status
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const MAINTAINERS = 'theoephraim philmillman'.split(' ');
@@ -31,6 +31,6 @@ jobs:
               ]
             });
       - name: Label PR based on changed files
-        uses: actions/labeler@v5
+        uses: actions/labeler@v6
         with:
           configuration-path: .github/config/labeler.yaml
