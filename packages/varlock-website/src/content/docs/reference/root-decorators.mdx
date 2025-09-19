@@ -109,25 +109,28 @@ BAR=baz  # will be ignored
 </div>
 
 <div>
-### `@import`
+### `@import()`
 
-Imports config items from another `.env` file or a directory containing `.env*` files. Useful for sharing values across services, splitting large schemas, or pulling selected keys from another source.
+Imports other `.env` file(s) - useful for sharing config across monorepos and splitting up large schemas.
+
+You may import a specific file, or a directory of files - automatically loading all `.env.*` files appropriately according to the current environment flag.
+
+See the [@import guide](/guides/import/) for more details and advanced usage.
 
 ```env-spec
-# @import(./.env.import)
+# @import(./.env.imported)           # import a specific file
+# @import(./.env.other, KEY1, KEY2)  # import specific keys
+# @import(../shared-env/)            # import a directory
 # ---
-ITEM1=local
 
-# ./.env.import
-ITEM2=shared
+# this definition is merged with any found in imports, but this one has more precedence
+IMPORTED_ITEM=overriden-value
 ```
-
-See the [@import guide](/guides/import) for detailed examples and advanced usage.
 
 </div>
 
 <div>
-### `@generateTypes`
+### `@generateTypes()`
 
 Enables automatic type generation based on your schema.
 

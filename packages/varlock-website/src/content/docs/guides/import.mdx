@@ -3,270 +3,102 @@ title: "@import guide"
 description: Learn how to use the @import decorator to share environment variables across files and services
 ---
 
-The `@import` decorator allows you to import config items from other `.env` files or directories, making it easy to share values across services, split large schemas, or pull selected keys from another source.
+The [`@import()` root decorator](/reference/root-decorators/#import) allows you to import schema and/or values from other sources (currently just `.env` files), making it easy to share config across services within a monorepo, split up large schemas, or reuse pre-defined schemas. Multiple `@import()` calls may be used, and an imported source may itself import more sources.
 
-Syntax supports either a single path, or a path followed by a list of keys to import (partial import).
-
-## Considerations:
-- Later imports override earlier imports; the importing file overrides all imported values.
-- Importing a directory loads its `.env*` files using the appropriate environment suffixes.
-- The imported directory can reuse the current env flag or specify its own via `@envFlag` in the imported `.env.schema`.
-- Partial imports only bring in the specified keys; for chained imports, a key must be included at every hop.
-- Non-`.env*` targets or missing files cause a loading error.
-- If an imported file is marked `@disable`, it and its imports are skipped.
-
-## Basic usage
-
-The simplest form imports all items from another file:
-
-```env-spec title=".env.schema"
-# @import(./.env.import)
+**Basic examples:** 
+```env-spec
+# @import(./.env.imported)              # import specific file
+# @import(./env-dir/)                   # import directory
+# @import(./.env.partial, KEY1, KEY2)   # import specific keys
 # ---
-ITEM1=local
 ```
 
-```env-spec title=".env.import"
-ITEM2=shared
-ITEM3=also-shared
+## Import source types
+
+The first argument to `@import()` specifies where to look for file(s) to import.
+Currently only local file imports are supported, but we plan to support importing over http in a style similar to Deno's http imports.
+
+For now, all imported files must be `.env` files (and may contain @env-spec decorators), but in the future, we may also support other formats (e.g., JSON, YAML, etc.) or even JS/TS files.
+
+### Single file
+
+- Path must begin with `./` or `../`
+- Imported file name must be begin with `.env.`
+
+```env-spec
+# @import(./.env.common)
 ```
 
-This will make `ITEM2` and `ITEM3` available in your schema, while `ITEM1` remains local.
+### Directory
 
-## Import precedence
+- Path must begin with `./` or `../`
+- Path must end with a trailing `/`
+- Multiple `.env.*` files will be detected and loaded, based on the current environment flag, similar to what happens in the current directory (see [environments guide](/guides/environments#loading-environment-specific-env-files))
+- The environment flag value will be inherited, unless another `@envFlag` is defined within the directory's `.env.schema`
 
-The importing file always takes precedence over imported values:
+```env-spec
+# @import(../shared-config-dir/)
+```
 
-```env-spec title=".env.schema"
-# @import(./.env.import)
+{/* 
+### HTTP URL (👀 coming soon)
+
+- Protocol must be https
+- File name must start with `.env.`
+- If URL does not exist or is not accessible, will cause a loading error
+
+```env-spec
+# @import(https://env-schema.varlock.dev/platforms/.env.vercel)
 # ---
-ITEM=from-schema
 ```
 
-```env-spec title=".env.import"
-ITEM=from-import
+### JS package registries (👀 coming soon)
+
+A registry (npm, jsr, etc.), package name, version, and path can be used to import a schema from a public package.
+
+```env-spec
+# @import(npm:@varlock/vercel-integration@1.2.3/.env)
+# ---
+```
+ */}
+
+## Partial imports
+
+By default, all items will be imported, but you may add a list of specific keys to import as additional args after the first.
+
+- If there is a chain of imports, an item is only imported if every ancestor import includes it (or imports all items)
+- If a file is partially imported, some root decorators that affect the overall system behavior rather than individual items will be ignored (e.g., `@generateTypes`)
+
+```env-spec
+# @import(./.env.imported, KEY1, KEY2)
 ```
 
-**Result:** `ITEM` will be `from-schema` (the importing file wins).
+## Import precedence and merging multiple sources
 
-## Multiple imports
+Varlock is designed to load multiple definitions for a single item and merge them together.
+The common case would be taking schema info from `.env.schema` and overriding a value from another source (e.g., `.env.local`, `.env.production`, etc.),
+but there are many cases where root decorators, item decorators, and descriptions may be merged as well.
 
-You can import from multiple sources. Later imports override earlier ones:
+To do this, we usually walk our data sources in decreasing order of precedence, until we find something defined for the value/decorator/etc we are evaluating.
 
+**Precedence rules are:**
+- Imported files are processed in order, with later imports overriding previous imports
+- Definitions and root decorators in the importing file override those in files it imports
+- For a directory, the precedence order is `.env.schema` < `.env` < `.env.local` < `.env.{envFlag}` < `.env.{envFlag}.local`
+
+For example, given a `.env.local` and a `.env.schema` that imports 2 files:
 ```env-spec title=".env.schema"
 # @import(./.env.import1)
 # @import(./.env.import2)
 # ---
 ```
 
-```env-spec title=".env.import1"
-ITEM=from-import1
-```
+The precedence order would be `.env.import1` < `.env.import2` < `.env.schema` < `.env.local`.
 
-```env-spec title=".env.import2"
-ITEM=from-import2
-```
+Meaning if there was a value for `ITEM` in all 4 files, the final value used would be the one from `.env.local`.
 
-**Result:** `ITEM` will be `from-import2` (later import wins).
 
-## Directory imports
-
-Importing a directory will load all `.env*` files within it, respecting environment-specific files:
-
-```env-spec title=".env.schema"
-# @import(./shared/)
-# ---
-ITEM1=from-root
-```
-
-```env-spec title="./shared/.env.schema"
-ITEM2=shared-schema
-ITEM3=shared-schema
-```
-
-```env-spec title="./shared/.env.local"
-ITEM3=shared-local
-ITEM4=shared-local
-```
-
-**Result:**
-- `ITEM1=from-root` (from importing file)
-- `ITEM2=shared-schema` (from directory's schema)
-- `ITEM3=shared-local` (environment-specific override)
-- `ITEM4=shared-local` (from environment-specific file)
-
-## Environment flags across directories
-
-Imported directories can either reuse the current environment flag or specify their own:
-
-### Reusing the current flag
-
-```env-spec title=".env.schema"
-# @envFlag=APP_ENV
-# @import(./shared/)
-# ---
-APP_ENV=dev
-```
-
-```env-spec title="./shared/.env.dev"
-SHARED_ITEM=dev-value
-```
-
-**Result:** `SHARED_ITEM=dev-value` (uses the same `APP_ENV=dev`).
-
-### Using a different flag
-
-```env-spec title=".env.schema"
-# @envFlag=APP_ENV
-# @import(./shared/)
-# ---
-APP_ENV=dev
-```
-
-```env-spec title="./shared/.env.schema"
-# @envFlag=SHARED_ENV
-# ---
-SHARED_ENV=prod
-```
-
-```env-spec title="./shared/.env.prod"
-SHARED_ITEM=prod-value
-```
-
-**Result:** `SHARED_ITEM=prod-value` (uses `SHARED_ENV=prod` from the imported directory).
-
-## Partial imports
-
-You can import only specific keys by listing them after the path:
-
-```env-spec title=".env.schema"
-# @import(./.env.import, IMPORTED1, IMPORTED2, IMPORTED3)
-# ---
-```
-
-```env-spec title=".env.import"
-IMPORTED1=value1
-IMPORTED2=value2
-SKIP1=ignored
-SKIP2=ignored
-IMPORTED3=value3
-```
-
-**Result:** Only `IMPORTED1`, `IMPORTED2`, and `IMPORTED3` are imported. `SKIP1` and `SKIP2` are ignored.
-
-## Chained partial imports
-
-When using partial imports across chained imports, a key must be included at every level:
-
-```env-spec title=".env.schema"
-# @import(./.env.import, ITEM1)
-# ---
-ITEM1=from-schema
-```
-
-```env-spec title=".env.import"
-# @import(./.env.import2, ITEM1, ITEM2)
-# ---
-```
-
-```env-spec title=".env.import2"
-ITEM1=from-import2
-ITEM2=from-import2
-```
-
-**Result:** Only `ITEM1` is imported (it's present in all import chains). `ITEM2` is excluded because it's not in the root import.
-
-## Error handling
-
-### Invalid file types
-
-Only `.env*` files and directories are supported:
-
-```env-spec
-# @import(./config.json)  # ❌ Error: only .env* files supported
-# @import(./data.txt)    # ❌ Error: only .env* files supported
-```
-
-### Missing files
-
-```env-spec
-# @import(./.env.missing)  # ❌ Error: file not found
-```
-
-## Interaction with @disable
-
-If an imported file is marked with `@disable`, it and its imports are skipped:
-
-```env-spec title=".env.schema"
-# @import(./.env.import)
-# ---
-ITEM_ONLY_IN_SCHEMA=value
-```
-
-```env-spec title=".env.import"
-# @disable
-# @import(./.env.import2)
-# ---
-ITEM_ONLY_IN_IMPORT1=value
-```
-
-```env-spec title=".env.import2"
-ITEM_ONLY_IN_IMPORT2=value
-```
-
-**Result:** Only `ITEM_ONLY_IN_SCHEMA` is available. Both imported items are skipped because the first import is disabled.
-
-## Use cases
-
-### Monorepo shared configuration
-
-```env-spec title="apps/web/.env.schema"
-# @import(../../shared/.env)
-# ---
-WEB_SPECIFIC=value
-```
-
-```env-spec title="apps/api/.env.schema"
-# @import(../../shared/.env)
-# ---
-API_SPECIFIC=value
-```
-
-```env-spec title="shared/.env"
-DATABASE_URL=postgres://...
-REDIS_URL=redis://...
-```
-
-### Service-specific imports
-
-```env-spec title="apps/web/.env.schema"
-# @import(../api/.env, API_URL, API_KEY)
-# ---
-WEB_SPECIFIC=value
-```
-
-```env-spec title="apps/api/.env"
-API_URL=http://localhost:3001
-API_KEY=secret-key
-INTERNAL_SECRET=internal-only
-```
-
-**Result:** Only `API_URL` and `API_KEY` are imported into the web app, while `INTERNAL_SECRET` remains private to the API service.
-
-### Environment-specific overrides
-
-```env-spec title=".env.schema"
-# @import(./configs/)
-# ---
-```
-
-```env-spec title="./configs/.env.schema"
-# Base configuration
-DATABASE_URL=postgres://localhost:5432/app
-```
-
-```env-spec title="./configs/.env.production"
-# Production overrides
-DATABASE_URL=postgres://prod-server:5432/app
-```
-
-This allows you to maintain environment-specific configurations in a separate directory while keeping your main schema clean.
+## More details
+- Root decorators that affect individual items (e.g., `@defaultRequired`) affect only the items that are defined in the file, not those in imported files
+- An item with no value at all (e.g., `ITEM=`) will be skipped when looking for a value / function to use, but its presence can be used to add other decorators/description to the item
+- If an imported file is marked with [`@disable`](/reference/root-decorators/#disable), it and any files it imports are skipped entirely
