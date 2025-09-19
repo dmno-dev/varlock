@@ -10,6 +10,7 @@
   "files": ["dist"],
   "exports": {
     ".": {
+      "ts-src": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"

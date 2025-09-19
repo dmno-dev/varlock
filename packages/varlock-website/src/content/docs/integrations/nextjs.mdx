@@ -196,6 +196,17 @@ Without a custom env flag, you cannot use non-production env files (like `.env.p
 
 Instead, we recommend explicitly setting your own environment flag using the [`@envFlag` root decorator](/reference/root-decorators/#envflag), e.g. `APP_ENV`. See the [environments guide](/guides/environments) for more information.
 
+:::note[Loading `.env.local` in `test` environment]
+Next.js makes [a special exception](https://nextjs.org/docs/pages/guides/environment-variables#test-environment-variables) to skip loading `.env.local` if the current environment is `test`.
+
+Varlock does not, but you may explicitly opt-in to that behavior:
+
+```env-spec title=".env.local"
+# @disable=forEnv(test)
+# ---
+```
+:::
+
 ### Setting the environment flag
 
 When running locally, or on a platform you control, you can set the env flag explicitly as an environment variable. However on some cloud platforms, there is a lot of magic happening, and the ability to set environment variables per branch is limited. In these cases you can use functions to transform env vars injected by the platform, like a current branch name, into the value you need.

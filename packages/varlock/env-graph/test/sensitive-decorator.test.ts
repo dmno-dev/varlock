@@ -1,101 +1,82 @@
-import { describe, it, expect } from 'vitest';
+import { describe, test } from 'vitest';
 import outdent from 'outdent';
-import { DotEnvFileDataSource, EnvGraph } from '../index';
+import { envFilesTest } from './helpers/generic-test';
 
-function sensitiveInferenceTests(
-  tests: Array<{
-    label: string;
-    headers: string;
-    values: string;
-    expected: Record<string, boolean>;
-  }>,
-) {
-  return () => {
-    tests.forEach(({
-      label, headers, values, expected,
-    }) => {
-      it(label, async () => {
-        const g = new EnvGraph();
-        const input = `${headers}\n# ---\n\n${values}`;
-        const testDataSource = new DotEnvFileDataSource('.env.schema', { overrideContents: input });
-        g.addDataSource(testDataSource);
-        await testDataSource.finishInit();
-        await g.finishLoad();
-        for (const key in expected) {
-          const item = g.configSchema[key];
-          expect(item.isSensitive).toBe(expected[key]);
-        }
-      });
-    });
-  };
-}
+describe('@sensitive and @defaultSensitive tests', () => {
+  test('no @defaultSensitive set - sensitive by default, can override', envFilesTest({
+    envFile: outdent`
+      FOO=
+      # @sensitive=true
+      BAR=
+      # @sensitive=false
+      BAZ=
+    `,
+    expectSensitive: { FOO: true, BAR: true, BAZ: false },
+  }));
 
-describe('@defaultSensitive inferFromPrefix', sensitiveInferenceTests([
-  {
-    label: 'base case @defaultSensitive=inferFromPrefix',
-    headers: outdent`# @defaultSensitive=inferFromPrefix(PUBLIC_)`,
-    values: outdent`
-      PUBLIC_FOO=bar
-      BAR=baz
-    `,
-    expected: { PUBLIC_FOO: false, BAR: true },
-  },
-  {
-    label: 'key matches prefix is not sensitive (with explicit override)',
-    headers: outdent`# @defaultSensitive=inferFromPrefix(PUBLIC_)`,
-    values: outdent`
-      PUBLIC_FOO=bar
-      # @sensitive=true
-      SECRET_BAR=baz
-    `,
-    expected: { PUBLIC_FOO: false, SECRET_BAR: true },
-  },
-  {
-    label: 'key does not match prefix is sensitive (with explicit override)',
-    headers: outdent`# @defaultSensitive=inferFromPrefix(PUBLIC_)`,
-    values: outdent`
+  test('static @defaultSensitive=true', envFilesTest({
+    envFile: outdent`
+      # @defaultSensitive=true
+      # ---
+      FOO=
       # @sensitive=false
-      FOO=bar
-      PUBLIC_BAR=baz
+      BAR=
     `,
-    expected: { FOO: false, PUBLIC_BAR: false },
-  },
-  {
-    label: 'explicit @sensitive overrides defaultSensitive',
-    headers: outdent`# @defaultSensitive=inferFromPrefix(PUBLIC_)`,
-    values: outdent`
-      # @sensitive=false
-      SECRET_BAR=baz
+    expectSensitive: { FOO: true, BAR: false },
+  }));
+
+  test('static @defaultSensitive=false', envFilesTest({
+    envFile: outdent`
+      # @defaultSensitive=false
+      # ---
+      FOO=
       # @sensitive=true
-      PUBLIC_FOO=bar
+      BAR=
     `,
-    expected: { SECRET_BAR: false, PUBLIC_FOO: true },
-  },
-  {
-    label: 'static @defaultSensitive=true still works',
-    headers: outdent`# @defaultSensitive=true`,
-    values: outdent`
-      FOO=bar
-      BAR=baz
+    expectSensitive: { FOO: false, BAR: true },
+  }));
+
+  test('base case @defaultSensitive=inferFromPrefix', envFilesTest({
+    envFile: outdent`
+      # @defaultSensitive=inferFromPrefix(PUBLIC_)
+      # ---
+      PUBLIC_FOO=
+      BAR=
     `,
-    expected: { FOO: true, BAR: true },
-  },
-  {
-    label: 'static @defaultSensitive=false still works',
-    headers: outdent`# @defaultSensitive=false`,
-    values: outdent`
-      FOO=bar
-      BAR=baz
+    expectSensitive: { PUBLIC_FOO: false, BAR: true },
+  }));
+
+  test('key matches prefix is not sensitive (with explicit override)', envFilesTest({
+    envFile: outdent`
+      # @defaultSensitive=inferFromPrefix(PUBLIC_)
+      # ---
+      PUBLIC_FOO=
+      # @sensitive=true
+      SECRET_BAR=
     `,
-    expected: { FOO: false, BAR: false },
-  },
-  {
-    label: 'no @defaultSensitive set, sensitive by default',
-    headers: outdent``,
-    values: outdent`
-      FOO=bar
-      BAR=baz
+    expectSensitive: { PUBLIC_FOO: false, SECRET_BAR: true },
+  }));
+
+  test('key does not match prefix is sensitive (with explicit override)', envFilesTest({
+    envFile: outdent`
+      # @defaultSensitive=inferFromPrefix(PUBLIC_)
+      # ---
+      # @sensitive=false
+      FOO=
+      PUBLIC_BAR=
     `,
-    expected: { FOO: true, BAR: true },
-  },
-]));
+    expectSensitive: { FOO: false, PUBLIC_BAR: false },
+  }));
+
+  test('explicit @sensitive overrides defaultSensitive', envFilesTest({
+    envFile: outdent`
+      # @defaultSensitive=inferFromPrefix(PUBLIC_)
+      # ---
+      # @sensitive=false
+      SECRET_BAR=
+      # @sensitive=true
+      PUBLIC_FOO=
+    `,
+    expectSensitive: { SECRET_BAR: false, PUBLIC_FOO: true },
+  }));
+});

@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import _ from '@env-spec/utils/my-dash';
 import { EnvGraph } from './env-graph';
 import { ConfigItem } from './config-item';
@@ -236,11 +235,9 @@ export type EnvSchemaAsStrings = {
   return tsSrc.join('\n');
 }
 
-export async function generateTypes(graph: EnvGraph, lang: string, outputPath: string) {
+export async function generateTypes(graph: EnvGraph, lang: string, typesPath: string) {
   if (lang !== 'ts') throw new Error(`Unsupported @generateTypes lang: ${lang}`);
 
   const tsSrc = await generateTsTypesSrc(graph);
-  if (!graph.basePath) return;
-  const typesPath = path.join(graph.basePath, outputPath);
   await fs.promises.writeFile(typesPath, tsSrc, 'utf-8');
 }

@@ -80,6 +80,7 @@ export default defineConfig({
             { label: 'Schema', slug: 'guides/schema' },
             { label: 'Secrets', slug: 'guides/secrets' },
             { label: 'Environments', slug: 'guides/environments' },
+            { label: '@import', slug: 'guides/import' },
             { label: 'Migrate from dotenv', slug: 'guides/migrate-from-dotenv' },
             { label: 'Telemetry', slug: 'guides/telemetry' },
             { label: 'MCP', slug: 'guides/mcp', badge: 'new' },

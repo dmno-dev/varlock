@@ -43,6 +43,19 @@ To tell `varlock` to load `.env.staging` instead, you must set `APP_ENV` to `sta
 APP_ENV=staging varlock run -- node my-test-script.js
 ```
 
+:::note[Loading `.env.local` in `test` environment]
+Some tools ([dotenv-flow](https://github.com/kerimdzhanov/dotenv-flow), [Next.js](https://nextjs.org/docs/pages/guides/environment-variables#test-environment-variables), etc) make a special exception
+to skip loading `.env.local` if the current environment is `test`. Others tools ([Vite](https://vite.dev/config/#env-variables)) do not have any special handling.
+ 
+We chose to follow Vite's lead, and instead provide a way to explicitly opt-in to that behavior:
+
+```env-spec title=".env.local"
+# @disable=forEnv(test)
+# ---
+```
+
+:::
+
 ## Advanced logic using functions
 
 On some platforms, you may not have full control over a build or boot command or the env vars passed into them.

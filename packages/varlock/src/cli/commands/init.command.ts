@@ -4,20 +4,22 @@ import fs from 'node:fs/promises';
 import ansis from 'ansis';
 import { isCancel, select } from '@clack/prompts';
 import { define } from 'gunshi';
+import { gracefulExit } from 'exit-hook';
 
-import _ from '@env-spec/utils/my-dash';
-import { DotEnvFileDataSource } from '../../../env-graph';
 import { envSpecUpdater, parseEnvSpecDotEnvFile } from '@env-spec/parser';
 import { checkIsFileGitIgnored } from '@env-spec/utils/git-utils';
 import { pathExists } from '@env-spec/utils/fs-utils';
+import _ from '@env-spec/utils/my-dash';
 
-import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import prompts from '../helpers/prompts';
 import { fmt, logLines } from '../helpers/pretty-format';
-import { detectRedundantValues, ensureAllItemsExist, inferSchemaUpdates } from '../helpers/infer-schema';
+import {
+  detectRedundantValues, ensureAllItemsExist, inferSchemaUpdates, type DetectedEnvFile,
+} from '../helpers/infer-schema';
 import { detectJsPackageManager, installJsDependency } from '../helpers/js-package-manager-utils';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
-import { gracefulExit } from 'exit-hook';
+import { findEnvFiles } from '../helpers/find-env-files';
+import { tryCatch } from '@env-spec/utils/try-catch';
 
 export const commandSpec = define({
   name: 'init',
@@ -30,10 +32,30 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   console.log('🧙 Hello and welcome to Varlock 🔒🔥✨');
 
-  let envGraph = await loadVarlockEnvGraph();
-  const existingSchemaFile = envGraph.dataSources.find((dataSource) => {
-    return dataSource.type === 'schema';
-  });
+  // scan for all .env files within current directory
+  const envFilePaths = await findEnvFiles();
+  const parsedEnvFiles: Record<string, DetectedEnvFile> = {};
+  for (const filePath of envFilePaths) {
+    const fileContents = await fs.readFile(filePath, 'utf-8');
+    const fileName = path.basename(filePath);
+    const parsedFile = await tryCatch(async () => parseEnvSpecDotEnvFile(fileContents), () => {
+      logLines([
+        '',
+        `Unable to parse ${fmt.filePath(filePath)}`,
+        'This file will be skipped.',
+      ]);
+    });
+    if (!parsedFile) {
+      continue;
+    }
+    parsedEnvFiles[fileName] = {
+      fileName,
+      fullPath: filePath,
+      parsedFile,
+    };
+  }
+
+  const existingSchemaFile = parsedEnvFiles['.env.schema'];
 
   // * SET UP SCHEMA  ---------------------------------------------
   if (existingSchemaFile) {
@@ -46,21 +68,21 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       'See more docs at https://varlock.dev/guides/schema',
     ]);
   } else {
-    // find/select example file to use for schema gereration
-    let exampleFileToConvert: DotEnvFileDataSource | null = null;
-    const allExampleFiles = envGraph.dataSources.filter((dataSource) => {
-      return dataSource instanceof DotEnvFileDataSource && dataSource.type === 'example';
-    }) as Array<DotEnvFileDataSource>;
-    if (allExampleFiles.length === 1) {
-      exampleFileToConvert = allExampleFiles[0];
-    } else if (allExampleFiles.length > 1) {
+    const allExampleFileNames = Object.keys(parsedEnvFiles).filter((fileName) => {
+      return fileName.startsWith('.env.example') || fileName.startsWith('.env.sample');
+    });
+    let exampleFileToConvert: typeof parsedEnvFiles[keyof typeof parsedEnvFiles] | undefined;
+
+    if (allExampleFileNames.length === 1) {
+      exampleFileToConvert = parsedEnvFiles[allExampleFileNames[0]];
+    } else if (allExampleFileNames.length > 1) {
       console.log('');
-      // not sure what to do here... could have them select one?
+      // not quite sure about this, but we'll just let them select one
       const selectedExample = await select({
         message: `We detected more than one example .env file. Which one should we use to create your new ${fmt.fileName('.env.schema')}?`,
-        options: allExampleFiles.map((file) => ({
-          label: file.fileName,
-          value: file,
+        options: allExampleFileNames.map((fileName) => ({
+          label: fileName,
+          value: parsedEnvFiles[fileName],
         })),
       });
       if (isCancel(selectedExample)) return gracefulExit(0);
@@ -68,21 +90,21 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
 
     // update the schema
-    const parsedEnvFile = exampleFileToConvert?.parsedFile || parseEnvSpecDotEnvFile('');
-    if (!parsedEnvFile) throw new Error('No parsed .env file found');
-    envSpecUpdater.ensureHeader(parsedEnvFile, [
+    const parsedEnvSchemaFile = exampleFileToConvert?.parsedFile || parseEnvSpecDotEnvFile('');
+    if (!parsedEnvSchemaFile) throw new Error('expected parsed .env example file');
+    envSpecUpdater.ensureHeader(parsedEnvSchemaFile, [
       'This env file uses @env-spec - see https://varlock.dev/env-spec for more info',
       '',
       // TODO: add env spec version? real links?
     ].join('\n'));
-    envSpecUpdater.setRootDecorator(parsedEnvFile, 'defaultRequired', 'false', { explicitTrue: true });
-    envSpecUpdater.setRootDecorator(parsedEnvFile, 'defaultSensitive', 'false', { explicitTrue: true });
+    envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, 'defaultRequired', 'false', { explicitTrue: true });
+    envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, 'defaultSensitive', 'false', { explicitTrue: true });
     // TODO: detect js/ts project before adding this
-    envSpecUpdater.setRootDecorator(parsedEnvFile, 'generateTypes', 'lang=ts, path=env.d.ts', { bareFnArgs: true });
+    envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, 'generateTypes', 'lang=ts, path=env.d.ts', { bareFnArgs: true });
     // envSpecUpdater.setRootDecorator(parsedEnvFile, 'envFlag', 'APP_ENV', { comment: 'controls automatic loading of env-specific files (e.g. .env.test, .env.prod, etc.)' });
 
     // add example item
-    envSpecUpdater.injectFromStr(parsedEnvFile, [
+    envSpecUpdater.injectFromStr(parsedEnvSchemaFile, [
       '',
       '# example env variable injected by `varlock init` ⚠️ DELETE THIS ITEM! ⚠️',
       '# @required @sensitive @example="example value"',
@@ -90,13 +112,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       '',
     ].join('\n'), { location: 'after_header' });
     // update some decorators based on some simple heuristics
-    inferSchemaUpdates(parsedEnvFile);
+    inferSchemaUpdates(parsedEnvSchemaFile);
     // add items we find in other env files, but are missing in the schema/example
-    ensureAllItemsExist(envGraph, parsedEnvFile);
+    ensureAllItemsExist(parsedEnvSchemaFile, Object.values(parsedEnvFiles));
 
     // write new updated schema file
     const schemaFilePath = path.join(process.cwd(), '.env.schema');
-    await fs.writeFile(schemaFilePath, parsedEnvFile.toString());
+    await fs.writeFile(schemaFilePath, parsedEnvSchemaFile.toString());
 
     // log new schema file path
     if (exampleFileToConvert) {
@@ -140,10 +162,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     if (isCancel(confirmReviewed)) return gracefulExit(0);
 
     // reload the graph
-    envGraph = await loadVarlockEnvGraph();
+    const reloadedSchemaFile = await parseEnvSpecDotEnvFile(await fs.readFile(schemaFilePath, 'utf-8'));
 
     // check if they removed the EXAMPLE_ITEM and warn them
-    if (envGraph.configSchema.EXAMPLE_ITEM) {
+    if (reloadedSchemaFile.configItems.find((i) => i.key === 'EXAMPLE_ITEM')) {
       logLines([
         '',
         ansis.bold(`🚨 Really? ${ansis.red("You didn't remove the EXAMPLE_ITEM!")}`),
@@ -163,19 +185,19 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
 
     // recommendation to delete defaults file
-    const defaultsFile = envGraph.dataSources.find((dataSource) => {
-      return dataSource instanceof DotEnvFileDataSource && dataSource.type === 'defaults';
-    }) as DotEnvFileDataSource;
+    const defaultsFile = Object.values(parsedEnvFiles).find((f) => {
+      return f.fileName.startsWith('.env.default'); // also covers ".env.defaults"
+    });
     if (defaultsFile) {
       logLines([
         '',
         `🚧 We detected a ${fmt.fileName(defaultsFile.fileName)} file in your project`,
-        `You should migrate these default values into ${fmt.fileName('.env.schema')} and delete ${fmt.fileName(defaultsFile.fileName)}`,
+        `You should migrate these default values into ${fmt.fileName('.env.schema')} and delete it.`,
       ]);
     }
 
     // detect and remove redundant defaults that are now in the schema
-    const redundantInfo = await detectRedundantValues(envGraph);
+    const redundantInfo = await detectRedundantValues(parsedEnvSchemaFile, parsedEnvFiles);
     if (Object.keys(redundantInfo).length > 0) {
       logLines([
         '',
@@ -191,7 +213,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       });
       if (isCancel(confirmDeleteRedundant)) return gracefulExit(0);
       if (confirmDeleteRedundant) {
-        await detectRedundantValues(envGraph, { delete: true });
+        await detectRedundantValues(parsedEnvSchemaFile, parsedEnvFiles, { delete: true });
       }
     }
 

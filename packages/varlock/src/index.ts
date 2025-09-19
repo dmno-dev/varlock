@@ -7,7 +7,6 @@ import {
   EnvGraph,
   loadEnvGraph,
   DotEnvFileDataSource,
-  ProcessEnvDataSource,
   ConfigLoadError,
   SchemaError,
   ValidationError,
@@ -50,7 +49,6 @@ export const internal = {
   // Core classes
   EnvGraph,
   DotEnvFileDataSource,
-  ProcessEnvDataSource,
 
   // Loader function
   loadEnvGraph,

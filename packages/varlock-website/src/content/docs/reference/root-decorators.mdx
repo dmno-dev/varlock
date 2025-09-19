@@ -25,10 +25,12 @@ More details of the minutiae of decorator handling can be found in the [@env-spe
 <div>
 ### `@envFlag`
 
-Sets the key of your _environment flag_, which will be used when determining if environment-specific .env files will be loaded (e.g. `.env.production`).
+Sets the key of your _environment flag_, which will be used when determining if environment-specific .env files will be loaded (e.g. `.env.production`),
+and also may affect other dynamic behaviour in your schema, such as the [`forEnv()` function](/reference/functions/#forenv).
+
 This will usually be something like `APP_ENV`.
 
-- ⚠️ This decorator is only usable in `.env.schema` - it will throw an error otherwise.
+- This decorator should only be set in your `.env.schema` file.
 - This will override the `--env` CLI flag if it is set.
 - We do not recommend using `NODE_ENV` as your environment flag, as it has other implications, and is often set out of your control.
 
@@ -95,18 +97,40 @@ OTHER_BAR=  # not sensitive (explicit)
 ### `@disable`
 Skips loading config items from a file or data source. If true, the file is ignored and no items are loaded from it. Useful for conditionally disabling a schema or env file.
 
+May also be used with [`forEnv()`](/reference/functions/#forenv) to disable a file based on the current env flag.
+
 ```env-spec
 # @disable  # (shorthand for @disable=true)
 # ---
 
 FOO=bar  # will be ignored
 BAR=baz  # will be ignored
-
 ```
 </div>
 
 <div>
-### `@generateTypes`
+### `@import()`
+
+Imports other `.env` file(s) - useful for sharing config across monorepos and splitting up large schemas.
+
+You may import a specific file, or a directory of files - automatically loading all `.env.*` files appropriately according to the current environment flag.
+
+See the [@import guide](/guides/import/) for more details and advanced usage.
+
+```env-spec
+# @import(./.env.imported)           # import a specific file
+# @import(./.env.other, KEY1, KEY2)  # import specific keys
+# @import(../shared-env/)            # import a directory
+# ---
+
+# this definition is merged with any found in imports, but this one has more precedence
+IMPORTED_ITEM=overriden-value
+```
+
+</div>
+
+<div>
+### `@generateTypes()`
 
 Enables automatic type generation based on your schema.
 

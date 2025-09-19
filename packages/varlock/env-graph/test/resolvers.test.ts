@@ -28,8 +28,7 @@ class IncrementResolver extends Resolver {
 function functionValueTests(
   tests: Record<string, {
     input: string;
-    env?: Record<string, string>;
-    expected: Record<string, any | Constructor<Error>>
+    expected: Record<string, string | number | boolean | undefined | Constructor<Error>>
   }>,
 ) {
   return () => {
@@ -50,26 +49,21 @@ function functionValueTests(
             ${input}
           `,
         });
-        g.addDataSource(testDataSource);
-        await testDataSource.finishInit();
+        await g.setRootDataSource(testDataSource);
         await g.finishLoad();
 
-        if (expected instanceof Error) {
-          expect(g.dataSources[0].loadingError).toBeTruthy();
-        } else {
-          await g.resolveEnvValues();
-          for (const key in expected) {
-            const item = g.configSchema[key];
-            const expectedValue = expected[key];
-            if (expectedValue === SchemaError) {
-              expect(item.errors.length).toBeGreaterThan(0);
-              expect(item.errors[0]).toBeInstanceOf(SchemaError);
-            } else if (expectedValue === ResolutionError) {
-              expect(item.resolutionError).toBeInstanceOf(ResolutionError);
-            } else {
-              expect(item.isValid, `Expected item ${key} to be valid`).toBeTruthy();
-              expect(item.resolvedValue).toEqual(expectedValue);
-            }
+        await g.resolveEnvValues();
+        for (const key in expected) {
+          const item = g.configSchema[key];
+          const expectedValue = expected[key];
+          if (expectedValue === SchemaError) {
+            expect(item.errors.length).toBeGreaterThan(0);
+            expect(item.errors[0]).toBeInstanceOf(SchemaError);
+          } else if (expectedValue === ResolutionError) {
+            expect(item.resolutionError).toBeInstanceOf(ResolutionError);
+          } else {
+            expect(item.isValid, `Expected item ${key} to be valid`).toBeTruthy();
+            expect(item.resolvedValue).toEqual(expectedValue);
           }
         }
       });
@@ -144,16 +138,25 @@ describe('exec()', functionValueTests({
 
 describe('ref()', functionValueTests({
   'working example': {
-    input: 'OTHER=otherval\nITEM=ref(OTHER)',
+    input: outdent`
+      OTHER=otherval
+      ITEM=ref(OTHER)
+    `,
     expected: { ITEM: 'otherval' },
   },
   'working example with $ expansion': {
-    input: 'A=a-val\nB=$A',
+    input: outdent`
+      A=a-val
+      B=$A
+    `,
     expected: { A: 'a-val', B: 'a-val' },
   },
   // this applies to all dependencies, not just `ref()`
   'dependent items are allowed to be defined out of order': {
-    input: 'B=$A\nA=a-val',
+    input: outdent`
+      B=$A
+      A=a-val
+    `,
     expected: { A: 'a-val', B: 'a-val' },
   },
 
@@ -164,7 +167,12 @@ describe('ref()', functionValueTests({
     expected: { ITEM: '123' },
   },
   'multiple dependencies dont trigger multiple resolutions': {
-    input: 'A=a\nB=b\nC=c\nITEM=concat("$A$B$C", increment())',
+    input: outdent`
+      A=a
+      B=b
+      C=c
+      ITEM=concat("$A$B$C", increment())
+    `,
     expected: { ITEM: 'abc1' }, // would be 'abc3' if it resolved for each dependency
   },
   'error - no key': {
@@ -176,15 +184,25 @@ describe('ref()', functionValueTests({
     expected: { ITEM: SchemaError },
   },
   'error - not-existant key': {
-    input: 'OTHER=otherval\nITEM=ref(BADKEY)',
+    input: outdent`
+      OTHER=otherval
+      ITEM=ref(BADKEY)
+    `,
     expected: { ITEM: SchemaError },
   },
   'error - non-static key': {
-    input: 'OTHER=otherval\nREFKEY=OTHER\nITEM=ref(ref(REFKEY))',
+    input: outdent`
+      OTHER=otherval
+      REFKEY=OTHER
+      ITEM=ref(ref(REFKEY))
+    `,
     expected: { ITEM: SchemaError },
   },
   'error - key/val args': {
-    input: 'OTHER=otherval\nITEM=ref(key=OTHER)',
+    input: outdent`
+      OTHER=otherval
+      ITEM=ref(key=OTHER)
+    `,
     expected: { ITEM: SchemaError },
   },
 }));
@@ -250,11 +268,18 @@ describe('dependency cycles', functionValueTests({
     expected: { A: SchemaError },
   },
   'detect cycle - pair': {
-    input: 'A=$B\nB=$A',
+    input: outdent`
+      A=$B
+      B=$A
+    `,
     expected: { A: SchemaError, B: SchemaError },
   },
   'detect cycle - >2 items': {
-    input: 'A=$B\nB=$C\nC=$A',
+    input: outdent`
+      A=$B
+      B=$C
+      C=$A
+    `,
     expected: { A: SchemaError, B: SchemaError, C: SchemaError },
   },
 }));

@@ -1,0 +1,104 @@
+---
+title: "@import guide"
+description: Learn how to use the @import decorator to share environment variables across files and services
+---
+
+The [`@import()` root decorator](/reference/root-decorators/#import) allows you to import schema and/or values from other sources (currently just `.env` files), making it easy to share config across services within a monorepo, split up large schemas, or reuse pre-defined schemas. Multiple `@import()` calls may be used, and an imported source may itself import more sources.
+
+**Basic examples:** 
+```env-spec
+# @import(./.env.imported)              # import specific file
+# @import(./env-dir/)                   # import directory
+# @import(./.env.partial, KEY1, KEY2)   # import specific keys
+# ---
+```
+
+## Import source types
+
+The first argument to `@import()` specifies where to look for file(s) to import.
+Currently only local file imports are supported, but we plan to support importing over http in a style similar to Deno's http imports.
+
+For now, all imported files must be `.env` files (and may contain @env-spec decorators), but in the future, we may also support other formats (e.g., JSON, YAML, etc.) or even JS/TS files.
+
+### Single file
+
+- Path must begin with `./` or `../`
+- Imported file name must be begin with `.env.`
+
+```env-spec
+# @import(./.env.common)
+```
+
+### Directory
+
+- Path must begin with `./` or `../`
+- Path must end with a trailing `/`
+- Multiple `.env.*` files will be detected and loaded, based on the current environment flag, similar to what happens in the current directory (see [environments guide](/guides/environments#loading-environment-specific-env-files))
+- The environment flag value will be inherited, unless another `@envFlag` is defined within the directory's `.env.schema`
+
+```env-spec
+# @import(../shared-config-dir/)
+```
+
+{/* 
+### HTTP URL (👀 coming soon)
+
+- Protocol must be https
+- File name must start with `.env.`
+- If URL does not exist or is not accessible, will cause a loading error
+
+```env-spec
+# @import(https://env-schema.varlock.dev/platforms/.env.vercel)
+# ---
+```
+
+### JS package registries (👀 coming soon)
+
+A registry (npm, jsr, etc.), package name, version, and path can be used to import a schema from a public package.
+
+```env-spec
+# @import(npm:@varlock/vercel-integration@1.2.3/.env)
+# ---
+```
+ */}
+
+## Partial imports
+
+By default, all items will be imported, but you may add a list of specific keys to import as additional args after the first.
+
+- If there is a chain of imports, an item is only imported if every ancestor import includes it (or imports all items)
+- If a file is partially imported, some root decorators that affect the overall system behavior rather than individual items will be ignored (e.g., `@generateTypes`)
+
+```env-spec
+# @import(./.env.imported, KEY1, KEY2)
+```
+
+## Import precedence and merging multiple sources
+
+Varlock is designed to load multiple definitions for a single item and merge them together.
+The common case would be taking schema info from `.env.schema` and overriding a value from another source (e.g., `.env.local`, `.env.production`, etc.),
+but there are many cases where root decorators, item decorators, and descriptions may be merged as well.
+
+To do this, we usually walk our data sources in decreasing order of precedence, until we find something defined for the value/decorator/etc we are evaluating.
+
+**Precedence rules are:**
+- Imported files are processed in order, with later imports overriding previous imports
+- Definitions and root decorators in the importing file override those in files it imports
+- For a directory, the precedence order is `.env.schema` < `.env` < `.env.local` < `.env.{envFlag}` < `.env.{envFlag}.local`
+
+For example, given a `.env.local` and a `.env.schema` that imports 2 files:
+```env-spec title=".env.schema"
+# @import(./.env.import1)
+# @import(./.env.import2)
+# ---
+```
+
+The precedence order would be `.env.import1` < `.env.import2` < `.env.schema` < `.env.local`.
+
+Meaning if there was a value for `ITEM` in all 4 files, the final value used would be the one from `.env.local`.
+
+
+## More details
+- Root decorators that affect individual items (e.g., `@defaultRequired`) affect only the items that are defined in the file, not those in imported files
+- An item with no value at all (e.g., `ITEM=`) will be skipped when looking for a value / function to use, but its presence can be used to add other decorators/description to the item
+- If an imported file is marked with [`@disable`](/reference/root-decorators/#disable), it and any files it imports are skipped entirely

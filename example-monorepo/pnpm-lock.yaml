@@ -76,6 +76,15 @@ importers:
         specifier: 'catalog:'
         version: 24.1.0
 
+  packages/init-sample-test:
+    dependencies:
+      '@clack/prompts':
+        specifier: ^0.11.0
+        version: 0.11.0
+      varlock:
+        specifier: link:../../../packages/varlock
+        version: link:../../../packages/varlock
+
   packages/init-test:
     dependencies:
       '@clack/prompts':

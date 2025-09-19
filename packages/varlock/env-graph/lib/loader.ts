@@ -1,7 +1,6 @@
 import _ from '@env-spec/utils/my-dash';
 import { EnvGraph } from './env-graph';
-import { DotEnvFileDataSource, ProcessEnvDataSource } from './data-source';
-import { findEnvFiles } from '@env-spec/utils/find-env-files';
+import { DirectoryDataSource } from './data-source';
 
 function autoDetectBasePath() {
   const PWD = process.env.PWD;
@@ -28,22 +27,10 @@ export async function loadEnvGraph(opts?: {
   }
 
   if (opts?.currentEnvFallback) {
-    graph.envFlagValue = opts.currentEnvFallback;
+    graph.envFlagFallback = opts.currentEnvFallback;
   }
 
-  const envFilePaths = await findEnvFiles({
-    cwd: graph.basePath,
-  });
-
-  for (const envFilePath of envFilePaths) {
-    const fileDataSource = new DotEnvFileDataSource(envFilePath);
-    // must call before finishInit so the dataSource has a reference to the graph
-    graph.addDataSource(fileDataSource);
-    await fileDataSource.finishInit();
-  }
-  // proocss.env overrides get some special treatment
-  graph.finalOverridesDataSource = new ProcessEnvDataSource();
-
+  await graph.setRootDataSource(new DirectoryDataSource(graph.basePath));
   await graph.finishLoad();
 
   return graph;
