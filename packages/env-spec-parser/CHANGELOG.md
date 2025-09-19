@@ -1,5 +1,11 @@
 # @env-spec/parser
 
+## 0.0.5
+
+### Patch Changes
+
+- [#147](https://github.com/dmno-dev/varlock/pull/147) [`9d9c8de`](https://github.com/dmno-dev/varlock/commit/9d9c8dee64f972026112c975181737df6634c05f) Thanks [@theoephraim](https://github.com/theoephraim)! - new @import decorator
+
 ## 0.0.4
 
 ### Patch Changes
