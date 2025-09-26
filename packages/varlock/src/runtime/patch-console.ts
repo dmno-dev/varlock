@@ -73,7 +73,3 @@ export function unpatchGlobalConsole() {
   globalThis.console[kWriteToConsoleSymbol] = (globalThis as any)._varlockOrigWriteToConsoleFn;
   delete (globalThis as any)._varlockOrigWriteToConsoleFn;
 }
-
-// ---
-
-// patchGlobalConsole();
