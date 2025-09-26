@@ -97,7 +97,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       '',
       // TODO: add env spec version? real links?
     ].join('\n'));
-    envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, 'defaultRequired', 'false', { explicitTrue: true });
+    envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, 'defaultRequired', 'infer', { explicitTrue: true });
     envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, 'defaultSensitive', 'false', { explicitTrue: true });
     // TODO: detect js/ts project before adding this
     envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, 'generateTypes', 'lang=ts, path=env.d.ts', { bareFnArgs: true });
