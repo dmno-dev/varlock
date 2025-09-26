@@ -7,5 +7,5 @@ export * from './expand';
 import * as peggyParser from './grammar.js';
 
 export function parseEnvSpecDotEnvFile(source: string): ParsedEnvSpecFile {
-  return peggyParser.parse(source);
+  return peggyParser.parse(source.replaceAll('\r\n', '\n'));
 }
