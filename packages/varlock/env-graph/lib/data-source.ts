@@ -58,6 +58,9 @@ export abstract class EnvGraphDataSource {
   get isImport(): boolean {
     return !!this.importMeta?.isImport || !!this.parent?.isImport;
   }
+  get isPartialImport() {
+    return (this.importMeta?.importKeys || []).length > 0;
+  }
   get importKeys(): Array<string> | undefined {
     const importKeysArrays = [];
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -92,6 +95,16 @@ export abstract class EnvGraphDataSource {
   get envFlagKey(): string | undefined {
     return this._envFlagKey || this.parent?.envFlagKey;
   }
+
+  /** helper to set the current envFlag key, also propogating upwards */
+  setEnvFlag(key: string) {
+    this._envFlagKey = key;
+    if (this.parent && !this.isPartialImport && !this.parent._envFlagKey) {
+      this.parent.setEnvFlag(key);
+    }
+  }
+
+
   /** environment flag config item getter (follows up the parent chain) */
   get envFlagConfigItem() {
     const envFlagKey = this.envFlagKey;
@@ -166,7 +179,7 @@ export abstract class EnvGraphDataSource {
         this._loadingError = new Error(`@envFlag key ${envFlagDecoratorValue} must be an item within this schema`);
         return;
       }
-      this._envFlagKey = envFlagDecoratorValue;
+      this.setEnvFlag(envFlagDecoratorValue);
     }
 
     // create config items, or add additional definitions if they already exist
@@ -274,21 +287,6 @@ export abstract class EnvGraphDataSource {
           this._loadingError = new Error('unsupported import type');
           return;
         }
-      }
-    }
-
-    // if we did set the @envFlag in this source, now we'll do an early resolution of the value
-    if (envFlagDecoratorValue) {
-      // TODO: probably want to move this logic to the graph itself, as some kind "earlyResolve" helper?
-      const envFlagItem = this.envFlagConfigItem!;
-      await envFlagItem.earlyResolve();
-      if (!envFlagItem.isValid) {
-        const err = new Error('resolved @envFlag value is not valid');
-        err.cause = envFlagItem.errors[0];
-        throw err;
-      }
-      if (!_.isString(envFlagItem.resolvedValue)) {
-        throw new Error('expected resolved @envFlag value to be a string');
       }
     }
   }
@@ -552,10 +550,6 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     readonly basePath: string,
   ) {
     super();
-  }
-
-  get envFlagKey() {
-    return this.schemaDataSource?._envFlagKey || this.parent?.envFlagKey;
   }
 
   private async addAutoLoadedFile(fileName: string) {
