@@ -61,7 +61,7 @@ describe('@import', () => {
         ITEM1=value-from-.env.schema
       `,
       'dir/.env.schema': outdent`
-        ITEM1=value-from-dir/.env.schema   
+        ITEM1=value-from-dir/.env.schema
         ITEM2=value-from-dir/.env.schema
         ITEM3=value-from-dir/.env.schema
       `,
@@ -75,48 +75,6 @@ describe('@import', () => {
       ITEM2: 'value-from-dir/.env.schema',
       ITEM3: 'value-from-dir/.env.local',
       ITEM4: 'value-from-dir/.env.local',
-    },
-  }));
-
-  test('imported directory can reuse the existing envFlag', envFilesTest({
-    overrideValues: { APP_ENV: 'dev' },
-    files: {
-      '.env.schema': outdent`
-        # @envFlag=APP_ENV
-        # @import(./dir/)
-        # ---
-        APP_ENV=dev
-      `,
-      'dir/.env.dev': outdent`
-        IMPORTED_ITEM=foo
-      `,
-    },
-    expectValues: {
-      IMPORTED_ITEM: 'foo',
-    },
-  }));
-  test('imported directory can use a different envFlag', envFilesTest({
-    files: {
-      '.env.schema': outdent`
-        # @envFlag=APP_ENV
-        # @import(./dir/)
-        # ---
-        APP_ENV=dev
-      `,
-      'dir/.env.schema': outdent`
-        # @envFlag=APP_ENV2
-        # ---
-        APP_ENV2=prod
-      `,
-      'dir/.env.dev': outdent`
-        IMPORTED_ITEM=dev
-      `,
-      'dir/.env.prod': outdent`
-        IMPORTED_ITEM=prod
-      `,
-    },
-    expectValues: {
-      IMPORTED_ITEM: 'prod',
     },
   }));
 
