@@ -1,5 +1,20 @@
 # varlock
 
+## 0.0.14
+
+### Patch Changes
+
+- [#157](https://github.com/dmno-dev/varlock/pull/157) [`e33940e`](https://github.com/dmno-dev/varlock/commit/e33940e96c1801c8c6428e461d5bd80448c9e0fd) Thanks [@theoephraim](https://github.com/theoephraim)! - adjust server response leak detection for no content type
+
+- [#158](https://github.com/dmno-dev/varlock/pull/158) [`999016c`](https://github.com/dmno-dev/varlock/commit/999016c0ec6bd83aa4ee3975d93a553beba4be3d) Thanks [@theoephraim](https://github.com/theoephraim)! - allow setting envFlag from an imported file
+
+- [#157](https://github.com/dmno-dev/varlock/pull/157) [`e33940e`](https://github.com/dmno-dev/varlock/commit/e33940e96c1801c8c6428e461d5bd80448c9e0fd) Thanks [@theoephraim](https://github.com/theoephraim)! - set defaultRequired to infer during varlock init
+
+- [#160](https://github.com/dmno-dev/varlock/pull/160) [`9025edc`](https://github.com/dmno-dev/varlock/commit/9025edcdc0e60d0ac587cbae7b5fc28fd7b7b5e6) Thanks [@theoephraim](https://github.com/theoephraim)! - fix URL data type validation error mesage
+
+- Updated dependencies [[`7b3e2f4`](https://github.com/dmno-dev/varlock/commit/7b3e2f4fb50dfd81ea1e1ba1a9298fd6be53ea6f)]:
+  - @env-spec/parser@0.0.6
+
 ## 0.0.13
 
 ### Patch Changes
