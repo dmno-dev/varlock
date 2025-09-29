@@ -294,8 +294,12 @@ const UrlDataType = createEnvGraphDataType(
       return val;
     },
     validate(val) {
-      // if invalid, this will throw - and will be converted into a ValidationError
-      const url = new URL(val);
+      let url: URL;
+      try {
+        url = new URL(val); // if invalid, this will throw
+      } catch (err) {
+        throw new ValidationError('Invalid URL');
+      }
       if (
         settings?.allowedDomains && !settings.allowedDomains.includes(url.host.toLowerCase())
       ) {
