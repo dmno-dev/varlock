@@ -261,7 +261,7 @@ export class EnvGraph {
     for (const s of sources) {
       if (s.disabled) continue;
       // we skip root decorators if the file was being _partially_ imported
-      if (s.importKeys) continue;
+      if (s.isPartialImport) continue;
       const decs = s.getRootDecorators(decoratorName);
       if (decs.length) return decs[0].simplifiedValue;
     }
@@ -273,7 +273,7 @@ export class EnvGraph {
     for (const source of sources) {
       if (source.disabled) continue;
       // we skip root decorators if the file was being _partially_ imported
-      if (source.importKeys) continue;
+      if (source.isPartialImport) continue;
       const decs = source.getRootDecorators(decoratorName);
       combinedDecsWithSources.push([source, decs]);
     }

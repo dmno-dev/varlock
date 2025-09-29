@@ -158,6 +158,109 @@ describe('@envFlag and .env.* file loading logic', () => {
     },
   }));
 
+  test('imported directory can reuse the existing envFlag', envFilesTest({
+    overrideValues: { APP_ENV: 'dev' },
+    files: {
+      '.env.schema': outdent`
+        # @envFlag=APP_ENV
+        # @import(./dir/)
+        # ---
+        APP_ENV=dev
+      `,
+      'dir/.env.dev': outdent`
+        IMPORTED_ITEM=foo
+      `,
+    },
+    expectValues: {
+      IMPORTED_ITEM: 'foo',
+    },
+  }));
+
+  test('imported directory can use its own envFlag', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @envFlag=APP_ENV
+        # @import(./dir/)
+        # ---
+        APP_ENV=dev
+      `,
+      'dir/.env.schema': outdent`
+        # @envFlag=APP_ENV2
+        # ---
+        APP_ENV2=prod
+      `,
+      'dir/.env.dev': outdent`
+        IMPORTED_ITEM=dev
+      `,
+      'dir/.env.prod': outdent`
+        IMPORTED_ITEM=prod
+      `,
+    },
+    expectValues: {
+      IMPORTED_ITEM: 'prod',
+    },
+  }));
+
+  test('envFlag can be set from an imported file', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./.env.imported)
+        # ---
+      `,
+      '.env.imported': outdent`
+        # @envFlag=IMPORTED_APP_ENV
+        # ---
+        IMPORTED_APP_ENV=dev
+      `,
+      '.env.dev': outdent`
+        ITEM1=dev-value
+      `,
+    },
+    expectValues: {
+      ITEM1: 'dev-value',
+    },
+  }));
+  test('envFlag in an imported file will be ignored if parent already has it set', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @envFlag=APP_ENV
+        # @import(./.env.imported)
+        # ---
+        APP_ENV=dev
+      `,
+      '.env.imported': outdent`
+        # @envFlag=IMPORTED_APP_ENV
+        # ---
+        IMPORTED_APP_ENV=foo
+      `,
+      '.env.dev': outdent`
+        ITEM1=dev-value
+      `,
+    },
+    expectValues: {
+      ITEM1: 'dev-value',
+    },
+  }));
+
+  test('envFlag will not be set from a partially imported file', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./.env.imported, IMPORTED_ITEM)
+        # ---
+        ITEM1=foo
+      `,
+      '.env.imported': outdent`
+        # @envFlag=IMPORTED_APP_ENV
+        # ---
+        IMPORTED_APP_ENV=dev
+      `,
+      '.env.dev': outdent`
+        DEV_ITEM=dev-value
+      `,
+    },
+    expectNotInSchema: ['DEV_ITEM'],
+  }));
+
   describe('fallback env (set via cli instead of @envFlag)', () => {
     test('fallback env value can be specified if no envFlag is used', envFilesTest({
       fallbackEnv: 'staging',
