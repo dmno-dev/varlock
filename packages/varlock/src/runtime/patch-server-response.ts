@@ -29,10 +29,10 @@ export function patchGlobalServerResponse(opts?: {
 
   // @ts-ignore
   ServerResponse.prototype.write = function varlockPatchedServerResponseWrite(...args) {
-    // console.log('⚡️ patched ServerResponse.write');
     // TODO: do we want to filter out some requests here? maybe based on the file type?
 
     const rawChunk = args[0];
+    // console.log('⚡️ patched ServerResponse.write', rawChunk);
 
     // for now, we only scan rendered html... may need to change this though for server components?
     // so we bail if it looks like this response does not contain html
@@ -41,6 +41,7 @@ export function patchGlobalServerResponse(opts?: {
     let runScan = (
       contentType.startsWith('text/')
       || contentType.startsWith('application/json')
+      || (!contentType && typeof rawChunk === 'string')
       // || contentType.startsWith('application/javascript')
     );
 
@@ -128,14 +129,12 @@ export function patchGlobalServerResponse(opts?: {
     return serverResponseWrite.apply(this, args);
   };
 
-
   // calling `res.json()` in the api routes on pages router calls `res.end` without called `res.write`
   const serverResponseEnd = ServerResponse.prototype.end;
   // @ts-ignore
   ServerResponse.prototype.end = function patchedServerResponseEnd(...args) {
     // console.log('⚡️ patched ServerResponse.end');
     const endChunk = args[0];
-    // console.log('patched ServerResponse.end', endChunk);
     // this just needs to work (so far) for nextjs sending json bodies, so does not need to handle all cases...
     if (endChunk && typeof endChunk === 'string') {
       // TODO: currently this throws the error and then things just hang... do we want to try to return an error type response instead?
@@ -146,5 +145,3 @@ export function patchGlobalServerResponse(opts?: {
   };
 }
 
-// ---
-// patchGlobalServerResponse();
