@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 
-import { execSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 import Debug from 'debug';
@@ -10,9 +10,11 @@ import { initVarlockEnv } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 import { patchGlobalResponse } from 'varlock/patch-response';
-import { SerializedEnvGraph } from 'varlock';
+import { type SerializedEnvGraph } from 'varlock';
+import { execSyncVarlock } from 'varlock/exec-sync-varlock';
 
 import { createReplacerTransformFn } from './transform';
+
 
 // enables throwing when user accesses a bad key on ENV
 (globalThis as any).__varlockThrowOnMissingKeys = true;
@@ -62,7 +64,7 @@ let loadCount = 0;
 function reloadConfig() {
   debug('loading config - count =', ++loadCount);
   try {
-    const execResult = execSync('varlock load --format json-full', { env: originalProcessEnv });
+    const execResult = execSyncVarlock('load --format json-full', { env: originalProcessEnv });
     process.env.__VARLOCK_ENV = execResult.toString();
     varlockLoadedEnv = JSON.parse(process.env.__VARLOCK_ENV) as SerializedEnvGraph;
     configIsValid = true;

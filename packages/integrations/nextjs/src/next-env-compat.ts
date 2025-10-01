@@ -10,6 +10,7 @@ import { execSync, type spawnSync } from 'child_process';
 import { type SerializedEnvGraph } from 'varlock';
 import { initVarlockEnv, resetRedactionMap } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
+import { execSyncVarlock } from 'varlock/exec-sync-varlock';
 
 export type Env = { [key: string]: string | undefined };
 export type LoadedEnvFiles = Array<{
@@ -284,7 +285,7 @@ export function loadEnvConfig(
   debug('Inferred env mode (to match @next/env):', envFromNextCommand);
 
   try {
-    const varlockLoadedEnvBuf = execSync(`varlock load --format json-full --env ${envFromNextCommand}`, {
+    const varlockLoadedEnvBuf = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
       env: initialEnv as any,
     });
     varlockLoadedEnv = JSON.parse(varlockLoadedEnvBuf.toString());
@@ -292,7 +293,8 @@ export function loadEnvConfig(
     const { stdout, stderr } = err as ReturnType<typeof spawnSync>;
     const stdoutStr = stdout?.toString() || '';
     const stderrStr = stderr?.toString() || '';
-    if (stderrStr.includes('command not found')) {
+    // this error message comes from execSyncVarlock when it cannot find varlock
+    if (stderrStr.includes('Unable to find varlock executable')) {
       // eslint-disable-next-line no-console
       console.error([
         '',

@@ -1,6 +1,6 @@
 import os from 'node:os';
 import crypto, { type BinaryLike, createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   existsSync, readFileSync, writeFileSync,
   mkdirSync,
@@ -110,13 +110,16 @@ function getProjectGitRemoteUrl(): string | undefined {
     // Find the git directory by scanning upwards
     let gitDirPath: string | undefined;
     let currentDir = process.cwd();
-    while (currentDir && currentDir !== '/') {
+    while (currentDir) {
       const possibleGitDirPath = join(currentDir, '.git');
       if (existsSync(possibleGitDirPath)) {
         gitDirPath = possibleGitDirPath;
         break;
       }
-      currentDir = join(currentDir, '..');
+      // this will stop when we reach the root
+      const parentDir = dirname(currentDir);
+      if (parentDir === currentDir) break;
+      currentDir = parentDir;
     }
     if (!gitDirPath) return undefined;
     const gitConfigContents = readFileSync(join(gitDirPath, 'config'), 'utf-8');
