@@ -65,7 +65,7 @@ function reloadConfig() {
   debug('loading config - count =', ++loadCount);
   try {
     const execResult = execSyncVarlock('load --format json-full', { env: originalProcessEnv });
-    process.env.__VARLOCK_ENV = execResult.toString();
+    process.env.__VARLOCK_ENV = execResult;
     varlockLoadedEnv = JSON.parse(process.env.__VARLOCK_ENV) as SerializedEnvGraph;
     configIsValid = true;
   } catch (err) {

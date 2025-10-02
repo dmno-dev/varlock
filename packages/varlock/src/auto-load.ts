@@ -10,7 +10,7 @@ import { patchGlobalResponse } from './runtime/patch-response';
 // so we call out to the CLI using execSync
 // this also isolates the varlock loading process from the end user process
 const execResult = execSyncVarlock('load --format json-full');
-process.env.__VARLOCK_ENV = execResult.toString();
+process.env.__VARLOCK_ENV = execResult;
 
 // initialize varlock and patch globals as necessary
 initVarlockEnv();

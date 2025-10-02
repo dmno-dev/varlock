@@ -35,7 +35,9 @@ let rootDir: string | undefined;
 // a list of filenames loaded, for example: `Environments: .env, .env.development`
 function getVarlockSourcesAsLoadedEnvFiles(): LoadedEnvFiles {
   const envFiles = varlockLoadedEnv.sources
-    .filter((s) => s.enabled && s.label !== 'process.env')
+    // TODO expose more info so we can filter out disabled sources
+    // and maybe show relative paths
+    .filter((s) => s.enabled && !s.label.startsWith('directory -'))
     .map((s) => ({
       path: s.label,
       contents: '',
@@ -92,10 +94,16 @@ function enableExtraFileWatchers() {
   fs.watchFile(envSchemaPath, { interval: 500 }, (_curr, _prev) => {
     debug('.env.schema changed', envFilePathToUpdate, destroyFile);
     if (destroyFile) {
-      fs.writeFileSync(envFilePathToUpdate, '# trigger reload', 'utf-8');
+      fs.writeFileSync(envFilePathToUpdate, [
+        '# This file was created by @varlock/nextjs-integration',
+        '# It is used to trigger Next.js to reload when non-standard .env files change',
+        '# You can safely ignore and delete it',
+        '# @disable',
+        '# ---',
+      ].join('\n'), 'utf-8');
       setTimeout(() => {
         fs.unlinkSync(envFilePathToUpdate);
-      }, 500);
+      }, 1000);
     } else {
       const currentContents = fs.readFileSync(envFilePathToUpdate, 'utf-8');
       fs.writeFileSync(envFilePathToUpdate, currentContents, 'utf-8');
@@ -285,16 +293,16 @@ export function loadEnvConfig(
   debug('Inferred env mode (to match @next/env):', envFromNextCommand);
 
   try {
-    const varlockLoadedEnvBuf = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
+    const varlockLoadedEnvStr = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
       env: initialEnv as any,
     });
-    varlockLoadedEnv = JSON.parse(varlockLoadedEnvBuf.toString());
+    varlockLoadedEnv = JSON.parse(varlockLoadedEnvStr);
   } catch (err) {
     const { stdout, stderr } = err as ReturnType<typeof spawnSync>;
     const stdoutStr = stdout?.toString() || '';
     const stderrStr = stderr?.toString() || '';
     // this error message comes from execSyncVarlock when it cannot find varlock
-    if (stderrStr.includes('Unable to find varlock executable')) {
+    if ((err as any).message.includes('Unable to find varlock executable')) {
       // eslint-disable-next-line no-console
       console.error([
         '',

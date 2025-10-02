@@ -17,10 +17,12 @@ export function execSyncVarlock(command: string, opts?: Parameters<typeof execSy
   // and a package.json script (ie `pnpm run start`)
   // which will inject node_modules/.bin into PATH
   try {
-    return execSync(`varlock ${command}`, {
+    const result = execSync(`varlock ${command}`, {
       ...opts,
-      stdio: 'ignore', // we need to supress the output
+      // otherwise we will always see "varlock not found" error
+      stdio: 'pipe',
     });
+    return result.toString();
   } catch (err) {
     // code 127 means not found
     if ((err as any).status !== 127) throw err;
@@ -35,7 +37,8 @@ export function execSyncVarlock(command: string, opts?: Parameters<typeof execSy
     if (fs.existsSync(possibleBinPath)) {
       const possibleVarlockPath = path.join(possibleBinPath, 'varlock');
       if (fs.existsSync(possibleVarlockPath)) {
-        return execSync(`${possibleVarlockPath} ${command}`, opts);
+        const result = execSync(`${possibleVarlockPath} ${command}`, opts);
+        return result.toString();
       } else {
         throw new Error('Unable to find varlock executable');
       }
