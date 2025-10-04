@@ -1,6 +1,5 @@
 /* eslint-disable no-console */
 
-import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 import Debug from 'debug';
@@ -64,14 +63,15 @@ let loadCount = 0;
 function reloadConfig() {
   debug('loading config - count =', ++loadCount);
   try {
-    const execResult = execSyncVarlock('load --format json-full', { env: originalProcessEnv });
+    const execResult = execSyncVarlock('load --format json-full', {
+      env: originalProcessEnv,
+      showLogsOnError: true,
+    });
     process.env.__VARLOCK_ENV = execResult;
     varlockLoadedEnv = JSON.parse(process.env.__VARLOCK_ENV) as SerializedEnvGraph;
     configIsValid = true;
   } catch (err) {
-    const errResult = err as ReturnType<typeof spawnSync>;
     configIsValid = false;
-    console.log(errResult.stdout.toString());
   }
 
   // initialize varlock and patch globals as necessary
