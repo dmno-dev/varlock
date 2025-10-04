@@ -61,6 +61,11 @@
       "types": "./dist/runtime/patch-server-response.d.ts",
       "default": "./dist/runtime/patch-server-response.js"
     },
+    "./exec-sync-varlock": {
+      "ts-src": "./src/lib/exec-sync-varlock.ts",
+      "types": "./dist/lib/exec-sync-varlock.d.ts",
+      "default": "./dist/lib/exec-sync-varlock.js"
+    },
     "./config": {
       "ts-src": "./src/config.ts",
       "types": "./dist/dotenv-compat.d.ts",

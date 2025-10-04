@@ -6,10 +6,11 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync, type spawnSync } from 'child_process';
+import { execSync } from 'child_process';
 import { type SerializedEnvGraph } from 'varlock';
 import { initVarlockEnv, resetRedactionMap } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
+import { execSyncVarlock } from 'varlock/exec-sync-varlock';
 
 export type Env = { [key: string]: string | undefined };
 export type LoadedEnvFiles = Array<{
@@ -34,7 +35,9 @@ let rootDir: string | undefined;
 // a list of filenames loaded, for example: `Environments: .env, .env.development`
 function getVarlockSourcesAsLoadedEnvFiles(): LoadedEnvFiles {
   const envFiles = varlockLoadedEnv.sources
-    .filter((s) => s.enabled && s.label !== 'process.env')
+    // TODO expose more info so we can filter out disabled sources
+    // and maybe show relative paths
+    .filter((s) => s.enabled && !s.label.startsWith('directory -'))
     .map((s) => ({
       path: s.label,
       contents: '',
@@ -91,10 +94,16 @@ function enableExtraFileWatchers() {
   fs.watchFile(envSchemaPath, { interval: 500 }, (_curr, _prev) => {
     debug('.env.schema changed', envFilePathToUpdate, destroyFile);
     if (destroyFile) {
-      fs.writeFileSync(envFilePathToUpdate, '# trigger reload', 'utf-8');
+      fs.writeFileSync(envFilePathToUpdate, [
+        '# This file was created by @varlock/nextjs-integration',
+        '# It is used to trigger Next.js to reload when non-standard .env files change',
+        '# You can safely ignore and delete it',
+        '# @disable',
+        '# ---',
+      ].join('\n'), 'utf-8');
       setTimeout(() => {
         fs.unlinkSync(envFilePathToUpdate);
-      }, 500);
+      }, 1000);
     } else {
       const currentContents = fs.readFileSync(envFilePathToUpdate, 'utf-8');
       fs.writeFileSync(envFilePathToUpdate, currentContents, 'utf-8');
@@ -222,6 +231,8 @@ type LoadedEnvConfig = {
   loadedEnvFiles: LoadedEnvFiles
 };
 
+let loadCount = 0;
+
 export function loadEnvConfig(
   dir: string,
   dev?: boolean,
@@ -284,15 +295,22 @@ export function loadEnvConfig(
   debug('Inferred env mode (to match @next/env):', envFromNextCommand);
 
   try {
-    const varlockLoadedEnvBuf = execSync(`varlock load --format json-full --env ${envFromNextCommand}`, {
+    loadCount++;
+    const varlockLoadedEnvStr = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
+      // in dev, there are 2 loads up front, so we dont show the first
+      showLogsOnError: !dev || loadCount > 1,
+      // in a build, we want to fail and exit, while in dev we can keep retrying when changes are detected
+      exitOnError: !dev,
       env: initialEnv as any,
     });
-    varlockLoadedEnv = JSON.parse(varlockLoadedEnvBuf.toString());
+    if (loadCount >= 2) {
+      // eslint-disable-next-line no-console
+      console.log('✅ env reloaded and validated');
+    }
+    varlockLoadedEnv = JSON.parse(varlockLoadedEnvStr);
   } catch (err) {
-    const { stdout, stderr } = err as ReturnType<typeof spawnSync>;
-    const stdoutStr = stdout?.toString() || '';
-    const stderrStr = stderr?.toString() || '';
-    if (stderrStr.includes('command not found')) {
+    // this error message comes from execSyncVarlock when it cannot find varlock
+    if ((err as any).message.includes('Unable to find varlock executable')) {
       // eslint-disable-next-line no-console
       console.error([
         '',
@@ -301,14 +319,8 @@ export function loadEnvConfig(
         '',
         'Please add varlock as a dependency to your project (e.g., `npm install varlock`)',
       ].join('\n'));
-      throw new Error('missing peer dependency - varlock');
+      process.exit(1);
     }
-
-    if (stdoutStr) console.log(stdoutStr); // eslint-disable-line no-console
-    if (stderrStr) console.error(stderrStr); // eslint-disable-line no-console
-
-    // in a build, we want to fail and exit, while in dev we can keep retrying when changes are detected
-    if (!dev) process.exit(1);
 
     // if we dont do this, we'll see an error that looks like `process.env.__VARLOCK_ENV is not set` which is misleading.
     // Ideally we would pass through an error of some kind and trigger the webpack runtime error popup

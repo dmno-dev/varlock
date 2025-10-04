@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execSyncVarlock } from './lib/exec-sync-varlock';
 
 import { initVarlockEnv } from './runtime/env';
 import { patchGlobalConsole } from './runtime/patch-console';
@@ -9,8 +9,13 @@ import { patchGlobalResponse } from './runtime/patch-response';
 // because even with top level await, we run into hoisting issues where things happen out of order
 // so we call out to the CLI using execSync
 // this also isolates the varlock loading process from the end user process
-const execResult = execSync('varlock load --format json-full');
-process.env.__VARLOCK_ENV = execResult.toString();
+
+
+const execResult = execSyncVarlock('load --format json-full', {
+  exitOnError: true,
+  showLogsOnError: true,
+});
+process.env.__VARLOCK_ENV = execResult;
 
 // initialize varlock and patch globals as necessary
 initVarlockEnv();

@@ -94,7 +94,11 @@ export function detectJsPackageManager(opts?: {
     }
     if (detectedPm) return JS_PACKAGE_MANAGERS[detectedPm];
 
-    cwd = path.join(cwd, '..');
+    // will break when we reach the root
+    const parentDir = path.dirname(cwd);
+    if (parentDir === cwd) break;
+    cwd = parentDir;
+
     if (opts?.workspaceRootPath) {
       if (opts.workspaceRootPath === cwd) {
         debug('> found workspace root');
@@ -107,7 +111,7 @@ export function detectJsPackageManager(opts?: {
         break;
       }
     }
-  } while (cwd && cwd !== '.' && cwd !== '/');
+  } while (cwd);
 
   // if we did not find a lockfile, we'll look at env vars for other hints
   if (process.env.npm_config_user_agent) {

@@ -61,23 +61,23 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
 
   // TODO: use service.isValid?
   if (failingItems.length > 0) {
-    console.log(`\n🚨 🚨 🚨  ${ansis.bold.underline('Configuration is currently invalid ')}  🚨 🚨 🚨\n`);
-    console.log('Invalid items:\n');
+    console.error(`\n🚨 🚨 🚨  ${ansis.bold.underline('Configuration is currently invalid ')}  🚨 🚨 🚨\n`);
+    console.error('Invalid items:\n');
 
     _.each(failingItems, (item: ConfigItem) => {
-      console.log(getItemSummary(item));
-      console.log();
+      console.error(getItemSummary(item));
+      console.error();
     });
     if (opts?.showAll) {
-      console.log();
-      console.log(joinAndCompact([
+      console.error();
+      console.error(joinAndCompact([
         'Valid items:',
         ansis.italic.gray('(remove `--show-all` flag to hide)'),
       ]));
-      console.log();
+      console.error();
       const validItems = _.filter(_.values(envGraph.configSchema), (i: ConfigItem) => !!i.isValid);
       _.each(validItems, (item: ConfigItem) => {
-        console.log(getItemSummary(item));
+        console.error(getItemSummary(item));
       });
     }
 
