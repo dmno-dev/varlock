@@ -3,12 +3,19 @@ import path from 'node:path';
 import { ConfigItem } from './config-item';
 import { EnvGraphDataSource, FileBasedDataSource } from './data-source';
 
-import { BaseResolvers, type ResolverChildClass } from './resolver';
-import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
+import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
+import { BaseDataTypes, createEnvGraphDataType, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
 import { generateTypes } from './type-generation';
-import type { ParsedEnvSpecDecorator } from '@env-spec/parser';
+import {
+  ParsedEnvSpecFunctionArgs, type ParsedEnvSpecDecorator, type ParsedEnvSpecFunctionCall, type ParsedEnvSpecStaticValue,
+} from '@env-spec/parser';
+import type { Resolver } from 'node:dns';
+import {
+  builtInItemDecorators, builtInRootDecorators, type ItemDecoratorDef, type RootDecoratorDef,
+} from './decorators';
+import { getErrorLocation } from './error-location';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -70,10 +77,9 @@ export class EnvGraph {
 
   registeredResolverFunctions: Record<string, ResolverChildClass> = {};
   registerResolver(resolverClass: ResolverChildClass) {
-    // TODO: fix ts any
-    const fnName = (resolverClass as any).fnName;
+    // because its a class, we can't use `name`
+    const fnName = resolverClass.fnName;
     if (fnName in this.registeredResolverFunctions) {
-      // TODO: do we want to allow the user to override?
       throw new Error(`Resolver ${fnName} already registered`);
     }
     this.registeredResolverFunctions[fnName] = resolverClass;
@@ -81,18 +87,49 @@ export class EnvGraph {
 
   dataTypesRegistry: Record<string, EnvGraphDataTypeFactory> = {};
   registerDataType(factory: EnvGraphDataTypeFactory) {
+    const name = factory.dataTypeName;
+    if (name in this.dataTypesRegistry) {
+      throw new Error(`Data type "${name}" already registered`);
+    }
     this.dataTypesRegistry[factory.dataTypeName] = factory;
+  }
+
+  itemDecoratorsRegistry: Record<string, ItemDecoratorDef> = {};
+  registerItemDecorator(decoratorDef: ItemDecoratorDef) {
+    const name = decoratorDef.name;
+    if (name in this.itemDecoratorsRegistry) {
+      throw new Error(`Item decorator "${name}" already registered`);
+    }
+    this.itemDecoratorsRegistry[decoratorDef.name] = decoratorDef;
+  }
+
+  rootDecoratorsRegistry: Record<string, RootDecoratorDef> = {};
+  registerRootDecorator(decoratorDef: RootDecoratorDef) {
+    const name = decoratorDef.name;
+    if (name in this.itemDecoratorsRegistry) {
+      throw new Error(`Root decorator "${name}" already registered`);
+    }
+    this.rootDecoratorsRegistry[decoratorDef.name] = decoratorDef;
   }
 
   constructor() {
     // register base data types (string, number, boolean, etc)
-    for (const dataType of _.values(BaseDataTypes)) {
+    for (const dataType of BaseDataTypes) {
       this.registerDataType(dataType);
     }
-    // register base resolvers (concat, ref, etc)
+    // register base resolvers (concat, ref, exec, etc)
     for (const resolverClass of BaseResolvers) {
       this.registerResolver(resolverClass);
     }
+    // base root decorators (envFlag, generateTypes, import, etc)
+    for (const rootDec of builtInRootDecorators) {
+      this.registerRootDecorator(rootDec);
+    }
+    // base item decorators (required, sensitive, docs, etc)
+    for (const itemDec of builtInItemDecorators) {
+      this.registerItemDecorator(itemDec);
+    }
+
     this.overrideValues = originalProcessEnv;
   }
 
@@ -104,10 +141,62 @@ export class EnvGraph {
   }
 
   async finishLoad() {
-    // process items - this adds dataTypes, checks resolver args, and dependencies
+    // finish installing plugins - which registers new decorators, resolvers, data types
+    for (const source of this.sortedDataSources) {
+      if (source.disabled) continue;
+      for (const plugin of source.plugins || []) {
+        // register decorators, resolvers, data types from this plugin
+        for (const rootDec of plugin.def.rootDecorators || []) {
+          this.registerRootDecorator(rootDec);
+        }
+        for (const itemDec of plugin.def.itemDecorators || []) {
+          this.registerItemDecorator(itemDec);
+        }
+        for (const dataType of plugin.def.dataTypes || []) {
+          this.registerDataType(createEnvGraphDataType(dataType));
+        }
+        for (const resolverDef of plugin.def.resolverFunctions || []) {
+          // might want to move this into plugin load process
+          this.registerResolver(createResolver(resolverDef));
+        }
+      }
+    }
+
+    // process root decorators
+    for (const source of this.sortedDataSources) {
+      if (source.disabled) continue;
+      for (const decInstance of source.decorators) {
+        const decoratorDef = this.rootDecoratorsRegistry[decInstance.name];
+        if (!decoratorDef) {
+          source.schemaErrors.push(
+            new SchemaError(`Unknown root decorator: @${decInstance.name}`, {
+              location: getErrorLocation(source, decInstance),
+            }),
+          );
+        } else if (decoratorDef.isFunction && !decInstance.isBareFnCall) {
+          source.schemaErrors.push(
+            new SchemaError(`Root decorator @${decInstance.name} is meant to be called as a function`, {
+              location: getErrorLocation(source, decInstance),
+            }),
+          );
+        } else if (!decoratorDef.isFunction && decInstance.isBareFnCall) {
+          source.schemaErrors.push(
+            new SchemaError(`Root decorator @${decInstance.name} is NOT meant to be called as a function`, {
+              location: getErrorLocation(source, decInstance),
+            }),
+          );
+        } else {
+          if (decoratorDef.process) {
+            await decoratorDef.process({ dec: decInstance });
+          }
+        }
+      }
+    }
+
+    // process config items
+    // checks decorators, sets data type, checks resolver args, adds deps
     for (const itemKey in this.configSchema) {
-      const item = this.configSchema[itemKey];
-      await item.process();
+      await this.configSchema[itemKey].process();
     }
 
     // check for cycles in resolver dependencies

@@ -154,6 +154,9 @@ export class ParsedEnvSpecDecorator {
     return this.data.name;
   }
 
+  get isBareFnCall() {
+    return !!(this.data.valueOrFnArgs instanceof ParsedEnvSpecFunctionArgs);
+  }
   get bareFnArgs() {
     if (this.data.valueOrFnArgs && this.data.valueOrFnArgs instanceof ParsedEnvSpecFunctionArgs) {
       return this.data.valueOrFnArgs;

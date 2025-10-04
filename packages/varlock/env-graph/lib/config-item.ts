@@ -11,13 +11,17 @@ import {
 } from './errors';
 
 import { EnvGraphDataSource } from './data-source';
-import { type ResolvedValue, type Resolver, StaticValueResolver } from './resolver';
+import {
+  convertParsedValueToResolvers, type ResolvedValue, type Resolver, StaticValueResolver,
+} from './resolver';
 
 export type ConfigItemDef = {
   description?: string;
-  resolver?: Resolver;
   // TODO: translate parser decorator class into our own generic version
   decorators?: Record<string, ParsedEnvSpecDecorator>;
+  parsedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+
+  resolver?: Resolver;
 };
 export type ConfigItemDefAndSource = {
   itemDef: ConfigItemDef;
@@ -113,13 +117,19 @@ export class ConfigItem {
 
   dataType?: EnvGraphDataType;
   schemaErrors: Array<SchemaError> = [];
-  get resolverSchemaErrors() {
+  get SchemaErrors() {
     return this.valueResolver?.schemaErrors || [];
   }
 
   async process() {
     // process resolvers
     for (const def of this.defs) {
+      if (def.itemDef.parsedValue && !def.itemDef.resolver) {
+        def.itemDef.resolver = convertParsedValueToResolvers(
+          def.itemDef.parsedValue,
+          this.envGraph.registeredResolverFunctions,
+        );
+      }
       await def.itemDef.resolver?.process(this);
     }
 
@@ -153,6 +163,7 @@ export class ConfigItem {
     }
 
     this.processRequired();
+    this.processSensitive();
   }
 
   /**
@@ -262,13 +273,24 @@ export class ConfigItem {
   get isRequired() { return this._isRequired; }
   get isRequiredDynamic() { return this._isRequiredDynamic; }
 
-  get isSensitive() {
+
+  _isSensitive: boolean = true;
+  get isSensitive(): boolean {
+    return this._isSensitive;
+  }
+  private processSensitive() {
+    const sensitiveFromDataType = this.dataType?.isSensitive;
     for (const def of this.defs) {
       const defDecorators = def.itemDef.decorators || {};
       if ('sensitive' in defDecorators) {
-        return defDecorators.sensitive.simplifiedValue;
+        this._isSensitive = defDecorators.sensitive.simplifiedValue;
+        return;
         // TODO: do we want an opposite decorator similar to @required/@optional -- maybe @public?
       }
+
+      // we skip `defaultSensitive` behaviour if the data type specifies sensitivity
+      if (sensitiveFromDataType !== undefined) continue;
+
       const defaultSensitiveDec = def.source.getRootDecorators('defaultSensitive')[0];
       if (defaultSensitiveDec) {
         // Handle function call: inferFromPrefix(PREFIX)
@@ -277,22 +299,24 @@ export class ConfigItem {
           // Accepts a single string prefix as first arg
           const prefix = Array.isArray(args) && args.length > 0 ? args[0] : undefined;
           if (typeof prefix === 'string' && this.key.startsWith(prefix)) {
-            return false; // Not sensitive if matches prefix
+            this._isSensitive = false;
           }
-          return true; // Sensitive otherwise
+          this._isSensitive = true;
+          return;
         }
         // Fallback to static/boolean value
-        return defaultSensitiveDec.simplifiedValue;
+        this._isSensitive = defaultSensitiveDec.simplifiedValue;
+        return;
       }
     }
-    return true;
+    if (sensitiveFromDataType !== undefined) this._isSensitive = sensitiveFromDataType;
   }
 
 
   get errors() {
     return _.compact([
       ...this.schemaErrors || [],
-      ...this.resolverSchemaErrors || [],
+      ...this.SchemaErrors || [],
       this.resolutionError,
       this.coercionError,
       ...this.validationErrors || [],
@@ -323,7 +347,7 @@ export class ConfigItem {
   async resolve(reset = false) {
     // bail early if we have a schema error
     if (this.schemaErrors.length) return;
-    if (this.resolverSchemaErrors.length) return;
+    if (this.SchemaErrors.length) return;
 
     if (reset) {
       this.isResolved = false;
@@ -347,8 +371,12 @@ export class ConfigItem {
       try {
         this.resolvedRawValue = await this.valueResolver.resolve();
       } catch (err) {
-        this.resolutionError = new ResolutionError(`error resolving value: ${err}`);
-        this.resolutionError.cause = err;
+        if (err instanceof ResolutionError) {
+          this.resolutionError = err;
+        } else {
+          this.resolutionError = new ResolutionError(`error resolving value: ${err}`);
+          this.resolutionError.cause = err;
+        }
       }
     }
 
@@ -394,7 +422,7 @@ export class ConfigItem {
 
     // VALIDATE
     try {
-      const validateResult = this.dataType.validate(this.resolvedValue);
+      const validateResult = await this.dataType.validate(this.resolvedValue);
       if (
         validateResult instanceof Error
         || (_.isArray(validateResult) && validateResult[0] instanceof Error)

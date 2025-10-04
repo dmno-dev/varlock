@@ -16,6 +16,8 @@ export default defineConfig({
     'src/cli/lib/init-process.ts', // not actually used, but this helps make esbuild hoist this import to the top when it is used
     'src/cli/cli-executable.ts', // cli that gets run via `dmno` command
     'src/lib/exec-sync-varlock.ts', // helper to call varlock cli from code
+
+    'src/plugin-lib.ts',
   ],
 
   noExternal: ['@env-spec/utils'],

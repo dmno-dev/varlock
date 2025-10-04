@@ -197,5 +197,28 @@ describe('@import', () => {
       },
       expectNotInSchema: ['ITEM_ONLY_IN_IMPORT1', 'ITEM_ONLY_IN_IMPORT2'],
     }));
+    test('addind @disable=false in a child will not override its disabled parent', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import)
+          # ---
+          ITEM_ONLY_IN_SCHEMA=value-from-.env.schema
+        `,
+        '.env.import': outdent`
+          # @disable
+          # @import(./.env.import2)
+          # ---
+          ITEM_ONLY_IN_IMPORT1=value-from-.env.import1
+        `,
+        '.env.import2': outdent`
+          @disable=false
+          ITEM_ONLY_IN_IMPORT2=value-from-.env.import2
+        `,
+      },
+      expectValues: {
+        ITEM_ONLY_IN_SCHEMA: 'value-from-.env.schema',
+      },
+      expectNotInSchema: ['ITEM_ONLY_IN_IMPORT1', 'ITEM_ONLY_IN_IMPORT2'],
+    }));
   });
 });

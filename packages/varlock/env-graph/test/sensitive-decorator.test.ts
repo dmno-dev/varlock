@@ -79,4 +79,7 @@ describe('@sensitive and @defaultSensitive tests', () => {
     `,
     expectSensitive: { SECRET_BAR: false, PUBLIC_FOO: true },
   }));
+
+  test.todo('data type sensitive can set sensitivity');
+  test.todo('data type sensitive is not overridden by item decorators');
 });

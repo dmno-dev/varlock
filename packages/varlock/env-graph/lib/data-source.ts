@@ -16,6 +16,7 @@ import { EnvGraph } from './env-graph';
 
 import { SchemaError } from './errors';
 import { pathExists } from '@env-spec/utils/fs-utils';
+import { loadPlugins, VarlockPlugin, type VarlockPluginDef } from './plugins';
 
 const DATA_SOURCE_TYPES = Object.freeze({
   schema: {
@@ -47,6 +48,9 @@ export abstract class EnvGraphDataSource {
   parent?: EnvGraphDataSource;
   /** child data sources */
   children: Array<EnvGraphDataSource> = [];
+
+  /** plugins installed within this data source */
+  plugins?: Array<VarlockPlugin>;
 
   /**
    * tracks if this data source was imported, and additional settings about the import (restricting keys)
@@ -182,6 +186,7 @@ export abstract class EnvGraphDataSource {
       this.setEnvFlag(envFlagDecoratorValue);
     }
 
+    // ! this no longer works - items defs have not been processed / added yet
     // create config items, or add additional definitions if they already exist
     for (const itemKey of this.importKeys || _.keys(this.configItemDefs)) {
       const itemDef = this.configItemDefs[itemKey];
@@ -190,6 +195,9 @@ export abstract class EnvGraphDataSource {
       // this.graph.configSchema[itemKey].addDef(itemDef, this);
       // TODO: we probably want to track the definition back to the source
     }
+
+    await loadPlugins(this);
+    if (this._loadingError) return;
 
     // handle imports before we process config items
     // because the imported defs will be overridden by anything within this source
@@ -315,6 +323,10 @@ export abstract class EnvGraphDataSource {
   _loadingError?: Error;
   get loadingError() {
     return this._loadingError;
+  }
+  _schemaErrors: Array<SchemaError> = [];
+  get schemaErrors() {
+    return this._schemaErrors;
   }
 
   get isValid() {
@@ -444,47 +456,6 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
 
   parsedFile?: ParsedEnvSpecFile;
 
-  private convertParserValueToResolvers(
-    value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined,
-  ): Resolver | undefined {
-    if (!this.graph) throw new Error('expected graph to be set');
-
-    if (value === undefined) {
-      return undefined;
-    } else if (value instanceof ParsedEnvSpecStaticValue) {
-      return new StaticValueResolver(value.unescapedValue);
-    } else if (value instanceof ParsedEnvSpecFunctionCall) {
-      // TODO: fix ts any
-      const ResolverFnClass = this.graph.registeredResolverFunctions[value.name] as any;
-      if (!ResolverFnClass) {
-        return new ErrorResolver(new SchemaError(`Unknown resolver function: ${value.name}()`));
-      }
-      const argsFromParser = value.data.args.values;
-      let keyValueArgs: Record<string, Resolver> | undefined;
-      const argsAsResolversArray: Array<Resolver | Record<string, Resolver>> = [];
-      for (const arg of argsFromParser) {
-        if (arg instanceof ParsedEnvSpecKeyValuePair) {
-          keyValueArgs ??= {};
-          const valResolver = this.convertParserValueToResolvers(arg.value);
-          if (!valResolver) throw new Error('Did not expect to find undefined resolver in key-value arg');
-          keyValueArgs[arg.key] = valResolver;
-        } else {
-          if (keyValueArgs) {
-            return new ErrorResolver(new SchemaError('After switching to key-value function args, cannot switch back'));
-          }
-          const argResolver = this.convertParserValueToResolvers(arg);
-          if (!argResolver) throw new Error('Did not expect to find undefined resolver in array arg');
-          argsAsResolversArray.push(argResolver);
-        }
-      }
-      // add key/value args as object as last arg into array
-      if (keyValueArgs) argsAsResolversArray.push(keyValueArgs);
-      return new ResolverFnClass(argsAsResolversArray);
-    } else {
-      throw new Error('Unknown value type');
-    }
-  }
-
   async _parseContents() {
     const rawContents = this.rawContents!;
 
@@ -508,14 +479,14 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
 
     this.decorators = this.parsedFile.decoratorsArray;
 
-    // TODO: if the file is a .env.example file, we should interpret the values as examples
     for (const item of this.parsedFile.configItems) {
       // triggers $ expansion (eg: "${VAR}" => `ref(VAR)`)
       item.processExpansion();
 
       this.configItemDefs[item.key] = {
-        resolver: this.convertParserValueToResolvers(item.expandedValue!),
+        parsedValue: item.expandedValue,
         description: item.description,
+        // TODO: use decorators array instead of object to support multiple fn calls
         decorators: item.decoratorsObject,
       };
     }
