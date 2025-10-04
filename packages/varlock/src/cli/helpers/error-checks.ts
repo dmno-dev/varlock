@@ -14,13 +14,10 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
 
     // TODO: use a formatting helper to show the error - which will include location/stack/etc appropriately
     if (source.loadingError) {
-      console.log(`🚨 Error encountered while loading ${source.label}`);
-      console.log(source.loadingError.message);
+      console.log(`🚨 Error encountered while loading ${source.label}\n`);
 
       // Check if the error has a location property (like EnvSourceParseError)
       if ('location' in source.loadingError) {
-        console.log((source.loadingError as EnvSourceParseError).location);
-
         const errLoc = (source.loadingError as EnvSourceParseError).location;
 
         const errPreview = [
@@ -28,9 +25,11 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
           `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
         ].join('\n');
 
-        console.log('Error parsing .env file');
-        console.log(` ${errLoc.path}:${errLoc.lineNumber}:${errLoc.colNumber}`);
+        console.log('Error parsing .env file: ', source.loadingError.message);
+        console.log(`📂 ${errLoc.path}:${errLoc.lineNumber}:${errLoc.colNumber}`);
         console.log(errPreview);
+      } else {
+        console.log(source.loadingError.message);
       }
 
       return gracefulExit(1);

@@ -243,7 +243,7 @@ export abstract class EnvGraphDataSource {
               await this.addChild(source, { isImport: true, importKeys });
             }
           } else {
-            const fsStat = await tryCatch(async () => fs.stat(importPath), (_err) => {
+            const fsStat = await tryCatch(async () => fs.stat(fullImportPath), (_err) => {
               // TODO: work through possible error types here
             });
 
@@ -541,10 +541,6 @@ export class DirectoryDataSource extends EnvGraphDataSource {
   get label() { return `directory - ${this.basePath}`; }
 
   schemaDataSource?: DotEnvFileDataSource;
-
-  get loadingError() {
-    return this._loadingError || this.schemaDataSource?.loadingError;
-  }
 
   constructor(
     readonly basePath: string,
