@@ -1,5 +1,14 @@
 # @varlock/nextjs-integration
 
+## 0.0.14
+
+### Patch Changes
+
+- [#163](https://github.com/dmno-dev/varlock/pull/163) [`8d31513`](https://github.com/dmno-dev/varlock/commit/8d315132de5d2b40f4c6423d10747cbc848d3392) Thanks [@theoephraim](https://github.com/theoephraim)! - fix issue with executable path when running directly instead of via package manager
+
+- Updated dependencies [[`b6fc6dd`](https://github.com/dmno-dev/varlock/commit/b6fc6dd396b87b02c1e7e72d6fe84b493c29776f), [`8d31513`](https://github.com/dmno-dev/varlock/commit/8d315132de5d2b40f4c6423d10747cbc848d3392)]:
+  - varlock@0.0.15
+
 ## 0.0.13
 
 ### Patch Changes
