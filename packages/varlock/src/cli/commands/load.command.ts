@@ -41,28 +41,29 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   if (!envGraph.rootDataSource) throw new Error('expected root data source to be set');
   // TODO: move into a more general post-load hook system
-  const generateTypesDecoratorsPerSource = envGraph.getRootDecorators('generateTypes');
-  if (generateTypesDecoratorsPerSource.length) {
-    for (const [source, generateTypesDecorators] of generateTypesDecoratorsPerSource) {
-      for (const generateTypesDecorator of generateTypesDecorators) {
-        // TODO: much of this logic should move to the definition of the decorator itself
-        const typeGenSettings = generateTypesDecorator.bareFnArgs?.simplifiedValues;
-        if (!_.isPlainObject(typeGenSettings)) {
-          throw new Error('@generateTypes - must be a fn call with key/value args');
-        }
-        if (!typeGenSettings.lang) throw new Error('@generateTypes - must set `lang` arg');
-        if (typeGenSettings.lang !== 'ts') throw new Error(`@generateTypes - unsupported language: ${typeGenSettings.lang}`);
-        if (!typeGenSettings.path) throw new Error('@generateTypes - must set `path` arg');
-        if (!_.isString(typeGenSettings.path)) throw new Error('@generateTypes - `path` arg must be a string');
+  // ! reimplement
+  // const generateTypesDecoratorsPerSource = envGraph.getRootDecorators('generateTypes');
+  // if (generateTypesDecoratorsPerSource.length) {
+  //   for (const [source, generateTypesDecorators] of generateTypesDecoratorsPerSource) {
+  //     for (const generateTypesDecorator of generateTypesDecorators) {
+  //       // TODO: much of this logic should move to the definition of the decorator itself
+  //       const typeGenSettings = generateTypesDecorator.bareFnArgs?.simplifiedValues;
+  //       if (!_.isPlainObject(typeGenSettings)) {
+  //         throw new Error('@generateTypes - must be a fn call with key/value args');
+  //       }
+  //       if (!typeGenSettings.lang) throw new Error('@generateTypes - must set `lang` arg');
+  //       if (typeGenSettings.lang !== 'ts') throw new Error(`@generateTypes - unsupported language: ${typeGenSettings.lang}`);
+  //       if (!typeGenSettings.path) throw new Error('@generateTypes - must set `path` arg');
+  //       if (!_.isString(typeGenSettings.path)) throw new Error('@generateTypes - `path` arg must be a string');
 
-        const outputPath = source instanceof FileBasedDataSource
-          ? path.resolve(source.fullPath, '..', typeGenSettings.path)
-          : typeGenSettings.path;
+  //       const outputPath = source instanceof FileBasedDataSource
+  //         ? path.resolve(source.fullPath, '..', typeGenSettings.path)
+  //         : typeGenSettings.path;
 
-        await envGraph.generateTypes(typeGenSettings.lang, outputPath);
-      }
-    }
-  }
+  //       await envGraph.generateTypes(typeGenSettings.lang, outputPath);
+  //     }
+  //   }
+  // }
 
   await envGraph.resolveEnvValues();
   checkForConfigErrors(envGraph, { showAll });

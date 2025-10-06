@@ -329,8 +329,9 @@ export class EnvGraph {
     }
 
     // expose a few root level settings
-    serializedGraph.settings.redactLogs = this.getRootDecoratorValue('redactLogs') ?? true;
-    serializedGraph.settings.preventLeaks = this.getRootDecoratorValue('preventLeaks') ?? true;
+    // ! reimplement
+    // serializedGraph.settings.redactLogs = this.getRootDecoratorValue('redactLogs') ?? true;
+    // serializedGraph.settings.preventLeaks = this.getRootDecoratorValue('preventLeaks') ?? true;
 
     return serializedGraph;
   }
@@ -343,29 +344,29 @@ export class EnvGraph {
     await generateTypes(this, lang, outputPath);
   }
 
-  getRootDecoratorValue(decoratorName: string) {
-    // currently this is just used above, but may want to rework
-    // to track values once as we process sources
-    const sources = Array.from(this.sortedDataSources).reverse();
-    for (const s of sources) {
-      if (s.disabled) continue;
-      // we skip root decorators if the file was being _partially_ imported
-      if (s.isPartialImport) continue;
-      const decs = s.getRootDecorators(decoratorName);
-      if (decs.length) return decs[0].simplifiedValue;
-    }
-    return undefined;
-  }
-  getRootDecorators(decoratorName: string) {
-    const sources = Array.from(this.sortedDataSources).reverse();
-    const combinedDecsWithSources: Array<[EnvGraphDataSource, Array<ParsedEnvSpecDecorator>]> = [];
-    for (const source of sources) {
-      if (source.disabled) continue;
-      // we skip root decorators if the file was being _partially_ imported
-      if (source.isPartialImport) continue;
-      const decs = source.getRootDecorators(decoratorName);
-      combinedDecsWithSources.push([source, decs]);
-    }
-    return combinedDecsWithSources;
-  }
+  // getRootDecoratorValue(decoratorName: string) {
+  //   // currently this is just used above, but may want to rework
+  //   // to track values once as we process sources
+  //   const sources = Array.from(this.sortedDataSources).reverse();
+  //   for (const s of sources) {
+  //     if (s.disabled) continue;
+  //     // we skip root decorators if the file was being _partially_ imported
+  //     if (s.isPartialImport) continue;
+  //     const decs = s.getRootDecorators(decoratorName);
+  //     if (decs.length) return decs[0].simplifiedValue;
+  //   }
+  //   return undefined;
+  // }
+  // getRootDecorators(decoratorName: string) {
+  //   const sources = Array.from(this.sortedDataSources).reverse();
+  //   const combinedDecsWithSources: Array<[EnvGraphDataSource, Array<ParsedEnvSpecDecorator>]> = [];
+  //   for (const source of sources) {
+  //     if (source.disabled) continue;
+  //     // we skip root decorators if the file was being _partially_ imported
+  //     if (source.isPartialImport) continue;
+  //     const decs = source.getRootDecorators(decoratorName);
+  //     combinedDecsWithSources.push([source, decs]);
+  //   }
+  //   return combinedDecsWithSources;
+  // }
 }

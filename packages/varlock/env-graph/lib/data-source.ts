@@ -17,6 +17,8 @@ import { EnvGraph } from './env-graph';
 import { SchemaError } from './errors';
 import { pathExists } from '@env-spec/utils/fs-utils';
 import { loadPlugins, VarlockPlugin, type VarlockPluginDef } from './plugins';
+import { DecoratorInstance } from './decorators';
+import { env } from 'node:process';
 
 const DATA_SOURCE_TYPES = Object.freeze({
   schema: {
@@ -150,40 +152,42 @@ export abstract class EnvGraphDataSource {
       return;
     }
 
-    const disableDecorator = this.getRootDecorators('disable')?.[0];
-    if (disableDecorator) {
-      if (disableDecorator.value instanceof ParsedEnvSpecFunctionCall) {
-        if (disableDecorator.value.name === 'forEnv') {
-          const disableForEnvs = disableDecorator.value.simplifiedArgs;
-          if (!_.isArray(disableForEnvs)) {
-            this._loadingError = new Error('expected disable decorator args to be array');
-            return;
-          }
-
-          const currentEnv = await this.resolveCurrentEnv();
-          if (disableForEnvs.includes(currentEnv)) {
-            this._disabled = true;
-          }
-        } else {
-          this._loadingError = new Error(`unknown disable decorator function: ${disableDecorator.name}`);
-          return;
-        }
-      } else if (disableDecorator.simplifiedValue) {
-        this._disabled = true;
+    const disabledDec = this.getRootDec('disable');
+    if (disabledDec) {
+      const disabledVal = await disabledDec.resolve();
+      if (!_.isBoolean(disabledVal)) {
+        throw new Error('expected @disable to be boolean value');
       }
+      this._disabled = disabledVal;
     }
 
     // this will also respect if the parent is disabled
     if (this.disabled) return;
 
-    // process @envFlag decorator if present in this source
-    const envFlagDecoratorValue = this.getRootDecoratorSimpleValue('envFlag');
-    if (envFlagDecoratorValue) {
-      if (!this.configItemDefs[envFlagDecoratorValue]) {
-        this._loadingError = new Error(`@envFlag key ${envFlagDecoratorValue} must be an item within this schema`);
+    // process @currentEnv decorator if present in this source
+    // this requires a bit of special handling compared to other decorators
+    const currentEnvDec = this.getRootDec('currentEnv');
+    const envFlagDec = this.getRootDec('envFlag');
+    if (currentEnvDec && envFlagDec) {
+      // TODO can we set this in the decorator definition?
+      this._loadingError = new Error('Cannot use both @currentEnv and @envFlag decorators');
+    }
+    let envFlagItemKey: string | undefined;
+    if (currentEnvDec) {
+      await currentEnvDec.process();
+      console.log('current env', currentEnvDec);
+    } else if (envFlagDec) {
+      await envFlagDec.process();
+      console.log('env flag', envFlagDec);
+    }
+
+    console.log('ENV FLAG = ', envFlagItemKey);
+    if (envFlagItemKey) {
+      if (!this.configItemDefs[envFlagItemKey]) {
+        this._loadingError = new Error(`environment flag "${envFlagItemKey}" must be defined within this schema`);
         return;
       }
-      this.setEnvFlag(envFlagDecoratorValue);
+      this.setEnvFlag(envFlagItemKey);
     }
 
     // ! this no longer works - items defs have not been processed / added yet
@@ -335,7 +339,6 @@ export abstract class EnvGraphDataSource {
 
   configItemDefs: Record<string, ConfigItemDef> = {};
   decorators: Array<ParsedEnvSpecDecorator> = [];
-
   getRootDecorators(decName: string) {
     return this.decorators.filter((d) => d.name === decName);
   }
@@ -344,6 +347,15 @@ export abstract class EnvGraphDataSource {
     if (decorators.length === 0) return undefined;
     if (decorators.length > 1) throw new Error(`Multiple ${decName} decorators found`);
     return decorators[0].simplifiedValue;
+  }
+
+
+  rootDecorators: Array<DecoratorInstance> = [];
+  getRootDec(decName: string) {
+    return this.rootDecorators.find((d) => d.name === decName && !d.isFunctionCall);
+  }
+  getRootDecFns(decName: string) {
+    return this.rootDecorators.filter((d) => d.name === decName && d.isFunctionCall);
   }
 }
 
@@ -477,12 +489,12 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
 
     if (!this.graph) throw new Error('expected graph to be set');
 
+    // ! old way
     this.decorators = this.parsedFile.decoratorsArray;
+    // ! new way
+    this.rootDecorators = this.parsedFile.decoratorsArray.map((d) => new DecoratorInstance(this, d));
 
     for (const item of this.parsedFile.configItems) {
-      // triggers $ expansion (eg: "${VAR}" => `ref(VAR)`)
-      item.processExpansion();
-
       this.configItemDefs[item.key] = {
         parsedValue: item.expandedValue,
         description: item.description,
