@@ -68,8 +68,7 @@ export class ParsedEnvSpecStaticValue {
 export class ParsedEnvSpecKeyValuePair {
   constructor(public data: {
     key: string;
-
-    val: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall;
+    val: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall,
   }) {}
 
   get key() {
@@ -86,7 +85,6 @@ export class ParsedEnvSpecKeyValuePair {
 }
 export class ParsedEnvSpecFunctionArgs {
   constructor(public data: {
-
     values: Array<ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecKeyValuePair>;
     _location?: any;
   }) {}
@@ -143,48 +141,47 @@ export class ParsedEnvSpecFunctionCall {
 
 
 export class ParsedEnvSpecDecorator {
+  value?: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs;
+
   constructor(public data: {
     name: string;
-    valueOrFnArgs: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs | undefined;
+    value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs | undefined;
+    isBareFnCall?: boolean; // true if decorator is a bare fn call (eg: @import(...))
     _location?: any;
   }) {
+    // bare decorator is equivalent to `@decorator=true`
+    // `@required` === `@required=true`
+    if (!this.data.value) {
+      this.value = new ParsedEnvSpecStaticValue({ rawValue: true, isImplicit: true });
+    } else {
+      // process expansion -- triggers $ expansion (eg: "${VAR}" => `ref(VAR)`)/
+      const expanded = expand(this.data.value);
+      if (expanded instanceof ParsedEnvSpecKeyValuePair) {
+        throw new Error('Unexpected key-value pair found in config item');
+      }
+      this.value = expanded;
+    }
   }
 
   get name() {
     return this.data.name;
   }
-
   get isBareFnCall() {
-    return !!(this.data.valueOrFnArgs instanceof ParsedEnvSpecFunctionArgs);
-  }
-  get bareFnArgs() {
-    if (this.data.valueOrFnArgs && this.data.valueOrFnArgs instanceof ParsedEnvSpecFunctionArgs) {
-      return this.data.valueOrFnArgs;
-    }
+    return !!this.data.isBareFnCall;
   }
 
-  get value() {
-    // bare decorator is equivalent to `@decorator=true`
-    // `@required` === `@required=true`
-    if (!this.data.valueOrFnArgs) {
-      return new ParsedEnvSpecStaticValue({ rawValue: true, isImplicit: true });
-    } else if (!(this.data.valueOrFnArgs instanceof ParsedEnvSpecFunctionArgs)) {
-      return this.data.valueOrFnArgs;
-    }
-  }
   get simplifiedValue() {
     if (this.value instanceof ParsedEnvSpecStaticValue) {
       return this.value.value;
     }
   }
-
   toString() {
     let s = `@${this.name}`;
-    if (!this.data.valueOrFnArgs) return s; // bare decorator, ex: `@required`
+    if (!this.data.value) return s; // bare decorator, ex: `@required`
     // bare fn call looks like `@import(asdf)` so no `=`
-    if (!(this.data.valueOrFnArgs instanceof ParsedEnvSpecFunctionArgs)) s += '=';
+    if (!this.isBareFnCall) s += '=';
     // let the value stringify itself
-    s += this.data.valueOrFnArgs.toString();
+    s += this.data.value.toString();
     return s;
   }
 }
@@ -229,10 +226,6 @@ export class ParsedEnvSpecDecoratorComment {
     return s;
   }
 }
-
-export type ParsedEnvSpecDecoratorValue = (
-  ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs
-);
 
 function getDecoratorsObject(
   comments: Array<ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment | undefined>,
@@ -302,7 +295,7 @@ export class ParsedEnvSpecBlankLine {
 
 
 export class ParsedEnvSpecConfigItem {
-  expandedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+  value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall;
 
   constructor(public data: {
     key: string;
@@ -310,18 +303,24 @@ export class ParsedEnvSpecConfigItem {
     preComments: Array<ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment>;
     postComment: ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment | undefined;
     _location?: any;
-  }) {}
-
-  get key() {
-    return this.data.key;
-  }
-  get value() {
+  }) {
     // no value is equivalent to `undefined`
     // `ITEM=` === `ITEM=undefined`
     if (!this.data.value) {
-      return new ParsedEnvSpecStaticValue({ rawValue: undefined, isImplicit: true });
+      this.value = new ParsedEnvSpecStaticValue({ rawValue: undefined, isImplicit: true });
+    } else {
+      const expanded = expand(this.data.value!);
+      if (expanded instanceof ParsedEnvSpecKeyValuePair) {
+        throw new Error('Nested key-value pair found in config item');
+      } else if (expanded instanceof ParsedEnvSpecFunctionArgs) {
+        throw new Error('Top-level config item cannot be a bare function args');
+      }
+      this.value = expanded;
     }
-    return this.data.value;
+  }
+
+  get key() {
+    return this.data.key;
   }
 
   get decoratorsObject() {
@@ -331,16 +330,6 @@ export class ParsedEnvSpecConfigItem {
   get description() {
     const regularComments = this.data.preComments.filter((comment) => (comment instanceof ParsedEnvSpecComment));
     return regularComments.map((comment) => comment.contents).join('\n');
-  }
-
-  processExpansion(_opts?: {}) {
-    if (this.data.value) {
-      const expanded = expand(this.data.value);
-      if (expanded instanceof ParsedEnvSpecKeyValuePair) throw new Error('Nested key-value pair found in config item');
-      this.expandedValue = expanded;
-    } else {
-      this.expandedValue = undefined;
-    }
   }
 
   private get resolverDef() {

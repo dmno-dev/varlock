@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
+  ParsedEnvSpecFunctionCall, ParsedEnvSpecFunctionArgs, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
 } from '../src';
 import { expectInstanceOf } from './test-utils';
 
@@ -46,7 +46,9 @@ function basicDecoratorTests(tests: Array<[string, any] | { label: string, comme
 
               // if we passed undefined, we are expecting a bare function call - ex; `@import(some/path)`
               } else {
-                expect(decoratorObject[key].bareFnArgs?.simplifiedValues).toEqual(expectedValue.fnArgs);
+                expect(decoratorObject[key].isBareFnCall).toBe(true);
+                expectInstanceOf(decoratorObject[key].value, ParsedEnvSpecFunctionArgs);
+                expect(decoratorObject[key].value?.simplifiedValues).toEqual(expectedValue.fnArgs);
               }
             } else {
               expectInstanceOf(decoratorObject[key].value, ParsedEnvSpecStaticValue);
