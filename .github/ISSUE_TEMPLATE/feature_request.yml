@@ -1,9 +1,7 @@
 name: Feature Request
 title: "[Feature Request] "
-labels: ["enhancement"]
+labels: ["enhancement","triage"]
 description: Suggest a new feature or enhancement
-assignees: 
-  - philmillman
 body:
   - type: markdown
     attributes:
