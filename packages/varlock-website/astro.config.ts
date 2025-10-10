@@ -84,6 +84,7 @@ export default defineConfig({
             { label: 'Migrate from dotenv', slug: 'guides/migrate-from-dotenv' },
             { label: 'Telemetry', slug: 'guides/telemetry' },
             { label: 'MCP', slug: 'guides/mcp', badge: 'new' },
+            { label: 'AI Tools', slug: 'guides/ai-tools' },
           ],
         },
         {
@@ -97,7 +98,6 @@ export default defineConfig({
             { label: 'React Router', slug: 'integrations/react-router' },
             { label: 'Cloudflare Workers', slug: 'integrations/cloudflare-workers' },
             { label: 'Other languages', slug: 'integrations/other-languages' },
-            { label: 'AI Tools', slug: 'guides/ai-tools' },
             { label: 'Docker', slug: 'guides/docker' },
             { label: 'GitHub Actions', slug: 'integrations/github-action' },
           ],

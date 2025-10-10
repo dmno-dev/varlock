@@ -2,10 +2,173 @@
 title: AI Tools
 description: Using varlock with AI tools - preventing secrets from being leaked to your AI agents
 ---
+import { TabItem, Tabs } from "@astrojs/starlight/components";
 
 AI tools like [Cursor](https://www.cursor.com/), [Gemini](https://gemini.google.com), [Claude](https://claude.ai/), and [GitHub Copilot](https://github.com/features/copilot) have accelerated workflows for many development teams. This, however, comes with some risks. Unless your team has gone to great lengths to hide secrets from your AI tools, you're probably sending secrets to their AI agents and potentially leaking them in the code it generates.
 
-`varlock` exists to solve both of those problems. By never storing the secret _values_, you never have to worry about sending them to AI servers. And because of the new [@env-spec](/env-spec/overview) format you will have better AX (agent experience) when dealing with environment variables.
+`varlock` exists to solve both of those problems. By never storing the secret _values_, you never have to worry about sending them to AI servers. And because of the new [@env-spec](/env-spec/overview) format you will have better AX (agent experience) when dealing with environment variables in your generated code.
+
+## Securely inject secrets into AI CLI tools
+
+Many AI coding assistants offer CLI tools that require API keys and other secrets. Instead of storing these secrets in plain text `.env` or `.json` files or exposing them in your shell history, use `varlock` to inject them securely at runtime. This applies both to config that might be required to bootstrap the tool itself, as well as things like [MCP servers](/guides/mcp/) that require API keys.
+
+### 1. Install varlock
+
+If you haven't already, [install varlock](/getting-started/installation/) on your system.
+
+### 2. Create an environment schema
+
+Define your API keys and secrets in your `.env.schema` file. Mark sensitive values appropriately:
+
+```env-spec title=".env.schema"
+# @sensitive @required
+OPENAI_API_KEY=exec('op read "op://api-local/openai/api-key"')
+
+# @sensitive @required
+ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
+
+# @sensitive @required
+GOOGLE_API_KEY=exec('op read "op://api-local/google/api-key"')
+```
+
+Store the actual secret values in your preferred [secrets provider](/guides/secrets-providers) like 1Password (as shown above), AWS Secrets Manager, or any other provider with a CLI to fetch invidual secrets.
+
+:::tip
+You can use any secrets provider you want, but we like 1Password since it uses biometric authentication for local access. All the examples in this guide use 1Password as a means of showing more real world examples.
+:::
+
+### 3. Run your tool via `varlock run`
+
+Execute your AI CLI tool through `varlock` to securely inject the environment variables:
+
+```bash
+varlock run -- <your-cli-command>
+```
+
+### Popular AI CLI tool examples
+
+Here's how to configure and run popular AI coding CLI tools with varlock:
+
+<Tabs>
+  <TabItem label="Aider">
+    [Aider](https://aider.chat/) is a popular AI pair programming tool that works in your terminal.
+
+    **Environment variables:**
+    - `OPENAI_API_KEY` - For OpenAI models (GPT-4, etc.)
+    - `ANTHROPIC_API_KEY` - For Claude models
+    - `GEMINI_API_KEY` - For Google Gemini models
+
+    **Add to `.env.schema`:**
+    ```env-spec
+    # @sensitive @required
+    OPENAI_API_KEY=exec('op read "op://api-local/openai/api-key"')
+    
+    # @sensitive
+    ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
+    ```
+
+    **Run with varlock:**
+    ```bash
+    varlock run -- aider
+    
+    # or with specific options
+    varlock run -- aider --model gpt-4-turbo
+    ```
+
+    See supported env variables [here](https://aider.chat/docs/getting-started/quickstart#environment-variables).
+  </TabItem>
+
+  <TabItem label="Claude">
+    [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) is Anthropic's CLI tool for AI-assisted coding.
+
+    **Environment variable:**
+    - `ANTHROPIC_API_KEY` - Your Anthropic API key
+
+    **Add to `.env.schema`:**
+    ```env-spec
+    # @sensitive @required
+    ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
+    ```
+
+    **Run with varlock:**
+    ```bash
+    varlock run -- claude
+    ```
+
+    See supported env variables [here](https://docs.claude.com/en/docs/claude-code/settings#environment-variables).
+  </TabItem>
+
+  <TabItem label="Opencode">
+    [Opencode](https://opencode.ai/) is a provider-agnostic AI coding assistant that works in your terminal.
+
+    **Environment variables:**
+    - `ANTHROPIC_API_KEY` - For Claude models
+    - `OPENAI_API_KEY` - For OpenAI models
+    - `OPENCODE_CONFIG` - Path to custom config file (optional)
+
+    **Add to `.env.schema`:**
+    ```env-spec
+    # @sensitive @required
+    ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
+    
+    # @sensitive
+    OPENAI_API_KEY=exec('op read "op://api-local/openai/api-key"')
+    ```
+
+    **Add an auth configuration:**
+    ```bash
+    opencode auth login
+    ```
+    It will ask you to paste your API key. Instead, paste in an `env reference` like this:
+
+    `{"env:ANTHROPIC_API_KEY"}`
+
+    Your config file (`~/.local/share/opencode/auth.json`) should now look like this:
+
+    ```json title="~/.local/share/opencode/auth.json"
+    {
+      "anthropic": {
+        "type": "api",
+        "key": "{env:ANTHROPIC_API_KEY}"
+      }
+    }
+    ```
+    **Run with varlock:**
+    ```bash
+    varlock run -- opencode
+    
+    # or with specific model
+    varlock run -- opencode --model claude-3-5-sonnet
+    ```
+
+    See the [Opencode docs](https://opencode.ai/docs/) for more information.
+  </TabItem>
+
+  <TabItem label="Gemini">
+    [Gemini CLI](https://github.com/google-gemini/gemini-cli) is Google's open source AI agent.
+
+    **Environment variable:**
+    - `GOOGLE_API_KEY` or `GEMINI_API_KEY` - Your Google AI API key
+
+    **Add to `.env.schema`:**
+    ```env-spec
+    # @sensitive @required
+    GOOGLE_CLOUD_PROJECT=exec('op read "op://api-local/google/cloud-project"')
+    
+    # @sensitive @required
+    GOOGLE_API_KEY=exec('op read "op://api-local/google/api-key"')
+    ```
+
+    **Run with varlock:**
+    ```bash
+    varlock run -- gemini
+    ```
+
+    See the [Gemini CLI auth docs](https://github.com/google-gemini/gemini-cli/blob/main/docs/get-started/authentication.md) for more information.
+  </TabItem>
+</Tabs>
+
+---
 
 ## Allowing schema files for AI tools
 
