@@ -97,7 +97,7 @@
     "ci-info": "^4.3.0",
     "exit-hook": "^4.0.0",
     "gunshi": "^0.26.3",
-    "is-docker": "^3.0.0",
+    "is-docker": "^4.0.0",
     "is-unicode-supported": "^2.1.0",
     "is-wsl": "^3.1.0",
     "outdent": "catalog:",
