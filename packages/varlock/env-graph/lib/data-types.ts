@@ -2,6 +2,7 @@ import _ from '@env-spec/utils/my-dash';
 import { type FallbackIfUnknown } from '@env-spec/utils/type-utils';
 import { CoercionError, ValidationError } from './errors';
 
+type MaybePromise<T> = T | Promise<T>;
 
 type EnvGraphDataTypeDef<CoerceReturnType, ValidateInputType = FallbackIfUnknown<CoerceReturnType, string>> = {
   /** this will be the name of the type, used to reference it when using it in a schema */
@@ -24,13 +25,18 @@ type EnvGraphDataTypeDef<CoerceReturnType, ValidateInputType = FallbackIfUnknown
    * - if validation passes, should return true
    * - if validation fails, should return a ValidationError or array of errors - or throw an error
    * */
-  validate: (value: ValidateInputType) => (true | undefined | void | Error | Array<Error>);
+  validate: (value: ValidateInputType) => MaybePromise<(true | undefined | void | Error | Array<Error>)>;
 
   // asyncValidate? - async validation function, meant to be called more sparingly
   // for example, when could validate an API key is currently valid
 
   // add function to validate instance settings are ok (no conflicts, missing required, etc)
 
+  /** will make items of this type sensitive, unless overridden specifically on that item */
+  sensitive?: boolean,
+
+  /** adds docs info for these  */
+  docs?: string | [string, string];
   // do we want to allow adding settings that usually come from other decorators?
   // specific items - docs, sensitive, example, etc
   // or just a way to add arbitrary other decorators?
@@ -49,12 +55,16 @@ export class EnvGraphDataType {
 
   get name() { return this.def.name; }
   get icon() { return this.def.icon; }
+  get isSensitive() { return this.def.sensitive; }
 
   /** @internal */
   get _rawDef() { return this.def; }
 
   coerce(val: any) {
-    return this.def.coerce ? this.def.coerce(val) : val;
+    if (this.def.coerce) return this.def.coerce(val);
+    // if no coerce function is defined, we'll default to converting to a string
+    if (val === undefined) return undefined;
+    return typeof val === 'string' ? val : String(val);
   }
 
   validate(val: any) {
@@ -491,18 +501,18 @@ const Md5DataType = createEnvGraphDataType({
 });
 
 
-export const BaseDataTypes = {
-  string: StringDataType,
-  number: NumberDataType,
-  boolean: BooleanDataType,
-  simpleObject: SimpleObjectDataType,
-  enum: EnumDataType,
-  email: EmailDataType,
-  url: UrlDataType,
-  ipAddress: ipAddressDataType,
-  port: PortDataType,
-  semver: SemverDataType,
-  isoDate: IsoDateDataType,
-  uuid: UuidDataType,
-  md5: Md5DataType,
-};
+export const BaseDataTypes: Array<EnvGraphDataTypeFactory> = [
+  StringDataType,
+  NumberDataType,
+  BooleanDataType,
+  SimpleObjectDataType,
+  EnumDataType,
+  EmailDataType,
+  UrlDataType,
+  ipAddressDataType,
+  PortDataType,
+  SemverDataType,
+  IsoDateDataType,
+  UuidDataType,
+  Md5DataType,
+];

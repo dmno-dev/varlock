@@ -1,0 +1,55 @@
+{
+  "name": "@varlock/simple-vault-plugin",
+  "description": "Varlock plugin to encrypt/decrypt environment variables using a simple symmetric key",
+  "version": "0.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/plugins/simple-vault"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    "./plugin": "./dist/plugin.js",
+    "./cli": "./dist/index.js"
+  },
+  "bin": {
+    "varlock-simple-vault": "./dist/cli.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "test": "vitest"
+  },
+  "keywords": [
+    "varlock",
+    "plugin",
+    "varlock-plugin",
+    "env",
+    ".env",
+    "dotenv",
+    "environment variables",
+    "env vars",
+    "config",
+    "encrypted",
+    "encryption"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "varlock": "workspace:^",
+    "vitest": "catalog:"
+  },
+  "dependencies": {
+  }
+}

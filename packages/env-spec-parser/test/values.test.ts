@@ -30,8 +30,15 @@ function basicValueTests(tests: Array<[string, any]>) {
             expect(valNode.name).toEqual(expectedValue.fnName);
             expect(valNode.simplifiedArgs).toEqual(expectedValue.fnArgs);
           } else {
-            expectInstanceOf(valNode, ParsedEnvSpecStaticValue);
-            expect(valNode.value).toEqual(expectedValue);
+            // no value set (e.g. `ITEM=`) has no value node at all
+            if (valNode) {
+              expectInstanceOf(valNode, ParsedEnvSpecStaticValue);
+              expect(valNode.value).toEqual(expectedValue);
+            } else {
+              if (expectedValue !== undefined) {
+                throw new Error(`Expected value ${expectedValue} but got implicit undefined`);
+              }
+            }
           }
         }
       });

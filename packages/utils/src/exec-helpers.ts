@@ -18,7 +18,7 @@ export function spawnAsyncHelper(
 ) {
   const childProcess = spawn(command, args, spawnOptions || {});
 
-  const deferred = new Promise((resolve, reject) => {
+  const deferred = new Promise<string>((resolve, reject) => {
     let stdoutData: string = '';
     let stderrData: string = '';
     childProcess.stdout?.on('data', (data) => {

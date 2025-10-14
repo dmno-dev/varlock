@@ -1,8 +1,9 @@
 import ansis from 'ansis';
-import { EnvGraph, ConfigItem, EnvSourceParseError } from '../../../env-graph';
+import { EnvGraph, ConfigItem } from '../../../env-graph';
 import _ from '@env-spec/utils/my-dash';
 import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import { gracefulExit } from 'exit-hook';
+import type { VarlockErrorLocationDetails } from '../../../env-graph/lib/errors';
 
 export function checkForSchemaErrors(envGraph: EnvGraph) {
   // first we check for loading/parse errors - some cases we may want to let it fail silently?
@@ -16,22 +17,43 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
     if (source.loadingError) {
       console.log(`🚨 Error encountered while loading ${source.label}\n`);
 
-      // Check if the error has a location property (like EnvSourceParseError)
-      if ('location' in source.loadingError) {
-        const errLoc = (source.loadingError as EnvSourceParseError).location;
+      // Check if the error has a location property
+      if ((source.loadingError as any).location) {
+        const errLoc = (source.loadingError as any).location as VarlockErrorLocationDetails;
 
         const errPreview = [
           errLoc.lineStr,
           `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
         ].join('\n');
 
-        console.log('Error parsing .env file: ', source.loadingError.message);
-        console.log(`📂 ${errLoc.path}:${errLoc.lineNumber}:${errLoc.colNumber}`);
+        console.log('');
+        console.log(`📂 ${errLoc.id}:${errLoc.lineNumber}:${errLoc.colNumber}`);
         console.log(errPreview);
       } else {
         console.log(source.loadingError.message);
       }
 
+      return gracefulExit(1);
+    }
+    // TODO: unify this with the above!
+    if (source.schemaErrors.length) {
+      console.log(`🚨 Error(s) encountered in ${source.label}`);
+
+      for (const schemaErr of source.schemaErrors) {
+        console.log(`- ${schemaErr.message}`);
+        // Check if the error has a location property (like EnvSourceParseError)
+        if (schemaErr.location) {
+          const errLoc = schemaErr.location;
+          const errPreview = [
+            errLoc.lineStr,
+            `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
+          ].join('\n');
+
+          console.log('');
+          console.log(`📂 ${errLoc.id}:${errLoc.lineNumber}:${errLoc.colNumber}`);
+          console.log(errPreview);
+        }
+      }
       return gracefulExit(1);
     }
   }

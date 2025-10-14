@@ -94,6 +94,18 @@ importers:
         specifier: link:../../../packages/varlock
         version: link:../../../packages/varlock
 
+  packages/plugin-test:
+    dependencies:
+      '@varlock/1password-plugin':
+        specifier: link:../../../packages/plugins/1password
+        version: link:../../../packages/plugins/1password
+      '@varlock/simple-vault-plugin':
+        specifier: link:../../../packages/plugins/simple-vault
+        version: link:../../../packages/plugins/simple-vault
+      varlock:
+        specifier: link:../../../packages/varlock
+        version: link:../../../packages/varlock
+
   packages/qwik-example:
     devDependencies:
       '@builder.io/qwik':

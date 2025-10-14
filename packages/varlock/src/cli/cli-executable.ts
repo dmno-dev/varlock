@@ -19,6 +19,7 @@ import { commandSpec as runCommandSpec } from './commands/run.command';
 import { commandSpec as helpCommandSpec } from './commands/help.command';
 import { commandSpec as telemetryCommandSpec } from './commands/telemetry.command';
 import { commandSpec as loginCommandSpec } from './commands/login.command';
+import { commandSpec as pluginCommandSpec } from './commands/plugin.command';
 
 let versionId = packageJson.version;
 if (__VARLOCK_BUILD_TYPE__ !== 'release') versionId += `-${__VARLOCK_BUILD_TYPE__}`;
@@ -50,6 +51,7 @@ subCommands.set('run', buildLazyCommand(runCommandSpec, async () => await import
 subCommands.set('help', buildLazyCommand(helpCommandSpec, async () => await import('./commands/help.command')));
 subCommands.set('telemetry', buildLazyCommand(telemetryCommandSpec, async () => await import('./commands/telemetry.command')));
 subCommands.set('login', buildLazyCommand(loginCommandSpec, async () => await import('./commands/login.command')));
+subCommands.set('plugin', buildLazyCommand(pluginCommandSpec, async () => await import('./commands/plugin.command')));
 
 (async function go() {
   try {
@@ -101,11 +103,11 @@ subCommands.set('login', buildLazyCommand(loginCommandSpec, async () => await im
       // in watch mode, we just log but do not actually exit
       console.error(error.getFormattedOutput());
       // TODO: we'll probably want to implement watch mode, so it wont actually exit
-    } else if (error instanceof EnvSourceParseError) {
-      console.error(`🚨 Error encountered while loading ${error.location.path}`);
-      console.error(error.message);
+    } else if (error instanceof EnvSourceParseError || (error as any).location) {
+      console.error(`🚨 Error encountered while loading ${(error as any).location.path}`);
+      console.error((error as any).message);
 
-      const errLoc = error.location as any;
+      const errLoc = (error as any).location;
 
       const errPreview = [
         errLoc.lineStr,
