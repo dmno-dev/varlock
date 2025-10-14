@@ -2,19 +2,24 @@ import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import _ from '@env-spec/utils/my-dash';
-import { ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair, ParsedEnvSpecStaticValue } from '@env-spec/parser';
+import {
+  ParsedEnvSpecFunctionArgs, ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair, ParsedEnvSpecStaticValue,
+} from '@env-spec/parser';
 
 import { ConfigItem } from './config-item';
 import { SimpleQueue } from './simple-queue';
 import { ResolutionError, SchemaError } from './errors';
+import type { EnvGraphDataSource } from './data-source';
+import { DecoratorInstance } from './decorators';
 
 const execAsync = promisify(exec);
 
 export type ResolvedValue = undefined
   | string | number | boolean
-  | RegExp; // regex is only used internally as function args, not as a final resolved value
+  | RegExp // regex is only used internally as function args, not as a final resolved value
   // TODO: will probably want to re-enable object/array values
-  // { [key: string]: ConfigValue } |
+  | { [key: string]: ResolvedValue }
+  | Array<ResolvedValue>;
   // Array<ConfigValue>;
 
 export class Resolver {
@@ -23,11 +28,15 @@ export class Resolver {
   constructor(
     readonly arrArgs?: Array<Resolver>,
     readonly objArgs?: Record<string, Resolver>,
-  ) {}
+    readonly dataSource?: EnvGraphDataSource,
+  ) {
+    if (this.def.inferredType) this.inferredType = this.def.inferredType;
+  }
 
   static get fnName() { return this.def.name; }
 
   get def() { return (this.constructor as typeof Resolver).def; }
+  get fnName() { return this.def.name; }
   get label() { return this.def.label; }
   get icon() { return this.def.icon; }
 
@@ -62,11 +71,11 @@ export class Resolver {
     return Object.keys(this.depsObj);
   }
 
-  private configItem?: ConfigItem;
+  private parent?: ConfigItem | DecoratorInstance;
 
   private meta: any;
-  process(configItem: ConfigItem) {
-    this.configItem = configItem;
+  process(parent?: ConfigItem | DecoratorInstance) {
+    this.parent = parent;
 
     const { argsSchema } = this.def;
     if (argsSchema?.type === 'array' && this.objArgs !== undefined) {
@@ -135,17 +144,22 @@ export class Resolver {
     }
 
     this.childResolvers.forEach((r) => {
-      r.process(configItem);
+      r.process(parent);
     });
   }
 
   // meant to be used by subclass _process methods
   protected addDep(key: string) {
-    this._depsObj[key] = true;
-    if (!this.configItem) throw new Error('expected configItem to be set');
-    if (!this.configItem.envGraph.configSchema[key]) {
-      this._schemaErrors.push(new SchemaError(`Unknown referenced key: ${key}`));
+    if (!this.envGraph!.configSchema[key]) {
+      throw new Error(`invalid dependency: ${key}`);
     }
+    this._depsObj[key] = true;
+  }
+
+  protected async getCurrentEnv() {
+    if (!this.dataSource) throw new Error('expected dataSource to be set');
+    await this.dataSource.resolveCurrentEnv();
+    return this.dataSource.envFlagValue ? String(this.dataSource.envFlagValue) : undefined;
   }
 
   async resolve() {
@@ -153,11 +167,19 @@ export class Resolver {
     return resolvedValue;
   }
 
+  get envGraph() {
+    if (this.parent instanceof ConfigItem) {
+      return this.parent.envGraph;
+    } else if (this.parent instanceof DecoratorInstance) {
+      return this.parent.graph;
+    }
+  }
+
   // meant to be used by subclass _resolve methods
   protected getDepValue(key: string) {
     // NOTE - this should not be called if the dependency is invalid
     // because we only try to resolve the item if all deps are valid
-    const depItem = this.configItem?.envGraph.configSchema[key];
+    const depItem = this.envGraph?.configSchema[key];
     if (!depItem) throw new Error(`Expected to find item - ${key}`);
     return depItem.resolvedValue;
   }
@@ -167,8 +189,10 @@ export class Resolver {
 
 export type ResolverDef<T = any> = {
   name: string;
-  label: string;
+  description?: string;
+  label?: string;
   icon?: string;
+  inferredType?: string;
   argsSchema?: {
     type: 'array' | 'object' | 'mixed';
     arrayExactLength?: number;
@@ -185,7 +209,6 @@ export type ResolverDef<T = any> = {
 export class StaticValueResolver extends Resolver {
   static def = {
     name: '\0static', // used internally, so we add the extra \0
-    label: 'static',
     icon: 'bi:dash',
     async resolve(this: Resolver) {
       return (this as StaticValueResolver).staticValue;
@@ -202,11 +225,41 @@ export class StaticValueResolver extends Resolver {
   }
 }
 
+// special resolver class for bare decorator function calls `@fn(arr1, arr2, k1=v1)`
+// because the _decorator_ may need to resolve each arg individually to use them
+// rather than there being a single resolver that resolves to a single value
+export class FunctionArgsResolver extends Resolver {
+  // we might want to just have a resolve function which resolves all children
+  // but it might be useful to let the decorator do it individually
+  // so that some can be skipped depending on the other args
+  static def = {
+    name: '\0fnArgs', // used internally, so we add the extra \0
+    label: 'function args',
+    icon: 'bi:dash',
+    // not actualyl used
+    resolve() { return undefined; },
+  };
+  // special helper to resolve all child args
+  async resolve() {
+    const resolvedArrayArgs = [] as Array<any>;
+    const resolvedObjArgs = {} as Record<string, any>;
+    for (const arg of this.arrArgs || []) {
+      resolvedArrayArgs.push(await arg.resolve());
+    }
+    for (const key in this.objArgs) {
+      resolvedObjArgs[key] = await this.objArgs[key].resolve();
+    }
+    return {
+      arr: resolvedArrayArgs,
+      obj: resolvedObjArgs,
+    };
+  }
+}
+
 // special resolver class that represents an error when an unknown resolver is used - used internally only
 export class ErrorResolver extends Resolver {
   static def: ResolverDef = {
     name: '\0error', // used internally, so we add the extra \0
-    label: 'error',
     icon: 'bi:dash',
     async resolve() { return undefined; },
   };
@@ -225,16 +278,13 @@ export function createResolver<T>(def: ResolverDef<T>) {
 
 export const ConcatResolver: typeof Resolver = createResolver({
   name: 'concat',
-  label: 'concat',
   icon: 'material-symbols:join',
+  inferredType: 'string',
   argsSchema: {
     type: 'array',
     arrayMinLength: 2,
   },
-  process() {
-    this.inferredType = 'string';
-  },
-  async resolve(t) {
+  async resolve() {
     const resolvedValues: Array<string> = [];
     for (const arg of this.arrArgs ?? []) {
       // TODO: handle child resolver failure?
@@ -248,7 +298,6 @@ export const ConcatResolver: typeof Resolver = createResolver({
 
 export const FallbackResolver: typeof Resolver = createResolver({
   name: 'fallback',
-  label: 'fallback',
   icon: 'memory:table-top-stairs-up',
   argsSchema: {
     type: 'array',
@@ -268,7 +317,6 @@ export const FallbackResolver: typeof Resolver = createResolver({
 const execQueue = new SimpleQueue();
 export const ExecResolver: typeof Resolver = createResolver({
   name: 'exec',
-  label: 'exec',
   icon: 'iconoir:terminal',
   argsSchema: {
     type: 'array',
@@ -298,7 +346,6 @@ export const ExecResolver: typeof Resolver = createResolver({
 
 export const RefResolver: typeof Resolver = createResolver({
   name: 'ref',
-  label: 'ref',
   icon: 'mdi-light:content-duplicate',
   argsSchema: {
     type: 'array',
@@ -325,7 +372,6 @@ export const RefResolver: typeof Resolver = createResolver({
 // we will check final resoled values to make sure they are not regexes
 export const RegexResolver: typeof Resolver = createResolver({
   name: 'regex',
-  label: 'regex',
   icon: 'mdi:regex',
   argsSchema: {
     type: 'array',
@@ -352,7 +398,6 @@ export const RegexResolver: typeof Resolver = createResolver({
 
 export const RemapResolver: typeof Resolver = createResolver({
   name: 'remap',
-  label: 'remap',
   icon: 'codicon:replace',
   argsSchema: {
     type: 'mixed',
@@ -377,6 +422,97 @@ export const RemapResolver: typeof Resolver = createResolver({
 });
 
 
+export const ForEnvResolver: typeof Resolver = createResolver({
+  name: 'forEnv',
+  icon: 'tabler:flag-question',
+  inferredType: 'boolean',
+  argsSchema: {
+    type: 'array',
+    arrayMinLength: 1,
+  },
+  process() {
+    // TODO: check if all options are static
+    // TODO: check against envFlag enum options?
+    const matchEnvs = this.arrArgs!.map((r) => String(r.staticValue));
+    return matchEnvs;
+  },
+  async resolve(matchEnvs) {
+    // this will trigger resolution of the current env if not already done
+    const currentEnv = await this.getCurrentEnv();
+    if (!currentEnv) throw new Error('current environment is not set');
+    return currentEnv && matchEnvs.includes(currentEnv || '');
+  },
+});
+
+export const EqResolver: typeof Resolver = createResolver({
+  name: 'eq',
+  icon: 'material-symbols:equal',
+  inferredType: 'boolean',
+  argsSchema: {
+    type: 'array',
+    arrayExactLength: 2,
+  },
+  process() {
+    return { left: this.arrArgs![0], right: this.arrArgs![1] };
+  },
+  async resolve({ left, right }) {
+    const leftVal = await left.resolve();
+    const rightVal = await right.resolve();
+    return leftVal === rightVal;
+  },
+});
+
+export const IfResolver: typeof Resolver = createResolver({
+  name: 'if',
+  icon: 'material-symbols:help-center', // question mark
+  argsSchema: {
+    type: 'array',
+    arrayMinLength: 2,
+  },
+  process() {
+    const condition = this.arrArgs![0];
+    const trueVal = this.arrArgs![1];
+    const falseVal = this.arrArgs![2];
+
+    // we can infer a type if both true and false cases have a matching inferred type
+    if (!falseVal || trueVal.inferredType === falseVal.inferredType) {
+      this.inferredType = trueVal.inferredType;
+    }
+
+    return { condition, trueVal, falseVal };
+  },
+  async resolve({ condition, trueVal, falseVal }) {
+    const conditionVal = await condition.resolve();
+    if (conditionVal) {
+      return trueVal.resolve();
+    } else {
+      return falseVal?.resolve();
+    }
+  },
+});
+
+
+// Special function for `@defaultSensitive=inferFromPrefix(PUBLIC_)`
+// we may want to formalize this pattern of a resolver function used in a root decorator
+// but resolved within the context of a specific item
+export const InferFromPrefixResolver: typeof Resolver = createResolver({
+  name: 'inferFromPrefix',
+  icon: 'material-symbols:help-center', // question mark
+  argsSchema: {
+    type: 'array',
+    arrayExactLength: 1,
+  },
+  process() {
+    // TODO: we should validate that this is only used within @defaultSensitive root decorator
+    return this.arrArgs![0].staticValue;
+  },
+  async resolve(prefix) {
+    // this is not actually meant to be resolved to a value
+    // instead our code will just use the args directly
+    return undefined;
+  },
+});
+
 
 
 export type ResolverChildClass<ChildClass extends Resolver = Resolver> = (
@@ -390,46 +526,64 @@ export const BaseResolvers: Array<ResolverChildClass> = [
   RefResolver,
   ExecResolver,
   RemapResolver,
+  ForEnvResolver,
+  EqResolver,
+  IfResolver,
   RegexResolver,
+  InferFromPrefixResolver,
 ];
-
 
 /// /
 
 export function convertParsedValueToResolvers(
-  value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined,
+  value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs | undefined,
+  dataSource: EnvGraphDataSource | undefined,
   registeredResolvers: Record<string, ResolverChildClass>,
 ): Resolver | undefined {
   if (value === undefined) {
     return undefined;
   } else if (value instanceof ParsedEnvSpecStaticValue) {
     return new StaticValueResolver(value.unescapedValue);
-  } else if (value instanceof ParsedEnvSpecFunctionCall) {
-    const ResolverFnClass = registeredResolvers[value.name];
-    if (!ResolverFnClass) {
-      return new ErrorResolver(new SchemaError(`Unknown resolver function: ${value.name}()`));
+  } else if (
+    value instanceof ParsedEnvSpecFunctionCall
+    // this is used only for bare decorator fn calls `@fn(arr1, arr2, k1=v1)`
+    || value instanceof ParsedEnvSpecFunctionArgs
+  ) {
+    let ResolverFnClass: ResolverChildClass | undefined;
+    let argsFromParser: Array<ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecKeyValuePair>;
+    if (value instanceof ParsedEnvSpecFunctionCall) {
+      // we look up the resolver by function name
+      ResolverFnClass = registeredResolvers[value.name];
+      if (!ResolverFnClass) {
+        return new ErrorResolver(new SchemaError(`Unknown resolver function: ${value.name}()`));
+      }
+      argsFromParser = value.data.args.values;
+    } else {
+      // special no-op resolver which just holds all the args resolvers
+      // our decorator functions can then access and resolve those children as necessary
+      ResolverFnClass = FunctionArgsResolver;
+      argsFromParser = value.values;
     }
-    const argsFromParser = value.data.args.values;
 
     let arrArgsAsResolvers: Array<Resolver> | undefined;
     let objArgsAsResolvers: Record<string, Resolver> | undefined;
     for (const arg of argsFromParser) {
       if (arg instanceof ParsedEnvSpecKeyValuePair) {
         objArgsAsResolvers ??= {};
-        const valResolver = convertParsedValueToResolvers(arg.value, registeredResolvers);
+        const valResolver = convertParsedValueToResolvers(arg.value, dataSource, registeredResolvers);
         if (!valResolver) throw new Error('Did not expect to find undefined resolver in key-value arg');
         objArgsAsResolvers[arg.key] = valResolver;
       } else {
         if (objArgsAsResolvers) {
           return new ErrorResolver(new SchemaError('After switching to key-value function args, cannot switch back'));
         }
-        const argResolver = convertParsedValueToResolvers(arg, registeredResolvers);
+        const argResolver = convertParsedValueToResolvers(arg, dataSource, registeredResolvers);
         if (!argResolver) throw new Error('Did not expect to find undefined resolver in array arg');
         arrArgsAsResolvers ??= [];
         arrArgsAsResolvers.push(argResolver);
       }
     }
-    return new ResolverFnClass(arrArgsAsResolvers, objArgsAsResolvers);
+    return new ResolverFnClass(arrArgsAsResolvers, objArgsAsResolvers, dataSource);
   } else {
     throw new Error('Unknown value type');
   }

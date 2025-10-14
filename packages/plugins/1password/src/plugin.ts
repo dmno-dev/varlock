@@ -1,27 +1,43 @@
-import type { VarlockPluginDef, Resolver } from 'varlock/plugin-lib';
+import { Resolver } from 'varlock/plugin-lib';
 
 import { createDeferredPromise, DeferredPromise } from '@env-spec/utils/defer';
 import { Client, createClient } from '@1password/sdk';
-
 import { opCliRead } from './cli-helper';
 
-class ResolutionError extends Error {}
-class ValidationError extends Error {}
-class SchemaError extends Error {}
+const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
-const PLUGIN_VERSION = '0.0.1';
+const PLUGIN_VERSION = plugin.version;
+const OP_ICON = 'simple-icons:1password';
+
+plugin.name = '1pass';
+const { debug } = plugin;
+debug('init - version =', plugin.version);
+plugin.icon = OP_ICON;
 
 class OpVaultInstance {
-  constructor(readonly id: string, readonly tokenVarName: string) {
+  private token?: string;
+  private useCliAuth?: boolean;
+
+  constructor(
+    readonly id: string,
+  ) {
+  }
+
+  setAuth(token: any, enableCliAuth: boolean) {
+    if (token && typeof token === 'string') {
+      this.token = token;
+    }
+    this.useCliAuth = !this.token && enableCliAuth;
+    debug('1Password vault', this.id, ' set auth - ', token, enableCliAuth);
   }
 
   opClientPromise: Promise<Client> | undefined;
-  async initSdkClient(serviceAccountToken: string) {
-    if (!serviceAccountToken) return;
+  async initSdkClient() {
+    if (!this.token) return;
     if (this.opClientPromise) return;
 
     this.opClientPromise = createClient({
-      auth: serviceAccountToken,
+      auth: this.token,
       integrationName: 'varlock plugin',
       integrationVersion: PLUGIN_VERSION,
     });
@@ -30,27 +46,32 @@ class OpVaultInstance {
   readBatch?: Record<string, { defers: Array<DeferredPromise<string>> }> | undefined;
 
   async readItem(opReference: string) {
-    // using JS SDK
-    if (this.opClientPromise) {
-      // simple batching setup, so we can use bulk read sdk method
-      let triggerBatch = false;
-      if (!this.readBatch) {
-        this.readBatch = {};
-        triggerBatch = true;
+    if (this.useCliAuth) {
+      // using op CLI
+      // NOTE - cli helper does its own batching, untethered to a vault instance
+      return await opCliRead(opReference);
+    } else if (this.token) {
+      await this.initSdkClient();
+      // using JS SDK
+      if (this.opClientPromise) {
+        // simple batching setup, so we can use bulk read sdk method
+        let triggerBatch = false;
+        if (!this.readBatch) {
+          this.readBatch = {};
+          triggerBatch = true;
+        }
+        // add item to batch, with deferred promise
+        this.readBatch[opReference] = { defers: [] };
+        const deferred = createDeferredPromise();
+        this.readBatch[opReference].defers.push(deferred);
+        if (triggerBatch) {
+          setImmediate(() => this.executeReadBatch());
+        }
+        return deferred.promise;
       }
-      // add item to batch, with deferred promise
-      this.readBatch[opReference] = { defers: [] };
-      const deferred = createDeferredPromise();
-      this.readBatch[opReference].defers.push(deferred);
-      if (triggerBatch) {
-        setImmediate(() => this.executeReadBatch());
-      }
-      return deferred.promise;
+    } else {
+      throw new SchemaError('1Password vault not properly initialized - must provide token or enableCliAuth');
     }
-
-    // using op CLI
-    // NOTE - cli helper does its own batching, untethered to a vault instance
-    return await opCliRead(opReference);
   }
 
   private async executeReadBatch() {
@@ -61,7 +82,7 @@ class OpVaultInstance {
     this.readBatch = undefined;
 
     const opReferences = Object.keys(batch || {});
-    console.log('bulk fetching', opReferences);
+    debug('bulk fetching', opReferences);
     if (!opReferences.length) return;
 
     try {
@@ -100,108 +121,98 @@ class OpVaultInstance {
 }
 const vaults: Record<string, OpVaultInstance> = {};
 
-const OP_ICON = 'simple-icons:1password';
 
-export const plugin: VarlockPluginDef = {
-  name: '1password',
-  version: PLUGIN_VERSION,
-  description: 'pull data from 1password',
+plugin.registerRootDecorator({
+  name: 'initOpVault',
+  description: 'Initialize a 1Password vault instance to use for @op decorator',
+  isFunction: true,
+  async process(argsVal) {
+    const objArgs = argsVal.objArgs;
+    if (!objArgs) throw new SchemaError('Expected some args');
+
+    if (objArgs.id && !objArgs.id.isStatic) {
+      throw new SchemaError('Expected id to be static');
+    }
+    const id = String(objArgs?.id?.staticValue || '_default');
+    if (vaults[id]) {
+      throw new SchemaError(`Vault with id "${id}" already initialized`);
+    }
+    vaults[id] = new OpVaultInstance(id);
+    // TODO: validate more
+    return {
+      id,
+      tokenResolver: objArgs.token,
+      enableCliAuthResolver: objArgs.enableCliAuth,
+    };
+  },
+  async execute({ id, tokenResolver, enableCliAuthResolver }) {
+    const token = await tokenResolver.resolve();
+    const enableCli = await enableCliAuthResolver?.resolve();
+    vaults[id].setAuth(token, !!enableCli);
+  },
+});
+
+
+plugin.registerDataType({
+  name: 'op/serviceAccountToken',
+  sensitive: true,
+  typeDescription: 'Service account token used to authenticate with the [1Password CLI](https://developer.1password.com/docs/cli/get-started/) and [SDKs](https://developer.1password.com/docs/sdks/)',
   icon: OP_ICON,
-
-  rootDecorators: [
-    {
-      name: 'initOpVault',
-      isFunction: true,
-      async process(ctx) {
-        const fnArgs = ctx.dec.bareFnArgs;
-        const argsObj = (fnArgs?.simplifiedValues as any);
-
-        const id = argsObj.id || '_default';
-        // name of env var which holds service account token
-        const tokenVarName = argsObj.token;
-
-        vaults[id] = new OpVaultInstance(id, tokenVarName);
-      },
-    },
+  docs: [
+    '1password service accounts',
+    'https://developer.1password.com/docs/service-accounts/',
   ],
-  // itemDecorators: {
-  //   pluginItemDec: {},
-  // },
-  dataTypes: [
-    {
-      name: 'op/serviceAccountToken',
-      sensitive: true,
-      typeDescription: 'Service account token used to authenticate with the [1Password CLI](https://developer.1password.com/docs/cli/get-started/) and [SDKs](https://developer.1password.com/docs/sdks/)',
-      docs: [
-        '1password service accounts',
-        'https://developer.1password.com/docs/service-accounts/',
-      ],
-      async validate(val) {
-        if (!val.startsWith('ops_')) {
-          throw new ValidationError('Should start with ops_');
-        }
-      },
-    },
-  ],
-  resolverFunctions: [
-    {
-      name: 'op',
-      label: 'Fetch value from 1Password',
-      argsSchema: {
-        type: 'array',
-        arrayMinLength: 1,
-      },
-      process() {
-        if (!this.arrArgs || !this.arrArgs.length) {
-          throw new SchemaError('Expected 1 or 2 arguments');
-        }
+  async validate(val) {
+    if (!val.startsWith('ops_')) {
+      throw new ValidationError('Should start with ops_');
+    }
+  },
+});
 
-        let vaultId: string;
-        let itemLocationResolver: Resolver;
-        if (this.arrArgs.length === 1) {
-          vaultId = '_default';
-          itemLocationResolver = this.arrArgs[0];
-        } else if (this.arrArgs.length === 2) {
-          if (!(this.arrArgs[0].isStatic)) {
-            throw new SchemaError('expected vault id to be a static value');
-          } else {
-            vaultId = String(this.arrArgs[0].staticValue);
-          }
-          itemLocationResolver = this.arrArgs[1];
-        } else {
-          throw new SchemaError('Expected 1 or 2 args');
-        }
+plugin.registerResolverFunction({
+  name: 'op',
+  label: 'Fetch value from 1Password',
+  icon: OP_ICON,
+  argsSchema: {
+    type: 'array',
+    arrayMinLength: 1,
+  },
+  process() {
+    if (!this.arrArgs || !this.arrArgs.length) {
+      throw new SchemaError('Expected 1 or 2 arguments');
+    }
 
-        // make sure vault id is valid
-        const selectedVault = vaults[vaultId];
-        if (!selectedVault) {
-          throw new SchemaError(`Invalid vault id "${vaultId}"`);
-        }
+    let vaultId: string;
+    let itemLocationResolver: Resolver;
+    if (this.arrArgs.length === 1) {
+      vaultId = '_default';
+      itemLocationResolver = this.arrArgs[0];
+    } else if (this.arrArgs.length === 2) {
+      if (!(this.arrArgs[0].isStatic)) {
+        throw new SchemaError('expected vault id to be a static value');
+      } else {
+        vaultId = String(this.arrArgs[0].staticValue);
+      }
+      itemLocationResolver = this.arrArgs[1];
+    } else {
+      throw new SchemaError('Expected 1 or 2 args');
+    }
 
-        // add dependency on env var which contains encrpytion key
-        if (selectedVault.tokenVarName) {
-          this.addDep(selectedVault.tokenVarName);
-        }
+    // make sure vault id is valid
+    const selectedVault = vaults[vaultId];
+    if (!selectedVault) {
+      throw new SchemaError(`Invalid vault id "${vaultId}"`);
+    }
 
-        return { vaultId, itemLocationResolver };
-      },
-      async resolve({ vaultId, itemLocationResolver }) {
-        const selectedVault = vaults[vaultId];
-
-        if (selectedVault.tokenVarName) {
-          const serviceAccountToken = this.getDepValue(selectedVault.tokenVarName);
-          if (serviceAccountToken !== undefined) {
-            if (typeof serviceAccountToken !== 'string') {
-              throw new ResolutionError(`Expected ${selectedVault.tokenVarName} to be a string`);
-            }
-            await selectedVault.initSdkClient(serviceAccountToken);
-          }
-        }
-
-        const opReference = await itemLocationResolver.resolve();
-        const opValue = await selectedVault.readItem(opReference);
-        return opValue;
-      },
-    },
-  ],
-};
+    return { vaultId, itemLocationResolver };
+  },
+  async resolve({ vaultId, itemLocationResolver }) {
+    const selectedVault = vaults[vaultId];
+    const opReference = await itemLocationResolver.resolve();
+    if (typeof opReference !== 'string') {
+      throw new SchemaError('expected op item location to resolve to a string');
+    }
+    const opValue = await selectedVault.readItem(opReference);
+    return opValue;
+  },
+});

@@ -1,13 +1,8 @@
 import { ExecError, spawnAsync } from '@env-spec/utils/exec-helpers';
 import { createDeferredPromise, DeferredPromise } from '@env-spec/utils/defer';
 
-
-class ResolutionError extends Error {}
-
-// const debug = Debug('varlock:1pass-plugin');
-const debug = (..._args: Array<any>) => {
-  console.log(..._args);
-};
+const { debug } = plugin;
+const { ResolutionError } = plugin.ERRORS;
 
 const ENABLE_BATCHING = true;
 
@@ -41,15 +36,16 @@ async function checkOpCliAuth() {
     opAuthDeferred = createDeferredPromise();
     const startAt = new Date();
     let isLoggedIn: boolean = false;
-    try {
-      await spawnAsync('op', ['whoami']);
-      isLoggedIn = true;
-    } catch (err) {
-      isLoggedIn = false;
-    }
 
-    const whoamiTime = +new Date() - +startAt;
-    debug(`additional whoami check took ${whoamiTime}ms`);
+    // try {
+    //   await spawnAsync('op', ['whoami']);
+    //   isLoggedIn = true;
+    // } catch (err) {
+    //   isLoggedIn = false;
+    // }
+
+    // const whoamiTime = +new Date() - +startAt;
+    // debug(`additional whoami check took ${whoamiTime}ms`);
 
     if (isLoggedIn) {
       opAuthDeferred.resolve(true);

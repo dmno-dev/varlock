@@ -9,123 +9,146 @@ import https from 'node:https';
 import _ from '@env-spec/utils/my-dash';
 import { pathExists } from '@env-spec/utils/fs-utils';
 
+
 import { FileBasedDataSource, type EnvGraphDataSource } from './data-source';
 import {
   CoercionError, ResolutionError, SchemaError, ValidationError,
 } from './errors';
 import { getErrorLocation } from './error-location';
-import { type ResolverDef } from './resolver';
+import { createResolver, type ResolverDef } from './resolver';
 import type { ItemDecoratorDef, RootDecoratorDef } from './decorators';
-import type { createEnvGraphDataType } from './data-types';
+import { createEnvGraphDataType } from './data-types';
 
 import Debug, { type Debugger } from 'debug';
-import { AsyncLocalStorage } from 'node:async_hooks';
-
-export type VarlockPluginDef = {
-  /** descriptive name of the plugin */
-  name: string;
-  /**
-   * version number (semver) of the plugin
-   * @example "1.2.3"
-   * */
-  version?: string;
-  icon?: string;
-  description?: string;
-  hooks?: {},
-  rootDecorators?: Array<RootDecoratorDef>;
-  itemDecorators?: Array<ItemDecoratorDef>;
-  resolverFunctions?: Array<ResolverDef>;
-  dataTypes?: Array<Parameters<typeof createEnvGraphDataType>[0]>;
-};
-
-
-const pluginCtxAls = new AsyncLocalStorage<VarlockPluginCtx>({ name: 'varlock-plugin-ctx' });
-
-async function loadPluginModuleFromPath(pluginPath: string): Promise<any> {
-  const pluginCtx: VarlockPluginCtx = {
-    debug: Debug('varlock:plugin'),
-    errors: {
-      CoercionError, ResolutionError, SchemaError, ValidationError,
-    },
-  };
-  const pluginModule = await pluginCtxAls.run(pluginCtx, async () => {
-    return await import(pluginPath);
-  });
-
-  console.log(pluginModule);
-
-  if (!('plugin' in pluginModule)) {
-    throw new Error('Expected plugin module to export "plugin" function');
-  }
-
-  return pluginModule.plugin as VarlockPluginDef;
-}
 
 export class VarlockPlugin {
-  localFolderPath?: string;
-  pluginFilePath: string;
-  cliFilePath?: string;
-  def: VarlockPluginDef;
+  // readonly localFolderPath?: string;
+  // readonly pluginFilePath: string;
+  // readonly cliFilePath?: string;
 
-  constructor(opts: {
-    pluginPath: string,
-    def: VarlockPluginDef,
-    cliPath?: string,
+  // helper so end user code can get same error classes
+  readonly ERRORS = {
+    ValidationError,
+    CoercionError,
+    SchemaError,
+    ResolutionError,
+  };
+
+  private _packageJson?: Record<string, any>;
+
+  private _name?: string;
+  get name() { return this._packageJson?.name || this._name || 'unnamed plugin'; }
+  set name(val: string) { this._name = val; }
+
+  private _version?: string;
+  get version() { return this._packageJson?.version || this._version || '0.0.0'; }
+  set version(val: string) { this._version = val; }
+
+  private _icon?: string;
+  get icon() { return this._icon || 'mdi:puzzle'; }
+  set icon(val: string) { this._icon = val; }
+
+  loadingError?: Error;
+
+  constructor(opts?: {
+    packageJson?: { name: string; version?: string; description?: string };
   }) {
-    this.localFolderPath = path.dirname(opts.pluginPath);
-    this.pluginFilePath = opts.pluginPath;
-    this.cliFilePath = opts.cliPath;
-    this.def = opts.def;
+    this._packageJson = opts?.packageJson;
+    // this.localFolderPath = path.dirname(opts.pluginPath);
+    // this.pluginFilePath = opts.pluginPath;
+    // this.cliFilePath = opts.cliPath;
   }
 
-  static async init(localPath: string) {
-    const stats = await fs.stat(localPath);
 
-    // If it's a file, load the plugin directly
-    if (stats.isFile()) {
-      const pluginPath = localPath;
-      // const def = (await import(pluginPath)).default;
-      const def = await loadPluginModuleFromPath(pluginPath);
-      return new VarlockPlugin({
-        pluginPath,
-        def,
-      });
-
-    // If it's a directory, load package.json and use exports field
-    } else if (stats.isDirectory()) {
-      const pkgJsonPath = path.join(localPath, 'package.json');
-      if (!(await pathExists(pkgJsonPath))) {
-        throw new Error(`package.json not found in plugin directory: ${localPath}`);
+  // awkwardly using get here to make sure we bind the debug function to this
+  // which lets us destructure it in plugin code
+  private debugger: Debugger | undefined;
+  get debug() {
+    return (...args: Parameters<Debugger>) => {
+      if (!this.debugger) {
+        if (!this.name) throw new Error('expected plugin name to be set before using debug');
+        this.debugger = Debug(`varlock:plugin:${this.name}`);
       }
+      return this.debugger(...args);
+    };
+  }
 
-      const pkgJson = JSON.parse(await fs.readFile(pkgJsonPath, 'utf-8'));
 
-      // Get plugin and cli paths from exports field
-      const exports = pkgJson.exports || {};
-      let pluginPath: string | undefined;
-      let cliPath: string | undefined;
+  readonly dataTypes?: Array<Parameters<typeof createEnvGraphDataType>[0]> = [];
+  registerDataType(dataTypeDef: Parameters<typeof createEnvGraphDataType>[0]) {
+    this.debug('registerDataType', dataTypeDef.name);
+    this.dataTypes!.push(dataTypeDef);
+  }
 
-      if (exports['./plugin']) {
-        pluginPath = path.join(localPath, exports['./plugin']);
-      } else {
-        throw new Error(`No ./plugin export or main field found in package.json: ${localPath}`);
-      }
-      if (exports['./cli']) {
-        cliPath = path.join(localPath, exports['./cli']);
-      }
+  readonly rootDecorators?: Array<RootDecoratorDef<any>> = [];
+  registerRootDecorator<T>(decoratorDef: RootDecoratorDef<T>) {
+    this.debug('registerRootDecorator', decoratorDef.name);
+    this.rootDecorators!.push(decoratorDef);
+  }
 
-      // Load the plugin definition
-      const def = await loadPluginModuleFromPath(pluginPath);
+  readonly itemDecorators?: Array<ItemDecoratorDef<any>> = [];
+  registerItemDecorator<T>(decoratorDef: ItemDecoratorDef<T>) {
+    this.debug('registerItemDecorator', decoratorDef.name);
+    this.itemDecorators!.push(decoratorDef);
+  }
 
-      return new VarlockPlugin({
-        pluginPath,
-        def,
-        cliPath,
-      });
-    } else {
-      throw new Error(`Invalid plugin path (not a file or directory): ${localPath}`);
+  readonly resolverFunctions?: Array<ResolverDef<any>> = [];
+  registerResolverFunction<T>(resolverDef: ResolverDef<T>) {
+    this.debug('registerResolverFunction', resolverDef.name);
+    this.resolverFunctions!.push(resolverDef);
+  }
+}
+
+
+async function loadPluginFromLocalPath(localPath: string) {
+  let plugin: VarlockPlugin;
+  let pluginModulePath: string;
+  let cliModulePath: string;
+
+  const stats = await fs.stat(localPath);
+
+  // If it's a file, load the plugin directly
+  if (stats.isFile()) {
+    pluginModulePath = localPath;
+    plugin = new VarlockPlugin();
+
+  // If it's a directory, load package.json and use exports field
+  } else if (stats.isDirectory()) {
+    const pkgJsonPath = path.join(localPath, 'package.json');
+    if (!(await pathExists(pkgJsonPath))) {
+      throw new Error(`package.json not found in plugin directory: ${localPath}`);
     }
+
+    const packageJsonContents = JSON.parse(await fs.readFile(pkgJsonPath, 'utf-8'));
+    plugin = new VarlockPlugin({ packageJson: packageJsonContents });
+
+    // plugin.name = pkgJson.name;
+    // plugin.version = pkgJson.version;
+    // plugin.description = pkgJson.description;
+
+    // Get plugin and cli paths from exports field
+    const exports = packageJsonContents.exports || {};
+    if (exports['./plugin']) {
+      pluginModulePath = path.join(localPath, exports['./plugin']);
+    } else {
+      throw new Error(`No ./plugin export or main field found in package.json: ${localPath}`);
+    }
+    if (exports['./cli']) {
+      cliModulePath = path.join(localPath, exports['./cli']);
+    }
+  } else {
+    throw new Error(`Invalid plugin path (not a file or directory): ${localPath}`);
   }
+
+  // temporarily attach plugin to globalThis so dynamically imported module can access it
+  (globalThis as any).plugin = plugin;
+  try {
+    await import(pluginModulePath);
+  } catch (err) {
+    plugin.loadingError = err as Error;
+  }
+  delete (globalThis as any).plugin;
+  return plugin;
 }
 
 async function downloadPlugin(url: string) {
@@ -206,52 +229,40 @@ async function downloadPlugin(url: string) {
 
 export async function loadPlugins(dataSource: EnvGraphDataSource) {
   // handle plugin decorators
-  const installPluginDecorators = dataSource.getRootDecorators('plugin');
+  const installPluginDecorators = dataSource.getRootDecFns('plugin');
   if (installPluginDecorators.length) {
     for (const pluginDecorator of installPluginDecorators) {
-      const installPluginArgs = pluginDecorator.bareFnArgs?.simplifiedValues;
-      if (!installPluginArgs || !_.isArray(installPluginArgs) || installPluginArgs.length === 0) {
-        dataSource._loadingError = new Error('expected @plugin args to be non-empty array');
-        return;
-      }
-      const pluginSourceLocation = installPluginArgs[0];
+      const installPluginArgs = await pluginDecorator.resolve();
+      const pluginSourceLocation = installPluginArgs.arr[0];
       if (!_.isString(pluginSourceLocation)) {
-        dataSource._loadingError = new Error('expected @plugin first arg to be string');
-        return;
+        throw new SchemaError('Bad @plugin - must provide a string source location');
       }
       // install from relative path
-      if (pluginSourceLocation.startsWith('./') || pluginSourceLocation.startsWith('../')) {
+      if (pluginSourceLocation.startsWith('./') || pluginSourceLocation.startsWith('../') || pluginSourceLocation.startsWith('/')) {
         if (!(dataSource instanceof FileBasedDataSource)) {
-          dataSource._loadingError = new Error('@plugin with relative path can only be used from a file-based data source');
+          dataSource._loadingError = new Error('@plugin with local path can only be used from a file-based data source');
           return;
         }
-        const fullPath = path.resolve(path.dirname(dataSource.fullPath), pluginSourceLocation);
+        const fullPath = pluginSourceLocation.startsWith('/') ? pluginSourceLocation : path.resolve(path.dirname(dataSource.fullPath), pluginSourceLocation);
         if (!(await pathExists(fullPath))) {
-          console.log(pluginDecorator.data._location, getErrorLocation(dataSource, pluginDecorator));
-
-          dataSource._loadingError = new SchemaError(`Bad @import - plugin file not found: ${fullPath}`, {
+          // TODO: attach this error to the decorator
+          dataSource._loadingError = new SchemaError(`Bad @plugin path: ${fullPath}`, {
             location: getErrorLocation(dataSource, pluginDecorator),
           });
           return;
         }
 
-        console.log('>> running imported plugin code', fullPath);
-        // await import(fullPath);
-
-        // const pluginSrc = await readFile(fullPath, 'utf-8');
-        // await loadPluginFromSrc(pluginSrc);
-
         dataSource.plugins ||= [];
-        dataSource.plugins.push(await VarlockPlugin.init(fullPath));
+        dataSource.plugins.push(await loadPluginFromLocalPath(fullPath));
 
         console.log('<< done importing plugin');
       } else if (pluginSourceLocation.startsWith('http://')) {
         dataSource._loadingError = new Error('http imports must be over https');
         return;
       } else if (pluginSourceLocation.startsWith('https://')) {
-        const localPath = await downloadPlugin(pluginSourceLocation);
+        const downloadedLocalPath = await downloadPlugin(pluginSourceLocation);
         dataSource.plugins ||= [];
-        dataSource.plugins.push(await VarlockPlugin.init(localPath));
+        dataSource.plugins.push(await loadPluginFromLocalPath(downloadedLocalPath));
       } else if (pluginSourceLocation.startsWith('npm:')) {
         dataSource._loadingError = new Error('npm imports not supported yet');
         return;
@@ -259,6 +270,24 @@ export async function loadPlugins(dataSource: EnvGraphDataSource) {
         dataSource._loadingError = new Error('unsupported plugin import type');
         return;
       }
+    }
+  }
+  const graph = dataSource.graph;
+  if (!graph) throw new Error('Data source not attached to graph');
+  for (const plugin of dataSource.plugins || []) {
+    // register decorators, resolvers, data types from this plugin
+    for (const rootDec of plugin.rootDecorators || []) {
+      graph.registerRootDecorator(rootDec);
+    }
+    for (const itemDec of plugin.itemDecorators || []) {
+      graph.registerItemDecorator(itemDec);
+    }
+    for (const dataType of plugin.dataTypes || []) {
+      graph.registerDataType(createEnvGraphDataType(dataType));
+    }
+    for (const resolverDef of plugin.resolverFunctions || []) {
+      // might want to move into plugin load process
+      graph.registerResolver(createResolver(resolverDef));
     }
   }
 }
@@ -272,3 +301,20 @@ export type VarlockPluginCtx = {
     ResolutionError: typeof ResolutionError,
   }
 };
+
+
+// export function createVarlockPlugin(
+//   basicPluginInfo: {
+//     name: string,
+//     version?: string,
+//     description?: string,
+//     icon?: string,
+//   },
+
+// ) {
+//   const plugin = new VarlockPlugin(basicPluginInfo);
+//   defPluginFn(plugin);
+// }
+
+export type definePluginFn = (p: VarlockPlugin) => void;
+

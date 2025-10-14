@@ -13,9 +13,10 @@ import {
 } from '@env-spec/parser';
 import type { Resolver } from 'node:dns';
 import {
-  builtInItemDecorators, builtInRootDecorators, type ItemDecoratorDef, type RootDecoratorDef,
+  builtInItemDecorators, builtInRootDecorators, RootDecoratorInstance, type ItemDecoratorDef, type RootDecoratorDef,
 } from './decorators';
 import { getErrorLocation } from './error-location';
+import type { GraphRootMetadata } from './metadata';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -66,6 +67,8 @@ export class EnvGraph {
       this.virtualImports[path.join(basePath, fileName)] = fileContents;
     }
   }
+
+  metaData: GraphRootMetadata = {};
 
 
   get sortedDataSources() {
@@ -141,55 +144,11 @@ export class EnvGraph {
   }
 
   async finishLoad() {
-    // finish installing plugins - which registers new decorators, resolvers, data types
-    for (const source of this.sortedDataSources) {
-      if (source.disabled) continue;
-      for (const plugin of source.plugins || []) {
-        // register decorators, resolvers, data types from this plugin
-        for (const rootDec of plugin.def.rootDecorators || []) {
-          this.registerRootDecorator(rootDec);
-        }
-        for (const itemDec of plugin.def.itemDecorators || []) {
-          this.registerItemDecorator(itemDec);
-        }
-        for (const dataType of plugin.def.dataTypes || []) {
-          this.registerDataType(createEnvGraphDataType(dataType));
-        }
-        for (const resolverDef of plugin.def.resolverFunctions || []) {
-          // might want to move this into plugin load process
-          this.registerResolver(createResolver(resolverDef));
-        }
-      }
-    }
-
     // process root decorators
     for (const source of this.sortedDataSources) {
       if (source.disabled) continue;
-      for (const decInstance of source.decorators) {
-        const decoratorDef = this.rootDecoratorsRegistry[decInstance.name];
-        if (!decoratorDef) {
-          source.schemaErrors.push(
-            new SchemaError(`Unknown root decorator: @${decInstance.name}`, {
-              location: getErrorLocation(source, decInstance),
-            }),
-          );
-        } else if (decoratorDef.isFunction && !decInstance.isBareFnCall) {
-          source.schemaErrors.push(
-            new SchemaError(`Root decorator @${decInstance.name} is meant to be called as a function`, {
-              location: getErrorLocation(source, decInstance),
-            }),
-          );
-        } else if (!decoratorDef.isFunction && decInstance.isBareFnCall) {
-          source.schemaErrors.push(
-            new SchemaError(`Root decorator @${decInstance.name} is NOT meant to be called as a function`, {
-              location: getErrorLocation(source, decInstance),
-            }),
-          );
-        } else {
-          if (decoratorDef.process) {
-            await decoratorDef.process({ dec: decInstance });
-          }
-        }
+      for (const decInstance of source.rootDecorators) {
+        await decInstance.process();
       }
     }
 
@@ -204,7 +163,7 @@ export class EnvGraph {
     for (const cycleItemKeys of cycles) {
       for (const itemKey of cycleItemKeys) {
         const item = this.configSchema[itemKey];
-        item.schemaErrors.push(
+        item._schemaErrors.push(
           new SchemaError(
             cycleItemKeys.length === 1
               ? 'Item cannot have dependency on itself'
@@ -213,21 +172,35 @@ export class EnvGraph {
         );
       }
     }
+
+    // now execute all root decorators
+    for (const source of this.sortedDataSources) {
+      if (source.disabled) continue;
+      for (const decInstance of source.rootDecorators) {
+        await this.resolveEnvValues(decInstance.decValueResolver.deps);
+        await decInstance.execute();
+      }
+    }
+
+    // maybe should be part of a _resolve all root decorators_ step?
+    await this.getRootDec('redactLogs')?.resolve();
+    await this.getRootDec('preventLeaks')?.resolve();
   }
 
   get graphAdjacencyList() {
     const adjList: GraphAdjacencyList = {};
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
-      adjList[itemKey] = item.valueResolver?.deps || [];
+      adjList[itemKey] = item.dependencyKeys;
     }
     return adjList;
   }
 
-  async resolveEnvValues(): Promise<void> {
-    if (_.keys(this.configSchema).length === 0) return;
+  async resolveEnvValues(keys?: Array<string>): Promise<void> {
+    const keysToResolve = keys ?? _.keys(this.configSchema);
+    if (!keysToResolve.length) return;
 
-    const adjList = this.graphAdjacencyList;
+    const adjList = _.pick(this.graphAdjacencyList, keysToResolve);
     const reverseAdjList: Record<string, Array<string>> = {};
     for (const itemKey in adjList) {
       const itemDeps = adjList[itemKey];
@@ -241,7 +214,7 @@ export class EnvGraph {
     // - true = in progress
     // - false = not yet started
     // - items are removed when completed
-    const itemsToResolveStatus = _.mapValues(this.configSchema, () => false);
+    const itemsToResolveStatus = _.fromPairs(keysToResolve.map((key) => [key, false]));
 
     // code is a bit awkward here because we are resolving items in parallel
     // and need to continue resolving dependent items as each finishes
@@ -271,7 +244,7 @@ export class EnvGraph {
           return;
         }
 
-        for (const depKey of adjList[itemKey]) {
+        for (const depKey of adjList[itemKey] || []) {
           const depItem = this.configSchema[depKey];
           // if a dependency is invalid, we mark the item as invalid too
           if (depItem.validationState === 'error') {
@@ -329,9 +302,8 @@ export class EnvGraph {
     }
 
     // expose a few root level settings
-    // ! reimplement
-    // serializedGraph.settings.redactLogs = this.getRootDecoratorValue('redactLogs') ?? true;
-    // serializedGraph.settings.preventLeaks = this.getRootDecoratorValue('preventLeaks') ?? true;
+    serializedGraph.settings.redactLogs = this.getRootDec('redactLogs')?.resolvedValue ?? true;
+    serializedGraph.settings.preventLeaks = this.getRootDec('preventLeaks')?.resolvedValue ?? true;
 
     return serializedGraph;
   }
@@ -344,29 +316,29 @@ export class EnvGraph {
     await generateTypes(this, lang, outputPath);
   }
 
-  // getRootDecoratorValue(decoratorName: string) {
-  //   // currently this is just used above, but may want to rework
-  //   // to track values once as we process sources
-  //   const sources = Array.from(this.sortedDataSources).reverse();
-  //   for (const s of sources) {
-  //     if (s.disabled) continue;
-  //     // we skip root decorators if the file was being _partially_ imported
-  //     if (s.isPartialImport) continue;
-  //     const decs = s.getRootDecorators(decoratorName);
-  //     if (decs.length) return decs[0].simplifiedValue;
-  //   }
-  //   return undefined;
-  // }
-  // getRootDecorators(decoratorName: string) {
-  //   const sources = Array.from(this.sortedDataSources).reverse();
-  //   const combinedDecsWithSources: Array<[EnvGraphDataSource, Array<ParsedEnvSpecDecorator>]> = [];
-  //   for (const source of sources) {
-  //     if (source.disabled) continue;
-  //     // we skip root decorators if the file was being _partially_ imported
-  //     if (source.isPartialImport) continue;
-  //     const decs = source.getRootDecorators(decoratorName);
-  //     combinedDecsWithSources.push([source, decs]);
-  //   }
-  //   return combinedDecsWithSources;
-  // }
+  getRootDec(decoratorName: string) {
+    // currently this is just used above, but may want to rework
+    // to track values once as we process sources
+    const sources = Array.from(this.sortedDataSources).reverse();
+    for (const s of sources) {
+      if (s.disabled) continue;
+      // we skip root decorators if the file was being _partially_ imported
+      if (s.isPartialImport) continue;
+      const dec = s.getRootDec(decoratorName);
+      if (dec) return dec;
+    }
+    return undefined;
+  }
+  getRootDecFns(decoratorName: string) {
+    const allDecs: Array<RootDecoratorInstance> = [];
+    const sources = Array.from(this.sortedDataSources).reverse();
+    for (const source of sources) {
+      if (source.disabled) continue;
+      // we skip root decorators if the file was being _partially_ imported
+      if (source.isPartialImport) continue;
+      const decs = source.getRootDecFns(decoratorName);
+      allDecs.push(...decs);
+    }
+    return allDecs;
+  }
 }

@@ -78,6 +78,17 @@ describe('@import', () => {
     },
   }));
 
+  test('error - no dynamic imports', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./.env.$APP_ENV)
+        # ---
+        APP_ENV=dev
+      `,
+    },
+    loadingError: true,
+  }));
+
   describe('partial imports', () => {
     test('can import specific keys', envFilesTest({
       files: {

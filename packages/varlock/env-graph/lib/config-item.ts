@@ -14,14 +14,16 @@ import { EnvGraphDataSource } from './data-source';
 import {
   convertParsedValueToResolvers, type ResolvedValue, type Resolver, StaticValueResolver,
 } from './resolver';
+import { ItemDecoratorInstance } from './decorators';
 
 export type ConfigItemDef = {
   description?: string;
   // TODO: translate parser decorator class into our own generic version
-  decorators?: Record<string, ParsedEnvSpecDecorator>;
+  parsedDecorators?: Array<ParsedEnvSpecDecorator>;
   parsedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
 
   resolver?: Resolver;
+  decorators?: Array<ItemDecoratorInstance>;
 };
 export type ConfigItemDefAndSource = {
   itemDef: ConfigItemDef;
@@ -68,17 +70,31 @@ export class ConfigItem {
       if (def.itemDef.description) return def.itemDef.description;
     }
   }
+
   get icon() {
-    const explicitIcon = this.getDecoratorValueString('icon');
-    if (explicitIcon) return explicitIcon;
+    const explicitIconDec = this.getDec('icon');
+    if (explicitIconDec) return explicitIconDec.resolvedValue;
     return this.dataType?.icon;
   }
   get docsLinks() {
     // matching { url, description } from OpenAPI
     const links: Array<{ url: string, description?: string }> = [];
-    const docsUrl = this.getDecoratorValueString('docsUrl');
-    if (docsUrl) links.push({ url: docsUrl });
-    // TODO: add ability to have multiple links, set labels
+
+    const docsUrlDec = this.getDec('docsUrl');
+    if (docsUrlDec) {
+      links.push({ url: docsUrlDec.resolvedValue });
+    }
+
+    const docsDecs = this.getDecFns('docs');
+    for (const docsDec of docsDecs) {
+      const decVal = docsDec.resolvedValue;
+      if (!decVal.arr || !_.isArray(decVal.arr)) throw new Error('expected an array of docs() args');
+      if (decVal.arr.length === 1) {
+        links.push({ url: decVal.arr[0] });
+      } else if (decVal.arr.length === 2) {
+        links.push({ url: decVal.arr[1], description: decVal.arr[0] });
+      }
+    }
     return links;
   }
 
@@ -89,81 +105,134 @@ export class ConfigItem {
     }
 
     for (const def of this.defs) {
-      if (def.itemDef.resolver) return def.itemDef.resolver;
+      if (def.itemDef.resolver) {
+        return def.itemDef.resolver;
+      }
     }
   }
 
-  getDecorator(decoratorName: string) {
-    for (const def of this.defs) {
-      const defDecorators = def.itemDef.decorators || {};
-      if (decoratorName in defDecorators) {
-        return defDecorators[decoratorName];
+  allDecorators: Array<ItemDecoratorInstance> = [];
+  effectiveDecorators: Record<string, ItemDecoratorInstance> = {};
+  effectiveDecoratorFns: Record<string, Array<ItemDecoratorInstance>> = {};
+
+  getDec(decoratorName: string) {
+    return this.effectiveDecorators[decoratorName];
+    // for (const def of this.defs) {
+    //   for (const dec of def.itemDef.decorators || []) {
+    //     if (dec.name === decoratorName) return dec;
+    //   }
+    // }
+  }
+  getDecFns(decoratorName: string) {
+    return this.effectiveDecoratorFns[decoratorName] || [];
+    // const matchingDecs: Array<ItemDecoratorInstance> = [];
+    // // we might want to think about ordering here?
+    // // we might want options to collect from all sources, or just the first match
+    // for (const def of this.defs) {
+    //   for (const dec of def.itemDef.decorators || []) {
+    //     if (dec.name === decoratorName) matchingDecs.push(dec);
+    //   }
+    // }
+    // return matchingDecs;
+  }
+  async resolveDecorators() {
+    // ensures all decorator values have been resolved
+    for (const dec of Object.values(this.effectiveDecorators)) {
+      await dec.resolve();
+    }
+    for (const decs of Object.values(this.effectiveDecoratorFns)) {
+      for (const dec of decs) {
+        await dec.resolve();
       }
     }
-  }
-  getDecoratorValueRaw(decoratorName: string) {
-    for (const def of this.defs) {
-      const defDecorators = def.itemDef.decorators || {};
-      if (decoratorName in defDecorators) {
-        return defDecorators[decoratorName].value;
-      }
-    }
-  }
-  getDecoratorValueString(decoratorName: string) {
-    const dec = this.getDecoratorValueRaw(decoratorName);
-    if (dec instanceof ParsedEnvSpecStaticValue) return String(dec.value);
   }
 
 
   dataType?: EnvGraphDataType;
-  schemaErrors: Array<SchemaError> = [];
-  get SchemaErrors() {
+  _schemaErrors: Array<SchemaError> = [];
+  get resolverSchemaErrors() {
     return this.valueResolver?.schemaErrors || [];
   }
+  get decoratorSchemaErrors() {
+    return _.values(this.allDecorators).flatMap(
+      (dec) => dec.decValueResolver?.schemaErrors || [],
+    );
+  }
 
+  #isProcessed = false;
   async process() {
-    // process resolvers
+    if (this.#isProcessed) return;
+    this.#isProcessed = true;
+
+    // process value resolver
     for (const def of this.defs) {
       if (def.itemDef.parsedValue && !def.itemDef.resolver) {
         def.itemDef.resolver = convertParsedValueToResolvers(
           def.itemDef.parsedValue,
+          def.source,
           this.envGraph.registeredResolverFunctions,
         );
       }
       await def.itemDef.resolver?.process(this);
     }
 
-    const typeDecoratorValue = this.getDecoratorValueRaw('type');
-    let dataTypeName: string | undefined;
-    let dataTypeArgs: any;
-    if (typeDecoratorValue instanceof ParsedEnvSpecStaticValue) {
-      dataTypeName = typeDecoratorValue.value;
-    } else if (typeDecoratorValue instanceof ParsedEnvSpecFunctionCall) {
-      dataTypeName = typeDecoratorValue.name;
-      dataTypeArgs = typeDecoratorValue.simplifiedArgs;
-    }
+    // process decorators and decorator value resolvers
+    for (const def of this.defs) {
+      def.itemDef.decorators = def.itemDef.parsedDecorators?.map((d) => new ItemDecoratorInstance(this, def.source, d));
+      for (const dec of def.itemDef.decorators || []) {
+        await dec.process();
+        this.allDecorators?.push(dec);
 
-    // if no type is set explicitly, we can try to use inferred type from the resolver
-    // currently only static value resolver does this - but you can imagine another resolver knowing the type ahead of time
-    // (maybe we only want to do this if the value is set in a schema file? or if all inferred types match?)
-    if (!dataTypeName) {
-      if (this.valueResolver?.inferredType) {
-        dataTypeName = this.valueResolver.inferredType;
+        // roll up active decorators
+        if (dec.isFunctionCall) {
+          this.effectiveDecoratorFns[dec.name] ||= [];
+          this.effectiveDecoratorFns[dec.name].push(dec);
+        } else {
+          this.effectiveDecorators[dec.name] ||= dec;
+        }
       }
     }
 
+    const typeDec = this.getDec('type');
+    let dataTypeName: string | undefined;
+    let dataTypeArgs: any;
+    // TODO: this will not currently support any resolver functions within type settings
+    const typeDecParsedValue = typeDec?.parsedDecorator.value;
+    if (typeDecParsedValue instanceof ParsedEnvSpecStaticValue) {
+      dataTypeName = typeDecParsedValue.value;
+    } else if (typeDecParsedValue instanceof ParsedEnvSpecFunctionCall) {
+      dataTypeName = typeDecParsedValue.name;
+      dataTypeArgs = typeDecParsedValue.simplifiedArgs;
+    }
+    // if no type is set explicitly, we can try to use inferred type from the resolver
+    // currently only static value resolver does this - but you can imagine another resolver knowing the type ahead of time
+    // (maybe we only want to do this if the value is set in a schema file? or if all inferred types match?)
+    if (!dataTypeName && this.valueResolver?.inferredType) {
+      dataTypeName = this.valueResolver.inferredType;
+    }
     dataTypeName ||= 'string';
     dataTypeArgs ||= [];
 
     if (!(dataTypeName in this.envGraph.dataTypesRegistry)) {
-      this.schemaErrors.push(new SchemaError(`unknown data type: ${dataTypeName}`));
+      this._schemaErrors.push(new SchemaError(`unknown data type: ${dataTypeName}`));
     } else {
       const dataTypeFactory = this.envGraph.dataTypesRegistry[dataTypeName];
       this.dataType = dataTypeFactory(..._.isPlainObject(dataTypeArgs) ? [dataTypeArgs] : dataTypeArgs);
     }
+  }
 
-    this.processRequired();
-    this.processSensitive();
+  get dependencyKeys() {
+    return _.uniq([
+      ...this.valueResolver?.deps || [],
+      ..._.values(this.effectiveDecorators).flatMap(
+        (dec) => dec.decValueResolver?.deps || [],
+      ),
+      ..._.values(this.effectiveDecoratorFns).flatMap(
+        (decArr) => decArr.flatMap(
+          (d) => d.decValueResolver?.deps || [],
+        ),
+      ),
+    ]);
   }
 
   /**
@@ -174,20 +243,14 @@ export class ConfigItem {
     await this.process();
 
     // process and resolve any other items our env flag depends on
-    for (const depKey of this.valueResolver?.deps || []) {
+    for (const depKey of this.dependencyKeys) {
       const depItem = this.envGraph.configSchema[depKey];
       if (!depItem) {
         throw new Error(`eager resolution eror - non-existant dependency: ${depKey}`);
       }
-      await depItem.process();
-      // we are not going to follow a chain of dependencies here
-      if (depItem.valueResolver?.deps.length) {
-        // TODO: probably should allow this, even though its not going to be common
-        throw new Error('eager resolution cannot follow a chain of dependencies');
-      }
-      await depItem.resolve(true);
+      await depItem.earlyResolve();
     }
-    await this.resolve(true);
+    await this.resolve();
   }
 
   _isRequired: boolean = true;
@@ -197,77 +260,59 @@ export class ConfigItem {
    * */
   _isRequiredDynamic: boolean = false;
 
-  private processRequired() {
+  private async processRequired() {
     try {
       for (const def of this.defs) {
-        const defDecorators = def.itemDef.decorators || {};
+        const requiredDecs = def.itemDef.decorators?.filter((d) => d.name === 'required' || d.name === 'optional') || [];
+        if (requiredDecs.length === 2) {
+          throw new SchemaError('cannot use both @required and @optional on the same item');
+        }
+        const requiredDec = requiredDecs[0];
 
         // Explicit per-item decorators
-        if ('required' in defDecorators || 'optional' in defDecorators) {
-          // cannot use both @required and @optional at same time
-          if ('required' in defDecorators && 'optional' in defDecorators) {
-            throw new SchemaError('@required and @optional cannot both be set');
+        if (requiredDec) {
+          const usingOptional = requiredDec.name === 'optional';
+
+          // need to track if required-ness is dynamic
+          this._isRequiredDynamic = requiredDec.decValueResolver.staticValue === undefined;
+
+          const requiredDecoratorVal = await requiredDec.resolve();
+          if (!_.isBoolean(requiredDecoratorVal)) {
+            throw new SchemaError('@required/@optional must resolve to a boolean');
           }
-
-          const requiredDecoratorVal = defDecorators.required?.value || defDecorators.optional?.value;
-          const usingOptional = 'optional' in defDecorators;
-          // static value of  `true` or `false`
-          if (requiredDecoratorVal instanceof ParsedEnvSpecStaticValue) {
-            const staticVal = requiredDecoratorVal.value;
-            if (_.isBoolean(staticVal)) {
-              this._isRequired = usingOptional ? !staticVal : staticVal;
-            } else {
-              throw new SchemaError('@required/@optional can only be set to true/false if using a static value');
-            }
-
-          // dynamic / function value - setting based on other values
-          } else if (requiredDecoratorVal instanceof ParsedEnvSpecFunctionCall) {
-            this._isRequiredDynamic = true;
-            const requiredFnName = requiredDecoratorVal.name;
-            const requiredFnArgs = requiredDecoratorVal.simplifiedArgs;
-
-            // set required based on current envFlag
-            if (requiredFnName === 'forEnv') {
-              // get current env from the def's source - which will follow up parent chain if necessary
-              const currentEnv = def.source.envFlagValue;
-              if (!currentEnv) {
-                throw new SchemaError('Cannot set @required using forEnv() because environment flag is not set');
-              }
-              const envMatches = requiredFnArgs.includes(currentEnv);
-              this._isRequired = usingOptional ? !envMatches : envMatches;
-            }
-          }
+          this._isRequired = usingOptional ? !requiredDecoratorVal : requiredDecoratorVal;
           return;
         }
 
         // Root-level @defaultRequired
-        const defaultRequiredValue = def.source.getRootDecoratorSimpleValue('defaultRequired');
-        if (defaultRequiredValue !== undefined) {
-          if (defaultRequiredValue === 'infer') {
-            // Only apply infer logic for schema source
-            // ? not sure about this - we could probably still apply it for other sources?
-            if (def.source.type === 'schema') {
-              const resolver = def.itemDef.resolver;
-              if (resolver === undefined) {
-                this._isRequired = false;
-              } else if (resolver instanceof StaticValueResolver) {
-                this._isRequired = resolver.staticValue !== undefined && resolver.staticValue !== '';
+        const defaultRequiredDec = def.source.getRootDec('defaultRequired');
+        if (defaultRequiredDec) {
+          const defaultRequiredVal = await defaultRequiredDec.resolve();
+          // @defaultRequired = true/false
+          if (_.isBoolean(defaultRequiredVal)) {
+            this._isRequired = defaultRequiredVal;
+            return;
+
+          // @defaultRequired = infer
+          // we infer based on if a value is set in this source
+          } else if (defaultRequiredVal === 'infer') {
+            if (def.itemDef.resolver) {
+              if (def.itemDef.resolver instanceof StaticValueResolver) {
+                this._isRequired = def.itemDef.resolver.staticValue !== undefined && def.itemDef.resolver.staticValue !== '';
               } else {
                 this._isRequired = true;
               }
-              return;
             } else {
-              // Not schema source, skip this def and continue
-              continue;
+              this._isRequired = false;
             }
+            return;
+          } else {
+            throw new SchemaError('@defaultRequired must resolve to a boolean or "infer"');
           }
-          // explicit true or false
-          this._isRequired = defaultRequiredValue;
-          return;
         }
       }
     } catch (err) {
-      this.schemaErrors.push(err instanceof SchemaError ? err : new SchemaError(err as Error));
+      this._schemaErrors.push(err instanceof SchemaError ? err : new SchemaError(err as Error));
     }
   }
   get isRequired() { return this._isRequired; }
@@ -278,35 +323,43 @@ export class ConfigItem {
   get isSensitive(): boolean {
     return this._isSensitive;
   }
-  private processSensitive() {
+  private async processSensitive() {
     const sensitiveFromDataType = this.dataType?.isSensitive;
     for (const def of this.defs) {
-      const defDecorators = def.itemDef.decorators || {};
-      if ('sensitive' in defDecorators) {
-        this._isSensitive = defDecorators.sensitive.simplifiedValue;
-        return;
+      const sensitiveDec = def.itemDef.decorators?.find((d) => d.name === 'sensitive');
+      if (sensitiveDec) {
+        const sensitiveDecValue = await sensitiveDec.resolve();
+        if (sensitiveDecValue !== undefined) {
+          this._isSensitive = sensitiveDecValue;
+          return;
+        }
         // TODO: do we want an opposite decorator similar to @required/@optional -- maybe @public?
       }
 
       // we skip `defaultSensitive` behaviour if the data type specifies sensitivity
       if (sensitiveFromDataType !== undefined) continue;
 
-      const defaultSensitiveDec = def.source.getRootDecorators('defaultSensitive')[0];
+      const defaultSensitiveDec = def.source.getRootDec('defaultSensitive');
       if (defaultSensitiveDec) {
-        // Handle function call: inferFromPrefix(PREFIX)
-        if (defaultSensitiveDec.value instanceof ParsedEnvSpecFunctionCall && defaultSensitiveDec.value.name === 'inferFromPrefix') {
-          const args = defaultSensitiveDec.value.simplifiedArgs;
-          // Accepts a single string prefix as first arg
-          const prefix = Array.isArray(args) && args.length > 0 ? args[0] : undefined;
-          if (typeof prefix === 'string' && this.key.startsWith(prefix)) {
-            this._isSensitive = false;
+        // special case for inferFromPrefix()
+        // TODO: formalize this pattern of a root decorator running a function _within the context of an item_
+        if (defaultSensitiveDec.decValueResolver.fnName === 'inferFromPrefix') {
+          const prefix = defaultSensitiveDec.decValueResolver.arrArgs![0].staticValue;
+          if (!_.isString(prefix)) {
+            this._schemaErrors.push(new SchemaError('@defaultSensitive inferFromPrefix() requires a single string argument'));
+            return;
           }
-          this._isSensitive = true;
+          this._isSensitive = !this.key.startsWith(prefix);
           return;
+        } else {
+          const defaultSensitiveVal = await defaultSensitiveDec.resolve();
+          if (!_.isBoolean(defaultSensitiveVal)) {
+            this._schemaErrors.push(new SchemaError('@defaultSensitive must resolve to a boolean value'));
+          } else {
+            this._isSensitive = defaultSensitiveVal;
+            return;
+          }
         }
-        // Fallback to static/boolean value
-        this._isSensitive = defaultSensitiveDec.simplifiedValue;
-        return;
       }
     }
     if (sensitiveFromDataType !== undefined) this._isSensitive = sensitiveFromDataType;
@@ -315,8 +368,9 @@ export class ConfigItem {
 
   get errors() {
     return _.compact([
-      ...this.schemaErrors || [],
-      ...this.SchemaErrors || [],
+      ...this._schemaErrors || [],
+      ...this.resolverSchemaErrors || [],
+      ...this.decoratorSchemaErrors || [],
       this.resolutionError,
       this.coercionError,
       ...this.validationErrors || [],
@@ -346,8 +400,8 @@ export class ConfigItem {
 
   async resolve(reset = false) {
     // bail early if we have a schema error
-    if (this.schemaErrors.length) return;
-    if (this.SchemaErrors.length) return;
+    if (this._schemaErrors.length) return;
+    if (this.resolverSchemaErrors.length) return;
 
     if (reset) {
       this.isResolved = false;
@@ -363,6 +417,10 @@ export class ConfigItem {
       // but we may want further checks, as this could help us identify buggy logic calling resolve multiple times
       return;
     }
+
+    await this.resolveDecorators();
+    await this.processRequired();
+    await this.processSensitive();
 
     if (!this.valueResolver) {
       this.isResolved = true;

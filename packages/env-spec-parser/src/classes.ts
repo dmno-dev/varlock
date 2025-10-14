@@ -169,6 +169,11 @@ export class ParsedEnvSpecDecorator {
   get isBareFnCall() {
     return !!this.data.isBareFnCall;
   }
+  get bareFnArgs() {
+    if (this.isBareFnCall && this.value instanceof ParsedEnvSpecFunctionArgs) {
+      return this.value;
+    }
+  }
 
   get simplifiedValue() {
     if (this.value instanceof ParsedEnvSpecStaticValue) {
@@ -295,7 +300,7 @@ export class ParsedEnvSpecBlankLine {
 
 
 export class ParsedEnvSpecConfigItem {
-  value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall;
+  value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
 
   constructor(public data: {
     key: string;
@@ -304,11 +309,7 @@ export class ParsedEnvSpecConfigItem {
     postComment: ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment | undefined;
     _location?: any;
   }) {
-    // no value is equivalent to `undefined`
-    // `ITEM=` === `ITEM=undefined`
-    if (!this.data.value) {
-      this.value = new ParsedEnvSpecStaticValue({ rawValue: undefined, isImplicit: true });
-    } else {
+    if (this.data.value) {
       const expanded = expand(this.data.value!);
       if (expanded instanceof ParsedEnvSpecKeyValuePair) {
         throw new Error('Nested key-value pair found in config item');
@@ -323,6 +324,10 @@ export class ParsedEnvSpecConfigItem {
     return this.data.key;
   }
 
+  get decoratorsArray() {
+    return getDecoratorsArray([...this.data.preComments, this.data.postComment]);
+  }
+
   get decoratorsObject() {
     return getDecoratorsObject([...this.data.preComments, this.data.postComment]);
   }
@@ -330,28 +335,6 @@ export class ParsedEnvSpecConfigItem {
   get description() {
     const regularComments = this.data.preComments.filter((comment) => (comment instanceof ParsedEnvSpecComment));
     return regularComments.map((comment) => comment.contents).join('\n');
-  }
-
-  private get resolverDef() {
-    if (!this.data.value) {
-      return {
-        type: 'static' as const,
-        value: undefined,
-      };
-    } else if (this.data.value instanceof ParsedEnvSpecStaticValue) {
-      return {
-        type: 'static' as const,
-        value: this.data.value.value,
-      };
-    } else if (this.data.value instanceof ParsedEnvSpecFunctionCall) {
-      return {
-        type: 'function' as const,
-        functionName: this.data.value.name,
-        functionArgs: this.data.value.simplifiedArgs,
-      };
-    } else {
-      throw new Error('Unknown value resolver type');
-    }
   }
 
   toString() {
