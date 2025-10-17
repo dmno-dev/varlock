@@ -4,7 +4,7 @@ packages:
 catalog:
   '@sindresorhus/is': ^7.0.2
   '@types/debug': ^4.1.12
-  '@types/node': ^24.3.0
+  '@types/node': ^24.8.1
   ansis: ^4.1.0
   debug: ^4.4.1
   outdent: ^0.8.0
