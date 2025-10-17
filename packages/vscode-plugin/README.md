@@ -12,6 +12,7 @@ This new DSL builds upon the common `.env` format, adding support for JSDoc styl
 
 - Syntax highlighting
 - Hover info for common `@decorators`
+- Better toggle-comment behavior (CMD+/), to enable/disable decorators within comment blocks
 - Comment continuation (automatically continue comment blocks when you hit enter within one)
 
 ## How to use this extension
