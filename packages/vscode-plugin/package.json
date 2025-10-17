@@ -51,6 +51,20 @@
         "scopeName": "source.env-spec",
         "path": "./language/env-spec.tmLanguage.json"
       }
+    ],
+    "commands": [
+      {
+        "command": "env-spec.toggleLineComment",
+        "title": "Toggle line comment (@env-spec)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "env-spec.toggleLineComment",
+        "key": "ctrl+/",
+        "mac": "cmd+/",
+        "when": "editorTextFocus && editorLangId == env-spec"
+      }
     ]
   },
   "categories": [
