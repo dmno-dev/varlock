@@ -251,6 +251,42 @@ export class RefResolver extends Resolver {
   }
 }
 
+export class ReplaceResolver extends Resolver {
+  static fnName = 'replace';
+  label = 'replace';
+  icon = 'mdi-light:content-duplicate';
+
+  private originalString?: string;
+  private searchString?: string;
+  private replacementString?: string;
+
+  async _process() {
+    if (this.fnArgs.length !== 1) {
+      throw new SchemaError('replace() expects three child args');
+    }
+    if (!(this.fnArgs[0] instanceof StaticValueResolver)) {
+      throw new SchemaError('replace() expects the first arg to be the original string');
+    }
+    if (!(this.fnArgs[1] instanceof StaticValueResolver)) {
+      throw new SchemaError('replace() expects the second arg to be the string to search for');
+    }
+    if (!(this.fnArgs[2] instanceof StaticValueResolver)) {
+      throw new SchemaError('replace() expects the third arg to be the replacement string');
+    }
+
+    this.originalString = String(await this.fnArgs[0].resolve());
+    this.searchString = String(await this.fnArgs[1].resolve());
+    this.replacementString = String(await this.fnArgs[2].resolve());
+  }
+
+  protected async _resolve() {
+    if (!this.originalString) throw new Error('expected originalString to be set');
+    if (!this.searchString) throw new Error('expected searchString to be set');
+    if (!this.replacementString) throw new Error('expected replacementString to be set');
+    return this.originalString.replace(this.searchString, this.replacementString);
+  }
+}
+
 // regex() is only used internally as function args to be used by other functions
 // we will check final resoled values to make sure they are not regexes
 export class RegexResolver extends Resolver {

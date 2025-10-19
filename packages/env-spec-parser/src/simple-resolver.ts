@@ -28,6 +28,16 @@ export function simpleResolver(
         } else {
           throw new Error('Invalid `ref` args');
         }
+      } else if (valOrFn.name === 'replace') {
+        const args = valOrFn.simplifiedArgs;
+        if (Array.isArray(args)) {
+          const str = args[0];
+          const search = args[1];
+          const replace = args[2];
+          return str.replace(search, replace);
+        } else {
+          throw new Error('Invalid `replace` args');
+        }
       } else if (valOrFn.name === 'concat') {
         const args = valOrFn.data.args.values;
         const resolvedArgs = args.map((i) => {
