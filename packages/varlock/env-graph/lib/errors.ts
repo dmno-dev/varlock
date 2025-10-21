@@ -1,4 +1,5 @@
 import _ from '@env-spec/utils/my-dash';
+// import { FileBasedDataSource, type EnvGraphDataSource } from './data-source';
 // copied these error types from Astro
 // and we will try to keep it compatible so we can interact with their error overlay
 
@@ -29,6 +30,19 @@ export type ErrorWithMetadata = {
   cause?: any;
 };
 
+
+export type VarlockErrorLocationDetails = {
+  /** file path or url */
+  id: string;
+  /** 1-based line number */
+  lineNumber: number;
+  /** 1-based column number */
+  colNumber: number;
+  /** full line string */
+  lineStr: string;
+};
+
+
 export class VarlockError extends Error {
   originalError?: Error;
   get isUnexpected() { return !!this.originalError; }
@@ -47,6 +61,7 @@ export class VarlockError extends Error {
     isWarning?: boolean,
     /** machine-friendly error code if needed for anything else */
     code?: string,
+    location?: VarlockErrorLocationDetails,
     /** free-form additional metadata */
     extraMetadata?: Record<string, any>,
   }) {
@@ -69,6 +84,10 @@ export class VarlockError extends Error {
     if (!this.more?.tip) return undefined;
     if (_.isArray(this.more.tip)) return this.more.tip.join('\n');
     return this.more.tip;
+  }
+
+  get location() {
+    return this.more?.location;
   }
 
   get code() {

@@ -75,6 +75,11 @@
       "ts-src": "./src/config.ts",
       "types": "./dist/dotenv-compat.d.ts",
       "default": "./dist/dotenv-compat.js"
+    },
+    "./plugin-lib": {
+      "ts-src": "./src/plugin-lib.ts",
+      "types": "./dist/plugin-lib.d.ts",
+      "default": "./dist/plugin-lib.js"
     }
   },
   "dependencies": {

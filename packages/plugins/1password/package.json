@@ -1,0 +1,53 @@
+{
+  "name": "@varlock/1password-plugin",
+  "description": "Varlock plugin to pull data from 1password",
+  "version": "0.0.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/plugins/1password"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    "./plugin": "./dist/plugin.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "pnpm run copy-wasm && tsup --watch",
+    "build": "tsup && pnpm run copy-wasm",
+    "copy-wasm": "mkdir -p dist && cp node_modules/@1password/sdk-core/nodejs/core_bg.wasm ./dist",
+    "test": "vitest"
+  },
+  "keywords": [
+    "varlock",
+    "plugin",
+    "varlock-plugin",
+    "1password",
+    "env",
+    ".env",
+    "dotenv",
+    "environment variables",
+    "env vars",
+    "config"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^"
+  },
+  "devDependencies": {
+    "@1password/sdk": "^0.3.1",
+    "@1password/sdk-core": "^0.3.1",
+    "@env-spec/utils": "workspace:^",
+    "@types/node": "catalog:",
+    "import-meta-resolve": "^4.2.0",
+    "tsup": "catalog:",
+    "varlock": "workspace:^",
+    "vitest": "catalog:"
+  }
+}

@@ -36,14 +36,17 @@ export function envFilesTest(spec: {
     if (spec.loadingError) {
       expect(g.sortedDataSources.some((s) => s.loadingError)).toBeTruthy();
     } else {
+      // expect no loading error
+      expect(g.sortedDataSources.some((s) => s.loadingError)).toBeFalsy();
+
       await g.resolveEnvValues();
 
       if (spec.expectValues) {
         for (const key of Object.keys(spec.expectValues)) {
           const item = g.configSchema[key];
           if (spec.expectValues[key] === SchemaError) {
-            expect(item.schemaErrors.length).toBe(1);
-            expect(item.schemaErrors[0]).toBeInstanceOf(spec.expectValues[key]);
+            expect(item._schemaErrors.length).toBe(1);
+            expect(item._schemaErrors[0]).toBeInstanceOf(spec.expectValues[key]);
           } else {
             expect(item.resolvedValue, `${key} value did not match`).toEqual(spec.expectValues[key]);
           }
@@ -58,8 +61,8 @@ export function envFilesTest(spec: {
         for (const key of Object.keys(spec.expectRequired)) {
           const item = g.configSchema[key];
           if (spec.expectRequired[key] === SchemaError) {
-            expect(item.schemaErrors.length).toBe(1);
-            expect(item.schemaErrors[0]).toBeInstanceOf(spec.expectRequired[key]);
+            expect(item._schemaErrors.length, 'Expected a schema error').toBe(1);
+            expect(item._schemaErrors[0]).toBeInstanceOf(spec.expectRequired[key]);
           } else {
             expect(item.isRequired, `expected ${key} to be ${spec.expectRequired[key] ? 'required' : 'NOT required'}`).toBe(spec.expectRequired[key]);
           }
