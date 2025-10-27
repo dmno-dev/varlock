@@ -4,7 +4,7 @@ packages:
 catalog:
   '@sindresorhus/is': ^7.0.2
   '@types/debug': ^4.1.12
-  '@types/node': ^24.8.1
+  '@types/node': ^24.9.1
   ansis: ^4.1.0
   debug: ^4.4.1
   outdent: ^0.8.0
@@ -12,4 +12,4 @@ catalog:
   typescript: ^5.9.2
   vite: ^7.0.6
   vite-node: ^3.2.4
-  vitest: ^3.2.4
+  vitest: ^4.0.4
