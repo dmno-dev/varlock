@@ -12,12 +12,12 @@
     "astro": "astro"
   },
   "dependencies": {
-    "@astrojs/mdx": "^4.3.1",
+    "@astrojs/mdx": "^4.3.9",
     "@astrojs/partytown": "^2.1.4",
-    "@astrojs/sitemap": "^3.4.2",
-    "@astrojs/starlight": "^0.35.1",
-    "@astrojs/vue": "^5.1.0",
-    "astro": "^5.12.4",
+    "@astrojs/sitemap": "^3.6.0",
+    "@astrojs/starlight": "^0.36.1",
+    "@astrojs/vue": "^5.1.2",
+    "astro": "^5.15.2",
     "astro-og-canvas": "^0.7.0",
     "astro-robots-txt": "^1.0.0",
     "canvaskit-wasm": "^0.40.0",
