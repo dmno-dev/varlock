@@ -135,7 +135,7 @@ export default defineConfig({
     vue(),
     sitemap(),
     robotsTxt({
-      sitemap: false,
+      sitemap: true,
       policy: [
         {
           userAgent: '*',
