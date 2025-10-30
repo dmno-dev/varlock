@@ -1,0 +1,25 @@
+{
+	"name": "remote-mcp-server-authless",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"lint": "eslint .",
+    	"lint:fix": "pnpm run lint --fix",
+		"start": "wrangler dev",
+		"cf-typegen": "wrangler types",
+		"type-check": "tsc --noEmit", 
+		"inspector": "pnpm dlx @modelcontextprotocol/inspector@latest"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "1.20.2",
+		"agents": "^0.2.8",
+		"zod": "^3.25.76"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"typescript": "5.9.3",
+		"wrangler": "^4.45.2"
+	}
+}
