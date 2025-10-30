@@ -1,6 +1,11 @@
 # Varlock Docs MCP
 
+>**These are development instructions, for user facing MCP docs see [here](https://varlock.dev/guides/mcp#docs-mcp)**.
+
 This is a MCP server that allows you to search the Varlock docs.
+
+Initially based on https://developers.cloudflare.com/agents/guides/remote-mcp-server/.
+
 
 ## Usage
 

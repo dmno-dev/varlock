@@ -1,6 +1,6 @@
 {
-  "name": "remote-mcp-server-authless",
-  "version": "0.0.0",
+  "name": "varlock-docs-mcp",
+  "version": "0.0.1",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
