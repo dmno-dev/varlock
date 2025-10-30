@@ -1,5 +1,7 @@
 packages:
   - packages/**/*
+  - '!packages/**/test/*'
+
 
 catalog:
   '@sindresorhus/is': ^7.0.2

@@ -86,6 +86,7 @@
     "@env-spec/parser": "workspace:^",
     "debug": "catalog:",
     "execa": "^9.6.0",
+    "semver": "^7.7.3",
     "which": "^5.0.0"
   },
   "devDependencies": {
@@ -95,6 +96,7 @@
     "@sindresorhus/is": "catalog:",
     "@types/debug": "catalog:",
     "@types/node": "catalog:",
+    "@types/semver": "^7.7.1",
     "@types/which": "^3.0.4",
     "@yao-pkg/pkg": "^6.6.0",
     "ansis": "catalog:",

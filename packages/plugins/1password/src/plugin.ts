@@ -14,14 +14,16 @@ const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = OP_ICON;
 
-class OpVaultInstance {
+class OpPluginInstance {
   /** 1Password service account token */
   private token?: string;
   /** optional - account shorthand or id to limit access */
   private account?: string;
-  /** if true, will try to use `op` CLI for auth if no token provided */
-  private useCliAuth?: boolean;
-
+  /**
+   * if true, will try to use 1Pass app auth (via `op` CLI)
+   * (will not be set to true if a token is provided)
+   * */
+  private allowAppAuth?: boolean;
 
   constructor(
     readonly id: string,
@@ -29,12 +31,10 @@ class OpVaultInstance {
   }
 
   setAuth(token: any, allowAppAuth: boolean, account?: string) {
-    if (token && typeof token === 'string') {
-      this.token = token;
-    }
-    this.useCliAuth = !this.token && allowAppAuth;
+    if (token && typeof token === 'string') this.token = token;
+    this.allowAppAuth = allowAppAuth;
     this.account = account;
-    debug('1Password vault', this.id, ' set auth - ', token, allowAppAuth);
+    debug('op instance', this.id, ' set auth - ', token, allowAppAuth, account);
   }
 
   opClientPromise: Promise<Client> | undefined;
@@ -53,13 +53,9 @@ class OpVaultInstance {
   readBatch?: Record<string, { defers: Array<DeferredPromise<string>> }> | undefined;
 
   async readItem(opReference: string) {
-    if (this.useCliAuth) {
-      // using op CLI
-      // NOTE - cli helper does its own batching, untethered to a vault instance
-      return await opCliRead(opReference, this.account);
-    } else if (this.token) {
+    if (this.token) {
+      // using JS SDK client using service account token
       await this.initSdkClient();
-      // using JS SDK
       if (this.opClientPromise) {
         // simple batching setup, so we can use bulk read sdk method
         let triggerBatch = false;
@@ -76,8 +72,14 @@ class OpVaultInstance {
         }
         return deferred.promise;
       }
+    } else if (this.allowAppAuth) {
+      // using op CLI to talk to 1Password desktop app
+      // NOTE - cli helper does its own batching, untethered to a specific op instance
+      return await opCliRead(opReference, this.account);
     } else {
-      throw new SchemaError('1Password vault not properly initialized - must provide token or allowAppAuth');
+      throw new SchemaError('Unable to authenticate with 1Password', {
+        tip: `Plugin instance (${this.id}) must be provided either a service account token or have app auth enabled (allowAppAuth=true)`,
+      });
     }
   }
 
@@ -126,11 +128,11 @@ class OpVaultInstance {
     }
   }
 }
-const vaults: Record<string, OpVaultInstance> = {};
+const pluginInstances: Record<string, OpPluginInstance> = {};
 
 plugin.registerRootDecorator({
-  name: 'initOpVault',
-  description: 'Initialize a 1Password vault instance to use for @op decorator',
+  name: 'initOp',
+  description: 'Initialize a 1Password plugin instance for op() resolver',
   isFunction: true,
   async process(argsVal) {
     const objArgs = argsVal.objArgs;
@@ -140,16 +142,22 @@ plugin.registerRootDecorator({
       throw new SchemaError('Expected id to be static');
     }
     const id = String(objArgs?.id?.staticValue || '_default');
-    if (vaults[id]) {
-      throw new SchemaError(`Vault with id "${id}" already initialized`);
+    if (pluginInstances[id]) {
+      throw new SchemaError(`Instance with id "${id}" already initialized`);
     }
-    vaults[id] = new OpVaultInstance(id);
+    pluginInstances[id] = new OpPluginInstance(id);
     // TODO: validate more
 
     if (objArgs.account && !objArgs.account.isStatic) {
       throw new SchemaError('Expected account to be static');
     }
     const account = objArgs?.account ? String(objArgs?.account?.staticValue) : undefined;
+
+    // user should either be setting token, allowAppAuth, or both
+    // we will check again later with resovled values
+    if (!objArgs.token && !objArgs.allowAppAuth) {
+      throw new SchemaError('Either token or allowAppAuth must be set');
+    }
 
     return {
       id,
@@ -161,9 +169,11 @@ plugin.registerRootDecorator({
   async execute({
     id, account, tokenResolver, allowAppAuthResolver,
   }) {
-    const token = await tokenResolver.resolve();
-    const enableCli = await allowAppAuthResolver?.resolve();
-    vaults[id].setAuth(token, !!enableCli, account);
+    // even if these are empty, we can't throw errors yet
+    // in case the instance is never actually used
+    const token = await tokenResolver?.resolve();
+    const enableAppAuth = await allowAppAuthResolver?.resolve();
+    pluginInstances[id].setAuth(token, !!enableAppAuth, account);
   },
 });
 
@@ -186,7 +196,7 @@ plugin.registerDataType({
 
 plugin.registerResolverFunction({
   name: 'op',
-  label: 'Fetch value from 1Password',
+  label: 'Fetch single field value from 1Password',
   icon: OP_ICON,
   argsSchema: {
     type: 'array',
@@ -197,37 +207,55 @@ plugin.registerResolverFunction({
       throw new SchemaError('Expected 1 or 2 arguments');
     }
 
-    let vaultId: string;
+    let instanceId: string;
     let itemLocationResolver: Resolver;
     if (this.arrArgs.length === 1) {
-      vaultId = '_default';
+      instanceId = '_default';
       itemLocationResolver = this.arrArgs[0];
     } else if (this.arrArgs.length === 2) {
       if (!(this.arrArgs[0].isStatic)) {
-        throw new SchemaError('expected vault id to be a static value');
+        throw new SchemaError('expected instance id to be a static value');
       } else {
-        vaultId = String(this.arrArgs[0].staticValue);
+        instanceId = String(this.arrArgs[0].staticValue);
       }
       itemLocationResolver = this.arrArgs[1];
     } else {
       throw new SchemaError('Expected 1 or 2 args');
     }
 
-    // make sure vault id is valid
-    const selectedVault = vaults[vaultId];
-    if (!selectedVault) {
-      throw new SchemaError(`Invalid vault id "${vaultId}"`);
+    if (!Object.values(pluginInstances).length) {
+      throw new SchemaError('No 1password plugin instances found', {
+        tip: 'Initialize at least one 1Password plugin instance using the @initOp root decorator',
+      });
     }
 
-    return { vaultId, itemLocationResolver };
+    // make sure instance id is valid
+    const selectedInstance = pluginInstances[instanceId];
+    if (!selectedInstance) {
+      if (instanceId === '_default') {
+        throw new SchemaError('1Password plugin instance (without id) not found', {
+          tip: [
+            'Either remove the `id` param from your @initOp call',
+            'or use `op(id, reference)` to select an instance by id.',
+            `Possible ids are: ${Object.keys(pluginInstances).join(', ')}`,
+          ].join('\n'),
+        });
+      } else {
+        throw new SchemaError(`1Password plugin instance id "${instanceId}" not found`, {
+          tip: [`Valid ids are: ${Object.keys(pluginInstances).join(', ')}`].join('\n'),
+        });
+      }
+    }
+
+    return { instanceId, itemLocationResolver };
   },
-  async resolve({ vaultId, itemLocationResolver }) {
-    const selectedVault = vaults[vaultId];
+  async resolve({ instanceId, itemLocationResolver }) {
+    const selectedInstance = pluginInstances[instanceId];
     const opReference = await itemLocationResolver.resolve();
     if (typeof opReference !== 'string') {
       throw new SchemaError('expected op item location to resolve to a string');
     }
-    const opValue = await selectedVault.readItem(opReference);
+    const opValue = await selectedInstance.readItem(opReference);
     return opValue;
   },
 });

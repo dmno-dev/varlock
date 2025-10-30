@@ -1,4 +1,5 @@
-import { expect } from 'vitest';
+import { expect, vi } from 'vitest';
+import path from 'node:path';
 import {
   EnvGraph, SchemaError, DirectoryDataSource, DotEnvFileDataSource,
 } from '../../index';
@@ -13,25 +14,56 @@ export function envFilesTest(spec: {
   files?: Record<string, string>;
   fallbackEnv?: string,
   overrideValues?: Record<string, string>;
+  debug?: boolean;
+  earlyError?: boolean;
   loadingError?: boolean;
   expectValues?: Record<string, string | undefined | Constructor<Error>>;
   expectNotInSchema?: Array<string>,
   expectRequired?: Record<string, boolean | Constructor<Error>>;
   expectSensitive?: Record<string, boolean | Constructor<Error>>;
+  expectSerializedMatches?: any;
 }) {
   return async () => {
+    // mock process.cwd to be the current test file
+    const currentDir = path.dirname(expect.getState().testPath!);
+    vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
+
     const g = new EnvGraph();
     if (spec.overrideValues) g.overrideValues = spec.overrideValues;
     if (spec.fallbackEnv) g.envFlagFallback = spec.fallbackEnv;
     if (spec.files) {
-      g.setVirtualImports('/test', spec.files);
-      const source = new DirectoryDataSource('/test');
+      g.setVirtualImports(currentDir, spec.files);
+      const source = new DirectoryDataSource(currentDir);
       await g.setRootDataSource(source);
     } else if (spec.envFile) {
       const source = new DotEnvFileDataSource('.env.schema', { overrideContents: spec.envFile });
       await g.setRootDataSource(source);
     }
     await g.finishLoad();
+
+    if (spec.debug) {
+      for (const ds of g.sortedDataSources) {
+        console.log('Data Source:', ds.label);
+        if (ds.loadingError) {
+          console.log('  Loading Error:', ds.loadingError);
+        }
+        if (ds.schemaErrors.length) {
+          console.log('  Schema Errors:');
+          for (const err of ds.schemaErrors) {
+            console.log('   -', err);
+          }
+        }
+      }
+    }
+
+    // TODO - improve terminology around errors
+    // and how we distinguish between errors in different phases
+    if (spec.earlyError) {
+      expect(
+        g.plugins.some((p) => p.loadingError)
+        || g.sortedDataSources.some((s) => s.schemaErrors.length > 0 || s.loadingError),
+      ).toBeTruthy();
+    }
 
     if (spec.loadingError) {
       expect(g.sortedDataSources.some((s) => s.loadingError)).toBeTruthy();
@@ -74,6 +106,11 @@ export function envFilesTest(spec: {
           expect(item.isSensitive, `expected ${key} to be ${spec.expectSensitive[key] ? 'sensitive' : 'NOT sensitive'}`).toBe(spec.expectSensitive[key]);
         }
       }
+    }
+
+    if (spec.expectSerializedMatches) {
+      const serialized = g.getSerializedGraph();
+      expect(serialized).toMatchObject(spec.expectSerializedMatches);
     }
   };
 }

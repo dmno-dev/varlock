@@ -3,8 +3,8 @@ import path from 'node:path';
 import { ConfigItem } from './config-item';
 import { EnvGraphDataSource, FileBasedDataSource } from './data-source';
 
-import { BaseResolvers, type ResolverChildClass } from './resolver';
-import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
+import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
+import { BaseDataTypes, createEnvGraphDataType, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
 import { generateTypes } from './type-generation';
@@ -14,6 +14,7 @@ import {
 } from './decorators';
 import { getErrorLocation } from './error-location';
 import type { GraphRootMetadata } from './metadata';
+import type { VarlockPlugin } from './plugins';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -55,6 +56,7 @@ export class EnvGraph {
   envFlagFallback?: string;
 
   configSchema: Record<string, ConfigItem> = {};
+
 
   /** virtual imports for testing */
   virtualImports?: Record<string, string>;
@@ -141,6 +143,14 @@ export class EnvGraph {
   }
 
   async finishLoad() {
+    // bail early if we already have issues
+    for (const source of this.sortedDataSources) {
+      if (!source.isValid) return;
+    }
+    for (const plugin of this.plugins) {
+      if (plugin.loadingError) return;
+    }
+
     // process root decorators
     let processingError = false;
     for (const source of this.sortedDataSources) {
@@ -352,4 +362,8 @@ export class EnvGraph {
     }
     return allDecs;
   }
+
+
+  /** plugins installed globally in the graph */
+  plugins: Array<VarlockPlugin> = [];
 }

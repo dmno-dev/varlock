@@ -12,7 +12,7 @@ import { EnvGraph } from './env-graph';
 
 import { SchemaError } from './errors';
 import { pathExists } from '@env-spec/utils/fs-utils';
-import { loadPlugins, VarlockPlugin } from './plugins';
+import { processPluginInstallDecorators, VarlockPlugin } from './plugins';
 import { DecoratorInstance, RootDecoratorInstance } from './decorators';
 
 const DATA_SOURCE_TYPES = Object.freeze({
@@ -45,9 +45,6 @@ export abstract class EnvGraphDataSource {
   parent?: EnvGraphDataSource;
   /** child data sources */
   children: Array<EnvGraphDataSource> = [];
-
-  /** plugins installed within this data source */
-  plugins?: Array<VarlockPlugin>;
 
   /**
    * tracks if this data source was imported, and additional settings about the import (restricting keys)
@@ -215,8 +212,8 @@ export abstract class EnvGraphDataSource {
     const defaultRequiredDec = this.getRootDec('defaultRequired');
     await defaultRequiredDec?.process();
 
-    await loadPlugins(this);
-    if (this._loadingError) return;
+    await processPluginInstallDecorators(this);
+    if (!this.isValid) return;
 
     // handle imports before we process config items
     // because the imported defs will be overridden by anything within this source
@@ -333,8 +330,8 @@ export abstract class EnvGraphDataSource {
   /** an error encountered while loading/parsing the data source */
   _loadingError?: Error;
   get loadingError() {
-    return this._loadingError
-      || this.plugins?.find((p) => p.loadingError)?.loadingError;
+    return this._loadingError;
+    // || this.plugins?.find((p) => p.loadingError)?.loadingError;
   }
   _schemaErrors: Array<SchemaError> = [];
   get schemaErrors() {
@@ -349,7 +346,7 @@ export abstract class EnvGraphDataSource {
   }
 
   get isValid() {
-    return !this.loadingError;
+    return !this.loadingError && !this.schemaErrors.length && !this.resolutionErrors.length;
   }
 
   configItemDefs: Record<string, ConfigItemDef> = {};

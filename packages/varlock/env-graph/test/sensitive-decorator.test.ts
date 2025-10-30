@@ -85,3 +85,29 @@ describe('@sensitive and @defaultSensitive tests', () => {
   test.todo('data type sensitive can set sensitivity');
   test.todo('data type sensitive is not overridden by item decorators');
 });
+
+// maybe not the right spot, but it is related to sensitivity and decorators
+// we are checking redactLogs/preventLeaks are serialized correctly and can be disabled
+describe('@redactLogs and @preventLeaks', () => {
+  test('redactLogs and preventLeaks is on by default', envFilesTest({
+    expectSerializedMatches: {
+      settings: {
+        redactLogs: true,
+        preventLeaks: true,
+      },
+    },
+  }));
+  test('redactLogs and preventLeaks is on by default', envFilesTest({
+    envFile: outdent`
+      # @redactLogs=false
+      # @preventLeaks=false
+      # ---
+    `,
+    expectSerializedMatches: {
+      settings: {
+        redactLogs: false,
+        preventLeaks: false,
+      },
+    },
+  }));
+});

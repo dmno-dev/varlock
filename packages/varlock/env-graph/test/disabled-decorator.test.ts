@@ -11,7 +11,6 @@ describe('@disable root decorator', () => {
     `,
     expectNotInSchema: ['FOO'],
   }));
-
   it('does not disable data source when @disable is false', envFilesTest({
     envFile: outdent`
       # @disable=false
