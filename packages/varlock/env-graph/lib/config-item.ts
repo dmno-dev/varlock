@@ -139,9 +139,7 @@ export class ConfigItem {
     return this.valueResolver?.schemaErrors || [];
   }
   get decoratorSchemaErrors() {
-    return _.values(this.allDecorators).flatMap(
-      (dec) => dec.decValueResolver?.schemaErrors || [],
-    );
+    return _.values(this.allDecorators).flatMap((d) => d.schemaErrors);
   }
 
   private isProcessed = false;
@@ -164,17 +162,35 @@ export class ConfigItem {
     // process decorators and decorator value resolvers
     for (const def of this.defs) {
       def.itemDef.decorators = def.itemDef.parsedDecorators?.map((d) => new ItemDecoratorInstance(this, def.source, d));
+      // track all non fn call decs used in this definition - so we can error if used twice
+      const decKeysInThisDef = new Set<string>();
+      const allDecsInThisDef = def.itemDef.decorators?.map((d) => d.name);
       for (const dec of def.itemDef.decorators || []) {
         await dec.process();
         this.allDecorators?.push(dec);
-
         // roll up active decorators
         if (dec.isFunctionCall) {
+          // collects all function calls into an array
           this.effectiveDecoratorFns[dec.name] ||= [];
           this.effectiveDecoratorFns[dec.name].push(dec);
         } else {
+          if (decKeysInThisDef.has(dec.name)) {
+            dec._schemaErrors.push(new SchemaError(`decorator @${dec.name} cannot be used twice in same definition`));
+            continue;
+          }
+          if (dec.incompatibleWith) {
+            for (const otherDecName of dec.incompatibleWith) {
+              if (allDecsInThisDef?.includes(otherDecName)) {
+                dec._schemaErrors.push(new SchemaError(`decorator @${dec.name} is incompatible with @${otherDecName} in the same definition`));
+                continue;
+              }
+            }
+          }
+
+          // takes a single decorator as the one with most precedence
           this.effectiveDecorators[dec.name] ||= dec;
         }
+        decKeysInThisDef.add(dec.name);
       }
     }
 
@@ -249,9 +265,7 @@ export class ConfigItem {
     try {
       for (const def of this.defs) {
         const requiredDecs = def.itemDef.decorators?.filter((d) => d.name === 'required' || d.name === 'optional') || [];
-        if (requiredDecs.length === 2) {
-          throw new SchemaError('cannot use both @required and @optional on the same item');
-        }
+        // NOTE - checks for duplicates and using required+optional together are already handled more generally
         const requiredDec = requiredDecs[0];
 
         // Explicit per-item decorators

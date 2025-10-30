@@ -1,9 +1,23 @@
 import ansis from 'ansis';
-import { EnvGraph, ConfigItem } from '../../../env-graph';
-import _ from '@env-spec/utils/my-dash';
-import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import { gracefulExit } from 'exit-hook';
-import type { VarlockErrorLocationDetails } from '../../../env-graph/lib/errors';
+import _ from '@env-spec/utils/my-dash';
+import { EnvGraph, ConfigItem } from '../../../env-graph';
+import { getItemSummary, joinAndCompact } from '../../lib/formatting';
+import { VarlockError } from '../../../env-graph/lib/errors';
+
+
+function showErrorLocationDetails(err: Error) {
+  if (!(err instanceof VarlockError) || !err.location) return;
+  const errLoc = err.location;
+  const errPreview = [
+    errLoc.lineStr,
+    `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
+  ].join('\n');
+
+  console.log('');
+  console.log(`📂 ${errLoc.id}:${errLoc.lineNumber}:${errLoc.colNumber}`);
+  console.log(errPreview);
+}
 
 export function checkForSchemaErrors(envGraph: EnvGraph) {
   // first we check for loading/parse errors - some cases we may want to let it fail silently?
@@ -11,28 +25,12 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
     // do we care about loading errors from disabled sources?
     // if (source.disabled) continue;
 
-    // console.log(source);
-
     // TODO: use a formatting helper to show the error - which will include location/stack/etc appropriately
     if (source.loadingError) {
       console.log(`🚨 Error encountered while loading ${source.label}\n`);
 
-      // Check if the error has a location property
-      if ((source.loadingError as any).location) {
-        const errLoc = (source.loadingError as any).location as VarlockErrorLocationDetails;
-
-        const errPreview = [
-          errLoc.lineStr,
-          `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
-        ].join('\n');
-
-        console.log('');
-        console.log(`📂 ${errLoc.id}:${errLoc.lineNumber}:${errLoc.colNumber}`);
-        console.log(errPreview);
-      } else {
-        console.log(source.loadingError.message);
-      }
-
+      console.log(source.loadingError.message);
+      showErrorLocationDetails(source.loadingError);
       return gracefulExit(1);
     }
     // TODO: unify this with the above!
@@ -41,18 +39,7 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
 
       for (const schemaErr of source.schemaErrors) {
         console.log(`- ${schemaErr.message}`);
-        // Check if the error has a location property (like EnvSourceParseError)
-        if (schemaErr.location) {
-          const errLoc = schemaErr.location;
-          const errPreview = [
-            errLoc.lineStr,
-            `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
-          ].join('\n');
-
-          console.log('');
-          console.log(`📂 ${errLoc.id}:${errLoc.lineNumber}:${errLoc.colNumber}`);
-          console.log(errPreview);
-        }
+        showErrorLocationDetails(schemaErr);
       }
       return gracefulExit(1);
     }
@@ -66,6 +53,7 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
   //   throw new CliExitError('Schema is currently invalid');
   // }
 }
+
 
 export class InvalidEnvError extends Error {
   constructor() {
@@ -86,18 +74,7 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
 
       for (const err of source.resolutionErrors) {
         console.log(`- ${err.message}`);
-        // Check if the error has a location property (like EnvSourceParseError)
-        if ((err as any).location) {
-          const errLoc = (err as any).location;
-          const errPreview = [
-            errLoc.lineStr,
-            `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
-          ].join('\n');
-
-          console.log('');
-          console.log(`📂 ${errLoc.id}:${errLoc.lineNumber}:${errLoc.colNumber}`);
-          console.log(errPreview);
-        }
+        showErrorLocationDetails(err);
       }
     }
   }

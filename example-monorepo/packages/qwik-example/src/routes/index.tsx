@@ -22,7 +22,7 @@ export default component$(() => {
       <h1>Hi 👋</h1>
       <div>
         <ul>
-          <li>EreqV.PUBLIC_FOO: {ENV.PUBLIC_FOO}</li>
+          <li>ENV.PUBLIC_FOO: {ENV.PUBLIC_FOO}</li>
           <li>ENV.VITE_PUBLIC_FOO: {ENV.VITE_PUBLIC_FOO}</li>
           {/* <li>ENV.SECRET_FOO: {ENV.SECRET_FOO}</li> */}
           <li>ENV.APP_ENV: {ENV.APP_ENV}</li>

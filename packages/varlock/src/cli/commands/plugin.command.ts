@@ -1,6 +1,7 @@
 import { define } from 'gunshi';
 import { loadEnvGraph } from '../../../env-graph';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { checkForSchemaErrors } from '../helpers/error-checks';
 
 export const commandSpec = define({
   name: 'plugin',
@@ -16,6 +17,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   await console.log('🧙 Scanning for issues... ✨');
 
   const envGraph = await loadEnvGraph();
+  checkForSchemaErrors(envGraph);
   await envGraph.resolveEnvValues();
   // const resolvedEnv = envGraph.getResolvedEnvObject();
 

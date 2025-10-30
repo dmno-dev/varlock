@@ -1,5 +1,3 @@
-// @ts-check
-// import { varlockVitePlugin } from '@varlock/vite-integration';
 import { defineConfig } from 'astro/config';
 import vue from '@astrojs/vue';
 import mdx from '@astrojs/mdx';
@@ -22,10 +20,6 @@ export default defineConfig({
     vue(),
     mdx(),
   ],
-
-  // vite: {
-  //   plugins: [varlockVitePlugin() as any],
-  // },
 
   ...process.env.TEST_ASTRO_ADAPTER === 'node' && {
     output: 'server',

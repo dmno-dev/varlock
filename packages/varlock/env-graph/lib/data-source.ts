@@ -10,10 +10,11 @@ import {
 import { ConfigItem, type ConfigItemDef } from './config-item';
 import { EnvGraph } from './env-graph';
 
-import { SchemaError } from './errors';
+import { ParseError, SchemaError, VarlockError } from './errors';
 import { pathExists } from '@env-spec/utils/fs-utils';
 import { processPluginInstallDecorators } from './plugins';
 import { RootDecoratorInstance } from './decorators';
+import { id } from 'ci-info';
 
 const DATA_SOURCE_TYPES = Object.freeze({
   schema: {
@@ -371,24 +372,6 @@ export abstract class EnvGraphDataSource {
   }
 }
 
-
-export class EnvSourceParseError extends Error {
-  location: {
-    path: string,
-    lineNumber: number,
-    colNumber: number,
-    lineStr: string,
-  };
-
-  constructor(
-    message: string,
-    _location: EnvSourceParseError['location'],
-  ) {
-    super(message);
-    this.location = _location;
-  }
-}
-
 export abstract class FileBasedDataSource extends EnvGraphDataSource {
   isGitIgnored?: boolean;
   fullPath: string;
@@ -399,7 +382,8 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
     return (this.constructor as typeof FileBasedDataSource).format;
   }
 
-  get label() { return this.fileName; }
+  private relativePath: string;
+  get label() { return this.relativePath; }
 
   static format = 'unknown'; // no abstract static
 
@@ -419,6 +403,7 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
 
     this.fullPath = fullPath;
     this.fileName = path.basename(fullPath);
+    this.relativePath = path.relative(process.cwd(), fullPath);
 
     // easy way to allow tests to override contents or other non-standard ways of loading content
     if (opts?.overrideContents) {
@@ -486,12 +471,15 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
     this.parsedFile = await tryCatch(
       () => parseEnvSpecDotEnvFile(rawContents),
       (error) => {
-        this._loadingError = new EnvSourceParseError(error.message, {
-          path: this.fullPath,
-          lineNumber: error.location.start.line,
-          colNumber: error.location.start.column,
-          lineStr: rawContents.split('\n')[error.location.start.line - 1],
+        this._loadingError = new ParseError(`Parse error: ${error.message}`, {
+          location: {
+            id: this.fullPath,
+            lineNumber: error.location.start.line,
+            colNumber: error.location.start.column,
+            lineStr: rawContents.split('\n')[error.location.start.line - 1],
+          },
         });
+        // TODO: figure out cause vs passing in as `err` param
         this._loadingError.cause = error;
       },
     );

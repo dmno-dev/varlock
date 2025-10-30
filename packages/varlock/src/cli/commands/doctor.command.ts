@@ -11,13 +11,9 @@ export const commandSpec = define({
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   console.log('');
-  await console.log('🧙 Scanning for issues... ✨');
+  console.log('🧙 Varlock doctor -- coming soon...');
 
-  console.log('Bundled SEA?', isBundledSEA());
-
-  const envGraph = await loadEnvGraph();
-  await envGraph.resolveEnvValues();
-  // const resolvedEnv = envGraph.getResolvedEnvObject();
+  // console.log('Bundled SEA?', isBundledSEA());
 
   // TODO: Mac app checks
   // - installed, running, logged in, set up (keys exist), locked/unlocked state

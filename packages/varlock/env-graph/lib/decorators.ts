@@ -35,6 +35,9 @@ export abstract class DecoratorInstance {
   _executionError?: Error;
 
   private decoratorDef?: ItemDecoratorDef | RootDecoratorDef;
+  get incompatibleWith() {
+    return this.decoratorDef?.incompatibleWith;
+  }
 
   private processed = false;
   private processedData: any;
@@ -50,7 +53,7 @@ export abstract class DecoratorInstance {
         : this.graph.itemDecoratorsRegistry;
       this.decoratorDef = decRegistry[this.name];
       if (!this.decoratorDef) {
-        throw new Error(`Unknown decorator: ${this.name}`);
+        throw new Error(`Unknown decorator: @${this.name}`);
       }
 
       // this is so we can deal with @type, where each data type is not a real resolver

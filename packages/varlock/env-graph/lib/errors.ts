@@ -147,6 +147,10 @@ export class ConfigLoadError extends VarlockError {
     };
   }
 }
+
+export class ParseError extends VarlockError {
+  static defaultIcon = '😵‍💫';
+}
 export class SchemaError extends VarlockError {
   static defaultIcon = '🧰';
 }
