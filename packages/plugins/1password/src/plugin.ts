@@ -113,7 +113,7 @@ class OpPluginInstance {
       let commonErr;
       // 1pass sdk throws strings as errors...
       if (typeof err === 'string') {
-        commonErr = new ResolutionError(`1password SDK error - ${err}`);
+        commonErr = new ResolutionError(`1Password SDK error - ${err}`);
       } else {
         commonErr = err as Error;
       }
@@ -184,8 +184,11 @@ plugin.registerDataType({
   typeDescription: 'Service account token used to authenticate with the [1Password CLI](https://developer.1password.com/docs/cli/get-started/) and [SDKs](https://developer.1password.com/docs/sdks/)',
   icon: OP_ICON,
   docs: [
-    '1password service accounts',
-    'https://developer.1password.com/docs/service-accounts/',
+    {
+      description: '1Password service accounts',
+      url: 'https://developer.1password.com/docs/service-accounts/',
+    },
+    'https://example.com',
   ],
   async validate(val) {
     if (!val.startsWith('ops_')) {
@@ -224,7 +227,7 @@ plugin.registerResolverFunction({
     }
 
     if (!Object.values(pluginInstances).length) {
-      throw new SchemaError('No 1password plugin instances found', {
+      throw new SchemaError('No 1Password plugin instances found', {
         tip: 'Initialize at least one 1Password plugin instance using the @initOp root decorator',
       });
     }

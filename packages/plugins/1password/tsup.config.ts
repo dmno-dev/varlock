@@ -3,7 +3,6 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: [ // Entry point(s)
     'src/plugin.ts',
-    // 'src/cli.ts',
   ],
 
   dts: true,
@@ -20,7 +19,6 @@ export default defineConfig({
 
   target: 'esnext',
   external: ['varlock'],
-  // noExternal: [/.*/],
   banner: ({ format }) => {
     if (format === 'esm') {
       return ({

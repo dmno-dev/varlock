@@ -73,20 +73,6 @@ export class VarlockPlugin {
     this._packageJson = opts?.packageJson;
   }
 
-  // constructor(opts?: {
-  //   localPath?: string,
-  //   loadingError?: Error,
-  //   packageJson?: { name: string; version?: string; description?: string };
-  // }) {
-  //   this._packageJson = opts?.packageJson;
-  //   this.localPath = opts?.localPath;
-  //   this.loadingError = opts?.loadingError;
-  //   // this.localFolderPath = path.dirname(opts.pluginPath);
-  //   this.pluginFilePath = opts.pluginPath;
-  //   // this.cliFilePath = opts.cliPath;
-  // }
-
-
   // awkwardly using get here to make sure we bind the debug function to this
   // which lets us destructure it in plugin code
   private debugger: Debugger | undefined;

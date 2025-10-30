@@ -23,7 +23,7 @@ let lockCliToOpAccount: string | undefined;
   a deferred promise that other requests can then wait on. We also use the additional trick of checking `op whoami` so that
   if the app is already unlocked, we dont have to actually wait for the first request to finish to proceed with the rest.
 
-  Ideally 1password will fix this issue at some point and we can remove this extra logic.
+  Ideally 1Password will fix this issue at some point and we can remove this extra logic.
 
   NOTE - We don't currently do anything special to handle if the user denies the login, or is logged into the wrong account.
 */
@@ -101,7 +101,7 @@ function processOpCliError(err: Error | any) {
     debug('1pass cli error --', errMessage);
     if (errMessage.startsWith('[ERROR]')) errMessage = errMessage.substring(28);
     if (errMessage.includes('authorization prompt dismissed')) {
-      return new ResolutionError('1password app authorization prompt dismissed by user', {
+      return new ResolutionError('1Password app authorization prompt dismissed by user', {
         tip: [
           'By not using a service account token, you are relying on your local 1Password installation',
           'When the authorization prompt appears, you must authorize/unlock 1Password to allow access',
@@ -112,13 +112,13 @@ function processOpCliError(err: Error | any) {
       // so we will extract the vault name/id
       const matches = errMessage.match(/"([^"]+)" isn't a vault in this account/);
       const vaultNameOrId = matches?.[1] || 'unknown';
-      return new ResolutionError(`1password vault "${vaultNameOrId}" not found in account connected to op cli`, {
+      return new ResolutionError(`1Password vault "${vaultNameOrId}" not found in account connected to op cli`, {
         code: 'BAD_VAULT_REFERENCE',
         extraMetadata: { badVaultId: vaultNameOrId },
         tip: [
-          'By not using a service account token, you are relying on your local 1password cli installation and authentication.',
-          'The account currently connected to the cli does not contain (or have access to) the selected vault',
-          'This must be resolved in your terminal - try running `op whoami` to see which account is connected to your `op` cli.',
+          'By not using a service account token, you are relying on your local 1Password CLI installation and authentication.',
+          'The account currently connected to the CLI does not contain (or have access to) the selected vault',
+          'This must be resolved in your terminal - try running `op whoami` to see which account is connected to your `op` CLI.',
           'You may need to call `op signout` and `op signin` to select the correct account.',
         ],
       });
@@ -129,11 +129,11 @@ function processOpCliError(err: Error | any) {
       const vaultId = matches?.[2] || 'unknown';
 
       // const vaultNameOrId = errMessage.substring(1, errMessage.substring(1).indexOf('"') + 1);
-      return new ResolutionError(`1password item "${itemNameOrId}" not found in vault "${vaultId}"`, {
+      return new ResolutionError(`1Password item "${itemNameOrId}" not found in vault "${vaultId}"`, {
         code: 'BAD_ITEM_REFERENCE',
         extraMetadata: { badItemId: itemNameOrId, vaultId },
         tip: [
-          'Double check the item in your 1password vault.',
+          'Double check the item in your 1Password vault.',
           'It is always safer to use IDs since they are more stable than names.',
         ],
       });
@@ -145,7 +145,7 @@ function processOpCliError(err: Error | any) {
       const fieldNameOrId = matches?.[2]?.replace('.', '/') || 'unknown';
 
       // const vaultNameOrId = errMessage.substring(1, errMessage.substring(1).indexOf('"') + 1);
-      return new ResolutionError(`1password vault "${vaultId}" item "${itemId}" does not have field "${fieldNameOrId}"`, {
+      return new ResolutionError(`1Password vault "${vaultId}" item "${itemId}" does not have field "${fieldNameOrId}"`, {
         code: 'BAD_FIELD_REFERENCE',
         extraMetadata: { vaultId, itemId, badFieldId: fieldNameOrId },
         tip: ['Double check the field name/id in your item.'],
@@ -159,25 +159,25 @@ function processOpCliError(err: Error | any) {
     // however if it dismissed, we get an error with no message
     // TODO: figure out the right workflow here?
     if (!errMessage) {
-      return new ResolutionError('1password cli not configured', {
+      return new ResolutionError('1Password CLI not configured', {
         tip: [
-          'By not using a service account token, you are relying on your local 1password cli installation and authentication.',
-          'You many need to enable the 1password Desktop app integration, see https://developer.1password.com/docs/cli/get-started/#step-2-turn-on-the-1password-desktop-app-integration',
-          'Try running `op whoami` to make sure the cli is connected to the correct account',
+          'By not using a service account token, you are relying on your local 1Password CLI installation and authentication.',
+          'You many need to enable the 1Password Desktop app integration, see https://developer.1password.com/docs/cli/get-started/#step-2-turn-on-the-1password-desktop-app-integration',
+          'Try running `op whoami` to make sure the CLI is connected to the correct account',
           'You may need to call `op signout` and `op signin` to select the correct account.',
         ],
       });
     }
-    return new Error(`1password cli error - ${errMessage || 'unknown'}`);
+    return new Error(`1Password CLI error - ${errMessage || 'unknown'}`);
   } else if ((err as any).code === 'ENOENT') {
-    return new ResolutionError('1password cli `op` not found', {
+    return new ResolutionError('1Password CLI `op` not found', {
       tip: [
-        'By not using a service account token, you are relying on your local 1password cli installation for ambient auth.',
-        'But your local 1password cli (`op`) was not found. Install it here - https://developer.1password.com/docs/cli/get-started/',
+        'By not using a service account token, you are relying on your local 1Password CLI installation for ambient auth.',
+        'But your local 1Password CLI (`op`) was not found. Install it here - https://developer.1password.com/docs/cli/get-started/',
       ],
     });
   } else {
-    return new ResolutionError(`Problem invoking 1password cli: ${(err as any).message}`);
+    return new ResolutionError(`Problem invoking 1Password CLI: ${(err as any).message}`);
   }
 }
 

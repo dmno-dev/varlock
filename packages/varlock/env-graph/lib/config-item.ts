@@ -32,20 +32,11 @@ export type ConfigItemDefAndSource = {
 
 
 export class ConfigItem {
-  // annoyingly we cannot use readonly if we want to support `erasableSyntaxOnly`
-  #envGraph: EnvGraph;
-  #key: string;
-
   constructor(
-    _envGraph: EnvGraph,
-    _key: string,
+    readonly envGraph: EnvGraph,
+    readonly key: string,
   ) {
-    this.#envGraph = _envGraph;
-    this.#key = _key;
   }
-
-  get envGraph() { return this.#envGraph; }
-  get key() { return this.#key; }
 
   /**
    * fetch ordered list of definitions for this item, by following up sorted data sources list
@@ -55,11 +46,11 @@ export class ConfigItem {
     // we may want to cache the definition list at some point when loading is complete
     // although we need it to be dynamic during the loading process when doing any early resolution of the envFlag
     const defs: Array<ConfigItemDefAndSource> = [];
-    for (const source of this.#envGraph.sortedDataSources) {
-      if (!source.configItemDefs[this.#key]) continue;
+    for (const source of this.envGraph.sortedDataSources) {
+      if (!source.configItemDefs[this.key]) continue;
       if (source.disabled) continue;
-      if (source.importKeys && !source.importKeys.includes(this.#key)) continue;
-      const itemDef = source.configItemDefs[this.#key];
+      if (source.importKeys && !source.importKeys.includes(this.key)) continue;
+      const itemDef = source.configItemDefs[this.key];
       if (itemDef) defs.push({ itemDef, source });
     }
     return defs;
@@ -79,6 +70,14 @@ export class ConfigItem {
   get docsLinks() {
     // matching { url, description } from OpenAPI
     const links: Array<{ url: string, description?: string }> = [];
+
+    // add docs info from the data type
+    if (this.dataType?.docsEntries) {
+      for (const entry of this.dataType.docsEntries) {
+        if (_.isPlainObject(entry)) links.push(entry);
+        else links.push({ url: entry });
+      }
+    }
 
     const docsUrlDec = this.getDec('docsUrl');
     if (docsUrlDec) {
@@ -117,23 +116,9 @@ export class ConfigItem {
 
   getDec(decoratorName: string) {
     return this.effectiveDecorators[decoratorName];
-    // for (const def of this.defs) {
-    //   for (const dec of def.itemDef.decorators || []) {
-    //     if (dec.name === decoratorName) return dec;
-    //   }
-    // }
   }
   getDecFns(decoratorName: string) {
     return this.effectiveDecoratorFns[decoratorName] || [];
-    // const matchingDecs: Array<ItemDecoratorInstance> = [];
-    // // we might want to think about ordering here?
-    // // we might want options to collect from all sources, or just the first match
-    // for (const def of this.defs) {
-    //   for (const dec of def.itemDef.decorators || []) {
-    //     if (dec.name === decoratorName) matchingDecs.push(dec);
-    //   }
-    // }
-    // return matchingDecs;
   }
   async resolveDecorators() {
     // ensures all decorator values have been resolved
@@ -159,10 +144,10 @@ export class ConfigItem {
     );
   }
 
-  #isProcessed = false;
+  private isProcessed = false;
   async process() {
-    if (this.#isProcessed) return;
-    this.#isProcessed = true;
+    if (this.isProcessed) return;
+    this.isProcessed = true;
 
     // process value resolver
     for (const def of this.defs) {

@@ -97,6 +97,17 @@ describe('@currentEnv and .env.* file loading logic', () => {
 
     },
   }));
+  test('@envFlag and @currentEnv cannot be used together', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @envFlag=APP_ENV
+        # @currentEnv=$APP_ENV
+        # ---
+        APP_ENV=dev
+      `,
+    },
+    loadingError: true,
+  }));
 
   // some other tools (e.g. dotenv-expand, Next.js) automatically skip .env.local for test mode
   // while other tools (Vite) do not. We decided to be more explicit, and give helpers to opt into that behaviour

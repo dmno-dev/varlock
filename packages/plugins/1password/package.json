@@ -1,6 +1,6 @@
 {
   "name": "@varlock/1password-plugin",
-  "description": "Varlock plugin to pull data from 1password",
+  "description": "Varlock plugin to pull data from 1Password",
   "version": "0.0.0",
   "type": "module",
   "repository": {

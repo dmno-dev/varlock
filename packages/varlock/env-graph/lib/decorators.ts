@@ -7,17 +7,6 @@ import { SchemaError } from './errors';
 import type { EnvGraph } from './env-graph';
 
 
-
-declare module './metadata' {
-  interface GraphRootMetadata {
-    typeGenSettings?: Array<{
-      lang: string;
-      path: string;
-    }>
-  }
-}
-
-
 export abstract class DecoratorInstance {
   get name() { return this.parsedDecorator.name; }
   get isFunctionCall() { return !!this.parsedDecorator.isBareFnCall; }
@@ -151,24 +140,12 @@ export type RootDecoratorDef<Processed = any> = {
   deprecated?: boolean | string;
   incompatibleWith?: Array<string>;
   process?: (decoratorValue: Resolver) => (Processed | Promise<Processed>);
-  // | (() => Promise<void>) | Promise<() => Promise<void>>);
   execute?: (executeInput: Processed) => void | Promise<void>;
   useFnArgsResolver?: boolean,
 };
 
 // root decorators
 export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
-//   {
-//     name: 'tsTest',
-//     process: (decVal) => {
-//       return 1;
-//     },
-//     execute: (input) => {
-//       console.log(input + 1);
-//       console.log('tsTest root decorator executed with input', input);
-//     },
-//   },
-// ];
   {
     name: 'envFlag',
     deprecated: 'use @currentEnv instead',

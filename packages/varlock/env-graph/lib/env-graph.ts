@@ -13,7 +13,6 @@ import {
   builtInItemDecorators, builtInRootDecorators, RootDecoratorInstance, type ItemDecoratorDef, type RootDecoratorDef,
 } from './decorators';
 import { getErrorLocation } from './error-location';
-import type { GraphRootMetadata } from './metadata';
 import type { VarlockPlugin } from './plugins';
 
 const processExists = !!globalThis.process;
@@ -66,8 +65,6 @@ export class EnvGraph {
       this.virtualImports[path.join(basePath, fileName)] = fileContents;
     }
   }
-
-  metaData: GraphRootMetadata = {};
 
 
   get sortedDataSources() {
