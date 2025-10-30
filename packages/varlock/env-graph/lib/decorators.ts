@@ -144,11 +144,6 @@ export class RootDecoratorInstance extends DecoratorInstance {
 
 
 // ~ Root decorators ----------------------------------------
-type RootDecoratorCtx = {
-
-};
-
-
 export type RootDecoratorDef<Processed = any> = {
   name: string,
   description?: string;
@@ -238,9 +233,6 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
 
 
 // ~ Item decorators ----------------------------------------
-type ItemDecoratorCtx = {
-};
-
 export type ItemDecoratorDef<T = any> = {
   name: string,
   incompatibleWith?: Array<string>;

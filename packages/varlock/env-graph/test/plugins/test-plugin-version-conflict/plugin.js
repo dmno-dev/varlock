@@ -1,6 +1,7 @@
 /// <reference path="../../../../src/plugin-lib.ts" />
 
-const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
-
-const PLUGIN_VERSION = plugin.version;
-const { debug } = plugin;
+plugin.registerResolverFunction({
+  name: 'noop',
+  description: 'not used, but wanted the plugin to not be empty',
+  async resolve() { return undefined; },
+});

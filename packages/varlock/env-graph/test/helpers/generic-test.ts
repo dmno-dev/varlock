@@ -42,6 +42,7 @@ export function envFilesTest(spec: {
     await g.finishLoad();
 
     if (spec.debug) {
+      /* eslint-disable no-console */
       for (const ds of g.sortedDataSources) {
         console.log('Data Source:', ds.label);
         if (ds.loadingError) {

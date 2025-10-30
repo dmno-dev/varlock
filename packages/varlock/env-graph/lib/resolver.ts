@@ -507,7 +507,7 @@ export const InferFromPrefixResolver: typeof Resolver = createResolver({
     // TODO: we should validate that this is only used within @defaultSensitive root decorator
     return this.arrArgs![0].staticValue;
   },
-  async resolve(prefix) {
+  async resolve(_prefix) {
     // this is not actually meant to be resolved to a value
     // instead our code will just use the args directly
     return undefined;

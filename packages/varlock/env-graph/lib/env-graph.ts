@@ -3,8 +3,8 @@ import path from 'node:path';
 import { ConfigItem } from './config-item';
 import { EnvGraphDataSource, FileBasedDataSource } from './data-source';
 
-import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
-import { BaseDataTypes, createEnvGraphDataType, type EnvGraphDataTypeFactory } from './data-types';
+import { BaseResolvers, type ResolverChildClass } from './resolver';
+import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
 import { generateTypes } from './type-generation';

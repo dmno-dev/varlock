@@ -12,8 +12,8 @@ import { EnvGraph } from './env-graph';
 
 import { SchemaError } from './errors';
 import { pathExists } from '@env-spec/utils/fs-utils';
-import { processPluginInstallDecorators, VarlockPlugin } from './plugins';
-import { DecoratorInstance, RootDecoratorInstance } from './decorators';
+import { processPluginInstallDecorators } from './plugins';
+import { RootDecoratorInstance } from './decorators';
 
 const DATA_SOURCE_TYPES = Object.freeze({
   schema: {
