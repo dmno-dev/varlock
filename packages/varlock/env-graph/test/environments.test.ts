@@ -2,12 +2,12 @@ import { describe, test } from 'vitest';
 import outdent from 'outdent';
 import { envFilesTest } from './helpers/generic-test';
 
-describe('@envFlag and .env.* file loading logic', () => {
-  test('@envFlag key must point to an item present in same file', envFilesTest({
+describe('@currentEnv and .env.* file loading logic', () => {
+  test('@currentEnv must point to an item present in same file', envFilesTest({
     overrideValues: { APP_ENV: 'test' },
     files: {
       '.env.schema': outdent`
-        # @envFlag=APP_ENV
+        # @currentEnv=$APP_ENV
         # ---
         OTHER_ITEM=foo
       `,
@@ -19,7 +19,7 @@ describe('@envFlag and .env.* file loading logic', () => {
   test('all .env.* files are loaded in correct precedence order', envFilesTest({
     files: {
       '.env.schema': outdent`
-        # @envFlag=APP_ENV
+        # @currentEnv=$APP_ENV
         # ---
         APP_ENV=dev
         ITEM1=val-from-.env.schema
@@ -64,11 +64,11 @@ describe('@envFlag and .env.* file loading logic', () => {
     },
   }));
 
-  test('correct env-specific files are loaded when envFlag is overridden', envFilesTest({
+  test('correct env-specific files are loaded when environment is overridden', envFilesTest({
     overrideValues: { APP_ENV: 'prod' },
     files: {
       '.env.schema': outdent`
-        # @envFlag=APP_ENV
+        # @currentEnv=$APP_ENV
         # ---
         APP_ENV=dev
         ITEM1=val-from-.env.schema
@@ -81,13 +81,30 @@ describe('@envFlag and .env.* file loading logic', () => {
     },
   }));
 
-  // some other tools (e.g. dotenv-expand, Next.js) automatically skip .env.local for test mode
-  // while other tools (Vite) do not. We decided to be more explicit, and give helpers to opt into that behaviour
-  test('.env.local IS loaded if envFlag value is "test"', envFilesTest({
-    overrideValues: { APP_ENV: 'test' },
+  test('@envFlag also works', envFilesTest({
     files: {
       '.env.schema': outdent`
         # @envFlag=APP_ENV
+        # ---
+        APP_ENV=dev
+      `,
+      '.env.dev': outdent`
+        FOO=bar
+      `,
+    },
+    expectValues: {
+      FOO: 'bar',
+
+    },
+  }));
+
+  // some other tools (e.g. dotenv-expand, Next.js) automatically skip .env.local for test mode
+  // while other tools (Vite) do not. We decided to be more explicit, and give helpers to opt into that behaviour
+  test('.env.local IS loaded if currentEnv value is "test"', envFilesTest({
+    overrideValues: { APP_ENV: 'test' },
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$APP_ENV
         # ---
         APP_ENV=dev
         ITEM1=val-from-.env.schema
@@ -103,7 +120,7 @@ describe('@envFlag and .env.* file loading logic', () => {
     overrideValues: { APP_ENV: 'test' },
     files: {
       '.env.schema': outdent`
-        # @envFlag=APP_ENV
+        # @currentEnv=$APP_ENV
         # ---
         APP_ENV=dev
         ITEM1=val-from-.env.schema
@@ -119,10 +136,10 @@ describe('@envFlag and .env.* file loading logic', () => {
     },
   }));
 
-  test('envFlag value can be set from .env.local', envFilesTest({
+  test('currentEnv can be set from .env.local', envFilesTest({
     files: {
       '.env.schema': outdent`
-        # @envFlag=APP_ENV
+        # @currentEnv=$APP_ENV
         # ---
         APP_ENV=dev
         ITEM1=val-from-.env.schema
@@ -140,11 +157,11 @@ describe('@envFlag and .env.* file loading logic', () => {
     },
   }));
 
-  test('envFlag can use a function and be based on another item', envFilesTest({
+  test('currentEnv can use a function and be based on another item', envFilesTest({
     overrideValues: { CURRENT_BRANCH: 'prod' },
     files: {
       '.env.schema': outdent`
-        # @envFlag=APP_ENV
+        # @currentEnv=$APP_ENV
         # ---
         APP_ENV=fallback($CURRENT_BRANCH, dev)
         CURRENT_BRANCH=
@@ -158,11 +175,11 @@ describe('@envFlag and .env.* file loading logic', () => {
     },
   }));
 
-  test('imported directory can reuse the existing envFlag', envFilesTest({
+  test('imported directory can reuse the existing currentEnv', envFilesTest({
     overrideValues: { APP_ENV: 'dev' },
     files: {
       '.env.schema': outdent`
-        # @envFlag=APP_ENV
+        # @currentEnv=$APP_ENV
         # @import(./dir/)
         # ---
         APP_ENV=dev
@@ -176,16 +193,16 @@ describe('@envFlag and .env.* file loading logic', () => {
     },
   }));
 
-  test('imported directory can use its own envFlag', envFilesTest({
+  test('imported directory can use its own currentEnv', envFilesTest({
     files: {
       '.env.schema': outdent`
-        # @envFlag=APP_ENV
+        # @currentEnv=$APP_ENV
         # @import(./dir/)
         # ---
         APP_ENV=dev
       `,
       'dir/.env.schema': outdent`
-        # @envFlag=APP_ENV2
+        # @currentEnv=$APP_ENV2
         # ---
         APP_ENV2=prod
       `,
@@ -201,14 +218,14 @@ describe('@envFlag and .env.* file loading logic', () => {
     },
   }));
 
-  test('envFlag can be set from an imported file', envFilesTest({
+  test('currentEnv can be set from an imported file', envFilesTest({
     files: {
       '.env.schema': outdent`
         # @import(./.env.imported)
         # ---
       `,
       '.env.imported': outdent`
-        # @envFlag=IMPORTED_APP_ENV
+        # @currentEnv=$IMPORTED_APP_ENV
         # ---
         IMPORTED_APP_ENV=dev
       `,
@@ -220,16 +237,16 @@ describe('@envFlag and .env.* file loading logic', () => {
       ITEM1: 'dev-value',
     },
   }));
-  test('envFlag in an imported file will be ignored if parent already has it set', envFilesTest({
+  test('currentEnv in an imported file will be ignored if parent already has it set', envFilesTest({
     files: {
       '.env.schema': outdent`
-        # @envFlag=APP_ENV
+        # @currentEnv=$APP_ENV
         # @import(./.env.imported)
         # ---
         APP_ENV=dev
       `,
       '.env.imported': outdent`
-        # @envFlag=IMPORTED_APP_ENV
+        # @currentEnv=$IMPORTED_APP_ENV
         # ---
         IMPORTED_APP_ENV=foo
       `,
@@ -242,7 +259,7 @@ describe('@envFlag and .env.* file loading logic', () => {
     },
   }));
 
-  test('envFlag will not be set from a partially imported file', envFilesTest({
+  test('currentEnv will not be set from a partially imported file', envFilesTest({
     files: {
       '.env.schema': outdent`
         # @import(./.env.imported, IMPORTED_ITEM)
@@ -250,7 +267,7 @@ describe('@envFlag and .env.* file loading logic', () => {
         ITEM1=foo
       `,
       '.env.imported': outdent`
-        # @envFlag=IMPORTED_APP_ENV
+        # @currentEnv=$IMPORTED_APP_ENV
         # ---
         IMPORTED_APP_ENV=dev
       `,
@@ -261,8 +278,8 @@ describe('@envFlag and .env.* file loading logic', () => {
     expectNotInSchema: ['DEV_ITEM'],
   }));
 
-  describe('fallback env (set via cli instead of @envFlag)', () => {
-    test('fallback env value can be specified if no envFlag is used', envFilesTest({
+  describe('fallback env (set via cli instead of @currentEnv)', () => {
+    test('fallback env value can be specified if no currentEnv is used', envFilesTest({
       fallbackEnv: 'staging',
       files: {
         '.env.schema': 'ITEM1=val-from-.env.schema',
@@ -272,11 +289,11 @@ describe('@envFlag and .env.* file loading logic', () => {
         ITEM1: 'val-from-.env.staging',
       },
     }));
-    test('fallback env value is ignored if envFlag is present', envFilesTest({
+    test('fallback env value is ignored if currentEnv is present', envFilesTest({
       fallbackEnv: 'staging',
       files: {
         '.env.schema': outdent`
-        # @envFlag=APP_ENV
+        # @currentEnv=$APP_ENV
         # ---
         APP_ENV=dev
         ITEM1=val-from-.env.schema
