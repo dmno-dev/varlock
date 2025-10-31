@@ -16,7 +16,7 @@
   "license": "ISC",
   "dependencies": {
     "dotenv": "link:../../packages/varlock",
-    "openai": "^5.10.2",
+    "openai": "^6.7.0",
     "varlock": "workspace:*"
   },
   "packageManager": "pnpm@10.14.0",
