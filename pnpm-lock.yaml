@@ -131,9 +131,6 @@ importers:
       dotenv:
         specifier: link:../../packages/varlock
         version: link:../../packages/varlock
-      openai:
-        specifier: ^5.10.2
-        version: 5.23.2(ws@8.18.0)(zod@3.25.76)
       varlock:
         specifier: workspace:*
         version: link:../../packages/varlock
@@ -6251,18 +6248,6 @@ packages:
   open@10.1.1:
     resolution: {integrity: sha512-zy1wx4+P3PfhXSEPJNtZmJXfhkkIaxU1VauWIrDZw1O7uJRDRJtKr9n3Ic4NgbA16KyOxOXO2ng9gYwCdXuSXA==}
     engines: {node: '>=18'}
-
-  openai@5.23.2:
-    resolution: {integrity: sha512-MQBzmTulj+MM5O8SKEk/gL8a7s5mktS9zUtAkU257WjvobGc9nKcBuVwjyEEcb9SI8a8Y2G/mzn3vm9n1Jlleg==}
-    hasBin: true
-    peerDependencies:
-      ws: ^8.18.0
-      zod: ^3.23.8
-    peerDependenciesMeta:
-      ws:
-        optional: true
-      zod:
-        optional: true
 
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
@@ -15595,11 +15580,6 @@ snapshots:
       define-lazy-prop: 3.0.0
       is-inside-container: 1.0.0
       is-wsl: 3.1.0
-
-  openai@5.23.2(ws@8.18.0)(zod@3.25.76):
-    optionalDependencies:
-      ws: 8.18.0
-      zod: 3.25.76
 
   optionator@0.9.4:
     dependencies:
