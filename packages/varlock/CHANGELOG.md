@@ -1,5 +1,18 @@
 # varlock
 
+## 0.1.0
+
+### Minor Changes
+
+- [#168](https://github.com/dmno-dev/varlock/pull/168) [`9161687`](https://github.com/dmno-dev/varlock/commit/91616873a3101b83399de3311742bc79764b89a8) Thanks [@theoephraim](https://github.com/theoephraim)! - unify resolvers with decorators, new plugin system, 1pass plugin
+
+### Patch Changes
+
+- [#186](https://github.com/dmno-dev/varlock/pull/186) [`8bae875`](https://github.com/dmno-dev/varlock/commit/8bae875503c5f9a9d84bc772ad41be1fb3e4febd) Thanks [@theoephraim](https://github.com/theoephraim)! - dep updates
+
+- Updated dependencies [[`9161687`](https://github.com/dmno-dev/varlock/commit/91616873a3101b83399de3311742bc79764b89a8)]:
+  - @env-spec/parser@0.0.7
+
 ## 0.0.15
 
 ### Patch Changes
@@ -154,7 +167,6 @@
 - [#11](https://github.com/dmno-dev/varlock/pull/11) [`aa034cd`](https://github.com/dmno-dev/varlock/commit/aa034cddfca7e21395e6627e063a9f6b78961dde) Thanks [@theoephraim](https://github.com/theoephraim)! - initial release, testing ci pipelines
 
 - [#28](https://github.com/dmno-dev/varlock/pull/28) [`f9cd0f4`](https://github.com/dmno-dev/varlock/commit/f9cd0f47a410642066dc986738bd45f24fc1f697) Thanks [@theoephraim](https://github.com/theoephraim)! - - always redact secrets in varlock load output
-
   - expose utilities for redaction that end users can use directly
   - expose function to enables global console patching
 

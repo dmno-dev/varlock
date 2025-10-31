@@ -1,5 +1,11 @@
 # @env-spec/parser
 
+## 0.0.7
+
+### Patch Changes
+
+- [#168](https://github.com/dmno-dev/varlock/pull/168) [`9161687`](https://github.com/dmno-dev/varlock/commit/91616873a3101b83399de3311742bc79764b89a8) Thanks [@theoephraim](https://github.com/theoephraim)! - unify resolvers with decorators, new plugin system, 1pass plugin
+
 ## 0.0.6
 
 ### Patch Changes
