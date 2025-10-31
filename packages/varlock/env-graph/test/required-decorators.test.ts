@@ -179,7 +179,7 @@ describe('required decorators', () => {
     test('@required can use `forEnv()` helper to be set based on current envFlag', envFilesTest({
       files: {
         '.env.schema': outdent`
-          # @envFlag=APP_ENV @defaultRequired=false
+          # @currentEnv=$APP_ENV @defaultRequired=false
           # ---
           APP_ENV=staging
           REQ_FOR_DEV=      # @required=forEnv(dev)
@@ -196,7 +196,7 @@ describe('required decorators', () => {
     test('@optional can also use `forEnv()`', envFilesTest({
       files: {
         '.env.schema': outdent`
-          # @envFlag=APP_ENV @defaultRequired=true
+          # @currentEnv=$APP_ENV @defaultRequired=true
           # ---
           APP_ENV=staging
           OPT_FOR_DEV=      # @optional=forEnv(dev)

@@ -25,7 +25,7 @@ export const commandSpec = define({
     },
     env: {
       type: 'string',
-      description: 'Set the environment (e.g., production, development, etc) - will be overridden by @envFlag in the schema if present',
+      description: 'Set the environment (e.g., production, development, etc) - will be overridden by @currentEnv in the schema if present',
     },
   },
 });

@@ -2,7 +2,6 @@
 title: Schema
 description: Using the schema to manage your environment variables
 ---
-
 One of the core features of varlock is its schema-driven approach to environment variables - which is best when shared with your team and committed to version control. We recommend creating a new `.env.schema` file to hold schema info set by [config item decorators](/reference/item-decorators), non-sensitive default values, and [root decorators](/reference/root-decorators) to specify global settings that affect `varlock` itself.
 
 This schema should include all of the environment variables that your application depends on, along with comments and documentation about them, and decorators which affect coercion, validation, and generated types / documentation.
@@ -17,7 +16,7 @@ The _header_ section of a `.env` file is a comment block at the beginning of the
 
 ```env-spec title=".env.schema"
 # This is the header, and may contain root decorators
-# @envFlag=APP_ENV
+# @currentEnv=$APP_ENV
 # @defaultSensitive=false @defaultRequired=false
 # @generateTypes(lang=ts, path=env.d.ts)
 # ---
@@ -32,17 +31,17 @@ More details:
 
 ## Config Items
 
-Config items are the environment variables that your application depends on. Like normal `.env` syntax, each item is a key-value pair of the form `KEY=value`. The key is the name of the environment variable, and a value may be specified or not. 
+Config items are the environment variables that your application depends on. Like normal `.env` syntax, each item is a key-value pair of the form `KEY=value`. The key is the name of the environment variable, and a value may be specified or not.
 
 While simply enumerating all of them in your `.env.schema` is useful (like a `.env.example` file), [@env-spec](/env-spec/) allows us to attach additional comments and [item decorators](/reference/item-decorators), making our schema much more powerful.
 
 
 ### Item Values
-Values may be static, or set using [functions](/reference/functions), which can facilitate loading values from external sources without exposing any sensitive values.
+Values may be static, or set using [functions](/reference/functions/), which can facilitate loading values from external sources without exposing any sensitive values.
 
 **Quote rules:**
 - Static values can be wrapped in quotes or not -- all quotes styles (<code>\`</code>, `"`, `'`) are supported
-- Values wrapped in single quotes do not support [expansion](#expansion)
+- Values wrapped in single quotes do not support [expansion](#ref-expansion)
 - Single line values may not contain newlines, but `\n` will be converted to an actual newline except in single quotes
 - Multiline values can be wrapped in <code>```</code>, `"""`. Also supported is `"` and `'` but not recommended.
 - Unquoted values will be parsed as a number/boolean/undefined where possible (`ITEM=foo` -> `"foo"`, while `ITEM=true` -> `true`), however data-types may further coerce values
@@ -56,6 +55,7 @@ STATIC_VALUE_QUOTED="#hashtag" # and are necessary in some cases
 BOOLEAN_VALUE=true
 NUMERIC_VALUE=123.456
 FUNCTION_VALUE=exec(`op read "op://api-config/item/credential"`)
+EXPANSION_VALUE=${OTHER_VAR}-suffix
 MULTILINE_VALUE="""
 multiple
 lines
@@ -81,25 +81,58 @@ More details:
 - [@type data types reference](/reference/data-types)
 - [Functions reference](/reference/functions)
 
+## Resolver Functions
 
-### Value Expansion ||expansion||
+You may use [resolver functions](/reference/functions/) instead of static values within both config items and decorator values.
 
-`varlock` supports _expansion_ like other .env tools - such as [dotenv-expand](https://github.com/motdotla/dotenv-expand). However unlike other tools, it uses [function calls](/reference/functions) to implement this.
-
-- `prefix-${OTHER}` -> `concat("prefix", ref("OTHER"))`
-- `${OTHER}` -> `ref("OTHER")`
-- `${OTHER:-defaultval}` -> `fallback(ref("OTHER"), "defaultval")`
-- `$(whoami)` -> `exec("whoami")`
-
-While you could call those functions directly, in many cases it will be more clear to use expansion, or a mix of function calls and expansion. For example:
+Functions may be composed together to create more complex value resolution logic.
 
 ```env-spec
-OP_VAULT_NAME=api-config-prod
-MY_KEY=exec(`op read "op://${OP_VAULT_NAME}/service/api-key"`)
+# @required=forEnv(prod)
+API_DOMAIN=if(eq(ref(APP_ENV), prod), api.myapp.com, staging-api.myapp.com)
 ```
 
-More details:
-- [Functions reference](/reference/functions)
+
+### Referencing other values ||ref-expansion||
+
+Within values and function args, you often need to reference other env vars within your schema.
+
+You may use [`ref()`](/reference/functions/#ref) but we support _expansion_ syntax (like many other .env tools) for convenience.
+
+Both `$ITEM` and `${ITEM}` are equivalent to `ref(ITEM)`.
+
+We recommend using the bracket version only when used within a larger string.
+
+```env-spec /\\$\\{[^\\}]+\\}/ /\\$[A-Z]+/
+WITH_BRACKETS=exec(`op read "op://${OP_VAULT_NAME}/service/api-key"`)
+NO_BRACKETS=fallback($OTHERVAR, foo)
+```
+
+Read more about string expansion in the [@env-spec reference](/env-spec/reference/#expansion).
+
+## Decorator details
+
+### Functions vs single use
+Most decorators take a single value (e.g., `@sensitive`, `@currentEnv`) and may be used only once per item (or file in the case of a root decorator). Some decorators however, are function calls (e.g., `@docs()`, `@import()`) and may be called multiple times.
+
+```env-spec
+# @sensitive=true
+# @docs(https://xyzapi.com/docs/auth)
+# @docs(https://xyzapi.com/manage-api-keys)
+XYZ_API_KEY=
+```
+
+### Value resolution
+Values passed to decorators will be resolved, meaning if a decorator is expecting a boolean, either a static `true`/`false` or a [resolver function](/reference/functions) that resolves to a boolean may be used.
+
+```env-spec
+# @required=false
+NEVER_REQUIRED=
+
+# @required=forEnv(prod) # resolves to true/false depending on the current environment
+REQUIRED_FOR_PROD=
+```
+
 
 
 
