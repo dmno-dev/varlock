@@ -58,9 +58,20 @@ describe('function calls', functionValueTests({
       ITEM: 'foo-val',
     },
   },
+  'replace()': {
+    input: 'ITEM=replace("foo", "f", "b")',
+    expected: { ITEM: 'boo' },
+  },
   'nested function calls - array': {
     input: 'OTHERVAL=d\nITEM=concat("a", fallback("", "b"), exec("echo c"), ref(OTHERVAL))',
     expected: { ITEM: 'abcd' },
+  },
+  'nested function calls - replace()': {
+    input: 'FOO=foo-val\nITEM=replace(ref("FOO"), "f", "b")',
+    expected: {
+      FOO: 'foo-val',
+      ITEM: 'boo-val',
+    },
   },
   'nested function calls - key/value': {
     input: 'ITEM=remap("foo", zzz=aaa, bar=fallback("", "foo"))',
@@ -132,6 +143,51 @@ describe('ref expansion', functionValueTests({
   'ref defaults - default not used': {
     input: 'FOO=foo\nITEM=${FOO:-defaultfoo}',
     expected: { ITEM: 'foo' },
+  },
+}));
+
+describe('replace expansion', functionValueTests({
+  'ref expansion - unquoted': {
+    input: 'OTHER=foo\nITEM=replace($OTHER, "f", "b")',
+    expected: {
+      OTHER: 'foo',
+      ITEM: 'boo',
+    },
+  },
+  'ref expansion within quotes - double quotes': {
+    input: 'OTHER=foo\nITEM="${replace($OTHER, "f", "b")}"',
+    expected: {
+      OTHER: 'foo',
+      ITEM: 'boo',
+    },
+  },
+  'ref expansion within quotes - backtick': {
+    input: 'OTHER=foo\nITEM=`${replace($OTHER, "f", "b")}`',
+    expected: {
+      OTHER: 'foo',
+      ITEM: 'boo',
+    },
+  },
+  'ref expansion within quotes - single quotes (NOT EXPANDED)': {
+    input: "OTHER=foo\nITEM='${replace($OTHER, 'f', 'b')}'",
+    expected: {
+      OTHER: 'foo',
+      ITEM: '${replace($OTHER, "f", "b")}',
+    },
+  },
+  'ref expansion - simple (no brackets)': {
+    input: 'OTHER=foo\nITEM=replace($OTHER, "f", "b")',
+    expected: {
+      OTHER: 'foo',
+      ITEM: 'boo',
+    },
+  },
+  'ref expansion - with brackets': {
+    input: 'FOO=foo\nITEM=replace($FOO, "f", "b")',
+    expected: {
+      FOO: 'foo',
+      ITEM: 'boo',
+    },
   },
 }));
 

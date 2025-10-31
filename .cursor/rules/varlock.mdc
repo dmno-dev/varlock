@@ -76,6 +76,7 @@ actions:
          - concat() - For concatenated values
          - exec() - For command output
          - ref() - For referencing other variables
+         - replace() - For ref()-ing a variable and find-and-replace
 
 examples:
   - input: |
