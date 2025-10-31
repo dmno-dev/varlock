@@ -1,8 +1,5 @@
 ---
-"@varlock/nextjs-integration": patch
-"@varlock/astro-integration": patch
-"@varlock/vite-integration": patch
-"@varlock/1password-plugin": patch
+"@varlock/1password-plugin": minor
 ---
 
-undo major version bump caused by changesets peer dep logic, using minor instead
+re-release 1pass plugin w/ minor version
