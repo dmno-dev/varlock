@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "type": "module",
+  "private": true,
   "scripts": {
     "example:load": "node --experimental-strip-types src/example-load.ts",
     "example:auto": "node --experimental-strip-types src/example-autoload.ts",
