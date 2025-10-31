@@ -8,11 +8,11 @@ Root decorators appear in the _header_ section of a .env file - which is a comme
 
 
 ```env-spec title=".env.schema"
+# This is the header, it can contain root decorators
 # @defaultSensitive=false @defaultRequired=infer
 # @generateTypes(lang=ts, path=./env.d.ts)
 # ---
-
-# ...
+# ... config items
 ```
 
 
@@ -20,38 +20,54 @@ More details of the minutiae of decorator handling can be found in the [@env-spe
 
 ## Built-in root decorators
 
+These are the root decorators that are built into Varlock. [Plugins](/guides/plugins/) may introduce more.
+
 <div class="reference-docs">
 
 <div>
-### `@envFlag`
+### `@currentEnv`
+**Value type:** [`ref()`](/reference/functions/#ref) (usually written as `$ITEM_NAME`)
 
-Sets the key of your _environment flag_, which will be used when determining if environment-specific .env files will be loaded (e.g. `.env.production`),
-and also may affect other dynamic behaviour in your schema, such as the [`forEnv()` function](/reference/functions/#forenv).
+Sets the current _environment_ value, which will be used when determining if environment-specific .env files will be loaded (e.g. `.env.production`),
+and also may affect other dynamic behaviour in your schema, such as the [`forEnv()` function](/reference/functions/#forenv). We refer to the name of this item as your _environment flag_.
 
-This will usually be something like `APP_ENV`.
-
+- It _must_ be set to a simple reference to a single config item (e.g. `$APP_ENV`).
 - This decorator should only be set in your `.env.schema` file.
+- The referenced item _must_ be defined within the same file.
 - This will override the `--env` CLI flag if it is set.
 - We do not recommend using `NODE_ENV` as your environment flag, as it has other implications, and is often set out of your control.
 
 See [environments guide](/guides/environments) for more info.
 
 ```env-spec
-# @envFlag=APP_ENV
+# @currentEnv=$APP_ENV
 # ---
-# @type=enum(development, staging, production)
-APP_ENV=development
+# @type=enum(dev, preview, prod, test)
+APP_ENV=dev
 ```
 </div>
 
 <div>
-### `@defaultRequired`
-Sets the default behavior of each item being _required_. Can be overridden on individual items using [`@required`](/reference/item-decorators/#required) or [`@optional`](/reference/item-decorators/#optional).
+### `@envFlag` (deprecated) ||envflag||
+**Value type:** `string` (must be a valid item name within same file)
 
-**Options:**
-- `true` (default): All items are required unless marked optional.
+Sets the current _environment flag_ by name.
+
+⚠️ Deprecated at v0.1 - use [`@currentEnv`](#currentenv) instead.
+
+`@envFlag=APP_ENV` -> `@currentEnv=$APP_ENV`
+</div>
+
+
+<div>
+### `@defaultRequired`
+**Value type:** `boolean | "infer"`
+
+Sets the default behavior of each item being _required_. Only applied to items that have a definition within the same file. Can be overridden on individual items using [`@required`](/reference/item-decorators/#required)/[`@optional`](/reference/item-decorators/#optional).
+
+- `infer` (default): Items with a value set in the same file will be required; items with an empty string or no value are optional.
+- `true`: All items are required unless marked optional.
 - `false`: All items are optional unless marked required.
-- `infer`: Items with a value set in `.env.schema` will be required; items with an empty string or no value are optional. Can be overridden per item.
 
 ```env-spec
 # @defaultRequired=infer
@@ -63,7 +79,7 @@ BAZ=           # optional (no value)
 QUX=''         # optional (empty string)
 
 # @optional
-OPTIONAL_ITEM= # optional (explicit)
+OPTIONAL_ITEM=foo # optional (explicit)
 
 # @required
 REQUIRED_ITEM= # required (explicit)
@@ -72,12 +88,13 @@ REQUIRED_ITEM= # required (explicit)
 
 <div>
 ### `@defaultSensitive`
-Sets the default state of each item being treated as _sensitive_. Can be overridden on individual items using [`@sensitive`](/reference/item-decorators/#sensitive).
+**Value type:** `boolean | inferFromPrefix(PREFIX)`
 
-**Options:**
+Sets the default state of each item being treated as [_sensitive_](/guides/secrets/). Only applied to items that have a definition within the same file. Can be overridden on individual items using [`@sensitive`](/reference/item-decorators/#sensitive).
+
 - `true` (default): All items are sensitive unless marked otherwise.
 - `false`: All items are not sensitive unless marked otherwise.
-- `inferFromPrefix(PREFIX)`: Items whose key starts with the given `PREFIX` are _not_ sensitive; all others are sensitive. Useful for marking e.g. `PUBLIC_` keys as non-sensitive by default.
+- `inferFromPrefix(PREFIX)`: Item is marked not sensitive if key starts with the given `PREFIX`; all others are sensitive. Useful for marking e.g. `PUBLIC_` keys as non-sensitive by default.
 
 ```env-spec
 # @defaultSensitive=inferFromPrefix(PUBLIC_)
@@ -95,27 +112,32 @@ OTHER_BAR=  # not sensitive (explicit)
 
 <div>
 ### `@disable`
-Skips loading config items from a file or data source. If true, the file is ignored and no items are loaded from it. Useful for conditionally disabling a schema or env file.
+**Value type:** `boolean`
 
-May also be used with [`forEnv()`](/reference/functions/#forenv) to disable a file based on the current env flag.
+If true, disables loading the file - meaning no items or plugins are loaded from it. Useful for temporarily or conditionally disabling a `.env` file.
+
+💡 The [`forEnv()`](/reference/functions/#forenv) function can disable an explicitly [imported](/guides/import/) file based on the current [environment](/guides/environments/).
 
 ```env-spec
 # @disable  # (shorthand for @disable=true)
+#
+# @plugin(@varlock/x-plugin)  # will not be loaded
 # ---
-
 FOO=bar  # will be ignored
-BAR=baz  # will be ignored
 ```
+
+
 </div>
 
 <div>
 ### `@import()`
+**Arg types:** `[ path: string, ...keys?: string[] ]`
 
-Imports other `.env` file(s) - useful for sharing config across monorepos and splitting up large schemas.
+Imports other `.env` file(s) - useful for sharing config across monorepos and splitting up large schemas. _Can be called multiple times._
 
 You may import a specific file, or a directory of files - automatically loading all `.env.*` files appropriately according to the current environment flag.
 
-See the [@import guide](/guides/import/) for more details and advanced usage.
+See the [imports guide](/guides/import/) for more details and advanced usage.
 
 ```env-spec
 # @import(./.env.imported)           # import a specific file
@@ -126,19 +148,36 @@ See the [@import guide](/guides/import/) for more details and advanced usage.
 # this definition is merged with any found in imports, but this one has more precedence
 IMPORTED_ITEM=overriden-value
 ```
-
 </div>
 
 <div>
+### `@plugin()`
+**Arg types:** `[ identifier: string ]`
+
+Loads a plugin, which can register new root decorators, item decorators, and resolver functions. _Can be called multiple times._
+
+See [plugins guide](/guides/plugins/) for more details.
+
+```env-spec
+# @plugin(@varlock/1password-plugin)
+# @initOp(allowAppAuth=true) # new root decorator
+# ---
+# @type=opServiceAccountToken # new data type
+OP_TOKEN=
+# @sensitive
+XYZ_API_KEY=op(op://api-prod/xyz/api-key) # new resolver
+```
+</div>
+
+
+<div>
 ### `@generateTypes()`
-
-Enables automatic type generation based on your schema.
-
-**Key-value args:**
+**Arg types (key/value):**
 - `lang`: Language to generate types for. Supported languages:
   - `ts` - TypeScript
 - `path`: Relative filepath to output generated type file
 
+Enables automatic type generation based on your schema. _Can be called multiple times._
 
 ```env-spec
 # @generateTypes(lang=ts, path=./env.d.ts)
@@ -148,26 +187,26 @@ Enables automatic type generation based on your schema.
 
 <div>
 ### `@redactLogs`
+**Value type:** `boolean`
+
 Controls whether sensitive config values are automatically redacted from console output. When enabled, any sensitive values will be replaced with `▒▒▒▒▒` in logs.
 
-**Options:**
+_Only applies in JavaScript based projects where varlock runtime code is imported._
+
 - `true` (default): Console logs are automatically redacted
 - `false`: Console logs are not redacted (useful for debugging)
 
 ```env-spec
 # @redactLogs=false
 # ---
-
-# @sensitive
-SECRET_KEY=my-secret-value
+SECRET_KEY=my-secret-value # @sensitive
 ```
 
 ```js
-console.log(SECRET_KEY)
+console.log(process.env.SECRET_KEY)
 // This will log "my▒▒▒▒▒" instead of "my-secret-value" when @redactLogs=true
 ```
 
-</div>
 
 :::caution
 There is a potential performance impact for both `@preventLeaks` and `@redactLogs` when enabled. It depends on the integration and how your application is served. Please [reach out](https://chat.dmno.dev) if you have any questions.
@@ -175,9 +214,16 @@ There is a potential performance impact for both `@preventLeaks` and `@redactLog
 We feel that they are beneficial enough to have them on by default but you can always opt out if you prefer.
 :::
 
+</div>
+
+
 <div>
 ### `@preventLeaks`
+**Value type:** `boolean`
+
 Controls whether leak prevention is enabled. When enabled, varlock will scan outgoing HTTP responses to detect if sensitive values are being leaked.
+
+_Only applies in JavaScript based projects where varlock runtime code is imported._
 
 **Options:**
 - `true` (default): Leak detection is enabled
@@ -186,13 +232,16 @@ Controls whether leak prevention is enabled. When enabled, varlock will scan out
 ```env-spec
 # @preventLeaks=false
 # ---
-
-# @sensitive
-SECRET_KEY=my-secret-value
+SECRET_KEY=my-secret-value # @sensitive
 ```
 
 ![Leak prevention](../../../assets/demo-images/leak.png)
-_a sample leak detection warning in an Astro project_
+_a sample leak detection warning in an [Astro project](/integrations/astro/)_
+
+
+:::caution
+See note on [`@redactLogs`](#redactlogs) about potential performance impact.
+:::
 
 </div>
 

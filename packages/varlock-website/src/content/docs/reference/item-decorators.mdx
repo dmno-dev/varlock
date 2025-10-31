@@ -3,6 +3,7 @@ title: "Config Item @decorators"
 description: A reference page of available env-spec decorators for items
 ---
 import Decorator from '@/components/decorator-doc-entry.astro'
+import docsImg from '@/assets/docs/multiple-docs-intellisense.png'
 
 Decorators in a comment block _directly_ preceeding a config item will be attached to that item.
 Multiple decorators can be specified on the same line.
@@ -18,25 +19,37 @@ More details of the minutiae of decorator handling can be found in the [@env-spe
 
 ## Built-in item decorators
 
+These are the item decorators that are built into Varlock. [Plugins](/guides/plugins/) may introduce more.
+
 <div class="reference-docs">
 <div>
 ### `@required`
+**Value type:** `boolean`
+
 Sets whether an item is _required_ - meaning validation will fail if the value resolves to `undefined` or an empty string.
 
-Default behavior for all items can be toggled using the [`@defaultRequired` root decorator](/reference/root-decorators/#defaultRequired)
+Default behavior for all items within the same file can be toggled using the [`@defaultRequired` root decorator](/reference/root-decorators/#defaultRequired).
+
+💡 Use the [`forEnv()` function](/reference/functions/#forenv) to set required based on the current environment.
 
 ```env-spec
 # @defaultRequired=false
 # ---
-# @required
+# @required # same as @required=true
 REQUIRED_ITEM=
-```
 
-You can also use the [`forEnv()` function](/reference/functions/#forenv) to dynamically set the value based on the current environment.
+# @required=forEnv(prod)
+REQUIRED_FOR_PROD_ITEM=
+
+# @required=eq($OTHER, foo)
+REQUIRED_IF_OTHER_IS_FOO=
+```
 </div>
 
 <div>
 ### `@optional`
+**Value type:** `boolean`
+
 Opposite of [`@required`](#required). Equivalent to writing `@required=false`.
 
 ```env-spec
@@ -45,14 +58,13 @@ Opposite of [`@required`](#required). Equivalent to writing `@required=false`.
 # @optional
 OPTIONAL_ITEM=
 ```
-
-You can also use the [`forEnv()` function](/reference/functions/#forenv) to dynamically set the value based on the current environment.
 </div>
 
 <div>
 ### `@sensitive`
+**Value type:** `boolean`
 
-Sets whether the item should be considered _sensitive_ - meaning it must be protected from leaking. The value will be always be redacted in CLI output, and client integrations can take further action to prevent leaks.
+Sets whether the item should be considered _sensitive_ - meaning it cannot be exposed to the public. The value will be always be redacted in CLI output, and client integrations can take further action to prevent leaks.
 
 Default behavior for all items can be set using the [`@defaultSensitive` root decorator](/reference/root-decorators/#defaultSensitive)
 
@@ -66,16 +78,18 @@ SERVICE_X_CLIENT_ID=
 
 <div>
 ### `@type`
+**Value type:** [`data type`](/reference/data-types) (name only or function call)
+
 Sets the data type of the item - which affects validation, coercion, and generated types.
 Note that some data types take additional arguments. See [data types reference](/reference/data-types) for more details.
 
-If not specified, a data type will be inferred if a static value is set, or default to `string` otherwise.
+If not specified, a data type will be inferred when possible, or default to `string` otherwise.
 
 ```env-spec
-# @type=url
+# @type=url # name only
 SOME_URL=
 
-# @type=string(startsWith=abc)
+# @type=string(startsWith=abc) # function call with options
 EXAMPLE_WITH_TYPE_OPTIONS=
 
 INFER_NUMBER=123 # data type of `number` will be inferred from the value
@@ -84,6 +98,8 @@ INFER_NUMBER=123 # data type of `number` will be inferred from the value
 
 <div>
 ### `@example`
+**Value type:** `string`
+
 Provides an example value for the item. This lets you avoid setting placeholder values that are not meant to be used.
 
 ```env-spec
@@ -93,12 +109,28 @@ SECRET_KEY=
 </div>
 
 <div>
-### `@docsUrl`
-URL of documentation related to the item.
+### `@docs()`
+**Arg types:** `[ url: string ] | [ description: string, url: string ]`
+
+URL of documentation related to the item. Will be included in [generated types](/reference/root-decorators/#generatetypes). _Can be called multiple times._
 
 ```env-spec
-# @docsUrl=https://platform.openai.com/docs/api-reference/authentication
-OPENAI_API_KEY=
+# @docs(https://xyz.com/docs/api-keys)
+# @docs("Authentication guide", https://xyz.com/docs/auth-guide)
+XYZ_API_KEY=
 ```
+
+<img src={docsImg.src} alt="example of docs() in generated types" style="max-width:280px"/>_example of `docs()` info in generated types / IntelliSense_
+</div>
+
+<div>
+### `@docsUrl` (deprecated) ||docsurl||
+**Value type:** `string`
+
+URL of documentation related to the item.
+
+Use [`@docs()`](#docs) instead, which supports multiple docs entries with optional descriptions.
+
+`@docsUrl=https://example.com` -> `@docs(https://example.com)`
 </div>
 </div>

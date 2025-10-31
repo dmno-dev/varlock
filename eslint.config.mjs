@@ -10,6 +10,7 @@ import pluginN from 'eslint-plugin-n';
 
 // fix renamed rule
 if (airbnb.rules['@stylistic/func-call-spacing']) {
+  // @ts-ignore
   airbnb.rules['@stylistic/function-call-spacing'] = airbnb.rules['@stylistic/func-call-spacing'];
   // @ts-ignore
   delete airbnb.rules['@stylistic/func-call-spacing'];
@@ -44,7 +45,7 @@ export default tseslint.config(
       'packages/eslint-custom-rules',
       'packages/env-spec-parser/src/grammar.js',
       'packages/varlock-website/.astro',
-      '**/.dmno/.typegen',
+      'packages/varlock/env-graph/test/plugins',
       '**/*.ignore',
       '**/.vercel',
       '**/.netlify',
@@ -155,7 +156,7 @@ export default tseslint.config(
   {
     files: [
       'scripts/**',
-      'example-monorepo/**',
+      'examples/**',
       'packages/*.ignore/**',
       'packages/varlock/src/cli/**',
       'packages/varlock/scripts/**',

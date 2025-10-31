@@ -40,12 +40,9 @@ ConfigItem =
     });
   }
 
-ConfigItemKey = 
-  $([a-zA-Z_] [a-zA-Z0-9_.-]*)
+ConfigItemKey = $([a-zA-Z_] [a-zA-Z0-9_.-]*)
 
 ConfigItemValue = FunctionCall / multiLineString / quotedString / unquotedString
-
-
 
 CommentBlock =
   // not sure if we want to treat these as decorators if within comment block?
@@ -59,7 +56,7 @@ CommentBlock =
     })
   }
 
-Comment = 
+Comment =
   !(Divider)
   "#" leadingSpace:$_ contents:$(
     // $("@" [a-zA-Z]+ ":"? __ [a-zA-Z] [^@\n]*)
@@ -98,17 +95,17 @@ DecoratorComment =
     })
   }
 
-Decorator = 
+Decorator =
   "@" name:DecoratorName
-  valueOrFnArgs:( 
-    "()" { return new ParsedEnvSpecFunctionArgs({ values: [] })}
-    / ("(" @FunctionArgs? ")")
-    / ("=" @(DecoratorValue))
+  val:(
+    FunctionArgs
+    / "=" DecoratorValue
   )?
   {
     return new ParsedEnvSpecDecorator({
       name,
-      valueOrFnArgs,
+      value: Array.isArray(val) ? val[1] : val,
+      isBareFnCall: val && !Array.isArray(val),
       _location: location(),
     })
   }
@@ -121,36 +118,44 @@ DecoratorValue = FunctionCall / quotedString / unquotedStringWithoutSpaces
 
 
 FunctionCall =
-  name:FunctionName "(" _ args:FunctionArgs? _ ")"
+  name:FunctionName
+  args:FunctionArgs  // includes the parens
   {
     return new ParsedEnvSpecFunctionCall({
       name,
-      args: args || new ParsedEnvSpecFunctionArgs({ values: [] }),
+      args,
       _location: location(),
     });
   }
+
 FunctionName = $([a-zA-Z] [a-zA-Z0-9_]*)
+
+// function args are a list, can be either array, or key/value, or mixed
+// fn(arr1, arry2, key=val, key2=val2)
 FunctionArgs =
+  "(" _
   values:(
     (
       (key:FunctionArgKeyName "=" val:FunctionArgValue { return new ParsedEnvSpecKeyValuePair({ key, val })})
       / FunctionArgValue
     )|1.., _ "," _|
-  )
+  )?
+  _ ")"
   {
     return new ParsedEnvSpecFunctionArgs({
-      values,
+      values: values || [],
       _location: location(),
     });
   }
+
 FunctionArgKeyName = $([a-zA-Z] [a-zA-Z0-9_]*)
 FunctionArgValue =
   FunctionCall
   / quotedString
   // slightly different here - can contain "#", cannot contain ")" or ","
-  / $([^ \n,)]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) } 
+  / $([^ \n,)]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
 
-Divider = 
+Divider =
   "#" leadingSpace:$_ contents:$([-=*#]|3..| [^\n]*) _n
   {
     return new ParsedEnvSpecDivider({

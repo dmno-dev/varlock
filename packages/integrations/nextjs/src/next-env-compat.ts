@@ -289,7 +289,7 @@ export function loadEnvConfig(
 
   // we must match @next/env default behaviour for which .env.XXX files to load
   // which is based on the current command (`next dev` vs `next build`) and `NODE_ENV=test`
-  // however we will pass it through and let the user ignore it by setting their own `@envFlag`
+  // however we will pass it through and let the user ignore it by setting their own `@currentEnv`
   let envFromNextCommand = dev ? 'development' : 'production';
   if (process.env.NODE_ENV === 'test') envFromNextCommand = 'test';
   debug('Inferred env mode (to match @next/env):', envFromNextCommand);

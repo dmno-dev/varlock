@@ -1,11 +1,11 @@
 ---
-title: Value Functions
+title: Resolver functions
 description: A comprehensive reference of all available function resolvers in varlock
 ---
 
-## Config item values
+You may use _resolver functions_ instead of static values within both config items and decorator values.
 
-You may set config items values using _functions_ rather than simple static values. Functions can be composed together to create complex value resolution logic.
+Functions can be composed together to create more complex value resolution logic.
 ```env-spec
 ITEM=fn(arg1, arg2)
 COMPOSITION=fn1(fn1Arg1, fn2(fn2Arg1, fn2Arg2))
@@ -22,32 +22,28 @@ CONFIG=exec(`aws ssm get-parameter --name "/config/${APP_ENV}" --with-decryption
 ```
 
 
-
-
-
 Currently, there are built-in utility functions, and soon there will be functions to handle values encrypted using varlock provided tools.
 
-In the future, plugins will be able to register additional functions that fetch values from external providers.
+Plugins may also register additional resolvers - which can be used to generate and transform values, or fetch data from external providers.
 
-
-{/* ## varlock()
-
-The `varlock()` function is used to handle encrypted values. It decrypts the provided encrypted string at runtime.
-
-```env-spec
-# @sensitive
-API_KEY=varlock("encrypted_string_here")
-```
-
-### Arguments
-- `encrypted_string` (string, required): The encrypted value to be decrypted
-
-```env-spec
-# @sensitive
-DATABASE_PASSWORD=varlock("oipjfdopiajpfoidjpaoijpofdjpoa...")
-``` */}
 
 <div class="reference-docs">
+<div>
+### `ref()`
+
+References another config item (env var) - which is useful when composing multiple functions together.
+
+Expansion equivalent: `ref(OTHER_VARL)` === `${OTHER_VAR}` (and also `$OTHER_VAR`)
+
+We recommend using the bracketed version within string templates, and the simpler version when referencing an item directly.
+
+```env-spec "ref"
+API_URL=https://api.example.com
+USERS_API_URL=${API_URL}/users
+USERS_API_URL2=concat(ref("API_URL"), "/users") # without using expansion
+```
+</div>
+
 <div>
 ### `concat()`
 
@@ -75,19 +71,6 @@ Expansion equivalent: `exec(command)` === `$(command)`
 API_KEY=exec(`op read "op://dev test/service x/api key"`)
 # Using AWS CLI
 AWS_CREDENTIALS=exec(`aws sts get-session-token --profile prod`)
-```
-</div>
-
-<div>
-### `ref()`
-
-References another environment variable - which is very useful when composing multiple functions together.
-
-Expansion equivalent: `ref(OTHER_VARL)` === `${OTHER_VAR}` (and `$OTHER_VAR`)
-
-```env-spec "ref"
-API_URL=https://api.example.com
-USERS_API_URL=concat(ref("API_URL"), "/users")
 ```
 </div>
 
@@ -134,27 +117,19 @@ Creates a regular expression for use in other functions, such as `remap()`.
 ENV_TYPE=remap($APP_ENV, dev=regex("^dev.*"), prod="production")
 ```
 </div>
-</div>
 
-## Decorator values
-Similarly, some @decorators can accept a function call as a value, allowing for a more expressive options.
-These are not standardized, and many functions may be specific to only a single decorator, for example [`@type` data types](/reference/data-types/), 
-but there are a few functions that may be used across several decorators, so we will document them here:
-
-<div class="reference-docs">
 <div>
 ### `forEnv()`
 
-Resolves to a boolean, if the current [environment flag value](/reference/root-decorators/#envflag) matches any in the
+Resolves to a boolean, if the current [environment](/reference/root-decorators/#currentEnv) matches any in the
 list passed in as args.
 
 **Requirements:**
-- May be used with [`@required`](/reference/item-decorators/#required), [`@optional`](/reference/item-decorators/#optional), and [`@disable`](/reference/root-decorators/#disable) decorators
-- Requires an [`@envFlag`](/reference/root-decorators/#envflag) to be set in your `.env.schema` file
+- Requires an [`@currentEnv`](/reference/root-decorators/#currentEnv) to be set in your `.env.schema` file
 - Takes one or more environment names as arguments
 
 ```env-spec /forEnv\\(.*\\)/
-# @envFlag=APP_ENV @defaultRequired=false
+# @currentEnv=$APP_ENV @defaultRequired=false
 # @disable=forEnv(test)  # entire file will be disabled if env is test
 # ---
 APP_ENV=staging
@@ -163,13 +138,31 @@ APP_ENV=staging
 # @required=forEnv(development)
 DEV_API_KEY=
 
-# Required in staging and production  
+# Required in staging and production
 # @required=forEnv(staging, production)
 PROD_API_KEY=
-
-# Optional in development, required otherwise
-# @optional=forEnv(development)
-DEBUG_FLAG=
 ```
 </div>
+
+
+<div>
+### `eq()`
+
+Checks if 2 values are equal and resolves to a boolean.
+
+```env-spec "regex"
+IS_STAGING_DEPLOYMENT=eq($GIT_BRANCH, "staging")
+```
+</div>
+
+<div>
+### `if()`
+
+Checks a boolean to return a true/false option
+
+```env-spec "regex"
+API_URL=if(eq($GIT_BRANCH, "main"), api.example.com, staging-api.example.com)
+```
+</div>
+
 </div>

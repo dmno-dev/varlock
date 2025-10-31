@@ -93,7 +93,7 @@ describe('required decorators', () => {
         UNDEFINED=undefined
         EMPTY_STRING=''
         STATIC_VALUE=foo
-        FN_VALUE=fnCall()
+        FN_VALUE=eq(1, 1)
         OVERRIDE_REQUIRED=    # @required
         OVERRIDE_OPTIONAL=foo # @optional
       `,
@@ -108,7 +108,7 @@ describe('required decorators', () => {
       OVERRIDE_OPTIONAL: false,
     },
   }));
-  test('@defaultRequired=infer should only consider values set in .env.schema', envFilesTest({
+  test('@defaultRequired=infer should only consider values set in same source', envFilesTest({
     files: {
       '.env.schema': outdent`
         # @defaultRequired=infer
@@ -123,7 +123,7 @@ describe('required decorators', () => {
     },
     expectRequired: { NOT_EMPTY_IN_SCHEMA: true, EMPTY_IN_SCHEMA: false },
   }));
-  test('@defaultRequired=infer inferred items can be overridden in non schema files', envFilesTest({
+  test('@defaultRequired=infer inferred items can be overridden in other sources', envFilesTest({
     files: {
       '.env.schema': outdent`
         # @defaultRequired=infer
@@ -138,17 +138,19 @@ describe('required decorators', () => {
     },
     expectRequired: { WAS_REQUIRED: false, WAS_OPTIONAL: true },
   }));
-  test('@defaultRequired=infer does not have any effect in non schema file', envFilesTest({
-    files: {
-      '.env': outdent`
-        # @defaultRequired=infer
-        # ---
-        FOO=
-        BAR=
-      `,
-    },
-    expectRequired: { FOO: true, BAR: true },
-  }));
+
+  // ! previously had this behaviour, but not sure it's necessary
+  // test('@defaultRequired=infer does not have any effect in non schema file', envFilesTest({
+  //   files: {
+  //     '.env': outdent`
+  //       # @defaultRequired=infer
+  //       # ---
+  //       FOO=
+  //       BAR=
+  //     `,
+  //   },
+  //   expectRequired: { FOO: true, BAR: true },
+  // }));
   test('cannot use @required and @optional together', envFilesTest({
     files: {
       '.env.schema': outdent`
@@ -173,48 +175,65 @@ describe('required decorators', () => {
       ERROR4: SchemaError,
     },
   }));
-  test('@required can use `forEnv()` helper to be set based on current envFlag', envFilesTest({
-    files: {
-      '.env.schema': outdent`
-        # @envFlag=APP_ENV @defaultRequired=false
-        # ---
-        APP_ENV=staging
-        REQ_FOR_DEV=      # @required=forEnv(dev)
-        REQ_FOR_STAGING=  # @required=forEnv(staging)
-        REQ_FOR_MULTIPLE= # @required=forEnv(staging, prod)
-      `,
-    },
-    expectRequired: {
-      REQ_FOR_DEV: false,
-      REQ_FOR_STAGING: true,
-      REQ_FOR_MULTIPLE: true,
-    },
-  }));
-  test('@optional can also use `forEnv()`', envFilesTest({
-    files: {
-      '.env.schema': outdent`
-        # @envFlag=APP_ENV @defaultRequired=true
-        # ---
-        APP_ENV=staging
-        OPT_FOR_DEV=      # @optional=forEnv(dev)
-        OPT_FOR_STAGING=  # @optional=forEnv(staging)
-        OPT_FOR_MULTIPLE= # @optional=forEnv(staging, prod)
-      `,
-    },
-    expectRequired: {
-      OPT_FOR_DEV: true,
-      OPT_FOR_STAGING: false,
-      OPT_FOR_MULTIPLE: false,
-    },
-  }));
-  test('`forEnv()` helper is not usable if no envFlag is set', envFilesTest({
-    files: {
-      '.env.schema': outdent`
-        REQ_FOR_DEV=      # @required=forEnv(dev)
-      `,
-    },
-    expectRequired: {
-      REQ_FOR_DEV: SchemaError,
-    },
-  }));
+  describe('@required with forEnv()', () => {
+    test('@required can use `forEnv()` helper to be set based on current envFlag', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @currentEnv=$APP_ENV @defaultRequired=false
+          # ---
+          APP_ENV=staging
+          REQ_FOR_DEV=      # @required=forEnv(dev)
+          REQ_FOR_STAGING=  # @required=forEnv(staging)
+          REQ_FOR_MULTIPLE= # @required=forEnv(staging, prod)
+        `,
+      },
+      expectRequired: {
+        REQ_FOR_DEV: false,
+        REQ_FOR_STAGING: true,
+        REQ_FOR_MULTIPLE: true,
+      },
+    }));
+    test('@optional can also use `forEnv()`', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @currentEnv=$APP_ENV @defaultRequired=true
+          # ---
+          APP_ENV=staging
+          OPT_FOR_DEV=      # @optional=forEnv(dev)
+          OPT_FOR_STAGING=  # @optional=forEnv(staging)
+          OPT_FOR_MULTIPLE= # @optional=forEnv(staging, prod)
+        `,
+      },
+      expectRequired: {
+        OPT_FOR_DEV: true,
+        OPT_FOR_STAGING: false,
+        OPT_FOR_MULTIPLE: false,
+      },
+    }));
+    test('`forEnv()` helper is not usable if no envFlag is set', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          REQ_FOR_DEV=      # @required=forEnv(dev)
+        `,
+      },
+      expectRequired: {
+        REQ_FOR_DEV: SchemaError,
+      },
+    }));
+  });
+  describe('dynamic @required based on other items', () => {
+    test('dynamic @required works', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          REQ_IF_FOO= # @required=eq($OTHER, foo)
+          REQ_IF_BAR= # @required=eq($OTHER, bar)
+          OTHER=foo
+        `,
+      },
+      expectRequired: {
+        REQ_IF_FOO: true,
+        REQ_IF_BAR: false,
+      },
+    }));
+  });
 });

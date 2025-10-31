@@ -1,5 +1,5 @@
 ---
-title: "@type Data Types"
+title: "@type data types"
 description: A reference page of available data types to be used with the `@type` item decorator
 ---
 import Decorator from '@/components/decorator-doc-entry.astro'
@@ -16,7 +16,7 @@ NO_ARGS=
 WITH_ARGS=
 ```
 
-### Coercion & Validation Process
+### Coercion & validation process
 
 Once a raw value is resolved - which could from a static value in an `.env` file, a [function](/reference/functions), or an override passed into the process - the raw value will be coerced and validated based on the type, respecting additional arguments provided to the type.
 
@@ -26,25 +26,27 @@ Consider the following example:
 ITEM="123.45"
 ```
 
-The internal coercion/validation process would look like -- 
+The internal coercion/validation process looks like:<br/>
 `"123.45"` -> `123.45` -> `123` -> ❌ invalid (greater than max)
 
 
 
-### Default Behavior
-When no `@type` is specified and the schema contains a static value, a type will be inferred. Otherwise, the item type will default to `string`.
+### Default behavior
+When no `@type` is specified, a type will be inferred where possible - for static values, and some functions that return a known type. Otherwise the type will default to `string`.
+
 ```env-spec
 INFERRED_STRING="foo"
 INFERRED_NUMBER=123
 INFERRED_BOOLEAN=true
-DEFAULTS_TO_STRING_FN=someFn()
+CONCAT_INFERS_STRING=`concat-${SOMEVAR}-will-be-string`
+DEFAULTS_TO_STRING_FN=fnThatCannotInferType()
 DEFAULTS_TO_STRING=
 ```
 
 
-## Built-in Data types
+## Built-in data types
 
-These are the built-in data types. In the future, plugins will be able to register additional data types.
+These are the built-in data types. [Plugins](/guides/plugins/) may register additional data types.
 
 <div class="reference-docs">
 <div>
@@ -64,6 +66,11 @@ These are the built-in data types. In the future, plugins will be able to regist
 # @type=string(minLength=5, maxLength=10, toUpperCase=true)
 MY_STRING=value
 ```
+
+:::tip[The default type is string]
+No need to add `@type=string` on everything, as it is the default.
+:::
+
 </div>
 
 <div>

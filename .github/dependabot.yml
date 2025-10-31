@@ -15,6 +15,9 @@ updates:
       - packages/integrations/*
     schedule:
       interval: weekly
+    ignore:
+      # issue with latest -- https://github.com/sindresorhus/exit-hook/issues/42
+      - dependency-name: "exit-hook"
     # https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference#groups--
     # 1 PR per week and group
     groups:

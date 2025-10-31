@@ -19,6 +19,7 @@
   "include": [
     "src/**/*.ts",
     "env-graph/**/*.ts",
-    "*.ts"
+    "*.ts",
   ],
+  "exclude": ["src/plugin-lib.ts"]
 }

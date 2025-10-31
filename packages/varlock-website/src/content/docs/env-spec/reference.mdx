@@ -57,7 +57,7 @@ BAZ= # @dec # this is @ignored too
 
 ### Decorators
 
-Decorators are used within comments to attach structured data to specific config items, or within a standalone comment blockto alter a group of items or the entire document and loading process.
+Decorators are used within comments to attach structured data to specific config items, or within a standalone comment block to alter a group of items or the entire document and loading process.
 
 - Each decorator has a name and optional value (`@name=value`) or is a bare function call `@func()`
 - Decorators with values may only be used once per comment block, while function calls may be used multiple times
@@ -91,7 +91,7 @@ A divider is a comment that serves as a separator, like a `<hr/>` in HTML.
 # ---
 ITEM1=
 ITEM2=
-# --- another divider --- 
+# --- another divider ---
 ITEM3=
 ```
 
@@ -100,9 +100,9 @@ ITEM3=
 ### Config Item Comments
 Comment lines directly preceeding an item will be attached to that item, along with the decorators contained within.
 
-- A blank line or a divider will break the above comments from being attached to the item
+- A blank line or a divider will break the above comments from being attached to the item below
 - Both decorator and regular comment lines may be interspersed
-- Post-value comments may also contain decorators, but is not recommended
+- Post-value comments may also contain decorators, but should be used sparingly
 
 ```env-spec
 # these comments are attached to ITEM1 below
@@ -162,6 +162,7 @@ Values are interpreted similarly for config item values, decorator values, and v
 - A value in quotes is _always_ treated as a string -- `@d1="with spaces"`, `@trueString="true"`, `@numStr="123"`
 - All quote styles ``[`'"]`` are ok -- ``@dq="c" @bt=`b` @sq='a'``
 - Escaped quotes matching the wrapping quote style are ok -- `@ok="escaped\"quote"`
+- Single quote wrapped strings do not support [expansion (see below)](#expansion)
 - In `"` or `` ` `` wrapped values, the string `\n` will be converted to an actual newline
 - Multi-line strings may be wrapped in ``(```|"""|"|')``
   - only available for config item values, not decorators or within function args
@@ -175,7 +176,7 @@ In each case, much of the handling is the same.
 - a value must not be wrapped in quotes to be interpreted as a function call
 - function names must start with a letter, and can then contain letters, numbers, and underscores `/[a-ZA-Z][a-ZA-Z0-9_]*/`
 - you can pass no args, a single arg, or multiple args
-- you may also pass key value pairs at the end of the list, and they will be combined into a single object at the end of the array
+- you may also pass key value pairs at the end of the list
 - each value will be interpreted using common value-handling rules (see above)
 
 ```env-spec
@@ -184,4 +185,28 @@ SINGLE_ARG=fn(asdf)
 MULTIPLE_ARGS=fn(one, "two", three, 123.456)
 KEY_VALUE_ARGS=fn(key1=v1, key2="v2", key3=true)
 MIXED_ARGS=fn(item1, item2, key1=v1, key2="v2", key3=true)
+NOT_FN_CALL="fn()" # treated as string
 ```
+
+### String expansion ||expansion||
+While the parser itself does not include any implemention of specific functions, it does handle _expansion_ of strings - and it uses several function calls under the hood to do so. This means a few basic function calls, while not implemented, have specific inherent meaning and must be implemented similarly across all tools that support this spec.
+
+Expansion can be used within item values, decorator values, and function call arguments.
+
+_Note that single quote wrapped strings are NOT expanded._
+
+- `$ITEM_NAME` -> `ref(ITEM_NAME)`
+- `${ITEM_NAME}` -> `ref(ITEM_NAME)`
+- `pre${ITEM_NAME}post` -> `concat("pre", ref(ITEM_NAME), "post")`
+- `${ITEM_NAME:-defaultval}` -> `fallback(ref(ITEM_NAME), "defaultval")`
+- `${ITEM_NAME-defaultval}` -> `fallback(ref(ITEM_NAME), "defaultval")`
+- `$(my-cli arg --arg2)` -> `exec("my-cli arg --arg2")`
+
+:::note[Keep it simple]
+We recommend using expansion only for simple refs `$ITEM`/`${ITEM}` and skipping the rest.
+
+- Use bracketed version within a larger string - `fn("${ENV}_db")`
+- Skip the brackets otherwise - `fn($ENV)`
+
+The rest is implemented to match other popular tools, but we do not recommend using them, as intent can be more clearly expressed using function calls directly.
+:::

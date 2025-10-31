@@ -25,7 +25,7 @@ export function execSyncVarlock(
     // which will inject node_modules/.bin into PATH
     try {
       const result = execSync(`varlock ${command}`, {
-        ...opts,
+        ...opts?.env && { env: opts.env },
         stdio: 'pipe',
       });
       return result.toString();

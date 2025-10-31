@@ -1,0 +1,11 @@
+{
+  "name": "@varlock/test-plugin",
+  "private": true,
+  "description": "plugin used in automated tests",
+  "version": "1.2.3",
+  "type": "module",
+  "exports": {
+    "./plugin": "./plugin.js"
+  },
+  "files": ["dist"]
+}

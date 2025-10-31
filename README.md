@@ -16,7 +16,7 @@
 ## Varlock
 > add declarative schema to your .env files using @env-spec decorator comments
 
-- 🛡️ validation, coercion, type safety w/ Intellisense
+- 🛡️ validation, coercion, type safety w/ IntelliSense
 - 🔏 protection for sensitive config values (log redaction, leak prevention)
 - 🌐 flexible multi-environment management
 - 💫 composition of values, functions, load from external sources
@@ -24,7 +24,7 @@
 Your `.env.schema` is a declarative schema of your environment variables that lives within version control, so it will never be out of sync.
 
 ```bash
-# @defaultSensitive=false @defaultRequired=infer @envFlag=APP_ENV
+# @defaultSensitive=false @defaultRequired=infer @currentEnv=$APP_ENV
 # ---
 # our environment flag, will control automatic loading of `.env.xxx` files
 # @type=enum(development, preview, production, test
@@ -32,11 +32,11 @@ APP_ENV=development # default value, can override
 
 # API port
 # @type=port @example=3000
-API_PORT= 
+API_PORT=
 
 # API url including _expansion_ referencing another env var
 # @required @type=url
-API_URL=http://localhost:${API_PORT} 
+API_URL=http://localhost:${API_PORT}
 
 # API key with validation, securely fetched from 1Password
 # @required @sensitive @type=string(startsWith=sk-)
@@ -49,7 +49,7 @@ SOME_SERVICE_API_URL=https://api.someservice.com
 
 ## Installation
 
-You can get started with varlock by installing the CLI: 
+You can get started with varlock by installing the CLI:
 
 ```bash
 # Run the installation wizard, which will install as a dependency in a JavaScript project
@@ -67,13 +67,13 @@ See the full [installation docs](https://varlock.dev/getting-started/installatio
 
 ## Workflow
 
-Validate your `.env.schema` and pretty print your environment variables with: 
+Validate your `.env.schema` and pretty print your environment variables with:
 
 ```bash
 varlock load
 ```
 
-If you need to pass resolved env vars into another process, you can run: 
+If you need to pass resolved env vars into another process, you can run:
 
 ```bash
 varlock run -- python script.py
@@ -85,7 +85,7 @@ Or you can integrate more deeply with one of our [integrations](https://varlock.
 
 Varlock is built on top of @env-spec, a new DSL for attaching a schema and additional functionality to .env files using JSDoc style comments. The @env-spec package contains a parser and info about the spec itself.
 
-- @env-spec [docs](https://varlock.dev/env-spec/overview/) 
+- @env-spec [docs](https://varlock.dev/env-spec/overview/)
 - @env-spec [RFC](https://github.com/dmno-dev/varlock/discussions/17)
 
 

@@ -144,12 +144,12 @@ For local MCP servers running in Docker: In this case an off-the-shelf MCP serve
     "github": {
       "command": "varlock",
       "args": [
-        "run", 
-        "--", 
-        "docker", 
-        "run", 
-        "--rm", 
-        "-i", 
+        "run",
+        "--",
+        "docker",
+        "run",
+        "--rm",
+        "-i",
         "ghcr.io/github/github-mcp-server:latest"
       ],
       "env": {
@@ -196,12 +196,12 @@ For local MCP servers running in Docker: In this case an off-the-shelf MCP serve
     "github": {
       "command": "varlock",
       "args": [
-        "run", 
-        "--", 
-        "docker", 
-        "run", 
-        "--rm", 
-        "-i", 
+        "run",
+        "--",
+        "docker",
+        "run",
+        "--rm",
+        "-i",
         "ghcr.io/github/github-mcp-server:latest"
       ],
       "env": {
@@ -342,11 +342,11 @@ async function main() {
       case 'query-database':
         // Use secure database connection from config
         return await queryDatabase(ENV.DATABASE_URL, args);
-      
+
       case 'call-external-api':
         // Use secure API key from config
         return await callExternalAPI(ENV.EXTERNAL_API_KEY, args);
-      
+
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -378,7 +378,7 @@ For production, create environment-specific schema files. See the [environments 
 ```env-spec title=".env.schema"
 # @defaultSensitive=true
 # @defaultRequired=true
-# @envFlag=APP_ENV
+# @currentEnv=$APP_ENV
 # ---
 
 # env flag is used to determine which environment to load
@@ -416,7 +416,7 @@ SERVER_PORT=3000
 LOG_LEVEL=warn
 ```
 
-Then in the command to start the server, you can use the `varlock run` command to load the environment variables with the correct `envFlag`environment override.
+Then in the command to start the server, you can use the `varlock run` command to load the environment variables with the correct `currentEnv` environment override.
 
 ```bash
 APP_ENV=production varlock run -- node server.js
@@ -448,7 +448,7 @@ Create separate schema files for different environments. See the [environments g
 
 ```env-spec title=".env.schema"
 # @defaultSensitive=true
-# @envFlag=APP_ENV
+# @currentEnv=$APP_ENV
 # ---
 
 # env flag is used to determine which environment to load

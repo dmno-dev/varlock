@@ -8,7 +8,12 @@ import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
 import { generateTypes } from './type-generation';
-import type { ParsedEnvSpecDecorator } from '@env-spec/parser';
+
+import {
+  builtInItemDecorators, builtInRootDecorators, RootDecoratorInstance, type ItemDecoratorDef, type RootDecoratorDef,
+} from './decorators';
+import { getErrorLocation } from './error-location';
+import type { VarlockPlugin } from './plugins';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -51,6 +56,7 @@ export class EnvGraph {
 
   configSchema: Record<string, ConfigItem> = {};
 
+
   /** virtual imports for testing */
   virtualImports?: Record<string, string>;
   setVirtualImports(basePath: string, files: Record<string, string>) {
@@ -70,10 +76,9 @@ export class EnvGraph {
 
   registeredResolverFunctions: Record<string, ResolverChildClass> = {};
   registerResolver(resolverClass: ResolverChildClass) {
-    // TODO: fix ts any
-    const fnName = (resolverClass as any).fnName;
+    // because its a class, we can't use `name`
+    const fnName = resolverClass.fnName;
     if (fnName in this.registeredResolverFunctions) {
-      // TODO: do we want to allow the user to override?
       throw new Error(`Resolver ${fnName} already registered`);
     }
     this.registeredResolverFunctions[fnName] = resolverClass;
@@ -81,18 +86,49 @@ export class EnvGraph {
 
   dataTypesRegistry: Record<string, EnvGraphDataTypeFactory> = {};
   registerDataType(factory: EnvGraphDataTypeFactory) {
+    const name = factory.dataTypeName;
+    if (name in this.dataTypesRegistry) {
+      throw new Error(`Data type "${name}" already registered`);
+    }
     this.dataTypesRegistry[factory.dataTypeName] = factory;
+  }
+
+  itemDecoratorsRegistry: Record<string, ItemDecoratorDef> = {};
+  registerItemDecorator(decoratorDef: ItemDecoratorDef) {
+    const name = decoratorDef.name;
+    if (name in this.itemDecoratorsRegistry) {
+      throw new Error(`Item decorator "${name}" already registered`);
+    }
+    this.itemDecoratorsRegistry[decoratorDef.name] = decoratorDef;
+  }
+
+  rootDecoratorsRegistry: Record<string, RootDecoratorDef> = {};
+  registerRootDecorator(decoratorDef: RootDecoratorDef) {
+    const name = decoratorDef.name;
+    if (name in this.itemDecoratorsRegistry) {
+      throw new Error(`Root decorator "${name}" already registered`);
+    }
+    this.rootDecoratorsRegistry[decoratorDef.name] = decoratorDef;
   }
 
   constructor() {
     // register base data types (string, number, boolean, etc)
-    for (const dataType of _.values(BaseDataTypes)) {
+    for (const dataType of BaseDataTypes) {
       this.registerDataType(dataType);
     }
-    // register base resolvers (concat, ref, etc)
+    // register base resolvers (concat, ref, exec, etc)
     for (const resolverClass of BaseResolvers) {
       this.registerResolver(resolverClass);
     }
+    // base root decorators (envFlag, generateTypes, import, etc)
+    for (const rootDec of builtInRootDecorators) {
+      this.registerRootDecorator(rootDec);
+    }
+    // base item decorators (required, sensitive, docs, etc)
+    for (const itemDec of builtInItemDecorators) {
+      this.registerItemDecorator(itemDec);
+    }
+
     this.overrideValues = originalProcessEnv;
   }
 
@@ -104,18 +140,40 @@ export class EnvGraph {
   }
 
   async finishLoad() {
-    // process items - this adds dataTypes, checks resolver args, and dependencies
+    // bail early if we already have issues
+    for (const source of this.sortedDataSources) {
+      if (!source.isValid) return;
+    }
+    for (const plugin of this.plugins) {
+      if (plugin.loadingError) return;
+    }
+
+    // process root decorators
+    let processingError = false;
+    for (const source of this.sortedDataSources) {
+      if (source.disabled) continue;
+      for (const decInstance of source.rootDecorators) {
+        await decInstance.process();
+        if (decInstance.schemaErrors.length) processingError = true;
+      }
+    }
+
+    // process config items
+    // checks decorators, sets data type, checks resolver args, adds deps
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
       await item.process();
+      if (item.errors.length) processingError = true;
     }
+
+    if (processingError) return;
 
     // check for cycles in resolver dependencies
     const cycles = findGraphCycles(this.graphAdjacencyList);
     for (const cycleItemKeys of cycles) {
       for (const itemKey of cycleItemKeys) {
         const item = this.configSchema[itemKey];
-        item.schemaErrors.push(
+        item._schemaErrors.push(
           new SchemaError(
             cycleItemKeys.length === 1
               ? 'Item cannot have dependency on itself'
@@ -124,21 +182,43 @@ export class EnvGraph {
         );
       }
     }
+
+    // now execute all root decorators
+    for (const source of this.sortedDataSources) {
+      if (source.disabled) continue;
+      for (const decInstance of source.rootDecorators) {
+        if (!decInstance.decValueResolver) throw new Error('expected decorator value resolver');
+        await this.resolveEnvValues(decInstance.decValueResolver.deps);
+        try {
+          await decInstance.execute();
+        } catch (err) {
+          decInstance._executionError = new SchemaError(
+            err as Error,
+            { location: getErrorLocation(source, decInstance.parsedDecorator) },
+          );
+        }
+      }
+    }
+
+    // maybe should be part of a _resolve all root decorators_ step?
+    await this.getRootDec('redactLogs')?.resolve();
+    await this.getRootDec('preventLeaks')?.resolve();
   }
 
   get graphAdjacencyList() {
     const adjList: GraphAdjacencyList = {};
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
-      adjList[itemKey] = item.valueResolver?.deps || [];
+      adjList[itemKey] = item.dependencyKeys;
     }
     return adjList;
   }
 
-  async resolveEnvValues(): Promise<void> {
-    if (_.keys(this.configSchema).length === 0) return;
+  async resolveEnvValues(keys?: Array<string>): Promise<void> {
+    const keysToResolve = keys ?? _.keys(this.configSchema);
+    if (!keysToResolve.length) return;
 
-    const adjList = this.graphAdjacencyList;
+    const adjList = _.pick(this.graphAdjacencyList, keysToResolve);
     const reverseAdjList: Record<string, Array<string>> = {};
     for (const itemKey in adjList) {
       const itemDeps = adjList[itemKey];
@@ -152,7 +232,7 @@ export class EnvGraph {
     // - true = in progress
     // - false = not yet started
     // - items are removed when completed
-    const itemsToResolveStatus = _.mapValues(this.configSchema, () => false);
+    const itemsToResolveStatus = _.fromPairs(keysToResolve.map((key) => [key, false]));
 
     // code is a bit awkward here because we are resolving items in parallel
     // and need to continue resolving dependent items as each finishes
@@ -182,7 +262,7 @@ export class EnvGraph {
           return;
         }
 
-        for (const depKey of adjList[itemKey]) {
+        for (const depKey of adjList[itemKey] || []) {
           const depItem = this.configSchema[depKey];
           // if a dependency is invalid, we mark the item as invalid too
           if (depItem.validationState === 'error') {
@@ -240,8 +320,8 @@ export class EnvGraph {
     }
 
     // expose a few root level settings
-    serializedGraph.settings.redactLogs = this.getRootDecoratorValue('redactLogs') ?? true;
-    serializedGraph.settings.preventLeaks = this.getRootDecoratorValue('preventLeaks') ?? true;
+    serializedGraph.settings.redactLogs = this.getRootDec('redactLogs')?.resolvedValue ?? true;
+    serializedGraph.settings.preventLeaks = this.getRootDec('preventLeaks')?.resolvedValue ?? true;
 
     return serializedGraph;
   }
@@ -254,7 +334,7 @@ export class EnvGraph {
     await generateTypes(this, lang, outputPath);
   }
 
-  getRootDecoratorValue(decoratorName: string) {
+  getRootDec(decoratorName: string) {
     // currently this is just used above, but may want to rework
     // to track values once as we process sources
     const sources = Array.from(this.sortedDataSources).reverse();
@@ -262,21 +342,25 @@ export class EnvGraph {
       if (s.disabled) continue;
       // we skip root decorators if the file was being _partially_ imported
       if (s.isPartialImport) continue;
-      const decs = s.getRootDecorators(decoratorName);
-      if (decs.length) return decs[0].simplifiedValue;
+      const dec = s.getRootDec(decoratorName);
+      if (dec) return dec;
     }
     return undefined;
   }
-  getRootDecorators(decoratorName: string) {
+  getRootDecFns(decoratorName: string) {
+    const allDecs: Array<RootDecoratorInstance> = [];
     const sources = Array.from(this.sortedDataSources).reverse();
-    const combinedDecsWithSources: Array<[EnvGraphDataSource, Array<ParsedEnvSpecDecorator>]> = [];
     for (const source of sources) {
       if (source.disabled) continue;
       // we skip root decorators if the file was being _partially_ imported
       if (source.isPartialImport) continue;
-      const decs = source.getRootDecorators(decoratorName);
-      combinedDecsWithSources.push([source, decs]);
+      const decs = source.getRootDecFns(decoratorName);
+      allDecs.push(...decs);
     }
-    return combinedDecsWithSources;
+    return allDecs;
   }
+
+
+  /** plugins installed globally in the graph */
+  plugins: Array<VarlockPlugin> = [];
 }

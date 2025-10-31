@@ -22,7 +22,7 @@ The Varlock GitHub Action provides a secure way to load and validate environment
 
 :::note[.env.schema not required]
 While you are encouraged to create a `.env.schema` file while using varlock, you can still use this GitHub Action without one.
-If you do not have a `.env.schema` file, the action will only load `.env`, since we won't know what to use as your [environment flag](/guides/environments), and therefore which other `.env.*` files to load. 
+If you do not have a `.env.schema` file, the action will only load `.env`, since we won't know what to use as your [environment flag](/guides/environments), and therefore which other `.env.*` files to load.
 :::
 
 ## Setup
@@ -35,23 +35,23 @@ If you do not have a `.env.schema` file, the action will only load `.env`, since
    Make sure you have a `.env.schema` file in your repository that defines your environment variables and their validation rules.
 
    ```env-spec title=".env.schema"
-   # @envFlag=APP_ENV
+   # @currentEnv=$APP_ENV
    # @defaultSensitive=false @defaultRequired=false
    # @generateTypes(lang='ts', path='env.d.ts')
    # ---
-   
+
    # Environment flag
    # @type=enum(development, staging, production)
    APP_ENV=development
-   
+
    # Database configuration
    # @type=url @required
    DATABASE_URL=
-   
+
    # API configuration
    # @type=string(startsWith=sk-) @sensitive
    API_KEY=
-   
+
    # Feature flags
    # @type=boolean
    ENABLE_FEATURE_X=false
@@ -61,19 +61,19 @@ If you do not have a `.env.schema` file, the action will only load `.env`, since
 
    ```yaml title=".github/workflows/deploy.yml"
    name: Deploy Application
-   
+
    on:
      push:
        branches: [main]
-   
+
    jobs:
      deploy:
        runs-on: ubuntu-latest
-       
+
        steps:
          - name: Checkout code
            uses: actions/checkout@v4
-           
+
          - name: Load environment variables
            uses: dmno-dev/varlock@v1
    ```
@@ -114,14 +114,14 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Load environment variables
         uses: dmno-dev/varlock@v1
-        
+
       - name: Use environment variables
         run: |
           echo "Database URL: $DATABASE_URL"
@@ -145,61 +145,61 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       env-vars: ${{ steps.varlock.outputs.json-env }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Load environment variables as JSON
         uses: dmno-dev/varlock@v1
         with:
           show-summary: false
           output-format: 'json'
-          
+
   build:
     needs: load-env
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Process environment variables
         run: |
           # Access the JSON blob from the previous job
           echo '${{ needs.load-env.outputs.env-vars }}' > env-vars.json
-          
+
           # Use jq to process the JSON
           echo "Database URL: $(jq -r '.DATABASE_URL' env-vars.json)"
           echo "API Key: $(jq -r '.API_KEY' env-vars.json)"
-          
+
       - name: Build application
         run: |
           # Use environment variables from JSON in build process
           DATABASE_URL=$(jq -r '.DATABASE_URL' env-vars.json)
           API_KEY=$(jq -r '.API_KEY' env-vars.json)
-          
+
           echo "Building with DATABASE_URL: $DATABASE_URL"
           echo "Building with API_KEY: $API_KEY"
           # Your build logic here
-          
+
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Deploy with environment variables
         run: |
           # Access the same environment variables from the first job
           echo '${{ needs.load-env.outputs.env-vars }}' > env-vars.json
-          
+
           # Use environment variables in deployment
           DATABASE_URL=$(jq -r '.DATABASE_URL' env-vars.json)
           API_KEY=$(jq -r '.API_KEY' env-vars.json)
-          
+
           echo "Deploying with DATABASE_URL: $DATABASE_URL"
           echo "Deploying with API_KEY: $API_KEY"
           # Your deployment logic here
@@ -219,17 +219,17 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Load environment variables
         uses: dmno-dev/varlock@v1
         env:
           # Set environment-specific values
           APP_ENV: ${{ github.ref_name == 'main' && 'production' || github.ref_name == 'staging' && 'staging' || 'development' }}
-          
+
       - name: Deploy to environment
         run: |
           echo "Deploying to $APP_ENV environment"
@@ -258,16 +258,16 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Load environment variables
         uses: dmno-dev/varlock@v1
         with:
           fail-on-error: false  # Don't fail on validation errors
-          
+
       - name: Handle validation errors
         if: steps.varlock.outputs.error-count > '0'
         run: |
