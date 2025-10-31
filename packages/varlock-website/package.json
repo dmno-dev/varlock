@@ -15,21 +15,21 @@
     "@astrojs/mdx": "^4.3.9",
     "@astrojs/partytown": "^2.1.4",
     "@astrojs/sitemap": "^3.6.0",
-    "@astrojs/starlight": "^0.36.1",
+    "@astrojs/starlight": "^0.36.2",
     "@astrojs/vue": "^5.1.2",
-    "astro": "^5.15.2",
-    "astro-og-canvas": "^0.7.0",
+    "astro": "^5.15.3",
+    "astro-og-canvas": "^0.7.2",
     "astro-robots-txt": "^1.0.0",
     "canvaskit-wasm": "^0.40.0",
     "outdent": "catalog:",
     "remark-custom-header-id": "^1.0.0",
-    "starlight-llms-txt": "^0.5.1",
-    "vue": "^3.5.18"
+    "starlight-llms-txt": "^0.6.0",
+    "vue": "^3.5.22"
   },
   "devDependencies": {
     "@varlock/astro-integration": "workspace:*",
     "varlock": "workspace:*",
-    "wrangler": "^4.26.0"
+    "wrangler": "^4.45.3"
   },
   "engines": {
     "node": ">=22",

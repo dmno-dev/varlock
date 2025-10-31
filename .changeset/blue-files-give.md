@@ -1,0 +1,5 @@
+---
+"varlock": patch
+---
+
+dep updates
