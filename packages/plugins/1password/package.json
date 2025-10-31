@@ -1,7 +1,13 @@
 {
   "name": "@varlock/1password-plugin",
   "description": "Varlock plugin to pull data from 1password",
+<<<<<<< ours
+  "version": "0.0.1",
+||||||| ancestor
+  "version": "1.0.0",
+=======
   "version": "0.1.0",
+>>>>>>> theirs
   "type": "module",
   "repository": {
     "type": "git",
