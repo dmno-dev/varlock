@@ -500,6 +500,81 @@ console.log('Database URL:', ENV.DATABASE_URL); // Shows: [xx▒▒▒▒▒]
 Redaction is on by default, see [root decorators - redactLogs](/reference/root-decorators/#redactlogs) for more information.
 :::
 
+## Docs MCP
+
+We also have a MCP server that allows you to search the Varlock docs. Yes, this getting a bit meta.
+
+The MCP server is available at:
+- https://docs.mcp.varlock.dev/mcp (Streamable HTTP)
+- https://docs.mcp.varlock.dev/sse (Server-Sent Events)
+
+See below for tool-specific setup instructions. 
+
+<Tabs syncKey="mcp-clients">
+  <TabItem label="Cursor">
+
+  Click below to install the MCP server in Cursor: 
+  
+  [![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en-US/install-mcp?name=varlock-docs-mcp&config=eyJjb21tYW5kIjoibnB4IG1jcC1yZW1vdGUgaHR0cHM6Ly9kb2NzLm1jcC52YXJsb2NrLmRldi9tY3AifQ%3D%3D)
+
+  Or add the following to your `.cursor/mcp-servers.json` file:
+
+```json title="~/.cursor/mcp.json"
+{
+  "mcpServers": {
+    "varlock-docs-mcp": {
+      "command": "npx",
+      "args": ["mcp-remote", "https://docs.mcp.varlock.dev/mcp"]
+    }
+  }
+}
+```
+  </TabItem>
+  <TabItem label="Claude">
+  To add a server in Claude Code, run the following command:
+  ```bash
+  claude mcp add varlock-docs-mcp https://docs.mcp.varlock.dev/mcp
+  ```
+
+  See [Claude's documentation](https://docs.claude.com/en/docs/claude-code/mcp#option-1%3A-add-a-remote-http-server) for more information.
+
+
+  </TabItem>
+  <TabItem label="opencode">
+  To add a remote MCP server in Opencode, add the following to your `opencode.json` file:
+```json title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "varlock-docs-mcp": {
+      "type": "remote",
+      "url": "https://docs.mcp.varlock.dev/mcp",
+      "enabled": true,
+    }
+  }
+}
+```
+
+  See [Opencode's documentation](https://opencode.ai/docs/mcp-servers/#remote) for more information.
+  </TabItem>
+  <TabItem label="VS Code">
+
+  To add a remote MCP server in VS Code, add the following to your `.vscode/mcp.json` file:
+  ```json title=".vscode/mcp.json"
+  {
+    "servers": {
+      "varlock-docs-mcp": {
+        "type": "http",
+        "url": "https://docs.mcp.varlock.dev/mcp"
+      }
+    }
+  }
+  ```
+
+  See [VS Code's documentation](https://code.visualstudio.com/docs/copilot/customization/mcp-servers) for more information.
+  </TabItem>
+</Tabs>
+
 ## Next Steps
 
 - Learn more about [varlock's environment specification](/env-spec/overview)

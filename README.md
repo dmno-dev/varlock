@@ -99,6 +99,11 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 | [@env-spec VSCode extension](packages/vscode-plugin) | [VSCode Marketplace](https://marketplace.visualstudio.com/items?itemName=varlock.env-spec-language), [Open VSX Registry](https://open-vsx.org/extension/varlock/env-spec-language) |
 | [varlock Docker image](Dockerfile) | [GitHub Container Registry](https://github.com/orgs/dmno-dev/packages/container/package/varlock) |
 
+## MCP Servers
+| MCP Server | Link | URL |
+| --- | --- | --- |
+| Varlock Docs (HTTP) | [Installation](https://varlock.dev/guides/mcp/#docs-mcp) | https://docs.mcp.varlock.dev/mcp |
+| Varlock Docs (SSE) | [Installation](https://varlock.dev/guides/mcp/#docs-mcp) | https://docs.mcp.varlock.dev/sse |
 ## Development & Contribution
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for more information.

@@ -1,0 +1,10 @@
+# wrangler project
+
+.dev.vars
+.wrangler/
+
+.dev.vars*
+!.dev.vars.example
+!.env.example
+
+worker-configuration.d.ts
