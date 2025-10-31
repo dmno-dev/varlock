@@ -2,7 +2,8 @@
   >div {
     margin-bottom: 2rem;
     padding: 1rem;
-    border: 1px dotted var(--brand-purple);
+    border: 1px dotted var(--brand-orange--t1);
+    border-left: 2px solid var(--brand-orange--t1);
 
     .sl-heading-wrapper {
       border: none;

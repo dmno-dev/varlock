@@ -1,11 +1,11 @@
 ---
-title: "@import guide"
+title: "Imports"
 description: Learn how to use the @import decorator to share environment variables across files and services
 ---
 
 The [`@import()` root decorator](/reference/root-decorators/#import) allows you to import schema and/or values from other sources (currently just `.env` files), making it easy to share config across services within a monorepo, split up large schemas, or reuse pre-defined schemas. Multiple `@import()` calls may be used, and an imported source may itself import more sources.
 
-**Basic examples:** 
+**Basic examples:**
 ```env-spec
 # @import(./.env.imported)              # import specific file
 # @import(./env-dir/)                   # import directory
@@ -22,7 +22,7 @@ For now, all imported files must be `.env` files (and may contain @env-spec deco
 
 ### Single file
 
-- Path must begin with `./` or `../`
+- Path must begin with `./` or `../` or `/`
 - Imported file name must be begin with `.env.`
 
 ```env-spec
@@ -31,16 +31,16 @@ For now, all imported files must be `.env` files (and may contain @env-spec deco
 
 ### Directory
 
-- Path must begin with `./` or `../`
+- Path must begin with `./` or `../` or `/`
 - Path must end with a trailing `/`
 - Multiple `.env.*` files will be detected and loaded, based on the current environment flag, similar to what happens in the current directory (see [environments guide](/guides/environments#loading-environment-specific-env-files))
-- The environment flag value will be inherited, unless another `@envFlag` is defined within the directory's `.env.schema`
+- The environment flag value will be inherited, unless another `@currentEnv` is defined within the directory's `.env.schema`
 
 ```env-spec
 # @import(../shared-config-dir/)
 ```
 
-{/* 
+{/*
 ### HTTP URL (👀 coming soon)
 
 - Protocol must be https
@@ -84,7 +84,7 @@ To do this, we usually walk our data sources in decreasing order of precedence, 
 **Precedence rules are:**
 - Imported files are processed in order, with later imports overriding previous imports
 - Definitions and root decorators in the importing file override those in files it imports
-- For a directory, the precedence order is `.env.schema` < `.env` < `.env.local` < `.env.{envFlag}` < `.env.{envFlag}.local`
+- For a directory, the precedence order is `.env.schema` < `.env` < `.env.local` < `.env.{currentEnv}` < `.env.{currentEnv}.local`
 
 For example, given a `.env.local` and a `.env.schema` that imports 2 files:
 ```env-spec title=".env.schema"

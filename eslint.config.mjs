@@ -156,7 +156,7 @@ export default tseslint.config(
   {
     files: [
       'scripts/**',
-      'example-monorepo/**',
+      'examples/**',
       'packages/*.ignore/**',
       'packages/varlock/src/cli/**',
       'packages/varlock/scripts/**',

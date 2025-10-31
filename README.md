@@ -16,7 +16,7 @@
 ## Varlock
 > add declarative schema to your .env files using @env-spec decorator comments
 
-- 🛡️ validation, coercion, type safety w/ Intellisense
+- 🛡️ validation, coercion, type safety w/ IntelliSense
 - 🔏 protection for sensitive config values (log redaction, leak prevention)
 - 🌐 flexible multi-environment management
 - 💫 composition of values, functions, load from external sources
@@ -24,7 +24,7 @@
 Your `.env.schema` is a declarative schema of your environment variables that lives within version control, so it will never be out of sync.
 
 ```bash
-# @defaultSensitive=false @defaultRequired=infer @envFlag=APP_ENV
+# @defaultSensitive=false @defaultRequired=infer @currentEnv=$APP_ENV
 # ---
 # our environment flag, will control automatic loading of `.env.xxx` files
 # @type=enum(development, preview, production, test

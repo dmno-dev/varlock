@@ -50,7 +50,7 @@ h2,
 h3,
 h4,
 h5 {
-  font-weight: 500;
+  font-weight: 400;
 
   /* font-family: var(--font-pixel);
   font-weight: var(--font-pixel-weight); */
@@ -72,6 +72,11 @@ img[src^="https://varlock-pixel-art.dmno.workers.dev/"] {
   image-rendering: pixelated;
   image-rendering: -moz-crisp-edges;
   image-rendering: crisp-edges;
+}
+
+b,
+strong {
+  font-weight: 700;
 }
 
 
@@ -411,27 +416,27 @@ html[data-theme='light'] .starlight-aside .starlight-aside__title {
 
 /* TODO update these colors to match the new palette */
 .starlight-aside.starlight-aside--note {
-  --aside-color-1: var(--brand-blue);
-  --aside-color-shadow: var(--brand-blue--t2);
-  --aside-color-2: var(--brand-orange);
+  --aside-color-1: var(--brand-pink);
+  --aside-color-shadow: var(--brand-pink--t2);
+  /* --aside-color-2: var(--brand-red); */
 }
 
 .starlight-aside.starlight-aside--tip {
-  --aside-color-1: var(--brand-blue);
-  --aside-color-shadow: var(--brand-blue--t2);
-  --aside-color-2: var(--brand-blue);
+  --aside-color-1: var(--brand-cyan);
+  --aside-color-shadow: var(--brand-cyan--t2);
+  /* --aside-color-2: var(--brand-red); */
 }
 
 .starlight-aside.starlight-aside--caution {
   --aside-color-1: var(--brand-orange);
   --aside-color-shadow: var(--brand-orange--t2);
-  --aside-color-2: var(--brand-red);
+  /* --aside-color-2: var(--brand-red); */
 }
 
 .starlight-aside.starlight-aside--danger {
-  --aside-color-1: var(--brand-red);
-  --aside-color-shadow: var(--brand-red--t2);
-  --aside-color-2: var(--brand-pink);
+  --aside-color-1: var(--brand-orange);
+  --aside-color-shadow: var(--brand-orange--t2);
+  /* --aside-color-2: var(--brand-red); */
 }
 
 /* starlight steps component */
@@ -440,7 +445,7 @@ html[data-theme='light'] .starlight-aside .starlight-aside__title {
 }
 
 .sl-steps>li:before {
-  background-color: var(--brand-purple) !important;
+  background-color: var(--brand-red) !important;
   color: white !important;
   font-family: 'Days One', sans-serif;
   box-shadow: none !important;
@@ -450,18 +455,18 @@ html[data-theme='light'] .starlight-aside .starlight-aside__title {
 .sl-markdown-content table:not(:where(.not-content *)) {
   display: table;
   min-width: 100%;
-  border: 1px solid var(--brand-purple--t1);
+  border: 1px solid var(--brand-red--t1);
 }
 
 .sl-markdown-content table {
-  --sl-color-hairline-light: var(--brand-purple--t1);
-  border: 1px dotted var(--brand-purple--t1);
+  --sl-color-hairline-light: var(--brand-red--t1);
+  border: 1px dotted var(--brand-red--t1);
   position: relative;
 }
 
 .sl-markdown-content table thead {
   text-align: left;
-  background: var(--brand-purple--t2);
+  background: var(--brand-red--t2);
   color: var(--color-text-full-shade);
 }
 

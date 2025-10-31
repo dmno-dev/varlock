@@ -39,7 +39,7 @@ To integrate varlock into a Next.js application, you must use our [`@varlock/nex
     <ExecCommandWidget command="varlock init" showBinary={false} />
 
 1. **Override `@next/env` with our drop-in replacement**
-    
+
     Next.js does not have APIs we can hook into, so we must override their internal .env-loading package.
     Overriding dependencies is a bit different for each package manager:
 
@@ -194,7 +194,7 @@ By default, the environment flag is determined as follows (matching Next.js):
 Without a custom env flag, you cannot use non-production env files (like `.env.preview`, `.env.staging`) for non-prod deployments.
 :::
 
-Instead, we recommend explicitly setting your own environment flag using the [`@envFlag` root decorator](/reference/root-decorators/#envflag), e.g. `APP_ENV`. See the [environments guide](/guides/environments) for more information.
+Instead, we recommend explicitly setting your own environment flag using the [`@currentEnv` root decorator](/reference/root-decorators/#currentEnv), e.g. `APP_ENV`. See the [environments guide](/guides/environments) for more information.
 
 :::note[Loading `.env.local` in `test` environment]
 Next.js makes [a special exception](https://nextjs.org/docs/pages/guides/environment-variables#test-environment-variables) to skip loading `.env.local` if the current environment is `test`.
@@ -230,7 +230,7 @@ You can set the env var explicitly when you run a command, but often you will se
 You can use the injected `VERCEL_ENV` variable to match their concept of environment types:
 
 ```env-spec title=".env.schema"
-# @envFlag=APP_ENV
+# @currentEnv=$APP_ENV
 # ---
 # @type=enum(development, preview, production)
 VERCEL_ENV=
@@ -245,7 +245,7 @@ For more granular environments, use the branch name in `VERCEL_GIT_COMMIT_REF` (
 Use the branch name in `WORKERS_CI_BRANCH` to determine the environment:
 
 ```env-spec title=".env.schema"
-# @envFlag=APP_ENV
+# @currentEnv=$APP_ENV
 # ---
 WORKERS_CI_BRANCH=
 # @type=enum(development, preview, production, test)
@@ -327,4 +327,4 @@ varlock run -- node .next/standalone/server.js
 - [Root decorators reference](/reference/root-decorators)
 - [Item decorators reference](/reference/item-decorators)
 - [Functions reference](/reference/functions)
-- [Next.js environment variable docs](https://nextjs.org/docs/pages/guides/environment-variables) 
+- [Next.js environment variable docs](https://nextjs.org/docs/pages/guides/environment-variables)

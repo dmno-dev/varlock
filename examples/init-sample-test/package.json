@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "type": "module",
+  "private": true,
   "scripts": {
     "init-sample": "node copy-sample.js && varlock init"
   },

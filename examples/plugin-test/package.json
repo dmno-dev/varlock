@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "type": "module",
+  "private": true,
   "scripts": {
     "load": "varlock load"
   },

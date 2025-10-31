@@ -6,9 +6,7 @@
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "skipLibCheck": false,
-    "customConditions": ["ts-src"],
-    "lib": ["ES2022"],
-    "module": "ESNext",
+    "customConditions": ["ts-src"]
   },
   "include": ["**/*.ts"],
   "exclude": ["node_modules", "dist"]

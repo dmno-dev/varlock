@@ -10,11 +10,10 @@ import {
 import { ConfigItem, type ConfigItemDef } from './config-item';
 import { EnvGraph } from './env-graph';
 
-import { ParseError, SchemaError, VarlockError } from './errors';
+import { ParseError, SchemaError } from './errors';
 import { pathExists } from '@env-spec/utils/fs-utils';
 import { processPluginInstallDecorators } from './plugins';
 import { RootDecoratorInstance } from './decorators';
-import { id } from 'ci-info';
 
 const DATA_SOURCE_TYPES = Object.freeze({
   schema: {

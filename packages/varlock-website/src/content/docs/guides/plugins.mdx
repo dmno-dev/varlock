@@ -1,0 +1,105 @@
+---
+title: Plugins
+description: Using plugins with varlock
+---
+
+Plugins allow extending the functionality of Varlock. Specifically they may introduce new [root decorators](/reference/root-decorators/), [item decorators](/reference/item-decorators/), [data types](/reference/data-types/), and [resolver functions](/reference/functions/).
+
+```env-spec title="1Password plugin example" "@plugin" "@initOp" "opServiceAccountToken" /op\\(.*\\)/
+# @plugin(@varlock/1password-plugin) # load + install plugin
+# @initOp(token=$OP_TOKEN, allowAppAuth=true) # init via custom root decorator
+# ---
+# @type=opServiceAccountToken # custom data type
+OP_TOKEN=
+# @sensitive
+XYZ_API_KEY=op(op://api-prod/xyz/api-key) # custom resolver function
+```
+
+This unlocks use cases like:
+- loading values from cloud providers or locally running services
+- adding domain-specific validation/coercion logic via custom data types
+- generating values dynamically via custom resolver functions
+
+Plugins are authored in TypeScript and can be loaded via local files, or from package registries like npm. Varlock will handle downloading and caching plugins automatically.
+
+:::caution[Plugin authoring SDKs coming soon]
+Plugin authoring SDKs are still in development. For now, only official Varlock plugins are available for use.
+
+Please reach out on [Discord](https://chat.dmno.dev) if you are interested in developing your own plugins.
+:::
+
+
+## Plugin installation ||installation||
+
+Plugins are loaded using their npm package name, and an optional version specifier. The version can be a fixed version or a [simple semver range](https://devhints.io/semver), similar to what is used in `package.json` files (e.g., `1.2.3`,`1.x`, `^1.2.3`, etc).
+
+You may omit the version specifier only if your project has a `package.json` file - in which case the version installed in your `node_modules` directory will be used. If you add a version specifier AND it is installed locally, the local version will be used unless it does not satisfy the specified version/range - in which case an error will be thrown.
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/a-plugin)        # use installed version
+# @plugin(@varlock/b-plugin@1.2.3)  # pinned to v1.2.3
+# @plugin(@varlock/c-plugin@^2.3.4) # use latest v2.3.x
+```
+
+:::caution[Only `@varlock/*` plugins supported for now]
+For now, only official Varlock plugins under the `@varlock` npm scope are supported. We plan to support third-party plugins in the future, along with additional plugin source types (e.g., jsr, git, http, etc.).
+:::
+
+{/*
+INFO TO ADD LATER
+- local single file
+- local path (monorepo)
+- https url
+- git
+- generic npm/jsr
+*/}
+
+## Plugin scope
+Plugins are loaded globally, and the additional functionality they provide will be available in all `.env` files in your project. Only a single `@plugin()` decorator is needed to load the plugin, even if multiple files use its functionality. If a plugin is loaded in multiple files, no error will be thrown, as long as they all use the same version.
+
+Note that plugins will not be loaded from an inactive file - for example an environment-specific file that does not match the current environment, or one that uses the [`@disable` root decorator](/reference/root-decorators/#disable).
+
+No specific namespacing or prefixes are enforced, and any naming conflicts will trigger an error, but plugins will use specific names to avoid conflicts.
+
+## Initialization
+Plugins are initialized using custom root decorators that they introduce. In some cases, no specific initialization is needed, and in others, you may need to initialize multiple instances of a plugin with different options, referred to by some identifier. How (or if) a plugin needs to be initialized depends on the specific plugin and can depend on the the external service's data/auth model.
+
+A plugin initialization root decorator is used to set IDs, toggle features, and wire up auth. Note that sensitive data should be passed in via references to config items within your schema.
+
+```env-spec title="Plugin initialization example" "@initOp"
+# @initOp(account=acmeco, token=$OP_TOKEN, allowAppAuth=forEnv(dev))
+# ---
+# @type=opServiceAccountToken @sensitive
+OP_TOKEN=
+```
+
+
+### Multiple plugin instances
+In secret storage tools, you should segment your data to follow the [_principle of least privilege_](https://en.wikipedia.org/wiki/Principle_of_least_privilege), so that different environments/services/devs only have access to the minimal secrets they need. At the very least, this usually means splitting your extra sensitive prod secrets from everything else, but it can be as fine-grained as needed.
+
+We cannot always assume that you won't need access to multiple segments at the same time. In these cases, a plugin may be designed to be initialized multiple times with some kind of id parameter. Resolver functions and decorators can then accept an additional parameter to specify which instance to use.
+
+
+```env-spec title=".env.schema" "@initOp" /id=[a-z]+/ /\\((dev),/
+# @plugin(@varlock/1password-plugin)
+# @initOp(id=dev, token=$OP_TOKEN_DEV, allowAppAuth=forEnv(dev))
+# @initOp(id=prod, token=$OP_TOKEN_PROD, allowAppAuth=false);
+# ---
+# @type=opServiceAccountToken @sensitive
+OP_TOKEN_DEV=
+# @type=opServiceAccountToken @sensitive
+OP_TOKEN_PROD=
+XYZ_API_KEY=op(dev, op://api-creds-dev/xyz/api-key)
+```
+```env-spec title=".env.production" /\\((prod)/
+XYZ_API_KEY=op(prod, op://api-creds-prod/xyz/api-key)
+```
+_While the 1Password plugin can be set up using a single instance (using a higher scoped service account for prod) you might want to use multiple instances if you want to make sure you don't accidentally access prod secrets while working locally._
+
+## Usage
+
+Once installed, all decorators, data types, and resolver functions provided by the plugin will be available for use within your `.env` files. These are available globally, and ordering is not important.
+
+Some decorators or resolver functions may require the plugin to be initialized and will throw an error if not set up properly.
+
+Please refer to the specific plugin's documentation for details on usage.

@@ -5,31 +5,35 @@ description: Best practices for managing multiple environments with varlock
 
 One of the main benefits of using environment variables is the ability to boot your application with configuration intended for different environments (e.g., development, preview, staging, production, test).
 
-You can use functions and environment-specific `.env` files (e.g., `.env.production`) to alter configuration accordingly in a declarative way. Plus the additional guardrails provided by `varlock` also make this much safer no matter how values are set.
+You may use both [functions](/reference/functions/) and/or environment-specific `.env` files (e.g., `.env.production`) to alter configuration accordingly in a declarative way. Plus the additional guardrails provided by `varlock` also make this much safer no matter where values come from.
 
-While many have traditionally shied away from using environment-specific `.env` files due to fear of committing sensitive values, the new ability to set values using [functions](/reference/functions) makes it much easier to manage these values in a secure way.
+:::tip[environment-specific files are optional]
+While many have traditionally shied away from using environment-specific `.env` files due to fear of committing sensitive values, the ability to set values using [plugins](/guides/plugins/) makes it easier to securely, and collaboratively, manage these values.
+
+:::
 
 
 ### Process overrides
-`varlock` will always treat environment variables passed into the process with the most precedence. This means you can rely on your external hosting platform to inject environment-specific values and still benefit from `varlock`'s validation and coercion logic.
+`varlock` will always treat environment variables passed into the process with the most precedence. Generally, we recommend moving as much configuration as possible into your `.env` files, but there are cases where you may want to override specific values at runtime, either from the environment itself, or by prepending them to your command (e.g., `APP_ENV=prod pnpm run build`).
 
-However we recommend using injected overrides sparingly, and instead moving more config into your `.env` files.
+At the very least, you'll often need to to inject an environment flag (e.g., `APP_ENV`) and a _secret-zero_ which allows access to the rest of your secrets.
 
+That said, as a first step to adopting `varlock`, you could rely entirely on process overrides to inject all config values, but still benefit from having a clear schema with validation applied to them.
 
 ### Loading environment-specific `.env` files
 
-`varlock` automatically detects all `.env.*` files in the current directory. However any environment-specific files (e.g., `.env.development`) will only be loaded if they match the value of the env var set by the [`@envFlag`](/reference/root-decorators/#envflag) root decorator in your `.env.schema` file.
+`varlock` automatically detects all `.env.*` files in the current directory. However, any environment-specific files (e.g., `.env.development`) will only be loaded if they match the value of the _current environment_ as set by the [`@currentEnv`](/reference/root-decorators/#currentEnv) root decorator in your `.env.schema` file.
 
 The files are applied with a specific precedence (increasing):
 - `.env.schema` - your schema file, which can also contain default values
-- `.env` - default values only (not recommended)
-- `.env.[envFlag]` - environment-specific values
+- `.env` - will be loaded, but not recommended, instead use something more specific
+- `.env.[currentEnv]` - environment-specific values
 - `.env.local` - local overrides (gitignored)
-- `.env.[envFlag].local` - environment-specific local overrides (gitignored)
+- `.env.[currentEnv].local` - environment-specific local overrides (gitignored)
 
 For example, consider the following `.env.schema`:
 ```env-spec title=".env.schema"
-# @envFlag=APP_ENV
+# @currentEnv=$APP_ENV
 # ---
 # @type=enum(development, test, staging, production)
 APP_ENV=development
@@ -46,7 +50,7 @@ APP_ENV=staging varlock run -- node my-test-script.js
 :::note[Loading `.env.local` in `test` environment]
 Some tools ([dotenv-flow](https://github.com/kerimdzhanov/dotenv-flow), [Next.js](https://nextjs.org/docs/pages/guides/environment-variables#test-environment-variables), etc) make a special exception
 to skip loading `.env.local` if the current environment is `test`. Others tools ([Vite](https://vite.dev/config/#env-variables)) do not have any special handling.
- 
+
 We chose to follow Vite's lead, and instead provide a way to explicitly opt-in to that behavior:
 
 ```env-spec title=".env.local"
@@ -65,7 +69,7 @@ We can use [`remap()`](/reference/functions#remap) to transform a value accordin
 For example, on the Cloudflare Workers CI platform, we get the current branch name injected as `WORKERS_CI_BRANCH`, which we can use to determine which environment to load:
 
 ```env-spec title=".env.schema"
-# @envFlag=APP_ENV
+# @currentEnv=$APP_ENV
 # ---
 # set to current branch name when build is running on Cloudflare CI, empty otherwise
 WORKERS_CI_BRANCH=
@@ -96,22 +100,22 @@ You can set the default environment flag directly when running CLI commands usin
 varlock load --env production
 ```
 
-This is only useful if you do not want to create a new env var for your env flag, and you are only using varlock via CLI commands. 
+This is only useful if you do not want to create a new env var for your env flag, and you are only using varlock via CLI commands.
 Mostly it is used internally by some integrations to match existing default behavior, and should not be used otherwise.
 
 :::caution
-If `@envFlag` is used, this will be ignored!
+If `@currentEnv` is used, this will be ignored!
 :::
 
-## Using `envFlag` in Turborepo
+## Using `currentEnv` in Turborepo
 
-Turborepo users should be aware of a common pitfall when using `varlock`'s `@envFlag` in monorepos managed by Turborepo, especially since Turborepo v2.0+ now enables **Strict Environment Mode** by default.
+Turborepo users should be aware of a common pitfall when using `varlock`'s `@currentEnv` in monorepos managed by Turborepo, especially since Turborepo v2.0+ now enables **Strict Environment Mode** by default.
 
 ### The Problem
 
-Turborepo, when running tasks, filters the environment variables available to each task. By default in Strict Mode, **only** variables listed in the `env` or `globalEnv` keys in your `turbo.json` are passed to your scripts. This means that if your `@envFlag` (e.g., `APP_ENV`) is not explicitly listed, it will not be available to your process, even if you set it in your shell or CI environment. This can cause `varlock` to load the wrong environment, or fail to load the correct `.env.[envFlag]` file.
+Turborepo, when running tasks, filters the environment variables available to each task. By default in Strict Mode, **only** variables listed in the `env` or `globalEnv` keys in your `turbo.json` are passed to your scripts. This means that if your environment flag set by `@currentEnv` (e.g., `APP_ENV`) is not explicitly listed, it will not be available to your process, even if you set it in your shell or CI environment. This can cause `varlock` to load the wrong environment, or fail to load the correct `.env.[currentEnv]` file.
 
-### Solution: Add your envFlag to turbo.json
+### Solution: Add your environment flag to turbo.json
 
 To ensure your environment flag variable is always available to your scripts, add it to the `env` or `globalEnv` section of your `turbo.json`:
 
@@ -132,7 +136,7 @@ To ensure your environment flag variable is always available to your scripts, ad
 - Use `globalEnv` if the variable should be available to all tasks.
 - Use `env` under a specific task if only needed for that task.
 
-Now when you run the following: 
+Now when you run the following:
 
 ```bash
 APP_ENV=production turbo run build
@@ -170,10 +174,10 @@ You can set the env var explicitly when you run a command, but often you will se
 
 #### Vercel
 
-You can use the injected `VERCEL_ENV` variable to match their concept of environment types:
+You can use the injected `VERCEL_ENV` variable to match their concept of environment types, while adding your own additional options.
 
 ```env-spec title=".env.schema"
-# @envFlag=APP_ENV
+# @currentEnv=$APP_ENV
 # ---
 # @type=enum(development, preview, production)
 VERCEL_ENV=
@@ -188,7 +192,7 @@ For more granular environments, use the branch name in `VERCEL_GIT_COMMIT_REF` (
 Use the branch name in `WORKERS_CI_BRANCH` to determine the environment:
 
 ```env-spec title=".env.schema"
-# @envFlag=APP_ENV
+# @currentEnv=$APP_ENV
 # ---
 WORKERS_CI_BRANCH=
 # @type=enum(development, preview, production, test)

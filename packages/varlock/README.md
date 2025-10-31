@@ -4,7 +4,7 @@
 
 _A sample `.env.schema`_: 
 ```bash
-# @envFlag=APP_ENV
+# @currentEnv=$APP_ENV
 # ---
 
 # @type=enum(development, staging, production)

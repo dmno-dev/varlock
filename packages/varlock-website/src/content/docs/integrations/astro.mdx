@@ -118,7 +118,7 @@ Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.devel
 
 By default, Astro relies on Vite's [`MODE` flag](https://vite.dev/guide/env-and-mode.html#modes) to determine which env file(s) to load.
 
-With varlock, instead you set your own environment flag using the [`@envFlag` root decorator](/reference/root-decorators/#envflag), e.g. `APP_ENV`. See the [environments guide](/guides/environments) for more information.
+With varlock, instead you set your own environment flag using the [`@currentEnv` root decorator](/reference/root-decorators/#currentEnv), e.g. `APP_ENV`. See the [environments guide](/guides/environments) for more information.
 
 
 ## Managing sensitive config values
@@ -132,7 +132,7 @@ Set a default and explicitly mark items:
 # ---
 NON_SECRET_FOO= # sensitive by default
 # @sensitive
-SECRET_FOO= 
+SECRET_FOO=
 ```
 
 Or if you'd like to continue using Astro's prefix behavior:

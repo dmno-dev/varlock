@@ -34,6 +34,7 @@ export default defineConfig({
         provider: fontProviders.google(),
         name: 'Inter',
         cssVariable: '--font-default',
+        weights: ['300', '400', '700'],
       },
     ],
   },
@@ -80,7 +81,8 @@ export default defineConfig({
             { label: 'Schema', slug: 'guides/schema' },
             { label: 'Secrets', slug: 'guides/secrets' },
             { label: 'Environments', slug: 'guides/environments' },
-            { label: '@import', slug: 'guides/import' },
+            { label: 'Imports', slug: 'guides/import' },
+            { label: 'Plugins', slug: 'guides/plugins' },
             { label: 'Migrate from dotenv', slug: 'guides/migrate-from-dotenv' },
             { label: 'Telemetry', slug: 'guides/telemetry' },
             { label: 'MCP', slug: 'guides/mcp', badge: 'new' },
@@ -100,6 +102,13 @@ export default defineConfig({
             { label: 'Other languages', slug: 'integrations/other-languages' },
             { label: 'Docker', slug: 'guides/docker' },
             { label: 'GitHub Actions', slug: 'integrations/github-action' },
+          ],
+        },
+        {
+          label: 'Plugins',
+          items: [
+            { label: 'Overview', slug: 'plugins/overview' },
+            { label: '1Password', slug: 'plugins/1password' },
           ],
         },
         {

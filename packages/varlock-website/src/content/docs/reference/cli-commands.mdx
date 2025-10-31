@@ -55,14 +55,14 @@ varlock load [options]
 **Options:**
 - `--format`:     Format of output [pretty|json|env]
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
-- `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@envFlag` in `.env.schema`
+- `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@currentEnv` in `.env.schema`
 
 **Examples:**
 ```bash
 # Load and validate environment variables
 varlock load
 
-# Load and validate for a specific environment (when not using @envFlag in .env.schema)
+# Load and validate for a specific environment (when not using @currentEnv in .env.schema)
 varlock load --env production
 
 # Output validation results in JSON format
@@ -73,7 +73,7 @@ varlock load --show-all
 ```
 
 :::caution
-Setting `envFlag` in your `.env.schema` will override the `--env` flag.
+Setting `@currentEnv` in your `.env.schema` will override the `--env` flag.
 :::
 
 </div>

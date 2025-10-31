@@ -10,5 +10,6 @@ changesets-summary.json
 
 .env.local
 .env.*.local
+env.d.ts
 
 
