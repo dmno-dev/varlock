@@ -16,6 +16,7 @@
     "build:sea": "tsup --config tsup-sea.config.ts",
     "dev": "tsup",
     "test": "vitest",
+    "test:ci": "vitest --run",
     "lint": "eslint .",
     "lint:fix": "pnpm run lint --fix"
   },
