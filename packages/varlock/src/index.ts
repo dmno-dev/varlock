@@ -13,7 +13,7 @@ import {
   CoercionError,
   ResolutionError,
   type SerializedEnvGraph,
-} from '../env-graph';
+} from './env-graph';
 
 export async function load() {
   // TODO: add some options
