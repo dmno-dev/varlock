@@ -1,5 +1,5 @@
 {
-  "name": "example-repo-init-test",
+  "name": "example-repo-init-sample-test",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -12,7 +12,7 @@
   "license": "ISC",
   "dependencies": {
     "@clack/prompts": "^0.11.0",
-    "varlock": "link:../../../packages/varlock"
+    "varlock": "workspace:*"
   },
   "packageManager": "pnpm@10.14.0"
 }

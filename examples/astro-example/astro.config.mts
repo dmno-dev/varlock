@@ -15,7 +15,6 @@ console.log('using ENV in astro config -- ', ENV.APP_ENV, ENV.SECRET_FOO);
 // https://astro.build/config
 export default defineConfig({
   integrations: [
-
     varlockAstroIntegration(),
     vue(),
     mdx(),

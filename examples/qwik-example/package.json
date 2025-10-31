@@ -27,7 +27,7 @@
     "@builder.io/qwik-city": "^1.15.0",
     "@eslint/js": "latest",
     "@types/node": "24.1.0",
-    "@varlock/vite-integration": "link:../../../packages/integrations/vite",
+    "@varlock/vite-integration": "workspace:*",
     "eslint": "9.32.0",
     "eslint-plugin-qwik": "^1.15.0",
     "globals": "16.3.0",
@@ -36,7 +36,7 @@
     "typescript-eslint": "8.38.0",
     "typescript-plugin-css-modules": "latest",
     "undici": "*",
-    "varlock": "link:../../../packages/varlock",
+    "varlock": "workspace:*",
     "vite": "7.0.6",
     "vite-tsconfig-paths": "^5.1.4"
   }

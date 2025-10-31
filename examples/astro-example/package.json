@@ -25,10 +25,10 @@
     "@astrojs/node": "^9.5.0",
     "@astrojs/vercel": "^9.0.0",
     "@astrojs/vue": "^5.1.2",
-    "@varlock/astro-integration": "link:../../../packages/integrations/astro",
+    "@varlock/astro-integration": "workspace:*",
     "astro": "^5.15.3",
     "typescript": "catalog:",
-    "varlock": "link:../../../packages/varlock",
+    "varlock": "workspace:*",
     "vue": "^3.5.22",
     "wrangler": "^4.45.3"
   }
