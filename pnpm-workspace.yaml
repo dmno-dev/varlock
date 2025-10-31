@@ -14,4 +14,4 @@ catalog:
   typescript: ^5.9.2
   vite: ^7.0.6
   vite-node: ^3.2.4
-  vitest: ^3.2.4
+  vitest: ^4.0.6
