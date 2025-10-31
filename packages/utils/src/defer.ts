@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-empty-function */
+
 // useful when you need to export a promise before ready to start whatever will initialize it
 // should be used sparingly
 export function createDeferredPromise<T = unknown>() {

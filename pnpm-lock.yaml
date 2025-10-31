@@ -13,7 +13,7 @@ catalogs:
       specifier: ^4.1.12
       version: 4.1.12
     '@types/node':
-      specifier: ^24.8.1
+      specifier: 24.8.1
       version: 24.8.1
     ansis:
       specifier: ^4.1.0
