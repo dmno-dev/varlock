@@ -1,8 +1,23 @@
 import ansis from 'ansis';
-import { EnvGraph, ConfigItem, EnvSourceParseError } from '../../../env-graph';
-import _ from '@env-spec/utils/my-dash';
-import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import { gracefulExit } from 'exit-hook';
+import _ from '@env-spec/utils/my-dash';
+import { EnvGraph, ConfigItem } from '../../../env-graph';
+import { getItemSummary, joinAndCompact } from '../../lib/formatting';
+import { VarlockError } from '../../../env-graph/lib/errors';
+
+
+function showErrorLocationDetails(err: Error) {
+  if (!(err instanceof VarlockError) || !err.location) return;
+  const errLoc = err.location;
+  const errPreview = [
+    errLoc.lineStr,
+    `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
+  ].join('\n');
+
+  console.log('');
+  console.log(`📂 ${errLoc.id}:${errLoc.lineNumber}:${errLoc.colNumber}`);
+  console.log(errPreview);
+}
 
 export function checkForSchemaErrors(envGraph: EnvGraph) {
   // first we check for loading/parse errors - some cases we may want to let it fail silently?
@@ -10,28 +25,22 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
     // do we care about loading errors from disabled sources?
     // if (source.disabled) continue;
 
-    // console.log(source);
-
     // TODO: use a formatting helper to show the error - which will include location/stack/etc appropriately
     if (source.loadingError) {
       console.log(`🚨 Error encountered while loading ${source.label}\n`);
 
-      // Check if the error has a location property (like EnvSourceParseError)
-      if ('location' in source.loadingError) {
-        const errLoc = (source.loadingError as EnvSourceParseError).location;
+      console.log(source.loadingError.message);
+      showErrorLocationDetails(source.loadingError);
+      return gracefulExit(1);
+    }
+    // TODO: unify this with the above!
+    if (source.schemaErrors.length) {
+      console.log(`🚨 Error(s) encountered in ${source.label}`);
 
-        const errPreview = [
-          errLoc.lineStr,
-          `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
-        ].join('\n');
-
-        console.log('Error parsing .env file: ', source.loadingError.message);
-        console.log(`📂 ${errLoc.path}:${errLoc.lineNumber}:${errLoc.colNumber}`);
-        console.log(errPreview);
-      } else {
-        console.log(source.loadingError.message);
+      for (const schemaErr of source.schemaErrors) {
+        console.log(`- ${schemaErr.message}`);
+        showErrorLocationDetails(schemaErr);
       }
-
       return gracefulExit(1);
     }
   }
@@ -45,6 +54,7 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
   // }
 }
 
+
 export class InvalidEnvError extends Error {
   constructor() {
     super('Resolved config/env did not pass validation');
@@ -57,6 +67,20 @@ export class InvalidEnvError extends Error {
 export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
   showAll?: boolean
 }) {
+  // check for root decorator "execution"
+  for (const source of envGraph.sortedDataSources) {
+    if (source.resolutionErrors.length) {
+      console.log(`🚨 Root decorator error(s) in ${source.label}`);
+
+      for (const err of source.resolutionErrors) {
+        console.log(`- ${err.message}`);
+        showErrorLocationDetails(err);
+      }
+    }
+  }
+
+
+
   const failingItems = _.filter(_.values(envGraph.configSchema), (item: ConfigItem) => item.validationState === 'error');
 
   // TODO: use service.isValid?

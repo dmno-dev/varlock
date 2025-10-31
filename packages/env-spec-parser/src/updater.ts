@@ -57,7 +57,7 @@ function setRootDecorator(
 
   const existingDecorator = file.decoratorsObject[decoratorName];
   if (existingDecorator) {
-    existingDecorator.data.valueOrFnArgs = newDecNode.data.valueOrFnArgs;
+    existingDecorator.data.value = newDecNode.data.value;
   } else {
     if (!file.header) throw new Error('No header found');
     const lastComment = file.header.data.comments[file.header.data.comments.length - 1];
@@ -95,7 +95,7 @@ function setItemDecorator(
 
   const existingDecorator = item.decoratorsObject[decoratorName];
   if (existingDecorator) {
-    existingDecorator.data.valueOrFnArgs = newDecNode.data.valueOrFnArgs;
+    existingDecorator.data.value = newDecNode.data.value;
   } else {
     const lastComment = item.data.preComments[item.data.preComments.length - 1];
     let decCommentLine: ParsedEnvSpecDecoratorComment;

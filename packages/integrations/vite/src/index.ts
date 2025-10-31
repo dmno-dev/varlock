@@ -213,6 +213,7 @@ export function varlockVitePlugin(
           // from the vite plugin itself already loading it
           if (isDevEnv) ssrInjectMode = 'init-only';
 
+          debug('ssrInjectMode =', ssrInjectMode);
           if (ssrInjectMode === 'auto-load') {
             injectCode.push(
               "import 'varlock/auto-load';",

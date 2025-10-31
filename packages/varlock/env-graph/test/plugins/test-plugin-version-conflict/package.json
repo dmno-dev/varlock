@@ -1,0 +1,11 @@
+{
+  "name": "@varlock/test-plugin",
+  "private": true,
+  "description": "plugin used to test version conflicts between plugins",
+  "version": "4.5.6",
+  "type": "module",
+  "exports": {
+    "./plugin": "./plugin.js"
+  },
+  "files": ["dist"]
+}

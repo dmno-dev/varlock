@@ -1,0 +1,35 @@
+{
+  "name": "astro-example",
+  "type": "module",
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "dev:ssr": "TEST_ASTRO_ADAPTER=node astro dev",
+    "build:ssr": "astro check && TEST_ASTRO_ADAPTER=node astro build",
+    "preview:ssr": "node dist/server/entry.mjs",
+    "build:cloudflare": "TEST_ASTRO_ADAPTER=cloudflare astro build",
+    "preview:cloudflare": "wrangler dev --port 9876",
+    "build:netlify": "TEST_ASTRO_ADAPTER=netlify astro build",
+    "dev:netlify": "TEST_ASTRO_ADAPTER=netlify astro dev",
+    "build:vercel": "TEST_ASTRO_ADAPTER=vercel astro build",
+    "dev:vercel": "TEST_ASTRO_ADAPTER=vercel astro dev",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.5",
+    "@astrojs/cloudflare": "^12.6.10",
+    "@astrojs/mdx": "^4.3.9",
+    "@astrojs/netlify": "^6.6.0",
+    "@astrojs/node": "^9.5.0",
+    "@astrojs/vercel": "^9.0.0",
+    "@astrojs/vue": "^5.1.2",
+    "@varlock/astro-integration": "workspace:*",
+    "astro": "^5.15.3",
+    "typescript": "catalog:",
+    "varlock": "workspace:*",
+    "vue": "^3.5.22",
+    "wrangler": "^4.45.3"
+  }
+}

@@ -1,4 +1,4 @@
-PRs are always welcome. 
+PRs are always welcome.
 
 **First, please read our [Code of Conduct](CODE_OF_CONDUCT.md).**
 
@@ -31,7 +31,11 @@ pnpm build:libs
 - [packages/vscode-plugin](./packages/vscode-plugin) - VSCode extension for @env-spec
 - [packages/integrations/nextjs](./packages/integrations/nextjs) - Next.js integration for varlock
 
-> See the README.md for each package for more details. 
+> See the README.md for each package for more details.
 
 
+## Debugging
 
+It is often useful to enable source maps in traces during local development.
+
+To do so run `export NODE_OPTIONS=--enable-source-maps` in your active terminal.

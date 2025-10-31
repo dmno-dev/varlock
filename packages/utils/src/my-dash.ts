@@ -88,6 +88,13 @@ function intersection<T>(...arrays: Array<Array<T>>): Array<T> {
 function pick<T>(obj: Record<string, T>, keys: Array<string>) {
   return Object.fromEntries(Object.entries(obj).filter(([key]) => keys.includes(key)));
 }
+function uniq<T>(array: Array<T>): Array<T> {
+  return Array.from(new Set(array));
+}
+function fromPairs<T>(pairs: Array<[string, T]>): Record<string, T> {
+  return Object.fromEntries(pairs);
+}
+
 
 const _ = {
   keyBy,
@@ -105,6 +112,8 @@ const _ = {
   flatMap,
   intersection,
   pick,
+  uniq,
+  fromPairs,
   // type checks
   isString,
   isBoolean,

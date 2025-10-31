@@ -1,0 +1,11 @@
+{
+  "name": "@varlock/conflict-test-plugin-2",
+  "private": true,
+  "description": "plugin used to test naming conflicts between plugins",
+  "version": "1.2.3",
+  "type": "module",
+  "exports": {
+    "./plugin": "./plugin.js"
+  },
+  "files": ["dist"]
+}

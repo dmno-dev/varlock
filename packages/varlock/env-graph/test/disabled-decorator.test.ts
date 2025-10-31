@@ -2,7 +2,6 @@ import { describe, it } from 'vitest';
 import outdent from 'outdent';
 import { envFilesTest } from './helpers/generic-test';
 
-
 describe('@disable root decorator', () => {
   it('skips loading config items from a disabled data source', envFilesTest({
     envFile: outdent`
@@ -12,7 +11,6 @@ describe('@disable root decorator', () => {
     `,
     expectNotInSchema: ['FOO'],
   }));
-
   it('does not disable data source when @disable is false', envFilesTest({
     envFile: outdent`
       # @disable=false
@@ -30,5 +28,14 @@ describe('@disable root decorator', () => {
       FOO=bar
     `,
     expectNotInSchema: ['FOO'],
+  }));
+
+  it('value must resolve to boolean', envFilesTest({
+    envFile: outdent`
+      # @disable=badvalue
+      # ---
+      FOO=bar
+    `,
+    loadingError: true,
   }));
 });

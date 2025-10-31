@@ -89,8 +89,7 @@ export function simpleResolver(
     if (opts?.env[item.key]) {
       resolved[item.key] = opts.env[item.key];
     } else {
-      item.processExpansion();
-      const resolvedValue = valueResolver(item.expandedValue!);
+      const resolvedValue = item.value ? valueResolver(item.value) : undefined;
       if (opts?.stringify) {
         resolved[item.key] = resolvedValue === undefined ? '' : String(resolvedValue);
       } else {

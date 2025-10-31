@@ -75,12 +75,18 @@
       "ts-src": "./src/config.ts",
       "types": "./dist/dotenv-compat.d.ts",
       "default": "./dist/dotenv-compat.js"
+    },
+    "./plugin-lib": {
+      "ts-src": "./src/plugin-lib.ts",
+      "types": "./dist/plugin-lib.d.ts",
+      "default": "./dist/plugin-lib.js"
     }
   },
   "dependencies": {
     "@env-spec/parser": "workspace:^",
     "debug": "catalog:",
     "execa": "^9.6.0",
+    "semver": "^7.7.3",
     "which": "^5.0.0"
   },
   "devDependencies": {
@@ -90,12 +96,13 @@
     "@sindresorhus/is": "catalog:",
     "@types/debug": "catalog:",
     "@types/node": "catalog:",
+    "@types/semver": "^7.7.1",
     "@types/which": "^3.0.4",
     "@yao-pkg/pkg": "^6.6.0",
     "ansis": "catalog:",
     "browser-or-node": "^3.0.0",
     "ci-info": "^4.3.0",
-    "exit-hook": "^5.0.0",
+    "exit-hook": "^4.0.0",
     "gunshi": "^0.26.3",
     "is-docker": "^4.0.0",
     "is-unicode-supported": "^2.1.0",

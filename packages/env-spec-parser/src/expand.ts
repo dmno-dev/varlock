@@ -8,8 +8,6 @@ const EXPAND_VAR_SIMPLE_REGEX = /(?<!\\)\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
 const EXPAND_EXEC_REGEX = /\$\(([^)]+)\)/g;
 
 
-type ParsedEnvSpecValueNode = ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecKeyValuePair;
-
 function expandExecs(staticVal: ParsedEnvSpecStaticValue, _opts?: {}) {
   if (typeof staticVal.value !== 'string') return staticVal;
   const quote = staticVal.data.quote;
@@ -122,6 +120,10 @@ function expandRefs(staticVal: ParsedEnvSpecStaticValue, mode: 'simple' | 'brack
   });
 }
 
+
+type ParsedEnvSpecValueNode = ParsedEnvSpecStaticValue
+| ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs | ParsedEnvSpecKeyValuePair;
+
 /**
  * helper used by expansion to recursively expand values
  * */
@@ -151,8 +153,14 @@ function expandHelper(
     return new ParsedEnvSpecFunctionCall({
       name: fnName,
       args: new ParsedEnvSpecFunctionArgs({
-        values: newConcatArgs,
+        values: newConcatArgs as any,
       }),
+    });
+  } else if (val instanceof ParsedEnvSpecFunctionArgs) {
+    // expand each arg
+    const newArgs = val.data.values.map((v) => expandHelper(v, expandStaticFn));
+    return new ParsedEnvSpecFunctionArgs({
+      values: newArgs as any,
     });
   // if key-value pair, expand value
   } else if (val instanceof ParsedEnvSpecKeyValuePair) {
@@ -160,7 +168,7 @@ function expandHelper(
     if (expandedVal instanceof ParsedEnvSpecKeyValuePair) throw new Error('Nested key-value pair found in concat');
     return new ParsedEnvSpecKeyValuePair({
       key: val.key,
-      val: expandedVal,
+      val: expandedVal as any,
     });
   } else if (val instanceof ParsedEnvSpecStaticValue) {
     // here we actually do the expansion on string values

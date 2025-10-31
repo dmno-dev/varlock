@@ -16,13 +16,14 @@ import type { Constructor } from '@env-spec/utils/type-utils';
 
 // define special increment resolver used only for tests
 class IncrementResolver extends Resolver {
-  static fnName = 'increment';
-  label = 'increment';
-  icon = '';
+  static def = {
+    name: 'increment',
+    label: 'increment',
+    icon: '',
+    resolve() { return ''; },
+  };
   static counter = 0;
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  async _process() {}
-  async _resolve() { return ++IncrementResolver.counter; }
+  async resolve() { return ++IncrementResolver.counter; }
 }
 
 function functionValueTests(
@@ -212,6 +213,14 @@ describe('regex()', functionValueTests({
     input: 'ITEM=regex(.*)',
     expected: { ITEM: ResolutionError },
   },
+  'error - invalid regex': {
+    input: outdent`
+      OTHER=other
+      ITEM=remap(OTHER, bad=regex("("), default)
+    `,
+    expected: { ITEM: SchemaError },
+  },
+  // functionality is checked below within remap() tests
 }));
 
 describe('remap()', functionValueTests({
