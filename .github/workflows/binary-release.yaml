@@ -35,14 +35,14 @@ jobs:
         with:
           run_install: false
       - name: Use Node.js 22.x
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: "22.x"
           cache: 'pnpm'
       - name: Install node deps
         run: pnpm i
       - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@v2.3.1
+        uses: rharkor/caching-for-turbo@v2.3.2
       # ------------------------------------------------------------
 
       - name: get version from release tag
