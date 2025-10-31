@@ -1,6 +1,7 @@
 import { McpAgent } from 'agents/mcp';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import pkgJson from '../package.json';
 
 // Import the Env type for Cloudflare Durable Object and AI binding support
 type Env = {
@@ -12,7 +13,7 @@ type Env = {
 export class MyMCP extends McpAgent {
   server = new McpServer({
     name: 'Varlock docs MCP',
-    version: require('../package.json').version,
+    version: pkgJson.version,
   });
 
   async init() {
