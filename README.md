@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/dmno-dev-varlock-badge.png)](https://mseep.ai/app/dmno-dev-varlock)
+
 <p align="center">
   <a href="https://varlock.dev" target="_blank" rel="noopener noreferrer">
     <img src="/packages/varlock-website/public/github-readme-banner.png" alt="Varlock banner">
