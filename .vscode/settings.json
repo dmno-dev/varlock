@@ -5,6 +5,7 @@
   "files.associations": {
     // package.json needs to be "json" rather than "json with comments" so that the "version lens" plugin works
     "package.json": "json",
+    "turbo.json": "jsonc",
   },
   "eslint.validate": [
     // enable eslint on file types other than js/ts
@@ -24,7 +25,7 @@
   // these are written out individually because if written as a group
   // users cannot override individual items in their settings.json
   "[typescript]": {
-    "editor.defaultFormatter": "vscode.typescript-language-features"
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
   },
   "[javascript]": {
     "editor.defaultFormatter": "dbaeumer.vscode-eslint"
@@ -42,17 +43,12 @@
     "editor.defaultFormatter": "dbaeumer.vscode-eslint"
   },
   "[json]": {
-    "editor.defaultFormatter": "vscode.json-language-features"
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
   },
   "[jsonc]": {
-    "editor.defaultFormatter": "vscode.json-language-features"
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
   },
   "[env]": {
     "editor.formatOnSave": false
   },
-
-  // vscode's built-in json formatter is removing the extra newline at the end which conflicts with editorconfig
-  // "json.format.keepLines": true,
-  // "json.format.enable": false,
-
 }

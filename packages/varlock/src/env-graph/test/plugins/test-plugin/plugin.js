@@ -1,4 +1,4 @@
-/// <reference path="../../../../src/plugin-lib.ts" />
+/// <reference path="../../../../plugin-lib.ts" />
 
 plugin.registerResolverFunction({
   name: 'test',

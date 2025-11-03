@@ -1,9 +1,9 @@
 import ansis from 'ansis';
 import { gracefulExit } from 'exit-hook';
 import _ from '@env-spec/utils/my-dash';
-import { EnvGraph, ConfigItem } from '../../../env-graph';
+import { EnvGraph, ConfigItem } from '../../env-graph';
 import { getItemSummary, joinAndCompact } from '../../lib/formatting';
-import { VarlockError } from '../../../env-graph/lib/errors';
+import { VarlockError } from '../../env-graph/lib/errors';
 
 
 function showErrorLocationDetails(err: Error) {

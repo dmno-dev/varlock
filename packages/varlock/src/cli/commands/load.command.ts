@@ -6,7 +6,7 @@ import { getItemSummary } from '../../lib/formatting';
 import { checkForConfigErrors, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import path from 'node:path';
-import { FileBasedDataSource } from '../../../env-graph';
+import { FileBasedDataSource } from '../../env-graph';
 
 export const commandSpec = define({
   name: 'load',
