@@ -1,5 +1,5 @@
 import { define } from 'gunshi';
-import { loadEnvGraph } from '../../../env-graph';
+import { loadEnvGraph } from '../../env-graph';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { checkForSchemaErrors } from '../helpers/error-checks';
 

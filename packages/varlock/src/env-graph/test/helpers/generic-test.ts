@@ -78,8 +78,8 @@ export function envFilesTest(spec: {
         for (const key of Object.keys(spec.expectValues)) {
           const item = g.configSchema[key];
           if (spec.expectValues[key] === SchemaError) {
-            expect(item._schemaErrors.length).toBe(1);
-            expect(item._schemaErrors[0]).toBeInstanceOf(spec.expectValues[key]);
+            expect(item.errors.length).toBeGreaterThan(0);
+            expect(item.errors[0]).toBeInstanceOf(spec.expectValues[key]);
           } else {
             expect(item.resolvedValue, `${key} value did not match`).toEqual(spec.expectValues[key]);
           }
@@ -94,8 +94,8 @@ export function envFilesTest(spec: {
         for (const key of Object.keys(spec.expectRequired)) {
           const item = g.configSchema[key];
           if (spec.expectRequired[key] === SchemaError) {
-            expect(item._schemaErrors.length, 'Expected a schema error').toBe(1);
-            expect(item._schemaErrors[0]).toBeInstanceOf(spec.expectRequired[key]);
+            expect(item.errors.length, 'Expected a schema error').toBeGreaterThan(0);
+            expect(item.errors[0]).toBeInstanceOf(spec.expectRequired[key]);
           } else {
             expect(item.isRequired, `expected ${key} to be ${spec.expectRequired[key] ? 'required' : 'NOT required'}`).toBe(spec.expectRequired[key]);
           }

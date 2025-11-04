@@ -45,7 +45,7 @@ export default tseslint.config(
       'packages/eslint-custom-rules',
       'packages/env-spec-parser/src/grammar.js',
       'packages/varlock-website/.astro',
-      'packages/varlock/env-graph/test/plugins',
+      'packages/varlock/src/env-graph/test/plugins',
       '**/*.ignore',
       '**/.vercel',
       '**/.netlify',

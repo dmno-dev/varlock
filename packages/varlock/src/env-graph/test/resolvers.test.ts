@@ -266,6 +266,126 @@ describe('remap()', functionValueTests({
   },
 }));
 
+describe('eq()', functionValueTests({
+  'check equality': {
+    input: outdent`
+      STR=eq("a", "a")
+      NUM=eq(42, 42)
+      BOOL=eq(false, false)
+      UNDEF=eq(undefined, undefined)
+    `,
+    expected: {
+      STR: true,
+      NUM: true,
+      BOOL: true,
+      UNDEF: true,
+    },
+  },
+  'check inequality': {
+    input: outdent`
+      STR=eq("a", "b")
+      NUM=eq(42, 41)
+      BOOL=eq(true, false)
+      MIXED=eq(42, "42")
+    `,
+    expected: {
+      STR: false,
+      NUM: false,
+      BOOL: false,
+      MIXED: false,
+    },
+  },
+  'with variables': {
+    input: outdent`
+      A=test
+      B=test
+      C=different
+      ITEM1=eq($A, $B)
+      ITEM2=eq($A, $C)
+    `,
+    expected: { ITEM1: true, ITEM2: false },
+  },
+  'with nested resolvers': {
+    input: 'ITEM=eq(concat("a", "b"), "ab")',
+    expected: { ITEM: true },
+  },
+  'working example - undefined values': {
+    input: outdent`
+      A=
+      B=
+      ITEM=eq($A, $B)
+    `,
+    expected: { A: undefined, B: undefined, ITEM: true },
+  },
+  'error - no args': {
+    input: 'ITEM=eq()',
+    expected: { ITEM: SchemaError },
+  },
+  'error - single arg': {
+    input: 'ITEM=eq("a")',
+    expected: { ITEM: SchemaError },
+  },
+  'error - too many args': {
+    input: 'ITEM=eq("a", "b", "c")',
+    expected: { ITEM: SchemaError },
+  },
+  'error - key/val args': {
+    input: 'ITEM=eq(left="a", right="b")',
+    expected: { ITEM: SchemaError },
+  },
+}));
+
+describe('if()', functionValueTests({
+  'working examples': {
+    input: outdent`
+      TRUE=if(true, yes, no)
+      FALSE=if(false, yes, no)
+      STR=if("a", yes, no)
+      NUM=if(1, yes, no)
+      NUM0=if(0, yes, no)
+    `,
+    expected: {
+      TRUE: 'yes',
+      FALSE: 'no',
+      STR: 'yes',
+      NUM: 'yes',
+      NUM0: 'no',
+    },
+  },
+  'with nested fns': {
+    input: outdent`
+      ITEM1=if(eq(a, a), if(true, yes), no)
+      ITEM2=if(eq(a, b), yes, if(true, no))
+    `,
+    expected: {
+      ITEM1: 'yes',
+      ITEM2: 'no',
+    },
+  },
+  'optional false value': {
+    input: outdent`
+      ITEM1=if(true, "yes")
+      ITEM2=if(false, "yes")
+    `,
+    expected: { ITEM1: 'yes', ITEM2: undefined },
+  },
+  'error - no args': {
+    input: 'ITEM=if()',
+    expected: { ITEM: SchemaError },
+  },
+  'error - single arg': {
+    input: 'ITEM=if(true)',
+    expected: { ITEM: SchemaError },
+  },
+  'error - key/val args': {
+    input: 'ITEM=if(condition=true, trueVal="yes", falseVal="no")',
+    expected: { ITEM: SchemaError },
+  },
+  'error - nested bad arg': {
+    input: 'ITEM=if(ref(BADKEY), "yes", "no")',
+    expected: { ITEM: SchemaError },
+  },
+}));
 
 describe('dependency cycles', functionValueTests({
   'detect cycle - self': {

@@ -1,6 +1,6 @@
 import { redactString } from './lib/redaction';
 
-import type { SerializedEnvGraph } from '../../env-graph';
+import type { SerializedEnvGraph } from '../env-graph';
 import { isBrowser } from '../lib/detect-runtime';
 import { debug } from './lib/debug';
 
