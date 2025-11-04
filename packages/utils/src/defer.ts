@@ -6,7 +6,7 @@ export function createDeferredPromise<T = unknown>() {
   // set to noop, but they will be replaced immediately
   let resolve: (value?: T) => void = () => {};
   let reject: (reason?: unknown) => void = () => {};
-  const promise = new Promise((_resolve, _reject) => {
+  const promise = new Promise<T | undefined>((_resolve, _reject) => {
     resolve = _resolve;
     reject = _reject;
   });

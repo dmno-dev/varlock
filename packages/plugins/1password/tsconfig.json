@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
-    "target": "es2021",
+    "lib": ["es2022"],
+    "target": "es2022",
     "moduleResolution": "bundler",
     "strict": true,
     "resolveJsonModule": true,

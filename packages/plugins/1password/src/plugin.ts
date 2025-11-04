@@ -1,7 +1,7 @@
 import { Resolver } from 'varlock/plugin-lib';
 
 import { createDeferredPromise, DeferredPromise } from '@env-spec/utils/defer';
-import { Client, createClient } from '@1password/sdk';
+import { Client, createClient, DesktopAuth } from '@1password/sdk';
 import { opCliRead } from './cli-helper';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
@@ -39,43 +39,47 @@ class OpPluginInstance {
 
   opClientPromise: Promise<Client> | undefined;
   async initSdkClient() {
-    if (!this.token) return;
-    if (this.opClientPromise) return;
+    if (this.opClientPromise) return this.opClientPromise;
 
-    // TODO: pass through account once SDK allows it
-    this.opClientPromise = createClient({
-      auth: this.token,
-      integrationName: 'varlock plugin',
-      integrationVersion: PLUGIN_VERSION,
-    });
+    if (this.token) {
+      // TODO: pass through account once SDK allows it
+      this.opClientPromise = createClient({
+        auth: this.token,
+        integrationName: 'varlock plugin',
+        integrationVersion: PLUGIN_VERSION,
+      });
+    } else {
+      if (!this.account) throw new Error('account must be set to use desktop auth');
+      this.opClientPromise = createClient({
+        auth: new DesktopAuth(this.account),
+        integrationName: 'varlock plugin',
+        integrationVersion: PLUGIN_VERSION,
+      });
+    }
+    return this.opClientPromise;
   }
 
   readBatch?: Record<string, { defers: Array<DeferredPromise<string>> }> | undefined;
 
   async readItem(opReference: string) {
-    if (this.token) {
+    if (this.token || this.allowAppAuth) {
       // using JS SDK client using service account token
       await this.initSdkClient();
-      if (this.opClientPromise) {
-        // simple batching setup, so we can use bulk read sdk method
-        let triggerBatch = false;
-        if (!this.readBatch) {
-          this.readBatch = {};
-          triggerBatch = true;
-        }
-        // add item to batch, with deferred promise
-        this.readBatch[opReference] = { defers: [] };
-        const deferred = createDeferredPromise();
-        this.readBatch[opReference].defers.push(deferred);
-        if (triggerBatch) {
-          setImmediate(() => this.executeReadBatch());
-        }
-        return deferred.promise;
+
+      // simple batching setup, so we can use bulk read sdk method
+      let triggerBatch = false;
+      if (!this.readBatch) {
+        this.readBatch = {};
+        triggerBatch = true;
       }
-    } else if (this.allowAppAuth) {
-      // using op CLI to talk to 1Password desktop app
-      // NOTE - cli helper does its own batching, untethered to a specific op instance
-      return await opCliRead(opReference, this.account);
+      // add item to batch, with deferred promise
+      this.readBatch[opReference] = { defers: [] };
+      const deferred = createDeferredPromise<string>();
+      this.readBatch[opReference].defers.push(deferred);
+      if (triggerBatch) {
+        setImmediate(() => this.executeReadBatch());
+      }
+      return deferred.promise;
     } else {
       throw new SchemaError('Unable to authenticate with 1Password', {
         tip: `Plugin instance (${this.id}) must be provided either a service account token or have app auth enabled (allowAppAuth=true)`,

@@ -378,11 +378,11 @@ importers:
   packages/plugins/1password:
     devDependencies:
       '@1password/sdk':
-        specifier: ^0.3.1
-        version: 0.3.1
+        specifier: 0.4.0-beta.1
+        version: 0.4.0-beta.1
       '@1password/sdk-core':
-        specifier: ^0.3.1
-        version: 0.3.1
+        specifier: 0.4.0-beta.1
+        version: 0.4.0-beta.1
       '@env-spec/utils':
         specifier: workspace:^
         version: link:../../utils
@@ -574,13 +574,13 @@ importers:
         specifier: ^4.45.3
         version: 4.45.3(@cloudflare/workers-types@4.20251014.0)
 
-  packages/varlock/env-graph/test/plugins/test-plugin: {}
+  packages/varlock/src/env-graph/test/plugins/test-plugin: {}
 
-  packages/varlock/env-graph/test/plugins/test-plugin-conflict-1: {}
+  packages/varlock/src/env-graph/test/plugins/test-plugin-conflict-1: {}
 
-  packages/varlock/env-graph/test/plugins/test-plugin-conflict-2: {}
+  packages/varlock/src/env-graph/test/plugins/test-plugin-conflict-2: {}
 
-  packages/varlock/env-graph/test/plugins/test-plugin-version-conflict: {}
+  packages/varlock/src/env-graph/test/plugins/test-plugin-version-conflict: {}
 
   packages/varlock/src/env-graph/test/plugins/test-plugin: {}
 
@@ -610,11 +610,11 @@ importers:
 
 packages:
 
-  '@1password/sdk-core@0.3.1':
-    resolution: {integrity: sha512-zFkbRznmE47kpke10OpO/9R0AF5csNWS+naFbadgXuFX1LlxY+2C28NSKbCXhLTqmcuWifBfPdZQ728GJ1i5xg==}
+  '@1password/sdk-core@0.4.0-beta.1':
+    resolution: {integrity: sha512-YXblRzkcGPj6W/T5WJ++Ndr3bbu/+9sf14PLUeV73HcydTbjnD4HJeCpvxzc4O5iLqBquQ76EkSsAGmS0t2L8g==}
 
-  '@1password/sdk@0.3.1':
-    resolution: {integrity: sha512-20zbQfqsjcECT0gvnAw4zONJDt3XQgNH946pZR0NV1Qxukyaz/DKB0cBnBNCCEWZg93Bah8poaR6gJCyuNX14w==}
+  '@1password/sdk@0.4.0-beta.1':
+    resolution: {integrity: sha512-oLZUV/PaZcKu+5qRnqyZXStnAXzj76ZFmSHCKb4ykM75iQ6WFmWrKX9WVad3s5GL9sPATo+OGbZ8OGTXrE7rnA==}
 
   '@adobe/css-tools@4.3.3':
     resolution: {integrity: sha512-rE0Pygv0sEZ4vBWHlAgJLGDU7Pm8xoO6p3wsEceb7GYAjScrOHpEo8KK/eVkAcnSM+slAEtXjA2JpdjLp4fJQQ==}
@@ -8856,11 +8856,11 @@ packages:
 
 snapshots:
 
-  '@1password/sdk-core@0.3.1': {}
+  '@1password/sdk-core@0.4.0-beta.1': {}
 
-  '@1password/sdk@0.3.1':
+  '@1password/sdk@0.4.0-beta.1':
     dependencies:
-      '@1password/sdk-core': 0.3.1
+      '@1password/sdk-core': 0.4.0-beta.1
 
   '@adobe/css-tools@4.3.3':
     optional: true
