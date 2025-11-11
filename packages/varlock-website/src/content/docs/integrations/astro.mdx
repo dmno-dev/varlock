@@ -114,12 +114,21 @@ To enable type-safety and IntelliSense for your env vars, enable the [`@generate
 
 ## Managing multiple environments
 
-Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`).
+Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv). **This is different than Astro/Vite's default behaviour, which relies on it's own [`MODE` flag](https://vite.dev/guide/env-and-mode.html#modes).**
 
-By default, Astro relies on Vite's [`MODE` flag](https://vite.dev/guide/env-and-mode.html#modes) to determine which env file(s) to load.
+Usually this env var will be defaulted to something like `development` in your `.env.schema` file, and you can override it by overriding the value when running commands - for example `APP_ENV=production vite build`. For a JavaScript based project, this will often be done in your `package.json` scripts.
 
-With varlock, instead you set your own environment flag using the [`@currentEnv` root decorator](/reference/root-decorators/#currentEnv), e.g. `APP_ENV`. See the [environments guide](/guides/environments) for more information.
+```diff lang="json" title="package.json" add=/APP_ENV=[a-z]+/
+{
+  "scripts": {
+    "dev": "astro dev",
+    "build": "APP_ENV=production astro build",
+    "preview": "APP_ENV=production vite preview",
+  }
+}
+```
 
+In some cases, you could also set the current environment value based on other vars already injected by your CI platform, like the current branch name. See the [environments guide](/guides/environments) for more information.
 
 ## Managing sensitive config values
 
