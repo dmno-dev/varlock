@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "build": "APP_ENV=production vue-tsc -b && vite build",
+    "preview": "APP_ENV=production vite preview"
   },
   "dependencies": {
     "vue": "^3.5.18"

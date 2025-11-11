@@ -7,14 +7,13 @@ import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
 
 There are a few different ways to integrate Varlock into a JavaScript / Node.js application.
 
-Some tools/frameworks may require an additional package, or have more specific instructions. The following integrations/guides are available, with more to come soon:
-- [Next.js](/integrations/nextjs)
+Some tools/frameworks may require an additional package, or have more specific instructions. Check the Integrations section in the navigation for more details.
 
 **Want to help us build more integrations? Join our <a href={process.env.PUBLIC_DISCORD_URL}>Discord</a>!**
 
 ## Node.js - `varlock/auto-load`
 
-The best way to integrate varlock into a Node.js application (⚠️ version 22 or higher) is to import the `varlock/auto-load` module. This uses `execSync` to call out to the varlock CLI, sets resolved env vars into `process.env`, and initializes varlock's runtime code, including:
+The best way to integrate varlock into a plain Node.js application (⚠️ version 22 or higher) is to import the `varlock/auto-load` module. This uses `execSync` to call out to the varlock CLI, sets resolved env vars into `process.env`, and initializes varlock's runtime code, including:
 
 - varlock's `ENV` object
 - log redaction (if enabled)
@@ -54,6 +53,18 @@ In `package.json` scripts, calling `varlock` directly will work, as your package
 ```
 
 Even when using a deeper integration for your code, you may still need to use `varlock run` when calling external scripts/tools, like database migrations, to pass along resolved env vars.
+
+:::tip[Setting the current environment]
+Varlock can load multiple environment-specific `.env` files (e.g., `.env.development`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv) to specify which env var will set the current environment.
+
+If not using the default (usually `development`), you'll want to pass it in as an environment variable when running your command.
+
+```bash
+APP_ENV=production varlock run -- node index.js
+```
+
+See the [environments guide](/guides/environments) for more information about how to set the current environment.
+:::
 
 
 
