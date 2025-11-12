@@ -15,9 +15,11 @@ We track general usage information, and the environment in which `varlock` is be
 - General system/machine information
 - Anonymous user + project ID
 
+**We will never collect any of your config files or environment variables.**
+
 ## How to Opt Out
 
-You can opt out of analytics in two ways:
+You can opt out of analytics in three ways:
 
 ### Using the CLI
 
@@ -38,7 +40,17 @@ You can also opt out temporarily by setting the `VARLOCK_TELEMETRY_DISABLED` env
 export VARLOCK_TELEMETRY_DISABLED=true
 ```
 
-This will disable analytics for the current session only, which is useful in CI/CD pipelines, or while running a specific command.
+This could be set in a specific terminal session, while running a specific command, in a Dockerfile, or in a CI/CD pipeline.
+
+### With a project config file
+
+You can also opt out at the project level by creating a `.varlock/config.json` file in your project root with the following content:
+
+```json title="my-app/.varlock/config.json"
+{
+  "telemetryDisabled": true
+}
+```
 
 ## Privacy
 
