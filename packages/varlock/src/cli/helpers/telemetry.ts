@@ -84,7 +84,7 @@ function loadVarlockConfig() {
     const userConfigStr = readFileSync(userVarlockConfigFilePath, 'utf-8');
     userVarlockConfig = userConfigStr.trim() ? JSON.parse(userConfigStr) : undefined;
   } catch (err) {
-    // file does not exist (we jsut do this to avoid doing an extra step to check)
+    // file does not exist (we just do this to avoid doing an extra step to check)
     if (err instanceof Error && 'code' in err && err.code === 'ENOENT') {
       debug(`User varlock config file not found - ${userVarlockConfigFilePath}`);
     } else if (err instanceof SyntaxError) {
@@ -102,7 +102,7 @@ function loadVarlockConfig() {
       const projectConfigStr = readFileSync(projectVarlockConfigPath, 'utf-8');
       projectVarlockConfig = projectConfigStr.trim() ? JSON.parse(projectConfigStr) : undefined;
     } catch (err) {
-      // file does not exist (we jsut do this to avoid doing an extra step to check)
+      // file does not exist (we just do this to avoid doing an extra step to check)
       if (err instanceof Error && 'code' in err && err.code === 'ENOENT') {
         debug(`Project varlock config file not found - ${projectVarlockConfigPath}`);
       } else if (err instanceof SyntaxError) {
@@ -216,31 +216,71 @@ function anonymizeValue(payload: BinaryLike): string {
   return hash.digest('hex');
 }
 
-function getProjectGitRemoteUrl(): string | undefined {
+
+// known CI providers which have owner/repo available as env vars
+// we should order these by popularity (most popular first)
+const OWNER_REPO_CI_ENV_VARS = [
+  'GITHUB_ACTION_REPOSITORY', // github actions
+  ['NEXT_PUBLIC_VERCEL_GIT_REPO_OWNER', 'NEXT_PUBLIC_VERCEL_GIT_REPO_SLUG'], // vercel
+];
+
+function getProjectOwnerRepoName(): string | undefined {
+  // check all known providers which set env vars that have this permission (only for CI)
+  if (isCI) {
+    for (const envVarNames of OWNER_REPO_CI_ENV_VARS) {
+      if (Array.isArray(envVarNames)) {
+        if (process.env[envVarNames[0]]) {
+          return `${process.env[envVarNames[0]]}/${process.env[envVarNames[1]]}`;
+        }
+      } else {
+        if (process.env[envVarNames]) {
+          return process.env[envVarNames];
+        }
+      }
+    }
+  }
+
+  // otherwise, we'll try to extract the owner/repo name from the .git/config in remote url
   findProjectDirs(); // finds the git folder
   if (!_gitDirPath) return undefined;
+  let remoteUrl: string | undefined;
   try {
     const gitConfigContents = readFileSync(join(_gitDirPath, 'config'), 'utf-8');
     // first look for upstream
     const remoteUpstreamPos = gitConfigContents.indexOf('[remote "upstream"]');
     if (remoteUpstreamPos !== -1) {
-      const remoteUpstreamUrl = gitConfigContents.slice(remoteUpstreamPos).match(/url = (.+)/)?.[1];
-      return remoteUpstreamUrl;
+      remoteUrl = gitConfigContents.slice(remoteUpstreamPos).match(/url = (.+)/)?.[1];
+    } else {
+      // otherwise fallback to origin
+      const remoteOriginPos = gitConfigContents.indexOf('[remote "origin"]');
+      if (remoteOriginPos === -1) return undefined;
+      remoteUrl = gitConfigContents.slice(remoteOriginPos).match(/url = (.+)/)?.[1];
     }
-    // otherwise fallback to origin
-    const remoteOriginPos = gitConfigContents.indexOf('[remote "origin"]');
-    if (remoteOriginPos === -1) return undefined;
-    const remoteOriginUrl = gitConfigContents.slice(remoteOriginPos).match(/url = (.+)/)?.[1];
-    return remoteOriginUrl;
   } catch (err) {
     return undefined;
   }
+  if (!remoteUrl) return undefined;
+
+
+  remoteUrl = remoteUrl
+    .replace(/\?.*$/, '') // remove query params
+    .replace(/\.git$/, ''); // remove git suffix
+
+  const protocol = remoteUrl.includes('://') ? remoteUrl.split('://')[0].toLowerCase() : undefined;
+  if (protocol && ['https', 'http', 'git', 'ssh'].includes(protocol.toLowerCase())) {
+    // ex: https://github.com/owner/repo.git
+    return remoteUrl.split('/').slice(-2).join('/').replace(/\.git$/, '');
+  } else if (remoteUrl?.startsWith('git@')) {
+    // ex: git@github.com:owner/repo.git
+    return remoteUrl.split(':')[1]?.replace(/\.git$/, '');
+  }
+  return undefined;
 }
 function getAnonymousProjectId() {
   // we want a project ID tied to the git repo, so we can group telemetry data by project
-  // we could use the first commit hash, but this is more costly to compute, as we either need to rely
-  // on the git cli and execSync, or we need to parse the git objects directly
-  // so for now, we'll use the git remote URL (upstream if it exists, or origin)
+  // Astro uses first commit hash, but it's costly to compute needing git cli and execSync, or parsing the git objects directly
+  // so we will try to determing the git owner/repo name from .git/config or env vars
+  // and then anonymize it
   const gitRemoteUrl = getProjectGitRemoteUrl();
   if (!gitRemoteUrl) return null;
   return anonymizeValue(gitRemoteUrl);
