@@ -1,0 +1,33 @@
+---
+title: Integrations Overview
+description: How Varlock integrates with popular frameworks, bundlers, and runtimes
+---
+
+Varlock ships with official integrations that wire the CLI, runtime helpers, and framework-specific plugins together so your configuration is validated, type-safe, and protected everywhere it runs.
+
+Integrations allow you to:
+- load and validate `.env` files automatically during dev and use them in CI/CD and production.
+- inject config into your code at build or request time.
+- enable runtime protections such as leak prevention, and log redaction.
+
+## Official integrations
+- [JavaScript / Node.js](/integrations/javascript/) — use `varlock` in custom toolchains, scripts, and servers.
+- [Next.js](/integrations/nextjs/) — drop-in replacement for `@next/env`.
+- [Vite](/integrations/vite/) — Vite plugin that validates and replaces at build time.
+- [Qwik](/integrations/vite/) — Use the Vite integration.
+- [React Router](/integrations/vite/) — Use the Vite integration.
+- [Cloudflare Workers](/integrations/vite/) — Use the Vite intregration + Cloudflare Vite plugin.
+- [Astro](/integrations/astro/) — Astro integration built on top of our Vite plugin.
+- [GitHub Actions](/integrations/github-action/) — Validate your `.env.schema` in GitHub Actions workflows
+- [Other languages](/integrations/other-languages/) — guidance for piping varlock output into non-JS runtimes.
+- [Docker](/guides/docker/) — A Docker wrapper around the varlock CLI including examples. 
+
+
+## Coming soon
+We’re actively working on additional first-party integrations for popular runtimes, frameworks and hosting platforms. If yours isn’t listed yet, let us know!
+
+:::note[Request an integration]
+Join us on [Discord](https://chat.dmno.dev) or open a GitHub issue describing your use case so we can prioritize it.
+:::
+
+

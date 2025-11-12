@@ -20,9 +20,13 @@ This plugin does a few things:
 - Build time replacements of `ENV.xxx` of non-sensitive items (no prefix required)
 - Within SSR contexts, injecting additional initialization code and enabling additional [security features](https://varlock.dev/guides/secrets/#security-enhancements)
 
-:::note[Astro users]
+::::note[Astro users]
 For [Astro](https://astro.build) - which is also powered by Vite - you should use our [Astro integration](/integrations/astro/).
-:::
+::::
+
+## Frameworks that use Vite ||frameworks||
+
+If you're using [Qwik](https://qwik.dev/) or [React Router](https://reactrouter.com/)/[Remix](https://remix.run/), you can follow the Vite instructions below. If you're using [Cloudflare Workers](https://developers.cloudflare.com/workers/) with the [Cloudflare Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/) then these instructions also apply. For anything framework-specific on Cloudflare Workers (like Next.js) follow the [integration](/integrations/overview) docs for that framework.
 
 ## Setup
 
@@ -97,9 +101,9 @@ It's often useful to be able to access env vars in your Vite config. Without var
 ```diff lang="ts" title="vite.config.ts"
 import { defineConfig } from 'vite';
 import { varlockVitePlugin } from '@varlock/vite-integration';
-+import { ENV } from 'varlock/env';
+import { ENV } from 'varlock/env';
 
-+doSomethingWithEnvVar(ENV.FOO);
+doSomethingWithEnvVar(ENV.FOO);
 
 export default defineConfig({ /* ... */ });
 ```
