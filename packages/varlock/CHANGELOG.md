@@ -1,5 +1,13 @@
 # varlock
 
+## 0.1.1
+
+### Patch Changes
+
+- [#200](https://github.com/dmno-dev/varlock/pull/200) [`f98a63f`](https://github.com/dmno-dev/varlock/commit/f98a63fdb68f461bf02bc1797a406f45f5afd875) Thanks [@theoephraim](https://github.com/theoephraim)! - add project-level config file
+
+- [#201](https://github.com/dmno-dev/varlock/pull/201) [`e65e1c9`](https://github.com/dmno-dev/varlock/commit/e65e1c97b98d5d24ef84fc72c01c52a19e36ea01) Thanks [@theoephraim](https://github.com/theoephraim)! - use process.cwd() instead of process.env.PWD
+
 ## 0.1.0
 
 ### Minor Changes
