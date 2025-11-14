@@ -468,26 +468,33 @@ export const IfResolver: typeof Resolver = createResolver({
   icon: 'material-symbols:help-center', // question mark
   argsSchema: {
     type: 'array',
-    arrayMinLength: 2,
+    arrayMinLength: 1,
   },
   process() {
     const condition = this.arrArgs![0];
     const trueVal = this.arrArgs![1];
     const falseVal = this.arrArgs![2];
 
+    // no args mean we'll true or undefined
+    if (!trueVal) {
+      this.inferredType = 'boolean';
     // we can infer a type if both true and false cases have a matching inferred type
-    if (!falseVal || trueVal.inferredType === falseVal.inferredType) {
+    } else if (!falseVal || trueVal.inferredType === falseVal.inferredType) {
       this.inferredType = trueVal.inferredType;
     }
-
     return { condition, trueVal, falseVal };
   },
   async resolve({ condition, trueVal, falseVal }) {
     const conditionVal = await condition.resolve();
     if (conditionVal) {
-      return trueVal.resolve();
+      // if no trueVal passed in, we return true
+      return trueVal ? trueVal.resolve() : true;
     } else {
-      return falseVal?.resolve();
+      if (falseVal) return falseVal.resolve();
+      // if only trueVal passed in, we return trueval OR undefined
+      if (trueVal) return undefined;
+      // if no trueVal or falseVal passed in, we coerce to boolean
+      return false;
     }
   },
 });

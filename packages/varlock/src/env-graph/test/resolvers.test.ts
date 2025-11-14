@@ -362,7 +362,21 @@ describe('if()', functionValueTests({
       ITEM2: 'no',
     },
   },
-  'optional false value': {
+  'no true/false values will coerce to boolean': {
+    input: outdent`
+      T1=if(hello)
+      T2=if(true)
+      T3=if(123)
+      F1=if(undefined)
+      F2=if("")
+      F3=if(false)
+      F4=if(0)
+    `,
+    expected: {
+      T1: true, T2: true, T3: true, F1: false, F2: false, F3: false, F4: false,
+    },
+  },
+  'optional false value will use undefined': {
     input: outdent`
       ITEM1=if(true, "yes")
       ITEM2=if(false, "yes")
@@ -371,10 +385,6 @@ describe('if()', functionValueTests({
   },
   'error - no args': {
     input: 'ITEM=if()',
-    expected: { ITEM: SchemaError },
-  },
-  'error - single arg': {
-    input: 'ITEM=if(true)',
     expected: { ITEM: SchemaError },
   },
   'error - key/val args': {
