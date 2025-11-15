@@ -397,6 +397,105 @@ describe('if()', functionValueTests({
   },
 }));
 
+describe('not()', functionValueTests({
+  'working - falsy values': {
+    input: outdent`
+      FALSE=not(false)
+      EMPTY_STR=not("")
+      ZERO=not(0)
+      UNDEF=not(undefined)
+    `,
+    expected: {
+      FALSE: true,
+      EMPTY_STR: true,
+      ZERO: true,
+      UNDEF: true,
+    },
+  },
+  'with truthy values': {
+    input: outdent`
+      STR=not("hello")
+      NUM=not(42)
+      BOOL=not(true)
+    `,
+    expected: {
+      STR: false,
+      NUM: false,
+      BOOL: false,
+    },
+  },
+  'with nested resolvers': {
+    input: outdent`
+      ITEM1=not(eq("a", "a"))
+      ITEM2=not(eq("a", "b"))
+    `,
+    expected: { ITEM1: false, ITEM2: true },
+  },
+  'error - no args': {
+    input: 'ITEM=not()',
+    expected: { ITEM: SchemaError },
+  },
+  'error - too many args': {
+    input: 'ITEM=not(true, false)',
+    expected: { ITEM: SchemaError },
+  },
+  'error - key/val args': {
+    input: 'ITEM=not(value=true)',
+    expected: { ITEM: SchemaError },
+  },
+  'error - nested bad arg': {
+    input: 'ITEM=not(ref(BADKEY))',
+    expected: { ITEM: SchemaError },
+  },
+}));
+
+describe('isEmpty()', functionValueTests({
+  working: {
+    input: outdent`
+      UNDEF=isEmpty(undefined)
+      EMPTY_STR=isEmpty("")
+      STR=isEmpty(foo)
+      ZERO=isEmpty(0)
+      NUM=isEmpty(1)
+      FALSE=isEmpty(false)
+    `,
+    expected: {
+      UNDEF: true,
+      EMPTY_STR: true,
+      STR: false,
+      ZERO: false,
+      NUM: false,
+      FALSE: false,
+    },
+  },
+  'with nested resolvers': {
+    input: outdent`
+      ITEM1=isEmpty(concat("", ""))
+      ITEM2=isEmpty(concat("a", "b"))
+      ITEM3=isEmpty(if(true, undefined))
+    `,
+    expected: { ITEM1: true, ITEM2: false, ITEM3: true },
+  },
+  'error - no args': {
+    input: 'ITEM=isEmpty()',
+    expected: { ITEM: SchemaError },
+  },
+  'error - too many args': {
+    input: 'ITEM=isEmpty("", "test")',
+    expected: { ITEM: SchemaError },
+  },
+  'error - key/val args': {
+    input: 'ITEM=isEmpty(value="")',
+    expected: { ITEM: SchemaError },
+  },
+  'error - nested bad arg': {
+    input: 'ITEM=isEmpty(ref(BADKEY))',
+    expected: { ITEM: SchemaError },
+  },
+}));
+
+// --------
+
 describe('dependency cycles', functionValueTests({
   'detect cycle - self': {
     input: 'A=$A',
