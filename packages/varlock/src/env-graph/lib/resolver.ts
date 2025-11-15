@@ -440,7 +440,7 @@ export const ForEnvResolver: typeof Resolver = createResolver({
   async resolve(matchEnvs) {
     // this will trigger resolution of the current env if not already done
     const currentEnv = await this.getCurrentEnv();
-    if (!currentEnv) throw new Error('current environment is not set');
+    if (!currentEnv) throw new SchemaError('current environment is not set');
     return currentEnv && matchEnvs.includes(currentEnv || '');
   },
 });
