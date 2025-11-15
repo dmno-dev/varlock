@@ -157,7 +157,7 @@ export async function getTsDefinitionForItem(item: ConfigItem, indentLevel = 0) 
   }
 
   const isRequired = item.isRequired && !item.isRequiredDynamic;
-  itemSrc.push(`readonly ${item.key}${isRequired ? '' : '?'}: ${itemTsType};`);
+  itemSrc.push(`${item.key}${isRequired ? '' : '?'}: ${itemTsType};`);
   itemSrc.push('');
   return _.map(itemSrc, (line) => `${i}${line}`);
 }
@@ -188,8 +188,8 @@ export async function generateTsTypesSrc(graph: EnvGraph) {
 
   tsSrc.push(`
 declare module 'varlock/env' {
-  export interface TypedEnvSchema extends CoercedEnvSchema {}
-  export interface PublicTypedEnvSchema extends Pick<CoercedEnvSchema, '${exposedNonSensitiveKeys.join("' | '")}'> {}
+  export interface TypedEnvSchema extends Readonly<CoercedEnvSchema> {}
+  export interface PublicTypedEnvSchema extends Readonly<Pick<CoercedEnvSchema, '${exposedNonSensitiveKeys.join("' | '")}'>> {}
 }
 `);
 
