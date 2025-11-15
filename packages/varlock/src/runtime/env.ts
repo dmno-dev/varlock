@@ -204,7 +204,10 @@ export function initVarlockEnv(opts?: {
 }) {
   debug('⚡️ INIT VARLOCK ENV!', initializedEnv, !!(globalThis as any).__varlockLoadedEnv, processExists && !!process.env.__VARLOCK_ENV);
 
-  if (isBrowser) {
+  // normally we can just bail if we detect we are in the browser
+  // however when front-end related tests, it may appear that we are in the browser but it is not
+  if (isBrowser && !process.env.__VARLOCK_ENV) {
+    initializedEnv = true;
     return;
   }
 
@@ -294,7 +297,7 @@ const EnvProxy = new Proxy<TypedEnvSchema>({}, {
     // special cases to avoid throwing on invalid keys
     if (IGNORED_PROXY_KEYS.includes(prop)) return;
 
-    if (!isBrowser && !initializedEnv) {
+    if (!initializedEnv) {
       throw new Error('varlock ENV not initialized');
     }
 

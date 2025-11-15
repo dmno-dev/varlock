@@ -11,7 +11,7 @@ import { patchGlobalResponse } from './runtime/patch-response';
 // this also isolates the varlock loading process from the end user process
 
 
-const execResult = execSyncVarlock('load --format json-full', {
+const execResult = execSyncVarlock('load --format json-full-compact', {
   exitOnError: true,
   showLogsOnError: true,
 });

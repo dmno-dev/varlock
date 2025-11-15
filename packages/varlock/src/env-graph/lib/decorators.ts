@@ -103,6 +103,7 @@ export abstract class DecoratorInstance {
       this.resolvedValue = await this.decValueResolver.resolve();
     } catch (err) {
       this._schemaErrors.push(err as any);
+      return;
     }
 
     this.isResolved = true;

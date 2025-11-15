@@ -273,15 +273,25 @@ export class ConfigItem {
           const usingOptional = requiredDec.name === 'optional';
 
           // need to track if required-ness is dynamic
-          this._isRequiredDynamic = requiredDec.decValueResolver
-            ? requiredDec.decValueResolver.staticValue === undefined : false;
+          // NOTE - if any other resolver ever has a static value, we'll need to change this
+          if (requiredDec.decValueResolver?.fnName !== '\0static') {
+            this._isRequiredDynamic = true;
+          }
 
           const requiredDecoratorVal = await requiredDec.resolve();
-          if (!_.isBoolean(requiredDecoratorVal)) {
-            throw new SchemaError('@required/@optional must resolve to a boolean');
+          // if we got an error, we'll bail and the error will be checked later
+          if (requiredDec.schemaErrors.length) {
+            // but we mark as not required so we don't _also_ get required error
+            this._isRequired = false;
+            return;
           }
-          this._isRequired = usingOptional ? !requiredDecoratorVal : requiredDecoratorVal;
-          return;
+          if (![true, false, undefined].includes(requiredDecoratorVal)) {
+            throw new SchemaError('@required/@optional must resolve to a boolean or undefined');
+          }
+          if (requiredDecoratorVal !== undefined) {
+            this._isRequired = usingOptional ? !requiredDecoratorVal : requiredDecoratorVal;
+            return;
+          }
         }
 
         // Root-level @defaultRequired
@@ -329,6 +339,13 @@ export class ConfigItem {
       const sensitiveDec = def.itemDef.decorators?.find((d) => d.name === 'sensitive');
       if (sensitiveDec) {
         const sensitiveDecValue = await sensitiveDec.resolve();
+        // can bail if the decorator value resolution failed
+        if (sensitiveDec.schemaErrors.length) {
+          return;
+        }
+        if (![true, false, undefined].includes(sensitiveDecValue)) {
+          throw new SchemaError('@sensitive must resolve to a boolean or undefined');
+        }
         if (sensitiveDecValue !== undefined) {
           this._isSensitive = sensitiveDecValue;
           return;
