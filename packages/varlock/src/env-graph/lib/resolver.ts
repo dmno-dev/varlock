@@ -499,6 +499,34 @@ export const IfResolver: typeof Resolver = createResolver({
   },
 });
 
+export const NotResolver: typeof Resolver = createResolver({
+  name: 'not',
+  icon: 'material-symbols:not-equal',
+  inferredType: 'boolean',
+  argsSchema: {
+    type: 'array',
+    arrayExactLength: 1,
+  },
+  async resolve() {
+    const value = await this.arrArgs![0].resolve();
+    return !value;
+  },
+});
+
+export const IsEmptyResolver: typeof Resolver = createResolver({
+  name: 'isEmpty',
+  icon: 'material-symbols:empty',
+  inferredType: 'boolean',
+  argsSchema: {
+    type: 'array',
+    arrayExactLength: 1,
+  },
+  async resolve() {
+    const value = await this.arrArgs![0].resolve();
+    return value === undefined || value === '';
+  },
+});
+
 
 // Special function for `@defaultSensitive=inferFromPrefix(PUBLIC_)`
 // we may want to formalize this pattern of a resolver function used in a root decorator
@@ -537,6 +565,8 @@ export const BaseResolvers: Array<ResolverChildClass> = [
   ForEnvResolver,
   EqResolver,
   IfResolver,
+  NotResolver,
+  IsEmptyResolver,
   RegexResolver,
   InferFromPrefixResolver,
 ];
