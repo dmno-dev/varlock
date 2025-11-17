@@ -20,6 +20,7 @@ export function envFilesTest(spec: {
   expectValues?: Record<string, string | undefined | Constructor<Error>>;
   expectNotInSchema?: Array<string>,
   expectRequired?: Record<string, boolean | Constructor<Error>>;
+  expectRequiredIsDynamic?: Record<string, boolean>;
   expectSensitive?: Record<string, boolean | Constructor<Error>>;
   expectSerializedMatches?: any;
 }) {
@@ -99,6 +100,12 @@ export function envFilesTest(spec: {
           } else {
             expect(item.isRequired, `expected ${key} to be ${spec.expectRequired[key] ? 'required' : 'NOT required'}`).toBe(spec.expectRequired[key]);
           }
+        }
+      }
+      if (spec.expectRequiredIsDynamic) {
+        for (const key of Object.keys(spec.expectRequiredIsDynamic)) {
+          const item = g.configSchema[key];
+          expect(item.isRequiredDynamic, `expected ${key} to be ${spec.expectRequiredIsDynamic[key] ? 'dynamic' : 'NOT dynamic'}`).toBe(spec.expectRequiredIsDynamic[key]);
         }
       }
       if (spec.expectSensitive) {

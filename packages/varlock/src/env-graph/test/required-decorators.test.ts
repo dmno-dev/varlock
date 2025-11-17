@@ -11,18 +11,22 @@ describe('required decorators', () => {
         REQUIRED=       # @required
         REQUIRED_TRUE=  # @required=true
         REQUIRED_FALSE= # @required=false
+        REQUIRED_UNDEF= # @required=undefined
         OPTIONAL=       # @optional
         OPTIONAL_TRUE=  # @optional=true
         OPTIONAL_FALSE= # @optional=false
+        OPTIONAL_UNDEF= # @optional=undefined
       `,
     },
     expectRequired: {
       REQUIRED: true,
       REQUIRED_TRUE: true,
       REQUIRED_FALSE: false,
+      REQUIRED_UNDEF: true, // stays as default
       OPTIONAL: false,
       OPTIONAL_TRUE: false,
       OPTIONAL_FALSE: true,
+      OPTIONAL_UNDEF: true,
     },
   }));
   test('@required and @optional can be overridden', envFilesTest({
@@ -165,14 +169,12 @@ describe('required decorators', () => {
         ERROR1= # @required=123
         ERROR2= # @required="true"
         ERROR3= # @optional=123
-        ERROR4= # @optional=undefined
       `,
     },
     expectRequired: {
       ERROR1: SchemaError,
       ERROR2: SchemaError,
       ERROR3: SchemaError,
-      ERROR4: SchemaError,
     },
   }));
   describe('@required with forEnv()', () => {
@@ -228,11 +230,33 @@ describe('required decorators', () => {
           REQ_IF_FOO= # @required=eq($OTHER, foo)
           REQ_IF_BAR= # @required=eq($OTHER, bar)
           OTHER=foo
+          REQ_IF_T= # @required=if(yes)
+          REQ_IF_F= # @required=if(0)
         `,
       },
       expectRequired: {
         REQ_IF_FOO: true,
         REQ_IF_BAR: false,
+        REQ_IF_T: true,
+        REQ_IF_F: false,
+      },
+    }));
+    test('ensure @required isDynamic is correct (affects type generation)', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          TRUE= # @required
+          FALSE= # @required=false
+          UNDEF= # @required=undefined
+          REQ_FN= # @required=if(0)
+          REQ_FN_UNDEF= # @required=if(true, undefined)
+        `,
+      },
+      expectRequiredIsDynamic: {
+        TRUE: false,
+        FALSE: false,
+        UNDEF: false,
+        REQ_FN: true,
+        REQ_FN_UNDEF: true,
       },
     }));
   });
