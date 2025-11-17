@@ -1,0 +1,195 @@
+---
+import { Icon } from "astro-iconify";
+
+export interface LogoItem {
+  title: string;
+  icon?: string;
+  href?: string;
+  alt?: string;
+}
+
+interface Props {
+  title: string;
+  logos: LogoItem[];
+  theme?:
+    | "purple"
+    | "cyan"
+    | "green"
+    | "blue"
+    | "orange"
+    | "pink"
+    | "red"
+    | "yellow";
+}
+
+const { title, logos, theme = "purple" } = Astro.props;
+---
+
+<section class="logo-list not-content" data-theme={theme}>
+  <h2>{title}</h2>
+  <ul>
+    {
+      logos.map(({ title, icon, href, alt }) => {
+        const content = (
+          <div class="logo-tile">
+            <Icon
+              name={icon}
+              class="logo-icon"
+              aria-label={alt ?? title}
+              title={alt ?? title}
+            />
+
+            <span>{title}</span>
+          </div>
+        );
+
+        if (href) {
+          return (
+            <li>
+              <a href={href} class="logo-link">
+                {content}
+              </a>
+            </li>
+          );
+        }
+
+        return <li>{content}</li>;
+      })
+    }
+  </ul>
+</section>
+
+<style>
+  .logo-list {
+    margin: 0;
+    --theme-color: var(--brand-purple);
+    --theme-color-t1: var(--brand-purple--t1);
+  }
+
+  .logo-list h2 {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5em;
+    margin-bottom: 1.5rem;
+  }
+
+  .logo-list ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+
+  .logo-list li {
+    width: 100%;
+  }
+
+  .logo-link {
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .logo-list[data-theme="purple"] {
+    --theme-color: var(--brand-purple);
+    --theme-color-t1: var(--brand-purple--t1);
+  }
+
+  .logo-list[data-theme="cyan"] {
+    --theme-color: var(--brand-cyan);
+    --theme-color-t1: var(--brand-cyan--t1);
+  }
+
+  .logo-list[data-theme="green"] {
+    --theme-color: var(--brand-green);
+    --theme-color-t1: var(--brand-green--t1);
+  }
+
+  .logo-list[data-theme="blue"] {
+    --theme-color: var(--brand-blue);
+    --theme-color-t1: var(--brand-blue--t1);
+  }
+
+  .logo-list[data-theme="orange"] {
+    --theme-color: var(--brand-orange);
+    --theme-color-t1: var(--brand-orange--t1);
+  }
+
+  .logo-list[data-theme="pink"] {
+    --theme-color: var(--brand-pink);
+    --theme-color-t1: var(--brand-pink--t1);
+  }
+
+  .logo-list[data-theme="red"] {
+    --theme-color: var(--brand-red);
+    --theme-color-t1: var(--brand-red--t1);
+  }
+
+  .logo-list[data-theme="yellow"] {
+    --theme-color: var(--brand-yellow);
+    --theme-color-t1: var(--brand-yellow--t1);
+  }
+
+  .logo-tile {
+    width: 100%;
+    border: 1px dotted var(--theme-color-t1);
+    border-radius: 12px;
+    padding: 1.25rem 1rem;
+    min-height: var(--logo-tile-height, 150px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    background: color-mix(in srgb, var(--sl-color-bg), transparent 20%);
+    transition:
+      transform 150ms ease,
+      border-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+
+  .logo-link:hover .logo-tile,
+  .logo-link:focus-visible .logo-tile {
+    transform: translateY(-4px);
+    border-color: var(--brand-red);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+  }
+
+  .logo-tile img {
+    width: 56px;
+    height: 56px;
+  }
+
+  .logo-icon {
+    width: 56px;
+    height: 56px;
+    color: var(--theme-color);
+    transition: color 150ms ease;
+  }
+
+  .logo-link:hover .logo-icon,
+  .logo-link:focus-visible .logo-icon {
+    color: var(--brand-red);
+  }
+
+  .logo-tile span {
+    display: inline-block;
+    max-width: 100%;
+    text-align: center;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    text-wrap: balance;
+  }
+
+  :global(:root[data-theme="dark"]) .logo-tile img {
+    filter: invert(1);
+  }
+
+  @media (max-width: 768px) {
+    .logo-list ul {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.75rem;
+    }
+  }
+</style>

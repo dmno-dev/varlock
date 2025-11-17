@@ -132,7 +132,6 @@ async function onSubmit() {
 
     &:focus {
       border-color: var(--brand-pink);
-      background: var);
       outline: none;
     }
 
