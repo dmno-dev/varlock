@@ -5,38 +5,58 @@ import { envFilesTest } from './helpers/generic-test';
 describe('@sensitive and @defaultSensitive tests', () => {
   test('no @defaultSensitive set - sensitive by default, can override', envFilesTest({
     envFile: outdent`
-      FOO=
-      # @sensitive=true
-      BAR=
-      # @sensitive=false
-      BAZ=
+      TRUE=     # @sensitive=true
+      FALSE=    # @sensitive=false
+      UNDEF=    # @sensitive=undefined
+      DEFAULT=
     `,
-    expectSensitive: { FOO: true, BAR: true, BAZ: false },
+    expectSensitive: {
+      TRUE: true, FALSE: false, UNDEF: true, DEFAULT: true,
+    },
   }));
 
   test('static @defaultSensitive=true', envFilesTest({
     envFile: outdent`
       # @defaultSensitive=true
       # ---
-      FOO=
-      # @sensitive=false
-      BAR=
+      TRUE=     # @sensitive=true
+      FALSE=    # @sensitive=false
+      UNDEF=    # @sensitive=undefined
+      DEFAULT=
     `,
-    expectSensitive: { FOO: true, BAR: false },
+    expectSensitive: {
+      TRUE: true, FALSE: false, UNDEF: true, DEFAULT: true,
+    },
   }));
 
   test('static @defaultSensitive=false', envFilesTest({
     envFile: outdent`
       # @defaultSensitive=false
       # ---
-      FOO=
-      # @sensitive=true
-      BAR=
+      TRUE=     # @sensitive=true
+      FALSE=    # @sensitive=false
+      UNDEF=    # @sensitive=undefined
+      DEFAULT=
     `,
-    expectSensitive: { FOO: false, BAR: true },
+    expectSensitive: {
+      TRUE: true, FALSE: false, UNDEF: false, DEFAULT: false,
+    },
   }));
 
-  describe('infer sensitivity from item prefix', () => {
+  describe('dynamic @sensitive', () => {
+    test('dynamic @sensitive works', envFilesTest({
+      envFile: outdent`
+        TRUE=  # @sensitive=if(yes)
+        FALSE= # @sensitive=if(0)
+        UNDEF= # @sensitive=if(true, undefined) # uses default
+      `,
+      expectSensitive: {
+        TRUE: true, FALSE: false, UNDEF: true,
+      },
+    }));
+  });
+
+  describe('inferFromPrefix() - use key prefix to infer sensitivity', () => {
     test('base case @defaultSensitive=inferFromPrefix', envFilesTest({
       envFile: outdent`
         # @defaultSensitive=inferFromPrefix(PUBLIC_)

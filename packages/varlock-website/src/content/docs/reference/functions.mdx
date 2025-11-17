@@ -165,4 +165,29 @@ API_URL=if(eq($GIT_BRANCH, "main"), api.example.com, staging-api.example.com)
 ```
 </div>
 
+<div>
+### `not()`
+
+Negates a value and returns a boolean. Falsy values are - `false`, `""`, `0`, `undefined`, and will be negated to `true`. Otherwise will return `false`.
+
+```env-spec "not"
+# Negate the result of another function
+SHOULD_DISABLE_FEATURE=not(forEnv(production))
+```
+</div>
+
+<div>
+### `isEmpty()`
+
+Returns `true` if the value is `undefined` or an empty string, `false` otherwise.
+
+```env-spec "isEmpty"
+# Check if a value is empty
+HAS_API_KEY=not(isEmpty($API_KEY))
+
+# Use with conditional logic
+API_URL=if(isEmpty($CUSTOM_API_URL), "https://api.default.com", $CUSTOM_API_URL)
+```
+</div>
+
 </div>

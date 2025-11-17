@@ -362,7 +362,21 @@ describe('if()', functionValueTests({
       ITEM2: 'no',
     },
   },
-  'optional false value': {
+  'no true/false values will coerce to boolean': {
+    input: outdent`
+      T1=if(hello)
+      T2=if(true)
+      T3=if(123)
+      F1=if(undefined)
+      F2=if("")
+      F3=if(false)
+      F4=if(0)
+    `,
+    expected: {
+      T1: true, T2: true, T3: true, F1: false, F2: false, F3: false, F4: false,
+    },
+  },
+  'optional false value will use undefined': {
     input: outdent`
       ITEM1=if(true, "yes")
       ITEM2=if(false, "yes")
@@ -371,10 +385,6 @@ describe('if()', functionValueTests({
   },
   'error - no args': {
     input: 'ITEM=if()',
-    expected: { ITEM: SchemaError },
-  },
-  'error - single arg': {
-    input: 'ITEM=if(true)',
     expected: { ITEM: SchemaError },
   },
   'error - key/val args': {
@@ -386,6 +396,105 @@ describe('if()', functionValueTests({
     expected: { ITEM: SchemaError },
   },
 }));
+
+describe('not()', functionValueTests({
+  'working - falsy values': {
+    input: outdent`
+      FALSE=not(false)
+      EMPTY_STR=not("")
+      ZERO=not(0)
+      UNDEF=not(undefined)
+    `,
+    expected: {
+      FALSE: true,
+      EMPTY_STR: true,
+      ZERO: true,
+      UNDEF: true,
+    },
+  },
+  'with truthy values': {
+    input: outdent`
+      STR=not("hello")
+      NUM=not(42)
+      BOOL=not(true)
+    `,
+    expected: {
+      STR: false,
+      NUM: false,
+      BOOL: false,
+    },
+  },
+  'with nested resolvers': {
+    input: outdent`
+      ITEM1=not(eq("a", "a"))
+      ITEM2=not(eq("a", "b"))
+    `,
+    expected: { ITEM1: false, ITEM2: true },
+  },
+  'error - no args': {
+    input: 'ITEM=not()',
+    expected: { ITEM: SchemaError },
+  },
+  'error - too many args': {
+    input: 'ITEM=not(true, false)',
+    expected: { ITEM: SchemaError },
+  },
+  'error - key/val args': {
+    input: 'ITEM=not(value=true)',
+    expected: { ITEM: SchemaError },
+  },
+  'error - nested bad arg': {
+    input: 'ITEM=not(ref(BADKEY))',
+    expected: { ITEM: SchemaError },
+  },
+}));
+
+describe('isEmpty()', functionValueTests({
+  working: {
+    input: outdent`
+      UNDEF=isEmpty(undefined)
+      EMPTY_STR=isEmpty("")
+      STR=isEmpty(foo)
+      ZERO=isEmpty(0)
+      NUM=isEmpty(1)
+      FALSE=isEmpty(false)
+    `,
+    expected: {
+      UNDEF: true,
+      EMPTY_STR: true,
+      STR: false,
+      ZERO: false,
+      NUM: false,
+      FALSE: false,
+    },
+  },
+  'with nested resolvers': {
+    input: outdent`
+      ITEM1=isEmpty(concat("", ""))
+      ITEM2=isEmpty(concat("a", "b"))
+      ITEM3=isEmpty(if(true, undefined))
+    `,
+    expected: { ITEM1: true, ITEM2: false, ITEM3: true },
+  },
+  'error - no args': {
+    input: 'ITEM=isEmpty()',
+    expected: { ITEM: SchemaError },
+  },
+  'error - too many args': {
+    input: 'ITEM=isEmpty("", "test")',
+    expected: { ITEM: SchemaError },
+  },
+  'error - key/val args': {
+    input: 'ITEM=isEmpty(value="")',
+    expected: { ITEM: SchemaError },
+  },
+  'error - nested bad arg': {
+    input: 'ITEM=isEmpty(ref(BADKEY))',
+    expected: { ITEM: SchemaError },
+  },
+}));
+
+// --------
 
 describe('dependency cycles', functionValueTests({
   'detect cycle - self': {
