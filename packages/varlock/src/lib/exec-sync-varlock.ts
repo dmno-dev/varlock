@@ -1,10 +1,15 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { execSync } from 'node:child_process';
 
 // weird tsup issue using `typeof execSync` from node:child_process
 // see https://github.com/egoist/tsup/issues/1367
 import type { execSync as execSyncType } from 'child_process';
+
+const platform = os.platform();
+const isWindows = platform.match(/^win/i);
+
 
 /**
  * small helper to call execSync and call the varlock cli
@@ -30,8 +35,9 @@ export function execSyncVarlock(
       });
       return result.toString();
     } catch (err) {
-      // code 127 means not found
-      if ((err as any).status !== 127) throw err;
+      // code 127 means not found (on linux only)
+      if (!isWindows && (err as any).status !== 127) throw err;
+      // on windows, we'll just do the extra checks anyway
     }
 
     // if varlock was not found, it either means it is not installed
@@ -47,8 +53,6 @@ export function execSyncVarlock(
             ...opts,
             stdio: 'pipe',
           });
-          // const commandArgs = command.split(' ').filter(Boolean);
-          // const result = execFileSync(possibleVarlockPath, commandArgs, opts);
           return result.toString();
         } else {
           throw new Error('Unable to find varlock executable');
