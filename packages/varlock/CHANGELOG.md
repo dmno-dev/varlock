@@ -1,5 +1,21 @@
 # varlock
 
+## 0.1.2
+
+### Patch Changes
+
+- [#203](https://github.com/dmno-dev/varlock/pull/203) [`3a16d45`](https://github.com/dmno-dev/varlock/commit/3a16d455cacb7378561d256693b154a8ba4ff737) Thanks [@theoephraim](https://github.com/theoephraim)! - allow if() to take 1 arg to coerce to boolean
+
+- [#203](https://github.com/dmno-dev/varlock/pull/203) [`3a16d45`](https://github.com/dmno-dev/varlock/commit/3a16d455cacb7378561d256693b154a8ba4ff737) Thanks [@theoephraim](https://github.com/theoephraim)! - allow @required/@sensitive to accept undefined
+
+- [#204](https://github.com/dmno-dev/varlock/pull/204) [`6f4e998`](https://github.com/dmno-dev/varlock/commit/6f4e9984bd5bb398b4fabd5d20a1283e41e66dd4) Thanks [@theoephraim](https://github.com/theoephraim)! - fix logic around finding the varlock executable to work with windows .cmd files
+
+- [#203](https://github.com/dmno-dev/varlock/pull/203) [`3a16d45`](https://github.com/dmno-dev/varlock/commit/3a16d455cacb7378561d256693b154a8ba4ff737) Thanks [@theoephraim](https://github.com/theoephraim)! - make ENV readonly without making process.env readonly
+
+- [#203](https://github.com/dmno-dev/varlock/pull/203) [`3a16d45`](https://github.com/dmno-dev/varlock/commit/3a16d455cacb7378561d256693b154a8ba4ff737) Thanks [@theoephraim](https://github.com/theoephraim)! - adjust loading behavior for browser testing (vitest jsdom)
+
+- [#203](https://github.com/dmno-dev/varlock/pull/203) [`3a16d45`](https://github.com/dmno-dev/varlock/commit/3a16d455cacb7378561d256693b154a8ba4ff737) Thanks [@theoephraim](https://github.com/theoephraim)! - add not() and isEmpty() resolvers
+
 ## 0.1.1
 
 ### Patch Changes
