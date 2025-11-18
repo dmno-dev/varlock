@@ -30,4 +30,10 @@ const packagesStr = Array.isArray(packages) ? packages.join(" ") : packages;
       lang="bash"
     />
   </TabItem>
+  <TabItem label="vlt">
+    <Code
+      code={`vlt ${remove ? "uninstall" : "install"} ${dev ? "--save-dev " : ""}${packagesStr}`}
+      lang="bash"
+    />
+  </TabItem>
 </Tabs>
