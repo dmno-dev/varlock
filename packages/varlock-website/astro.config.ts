@@ -56,6 +56,7 @@ export default defineConfig({
         ThemeSelect: '@/components/ThemeSelect.astro',
         ThemeProvider: '@/components/CustomStarlightThemeProvider.astro',
         SocialIcons: '@/components/SocialIcons.astro',
+        Footer: '@/components/Footer.astro',
       },
       customCss: ['@/styles/global.css'],
       plugins: [starlightLlmsTxt()],
