@@ -56,6 +56,7 @@ export default defineConfig({
         ThemeSelect: '@/components/ThemeSelect.astro',
         ThemeProvider: '@/components/CustomStarlightThemeProvider.astro',
         SocialIcons: '@/components/SocialIcons.astro',
+        Footer: '@/components/Footer.astro',
       },
       customCss: ['@/styles/global.css'],
       plugins: [starlightLlmsTxt()],
@@ -92,13 +93,11 @@ export default defineConfig({
         {
           label: 'Integrations',
           items: [
+            { label: 'Overview', slug: 'integrations/overview' },
             { label: 'JavaScript / Node.js', slug: 'integrations/javascript' },
             { label: 'Next.js', slug: 'integrations/nextjs' },
-            { label: 'Vite', slug: 'integrations/vite' },
+            { label: 'Vite-based', slug: 'integrations/vite' },
             { label: 'Astro', slug: 'integrations/astro' },
-            { label: 'Qwik', slug: 'integrations/qwik' },
-            { label: 'React Router', slug: 'integrations/react-router' },
-            { label: 'Cloudflare Workers', slug: 'integrations/cloudflare-workers' },
             { label: 'Other languages', slug: 'integrations/other-languages' },
             { label: 'Docker', slug: 'guides/docker' },
             { label: 'GitHub Actions', slug: 'integrations/github-action' },

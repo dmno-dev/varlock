@@ -1,0 +1,129 @@
+---
+import LogoList, { type LogoItem } from "./LogoList.astro";
+
+const secretsLogos: LogoItem[] = [
+  {
+    title: "1Password",
+    icon: "simple-icons:1password",
+    href: "/plugins/1password/",
+  },
+  {
+    title: "Any CLI tool",
+    icon: "simple-icons:gnubash",
+    href: "reference/functions/#exec",
+  },
+  {
+    title: "More soon...",
+    icon: "mdi:lock",
+    href: "/plugins/overview/",
+  },
+];
+
+const languagesLogos: LogoItem[] = [
+  {
+    title: "TS/JS",
+    icon: "simple-icons:typescript",
+    href: "/integrations/javascript/",
+  },
+  {
+    title: "Node.js",
+    icon: "simple-icons:nodedotjs",
+    href: "/integrations/javascript/",
+  },
+  {
+    title: "Python",
+    icon: "simple-icons:python",
+    href: "/integrations/other-languages/",
+  },
+  {
+    title: "Ruby",
+    icon: "simple-icons:ruby",
+    href: "/integrations/other-languages/",
+  },
+  {
+    title: "Go",
+    icon: "simple-icons:go",
+    href: "/integrations/other-languages/",
+  },
+  {
+    title: "PHP",
+    icon: "simple-icons:php",
+    href: "/integrations/other-languages/",
+  },
+  {
+    title: "Rust",
+    icon: "simple-icons:rust",
+    href: "/integrations/other-languages/",
+  },
+  {
+    title: "...and more",
+    icon: "simple-icons:gnubash",
+    href: "/integrations/other-languages/",
+  },
+];
+
+const integrationsLogos: LogoItem[] = [
+  {
+    title: "Next.js",
+    icon: "simple-icons:nextdotjs",
+    href: "/integrations/nextjs/",
+  },
+  {
+    title: "Vite",
+    icon: "simple-icons:vite",
+    href: "/integrations/vite/",
+  },
+  {
+    title: "Qwik",
+    icon: "simple-icons:qwik",
+    href: "/integrations/vite/#frameworks",
+  },
+  {
+    title: "React Router",
+    icon: "simple-icons:reactrouter",
+    href: "/integrations/vite/#frameworks",
+  },
+  {
+    title: "Cloudflare Workers",
+    icon: "simple-icons:cloudflare",
+    href: "/integrations/vite/#frameworks",
+  },
+  {
+    title: "Astro",
+    icon: "simple-icons:astro",
+    href: "/integrations/astro/",
+  },
+  {
+    title: "GitHub Actions",
+    icon: "simple-icons:githubactions",
+    href: "/integrations/github-action/",
+  },
+  {
+    title: "Docker",
+    icon: "simple-icons:docker",
+    href: "/guides/docker/",
+  },
+];
+---
+
+<div class="works-with-container">
+  <LogoList title="Plugins" logos={secretsLogos} theme="purple" />
+  <LogoList title="Integrations" logos={integrationsLogos} theme="cyan" />
+  <LogoList title="Languages" logos={languagesLogos} theme="green" />
+</div>
+
+<style>
+  .works-with-container {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2rem;
+    margin: 4rem 0;
+  }
+
+  @media (max-width: 768px) {
+    .works-with-container {
+      grid-template-columns: 1fr;
+      gap: 3rem;
+    }
+  }
+</style>

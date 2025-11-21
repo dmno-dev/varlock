@@ -9,7 +9,9 @@ To use varlock with other languages, you'll likely want to [install the standalo
 
 To use it with your application code, you must use [`varlock run`](/reference/cli-commands/#varlock-run) to load and validate your environment variables, then run the command you provided with those environment variables injected into the process.
 
-<ExecCommandWidget command="varlock run -- <your-command>" />
+```bash
+varlock run -- <your-command>
+```
 
 We are working on language-specific helper libraries, that will make this integration better, and provide additional security features like we do in JavaScript.
 

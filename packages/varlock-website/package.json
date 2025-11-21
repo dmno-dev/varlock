@@ -18,6 +18,7 @@
     "@astrojs/starlight": "^0.36.2",
     "@astrojs/vue": "^5.1.2",
     "astro": "^5.15.3",
+    "astro-iconify": "^1.2.0",
     "astro-og-canvas": "^0.7.2",
     "astro-robots-txt": "^1.0.0",
     "canvaskit-wasm": "^0.40.0",

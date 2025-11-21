@@ -93,6 +93,14 @@ varlock run -- node app.js      # Run a Node.js application
 varlock run -- python script.py # Run a Python script
 ```
 
+:::note[Shell expansion of env vars in commands]
+Because of the way that shell expansion works, you may need to use use `sh -c` to properly expand environment variables in your command _after_ varlock has injected them.
+```bash
+varlock run -- echo $MY_VAR # ❌ will not work
+varlock run -- sh -c 'echo $MY_VAR' # ✅ will work
+```
+:::
+
 </div>
 
 <div>

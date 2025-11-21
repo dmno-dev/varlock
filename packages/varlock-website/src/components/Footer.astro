@@ -1,0 +1,37 @@
+---
+import Default from "@astrojs/starlight/components/Footer.astro";
+---
+
+<Default>
+  <slot />
+</Default>
+
+<div class="custom-footer">
+  <p>
+    © 2025 <a href="https://dmno.io">DMNO Inc.</a> All rights reserved.
+  </p>
+</div>
+
+<style>
+  .custom-footer {
+    padding: 1rem;
+    text-align: center;
+  }
+
+  .custom-footer p {
+    margin: 0;
+    color: var(--sl-color-text-2);
+    font-size: 0.875rem;
+  }
+
+  .custom-footer a {
+    color: var(--sl-color-text-accent);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .custom-footer a:hover {
+    color: var(--sl-color-text-accent-hover, var(--sl-color-text-accent));
+    text-decoration: underline;
+  }
+</style>

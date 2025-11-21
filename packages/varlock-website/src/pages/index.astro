@@ -2,8 +2,9 @@
 import { Image } from "astro:assets";
 
 import Layout from "../layouts/Layout.astro";
-import { LinkButton, Code, Card } from "@astrojs/starlight/components";
+import { LinkButton, Code } from "@astrojs/starlight/components";
 import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
+import WorksWithLogoList from "../components/WorksWithLogoList.astro";
 
 import validationImg from "../assets/demo-images/failing-validation.png";
 import intellisenseImg from "../assets/demo-images/intellisense.png";
@@ -64,7 +65,7 @@ XYZ_TOKEN=exec('op read "op://api-prod/xyz/auth-token"')
         <LinkButton href="getting-started/installation">Get Started</LinkButton>
         <LinkButton href="reference/item-decorators">Reference Docs</LinkButton>
       </div>
-
+      <WorksWithLogoList />
       <div class="features-grid">
         <div>
           <div>
@@ -152,10 +153,7 @@ XYZ_TOKEN=exec('op read "op://api-prod/xyz/auth-token"')
               />
               Secure secrets
             </h3>
-            <p>
-              Read from any external providers via CLI commands. Plugin system,
-              local encryption utilities, and shared team vaults coming soon.
-            </p>
+            <p>Read from any external providers via plugins or CLI commands.</p>
           </div>
           <Image
             src={externalProvidersImg}
