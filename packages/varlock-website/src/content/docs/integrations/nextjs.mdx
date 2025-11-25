@@ -16,7 +16,7 @@ Varlock provides a huge upgrade over the [default Next.js environment variable t
 
 To integrate varlock into a Next.js application, you must use our [`@varlock/nextjs-integration`](https://www.npmjs.com/package/@varlock/nextjs-integration) package. This package provides a drop-in replacement for [`@next/env`](https://www.npmjs.com/package/@next/env), the internal package that handles .env loading, plus a small config plugin which injects our additional security features.
 
-:::note[Turbopack not yet supported]
+:::note[Turbopack supported, but not fully]
 [Turbopack](https://nextjs.org/docs/app/api-reference/turbopack) does not yet provide a plugin system, so using the config plugin is not supported. You can use the `@next/env` override only, but you will not get the additional security features.
 :::
 

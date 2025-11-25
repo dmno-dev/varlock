@@ -297,8 +297,7 @@ export function loadEnvConfig(
   try {
     loadCount++;
     const varlockLoadedEnvStr = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
-      // in dev, there are 2 loads up front, so we dont show the first
-      showLogsOnError: !dev || loadCount > 1,
+      showLogsOnError: true,
       // in a build, we want to fail and exit, while in dev we can keep retrying when changes are detected
       exitOnError: !dev,
       env: initialEnv as any,
