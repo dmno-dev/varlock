@@ -15,7 +15,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.20.2",
     "agents": "^0.2.8",
-    "zod": "^3.25.76"
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/node": "catalog:",
