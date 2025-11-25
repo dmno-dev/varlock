@@ -1,5 +1,11 @@
 # @varlock/nextjs-integration
 
+## 0.1.1
+
+### Patch Changes
+
+- [#213](https://github.com/dmno-dev/varlock/pull/213) [`1df4495`](https://github.com/dmno-dev/varlock/commit/1df4495fcd1a1e75e357b2d93f7df46ae0bc1fc6) Thanks [@theoephraim](https://github.com/theoephraim)! - show error logs on first load
+
 ## 1.0.0
 
 ### Patch Changes
