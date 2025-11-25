@@ -77,6 +77,12 @@ export abstract class EnvGraphDataSource {
     }
   }
 
+  /**
+   * if this is a *.local file - gitignored and for local overrides only -- `.env.local` */
+  isLocal?: boolean;
+  /** set to an env value if the file is for a specific environment -- `.env.production` */
+  forSpecificEnv?: string;
+
   /** adds a child data source and sets up the correct references in both directions */
   async addChild(child: EnvGraphDataSource, importMeta?: EnvGraphDataSource['importMeta']) {
     if (!this.graph) throw new Error('expected graph to be set');
@@ -111,7 +117,7 @@ export abstract class EnvGraphDataSource {
   /** environment flag value getter (follows up the parent chain), and checks the graph-level fallback */
   get envFlagValue() {
     const envFlagItem = this.envFlagConfigItem;
-    if (envFlagItem) return envFlagItem.resolvedValue;
+    if (envFlagItem) return envFlagItem.isValid ? envFlagItem.resolvedValue : undefined;
     return this.graph!.envFlagFallback;
   }
   /** helper to resolve the envFlag value */
@@ -120,12 +126,19 @@ export abstract class EnvGraphDataSource {
     if (envFlagItem) {
       if (envFlagItem.resolvedValue) return envFlagItem.resolvedValue;
       await envFlagItem.earlyResolve();
-      return envFlagItem.resolvedValue;
+      return envFlagItem.isValid ? envFlagItem.resolvedValue : undefined;
     }
     // fallback to the graph-level env flag - which can be set using a CLI flag
     // this is currently only used by Next.js integration to match the default behaviour
     // of setting dev/prod based on the current command (next dev/next build)
     return this.graph!.envFlagFallback;
+  }
+  getCurrentEnvEnumValues(): Array<string> | undefined {
+    if (!this.envFlagConfigItem) return;
+    if (!this.envFlagConfigItem?.dataType) {
+      throw new Error('Call resolveCurrentEnv() first');
+    }
+    return (this.envFlagConfigItem?.dataType?._rawDef as any)?._rawEnumOptions;
   }
 
   /** finish init process for this data source */
@@ -142,16 +155,26 @@ export abstract class EnvGraphDataSource {
       return;
     }
 
-    // first we check @disable because we'll bail early
-    // note that when using `forEnv` it will rely on the what has been set so far, not anything from _this_ source
-    const disabledDec = this.getRootDec('disable');
-    if (disabledDec) {
-      const disabledVal = await disabledDec.resolve();
-      if (!_.isBoolean(disabledVal)) {
-        this._loadingError = new Error('expected @disable to be boolean value');
-        return;
+    // check if this should be disabled due to being an env-specific file
+    if (this.forSpecificEnv) {
+      const currentEnv = await this.resolveCurrentEnv();
+      if (currentEnv !== this.forSpecificEnv) {
+        this._disabled = true;
       }
-      this._disabled = disabledVal;
+    }
+
+    if (!this.disabled) {
+      // first we check @disable because we'll bail early
+      // note that when using `forEnv` it will rely on the what has been set so far, not anything from _this_ source
+      const disabledDec = this.getRootDec('disable');
+      if (disabledDec) {
+        const disabledVal = await disabledDec.resolve();
+        if (!_.isBoolean(disabledVal)) {
+          this._loadingError = new Error('expected @disable to be boolean value');
+          return;
+        }
+        this._disabled = disabledVal;
+      }
     }
 
     // this will also respect if the parent is disabled
@@ -396,6 +419,8 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
     opts?: {
       overrideContents?: string;
       overrideGitIgnored?: boolean;
+      isLocal?: boolean;
+      forSpecificEnv?: string
     },
   ) {
     super();
@@ -403,6 +428,9 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
     this.fullPath = fullPath;
     this.fileName = path.basename(fullPath);
     this.relativePath = path.relative(process.cwd(), fullPath);
+
+    this.isLocal = opts?.isLocal;
+    this.forSpecificEnv = opts?.forSpecificEnv;
 
     // easy way to allow tests to override contents or other non-standard ways of loading content
     if (opts?.overrideContents) {
@@ -518,21 +546,22 @@ export class DirectoryDataSource extends EnvGraphDataSource {
   typeLabel = 'directory';
   get label() { return `directory - ${this.basePath}`; }
 
-  schemaDataSource?: DotEnvFileDataSource;
-
   constructor(
     readonly basePath: string,
   ) {
     super();
   }
 
-  private async addAutoLoadedFile(fileName: string) {
+  private async addAutoLoadedFile(fileName: string, opts?: { isLocal?: boolean, forSpecificEnv?: string }) {
     if (!this.graph) throw new Error('expected graph to be set');
     const filePath = path.join(this.basePath, fileName);
 
     if (this.graph.virtualImports) {
       if (this.graph.virtualImports[filePath]) {
-        const source = new DotEnvFileDataSource(filePath, { overrideContents: this.graph.virtualImports[filePath] });
+        const source = new DotEnvFileDataSource(filePath, {
+          overrideContents: this.graph.virtualImports[filePath],
+          ...opts,
+        });
         await this.addChild(source);
         return source;
       }
@@ -540,7 +569,7 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     }
 
     if (!await pathExists(filePath)) return;
-    const source = new DotEnvFileDataSource(filePath);
+    const source = new DotEnvFileDataSource(filePath, opts);
     await this.addChild(source);
     return source;
   }
@@ -550,19 +579,21 @@ export class DirectoryDataSource extends EnvGraphDataSource {
 
     await this.addAutoLoadedFile('.env.schema');
     await this.addAutoLoadedFile('.env');
-
-    // .env.schema is usually the "schema data source" but this allows for a single .env file being the main source
-    if (this.children.length) {
-      this.schemaDataSource = this.children[this.children.length - 1] as DotEnvFileDataSource;
-    }
-
-    await this.addAutoLoadedFile('.env.local');
+    await this.addAutoLoadedFile('.env.local', { isLocal: true });
 
     // and finally load the env-specific files
     const currentEnv = await this.resolveCurrentEnv() || this.envFlagValue;
-    if (currentEnv) {
-      await this.addAutoLoadedFile(`.env.${currentEnv}`);
-      await this.addAutoLoadedFile(`.env.${currentEnv}.local`);
+    let possibleEnvValues = this.getCurrentEnvEnumValues();
+
+    // this is used when we are trying to match existing behaviour or other tools
+    // where currentEnv may not be set, and the env is passed in as a cli flag only
+    // (currently only nextjs)
+    if (!possibleEnvValues && currentEnv) possibleEnvValues = [currentEnv as string];
+
+    // we'll load all the possible files, but those that are not the current env will be disabled
+    for (const envValue of possibleEnvValues || []) {
+      await this.addAutoLoadedFile(`.env.${envValue}`, { forSpecificEnv: envValue });
+      await this.addAutoLoadedFile(`.env.${envValue}.local`, { forSpecificEnv: envValue, isLocal: true });
     }
   }
 }

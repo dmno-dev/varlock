@@ -17,7 +17,7 @@ import { commandSpec as runCommandSpec } from './commands/run.command';
 import { commandSpec as helpCommandSpec } from './commands/help.command';
 import { commandSpec as telemetryCommandSpec } from './commands/telemetry.command';
 // import { commandSpec as loginCommandSpec } from './commands/login.command';
-// import { commandSpec as pluginCommandSpec } from './commands/plugin.command';
+import { commandSpec as pluginCommandSpec } from './commands/plugin.command';
 
 let versionId = packageJson.version;
 if (__VARLOCK_BUILD_TYPE__ !== 'release') versionId += `-${__VARLOCK_BUILD_TYPE__}`;
@@ -49,7 +49,7 @@ subCommands.set('run', buildLazyCommand(runCommandSpec, async () => await import
 subCommands.set('help', buildLazyCommand(helpCommandSpec, async () => await import('./commands/help.command')));
 subCommands.set('telemetry', buildLazyCommand(telemetryCommandSpec, async () => await import('./commands/telemetry.command')));
 // subCommands.set('login', buildLazyCommand(loginCommandSpec, async () => await import('./commands/login.command')));
-// subCommands.set('plugin', buildLazyCommand(pluginCommandSpec, async () => await import('./commands/plugin.command')));
+subCommands.set('plugin', buildLazyCommand(pluginCommandSpec, async () => await import('./commands/plugin.command')));
 
 (async function go() {
   try {

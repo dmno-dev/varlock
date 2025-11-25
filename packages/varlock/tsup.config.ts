@@ -18,6 +18,7 @@ export default defineConfig({
     'src/lib/exec-sync-varlock.ts', // helper to call varlock cli from code
 
     'src/plugin-lib.ts',
+    'src/cli/plugin-cli-lib.ts',
   ],
 
   noExternal: ['@env-spec/utils'],

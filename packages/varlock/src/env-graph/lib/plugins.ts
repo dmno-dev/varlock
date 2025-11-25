@@ -42,8 +42,10 @@ export class VarlockPlugin {
   private _packageJson?: Record<string, any>;
 
   private _name?: string;
-  get name() { return this._packageJson?.name || this._name || 'unnamed plugin'; }
+  get name() { return this._name || this._packageJson?.name || 'unnamed-plugin'; }
   set name(val: string) { this._name = val; }
+
+  get packageName() { return this._packageJson?.name as string | undefined; }
 
   private _version?: string;
   get version() { return this._packageJson?.version || this._version || '0.0.0'; }
@@ -61,6 +63,9 @@ export class VarlockPlugin {
   installDecoratorInstances: Array<DecoratorInstance> = [];
 
   type: 'single-file' | 'package';
+
+  /** arbitrary context data that will be made available to the plugin CLI */
+  cliCtx: any;
 
   constructor(opts: {
     type: 'single-file' | 'package',
@@ -115,6 +120,12 @@ export class VarlockPlugin {
     if (this.type === 'single-file') return this.localPath!;
     const pluginExport = this._packageJson?.exports?.['./plugin'] || '';
     if (!pluginExport) throw new Error('Plugin package.json is missing ./plugin export');
+    return path.join(this.localPath!, pluginExport);
+  }
+  get pluginCliFilePath() {
+    if (this.type === 'single-file') return;
+    const pluginExport = this._packageJson?.exports?.['./cli'] || '';
+    if (!pluginExport) return;
     return path.join(this.localPath!, pluginExport);
   }
 

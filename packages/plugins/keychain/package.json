@@ -1,30 +1,31 @@
 {
-  "name": "@varlock/1password-plugin",
-  "description": "Varlock plugin to pull data from 1password",
-  "version": "0.1.0",
+  "name": "@varlock/keychain-plugin",
+  "description": "Varlock plugin to fetch secrets from native OS keychain (mac, windows, linux)",
+  "version": "0.0.0",
   "type": "module",
   "repository": {
     "type": "git",
     "url": "https://github.com/dmno-dev/varlock.git",
-    "directory": "packages/plugins/1password"
+    "directory": "packages/plugins/keychain"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    "./plugin": "./dist/plugin.js"
+    "./plugin": "./dist/plugin.js",
+    "./cli": "./dist/cli.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "dev": "pnpm run copy-wasm && tsup --watch",
-    "build": "tsup && pnpm run copy-wasm",
-    "copy-wasm": "mkdir -p dist && cp node_modules/@1password/sdk-core/nodejs/core_bg.wasm ./dist",
+    "dev": "tsup --watch",
     "test": "vitest"
   },
   "keywords": [
     "varlock",
     "plugin",
     "varlock-plugin",
-    "1password",
+    "keychain",
     "env",
     ".env",
     "dotenv",
@@ -41,8 +42,6 @@
     "varlock": "workspace:^"
   },
   "devDependencies": {
-    "@1password/sdk": "^0.3.1",
-    "@1password/sdk-core": "^0.3.1",
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
     "tsup": "catalog:",

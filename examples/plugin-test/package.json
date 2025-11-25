@@ -13,6 +13,7 @@
   "license": "ISC",
   "dependencies": {
     "@varlock/1password-plugin": "workspace:*",
+    "@varlock/keychain-plugin": "workspace:*",
     "varlock": "workspace:*"
   },
   "packageManager": "pnpm@10.14.0"

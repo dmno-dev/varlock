@@ -208,7 +208,7 @@ describe('@import', () => {
       },
       expectNotInSchema: ['ITEM_ONLY_IN_IMPORT1', 'ITEM_ONLY_IN_IMPORT2'],
     }));
-    test('addind @disable=false in a child will not override its disabled parent', envFilesTest({
+    test('adding @disable=false in a child will not override its disabled parent', envFilesTest({
       files: {
         '.env.schema': outdent`
           # @import(./.env.import)

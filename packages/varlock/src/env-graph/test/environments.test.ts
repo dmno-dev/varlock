@@ -21,6 +21,7 @@ describe('@currentEnv and .env.* file loading logic', () => {
       '.env.schema': outdent`
         # @currentEnv=$APP_ENV
         # ---
+        # @type=enum(dev, preview, prod)
         APP_ENV=dev
         ITEM1=val-from-.env.schema
         ITEM2=val-from-.env.schema
@@ -65,19 +66,21 @@ describe('@currentEnv and .env.* file loading logic', () => {
   }));
 
   test('correct env-specific files are loaded when environment is overridden', envFilesTest({
-    overrideValues: { APP_ENV: 'prod' },
+    overrideValues: { APP_ENV: 'preview' },
     files: {
       '.env.schema': outdent`
         # @currentEnv=$APP_ENV
         # ---
+        # @type=enum(dev, preview, prod)
         APP_ENV=dev
         ITEM1=val-from-.env.schema
       `,
       '.env.dev': 'ITEM1=val-from-.env.dev',
+      '.env.preview': 'ITEM1=val-from-.env.preview',
       '.env.prod': 'ITEM1=val-from-.env.prod',
     },
     expectValues: {
-      ITEM1: 'val-from-.env.prod',
+      ITEM1: 'val-from-.env.preview',
     },
   }));
 
@@ -145,6 +148,22 @@ describe('@currentEnv and .env.* file loading logic', () => {
     expectValues: {
       ITEM1: 'val-from-.env.schema',
     },
+  }));
+
+  test('invalid current env value does not load file', envFilesTest({
+    overrideValues: { APP_ENV: 'foo' },
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # ---
+        # @type=enum(dev, test, prod)
+        APP_ENV=dev
+      `,
+      '.env.foo': outdent`
+        FOO_ITEM=foo
+      `,
+    },
+    expectNotInSchema: ['FOO_ITEM'],
   }));
 
   test('currentEnv can be set from .env.local', envFilesTest({

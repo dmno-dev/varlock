@@ -81,6 +81,11 @@
       "ts-src": "./src/plugin-lib.ts",
       "types": "./dist/plugin-lib.d.ts",
       "default": "./dist/plugin-lib.js"
+    },
+    "./plugin-cli-lib": {
+      "ts-src": "./src/cli/plugin-cli-lib.ts",
+      "types": "./dist/cli/plugin-cli-lib.d.ts",
+      "default": "./dist/cli/plugin-cli-lib.js"
     }
   },
   "dependencies": {

@@ -6,30 +6,12 @@ settings:
 
 catalogs:
   default:
-    '@sindresorhus/is':
-      specifier: ^7.1.1
-      version: 7.1.1
-    '@types/debug':
-      specifier: ^4.1.12
-      version: 4.1.12
     '@types/node':
       specifier: 24.9.2
       version: 24.9.2
-    ansis:
-      specifier: ^4.2.0
-      version: 4.2.0
-    debug:
-      specifier: ^4.4.3
-      version: 4.4.3
-    outdent:
-      specifier: ^0.8.0
-      version: 0.8.0
     tsup:
       specifier: ^8.5.0
       version: 8.5.0
-    typescript:
-      specifier: ^5.9.3
-      version: 5.9.3
     vitest:
       specifier: ^4.0.6
       version: 4.0.6
@@ -162,6 +144,9 @@ importers:
       '@varlock/1password-plugin':
         specifier: workspace:*
         version: link:../../packages/plugins/1password
+      '@varlock/keychain-plugin':
+        specifier: workspace:*
+        version: link:../../packages/plugins/keychain
       varlock:
         specifier: workspace:*
         version: link:../../packages/varlock
@@ -389,9 +374,24 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.9.2
-      import-meta-resolve:
-        specifier: ^4.2.0
-        version: 4.2.0
+      tsup:
+        specifier: 'catalog:'
+        version: 8.5.0(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)(yaml@2.8.1)
+      varlock:
+        specifier: workspace:^
+        version: link:../../varlock
+      vitest:
+        specifier: 'catalog:'
+        version: 4.0.6(@types/debug@4.1.12)(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+
+  packages/plugins/keychain:
+    devDependencies:
+      '@env-spec/utils':
+        specifier: workspace:^
+        version: link:../../utils
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.9.2
       tsup:
         specifier: 'catalog:'
         version: 8.5.0(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)(yaml@2.8.1)
@@ -574,13 +574,13 @@ importers:
         specifier: ^4.45.3
         version: 4.45.3(@cloudflare/workers-types@4.20251014.0)
 
-  packages/varlock/env-graph/test/plugins/test-plugin: {}
+  packages/varlock/src/env-graph/test/plugins/test-plugin: {}
 
-  packages/varlock/env-graph/test/plugins/test-plugin-conflict-1: {}
+  packages/varlock/src/env-graph/test/plugins/test-plugin-conflict-1: {}
 
-  packages/varlock/env-graph/test/plugins/test-plugin-conflict-2: {}
+  packages/varlock/src/env-graph/test/plugins/test-plugin-conflict-2: {}
 
-  packages/varlock/env-graph/test/plugins/test-plugin-version-conflict: {}
+  packages/varlock/src/env-graph/test/plugins/test-plugin-version-conflict: {}
 
   packages/varlock/src/env-graph/test/plugins/test-plugin: {}
 
