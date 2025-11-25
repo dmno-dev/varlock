@@ -202,11 +202,12 @@ let varlockInjectedProcessEnvKeys: Array<string> | undefined;
 export function initVarlockEnv(opts?: {
   allowFail?: boolean,
 }) {
-  debug('⚡️ INIT VARLOCK ENV!', initializedEnv, !!(globalThis as any).__varlockLoadedEnv, processExists && !!process.env.__VARLOCK_ENV);
+  debug('⚡️ INIT VARLOCK ENV!', initializedEnv, !!(globalThis as any).__varlockLoadedEnv, !!globalThis.process?.env.__VARLOCK_ENV);
 
   // normally we can just bail if we detect we are in the browser
   // however when front-end related tests, it may appear that we are in the browser but it is not
-  if (isBrowser && !process.env.__VARLOCK_ENV) {
+  // also some frameworks inject a process polyfill, others do not
+  if (isBrowser && !globalThis.process?.env.__VARLOCK_ENV) {
     initializedEnv = true;
     return;
   }
