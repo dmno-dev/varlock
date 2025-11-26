@@ -1,0 +1,45 @@
+---
+title: Usage
+description: How to use varlock in your project
+---
+
+import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
+
+## Basics
+
+The basic workflow for using varlock is to:
+
+1. Run `varlock init` to set up your `.env.schema` file(s)
+2. Run `varlock load` to validate your environment variables
+3. Run `varlock run` to valid and inject your environment variables into your command
+
+
+:::tip
+In most cases, you'll want to use an integration to handle the loading and validation of environment variables for you. See the [Integrations](/integrations/overview) section for more information.
+:::
+
+## CLI Commands
+
+### `varlock load`
+
+<ExecCommandWidget command="varlock load" />
+
+Validates your environment variables according to your `.env.schema` and associated `.env.*` files, and prints the results.
+
+Useful for debugging locally, and in CI to print out a summary of env vars, also when you're authoring your `.env.schema` file and want immediate feedback. 
+
+:::tip
+Our [integrations](/integrations/overview) all use `varlock load` under the hood, so you'll get the same developer experience, but typically they will only let you know if there are errors, rather than the full summary.
+:::
+
+
+See the [`varlock load` CLI Reference](/reference/cli-commands/#varlock-load) for more information.
+
+### `varlock run`
+
+<ExecCommandWidget command="varlock run -- <your-command>" />
+
+Executes a command in a child process, injecting your resolved and validated environment variables. This is useful when a code-level integration is not possible. For example, if you're using a database migration tool, you can use `varlock run` to run the migration tool with the correct environment variables. Or if you're using a non-js/ts language, you can use `varlock run` to run a command and inject validated environment variables.
+
+
+See the [`varlock run` CLI Reference](/reference/cli-commands/#varlock-run) for more information.
