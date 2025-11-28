@@ -99,6 +99,7 @@ describe('number handling', basicValueTests([
   ['001', '001'],
   ['123.', '123.'],
   ['123..', '123..'],
+  ['92183090832018209318123781721.12231', '92183090832018209318123781721.12231'],
 ]));
 
 describe('function calls', basicValueTests([
