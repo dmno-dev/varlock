@@ -1,5 +1,11 @@
 # @env-spec/parser
 
+## 0.0.8
+
+### Patch Changes
+
+- [#219](https://github.com/dmno-dev/varlock/pull/219) [`82a7340`](https://github.com/dmno-dev/varlock/commit/82a7340a695d62a40c908c37432c6d9cfd7e2c3d) Thanks [@philmillman](https://github.com/philmillman)! - Fixed a bug where values that resembled very large numbers were being improperly coerced
+
 ## 0.0.7
 
 ### Patch Changes
