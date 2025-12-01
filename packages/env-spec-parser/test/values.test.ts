@@ -91,15 +91,29 @@ describe('boolean handling', basicValueTests([
 describe('number handling', basicValueTests([
   ['0', 0],
   ['123', 123],
+  ['-123', -123],
   ['123.456', 123.456],
-  ['.0', 0],
-  ['.01230', 0.0123],
+  ['-123.456', -123.456],
+  ['0.0123', 0.0123],
+  // if the number is not converted cleanly back to a string, we leave as a string
+  ['.0', '.0'],
+  ['.01230', '.01230'],
+  ['1.230', '1.230'],
+  // number-ish but not quite numbers
   ['123.456.789', '123.456.789'],
   ['10e3', '10e3'],
   ['001', '001'],
+  ['01', '01'],
   ['123.', '123.'],
   ['123..', '123..'],
+  ['Infinity', 'Infinity'],
+  // numbers that would lose precision are treated as strings
   ['92183090832018209318123781721.12231', '92183090832018209318123781721.12231'],
+  ['1.23123412341234123414352345234523452345234523452345234523452345234523452345', '1.23123412341234123414352345234523452345234523452345234523452345234523452345'],
+  // max safe integer is still a number
+  [(Number.MAX_SAFE_INTEGER).toString(), Number.MAX_SAFE_INTEGER],
+  // but anything larger is treated as a string
+  [(Number.MAX_SAFE_INTEGER + 1).toString(), (Number.MAX_SAFE_INTEGER + 1).toString()],
 ]));
 
 describe('function calls', basicValueTests([
