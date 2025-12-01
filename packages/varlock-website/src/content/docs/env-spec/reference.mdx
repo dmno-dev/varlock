@@ -151,6 +151,7 @@ Values are interpreted similarly for config item values, decorator values, and v
 #### Unquoted values
 - Will coerce `true`, `false`, `undefined` -- `@foo=false`
 - Will coerce numeric values -- `@int=123 @float=123.456`
+  - if the number is too large, would lose precision, or would change formatting, it will remain a string
 - May be interpreted as a function call (see below)
 - Otherwise will be treated as a string
 - May not contain other characters depending on the context:
