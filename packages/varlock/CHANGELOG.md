@@ -1,5 +1,14 @@
 # varlock
 
+## 0.1.3
+
+### Patch Changes
+
+- [#216](https://github.com/dmno-dev/varlock/pull/216) [`23ed768`](https://github.com/dmno-dev/varlock/commit/23ed76867f673ec1d7bf420632be1d902678becc) Thanks [@theoephraim](https://github.com/theoephraim)! - fix runtime env code to not assume process (or shim) exists - for sveltekit
+
+- Updated dependencies [[`82a7340`](https://github.com/dmno-dev/varlock/commit/82a7340a695d62a40c908c37432c6d9cfd7e2c3d)]:
+  - @env-spec/parser@0.0.8
+
 ## 0.1.2
 
 ### Patch Changes
