@@ -208,11 +208,6 @@ export function varlockVitePlugin(
           // default to injecting varlock init code only
           ssrInjectMode ??= 'init-only';
 
-          // in dev mode, we only need to inject init code
-          // because we'll already have the resolved env available
-          // from the vite plugin itself already loading it
-          if (isDevEnv) ssrInjectMode = 'init-only';
-
           debug('ssrInjectMode =', ssrInjectMode);
           if (ssrInjectMode === 'auto-load') {
             injectCode.push(
