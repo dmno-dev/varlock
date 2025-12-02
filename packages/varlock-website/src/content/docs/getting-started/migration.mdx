@@ -1,27 +1,36 @@
 ---
 title: Migration
-description: An overview if you have existing .env files and want to migrate to varlock
+description: An overview if you have existing .env files and want to migrate to Varlock
 ---
 
 import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
 
-## From dotenv
+## Loading env vars using Varlock
 
-In most [Node.js](/integrations/javascript) apps, you can replace `dotenv/config` with `varlock/auto-load` after [installing varlock](/getting-started/installation).
+### Migration from dotenv (Node.js)
+
+In a [Node.js](/integrations/javascript/) app if you are already calling `dotenv/config`, you can replace it with `varlock/auto-load`.
 
 ```diff title="index.js" lang="js"
-// Before (dotenv)
 - import 'dotenv/config';
-
-// After (varlock)
 + import 'varlock/auto-load';
 ```
 
-See our [migrate from dotenv](/guides/migrate-from-dotenv) guide for more information.
+In some cases where `dotenv` is being called deep under the hood by another dependency, you may instead want to swap it in as a dependency override. See our [migrate from dotenv](/guides/migrate-from-dotenv/) guide for more information.
 
-## From specific integrations
+### Within a framework
 
-If you're currently using `import.meta.env` or `process.env`, your code will still work after switching to varlock. However, we recommend using varlock's `ENV` object for better type-safety and improved developer experience.
+We must replace framework's existing `.env` logic with Varlock. Our [framework integrations](/integrations/overview/) handle most of the work for you. After [installation](/getting-started/installation/), simply follow the instructions in the relevant integration guide to set up Varlock in your project. Usually this involves adding a new plugin to the existing build system or framework's config file.
+
+### Minimal setup
+
+In some cases, a code-level integration may be challenging or impossible. In this case you can use [`varlock run`](/reference/cli-commands/#run) to boot your application with env vars injected from Varlock. For example `varlock run -- your-app`. Sometimes you may need to use this alongside a deeper integration, for example to feed env vars into external tools or additional scripts.
+
+
+
+## Using `varlock/env`
+
+If you're currently using `import.meta.env` or `process.env`, your code will still work after switching to Varlock. However, we recommend using varlock's `ENV` object for better type-safety and an improved developer experience.
 
 ```diff title="index.js" lang="js"
 // Before (import.meta.env)
@@ -34,4 +43,4 @@ import { ENV } from 'varlock/env';
 
 ![intellisense](../../../assets/demo-images/intellisense.png)
 
-See our [integrations](/integrations/overview) section for more information.
+See our [integrations](/integrations/overview/) section for more information.

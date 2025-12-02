@@ -31,7 +31,7 @@ Also note that within package.json scripts, you can use it directly:
 <div class="reference-docs">
 
 <div>
-### `varlock init`
+### `varlock init` ||init||
 Starts an interactive onboarding process to help you get started. Will help create your `.env.schema` and install varlock as a dependency if necessary.
 
 ```bash
@@ -42,7 +42,7 @@ varlock init
 </div>
 
 <div>
-### `varlock load`
+### `varlock load` ||load||
 
 Loads and validates environment variables according to your .env files, and prints the results. Default prints a nicely formatted, colorized summary of the results, but can also print out machine-readable formats.
 
@@ -79,7 +79,7 @@ Setting `@currentEnv` in your `.env.schema` will override the `--env` flag.
 </div>
 
 <div>
-### `varlock run`
+### `varlock run` ||run||
 
 Executes a command in a child process, injecting your resolved and validated environment variables from your .env files. This is useful when a code-level integration is not possible.
 
@@ -104,7 +104,7 @@ varlock run -- sh -c 'echo $MY_VAR' # ✅ will work
 </div>
 
 <div>
-### `varlock telemetry`
+### `varlock telemetry` ||telemetry||
 
 Opts in/out of anonymous usage analytics. This command creates/updates a configuration file at `~/.varlock/config.json` saving your preference.
 
@@ -119,7 +119,7 @@ You can also temporarily opt out by setting the `VARLOCK_TELEMETRY_DISABLED` env
 </div>
 
 <div>
-### `varlock help`
+### `varlock help` ||help||
 
 Displays general help information, alias for `varlock --help`
 
