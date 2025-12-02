@@ -74,7 +74,13 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Getting Started',
-          items: [{ label: 'Installation', slug: 'getting-started/installation' }],
+          items: [
+            { label: 'Introduction', slug: 'getting-started/introduction' },
+            { label: 'Installation', slug: 'getting-started/installation' },
+            { label: 'Usage', slug: 'getting-started/usage' },
+            { label: 'Migration', slug: 'getting-started/migration' },
+            { label: 'Wrapping up', slug: 'getting-started/wrapping-up' },
+          ],
         },
         {
           label: 'Guides',

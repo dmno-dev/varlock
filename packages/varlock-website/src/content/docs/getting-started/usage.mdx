@@ -1,0 +1,44 @@
+---
+title: Usage
+description: How to use Varlock in your project
+---
+
+import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
+
+## Basics
+
+The basic workflow for using Varlock is to:
+
+1. Run [`varlock init`](/reference/cli-commands/#init) to set up your `.env.schema` file
+2. Run [`varlock load`](/reference/cli-commands/#load) to debug and refine your .env file(s)
+3. Use Varlock to load, validate, and inject env vars into your application, either:
+    - Use an [existing framework / tool integration](/integrations/overview/) that automatically calls Varlock under the hood (_recommended_)
+    - Use `import 'varlock/auto-load'` in a backend JavaScript/TypeScript project
+    - Boot your command via [`varlock run`](/reference/cli-commands/#run)<br/>(_necessary for non-JS/TS projects, or feeding env vars to external tools_)
+
+
+## CLI Commands
+
+### `varlock load`
+
+<ExecCommandWidget command="varlock load" />
+
+Validates your environment variables according to your `.env.schema` and associated `.env.*` files, and prints the results.
+
+Useful for debugging locally, and in CI to print out a summary of env vars, also when you're authoring your `.env.schema` file and want immediate feedback.
+
+:::tip
+Our [integrations](/integrations/overview) all use `varlock load` under the hood, so you'll get the same developer experience, but typically they will only let you know if there are errors, rather than the full summary.
+:::
+
+
+See the [`varlock load` CLI Reference](/reference/cli-commands/#load) for more information.
+
+### `varlock run`
+
+<ExecCommandWidget command="varlock run -- <your-command>" />
+
+Executes a command in a child process, injecting your resolved and validated environment variables. This is useful when a code-level integration is not possible. For example, if you're using a database migration tool, you can use `varlock run` to run the migration tool with the correct environment variables. Or if you're using a non-js/ts language, you can use `varlock run` to run a command and inject validated environment variables.
+
+
+See the [`varlock run` CLI Reference](/reference/cli-commands/#run) for more information.

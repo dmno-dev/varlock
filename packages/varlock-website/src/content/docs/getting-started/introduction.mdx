@@ -1,0 +1,36 @@
+---
+title: Introduction
+description: Introduction to Varlock - declarative schema for your environment variables
+---
+
+Varlock is a universal configuration/secrets/environment variable management tool built on top of the [@env-spec](/env-spec/overview/) specification. It provides a comprehensive set of features out of the box that simplify managing, validating, and securing your environment configuration. Whether you need type-safe environment variables, multi-environment management, secure secret handling, or leak prevention, Varlock lets you focus on building your application instead of wrestling with configuration. While it is written in TypeScript, it is language and framework agnostic, and meant to be used in any project that needs configuration at build or boot time, usually passed in via environment variables.
+
+## Features
+
+Varlock aims to be the most comprehensive environment variable management tool. It provides a wide range of features out of the box:
+
+- **[Validation & Type Safety](/reference/data-types/)** - Powerful validation capabilities with clear error messages, plus automatic type generation for IntelliSense support
+- **[Security](/guides/secrets/)** - Automatic log redaction for sensitive values and leak detection in bundled code and server responses
+- **[Multi-Environment Management](/guides/environments/)** - Flexible environment handling with support for environment-specific files, local overrides, and value composition
+- **[Secure Secrets](/guides/secrets/)** - Load secrets from external providers like [1Password](/plugins/1password/) via [plugins](/plugins/overview/) or any CLI tool using [exec()](/reference/functions/#exec)
+- **[Value Composition](/reference/functions/)** - Compose values together using functions, references, and external data sources
+- **[Framework Integrations](/integrations/overview/)** - Official integrations for Next.js, Vite, Astro, and more, plus support for any language via `varlock run`
+- **[Replacement for dotenv](/guides/migrate-from-dotenv/)** - Can be used as a direct replacement for `dotenv` in most projects with minimal code changes
+- **[AI-Friendly](/guides/ai-tools/)** - Built with AI-assisted development in mind, helping prevent accidental secret leaks to AI agents and allowing a schema-driven approach that is easier for AI to understand and remediate
+
+## AI Tooling
+
+### Docs MCP
+
+Varlock provides a Docs MCP server that allows AI tools to search and understand the Varlock documentation. This makes it easier for AI assistants to help you integrate and use Varlock in your projects.
+
+See the [MCP guide](/guides/mcp/#docs-mcp) for setup instructions for Cursor, Claude, Opencode, VS Code, and other MCP-compatible tools.
+
+### LLMs.txt
+
+Varlock also provides an `LLMs.txt` file that helps AI models understand how to integrate and interact with your environment variable configuration. See it at [https://varlock.dev/llms.txt](https://varlock.dev/llms.txt).
+
+## Next Steps
+
+Ready to get started? Check out the [Installation](/getting-started/installation/) guide to set up Varlock in your project.
+

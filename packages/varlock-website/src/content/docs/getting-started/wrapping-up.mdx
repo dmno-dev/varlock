@@ -1,0 +1,69 @@
+---
+title: Wrapping up
+description: How to get your project ready for production and collaboration
+---
+
+import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
+
+## Next steps with your schema
+
+With a more flexible env var toolkit, after an initial migration, you may be tempted to take advantage
+of Varlock's features to improve your developer experience and security posture.
+
+- Move more configuration constants out of application code and into your `.env` files
+- Reduce the number of of env-style checks in your code, favouring individual flags, with a default value set based on the current env
+- Add deeper validation, more thorough comments, and additional docs links to each env var within your schema
+- Compose values together to keep your configuration DRY
+- Use [imports](/guides/import/) to share common configuration across a monorepo, or to break up a large `.env.schema`
+- Reduce secret sprawl, by loading secrets from a single source of truth, instead of injecting them from your CI/hosting platform
+
+
+## Repo setup
+
+### `.gitignore`
+
+Depending on your setup you will want to update your `.gitignore` to _not_ ignore your `.env.schema` file and any other `.env.xxx` files that can now be safely committed to your repo if they don't contain secrets (which they shouldn't).
+
+If using [generated types](/reference/root-decorators/#generatetypes), we also recommend that you ignore the generated file (usually `env.d.ts` in TypeScript) as it is dynamically generated based the hierarchy of env files being loaded on each individual machine.
+
+```diff title=".gitignore"
+
+# Include .env.schema, .env.<dev|preview|prod|...> file
+# exclude local overrides
+-.env.*
++.env.local
++.env.*.local
+
+# Exclude generated env types file
++env.d.ts
+```
+
+:::tip
+Depending on the [AI Tools](/guides/ai-tools/) you use, you may need to add a similar rule to allow `.env.schema` to be modified. For example, in `.cursorignore`.
+:::
+
+### Monorepos
+
+Consider how you can reuse and modularize your schema if you have a monorepo or multi-service setup. See the [Imports](/guides/import/) guide for more information.
+
+## Deployment
+
+### CI/CD platforms
+
+It may be useful to validate your schema in CI/CD pipelines, especially if you want to validate configurations that you don't have access to locally (e.g. Staging or Production). You can do this manually by running `varlock load` in your pipeline. And if you're using GitHub Actions, you can use the [Varlock GitHub Action](/integrations/github-action/) to validate your schema automatically.
+
+:::tip
+Having a well architected multi-environment setup is key to healthy CI/CD workflows. See the [Environments](/guides/environments/) guide for more information.
+:::
+
+### Production deployments
+
+Because varlock supports loading environment variables from the environment itself or via a [function](/reference/functions/) in your `.env.schema`, there are a few different approaches.
+
+If you're already using your deployment platform's environment variable management, you may not need to do anything to benefit from varlock's validation and security features. If you have a multi-environment setup, you may need to set the `currentEnv` environment flag to the correct environment.
+
+```bash
+APP_ENV=production varlock run -- your-production-command
+```
+
+If you're not using your deployment platform's environment variable management, you may consider using one of our [plugins](/plugins/overview/) to securely load environment variables from a secret storage system such as [1Password](/plugins/1password/).
