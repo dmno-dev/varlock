@@ -1,5 +1,11 @@
 # @varlock/vite-integration
 
+## 0.1.1
+
+### Patch Changes
+
+- [#221](https://github.com/dmno-dev/varlock/pull/221) [`8d2d284`](https://github.com/dmno-dev/varlock/commit/8d2d284d002307ae7f687681f33efc0827d02316) Thanks [@theoephraim](https://github.com/theoephraim)! - fix for local dev with cloudflare+vite
+
 ## 1.0.0
 
 ### Patch Changes
