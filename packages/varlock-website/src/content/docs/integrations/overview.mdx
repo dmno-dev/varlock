@@ -6,21 +6,22 @@ description: How Varlock integrates with popular frameworks, bundlers, and runti
 Varlock ships with official integrations that wire the CLI, runtime helpers, and framework-specific plugins together so your configuration is validated, type-safe, and protected everywhere it runs.
 
 Integrations allow you to:
-- load and validate `.env` files automatically during dev and use them in CI/CD and production.
-- inject config into your code at build or request time.
-- enable runtime protections such as leak prevention, and log redaction.
+- load and validate `.env` files automatically during dev and use them in CI/CD and production
+- inject config into your code at build or request time
+- enable runtime protections such as leak prevention, and log redaction
 
 ## Official integrations
-- [JavaScript / Node.js](/integrations/javascript/) — use `varlock` in custom toolchains, scripts, and servers.
-- [Next.js](/integrations/nextjs/) — drop-in replacement for `@next/env`.
-- [Vite](/integrations/vite/) — Vite plugin that validates and replaces at build time.
-- [Qwik](/integrations/vite/) — Use the Vite integration.
-- [React Router](/integrations/vite/) — Use the Vite integration.
-- [Cloudflare Workers](/integrations/vite/) — Use the Vite intregration + Cloudflare Vite plugin.
-- [Astro](/integrations/astro/) — Astro integration built on top of our Vite plugin.
-- [GitHub Actions](/integrations/github-action/) — Validate your `.env.schema` in GitHub Actions workflows
-- [Other languages](/integrations/other-languages/) — guidance for piping varlock output into non-JS runtimes.
-- [Docker](/guides/docker/) — A Docker wrapper around the varlock CLI including examples. 
+- [JavaScript / Node.js](/integrations/javascript/) — use `varlock` in custom toolchains, scripts, and servers
+- [Bun](/integrations/bun/) — instructions to set up Varlock with Bun
+- [Next.js](/integrations/nextjs/) — drop-in replacement for `@next/env`
+- [Vite](/integrations/vite/) — Vite plugin that validates and replaces at build time
+- [Qwik](/integrations/vite/) — use the Vite integration
+- [React Router](/integrations/vite/) — use the Vite integration
+- [Cloudflare Workers](/integrations/cloudflare/) — use the Vite integration or Wrangler vars/secrets directly
+- [Astro](/integrations/astro/) — Astro integration built on top of our Vite plugin
+- [GitHub Actions](/integrations/github-action/) — validate your `.env.schema` in GitHub Actions workflows
+- [Other languages](/integrations/other-languages/) — guidance for piping varlock output into non-JS runtimes
+- [Docker](/guides/docker/) — a Docker wrapper around the varlock CLI including examples
 
 
 ## Coming soon
