@@ -1,0 +1,33 @@
+---
+title: Bun
+description: How to integrate Varlock with a Bun-powered JavaScript project
+---
+import { TabItem, Tabs } from "@astrojs/starlight/components";
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+
+For the most part, Varlock just works with Bun the same way it works with Node.js, and other JavaScript integrations work the same way.
+
+
+### Conflicts with Bun's .env loading
+Bun does its own automatic loading of `.env` files, based on the current value of `NODE_ENV` (or `BUN_ENV`), which it defaults to `development` if not set. This causes problems when bun decides to load `.env.development` and passes those env vars into varlock.
+
+The best way to fix this is to [disable bun's automatic loading of `.env` files](https://bun.com/docs/runtime/environment-variables#disabling-automatic-env-loading) in your `bunfig.toml` file:
+```diff lang="toml" title="bunfig.toml"
+env = false
+```
+
+You may also use the `--no-env-file` CLI flag when invoking scripts with `bun`/`bunx`.
+
+Note that if you are building a standalone executable using `bun build`, you can use the `--no-compile-autoload-dotenv` flag to disable this behavior in the final executable.
+
+
+### Using a preload script (optional)
+One option we have with bun is to use a [preload script](https://bun.com/docs/runtime/bunfig#preload), configured in `bunfig.toml`. If you do this, you will no longer have to use `bun run varlock run -- yourscript` or use `import 'varlock/auto-load'` in your code!
+
+```diff lang="toml" title="bunfig.toml"
+preload = ["varlock/auto-load"]
+```
+
+:::caution[Do not use preload with framework integrations]
+Note that you should not do this if using a framework integration, as those integrations watch your `.env` files to trigger live-reloading.
+:::

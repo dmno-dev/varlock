@@ -36,4 +36,10 @@ const packagesStr = Array.isArray(packages) ? packages.join(" ") : packages;
       lang="bash"
     />
   </TabItem>
+  <TabItem label="bun">
+    <Code
+      code={`bun ${remove ? "remove" : "add"} ${dev ? "-D " : ""}${packagesStr}`}
+      lang="bash"
+    />
+  </TabItem>
 </Tabs>
