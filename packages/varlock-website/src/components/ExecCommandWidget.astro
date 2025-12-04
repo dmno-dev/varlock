@@ -23,6 +23,9 @@ const { command, showBinary = true, dlx = false } = Astro.props;
   <TabItem label="vlt">
     <Code code={`${dlx ? "vlx" : "vlx --"} ${command}`} lang="bash" />
   </TabItem>
+  <TabItem label="bun">
+    <Code code={`${dlx ? "bunx" : "bun run"} ${command}`} lang="bash" />
+  </TabItem>
   {
     showBinary && (
       <TabItem label="standalone binary">
