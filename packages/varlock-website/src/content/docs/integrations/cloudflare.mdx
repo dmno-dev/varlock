@@ -1,0 +1,219 @@
+---
+title: Cloudflare Workers
+description: How to integrate varlock with Cloudflare Workers and Wrangler for secure, type-safe environment management
+---
+import SyncedCodeTabs from '@/components/SyncedCodeTabs.astro'
+import { TabItem, Tabs, Steps } from "@astrojs/starlight/components";
+import Badge from '@/components/Badge.astro';
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/vite-integration" />
+</div>
+
+Varlock provides a robust solution for managing environment variables in Cloudflare Workers, offering validation, type safety, and security features that go beyond Cloudflare's built-in environment variable handling.
+
+
+## Two Approaches
+
+There are two main ways to use varlock with Cloudflare Workers:
+
+1. **With Vite plugin** (recommended) - Use the Vite integration alongside the Cloudflare Workers Vite plugin
+2. **Without Vite** - Use Wrangler's `vars` and `secrets` directly
+
+## Approach 1: Using the Vite Plugin (Recommended)
+
+The Vite plugin bundles resolved environment variables into your built code, making it safe and straightforward to use.
+
+:::note[Backend-only Workers]
+Even for backend-only Workers, using the Vite plugin is recommended. Because it bundles the resolved env into your built code, within the Cloudflare dashboard, your team members can view the source code. Be mindful of this when including sensitive values or sending source maps to external services.
+:::
+
+### Setup
+
+<Steps>
+
+1. **Install varlock and the Vite integration package**
+    <InstallJsDepsWidget packages="@varlock/vite-integration varlock" />
+
+1. **Run `varlock init` to set up your `.env.schema` file**
+
+    This will guide you through setting up your `.env.schema` file, based on your existing `.env` file(s). Make sure to review it carefully.
+
+    <ExecCommandWidget command="varlock init" showBinary={false} />
+
+1. **Enable the Vite config plugin**
+
+    Add both the varlock Vite plugin and the Cloudflare Workers Vite plugin to your `vite.config.*` file:
+
+    ```diff lang="ts" title="vite.config.ts"
+    import { defineConfig } from 'vite';
+    +import { varlockVitePlugin } from '@varlock/vite-integration';
+
+    export default defineConfig({
+    -  plugins: [otherPlugin()],
+    +  plugins: [
+    +    varlockVitePlugin(),
+    +    cloudflare(),
+    +    otherPlugin()
+    +  ],
+    });
+    ```
+
+    The varlock plugin will automatically detect Cloudflare Workers and use the `resolved-env` mode, which injects the fully resolved environment data into your built code.
+
+</Steps>
+
+### Local Development
+
+For local development, you can use Wrangler's `--var` flag to pass the resolved environment variables:
+
+```diff lang="json" title="package.json"
+{
+  "scripts": {
+-    "dev": "wrangler dev",
++    "dev": "wrangler dev --var \"__VARLOCK_ENV:$(varlock load --format json-full)\"",
+  }
+}
+```
+
+### Deployment
+
+For deployments, you can use the same approach with the `--var` flag:
+
+```diff lang="json" title="package.json"
+{
+  "scripts": {
+-    "deploy": "wrangler deploy",
++    "deploy": "wrangler deploy --var \"__VARLOCK_ENV:$(APP_ENV=prod varlock load --format json-full)\"",
+  }
+}
+```
+
+:::caution[Team visibility]
+When using `--var`, the environment variables will be visible in the Cloudflare dashboard to your team members. For sensitive values, consider using the secrets approach below.
+:::
+
+### Using Secrets for Sensitive Values
+
+To properly attach sensitive environment variables as secrets, you must use a 3-step deployment process using Wrangler's [versions commands](https://developers.cloudflare.com/workers/wrangler/commands/#versions):
+
+1. Create a new deployment version
+2. Attach the secret
+3. Activate the deployment
+
+```bash
+# Step 1: Create a version that's not deployed immediately
+# and note the version id for the next steps
+wrangler versions upload
+
+# Step 2: Attach secret (using the resolved env as a single JSON object)
+wrangler secret put __VARLOCK_ENV --version <version-id> <<< "$(APP_ENV=prod varlock load --format json-full)"
+
+# Step 3: Activate the deployment
+wrangler versions deploy <version-id>
+```
+
+:::note[Future improvement]
+Cloudflare is working on the ability to push secrets with a deploy command. See [this pull request](https://github.com/cloudflare/workers-sdk/pull/10896) for updates.
+:::
+
+---
+
+## Approach 2: Using Wrangler Vars and Secrets (Without Vite)
+
+If you prefer not to use the Vite plugin, you can use Wrangler's built-in environment variable handling. Note that this approach will not provide varlock's security features like leak detection and log redaction.
+
+### Local Development
+
+For local development, you can use `varlock run` to inject resolved environment variables:
+
+```diff lang="json" title="package.json"
+{
+  "scripts": {
+-    "dev": "wrangler dev",
++    "dev": "env -i PATH="$PATH" varlock run -- <command>",
+  }
+}
+```
+
+:::caution
+Because you're creating a child process with a 'clean' environment, you may need to explicitly include any system level env vars that you need.
+:::
+
+### Deployment
+
+For deployments using Wrangler's built-in environment variables, you'll need to use the 3-step deployment process with `secret bulk`:
+
+```bash
+# Step 1: Create a version that's not deployed immediately
+# and note the version id for the next steps
+wrangler versions upload
+
+# Step 2: Attach secrets in bulk (using resolved env in env format)
+wrangler secret bulk --version <version-id> < varlock load --format env
+
+# Step 3: Activate the deployment
+wrangler versions deploy <version-id>
+```
+
+---
+
+## Accessing Environment Variables
+
+Regardless of which approach you use, we recommend using varlock's `ENV` object instead of Cloudflare's built-in environment variable access:
+
+```ts title="src/index.ts"
+import { ENV } from 'varlock/env';
+
+export default {
+  async fetch(request: Request): Promise<Response> {
+    // ❌ Not recommended - uses Cloudflare's built-in env
+    // const apiKey = env.API_KEY;
+
+    // ✅ Recommended - uses varlock's ENV
+    const apiKey = ENV.API_KEY;
+
+    return new Response('Hello World');
+  },
+};
+```
+
+### Why use `ENV` instead of Cloudflare's built-in env?
+
+- Non-string values (e.g., number, boolean) are properly typed and coerced
+- Better error messages for invalid or unavailable keys
+- Type safety and IntelliSense support
+- Security features like leak detection and log redaction (if using the Vite plugin)
+- Consistent API across different deployment platforms
+
+---
+
+## Managing Multiple Environments
+
+Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv).
+
+You can use Cloudflare's branch name to determine the environment:
+
+```env-spec title=".env.schema"
+# @currentEnv=$APP_ENV
+# ---
+WORKERS_CI_BRANCH=
+# @type=enum(development, preview, production, test)
+APP_ENV=remap($WORKERS_CI_BRANCH, production="main", preview=regex(.*), development=undefined)
+```
+
+For more information, see the [environments guide](/guides/environments).
+
+---
+
+## Reference
+
+- [Root decorators reference](/reference/root-decorators)
+- [Item decorators reference](/reference/item-decorators)
+- [Functions reference](/reference/functions)
+- [Vite integration](/integrations/vite/) - for more details on the Vite plugin
+- [Cloudflare Workers documentation](https://developers.cloudflare.com/workers/)
+- [Wrangler documentation](https://developers.cloudflare.com/workers/wrangler/)
+
