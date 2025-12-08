@@ -29,7 +29,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'varlock@')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -42,7 +42,7 @@ jobs:
       - name: Install node deps
         run: pnpm i
       - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@v2.3.2
+        uses: rharkor/caching-for-turbo@v2.3.5
       # ------------------------------------------------------------
 
       - name: get version from release tag
@@ -100,7 +100,7 @@ jobs:
     
       # UPDATE HOMEBREW FORMULA --- 
       - name: checkout homebrew tap repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: dmno-dev/homebrew-tap
           # need a different token to update a different repo
@@ -127,7 +127,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       
       - name: get version from release tag
         if: ${{ github.event_name == 'release' }}
