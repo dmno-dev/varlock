@@ -1,0 +1,4 @@
+# Set charset=utf-8 for .txt files to ensure proper encoding
+/*.txt
+  Content-Type: text/plain; charset=utf-8
+
