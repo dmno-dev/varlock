@@ -104,6 +104,10 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 | --- | --- | --- |
 | Varlock Docs (HTTP) | [Installation](https://varlock.dev/guides/mcp/#docs-mcp) | https://docs.mcp.varlock.dev/mcp |
 | Varlock Docs (SSE) | [Installation](https://varlock.dev/guides/mcp/#docs-mcp) | https://docs.mcp.varlock.dev/sse |
+
+## Examples
+Examples of integrating varlock in various frameworks and situations can be found in the [Varlock examples repo](https://github.com/dmno-dev/varlock-examples)
+
 ## Development & Contribution
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for more information.
