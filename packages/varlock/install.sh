@@ -89,13 +89,12 @@ get_varlock_latest_version() {
     err "Unable to find download command. Either 'curl' or 'wget' is required."
   fi
 
-  # we could push this version number to an additional file, but this is simple enough
-  local version_regex="  version \"([^\"]+)\""
-  if [[ "$homebrew_tap_src" =~ $version_regex ]]; then
-    echo "${BASH_REMATCH[1]}"
-  else
+  # Extract version number using POSIX-compliant grep and sed
+  local version=$(echo "$homebrew_tap_src" | grep '^[[:space:]]*version[[:space:]]*"[^"]*"' | head -n 1 | sed 's/.*version[[:space:]]*"\([^"]*\)".*/\1/')
+  if [ -z "$version" ]; then
     err "Unable to find latest varlock version number"
   fi
+  echo "$version"
 }
 main() {
   parse_args "$@"
