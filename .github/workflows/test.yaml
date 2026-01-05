@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           # by default only the current commit is fetched
           # but we need more history to be able to compare to main
@@ -27,7 +27,7 @@ jobs:
       - name: Install node deps
         run: pnpm i
       - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@v2.3.2
+        uses: rharkor/caching-for-turbo@v2.3.5
 
       # ------------------------------------------------------------
       - name: ESLint
