@@ -34,20 +34,23 @@ let rootDir: string | undefined;
 // @next/env exports this info and currently it is only used to display
 // a list of filenames loaded, for example: `Environments: .env, .env.development`
 function getVarlockSourcesAsLoadedEnvFiles(): LoadedEnvFiles {
-  const envFiles = varlockLoadedEnv.sources
+  const envFilesLabels = varlockLoadedEnv.sources
     // TODO expose more info so we can filter out disabled sources
     // and maybe show relative paths
     .filter((s) => s.enabled && !s.label.startsWith('directory -'))
-    .map((s) => ({
-      path: s.label,
-      contents: '',
-      env: {},
-    }));
-  if (envFiles.length) {
+    .map((s) => s.label);
+  if (envFilesLabels.length) {
     // this adds an additional line, below the list of files
-    envFiles.push({ path: '\n                   ✨ loaded by varlock ✨', contents: '', env: {} });
+    envFilesLabels.push('\n                   ✨ loaded by varlock ✨');
   }
-  return envFiles;
+  // files can be imported multiple times, so we deduplicate the labels here
+  const uniqueLabels = [...new Set(envFilesLabels)];
+  // Next.js expects an array of objects, even though it is not used for anything
+  return uniqueLabels.map((label) => ({
+    path: label,
+    contents: '',
+    env: {},
+  }));
 }
 
 const IS_WORKER = !!process.env.NEXT_PRIVATE_WORKER;
