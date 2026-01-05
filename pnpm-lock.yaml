@@ -13,8 +13,8 @@ catalogs:
       specifier: ^4.1.12
       version: 4.1.12
     '@types/node':
-      specifier: 24.9.2
-      version: 24.9.2
+      specifier: 25.0.3
+      version: 25.0.3
     ansis:
       specifier: ^4.2.0
       version: 4.2.0
@@ -72,8 +72,8 @@ importers:
         specifier: ^2.0.0
         version: 2.0.0(@stylistic/eslint-plugin@5.2.2(eslint@9.32.0(jiti@2.6.1)))(eslint@9.32.0(jiti@2.6.1))
       globals:
-        specifier: ^16.3.0
-        version: 16.3.0
+        specifier: ^17.0.0
+        version: 17.0.0
       turbo:
         specifier: ^2.5.5
         version: 2.5.5
@@ -88,7 +88,7 @@ importers:
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
-        version: 24.9.2
+        version: 25.0.3
       ansis:
         specifier: 'catalog:'
         version: 4.2.0
@@ -103,7 +103,7 @@ importers:
         version: 8.5.0(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)(yaml@2.8.1)
       vitest:
         specifier: 'catalog:'
-        version: 4.0.6(@types/debug@4.1.12)(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+        version: 4.0.6(@types/debug@4.1.12)(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
 
   packages/integrations/astro:
     dependencies:
@@ -116,13 +116,13 @@ importers:
         version: 4.1.12
       '@types/node':
         specifier: 'catalog:'
-        version: 24.9.2
+        version: 25.0.3
       '@varlock/vite-integration':
         specifier: workspace:*
         version: link:../vite
       astro:
         specifier: '>=5.12.8'
-        version: 5.12.8(@azure/identity@4.10.1)(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+        version: 5.12.8(@azure/identity@4.10.1)(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
       tsup:
         specifier: 'catalog:'
         version: 8.5.0(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)(yaml@2.8.1)
@@ -131,7 +131,7 @@ importers:
         version: link:../../varlock
       vitest:
         specifier: 'catalog:'
-        version: 4.0.6(@types/debug@4.1.12)(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+        version: 4.0.6(@types/debug@4.1.12)(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
 
   packages/integrations/nextjs:
     dependencies:
@@ -141,7 +141,7 @@ importers:
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
-        version: 24.9.2
+        version: 25.0.3
       tsup:
         specifier: 'catalog:'
         version: 8.5.0(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)(yaml@2.8.1)
@@ -150,7 +150,7 @@ importers:
         version: link:../../varlock
       vitest:
         specifier: 'catalog:'
-        version: 4.0.6(@types/debug@4.1.12)(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+        version: 4.0.6(@types/debug@4.1.12)(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
 
   packages/integrations/vite:
     dependencies:
@@ -163,7 +163,7 @@ importers:
         version: 4.1.12
       '@types/node':
         specifier: 'catalog:'
-        version: 24.9.2
+        version: 25.0.3
       ast-matcher:
         specifier: ^1.2.0
         version: 1.2.0
@@ -181,10 +181,10 @@ importers:
         version: link:../../varlock
       vite:
         specifier: ^7.1.0
-        version: 7.1.0(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+        version: 7.1.0(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
       vitest:
         specifier: 'catalog:'
-        version: 4.0.6(@types/debug@4.1.12)(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+        version: 4.0.6(@types/debug@4.1.12)(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
 
   packages/plugins/1password:
     devDependencies:
@@ -199,7 +199,7 @@ importers:
         version: link:../../utils
       '@types/node':
         specifier: 'catalog:'
-        version: 24.9.2
+        version: 25.0.3
       import-meta-resolve:
         specifier: ^4.2.0
         version: 4.2.0
@@ -211,7 +211,7 @@ importers:
         version: link:../../varlock
       vitest:
         specifier: 'catalog:'
-        version: 4.0.6(@types/debug@4.1.12)(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+        version: 4.0.6(@types/debug@4.1.12)(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
 
   packages/utils:
     dependencies:
@@ -221,13 +221,13 @@ importers:
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
-        version: 24.9.2
+        version: 25.0.3
       tsup:
         specifier: 'catalog:'
         version: 8.5.0(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)(yaml@2.8.1)
       vitest:
         specifier: 'catalog:'
-        version: 4.0.6(@types/debug@4.1.12)(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+        version: 4.0.6(@types/debug@4.1.12)(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
 
   packages/varlock:
     dependencies:
@@ -244,8 +244,8 @@ importers:
         specifier: ^7.7.3
         version: 7.7.3
       which:
-        specifier: ^5.0.0
-        version: 5.0.0
+        specifier: ^6.0.0
+        version: 6.0.0
     devDependencies:
       '@clack/core':
         specifier: ^0.5.0
@@ -264,7 +264,7 @@ importers:
         version: 4.1.12
       '@types/node':
         specifier: 'catalog:'
-        version: 24.9.2
+        version: 25.0.3
       '@types/semver':
         specifier: ^7.7.1
         version: 7.7.1
@@ -306,7 +306,7 @@ importers:
         version: 8.5.0(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)(yaml@2.8.1)
       vitest:
         specifier: 'catalog:'
-        version: 4.0.6(@types/debug@4.1.12)(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+        version: 4.0.6(@types/debug@4.1.12)(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
 
   packages/varlock-docs-mcp:
     dependencies:
@@ -317,12 +317,12 @@ importers:
         specifier: ^0.2.8
         version: 0.2.19(@cloudflare/workers-types@4.20251014.0)(react@19.1.0)(typescript@5.9.3)
       zod:
-        specifier: ^3.25.76
-        version: 3.25.76
+        specifier: ^4.3.5
+        version: 4.3.5
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
-        version: 24.9.2
+        version: 25.0.3
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -334,7 +334,7 @@ importers:
     dependencies:
       '@astrojs/mdx':
         specifier: ^4.3.9
-        version: 4.3.9(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+        version: 4.3.9(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
       '@astrojs/partytown':
         specifier: ^2.1.4
         version: 2.1.4
@@ -343,19 +343,19 @@ importers:
         version: 3.6.0
       '@astrojs/starlight':
         specifier: ^0.36.2
-        version: 0.36.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+        version: 0.36.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
       '@astrojs/vue':
         specifier: ^5.1.2
-        version: 5.1.2(@types/node@24.9.2)(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(vue@3.5.22(typescript@5.9.3))(yaml@2.8.1)
+        version: 5.1.2(@types/node@25.0.3)(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(vue@3.5.22(typescript@5.9.3))(yaml@2.8.1)
       astro:
         specifier: ^5.15.3
-        version: 5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+        version: 5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
       astro-iconify:
         specifier: ^1.2.0
         version: 1.2.0
       astro-og-canvas:
         specifier: ^0.7.2
-        version: 0.7.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+        version: 0.7.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
       astro-robots-txt:
         specifier: ^1.0.0
         version: 1.0.0
@@ -370,7 +370,7 @@ importers:
         version: 1.0.0
       starlight-llms-txt:
         specifier: ^0.6.0
-        version: 0.6.0(@astrojs/starlight@0.36.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)))(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+        version: 0.6.0(@astrojs/starlight@0.36.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)))(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
       vue:
         specifier: ^3.5.22
         version: 3.5.22(typescript@5.9.3)
@@ -397,7 +397,7 @@ importers:
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
-        version: 24.9.2
+        version: 25.0.3
       '@types/vscode':
         specifier: ^1.99.0
         version: 1.102.0
@@ -1242,8 +1242,8 @@ packages:
     resolution: {integrity: sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ==}
     engines: {node: '>=18.18'}
 
-  '@iconify/tools@5.0.0':
-    resolution: {integrity: sha512-GY/FsuNdWA/FbkLqgQ8b1PHFkNvjMeSFWaVJdLldYGHBp0lZ64HJlcS0qzLfglacHTd8zYdfQjF74RxGqyGMgw==}
+  '@iconify/tools@5.0.2':
+    resolution: {integrity: sha512-esoFiH0LYpiqqVAO+RTenh6qqGKf0V8T0T6IG7dFLCw26cjcYGG34UMHjkbuq+MMl23U39FtkzhWZsCDDtOhew==}
 
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
@@ -2373,11 +2373,11 @@ packages:
   '@types/node@17.0.45':
     resolution: {integrity: sha512-w+tIMs3rq2afQdsPJlODhoUEKzFP1ayaoyl1CcnwtIlsVe7K7bA1NGm4s3PraqTLlXnbIN84zuBlxBWo1u9BLw==}
 
-  '@types/node@24.1.0':
-    resolution: {integrity: sha512-ut5FthK5moxFKH2T1CUOC6ctR67rQRvvHdFLCD2Ql6KXmMuCrjsSsRI9UsLCm9M18BMwClv4pn327UvB7eeO1w==}
-
   '@types/node@24.9.2':
     resolution: {integrity: sha512-uWN8YqxXxqFMX2RqGOrumsKeti4LlmIMIyV0lgut4jx7KQBcBiW6vkDtIBvHnHIquwNfJhk8v2OtmO8zXWHfPA==}
+
+  '@types/node@25.0.3':
+    resolution: {integrity: sha512-W609buLVRVmeW693xKfzHeIV6nJGGz98uCPfeXI1ELMLXVeKYZ9m15fAMSaUPBHYLGFsVRcMmSCksQOrZV9BYA==}
 
   '@types/normalize-package-data@2.4.4':
     resolution: {integrity: sha512-37i+OaWTh9qeK4LSHPsyRC7NahnGotNuZvjLSgcPzblpHB3rrCJxAOgI5gCdKm7coonsaX1Of0ILiTcnZjbfxA==}
@@ -2645,20 +2645,20 @@ packages:
     resolution: {integrity: sha512-LOtTn+JgJvX8WfBVJtF08TGrdjuFzGJc4mkP8EdDI8ADbvO7kiexYep1o8dwnt0okb0jYclCDXF13xU7Ge4zSw==}
     engines: {node: '>=18.0.0'}
 
-  '@whatwg-node/fetch@0.10.11':
-    resolution: {integrity: sha512-eR8SYtf9Nem1Tnl0IWrY33qJ5wCtIWlt3Fs3c6V4aAaTFLtkEQErXu3SSZg/XCHrj9hXSJ8/8t+CdMk5Qec/ZA==}
+  '@whatwg-node/fetch@0.10.13':
+    resolution: {integrity: sha512-b4PhJ+zYj4357zwk4TTuF2nEe0vVtOrwdsrNo5hL+u1ojXNhh1FgJ6pg1jzDlwlT4oBdzfSwaBwMCtFCsIWg8Q==}
     engines: {node: '>=18.0.0'}
 
-  '@whatwg-node/node-fetch@0.8.1':
-    resolution: {integrity: sha512-cQmQEo7IsI0EPX9VrwygXVzrVlX43Jb7/DBZSmpnC7xH4xkyOnn/HykHpTaQk7TUs7zh59A5uTGqx3p2Ouzffw==}
+  '@whatwg-node/node-fetch@0.8.4':
+    resolution: {integrity: sha512-AlKLc57loGoyYlrzDbejB9EeR+pfdJdGzbYnkEuZaGekFboBwzfVYVMsy88PMriqPI1ORpiGYGgSSWpx7a2sDA==}
     engines: {node: '>=18.0.0'}
 
   '@whatwg-node/promise-helpers@1.3.2':
     resolution: {integrity: sha512-Nst5JdK47VIl9UcGwtv2Rcgyn5lWtZ0/mhRQ4G8NN2isxpq2TO30iqHzmwoJycjWuyUfg3GFXqP/gFHXeV57IA==}
     engines: {node: '>=16.0.0'}
 
-  '@whatwg-node/server@0.10.13':
-    resolution: {integrity: sha512-Otmxo+0mp8az3B48pLI1I4msNOXPIoP7TLm6h5wOEQmynqHt8oP9nR6NJUeJk6iI5OtFpQtkbJFwfGkmplvc3Q==}
+  '@whatwg-node/server@0.10.17':
+    resolution: {integrity: sha512-QxI+HQfJeI/UscFNCTcSri6nrHP25mtyAMbhEri7W2ctdb3EsorPuJz7IovSgNjvKVs73dg9Fmayewx1O2xOxA==}
     engines: {node: '>=18.0.0'}
 
   '@yao-pkg/pkg-fetch@3.5.30':
@@ -3271,6 +3271,9 @@ packages:
   css-select@5.1.0:
     resolution: {integrity: sha512-nwoRF1rvRRnnCqqY7updORDsuqKzqYJ28+oSMaJMMgOauh3fvwHqMS7EZpIPqK8GL+g9mKxF1vP/ZjSeNjEVHg==}
 
+  css-select@5.2.2:
+    resolution: {integrity: sha512-TizTzUddG/xYLA3NXodFM0fSbNizXjOKhqiQQwvhlspadZokn1KDy0NZFS0wuEubIYAV5/c1/lAr0TaaFXEXzw==}
+
   css-selector-parser@3.1.2:
     resolution: {integrity: sha512-WfUcL99xWDs7b3eZPoRszWVfbNo8ErCF15PTvVROjkShGlAfjIkG6hlfj/sl6/rfo5Q9x9ryJ3VqVnAZDA+gcw==}
 
@@ -3288,6 +3291,10 @@ packages:
 
   css-what@6.1.0:
     resolution: {integrity: sha512-HTUrgRJ7r4dsZKU6GjmpfRK1O76h97Z8MfS1G0FozR+oF2kG6Vfe8JE6zwrkbxigziPHinCJ+gCPjA9EaBDtRw==}
+    engines: {node: '>= 6'}
+
+  css-what@6.2.2:
+    resolution: {integrity: sha512-u/O3vwbptzhMs3L1fQE82ZSLHQQfto5gyZzwteVIEyeaY5Fc7R4dapF/BvRoSYFeqfBk4m0V1Vafq5Pjv25wvA==}
     engines: {node: '>= 6'}
 
   cssesc@3.0.0:
@@ -4067,8 +4074,8 @@ packages:
     resolution: {integrity: sha512-7ACyT3wmyp3I61S4fG682L0VA2RGD9otkqGJIwNUMF1SWUombIIk+af1unuDYgMm082aHYwD+mzJvv9Iu8dsgg==}
     engines: {node: '>=18'}
 
-  globals@16.3.0:
-    resolution: {integrity: sha512-bqWEnJ1Nt3neqx2q5SFfGS8r/ahumIakg3HcwtNlrVlwXIeNumWn/c7Pn/wKzGhf6SaW6H6uWXLqC30STCMchQ==}
+  globals@17.0.0:
+    resolution: {integrity: sha512-gv5BeD2EssA793rlFWVPMMCqefTlpusw6/2TbAVMy0FzcG8wKJn4O+NqJ4+XWmmwrayJgw5TzrmWjFgmz1XPqw==}
     engines: {node: '>=18'}
 
   globalthis@1.0.4:
@@ -5042,8 +5049,8 @@ packages:
   mlly@1.8.0:
     resolution: {integrity: sha512-l8D9ODSRWLe2KHJSifWGwBqpTZXIXTeo8mlKjY+E2HAakaTeNpqAyBZ8GSqLzHgw4XmHmC8whvpjJNMbFZN7/g==}
 
-  modern-tar@0.7.2:
-    resolution: {integrity: sha512-TGG1ZRk1TAQ3neuZwahAHke3rKsSlro+ooMYtjh9sl2gGPVMLMuWiHgwC7im9T5bSM566RSo2Dko56ETgEvZcA==}
+  modern-tar@0.7.3:
+    resolution: {integrity: sha512-4W79zekKGyYU4JXVmB78DOscMFaJth2gGhgfTl2alWE4rNe3nf4N2pqenQ0rEtIewrnD79M687Ouba3YGTLOvg==}
     engines: {node: '>=18.0.0'}
 
   module-details-from-path@1.0.4:
@@ -5106,6 +5113,7 @@ packages:
   next@15.3.5:
     resolution: {integrity: sha512-RkazLBMMDJSJ4XZQ81kolSpwiCt907l0xcgcpF4xC2Vml6QVcPNXW0NQRwQ80FFtSn7UM52XN0anaw8TEJXaiw==}
     engines: {node: ^18.18.0 || ^19.8.0 || >= 20.0.0}
+    deprecated: This version has a security vulnerability. Please upgrade to a patched version. See https://nextjs.org/blog/CVE-2025-66478 for more details.
     hasBin: true
     peerDependencies:
       '@opentelemetry/api': ^1.1.0
@@ -5330,6 +5338,9 @@ packages:
 
   package-manager-detector@1.5.0:
     resolution: {integrity: sha512-uBj69dVlYe/+wxj8JOpr97XfsxH/eumMt6HqjNTmJDf/6NO9s+0uxeOneIz3AsPt2m6y9PqzDzd3ATcU17MNfw==}
+
+  package-manager-detector@1.6.0:
+    resolution: {integrity: sha512-61A5ThoTiDG/C8s8UMZwSorAGwMJ0ERVGj2OjoW5pAalsNOg15+iQiPzrLJ4jhZ1HJzmC2PIHT2oEiH3R5fzNA==}
 
   pagefind@1.3.0:
     resolution: {integrity: sha512-8KPLGT5g9s+olKMRTU9LFekLizkVIu9tes90O1/aigJ0T5LmyPqTzGJrETnSw3meSYg58YH7JTzhTTW/3z6VAw==}
@@ -5781,6 +5792,11 @@ packages:
     engines: {node: '>= 0.4'}
     hasBin: true
 
+  resolve@1.22.11:
+    resolution: {integrity: sha512-RfqAvLnMl313r7c9oclB1HhUEAezcpLjz95wFH4LVuhk9JF/r22qmVP9AMmOU4vMX7Q8pN8jwNg/CSpdFnMjTQ==}
+    engines: {node: '>= 0.4'}
+    hasBin: true
+
   restructure@3.0.2:
     resolution: {integrity: sha512-gSfoiOEA0VPE6Tukkrr7I0RBdE0s7H1eFCDBk05l1KIQT1UIKNc5JZy6jdyW6eYH3aR3g5b3PuL77rq0hvwtAw==}
 
@@ -5855,6 +5871,9 @@ packages:
 
   sax@1.4.1:
     resolution: {integrity: sha512-+aWOz7yVScEGoKNd4PA10LZ8sk0A/z5+nXQG5giUO5rprX9jgYsTdov9qCchZiPIZezbZH+jRut8nPodFAX4Jg==}
+
+  sax@1.4.3:
+    resolution: {integrity: sha512-yqYn1JhPczigF94DMS+shiDMjDowYO6y9+wB/4WgO0Y19jWYk0lQ4tuG5KI7kj4FTp1wxPj5IFfcrz/s1c3jjQ==}
 
   scheduler@0.26.0:
     resolution: {integrity: sha512-NlHwttCI/l5gCPR3D1nNXtWABUmBwvZpEQiD4IXSbIDq8BzLIK/7Ir5gTFSGZDUu37K5cMNp0hFtzO38sC7gWA==}
@@ -6284,6 +6303,10 @@ packages:
   tinyexec@1.0.1:
     resolution: {integrity: sha512-5uC6DDlmeqiOwCPmK9jMSdOuZTh8bU39Ys6yidB+UTt5hfZUPGAypSgFRiEp+jbi9qH40BLDvy85jIU88wKSqw==}
 
+  tinyexec@1.0.2:
+    resolution: {integrity: sha512-W/KYk+NFhkmsYpuHq5JykngiOCnxeVL8v8dFnqxSD8qEEdRfXk1SDM6JzNqcERbcGYj9tMrDQBYV9cjgnunFIg==}
+    engines: {node: '>=18'}
+
   tinyglobby@0.2.14:
     resolution: {integrity: sha512-tX5e7OM1HnYr2+a2C/4V0htOcSQcoSTH9KgJnVvNm5zm/cyEWKJ7j7YutsH9CxMdtOkkLFy2AHrMci9IM8IPZQ==}
     engines: {node: '>=12.0.0'}
@@ -6305,6 +6328,10 @@ packages:
 
   tmp@0.2.3:
     resolution: {integrity: sha512-nZD7m9iCPC5g0pYmcaxogYKggSfLsdxl8of3Q/oIbqCqLLIO9IAF0GWjX1z9NZRHPiXv8Wex4yDCaZsgEw0Y8w==}
+    engines: {node: '>=14.14'}
+
+  tmp@0.2.5:
+    resolution: {integrity: sha512-voyz6MApa1rQGUxT3E+BK7/ROe8itEx7vD8/HEvt4xwXucvQ5G5oeEiHkmHZJuBO21RpOf+YYm9MOivj709jow==}
     engines: {node: '>=14.14'}
 
   to-regex-range@5.0.1:
@@ -6443,6 +6470,10 @@ packages:
     resolution: {integrity: sha512-ABHZ2/tS2JkvH1PEjxFDTUWC8dB5OsIGZP4IFLhR293GqT5Y5qB1WwL2kMPYhQW9DVgVD8Hd7I8gjwPIf5GFkw==}
     engines: {node: '>=16'}
 
+  type-fest@4.41.0:
+    resolution: {integrity: sha512-TeTSQ6H5YHvpqVwBRcnLDCBnDOHWYu7IvGbHT6N8AOymcr9PJGjc1GTtiWZTYg0NCgYwvnYWEkVChQAr9bjfwA==}
+    engines: {node: '>=16'}
+
   type-is@2.0.1:
     resolution: {integrity: sha512-OZs6gsjF4vMp32qrCbiVSkrFmXtG/AZhY3t0iAMrMBiAZyV9oALtXO8hsrHbMXF9x6L3grlFuwW2oAz7cav+Gw==}
     engines: {node: '>= 0.6'}
@@ -6499,9 +6530,6 @@ packages:
 
   undici-types@7.16.0:
     resolution: {integrity: sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==}
-
-  undici-types@7.8.0:
-    resolution: {integrity: sha512-9UJ2xGDvQ43tYyVMpuHlsgApydB8ZKfVYTsLDhXkFL/6gfkp+U8xTGdh8pMJv1SpZna0zxG1DwsKZsreLbXBxw==}
 
   undici@6.21.2:
     resolution: {integrity: sha512-uROZWze0R0itiAKVPsYhFov9LxrPMHLMEQFszeI2gCN6bnIIZ8twzBCJcN2LJrBBLfrP0t1FW0g+JmKVl8Vk1g==}
@@ -6936,6 +6964,7 @@ packages:
   whatwg-encoding@3.1.1:
     resolution: {integrity: sha512-6qN4hJdMwfYBtE3YBTTHhoeuUrDBPZmbQaxWAqSALV/MeEnR5z1xd8UKud2RAkFoPkmB+hli1TZSnyi84xz1vQ==}
     engines: {node: '>=18'}
+    deprecated: Use @exodus/bytes instead for a more spec-conformant and faster implementation
 
   whatwg-mimetype@4.0.0:
     resolution: {integrity: sha512-QaKxh0eNIi2mE9p2vEdzfagOKHCcj1pJ56EEHGQOVxp8r9/iszLUUV7v89x9O1p/T+NlTM5W7jW6+cz4Fq1YVg==}
@@ -6976,9 +7005,9 @@ packages:
     engines: {node: '>= 8'}
     hasBin: true
 
-  which@5.0.0:
-    resolution: {integrity: sha512-JEdGzHwwkrbWoGOlIHqQ5gtprKGOenpDHpxE9zVR1bWbOtYRyPPHMe9FaP6x61CmNaTThSkb0DAJte5jD+DmzQ==}
-    engines: {node: ^18.17.0 || >=20.5.0}
+  which@6.0.0:
+    resolution: {integrity: sha512-f+gEpIKMR9faW/JgAgPK1D7mekkFoqbmiwvNzuhsHetni20QSgzg9Vhn0g2JSJkkfehQnqdUAx7/e15qS1lPxg==}
+    engines: {node: ^20.17.0 || >=22.9.0}
     hasBin: true
 
   why-is-node-running@2.3.0:
@@ -7140,6 +7169,9 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
+  zod@4.3.5:
+    resolution: {integrity: sha512-k7Nwx6vuWx1IJ9Bjuf4Zt1PEllcwe7cls3VNzm4CQ1/hgtFUK2bRNG3rvnpPUhFjmqJKAKtjV576KnUkHocg/g==}
+
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
@@ -7185,8 +7217,8 @@ snapshots:
 
   '@antfu/install-pkg@1.1.0':
     dependencies:
-      package-manager-detector: 1.5.0
-      tinyexec: 1.0.1
+      package-manager-detector: 1.6.0
+      tinyexec: 1.0.2
 
   '@antfu/utils@0.7.10': {}
 
@@ -7254,12 +7286,12 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@astrojs/mdx@4.3.9(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))':
+  '@astrojs/mdx@4.3.9(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))':
     dependencies:
       '@astrojs/markdown-remark': 6.3.8
       '@mdx-js/mdx': 3.1.1
       acorn: 8.15.0
-      astro: 5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+      astro: 5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
       es-module-lexer: 1.7.0
       estree-util-visit: 2.0.0
       hast-util-to-html: 9.0.5
@@ -7288,17 +7320,17 @@ snapshots:
       stream-replace-string: 2.0.0
       zod: 3.25.76
 
-  '@astrojs/starlight@0.36.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))':
+  '@astrojs/starlight@0.36.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))':
     dependencies:
       '@astrojs/markdown-remark': 6.3.8
-      '@astrojs/mdx': 4.3.9(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+      '@astrojs/mdx': 4.3.9(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
       '@astrojs/sitemap': 3.6.0
       '@pagefind/default-ui': 1.3.0
       '@types/hast': 3.0.4
       '@types/js-yaml': 4.0.9
       '@types/mdast': 4.0.4
-      astro: 5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
-      astro-expressive-code: 0.41.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+      astro: 5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+      astro-expressive-code: 0.41.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
       bcp-47: 2.1.0
       hast-util-from-html: 2.0.3
       hast-util-select: 6.0.4
@@ -7333,14 +7365,14 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@astrojs/vue@5.1.2(@types/node@24.9.2)(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(vue@3.5.22(typescript@5.9.3))(yaml@2.8.1)':
+  '@astrojs/vue@5.1.2(@types/node@25.0.3)(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(vue@3.5.22(typescript@5.9.3))(yaml@2.8.1)':
     dependencies:
-      '@vitejs/plugin-vue': 5.2.1(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))
-      '@vitejs/plugin-vue-jsx': 4.2.0(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))
+      '@vitejs/plugin-vue': 5.2.1(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))
+      '@vitejs/plugin-vue-jsx': 4.2.0(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))
       '@vue/compiler-sfc': 3.5.22
-      astro: 5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
-      vite: 6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
-      vite-plugin-vue-devtools: 7.7.7(rollup@4.52.5)(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))
+      astro: 5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+      vite: 6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+      vite-plugin-vue-devtools: 7.7.7(rollup@4.52.5)(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))
       vue: 3.5.22(typescript@5.9.3)
     transitivePeerDependencies:
       - '@nuxt/kit'
@@ -8137,13 +8169,13 @@ snapshots:
 
   '@humanwhocodes/retry@0.4.3': {}
 
-  '@iconify/tools@5.0.0':
+  '@iconify/tools@5.0.2':
     dependencies:
       '@cyberalien/svg-utils': 1.0.11
       '@iconify/types': 2.0.0
       '@iconify/utils': 3.1.0
       fflate: 0.8.2
-      modern-tar: 0.7.2
+      modern-tar: 0.7.3
       pathe: 2.0.3
       svgo: 4.0.0
 
@@ -8434,7 +8466,7 @@ snapshots:
 
   '@netlify/dev-utils@4.3.0':
     dependencies:
-      '@whatwg-node/server': 0.10.13
+      '@whatwg-node/server': 0.10.17
       ansis: 4.2.0
       chokidar: 4.0.3
       decache: 4.6.2
@@ -9176,7 +9208,7 @@ snapshots:
 
   '@types/fontkit@2.0.8':
     dependencies:
-      '@types/node': 24.1.0
+      '@types/node': 25.0.3
 
   '@types/hast@3.0.4':
     dependencies:
@@ -9208,11 +9240,11 @@ snapshots:
 
   '@types/node@17.0.45': {}
 
-  '@types/node@24.1.0':
-    dependencies:
-      undici-types: 7.8.0
-
   '@types/node@24.9.2':
+    dependencies:
+      undici-types: 7.16.0
+
+  '@types/node@25.0.3':
     dependencies:
       undici-types: 7.16.0
 
@@ -9222,7 +9254,7 @@ snapshots:
 
   '@types/sax@1.2.7':
     dependencies:
-      '@types/node': 24.1.0
+      '@types/node': 24.9.2
 
   '@types/semver@7.7.1': {}
 
@@ -9350,20 +9382,20 @@ snapshots:
 
   '@vercel/oidc@3.0.3': {}
 
-  '@vitejs/plugin-vue-jsx@4.2.0(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))':
+  '@vitejs/plugin-vue-jsx@4.2.0(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))':
     dependencies:
       '@babel/core': 7.28.0
       '@babel/plugin-transform-typescript': 7.28.0(@babel/core@7.28.0)
       '@rolldown/pluginutils': 1.0.0-beta.29
       '@vue/babel-plugin-jsx': 1.4.0(@babel/core@7.28.0)
-      vite: 6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+      vite: 6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
       vue: 3.5.22(typescript@5.9.3)
     transitivePeerDependencies:
       - supports-color
 
-  '@vitejs/plugin-vue@5.2.1(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))':
+  '@vitejs/plugin-vue@5.2.1(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))':
     dependencies:
-      vite: 6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+      vite: 6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
       vue: 3.5.22(typescript@5.9.3)
 
   '@vitest/expect@4.0.6':
@@ -9375,13 +9407,13 @@ snapshots:
       chai: 6.2.0
       tinyrainbow: 3.0.3
 
-  '@vitest/mocker@4.0.6(vite@7.1.0(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))':
+  '@vitest/mocker@4.0.6(vite@7.1.0(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))':
     dependencies:
       '@vitest/spy': 4.0.6
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 7.1.0(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+      vite: 7.1.0(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
 
   '@vitest/pretty-format@4.0.6':
     dependencies:
@@ -9539,14 +9571,14 @@ snapshots:
       '@vue/compiler-dom': 3.5.22
       '@vue/shared': 3.5.22
 
-  '@vue/devtools-core@7.7.7(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))':
+  '@vue/devtools-core@7.7.7(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))':
     dependencies:
       '@vue/devtools-kit': 7.7.7
       '@vue/devtools-shared': 7.7.7
       mitt: 3.0.1
       nanoid: 5.1.5
       pathe: 2.0.3
-      vite-hot-client: 2.0.4(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))
+      vite-hot-client: 2.0.4(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))
       vue: 3.5.22(typescript@5.9.3)
     transitivePeerDependencies:
       - vite
@@ -9597,13 +9629,13 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@whatwg-node/fetch@0.10.11':
+  '@whatwg-node/fetch@0.10.13':
     dependencies:
-      '@whatwg-node/node-fetch': 0.8.1
+      '@whatwg-node/node-fetch': 0.8.4
       urlpattern-polyfill: 10.1.0
     optional: true
 
-  '@whatwg-node/node-fetch@0.8.1':
+  '@whatwg-node/node-fetch@0.8.4':
     dependencies:
       '@fastify/busboy': 3.2.0
       '@whatwg-node/disposablestack': 0.0.6
@@ -9616,11 +9648,11 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@whatwg-node/server@0.10.13':
+  '@whatwg-node/server@0.10.17':
     dependencies:
       '@envelop/instrumentation': 1.0.0
       '@whatwg-node/disposablestack': 0.0.6
-      '@whatwg-node/fetch': 0.10.11
+      '@whatwg-node/fetch': 0.10.13
       '@whatwg-node/promise-helpers': 1.3.2
       tslib: 2.8.1
     optional: true
@@ -9805,21 +9837,21 @@ snapshots:
 
   astring@1.9.0: {}
 
-  astro-expressive-code@0.41.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)):
+  astro-expressive-code@0.41.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)):
     dependencies:
-      astro: 5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+      astro: 5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
       rehype-expressive-code: 0.41.2
 
   astro-iconify@1.2.0:
     dependencies:
-      '@iconify/tools': 5.0.0
+      '@iconify/tools': 5.0.2
       node-fetch: 3.3.2
       resolve-pkg: 2.0.0
       svgo: 3.3.2
 
-  astro-og-canvas@0.7.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)):
+  astro-og-canvas@0.7.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)):
     dependencies:
-      astro: 5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+      astro: 5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
       canvaskit-wasm: 0.40.0
       deterministic-object-hash: 2.0.2
       entities: 7.0.0
@@ -9829,7 +9861,7 @@ snapshots:
       valid-filename: 4.0.0
       zod: 3.25.76
 
-  astro@5.12.8(@azure/identity@4.10.1)(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1):
+  astro@5.12.8(@azure/identity@4.10.1)(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1):
     dependencies:
       '@astrojs/compiler': 2.12.2
       '@astrojs/internal-helpers': 0.7.1
@@ -9885,8 +9917,8 @@ snapshots:
       unist-util-visit: 5.0.0
       unstorage: 1.15.0(@azure/identity@4.10.1)
       vfile: 6.0.3
-      vite: 6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
-      vitefu: 1.0.6(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))
+      vite: 6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+      vitefu: 1.0.6(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))
       xxhash-wasm: 1.1.0
       yargs-parser: 21.1.1
       yocto-spinner: 0.2.2
@@ -9930,7 +9962,7 @@ snapshots:
       - uploadthing
       - yaml
 
-  astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1):
+  astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1):
     dependencies:
       '@astrojs/compiler': 2.12.2
       '@astrojs/internal-helpers': 0.7.4
@@ -9986,8 +10018,8 @@ snapshots:
       unist-util-visit: 5.0.0
       unstorage: 1.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@vercel/functions@2.2.13)
       vfile: 6.0.3
-      vite: 6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
-      vitefu: 1.1.1(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))
+      vite: 6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+      vitefu: 1.1.1(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))
       xxhash-wasm: 1.1.0
       yargs-parser: 21.1.1
       yocto-spinner: 0.2.3
@@ -10443,6 +10475,14 @@ snapshots:
       domutils: 3.2.2
       nth-check: 2.1.1
 
+  css-select@5.2.2:
+    dependencies:
+      boolbase: 1.0.0
+      css-what: 6.2.2
+      domhandler: 5.0.3
+      domutils: 3.2.2
+      nth-check: 2.1.1
+
   css-selector-parser@3.1.2: {}
 
   css-tree@2.2.1:
@@ -10461,6 +10501,8 @@ snapshots:
       source-map-js: 1.2.1
 
   css-what@6.1.0: {}
+
+  css-what@6.2.2: {}
 
   cssesc@3.0.0: {}
 
@@ -10604,7 +10646,7 @@ snapshots:
 
   dot-prop@9.0.0:
     dependencies:
-      type-fest: 4.40.0
+      type-fest: 4.41.0
     optional: true
 
   dotenv@16.5.0: {}
@@ -11397,7 +11439,7 @@ snapshots:
 
   globals@15.15.0: {}
 
-  globals@16.3.0: {}
+  globals@17.0.0: {}
 
   globalthis@1.0.4:
     dependencies:
@@ -12814,7 +12856,7 @@ snapshots:
       pkg-types: 1.3.1
       ufo: 1.6.1
 
-  modern-tar@0.7.2: {}
+  modern-tar@0.7.3: {}
 
   module-details-from-path@1.0.4:
     optional: true
@@ -12851,7 +12893,7 @@ snapshots:
   needle@3.3.1:
     dependencies:
       iconv-lite: 0.6.3
-      sax: 1.4.1
+      sax: 1.4.3
     optional: true
 
   negotiator@1.0.0: {}
@@ -13105,6 +13147,8 @@ snapshots:
 
   package-manager-detector@1.5.0: {}
 
+  package-manager-detector@1.6.0: {}
+
   pagefind@1.3.0:
     optionalDependencies:
       '@pagefind/darwin-arm64': 1.3.0
@@ -13342,7 +13386,7 @@ snapshots:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.0
-      '@types/node': 24.9.2
+      '@types/node': 25.0.3
       long: 5.3.2
     optional: true
 
@@ -13633,7 +13677,7 @@ snapshots:
     dependencies:
       debug: 4.4.3
       module-details-from-path: 1.0.4
-      resolve: 1.22.10
+      resolve: 1.22.11
     transitivePeerDependencies:
       - supports-color
     optional: true
@@ -13653,6 +13697,13 @@ snapshots:
       is-core-module: 2.16.1
       path-parse: 1.0.7
       supports-preserve-symlinks-flag: 1.0.0
+
+  resolve@1.22.11:
+    dependencies:
+      is-core-module: 2.16.1
+      path-parse: 1.0.7
+      supports-preserve-symlinks-flag: 1.0.0
+    optional: true
 
   restructure@3.0.2: {}
 
@@ -13793,6 +13844,8 @@ snapshots:
     optional: true
 
   sax@1.4.1: {}
+
+  sax@1.4.3: {}
 
   scheduler@0.26.0: {}
 
@@ -14071,13 +14124,13 @@ snapshots:
 
   stackback@0.0.2: {}
 
-  starlight-llms-txt@0.6.0(@astrojs/starlight@0.36.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)))(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)):
+  starlight-llms-txt@0.6.0(@astrojs/starlight@0.36.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)))(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)):
     dependencies:
-      '@astrojs/mdx': 4.3.9(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
-      '@astrojs/starlight': 0.36.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+      '@astrojs/mdx': 4.3.9(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+      '@astrojs/starlight': 0.36.2(astro@5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
       '@types/hast': 3.0.4
       '@types/micromatch': 4.0.9
-      astro: 5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@24.9.2)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+      astro: 5.15.3(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
       github-slugger: 2.0.0
       hast-util-select: 6.0.4
       micromatch: 4.0.8
@@ -14264,12 +14317,12 @@ snapshots:
   svgo@4.0.0:
     dependencies:
       commander: 11.1.0
-      css-select: 5.1.0
+      css-select: 5.2.2
       css-tree: 3.1.0
-      css-what: 6.1.0
+      css-what: 6.2.2
       csso: 5.0.5
       picocolors: 1.1.1
-      sax: 1.4.1
+      sax: 1.4.3
 
   synckit@0.11.11:
     dependencies:
@@ -14365,6 +14418,8 @@ snapshots:
 
   tinyexec@1.0.1: {}
 
+  tinyexec@1.0.2: {}
+
   tinyglobby@0.2.14:
     dependencies:
       fdir: 6.4.6(picomatch@4.0.3)
@@ -14379,7 +14434,7 @@ snapshots:
 
   tmp-promise@3.0.3:
     dependencies:
-      tmp: 0.2.3
+      tmp: 0.2.5
     optional: true
 
   tmp@0.0.33:
@@ -14387,6 +14442,9 @@ snapshots:
       os-tmpdir: 1.0.2
 
   tmp@0.2.3: {}
+
+  tmp@0.2.5:
+    optional: true
 
   to-regex-range@5.0.1:
     dependencies:
@@ -14498,6 +14556,9 @@ snapshots:
 
   type-fest@4.40.0: {}
 
+  type-fest@4.41.0:
+    optional: true
+
   type-is@2.0.1:
     dependencies:
       content-type: 1.0.5
@@ -14574,8 +14635,6 @@ snapshots:
   underscore@1.13.7: {}
 
   undici-types@7.16.0: {}
-
-  undici-types@7.8.0: {}
 
   undici@6.21.2: {}
 
@@ -14769,11 +14828,11 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.2
 
-  vite-hot-client@2.0.4(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)):
+  vite-hot-client@2.0.4(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)):
     dependencies:
-      vite: 6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+      vite: 6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
 
-  vite-plugin-inspect@0.8.9(rollup@4.52.5)(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)):
+  vite-plugin-inspect@0.8.9(rollup@4.52.5)(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)):
     dependencies:
       '@antfu/utils': 0.7.10
       '@rollup/pluginutils': 5.3.0(rollup@4.52.5)
@@ -14784,28 +14843,28 @@ snapshots:
       perfect-debounce: 1.0.0
       picocolors: 1.1.1
       sirv: 3.0.1
-      vite: 6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+      vite: 6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
     transitivePeerDependencies:
       - rollup
       - supports-color
 
-  vite-plugin-vue-devtools@7.7.7(rollup@4.52.5)(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3)):
+  vite-plugin-vue-devtools@7.7.7(rollup@4.52.5)(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3)):
     dependencies:
-      '@vue/devtools-core': 7.7.7(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))
+      '@vue/devtools-core': 7.7.7(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))
       '@vue/devtools-kit': 7.7.7
       '@vue/devtools-shared': 7.7.7
       execa: 9.6.0
       sirv: 3.0.1
-      vite: 6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
-      vite-plugin-inspect: 0.8.9(rollup@4.52.5)(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))
-      vite-plugin-vue-inspector: 5.3.1(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))
+      vite: 6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+      vite-plugin-inspect: 0.8.9(rollup@4.52.5)(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))
+      vite-plugin-vue-inspector: 5.3.1(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))
     transitivePeerDependencies:
       - '@nuxt/kit'
       - rollup
       - supports-color
       - vue
 
-  vite-plugin-vue-inspector@5.3.1(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)):
+  vite-plugin-vue-inspector@5.3.1(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)):
     dependencies:
       '@babel/core': 7.28.0
       '@babel/plugin-proposal-decorators': 7.25.9(@babel/core@7.28.0)
@@ -14816,11 +14875,11 @@ snapshots:
       '@vue/compiler-dom': 3.5.22
       kolorist: 1.8.0
       magic-string: 0.30.21
-      vite: 6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+      vite: 6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
     transitivePeerDependencies:
       - supports-color
 
-  vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1):
+  vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1):
     dependencies:
       esbuild: 0.25.4
       fdir: 6.4.6(picomatch@4.0.3)
@@ -14829,7 +14888,7 @@ snapshots:
       rollup: 4.46.2
       tinyglobby: 0.2.15
     optionalDependencies:
-      '@types/node': 24.9.2
+      '@types/node': 25.0.3
       fsevents: 2.3.3
       jiti: 2.6.1
       less: 4.4.2
@@ -14837,7 +14896,7 @@ snapshots:
       stylus: 0.62.0
       yaml: 2.8.1
 
-  vite@7.1.0(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1):
+  vite@7.1.0(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1):
     dependencies:
       esbuild: 0.25.4
       fdir: 6.4.6(picomatch@4.0.3)
@@ -14846,7 +14905,7 @@ snapshots:
       rollup: 4.46.2
       tinyglobby: 0.2.14
     optionalDependencies:
-      '@types/node': 24.9.2
+      '@types/node': 25.0.3
       fsevents: 2.3.3
       jiti: 2.6.1
       less: 4.4.2
@@ -14854,18 +14913,18 @@ snapshots:
       stylus: 0.62.0
       yaml: 2.8.1
 
-  vitefu@1.0.6(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)):
+  vitefu@1.0.6(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)):
     optionalDependencies:
-      vite: 6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+      vite: 6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
 
-  vitefu@1.1.1(vite@6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)):
+  vitefu@1.1.1(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)):
     optionalDependencies:
-      vite: 6.4.1(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+      vite: 6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
 
-  vitest@4.0.6(@types/debug@4.1.12)(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1):
+  vitest@4.0.6(@types/debug@4.1.12)(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1):
     dependencies:
       '@vitest/expect': 4.0.6
-      '@vitest/mocker': 4.0.6(vite@7.1.0(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))
+      '@vitest/mocker': 4.0.6(vite@7.1.0(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))
       '@vitest/pretty-format': 4.0.6
       '@vitest/runner': 4.0.6
       '@vitest/snapshot': 4.0.6
@@ -14882,11 +14941,11 @@ snapshots:
       tinyexec: 0.3.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.0.3
-      vite: 7.1.0(@types/node@24.9.2)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
+      vite: 7.1.0(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/debug': 4.1.12
-      '@types/node': 24.9.2
+      '@types/node': 25.0.3
     transitivePeerDependencies:
       - jiti
       - less
@@ -14987,7 +15046,7 @@ snapshots:
     dependencies:
       isexe: 2.0.0
 
-  which@5.0.0:
+  which@6.0.0:
     dependencies:
       isexe: 3.1.1
 
@@ -15147,5 +15206,7 @@ snapshots:
   zod@3.22.3: {}
 
   zod@3.25.76: {}
+
+  zod@4.3.5: {}
 
   zwitch@2.0.4: {}
