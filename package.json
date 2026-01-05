@@ -31,7 +31,7 @@
     "eslint-plugin-jsonc": "^2.20.1",
     "eslint-plugin-n": "^17.21.3",
     "eslint-stylistic-airbnb": "^2.0.0",
-    "globals": "^16.3.0",
+    "globals": "^17.0.0",
     "turbo": "^2.5.5",
     "typescript": "catalog:",
     "typescript-eslint": "^8.39.0"
