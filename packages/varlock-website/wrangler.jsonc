@@ -3,6 +3,7 @@
   "name": "varlock-website",
   "compatibility_date": "2025-05-06",
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+    "not_found_handling": "404-page"
   }
 }

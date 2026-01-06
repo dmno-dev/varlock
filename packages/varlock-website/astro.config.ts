@@ -45,6 +45,7 @@ export default defineConfig({
     varlockAstroIntegration(),
     starlight({
       title: 'varlock',
+      disable404Route: true,
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/dmno-dev/varlock' },
         { icon: 'discord', label: 'Discord', href: 'https://chat.dmno.dev' },
