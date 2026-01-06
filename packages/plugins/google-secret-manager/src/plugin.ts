@@ -1,6 +1,5 @@
 import { Resolver } from 'varlock/plugin-lib';
 
-import { createDeferredPromise, DeferredPromise } from '@env-spec/utils/defer';
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
@@ -102,96 +101,46 @@ class GsmPluginInstance {
     return `projects/${this.projectId}/secrets/${name}/versions/${version}`;
   }
 
-  readBatch?: Record<string, { defers: Array<DeferredPromise<string>> }> | undefined;
-
   async readSecret(secretRef: string): Promise<string> {
-    await this.initClient();
-
-    // Simple batching setup to parallelize reads
-    let triggerBatch = false;
-    if (!this.readBatch) {
-      this.readBatch = {};
-      triggerBatch = true;
-    }
-
-    // Add secret to batch with deferred promise
-    this.readBatch[secretRef] ||= { defers: [] };
-    const deferred = createDeferredPromise<string>();
-    this.readBatch[secretRef].defers.push(deferred);
-
-    if (triggerBatch) {
-      setImmediate(() => this.executeReadBatch());
-    }
-
-    return deferred.promise as Promise<string>;
-  }
-
-  private async executeReadBatch() {
-    const client = await this.clientPromise;
+    const client = await this.initClient();
     if (!client) throw new Error('Expected GSM client to be initialized');
 
-    const batch = this.readBatch;
-    this.readBatch = undefined;
+    try {
+      const secretPath = this.buildSecretPath(secretRef);
+      const [response] = await client.accessSecretVersion({ name: secretPath });
+      const secretData = response.payload?.data?.toString();
 
-    const secretRefs = Object.keys(batch || {});
-    debug('batch fetching', secretRefs);
-    if (!secretRefs.length) return;
-
-    // Build secret paths
-    const secretPaths = secretRefs.map((ref) => {
-      try {
-        return { ref, path: this.buildSecretPath(ref) };
-      } catch (err) {
-        return { ref, error: err as Error };
+      if (!secretData) {
+        throw new ResolutionError('Secret data is empty');
       }
-    });
 
-    // Parallelize individual secret reads (GSM doesn't have bulk API)
-    const results = await Promise.allSettled(
-      secretPaths.map(async ({ ref, path, error }) => {
-        if (error) throw error;
-        const [response] = await client.accessSecretVersion({ name: path });
-        return { ref, data: response.payload?.data?.toString() };
-      }),
-    );
-
-    // Resolve/reject deferred promises based on results
-    results.forEach((result, idx) => {
-      const secretRef = secretRefs[idx];
-      const defers = batch![secretRef].defers;
-
-      if (result.status === 'fulfilled') {
-        const secretData = result.value.data;
-        if (secretData) {
-          defers.forEach((d) => d.resolve(secretData));
-        } else {
-          defers.forEach((d) => d.reject(
-            new ResolutionError('Secret data is empty'),
-          ));
-        }
-      } else {
-        const err = result.reason;
-        let errorMessage = 'Failed to fetch secret';
-        let errorTip: string | undefined;
-
-        // Handle common GSM errors
-        if (err?.code === 5 || err?.message?.includes('NOT_FOUND')) {
-          const secretName = secretRef.split('@')[0];
-          errorMessage = `Secret "${secretName}" not found`;
-          errorTip = 'Verify secret exists in Google Cloud Console';
-        } else if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
-          errorMessage = `Permission denied accessing secret "${secretRef}"`;
-          errorTip = 'Ensure service account has "Secret Manager Secret Accessor" role';
-        } else if (err?.message) {
-          errorMessage = `Google Secret Manager error: ${err.message}`;
-        }
-
-        const wrappedErr = new ResolutionError(errorMessage, {
-          tip: errorTip,
-        });
-        defers.forEach((d) => d.reject(wrappedErr));
+      return secretData;
+    } catch (err) {
+      // Re-throw ResolutionError as-is
+      if (err instanceof ResolutionError) {
+        throw err;
       }
-    });
+
+      let errorMessage = 'Failed to fetch secret';
+      let errorTip: string | undefined;
+
+      // Handle common GSM errors
+      const error = err as Error & { code?: number };
+      if (error.code === 5 || error.message?.includes('NOT_FOUND')) {
+        const secretName = secretRef.split('@')[0];
+        errorMessage = `Secret "${secretName}" not found`;
+        errorTip = 'Verify secret exists in Google Cloud Console';
+      } else if (error.code === 7 || error.message?.includes('PERMISSION_DENIED')) {
+        errorMessage = `Permission denied accessing secret "${secretRef}"`;
+        errorTip = 'Ensure service account has "Secret Manager Secret Accessor" role';
+      } else if (error.message) {
+        errorMessage = `Google Secret Manager error: ${error.message}`;
+      }
+
+      throw new ResolutionError(errorMessage, {
+        tip: errorTip,
+      });
+    }
   }
 }
 
