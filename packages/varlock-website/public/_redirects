@@ -1,6 +1,7 @@
+/docs /
 /env-spec /env-spec/overview/
 /env-spec/ /env-spec/overview/
-/integrations/ai-tools /guides/ai-tools
-/integrations/qwik /integrations/vite
-/integrations/react-router /integrations/vite
-/integrations/cloudflare-workers /integrations/vite
+/integrations/ai-tools /guides/ai-tools/
+/integrations/qwik /integrations/vite/
+/integrations/react-router /integrations/vite/
+/integrations/cloudflare-workers /integrations/vite/

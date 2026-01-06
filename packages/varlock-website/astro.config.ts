@@ -1,4 +1,6 @@
 import { defineConfig, fontProviders, passthroughImageService } from 'astro/config';
+import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import starlight from '@astrojs/starlight';
 import mdx from '@astrojs/mdx';
 import vue from '@astrojs/vue';
@@ -12,6 +14,11 @@ import varlockAstroIntegration from '@varlock/astro-integration';
 import { ENV } from 'varlock/env';
 
 import envSpecGrammar from '../vscode-plugin/language/env-spec.tmLanguage.json' assert { type: 'json' };
+import { createRequire } from 'node:module';
+
+
+const require = createRequire(import.meta.url);
+const __dirname = new URL('.', import.meta.url).pathname;
 
 // https://astro.build/config
 export default defineConfig({
@@ -22,6 +29,50 @@ export default defineConfig({
         '@': '/src',
       },
     },
+    plugins: [
+      // Issue related to css-tree, being used within our icon setup - will probably remove in future
+      // but for now this is working, adapted from https://github.com/csstree/csstree/issues/314#issuecomment-3528323925
+      {
+        name: 'inline-csso-json',
+        transform(code, id) {
+          const brokenJsonImports = [
+            {
+              id: 'node_modules/css-tree/lib/data-patch.js',
+              target: 'require(\'../data/patch.json\')',
+              package: 'css-tree',
+              path: '../../data/patch.json',
+            },
+            {
+              id: 'node_modules/csso/node_modules/css-tree/lib/version.js',
+              target: 'require(\'../package.json\')',
+              package: 'css-tree',
+              path: '../../package.json',
+            },
+            {
+              id: 'node_modules/css-tree/lib/version.js',
+              target: 'require(\'../package.json\')',
+              package: 'css-tree',
+              path: '../../package.json',
+            },
+            {
+              id: 'node_modules/csso/lib/version.js',
+              target: 'require(\'../package.json\')',
+              package: 'csso',
+              path: '../../package.json',
+            },
+          ];
+          for (const item of brokenJsonImports) {
+            if (id.includes(item.id)) {
+              const resolvedPackageIndexPath = require.resolve(`${item.package}`);
+              const resolvedPath = resolve(resolvedPackageIndexPath, item.path);
+              const json = readFileSync(resolvedPath, 'utf-8');
+              const str = JSON.stringify(JSON.parse(json));
+              return { code: code.replace(item.target, str) };
+            }
+          }
+        },
+      },
+    ],
   },
   experimental: {
     fonts: [
@@ -45,6 +96,7 @@ export default defineConfig({
     varlockAstroIntegration(),
     starlight({
       title: 'varlock',
+      disable404Route: true,
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/dmno-dev/varlock' },
         { icon: 'discord', label: 'Discord', href: 'https://chat.dmno.dev' },
