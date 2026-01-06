@@ -8,14 +8,15 @@
     "url": "https://github.com/dmno-dev/core.git"
   },
   "scripts": {
-    "build": "turbo build --filter='!./examples/**'",
+    "build": "turbo build",
     "build:libs": "pnpm run build --filter=\"!@varlock/website\"",
-    "test:ci": "turbo test:ci --filter='!./examples/**'",
+    "test:ci": "turbo test:ci",
     "preinstall": "npx only-allow pnpm",
-    "dev": "turbo run dev --concurrency=40 --parallel --filter='!./examples/**'",
+    "dev": "turbo run dev --concurrency=40 --parallel",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "changeset:add": "changeset add",
+    "changeset:empty": "changeset add --empty",
     "changeset:version": "changeset version && pnpm lint:fix",
     "changeset:publish": "pnpm build:libs && changeset publish"
   },
@@ -30,7 +31,7 @@
     "eslint-plugin-jsonc": "^2.20.1",
     "eslint-plugin-n": "^17.21.3",
     "eslint-stylistic-airbnb": "^2.0.0",
-    "globals": "^16.3.0",
+    "globals": "^17.0.0",
     "turbo": "^2.5.5",
     "typescript": "catalog:",
     "typescript-eslint": "^8.39.0"
