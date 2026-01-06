@@ -57,7 +57,7 @@ export abstract class EnvGraphDataSource {
     return !!this.importMeta?.isImport || !!this.parent?.isImport;
   }
   get isPartialImport() {
-    return (this.importMeta?.importKeys || []).length > 0;
+    return (this.importKeys || []).length > 0;
   }
   get importKeys(): Array<string> | undefined {
     const importKeysArrays = [];

@@ -67,7 +67,6 @@ A registry (npm, jsr, etc.), package name, version, and path can be used to impo
 By default, all items will be imported, but you may add a list of specific keys to import as additional args after the first.
 
 - If there is a chain of imports, an item is only imported if every ancestor import includes it (or imports all items)
-- If a file is partially imported, some root decorators that affect the overall system behavior rather than individual items will be ignored (e.g., `@generateTypes`)
 
 ```env-spec
 # @import(./.env.imported, KEY1, KEY2)

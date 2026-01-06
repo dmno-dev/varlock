@@ -49,6 +49,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   for (const generateTypesDec of generateTypesDecs) {
     const typeGenSettings = await generateTypesDec.resolve();
 
+    // we skip generating types if `@generateTypes` was not in the main file
+    // unless the `executeWhenImported` flag is set
+    if (generateTypesDec.dataSource.isImport && !typeGenSettings.obj.executeWhenImported) continue;
+
     if (!typeGenSettings.obj.lang) throw new Error('@generateTypes - must set `lang` arg');
     if (typeGenSettings.obj.lang !== 'ts') throw new Error(`@generateTypes - unsupported language: ${typeGenSettings.obj.lang}`);
     if (!typeGenSettings.obj.path) throw new Error('@generateTypes - must set `path` arg');

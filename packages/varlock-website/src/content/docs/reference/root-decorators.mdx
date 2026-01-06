@@ -176,6 +176,7 @@ XYZ_API_KEY=op(op://api-prod/xyz/api-key) # new resolver
 - `lang`: Language to generate types for. Supported languages:
   - `ts` - TypeScript
 - `path`: Relative filepath to output generated type file
+- `executeWhenImported`: overrides the default behaviour of not executing when the containing file is imported (defaults to `false`)
 
 Enables automatic type generation based on your schema. _Can be called multiple times._
 
@@ -183,6 +184,13 @@ Enables automatic type generation based on your schema. _Can be called multiple 
 # @generateTypes(lang=ts, path=./env.d.ts)
 # ---
 ```
+
+:::tip 
+Usually this decorator will live in your primary `.env.schema` file, and it will be ignored if it is within an imported file.
+
+To override this behaviour, set `executeWhenImported` to `true`.
+:::
+
 </div>
 
 <div>
