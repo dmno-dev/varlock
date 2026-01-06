@@ -16,7 +16,7 @@ See [our docs site](https://varlock.dev/plugins/google-secret-manager/) for comp
 # @initGsm(projectId=my-gcp-project, credentials=$GCP_SA_KEY)
 # ---
 
-# Service account JSON key (for production/CI)
+# Service account JSON key (optional)
 # @sensitive @type=gcpServiceAccountJson
 GCP_SA_KEY=
 
