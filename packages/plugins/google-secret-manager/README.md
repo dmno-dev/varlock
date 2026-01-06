@@ -9,11 +9,11 @@ See [our docs site](https://varlock.dev/plugins/google-secret-manager/) for comp
 #
 # @plugin(@varlock/google-secret-manager-plugin)
 #
-# initialize the plugin with service account credentials
-# @initGsm(projectId=my-gcp-project, credentials=$GCP_SA_KEY)
+# use Application Default Credentials
+# @initGsm(projectId=my-project)
 #
-# or use Application Default Credentials for local development
-# @initGsm(projectId=my-project, useADC=true)
+# or initialize the plugin with service account credentials
+# @initGsm(projectId=my-gcp-project, credentials=$GCP_SA_KEY)
 # ---
 
 # Service account JSON key (for production/CI)

@@ -14,18 +14,16 @@ plugin.icon = GSM_ICON;
 class GsmPluginInstance {
   private projectId?: string;
   private credentials?: any;
-  private useADC?: boolean;
 
   constructor(
     readonly id: string,
   ) {
   }
 
-  setAuth(credentials: any, projectId?: string, useADC?: boolean) {
+  setAuth(projectId?: string, credentials?: any) {
     this.credentials = credentials;
     this.projectId = projectId;
-    this.useADC = useADC;
-    debug('gsm instance', this.id, 'set auth - projectId:', projectId, 'useADC:', useADC);
+    debug('gsm instance', this.id, 'set auth - projectId:', projectId, 'hasCredentials:', !!credentials);
   }
 
   private clientPromise: Promise<SecretManagerServiceClient> | undefined;
@@ -52,13 +50,11 @@ class GsmPluginInstance {
           if (!this.projectId && parsedCredentials.project_id) {
             this.projectId = parsedCredentials.project_id;
           }
-        } else if (this.useADC) {
-          // Use Application Default Credentials (will auto-detect from environment)
-          debug('Using Application Default Credentials');
+          debug('Using Service Account Credentials');
         } else {
-          throw new SchemaError('No credentials provided', {
-            tip: 'Either provide credentials (service account JSON) or set useADC=true',
-          });
+          // Use Application Default Credentials (will auto-detect from environment)
+          // Default to ADC when no credentials are provided
+          debug('Using Application Default Credentials');
         }
 
         if (this.projectId) {
@@ -133,6 +129,24 @@ class GsmPluginInstance {
       } else if (error.code === 7 || error.message?.includes('PERMISSION_DENIED')) {
         errorMessage = `Permission denied accessing secret "${secretRef}"`;
         errorTip = 'Ensure service account has "Secret Manager Secret Accessor" role';
+      } else if (
+        error.code === 16
+        || error.message.includes('credentials')
+      ) {
+        // Check if we're using ADC (no explicit credentials provided)
+        if (!this.credentials) {
+          errorMessage = 'Authentication failed';
+          errorTip = [
+            error.message,
+            'To fix this, choose one of the following:',
+            '  1. Run: `gcloud auth application-default login`',
+            '  2. Set GOOGLE_APPLICATION_CREDENTIALS environment variable to a service account JSON file path',
+            '  3. Provide credentials explicitly via @initGsm(credentials=$GCP_SA_KEY)',
+          ].join('\n');
+        } else {
+          errorMessage = 'Authentication failed with provided credentials';
+          errorTip = 'Verify that the service account JSON is valid and has the required permissions';
+        }
       } else if (error.message) {
         errorMessage = `Google Secret Manager error: ${error.message}`;
       }
@@ -168,26 +182,17 @@ plugin.registerRootDecorator({
     }
     const projectId = objArgs?.projectId ? String(objArgs.projectId.staticValue) : undefined;
 
-    // User should either be setting credentials, useADC, or both
-    if (!objArgs.credentials && !objArgs.useADC) {
-      throw new SchemaError('Either credentials or useADC must be set', {
-        tip: 'Provide credentials (service account JSON) or set useADC=true for Application Default Credentials',
-      });
-    }
-
     return {
       id,
       projectId,
       credentialsResolver: objArgs.credentials,
-      useADCResolver: objArgs.useADC,
     };
   },
   async execute({
-    id, projectId, credentialsResolver, useADCResolver,
+    id, projectId, credentialsResolver,
   }) {
     const credentials = await credentialsResolver?.resolve();
-    const enableADC = await useADCResolver?.resolve();
-    pluginInstances[id].setAuth(credentials, projectId, !!enableADC);
+    pluginInstances[id].setAuth(projectId, credentials);
   },
 });
 
