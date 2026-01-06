@@ -340,8 +340,6 @@ export class EnvGraph {
     const sources = Array.from(this.sortedDataSources).reverse();
     for (const s of sources) {
       if (s.disabled) continue;
-      // we skip root decorators if the file was being _partially_ imported
-      if (s.isPartialImport) continue;
       const dec = s.getRootDec(decoratorName);
       if (dec) return dec;
     }
@@ -352,8 +350,6 @@ export class EnvGraph {
     const sources = Array.from(this.sortedDataSources).reverse();
     for (const source of sources) {
       if (source.disabled) continue;
-      // we skip root decorators if the file was being _partially_ imported
-      if (source.isPartialImport) continue;
       const decs = source.getRootDecFns(decoratorName);
       allDecs.push(...decs);
     }
