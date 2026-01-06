@@ -168,6 +168,7 @@ export default defineConfig({
           items: [
             { label: 'Overview', slug: 'plugins/overview' },
             { label: '1Password', slug: 'plugins/1password' },
+            { label: 'GCP Secret Manager', slug: 'plugins/google-secret-manager' },
           ],
         },
         {
