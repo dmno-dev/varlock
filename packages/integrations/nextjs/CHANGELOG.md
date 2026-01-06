@@ -1,5 +1,11 @@
 # @varlock/nextjs-integration
 
+## 0.1.2
+
+### Patch Changes
+
+- [#231](https://github.com/dmno-dev/varlock/pull/231) [`419e676`](https://github.com/dmno-dev/varlock/commit/419e6767d62c24b2925bb0c2feb4de9ac8025aa6) Thanks [@theoephraim](https://github.com/theoephraim)! - dedupe loaded env files labels
+
 ## 0.1.1
 
 ### Patch Changes
