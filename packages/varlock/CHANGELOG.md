@@ -1,5 +1,11 @@
 # varlock
 
+## 0.1.4
+
+### Patch Changes
+
+- [#245](https://github.com/dmno-dev/varlock/pull/245) [`901fada`](https://github.com/dmno-dev/varlock/commit/901fada4e2aa2cc93dbd13441bdff37ab0896e2d) Thanks [@theoephraim](https://github.com/theoephraim)! - disable `@generateTypes` in imported files
+
 ## 0.1.3
 
 ### Patch Changes
@@ -200,6 +206,7 @@
 - [#11](https://github.com/dmno-dev/varlock/pull/11) [`aa034cd`](https://github.com/dmno-dev/varlock/commit/aa034cddfca7e21395e6627e063a9f6b78961dde) Thanks [@theoephraim](https://github.com/theoephraim)! - initial release, testing ci pipelines
 
 - [#28](https://github.com/dmno-dev/varlock/pull/28) [`f9cd0f4`](https://github.com/dmno-dev/varlock/commit/f9cd0f47a410642066dc986738bd45f24fc1f697) Thanks [@theoephraim](https://github.com/theoephraim)! - - always redact secrets in varlock load output
+
   - expose utilities for redaction that end users can use directly
   - expose function to enables global console patching
 
