@@ -22,13 +22,13 @@ That said, as a first step to adopting `varlock`, you could rely entirely on pro
 
 ### Loading environment-specific `.env` files
 
-`varlock` automatically detects all `.env.*` files in the current directory. However, any environment-specific files (e.g., `.env.development`) will only be loaded if they match the value of the _current environment_ as set by the [`@currentEnv`](/reference/root-decorators/#currentEnv) root decorator in your `.env.schema` file.
+Any environment-specific files (e.g., `.env.development`) will automatically be loaded if they match the value of the _current environment_ as set by the [`@currentEnv`](/reference/root-decorators/#currentenv) root decorator in your `.env.schema` file.
 
 The files are applied with a specific precedence (increasing):
 - `.env.schema` - your schema file, which can also contain default values
 - `.env` - will be loaded, but not recommended, instead use something more specific
-- `.env.[currentEnv]` - environment-specific values
 - `.env.local` - local overrides (gitignored)
+- `.env.[currentEnv]` - environment-specific values
 - `.env.[currentEnv].local` - environment-specific local overrides (gitignored)
 
 For example, consider the following `.env.schema`:
@@ -39,7 +39,7 @@ For example, consider the following `.env.schema`:
 APP_ENV=development
 ```
 
-Your environment flag key is set to `APP_ENV`, which has a default value of `development`. By default, `.env.development` and `.env.development.local` will be loaded if they exist.
+Your environment flag key is set to `APP_ENV`, which has a default value of `development` - meaning that `.env.development` and `.env.development.local` will be loaded if they exist.
 
 To tell `varlock` to load `.env.staging` instead, you must set `APP_ENV` to `staging` - usually using an override passed into the process. For example:
 
@@ -57,7 +57,10 @@ We chose to follow Vite's lead, and instead provide a way to explicitly opt-in t
 # @disable=forEnv(test)
 # ---
 ```
+:::
 
+:::note[Next.js precedence order]
+Unlike Varlock (which matches Vite and dotenv-flow), [Next.js](https://nextjs.org/docs/pages/guides/environment-variables#environment-variable-load-order) swaps the order of precedence for `.env.local` vs `.env.[currentEnv]`.
 :::
 
 ## Advanced logic using functions

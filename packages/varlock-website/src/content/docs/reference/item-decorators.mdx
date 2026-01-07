@@ -28,7 +28,7 @@ These are the item decorators that are built into Varlock. [Plugins](/guides/plu
 
 Sets whether an item is _required_ - meaning validation will fail if the value resolves to `undefined` or an empty string.
 
-Default behavior for all items within the same file can be toggled using the [`@defaultRequired` root decorator](/reference/root-decorators/#defaultRequired).
+Default behavior for all items within the same file can be toggled using the [`@defaultRequired` root decorator](/reference/root-decorators/#defaultrequired).
 
 💡 Use the [`forEnv()` function](/reference/functions/#forenv) to set required based on the current environment.
 
@@ -66,7 +66,7 @@ OPTIONAL_ITEM=
 
 Sets whether the item should be considered _sensitive_ - meaning it cannot be exposed to the public. The value will be always be redacted in CLI output, and client integrations can take further action to prevent leaks.
 
-Default behavior for all items can be set using the [`@defaultSensitive` root decorator](/reference/root-decorators/#defaultSensitive)
+Default behavior for all items can be set using the [`@defaultSensitive` root decorator](/reference/root-decorators/#defaultsensitive)
 
 ```env-spec
 # @sensitive
