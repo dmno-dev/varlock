@@ -121,11 +121,11 @@ ENV_TYPE=remap($APP_ENV, dev=regex("^dev.*"), prod="production")
 <div>
 ### `forEnv()`
 
-Resolves to a boolean, if the current [environment](/reference/root-decorators/#currentEnv) matches any in the
+Resolves to a boolean, if the current [environment](/reference/root-decorators/#currentenv) matches any in the
 list passed in as args.
 
 **Requirements:**
-- Requires an [`@currentEnv`](/reference/root-decorators/#currentEnv) to be set in your `.env.schema` file
+- Requires an [`@currentEnv`](/reference/root-decorators/#currentenv) to be set in your `.env.schema` file
 - Takes one or more environment names as arguments
 
 ```env-spec /forEnv\\(.*\\)/

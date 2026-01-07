@@ -194,7 +194,7 @@ By default, the environment flag is determined as follows (matching Next.js):
 Without a custom env flag, you cannot use non-production env files (like `.env.preview`, `.env.staging`) for non-prod deployments.
 :::
 
-Instead, we recommend explicitly setting your own environment flag using the [`@currentEnv` root decorator](/reference/root-decorators/#currentEnv), e.g. `APP_ENV`. See the [environments guide](/guides/environments) for more information.
+Instead, we recommend explicitly setting your own environment flag using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv), e.g. `APP_ENV`. See the [environments guide](/guides/environments) for more information.
 
 :::note[Loading `.env.local` in `test` environment]
 Next.js makes [a special exception](https://nextjs.org/docs/pages/guides/environment-variables#test-environment-variables) to skip loading `.env.local` if the current environment is `test`.
@@ -205,6 +205,10 @@ Varlock does not, but you may explicitly opt-in to that behavior:
 # @disable=forEnv(test)
 # ---
 ```
+:::
+
+:::note[Precedence of `.env.local` vs `.env.[currentEnv]`]
+Next.js swaps the order of precedence for `.env.local` vs `.env.[currentEnv]` compared to Varlock.
 :::
 
 ### Setting the environment flag
