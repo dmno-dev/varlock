@@ -1,5 +1,11 @@
 # varlock
 
+## 0.1.5
+
+### Patch Changes
+
+- [#252](https://github.com/dmno-dev/varlock/pull/252) [`2c91174`](https://github.com/dmno-dev/varlock/commit/2c91174404be57208a5a865ed9335f8985a3e11e) Thanks [@theoephraim](https://github.com/theoephraim)! - apply redaction to stdout and sterr in `varlock run`
+
 ## 0.1.4
 
 ### Patch Changes
