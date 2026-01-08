@@ -3,5 +3,6 @@
     "pflannery.vscode-versionlens",
     "antfu.pnpm-catalog-lens",
     "allemandinstable.colorful-comments-refreshed",
+    "dbaeumer.vscode-eslint",
   ]
 }
