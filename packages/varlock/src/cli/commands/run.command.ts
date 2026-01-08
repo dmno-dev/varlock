@@ -1,11 +1,12 @@
 import { execa, type ResultPromise } from 'execa';
 import which from 'which';
 import { define } from 'gunshi';
+import { gracefulExit } from 'exit-hook';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
-import { gracefulExit } from 'exit-hook';
+import { resetRedactionMap, redactSensitiveConfig } from '../../runtime/env';
 
 
 export const commandSpec = define({
@@ -55,6 +56,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // will fail above if there are any errors
 
   const resolvedEnv = envGraph.getResolvedEnvObject();
+  const serializedGraph = envGraph.getSerializedGraph();
   // console.log(resolvedEnv);
 
   // needs more thought here
@@ -62,13 +64,32 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     ...process.env,
     ...resolvedEnv,
     __VARLOCK_RUN: '1', // flag for a child process to detect it is runnign via `varlock run`
-    __VARLOCK_ENV: JSON.stringify(envGraph.getSerializedGraph()),
+    __VARLOCK_ENV: JSON.stringify(serializedGraph),
+  };
+
+  const redactLogs = serializedGraph.settings?.redactLogs ?? true;
+
+  // Initialize the redaction map if redaction is enabled
+  if (redactLogs) {
+    resetRedactionMap(serializedGraph);
+  }
+
+  // Helper to redact and write output
+  const writeRedacted = (stream: NodeJS.WriteStream, chunk: Buffer | string) => {
+    const str = chunk.toString();
+    stream.write(redactLogs ? redactSensitiveConfig(str) : str);
   };
 
   commandProcess = execa(pathAwareCommand || rawCommand, commandArgsOnly, {
-    stdio: 'inherit',
+    stdin: 'inherit',
+    stdout: 'pipe',
+    stderr: 'pipe',
     env: fullInjectedEnv,
   });
+
+  // Pipe stdout and stderr through redaction
+  commandProcess.stdout?.on('data', (chunk) => writeRedacted(process.stdout, chunk));
+  commandProcess.stderr?.on('data', (chunk) => writeRedacted(process.stderr, chunk));
   // console.log('PARENT PID = ', process.pid);
   // console.log('CHILD PID = ', commandProcess.pid);
 
