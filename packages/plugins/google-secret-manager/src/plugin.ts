@@ -20,9 +20,9 @@ class GsmPluginInstance {
   ) {
   }
 
-  setAuth(projectId?: string, credentials?: any) {
+  setAuth(projectId?: any, credentials?: any) {
     this.credentials = credentials;
-    this.projectId = projectId;
+    this.projectId = projectId ? String(projectId) : undefined;
     debug('gsm instance', this.id, 'set auth - projectId:', projectId, 'hasCredentials:', !!credentials);
   }
 
@@ -177,20 +177,16 @@ plugin.registerRootDecorator({
     }
     pluginInstances[id] = new GsmPluginInstance(id);
 
-    if (objArgs.projectId && !objArgs.projectId.isStatic) {
-      throw new SchemaError('Expected projectId to be static');
-    }
-    const projectId = objArgs?.projectId ? String(objArgs.projectId.staticValue) : undefined;
-
     return {
       id,
-      projectId,
+      projectIdResolver: objArgs.projectId,
       credentialsResolver: objArgs.credentials,
     };
   },
   async execute({
-    id, projectId, credentialsResolver,
+    id, projectIdResolver, credentialsResolver,
   }) {
+    const projectId = await projectIdResolver?.resolve();
     const credentials = await credentialsResolver?.resolve();
     pluginInstances[id].setAuth(projectId, credentials);
   },
