@@ -15,7 +15,7 @@ export const commandSpec = define({
     format: {
       type: 'enum',
       short: 'f',
-      choices: ['pretty', 'json', 'env', 'json-full', 'json-full-compact'],
+      choices: ['pretty', 'json', 'env', 'env-compact', 'json-full', 'json-full-compact'],
       description: 'Format of output',
       default: 'pretty',
     },
@@ -76,10 +76,17 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     console.log(JSON.stringify(envGraph.getResolvedEnvObject(), null, 2));
   } else if (format === 'json-full' || format === 'json-full-compact') {
     console.log(JSON.stringify(envGraph.getSerializedGraph(), null, format === 'json-full-compact' ? 0 : 2));
-  } else if (format === 'env') {
+  } else if (format === 'env' || format === 'env-compact') {
     const resolvedEnv = envGraph.getResolvedEnvObject();
+    const skipUndefined = format === 'env-compact';
+
     for (const key in resolvedEnv) {
       const value = resolvedEnv[key];
+
+      if (value === undefined && skipUndefined) {
+        continue;
+      }
+
       let strValue: string;
       if (value === undefined) {
         strValue = '';
