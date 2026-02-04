@@ -87,6 +87,9 @@ Executes a command in a child process, injecting your resolved and validated env
 varlock run -- <command>
 ```
 
+**Options:**
+- `--no-redact-stdout`: Disable stdout/stderr redaction to preserve TTY detection for interactive tools
+
 **Examples:**
 ```bash
 varlock run -- node app.js      # Run a Node.js application
@@ -99,6 +102,18 @@ Because of the way that shell expansion works, you may need to use use `sh -c` t
 varlock run -- echo $MY_VAR # ❌ will not work
 varlock run -- sh -c 'echo $MY_VAR' # ✅ will work
 ```
+:::
+
+:::note[Interactive tools and TTY detection]
+By default, `varlock run` pipes stdout/stderr through a redaction filter, which causes child processes to detect `!process.stdout.isTTY` and enter non-interactive mode. This can break interactive tools like `claude` or `psql` that require TTY detection.
+
+Use `--no-redact-stdout` to disable stdout/stderr redaction and preserve TTY detection:
+```bash
+varlock run --no-redact-stdout -- claude --env development
+varlock run --no-redact-stdout -- bash -c 'psql $DATABASE_URL'
+```
+
+Note: This flag only disables stdout/stderr redaction. Other redaction mechanisms (like console patching) may still apply if enabled in your configuration.
 :::
 
 </div>
