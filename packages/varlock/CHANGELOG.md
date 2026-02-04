@@ -1,5 +1,11 @@
 # varlock
 
+## 0.1.6
+
+### Patch Changes
+
+- [#268](https://github.com/dmno-dev/varlock/pull/268) [`d4b6b3d`](https://github.com/dmno-dev/varlock/commit/d4b6b3de52ba81e0a8d97339c27d70f0361d7f6a) Thanks [@philmillman](https://github.com/philmillman)! - add --no-redact-stdout flag to varlock run
+
 ## 0.1.5
 
 ### Patch Changes
