@@ -18,6 +18,10 @@ export const commandSpec = define({
     //   short: 'w',
     //   description: 'Watch mode',
     // },
+    'no-redact-stdout': {
+      type: 'boolean',
+      description: 'Disable stdout/stderr redaction to preserve TTY detection for interactive tools',
+    },
   },
 });
 
@@ -68,28 +72,38 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   };
 
   const redactLogs = serializedGraph.settings?.redactLogs ?? true;
+  const noRedactStdout = ctx.values['no-redact-stdout'] ?? false;
 
   // Initialize the redaction map if redaction is enabled
   if (redactLogs) {
     resetRedactionMap(serializedGraph);
   }
 
-  // Helper to redact and write output
-  const writeRedacted = (stream: NodeJS.WriteStream, chunk: Buffer | string) => {
-    const str = chunk.toString();
-    stream.write(redactLogs ? redactSensitiveConfig(str) : str);
-  };
+  // When --no-redact-stdout is set, use stdio: 'inherit' to preserve TTY detection
+  // Otherwise, pipe stdout/stderr through redaction
+  if (noRedactStdout) {
+    commandProcess = execa(pathAwareCommand || rawCommand, commandArgsOnly, {
+      stdio: 'inherit',
+      env: fullInjectedEnv,
+    });
+  } else {
+    // Helper to redact and write output
+    const writeRedacted = (stream: NodeJS.WriteStream, chunk: Buffer | string) => {
+      const str = chunk.toString();
+      stream.write(redactLogs ? redactSensitiveConfig(str) : str);
+    };
 
-  commandProcess = execa(pathAwareCommand || rawCommand, commandArgsOnly, {
-    stdin: 'inherit',
-    stdout: 'pipe',
-    stderr: 'pipe',
-    env: fullInjectedEnv,
-  });
+    commandProcess = execa(pathAwareCommand || rawCommand, commandArgsOnly, {
+      stdin: 'inherit',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: fullInjectedEnv,
+    });
 
-  // Pipe stdout and stderr through redaction
-  commandProcess.stdout?.on('data', (chunk) => writeRedacted(process.stdout, chunk));
-  commandProcess.stderr?.on('data', (chunk) => writeRedacted(process.stderr, chunk));
+    // Pipe stdout and stderr through redaction
+    commandProcess.stdout?.on('data', (chunk) => writeRedacted(process.stdout, chunk));
+    commandProcess.stderr?.on('data', (chunk) => writeRedacted(process.stderr, chunk));
+  }
   // console.log('PARENT PID = ', process.pid);
   // console.log('CHILD PID = ', commandProcess.pid);
 
