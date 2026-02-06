@@ -43,6 +43,7 @@
     "@types/node": "catalog:",
     "ansis": "catalog:",
     "npm-run-all": "^4.1.5",
+    "outdent": "catalog:",
     "peggy": "^5.0.6",
     "tsup": "catalog:",
     "vitest": "catalog:"

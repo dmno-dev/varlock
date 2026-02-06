@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import outdent from 'outdent';
 import {
   ParsedEnvSpecFunctionCall, ParsedEnvSpecFunctionArgs, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
 } from '../src';
@@ -87,10 +88,97 @@ describe('decorator parsing', () => {
     // obj args
     ['# @dec=decFn(k1=v1)', { dec: { fnName: 'decFn', fnArgs: { k1: 'v1' } } }],
     ['# @dec=decFn(k1=v1, k2="v2")', { dec: { fnName: 'decFn', fnArgs: { k1: 'v1', k2: 'v2' } } }],
-    // bar fn calls - ex: `@import(some/path)`
+    // bare fn calls - ex: `@import(some/path)`
     ['# @enableFoo()', { enableFoo: { fnName: undefined, fnArgs: [] } }],
     ['# @enableFoo(bar)', { enableFoo: { fnName: undefined, fnArgs: ['bar'] } }],
     ['# @import(../some/path)', { import: { fnName: undefined, fnArgs: ['../some/path'] } }],
+  ]));
+
+  describe('multi-line function calls', basicDecoratorTests([
+    {
+      label: 'multi-line @dec() call',
+      comments: outdent`
+        # @import(
+        #   ./.env.import,
+        #   ITEM1,
+        #   ITEM2,
+        # )
+      `,
+      expected: { import: { fnName: undefined, fnArgs: ['./.env.import', 'ITEM1', 'ITEM2'] } },
+    },
+    {
+      label: 'multi-line @dec=fn()',
+      comments: outdent`
+        # @dec=someFn(
+        #   arg1,
+        #   arg2
+        # )
+      `,
+      expected: { dec: { fnName: 'someFn', fnArgs: ['arg1', 'arg2'] } },
+    },
+    {
+      label: 'multi-line with key=value args',
+      comments: outdent`
+        # @config(
+        #   key1=val1,
+        #   key2="val2"
+        # )
+      `,
+      expected: { config: { fnName: undefined, fnArgs: { key1: 'val1', key2: 'val2' } } },
+    },
+    {
+      label: 'multi-line with varying indentation',
+      comments: outdent`
+        # @import(
+        #ITEM1,
+        #  ITEM2,
+        #    ITEM3
+        #)
+      `,
+      expected: { import: { fnName: undefined, fnArgs: ['ITEM1', 'ITEM2', 'ITEM3'] } },
+    },
+    {
+      label: 'multi-line decorator followed by another decorator on same closing line',
+      comments: outdent`
+        # @import(
+        #   ITEM1
+        # ) @required
+      `,
+      expected: {
+        import: { fnName: undefined, fnArgs: ['ITEM1'] },
+        required: true,
+      },
+    },
+    {
+      label: 'empty multi-line fn call',
+      comments: outdent`
+        # @doSomething(
+        # )
+      `,
+      expected: { doSomething: { fnName: undefined, fnArgs: [] } },
+    },
+    {
+      label: 'bad multi-line dec fn call (missing #)',
+      comments: outdent`
+        # @import(
+        ./.env.import,
+        #   ITEM1,
+        #   ITEM2,
+        # )
+      `,
+      expected: new Error(),
+    },
+    {
+      label: 'multi-line dec fn with commented interior line',
+      comments: outdent`
+        # @import(
+        #   ./.env.import,
+        # #  ITEM1,
+        #   ITEM2,
+        # )
+      `,
+      expected: new Error(),
+    },
   ]));
 
   describe('whitespace handling', basicDecoratorTests([
@@ -126,12 +214,12 @@ describe('decorator parsing', () => {
   describe('comments and line breaks', basicDecoratorTests([
     {
       label: 'mixed with comments ',
-      comments: [
-        '# comment before',
-        '# @dec1',
-        '# comment after',
-        '#@dec2',
-      ].join('\n'),
+      comments: outdent`
+        # comment before
+        # @dec1
+        # comment after
+        #@dec2
+      `,
       expected: { dec1: true, dec2: true },
     },
     {

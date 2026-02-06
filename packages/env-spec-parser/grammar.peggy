@@ -98,7 +98,7 @@ DecoratorComment =
 Decorator =
   "@" name:DecoratorName
   val:(
-    FunctionArgs
+    DecoratorFunctionArgs
     / "=" DecoratorValue
   )?
   {
@@ -114,7 +114,45 @@ Decorator =
 // we allow an ending ":", because we don't want to choke on pre-existing comments
 // but we will treat the entire line as a normal comment if we do see that
 DecoratorName = $([a-zA-Z] [a-zA-Z0-9_]*)
-DecoratorValue = FunctionCall / quotedString / unquotedStringWithoutSpaces
+DecoratorValue = DecoratorFunctionCall / quotedString / unquotedStringWithoutSpaces
+
+// Decorator-specific function call (supports multi-line with # continuation)
+DecoratorFunctionCall =
+  name:FunctionName
+  args:DecoratorFunctionArgs
+  {
+    return new ParsedEnvSpecFunctionCall({
+      name,
+      args,
+      _location: location(),
+    });
+  }
+
+// Function args within decorators - allows newline + # continuation
+DecoratorFunctionArgs =
+  "(" _decWs
+  values:(
+    (
+      (key:FunctionArgKeyName "=" val:DecoratorFunctionArgValue { return new ParsedEnvSpecKeyValuePair({ key, val })})
+      / DecoratorFunctionArgValue
+    )|1.., _decWs "," _decWs|
+  )?
+  (_decWs ",")? // optional trailing comma
+  _decWs ")"
+  {
+    return new ParsedEnvSpecFunctionArgs({
+      values: values || [],
+      _location: location(),
+    });
+  }
+
+DecoratorFunctionArgValue =
+  DecoratorFunctionCall
+  / quotedString
+  / $([^ \n,)]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
+
+// Whitespace within decorator function args - allows newline followed by # continuation
+_decWs = ([ \t] / "\n" [ \t]* "#" [ \t]*)*
 
 
 FunctionCall =
@@ -132,15 +170,17 @@ FunctionName = $([a-zA-Z] [a-zA-Z0-9_]*)
 
 // function args are a list, can be either array, or key/value, or mixed
 // fn(arr1, arry2, key=val, key2=val2)
+// Supports multi-line with plain newlines (for item values)
 FunctionArgs =
-  "(" _
+  "(" _valWs
   values:(
     (
       (key:FunctionArgKeyName "=" val:FunctionArgValue { return new ParsedEnvSpecKeyValuePair({ key, val })})
       / FunctionArgValue
-    )|1.., _ "," _|
+    )|1.., _valWs "," _valWs|
   )?
-  _ ")"
+  (_valWs ",")? // optional trailing comma
+  _valWs ")"
   {
     return new ParsedEnvSpecFunctionArgs({
       values: values || [],
@@ -152,8 +192,11 @@ FunctionArgKeyName = $([a-zA-Z] [a-zA-Z0-9_]*)
 FunctionArgValue =
   FunctionCall
   / quotedString
-  // slightly different here - can contain "#", cannot contain ")" or ","
+  // slightly different here - can contain "#", cannot contain ")" or "," or newline
   / $([^ \n,)]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
+
+// Whitespace within item value function args - allows plain newlines
+_valWs = [ \t\n]*
 
 Divider =
   "#" leadingSpace:$_ contents:$([-=*#]|3..| [^\n]*) _n
