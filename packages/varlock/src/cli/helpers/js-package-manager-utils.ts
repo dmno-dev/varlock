@@ -70,6 +70,7 @@ export function detectJsPackageManager(opts?: {
 }) {
   debug('Detecting js package manager');
   let cwd = opts?.cwd || process.cwd();
+  let multipleLockfilesDetected: Array<JsPackageManager> | undefined;
   do {
     debug(`> scanning ${cwd}`);
     let pm: JsPackageManager;
@@ -81,17 +82,19 @@ export function detectJsPackageManager(opts?: {
       );
 
       if (pathExistsSync(lockFilePath)) {
-        // if we find 2 lockfiles at the same level, we'll just return undefined
+        // if we find 2 lockfiles at the same level, store them and continue
         // this can happen in monorepos or when switching package managers
         if (detectedPm) {
-          debug(`> found multiple lockfiles: ${JS_PACKAGE_MANAGERS[pm].lockfile} and ${JS_PACKAGE_MANAGERS[detectedPm].lockfile} - unable to detect package manager`);
-          return undefined;
+          debug(`> found multiple lockfiles: ${JS_PACKAGE_MANAGERS[pm].lockfile} and ${JS_PACKAGE_MANAGERS[detectedPm].lockfile}`);
+          multipleLockfilesDetected = [detectedPm, pm];
+          break;
         }
         debug(`> found ${JS_PACKAGE_MANAGERS[pm].lockfile}`);
         detectedPm = pm;
       }
     }
-    if (detectedPm) return JS_PACKAGE_MANAGERS[detectedPm];
+    if (detectedPm && !multipleLockfilesDetected) return JS_PACKAGE_MANAGERS[detectedPm];
+    if (multipleLockfilesDetected) break;
 
     // will break when we reach the root
     const parentDir = path.dirname(cwd);
@@ -119,6 +122,12 @@ export function detectJsPackageManager(opts?: {
       debug(`> found ${pmFromAgent} using npm_config_user_agent`);
       return JS_PACKAGE_MANAGERS[pmFromAgent as JsPackageManager];
     }
+  }
+
+  // if we found multiple lockfiles and env var detection failed, return the first detected one
+  if (multipleLockfilesDetected) {
+    debug(`> using ${multipleLockfilesDetected[0]} from multiple detected lockfiles`);
+    return JS_PACKAGE_MANAGERS[multipleLockfilesDetected[0]];
   }
 
   if (opts?.exitIfNotFound) {
