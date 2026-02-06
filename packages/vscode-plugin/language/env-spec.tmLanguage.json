@@ -268,6 +268,38 @@
       ]
     },
     {
+      "comment": "Closing paren on its own line (multi-line fn call)",
+      "match": "^\\s*(\\))\\s*$",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.parameters.end.env-spec"
+        }
+      },
+      "name": "meta.function-call.env-spec"
+    },
+    {
+      "comment": "Multi-line function call continuation (for item values)",
+      "begin": "^(\\s+)(?!#)",
+      "end": "$",
+      "name": "meta.function-call.env-spec",
+      "patterns": [
+        { "include": "#literal-value" },
+        { "include": "#quoted-value" },
+        { "include": "#key-value-pair" },
+        { "include": "#env-item-value-fn-call" },
+        { "include": "#expansion" },
+        { "include": "#unquoted-string-within-fn-call" },
+        {
+          "match": "\\s*,\\s*",
+          "name": "punctuation.separator.comma.env-spec"
+        },
+        {
+          "match": "\\)",
+          "name": "punctuation.definition.parameters.end.env-spec"
+        }
+      ]
+    },
+    {
       "comment": "invalid line",
       "match": ".*",
       "name": "invalid"
@@ -485,6 +517,11 @@
             }
           },
           "patterns": [
+            {
+              "comment": "comment continuation for multi-line decorator fn call",
+              "match": "^\\s*#\\s*",
+              "name": "comment.line.env-spec punctuation.definition.comment"
+            },
             { "include": "#literal-value" },
             { "include": "#quoted-value" },
             { "include": "#key-value-pair" },
@@ -539,7 +576,7 @@
     "decorator-fn-call-value": {
       "comment": "Decorator function call value",
       "begin": "([a-zA-Z][a-zA-Z0-9]+)(\\()",
-      "end": "(\\))|$|\n",
+      "end": "(\\))",
       "name": "meta.function-call.env-spec variable.function.env-spec",
       "contentName": "variable.parameters.env-spec",
       "beginCaptures": {
@@ -556,6 +593,11 @@
         }
       },
       "patterns": [
+        {
+          "comment": "comment continuation for multi-line decorator fn call",
+          "match": "^\\s*#\\s*",
+          "name": "comment.line.env-spec punctuation.definition.comment"
+        },
         { "include": "#literal-value" },
         { "include": "#quoted-value" },
         { "include": "#key-value-pair" },

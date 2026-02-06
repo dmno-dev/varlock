@@ -1,0 +1,101 @@
+# SYNTAX TEST "source.env-spec" "Comprehensive grammar tests"
+
+# ======================
+# Basic env entries
+# ======================
+
+SIMPLE=value
+#^^^^^ entity.name.tag.env-spec
+#     ^ keyword.operator.assignment.env-spec
+#      ^^^^^ string.unquoted.env-spec
+
+QUOTED_DOUBLE="hello world"
+#^^^^^^^^^^^^ entity.name.tag.env-spec
+#            ^ keyword.operator.assignment.env-spec
+#             ^ punctuation.definition.string.begin
+#              ^^^^^^^^^^^ string.quoted.double.env-spec
+#                         ^ punctuation.definition.string.end
+
+QUOTED_SINGLE='hello world'
+#^^^^^^^^^^^^ entity.name.tag.env-spec
+#            ^ keyword.operator.assignment.env-spec
+#             ^ punctuation.definition.string.begin
+#              ^^^^^^^^^^^ string.quoted.single.env-spec
+
+QUOTED_BACKTICK=`hello world`
+#^^^^^^^^^^^^^^ entity.name.tag.env-spec
+#              ^ keyword.operator.assignment.env-spec
+#               ^ punctuation.definition.string.begin
+#                ^^^^^^^^^^^ string.quoted.other.env-spec
+
+EMPTY_VALUE=
+#^^^^^^^^^^ entity.name.tag.env-spec
+#          ^ keyword.operator.assignment.env-spec
+
+export EXPORTED=value
+#^^^^^^ keyword.control.export.env-spec
+#      ^^^^^^^^ entity.name.tag.env-spec
+
+# ======================
+# Single-line decorators (using <- for comment lines)
+# ======================
+
+# @required
+# <- comment.line.env-spec
+REQUIRED_VAR=test
+#^^^^^^^^^^^ entity.name.tag.env-spec
+
+# @sensitive @optional
+# <- comment.line.env-spec
+MULTI_DEC=test
+
+# @type=string
+# <- comment.line.env-spec
+TYPED_VAR=test
+
+# @example="foo bar"
+# <- comment.line.env-spec
+EXAMPLE_VAR=test
+
+# @default=someFn("arg")
+# <- comment.line.env-spec
+DEC_FN_VAR=test
+
+# ======================
+# Variable expansion
+# ======================
+
+REF_SIMPLE=$OTHER
+#          ^^^^^^ variable.function.env-spec
+
+REF_BRACKETED=${OTHER}
+#             ^^ punctuation.section.interpolation.env-spec
+#               ^^^^^ variable.function.env-spec
+
+EXEC_EXPANSION=$(echo hello)
+#              ^^ punctuation.section.interpolation.env-spec
+
+# ======================
+# Literal values
+# ======================
+
+BOOL_TRUE=true
+#         ^^^^ constant.language.boolean.env-spec
+
+BOOL_FALSE=false
+#          ^^^^^ constant.language.boolean.env-spec
+
+NUMERIC=123
+#       ^^^ constant.numeric.env-spec
+
+UNDEFINED_VAL=undefined
+#             ^^^^^^^^^ constant.language.undefined.env-spec
+
+# ======================
+# Edge cases
+# ======================
+
+FINAL_VAR=done
+#^^^^^^^^ entity.name.tag.env-spec
+#        ^ keyword.operator.assignment.env-spec
+#         ^^^^ string.unquoted.env-spec

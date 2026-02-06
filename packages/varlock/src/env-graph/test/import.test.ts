@@ -93,7 +93,12 @@ describe('@import', () => {
     test('can import specific keys', envFilesTest({
       files: {
         '.env.schema': outdent`
-          # @import(./.env.import, IMPORTED1, IMPORTED2, IMPORTED3)
+          # @import(
+          #   ./.env.import,
+          #   IMPORTED1,
+          #   IMPORTED2,
+          #   IMPORTED3
+          # )
           # ---
           ITEM1=value-from-.env.schema
         `,
