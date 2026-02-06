@@ -1,14 +1,16 @@
-import { asyncExec } from './exec-helpers';
+import { spawnAsync } from './exec-helpers';
+import { dirname } from 'node:path';
 
 export async function checkIsFileGitIgnored(path: string, warnIfNotGitRepo = false) {
   try {
-    await asyncExec(`git check-ignore ${path} -q`);
+    // Run git check-ignore from the directory containing the file to avoid path issues
+    await spawnAsync('git', ['check-ignore', path, '-q'], { cwd: dirname(path) });
     return true;
   } catch (err) {
-    const stderr = (err as any).stderr as string;
+    const stderr = (err as any).data as string;
     // git is not installed, so we can't check
     if (
-      (err as any).status === 127
+      (err as any).exitCode === 127
       || stderr.includes('not found')
       || stderr.includes('not recognized') // windows
     ) {
