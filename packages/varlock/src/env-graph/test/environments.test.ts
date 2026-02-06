@@ -204,7 +204,7 @@ describe('@currentEnv and .env.* file loading logic', () => {
     },
   }));
 
-  test('imported directory can use its own currentEnv', envFilesTest({
+  test('imported directory can use its own currentEnv - import everything', envFilesTest({
     files: {
       '.env.schema': outdent`
         # @currentEnv=$APP_ENV
@@ -212,23 +212,64 @@ describe('@currentEnv and .env.* file loading logic', () => {
         # ---
         APP_ENV=dev
       `,
+      '.env.dev': 'BASE_ITEM=dev-val',
+      '.env.prod': 'BASE_ITEM=prod-val',
       'dir/.env.schema': outdent`
         # @currentEnv=$APP_ENV2
         # ---
         APP_ENV2=prod
       `,
-      'dir/.env.dev': outdent`
-        IMPORTED_ITEM=dev
-      `,
-      'dir/.env.prod': outdent`
-        IMPORTED_ITEM=prod
-      `,
+      'dir/.env.dev': 'IMPORTED_ITEM=dev-val',
+      'dir/.env.prod': 'IMPORTED_ITEM=prod-val',
     },
     expectValues: {
-      IMPORTED_ITEM: 'prod',
+      BASE_ITEM: 'dev-val',
+      IMPORTED_ITEM: 'prod-val',
     },
   }));
-
+  test('imported directory can use its own currentEnv - with partial import', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # @import(./dir/, APP_ENV2, IMPORTED_ITEM)
+        # ---
+        APP_ENV=dev
+      `,
+      '.env.dev': 'BASE_ITEM=dev-val',
+      '.env.prod': 'BASE_ITEM=prod-val',
+      'dir/.env.schema': outdent`
+        # @currentEnv=$APP_ENV2
+        # ---
+        APP_ENV2=prod
+      `,
+      'dir/.env.dev': 'IMPORTED_ITEM=dev-val',
+      'dir/.env.prod': 'IMPORTED_ITEM=prod-val',
+    },
+    expectValues: {
+      BASE_ITEM: 'dev-val',
+      IMPORTED_ITEM: 'prod-val',
+    },
+  }));
+  test('imported directory with its own currentEnv must include env flag in import list', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # @import(./dir/, IMPORTED_ITEM)
+        # ---
+        APP_ENV=dev
+      `,
+      '.env.dev': 'BASE_ITEM=dev-val',
+      '.env.prod': 'BASE_ITEM=prod-val',
+      'dir/.env.schema': outdent`
+        # @currentEnv=$APP_ENV2
+        # ---
+        APP_ENV2=prod
+      `,
+      'dir/.env.dev': 'IMPORTED_ITEM=dev-val',
+      'dir/.env.prod': 'IMPORTED_ITEM=prod-val',
+    },
+    loadingError: true,
+  }));
   test('currentEnv can be set from an imported file', envFilesTest({
     files: {
       '.env.schema': outdent`
@@ -281,10 +322,14 @@ describe('@currentEnv and .env.* file loading logic', () => {
         # @currentEnv=$IMPORTED_APP_ENV
         # ---
         IMPORTED_APP_ENV=dev
+        IMPORTED_ITEM=bar
       `,
       '.env.dev': outdent`
         DEV_ITEM=dev-value
       `,
+    },
+    expectValues: {
+      IMPORTED_ITEM: 'bar',
     },
     expectNotInSchema: ['DEV_ITEM'],
   }));

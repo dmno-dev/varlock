@@ -4,7 +4,7 @@ import path from 'node:path';
 import _ from '@env-spec/utils/my-dash';
 import { tryCatch } from '@env-spec/utils/try-catch';
 import {
-  ParsedEnvSpecDecorator, ParsedEnvSpecFile, parseEnvSpecDotEnvFile,
+  ParsedEnvSpecDecorator, ParsedEnvSpecFile, ParsedEnvSpecFunctionCall, parseEnvSpecDotEnvFile,
 } from '@env-spec/parser';
 
 import { ConfigItem, type ConfigItemDef } from './config-item';
@@ -175,19 +175,35 @@ export abstract class EnvGraphDataSource {
       this._loadingError = new Error('Cannot use both @currentEnv and @envFlag decorators');
     }
     let envFlagItemKey: string | undefined;
+    let skipCurrentEnvProcessing = false;
     if (currentEnvDec) {
-      await currentEnvDec.process();
-      if (!currentEnvDec.decValueResolver) {
-        throw new Error('No resolver found for @currentEnv decorator');
+      // Peek at the ref target before processing to check if it's in the import keys
+      // This avoids a schema error when a file import has @currentEnv pointing to an un-imported key
+      // (for directories, we still want to error - that's handled in DirectoryDataSource._finishInit)
+      const parsedValue = currentEnvDec.parsedDecorator.value;
+      if (parsedValue instanceof ParsedEnvSpecFunctionCall && parsedValue.name === 'ref') {
+        const args = parsedValue.simplifiedArgs;
+        if (Array.isArray(args) && args.length > 0 && typeof args[0] === 'string') {
+          envFlagItemKey = args[0];
+          // If this is a partial import and the ref target is not importable, skip processing
+          // but still set the envFlagKey so directories can check it
+          // For files, @currentEnv won't take effect and forEnv will fall back to parent's env setting
+          if (this.isPartialImport && !this.importKeys?.includes(envFlagItemKey)) {
+            skipCurrentEnvProcessing = true;
+          }
+        }
       }
-      if (currentEnvDec.decValueResolver.fnName !== 'ref') {
-        throw new Error('Expected @currentEnv decorator to be set to direct reference - ie `$APP_ENV`');
+
+      // Only process the decorator if we're actually using this currentEnv
+      if (!skipCurrentEnvProcessing) {
+        await currentEnvDec.process();
+        if (!currentEnvDec.decValueResolver) {
+          throw new Error('No resolver found for @currentEnv decorator');
+        }
+        if (currentEnvDec.decValueResolver.fnName !== 'ref') {
+          throw new Error('Expected @currentEnv decorator to be set to direct reference - ie `$APP_ENV`');
+        }
       }
-      const refArgValue = currentEnvDec.decValueResolver.arrArgs?.[0]?.staticValue;
-      if (!refArgValue || !_.isString(refArgValue)) {
-        throw new Error('@currentEnv ref must be set to a string');
-      }
-      envFlagItemKey = refArgValue;
     } else if (envFlagDec) {
       await envFlagDec.process();
       if (!envFlagDec.decValueResolver) throw new Error('@envFlag resolver not set');
@@ -203,6 +219,8 @@ export abstract class EnvGraphDataSource {
         this._loadingError = new Error(`environment flag "${envFlagItemKey}" must be defined within this schema`);
         return;
       }
+      // Always set the envFlagKey so parent directories can check it
+      // (even if we're skipping processing for a file partial import)
       this.setEnvFlag(envFlagItemKey);
     }
 
@@ -565,7 +583,30 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     await this.addAutoLoadedFile('.env.local');
 
     // and finally load the env-specific files
-    const currentEnv = await this.resolveCurrentEnv() || this.envFlagValue;
+    // First check if our schema has its own envFlagKey (for partial imports with their own currentEnv)
+    // since for partial imports the schema's envFlag doesn't propagate to this directory
+    let currentEnv: string | undefined;
+    if (this.schemaDataSource?._envFlagKey) {
+      const envFlagKey = this.schemaDataSource._envFlagKey;
+      // Check if this is a partial import that forgot to include the env flag key
+      // (only for directories - files can fall back to parent's env setting for forEnv)
+      if (this.isPartialImport && !this.importKeys?.includes(envFlagKey)) {
+        this._loadingError = new Error(
+          `Imported directory has @currentEnv set to $${envFlagKey}, `
+          + `but "${envFlagKey}" is not included in the import list. `
+          + `Add "${envFlagKey}" to the @import() arguments.`,
+        );
+        return;
+      }
+      const envFlagItem = this.graph.configSchema[envFlagKey];
+      if (envFlagItem) {
+        if (!envFlagItem.resolvedValue) await envFlagItem.earlyResolve();
+        currentEnv = envFlagItem.resolvedValue?.toString();
+      }
+    }
+    // Fall back to parent chain or fallback value
+    currentEnv ||= (await this.resolveCurrentEnv())?.toString() || this.envFlagValue?.toString();
+
     if (currentEnv) {
       await this.addAutoLoadedFile(`.env.${currentEnv}`);
       await this.addAutoLoadedFile(`.env.${currentEnv}.local`);
