@@ -289,6 +289,12 @@ export abstract class EnvGraphDataSource {
           // Skip this import if it's not enabled
           if (!enabledValue) continue;
 
+          // Check if missing imports should be allowed (defaults to false if not specified)
+          const allowMissing = importArgs.obj.allowMissing ?? false;
+          if (!_.isBoolean(allowMissing)) {
+            throw new Error('expected @import allowMissing parameter to be a boolean');
+          }
+
           if (fullImportPath) {
             const fileName = path.basename(fullImportPath);
 
@@ -296,6 +302,7 @@ export abstract class EnvGraphDataSource {
             if (this.graph.virtualImports) {
               if (importPath.endsWith('/')) {
                 if (!Object.keys(this.graph.virtualImports).some((p) => p.startsWith(fullImportPath))) {
+                  if (allowMissing) continue;
                   this._loadingError = new Error(`Virtual directory import ${fullImportPath} not found`);
                   return;
                 }
@@ -305,6 +312,7 @@ export abstract class EnvGraphDataSource {
                 });
               } else {
                 if (!this.graph.virtualImports[fullImportPath]) {
+                  if (allowMissing) continue;
                   this._loadingError = new Error(`Virtual import ${fullImportPath} not found`);
                   return;
                 }
@@ -320,6 +328,7 @@ export abstract class EnvGraphDataSource {
               });
 
               if (!fsStat) {
+                if (allowMissing) continue;
                 this._loadingError = new Error(`Import path does not exist: ${fullImportPath}`);
                 return;
               }
