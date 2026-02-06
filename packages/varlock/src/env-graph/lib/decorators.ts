@@ -197,6 +197,7 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
       if (decVal.arrArgs.some((a) => !a.isStatic)) {
         throw new Error('@import decorator cannot use any dynamic values - all args must be static');
       }
+      // The 'enabled' named parameter is allowed and can be dynamic
     },
   },
   {
