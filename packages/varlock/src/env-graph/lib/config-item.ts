@@ -339,11 +339,11 @@ export class ConfigItem {
       const sensitiveDecs = def.itemDef.decorators?.filter((d) => d.name === 'sensitive' || d.name === 'public') || [];
       // NOTE - checks for duplicates and using sensitive+public together are already handled more generally
       const sensitiveDec = sensitiveDecs[0];
-      
+
       // Explicit per-item decorators
       if (sensitiveDec) {
         const usingPublic = sensitiveDec.name === 'public';
-        
+
         const sensitiveDecValue = await sensitiveDec.resolve();
         // can bail if the decorator value resolution failed
         if (sensitiveDec.schemaErrors.length) {

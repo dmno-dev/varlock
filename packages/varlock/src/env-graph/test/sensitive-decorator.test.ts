@@ -93,7 +93,7 @@ describe('@sensitive and @defaultSensitive tests', () => {
         TRUE: true, FALSE: false, UNDEF: true,
       },
     }));
-    
+
     test('dynamic @public works', envFilesTest({
       envFile: outdent`
         TRUE=  # @public=if(yes)
