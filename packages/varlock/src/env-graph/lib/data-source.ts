@@ -301,8 +301,9 @@ export abstract class EnvGraphDataSource {
             // TODO: might be nice to move this logic somewhere else
             if (this.graph.virtualImports) {
               if (importPath.endsWith('/')) {
-                if (!Object.keys(this.graph.virtualImports).some((p) => p.startsWith(fullImportPath))) {
-                  if (allowMissing) continue;
+                const dirExists = Object.keys(this.graph.virtualImports).some((p) => p.startsWith(fullImportPath));
+                if (!dirExists && allowMissing) continue;
+                if (!dirExists) {
                   this._loadingError = new Error(`Virtual directory import ${fullImportPath} not found`);
                   return;
                 }
@@ -311,8 +312,9 @@ export abstract class EnvGraphDataSource {
                   isImport: true, importKeys,
                 });
               } else {
-                if (!this.graph.virtualImports[fullImportPath]) {
-                  if (allowMissing) continue;
+                const fileExists = this.graph.virtualImports[fullImportPath];
+                if (!fileExists && allowMissing) continue;
+                if (!fileExists) {
                   this._loadingError = new Error(`Virtual import ${fullImportPath} not found`);
                   return;
                 }
@@ -327,8 +329,8 @@ export abstract class EnvGraphDataSource {
                 // TODO: work through possible error types here
               });
 
+              if (!fsStat && allowMissing) continue;
               if (!fsStat) {
-                if (allowMissing) continue;
                 this._loadingError = new Error(`Import path does not exist: ${fullImportPath}`);
                 return;
               }

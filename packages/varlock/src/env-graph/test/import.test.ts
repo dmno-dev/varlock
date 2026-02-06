@@ -432,7 +432,7 @@ describe('@import', () => {
       expectNotInSchema: ['ITEM2'],
     }));
 
-    test('error - allowMissing must be a boolean', envFilesTest({
+    test('allowMissing with non-boolean value errors', envFilesTest({
       files: {
         '.env.schema': outdent`
           # @import(./.env.import, allowMissing="yes")
