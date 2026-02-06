@@ -42,7 +42,7 @@ jobs:
       - name: Install node deps
         run: pnpm i
       - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@v2.3.5
+        uses: rharkor/caching-for-turbo@v2.3.11
       # ------------------------------------------------------------
 
       - name: get version from release tag
