@@ -26,6 +26,10 @@ export async function checkIsFileGitIgnored(path: string, warnIfNotGitRepo = fal
       }
       return false;
     }
+    // file is outside the current git repository (e.g., importing from home directory)
+    if (stderr.includes('is outside repository')) {
+      return undefined;
+    }
     // otherwise we'll let it throw since something else is happening
     throw err;
   }
