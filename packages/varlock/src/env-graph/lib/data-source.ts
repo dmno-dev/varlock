@@ -263,7 +263,7 @@ export abstract class EnvGraphDataSource {
           }
 
           // Check if the import is enabled/disabled using key-val option (defaults to true if not specified)
-          const enabledValue = importArgs.obj.enabled !== undefined ? importArgs.obj.enabled : true;
+          const enabledValue = importArgs.obj.enabled ?? true;
           if (!_.isBoolean(enabledValue)) {
             throw new Error('expected @import enabled parameter to be a boolean');
           }
