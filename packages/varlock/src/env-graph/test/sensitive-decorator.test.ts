@@ -43,6 +43,45 @@ describe('@sensitive and @defaultSensitive tests', () => {
     },
   }));
 
+  test('@public and @sensitive mark items properly', envFilesTest({
+    envFile: outdent`
+      SENSITIVE=        # @sensitive
+      SENSITIVE_TRUE=   # @sensitive=true
+      SENSITIVE_FALSE=  # @sensitive=false
+      SENSITIVE_UNDEF=  # @sensitive=undefined
+      PUBLIC=           # @public
+      PUBLIC_TRUE=      # @public=true
+      PUBLIC_FALSE=     # @public=false
+      PUBLIC_UNDEF=     # @public=undefined
+    `,
+    expectSensitive: {
+      SENSITIVE: true,
+      SENSITIVE_TRUE: true,
+      SENSITIVE_FALSE: false,
+      SENSITIVE_UNDEF: true, // stays as default
+      PUBLIC: false,
+      PUBLIC_TRUE: false,
+      PUBLIC_FALSE: true,
+      PUBLIC_UNDEF: true, // stays as default
+    },
+  }));
+
+  test('@public and @sensitive can be overridden', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        WAS_SENSITIVE= # @sensitive
+        WAS_PUBLIC=    # @public
+      `,
+      '.env': outdent`
+        WAS_SENSITIVE= # @public
+        WAS_PUBLIC=    # @sensitive
+      `,
+    },
+    expectSensitive: {
+      WAS_SENSITIVE: false, WAS_PUBLIC: true,
+    },
+  }));
+
   describe('dynamic @sensitive', () => {
     test('dynamic @sensitive works', envFilesTest({
       envFile: outdent`
@@ -52,6 +91,17 @@ describe('@sensitive and @defaultSensitive tests', () => {
       `,
       expectSensitive: {
         TRUE: true, FALSE: false, UNDEF: true,
+      },
+    }));
+
+    test('dynamic @public works', envFilesTest({
+      envFile: outdent`
+        TRUE=  # @public=if(yes)
+        FALSE= # @public=if(0)
+        UNDEF= # @public=if(true, undefined) # uses default
+      `,
+      expectSensitive: {
+        TRUE: false, FALSE: true, UNDEF: true,
       },
     }));
   });
