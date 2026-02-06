@@ -125,6 +125,8 @@ export function detectJsPackageManager(opts?: {
   }
 
   // if we found multiple lockfiles and env var detection failed, return the first detected one
+  // we choose the first one because the order is deterministic (based on the order in JS_PACKAGE_MANAGERS)
+  // and this provides a reasonable fallback when we can't determine the active package manager
   if (multipleLockfilesDetected) {
     debug(`> using ${multipleLockfilesDetected[0]} from multiple detected lockfiles`);
     return JS_PACKAGE_MANAGERS[multipleLockfilesDetected[0]];
