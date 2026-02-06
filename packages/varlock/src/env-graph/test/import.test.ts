@@ -346,4 +346,104 @@ describe('@import', () => {
       },
     }));
   });
+
+  describe('allowMissing flag', () => {
+    test('allowMissing=true with non-existent file does not error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.does-not-exist, allowMissing=true)
+          # ---
+          ITEM1=value-from-.env.schema
+        `,
+      },
+      expectValues: {
+        ITEM1: 'value-from-.env.schema',
+      },
+    }));
+
+    test('allowMissing=false with non-existent file errors', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.does-not-exist, allowMissing=false)
+          # ---
+          ITEM1=value-from-.env.schema
+        `,
+      },
+      loadingError: true,
+    }));
+
+    test('allowMissing=true with existing file imports normally', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, allowMissing=true)
+          # ---
+          ITEM1=value-from-.env.schema
+        `,
+        '.env.import': outdent`
+          ITEM2=value-from-.env.import
+        `,
+      },
+      expectValues: {
+        ITEM1: 'value-from-.env.schema',
+        ITEM2: 'value-from-.env.import',
+      },
+    }));
+
+    test('allowMissing=true with non-existent directory does not error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./missing-dir/, allowMissing=true)
+          # ---
+          ITEM1=value-from-.env.schema
+        `,
+      },
+      expectValues: {
+        ITEM1: 'value-from-.env.schema',
+      },
+    }));
+
+    test('allowMissing can be combined with enabled flag', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.does-not-exist, allowMissing=true, enabled=true)
+          # ---
+          ITEM1=value-from-.env.schema
+        `,
+      },
+      expectValues: {
+        ITEM1: 'value-from-.env.schema',
+      },
+    }));
+
+    test('allowMissing with enabled=false still skips import', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, allowMissing=true, enabled=false)
+          # ---
+          ITEM1=value-from-.env.schema
+        `,
+        '.env.import': outdent`
+          ITEM2=value-from-.env.import
+        `,
+      },
+      expectValues: {
+        ITEM1: 'value-from-.env.schema',
+      },
+      expectNotInSchema: ['ITEM2'],
+    }));
+
+    test('allowMissing with non-boolean value errors', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, allowMissing="yes")
+          # ---
+          ITEM1=value-from-.env.schema
+        `,
+        '.env.import': outdent`
+          ITEM2=value-from-.env.import
+        `,
+      },
+      loadingError: true,
+    }));
+  });
 });
