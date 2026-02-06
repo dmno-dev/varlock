@@ -19,6 +19,10 @@ export const commandSpec = define({
       description: 'Format of output',
       default: 'pretty',
     },
+    compact: {
+      type: 'boolean',
+      description: 'Use compact format (for json-full: no indentation, for env: skip undefined values)',
+    },
     'show-all': {
       type: 'boolean',
       description: 'When load is failing, show all items rather than only failing items',
@@ -44,7 +48,7 @@ Examples:
 
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
-  const { format, 'show-all': showAll } = ctx.values;
+  const { format, compact, 'show-all': showAll } = ctx.values;
 
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
@@ -87,11 +91,19 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   } else if (format === 'json') {
     console.log(JSON.stringify(envGraph.getResolvedEnvObject(), null, 2));
   } else if (format === 'json-full' || format === 'json-full-compact') {
-    console.log(JSON.stringify(envGraph.getSerializedGraph(), null, format === 'json-full-compact' ? 0 : 2));
+    const indent = format === 'json-full-compact' || compact ? 0 : 2;
+    console.log(JSON.stringify(envGraph.getSerializedGraph(), null, indent));
   } else if (format === 'env') {
     const resolvedEnv = envGraph.getResolvedEnvObject();
+    const skipUndefined = compact === true;
+
     for (const key in resolvedEnv) {
       const value = resolvedEnv[key];
+
+      if (value === undefined && skipUndefined) {
+        continue;
+      }
+
       let strValue: string;
       if (value === undefined) {
         strValue = '';
