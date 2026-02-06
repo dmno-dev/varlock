@@ -236,6 +236,10 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
     name: 'sensitive',
   },
   {
+    name: 'public',
+    incompatibleWith: ['sensitive'],
+  },
+  {
     name: 'type',
     useFnArgsResolver: true,
   },

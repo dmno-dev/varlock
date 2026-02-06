@@ -336,21 +336,26 @@ export class ConfigItem {
   private async processSensitive() {
     const sensitiveFromDataType = this.dataType?.isSensitive;
     for (const def of this.defs) {
-      const sensitiveDec = def.itemDef.decorators?.find((d) => d.name === 'sensitive');
+      const sensitiveDecs = def.itemDef.decorators?.filter((d) => d.name === 'sensitive' || d.name === 'public') || [];
+      // NOTE - checks for duplicates and using sensitive+public together are already handled more generally
+      const sensitiveDec = sensitiveDecs[0];
+      
+      // Explicit per-item decorators
       if (sensitiveDec) {
+        const usingPublic = sensitiveDec.name === 'public';
+        
         const sensitiveDecValue = await sensitiveDec.resolve();
         // can bail if the decorator value resolution failed
         if (sensitiveDec.schemaErrors.length) {
           return;
         }
         if (![true, false, undefined].includes(sensitiveDecValue)) {
-          throw new SchemaError('@sensitive must resolve to a boolean or undefined');
+          throw new SchemaError('@sensitive/@public must resolve to a boolean or undefined');
         }
         if (sensitiveDecValue !== undefined) {
-          this._isSensitive = sensitiveDecValue;
+          this._isSensitive = usingPublic ? !sensitiveDecValue : sensitiveDecValue;
           return;
         }
-        // TODO: do we want an opposite decorator similar to @required/@optional -- maybe @public?
       }
 
       // we skip `defaultSensitive` behaviour if the data type specifies sensitivity
