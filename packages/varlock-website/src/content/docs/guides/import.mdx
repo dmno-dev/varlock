@@ -74,49 +74,17 @@ By default, all items will be imported, but you may add a list of specific keys 
 
 ## Conditional imports
 
-The `@import()` decorator supports an optional `enabled` parameter that allows you to conditionally load env files based on boolean expressions. This is useful for environment-specific imports or feature flags.
+While you can use the [`@disable`](/reference/root-decorators/#disable) root decorator to disable a file _from within that file_, you can also use the `enabled` parameter of the `@import()` decorator to conditionally load the file.
 
-The `enabled` parameter accepts:
-- Static boolean values: `true` or `false`
-- Dynamic expressions using functions like [`eq()`](/reference/functions/#eq), [`not()`](/reference/functions/#not), or [`forEnv()`](/reference/functions/#forenv)
-- Any expression that evaluates to a boolean
+The `enabled` parameter accepts any expression that evaluates to a boolean. It can be combined with partial imports to only import specific keys from a file.
 
-When a variable is referenced in the `enabled` condition (e.g., `$ENV`), varlock automatically handles early resolution to ensure the variable's value is available before evaluating the condition.
-
-**Examples:**
-
-```env-spec
-# Import different files based on environment
-# @import(./.env.dev, enabled=eq($ENV, "dev"))
-# @import(./.env.prod, enabled=eq($ENV, "prod"))
-# ---
-ENV=dev
-```
-
-```env-spec
+**Example:**
+```env-spec title=".env.schema" /\(enabled=.*\)\\)/
 # Combine with partial imports
 # @import(./.env.features, FEATURE_X, enabled=eq($ENABLE_X, "true"))
 # ---
 ENABLE_X=true
 ```
-
-```env-spec
-# Use with forEnv() for environment-based imports
-# @currentEnv=$APP_ENV
-# @import(./.env.development, enabled=forEnv("development"))
-# @import(./.env.production, enabled=forEnv("production"))
-# ---
-APP_ENV=development
-```
-
-```env-spec
-# Complex conditions with not()
-# @import(./.env.optional, enabled=not(eq($SKIP_OPTIONAL, "true")))
-# ---
-SKIP_OPTIONAL=false
-```
-
-If `enabled` is not specified, it defaults to `true`, meaning the import will always be processed.
 
 ## Import precedence and merging multiple sources
 

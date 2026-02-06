@@ -27,8 +27,7 @@ When implementing a new feature or making significant changes, the PR should inc
 ### 4. Changeset
 - **Always** create a changeset file in `.changeset/` directory
 - Use semantic versioning: `minor` for new features, `patch` for bug fixes, `major` for breaking changes
-- Include clear description of the changes
-- Provide usage examples in the changeset
+- Include clear description of the changes, but keep it short
 - Format: Create a new `.md` file in `.changeset/` with:
   ```markdown
   ---
@@ -36,18 +35,15 @@ When implementing a new feature or making significant changes, the PR should inc
   ---
   
   Brief description of the change
-  
-  **Details about the change**
-  - Key feature 1
-  - Key feature 2
-  
-  **Example usage:**
-  \`\`\`env-spec
-  # Example code here
-  \`\`\`
+  (or use bullet list for multiple changes)
+- An empty changeset is needed for changes that do not affect any published packages
+  ```markdown
+  ---
+  ---
   ```
 
 ### 5. Code Review
+- Run `pnpm run lint:fix` and then resolve remaining lint errors
 - Run the code review tool before finalizing
 - Address any feedback from automated reviews
 
@@ -78,8 +74,8 @@ When updating documentation:
 
 ## Common Mistakes to Avoid
 
-1. ❌ Don't commit test files or temporary files (e.g., `.env.dev`, `.env.prod`)
-2. ❌ Don't skip creating a changeset for user-facing changes
+1. ❌ Don't commit test files or temporary files
+2. ❌ Don't skip creating a changeset for changes to published packages
 3. ❌ Don't forget to update documentation when adding new features
 4. ❌ Don't leave empty commits or unnecessary files in the PR
 5. ❌ Don't forget to run tests after making changes
