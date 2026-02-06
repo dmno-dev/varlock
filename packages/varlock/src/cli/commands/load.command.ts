@@ -28,6 +28,18 @@ export const commandSpec = define({
       description: 'Set the environment (e.g., production, development, etc) - will be overridden by @currentEnv in the schema if present',
     },
   },
+  examples: `
+Loads and validates environment variables according to your .env files, and prints the results.
+Useful for debugging locally, and in CI to print out a summary of env vars.
+
+Examples:
+  varlock load                    # Load and validate with pretty output
+  varlock load --env production   # Load for a specific environment
+  varlock load --format json      # Output in JSON format
+  varlock load --show-all         # Show all items when validation fails
+
+⚠️ Note: Setting @currentEnv in your .env.schema will override the --env flag
+  `.trim(),
 });
 
 

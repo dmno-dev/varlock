@@ -23,6 +23,21 @@ export const commandSpec = define({
       description: 'Disable stdout/stderr redaction to preserve TTY detection for interactive tools',
     },
   },
+  examples: `
+Executes a command in a child process, injecting your resolved and validated environment
+variables from your .env files. Useful when a code-level integration is not possible.
+
+Examples:
+  varlock run -- node app.js                 # Run a Node.js application
+  varlock run -- python script.py            # Run a Python script
+  varlock run -- sh -c 'echo $MY_VAR'        # Use shell expansion for env vars
+  varlock run --no-redact-stdout -- psql     # Preserve TTY for interactive tools
+
+📍 Important: Use -- to separate varlock options from your command
+
+💡 Tip: For shell expansion of env vars, use: sh -c 'your command here'
+💡 Tip: Use --no-redact-stdout for interactive tools (psql, claude, etc.)
+  `.trim(),
 });
 
 let commandProcess: ResultPromise | undefined;
