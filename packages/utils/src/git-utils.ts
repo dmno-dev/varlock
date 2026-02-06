@@ -3,7 +3,8 @@ import { dirname } from 'node:path';
 
 export async function checkIsFileGitIgnored(path: string, warnIfNotGitRepo = false) {
   try {
-    // Run git check-ignore from the directory containing the file to avoid path issues
+    // Use spawnAsync with array arguments to properly handle paths with spaces
+    // Pass cwd to run git from the file's directory
     await spawnAsync('git', ['check-ignore', path, '-q'], { cwd: dirname(path) });
     return true;
   } catch (err) {

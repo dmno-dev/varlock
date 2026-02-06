@@ -3,11 +3,12 @@ import {
 } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { execSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { checkIsFileGitIgnored } from '../src/git-utils';
 
 describe('checkIsFileGitIgnored', () => {
-  const testDir = '/tmp/git-utils-test-with spaces';
+  const testDir = path.join(tmpdir(), 'git-utils-test-with spaces');
   const testFile = path.join(testDir, 'test-file.txt');
   const ignoredFile = path.join(testDir, 'ignored-file.txt');
 
@@ -55,7 +56,7 @@ describe('checkIsFileGitIgnored', () => {
   });
 
   test('should return false for non-existent git repo with warning', async () => {
-    const nonGitPath = path.join('/tmp/non-git-dir-with spaces', 'file.txt');
+    const nonGitPath = path.join(tmpdir(), 'non-git-dir-with spaces', 'file.txt');
     mkdirSync(path.dirname(nonGitPath), { recursive: true });
     writeFileSync(nonGitPath, 'content');
 
