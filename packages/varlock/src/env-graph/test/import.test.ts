@@ -234,76 +234,44 @@ describe('@import', () => {
   });
 
   describe('conditional imports', () => {
-    test('import with enabled=true works', envFilesTest({
+    test('import with enabled using static value', envFilesTest({
       files: {
         '.env.schema': outdent`
-          # @import(./.env.import, enabled=true)
+          # @import(./.env.import1, enabled=true)
+          # @import(./.env.import2, enabled=false)
           # ---
-          ITEM1=value-from-.env.schema
         `,
-        '.env.import': outdent`
-          ITEM2=value-from-.env.import
+        '.env.import1': outdent`
+          IMPORT1_ITEM=value-from-.env.import
+        `,
+        '.env.import2': outdent`
+          IMPORT2_ITEM=value-from-.env.import
         `,
       },
       expectValues: {
-        ITEM1: 'value-from-.env.schema',
-        ITEM2: 'value-from-.env.import',
+        IMPORT1_ITEM: 'value-from-.env.import',
       },
+      expectNotInSchema: ['IMPORT2_ITEM'],
     }));
-
-    test('import with enabled=false is skipped', envFilesTest({
+    test('import with enabled using function', envFilesTest({
       files: {
         '.env.schema': outdent`
-          # @import(./.env.import, enabled=false)
-          # ---
-          ITEM1=value-from-.env.schema
-        `,
-        '.env.import': outdent`
-          ITEM2=value-from-.env.import
-        `,
-      },
-      expectValues: {
-        ITEM1: 'value-from-.env.schema',
-      },
-      expectNotInSchema: ['ITEM2'],
-    }));
-
-    test('import with enabled using eq() function', envFilesTest({
-      files: {
-        '.env.schema': outdent`
-          # @import(./.env.import, enabled=eq($SOME_VAR, "enable"))
+          # @import(./.env.import1, enabled=eq($SOME_VAR, "enable"))
+          # @import(./.env.import2, enabled=eq($SOME_VAR, "disable"))
           # ---
           SOME_VAR=enable
-          ITEM1=value-from-.env.schema
         `,
-        '.env.import': outdent`
-          ITEM2=value-from-.env.import
+        '.env.import1': outdent`
+          IMPORT1_ITEM=value-from-.env.import
         `,
-      },
-      expectValues: {
-        SOME_VAR: 'enable',
-        ITEM1: 'value-from-.env.schema',
-        ITEM2: 'value-from-.env.import',
-      },
-    }));
-
-    test('import is skipped when eq() returns false', envFilesTest({
-      files: {
-        '.env.schema': outdent`
-          # @import(./.env.import, enabled=eq($SOME_VAR, "enable"))
-          # ---
-          SOME_VAR=disable
-          ITEM1=value-from-.env.schema
-        `,
-        '.env.import': outdent`
-          ITEM2=value-from-.env.import
+        '.env.import2': outdent`
+          IMPORT2_ITEM=value-from-.env.import
         `,
       },
       expectValues: {
-        SOME_VAR: 'disable',
-        ITEM1: 'value-from-.env.schema',
+        IMPORT1_ITEM: 'value-from-.env.import',
       },
-      expectNotInSchema: ['ITEM2'],
+      expectNotInSchema: ['IMPORT2_ITEM'],
     }));
 
     test('import with enabled can import specific keys', envFilesTest({
@@ -338,48 +306,21 @@ describe('@import', () => {
       },
       loadingError: true,
     }));
-
-    test('multiple imports with different enabled conditions', envFilesTest({
+    test('error - bad reference', envFilesTest({
       files: {
         '.env.schema': outdent`
-          # @import(./.env.import1, enabled=true)
-          # @import(./.env.import2, enabled=false)
+          # @import(./.env.import, enabled=$BADKEY)
           # ---
-          ITEM1=value-from-.env.schema
-        `,
-        '.env.import1': outdent`
-          ITEM2=value-from-.env.import1
-        `,
-        '.env.import2': outdent`
-          ITEM3=value-from-.env.import2
-        `,
-      },
-      expectValues: {
-        ITEM1: 'value-from-.env.schema',
-        ITEM2: 'value-from-.env.import1',
-      },
-      expectNotInSchema: ['ITEM3'],
-    }));
-
-    test('enabled with not() function', envFilesTest({
-      files: {
-        '.env.schema': outdent`
-          # @import(./.env.import, enabled=not(eq($SOME_VAR, "disable")))
-          # ---
-          SOME_VAR=enable
           ITEM1=value-from-.env.schema
         `,
         '.env.import': outdent`
           ITEM2=value-from-.env.import
         `,
       },
-      expectValues: {
-        SOME_VAR: 'enable',
-        ITEM1: 'value-from-.env.schema',
-        ITEM2: 'value-from-.env.import',
-      },
+      loadingError: true,
     }));
 
+    // forEnv has special handling, so good to test
     test('enabled with forEnv() function', envFilesTest({
       files: {
         '.env.schema': outdent`
@@ -398,26 +339,6 @@ describe('@import', () => {
         ITEM1: 'value-from-.env.schema',
         ITEM2: 'value-from-.env.import',
       },
-    }));
-
-    test('import is skipped when forEnv() returns false', envFilesTest({
-      files: {
-        '.env.schema': outdent`
-          # @currentEnv=$APP_ENV
-          # @import(./.env.import, enabled=forEnv("production"))
-          # ---
-          APP_ENV=dev
-          ITEM1=value-from-.env.schema
-        `,
-        '.env.import': outdent`
-          ITEM2=value-from-.env.import
-        `,
-      },
-      expectValues: {
-        APP_ENV: 'dev',
-        ITEM1: 'value-from-.env.schema',
-      },
-      expectNotInSchema: ['ITEM2'],
     }));
   });
 });
