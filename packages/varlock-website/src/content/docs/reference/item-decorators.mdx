@@ -77,6 +77,20 @@ SERVICE_X_CLIENT_ID=
 </div>
 
 <div>
+### `@public`
+**Value type:** `boolean`
+
+Opposite of [`@sensitive`](#sensitive). Equivalent to writing `@sensitive=false`.
+
+```env-spec
+# @defaultSensitive=true
+# ---
+# @public
+PUBLIC_API_URL=https://api.example.com
+```
+</div>
+
+<div>
 ### `@type`
 **Value type:** [`data type`](/reference/data-types) (name only or function call)
 
