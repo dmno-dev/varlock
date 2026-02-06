@@ -38,7 +38,7 @@ Examples:
   varlock load --format json      # Output in JSON format
   varlock load --show-all         # Show all items when validation fails
 
-⚠️  Note: Setting @currentEnv in your .env.schema will override the --env flag
+⚠️ Note: Setting @currentEnv in your .env.schema will override the --env flag
   `.trim(),
 });
 
