@@ -81,12 +81,11 @@ export function detectJsPackageManager(opts?: {
       );
 
       if (pathExistsSync(lockFilePath)) {
-        // if we find 2 lockfiles at the same level, we throw an error
+        // if we find 2 lockfiles at the same level, we'll just return undefined
+        // this can happen in monorepos or when switching package managers
         if (detectedPm) {
-          throw new CliExitError('Found multiple js package manager lockfiles', {
-            details: `${JS_PACKAGE_MANAGERS[pm].lockfile} and ${JS_PACKAGE_MANAGERS[detectedPm].lockfile}`,
-            forceExit: true,
-          });
+          debug(`> found multiple lockfiles: ${JS_PACKAGE_MANAGERS[pm].lockfile} and ${JS_PACKAGE_MANAGERS[detectedPm].lockfile} - unable to detect package manager`);
+          return undefined;
         }
         debug(`> found ${JS_PACKAGE_MANAGERS[pm].lockfile}`);
         detectedPm = pm;
