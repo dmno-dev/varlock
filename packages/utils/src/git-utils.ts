@@ -8,12 +8,12 @@ export async function checkIsFileGitIgnored(path: string, warnIfNotGitRepo = fal
     await spawnAsync('git', ['check-ignore', path, '-q'], { cwd: dirname(path) });
     return true;
   } catch (err) {
-    const stderr = (err as any).data as string;
+    const errorOutput = (err as any).data as string;
     // git is not installed, so we can't check
     if (
       (err as any).exitCode === 127
-      || stderr.includes('not found')
-      || stderr.includes('not recognized') // windows
+      || errorOutput.includes('not found')
+      || errorOutput.includes('not recognized') // windows
     ) {
       return undefined;
     }
@@ -21,8 +21,8 @@ export async function checkIsFileGitIgnored(path: string, warnIfNotGitRepo = fal
     // other file related issues could throw this
     if ((err as any).code === 'ENOENT') return undefined;
     // `git check-ignore -q` exits with code 1 but no other error if is not ignored
-    if (stderr === '') return false;
-    if (stderr.includes('not a git repository')) {
+    if (errorOutput === '') return false;
+    if (errorOutput.includes('not a git repository')) {
       if (warnIfNotGitRepo) {
         // eslint-disable-next-line no-console
         console.log('🔶 Your code is not currently in a git repository - run `git init` to initialize a new repo.');

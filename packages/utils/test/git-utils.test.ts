@@ -57,13 +57,19 @@ describe('checkIsFileGitIgnored', () => {
 
   test('should return false for non-existent git repo with warning', async () => {
     const nonGitPath = path.join(tmpdir(), 'non-git-dir-with spaces', 'file.txt');
-    mkdirSync(path.dirname(nonGitPath), { recursive: true });
-    writeFileSync(nonGitPath, 'content');
+    try {
+      mkdirSync(path.dirname(nonGitPath), { recursive: true });
+      writeFileSync(nonGitPath, 'content');
 
-    const result = await checkIsFileGitIgnored(nonGitPath, true);
-    expect(result).toBe(false);
-
-    // Cleanup
-    rmSync(path.dirname(nonGitPath), { recursive: true, force: true });
+      const result = await checkIsFileGitIgnored(nonGitPath, true);
+      expect(result).toBe(false);
+    } finally {
+      // Cleanup
+      try {
+        rmSync(path.dirname(nonGitPath), { recursive: true, force: true });
+      } catch (err) {
+        // Ignore cleanup errors
+      }
+    }
   });
 });
