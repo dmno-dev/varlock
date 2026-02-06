@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import _ from '@env-spec/utils/my-dash';
 import { tryCatch } from '@env-spec/utils/try-catch';
-import { checkIsFileGitIgnored } from '@env-spec/utils/git-utils';
 import {
   ParsedEnvSpecDecorator, ParsedEnvSpecFile, parseEnvSpecDotEnvFile,
 } from '@env-spec/parser';
@@ -227,12 +227,23 @@ export abstract class EnvGraphDataSource {
           throw new Error('expected @import keys to all be strings');
         }
 
+        // determine the full import path based on path type
+        let fullImportPath: string | undefined;
         if (importPath.startsWith('./') || importPath.startsWith('../')) {
           // eslint-disable-next-line no-use-before-define
           if (!(this instanceof FileBasedDataSource)) {
             throw new Error('@import of files can only be used from a file-based data source');
           }
-          const fullImportPath = path.resolve(this.fullPath, '..', importPath);
+          fullImportPath = path.resolve(this.fullPath, '..', importPath);
+        } else if (importPath.startsWith('~/') || importPath === '~') {
+          // expand ~ to home directory (treat like absolute path)
+          fullImportPath = path.join(os.homedir(), importPath.slice(1));
+        } else if (importPath.startsWith('/')) {
+          // absolute path
+          fullImportPath = importPath;
+        }
+
+        if (fullImportPath) {
           const fileName = path.basename(fullImportPath);
 
           // TODO: might be nice to move this logic somewhere else
@@ -372,7 +383,6 @@ export abstract class EnvGraphDataSource {
 }
 
 export abstract class FileBasedDataSource extends EnvGraphDataSource {
-  isGitIgnored?: boolean;
   fullPath: string;
   fileName: string;
   rawContents?: string;
@@ -395,7 +405,6 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
     fullPath: string,
     opts?: {
       overrideContents?: string;
-      overrideGitIgnored?: boolean;
     },
   ) {
     super();
@@ -407,7 +416,6 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
     // easy way to allow tests to override contents or other non-standard ways of loading content
     if (opts?.overrideContents) {
       this.rawContents = opts.overrideContents;
-      this.isGitIgnored = opts.overrideGitIgnored;
     }
 
     // may may infer some properties from the file name
@@ -449,8 +457,6 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
         this._loadingError = new Error(`File does not exist: ${this.fullPath}`);
         return;
       }
-      // TODO: check perf on exec based check, possibly switch to `ignored` package
-      this.isGitIgnored = await checkIsFileGitIgnored(this.fullPath);
       this.rawContents = await fs.readFile(this.fullPath, 'utf8');
     }
     if (this.rawContents) await this._parseContents();
