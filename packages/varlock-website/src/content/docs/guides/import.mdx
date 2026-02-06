@@ -72,6 +72,20 @@ By default, all items will be imported, but you may add a list of specific keys 
 # @import(./.env.imported, KEY1, KEY2)
 ```
 
+## Conditional imports
+
+While you can use the [`@disable`](/reference/root-decorators/#disable) root decorator to disable a file _from within that file_, you can also use the `enabled` parameter of the `@import()` decorator to conditionally load the file.
+
+The `enabled` parameter accepts any expression that evaluates to a boolean. It can be combined with partial imports to only import specific keys from a file.
+
+**Example:**
+```env-spec title=".env.schema" /\(enabled=.*\)\\)/
+# Combine with partial imports
+# @import(./.env.features, FEATURE_X, enabled=eq($ENABLE_X, "true"))
+# ---
+ENABLE_X=true
+```
+
 ## Import precedence and merging multiple sources
 
 Varlock is designed to load multiple definitions for a single item and merge them together.

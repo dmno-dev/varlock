@@ -131,18 +131,22 @@ FOO=bar  # will be ignored
 
 <div>
 ### `@import()`
-**Arg types:** `[ path: string, ...keys?: string[] ]`
+**Arg types:** `[ path: string, ...keys?: string[] ]`  
+**Named args:** `enabled?: boolean`
 
 Imports other `.env` file(s) - useful for sharing config across monorepos and splitting up large schemas. _Can be called multiple times._
 
 You may import a specific file, or a directory of files - automatically loading all `.env.*` files appropriately according to the current environment flag.
 
+The optional `enabled` parameter allows conditional imports based on boolean expressions. It defaults to `true` if not specified.
+
 See the [imports guide](/guides/import/) for more details and advanced usage.
 
 ```env-spec
-# @import(./.env.imported)           # import a specific file
-# @import(./.env.other, KEY1, KEY2)  # import specific keys
-# @import(../shared-env/)            # import a directory
+# @import(./.env.imported)                        # import a specific file
+# @import(./.env.other, KEY1, KEY2)               # import specific keys
+# @import(../shared-env/)                         # import a directory
+# @import(./.env.dev, enabled=eq($ENV, "dev"))    # conditional import
 # ---
 
 # this definition is merged with any found in imports, but this one has more precedence

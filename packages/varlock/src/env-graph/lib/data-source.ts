@@ -238,98 +238,129 @@ export abstract class EnvGraphDataSource {
     const importDecs = this.getRootDecFns('import');
     if (importDecs.length) {
       for (const importDec of importDecs) {
-        const importArgs = await importDec.resolve();
-        const importPath = importArgs.arr[0];
-        const importKeys = importArgs.arr.slice(1);
-        if (!importKeys.every(_.isString)) {
-          throw new Error('expected @import keys to all be strings');
-        }
+        try {
+          // Process the import decorator to identify dependencies
+          await importDec.process();
 
-        // determine the full import path based on path type
-        let fullImportPath: string | undefined;
-        if (importPath.startsWith('./') || importPath.startsWith('../')) {
-          // eslint-disable-next-line no-use-before-define
-          if (!(this instanceof FileBasedDataSource)) {
-            throw new Error('@import of files can only be used from a file-based data source');
+          // Early resolve any dependencies in the enabled parameter
+          if (importDec.decValueResolver?.objArgs?.enabled) {
+            const enabledResolver = importDec.decValueResolver.objArgs.enabled;
+            const enabledDeps = enabledResolver.deps;
+
+            // Early resolve all dependencies
+            for (const depKey of enabledDeps) {
+              const depItem = this.graph.configSchema[depKey];
+              if (!depItem) {
+                throw new Error(`@import enabled parameter depends on non-existent item: ${depKey}`);
+              }
+              await depItem.earlyResolve();
+            }
           }
-          fullImportPath = path.resolve(this.fullPath, '..', importPath);
-        } else if (importPath.startsWith('~/') || importPath === '~') {
-          // expand ~ to home directory (treat like absolute path)
-          fullImportPath = path.join(os.homedir(), importPath.slice(1));
-        } else if (importPath.startsWith('/')) {
-          // absolute path
-          fullImportPath = importPath;
-        }
 
-        if (fullImportPath) {
-          const fileName = path.basename(fullImportPath);
+          const importArgs = await importDec.resolve();
+          const importPath = importArgs.arr[0];
+          const importKeys = importArgs.arr.slice(1);
+          if (!importKeys.every(_.isString)) {
+            throw new Error('expected @import keys to all be strings');
+          }
 
-          // TODO: might be nice to move this logic somewhere else
-
-          if (this.graph.virtualImports) {
-            if (importPath.endsWith('/')) {
-              if (!Object.keys(this.graph.virtualImports).some((p) => p.startsWith(fullImportPath))) {
-                this._loadingError = new Error(`Virtual directory import ${fullImportPath} not found`);
-                return;
-              }
-              // eslint-disable-next-line no-use-before-define
-              await this.addChild(new DirectoryDataSource(fullImportPath), {
-                isImport: true, importKeys,
-              });
-            } else {
-              if (!this.graph.virtualImports[fullImportPath]) {
-                this._loadingError = new Error(`Virtual import ${fullImportPath} not found`);
-                return;
-              }
-              // eslint-disable-next-line no-use-before-define
-              const source = new DotEnvFileDataSource(fullImportPath, {
-                overrideContents: this.graph.virtualImports[fullImportPath],
-              });
-              await this.addChild(source, { isImport: true, importKeys });
+          // determine the full import path based on path type
+          let fullImportPath: string | undefined;
+          if (importPath.startsWith('./') || importPath.startsWith('../')) {
+            // eslint-disable-next-line no-use-before-define
+            if (!(this instanceof FileBasedDataSource)) {
+              throw new Error('@import of files can only be used from a file-based data source');
             }
-          } else {
-            const fsStat = await tryCatch(async () => fs.stat(fullImportPath), (_err) => {
-              // TODO: work through possible error types here
-            });
+            fullImportPath = path.resolve(this.fullPath, '..', importPath);
+          } else if (importPath.startsWith('~/') || importPath === '~') {
+            // expand ~ to home directory (treat like absolute path)
+            fullImportPath = path.join(os.homedir(), importPath.slice(1));
+          } else if (importPath.startsWith('/')) {
+            // absolute path
+            fullImportPath = importPath;
+          }
 
-            if (!fsStat) {
-              this._loadingError = new Error(`Import path does not exist: ${fullImportPath}`);
-              return;
-            }
+          // Check if the import is enabled/disabled using key-val option (defaults to true if not specified)
+          const enabledValue = importArgs.obj.enabled ?? true;
+          if (!_.isBoolean(enabledValue)) {
+            throw new Error('expected @import enabled parameter to be a boolean');
+          }
 
-            // directory import -- must end with a "/" to make the intent clearer
-            if (importPath.endsWith('/')) {
-              if (fsStat.isDirectory()) {
+          // Skip this import if it's not enabled
+          if (!enabledValue) continue;
+
+          if (fullImportPath) {
+            const fileName = path.basename(fullImportPath);
+
+            // TODO: might be nice to move this logic somewhere else
+            if (this.graph.virtualImports) {
+              if (importPath.endsWith('/')) {
+                if (!Object.keys(this.graph.virtualImports).some((p) => p.startsWith(fullImportPath))) {
+                  this._loadingError = new Error(`Virtual directory import ${fullImportPath} not found`);
+                  return;
+                }
                 // eslint-disable-next-line no-use-before-define
                 await this.addChild(new DirectoryDataSource(fullImportPath), {
                   isImport: true, importKeys,
                 });
               } else {
-                this._loadingError = new Error(`Imported path ending with "/" is not a directory: ${fullImportPath}`);
-                return;
+                if (!this.graph.virtualImports[fullImportPath]) {
+                  this._loadingError = new Error(`Virtual import ${fullImportPath} not found`);
+                  return;
+                }
+                // eslint-disable-next-line no-use-before-define
+                const source = new DotEnvFileDataSource(fullImportPath, {
+                  overrideContents: this.graph.virtualImports[fullImportPath],
+                });
+                await this.addChild(source, { isImport: true, importKeys });
               }
-            // File import
             } else {
-              if (fsStat.isDirectory()) {
-                this._loadingError = new Error('Imported path is a directory, add trailing "/" to import');
-                return;
-              } else if (!fileName.startsWith('.env.')) {
-                this._loadingError = new Error('imported file must be a .env.* file');
+              const fsStat = await tryCatch(async () => fs.stat(fullImportPath), (_err) => {
+                // TODO: work through possible error types here
+              });
+
+              if (!fsStat) {
+                this._loadingError = new Error(`Import path does not exist: ${fullImportPath}`);
                 return;
               }
-              // TODO: once we have more file types, here we would detect the type and import it correctly
-              // eslint-disable-next-line no-use-before-define
-              await this.addChild(new DotEnvFileDataSource(fullImportPath), { isImport: true, importKeys });
+
+              // directory import -- must end with a "/" to make the intent clearer
+              if (importPath.endsWith('/')) {
+                if (fsStat.isDirectory()) {
+                  // eslint-disable-next-line no-use-before-define
+                  await this.addChild(new DirectoryDataSource(fullImportPath), {
+                    isImport: true, importKeys,
+                  });
+                } else {
+                  this._loadingError = new Error(`Imported path ending with "/" is not a directory: ${fullImportPath}`);
+                  return;
+                }
+              // File import
+              } else {
+                if (fsStat.isDirectory()) {
+                  this._loadingError = new Error('Imported path is a directory, add trailing "/" to import');
+                  return;
+                } else if (!fileName.startsWith('.env.')) {
+                  this._loadingError = new Error('imported file must be a .env.* file');
+                  return;
+                }
+                // TODO: once we have more file types, here we would detect the type and import it correctly
+                // eslint-disable-next-line no-use-before-define
+                await this.addChild(new DotEnvFileDataSource(fullImportPath), { isImport: true, importKeys });
+              }
             }
+          } else if (importPath.startsWith('http://') || importPath.startsWith('https://')) {
+            this._loadingError = new Error('http imports not supported yet');
+            return;
+          } else if (importPath.startsWith('npm:')) {
+            this._loadingError = new Error('npm imports not supported yet');
+            return;
+          } else {
+            this._loadingError = new Error('unsupported import type');
+            return;
           }
-        } else if (importPath.startsWith('http://') || importPath.startsWith('https://')) {
-          this._loadingError = new Error('http imports not supported yet');
-          return;
-        } else if (importPath.startsWith('npm:')) {
-          this._loadingError = new Error('npm imports not supported yet');
-          return;
-        } else {
-          this._loadingError = new Error('unsupported import type');
+        } catch (err) {
+          this._loadingError = err as Error;
           return;
         }
       }

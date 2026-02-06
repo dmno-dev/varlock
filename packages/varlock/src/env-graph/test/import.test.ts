@@ -237,4 +237,113 @@ describe('@import', () => {
       expectNotInSchema: ['ITEM_ONLY_IN_IMPORT1', 'ITEM_ONLY_IN_IMPORT2'],
     }));
   });
+
+  describe('conditional imports', () => {
+    test('import with enabled using static value', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import1, enabled=true)
+          # @import(./.env.import2, enabled=false)
+          # ---
+        `,
+        '.env.import1': outdent`
+          IMPORT1_ITEM=value-from-.env.import
+        `,
+        '.env.import2': outdent`
+          IMPORT2_ITEM=value-from-.env.import
+        `,
+      },
+      expectValues: {
+        IMPORT1_ITEM: 'value-from-.env.import',
+      },
+      expectNotInSchema: ['IMPORT2_ITEM'],
+    }));
+    test('import with enabled using function', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import1, enabled=eq($SOME_VAR, "enable"))
+          # @import(./.env.import2, enabled=eq($SOME_VAR, "disable"))
+          # ---
+          SOME_VAR=enable
+        `,
+        '.env.import1': outdent`
+          IMPORT1_ITEM=value-from-.env.import
+        `,
+        '.env.import2': outdent`
+          IMPORT2_ITEM=value-from-.env.import
+        `,
+      },
+      expectValues: {
+        IMPORT1_ITEM: 'value-from-.env.import',
+      },
+      expectNotInSchema: ['IMPORT2_ITEM'],
+    }));
+
+    test('import with enabled can import specific keys', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, IMPORTED1, enabled=true)
+          # ---
+          ITEM1=value-from-.env.schema
+        `,
+        '.env.import': outdent`
+          IMPORTED1=value-from-.env.import
+          SKIP1=foo
+        `,
+      },
+      expectValues: {
+        ITEM1: 'value-from-.env.schema',
+        IMPORTED1: 'value-from-.env.import',
+      },
+      expectNotInSchema: ['SKIP1'],
+    }));
+
+    test('error - enabled must be a boolean', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, enabled=123)
+          # ---
+          ITEM1=value-from-.env.schema
+        `,
+        '.env.import': outdent`
+          ITEM2=value-from-.env.import
+        `,
+      },
+      loadingError: true,
+    }));
+    test('error - bad reference', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, enabled=$BADKEY)
+          # ---
+          ITEM1=value-from-.env.schema
+        `,
+        '.env.import': outdent`
+          ITEM2=value-from-.env.import
+        `,
+      },
+      loadingError: true,
+    }));
+
+    // forEnv has special handling, so good to test
+    test('enabled with forEnv() function', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @currentEnv=$APP_ENV
+          # @import(./.env.import, enabled=forEnv("dev"))
+          # ---
+          APP_ENV=dev
+          ITEM1=value-from-.env.schema
+        `,
+        '.env.import': outdent`
+          ITEM2=value-from-.env.import
+        `,
+      },
+      expectValues: {
+        APP_ENV: 'dev',
+        ITEM1: 'value-from-.env.schema',
+        ITEM2: 'value-from-.env.import',
+      },
+    }));
+  });
 });
