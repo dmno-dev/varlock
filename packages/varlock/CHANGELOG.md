@@ -1,5 +1,34 @@
 # varlock
 
+## 0.2.0
+
+### Minor Changes
+
+- [#278](https://github.com/dmno-dev/varlock/pull/278) [`fe893e2`](https://github.com/dmno-dev/varlock/commit/fe893e2e0635eb42c46ee395b0054356767db10d) Thanks [@theoephraim](https://github.com/theoephraim)! - allow multi-line fn calls, both in decorator and item values
+
+- [#273](https://github.com/dmno-dev/varlock/pull/273) [`15b9c81`](https://github.com/dmno-dev/varlock/commit/15b9c81ac4941c4dbefb38812d0701274f4b4dad) Thanks [@copilot-swe-agent](https://github.com/apps/copilot-swe-agent)! - Add conditional `@import` with named `enabled` parameter
+
+### Patch Changes
+
+- [#274](https://github.com/dmno-dev/varlock/pull/274) [`c872e71`](https://github.com/dmno-dev/varlock/commit/c872e7169b71d73043104ca9e345a03accc24650) Thanks [@copilot-swe-agent](https://github.com/apps/copilot-swe-agent)! - Add `@public` item decorator as the counterpart to `@sensitive`, matching the pattern of `@required`/`@optional` decorator pairs
+
+- [#262](https://github.com/dmno-dev/varlock/pull/262) [`e5c7d24`](https://github.com/dmno-dev/varlock/commit/e5c7d24b59c6dd01780bf655cb0edb616d38c301) Thanks [@ya7010](https://github.com/ya7010)! - feat: add `--compact` flag `varlock load`.
+
+- [#271](https://github.com/dmno-dev/varlock/pull/271) [`bcba478`](https://github.com/dmno-dev/varlock/commit/bcba4788ca35f58c4c54266aba728c0d603617d2) Thanks [@copilot-swe-agent](https://github.com/apps/copilot-swe-agent)! - Improve CLI help text for all commands by adding detailed examples and usage guidance. Each command now includes comprehensive help information with usage examples, tips, and links to documentation.
+
+- [#270](https://github.com/dmno-dev/varlock/pull/270) [`558360a`](https://github.com/dmno-dev/varlock/commit/558360a99b72fd5a5a875e71cc6772ec13ffd936) Thanks [@theoephraim](https://github.com/theoephraim)! - - allow importing from ~
+
+  - remove git ignore checks as part of core loading logic, we can re-add in specific commands where necessary
+
+- [#281](https://github.com/dmno-dev/varlock/pull/281) [`50c4ad4`](https://github.com/dmno-dev/varlock/commit/50c4ad426d4e5fc90f9bee02c6b4c683433a733c) Thanks [@copilot-swe-agent](https://github.com/apps/copilot-swe-agent)! - Add allowMissing flag to @import decorator
+
+- [#275](https://github.com/dmno-dev/varlock/pull/275) [`c0d9942`](https://github.com/dmno-dev/varlock/commit/c0d994297289206c6f9516151a313b0a429dc454) Thanks [@copilot-swe-agent](https://github.com/apps/copilot-swe-agent)! - Fix package manager detection to handle multiple lockfiles gracefully. When multiple lockfiles are found (e.g., both package-lock.json and bun.lockb), the detection now:
+  1. First tries env var based detection (npm_config_user_agent) to respect the currently active package manager
+  2. If that fails, returns the first detected package manager as a fallback
+  3. No longer throws an error, preventing CLI crashes in monorepos or when switching package managers
+- Updated dependencies [[`fe893e2`](https://github.com/dmno-dev/varlock/commit/fe893e2e0635eb42c46ee395b0054356767db10d)]:
+  - @env-spec/parser@0.1.0
+
 ## 0.1.6
 
 ### Patch Changes

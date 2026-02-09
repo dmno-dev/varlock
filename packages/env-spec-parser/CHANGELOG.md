@@ -1,5 +1,11 @@
 # @env-spec/parser
 
+## 0.1.0
+
+### Minor Changes
+
+- [#278](https://github.com/dmno-dev/varlock/pull/278) [`fe893e2`](https://github.com/dmno-dev/varlock/commit/fe893e2e0635eb42c46ee395b0054356767db10d) Thanks [@theoephraim](https://github.com/theoephraim)! - allow multi-line fn calls, both in decorator and item values
+
 ## 0.0.8
 
 ### Patch Changes
