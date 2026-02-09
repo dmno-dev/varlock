@@ -1,0 +1,36 @@
+{
+  "name": "@varlock/ci-env-info",
+  "description": "Detect CI environment and normalize other data like environment, repo, branch, PR, commit, etc.",
+  "version": "0.1.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/ci-env-info"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest",
+    "test:ci": "vitest --run"
+  },
+  "keywords": ["ci", "environment", "detection", "github-actions", "vercel", "netlify", "env vars"],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

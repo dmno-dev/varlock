@@ -104,6 +104,14 @@
       "default": "./dist/plugin-lib.js"
     }
   },
+  "dependencies": {
+    "@env-spec/parser": "workspace:^",
+    "@varlock/ci-env-info": "workspace:^",
+    "debug": "catalog:",
+    "execa": "^9.6.0",
+    "semver": "^7.7.3",
+    "which": "^6.0.0"
+  },
   "devDependencies": {
     "@clack/core": "^1.0.0",
     "@clack/prompts": "^1.0.0",

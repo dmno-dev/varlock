@@ -10,3 +10,6 @@ export {
   VarlockError,
   ConfigLoadError, SchemaError, ValidationError, CoercionError, ResolutionError,
 } from './lib/errors';
+export {
+  BUILTIN_VARS, isBuiltinVar,
+} from './lib/builtin-vars';

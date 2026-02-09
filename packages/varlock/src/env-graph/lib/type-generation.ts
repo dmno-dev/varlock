@@ -174,7 +174,7 @@ export async function generateTsTypesSrc(graph: EnvGraph) {
 
   const exposedKeys: Array<string> = [];
   const exposedNonSensitiveKeys: Array<string> = [];
-  for (const itemKey in graph.configSchema) {
+  for (const itemKey of graph.sortedConfigKeys) {
     const configItem = graph.configSchema[itemKey];
     // generate the TS type for the item in the full schema
     tsSrc.push(...await getTsDefinitionForItem(configItem, 1));
