@@ -81,7 +81,9 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
 
 
 
-  const failingItems = _.filter(_.values(envGraph.configSchema), (item: ConfigItem) => item.validationState === 'error');
+  const failingItems = envGraph.sortedConfigKeys
+    .map((k) => envGraph.configSchema[k])
+    .filter((item) => item.validationState === 'error');
 
   // TODO: use service.isValid?
   if (failingItems.length > 0) {
@@ -99,7 +101,9 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
         ansis.italic.gray('(remove `--show-all` flag to hide)'),
       ]));
       console.error();
-      const validItems = _.filter(_.values(envGraph.configSchema), (i: ConfigItem) => !!i.isValid);
+      const validItems = envGraph.sortedConfigKeys
+        .map((k) => envGraph.configSchema[k])
+        .filter((i) => !!i.isValid);
       _.each(validItems, (item: ConfigItem) => {
         console.error(getItemSummary(item));
       });

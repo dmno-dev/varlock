@@ -84,7 +84,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   checkForConfigErrors(envGraph, { showAll });
 
   if (format === 'pretty') {
-    for (const itemKey in envGraph.configSchema) {
+    for (const itemKey of envGraph.sortedConfigKeys) {
       const item = envGraph.configSchema[itemKey];
       console.log(getItemSummary(item));
     }
