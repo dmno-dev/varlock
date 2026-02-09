@@ -289,13 +289,21 @@ export abstract class EnvGraphDataSource {
           // Skip this import if it's not enabled
           if (!enabledValue) continue;
 
+          // Check if missing imports should be allowed (defaults to false if not specified)
+          const allowMissing = importArgs.obj.allowMissing ?? false;
+          if (!_.isBoolean(allowMissing)) {
+            throw new Error('expected @import allowMissing parameter to be a boolean');
+          }
+
           if (fullImportPath) {
             const fileName = path.basename(fullImportPath);
 
             // TODO: might be nice to move this logic somewhere else
             if (this.graph.virtualImports) {
               if (importPath.endsWith('/')) {
-                if (!Object.keys(this.graph.virtualImports).some((p) => p.startsWith(fullImportPath))) {
+                const dirExists = Object.keys(this.graph.virtualImports).some((p) => p.startsWith(fullImportPath));
+                if (!dirExists && allowMissing) continue;
+                if (!dirExists) {
                   this._loadingError = new Error(`Virtual directory import ${fullImportPath} not found`);
                   return;
                 }
@@ -304,7 +312,9 @@ export abstract class EnvGraphDataSource {
                   isImport: true, importKeys,
                 });
               } else {
-                if (!this.graph.virtualImports[fullImportPath]) {
+                const fileExists = this.graph.virtualImports[fullImportPath];
+                if (!fileExists && allowMissing) continue;
+                if (!fileExists) {
                   this._loadingError = new Error(`Virtual import ${fullImportPath} not found`);
                   return;
                 }
@@ -319,6 +329,7 @@ export abstract class EnvGraphDataSource {
                 // TODO: work through possible error types here
               });
 
+              if (!fsStat && allowMissing) continue;
               if (!fsStat) {
                 this._loadingError = new Error(`Import path does not exist: ${fullImportPath}`);
                 return;

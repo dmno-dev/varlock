@@ -86,6 +86,26 @@ The `enabled` parameter accepts any expression that evaluates to a boolean. It c
 ENABLE_X=true
 ```
 
+## Optional imports
+
+By default, `@import()` will cause a loading error if the specified file or directory does not exist. You can use the `allowMissing` parameter to make an import optional - if the file or directory doesn't exist, it will be silently skipped without causing an error.
+
+The `allowMissing` parameter accepts a boolean value (defaults to `false`). It can be combined with partial imports and the `enabled` parameter.
+
+**Example:**
+```env-spec title=".env.schema"
+# Import if exists, skip if not
+# @import(./.env.local, allowMissing=true)
+# ---
+```
+
+**Combine with other parameters:**
+```env-spec title=".env.schema"
+# Optional partial import with conditional loading
+# @import(./.env.features, FEATURE_X, enabled=true, allowMissing=true)
+# ---
+```
+
 ## Import precedence and merging multiple sources
 
 Varlock is designed to load multiple definitions for a single item and merge them together.
