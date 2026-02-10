@@ -148,6 +148,7 @@ See the [imports guide](/guides/import/) for more details and advanced usage.
 # @import(./.env.imported)                        # import a specific file
 # @import(./.env.other, KEY1, KEY2)               # import specific keys
 # @import(../shared-env/)                         # import a directory
+# @import(~/.env.shared)                          # import from home directory
 # @import(./.env.dev, enabled=eq($ENV, "dev"))    # conditional import
 # @import(./.env.local, allowMissing=true)        # optional import (no error if missing)
 # ---
