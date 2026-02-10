@@ -18,7 +18,8 @@
     "changeset:add": "changeset add",
     "changeset:empty": "changeset add --empty",
     "changeset:version": "changeset version && pnpm lint:fix",
-    "changeset:publish": "pnpm build:libs && changeset publish"
+    "changeset:publish": "pnpm build:libs && changeset publish",
+    "release:create-missing-tags": "node scripts/create-missing-release-tags.js"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.1",
