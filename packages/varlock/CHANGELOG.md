@@ -1,5 +1,11 @@
 # varlock
 
+## 0.2.1
+
+### Patch Changes
+
+- [#283](https://github.com/dmno-dev/varlock/pull/283) [`95f9274`](https://github.com/dmno-dev/varlock/commit/95f9274a3179321656f6e6bd4248922745b64f16) Thanks [@theoephraim](https://github.com/theoephraim)! - Add `--path` / `-p` flag to `load` and `run` commands to specify a .env file or directory as the entry point
+
 ## 0.2.0
 
 ### Minor Changes
