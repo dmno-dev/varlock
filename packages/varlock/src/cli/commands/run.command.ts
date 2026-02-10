@@ -22,16 +22,23 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'Disable stdout/stderr redaction to preserve TTY detection for interactive tools',
     },
+    path: {
+      type: 'string',
+      short: 'p',
+      description: 'Path to a specific .env file or directory (with trailing slash) to use as the entry point',
+    },
   },
   examples: `
 Executes a command in a child process, injecting your resolved and validated environment
 variables from your .env files. Useful when a code-level integration is not possible.
 
 Examples:
-  varlock run -- node app.js                 # Run a Node.js application
-  varlock run -- python script.py            # Run a Python script
-  varlock run -- sh -c 'echo $MY_VAR'        # Use shell expansion for env vars
-  varlock run --no-redact-stdout -- psql     # Preserve TTY for interactive tools
+  varlock run -- node app.js                    # Run a Node.js application
+  varlock run -- python script.py               # Run a Python script
+  varlock run -- sh -c 'echo $MY_VAR'           # Use shell expansion for env vars
+  varlock run --no-redact-stdout -- psql        # Preserve TTY for interactive tools
+  varlock run --path .env.prod -- node app.js   # Use a specific .env file
+  varlock run --path ./config/ -- node app.js   # Use a specific directory
 
 📍 Important: Use -- to separate varlock options from your command
 
@@ -67,7 +74,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // console.log('running command', pathAwareCommand || rawCommand, commandArgsOnly);
 
 
-  const envGraph = await loadVarlockEnvGraph();
+  const envGraph = await loadVarlockEnvGraph({
+    entryFilePath: ctx.values.path,
+  });
   checkForSchemaErrors(envGraph);
   await envGraph.resolveEnvValues();
   checkForConfigErrors(envGraph);
