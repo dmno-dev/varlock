@@ -11,6 +11,7 @@ import { SimpleQueue } from './simple-queue';
 import { ResolutionError, SchemaError } from './errors';
 import type { EnvGraphDataSource } from './data-source';
 import { DecoratorInstance } from './decorators';
+import { isBuiltinVar } from './builtin-vars';
 
 const execAsync = promisify(exec);
 
@@ -361,6 +362,12 @@ export const RefResolver: typeof Resolver = createResolver({
     if (typeof refKey !== 'string') {
       throw new SchemaError('expects a string keyname passed in');
     }
+
+    // Auto-register builtin vars when referenced
+    if (isBuiltinVar(refKey) && !this.envGraph!.configSchema[refKey]) {
+      this.envGraph!.registerBuiltinVar(refKey);
+    }
+
     this.addDep(refKey);
     return refKey;
   },

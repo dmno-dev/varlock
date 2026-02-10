@@ -14,6 +14,7 @@ import { ParseError, SchemaError } from './errors';
 import { pathExists } from '@env-spec/utils/fs-utils';
 import { processPluginInstallDecorators } from './plugins';
 import { RootDecoratorInstance } from './decorators';
+import { isBuiltinVar } from './builtin-vars';
 
 const DATA_SOURCE_TYPES = Object.freeze({
   schema: {
@@ -215,10 +216,16 @@ export abstract class EnvGraphDataSource {
     }
 
     if (envFlagItemKey) {
-      if (!this.configItemDefs[envFlagItemKey]) {
+      if (!this.configItemDefs[envFlagItemKey] && !isBuiltinVar(envFlagItemKey)) {
         this._loadingError = new Error(`environment flag "${envFlagItemKey}" must be defined within this schema`);
         return;
       }
+
+      // If it's a builtin var, register it now
+      if (isBuiltinVar(envFlagItemKey)) {
+        this.graph.registerBuiltinVar(envFlagItemKey);
+      }
+
       // Always set the envFlagKey so parent directories can check it
       // (even if we're skipping processing for a file partial import)
       this.setEnvFlag(envFlagItemKey);

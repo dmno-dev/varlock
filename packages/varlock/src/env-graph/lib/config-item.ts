@@ -15,6 +15,7 @@ import {
   convertParsedValueToResolvers, type ResolvedValue, type Resolver, StaticValueResolver,
 } from './resolver';
 import { ItemDecoratorInstance } from './decorators';
+import { BUILTIN_VARS } from './builtin-vars';
 
 export type ConfigItemDef = {
   description?: string;
@@ -32,6 +33,9 @@ export type ConfigItemDefAndSource = {
 
 
 export class ConfigItem {
+  /** Whether this is a builtin VARLOCK_* variable */
+  isBuiltin?: boolean;
+
   constructor(
     readonly envGraph: EnvGraph,
     readonly key: string,
@@ -59,6 +63,11 @@ export class ConfigItem {
   get description() {
     for (const def of this.defs) {
       if (def.itemDef.description) return def.itemDef.description;
+    }
+    // Check builtin var description
+    if (this.isBuiltin) {
+      const builtinDef = BUILTIN_VARS[this.key];
+      if (builtinDef) return builtinDef.description;
     }
   }
 
@@ -101,6 +110,11 @@ export class ConfigItem {
     // special case for process.env overrides - always return the static value
     if (this.key in this.envGraph.overrideValues) {
       return new StaticValueResolver(this.envGraph.overrideValues[this.key]);
+    }
+
+    // check for builtin var resolver
+    if (this.isBuiltin && this.envGraph._builtinVarResolvers?.[this.key]) {
+      return this.envGraph._builtinVarResolvers[this.key];
     }
 
     for (const def of this.defs) {
@@ -262,6 +276,13 @@ export class ConfigItem {
   _isRequiredDynamic: boolean = false;
 
   private async processRequired() {
+    // Builtin vars are never required - their values may be undefined
+    // (e.g., VARLOCK_PR_NUMBER only has a value in PR context)
+    if (this.isBuiltin) {
+      this._isRequired = false;
+      return;
+    }
+
     try {
       for (const def of this.defs) {
         const requiredDecs = def.itemDef.decorators?.filter((d) => d.name === 'required' || d.name === 'optional') || [];
@@ -334,6 +355,12 @@ export class ConfigItem {
     return this._isSensitive;
   }
   private async processSensitive() {
+    // Builtin vars are never sensitive
+    if (this.isBuiltin) {
+      this._isSensitive = false;
+      return;
+    }
+
     const sensitiveFromDataType = this.dataType?.isSensitive;
     for (const def of this.defs) {
       const sensitiveDecs = def.itemDef.decorators?.filter((d) => d.name === 'sensitive' || d.name === 'public') || [];

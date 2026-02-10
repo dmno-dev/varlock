@@ -3,7 +3,7 @@ import path from 'node:path';
 import { ConfigItem } from './config-item';
 import { EnvGraphDataSource, FileBasedDataSource } from './data-source';
 
-import { BaseResolvers, type ResolverChildClass } from './resolver';
+import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
@@ -14,6 +14,8 @@ import {
 } from './decorators';
 import { getErrorLocation } from './error-location';
 import type { VarlockPlugin } from './plugins';
+import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
+import { BUILTIN_VARS } from './builtin-vars';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -131,6 +133,68 @@ export class EnvGraph {
 
     this.overrideValues = originalProcessEnv;
   }
+
+  /**
+   * Override for process.env used by builtin var detection.
+   * When set, builtin vars use this instead of the real process.env.
+   * Primarily useful for testing.
+   */
+  processEnvOverride?: Record<string, string | undefined>;
+
+  /** Cached CI env info, computed lazily from processEnvOverride or real process.env */
+  private _cachedCiEnv?: CiEnvInfo;
+  get ciEnvInfo(): CiEnvInfo {
+    this._cachedCiEnv ??= getCiEnv(this.processEnvOverride ?? process.env);
+    return this._cachedCiEnv;
+  }
+
+  /** The process env record used for builtin var detection */
+  get processEnvForBuiltins(): Record<string, string | undefined> {
+    return this.processEnvOverride ?? process.env;
+  }
+
+  /**
+   * Register a builtin VARLOCK_* variable.
+   * Creates a ConfigItem with a special resolver that calls the builtin var's resolver function.
+   */
+  registerBuiltinVar(key: string) {
+    const def = BUILTIN_VARS[key];
+    if (!def) throw new Error(`Unknown builtin var: ${key}`);
+
+    // Check if already registered
+    if (this.configSchema[key]) return;
+
+    // Need to capture `this` (the graph) for the resolver closure
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const graph = this;
+
+    // Create a special resolver for this builtin var
+    const BuiltinVarResolver = createResolver({
+      name: `\0builtin:${key}`,
+      description: def.description,
+      inferredType: 'string',
+      async resolve() {
+        return def.resolver(graph.ciEnvInfo, graph.processEnvForBuiltins);
+      },
+    });
+
+    // Create the ConfigItem
+    const item = new ConfigItem(this, key);
+    item.isBuiltin = true;
+    // Set data type directly since builtin vars are always strings
+    // (avoids needing async process() call)
+    item.dataType = this.dataTypesRegistry.string();
+
+    const resolver = new BuiltinVarResolver([], undefined, undefined);
+
+    this._builtinVarResolvers ??= {};
+    this._builtinVarResolvers[key] = resolver;
+
+    this.configSchema[key] = item;
+  }
+
+  /** Resolvers for builtin vars, keyed by var name */
+  _builtinVarResolvers?: Record<string, InstanceType<typeof import('./resolver').Resolver>>;
 
   async setRootDataSource(source: EnvGraphDataSource) {
     if (this.rootDataSource) throw new Error('root data source already set');
@@ -288,9 +352,20 @@ export class EnvGraph {
     return deferred;
   }
 
+  /** config keys with builtin vars first, then user-defined in schema order */
+  get sortedConfigKeys() {
+    const builtinKeys: Array<string> = [];
+    const userKeys: Array<string> = [];
+    for (const key in this.configSchema) {
+      if (this.configSchema[key].isBuiltin) builtinKeys.push(key);
+      else userKeys.push(key);
+    }
+    return [...builtinKeys, ...userKeys];
+  }
+
   getResolvedEnvObject() {
     const envObject: Record<string, any> = {};
-    for (const itemKey in this.configSchema) {
+    for (const itemKey of this.sortedConfigKeys) {
       const item = this.configSchema[itemKey];
       envObject[itemKey] = item.resolvedValue;
     }
@@ -311,7 +386,7 @@ export class EnvGraph {
         path: source instanceof FileBasedDataSource ? path.relative(this.basePath ?? '', source.fullPath) : undefined,
       });
     }
-    for (const itemKey in this.configSchema) {
+    for (const itemKey of this.sortedConfigKeys) {
       const item = this.configSchema[itemKey];
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,

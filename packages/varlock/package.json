@@ -85,6 +85,7 @@
   },
   "dependencies": {
     "@env-spec/parser": "workspace:^",
+    "@varlock/ci-env-info": "workspace:^",
     "debug": "catalog:",
     "execa": "^9.6.0",
     "semver": "^7.7.3",
