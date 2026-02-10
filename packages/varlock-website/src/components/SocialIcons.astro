@@ -4,6 +4,7 @@ import StarArrow from "./StarArrow.vue";
 ---
 
 <div class="custom-social-icons-wrapper">
+  <a href="/blog/" class="blog-nav-link"><img src="https://varlock-pixel-art.dmno.workers.dev/icons/scroll.png" alt="" class="blog-nav-icon" /> Blog</a>
   <div class="star-arrow-header">
     <StarArrow client:load />
   </div>
@@ -16,6 +17,35 @@ import StarArrow from "./StarArrow.vue";
     align-items: center;
     gap: 0.5rem;
     position: relative;
+  }
+  .blog-nav-link {
+    color: var(--sl-color-white);
+    text-decoration: none;
+    font-family: var(--font-pixel);
+    font-size: 1rem;
+    padding: 0.25rem 0;
+    margin-right: 0.75rem;
+    transition: color 0.2s;
+    white-space: nowrap;
+    border: none !important;
+    outline: none;
+    border-bottom: 2px solid transparent !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+  }
+  .blog-nav-link:hover {
+    color: var(--sl-color-text-accent);
+    border-bottom: 2px dotted var(--sl-color-text-accent) !important;
+  }
+  .blog-nav-icon {
+    height: 1.1em;
+    width: auto;
+    vertical-align: middle;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    margin-right: 0.15em;
   }
   .star-arrow-header {
     display: flex;

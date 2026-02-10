@@ -5,7 +5,6 @@ import Layout from "../layouts/Layout.astro";
 import { LinkButton, Code } from "@astrojs/starlight/components";
 import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
 import WorksWithLogoList from "../components/WorksWithLogoList.astro";
-
 import validationImg from "../assets/demo-images/failing-validation.png";
 import intellisenseImg from "../assets/demo-images/intellisense.png";
 import redactionImg from "../assets/demo-images/redaction.png";
@@ -65,6 +64,13 @@ XYZ_TOKEN=exec('op read "op://api-prod/xyz/auth-token"')
         <LinkButton href="getting-started/introduction">Get Started</LinkButton>
         <LinkButton href="reference/item-decorators">Reference Docs</LinkButton>
       </div>
+      <h2 style="justify-content: center;">
+        <img
+          src="https://varlock-pixel-art.dmno.workers.dev/effects/fire.gif"
+        />
+        Stay in the loop
+      </h2>
+      <EmailSignup client:load />
       <WorksWithLogoList />
       <div class="features-grid">
         <div>
@@ -227,8 +233,8 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
 
       <Code lang="bash" code={`varlock run -- python my_script.py`} />
       <p class="env-spec-example-note">
-        Use <code>varlock run</code> to inject resolved, validated env vars into
-        another process.
+        Use <code>varlock run</code> to inject resolved, validated env vars into another
+        process.
       </p>
 
       <EmailSignup client:load />

@@ -9,6 +9,7 @@ interface Props {
   showSearch?: boolean;
   showTableOfContents?: boolean;
   showSidebar?: boolean;
+  sidebar?: Array<any>;
 }
 
 const {
@@ -17,6 +18,7 @@ const {
   showSearch = true,
   showTableOfContents = false,
   showSidebar = false,
+  sidebar,
 } = Astro.props;
 
 ---
@@ -27,6 +29,7 @@ const {
     tableOfContents: showTableOfContents,
   }}
   hasSidebar={showSidebar}
+  {...(showSidebar ? { sidebar } : {})}
 >
   <slot />
 </StarlightPage>

@@ -1,0 +1,187 @@
+---
+import { getCollection, render } from "astro:content";
+import { Image } from "astro:assets";
+import Layout from "../../layouts/Layout.astro";
+
+export async function getStaticPaths() {
+  const posts = await getCollection("blog");
+  return posts.map((post) => ({
+    params: { slug: post.id },
+    props: { post },
+  }));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+
+const allPosts = (await getCollection("blog")).sort(
+  (a, b) => b.data.date.valueOf() - a.data.date.valueOf()
+);
+
+const sidebar = [
+  {
+    label: "Blog",
+    items: [
+      { label: "All Posts", link: "/blog/" },
+      ...allPosts.map((p) => ({
+        label: p.data.title,
+        link: `/blog/${p.id}/`,
+      })),
+    ],
+  },
+];
+---
+
+<Layout title={post.data.title} showSearch={false} showSidebar={true} sidebar={sidebar}>
+  <main>
+    <div class="blog-post-container">
+      <a href="/blog/" class="back-link">&larr; Back to blog</a>
+
+      <article class="blog-post">
+        {post.data.image && (
+          <div class="blog-post-hero">
+            <Image src={post.data.image} alt={post.data.title} />
+          </div>
+        )}
+        <header class="blog-post-header">
+          <time datetime={post.data.date.toISOString()}>
+            {post.data.date.toLocaleDateString("en-US", {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            })}
+          </time>
+          <h1>{post.data.title}</h1>
+          {post.data.authors && post.data.authors.length > 0 && (
+            <div class="blog-post-authors">
+              {post.data.authors.map((author) => (
+                <span class="author-name">{author.name}</span>
+              ))}
+            </div>
+          )}
+        </header>
+
+        <div class="blog-post-content sl-markdown-content">
+          <Content />
+        </div>
+      </article>
+
+      <a href="/blog/" class="back-link back-link-bottom">&larr; Back to blog</a>
+    </div>
+  </main>
+</Layout>
+
+<style is:global>
+  .blog-post-container {
+    max-width: 750px;
+    margin: 0 auto;
+    padding: 2rem 1rem;
+  }
+
+  a.back-link {
+    display: inline-block;
+    color: var(--sl-color-text-accent);
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 700;
+    margin-bottom: 2rem;
+    transition: color 0.2s;
+  }
+
+  a.back-link:hover {
+    color: var(--color-text-full-shade);
+    text-decoration: underline;
+  }
+
+  a.back-link.back-link-bottom {
+    margin-top: 3rem;
+    margin-bottom: 0;
+  }
+
+  .blog-post {
+    border: 1px dotted var(--brand-purple--t1);
+    position: relative;
+    background: var(--sl-color-bg);
+    box-shadow: 5px 5px 0px var(--brand-purple--t2);
+  }
+
+  .blog-post::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 10px;
+    height: 10px;
+    border-top: 2px dotted var(--brand-purple--t1);
+    border-left: 2px dotted var(--brand-purple--t1);
+  }
+
+  .blog-post::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 10px;
+    height: 10px;
+    border-bottom: 2px dotted var(--brand-purple--t1);
+    border-right: 2px dotted var(--brand-purple--t1);
+  }
+
+  .blog-post-hero {
+    border-bottom: 1px dotted var(--brand-purple--t1);
+  }
+
+  .blog-post-hero img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .blog-post-header {
+    padding: 2rem 2rem 1.5rem;
+    border-bottom: 1px dotted var(--brand-purple--t1);
+  }
+
+  .blog-post-header time {
+    display: block;
+    font-size: 0.875rem;
+    color: var(--brand-cyan--text);
+    font-family: var(--font-pixel);
+    margin-bottom: 0.75rem;
+  }
+
+  .blog-post-header h1 {
+    font-size: 2rem;
+    margin: 0 0 0.75rem 0;
+    text-align: left;
+  }
+
+  .blog-post-authors {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .blog-post-authors .author-name {
+    font-size: 0.875rem;
+    color: var(--brand-purple--text);
+    font-family: var(--font-pixel);
+  }
+
+  .blog-post-content {
+    padding: 2rem;
+    line-height: 1.8;
+  }
+
+  .blog-post-content p {
+    margin-bottom: 1.25rem;
+  }
+
+  .blog-post-content a {
+    color: var(--sl-color-text-accent);
+  }
+
+  .blog-post-content a:hover {
+    color: var(--color-text-full-shade);
+  }
+</style>
