@@ -1,0 +1,202 @@
+---
+import { getCollection } from "astro:content";
+import { Image } from "astro:assets";
+import Layout from "../../layouts/Layout.astro";
+
+const posts = (await getCollection("blog")).sort(
+  (a, b) => b.data.date.valueOf() - a.data.date.valueOf()
+);
+
+const sidebar = [
+  {
+    label: "Blog",
+    items: [
+      { label: "All Posts", link: "/blog/" },
+      ...posts.map((post) => ({
+        label: post.data.title,
+        link: `/blog/${post.id}/`,
+      })),
+    ],
+  },
+];
+---
+
+<Layout title="Blog" showSearch={false} showSidebar={true} sidebar={sidebar}>
+  <main>
+    <div class="blog-container">
+      <div class="blog-header">
+        <h1>
+          <img
+            src="https://varlock-pixel-art.dmno.workers.dev/icons/scroll.png"
+          />
+          Blog
+        </h1>
+        <p class="blog-subtitle">
+          Updates, guides, and tips from the Varlock team.
+        </p>
+      </div>
+
+      <div class="blog-list">
+        {posts.map((post) => (
+          <a href={`/blog/${post.id}/`} class="blog-card">
+            {post.data.image && (
+              <div class="blog-card-image">
+                <Image src={post.data.image} alt={post.data.title} />
+              </div>
+            )}
+            <div class="blog-card-text">
+              <time datetime={post.data.date.toISOString()}>
+                {post.data.date.toLocaleDateString("en-US", {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}
+              </time>
+              <h2>{post.data.title}</h2>
+              <p>{post.data.description}</p>
+              <span class="read-more">Read more &rarr;</span>
+            </div>
+          </a>
+        ))}
+      </div>
+    </div>
+  </main>
+</Layout>
+
+<style is:global>
+  .blog-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem 1rem;
+  }
+
+  .blog-header {
+    text-align: center;
+    margin-bottom: 3rem;
+  }
+
+  .blog-header h1 {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5em;
+    font-size: 50px;
+    margin-bottom: 0.5rem;
+  }
+
+  .blog-header h1 img {
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+  }
+
+  .blog-subtitle {
+    color: var(--sl-color-gray-3);
+    font-size: 1.125rem;
+  }
+
+  .blog-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+
+  @media screen and (max-width: 700px) {
+    .blog-list {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  a.blog-card {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: inherit;
+    border: 1px dotted var(--brand-purple--t1);
+    position: relative;
+    background: var(--sl-color-bg);
+    transition: transform 0.2s ease, border-color 0.2s ease;
+    box-shadow: 5px 5px 0px var(--brand-purple--t2);
+  }
+
+  a.blog-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--brand-purple);
+  }
+
+  a.blog-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 10px;
+    height: 10px;
+    border-top: 2px dotted var(--brand-purple--t1);
+    border-left: 2px dotted var(--brand-purple--t1);
+  }
+
+  a.blog-card::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 10px;
+    height: 10px;
+    border-bottom: 2px dotted var(--brand-purple--t1);
+    border-right: 2px dotted var(--brand-purple--t1);
+  }
+
+  .blog-card-image {
+    overflow: hidden;
+    border-bottom: 1px dotted var(--brand-purple--t1);
+    height: 180px;
+  }
+
+  .blog-card-image img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+  }
+
+  a.blog-card:hover .blog-card-image img {
+    transform: scale(1.03);
+  }
+
+  .blog-card-text {
+    padding: 1.5rem;
+  }
+
+  .blog-card-text time {
+    display: block;
+    font-size: 0.875rem;
+    color: var(--brand-cyan--text);
+    font-family: var(--font-pixel);
+    margin-bottom: 0.5rem;
+  }
+
+  .blog-card-text h2 {
+    font-size: 1.25rem;
+    margin: 0 0 0.5rem 0;
+    color: var(--color-text-full-shade);
+    display: block;
+    border: none !important;
+  }
+
+  .blog-card-text p {
+    color: var(--sl-color-gray-3);
+    margin: 0 0 0.75rem 0;
+    line-height: 1.6;
+  }
+
+  .blog-card-text .read-more {
+    color: var(--sl-color-text-accent);
+    font-size: 0.875rem;
+    font-weight: 700;
+  }
+
+  a.blog-card:hover .read-more {
+    text-decoration: underline;
+  }
+</style>

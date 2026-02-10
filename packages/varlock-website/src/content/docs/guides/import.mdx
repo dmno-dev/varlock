@@ -10,6 +10,7 @@ The [`@import()` root decorator](/reference/root-decorators/#import) allows you 
 # @import(./.env.imported)              # import specific file
 # @import(./env-dir/)                   # import directory
 # @import(./.env.partial, KEY1, KEY2)   # import specific keys
+# @import(~/.env.shared)                # import from home directory
 # ---
 ```
 
@@ -22,16 +23,24 @@ For now, all imported files must be `.env` files (and may contain @env-spec deco
 
 ### Single file
 
-- Path must begin with `./` or `../` or `/`
+- Path must begin with `./`, `../`, `/`, or `~/`
 - Imported file name must be begin with `.env.`
 
 ```env-spec
 # @import(./.env.common)
 ```
 
+:::tip[Home directory (`~`)]
+You can import files from your home directory using the `~/` prefix. This is useful for sharing personal configuration across multiple projects without placing files inside any specific repo.
+
+```env-spec
+# @import(~/.env.shared)
+```
+:::
+
 ### Directory
 
-- Path must begin with `./` or `../` or `/`
+- Path must begin with `./`, `../`, `/`, or `~/`
 - Path must end with a trailing `/`
 - Multiple `.env.*` files will be detected and loaded, based on the current environment flag, similar to what happens in the current directory (see [environments guide](/guides/environments#loading-environment-specific-env-files))
 - The environment flag value will be inherited, unless another `@currentEnv` is defined within the directory's `.env.schema`
