@@ -11,7 +11,7 @@ console.log('PUBLIC_VAR:', process.env.PUBLIC_VAR);
 console.log('SECRET_TOKEN:', process.env.SECRET_TOKEN);
 
 // Test 3: Log the secret in a sentence (should still be redacted)
-console.log('The secret is: ' + process.env.SECRET_TOKEN);
+console.log(`The secret is: ${process.env.SECRET_TOKEN}`);
 
 // Test 4: Verify expected values
 const errors = [];
@@ -30,7 +30,7 @@ if (process.env.SECRET_TOKEN !== 'super-secret-token-12345') {
 
 if (errors.length > 0) {
   console.error('\n❌ Errors:');
-  errors.forEach(err => console.error('  - ' + err));
+  errors.forEach((err) => console.error(`  - ${err}`));
   process.exit(1);
 }
 

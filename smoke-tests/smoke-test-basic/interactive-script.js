@@ -11,26 +11,26 @@ console.log('SECRET_TOKEN:', process.env.SECRET_TOKEN);
 
 // Test 2: Stderr output (errors often contain secrets)
 console.error('Step 2: Error output');
-console.error('Error connecting with token: ' + process.env.SECRET_TOKEN);
+console.error(`Error connecting with token: ${process.env.SECRET_TOKEN}`);
 
 // Test 3: Multiple writes to stdout
 process.stdout.write('Step 3: Multiple writes - ');
-process.stdout.write('Token value: ' + process.env.SECRET_TOKEN);
+process.stdout.write(`Token value: ${process.env.SECRET_TOKEN}`);
 process.stdout.write('\n');
 
 // Test 4: Multiple writes to stderr
 process.stderr.write('Step 4: Stderr writes - ');
-process.stderr.write('Failed auth with: ' + process.env.SECRET_TOKEN);
+process.stderr.write(`Failed auth with: ${process.env.SECRET_TOKEN}`);
 process.stderr.write('\n');
 
 // Test 5: Interleaved stdout/stderr
 console.log('Step 5: Interleaved output');
 console.log('PUBLIC_VAR:', process.env.PUBLIC_VAR);
-console.error('Secret in error: ' + process.env.SECRET_TOKEN);
+console.error(`Secret in error: ${process.env.SECRET_TOKEN}`);
 console.log('NODE_ENV:', process.env.NODE_ENV);
 
 // Test 6: Secret in the middle of a line
-console.log('Connection string: postgresql://user:' + process.env.SECRET_TOKEN + '@localhost/db');
+console.log(`Connection string: postgresql://user:${process.env.SECRET_TOKEN}@localhost/db`);
 
 // Verify the values are actually set correctly
 if (process.env.SECRET_TOKEN !== 'super-secret-token-12345') {

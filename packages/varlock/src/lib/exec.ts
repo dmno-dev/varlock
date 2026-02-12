@@ -1,7 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { Readable } from 'node:stream';
-import { join, delimiter, extname, isAbsolute } from 'node:path';
-import { existsSync, statSync, readFileSync, accessSync, constants as fsConstants } from 'node:fs';
+import {
+  join, delimiter, extname, isAbsolute,
+} from 'node:path';
+import {
+  existsSync, statSync, readFileSync, accessSync, constants as fsConstants,
+} from 'node:fs';
 
 interface ExecOptions {
   env?: NodeJS.ProcessEnv;
@@ -18,122 +22,6 @@ interface ExecResult {
   stderr?: Readable;
   pid?: number;
   kill: (signal?: number | NodeJS.Signals) => boolean;
-}
-
-/**
- * Simple command executor that replaces execa
- * Uses Node.js child_process.spawn under the hood
- */
-export function exec(
-  command: string,
-  args: Array<string>,
-  options: ExecOptions = {},
-): Promise<ExecResult> & {
-  stdout?: Readable;
-  stderr?: Readable;
-  pid?: number;
-  kill: (signal?: number | NodeJS.Signals) => boolean;
-} {
-  // Find command in PATH if it's not an absolute path
-  const resolvedCommand = findCommand(command);
-
-  // Check if we need shell on Windows for .cmd/.bat files
-  const needsShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolvedCommand);
-
-  let spawnCommand = resolvedCommand;
-  let spawnArgs = args;
-  const spawnOptions: any = {
-    env: options.env || process.env,
-    shell: false,
-  };
-
-  // On Windows, wrap .cmd/.bat in cmd.exe
-  if (needsShell) {
-    spawnArgs = ['/d', '/s', '/c', `"${resolvedCommand}" ${args.map((a) => `"${a}"`).join(' ')}`];
-    spawnCommand = process.env.comspec || 'cmd.exe';
-    spawnOptions.windowsVerbatimArguments = true;
-  }
-
-  // Normalize stdio options
-  let stdio: 'inherit' | ['inherit' | 'pipe', 'inherit' | 'pipe', 'inherit' | 'pipe'];
-  if (options.stdio === 'inherit') {
-    stdio = 'inherit';
-  } else if (options.stdio === 'pipe') {
-    stdio = ['pipe', 'pipe', 'pipe'];
-  } else if (options.stdio) {
-    stdio = options.stdio as ['inherit' | 'pipe', 'inherit' | 'pipe', 'inherit' | 'pipe'];
-  } else {
-    // Default based on individual stdin/stdout/stderr
-    stdio = [
-      options.stdin || 'inherit',
-      options.stdout || 'inherit',
-      options.stderr || 'inherit',
-    ] as ['inherit' | 'pipe', 'inherit' | 'pipe', 'inherit' | 'pipe'];
-  }
-
-  spawnOptions.stdio = stdio;
-
-  const childProcess: ChildProcess = spawn(spawnCommand, spawnArgs, spawnOptions);
-
-  const result: Partial<ExecResult> = {
-    stdout: childProcess.stdout || undefined,
-    stderr: childProcess.stderr || undefined,
-    pid: childProcess.pid,
-    kill: (signal?: number | NodeJS.Signals) => childProcess.kill(signal),
-  };
-
-  const promise = new Promise<ExecResult>((resolve, reject) => {
-    let errorEmitted = false;
-
-    childProcess.on('error', (error) => {
-      errorEmitted = true;
-      reject(
-        Object.assign(error, {
-          exitCode: 1,
-          ...result,
-        }),
-      );
-    });
-
-    childProcess.on('exit', (code, signal) => {
-      // Windows special case: exit code 1 without error event might be ENOENT
-      if (process.platform === 'win32' && code === 1 && !errorEmitted && !existsSync(resolvedCommand)) {
-        const error: any = new Error(`Command not found: ${command}`);
-        error.code = 'ENOENT';
-        error.exitCode = 1;
-        Object.assign(error, result);
-        reject(error);
-        return;
-      }
-
-      const exitCode = code ?? (signal ? 1 : 0);
-      const exitResult: ExecResult = {
-        exitCode,
-        signal: signal || undefined,
-        ...result,
-      } as ExecResult;
-
-      if (exitCode !== 0) {
-        const error: any = new Error(`Command failed with exit code ${exitCode}`);
-        error.exitCode = exitCode;
-        error.signal = signal;
-        Object.assign(error, result);
-        reject(error);
-      } else {
-        resolve(exitResult);
-      }
-    });
-  }) as Promise<ExecResult> & Partial<ExecResult> & { kill: (signal?: number | NodeJS.Signals) => boolean };
-
-  // Attach stream properties and methods to the promise
-  Object.assign(promise, result);
-
-  return promise as Promise<ExecResult> & {
-    stdout?: Readable;
-    stderr?: Readable;
-    pid?: number;
-    kill: (signal?: number | NodeJS.Signals) => boolean;
-  };
 }
 
 /**
@@ -265,4 +153,122 @@ function findCommand(command: string): string {
 
   // If not found, return the command as-is and let spawn handle the error
   return command;
+}
+
+
+
+/**
+ * Simple command executor that replaces execa
+ * Uses Node.js child_process.spawn under the hood
+ */
+export function exec(
+  command: string,
+  args: Array<string>,
+  options: ExecOptions = {},
+): Promise<ExecResult> & {
+  stdout?: Readable;
+  stderr?: Readable;
+  pid?: number;
+  kill: (signal?: number | NodeJS.Signals) => boolean;
+} {
+  // Find command in PATH if it's not an absolute path
+  const resolvedCommand = findCommand(command);
+
+  // Check if we need shell on Windows for .cmd/.bat files
+  const needsShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolvedCommand);
+
+  let spawnCommand = resolvedCommand;
+  let spawnArgs = args;
+  const spawnOptions: any = {
+    env: options.env || process.env,
+    shell: false,
+  };
+
+  // On Windows, wrap .cmd/.bat in cmd.exe
+  if (needsShell) {
+    spawnArgs = ['/d', '/s', '/c', `"${resolvedCommand}" ${args.map((a) => `"${a}"`).join(' ')}`];
+    spawnCommand = process.env.comspec || 'cmd.exe';
+    spawnOptions.windowsVerbatimArguments = true;
+  }
+
+  // Normalize stdio options
+  let stdio: 'inherit' | ['inherit' | 'pipe', 'inherit' | 'pipe', 'inherit' | 'pipe'];
+  if (options.stdio === 'inherit') {
+    stdio = 'inherit';
+  } else if (options.stdio === 'pipe') {
+    stdio = ['pipe', 'pipe', 'pipe'];
+  } else if (options.stdio) {
+    stdio = options.stdio as ['inherit' | 'pipe', 'inherit' | 'pipe', 'inherit' | 'pipe'];
+  } else {
+    // Default based on individual stdin/stdout/stderr
+    stdio = [
+      options.stdin || 'inherit',
+      options.stdout || 'inherit',
+      options.stderr || 'inherit',
+    ] as ['inherit' | 'pipe', 'inherit' | 'pipe', 'inherit' | 'pipe'];
+  }
+
+  spawnOptions.stdio = stdio;
+
+  const childProcess: ChildProcess = spawn(spawnCommand, spawnArgs, spawnOptions);
+
+  const result: Partial<ExecResult> = {
+    stdout: childProcess.stdout || undefined,
+    stderr: childProcess.stderr || undefined,
+    pid: childProcess.pid,
+    kill: (signal?: number | NodeJS.Signals) => childProcess.kill(signal),
+  };
+
+  const promise = new Promise<ExecResult>((resolve, reject) => {
+    let errorEmitted = false;
+
+    childProcess.on('error', (error) => {
+      errorEmitted = true;
+      reject(
+        Object.assign(error, {
+          exitCode: 1,
+          ...result,
+        }),
+      );
+    });
+
+    childProcess.on('exit', (code, signal) => {
+      // Windows special case: exit code 1 without error event might be ENOENT
+      if (process.platform === 'win32' && code === 1 && !errorEmitted && !existsSync(resolvedCommand)) {
+        const error: any = new Error(`Command not found: ${command}`);
+        error.code = 'ENOENT';
+        error.exitCode = 1;
+        Object.assign(error, result);
+        reject(error);
+        return;
+      }
+
+      const exitCode = code ?? (signal ? 1 : 0);
+      const exitResult: ExecResult = {
+        exitCode,
+        signal: signal || undefined,
+        ...result,
+      } as ExecResult;
+
+      if (exitCode !== 0) {
+        const error: any = new Error(`Command failed with exit code ${exitCode}`);
+        error.exitCode = exitCode;
+        error.signal = signal;
+        Object.assign(error, result);
+        reject(error);
+      } else {
+        resolve(exitResult);
+      }
+    });
+  }) as Promise<ExecResult> & Partial<ExecResult> & { kill: (signal?: number | NodeJS.Signals) => boolean };
+
+  // Attach stream properties and methods to the promise
+  Object.assign(promise, result);
+
+  return promise as Promise<ExecResult> & {
+    stdout?: Readable;
+    stderr?: Readable;
+    pid?: number;
+    kill: (signal?: number | NodeJS.Signals) => boolean;
+  };
 }

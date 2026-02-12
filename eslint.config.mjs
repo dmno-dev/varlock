@@ -160,6 +160,7 @@ export default tseslint.config(
       'packages/*.ignore/**',
       'packages/varlock/src/cli/**',
       'packages/varlock/scripts/**',
+      'smoke-tests/**',
     ],
     rules: {
       'no-console': 0,
