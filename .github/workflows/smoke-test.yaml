@@ -5,6 +5,14 @@ on:
     types: [opened, synchronize, reopened]
   # Allow manual trigger for testing
   workflow_dispatch:
+  # TEMPORARY: Test on current branch before merging (remove this after testing)
+  push:
+    branches:
+      - simplify-deps
+
+permissions:
+  contents: read
+  actions: read
 
 # Only run on release PRs (created by changesets)
 # This avoids running expensive multi-platform tests on every PR
@@ -17,7 +25,7 @@ jobs:
     steps:
       - id: check
         run: |
-          if [[ "${{ github.event.pull_request.title }}" == *"[Changesets]"* ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ "${{ github.event.pull_request.title }}" == *"[Changesets]"* ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || [[ "${{ github.event_name }}" == "push" ]]; then
             echo "is-release-pr=true" >> $GITHUB_OUTPUT
           else
             echo "is-release-pr=false" >> $GITHUB_OUTPUT

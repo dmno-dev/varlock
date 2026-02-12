@@ -1,0 +1,6 @@
+name: "CodeQL Config"
+
+paths-ignore:
+  - smoke-tests/**
+  - "**/test/**"
+  - "**/tests/**"
