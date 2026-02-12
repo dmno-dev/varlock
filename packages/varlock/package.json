@@ -110,8 +110,8 @@
     "which": "^6.0.0"
   },
   "devDependencies": {
-    "@clack/core": "^0.5.0",
-    "@clack/prompts": "^0.11.0",
+    "@clack/core": "^1.0.0",
+    "@clack/prompts": "^1.0.0",
     "@env-spec/utils": "workspace:*",
     "@sindresorhus/is": "catalog:",
     "@types/debug": "catalog:",
