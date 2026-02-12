@@ -168,7 +168,11 @@ export default defineConfig({
           items: [
             { label: 'Overview', slug: 'plugins/overview' },
             { label: '1Password', slug: 'plugins/1password' },
+            { label: 'AWS Secrets Manager', slug: 'plugins/aws-secrets' },
+            { label: 'Azure Key Vault', slug: 'plugins/azure-key-vault' },
+            { label: 'Bitwarden', slug: 'plugins/bitwarden' },
             { label: 'GCP Secret Manager', slug: 'plugins/google-secret-manager' },
+            { label: 'Infisical', slug: 'plugins/infisical' },
           ],
         },
         {
