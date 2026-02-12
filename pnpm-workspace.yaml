@@ -4,17 +4,19 @@ packages:
   - examples/**/*
 
 catalog:
-  '@sindresorhus/is': ^7.1.1
+  '@sindresorhus/is': ^7.2.0
   '@types/debug': ^4.1.12
-  '@types/node': 25.0.3
+  '@types/node': 25.2.3
   ansis: ^4.2.0
   debug: ^4.4.3
+  ky: ^1.14.3
   outdent: ^0.8.0
   tsup: ^8.5.1
   typescript: ^5.9.3
-  vite: ^7.1.12
-  vitest: ^4.0.6
+  vite: ^7.3.1
+  vitest: ^4.0.18
 
 overrides:
-  form-data: 4.0.4
+  form-data: 4.0.5
+  # this removes a deprecation warning in GCP plugin
   punycode: npm:punycode@^2.3.1

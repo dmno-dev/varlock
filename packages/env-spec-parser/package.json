@@ -2,11 +2,14 @@
   "name": "@env-spec/parser",
   "version": "0.1.0",
   "description": "Parser for @env-spec enabled dotenv files",
+  "homepage": "https://varlock.dev",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
   "repository": {
     "type": "git",
     "url": "https://github.com/dmno-dev/varlock.git",
     "directory": "packages/env-spec-parser"
   },
+  "main": "dist/index.js",
   "files": ["dist"],
   "exports": {
     ".": {
@@ -39,6 +42,9 @@
   ],
   "author": "dmno-dev",
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "devDependencies": {
     "@types/node": "catalog:",
     "ansis": "catalog:",

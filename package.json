@@ -22,8 +22,8 @@
     "release:create-missing-tags": "node scripts/create-missing-release-tags.js"
   },
   "devDependencies": {
-    "@changesets/changelog-github": "^0.5.1",
-    "@changesets/cli": "^2.29.5",
+    "@changesets/changelog-github": "^0.5.2",
+    "@changesets/cli": "^2.29.8",
     "@eslint/js": "^9.32.0",
     "@stylistic/eslint-plugin": "^5.2.2",
     "eslint": "^9.32.0",
@@ -32,8 +32,8 @@
     "eslint-plugin-jsonc": "^2.20.1",
     "eslint-plugin-n": "^17.21.3",
     "eslint-stylistic-airbnb": "^2.0.0",
-    "globals": "^17.0.0",
-    "turbo": "^2.5.5",
+    "globals": "^17.3.0",
+    "turbo": "^2.8.7",
     "typescript": "catalog:",
     "typescript-eslint": "^8.39.0"
   },
@@ -41,5 +41,5 @@
     "node": ">=22",
     "pnpm": ">=10"
   },
-  "packageManager": "pnpm@10.18.3+sha512.bbd16e6d7286fd7e01f6b3c0b3c932cda2965c06a908328f74663f10a9aea51f1129eea615134bf992831b009eabe167ecb7008b597f40ff9bc75946aadfb08d"
+  "packageManager": "pnpm@10.29.3+sha512.498e1fb4cca5aa06c1dcf2611e6fafc50972ffe7189998c409e90de74566444298ffe43e6cd2acdc775ba1aa7cc5e092a8b7054c811ba8c5770f84693d33d2dc"
 }

@@ -133,7 +133,6 @@ export class VarlockPlugin {
 
       await import(this.pluginFilePath);
     } catch (err) {
-      // TODO: how exactly to expose this?
       this.loadingError = err as Error;
     }
     delete (globalThis as any).plugin;
@@ -214,6 +213,11 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
 
   // this finally executes the plugin code
   await plugin.executePluginModule();
+
+  // if plugin failed to load, don't try to register its exports
+  if (plugin.loadingError) {
+    return;
+  }
 
   // register decorators, resolvers, data types from this plugin
   for (const rootDec of plugin.rootDecorators || []) {

@@ -46,6 +46,7 @@ Examples:
   varlock load --format json      # Output in JSON format
   varlock load --show-all         # Show all items when validation fails
   varlock load --path .env.prod   # Load from a specific .env file
+  varlock looad --compact         # Use compact format - skips undefined values, no indentation for json-full
   varlock load --env production   # Load for a specific environment (⚠️ ignored if using @currentEnv!)
 `.trim(),
 });

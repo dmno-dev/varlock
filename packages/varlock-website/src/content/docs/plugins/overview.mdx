@@ -3,24 +3,23 @@ title: Plugins Overview
 description: Varlock plugins overview
 ---
 
+import Badge from '@/components/Badge.astro';
+
 Plugins allow extending the functionality of Varlock. See the [plugins guide](/guides/plugins/) for more details on using plugins.
 
 For now, only official Varlock plugins under the `@varlock` npm scope are supported. We plan to support third-party plugins in the future, along with loading plugins from different sources (e.g., local files, git, npm/jsr, http, etc.).
 
 ## Official plugins
-- [1Password](/plugins/1password/)
-- [Google Secrets Manager](/plugins/google-secret-manager/)
 
-## Roadmap
+| Plugin | npm package |
+|--------|-------------|
+| [1Password](/plugins/1password/) | <Badge npmPackage="@varlock/1password-plugin" /> |
+| [AWS](/plugins/aws-secrets/)<br/>_Secrets Manager & Parameter Store_ | <Badge npmPackage="@varlock/aws-secrets-plugin" /> |
+| [Azure Key Vault](/plugins/azure-key-vault/) | <Badge npmPackage="@varlock/azure-key-vault-plugin" /> |
+| [Bitwarden](/plugins/bitwarden/) | <Badge npmPackage="@varlock/bitwarden-plugin" /> |
+| [Google Secrets Manager](/plugins/google-secret-manager/) | <Badge npmPackage="@varlock/google-secret-manager-plugin" /> |
+| [Infisical](/plugins/infisical/) | <Badge npmPackage="@varlock/infisical-plugin" /> |
 
-We have plans to build official plugins for most popular secret management systems, including:
-- Simple encrypted vault (using local files)
-- AWS Secrets Manager
-- AWS Parameter Store
-- Azure Key Vault
-- HashiCorp Vault
-- Infisical
-- Bitwarden
 
 :::note[Looking for something else?]
 If you have a specific plugin in mind, please join us on [Discord](https://chat.dmno.dev) and let us know!

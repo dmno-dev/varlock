@@ -25,12 +25,19 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
     // do we care about loading errors from disabled sources?
     // if (source.disabled) continue;
 
-    // TODO: use a formatting helper to show the error - which will include location/stack/etc appropriately
     if (source.loadingError) {
       console.log(`🚨 Error encountered while loading ${source.label}\n`);
 
       console.log(source.loadingError.message);
       showErrorLocationDetails(source.loadingError);
+
+      // For plugin loading errors, show the full stack trace since it's usually
+      // a runtime error from executing the plugin code
+      if (source.loadingError.stack && !(source.loadingError instanceof VarlockError)) {
+        console.log(`\n${ansis.dim('Stack trace:')}`);
+        console.log(ansis.dim(source.loadingError.stack));
+      }
+
       return gracefulExit(1);
     }
     // TODO: unify this with the above!

@@ -1,5 +1,7 @@
 # Varlock
 
+[![npm version](https://img.shields.io/npm/v/varlock.svg)](https://www.npmjs.com/package/varlock) [![npm downloads](https://img.shields.io/npm/dm/varlock.svg)](https://www.npmjs.com/package/varlock) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/varlock.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+
 > See https://varlock.dev for docs and examples. 
 
 _A sample `.env.schema`_: 
