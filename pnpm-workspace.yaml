@@ -1,14 +1,12 @@
 packages:
   - packages/**/*
   - '!packages/**/test/*'
-  - examples/**/*
+  - smoke-tests/*
 
 catalog:
   '@sindresorhus/is': ^7.2.0
-  '@types/debug': ^4.1.12
   '@types/node': 25.2.3
   ansis: ^4.2.0
-  debug: ^4.4.3
   ky: ^1.14.3
   outdent: ^0.8.0
   tsup: ^8.5.1

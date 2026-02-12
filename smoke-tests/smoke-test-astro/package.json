@@ -1,0 +1,14 @@
+{
+  "name": "smoke-test-astro",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "astro build"
+  },
+  "dependencies": {
+    "astro": "^5.12.8",
+    "@varlock/astro-integration": "workspace:*",
+    "varlock": "workspace:*"
+  }
+}

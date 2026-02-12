@@ -1,0 +1,19 @@
+---
+import { ENV } from 'varlock/env';
+
+// This will be used during build
+const apiUrl = ENV.PUBLIC_API_URL;
+const hasApiKey = !!ENV.API_KEY;
+---
+
+<html>
+<head>
+  <title>Varlock Smoke Test - Astro</title>
+</head>
+<body>
+  <h1>Varlock Smoke Test - Astro</h1>
+  <p>API URL: {apiUrl}</p>
+  <p>Has API Key: {hasApiKey ? 'Yes' : 'No'}</p>
+  <p id="test-status">✅ Build succeeded with varlock integration</p>
+</body>
+</html>

@@ -8,11 +8,12 @@
     "url": "https://github.com/dmno-dev/core.git"
   },
   "scripts": {
-    "build": "turbo build",
-    "build:libs": "pnpm run build --filter=\"!@varlock/website\"",
-    "test:ci": "turbo test:ci",
+    "build": "turbo build --filter=\"!smoke-test-*\"",
+    "build:libs": "pnpm run build --filter=\"!@varlock/website\" --filter=\"!smoke-test-*\"",
+    "test:ci": "turbo test:ci --filter=\"!smoke-test-*\"",
+    "smoke-test": "bash smoke-tests/smoke-test.sh",
     "preinstall": "npx only-allow pnpm",
-    "dev": "turbo run dev --concurrency=40 --parallel",
+    "dev": "turbo run dev --concurrency=40 --parallel --filter=\"!smoke-test-*\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "changeset:add": "changeset add",
