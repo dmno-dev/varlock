@@ -10,7 +10,11 @@ catalog:
   ansis: ^4.2.0
   debug: ^4.4.3
   outdent: ^0.8.0
-  tsup: ^8.5.0
+  tsup: ^8.5.1
   typescript: ^5.9.3
   vite: ^7.1.12
   vitest: ^4.0.6
+
+overrides:
+  form-data: 4.0.4
+  punycode: npm:punycode@^2.3.1
