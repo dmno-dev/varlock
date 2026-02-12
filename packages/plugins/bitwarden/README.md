@@ -220,6 +220,5 @@ https://vault.bitwarden.com/#/organizations/{organization-id}
 ## Resources
 
 - [Bitwarden Secrets Manager](https://bitwarden.com/products/secrets-manager/)
-- [Machine Accounts Documentation](https://bitwarden.com/help/secrets-manager-machine-accounts/)
-- [Bitwarden SDK](https://github.com/bitwarden/sdk)
-- [Self-Hosting Bitwarden](https://bitwarden.com/help/install-on-premise/)
+- [Machine Accounts Documentation](https://bitwarden.com/help/machine-accounts/)
+- [Self-Hosting Bitwarden](https://bitwarden.com/help/manage-your-secrets-org/#self-hosting)
