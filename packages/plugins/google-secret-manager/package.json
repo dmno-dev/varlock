@@ -1,8 +1,10 @@
 {
   "name": "@varlock/google-secret-manager-plugin",
-  "description": "Varlock plugin to pull data from Google Cloud Secret Manager",
+  "description": "Varlock plugin to load secrets from Google Cloud Secret Manager",
   "version": "0.1.0",
   "type": "module",
+  "homepage": "https://varlock.dev/integrations/google-cloud",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
   "repository": {
     "type": "git",
     "url": "https://github.com/dmno-dev/varlock.git",

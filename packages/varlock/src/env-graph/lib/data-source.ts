@@ -401,8 +401,23 @@ export abstract class EnvGraphDataSource {
   /** an error encountered while loading/parsing the data source */
   _loadingError?: Error;
   get loadingError() {
-    return this._loadingError;
-    // || this.plugins?.find((p) => p.loadingError)?.loadingError;
+    if (this._loadingError) return this._loadingError;
+
+    // Check if any plugins loaded by this data source have errors
+    if (this.graph) {
+      for (const plugin of this.graph.plugins) {
+        if (plugin.loadingError) {
+          // Check if this plugin was installed by this data source
+          for (const installDecorator of plugin.installDecoratorInstances) {
+            if (installDecorator.dataSource === this) {
+              return plugin.loadingError;
+            }
+          }
+        }
+      }
+    }
+
+    return undefined;
   }
   _schemaErrors: Array<SchemaError> = [];
   get schemaErrors() {

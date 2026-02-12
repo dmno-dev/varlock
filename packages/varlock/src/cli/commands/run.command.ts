@@ -172,8 +172,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     } else {
       console.log((error as Error).message);
       console.log(`command [${commandToRunStr}] failed`);
-      console.log('try running the same command without dmno');
-      console.log('if you get a different result, dmno may be the problem...');
+      console.log('try running the same command without varlock');
+      console.log('if you get a different result, varlock may be the problem...');
       // console.log(`Please report issue here: <${REPORT_ISSUE_LINK}>`);
     }
     exitCode = (error as any).exitCode || 1;

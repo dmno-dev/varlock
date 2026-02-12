@@ -1,6 +1,8 @@
 # @varlock/google-secret-manager-plugin
 
-Load secrets from [Google Cloud Secret Manager](https://cloud.google.com/secret-manager) into your Varlock configuration using declarative instructions in your `.env.schema` files.
+[![npm version](https://img.shields.io/npm/v/@varlock/google-secret-manager-plugin.svg)](https://www.npmjs.com/package/@varlock/google-secret-manager-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/google-secret-manager-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+
+This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading secrets from [Google Cloud Secret Manager](https://cloud.google.com/secret-manager) into your configuration.
 
 ## Features
 
@@ -148,7 +150,7 @@ Resolver function to fetch secret values.
 - `"secret-name@5"` - Specific version from configured project
 - `"projects/PROJECT/secrets/NAME/versions/VERSION"` - Full resource path
 
-**Returns:** The secret value as a string
+**Returns:** The secret value as a string (which then may be coerced by [@type](/reference/item-decorators/#type))
 
 ## Data Types
 

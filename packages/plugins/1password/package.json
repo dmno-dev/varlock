@@ -1,8 +1,10 @@
 {
   "name": "@varlock/1password-plugin",
-  "description": "Varlock plugin to pull data from 1password",
+  "description": "Varlock plugin to load data from 1Password vaults",
   "version": "0.2.0",
   "type": "module",
+  "homepage": "https://varlock.dev/plugins/1password/",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
   "repository": {
     "type": "git",
     "url": "https://github.com/dmno-dev/varlock.git",
