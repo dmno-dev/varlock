@@ -21,6 +21,14 @@ const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = AWS_ICON;
 
+const FIX_AUTH_TIP = [
+  'Verify your AWS credentials are configured correctly. Use one of the following options:',
+  '  1. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables',
+  '  2. Configure ~/.aws/credentials file (run: aws configure)',
+  '  3. Provide credentials explicitly via @initAws(accessKeyId=..., secretAccessKey=...)',
+  '  4. Use IAM roles (if running on AWS infrastructure)',
+].join('\n');
+
 class AwsPluginInstance {
   private region?: string;
   private accessKeyId?: string;
@@ -104,14 +112,7 @@ class AwsPluginInstance {
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         throw new SchemaError(`Failed to initialize AWS Secrets Manager client: ${errorMsg}`, {
-          tip: [
-            'Verify your AWS credentials are configured correctly',
-            'Options:',
-            '  1. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables',
-            '  2. Configure ~/.aws/credentials file',
-            '  3. Provide credentials explicitly via @initAws()',
-            '  4. Use IAM roles (when running on AWS infrastructure)',
-          ].join('\n'),
+          tip: FIX_AUTH_TIP,
         });
       }
     })();
@@ -152,14 +153,7 @@ class AwsPluginInstance {
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         throw new SchemaError(`Failed to initialize AWS SSM client: ${errorMsg}`, {
-          tip: [
-            'Verify your AWS credentials are configured correctly',
-            'Options:',
-            '  1. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables',
-            '  2. Configure ~/.aws/credentials file',
-            '  3. Provide credentials explicitly via @initAws()',
-            '  4. Use IAM roles (when running on AWS infrastructure)',
-          ].join('\n'),
+          tip: FIX_AUTH_TIP,
         });
       }
     })();
@@ -200,7 +194,7 @@ class AwsPluginInstance {
         } catch (err) {
           if (err instanceof ResolutionError) throw err;
           throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
-            tip: 'Ensure the secret value is valid JSON when using the # syntax for key extraction',
+            tip: 'Ensure the secret value is valid JSON when extracting a specific key',
           });
         }
       }
@@ -254,11 +248,7 @@ class AwsPluginInstance {
           errorMessage = 'Authentication failed';
           errorTip = [
             err.message,
-            'To fix this, choose one of the following:',
-            '  1. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables',
-            '  2. Configure ~/.aws/credentials file (run: aws configure)',
-            '  3. Provide credentials explicitly via @initAws(accessKeyId=..., secretAccessKey=...)',
-            '  4. Use IAM roles (if running on AWS infrastructure)',
+            FIX_AUTH_TIP,
           ].join('\n');
         } else {
           errorMessage = 'Authentication failed with provided credentials';
@@ -350,11 +340,7 @@ class AwsPluginInstance {
           errorMessage = 'Authentication failed';
           errorTip = [
             err.message,
-            'To fix this, choose one of the following:',
-            '  1. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables',
-            '  2. Configure ~/.aws/credentials file (run: aws configure)',
-            '  3. Provide credentials explicitly via @initAws(accessKeyId=..., secretAccessKey=...)',
-            '  4. Use IAM roles (if running on AWS infrastructure)',
+            FIX_AUTH_TIP,
           ].join('\n');
         } else {
           errorMessage = 'Authentication failed with provided credentials';
