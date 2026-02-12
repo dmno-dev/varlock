@@ -47,7 +47,7 @@
   "devDependencies": {
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
-    "ky": "^1.14.3",
+    "ky": "catalog:",
     "tsup": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"
