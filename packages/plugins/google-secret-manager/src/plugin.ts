@@ -246,61 +246,91 @@ plugin.registerResolverFunction({
   icon: GSM_ICON,
   argsSchema: {
     type: 'array',
-    arrayMinLength: 1,
+    arrayMinLength: 0,
   },
   process() {
-    if (!this.arrArgs || !this.arrArgs.length) {
-      throw new SchemaError('Expected 1 or 2 arguments');
-    }
-
     let instanceId: string;
-    let secretRefResolver: Resolver;
-    if (this.arrArgs.length === 1) {
+    let secretRefResolver: Resolver | undefined;
+    let itemKey: string | undefined;
+
+    const argCount = this.arrArgs?.length ?? 0;
+
+    // Parse arguments based on count
+    if (argCount === 0) {
+      // gsm() - use item key as secret name
       instanceId = '_default';
-      secretRefResolver = this.arrArgs[0];
-    } else if (this.arrArgs.length === 2) {
-      if (!(this.arrArgs[0].isStatic)) {
+      // secretRefResolver will remain undefined, signaling to use item key
+    } else if (argCount === 1) {
+      // gsm("secretName")
+      instanceId = '_default';
+      secretRefResolver = this.arrArgs![0];
+    } else if (argCount === 2) {
+      // gsm(instanceId, "secretName")
+      if (!(this.arrArgs![0].isStatic)) {
         throw new SchemaError('Expected instance id to be a static value');
-      } else {
-        instanceId = String(this.arrArgs[0].staticValue);
       }
-      secretRefResolver = this.arrArgs[1];
+      instanceId = String(this.arrArgs![0].staticValue);
+      secretRefResolver = this.arrArgs![1];
     } else {
-      throw new SchemaError('Expected 1 or 2 args');
+      throw new SchemaError('Expected 0-2 arguments');
     }
 
+    // If no secret name provided, get it from the config item key
+    if (!secretRefResolver) {
+      // Access parent via type assertion since it's private but we need it for this feature
+      const parent = (this as any).parent;
+      if (parent && typeof parent.key === 'string') {
+        itemKey = parent.key;
+      } else {
+        throw new SchemaError('When called without arguments, gsm() must be used on a config item', {
+          tip: 'Either provide a secret reference: gsm("secretName") or use it on a config item',
+        });
+      }
+    }
+
+    // Validate instance exists
     if (!Object.values(pluginInstances).length) {
       throw new SchemaError('No Google Secret Manager plugin instances found', {
         tip: 'Initialize at least one GSM plugin instance using the @initGsm root decorator',
       });
     }
 
-    // Make sure instance id is valid
     const selectedInstance = pluginInstances[instanceId];
     if (!selectedInstance) {
       if (instanceId === '_default') {
         throw new SchemaError('Google Secret Manager plugin instance (without id) not found', {
           tip: [
             'Either remove the `id` param from your @initGsm call',
-            'or use `gsm(id, reference)` to select an instance by id.',
-            `Possible ids are: ${Object.keys(pluginInstances).join(', ')}`,
+            'or use `gsm(id, reference)` to select an instance by id',
+            `Available ids: ${Object.keys(pluginInstances).join(', ')}`,
           ].join('\n'),
         });
       } else {
         throw new SchemaError(`Google Secret Manager plugin instance id "${instanceId}" not found`, {
-          tip: [`Valid ids are: ${Object.keys(pluginInstances).join(', ')}`].join('\n'),
+          tip: `Available ids: ${Object.keys(pluginInstances).join(', ')}`,
         });
       }
     }
 
-    return { instanceId, secretRefResolver };
+    return { instanceId, itemKey, secretRefResolver };
   },
-  async resolve({ instanceId, secretRefResolver }) {
+  async resolve({ instanceId, itemKey, secretRefResolver }) {
     const selectedInstance = pluginInstances[instanceId];
-    const secretRef = await secretRefResolver.resolve();
-    if (typeof secretRef !== 'string') {
-      throw new SchemaError('Expected secret reference to resolve to a string');
+
+    // Resolve secret reference - either from resolver or use item key
+    let secretRef: string;
+    if (secretRefResolver) {
+      const resolved = await secretRefResolver.resolve();
+      if (typeof resolved !== 'string') {
+        throw new SchemaError('Expected secret reference to resolve to a string');
+      }
+      secretRef = resolved;
+    } else if (itemKey) {
+      secretRef = itemKey;
+    } else {
+      throw new SchemaError('No secret reference provided');
     }
+
     const secretValue = await selectedInstance.readSecret(secretRef);
     return secretValue;
   },
