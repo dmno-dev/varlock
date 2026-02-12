@@ -70,4 +70,5 @@ export { patchGlobalConsole } from './runtime/patch-console';
 export { patchGlobalServerResponse } from './runtime/patch-server-response';
 export { patchGlobalResponse } from './runtime/patch-response';
 export { ENV } from './runtime/env';
+export { createDebug, type Debugger } from './lib/debug';
 export type { SerializedEnvGraph };

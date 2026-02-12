@@ -377,6 +377,9 @@ importers:
       '@clack/prompts':
         specifier: ^1.0.0
         version: 1.0.0
+      '@env-spec/parser':
+        specifier: workspace:*
+        version: link:../env-spec-parser
       '@env-spec/utils':
         specifier: workspace:*
         version: link:../utils

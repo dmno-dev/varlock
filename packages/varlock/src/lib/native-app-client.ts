@@ -4,9 +4,9 @@ import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
 import crypto from 'node:crypto';
-import Debug from 'debug';
+import { createDebug } from './debug';
 
-const debug = Debug('varlock:native-app-client');
+const debug = createDebug('varlock:native-app-client');
 
 // const MAC_APP_PATH = 'Library/Containers/dev.dmno.macapp';
 // const IPC_SOCKET_FILE_PATH = 'Data/dmno-ipc';
