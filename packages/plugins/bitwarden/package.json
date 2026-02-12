@@ -1,7 +1,7 @@
 {
   "name": "@varlock/bitwarden-plugin",
   "description": "Varlock plugin to load secrets from Bitwarden Secrets Manager",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/bitwarden/",
   "bugs": "https://github.com/dmno-dev/varlock/issues",

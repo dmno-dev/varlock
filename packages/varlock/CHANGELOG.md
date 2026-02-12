@@ -1,5 +1,11 @@
 # varlock
 
+## 0.2.2
+
+### Patch Changes
+
+- [#297](https://github.com/dmno-dev/varlock/pull/297) [`87b470d`](https://github.com/dmno-dev/varlock/commit/87b470dec31392f49a1f23032857b2d777978521) Thanks [@theoephraim](https://github.com/theoephraim)! - fix how errors are exposed when plugin loading fails
+
 ## 0.2.1
 
 ### Patch Changes

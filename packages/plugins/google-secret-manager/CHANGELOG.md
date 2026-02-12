@@ -1,5 +1,14 @@
 # @varlock/google-secret-manager-plugin
 
+## 0.1.1
+
+### Patch Changes
+
+- [#295](https://github.com/dmno-dev/varlock/pull/295) [`6374308`](https://github.com/dmno-dev/varlock/commit/63743089955d9bd3dd7805ac895bd4545a197e4f) Thanks [@theoephraim](https://github.com/theoephraim)! - update gcp lib, remove punylib deprecation, infer keyname if not set
+
+- Updated dependencies [[`87b470d`](https://github.com/dmno-dev/varlock/commit/87b470dec31392f49a1f23032857b2d777978521)]:
+  - varlock@0.2.2
+
 ## 0.1.0
 
 ### Patch Changes
