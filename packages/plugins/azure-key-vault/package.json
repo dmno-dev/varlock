@@ -1,8 +1,10 @@
 {
   "name": "@varlock/azure-key-vault-plugin",
-  "description": "Varlock plugin for Azure Key Vault",
+  "description": "Varlock plugin to load secrets from Azure Key Vault",
   "version": "0.0.0",
   "type": "module",
+  "homepage": "https://varlock.dev/plugins/azure-key-vault/",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
   "repository": {
     "type": "git",
     "url": "https://github.com/dmno-dev/varlock.git",
@@ -43,9 +45,10 @@
     "varlock": "workspace:^"
   },
   "devDependencies": {
+    "@azure/identity": "^4.13.0",
+    "@azure/keyvault-secrets": "^4.10.0",
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
-    "ky": "^1.14.3",
     "tsup": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"

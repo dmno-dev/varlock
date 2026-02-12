@@ -1,8 +1,10 @@
 {
   "name": "@varlock/infisical-plugin",
-  "description": "Varlock plugin for Infisical secret management",
+  "description": "Varlock plugin to load secrets from Infisical",
   "version": "0.0.0",
   "type": "module",
+  "homepage": "https://varlock.dev/plugins/infisical/",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
   "repository": {
     "type": "git",
     "url": "https://github.com/dmno-dev/varlock.git",

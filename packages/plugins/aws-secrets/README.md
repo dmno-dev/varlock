@@ -1,5 +1,7 @@
 # @varlock/aws-secrets-plugin
 
+[![npm version](https://img.shields.io/npm/v/@varlock/aws-secrets-plugin.svg)](https://www.npmjs.com/package/@varlock/aws-secrets-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/aws-secrets-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+
 This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading data from [AWS Secrets Manager](https://aws.amazon.com/secrets-manager/) and [AWS Systems Manager Parameter Store](https://aws.amazon.com/systems-manager/features/#Parameter_Store) into your configuration.
 
 ## Features

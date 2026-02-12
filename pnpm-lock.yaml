@@ -126,7 +126,7 @@ importers:
         version: link:../vite
       astro:
         specifier: '>=5.12.8'
-        version: 5.12.8(@azure/identity@4.10.1)(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+        version: 5.12.8(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
       tsup:
         specifier: 'catalog:'
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)(yaml@2.8.1)
@@ -246,15 +246,18 @@ importers:
 
   packages/plugins/azure-key-vault:
     devDependencies:
+      '@azure/identity':
+        specifier: ^4.13.0
+        version: 4.13.0
+      '@azure/keyvault-secrets':
+        specifier: ^4.10.0
+        version: 4.10.0(@azure/core-client@1.9.4)
       '@env-spec/utils':
         specifier: workspace:^
         version: link:../../utils
       '@types/node':
         specifier: 'catalog:'
         version: 25.0.3
-      ky:
-        specifier: ^1.14.3
-        version: 1.14.3
       tsup:
         specifier: 'catalog:'
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)(yaml@2.8.1)
@@ -449,7 +452,7 @@ importers:
     dependencies:
       '@astrojs/mdx':
         specifier: ^4.3.13
-        version: 4.3.13(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+        version: 4.3.13(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
       '@astrojs/partytown':
         specifier: ^2.1.4
         version: 2.1.4
@@ -458,19 +461,19 @@ importers:
         version: 3.7.0
       '@astrojs/starlight':
         specifier: ^0.37.6
-        version: 0.37.6(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+        version: 0.37.6(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
       '@astrojs/vue':
         specifier: ^5.1.4
-        version: 5.1.4(@types/node@25.0.3)(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(vue@3.5.22(typescript@5.9.3))(yaml@2.8.1)
+        version: 5.1.4(@types/node@25.0.3)(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(vue@3.5.22(typescript@5.9.3))(yaml@2.8.1)
       astro:
         specifier: ^5.17.1
-        version: 5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+        version: 5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
       astro-iconify:
         specifier: ^1.2.0
         version: 1.2.0
       astro-og-canvas:
         specifier: ^0.7.2
-        version: 0.7.2(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+        version: 0.7.2(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
       astro-robots-txt:
         specifier: ^1.0.0
         version: 1.0.0
@@ -485,7 +488,7 @@ importers:
         version: 1.0.0
       starlight-llms-txt:
         specifier: ^0.6.0
-        version: 0.6.0(@astrojs/starlight@0.37.6(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)))(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+        version: 0.6.0(@astrojs/starlight@0.37.6(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)))(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
       vue:
         specifier: ^3.5.22
         version: 3.5.22(typescript@5.9.3)
@@ -904,9 +907,17 @@ packages:
   '@azu/style-format@1.0.1':
     resolution: {integrity: sha512-AHcTojlNBdD/3/KxIKlg8sxIWHfOtQszLvOpagLTO+bjC3u7SAszu1lf//u7JJC50aUSH+BVWDD/KvaA6Gfn5g==}
 
+  '@azure-rest/core-client@2.5.1':
+    resolution: {integrity: sha512-EHaOXW0RYDKS5CFffnixdyRPak5ytiCtU7uXDcP/uiY+A6jFRwNGzzJBiznkCzvi5EYpY+YWinieqHb0oY916A==}
+    engines: {node: '>=20.0.0'}
+
   '@azure/abort-controller@2.1.2':
     resolution: {integrity: sha512-nBrLsEWm4J2u5LpAPjxADTlq3trDgVZZXHNKabeXZtpq3d3AbN/KGO82R87rdDz5/lYB024rtEf10/q0urNgsA==}
     engines: {node: '>=18.0.0'}
+
+  '@azure/core-auth@1.10.1':
+    resolution: {integrity: sha512-ykRMW8PjVAn+RS6ww5cmK9U2CyH9p4Q88YJwvUslfuMmN98w/2rdGRLPqJYObapBCdzBVeDgYWdJnFPFb7qzpg==}
+    engines: {node: '>=20.0.0'}
 
   '@azure/core-auth@1.9.0':
     resolution: {integrity: sha512-FPwHpZywuyasDSLMqJ6fhbOK3TqUdviZNF8OqRGA4W5Ewib2lEEZ+pBsYcBa88B2NGO/SEnYPGhyBqNlE8ilSw==}
@@ -916,25 +927,64 @@ packages:
     resolution: {integrity: sha512-f7IxTD15Qdux30s2qFARH+JxgwxWLG2Rlr4oSkPGuLWm+1p5y1+C04XGLA0vmX6EtqfutmjvpNmAfgwVIS5hpw==}
     engines: {node: '>=18.0.0'}
 
+  '@azure/core-http-compat@2.3.2':
+    resolution: {integrity: sha512-Tf6ltdKzOJEgxZeWLCjMxrxbodB/ZeCbzzA1A2qHbhzAjzjHoBVSUeSl/baT/oHAxhc4qdqVaDKnc2+iE932gw==}
+    engines: {node: '>=20.0.0'}
+    peerDependencies:
+      '@azure/core-client': ^1.10.0
+      '@azure/core-rest-pipeline': ^1.22.0
+
+  '@azure/core-lro@2.7.2':
+    resolution: {integrity: sha512-0YIpccoX8m/k00O7mDDMdJpbr6mf1yWo2dfmxt5A8XVZVVMz2SSKaEbMCeJRvgQ0IaSlqhjT47p4hVIRRy90xw==}
+    engines: {node: '>=18.0.0'}
+
+  '@azure/core-paging@1.6.2':
+    resolution: {integrity: sha512-YKWi9YuCU04B55h25cnOYZHxXYtEvQEbKST5vqRga7hWY9ydd3FZHdeQF8pyh+acWZvppw13M/LMGx0LABUVMA==}
+    engines: {node: '>=18.0.0'}
+
   '@azure/core-rest-pipeline@1.21.0':
     resolution: {integrity: sha512-a4MBwe/5WKbq9MIxikzgxLBbruC5qlkFYlBdI7Ev50Y7ib5Vo/Jvt5jnJo7NaWeJ908LCHL0S1Us4UMf1VoTfg==}
     engines: {node: '>=18.0.0'}
+
+  '@azure/core-rest-pipeline@1.22.2':
+    resolution: {integrity: sha512-MzHym+wOi8CLUlKCQu12de0nwcq9k9Kuv43j4Wa++CsCpJwps2eeBQwD2Bu8snkxTtDKDx4GwjuR9E8yC8LNrg==}
+    engines: {node: '>=20.0.0'}
 
   '@azure/core-tracing@1.2.0':
     resolution: {integrity: sha512-UKTiEJPkWcESPYJz3X5uKRYyOcJD+4nYph+KpfdPRnQJVrZfk0KJgdnaAWKfhsBBtAf/D58Az4AvCJEmWgIBAg==}
     engines: {node: '>=18.0.0'}
 
+  '@azure/core-tracing@1.3.1':
+    resolution: {integrity: sha512-9MWKevR7Hz8kNzzPLfX4EAtGM2b8mr50HPDBvio96bURP/9C+HjdH3sBlLSNNrvRAr5/k/svoH457gB5IKpmwQ==}
+    engines: {node: '>=20.0.0'}
+
   '@azure/core-util@1.12.0':
     resolution: {integrity: sha512-13IyjTQgABPARvG90+N2dXpC+hwp466XCdQXPCRlbWHgd3SJd5Q1VvaBGv6k1BIa4MQm6hAF1UBU1m8QUxV8sQ==}
     engines: {node: '>=18.0.0'}
 
-  '@azure/identity@4.10.1':
-    resolution: {integrity: sha512-YM/z6RxRtFlXUH2egAYF/FDPes+MUE6ZoknjEdaq7ebJMMNUzn9zCJ3bd2ZZZlkP0r1xKa88kolhFH/FGV7JnA==}
+  '@azure/core-util@1.13.1':
+    resolution: {integrity: sha512-XPArKLzsvl0Hf0CaGyKHUyVgF7oDnhKoP85Xv6M4StF/1AhfORhZudHtOyf2s+FcbuQ9dPRAjB8J2KvRRMUK2A==}
+    engines: {node: '>=20.0.0'}
+
+  '@azure/identity@4.13.0':
+    resolution: {integrity: sha512-uWC0fssc+hs1TGGVkkghiaFkkS7NkTxfnCH+Hdg+yTehTpMcehpok4PgUKKdyCH+9ldu6FhiHRv84Ntqj1vVcw==}
+    engines: {node: '>=20.0.0'}
+
+  '@azure/keyvault-common@2.0.0':
+    resolution: {integrity: sha512-wRLVaroQtOqfg60cxkzUkGKrKMsCP6uYXAOomOIysSMyt1/YM0eUn9LqieAWM8DLcU4+07Fio2YGpPeqUbpP9w==}
+    engines: {node: '>=18.0.0'}
+
+  '@azure/keyvault-secrets@4.10.0':
+    resolution: {integrity: sha512-WvXc3h2hqHL1pMzUU7ANE2RBKoxjK3JQc0YNn6GUFvOWQtf2ZR+sH4/5cZu8zAg62v9qLCduBN7065nHKl+AOA==}
     engines: {node: '>=18.0.0'}
 
   '@azure/logger@1.2.0':
     resolution: {integrity: sha512-0hKEzLhpw+ZTAfNJyRrn6s+V0nDWzXk9OjBr2TiGIu0OfMr5s2V4FpKLTAK3Ca5r5OKLbf4hkOGDPyiRjie/jA==}
     engines: {node: '>=18.0.0'}
+
+  '@azure/logger@1.3.0':
+    resolution: {integrity: sha512-fCqPIfOcLE+CGqGPd66c8bZpwAji98tZ4JI9i/mlTNTlsIWslCfpg48s/ypyLxZTump5sypjrKn2/kY7q8oAbA==}
+    engines: {node: '>=20.0.0'}
 
   '@azure/msal-browser@4.13.1':
     resolution: {integrity: sha512-oTp2zhVljB2CRp87swOTsBcqLDrvZq9In+yDMBzuuMN4z2wrIU6ITHBZlLfs+FaAVmM1zY3k7ITekXaJ2bsDKA==}
@@ -3431,6 +3481,10 @@ packages:
   '@typespec/ts-http-runtime@0.2.3':
     resolution: {integrity: sha512-oRhjSzcVjX8ExyaF8hC0zzTqxlVuRlgMHL/Bh4w3xB9+wjbm0FpXylVU/lBrn+kgphwYTrOk3tp+AVShGmlYCg==}
     engines: {node: '>=18.0.0'}
+
+  '@typespec/ts-http-runtime@0.3.3':
+    resolution: {integrity: sha512-91fp6CAAJSRtH5ja95T1FHSKa8aPW9/Zw6cta81jlZTUw/+Vq8jM/AfF/14h2b71wwR84JUTW/3Y8QPhDAawFA==}
+    engines: {node: '>=20.0.0'}
 
   '@ungap/structured-clone@1.3.0':
     resolution: {integrity: sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==}
@@ -8466,12 +8520,12 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@astrojs/mdx@4.3.13(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))':
+  '@astrojs/mdx@4.3.13(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))':
     dependencies:
       '@astrojs/markdown-remark': 6.3.10
       '@mdx-js/mdx': 3.1.1
       acorn: 8.15.0
-      astro: 5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+      astro: 5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
       es-module-lexer: 1.7.0
       estree-util-visit: 2.0.0
       hast-util-to-html: 9.0.5
@@ -8500,17 +8554,17 @@ snapshots:
       stream-replace-string: 2.0.0
       zod: 3.25.76
 
-  '@astrojs/starlight@0.37.6(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))':
+  '@astrojs/starlight@0.37.6(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))':
     dependencies:
       '@astrojs/markdown-remark': 6.3.8
-      '@astrojs/mdx': 4.3.13(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+      '@astrojs/mdx': 4.3.13(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
       '@astrojs/sitemap': 3.7.0
       '@pagefind/default-ui': 1.3.0
       '@types/hast': 3.0.4
       '@types/js-yaml': 4.0.9
       '@types/mdast': 4.0.4
-      astro: 5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
-      astro-expressive-code: 0.41.2(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+      astro: 5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+      astro-expressive-code: 0.41.2(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
       bcp-47: 2.1.0
       hast-util-from-html: 2.0.3
       hast-util-select: 6.0.4
@@ -8546,12 +8600,12 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@astrojs/vue@5.1.4(@types/node@25.0.3)(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(vue@3.5.22(typescript@5.9.3))(yaml@2.8.1)':
+  '@astrojs/vue@5.1.4(@types/node@25.0.3)(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(vue@3.5.22(typescript@5.9.3))(yaml@2.8.1)':
     dependencies:
       '@vitejs/plugin-vue': 5.2.4(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))
       '@vitejs/plugin-vue-jsx': 4.2.0(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))
       '@vue/compiler-sfc': 3.5.28
-      astro: 5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+      astro: 5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
       vite: 6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
       vite-plugin-vue-devtools: 7.7.9(rollup@4.52.5)(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))(vue@3.5.22(typescript@5.9.3))
       vue: 3.5.22(typescript@5.9.3)
@@ -9525,9 +9579,28 @@ snapshots:
     dependencies:
       '@azu/format-text': 1.0.2
 
+  '@azure-rest/core-client@2.5.1':
+    dependencies:
+      '@azure/abort-controller': 2.1.2
+      '@azure/core-auth': 1.10.1
+      '@azure/core-rest-pipeline': 1.22.2
+      '@azure/core-tracing': 1.3.1
+      '@typespec/ts-http-runtime': 0.3.3
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - supports-color
+
   '@azure/abort-controller@2.1.2':
     dependencies:
       tslib: 2.8.1
+
+  '@azure/core-auth@1.10.1':
+    dependencies:
+      '@azure/abort-controller': 2.1.2
+      '@azure/core-util': 1.13.1
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - supports-color
 
   '@azure/core-auth@1.9.0':
     dependencies:
@@ -9549,6 +9622,25 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@azure/core-http-compat@2.3.2(@azure/core-client@1.9.4)(@azure/core-rest-pipeline@1.21.0)':
+    dependencies:
+      '@azure/abort-controller': 2.1.2
+      '@azure/core-client': 1.9.4
+      '@azure/core-rest-pipeline': 1.21.0
+
+  '@azure/core-lro@2.7.2':
+    dependencies:
+      '@azure/abort-controller': 2.1.2
+      '@azure/core-util': 1.12.0
+      '@azure/logger': 1.2.0
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - supports-color
+
+  '@azure/core-paging@1.6.2':
+    dependencies:
+      tslib: 2.8.1
+
   '@azure/core-rest-pipeline@1.21.0':
     dependencies:
       '@azure/abort-controller': 2.1.2
@@ -9561,7 +9653,23 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@azure/core-rest-pipeline@1.22.2':
+    dependencies:
+      '@azure/abort-controller': 2.1.2
+      '@azure/core-auth': 1.10.1
+      '@azure/core-tracing': 1.3.1
+      '@azure/core-util': 1.13.1
+      '@azure/logger': 1.3.0
+      '@typespec/ts-http-runtime': 0.3.3
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - supports-color
+
   '@azure/core-tracing@1.2.0':
+    dependencies:
+      tslib: 2.8.1
+
+  '@azure/core-tracing@1.3.1':
     dependencies:
       tslib: 2.8.1
 
@@ -9573,7 +9681,15 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@azure/identity@4.10.1':
+  '@azure/core-util@1.13.1':
+    dependencies:
+      '@azure/abort-controller': 2.1.2
+      '@typespec/ts-http-runtime': 0.3.3
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - supports-color
+
+  '@azure/identity@4.13.0':
     dependencies:
       '@azure/abort-controller': 2.1.2
       '@azure/core-auth': 1.9.0
@@ -9589,9 +9705,47 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@azure/keyvault-common@2.0.0':
+    dependencies:
+      '@azure/abort-controller': 2.1.2
+      '@azure/core-auth': 1.9.0
+      '@azure/core-client': 1.9.4
+      '@azure/core-rest-pipeline': 1.21.0
+      '@azure/core-tracing': 1.2.0
+      '@azure/core-util': 1.12.0
+      '@azure/logger': 1.2.0
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - supports-color
+
+  '@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4)':
+    dependencies:
+      '@azure-rest/core-client': 2.5.1
+      '@azure/abort-controller': 2.1.2
+      '@azure/core-auth': 1.9.0
+      '@azure/core-http-compat': 2.3.2(@azure/core-client@1.9.4)(@azure/core-rest-pipeline@1.21.0)
+      '@azure/core-lro': 2.7.2
+      '@azure/core-paging': 1.6.2
+      '@azure/core-rest-pipeline': 1.21.0
+      '@azure/core-tracing': 1.2.0
+      '@azure/core-util': 1.12.0
+      '@azure/keyvault-common': 2.0.0
+      '@azure/logger': 1.2.0
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - '@azure/core-client'
+      - supports-color
+
   '@azure/logger@1.2.0':
     dependencies:
       '@typespec/ts-http-runtime': 0.2.3
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - supports-color
+
+  '@azure/logger@1.3.0':
+    dependencies:
+      '@typespec/ts-http-runtime': 0.3.3
       tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
@@ -12229,6 +12383,14 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@typespec/ts-http-runtime@0.3.3':
+    dependencies:
+      http-proxy-agent: 7.0.2
+      https-proxy-agent: 7.0.6
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - supports-color
+
   '@ungap/structured-clone@1.3.0': {}
 
   '@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6)':
@@ -12342,7 +12504,7 @@ snapshots:
 
   '@vscode/vsce@3.6.2':
     dependencies:
-      '@azure/identity': 4.10.1
+      '@azure/identity': 4.13.0
       '@secretlint/node': 10.2.0
       '@secretlint/secretlint-formatter-sarif': 10.2.0
       '@secretlint/secretlint-rule-no-dotenv': 10.2.0
@@ -12733,9 +12895,9 @@ snapshots:
 
   astring@1.9.0: {}
 
-  astro-expressive-code@0.41.2(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)):
+  astro-expressive-code@0.41.2(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)):
     dependencies:
-      astro: 5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+      astro: 5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
       rehype-expressive-code: 0.41.2
 
   astro-iconify@1.2.0:
@@ -12745,9 +12907,9 @@ snapshots:
       resolve-pkg: 2.0.0
       svgo: 3.3.2
 
-  astro-og-canvas@0.7.2(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)):
+  astro-og-canvas@0.7.2(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)):
     dependencies:
-      astro: 5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+      astro: 5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
       canvaskit-wasm: 0.40.0
       deterministic-object-hash: 2.0.2
       entities: 7.0.0
@@ -12757,7 +12919,7 @@ snapshots:
       valid-filename: 4.0.0
       zod: 3.25.76
 
-  astro@5.12.8(@azure/identity@4.10.1)(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1):
+  astro@5.12.8(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1):
     dependencies:
       '@astrojs/compiler': 2.12.2
       '@astrojs/internal-helpers': 0.7.1
@@ -12811,7 +12973,7 @@ snapshots:
       ultrahtml: 1.6.0
       unifont: 0.5.2
       unist-util-visit: 5.0.0
-      unstorage: 1.15.0(@azure/identity@4.10.1)
+      unstorage: 1.15.0(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))
       vfile: 6.0.3
       vite: 6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
       vitefu: 1.0.6(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))
@@ -12858,7 +13020,7 @@ snapshots:
       - uploadthing
       - yaml
 
-  astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1):
+  astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1):
     dependencies:
       '@astrojs/compiler': 2.13.1
       '@astrojs/internal-helpers': 0.7.5
@@ -12913,7 +13075,7 @@ snapshots:
       ultrahtml: 1.6.0
       unifont: 0.7.3
       unist-util-visit: 5.0.0
-      unstorage: 1.17.4(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))
+      unstorage: 1.17.4(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))
       vfile: 6.0.3
       vite: 6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1)
       vitefu: 1.1.1(vite@6.4.1(@types/node@25.0.3)(jiti@2.6.1)(less@4.4.2)(sass@1.93.3)(stylus@0.62.0)(yaml@2.8.1))
@@ -17213,13 +17375,13 @@ snapshots:
 
   stackback@0.0.2: {}
 
-  starlight-llms-txt@0.6.0(@astrojs/starlight@0.37.6(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)))(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)):
+  starlight-llms-txt@0.6.0(@astrojs/starlight@0.37.6(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)))(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)):
     dependencies:
-      '@astrojs/mdx': 4.3.13(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
-      '@astrojs/starlight': 0.37.6(astro@5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+      '@astrojs/mdx': 4.3.13(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
+      '@astrojs/starlight': 0.37.6(astro@5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1))
       '@types/hast': 3.0.4
       '@types/micromatch': 4.0.9
-      astro: 5.17.1(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
+      astro: 5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.0.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
       github-slugger: 2.0.0
       hast-util-select: 6.0.4
       micromatch: 4.0.8
@@ -17849,7 +18011,7 @@ snapshots:
 
   unpipe@1.0.0: {}
 
-  unstorage@1.15.0(@azure/identity@4.10.1):
+  unstorage@1.15.0(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4)):
     dependencies:
       anymatch: 3.1.3
       chokidar: 4.0.3
@@ -17860,9 +18022,10 @@ snapshots:
       ofetch: 1.4.1
       ufo: 1.6.1
     optionalDependencies:
-      '@azure/identity': 4.10.1
+      '@azure/identity': 4.13.0
+      '@azure/keyvault-secrets': 4.10.0(@azure/core-client@1.9.4)
 
-  unstorage@1.17.4(@azure/identity@4.10.1)(@netlify/blobs@10.3.1)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6)):
+  unstorage@1.17.4(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6)):
     dependencies:
       anymatch: 3.1.3
       chokidar: 5.0.0
@@ -17873,7 +18036,8 @@ snapshots:
       ofetch: 1.5.1
       ufo: 1.6.3
     optionalDependencies:
-      '@azure/identity': 4.10.1
+      '@azure/identity': 4.13.0
+      '@azure/keyvault-secrets': 4.10.0(@azure/core-client@1.9.4)
       '@netlify/blobs': 10.3.1
       '@vercel/functions': 2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6)
 

@@ -1,11 +1,13 @@
 {
   "name": "varlock",
   "version": "0.2.1",
-  "description": "",
+  "description": "The unified env var toolkit - load, validate, and secure your environment variables",
   "main": "index.js",
   "type": "module",
   "author": "dmno-dev",
   "license": "MIT",
+  "homepage": "https://varlock.dev",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
   "repository": {
     "type": "git",
     "url": "https://github.com/dmno-dev/varlock.git",
@@ -20,7 +22,24 @@
     "lint": "eslint .",
     "lint:fix": "pnpm run lint --fix"
   },
-  "keywords": [],
+  "keywords": [
+    "varlock",
+    "secrets",
+    "secret-management",
+    "env",
+    ".env",
+    "dotenv",
+    "environment variables",
+    "env vars",
+    "config",
+    "1password",
+    "bitwarden",
+    "infisical",
+    "aws",
+    "azure",
+    "google-cloud",
+    "secrets-manager"
+  ],
   "files": [
     "/bin",
     "/dist"
