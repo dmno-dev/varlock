@@ -1,0 +1,55 @@
+{
+  "name": "@varlock/aws-secrets-plugin",
+  "description": "Varlock plugin for AWS Secrets Manager and Systems Manager Parameter Store",
+  "version": "0.0.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/plugins/aws-secrets"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    "./plugin": "./dist/plugin.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "test": "vitest"
+  },
+  "keywords": [
+    "varlock",
+    "plugin",
+    "varlock-plugin",
+    "aws",
+    "secrets-manager",
+    "parameter-store",
+    "ssm",
+    "env",
+    ".env",
+    "dotenv",
+    "environment variables",
+    "env vars",
+    "config"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.700.0",
+    "@aws-sdk/client-ssm": "^3.700.0",
+    "@aws-sdk/credential-providers": "^3.700.0",
+    "@env-spec/utils": "workspace:^",
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "varlock": "workspace:^",
+    "vitest": "catalog:"
+  }
+}
