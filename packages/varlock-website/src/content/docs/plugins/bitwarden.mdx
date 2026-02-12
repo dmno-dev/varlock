@@ -1,0 +1,317 @@
+---
+title: Bitwarden Plugin
+description: Using Bitwarden Secrets Manager with Varlock
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/bitwarden-plugin" />
+</div>
+
+Our [Bitwarden Secrets Manager](https://bitwarden.com/products/secrets-manager/) plugin enables secure loading of secrets from Bitwarden using declarative instructions within your `.env` files.
+
+The plugin uses machine account access tokens for programmatic access to your Bitwarden secrets, making it suitable for both CI/CD and production environments.
+
+## Features
+
+- **Zero-config authentication** - Just provide your machine account access token
+- **UUID-based secret access** - Fetch secrets by their unique identifiers
+- **Self-hosted Bitwarden support** - Configure custom API and identity URLs
+- **Multiple instances** - Connect to different organizations or self-hosted instances
+- **Comprehensive error handling** with helpful tips
+- **Lightweight implementation** using REST API (48 KB bundle, no native SDK dependencies)
+
+## Installation and setup
+
+In a JS/TS project, you may install the `@varlock/bitwarden-plugin` package as a normal dependency.
+Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
+
+```env-spec title=".env.schema"
+# 1. Load the plugin
+# @plugin(@varlock/bitwarden-plugin)
+#
+# 2. Initialize the plugin - see below for more details on options
+# @initBitwarden(accessToken=$BITWARDEN_ACCESS_TOKEN)
+# ---
+
+# 3. Add a machine account access token config item
+# @type=bitwardenAccessToken @sensitive
+BITWARDEN_ACCESS_TOKEN=
+```
+
+### Machine account setup
+
+<Steps>
+1. **Create a machine account** in your Bitwarden organization
+
+    Navigate to your Bitwarden organization's **Secrets Manager** → **Machine accounts** → Click **New machine account**.
+
+    Provide a name (e.g., "Production App") and save it.
+
+2. **Copy the access token** (displayed only once!)
+
+    After creating the machine account, you'll see an **Access token**. Copy it immediately - it will only be displayed once.
+
+    :::caution[Save the token securely]
+    Store the access token securely. You won't be able to see it again after this step!
+    :::
+
+3. **Grant access to secrets**
+
+    Grant your machine account access to the specific projects or secrets you need.
+
+    **Via Projects:**
+    - Create or select a project in Secrets Manager
+    - Add secrets to the project
+    - Grant your machine account access to the project
+
+    **Direct Secret Access:**
+    - Navigate to a specific secret
+    - Click **Access**
+    - Add your machine account with "Can read" permissions
+
+4. **Wire up the token in your config**
+
+    ```env-spec title=".env.schema"
+    # @plugin(@varlock/bitwarden-plugin)
+    # @initBitwarden(accessToken=$BITWARDEN_ACCESS_TOKEN)
+    # ---
+
+    # @type=bitwardenAccessToken @sensitive
+    BITWARDEN_ACCESS_TOKEN=
+    ```
+
+5. **Set your access token in environments**
+
+    Use your CI/CD system or platform's env var management to securely inject the `BITWARDEN_ACCESS_TOKEN` value.
+</Steps>
+
+:::tip[Permission levels]
+Machine accounts can have _Can read_ (retrieve secrets only) or _Can read, write_ (retrieve, create, and edit secrets) permissions. For most use cases, _Can read_ is sufficient.
+:::
+
+### Self-hosted Bitwarden
+
+For self-hosted Bitwarden instances, you'll need to provide both the API and identity URLs:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/bitwarden-plugin)
+# @initBitwarden(
+#   accessToken=$BITWARDEN_ACCESS_TOKEN,
+#   apiUrl="https://bitwarden.yourcompany.com/api",
+#   identityUrl="https://bitwarden.yourcompany.com/identity"
+# )
+# ---
+```
+
+### Multiple instances
+
+If you need to connect to multiple organizations or instances, register multiple named instances:
+
+```env-spec title=".env.schema"
+# @initBitwarden(id=prod, accessToken=$PROD_ACCESS_TOKEN)
+# @initBitwarden(id=dev, accessToken=$DEV_ACCESS_TOKEN)
+# ---
+
+PROD_SECRET=bitwarden(prod, "11111111-1111-1111-1111-111111111111")
+DEV_SECRET=bitwarden(dev, "22222222-2222-2222-2222-222222222222")
+```
+
+## Loading secrets
+
+Once the plugin is installed and initialized, you can start adding config items that load values using the `bitwarden()` resolver function.
+
+### Basic usage
+
+Fetch secrets by their UUID:
+
+```env-spec title=".env.schema"
+# Fetch secrets by UUID
+DATABASE_URL=bitwarden("12345678-1234-1234-1234-123456789abc")
+API_KEY=bitwarden("87654321-4321-4321-4321-cba987654321")
+```
+
+:::tip[Finding secret UUIDs]
+To find a secret's UUID:
+1. Open your Bitwarden Secrets Manager
+2. Navigate to the secret
+3. Copy the UUID from the URL or secret details (format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
+:::
+
+### Multiple instances
+
+If you have multiple plugin instances, specify which instance to use:
+
+```env-spec title=".env.schema"
+PROD_ITEM=bitwarden(prod, "11111111-1111-1111-1111-111111111111")
+DEV_ITEM=bitwarden(dev, "22222222-2222-2222-2222-222222222222")
+```
+
+---
+
+## Bitwarden Setup
+
+### Create a machine account
+
+Machine accounts provide programmatic access to Bitwarden Secrets Manager.
+
+<Steps>
+1. **Log in to your Bitwarden organization** web vault
+
+2. **Navigate to Secrets Manager → Machine accounts**
+
+3. **Click "New machine account"**
+
+4. **Provide a name** (e.g., "Production App")
+
+5. **Copy the Access token** (shown only once!)
+
+6. **Grant access** to specific projects or secrets
+</Steps>
+
+**Permission Levels:**
+
+- **Can read** - Retrieve secrets only (recommended for most use cases)
+- **Can read, write** - Retrieve, create, and edit secrets
+
+:::caution[Access token security]
+Store the access token securely - it will only be displayed once during creation!
+:::
+
+### Grant access to secrets
+
+**Via Projects (Recommended):**
+
+<Steps>
+1. Create or select a project in Secrets Manager
+2. Add secrets to the project
+3. Grant your machine account access to the project
+</Steps>
+
+This approach makes it easier to manage access to multiple secrets at once.
+
+**Direct Secret Access:**
+
+<Steps>
+1. Navigate to a specific secret
+2. Click **Access**
+3. Add your machine account with appropriate permissions
+</Steps>
+
+---
+
+## Reference
+
+### Root decorators
+<div class="reference-docs">
+<div>
+#### `@initBitwarden()`
+
+Initialize a Bitwarden Secrets Manager plugin instance for accessing secrets.
+
+**Key/value args:**
+- `accessToken` (required): Machine account access token. Should be a reference to a config item of type `bitwardenAccessToken`.
+- `apiUrl` (optional): API URL for self-hosted Bitwarden (defaults to `https://api.bitwarden.com`)
+- `identityUrl` (optional): Identity service URL for self-hosted Bitwarden (defaults to `https://identity.bitwarden.com`)
+- `id` (optional): Instance identifier for multiple instances
+
+```env-spec "@initBitwarden"
+# @initBitwarden(accessToken=$BITWARDEN_ACCESS_TOKEN)
+# ---
+# @type=bitwardenAccessToken @sensitive
+BITWARDEN_ACCESS_TOKEN=
+```
+</div>
+</div>
+
+### Data types
+<div class="reference-docs">
+<div>
+#### `bitwardenAccessToken`
+
+Represents a Bitwarden Secrets Manager machine account access token. Validation ensures the token is in the correct format (`0.<client_id>.<client_secret>:<encryption_key>`).
+Note that the type itself is marked as `@sensitive`, so adding an explicit `@sensitive` decorator is optional.
+
+```env-spec "bitwardenAccessToken"
+# @type=bitwardenAccessToken
+BITWARDEN_ACCESS_TOKEN=
+```
+</div>
+
+<div>
+#### `bitwardenSecretId`
+
+Represents a secret UUID in Bitwarden Secrets Manager. Validation ensures the ID is a valid UUID format.
+
+```env-spec "bitwardenSecretId"
+# @type=bitwardenSecretId
+MY_SECRET_ID=12345678-1234-1234-1234-123456789abc
+```
+</div>
+
+<div>
+#### `bitwardenOrganizationId`
+
+Represents an organization UUID in Bitwarden. Validation ensures the ID is a valid UUID format.
+
+```env-spec "bitwardenOrganizationId"
+# @type=bitwardenOrganizationId
+BITWARDEN_ORG_ID=87654321-4321-4321-4321-cba987654321
+```
+</div>
+</div>
+
+### Resolver functions
+<div class="reference-docs">
+<div>
+#### `bitwarden()`
+
+Fetch a secret from Bitwarden Secrets Manager by UUID.
+
+**Array args:**
+- `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
+- `secretId` (required): secret UUID in the format `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
+
+```env-spec /bitwarden\\(.*\\)/
+# Fetch by secret UUID
+DATABASE_URL=bitwarden("12345678-1234-1234-1234-123456789abc")
+
+# With instance ID
+PROD_SECRET=bitwarden(prod, "11111111-1111-1111-1111-111111111111")
+```
+</div>
+</div>
+
+---
+
+## Troubleshooting
+
+### Secret not found
+- Verify the secret UUID is correct (must be valid UUID format)
+- Check that the secret exists in your Bitwarden Secrets Manager
+- Ensure your machine account has access to the secret or its project
+
+### Permission denied
+- Verify your machine account has "Can read" or "Can read, write" permissions
+- Check that the machine account has access to the specific secret
+- Review the access settings in Bitwarden Secrets Manager console
+
+### Authentication failed
+- Verify the access token is correct
+- Check if the access token has been revoked or expired
+- Ensure the machine account is not disabled
+- For self-hosted: verify `apiUrl` and `identityUrl` are correct
+
+### Invalid UUID format
+- Secret IDs must be valid UUIDs: `12345678-1234-1234-1234-123456789abc`
+- Check for typos or incorrect format
+- UUIDs should contain 32 hexadecimal characters and 4 hyphens
+
+## Resources
+
+- [Bitwarden Secrets Manager](https://bitwarden.com/products/secrets-manager/)
+- [Machine Accounts Documentation](https://bitwarden.com/help/secrets-manager-machine-accounts/)
+- [Self-Hosting Bitwarden](https://bitwarden.com/help/install-on-premise/)
