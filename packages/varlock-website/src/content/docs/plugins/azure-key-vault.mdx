@@ -1,0 +1,383 @@
+---
+title: Azure Key Vault Plugin
+description: Using Azure Key Vault with Varlock
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/azure-key-vault-plugin" />
+</div>
+
+Our [Azure Key Vault](https://azure.microsoft.com/en-us/products/key-vault) plugin enables secure loading of secrets from Azure Key Vault using declarative instructions within your `.env` files.
+
+The plugin automatically integrates with Azure authentication, including Managed Identity for Azure-hosted applications, Azure CLI credentials for local development, and service principal credentials for non-Azure environments.
+
+## Features
+
+- **Zero-config authentication** - Just provide your vault URL, authentication happens automatically
+- **Managed Identity support** - No credentials needed for Azure-hosted apps (App Service, Container Instances, VMs, Functions, AKS)
+- **Azure CLI authentication** - Works seamlessly with `az login` for local development
+- **Auto-infer secret names** from environment variable names (e.g., `DATABASE_URL` → `database-url`)
+- Support for service principal credentials (for non-Azure environments)
+- Support for versioned secrets
+- Automatic token caching and renewal
+- Lightweight implementation using REST API (47 KB bundle, no heavy Azure SDK dependencies)
+
+## Installation and setup
+
+In a JS/TS project, you may install the `@varlock/azure-key-vault-plugin` package as a normal dependency.
+Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
+
+```env-spec title=".env.schema"
+# 1. Load the plugin
+# @plugin(@varlock/azure-key-vault-plugin)
+#
+# 2. Initialize the plugin - see below for more details on options
+# @initAzure(vaultUrl="https://my-vault.vault.azure.net/")
+# ---
+```
+
+### Authentication options
+
+The plugin tries authentication methods in this priority order:
+1. **Service Principal** - If all three credentials (`tenantId`, `clientId`, `clientSecret`) are provided
+2. **Managed Identity** - Automatically used when running on Azure infrastructure
+3. **Azure CLI** - Falls back to `az login` for local development
+
+### Automatic authentication (Recommended)
+
+For most use cases, you only need to provide the vault URL:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/azure-key-vault-plugin)
+# @initAzure(vaultUrl="https://my-vault.vault.azure.net/")
+# ---
+```
+
+**How this works:**
+
+- **Local development:** Run `az login` → automatically uses Azure CLI credentials
+- **Azure-hosted apps** (App Service, Container Instances, VMs, Functions, AKS): Enable Managed Identity → automatically authenticates (no secrets needed!)
+- **Works everywhere** with zero configuration beyond the vault URL!
+
+:::tip[Finding your vault URL]
+Run `az keyvault show --name my-vault --query properties.vaultUri -o tsv` to get your vault URL.
+:::
+
+### Service principal credentials (For non-Azure environments)
+
+If you're deploying outside of Azure (e.g., AWS, GCP, on-premises), wire up service principal credentials:
+
+<Steps>
+1. **Create a service principal** with the necessary permissions (see Azure Setup section below)
+
+2. **Wire up the credentials in your config**. Add config items for the tenant ID, client ID, and client secret, and reference them when initializing the plugin.
+
+    ```env-spec title=".env.schema"
+    # @plugin(@varlock/azure-key-vault-plugin)
+    # @initAzure(
+    #   vaultUrl="https://my-vault.vault.azure.net/",
+    #   tenantId=$AZURE_TENANT_ID,
+    #   clientId=$AZURE_CLIENT_ID,
+    #   clientSecret=$AZURE_CLIENT_SECRET
+    # )
+    # ---
+
+    # @type=azureTenantId @sensitive
+    AZURE_TENANT_ID=
+
+    # @type=azureClientId @sensitive
+    AZURE_CLIENT_ID=
+
+    # @type=azureClientSecret @sensitive
+    AZURE_CLIENT_SECRET=
+    ```
+
+3. **Set your credentials in deployed environments**. Use your platform's env var management UI to securely inject these values.
+</Steps>
+
+### Multiple vaults
+
+If you need to connect to multiple vaults, but never at the same time, you can alter the vault URL using a function:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/azure-key-vault-plugin)
+# @initAzure(vaultUrl="https://my-vault-${ENV}.vault.azure.net/")
+# ---
+```
+
+Or if you need to connect to multiple vaults simultaneously, register multiple named instances:
+
+```env-spec title=".env.schema"
+# @initAzure(id=prod, vaultUrl="https://my-vault-prod.vault.azure.net/")
+# @initAzure(id=dev, vaultUrl="https://my-vault-dev.vault.azure.net/")
+# ---
+
+PROD_SECRET=azureSecret(prod, "database-url")
+DEV_SECRET=azureSecret(dev, "database-url")
+```
+
+## Loading secrets
+
+Once the plugin is installed and initialized, you can start adding config items that load values using the `azureSecret()` resolver function.
+
+### Basic usage
+
+The `azureSecret()` function fetches secrets from Azure Key Vault.
+
+```env-spec title=".env.schema"
+# Auto-infer secret names (DATABASE_URL -> "database-url")
+DATABASE_URL=azureSecret()
+API_KEY=azureSecret()
+
+# Explicit secret names
+CUSTOM_SECRET=azureSecret("my-custom-secret-name")
+```
+
+:::tip[Secret name conversion]
+Azure Key Vault uses hyphens instead of underscores. When auto-inferring, the plugin automatically converts `DATABASE_URL` to `database-url` to match Azure's naming convention.
+:::
+
+### Versioned secrets
+
+You can fetch specific versions of secrets by appending `@version` to the secret name:
+
+```env-spec title=".env.schema"
+# Fetch latest version (default)
+API_KEY=azureSecret("api-key")
+
+# Fetch specific version
+API_KEY_V1=azureSecret("api-key@abc123def456")
+```
+
+---
+
+## Azure Setup
+
+### Required permissions
+
+Your managed identity, service principal, or user needs one of:
+
+- **Access Policy**: "Get" permission for secrets
+- **RBAC**: "Key Vault Secrets User" role
+
+### Managed Identity for Azure-hosted apps (Recommended)
+
+Managed Identity is the Azure-native way to authenticate - no credentials needed!
+
+<Steps>
+1. **Enable system-assigned managed identity** for your Azure resource
+
+    ```bash
+    # For App Service
+    az webapp identity assign --name my-app --resource-group my-rg
+
+    # For Container Instance
+    az container create --assign-identity --name my-container ...
+
+    # For VM
+    az vm identity assign --name my-vm --resource-group my-rg
+    ```
+
+2. **Grant Key Vault access to the identity**
+
+    Get the identity's principal ID:
+    ```bash
+    PRINCIPAL_ID=$(az webapp identity show --name my-app --resource-group my-rg --query principalId -o tsv)
+    ```
+
+    Then grant access using either RBAC or Access Policy:
+
+    **Option A: RBAC (Recommended)**
+    ```bash
+    az role assignment create \
+      --role "Key Vault Secrets User" \
+      --assignee $PRINCIPAL_ID \
+      --scope /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<vault-name>
+    ```
+
+    **Option B: Access Policy**
+    ```bash
+    az keyvault set-policy \
+      --name my-vault \
+      --object-id $PRINCIPAL_ID \
+      --secret-permissions get
+    ```
+
+3. **That's it!** Your app will automatically authenticate using Managed Identity.
+</Steps>
+
+### Service principal for non-Azure environments
+
+<Steps>
+1. **Create a service principal**
+    ```bash
+    az ad sp create-for-rbac --name "varlock-keyvault-reader"
+    ```
+    Save the `appId`, `password`, and `tenant` from the output.
+
+2. **Grant Key Vault access**
+
+    **Option A: RBAC (Recommended)**
+    ```bash
+    az role assignment create \
+      --role "Key Vault Secrets User" \
+      --assignee <appId> \
+      --scope /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<vault-name>
+    ```
+
+    **Option B: Access Policy**
+    ```bash
+    az keyvault set-policy \
+      --name my-vault \
+      --spn <appId> \
+      --secret-permissions get
+    ```
+</Steps>
+
+### Azure CLI for local development
+
+<Steps>
+1. **Install the Azure CLI** if you haven't already: [Installation guide](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
+
+2. **Log in to Azure**
+    ```bash
+    az login
+    ```
+
+3. **Verify your identity**
+    ```bash
+    az account show
+    ```
+
+4. **Grant Key Vault access to your user account** (if needed)
+    ```bash
+    az keyvault set-policy \
+      --name my-vault \
+      --upn your-email@domain.com \
+      --secret-permissions get
+    ```
+</Steps>
+
+---
+
+## Reference
+
+### Root decorators
+<div class="reference-docs">
+<div>
+#### `@initAzure()`
+
+Initialize an Azure Key Vault plugin instance for accessing secrets.
+
+**Key/value args:**
+- `vaultUrl` (required): Azure Key Vault URL (e.g., `https://my-vault.vault.azure.net/`)
+- `tenantId` (optional): Azure AD tenant ID (directory ID)
+- `clientId` (optional): Service principal application (client) ID
+- `clientSecret` (optional): Service principal client secret (password)
+- `id` (optional): Instance identifier for multiple vaults
+
+```env-spec "@initAzure"
+# @initAzure(vaultUrl="https://my-vault.vault.azure.net/")
+# ---
+```
+</div>
+</div>
+
+### Data types
+<div class="reference-docs">
+<div>
+#### `azureTenantId`
+
+Represents an Azure AD tenant ID (UUID format). This type is marked as `@sensitive`.
+
+```env-spec "azureTenantId"
+# @type=azureTenantId
+AZURE_TENANT_ID=
+```
+</div>
+
+<div>
+#### `azureClientId`
+
+Represents a service principal application (client) ID (UUID format). This type is marked as `@sensitive`.
+
+```env-spec "azureClientId"
+# @type=azureClientId
+AZURE_CLIENT_ID=
+```
+</div>
+
+<div>
+#### `azureClientSecret`
+
+Represents a service principal client secret (password). This type is marked as `@sensitive`.
+
+```env-spec "azureClientSecret"
+# @type=azureClientSecret
+AZURE_CLIENT_SECRET=
+```
+</div>
+</div>
+
+### Resolver functions
+<div class="reference-docs">
+<div>
+#### `azureSecret()`
+
+Fetch a secret from Azure Key Vault.
+
+**Array args:**
+- `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
+- `secretName` (optional): secret name or name with version using `@` syntax. If omitted, uses the variable name (converted to kebab-case).
+
+```env-spec /azureSecret\\(.*\\)/
+# Auto-infer secret name (DATABASE_URL -> "database-url")
+DATABASE_URL=azureSecret()
+
+# Explicit secret name
+CUSTOM_SECRET=azureSecret("my-custom-secret")
+
+# Specific version
+API_KEY_V1=azureSecret("api-key@abc123def456")
+
+# With instance ID
+PROD_SECRET=azureSecret(prod, "database-url")
+```
+</div>
+</div>
+
+---
+
+## Troubleshooting
+
+### Secret not found
+- Verify the secret exists: `az keyvault secret list --vault-name my-vault`
+- Remember: Azure uses hyphens, not underscores (use `database-url` not `database_url`)
+- Check for typos in the secret name
+
+### Permission denied
+- Check your RBAC role: `az role assignment list --assignee <your-id> --scope <vault-scope>`
+- Or check access policies: `az keyvault show --name my-vault --query properties.accessPolicies`
+- Ensure your identity has "Get" permission for secrets
+
+### Authentication failed
+- **Local dev:** Run `az login` and ensure service principal env vars are empty
+- **Azure-hosted apps:** Verify Managed Identity is enabled and has Key Vault permissions
+- **Other environments:** Verify service principal credentials are correct and properly injected
+- Test identity: `az account show`
+
+### Vault not accessible
+- Verify the vault URL is correct
+- Check network access: Ensure firewall rules allow access from your IP/resource
+- Verify the vault exists in the specified subscription
+
+## Resources
+
+- [Azure Key Vault](https://azure.microsoft.com/en-us/products/key-vault)
+- [Managed Identity](https://learn.microsoft.com/en-us/azure/active-directory/managed-identities-azure-resources/overview)
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/)
+- [Key Vault Access Policies](https://learn.microsoft.com/en-us/azure/key-vault/general/assign-access-policy)
