@@ -1,5 +1,7 @@
 # @varlock/infisical-plugin
 
+[![npm version](https://img.shields.io/npm/v/@varlock/infisical-plugin.svg)](https://www.npmjs.com/package/@varlock/infisical-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/infisical-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+
 Load secrets from [Infisical](https://infisical.com/) into your Varlock configuration using declarative instructions in your `.env.schema` files.
 
 ## Features
