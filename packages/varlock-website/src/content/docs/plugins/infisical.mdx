@@ -1,0 +1,350 @@
+---
+title: Infisical Plugin
+description: Using Infisical with Varlock
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/infisical-plugin" />
+</div>
+
+Our [Infisical](https://infisical.com/) plugin enables secure loading of secrets from Infisical using declarative instructions within your `.env` files.
+
+The plugin uses machine identities with Universal Auth for programmatic access to your Infisical secrets, making it suitable for both CI/CD and production environments.
+
+## Features
+
+- **Fetch secrets** from Infisical projects and environments
+- **Universal Auth** with Client ID and Client Secret
+- **Support for self-hosted** Infisical instances
+- **Secret paths** for hierarchical organization
+- **Multiple plugin instances** for different projects/environments
+- **Auto-infer secret names** from variable names for convenience
+- **Helpful error messages** with resolution tips
+
+## Installation and setup
+
+In a JS/TS project, you may install the `@varlock/infisical-plugin` package as a normal dependency.
+Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
+
+```env-spec title=".env.schema"
+# 1. Load the plugin
+# @plugin(@varlock/infisical-plugin)
+#
+# 2. Initialize the plugin - see below for more details on options
+# @initInfisical(
+#   projectId=your-project-id,
+#   environment=dev,
+#   clientId=$INFISICAL_CLIENT_ID,
+#   clientSecret=$INFISICAL_CLIENT_SECRET
+# )
+# ---
+
+# 3. Add machine identity credentials
+# @type=infisicalClientId
+INFISICAL_CLIENT_ID=
+
+# @type=infisicalClientSecret @sensitive
+INFISICAL_CLIENT_SECRET=
+```
+
+### Machine identity setup
+
+<Steps>
+1. **Create a machine identity** in Infisical
+
+    Navigate to your Infisical project settings → **Access Control** → **Machine Identities** → Click **Create Identity**.
+
+2. **Select Universal Auth**
+
+    Choose **Universal Auth** as the authentication method.
+
+3. **Save the credentials** (displayed only once!)
+
+    Copy the **Client ID** and **Client Secret** immediately - they will only be displayed once.
+
+    :::caution[Save credentials securely]
+    Store the client ID and secret securely. You won't be able to see them again after this step!
+    :::
+
+4. **Grant access to your project and environment**
+
+    Ensure the machine identity has access to the specific project and environment you'll be using.
+
+5. **Wire up the credentials in your config**
+
+    ```env-spec title=".env.schema"
+    # @plugin(@varlock/infisical-plugin)
+    # @initInfisical(
+    #   projectId=your-project-id,
+    #   environment=dev,
+    #   clientId=$INFISICAL_CLIENT_ID,
+    #   clientSecret=$INFISICAL_CLIENT_SECRET
+    # )
+    # ---
+
+    # @type=infisicalClientId
+    INFISICAL_CLIENT_ID=
+
+    # @type=infisicalClientSecret @sensitive
+    INFISICAL_CLIENT_SECRET=
+    ```
+
+6. **Set your credentials in environments**
+
+    Use your CI/CD system or platform's env var management to securely inject the credential values.
+</Steps>
+
+For detailed instructions, see [Infisical Machine Identities documentation](https://infisical.com/docs/documentation/platform/identities/machine-identities).
+
+### Self-hosted Infisical
+
+For self-hosted Infisical instances, specify the `siteUrl`:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/infisical-plugin)
+# @initInfisical(
+#   projectId=my-project,
+#   environment=production,
+#   clientId=$CLIENT_ID,
+#   clientSecret=$CLIENT_SECRET,
+#   siteUrl=https://infisical.mycompany.com
+# )
+# ---
+```
+
+### Multiple instances
+
+If you need to connect to multiple projects or environments, register multiple named instances:
+
+```env-spec title=".env.schema"
+# @initInfisical(id=dev, projectId=dev-project, environment=development, clientId=$DEV_CLIENT_ID, clientSecret=$DEV_CLIENT_SECRET)
+# @initInfisical(id=prod, projectId=prod-project, environment=production, clientId=$PROD_CLIENT_ID, clientSecret=$PROD_CLIENT_SECRET)
+# ---
+
+DEV_DATABASE=infisical(dev, "DATABASE_URL")
+PROD_DATABASE=infisical(prod, "DATABASE_URL")
+```
+
+## Loading secrets
+
+Once the plugin is installed and initialized, you can start adding config items that load values using the `infisical()` resolver function.
+
+### Basic usage
+
+Fetch secrets from Infisical:
+
+```env-spec title=".env.schema"
+# Secret name defaults to the config item key
+DATABASE_URL=infisical()
+API_KEY=infisical()
+
+# Or explicitly specify the secret name
+STRIPE_SECRET=infisical("STRIPE_SECRET_KEY")
+```
+
+When called without arguments, `infisical()` automatically uses the config item key as the secret name in Infisical. This provides a convenient convention-over-configuration approach.
+
+### Using secret paths
+
+Organize secrets with hierarchical paths:
+
+```env-spec title=".env.schema"
+# Default path for all secrets
+# @initInfisical(projectId=my-project, environment=production, clientId=$ID, clientSecret=$SECRET, secretPath=/production/app)
+# ---
+
+# Fetches from /production/app/DB_PASSWORD
+DB_PASSWORD=infisical("DB_PASSWORD")
+```
+
+Or specify path per secret:
+
+```env-spec title=".env.schema"
+# @initInfisical(projectId=my-project, environment=production, clientId=$ID, clientSecret=$SECRET)
+# ---
+
+DB_PASSWORD=infisical("DB_PASSWORD", "/database")
+API_KEY=infisical("API_KEY", "/api")
+```
+
+---
+
+## Reference
+
+### Root decorators
+<div class="reference-docs">
+<div>
+#### `@initInfisical()`
+
+Initialize an Infisical plugin instance for accessing secrets.
+
+**Key/value args:**
+- `projectId` (required): Infisical project ID
+- `environment` (required): Environment name (e.g., `dev`, `staging`, `production`)
+- `clientId` (required): Universal Auth Client ID. Should be a reference to a config item of type `infisicalClientId`.
+- `clientSecret` (required): Universal Auth Client Secret. Should be a reference to a config item of type `infisicalClientSecret`.
+- `siteUrl` (optional): Custom Infisical instance URL (defaults to `https://app.infisical.com`)
+- `secretPath` (optional): Default secret path for all secrets (defaults to `/`)
+- `id` (optional): Instance identifier for multiple instances
+
+```env-spec "@initInfisical"
+# @initInfisical(
+#   projectId=your-project-id,
+#   environment=dev,
+#   clientId=$INFISICAL_CLIENT_ID,
+#   clientSecret=$INFISICAL_CLIENT_SECRET
+# )
+# ---
+# @type=infisicalClientId
+INFISICAL_CLIENT_ID=
+# @type=infisicalClientSecret @sensitive
+INFISICAL_CLIENT_SECRET=
+```
+</div>
+</div>
+
+### Data types
+<div class="reference-docs">
+<div>
+#### `infisicalClientId`
+
+Represents an Infisical Universal Auth Client ID. This is not marked as sensitive.
+
+```env-spec "infisicalClientId"
+# @type=infisicalClientId
+INFISICAL_CLIENT_ID=
+```
+</div>
+
+<div>
+#### `infisicalClientSecret`
+
+Represents an Infisical Universal Auth Client Secret. This type is marked as `@sensitive`.
+
+```env-spec "infisicalClientSecret"
+# @type=infisicalClientSecret
+INFISICAL_CLIENT_SECRET=
+```
+</div>
+</div>
+
+### Resolver functions
+<div class="reference-docs">
+<div>
+#### `infisical()`
+
+Fetch a secret from Infisical.
+
+**Array args:**
+- `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
+- `secretName` (optional): secret name in Infisical. If omitted, uses the variable name.
+- `secretPath` (optional): path to the secret (overrides default path)
+
+```env-spec /infisical\\(.*\\)/
+# Auto-infer secret name from variable
+DATABASE_URL=infisical()
+
+# Explicit secret name
+STRIPE_KEY=infisical("STRIPE_SECRET_KEY")
+
+# With custom path
+DB_PASSWORD=infisical("DB_PASSWORD", "/database")
+
+# With instance ID
+DEV_SECRET=infisical(dev, "DATABASE_URL")
+
+# Full form
+PROD_SECRET=infisical(prod, "DATABASE_URL", "/production")
+```
+</div>
+</div>
+
+---
+
+## Example Configurations
+
+### Development setup with auto-named secrets
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/infisical-plugin)
+# @initInfisical(projectId=dev-app, environment=dev, clientId=$INFISICAL_CLIENT_ID, clientSecret=$INFISICAL_CLIENT_SECRET)
+# ---
+# @type=infisicalClientId
+INFISICAL_CLIENT_ID=
+# @type=infisicalClientSecret @sensitive
+INFISICAL_CLIENT_SECRET=
+
+# Secret names automatically match config keys
+DATABASE_URL=infisical()
+REDIS_URL=infisical()
+STRIPE_KEY=infisical()
+```
+
+### Production with path organization
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/infisical-plugin)
+# @initInfisical(
+#   projectId=prod-app,
+#   environment=production,
+#   clientId=$INFISICAL_CLIENT_ID,
+#   clientSecret=$INFISICAL_CLIENT_SECRET,
+#   secretPath=/production
+# )
+# ---
+
+# Database secrets at /production/database
+DB_HOST=infisical("DB_HOST", "/database")
+DB_PASSWORD=infisical("DB_PASSWORD", "/database")
+
+# API keys at /production/api
+STRIPE_KEY=infisical("STRIPE_KEY", "/api")
+SENDGRID_KEY=infisical("SENDGRID_KEY", "/api")
+```
+
+### Multi-region setup
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/infisical-plugin)
+# @initInfisical(id=us, projectId=app-us, environment=production, clientId=$US_CLIENT_ID, clientSecret=$US_CLIENT_SECRET)
+# @initInfisical(id=eu, projectId=app-eu, environment=production, clientId=$EU_CLIENT_ID, clientSecret=$EU_CLIENT_SECRET)
+# ---
+
+US_DATABASE=infisical(us, "DATABASE_URL")
+EU_DATABASE=infisical(eu, "DATABASE_URL")
+```
+
+---
+
+## Troubleshooting
+
+### Secret not found
+- Verify the secret exists in your Infisical project and environment
+- Check the secret name matches exactly (including case)
+- Verify the secret path is correct if using paths
+- Ensure your machine identity has access to the secret
+
+### Access denied
+- Check that your machine identity has been granted access to the project and environment
+- Verify the machine identity permissions in Infisical console
+- Ensure the project ID and environment match your configuration
+
+### Authentication failed
+- Verify the client ID and client secret are correct
+- Check if the machine identity has been revoked or disabled
+- For self-hosted: verify `siteUrl` is correct
+
+### Wrong environment
+- Double-check the `environment` parameter matches the environment where your secret is stored
+- Remember that secrets in Infisical are environment-specific
+
+## Resources
+
+- [Infisical Documentation](https://infisical.com/docs)
+- [Machine Identities](https://infisical.com/docs/documentation/platform/identities/machine-identities)
+- [Universal Auth](https://infisical.com/docs/documentation/platform/identities/universal-auth)
+- [Infisical Node SDK](https://infisical.com/docs/sdks/languages/node)

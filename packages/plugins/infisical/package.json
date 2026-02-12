@@ -1,0 +1,52 @@
+{
+  "name": "@varlock/infisical-plugin",
+  "description": "Varlock plugin for Infisical secret management",
+  "version": "0.0.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/plugins/infisical"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    "./plugin": "./dist/plugin.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "test": "vitest"
+  },
+  "keywords": [
+    "varlock",
+    "plugin",
+    "varlock-plugin",
+    "infisical",
+    "secrets",
+    "secret-management",
+    "env",
+    ".env",
+    "dotenv",
+    "environment variables",
+    "env vars",
+    "config"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^"
+  },
+  "devDependencies": {
+    "@infisical/sdk": "^4.0.6",
+    "@env-spec/utils": "workspace:^",
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "varlock": "workspace:^",
+    "vitest": "catalog:"
+  }
+}
