@@ -1,7 +1,7 @@
 {
   "name": "@varlock/aws-secrets-plugin",
   "description": "Varlock plugin to load secrets from AWS (supports both Secrets Manager and Systems Manager Parameter Store)",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/aws-secrets/",
   "bugs": "https://github.com/dmno-dev/varlock/issues",
