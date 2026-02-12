@@ -49,6 +49,7 @@
     "@azure/keyvault-secrets": "^4.10.0",
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
+    "ky": "catalog:",
     "tsup": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"
