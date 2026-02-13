@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "astro build"
+    "build": "astro build",
+    "dev": "astro dev"
   },
   "dependencies": {
     "astro": "^5.12.8",
-    "@varlock/astro-integration": "workspace:*",
-    "varlock": "workspace:*"
+    "@varlock/astro-integration": "link:../../packages/integrations/astro",
+    "varlock": "link:../../packages/varlock"
   }
 }

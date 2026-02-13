@@ -12,6 +12,7 @@
     "build:libs": "pnpm run build --filter=\"!@varlock/website\" --filter=\"!smoke-test-*\"",
     "test:ci": "turbo test:ci --filter=\"!smoke-test-*\"",
     "smoke-test": "bash smoke-tests/smoke-test.sh",
+    "smoke-test:full": "bash smoke-tests/smoke-test-full.sh",
     "preinstall": "npx only-allow pnpm",
     "dev": "turbo run dev --concurrency=40 --parallel --filter=\"!smoke-test-*\"",
     "lint": "eslint .",

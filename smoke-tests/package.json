@@ -1,0 +1,11 @@
+{
+  "name": "varlock-smoke-tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Smoke test suite for varlock",
+  "pnpm": {
+    "overrides": {
+      "@next/env": "link:../packages/integrations/nextjs"
+    }
+  }
+}

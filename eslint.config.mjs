@@ -50,6 +50,9 @@ export default tseslint.config(
       '**/.vercel',
       '**/.netlify',
       '**/.astro',
+      '**/.next',
+      '**/out',
+      '**/next-env.d.ts',
 
     ],
   },

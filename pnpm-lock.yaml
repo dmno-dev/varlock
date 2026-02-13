@@ -502,49 +502,6 @@ importers:
         specifier: ^0.1.3
         version: 0.1.3
 
-  smoke-tests/smoke-test-astro:
-    dependencies:
-      '@varlock/astro-integration':
-        specifier: workspace:*
-        version: link:../../packages/integrations/astro
-      astro:
-        specifier: ^5.12.8
-        version: 5.17.1(@azure/identity@4.13.0)(@azure/keyvault-secrets@4.10.0(@azure/core-client@1.9.4))(@netlify/blobs@10.3.1)(@types/node@25.2.3)(@vercel/functions@2.2.13(@aws-sdk/credential-provider-web-identity@3.972.6))(jiti@2.6.1)(less@4.4.2)(rollup@4.52.5)(sass@1.93.3)(stylus@0.62.0)(typescript@5.9.3)(yaml@2.8.1)
-      varlock:
-        specifier: workspace:*
-        version: link:../../packages/varlock
-
-  smoke-tests/smoke-test-nextjs:
-    dependencies:
-      '@varlock/nextjs-integration':
-        specifier: workspace:*
-        version: link:../../packages/integrations/nextjs
-      next:
-        specifier: ^15.1.6
-        version: 15.3.5(@opentelemetry/api@1.9.0)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)(sass@1.93.3)
-      react:
-        specifier: ^19.0.0
-        version: 19.1.0
-      react-dom:
-        specifier: ^19.0.0
-        version: 19.1.0(react@19.1.0)
-      varlock:
-        specifier: workspace:*
-        version: link:../../packages/varlock
-    devDependencies:
-      '@types/node':
-        specifier: 'catalog:'
-        version: 25.2.3
-      '@types/react':
-        specifier: ^19.0.0
-        version: 19.2.14
-      '@types/react-dom':
-        specifier: ^19.0.0
-        version: 19.2.3(@types/react@19.2.14)
-      typescript:
-        specifier: 'catalog:'
-        version: 5.9.3
-
 packages:
 
   '@1password/sdk-core@0.3.1':
@@ -3638,14 +3595,6 @@ packages:
   '@types/normalize-package-data@2.4.4':
     resolution: {integrity: sha512-37i+OaWTh9qeK4LSHPsyRC7NahnGotNuZvjLSgcPzblpHB3rrCJxAOgI5gCdKm7coonsaX1Of0ILiTcnZjbfxA==}
 
-  '@types/react-dom@19.2.3':
-    resolution: {integrity: sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==}
-    peerDependencies:
-      '@types/react': ^19.2.0
-
-  '@types/react@19.2.14':
-    resolution: {integrity: sha512-ilcTH/UniCkMdtexkoCN0bI7pMcJDvmQFPvuPvmEaYA/NSfFTAgdUSLAoVjaRJm7+6PvcM+q1zYOwS4wTYMF9w==}
-
   '@types/sarif@2.1.7':
     resolution: {integrity: sha512-kRz0VEkJqWLf1LLVN4pT1cg1Z9wAuvI6L97V3m2f5B76Tg8d413ddvLBPTEHAZJlnn4XSvu0FkZtViCQGVyrXQ==}
 
@@ -4605,9 +4554,6 @@ packages:
 
   csstype@3.1.3:
     resolution: {integrity: sha512-M1uQkMl8rQK/szD0LNhtqxIPLpimGm8sOBwU7lLnCpSbTyY3yeU1Vc7l4KT5zT4s/yOxHH5O7tIuuLOCnLADRw==}
-
-  csstype@3.2.3:
-    resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
 
   data-uri-to-buffer@4.0.1:
     resolution: {integrity: sha512-0R9ikRb668HB7QDxT1vkpuUBtqc53YyAwMwGeUFKRojY/NWKvdZ+9UYtRfGmhqNbRkTSVpMbmyhXipFFv2cb/A==}
@@ -12581,14 +12527,6 @@ snapshots:
 
   '@types/normalize-package-data@2.4.4': {}
 
-  '@types/react-dom@19.2.3(@types/react@19.2.14)':
-    dependencies:
-      '@types/react': 19.2.14
-
-  '@types/react@19.2.14':
-    dependencies:
-      csstype: 3.2.3
-
   '@types/sarif@2.1.7': {}
 
   '@types/sax@1.2.7':
@@ -13910,8 +13848,6 @@ snapshots:
       css-tree: 2.2.1
 
   csstype@3.1.3: {}
-
-  csstype@3.2.3: {}
 
   data-uri-to-buffer@4.0.1: {}
 

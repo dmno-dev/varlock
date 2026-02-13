@@ -1,7 +1,6 @@
 packages:
   - packages/**/*
   - '!packages/**/test/*'
-  - smoke-tests/*
 
 catalog:
   '@sindresorhus/is': ^7.2.0
