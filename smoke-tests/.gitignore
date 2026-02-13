@@ -1,0 +1,12 @@
+# Build outputs
+dist/
+out/
+.next/
+.astro/
+.turbo/
+
+# Generated types
+env.d.ts
+
+# Test artifacts
+node_modules/

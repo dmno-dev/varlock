@@ -2,7 +2,17 @@
   "name": "varlock-smoke-tests",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "description": "Smoke test suite for varlock",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "varlock": "link:../packages/varlock",
+    "vitest": "^3.2.4"
+  },
   "pnpm": {
     "overrides": {
       "@next/env": "link:../packages/integrations/nextjs"

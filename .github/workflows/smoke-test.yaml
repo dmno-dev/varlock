@@ -5,14 +5,6 @@ on:
     types: [opened, synchronize, reopened]
   # Allow manual trigger for testing
   workflow_dispatch:
-  # TEMPORARY: Test on current branch before merging (remove this after testing)
-  push:
-    branches:
-      - simplify-deps
-
-permissions:
-  contents: read
-  actions: read
 
 # Only run on release PRs (created by changesets)
 # This avoids running expensive multi-platform tests on every PR
@@ -20,6 +12,7 @@ jobs:
   check-if-release-pr:
     name: Check if Release PR
     runs-on: ubuntu-latest
+    permissions: {}
     outputs:
       is-release-pr: ${{ steps.check.outputs.is-release-pr }}
     steps:
@@ -32,10 +25,13 @@ jobs:
           fi
 
   build:
-    name: Build Libraries
+    name: Build and Pack Libraries
     needs: check-if-release-pr
     if: needs.check-if-release-pr.outputs.is-release-pr == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
 
     steps:
       - name: Checkout code
@@ -63,14 +59,21 @@ jobs:
       - name: Build varlock and integrations
         run: pnpm run build:libs
 
-      - name: Upload build artifacts
+      - name: Pack varlock packages
+        run: |
+          mkdir -p packed-packages
+          cd packages/varlock
+          pnpm pack --pack-destination ../../packed-packages
+          cd ../integrations/astro
+          pnpm pack --pack-destination ../../../packed-packages
+          cd ../nextjs
+          pnpm pack --pack-destination ../../../packed-packages
+
+      - name: Upload packed packages
         uses: actions/upload-artifact@v4
         with:
-          name: dist-files
-          path: |
-            packages/*/dist
-            packages/plugins/*/dist
-            packages/integrations/*/dist
+          name: packed-packages
+          path: packed-packages/*.tgz
           retention-days: 1
 
   smoke-test:
@@ -78,6 +81,10 @@ jobs:
     needs: [check-if-release-pr, build]
     if: needs.check-if-release-pr.outputs.is-release-pr == 'true'
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      actions: read
+      checks: write
 
     strategy:
       fail-fast: false
@@ -102,352 +109,22 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
 
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Download build artifacts
+      - name: Download packed packages
         uses: actions/download-artifact@v4
         with:
-          name: dist-files
+          name: packed-packages
+          path: packed-packages
+
+      - name: Update smoke-tests to use packed packages
+        run: node smoke-tests/update-to-packed.js
+
+      - name: Install smoke tests deps
+        run: cd smoke-tests && pnpm install --no-frozen-lockfile
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      # =============================================================================
-      # TEST 1: varlock load command
-      # =============================================================================
-      - name: Test varlock load
-        shell: bash
-        run: |
-          cd smoke-tests/smoke-test-basic
-          ../../packages/varlock/bin/cli.js load
-          echo "✅ varlock load succeeded"
-
-      # =============================================================================
-      # TEST 2: varlock run with log redaction
-      # =============================================================================
-      - name: Test varlock run with redaction
-        shell: bash
-        run: |
-          cd smoke-tests/smoke-test-basic
-          chmod +x test-script.js || true
-
-          # Capture output
-          ../../packages/varlock/bin/cli.js run -- node test-script.js > output.txt 2>&1 || true
-
-          cat output.txt
-
-          # Verify env vars are loaded
-          if ! grep -q "NODE_ENV: test" output.txt; then
-            echo "❌ NODE_ENV not loaded correctly"
-            exit 1
-          fi
-
-          if ! grep -q "PUBLIC_VAR: public-value" output.txt; then
-            echo "❌ PUBLIC_VAR not loaded correctly"
-            exit 1
-          fi
-
-          # Verify secret is redacted (should show ▒▒▒▒▒ not the actual value)
-          if grep -q "super-secret-token-12345" output.txt; then
-            echo "❌ SECRET_TOKEN was NOT redacted!"
-            echo "Found unredacted secret in output:"
-            grep "super-secret-token-12345" output.txt || true
-            exit 1
-          fi
-
-          # Check for redaction markers
-          if ! grep -q "▒▒▒▒▒" output.txt; then
-            echo "⚠️  Warning: No redaction markers found (may be OK on some platforms)"
-          else
-            echo "✅ Secrets are properly redacted"
-          fi
-
-          # Verify success message
-          if ! grep -q "All env vars loaded correctly" output.txt; then
-            echo "❌ Test script did not complete successfully"
-            exit 1
-          fi
-
-          echo "✅ varlock run with redaction succeeded"
-
-      # =============================================================================
-      # TEST 2.5: varlock run with interactive script redaction
-      # =============================================================================
-      - name: Test interactive script redaction
-        shell: bash
-        run: |
-          cd smoke-tests/smoke-test-basic
-          chmod +x interactive-script.js || true
-
-          # Capture both stdout and stderr
-          ../../packages/varlock/bin/cli.js run -- node interactive-script.js > interactive-output.txt 2>&1 || true
-
-          cat interactive-output.txt
-
-          # Verify script completed
-          if ! grep -q "Interactive script completed successfully" interactive-output.txt; then
-            echo "❌ Interactive script did not complete successfully"
-            exit 1
-          fi
-
-          # Verify secret is redacted everywhere (should NOT appear unredacted)
-          if grep -q "super-secret-token-12345" interactive-output.txt; then
-            echo "❌ SECRET_TOKEN was NOT redacted in interactive output!"
-            echo "Found unredacted secret in output:"
-            grep "super-secret-token-12345" interactive-output.txt || true
-            exit 1
-          fi
-
-          # Check for redaction markers
-          if ! grep -q "▒▒▒▒▒" interactive-output.txt; then
-            echo "⚠️  Warning: No redaction markers found in interactive output (may be OK on some platforms)"
-          else
-            echo "✅ Secrets are properly redacted in interactive output"
-          fi
-
-          # Verify public vars still work
-          if ! grep -q "PUBLIC_VAR: public-value" interactive-output.txt; then
-            echo "❌ PUBLIC_VAR not visible in interactive output"
-            exit 1
-          fi
-
-          echo "✅ Interactive script redaction succeeded"
-
-      # =============================================================================
-      # TEST 2.75: Stdin availability test
-      # =============================================================================
-      - name: Test stdin availability
-        shell: bash
-        run: |
-          cd smoke-tests/smoke-test-basic
-          chmod +x stdin-test.js || true
-
-          # Run stdin test - should complete without errors
-          ../../packages/varlock/bin/cli.js run -- node stdin-test.js > stdin-output.txt 2>&1
-
-          cat stdin-output.txt
-
-          # Verify test completed
-          if ! grep -q "Stdin test completed" stdin-output.txt; then
-            echo "❌ Stdin test did not complete successfully"
-            exit 1
-          fi
-
-          # Verify stdin properties are accessible
-          if ! grep -q "stdin.isTTY" stdin-output.txt; then
-            echo "❌ stdin.isTTY property not accessible"
-            exit 1
-          fi
-
-          if ! grep -q "stdin.readable" stdin-output.txt; then
-            echo "❌ stdin.readable property not accessible"
-            exit 1
-          fi
-
-          # Verify secrets still redacted
-          if grep -q "super-secret-token-12345" stdin-output.txt; then
-            echo "❌ SECRET_TOKEN was NOT redacted in stdin test!"
-            exit 1
-          fi
-
-          echo "✅ Stdin availability test passed - redaction doesn't break stdin"
-
-      # =============================================================================
-      # TEST 3: varlock run with Bun
-      # =============================================================================
-      - name: Test varlock run with Bun
-        shell: bash
-        run: |
-          cd smoke-tests/smoke-test-basic
-
-          # Capture output
-          ../../packages/varlock/bin/cli.js run -- bun test-script.js > bun-output.txt 2>&1 || true
-
-          cat bun-output.txt
-
-          # Verify env vars are loaded
-          if ! grep -q "NODE_ENV: test" bun-output.txt; then
-            echo "❌ NODE_ENV not loaded correctly with Bun"
-            exit 1
-          fi
-
-          if ! grep -q "PUBLIC_VAR: public-value" bun-output.txt; then
-            echo "❌ PUBLIC_VAR not loaded correctly with Bun"
-            exit 1
-          fi
-
-          # Verify secret is redacted
-          if grep -q "super-secret-token-12345" bun-output.txt; then
-            echo "❌ SECRET_TOKEN was NOT redacted with Bun!"
-            echo "Found unredacted secret in output:"
-            grep "super-secret-token-12345" bun-output.txt || true
-            exit 1
-          fi
-
-          # Check for redaction markers
-          if ! grep -q "▒▒▒▒▒" bun-output.txt; then
-            echo "⚠️  Warning: No redaction markers found with Bun (may be OK on some platforms)"
-          else
-            echo "✅ Secrets are properly redacted with Bun"
-          fi
-
-          # Verify success message
-          if ! grep -q "All env vars loaded correctly" bun-output.txt; then
-            echo "❌ Test script did not complete successfully with Bun"
-            exit 1
-          fi
-
-          echo "✅ varlock run with Bun succeeded"
-
-      # =============================================================================
-      # TEST 4: Astro integration
-      # =============================================================================
-      - name: Test Astro integration
-        shell: bash
-        run: |
-          cd smoke-tests/smoke-test-astro
-          pnpm install
-          pnpm run build
-
-          # Verify build output
-          if [ ! -f "dist/index.html" ]; then
-            echo "❌ Astro build did not produce output"
-            exit 1
-          fi
-
-          # Check that env vars were injected into build
-          if ! grep -q "api.example.com" dist/index.html; then
-            echo "❌ PUBLIC_API_URL not injected into Astro build"
-            exit 1
-          fi
-
-          if ! grep -q "Build succeeded with varlock integration" dist/index.html; then
-            echo "❌ Astro page did not render correctly"
-            exit 1
-          fi
-
-          echo "✅ Astro integration succeeded"
-
-      # =============================================================================
-      # TEST 5: Next.js integration
-      # =============================================================================
-      - name: Test Next.js integration
-        shell: bash
-        run: |
-          cd smoke-tests/smoke-test-nextjs
-          pnpm install
-          pnpm run build
-
-          # Verify build output
-          if [ ! -d "out" ]; then
-            echo "❌ Next.js build did not produce output"
-            exit 1
-          fi
-
-          # Check that the build succeeded
-          if [ ! -f "out/index.html" ]; then
-            echo "❌ Next.js did not generate index.html"
-            exit 1
-          fi
-
-          # Check that env vars were injected
-          if ! grep -q "api.example.com" out/index.html; then
-            echo "❌ NEXT_PUBLIC_API_URL not injected into Next.js build"
-            exit 1
-          fi
-
-          if ! grep -q "Build succeeded with varlock integration" out/index.html; then
-            echo "❌ Next.js page did not render correctly"
-            exit 1
-          fi
-
-          echo "✅ Next.js integration succeeded"
-
-      # =============================================================================
-      # TEST 6: Command not found error handling
-      # =============================================================================
-      - name: Test command not found handling
-        shell: bash
-        continue-on-error: true
-        run: |
-          cd smoke-tests/smoke-test-basic
-          ../../packages/varlock/bin/cli.js run -- nonexistent-command-xyz 2>&1 | tee cmd-error.txt
-
-          # Check that we get an appropriate error message
-          if grep -qi "command\|not found\|ENOENT" cmd-error.txt; then
-            echo "✅ Command not found error handled correctly"
-            exit 0
-          else
-            echo "❌ Expected command not found error"
-            cat cmd-error.txt
-            exit 1
-          fi
-
-      # =============================================================================
-      # TEST 7: Platform-specific executable tests
-      # =============================================================================
-      - name: Test script execution (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          cd smoke-tests/smoke-test-basic
-          echo '#!/usr/bin/env node' > shebang-test.js
-          echo 'console.log("Shebang script works");' >> shebang-test.js
-          chmod +x shebang-test.js
-
-          ../../packages/varlock/bin/cli.js run -- ./shebang-test.js | tee shebang-output.txt
-
-          if ! grep -q "Shebang script works" shebang-output.txt; then
-            echo "❌ Shebang script did not execute"
-            exit 1
-          fi
-
-          echo "✅ Shebang script execution succeeded"
-
-      - name: Test batch file execution (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          cd smoke-tests/smoke-test-basic
-          echo '@echo off' > test-batch.bat
-          echo 'echo Batch script executed successfully' >> test-batch.bat
-
-          ../../packages/varlock/bin/cli.js run -- test-batch.bat | tee batch-output.txt
-
-          if ! grep -q "Batch script executed" batch-output.txt; then
-            echo "❌ Batch script did not execute"
-            exit 1
-          fi
-
-          echo "✅ Batch file execution succeeded"
-
-      - name: Test PATHEXT extensions (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          cd smoke-tests/smoke-test-basic
-          '@echo off' | Out-File -Encoding ASCII test-cmd.cmd
-          'echo CMD file executed' | Out-File -Encoding ASCII -Append test-cmd.cmd
-
-          ../../packages/varlock/bin/cli.js run -- test-cmd.cmd | Tee-Object -Variable output
-
-          if ($output -notmatch "CMD file executed") {
-            Write-Host "❌ CMD file did not execute"
-            exit 1
-          }
-
-          Write-Host "✅ PATHEXT extension handling succeeded"
-
-      - name: Platform test summary
-        if: always()
-        shell: bash
-        run: |
-          echo ""
-          echo "======================================"
-          echo "✅ Smoke tests completed on ${{ matrix.os }}"
-          echo "Node version: ${{ matrix.node-version }}"
-          echo "Platform: ${{ runner.os }}"
-          echo "======================================"
+      - name: Run smoke tests
+        run: cd smoke-tests && pnpm test
