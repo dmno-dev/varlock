@@ -31,9 +31,51 @@ jobs:
             echo "is-release-pr=false" >> $GITHUB_OUTPUT
           fi
 
+  build:
+    name: Build Libraries
+    needs: check-if-release-pr
+    if: needs.check-if-release-pr.outputs.is-release-pr == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.x'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@v2.3.11
+
+      - name: Build varlock and integrations
+        run: pnpm run build:libs
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-files
+          path: |
+            packages/*/dist
+            packages/plugins/*/dist
+            packages/integrations/*/dist
+          retention-days: 1
+
   smoke-test:
     name: Smoke Test (${{ matrix.os }})
-    needs: check-if-release-pr
+    needs: [check-if-release-pr, build]
     if: needs.check-if-release-pr.outputs.is-release-pr == 'true'
     runs-on: ${{ matrix.os }}
 
@@ -63,8 +105,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Build varlock and integrations
-        run: pnpm run build:libs
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-files
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

@@ -8,7 +8,18 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "inputs": ["package.json", "tsconfig.json", "tsconfig.*.json", "tsup.config.ts", "src/**", "astro.config.mjs"],
+      "inputs": [
+        "package.json",
+        "tsconfig.json",
+        "tsconfig.*.json",
+        "tsup.config.ts",
+        "tsup-*.config.ts",
+        "peggy.config.cjs",
+        "astro.config.mjs",
+        "astro.config.ts",
+        "scripts/**",
+        "src/**"
+      ],
       "outputs": ["dist/**"]
     },
     "test:ci": {
