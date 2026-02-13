@@ -6,6 +6,9 @@ on:
   # Allow manual trigger for testing
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 # Only run on release PRs (created by changesets)
 # This avoids running expensive multi-platform tests on every PR
 jobs:
