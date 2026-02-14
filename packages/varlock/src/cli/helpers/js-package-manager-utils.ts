@@ -1,12 +1,12 @@
 import path from 'node:path';
 import fs, { existsSync } from 'node:fs';
 import { pathExistsSync } from '@env-spec/utils/fs-utils';
-import Debug from 'debug';
+import { createDebug } from '../../lib/debug';
 
 import { CliExitError } from './exit-error';
 import { execSync } from 'node:child_process';
 
-const debug = Debug('varlock:js-package-manager-utils');
+const debug = createDebug('varlock:js-package-manager-utils');
 
 export type JsPackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'deno';
 

@@ -1,13 +1,11 @@
-import { execa, type ResultPromise } from 'execa';
-import which from 'which';
 import { define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
+import { exec } from '../../lib/exec';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { resetRedactionMap, redactSensitiveConfig } from '../../runtime/env';
-
 
 export const commandSpec = define({
   name: 'run',
@@ -47,7 +45,7 @@ Examples:
   `.trim(),
 });
 
-let commandProcess: ResultPromise | undefined;
+let commandProcess: ReturnType<typeof exec> | undefined;
 let childCommandKilledFromRestart = false;
 const isWatchModeRestart = false; // TODO: re-enable watch mode
 
@@ -66,7 +64,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   const rawCommand = commandToRunAsArgs[0];
   const commandArgsOnly = commandToRunAsArgs.slice(1);
-  const pathAwareCommand = which.sync(rawCommand, { nothrow: true });
 
   // const isWatchEnabled = ctx.values.watch;
   const isWatchEnabled = false;
@@ -106,7 +103,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // When --no-redact-stdout is set, use stdio: 'inherit' to preserve TTY detection
   // Otherwise, pipe stdout/stderr through redaction
   if (noRedactStdout) {
-    commandProcess = execa(pathAwareCommand || rawCommand, commandArgsOnly, {
+    commandProcess = exec(rawCommand, commandArgsOnly, {
       stdio: 'inherit',
       env: fullInjectedEnv,
     });
@@ -117,7 +114,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       stream.write(redactLogs ? redactSensitiveConfig(str) : str);
     };
 
-    commandProcess = execa(pathAwareCommand || rawCommand, commandArgsOnly, {
+    commandProcess = exec(rawCommand, commandArgsOnly, {
       stdin: 'inherit',
       stdout: 'pipe',
       stderr: 'pipe',
@@ -125,8 +122,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     });
 
     // Pipe stdout and stderr through redaction
-    commandProcess.stdout?.on('data', (chunk) => writeRedacted(process.stdout, chunk));
-    commandProcess.stderr?.on('data', (chunk) => writeRedacted(process.stderr, chunk));
+    commandProcess.stdout?.on('data', (chunk: Buffer | string) => writeRedacted(process.stdout, chunk));
+    commandProcess.stderr?.on('data', (chunk: Buffer | string) => writeRedacted(process.stderr, chunk));
   }
   // console.log('PARENT PID = ', process.pid);
   // console.log('CHILD PID = ', commandProcess.pid);
@@ -156,8 +153,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   let exitCode: any; // TODO: fix this any
   try {
-    const commandResult = await commandProcess;
-    exitCode = commandResult.exitCode;
+    const result = await commandProcess;
+    exitCode = result.exitCode;
   } catch (error) {
     // console.log('child command error!', error);
     if ((error as any).signal === 'SIGINT' && childCommandKilledFromRestart) {

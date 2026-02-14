@@ -2,14 +2,13 @@
 
 import path from 'node:path';
 import type { Plugin } from 'vite';
-import Debug from 'debug';
 import MagicString from 'magic-string';
 
 import { initVarlockEnv } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 import { patchGlobalResponse } from 'varlock/patch-response';
-import { type SerializedEnvGraph } from 'varlock';
+import { createDebug, type SerializedEnvGraph } from 'varlock';
 import { execSyncVarlock } from 'varlock/exec-sync-varlock';
 
 import { createReplacerTransformFn } from './transform';
@@ -21,7 +20,7 @@ import { createReplacerTransformFn } from './transform';
 // need to track original process.env, since we will be modifying it
 const originalProcessEnv = { ...process.env };
 
-const debug = Debug('varlock:vite-integration');
+const debug = createDebug('varlock:vite-integration');
 
 let isFirstLoad = !(process as any).__VARLOCK_ENV;
 

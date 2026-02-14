@@ -1,8 +1,8 @@
-import Debug from 'debug';
+import { createDebug } from 'varlock';
 import { varlockVitePlugin } from '@varlock/vite-integration';
 import type { AstroIntegration } from 'astro';
 
-const debug = Debug('varlock:astro-integration');
+const debug = createDebug('varlock:astro-integration');
 
 debug('Loaded varlock astro integration file');
 const startLoadAt = new Date();

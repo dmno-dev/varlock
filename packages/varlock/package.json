@@ -50,6 +50,7 @@
   "engines": {
     "node": ">=22"
   },
+  "dependencies": {},
   "exports": {
     ".": {
       "ts-src": "./src/index.ts",
@@ -102,22 +103,14 @@
       "default": "./dist/plugin-lib.js"
     }
   },
-  "dependencies": {
-    "@env-spec/parser": "workspace:^",
-    "debug": "catalog:",
-    "execa": "^9.6.1",
-    "semver": "^7.7.4",
-    "which": "^6.0.1"
-  },
   "devDependencies": {
     "@clack/core": "^1.0.0",
     "@clack/prompts": "^1.0.0",
     "@env-spec/utils": "workspace:*",
     "@sindresorhus/is": "catalog:",
-    "@types/debug": "catalog:",
     "@types/node": "catalog:",
     "@types/semver": "^7.7.1",
-    "@types/which": "^3.0.4",
+    "@env-spec/parser": "workspace:*",
     "@yao-pkg/pkg": "^6.13.1",
     "ansis": "catalog:",
     "browser-or-node": "^3.0.0",
@@ -128,6 +121,7 @@
     "is-unicode-supported": "^2.1.0",
     "is-wsl": "^3.1.0",
     "outdent": "catalog:",
+    "semver": "^7.7.4",
     "tsup": "catalog:",
     "vitest": "catalog:"
   }

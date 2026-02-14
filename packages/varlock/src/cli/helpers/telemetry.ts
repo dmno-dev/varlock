@@ -6,7 +6,7 @@ import {
   mkdirSync,
 } from 'node:fs';
 import { asyncExitHook, gracefulExit } from 'exit-hook';
-import Debug from 'debug';
+import { createDebug } from '../../lib/debug';
 import { name as ciName, isCI } from 'ci-info';
 import isDocker from 'is-docker';
 import isWSL from 'is-wsl';
@@ -17,7 +17,7 @@ import packageJson from '../../../package.json';
 import { CONFIG } from '../../config';
 
 
-const debug = Debug('varlock:telemetry');
+const debug = createDebug('varlock:telemetry');
 
 const TRUE_ENV_VAR_VALUES = ['true', '1', 't'];
 

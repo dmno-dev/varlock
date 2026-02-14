@@ -41,11 +41,7 @@
     "varlock": "workspace:^",
     "vite": ">=5"
   },
-  "dependencies": {
-    "debug": "catalog:"
-  },
   "devDependencies": {
-    "@types/debug": "catalog:",
     "@types/node": "catalog:",
     "ast-matcher": "^1.2.0",
     "magic-string": "^0.30.17",

@@ -1,0 +1,133 @@
+name: Cross-Platform Smoke Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only run on release PRs (created by changesets)
+# This avoids running expensive multi-platform tests on every PR
+jobs:
+  check-if-release-pr:
+    name: Check if Release PR
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      is-release-pr: ${{ steps.check.outputs.is-release-pr }}
+    steps:
+      - id: check
+        run: |
+          if [[ "${{ github.event.pull_request.title }}" == *"[Changesets]"* ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "is-release-pr=true" >> $GITHUB_OUTPUT
+          else
+            echo "is-release-pr=false" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    name: Build and Pack Libraries
+    needs: check-if-release-pr
+    if: needs.check-if-release-pr.outputs.is-release-pr == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.x'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@v2.3.11
+
+      - name: Build varlock and integrations
+        run: pnpm run build:libs
+
+      - name: Pack varlock packages
+        run: |
+          mkdir -p packed-packages
+          cd packages/varlock
+          pnpm pack --pack-destination ../../packed-packages
+          cd ../integrations/astro
+          pnpm pack --pack-destination ../../../packed-packages
+          cd ../nextjs
+          pnpm pack --pack-destination ../../../packed-packages
+
+      - name: Upload packed packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packed-packages
+          path: packed-packages/*.tgz
+          retention-days: 1
+
+  smoke-test:
+    name: Smoke Test (${{ matrix.os }})
+    needs: [check-if-release-pr, build]
+    if: needs.check-if-release-pr.outputs.is-release-pr == 'true'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      actions: read
+      checks: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: ['22.x']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Download packed packages
+        uses: actions/download-artifact@v4
+        with:
+          name: packed-packages
+          path: packed-packages
+
+      - name: Update smoke-tests to use packed packages
+        run: node smoke-tests/update-to-packed.js
+
+      - name: Install smoke tests deps
+        run: cd smoke-tests && pnpm install --no-frozen-lockfile
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Run smoke tests
+        run: cd smoke-tests && pnpm test

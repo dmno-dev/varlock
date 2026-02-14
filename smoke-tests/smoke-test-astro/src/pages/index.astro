@@ -1,0 +1,24 @@
+---
+import { ENV } from "varlock/env";
+
+// This will be used during build
+// Only PUBLIC_ prefixed vars are available in static builds
+const apiUrl = ENV.PUBLIC_API_URL;
+const nodeEnv = ENV.NODE_ENV;
+const hasKey = !!ENV.SECRET_API_KEY;
+const emptySecretIsEmpty = !ENV.EMPTY_SECRET;
+---
+
+<html>
+  <head>
+    <title>Varlock Smoke Test - Astro</title>
+  </head>
+  <body>
+    <h1>Varlock Smoke Test - Astro</h1>
+    <p>API URL: {apiUrl}</p>
+    <p>Node Env: {nodeEnv}</p>
+    <p>Secret accessible on server: {hasKey ? "Yes" : "No"}</p>
+    <p>Empty secret is empty: {emptySecretIsEmpty ? "Yes" : "No"}</p>
+    <p id="test-status">✅ Build succeeded with varlock integration</p>
+  </body>
+</html>

@@ -50,6 +50,9 @@ export default tseslint.config(
       '**/.vercel',
       '**/.netlify',
       '**/.astro',
+      '**/.next',
+      '**/out',
+      '**/next-env.d.ts',
 
     ],
   },
@@ -160,6 +163,7 @@ export default tseslint.config(
       'packages/*.ignore/**',
       'packages/varlock/src/cli/**',
       'packages/varlock/scripts/**',
+      'smoke-tests/**',
     ],
     rules: {
       'no-console': 0,

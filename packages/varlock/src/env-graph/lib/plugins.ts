@@ -22,7 +22,7 @@ import type {
 } from './decorators';
 import { createEnvGraphDataType } from './data-types';
 
-import Debug, { type Debugger } from 'debug';
+import { createDebug, type Debugger } from '../../lib/debug';
 import type { EnvGraph } from './env-graph';
 
 // module caching means the file will not be executed multiple times
@@ -80,7 +80,7 @@ export class VarlockPlugin {
     return (...args: Parameters<Debugger>) => {
       if (!this.debugger) {
         if (!this.name) throw new Error('expected plugin name to be set before using debug');
-        this.debugger = Debug(`varlock:plugin:${this.name}`);
+        this.debugger = createDebug(`varlock:plugin:${this.name}`);
       }
       return this.debugger(...args);
     };
