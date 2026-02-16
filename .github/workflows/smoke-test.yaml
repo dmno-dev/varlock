@@ -73,7 +73,7 @@ jobs:
           pnpm pack --pack-destination ../../../packed-packages
 
       - name: Upload packed packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: packed-packages
           path: packed-packages/*.tgz
@@ -113,7 +113,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Download packed packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: packed-packages
           path: packed-packages
