@@ -39,3 +39,18 @@ pnpm build:libs
 It is often useful to enable source maps in traces during local development.
 
 To do so run `export NODE_OPTIONS=--enable-source-maps` in your active terminal.
+
+## Plugins Development
+
+To develop a plugin, you can use the `@plugin` root decorator to load the plugin from a local `.env.schema` file.
+
+e.g. use `@plugin(./packages/plugins/1password)` instead of a package name like `@plugin(@varlock/1password-plugin)`.
+
+```env-spec
+# @plugin(./packages/plugins/1password)
+# @initOp(token=$OP_TOKEN, allowAppAuth=true)
+# ---
+
+# @type=opServiceAccountToken @sensitive
+OP_TOKEN=
+```
