@@ -11,7 +11,7 @@ const docsPages = Object.fromEntries(docsEntries.map(({ id, data }) => [id, data
 // Map blog: [{ id: 'slug', data: { title, description } }]
 // to { 'blog/slug': { title, description } }
 const blogPages = Object.fromEntries(
-  blogEntries.map(({ id, data }) => [`blog/${id}`, { title: data.title, description: data.description }])
+  blogEntries.map(({ id, data }) => [`blog/${id}`, { title: data.title, description: data.description }]),
 );
 
 export const { getStaticPaths, GET } = OGImageRoute({
