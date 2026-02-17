@@ -7,7 +7,7 @@ authors:
   - name: "Varlock Team"
 ---
 
-We've got some exciting news to share: Varlock was one of the projects selected to participate in [Session 3 of the GitHub Secure Open Source Fund](https://github.blog/open-source/maintainers/securing-the-supply-chain-at-scale-starting-with-71-important-open-source-projects/) back in September 2025. The fund pairs open source maintainers with security experts and resources to help projects strengthen their security posture. It was a genuinely valuable experience for us and we're lucky to have been included alongside some of the most important open source projects in the world.
+We've got some exciting news to share: Varlock was one of the projects selected to participate in [Session 3 of the GitHub Secure Open Source Fund](https://github.blog/open-source/maintainers/securing-the-ai-software-supply-chain-security-results-across-67-open-source-projects/) back in September 2025. The fund pairs open source maintainers with security experts and resources to help projects strengthen their security posture. It was a genuinely valuable experience for us and we're lucky to have been included alongside some of the most important open source projects in the world.
 
 ## Why Security Matters Here
 
