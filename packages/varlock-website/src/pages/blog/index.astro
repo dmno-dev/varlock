@@ -19,9 +19,21 @@ const sidebar = [
     ],
   },
 ];
+
+const site = Astro.site ?? new URL(Astro.url.origin);
+const ogImageUrl = new URL("/og-images/blog.png", site).href;
 ---
 
-<Layout title="Blog" showSearch={false} showSidebar={true} sidebar={sidebar}>
+<Layout
+  title="Blog"
+  showSearch={false}
+  showSidebar={true}
+  sidebar={sidebar}
+  head={[
+    { tag: "meta", attrs: { property: "og:image", content: ogImageUrl } },
+    { tag: "meta", attrs: { name: "twitter:image", content: ogImageUrl } },
+  ]}
+>
   <main>
     <div class="blog-container">
       <div class="blog-header">

@@ -1,12 +1,18 @@
 import { getCollection } from 'astro:content';
 import { OGImageRoute } from 'astro-og-canvas';
 
-const collectionEntries = await getCollection('docs');
+const docsEntries = await getCollection('docs');
+const blogEntries = await getCollection('blog');
 
-// Map the array of content collection entries to create an object.
-// Converts [{ id: 'post.md', data: { title: 'Example', description: '' } }]
+// Map docs: [{ id: 'post.md', data: { title: 'Example', description: '' } }]
 // to { 'post.md': { title: 'Example', description: '' } }
-const pages = Object.fromEntries(collectionEntries.map(({ id, data }) => [id, data]));
+const docsPages = Object.fromEntries(docsEntries.map(({ id, data }) => [id, data]));
+
+// Map blog: [{ id: 'slug', data: { title, description } }]
+// to { 'blog/slug': { title, description } }
+const blogPages = Object.fromEntries(
+  blogEntries.map(({ id, data }) => [`blog/${id}`, { title: data.title, description: data.description }])
+);
 
 export const { getStaticPaths, GET } = OGImageRoute({
   // Tell us the name of your dynamic route segment.
@@ -14,10 +20,15 @@ export const { getStaticPaths, GET } = OGImageRoute({
   param: 'route',
 
   pages: {
-    ...pages,
+    ...docsPages,
+    ...blogPages,
     index: {
       title: 'varlock',
       description: 'varlock',
+    },
+    blog: {
+      title: 'Blog',
+      description: 'Updates, guides, and tips from the Varlock team.',
     },
   },
 

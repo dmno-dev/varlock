@@ -10,6 +10,7 @@ interface Props {
   showTableOfContents?: boolean;
   showSidebar?: boolean;
   sidebar?: Array<any>;
+  head?: Array<{ tag: "meta"; attrs?: Record<string, string>; content?: string }>;
 }
 
 const {
@@ -19,6 +20,7 @@ const {
   showTableOfContents = false,
   showSidebar = false,
   sidebar,
+  head,
 } = Astro.props;
 
 ---
@@ -27,6 +29,7 @@ const {
   frontmatter={{
     title: title ?? "varlock",
     tableOfContents: showTableOfContents,
+    ...(head ? { head } : {}),
   }}
   hasSidebar={showSidebar}
   {...(showSidebar ? { sidebar } : {})}

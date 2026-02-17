@@ -30,9 +30,21 @@ const sidebar = [
     ],
   },
 ];
+
+const site = Astro.site ?? new URL(Astro.url.origin);
+const ogImageUrl = new URL(`/og-images/blog/${post.id}.png`, site).href;
 ---
 
-<Layout title={post.data.title} showSearch={false} showSidebar={true} sidebar={sidebar}>
+<Layout
+  title={post.data.title}
+  showSearch={false}
+  showSidebar={true}
+  sidebar={sidebar}
+  head={[
+    { tag: "meta", attrs: { property: "og:image", content: ogImageUrl } },
+    { tag: "meta", attrs: { name: "twitter:image", content: ogImageUrl } },
+  ]}
+>
   <main>
     <div class="blog-post-container">
       <a href="/blog/" class="back-link">&larr; Back to blog</a>
