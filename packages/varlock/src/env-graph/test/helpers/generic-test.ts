@@ -17,7 +17,7 @@ export function envFilesTest(spec: {
   debug?: boolean;
   earlyError?: boolean;
   loadingError?: boolean;
-  expectValues?: Record<string, string | undefined | Constructor<Error>>;
+  expectValues?: Record<string, string | number | boolean | undefined | Constructor<Error>>;
   expectNotInSchema?: Array<string>,
   expectRequired?: Record<string, boolean | Constructor<Error>>;
   expectRequiredIsDynamic?: Record<string, boolean>;
@@ -64,14 +64,21 @@ export function envFilesTest(spec: {
       expect(
         g.plugins.some((p) => p.loadingError)
         || g.sortedDataSources.some((s) => s.schemaErrors.length > 0 || s.loadingError),
+        'Expected an early error, but didnt find one',
       ).toBeTruthy();
     }
 
     if (spec.loadingError) {
-      expect(g.sortedDataSources.some((s) => s.loadingError)).toBeTruthy();
+      expect(
+        g.sortedDataSources.some((s) => s.loadingError),
+        'Expected a loading error, but didnt find one',
+      ).toBeTruthy();
     } else {
-      // expect no loading error
-      expect(g.sortedDataSources.some((s) => s.loadingError)).toBeFalsy();
+      const firstLoadingError = g.sortedDataSources.find((s) => s.loadingError)?.loadingError;
+      expect(
+        firstLoadingError,
+        `Expected no loading errors, but got - ${firstLoadingError?.message}`,
+      ).toBeFalsy();
 
       await g.resolveEnvValues();
 

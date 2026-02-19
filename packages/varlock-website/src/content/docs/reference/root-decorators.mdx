@@ -159,6 +159,49 @@ IMPORTED_ITEM=overriden-value
 </div>
 
 <div>
+### `@setValuesBulk()`
+**Arg types:** `[ data: string ]`
+**Named args:** `format?: "json" | "env"`, `createMissing?: boolean`
+
+Injects multiple config values at once from an external data source. The first argument is a resolver that produces a string (e.g., `exec()` calling a secrets manager), which is parsed and injected as definitions within the file containing the decorator.
+
+Bulk values participate in the normal file override chain — `process.env` still overrides everything, higher-precedence files (`.env.local`, `.env.production`, etc.) override bulk values, and bulk values override schema-defined defaults in the same file. You control precedence by choosing which file to put `@setValuesBulk` in.
+
+**Options:**
+- `format`: How to parse the data string. `json` expects a flat JSON object, `env` expects `.env` file format. If not specified, auto-detected by checking if the string starts with `{`.
+- `createMissing`: If `true`, keys in the bulk data that don't already exist in your schema will be created as new config items. Defaults to `false` (unknown keys are silently skipped).
+
+_Can be called multiple times — later calls overwrite earlier ones for the same keys._
+
+```env-spec title=".env.schema"
+# Inject secrets from a vault as JSON
+# @setValuesBulk(exec("vault kv get -format=json secret/myapp"), format=json)
+# ---
+API_KEY=
+DB_PASSWORD=
+```
+
+```env-spec title=".env.schema"
+# Inject from a secrets file as .env format
+# @setValuesBulk(exec("cat /run/secrets/env"), format=env)
+# ---
+API_KEY=
+DB_PASSWORD=
+```
+
+```env-spec title=".env.schema"
+# Create items not already in the schema
+# @setValuesBulk(exec("vault kv get -format=json secret/myapp"), format=json, createMissing=true)
+# ---
+```
+
+:::note
+When using `format=env`, function calls like `$VAR` references in unquoted values are not supported and will cause an error. Use single quotes for literal `$` signs (e.g., `'$LITERAL'`) or use `format=json` instead.
+:::
+
+</div>
+
+<div>
 ### `@plugin()`
 **Arg types:** `[ identifier: string ]`
 
