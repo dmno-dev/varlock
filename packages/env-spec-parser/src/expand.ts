@@ -154,13 +154,16 @@ function expandHelper(
       name: fnName,
       args: new ParsedEnvSpecFunctionArgs({
         values: newConcatArgs as any,
+        _location: val.data.args.data._location,
       }),
+      _location: val.data._location,
     });
   } else if (val instanceof ParsedEnvSpecFunctionArgs) {
     // expand each arg
     const newArgs = val.data.values.map((v) => expandHelper(v, expandStaticFn));
     return new ParsedEnvSpecFunctionArgs({
       values: newArgs as any,
+      _location: val.data._location,
     });
   // if key-value pair, expand value
   } else if (val instanceof ParsedEnvSpecKeyValuePair) {

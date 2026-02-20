@@ -134,9 +134,22 @@ function processOpCliError(err: Error | any) {
         tip: ['Double check the field name/id in your item.'],
         // TODO: add link to item?
       });
+    } else if (errMessage.includes('unknown command "environment"')) {
+      return new ResolutionError('1Password CLI does not support the "environment" command', {
+        tip: [
+          'The `op environment` command requires a beta version of the 1Password CLI (v2.33.0+).',
+          'Download it from https://app-updates.agilebits.com/product_history/CLI2 (click "show betas").',
+        ],
+      });
+    } else if (errMessage.toLowerCase().includes('environment') && (errMessage.includes('not found') || errMessage.includes('invalid'))) {
+      return new ResolutionError('1Password environment not found', {
+        tip: [
+          'Verify the environment ID is correct.',
+          'You can find it in the 1Password app under Developer > View Environments.',
+          'See https://developer.1password.com/docs/environments/',
+        ],
+      });
     }
-
-
 
     // when the desktop app integration is not connected, some interactive CLI help is displayed
     // however if it dismissed, we get an error with no message
@@ -315,6 +328,19 @@ export async function opCliRead(opReference: string, account?: string) {
     ]);
     return result;
   }
+}
+
+export async function opCliEnvironmentRead(
+  environmentId: string,
+  account?: string,
+): Promise<string> {
+  const result = await execOpCliCommand([
+    'environment',
+    'read',
+    environmentId,
+    ...(account ? ['--account', account] : []),
+  ]);
+  return result;
 }
 
 export function getIdsFromShareLink(opItemShareLinkUrl: string) {
