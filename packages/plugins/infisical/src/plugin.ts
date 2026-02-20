@@ -116,6 +116,50 @@ class InfisicalPluginInstance {
     }
   }
 
+  async listSecrets(secretPath?: string, tagSlugs?: string[]): Promise<string> {
+    if (!this.projectId || !this.environment) {
+      throw new ResolutionError('Project ID and environment must be configured');
+    }
+
+    const client = await this.initClient();
+
+    try {
+      const opts: any = {
+        projectId: this.projectId,
+        environment: this.environment,
+        secretPath: secretPath || this.secretPath || '/',
+        expandSecretReferences: true,
+        viewSecretValue: true,
+      };
+      if (tagSlugs?.length) opts.tagSlugs = tagSlugs;
+
+      const secrets = await client.secrets().listSecretsWithImports(opts);
+
+      const result: Record<string, string> = {};
+      for (const secret of secrets) {
+        result[secret.secretKey] = secret.secretValue;
+      }
+      return JSON.stringify(result);
+    } catch (err: any) {
+      const errorMsg = err?.message || String(err);
+      const statusCode = err?.statusCode || err?.response?.status;
+      const pathInfo = secretPath || this.secretPath
+        ? ` at path "${secretPath || this.secretPath}"`
+        : '';
+      const location = `project "${this.projectId}" environment "${this.environment}"${pathInfo}`;
+
+      if (statusCode === 403 || statusCode === 401) {
+        throw new ResolutionError(`Access denied listing secrets in ${location}`, {
+          tip: [
+            'Verify your machine identity has the correct permissions',
+            'Check that the machine identity has access to this project and environment',
+          ].join('\n'),
+        });
+      }
+      throw new ResolutionError(`Failed to list secrets in ${location}: ${errorMsg}`);
+    }
+  }
+
   private handleInfisicalError(err: any, secretName: string, secretPath?: string): never {
     const errorMsg = err?.message || String(err);
     const statusCode = err?.statusCode || err?.response?.status;
@@ -424,5 +468,77 @@ plugin.registerResolverFunction({
 
     const secretValue = await selectedInstance.getSecret(secretName, secretPath);
     return secretValue;
+  },
+});
+
+plugin.registerResolverFunction({
+  name: 'infisicalBulk',
+  label: 'Load all secrets from an Infisical project environment',
+  icon: INFISICAL_ICON,
+  argsSchema: {
+    type: 'mixed',
+    arrayMaxLength: 1,
+  },
+  process() {
+    // Optional positional arg = instance id
+    let instanceId = '_default';
+    if (this.arrArgs?.length) {
+      if (!this.arrArgs[0].isStatic) {
+        throw new SchemaError('Expected instance id to be a static value');
+      }
+      instanceId = String(this.arrArgs[0].staticValue);
+    }
+
+    // Named params: path, tag
+    const pathResolver = this.objArgs?.path;
+    const tagResolver = this.objArgs?.tag;
+
+    if (!Object.values(pluginInstances).length) {
+      throw new SchemaError('No Infisical plugin instances found', {
+        tip: 'Initialize at least one Infisical plugin instance using @initInfisical() decorator',
+      });
+    }
+
+    const selectedInstance = pluginInstances[instanceId];
+    if (!selectedInstance) {
+      if (instanceId === '_default') {
+        throw new SchemaError('Infisical plugin instance (without id) not found', {
+          tip: [
+            'Either remove the `id` param from your @initInfisical call',
+            'or use `infisicalBulk(id, path=..., tag=...)` to select an instance by id',
+            `Available ids: ${Object.keys(pluginInstances).join(', ')}`,
+          ].join('\n'),
+        });
+      } else {
+        throw new SchemaError(`Infisical plugin instance id "${instanceId}" not found`, {
+          tip: `Available ids: ${Object.keys(pluginInstances).join(', ')}`,
+        });
+      }
+    }
+
+    return { instanceId, pathResolver, tagResolver };
+  },
+  async resolve({ instanceId, pathResolver, tagResolver }) {
+    const selectedInstance = pluginInstances[instanceId];
+
+    let secretPath: string | undefined;
+    if (pathResolver) {
+      const resolvedPath = await pathResolver.resolve();
+      if (typeof resolvedPath !== 'string') {
+        throw new SchemaError('Expected path to resolve to a string');
+      }
+      secretPath = resolvedPath;
+    }
+
+    let tagSlugs: string[] | undefined;
+    if (tagResolver) {
+      const resolvedTag = await tagResolver.resolve();
+      if (typeof resolvedTag !== 'string') {
+        throw new SchemaError('Expected tag to resolve to a string');
+      }
+      tagSlugs = [resolvedTag];
+    }
+
+    return await selectedInstance.listSecrets(secretPath, tagSlugs);
   },
 });
