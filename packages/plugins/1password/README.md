@@ -9,6 +9,7 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 - **Service account authentication** for CI/CD and production environments
 - **Desktop app authentication** for local development (with biometric unlock support)
 - **Secret references** using 1Password's standard `op://` format
+- **Bulk-load environments** with `opLoadEnvironment()` via `@setValuesBulk`
 - **Multiple vault support** for different environments and access levels
 - **Multiple instances** for connecting to different accounts or vaults
 - Compatible with any 1Password account type (personal, family, teams, business)
@@ -133,6 +134,32 @@ DEV_ITEM=op(dev, op://vault-name/item-name/field-name)
 PROD_ITEM=op(prod, op://vault-name/item-name/field-name)
 ```
 
+### Loading 1Password Environments
+
+Use `opLoadEnvironment()` with `@setValuesBulk` to load all variables from a [1Password environment](https://developer.1password.com/docs/sdks/concepts/environments/) at once:
+
+```env-spec
+# @plugin(@varlock/1password-plugin)
+# @initOp(token=$OP_TOKEN, allowAppAuth=forEnv(dev), account=acmeco)
+# @setValuesBulk(opLoadEnvironment(your-environment-id))
+# ---
+
+# @type=opServiceAccountToken @sensitive
+OP_TOKEN=
+
+API_KEY=
+DB_PASSWORD=
+```
+
+With a named instance:
+
+```env-spec
+# @initOp(id=prod, token=$OP_TOKEN_PROD, allowAppAuth=false)
+# @setValuesBulk(opLoadEnvironment(prod, your-environment-id))
+```
+
+> **Note:** When using desktop app auth (`allowAppAuth`), the `op environment` command requires a beta version of the 1Password CLI (v2.33.0+). Download it from the [CLI release history](https://app-updates.agilebits.com/product_history/CLI2) (click "show betas"). Service account auth via the SDK does not have this requirement.
+
 ---
 
 ## Reference
@@ -165,6 +192,20 @@ Fetch an individual field using a 1Password secret reference.
 
 - Format: `op://vault-name/item-name/field-name`
 - Example: `op://production/database/password`
+
+#### `opLoadEnvironment()`
+
+Load all variables from a 1Password environment. Intended for use with `@setValuesBulk`.
+
+**Signatures:**
+
+- `opLoadEnvironment(environmentId)` - Load from default instance
+- `opLoadEnvironment(instanceId, environmentId)` - Load from a specific instance
+
+**Parameters:**
+
+- `environmentId: string` - The 1Password environment ID
+- `instanceId?: string` - Instance identifier (static, when using multiple instances)
 
 ### Data Types
 

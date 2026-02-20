@@ -2,7 +2,7 @@ import { Resolver } from 'varlock/plugin-lib';
 
 import { createDeferredPromise, DeferredPromise } from '@env-spec/utils/defer';
 import { Client, createClient } from '@1password/sdk';
-import { opCliRead } from './cli-helper';
+import { opCliRead, opCliEnvironmentRead } from './cli-helper';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
@@ -13,6 +13,19 @@ plugin.name = '1pass';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = OP_ICON;
+
+/** Parse env format output from `op environment read` into a flat {name: value} JSON string */
+function parseOpEnvOutput(raw: string): string {
+  const result: Record<string, string> = {};
+  for (const line of raw.split('\n')) {
+    const eqPos = line.indexOf('=');
+    if (eqPos === -1) continue;
+    const key = line.substring(0, eqPos).trim();
+    if (!key) continue;
+    result[key] = line.substring(eqPos + 1);
+  }
+  return JSON.stringify(result);
+}
 
 class OpPluginInstance {
   /** 1Password service account token */
@@ -76,6 +89,31 @@ class OpPluginInstance {
       // using op CLI to talk to 1Password desktop app
       // NOTE - cli helper does its own batching, untethered to a specific op instance
       return await opCliRead(opReference, this.account);
+    } else {
+      throw new SchemaError('Unable to authenticate with 1Password', {
+        tip: `Plugin instance (${this.id}) must be provided either a service account token or have app auth enabled (allowAppAuth=true)`,
+      });
+    }
+  }
+
+  async readEnvironment(environmentId: string): Promise<string> {
+    if (this.token) {
+      // Use SDK - supports environments since v0.4.1-beta.1
+      await this.initSdkClient();
+      const opClient = await this.opClientPromise;
+      if (!opClient) throw new Error('Expected op sdk to be initialized');
+      const response = await opClient.environments.getVariables(environmentId);
+      // Convert EnvironmentVariable[] to flat {name: value} JSON string
+      const result: Record<string, string> = {};
+      for (const v of response.variables) {
+        result[v.name] = v.value;
+      }
+      return JSON.stringify(result);
+    } else if (this.allowAppAuth) {
+      // Use CLI for desktop app auth
+      const cliResult = await opCliEnvironmentRead(environmentId, this.account);
+      // CLI outputs env format (KEY=value lines) - parse to flat JSON
+      return parseOpEnvOutput(cliResult);
     } else {
       throw new SchemaError('Unable to authenticate with 1Password', {
         tip: `Plugin instance (${this.id}) must be provided either a service account token or have app auth enabled (allowAppAuth=true)`,
@@ -260,5 +298,70 @@ plugin.registerResolverFunction({
     }
     const opValue = await selectedInstance.readItem(opReference);
     return opValue;
+  },
+});
+
+plugin.registerResolverFunction({
+  name: 'opLoadEnvironment',
+  label: 'Load all variables from a 1Password environment',
+  icon: OP_ICON,
+  argsSchema: {
+    type: 'array',
+    arrayMinLength: 1,
+    arrayMaxLength: 2,
+  },
+  process() {
+    if (!this.arrArgs || !this.arrArgs.length) {
+      throw new SchemaError('Expected 1 or 2 arguments');
+    }
+
+    let instanceId: string;
+    let environmentIdResolver: Resolver;
+
+    if (this.arrArgs.length === 1) {
+      instanceId = '_default';
+      environmentIdResolver = this.arrArgs[0];
+    } else if (this.arrArgs.length === 2) {
+      if (!this.arrArgs[0].isStatic) {
+        throw new SchemaError('expected instance id to be a static value');
+      }
+      instanceId = String(this.arrArgs[0].staticValue);
+      environmentIdResolver = this.arrArgs[1];
+    } else {
+      throw new SchemaError('Expected 1 or 2 args');
+    }
+
+    if (!Object.values(pluginInstances).length) {
+      throw new SchemaError('No 1Password plugin instances found', {
+        tip: 'Initialize at least one 1Password plugin instance using the @initOp root decorator',
+      });
+    }
+
+    const selectedInstance = pluginInstances[instanceId];
+    if (!selectedInstance) {
+      if (instanceId === '_default') {
+        throw new SchemaError('1Password plugin instance (without id) not found', {
+          tip: [
+            'Either remove the `id` param from your @initOp call',
+            'or use `opLoadEnvironment(id, environmentId)` to select an instance by id.',
+            `Possible ids are: ${Object.keys(pluginInstances).join(', ')}`,
+          ].join('\n'),
+        });
+      } else {
+        throw new SchemaError(`1Password plugin instance id "${instanceId}" not found`, {
+          tip: [`Valid ids are: ${Object.keys(pluginInstances).join(', ')}`].join('\n'),
+        });
+      }
+    }
+
+    return { instanceId, environmentIdResolver };
+  },
+  async resolve({ instanceId, environmentIdResolver }) {
+    const selectedInstance = pluginInstances[instanceId];
+    const environmentId = await environmentIdResolver.resolve();
+    if (typeof environmentId !== 'string') {
+      throw new SchemaError('expected environment ID to resolve to a string');
+    }
+    return await selectedInstance.readEnvironment(environmentId);
   },
 });

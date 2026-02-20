@@ -8,9 +8,10 @@ import {
 
 import { ConfigItem } from './config-item';
 import { SimpleQueue } from './simple-queue';
-import { ResolutionError, SchemaError } from './errors';
+import { ResolutionError, SchemaError, VarlockError } from './errors';
 import type { EnvGraphDataSource } from './data-source';
 import { DecoratorInstance } from './decorators';
+import { getErrorLocation } from './error-location';
 
 const execAsync = promisify(exec);
 
@@ -44,6 +45,8 @@ export class Resolver {
   get staticValue(): ResolvedValue { return undefined; }
 
   inferredType?: string;
+  /** reference to the parsed node that created this resolver, used for error location tracking */
+  _parsedNode?: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs;
   _schemaErrors: Array<SchemaError> = [];
   private _depsObj: Record<string, boolean> = {};
 
@@ -163,8 +166,20 @@ export class Resolver {
   }
 
   async resolve() {
-    const resolvedValue = await this.def.resolve.call(this, this.meta);
-    return resolvedValue;
+    try {
+      const resolvedValue = await this.def.resolve.call(this, this.meta);
+      return resolvedValue;
+    } catch (err) {
+      // enrich errors with location info from the parsed node if available
+      if (err instanceof VarlockError && !err.more?.location && this._parsedNode && this.dataSource) {
+        const location = getErrorLocation(this.dataSource, this._parsedNode);
+        if (location) {
+          (err as any).more ??= {};
+          (err as any).more.location = location;
+        }
+      }
+      throw err;
+    }
   }
 
   get envGraph() {
@@ -621,7 +636,9 @@ export function convertParsedValueToResolvers(
         arrArgsAsResolvers.push(argResolver);
       }
     }
-    return new ResolverFnClass(arrArgsAsResolvers, objArgsAsResolvers, dataSource);
+    const resolver = new ResolverFnClass(arrArgsAsResolvers, objArgsAsResolvers, dataSource);
+    resolver._parsedNode = value;
+    return resolver;
   } else {
     throw new Error('Unknown value type');
   }

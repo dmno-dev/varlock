@@ -43,8 +43,8 @@
     "varlock": "workspace:^"
   },
   "devDependencies": {
-    "@1password/sdk": "^0.3.1",
-    "@1password/sdk-core": "^0.3.1",
+    "@1password/sdk": "0.4.1-beta.1",
+    "@1password/sdk-core": "0.4.1-beta.1",
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
     "import-meta-resolve": "^4.2.0",
