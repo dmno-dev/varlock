@@ -4,9 +4,16 @@ import {
 import { execSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { platform } from 'node:os';
 import { varlockLoad } from '../helpers/run-varlock.js';
 
 const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
+
+// On Windows, stdio: 'inherit' can cause hangs. Use 'pipe' for stdin but inherit stdout/stderr
+const isWindows = platform() === 'win32';
+const execOptions = {
+  stdio: isWindows ? ['pipe', 'inherit', 'inherit'] as const : 'inherit' as const,
+};
 
 describe('Astro Integration', () => {
   beforeAll(() => {
@@ -15,15 +22,12 @@ describe('Astro Integration', () => {
 
     const astroDir = join(SMOKE_TESTS_DIR, 'smoke-test-astro');
 
-    // Install dependencies
-    execSync('pnpm install --silent', { cwd: astroDir, stdio: 'inherit' });
-
     // Generate types
     varlockLoad({ cwd: 'smoke-test-astro' });
 
     // Build
-    execSync('pnpm run build', { cwd: astroDir, stdio: 'inherit' });
-  });
+    execSync('pnpm run build', { cwd: astroDir, ...execOptions });
+  }, 120000); // Increased timeout for Windows - framework builds can be slower
 
   test('should build successfully', () => {
     const distPath = join(SMOKE_TESTS_DIR, 'smoke-test-astro/dist/index.html');
@@ -83,15 +87,12 @@ describe('Next.js Integration', () => {
 
     const nextDir = join(SMOKE_TESTS_DIR, 'smoke-test-nextjs');
 
-    // Install dependencies
-    execSync('pnpm install --silent', { cwd: nextDir, stdio: 'inherit' });
-
     // Generate types
     varlockLoad({ cwd: 'smoke-test-nextjs' });
 
     // Build
-    execSync('pnpm run build', { cwd: nextDir, stdio: 'inherit' });
-  });
+    execSync('pnpm run build', { cwd: nextDir, ...execOptions });
+  }, 120000); // Increased timeout for Windows - Next.js builds can be slower
 
   test('should build successfully', () => {
     const outPath = join(SMOKE_TESTS_DIR, 'smoke-test-nextjs/out');
