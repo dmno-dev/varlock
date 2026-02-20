@@ -17,9 +17,11 @@ The plugin uses machine identities with Universal Auth for programmatic access t
 ## Features
 
 - **Fetch secrets** from Infisical projects and environments
+- **Bulk-load secrets** with `infisicalBulk()` via `@setValuesBulk`
 - **Universal Auth** with Client ID and Client Secret
 - **Support for self-hosted** Infisical instances
 - **Secret paths** for hierarchical organization
+- **Filter by tag** to load only matching secrets
 - **Multiple plugin instances** for different projects/environments
 - **Auto-infer secret names** from variable names for convenience
 - **Helpful error messages** with resolution tips
@@ -171,6 +173,40 @@ DB_PASSWORD=infisical("DB_PASSWORD", "/database")
 API_KEY=infisical("API_KEY", "/api")
 ```
 
+### Bulk loading secrets
+
+Use `infisicalBulk()` with `@setValuesBulk` to load all secrets from a project environment at once, instead of wiring up each secret individually:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/infisical-plugin)
+# @initInfisical(projectId=my-project, environment=dev, clientId=$INFISICAL_CLIENT_ID, clientSecret=$INFISICAL_CLIENT_SECRET)
+# @setValuesBulk(infisicalBulk())
+# ---
+# @type=infisicalClientId
+INFISICAL_CLIENT_ID=
+# @type=infisicalClientSecret @sensitive
+INFISICAL_CLIENT_SECRET=
+
+API_KEY=
+DB_PASSWORD=
+```
+
+You can filter by path and/or tag:
+
+```env-spec title=".env.schema"
+# Load secrets from a specific path
+# @setValuesBulk(infisicalBulk(path="/database"))
+
+# Load secrets with a specific tag
+# @setValuesBulk(infisicalBulk(tag="backend"))
+
+# Combine path and tag
+# @setValuesBulk(infisicalBulk(path="/production", tag="app"))
+
+# With a named instance
+# @setValuesBulk(infisicalBulk(prod, path="/database"))
+```
+
 ---
 
 ## Reference
@@ -259,6 +295,33 @@ DEV_SECRET=infisical(dev, "DATABASE_URL")
 
 # Full form
 PROD_SECRET=infisical(prod, "DATABASE_URL", "/production")
+```
+</div>
+
+<div>
+#### `infisicalBulk()`
+
+Bulk-load all secrets from an Infisical project environment. Intended for use with `@setValuesBulk`.
+
+**Array args:**
+- `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
+
+**Key/value args:**
+- `path` (optional): secret path to fetch from (overrides default path from `@initInfisical`)
+- `tag` (optional): tag slug to filter secrets by
+
+```env-spec /infisicalBulk\\(.*\\)/
+# Load all secrets from default instance
+# @setValuesBulk(infisicalBulk())
+
+# Load from a specific path
+# @setValuesBulk(infisicalBulk(path="/database"))
+
+# Filter by tag
+# @setValuesBulk(infisicalBulk(tag="backend"))
+
+# With instance ID and path
+# @setValuesBulk(infisicalBulk(prod, path="/database"))
 ```
 </div>
 </div>
