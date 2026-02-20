@@ -140,6 +140,64 @@ export class RootDecoratorInstance extends DecoratorInstance {
 }
 
 
+
+// ~ setValuesBulk helpers ----------------------------------------
+
+function detectBulkFormat(data: string): 'json' | 'env' {
+  return data.trimStart().startsWith('{') ? 'json' : 'env';
+}
+
+function parseJsonBulkValues(data: string): Record<string, { value: string | number | boolean }> {
+  let parsed: any;
+  try {
+    parsed = JSON.parse(data);
+  } catch (err) {
+    throw new SchemaError(`@setValuesBulk: invalid JSON data - ${(err as Error).message}`);
+  }
+  if (!_.isPlainObject(parsed)) {
+    throw new SchemaError('@setValuesBulk: JSON data must be a flat object');
+  }
+  const result: Record<string, { value: string | number | boolean }> = {};
+  for (const [key, val] of Object.entries(parsed)) {
+    if (val === null || val === undefined) continue; // skip nulls
+    if (_.isPlainObject(val) || _.isArray(val)) {
+      throw new SchemaError(`@setValuesBulk: JSON value for "${key}" must be a scalar, not an object or array`);
+    }
+    result[key] = { value: val as string | number | boolean };
+  }
+  return result;
+}
+
+function parseEnvBulkValues(
+  data: string,
+): Record<string, { value: string, description?: string }> {
+  let parsedFile;
+  try {
+    parsedFile = parseEnvSpecDotEnvFile(data);
+  } catch (err) {
+    throw new SchemaError(`@setValuesBulk: failed to parse env data - ${(err as Error).message}`);
+  }
+  const result: Record<string, { value: string, description?: string }> = {};
+  for (const item of parsedFile.configItems) {
+    if (item.value instanceof ParsedEnvSpecFunctionCall) {
+      throw new SchemaError(
+        `@setValuesBulk: env format does not support function calls for "${item.key}".`
+        + ' Use single quotes for literal values or use format=json instead.',
+      );
+    }
+    if (item.value instanceof ParsedEnvSpecStaticValue) {
+      result[item.key] = {
+        value: String(item.value.unescapedValue ?? ''),
+        description: item.description || undefined,
+      };
+    } else {
+      // undefined value (empty assignment like `KEY=`)
+      result[item.key] = { value: '', description: item.description || undefined };
+    }
+  }
+  return result;
+}
+
 // ~ Root decorators ----------------------------------------
 export type RootDecoratorDef<Processed = any> = {
   name: string,
@@ -286,7 +344,7 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
         if (effectiveFormat === 'json') {
           entries = parseJsonBulkValues(dataString);
         } else {
-          entries = parseEnvBulkValues(dataString, graph.registeredResolverFunctions);
+          entries = parseEnvBulkValues(dataString);
         }
       } catch (err) {
         // surface parse errors as loading errors on the data source
@@ -327,66 +385,6 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     },
   },
 ];
-
-
-
-// ~ setValuesBulk helpers ----------------------------------------
-
-function detectBulkFormat(data: string): 'json' | 'env' {
-  return data.trimStart().startsWith('{') ? 'json' : 'env';
-}
-
-function parseJsonBulkValues(data: string): Record<string, { value: string | number | boolean }> {
-  let parsed: any;
-  try {
-    parsed = JSON.parse(data);
-  } catch (err) {
-    throw new SchemaError(`@setValuesBulk: invalid JSON data - ${(err as Error).message}`);
-  }
-  if (!_.isPlainObject(parsed)) {
-    throw new SchemaError('@setValuesBulk: JSON data must be a flat object');
-  }
-  const result: Record<string, { value: string | number | boolean }> = {};
-  for (const [key, val] of Object.entries(parsed)) {
-    if (val === null || val === undefined) continue; // skip nulls
-    if (_.isPlainObject(val) || _.isArray(val)) {
-      throw new SchemaError(`@setValuesBulk: JSON value for "${key}" must be a scalar, not an object or array`);
-    }
-    result[key] = { value: val as string | number | boolean };
-  }
-  return result;
-}
-
-function parseEnvBulkValues(
-  data: string,
-  registeredResolvers: Record<string, any>,
-): Record<string, { value: string, description?: string }> {
-  let parsedFile;
-  try {
-    parsedFile = parseEnvSpecDotEnvFile(data);
-  } catch (err) {
-    throw new SchemaError(`@setValuesBulk: failed to parse env data - ${(err as Error).message}`);
-  }
-  const result: Record<string, { value: string, description?: string }> = {};
-  for (const item of parsedFile.configItems) {
-    if (item.value instanceof ParsedEnvSpecFunctionCall) {
-      throw new SchemaError(
-        `@setValuesBulk: env format does not support function calls for "${item.key}".`
-        + ' Use single quotes for literal values or use format=json instead.',
-      );
-    }
-    if (item.value instanceof ParsedEnvSpecStaticValue) {
-      result[item.key] = {
-        value: String(item.value.unescapedValue ?? ''),
-        description: item.description || undefined,
-      };
-    } else {
-      // undefined value (empty assignment like `KEY=`)
-      result[item.key] = { value: '', description: item.description || undefined };
-    }
-  }
-  return result;
-}
 
 // ~ Item decorators ----------------------------------------
 export type ItemDecoratorDef<T = any> = {

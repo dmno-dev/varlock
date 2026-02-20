@@ -116,7 +116,7 @@ class InfisicalPluginInstance {
     }
   }
 
-  async listSecrets(secretPath?: string, tagSlugs?: string[]): Promise<string> {
+  async listSecrets(secretPath?: string, tagSlugs?: Array<string>): Promise<string> {
     if (!this.projectId || !this.environment) {
       throw new ResolutionError('Project ID and environment must be configured');
     }
@@ -530,7 +530,7 @@ plugin.registerResolverFunction({
       secretPath = resolvedPath;
     }
 
-    let tagSlugs: string[] | undefined;
+    let tagSlugs: Array<string> | undefined;
     if (tagResolver) {
       const resolvedTag = await tagResolver.resolve();
       if (typeof resolvedTag !== 'string') {
