@@ -192,9 +192,15 @@ export class EnvGraph {
         try {
           await decInstance.execute();
         } catch (err) {
+          // prefer the error's own location (e.g. from a nested resolver) over the decorator's
+          const errLocation = (err as any).more?.location
+            || getErrorLocation(source, decInstance.parsedDecorator);
           decInstance._executionError = new SchemaError(
             err as Error,
-            { location: getErrorLocation(source, decInstance.parsedDecorator) },
+            {
+              location: errLocation,
+              ...((err as any).tip && { tip: (err as any).tip }),
+            },
           );
         }
       }

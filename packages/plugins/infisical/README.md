@@ -7,9 +7,11 @@ Load secrets from [Infisical](https://infisical.com/) into your Varlock configur
 ## Features
 
 - ✅ Fetch secrets from Infisical projects and environments
+- ✅ Bulk-load secrets with `infisicalBulk()` via `@setValuesBulk`
 - ✅ Universal Auth with Client ID and Client Secret
 - ✅ Support for custom Infisical instances (self-hosted)
 - ✅ Secret paths and hierarchical organization
+- ✅ Filter secrets by tag
 - ✅ Multiple plugin instances for different projects/environments
 - ✅ Helpful error messages with resolution tips
 
@@ -131,6 +133,41 @@ DEV_DATABASE=infisical(dev, "DATABASE_URL")
 PROD_DATABASE=infisical(prod, "DATABASE_URL")
 ```
 
+### Bulk Loading Secrets
+
+Use `infisicalBulk()` with `@setValuesBulk` to load all secrets from a project environment at once:
+
+```env-spec
+# @plugin(@varlock/infisical-plugin)
+# @initInfisical(projectId=my-project, environment=dev, clientId=$INFISICAL_CLIENT_ID, clientSecret=$INFISICAL_CLIENT_SECRET)
+# @setValuesBulk(infisicalBulk())
+# ---
+# @type=infisicalClientId
+INFISICAL_CLIENT_ID=
+# @type=infisicalClientSecret @sensitive
+INFISICAL_CLIENT_SECRET=
+
+# These will be populated from Infisical
+API_KEY=
+DB_PASSWORD=
+```
+
+Filter by path or tag:
+
+```env-spec
+# Load secrets from a specific path
+# @setValuesBulk(infisicalBulk(path="/database"))
+
+# Load secrets with a specific tag
+# @setValuesBulk(infisicalBulk(tag="backend"))
+
+# Combine path and tag
+# @setValuesBulk(infisicalBulk(path="/production", tag="app"))
+
+# With a named instance
+# @setValuesBulk(infisicalBulk(prod, path="/database"))
+```
+
 ### Self-Hosted Infisical
 
 For self-hosted Infisical instances, specify the `siteUrl`:
@@ -174,6 +211,23 @@ Resolver function to fetch secret values.
 **Returns:** The secret value as a string
 
 **Note:** When called without arguments, the config item key is automatically used as the secret name in Infisical. For example, `DATABASE_URL=infisical()` will fetch a secret named `DATABASE_URL` from Infisical.
+
+### `infisicalBulk()`
+
+Resolver function to bulk-load all secrets from an Infisical project environment. Intended for use with `@setValuesBulk`.
+
+**Signatures:**
+- `infisicalBulk()` - Load all secrets from default instance
+- `infisicalBulk(path="/folder")` - Load secrets from a specific path
+- `infisicalBulk(tag="some-tag")` - Load secrets filtered by tag
+- `infisicalBulk(path="/folder", tag="some-tag")` - Combine path and tag
+- `infisicalBulk(instanceId, path="/folder")` - Load from a named instance with path
+
+**Key/value args:**
+- `path` (optional): Secret path to fetch from (overrides default path from `@initInfisical`)
+- `tag` (optional): Tag slug to filter secrets by
+
+**Returns:** JSON string of `{ secretKey: secretValue }` pairs
 
 ## Data Types
 
@@ -232,6 +286,23 @@ DB_PASSWORD=infisical("DB_PASSWORD", "/database")
 # API keys at /production/api
 STRIPE_KEY=infisical("STRIPE_KEY", "/api")
 SENDGRID_KEY=infisical("SENDGRID_KEY", "/api")
+```
+
+### Bulk Loading with Tags
+
+```env-spec
+# @plugin(@varlock/infisical-plugin)
+# @initInfisical(projectId=my-app, environment=production, clientId=$INFISICAL_CLIENT_ID, clientSecret=$INFISICAL_CLIENT_SECRET)
+# @setValuesBulk(infisicalBulk(tag="backend"))
+# ---
+# @type=infisicalClientId
+INFISICAL_CLIENT_ID=
+# @type=infisicalClientSecret @sensitive
+INFISICAL_CLIENT_SECRET=
+
+DATABASE_URL=
+REDIS_URL=
+API_KEY=
 ```
 
 ### Multi-Region Setup

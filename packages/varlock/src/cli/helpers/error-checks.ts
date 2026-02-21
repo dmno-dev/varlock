@@ -81,6 +81,11 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
 
       for (const err of source.resolutionErrors) {
         console.log(`- ${err.message}`);
+        if (err instanceof VarlockError && err.tip) {
+          for (const line of err.tip.split('\n')) {
+            console.log(`  ${line}`);
+          }
+        }
         showErrorLocationDetails(err);
       }
     }
