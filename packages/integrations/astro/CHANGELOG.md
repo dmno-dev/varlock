@@ -1,5 +1,14 @@
 # @varlock/astro-integration
 
+## 0.2.1
+
+### Patch Changes
+
+- [#299](https://github.com/dmno-dev/varlock/pull/299) [`9eb37b2`](https://github.com/dmno-dev/varlock/commit/9eb37b232b0054078ac26525d6a84f384d16aed8) Thanks [@theoephraim](https://github.com/theoephraim)! - ripped out some deps, minor cleanup
+
+- Updated dependencies [[`a4bb4e9`](https://github.com/dmno-dev/varlock/commit/a4bb4e9e2ef8e604b99e39a0425806ceb8b60188), [`9eb37b2`](https://github.com/dmno-dev/varlock/commit/9eb37b232b0054078ac26525d6a84f384d16aed8)]:
+  - varlock@0.2.3
+
 ## 0.2.0
 
 ### Patch Changes

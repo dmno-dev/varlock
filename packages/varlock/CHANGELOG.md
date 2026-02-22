@@ -1,5 +1,13 @@
 # varlock
 
+## 0.2.3
+
+### Patch Changes
+
+- [#309](https://github.com/dmno-dev/varlock/pull/309) [`a4bb4e9`](https://github.com/dmno-dev/varlock/commit/a4bb4e9e2ef8e604b99e39a0425806ceb8b60188) Thanks [@theoephraim](https://github.com/theoephraim)! - disable project level anonymous id check
+
+- [#299](https://github.com/dmno-dev/varlock/pull/299) [`9eb37b2`](https://github.com/dmno-dev/varlock/commit/9eb37b232b0054078ac26525d6a84f384d16aed8) Thanks [@theoephraim](https://github.com/theoephraim)! - ripped out some deps, minor cleanup
+
 ## 0.2.2
 
 ### Patch Changes
