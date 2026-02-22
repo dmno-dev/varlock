@@ -111,7 +111,8 @@ function loadVarlockConfig() {
         throw new Error(`Problem reading project varlock config - ${projectVarlockConfigPath}`, { cause: err });
       }
     }
-    if (projectVarlockConfig?.anonymousId) throw new Error('Anonymous ID should not be set in project varlock config');
+    // This causes problems if you are running code within a different user's home directory
+    // if (projectVarlockConfig?.anonymousId) throw new Error('Anonymous ID should not be set in project varlock config');
   }
 
   // merge together - we may need more complex merging logic if we have nested config in the future
