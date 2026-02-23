@@ -14,11 +14,6 @@ import varlockAstroIntegration from '@varlock/astro-integration';
 import { ENV } from 'varlock/env';
 
 import envSpecGrammar from '../vscode-plugin/language/env-spec.tmLanguage.json' assert { type: 'json' };
-import { createRequire } from 'node:module';
-
-
-const require = createRequire(import.meta.url);
-const __dirname = new URL('.', import.meta.url).pathname;
 
 // https://astro.build/config
 export default defineConfig({
@@ -30,46 +25,53 @@ export default defineConfig({
       },
     },
     plugins: [
-      // Issue related to css-tree, being used within our icon setup - will probably remove in future
-      // but for now this is working, adapted from https://github.com/csstree/csstree/issues/314#issuecomment-3528323925
+      // astro-iconify uses `export { Props }` (value re-export) for a type-only export.
+      // After esbuild strips types, there's no value to bind, so Rollup rejects it.
+      // This load hook injects a dummy value export so Rollup has something to resolve.
       {
-        name: 'inline-csso-json',
-        transform(code, id) {
-          const brokenJsonImports = [
-            {
-              id: 'node_modules/css-tree/lib/data-patch.js',
-              target: 'require(\'../data/patch.json\')',
-              package: 'css-tree',
-              path: '../../data/patch.json',
-            },
-            {
-              id: 'node_modules/csso/node_modules/css-tree/lib/version.js',
-              target: 'require(\'../package.json\')',
-              package: 'css-tree',
-              path: '../../package.json',
-            },
-            {
-              id: 'node_modules/css-tree/lib/version.js',
-              target: 'require(\'../package.json\')',
-              package: 'css-tree',
-              path: '../../package.json',
-            },
-            {
-              id: 'node_modules/csso/lib/version.js',
-              target: 'require(\'../package.json\')',
-              package: 'csso',
-              path: '../../package.json',
-            },
-          ];
-          for (const item of brokenJsonImports) {
-            if (id.includes(item.id)) {
-              const resolvedPackageIndexPath = require.resolve(`${item.package}`);
-              const resolvedPath = resolve(resolvedPackageIndexPath, item.path);
-              const json = readFileSync(resolvedPath, 'utf-8');
-              const str = JSON.stringify(JSON.parse(json));
-              return { code: code.replace(item.target, str) };
-            }
+        name: 'fix-astro-iconify-type-export',
+        load(id) {
+          if (id.includes('/astro-iconify/') && id.endsWith('/Props.ts')) {
+            return `${readFileSync(id, 'utf-8')}\nexport const Props = {};`;
           }
+        },
+      },
+      // css-tree/csso use CJS require() for JSON files which fails under bun's node_modules layout.
+      // This plugin inlines the JSON content at build time.
+      // See https://github.com/csstree/csstree/issues/314
+      {
+        name: 'inline-broken-json-requires',
+        transform(code, id) {
+          if (!code.includes('require(')) return;
+
+          // Match require() calls for JSON files (relative or package specifiers like mdn-data)
+          const requirePattern = /require\(['"]([^'"]+\.json)['"]\)/g;
+          let modified = false;
+          const result = code.replace(requirePattern, (fullMatch, specifier) => {
+            let jsonPath;
+
+            if (specifier.startsWith('.')) {
+              // Relative path — resolve from the file's directory
+              jsonPath = resolve(id, '..', specifier);
+            } else {
+              // Package specifier (e.g. 'mdn-data/css/at-rules.json')
+              // Resolve from the requiring file's node_modules
+              const parts = id.split('/node_modules/');
+              if (parts.length < 2) return fullMatch;
+              const nodeModulesDir = `${parts.slice(0, -1).join('/node_modules/')}/node_modules`;
+              jsonPath = resolve(nodeModulesDir, specifier);
+            }
+
+            try {
+              const json = readFileSync(jsonPath, 'utf-8');
+              modified = true;
+              return JSON.stringify(JSON.parse(json));
+            } catch {
+              return fullMatch;
+            }
+          });
+
+          if (modified) return { code: result };
         },
       },
     ],

@@ -36,7 +36,7 @@
     },
     "packages/integrations/astro": {
       "name": "@varlock/astro-integration",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "devDependencies": {
         "@types/node": "catalog:",
         "@varlock/vite-integration": "workspace:*",
@@ -66,7 +66,7 @@
     },
     "packages/integrations/vite": {
       "name": "@varlock/vite-integration",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "devDependencies": {
         "@types/node": "catalog:",
         "ast-matcher": "^1.2.0",
@@ -192,7 +192,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "bin": {
         "varlock": "./bin/cli.js",
       },
