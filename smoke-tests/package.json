@@ -10,12 +10,11 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "varlock": "link:../packages/varlock",
+    "varlock": "file:../packages/varlock",
     "vitest": "^3.2.4"
   },
-  "pnpm": {
-    "overrides": {
-      "@next/env": "link:../packages/integrations/nextjs"
-    }
+  "workspaces": ["smoke-test-*"],
+  "overrides": {
+    "@next/env": "file:../packages/integrations/nextjs"
   }
 }

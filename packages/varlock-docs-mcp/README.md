@@ -10,7 +10,7 @@ Initially based on https://developers.cloudflare.com/agents/guides/remote-mcp-se
 ## Usage
 
 ```bash
-pnpm run dev
+bun run dev
 ```
 
 Then you can use the MCP server in your MCP client.
@@ -31,7 +31,7 @@ For example, you can use the MCP server in Cursor by adding the following to you
 or via the local MCP server inspector:
 
 ```bash
-pnpm run inspector
+bun run inspector
 ```
 
 ## Cloudflare

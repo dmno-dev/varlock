@@ -19,7 +19,7 @@ if (!varlockTgz || !astroTgz || !nextjsTgz) {
 const rootPkgPath = join(import.meta.dirname, 'package.json');
 const rootPkg = JSON.parse(readFileSync(rootPkgPath, 'utf-8'));
 rootPkg.devDependencies.varlock = `file:../packed-packages/${varlockTgz}`;
-rootPkg.pnpm.overrides['@next/env'] = `file:../packed-packages/${nextjsTgz}`;
+rootPkg.overrides['@next/env'] = `file:../packed-packages/${nextjsTgz}`;
 writeFileSync(rootPkgPath, `${JSON.stringify(rootPkg, null, 2)}\n`);
 
 // Update Astro package.json

@@ -12,7 +12,7 @@ execSync('rm -rf dist-sea');
 execSync('mkdir dist-sea');
 
 console.log('Building single-file CJS version of CLI');
-execSync('pnpm exec tsup --config tsup-sea.config.ts');
+execSync('bunx tsup --config tsup-sea.config.ts');
 
 console.log('Creating sea-config.json');
 fs.writeFileSync(`${DIST_DIR}/sea-config.json`, JSON.stringify({
@@ -31,7 +31,7 @@ execSync(`codesign --remove-signature "${BIN_PATH}"`);
 
 console.log('Postjecting node binary with SEA blob');
 execSync(
-  `pnpm dlx postject ${BIN_PATH} NODE_SEA_BLOB ${DIST_DIR}/sea-prep.blob`
+  `bunx postject ${BIN_PATH} NODE_SEA_BLOB ${DIST_DIR}/sea-prep.blob`
   + ' --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2'
   + ' --macho-segment-name NODE_SEA',
 );

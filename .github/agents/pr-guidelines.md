@@ -43,7 +43,7 @@ When implementing a new feature or making significant changes, the PR should inc
   ```
 
 ### 5. Code Review
-- Run `pnpm run lint:fix` and then resolve remaining lint errors
+- Run `bun run lint:fix` and then resolve remaining lint errors
 - Run the code review tool before finalizing
 - Address any feedback from automated reviews
 
@@ -55,9 +55,9 @@ When implementing a new feature or making significant changes, the PR should inc
 ## Changeset Commands
 
 Available commands (defined in root `package.json`):
-- `pnpm run changeset:add` - Interactively create a changeset (not available in CI)
-- `pnpm run changeset:version` - Bundle changesets into version bumps
-- `pnpm run changeset:publish` - Publish packages to npm
+- `bun run changeset:add` - Interactively create a changeset (not available in CI)
+- `bun run changeset:version` - Bundle changesets into version bumps
+- `bun run changeset:publish` - Publish packages to npm
 
 ## Documentation Structure
 

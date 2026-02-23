@@ -12,7 +12,7 @@ Varlock is a tool that adds declarative schema to `.env` files using `@env-spec`
 
 ## Repository Structure
 
-This is a **monorepo** managed with **pnpm workspaces** and **Turborepo**.
+This is a **monorepo** managed with **bun workspaces** and **Turborepo**.
 
 ### Main Packages
 - `packages/env-spec-parser` - Parser for the @env-spec language (uses PEG.js grammar)
@@ -35,7 +35,7 @@ This is a **monorepo** managed with **pnpm workspaces** and **Turborepo**.
 
 ### Core Technologies
 - **Node.js**: >= 22 (specified in engines)
-- **Package Manager**: pnpm >= 10 (enforced via preinstall script)
+- **Package Manager**: bun
 - **TypeScript**: 5.9.3 (catalog version)
 - **Build Tool**: tsup (for libraries), Turborepo (for orchestration)
 - **Testing**: Vitest 4.0.6
@@ -49,34 +49,34 @@ This is a **monorepo** managed with **pnpm workspaces** and **Turborepo**.
 
 ### Installation & Setup
 ```bash
-pnpm install          # Install dependencies
-pnpm build:libs       # Build all libraries (excludes website)
-pnpm build            # Build everything including website
+bun install          # Install dependencies
+bun run build:libs       # Build all libraries (excludes website)
+bun run build            # Build everything including website
 ```
 
 ### Development
 ```bash
-pnpm dev              # Start dev servers for all packages (parallel)
+bun run dev              # Start dev servers for all packages (parallel)
 ```
 
 ### Testing
 ```bash
-pnpm test             # Run tests in watch mode
-pnpm test:ci          # Run tests once (CI mode)
+bun run test             # Run tests in watch mode
+bun run test:ci          # Run tests once (CI mode)
 ```
 
 ### Linting
 ```bash
-pnpm lint             # Run ESLint
-pnpm lint:fix         # Run ESLint with auto-fix
+bun run lint             # Run ESLint
+bun run lint:fix         # Run ESLint with auto-fix
 ```
 
 ### Changesets
 ```bash
-pnpm changeset:add    # Add a new changeset
-pnpm changeset:empty  # Add an empty changeset
-pnpm changeset:version # Version packages and update changelogs
-pnpm changeset:publish # Build and publish packages
+bun run changeset:add    # Add a new changeset
+bun run changeset:empty  # Add an empty changeset
+bun run changeset:version # Version packages and update changelogs
+bun run changeset:publish # Build and publish packages
 ```
 
 ## Coding Standards
@@ -129,8 +129,8 @@ The project uses Turborepo with the following task configurations:
 
 ### CI Steps
 1. ESLint check
-2. Build libraries (`pnpm run build:libs`)
-3. Run tests (`pnpm run test:ci`)
+2. Build libraries (`bun run build:libs`)
+3. Run tests (`bun run test:ci`)
 
 ## Special Considerations
 
@@ -156,7 +156,7 @@ The project uses Turborepo with the following task configurations:
 2. Add `package.json` with proper exports, scripts, and dependencies
 3. Add `tsconfig.json` extending from root config
 4. Add `tsup.config.ts` for build configuration
-5. Ensure package is included in pnpm workspace (`pnpm-workspace.yaml`)
+5. Ensure package is included in bun workspaces (root `package.json` workspaces field)
 6. Add build/test scripts consistent with other packages
 
 ### Adding a New Integration

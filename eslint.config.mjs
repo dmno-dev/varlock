@@ -59,7 +59,7 @@ export default tseslint.config(
 
   {
     files: ['**/*.{js,mjs,cjs,ts,mts,cts}'],
-    // NOTE - run `pnpm dlx @eslint/config-inspector@latest`
+    // NOTE - run `bunx @eslint/config-inspector@latest`
     // to help audit these rules
     rules: {
       // some preset rules to relax -----------

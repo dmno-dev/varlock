@@ -20,7 +20,7 @@
     "test": "vitest",
     "test:ci": "vitest --run",
     "lint": "eslint .",
-    "lint:fix": "pnpm run lint --fix"
+    "lint:fix": "bun run lint --fix"
   },
   "keywords": [
     "varlock",

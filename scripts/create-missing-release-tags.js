@@ -2,6 +2,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { listWorkspaces } from './list-workspaces.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const MONOREPO_ROOT = path.resolve(path.dirname(__filename), '..');
@@ -11,8 +12,7 @@ const dryRun = process.argv.includes('--dry-run');
 if (dryRun) console.log('=== DRY RUN MODE ===\n');
 
 // Get all workspace packages
-const workspacePackagesInfoRaw = execSync('pnpm m ls --json --depth=-1', { cwd: MONOREPO_ROOT });
-const workspacePackagesInfo = JSON.parse(workspacePackagesInfoRaw);
+const workspacePackagesInfo = await listWorkspaces(MONOREPO_ROOT);
 
 // Get existing git tags
 const existingTags = new Set(

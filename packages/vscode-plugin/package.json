@@ -84,10 +84,10 @@
     "dev": "tsup --watch",
     "build": "tsup",
     "test": "vscode-tmgrammar-test -g ./language/env-spec.tmLanguage.json ./test/grammar.test.txt",
-    "package": "pnpm run build && vsce package -o env-spec-language.vsix",
+    "package": "bun run build && vsce package -o env-spec-language.vsix",
     "publish:vsce": "vsce publish -i env-spec-language.vsix",
     "publish:ovsx": "ovsx publish -i env-spec-language.vsix",
-    "publish": "pnpm run package && pnpm run publish:vsce && pnpm run publish:ovsx"
+    "publish": "bun run package && bun run publish:vsce && bun run publish:ovsx"
   },
   "devDependencies": {
     "@types/node": "catalog:",

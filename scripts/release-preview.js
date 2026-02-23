@@ -2,14 +2,14 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { listWorkspaces } from './list-workspaces.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const MONOREPO_ROOT = path.resolve(path.dirname(__filename), '..');
 
 let err;
 try {
-  const workspacePackagesInfoRaw = execSync('pnpm m ls --json --depth=-1');
-  const workspacePackagesInfo = JSON.parse(workspacePackagesInfoRaw);
+  const workspacePackagesInfo = await listWorkspaces(MONOREPO_ROOT);
 
   // Check if we're on changeset-release/main branch
   const currentBranch = process.env.GITHUB_HEAD_REF || execSync('git branch --show-current').toString().trim();
@@ -39,7 +39,7 @@ try {
     console.log('Running on normal PR, using changesets to determine packages to release...');
     // Regular changeset-based logic
     // generate summary of changed (publishable) modules according to changesets
-    execSync('pnpm exec changeset status --output=changesets-summary.json');
+    execSync('bunx changeset status --output=changesets-summary.json');
 
     const changeSetsSummaryRaw = fs.readFileSync('./changesets-summary.json', 'utf8');
     const changeSetsSummary = JSON.parse(changeSetsSummaryRaw);
@@ -60,7 +60,7 @@ try {
 
   console.log('Updated packages to release:', releasePackagePaths);
 
-  const publishResult = execSync(`pnpm dlx pkg-pr-new publish --pnpm ${releasePackagePaths.join(' ')}`);
+  const publishResult = execSync(`bunx pkg-pr-new publish ${releasePackagePaths.join(' ')}`);
   console.log('published preview packages!');
   console.log(publishResult);
 } catch (_err) {

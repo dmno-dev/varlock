@@ -21,14 +21,14 @@
   },
   "scripts": {
     "dev": "run-p dev:grammar dev:ts",
-    "dev:grammar": "pnpm run build:grammar -w",
+    "dev:grammar": "bun run build:grammar -w",
     "dev:ts": "tsup --watch",
     "build:grammar": "peggy -c peggy.config.cjs",
     "build:lib": "tsup",
-    "build": "pnpm run build:grammar && pnpm run build:lib",
+    "build": "bun run build:grammar && bun run build:lib",
     "test": "run-p \"build:grammar -w\" _test:watch",
     "_test:watch": "vitest",
-    "test:ci": "pnpm build:grammar && vitest --run"
+    "test:ci": "bun run build:grammar && vitest --run"
   },
   "keywords": [
     "env-spec",

@@ -6,11 +6,11 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "lint": "eslint .",
-    "lint:fix": "pnpm run lint --fix",
+    "lint:fix": "bun run lint --fix",
     "start": "wrangler dev",
     "cf-typegen": "wrangler types",
     "type-check": "tsc --noEmit",
-    "inspector": "pnpm dlx @modelcontextprotocol/inspector@latest"
+    "inspector": "bunx @modelcontextprotocol/inspector@latest"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.20.2",

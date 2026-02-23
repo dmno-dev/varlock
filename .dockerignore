@@ -52,6 +52,7 @@ tests/
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
+bun.lock
 
 # TypeScript
 tsconfig.json

@@ -17,23 +17,20 @@ jobs:
           # but we need more history to be able to compare to main
           # TODO: ideally we would just fetch the history between origin/main and the current commit
           fetch-depth: 0
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          run_install: false
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
       - name: Use Node.js 22.x
         uses: actions/setup-node@v6
         with:
           node-version: "22.x"
-          cache: 'pnpm'
       - name: Install node deps
-        run: pnpm i
+        run: bun install
       - name: Enable turborepo build cache
         uses: rharkor/caching-for-turbo@v2.3.11
-      
+
       # ------------------------------------------------------------
       - name: Build publishable npm packages
-        run: pnpm build:libs
+        run: bun run build:libs
         env:
           BUILD_TYPE: preview
       # we use a custom script to run `npx pkg-pr-new publish`

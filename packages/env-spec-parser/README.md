@@ -181,11 +181,11 @@ Examples:
 
 ## Local dev and testing workflow
 
-- `pnpm dev` - builds and watches everything
-- `pnpm test` builds everything, run tests, and watches for changes to re-run
-- `pnpm test:ci` will just build and run the tests once
+- `bun run dev` - builds and watches everything
+- `bun run test` builds everything, run tests, and watches for changes to re-run
+- `bun run test:ci` will just build and run the tests once
 
 If you need to pass extra flags to vitest (for example to run specific tests/files)
-run `pnpm dev:grammar` in one terminal and `pnpm exec vitest ...` in another
+run `bun run dev:grammar` in one terminal and `bunx vitest ...` in another
 
 Setting `PEGGY_TRACE=1` will enable tracing in the _built grammar file_.
