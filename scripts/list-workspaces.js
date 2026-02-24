@@ -5,7 +5,59 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { glob } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
+
+/**
+ * Simple glob-style matching for workspace patterns.
+ * Handles `packages/**\/*` style patterns by walking directories.
+ */
+async function findPackageJsons(pattern, cwd) {
+  const matches = [];
+
+  // Convert workspace glob pattern to a directory walk
+  // e.g. "packages/**/*" -> walk packages/ recursively
+  const parts = pattern.split('**/');
+
+  if (parts.length === 2) {
+    // Pattern like "packages/**/*" — walk recursively from the base dir
+    const baseDir = path.join(cwd, parts[0]);
+    if (!fs.existsSync(baseDir)) return matches;
+    await walkDir(baseDir, cwd, matches);
+  } else {
+    // Pattern like "packages/*" — single level
+    const baseDir = path.join(cwd, pattern.replace(/\/?\*$/, ''));
+    if (!fs.existsSync(baseDir)) return matches;
+    const entries = await readdir(baseDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name === 'node_modules') continue;
+      const pkgJsonPath = path.join(baseDir, entry.name, 'package.json');
+      if (fs.existsSync(pkgJsonPath)) {
+        matches.push(path.relative(cwd, pkgJsonPath));
+      }
+    }
+  }
+
+  return matches;
+}
+
+async function walkDir(dir, cwd, matches) {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === 'node_modules') continue;
+    const fullDir = path.join(dir, entry.name);
+    const pkgJsonPath = path.join(fullDir, 'package.json');
+    if (fs.existsSync(pkgJsonPath)) {
+      matches.push(path.relative(cwd, pkgJsonPath));
+    }
+    // Continue recursing
+    await walkDir(fullDir, cwd, matches);
+  }
+}
 
 export async function listWorkspaces(monorepoRoot) {
   const rootPkgJson = JSON.parse(fs.readFileSync(path.join(monorepoRoot, 'package.json'), 'utf-8'));
@@ -16,11 +68,8 @@ export async function listWorkspaces(monorepoRoot) {
 
   const results = [];
   for (const pattern of includePatterns) {
-    const pkgJsonPattern = `${pattern}/package.json`;
-    for await (const match of glob(pkgJsonPattern, {
-      cwd: monorepoRoot,
-      exclude: (p) => p === 'node_modules',
-    })) {
+    const matches = await findPackageJsons(pattern, monorepoRoot);
+    for (const match of matches) {
       const fullPath = path.resolve(monorepoRoot, match);
       const pkgDir = path.dirname(fullPath);
       const relativePkgDir = path.relative(monorepoRoot, pkgDir);
