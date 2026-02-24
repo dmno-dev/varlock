@@ -106,7 +106,5 @@ subCommands.set('telemetry', buildLazyCommand(telemetryCommandSpec, async () => 
     } else {
       throw error;
     }
-
-    gracefulExit(1);
   }
 }());
