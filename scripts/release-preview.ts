@@ -1,19 +1,19 @@
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { listWorkspaces } from './list-workspaces';
 
 const __filename = fileURLToPath(import.meta.url);
 const MONOREPO_ROOT = path.resolve(path.dirname(__filename), '..');
 
-let err;
+let err: unknown;
 try {
-  const workspacePackagesInfoRaw = execSync('pnpm m ls --json --depth=-1');
-  const workspacePackagesInfo = JSON.parse(workspacePackagesInfoRaw);
+  const workspacePackagesInfo = await listWorkspaces(MONOREPO_ROOT);
 
   // Check if we're on changeset-release/main branch
   const currentBranch = process.env.GITHUB_HEAD_REF || execSync('git branch --show-current').toString().trim();
-  let releasePackagePaths;
+  let releasePackagePaths: Array<string>;
 
   console.log('current branch = ', currentBranch);
 
@@ -39,19 +39,19 @@ try {
     console.log('Running on normal PR, using changesets to determine packages to release...');
     // Regular changeset-based logic
     // generate summary of changed (publishable) modules according to changesets
-    execSync('pnpm exec changeset status --output=changesets-summary.json');
+    execSync('bunx changeset status --output=changesets-summary.json');
 
     const changeSetsSummaryRaw = fs.readFileSync('./changesets-summary.json', 'utf8');
     const changeSetsSummary = JSON.parse(changeSetsSummaryRaw);
 
     releasePackagePaths = changeSetsSummary.releases
-      .filter((r) => r.newVersion !== r.oldVersion)
-      .map((r) => workspacePackagesInfo.find((p) => p.name === r.name))
-      .map((p) => p.path);
+      .filter((r: any) => r.newVersion !== r.oldVersion)
+      .map((r: any) => workspacePackagesInfo.find((p) => p.name === r.name))
+      .map((p: any) => p.path);
   }
 
   // filter out vscode extension which is not released via npm
-  releasePackagePaths = releasePackagePaths.filter((p) => !p.endsWith('packages/vscode-plugin'));
+  releasePackagePaths = releasePackagePaths.filter((p: string) => !p.endsWith('packages/vscode-plugin'));
 
   if (!releasePackagePaths.length) {
     console.log('No packages to release!');
@@ -60,9 +60,9 @@ try {
 
   console.log('Updated packages to release:', releasePackagePaths);
 
-  const publishResult = execSync(`pnpm dlx pkg-pr-new publish --pnpm ${releasePackagePaths.join(' ')}`);
+  const publishResult = execFileSync('bunx', ['pkg-pr-new', 'publish', ...releasePackagePaths]);
   console.log('published preview packages!');
-  console.log(publishResult);
+  console.log(publishResult.toString());
 } catch (_err) {
   err = _err;
   console.error('preview release failed');

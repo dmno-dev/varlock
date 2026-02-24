@@ -128,7 +128,7 @@ main() {
     *) _ext=".tar.gz" ;;
   esac
 
-  _archive_name="varlock-${OS}-${ARCH}${_ext}"
+  _archive_name="varlock-${OS}-${LIBC}${ARCH}${_ext}"
 
   if [ -z "${VERSION}" ]; then
     VERSION=$(get_varlock_latest_version)
@@ -190,7 +190,6 @@ get_architecture() {
     amd64) ARCH="x64" ;;
     arm64) ARCH="arm64" ;;
     aarch64) ARCH="arm64" ;;
-    armv7l) ARCH="armv7l" ;;
     *)
       err "${_cputype} architecture is currently unsupported\n> please open an issue @ ${GITHUB_URL}/issues"
     ;;
@@ -205,6 +204,14 @@ get_architecture() {
       err "${_ostype} OS is currently unsupported\n> please open an issue @ ${GITHUB_URL}/issues"
     ;;
   esac
+
+  # Detect musl libc (Alpine, etc)
+  LIBC=""
+  if [ "$OS" = "linux" ]; then
+    if ldd --version 2>&1 | grep -qi musl || [ -f /etc/alpine-release ]; then
+      LIBC="musl-"
+    fi
+  fi
 }
 
 # $1 - url for download. $2 - path to download

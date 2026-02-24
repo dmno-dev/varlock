@@ -7,8 +7,8 @@ find the full documentation for it [in our repository](https://github.com/change
 We have a quick list of common questions to get you started engaging with this project in
 [our documentation](https://github.com/changesets/changesets/blob/main/docs/common-questions.md)
 
-## Helpful commands: 
+## Helpful commands:
 
-- `pnpm run changeset:add` - add a new changeset
-- `pnpm run changeset:version` - bundles all changesets into a single version
-- `pnpm run changeset:publish` - publish all changesets to npm      
+- `bun run changeset:add` - add a new changeset
+- `bun run changeset:version` - bundles all changesets into a single version
+- `bun run changeset:publish` - publish all changesets to npm

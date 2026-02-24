@@ -23,22 +23,18 @@ jobs:
           # this is needed so that pushes to the version release branch will use the token we pass in below
           # otherwise the default token will be used, and we will not get an updated pkg.pr.new preview for that branch
           persist-credentials: false
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          run_install: false
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
       - name: Use Node.js 22.x
         uses: actions/setup-node@v6
         with:
           node-version: "22.x"
-          cache: 'pnpm'
       - name: Install node deps
-        run: pnpm i
+        run: bun install
       - name: Enable turborepo build cache
         uses: rharkor/caching-for-turbo@v2.3.11
-      
+
       # Ensure npm 11.5.1 or later is installed (for trusted publishing)
-      # (pnpm publish calls npm under the hood)
       - name: Update npm
         run: npm install -g npm@latest
 
@@ -50,8 +46,8 @@ jobs:
           title: "[Changesets] Versioned release"
           commit: "[Changesets] Create versioned packages for publishing"
           # This expects you to have a script called release which does a build for your packages and calls changeset publish
-          publish: pnpm run changeset:publish
-          version: pnpm run changeset:version
+          publish: bun run changeset:publish
+          version: bun run changeset:version
         env:
           # we use a personal token instead of the automatic repo one so that the binary release workflow will be triggered
           # (see https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow#triggering-a-workflow-from-a-workflow)

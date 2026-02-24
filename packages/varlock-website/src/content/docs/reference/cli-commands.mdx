@@ -56,7 +56,7 @@ varlock load [options]
 - `--format`:     Format of output [pretty|json|env]
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@currentEnv` in `.env.schema`
-- `--path` / `-p`: Path to a specific `.env` file or directory (with trailing slash) to use as the entry point
+- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
 
 **Examples:**
 ```bash
@@ -96,7 +96,7 @@ varlock run -- <command>
 
 **Options:**
 - `--no-redact-stdout`: Disable stdout/stderr redaction to preserve TTY detection for interactive tools
-- `--path` / `-p`: Path to a specific `.env` file or directory (with trailing slash) to use as the entry point
+- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
 
 **Examples:**
 ```bash

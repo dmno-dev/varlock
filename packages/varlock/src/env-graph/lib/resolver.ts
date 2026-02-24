@@ -20,7 +20,7 @@ export type ResolvedValue = undefined
   // TODO: will probably want to re-enable object/array values
   | { [key: string]: ResolvedValue }
   | Array<ResolvedValue>;
-  // Array<ConfigValue>;
+// Array<ConfigValue>;
 
 export class Resolver {
   static def: ResolverDef;

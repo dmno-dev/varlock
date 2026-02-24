@@ -15,12 +15,13 @@
   },
   "scripts": {
     "build": "tsup",
-    "build:sea": "tsup --config tsup-sea.config.ts",
+    "build:binary": "bun run scripts/build-binaries.ts --dev",
+    "build:binaries": "bun run scripts/build-binaries.ts",
     "dev": "tsup",
     "test": "vitest",
     "test:ci": "vitest --run",
     "lint": "eslint .",
-    "lint:fix": "pnpm run lint --fix"
+    "lint:fix": "bun run lint --fix"
   },
   "keywords": [
     "varlock",
@@ -111,7 +112,6 @@
     "@types/node": "catalog:",
     "@types/semver": "^7.7.1",
     "@env-spec/parser": "workspace:*",
-    "@yao-pkg/pkg": "^6.13.1",
     "ansis": "catalog:",
     "browser-or-node": "^3.0.0",
     "ci-info": "^4.3.1",

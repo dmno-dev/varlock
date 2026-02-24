@@ -20,7 +20,7 @@ jobs:
     steps:
       - name: print github context
         env:
-          GITHUB_CONTEXT: ${{ toJson(github) }} 
+          GITHUB_CONTEXT: ${{ toJson(github) }}
         run: |
           echo "$GITHUB_CONTEXT"
 
@@ -30,17 +30,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          run_install: false
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
       - name: Use Node.js 22.x
         uses: actions/setup-node@v6
         with:
           node-version: "22.x"
-          cache: 'pnpm'
       - name: Install node deps
-        run: pnpm i
+        run: bun install
       - name: Enable turborepo build cache
         uses: rharkor/caching-for-turbo@v2.3.11
       # ------------------------------------------------------------
@@ -52,53 +49,27 @@ jobs:
           echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> $GITHUB_ENV
           # get the version only from the tag - ex: 1.2.3
           echo "RELEASE_VERSION=${GITHUB_REF_NAME#varlock@}" >> $GITHUB_ENV
-      
+
       - name: use manual version from input
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           echo "RELEASE_TAG=varlock@${{ inputs.version }}" >> $GITHUB_ENV
           echo "RELEASE_VERSION=${{ inputs.version }}" >> $GITHUB_ENV
 
-      # necessary to bundle macos binaries (from linux)
-      - name: install ldid
-        uses: MOZGIII/install-ldid-action@v1
-        with:
-          tag: v2.1.5-procursus7
-      # necessary for cross-arch linux binaries
-      - name: Install qemu-user-binfmt
-        run: |
-          sudo apt-get update
-          sudo apt-get install --assume-yes qemu-user-binfmt
-
       - name: build libs
-        run: pnpm build:libs
+        run: bun run build:libs
         env:
           BUILD_TYPE: release
-      - name: build SEA dist files (CJS, no deps)
-        run: pnpm run --filter varlock build:sea
-        env:
-          BUILD_TYPE: release
-
-      - name: Restore pkg Node.js base binaries
-        uses: actions/cache/restore@v5
-        with:
-          path: ~/.pkg-cache
-          key: pkg-nodejs-base-binaries-node-22
-      - name: build varlock SEA binaries (pkg)
-        run: PKG_CACHE_PATH=~/.pkg-cache node scripts/build-binaries.js
-      - name: Cache pkg Node.js base binaries
-        uses: actions/cache/save@v5
-        with:
-          path: ~/.pkg-cache
-          key: pkg-nodejs-base-binaries-node-22
+      - name: build varlock SEA binaries
+        run: bun run packages/varlock/scripts/build-binaries.ts
       - name: add binaries to GH release
         env:
           # default token works to update release on this repo
           GH_TOKEN: ${{ github.token }}
         working-directory: packages/varlock/dist-sea
         run: gh release upload ${{ env.RELEASE_TAG }} *.{tar.gz,zip} checksums.txt --clobber
-    
-      # UPDATE HOMEBREW FORMULA --- 
+
+      # UPDATE HOMEBREW FORMULA ---
       - name: checkout homebrew tap repo
         uses: actions/checkout@v6
         with:
@@ -108,7 +79,7 @@ jobs:
           path: homebrew-tap
           clean: false
       - name: update homebrew formula
-        run: node scripts/update-homebrew-formula.js
+        run: bun run scripts/update-homebrew-formula.ts
       - name: commit and push homebrew tap update
         run: |
           cd homebrew-tap
@@ -128,13 +99,13 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v6
-      
+
       - name: get version from release tag
         if: ${{ github.event_name == 'release' }}
         run: |
           # get the version only from the tag - ex: 1.2.3
           echo "RELEASE_VERSION=${GITHUB_REF_NAME#varlock@}" >> $GITHUB_ENV
-      
+
       - name: use manual version from input
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
@@ -161,5 +132,5 @@ jobs:
             ghcr.io/dmno-dev/varlock:latest
           build-args: |
             VARLOCK_VERSION=${{ env.RELEASE_VERSION }}
-            VARLOCK_ARCH=linux-x64
+            VARLOCK_ARCH=linux-musl-x64
           platforms: linux/amd64,linux/arm64

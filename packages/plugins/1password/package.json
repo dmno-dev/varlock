@@ -17,8 +17,8 @@
   },
   "files": ["dist"],
   "scripts": {
-    "dev": "pnpm run copy-wasm && tsup --watch",
-    "build": "tsup && pnpm run copy-wasm",
+    "dev": "bun run copy-wasm && tsup --watch",
+    "build": "tsup && bun run copy-wasm",
     "copy-wasm": "mkdir -p dist || true && cp node_modules/@1password/sdk-core/nodejs/core_bg.wasm ./dist",
     "test": "vitest"
   },

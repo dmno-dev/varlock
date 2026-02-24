@@ -6,13 +6,13 @@ Cross-platform smoke tests for varlock using Vitest.
 
 ```bash
 # Run all smoke tests
-pnpm test
+bun test
 
 # Watch mode for development
-pnpm test:watch
+bun run test:watch
 
 # From repo root
-pnpm smoke-test
+bun run smoke-test
 ```
 
 ## Test Structure
@@ -32,6 +32,6 @@ The GitHub Actions workflow (`.github/workflows/smoke-test.yaml`) runs these tes
 The workflow:
 1. Builds libraries once on Ubuntu (cached with Turbo)
 2. Uploads dist artifacts
-3. Each platform downloads artifacts and runs `pnpm test`
+3. Each platform downloads artifacts and runs `bun test`
 
 This approach is fast because JavaScript output is platform-independent - we only need to test the runtime behavior on each platform.

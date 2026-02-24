@@ -3,7 +3,7 @@ import _ from '@env-spec/utils/my-dash';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { getItemSummary } from '../../lib/formatting';
-import { checkForConfigErrors, checkForSchemaErrors } from '../helpers/error-checks';
+import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import path from 'node:path';
 import { FileBasedDataSource } from '../../env-graph';
@@ -34,7 +34,7 @@ export const commandSpec = define({
     path: {
       type: 'string',
       short: 'p',
-      description: 'Path to a specific .env file or directory (with trailing slash) to use as the entry point',
+      description: 'Path to a specific .env file or directory to use as the entry point',
     },
   },
   examples: `
@@ -60,6 +60,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     entryFilePath: ctx.values.path,
   });
   checkForSchemaErrors(envGraph);
+  checkForNoEnvFiles(envGraph);
 
   if (!envGraph.rootDataSource) throw new Error('expected root data source to be set');
 

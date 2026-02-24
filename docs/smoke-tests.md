@@ -26,7 +26,7 @@ The full cross-platform smoke test suite runs automatically on **release PRs onl
 You can run smoke tests locally on your current platform:
 
 ```bash
-pnpm smoke-test
+bun run smoke-test
 ```
 
 **Script:** `scripts/smoke-test.sh`

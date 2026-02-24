@@ -3,7 +3,7 @@ import { gracefulExit } from 'exit-hook';
 
 import { exec } from '../../lib/exec';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
-import { checkForConfigErrors, checkForSchemaErrors } from '../helpers/error-checks';
+import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { resetRedactionMap, redactSensitiveConfig } from '../../runtime/env';
 
@@ -23,7 +23,7 @@ export const commandSpec = define({
     path: {
       type: 'string',
       short: 'p',
-      description: 'Path to a specific .env file or directory (with trailing slash) to use as the entry point',
+      description: 'Path to a specific .env file or directory to use as the entry point',
     },
   },
   examples: `
@@ -75,6 +75,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     entryFilePath: ctx.values.path,
   });
   checkForSchemaErrors(envGraph);
+  checkForNoEnvFiles(envGraph);
   await envGraph.resolveEnvValues();
   checkForConfigErrors(envGraph);
 

@@ -18,7 +18,14 @@
   },
   "include": [
     "src/**/*.ts",
-    "*.ts",
+    "**/*.ts",
   ],
-  "exclude": ["src/plugin-lib.ts"]
+  "exclude": [
+    // this file declares a global `plugin` which the plugins depend on
+    // but we dont want it declared everywhere
+    "src/plugin-lib.ts",
+    // must exclude dist or the DTS build picks up generated .d.ts files
+    // via the **/*.ts include glob, causing duplicate global declarations
+    "dist"
+  ]
 }
