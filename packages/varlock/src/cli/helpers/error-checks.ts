@@ -19,6 +19,14 @@ function showErrorLocationDetails(err: Error) {
   console.log(errPreview);
 }
 
+export function checkForNoEnvFiles(envGraph: EnvGraph) {
+  if (Object.keys(envGraph.configSchema).length === 0) {
+    console.error('🚨 No .env or .env.schema files found\n');
+    console.error('Run `varlock init` to create a .env.schema file, or use `--path` to specify a file or directory.');
+    return gracefulExit(1);
+  }
+}
+
 export function checkForSchemaErrors(envGraph: EnvGraph) {
   // first we check for loading/parse errors - some cases we may want to let it fail silently?
   for (const source of envGraph.sortedDataSources) {

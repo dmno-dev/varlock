@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import _ from '@env-spec/utils/my-dash';
 import { EnvGraph } from './env-graph';
@@ -16,8 +17,9 @@ export async function loadEnvGraph(opts?: {
 
   if (opts?.entryFilePath) {
     const resolvedPath = path.resolve(opts.entryFilePath);
-    if (opts.entryFilePath.endsWith('/') || opts.entryFilePath.endsWith(path.sep)) {
-      // trailing slash means treat as directory
+    const isDirectory = opts.entryFilePath.endsWith('/') || opts.entryFilePath.endsWith(path.sep)
+      || (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isDirectory());
+    if (isDirectory) {
       graph.basePath = resolvedPath;
       if (opts?.afterInit) await opts.afterInit(graph);
       if (opts?.currentEnvFallback) graph.envFlagFallback = opts.currentEnvFallback;

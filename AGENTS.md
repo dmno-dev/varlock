@@ -19,8 +19,8 @@
 ## Binary builds
 
 - The varlock CLI binary is built using `bun build --compile` (not Node SEA or pkg)
-- `bun run --filter varlock build:sea` builds a local dev binary at `packages/varlock/dist-sea/varlock`
-- `packages/varlock/scripts/build-binaries.ts` builds cross-platform release binaries
+- `bun run --filter varlock build:binary` builds a local dev binary for the current platform at `packages/varlock/dist-sea/varlock`
+- `packages/varlock/scripts/build-binaries.ts` builds cross-platform release binaries (or use `--current-platform` for a single local binary)
 
 ## Testing
 

@@ -18,10 +18,11 @@
 
 - 🛡️ validation, coercion, type safety w/ IntelliSense
 - 🔏 protection for sensitive config values (log redaction, leak prevention)
-- 🌐 flexible multi-environment management
-- 💫 composition of values, functions, load from external sources
+- 🌐 flexible multi-environment management - auto .env.* loading and explicit import
+- 💫 flexible composition and toggling using functions() and $references
+- 🔌 plugin system for secure secret loading from various sources
 
-Your `.env.schema` is a declarative schema of your environment variables that lives within version control, so it will never be out of sync.
+Unlike .env.example, **your .env.schema is a single source of truth**, built for collaboration, that will never be out of sync.
 
 ```bash
 # @defaultSensitive=false @defaultRequired=infer @currentEnv=$APP_ENV
@@ -30,21 +31,31 @@ Your `.env.schema` is a declarative schema of your environment variables that li
 # @type=enum(development, preview, production, test
 APP_ENV=development # default value, can override
 
-# API port
-# @type=port @example=3000
-API_PORT=
+# @type=port
+API_PORT=8080 # non-sensitive values can be set directly
 
 # API url including _expansion_ referencing another env var
-# @required @type=url
+# @type=url
 API_URL=http://localhost:${API_PORT}
 
-# API key with validation, securely fetched from 1Password
+# sensitive api key, with extra validation
 # @required @sensitive @type=string(startsWith=sk-)
-OPENAI_API_KEY=exec('op read "op://api-prod/openai/api-key"')
+OPENAI_API_KEY=
+```
 
-# Non-secret value, included directly
-# @type=url
-SOME_SERVICE_API_URL=https://api.someservice.com
+**Flexible plugin system**: adds new decorators, functions, types - enables secure declarative secret loading.
+
+```bash
+# @plugin(@varlock/1password-plugin)
+# @initOp(token=$OP_TOKEN, allowAppAuth=forEnv(dev), account=acmeco)
+# ---
+
+# @type=opServiceAccountToken @sensitive
+OP_TOKEN=
+
+# Fetch secrets using 1Password secret references
+DB_PASS=op(op://my-vault/database-password/password)
+API_KEY=op(op://api-vault/stripe/api-key)
 ```
 
 ## Installation
@@ -79,7 +90,7 @@ If you need to pass resolved env vars into another process, you can run:
 varlock run -- python script.py
 ```
 
-Or you can integrate more deeply with one of our [integrations](https://varlock.dev/integrations/javascript/) to enable security guardrails, like log redaction and leak prevention.
+In many cases you can use our [drop-in integrations](https://varlock.dev/integrations/javascript/) for seamless experience - with additional security guardrails, like log redaction and leak prevention.
 
 ## @env-spec
 
@@ -90,14 +101,32 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 
 
 ## Published Packages
+
+### Core
 | Package | Published listing page |
 | --- | --- |
 | [varlock](packages/varlock) | [![npm version](https://img.shields.io/npm/v/varlock.svg)](https://npmjs.com/package/varlock) |
-| [@varlock/nextjs-integration](packages/integrations/nextjs) | [![npm version](https://img.shields.io/npm/v/@varlock/nextjs-integration.svg)](https://npmjs.com/package/@varlock/nextjs-integration) |
-| [@varlock/vite-integration](packages/integrations/vite) | [![npm version](https://img.shields.io/npm/v/@varlock/vite-integration.svg)](https://npmjs.com/package/@varlock/vite-integration) |
 | [@env-spec/parser](packages/env-spec-parser) | [![npm version](https://img.shields.io/npm/v/@env-spec/parser.svg)](https://npmjs.com/package/@env-spec/parser) |
 | [@env-spec VSCode extension](packages/vscode-plugin) | [VSCode Marketplace](https://marketplace.visualstudio.com/items?itemName=varlock.env-spec-language), [Open VSX Registry](https://open-vsx.org/extension/varlock/env-spec-language) |
 | [varlock Docker image](Dockerfile) | [GitHub Container Registry](https://github.com/orgs/dmno-dev/packages/container/package/varlock) |
+
+### Plugins
+| Package | Published listing page |
+| --- | --- |
+| [@varlock/1password-plugin](packages/plugins/1password) | [![npm version](https://img.shields.io/npm/v/@varlock/1password-plugin.svg)](https://npmjs.com/package/@varlock/1password-plugin) |
+| [@varlock/aws-secrets-plugin](packages/plugins/aws-secrets) | [![npm version](https://img.shields.io/npm/v/@varlock/aws-secrets-plugin.svg)](https://npmjs.com/package/@varlock/aws-secrets-plugin) |
+| [@varlock/azure-key-vault-plugin](packages/plugins/azure-key-vault) | [![npm version](https://img.shields.io/npm/v/@varlock/azure-key-vault-plugin.svg)](https://npmjs.com/package/@varlock/azure-key-vault-plugin) |
+| [@varlock/bitwarden-plugin](packages/plugins/bitwarden) | [![npm version](https://img.shields.io/npm/v/@varlock/bitwarden-plugin.svg)](https://npmjs.com/package/@varlock/bitwarden-plugin) |
+| [@varlock/google-secret-manager-plugin](packages/plugins/google-secret-manager) | [![npm version](https://img.shields.io/npm/v/@varlock/google-secret-manager-plugin.svg)](https://npmjs.com/package/@varlock/google-secret-manager-plugin) |
+| [@varlock/infisical-plugin](packages/plugins/infisical) | [![npm version](https://img.shields.io/npm/v/@varlock/infisical-plugin.svg)](https://npmjs.com/package/@varlock/infisical-plugin) |
+
+### Framework Integrations
+| Package | Published listing page |
+| --- | --- |
+| [@varlock/astro-integration](packages/integrations/astro) | [![npm version](https://img.shields.io/npm/v/@varlock/astro-integration.svg)](https://npmjs.com/package/@varlock/astro-integration) |
+| [@varlock/nextjs-integration](packages/integrations/nextjs) | [![npm version](https://img.shields.io/npm/v/@varlock/nextjs-integration.svg)](https://npmjs.com/package/@varlock/nextjs-integration) |
+| [@varlock/vite-integration](packages/integrations/vite) | [![npm version](https://img.shields.io/npm/v/@varlock/vite-integration.svg)](https://npmjs.com/package/@varlock/vite-integration) |
+
 
 ## MCP Servers
 | MCP Server | Link | URL |

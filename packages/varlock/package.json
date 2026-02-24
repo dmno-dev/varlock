@@ -15,7 +15,8 @@
   },
   "scripts": {
     "build": "tsup",
-    "build:sea": "bun build --compile --minify --sourcemap --define __VARLOCK_SEA_BUILD__=true --define __VARLOCK_BUILD_TYPE__='\"dev\"' src/cli/cli-executable.ts --outfile dist-sea/varlock",
+    "build:binary": "bun run scripts/build-binaries.ts --dev",
+    "build:binaries": "bun run scripts/build-binaries.ts",
     "dev": "tsup",
     "test": "vitest",
     "test:ci": "vitest --run",
