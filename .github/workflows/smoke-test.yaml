@@ -113,7 +113,7 @@ jobs:
           path: packed-packages
 
       - name: Update smoke-tests to use packed packages
-        run: node smoke-tests/update-to-packed.js
+        run: bun run smoke-tests/update-to-packed.js
 
       - name: Install smoke tests deps
         run: cd smoke-tests && bun install --no-frozen-lockfile

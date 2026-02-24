@@ -56,38 +56,12 @@ jobs:
           echo "RELEASE_TAG=varlock@${{ inputs.version }}" >> $GITHUB_ENV
           echo "RELEASE_VERSION=${{ inputs.version }}" >> $GITHUB_ENV
 
-      # necessary to bundle macos binaries (from linux)
-      - name: install ldid
-        uses: MOZGIII/install-ldid-action@v1
-        with:
-          tag: v2.1.5-procursus7
-      # necessary for cross-arch linux binaries
-      - name: Install qemu-user-binfmt
-        run: |
-          sudo apt-get update
-          sudo apt-get install --assume-yes qemu-user-binfmt
-
       - name: build libs
         run: bun run build:libs
         env:
           BUILD_TYPE: release
-      - name: build SEA dist files (CJS, no deps)
-        run: bun run --filter varlock build:sea
-        env:
-          BUILD_TYPE: release
-
-      - name: Restore pkg Node.js base binaries
-        uses: actions/cache/restore@v5
-        with:
-          path: ~/.pkg-cache
-          key: pkg-nodejs-base-binaries-node-22
-      - name: build varlock SEA binaries (pkg)
-        run: PKG_CACHE_PATH=~/.pkg-cache node scripts/build-binaries.js
-      - name: Cache pkg Node.js base binaries
-        uses: actions/cache/save@v5
-        with:
-          path: ~/.pkg-cache
-          key: pkg-nodejs-base-binaries-node-22
+      - name: build varlock SEA binaries
+        run: bun run packages/varlock/scripts/build-binaries.js
       - name: add binaries to GH release
         env:
           # default token works to update release on this repo
@@ -105,7 +79,7 @@ jobs:
           path: homebrew-tap
           clean: false
       - name: update homebrew formula
-        run: node scripts/update-homebrew-formula.js
+        run: bun run scripts/update-homebrew-formula.js
       - name: commit and push homebrew tap update
         run: |
           cd homebrew-tap
@@ -158,5 +132,5 @@ jobs:
             ghcr.io/dmno-dev/varlock:latest
           build-args: |
             VARLOCK_VERSION=${{ env.RELEASE_VERSION }}
-            VARLOCK_ARCH=linux-x64
+            VARLOCK_ARCH=linux-musl-x64
           platforms: linux/amd64,linux/arm64

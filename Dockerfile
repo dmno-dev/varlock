@@ -6,7 +6,7 @@ RUN apk add --no-cache curl tar gzip jq
 
 # Download and extract the varlock binary
 ARG VARLOCK_VERSION
-ARG VARLOCK_ARCH=linux-x64
+ARG VARLOCK_ARCH=linux-musl-x64
 
 # Download the appropriate binary based on architecture
 RUN if [ "$VARLOCK_VERSION" = "latest" ]; then \

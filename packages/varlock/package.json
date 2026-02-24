@@ -15,7 +15,7 @@
   },
   "scripts": {
     "build": "tsup",
-    "build:sea": "tsup --config tsup-sea.config.ts",
+    "build:sea": "bun build --compile --minify --sourcemap --define __VARLOCK_SEA_BUILD__=true --define __VARLOCK_BUILD_TYPE__='\"dev\"' src/cli/cli-executable.ts --outfile dist-sea/varlock",
     "dev": "tsup",
     "test": "vitest",
     "test:ci": "vitest --run",
@@ -111,7 +111,6 @@
     "@types/node": "catalog:",
     "@types/semver": "^7.7.1",
     "@env-spec/parser": "workspace:*",
-    "@yao-pkg/pkg": "^6.13.1",
     "ansis": "catalog:",
     "browser-or-node": "^3.0.0",
     "ci-info": "^4.3.1",
