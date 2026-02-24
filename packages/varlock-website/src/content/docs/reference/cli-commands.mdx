@@ -133,6 +133,44 @@ Note: This flag only disables stdout/stderr redaction. Other redaction mechanism
 </div>
 
 <div>
+### `varlock printenv` ||printenv||
+
+Resolves and prints the value of a single environment variable to stdout. Only the requested item and its transitive dependencies are resolved, making this faster than loading the full graph.
+
+This is useful within larger shell commands where you need to embed a single resolved env var value.
+
+```bash
+varlock printenv <VAR_NAME> [options]
+```
+
+**Options:**
+- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
+
+**Examples:**
+```bash
+# Print the resolved value of MY_VAR
+varlock printenv MY_VAR
+
+# Use a specific .env file as entry point
+varlock printenv --path .env.prod MY_VAR
+
+# Embed in a shell command using subshell expansion
+sh -c 'some-tool --token $(varlock printenv MY_TOKEN)'
+```
+
+:::note[Why not use `varlock run -- echo $MY_VAR`?]
+Shell expansion happens *before* varlock runs, so `$MY_VAR` is substituted by the shell with whatever value it already has (likely empty). `varlock printenv` avoids this by printing the value directly to stdout, letting you capture it with `$(...)` *after* varlock has resolved it.
+
+```bash
+varlock run -- echo $MY_VAR         # ❌ shell expands $MY_VAR before varlock runs
+varlock printenv MY_VAR             # ✅ varlock resolves and prints the value
+sh -c 'echo $(varlock printenv MY_VAR)'  # ✅ embed in a larger command
+```
+:::
+
+</div>
+
+<div>
 ### `varlock telemetry` ||telemetry||
 
 Opts in/out of anonymous usage analytics. This command creates/updates a configuration file at `~/.varlock/config.json` saving your preference.
