@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -60,9 +60,9 @@ try {
 
   console.log('Updated packages to release:', releasePackagePaths);
 
-  const publishResult = execSync(`bunx pkg-pr-new publish ${releasePackagePaths.join(' ')}`);
+  const publishResult = execFileSync('bunx', ['pkg-pr-new', 'publish', ...releasePackagePaths]);
   console.log('published preview packages!');
-  console.log(publishResult);
+  console.log(publishResult.toString());
 } catch (_err) {
   err = _err;
   console.error('preview release failed');
