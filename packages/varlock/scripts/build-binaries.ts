@@ -35,16 +35,17 @@ for (const { bunTarget, archiveName } of TARGETS) {
 
   exec(`mkdir -p ${targetDir}`);
   exec(
-    `bun build --compile --minify --sourcemap`
+    'bun build --compile --minify --sourcemap'
     + ` --target=${bunTarget}`
-    + ` --define __VARLOCK_SEA_BUILD__=true`
-    + ` --define __VARLOCK_BUILD_TYPE__='"release"'`
+    + ' --define __VARLOCK_SEA_BUILD__=true'
+    + ' --define __VARLOCK_BUILD_TYPE__=\'"release"\''
     + ` ${ENTRY}`
-    + ` --outfile ${targetDir}/${binName}`
+    + ` --outfile ${targetDir}/${binName}`,
   );
 
   // Archive
-  let archive, archiveCmd;
+  let archive: string;
+  let archiveCmd: string;
   if (isWin) {
     archive = `varlock-${archiveName}.zip`;
     archiveCmd = `zip -j ${DIST_DIR}/${archive} ${targetDir}/${binName}`;

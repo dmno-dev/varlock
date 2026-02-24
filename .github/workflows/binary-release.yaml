@@ -61,7 +61,7 @@ jobs:
         env:
           BUILD_TYPE: release
       - name: build varlock SEA binaries
-        run: bun run packages/varlock/scripts/build-binaries.js
+        run: bun run packages/varlock/scripts/build-binaries.ts
       - name: add binaries to GH release
         env:
           # default token works to update release on this repo
