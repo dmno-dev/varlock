@@ -1,6 +1,22 @@
 type GraphNodeId = string;
 export type GraphAdjacencyList = Record<GraphNodeId, Array<GraphNodeId>>;
 
+/** Returns all transitive dependencies of a given node (not including the node itself) */
+export function getTransitiveDeps(key: GraphNodeId, adjacencyList: GraphAdjacencyList): Array<GraphNodeId> {
+  const visited = new Set<GraphNodeId>();
+  const stack = [...(adjacencyList[key] || [])];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (!visited.has(current)) {
+      visited.add(current);
+      for (const dep of adjacencyList[current] || []) {
+        stack.push(dep);
+      }
+    }
+  }
+  return Array.from(visited);
+}
+
 export function findGraphCycles(graph: GraphAdjacencyList): Array<Array<GraphNodeId>> {
   const visited = new Set<GraphNodeId>();
   const recursionStack = new Set<GraphNodeId>();

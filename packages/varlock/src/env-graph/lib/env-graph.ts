@@ -5,7 +5,7 @@ import { EnvGraphDataSource, FileBasedDataSource } from './data-source';
 
 import { BaseResolvers, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
-import { findGraphCycles, type GraphAdjacencyList } from './graph-utils';
+import { findGraphCycles, getTransitiveDeps, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
 import { generateTypes } from './type-generation';
 
@@ -286,6 +286,11 @@ export class EnvGraph {
       }
     });
     return deferred;
+  }
+
+  async resolveItemWithDeps(key: string): Promise<void> {
+    const transitiveDeps = getTransitiveDeps(key, this.graphAdjacencyList);
+    await this.resolveEnvValues([...transitiveDeps, key]);
   }
 
   getResolvedEnvObject() {
