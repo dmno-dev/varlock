@@ -53,7 +53,6 @@ export default tseslint.config(
       '**/.next',
       '**/out',
       '**/next-env.d.ts',
-
     ],
   },
 

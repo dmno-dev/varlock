@@ -2,7 +2,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { listWorkspaces } from './list-workspaces.js';
+import { listWorkspaces } from './list-workspaces';
 
 const __filename = fileURLToPath(import.meta.url);
 const MONOREPO_ROOT = path.resolve(path.dirname(__filename), '..');
@@ -28,7 +28,7 @@ const publishablePackages = workspacePackagesInfo.filter((pkg) => {
 /**
  * Extract the changelog section for a specific version from CHANGELOG.md
  */
-function getChangelogSection(pkgPath, version) {
+function getChangelogSection(pkgPath: string, version: string) {
   const changelogPath = path.join(pkgPath, 'CHANGELOG.md');
   if (!fs.existsSync(changelogPath)) return '';
 
@@ -40,7 +40,8 @@ function getChangelogSection(pkgPath, version) {
   return match ? match[1].trim() : '';
 }
 
-const missingReleases = [];
+type WorkspaceInfo = Awaited<ReturnType<typeof listWorkspaces>>[number];
+const missingReleases: Array<WorkspaceInfo & { tag: string }> = [];
 
 for (const pkg of publishablePackages) {
   const tag = `${pkg.name}@${pkg.version}`;

@@ -20,7 +20,7 @@ const TARGETS = [
   { bunTarget: 'bun-windows-x64', archiveName: 'win-x64' },
 ];
 
-function exec(cmd) {
+function exec(cmd: string) {
   execSync(cmd, { cwd: PKG_DIR, stdio: 'inherit' });
 }
 

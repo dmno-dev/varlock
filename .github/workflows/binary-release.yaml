@@ -79,7 +79,7 @@ jobs:
           path: homebrew-tap
           clean: false
       - name: update homebrew formula
-        run: bun run scripts/update-homebrew-formula.js
+        run: bun run scripts/update-homebrew-formula.ts
       - name: commit and push homebrew tap update
         run: |
           cd homebrew-tap

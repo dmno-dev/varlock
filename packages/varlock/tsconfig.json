@@ -18,7 +18,7 @@
   },
   "include": [
     "src/**/*.ts",
-    "*.ts",
+    "**/*.ts",
   ],
   "exclude": ["src/plugin-lib.ts"]
 }
