@@ -3,51 +3,13 @@ import fs from 'node:fs/promises';
 import { define } from 'gunshi';
 import ansis from 'ansis';
 import { gracefulExit } from 'exit-hook';
+import _ from '@env-spec/utils/my-dash';
 
 import { spawnAsync } from '@env-spec/utils/exec-helpers';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import { fmt, logLines } from '../helpers/pretty-format';
-
-interface SecretPattern {
-  id: string;
-  description: string;
-  pattern: RegExp;
-}
-
-// Well-known secret patterns with low false positive rates
-export const SECRET_PATTERNS: Array<SecretPattern> = [
-  {
-    id: 'pem-private-key',
-    description: 'PEM Private Key',
-    pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/,
-  },
-  {
-    id: 'aws-access-key-id',
-    description: 'AWS Access Key ID',
-    pattern: /\bAKIA[0-9A-Z]{16}\b/,
-  },
-  {
-    id: 'github-token',
-    description: 'GitHub Token',
-    pattern: /\bgh[pors]_[A-Za-z0-9_]{36,255}\b/,
-  },
-  {
-    id: 'github-fine-grained-pat',
-    description: 'GitHub Fine-Grained Personal Access Token',
-    pattern: /\bgithub_pat_[A-Za-z0-9_]{82}\b/,
-  },
-  {
-    id: 'slack-token',
-    description: 'Slack Token',
-    pattern: /\bxox[baprs]-[0-9A-Za-z]{10,48}\b/,
-  },
-  {
-    id: 'url-with-credentials',
-    description: 'URL with embedded credentials',
-    pattern: /https?:\/\/[^:@]+:[^@]{8,}@[^/\s]+/,
-  },
-];
+import { loadVarlockEnvGraph } from '../../lib/load-graph';
 
 // Directories to always skip when walking the file tree
 const SKIP_DIRS = new Set([
@@ -104,7 +66,7 @@ const BINARY_EXTENSIONS = new Set([
 
 export const commandSpec = define({
   name: 'scan',
-  description: 'Scan files for plaintext secrets',
+  description: 'Scan files for sensitive config values that should not be in plaintext',
   args: {
     staged: {
       type: 'boolean',
@@ -117,18 +79,18 @@ export const commandSpec = define({
     path: {
       type: 'string',
       short: 'p',
-      description: 'Path to scan (default: current directory)',
+      description: 'Path to a specific .env file (e.g. .env.prod) or directory ending with "/" to use as the schema entry point (default: current directory)',
     },
   },
   examples: `
-Scans files for plaintext secrets that should not be committed to git.
-By default, git-ignored files are excluded from the scan.
+Loads your varlock config, resolves all sensitive values, then scans files to
+ensure none of those sensitive values appear in plaintext.
 
 Examples:
-  varlock scan                    # Scan current directory (skip git-ignored files)
+  varlock scan                    # Scan non-git-ignored files in current directory
   varlock scan --staged           # Only scan staged files (useful as a pre-commit hook)
   varlock scan --include-ignored  # Scan all files, including git-ignored ones
-  varlock scan --path ./src       # Scan a specific directory
+  varlock scan --path .env.prod   # Use a specific .env file as the schema entry point
 
 Git hook setup (add to .git/hooks/pre-commit):
   #!/bin/sh
@@ -136,15 +98,14 @@ Git hook setup (add to .git/hooks/pre-commit):
   `.trim(),
 });
 
-interface ScanFinding {
+export interface ScanFinding {
   filePath: string;
   lineNumber: number;
   line: string;
-  patternId: string;
-  patternDescription: string;
+  sensitiveKeyName: string;
 }
 
-async function getGitFiles(cwd: string, onlyStaged: boolean): Promise<Array<string> | null> {
+export async function getGitFiles(cwd: string, onlyStaged: boolean): Promise<Array<string> | null> {
   try {
     let output: string;
     if (onlyStaged) {
@@ -166,7 +127,7 @@ async function getGitFiles(cwd: string, onlyStaged: boolean): Promise<Array<stri
   }
 }
 
-async function walkDirectory(dir: string): Promise<Array<string>> {
+export async function walkDirectory(dir: string): Promise<Array<string>> {
   const files: Array<string> = [];
   let entries;
   try {
@@ -188,7 +149,14 @@ async function walkDirectory(dir: string): Promise<Array<string>> {
   return files;
 }
 
-export async function scanFile(filePath: string): Promise<Array<ScanFinding>> {
+/**
+ * Scans a single file for occurrences of any of the provided sensitive values.
+ * sensitiveValues is a map from env key name to its resolved string value.
+ */
+export async function scanFileForValues(
+  filePath: string,
+  sensitiveValues: Map<string, string>,
+): Promise<Array<ScanFinding>> {
   const findings: Array<ScanFinding> = [];
   let content: string;
   try {
@@ -200,17 +168,26 @@ export async function scanFile(filePath: string): Promise<Array<ScanFinding>> {
   // Skip binary files (contain null bytes)
   if (content.includes('\0')) return findings;
 
+  // Quick pre-check: skip the file entirely if none of the values appear
+  let anyMatch = false;
+  for (const val of sensitiveValues.values()) {
+    if (content.includes(val)) {
+      anyMatch = true;
+      break;
+    }
+  }
+  if (!anyMatch) return findings;
+
   const lines = content.split('\n');
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    for (const secretPattern of SECRET_PATTERNS) {
-      if (secretPattern.pattern.test(line)) {
+    for (const [keyName, val] of sensitiveValues) {
+      if (line.includes(val)) {
         findings.push({
           filePath,
           lineNumber: i + 1,
           line: line.trim(),
-          patternId: secretPattern.id,
-          patternDescription: secretPattern.description,
+          sensitiveKeyName: keyName,
         });
         break; // one finding per line is enough
       }
@@ -220,10 +197,40 @@ export async function scanFile(filePath: string): Promise<Array<ScanFinding>> {
 }
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
-  const cwd = path.resolve(ctx.values.path || process.cwd());
   const onlyStaged = ctx.values.staged ?? false;
   const includeIgnored = ctx.values['include-ignored'] ?? false;
 
+  // Load the varlock env graph to get the actual sensitive values
+  const envGraph = await loadVarlockEnvGraph({
+    entryFilePath: ctx.values.path,
+  });
+
+  // Check for loading/schema errors
+  for (const source of envGraph.sortedDataSources) {
+    if (source.loadingError) {
+      throw new CliExitError(`Error loading config: ${source.loadingError.message}`, {
+        suggestion: 'Make sure your .env.schema file is valid.',
+      });
+    }
+  }
+
+  await envGraph.resolveEnvValues();
+
+  // Collect all sensitive string values that are non-empty
+  const sensitiveValues = new Map<string, string>();
+  for (const itemKey in envGraph.configSchema) {
+    const item = envGraph.configSchema[itemKey];
+    if (item.isSensitive && _.isString(item.resolvedValue) && item.resolvedValue !== '') {
+      sensitiveValues.set(itemKey, item.resolvedValue);
+    }
+  }
+
+  if (sensitiveValues.size === 0) {
+    logLines([ansis.green('✅ No sensitive values found in config - nothing to scan for.')]);
+    return;
+  }
+
+  const cwd = process.cwd();
   let files: Array<string>;
 
   if (includeIgnored) {
@@ -256,12 +263,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   const allFindings: Array<ScanFinding> = [];
   for (const filePath of files) {
-    const findings = await scanFile(filePath);
+    const findings = await scanFileForValues(filePath, sensitiveValues);
     allFindings.push(...findings);
   }
 
   if (allFindings.length === 0) {
-    logLines([ansis.green(`✅ No secrets detected. (scanned ${files.length} file${files.length === 1 ? '' : 's'})`)]);
+    logLines([ansis.green(`✅ No sensitive values found in plaintext. (scanned ${files.length} file${files.length === 1 ? '' : 's'})`)]);
     return;
   }
 
@@ -273,7 +280,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     findingsByFile.set(finding.filePath, existing);
   }
 
-  console.error(ansis.red(`\n🚨 Found ${allFindings.length} potential secret(s) in ${findingsByFile.size} file(s):\n`));
+  console.error(ansis.red(`\n🚨 Found ${allFindings.length} sensitive value(s) in plaintext across ${findingsByFile.size} file(s):\n`));
   for (const [filePath, findings] of findingsByFile) {
     const relPath = path.relative(cwd, filePath);
     console.error(fmt.filePath(relPath));
@@ -281,7 +288,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       const truncatedLine = finding.line.length > 100
         ? `${finding.line.substring(0, 100)}…`
         : finding.line;
-      console.error(`  Line ${finding.lineNumber}: ${ansis.yellow(finding.patternDescription)}`);
+      console.error(`  Line ${finding.lineNumber}: ${ansis.yellow(finding.sensitiveKeyName)}`);
       console.error(`    ${ansis.dim(truncatedLine)}`);
     }
     console.error('');
