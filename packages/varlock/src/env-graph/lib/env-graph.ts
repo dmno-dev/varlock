@@ -289,6 +289,14 @@ export class EnvGraph {
   }
 
   async resolveItemWithDeps(key: string): Promise<void> {
+    // The graphAdjacencyList includes deps from both value resolvers and item decorator
+    // resolvers (e.g. @required($APP_ENV == "prod")), so getTransitiveDeps captures
+    // everything needed at value-resolution time.
+    //
+    // Note: currentEnv/envFlagKey and conditional @import(enabled=...) deps are already
+    // resolved via earlyResolve() during loadEnvGraph(), so they have isResolved=true
+    // by the time this method is called.  Items that were earlyResolve()d will simply
+    // skip re-resolution in ConfigItem.resolve() (early-return when isResolved=true).
     const transitiveDeps = getTransitiveDeps(key, this.graphAdjacencyList);
     await this.resolveEnvValues([...transitiveDeps, key]);
   }
