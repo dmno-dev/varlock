@@ -277,7 +277,7 @@ async function installHook(cwd: string): Promise<void> {
       '',
       ansis.dim(`  echo "${hookCommand}" >> .husky/pre-commit`),
       '',
-      `Or if creating a new hook:`,
+      'Or if creating a new hook:',
       '',
       ansis.dim(`  echo "${hookCommand}" > .husky/pre-commit`),
       '',
@@ -337,7 +337,7 @@ async function installHook(cwd: string): Promise<void> {
       return;
     }
     // Append to existing hook
-    const updatedContent = existingContent.trimEnd() + `\n${hookCommand}\n`;
+    const updatedContent = `${existingContent.trimEnd()}\n${hookCommand}\n`;
     await fs.writeFile(hookPath, updatedContent);
     await fs.chmod(hookPath, 0o755);
     logLines([
