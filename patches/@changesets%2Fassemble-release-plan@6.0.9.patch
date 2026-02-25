@@ -1,0 +1,42 @@
+diff --git a/dist/changesets-assemble-release-plan.cjs.js b/dist/changesets-assemble-release-plan.cjs.js
+index e07ba6e793021b6cfdec898afca517e293386ddb..c286051e952d78d4dc6cda5832ba4226d63295c5 100644
+--- a/dist/changesets-assemble-release-plan.cjs.js
++++ b/dist/changesets-assemble-release-plan.cjs.js
+@@ -317,6 +317,9 @@ function shouldBumpMajor({
+   preInfo,
+   onlyUpdatePeerDependentsWhenOutOfRange
+ }) {
++  if (depType === "peerDependencies") {
++    return false;
++  }
+   // we check if it is a peerDependency because if it is, our dependent bump type might need to be major.
+   return depType === "peerDependencies" && nextRelease.type !== "none" && nextRelease.type !== "patch" && (
+   // 1. If onlyUpdatePeerDependentsWhenOutOfRange set to true, bump major if the version is leaving the range.
+diff --git a/dist/changesets-assemble-release-plan.esm.js b/dist/changesets-assemble-release-plan.esm.js
+index ea2be567403c4ef94a65f3218ccb683cf5cb4bc1..0f5ac121649f1ac0a2b2e9704079474e360761e9 100644
+--- a/dist/changesets-assemble-release-plan.esm.js
++++ b/dist/changesets-assemble-release-plan.esm.js
+@@ -306,6 +306,9 @@ function shouldBumpMajor({
+   preInfo,
+   onlyUpdatePeerDependentsWhenOutOfRange
+ }) {
++  if (depType === "peerDependencies") {
++    return false;
++  }
+   // we check if it is a peerDependency because if it is, our dependent bump type might need to be major.
+   return depType === "peerDependencies" && nextRelease.type !== "none" && nextRelease.type !== "patch" && (
+   // 1. If onlyUpdatePeerDependentsWhenOutOfRange set to true, bump major if the version is leaving the range.
+diff --git a/src/determine-dependents.ts b/src/determine-dependents.ts
+index 47e32b6f09310d3ed03ab46b2d342d032f9014df..4edccca93152b1c8df59391b35e5f72de7ab8c05 100644
+--- a/src/determine-dependents.ts
++++ b/src/determine-dependents.ts
+@@ -230,6 +230,9 @@ function shouldBumpMajor({
+   preInfo: PreInfo | undefined;
+   onlyUpdatePeerDependentsWhenOutOfRange: boolean;
+ }) {
++  if (depType === "peerDependencies") {
++    return false;
++  }
+   // we check if it is a peerDependency because if it is, our dependent bump type might need to be major.
+   return (
+     depType === "peerDependencies" &&

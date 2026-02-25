@@ -270,6 +270,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@changesets/assemble-release-plan@6.0.9": "patches/@changesets%2Fassemble-release-plan@6.0.9.patch",
+  },
   "overrides": {
     "form-data": "4.0.5",
     "punycode": "npm:punycode@^2.3.1",
