@@ -51,7 +51,8 @@ if (devMode) {
     exec([
       'bun build',
       '--compile',
-      '--bytecode',
+      // --bytecode segfaults on cross-compiled Windows binaries (Bun v1.3.9)
+      ...(isWin ? [] : ['--bytecode']),
       '--minify',
       '--sourcemap',
       `--target=${bunTarget}`,

@@ -3,7 +3,8 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
-const BINARY_PATH = join(import.meta.dirname, '../../packages/varlock/dist-sea/varlock');
+const BINARY_NAME = process.platform === 'win32' ? 'varlock.exe' : 'varlock';
+const BINARY_PATH = join(import.meta.dirname, '../../packages/varlock/dist-sea', BINARY_NAME);
 
 export function hasBinary(): boolean {
   return existsSync(BINARY_PATH);

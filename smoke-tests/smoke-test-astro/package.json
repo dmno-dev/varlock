@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "astro": "^5.12.8",
-    "@varlock/astro-integration": "file:../../packages/integrations/astro",
-    "varlock": "file:../../packages/varlock"
+    "@varlock/astro-integration": "link:../../packages/integrations/astro",
+    "varlock": "link:../../packages/varlock"
   }
 }

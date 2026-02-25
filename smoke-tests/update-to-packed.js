@@ -1,6 +1,16 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { execSync } from 'node:child_process';
+
+// for local testing only
+if (process.env.PACK_PACKAGES) {
+  const rootDir = join(import.meta.dirname, '../');
+  execSync('mkdir -p packed-packages', { cwd: rootDir });
+  execSync('cd packages/integrations/nextjs && bun pm pack --destination ../../../packed-packages', { cwd: rootDir });
+  execSync('cd packages/integrations/astro && bun pm pack --destination ../../../packed-packages', { cwd: rootDir });
+  execSync('cd packages/varlock && bun pm pack --destination ../../packed-packages', { cwd: rootDir });
+}
 
 // Find packed .tgz files
 const packedDir = join(import.meta.dirname, '../packed-packages');
@@ -19,7 +29,7 @@ if (!varlockTgz || !astroTgz || !nextjsTgz) {
 const rootPkgPath = join(import.meta.dirname, 'package.json');
 const rootPkg = JSON.parse(readFileSync(rootPkgPath, 'utf-8'));
 rootPkg.devDependencies.varlock = `file:../packed-packages/${varlockTgz}`;
-rootPkg.overrides['@next/env'] = `file:../packed-packages/${nextjsTgz}`;
+rootPkg.pnpm.overrides['@next/env'] = `file:../packed-packages/${nextjsTgz}`;
 writeFileSync(rootPkgPath, `${JSON.stringify(rootPkg, null, 2)}\n`);
 
 // Update Astro package.json

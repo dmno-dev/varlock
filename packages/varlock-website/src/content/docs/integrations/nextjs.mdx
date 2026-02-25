@@ -100,6 +100,17 @@ To integrate varlock into a Next.js application, you must use our [`@varlock/nex
           </TabItem>
         </Tabs>
       </TabItem>
+      <TabItem label="bun">
+        See [Bun overrides docs](https://bun.com/docs/pm/overrides)
+
+        ```diff lang="json" title="package.json"
+        {
+        +  "overrides": {
+        +    "@next/env": "npm:@varlock/nextjs-integration"
+        +  }
+        }
+        ```
+      </TabItem>
     </Tabs>
 
     Then re-run your package manager's install command to apply the override:
@@ -119,6 +130,11 @@ To integrate varlock into a Next.js application, you must use our [`@varlock/nex
         {
           label: "pnpm",
           code: "pnpm install",
+          lang: "bash",
+        },
+        {
+          label: "bun",
+          code: "bun install",
           lang: "bash",
         },
       ]}
