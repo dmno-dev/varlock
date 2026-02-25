@@ -86,8 +86,8 @@
       "name": "@varlock/1password-plugin",
       "version": "0.2.0",
       "devDependencies": {
-        "@1password/sdk": "^0.3.1",
-        "@1password/sdk-core": "^0.3.1",
+        "@1password/sdk": "0.4.1-beta.1",
+        "@1password/sdk-core": "0.4.1-beta.1",
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
         "import-meta-resolve": "^4.2.0",
@@ -286,9 +286,9 @@
     "vitest": "^4.0.18",
   },
   "packages": {
-    "@1password/sdk": ["@1password/sdk@0.3.1", "", { "dependencies": { "@1password/sdk-core": "0.3.1" } }, "sha512-20zbQfqsjcECT0gvnAw4zONJDt3XQgNH946pZR0NV1Qxukyaz/DKB0cBnBNCCEWZg93Bah8poaR6gJCyuNX14w=="],
+    "@1password/sdk": ["@1password/sdk@0.4.1-beta.1", "", { "dependencies": { "@1password/sdk-core": "0.4.1-beta.1" } }, "sha512-QWY6eIIEs9at6kAFbgjZ1vVxg7ygp/MwXJ6/BoBdPkqIk8vfulXu4pjDsVQ87HhddJAD5LVGBXSbQIa+svI3bA=="],
 
-    "@1password/sdk-core": ["@1password/sdk-core@0.3.1", "", {}, "sha512-zFkbRznmE47kpke10OpO/9R0AF5csNWS+naFbadgXuFX1LlxY+2C28NSKbCXhLTqmcuWifBfPdZQ728GJ1i5xg=="],
+    "@1password/sdk-core": ["@1password/sdk-core@0.4.1-beta.1", "", {}, "sha512-/otbg1JVhsEn6oUIeReoT9TmFr8J7KBwr9UuRVfJFwwGG3bHPF8ewT+LhRimQeJtypqQ69ZVuOYkxknD4iQHxw=="],
 
     "@antfu/install-pkg": ["@antfu/install-pkg@1.1.0", "", { "dependencies": { "package-manager-detector": "^1.3.0", "tinyexec": "^1.0.1" } }, "sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ=="],
 
