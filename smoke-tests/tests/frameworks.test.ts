@@ -26,7 +26,7 @@ describe('Astro Integration', () => {
     varlockLoad({ cwd: 'smoke-test-astro' });
 
     // Build
-    execSync('bun run build', { cwd: astroDir, ...execOptions });
+    execSync('pnpm run build', { cwd: astroDir, ...execOptions });
   }, 120000); // Increased timeout for Windows - framework builds can be slower
 
   test('should build successfully', () => {
@@ -91,7 +91,7 @@ describe('Next.js Integration', () => {
     varlockLoad({ cwd: 'smoke-test-nextjs' });
 
     // Build
-    execSync('bun run build', { cwd: nextDir, ...execOptions });
+    execSync('pnpm run build', { cwd: nextDir, ...execOptions });
   }, 120000); // Increased timeout for Windows - Next.js builds can be slower
 
   test('should build successfully', () => {

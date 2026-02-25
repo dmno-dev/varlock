@@ -15,7 +15,7 @@
     "build": "turbo build --filter=\"!smoke-test-*\"",
     "build:libs": "bun run build --filter=\"!@varlock/website\" --filter=\"!smoke-test-*\"",
     "test:ci": "turbo test:ci --filter=\"!smoke-test-*\"",
-    "smoke-test": "cd smoke-tests && bun test",
+    "smoke-test": "cd smoke-tests && bun run test",
     "check": "bun run lint && bun run build:libs && bun run test:ci",
 
     "dev": "turbo run dev --concurrency=40 --parallel --filter=\"!smoke-test-*\"",

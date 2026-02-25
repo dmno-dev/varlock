@@ -10,8 +10,7 @@
     "next": "^15.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "@varlock/nextjs-integration": "file:../../packages/integrations/nextjs",
-    "varlock": "file:../../packages/varlock"
+    "varlock": "link:../../packages/varlock"
   },
   "devDependencies": {
     "@types/node": "^25.0.3",

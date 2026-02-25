@@ -12,4 +12,4 @@ changesets-summary.json
 .env.*.local
 env.d.ts
 
-
+smoke-tests/pnpm-lock.yaml

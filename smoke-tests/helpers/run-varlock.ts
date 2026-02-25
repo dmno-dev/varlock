@@ -12,7 +12,7 @@ export function runVarlock(args: Array<string>, options?: {
   const env = { ...process.env, ...options?.env };
 
   if (options?.captureOutput) {
-    const result = spawnSync('bunx', ['varlock', ...args], {
+    const result = spawnSync('pnpm', ['exec', 'varlock', ...args], {
       cwd,
       env,
       encoding: 'utf-8',
@@ -28,7 +28,7 @@ export function runVarlock(args: Array<string>, options?: {
   }
 
   try {
-    const output = execSync(`bunx varlock ${args.join(' ')}`, {
+    const output = execSync(`pnpm exec varlock ${args.join(' ')}`, {
       cwd,
       env,
       encoding: 'utf-8',

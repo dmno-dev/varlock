@@ -2,14 +2,14 @@ name: Cross-Platform Smoke Tests
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, labeled]
   # Allow manual trigger for testing
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Only run on release PRs (created by changesets)
+# Only run on release PRs (created by changesets), PRs with "smoke-tests" label, or manual triggers
 # This avoids running expensive multi-platform tests on every PR
 jobs:
   check-if-release-pr:
@@ -21,7 +21,7 @@ jobs:
     steps:
       - id: check
         run: |
-          if [[ "${{ github.event.pull_request.title }}" == *"[Changesets]"* ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || [[ "${{ github.event_name }}" == "push" ]]; then
+          if [[ "${{ github.event.pull_request.title }}" == *"[Changesets]"* ]] || [[ "${{ contains(github.event.pull_request.labels.*.name, 'smoke-tests') }}" == "true" ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || [[ "${{ github.event_name }}" == "push" ]]; then
             echo "is-release-pr=true" >> $GITHUB_OUTPUT
           else
             echo "is-release-pr=false" >> $GITHUB_OUTPUT
@@ -59,6 +59,13 @@ jobs:
       - name: Build varlock and integrations
         run: bun run build:libs
 
+      - name: Build varlock binaries
+        run: |
+          echo "=== build-binaries.ts content check ==="
+          grep -n 'bytecode' packages/varlock/scripts/build-binaries.ts || echo "no bytecode references found"
+          echo "=== building ==="
+          cd packages/varlock && bun run build:binaries
+
       - name: Pack varlock packages
         run: |
           mkdir -p packed-packages
@@ -76,6 +83,27 @@ jobs:
           path: packed-packages/*.tgz
           retention-days: 1
 
+      - name: Upload varlock binary (linux-x64)
+        uses: actions/upload-artifact@v6
+        with:
+          name: varlock-binary-linux-x64
+          path: packages/varlock/dist-sea/linux-x64/varlock
+          retention-days: 1
+
+      - name: Upload varlock binary (macos-arm64)
+        uses: actions/upload-artifact@v6
+        with:
+          name: varlock-binary-macos-arm64
+          path: packages/varlock/dist-sea/macos-arm64/varlock
+          retention-days: 1
+
+      - name: Upload varlock binary (win-x64)
+        uses: actions/upload-artifact@v6
+        with:
+          name: varlock-binary-win-x64
+          path: packages/varlock/dist-sea/win-x64/varlock.exe
+          retention-days: 1
+
   smoke-test:
     name: Smoke Test (${{ matrix.os }})
     needs: [check-if-release-pr, build]
@@ -91,6 +119,16 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         node-version: ['22.x']
+        include:
+          - os: ubuntu-latest
+            binary-artifact: varlock-binary-linux-x64
+            binary-name: varlock
+          - os: macos-latest
+            binary-artifact: varlock-binary-macos-arm64
+            binary-name: varlock
+          - os: windows-latest
+            binary-artifact: varlock-binary-win-x64
+            binary-name: varlock.exe
 
     steps:
       - name: Checkout code
@@ -98,25 +136,37 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
       - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
 
       - name: Download packed packages
         uses: actions/download-artifact@v7
         with:
           name: packed-packages
           path: packed-packages
+      
+      - name: Download varlock binary
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ matrix.binary-artifact }}
+          path: packages/varlock/dist-sea
+
+      - name: Make binary executable
+        if: runner.os != 'Windows'
+        run: chmod +x packages/varlock/dist-sea/varlock
 
       - name: Update smoke-tests to use packed packages
-        run: bun run smoke-tests/update-to-packed.js
+        run: node smoke-tests/update-to-packed.js
 
       - name: Install smoke tests deps
-        run: cd smoke-tests && bun install --no-frozen-lockfile
+        run: cd smoke-tests && pnpm install
 
       - name: Run smoke tests
-        run: cd smoke-tests && bun test
+        run: cd smoke-tests && pnpm test
