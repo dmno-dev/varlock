@@ -35,7 +35,10 @@ describe('scanFileForValues', () => {
     const findings = await scanFileForValues(filePath, sensitiveValues);
     expect(findings).toHaveLength(1);
     expect(findings[0].sensitiveKeyName).toBe('API_TOKEN');
+    expect(findings[0].sensitiveValue).toBe(secretVal);
     expect(findings[0].lineNumber).toBe(1);
+    // secret starts at column 16 (after `const token = "`)
+    expect(findings[0].columnNumber).toBe(16);
   });
 
   test('detects multiple sensitive values across multiple lines', async () => {
@@ -55,8 +58,12 @@ describe('scanFileForValues', () => {
     expect(findings).toHaveLength(2);
     expect(findings[0].sensitiveKeyName).toBe('DB_PASSWORD');
     expect(findings[0].lineNumber).toBe(1);
+    // password starts at column 32 (after `const dbUrl = "postgres://user:`)
+    expect(findings[0].columnNumber).toBe(32);
     expect(findings[1].sensitiveKeyName).toBe('API_KEY');
     expect(findings[1].lineNumber).toBe(2);
+    // apiKey starts at column 17 (after `const apiKey = "`)
+    expect(findings[1].columnNumber).toBe(17);
   });
 
   test('returns no findings for a non-existent file', async () => {

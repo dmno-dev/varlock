@@ -6,9 +6,13 @@ import { gracefulExit } from 'exit-hook';
 import _ from '@env-spec/utils/my-dash';
 
 import { spawnAsync } from '@env-spec/utils/exec-helpers';
+import { pathExists } from '@env-spec/utils/fs-utils';
+import { redactString } from '../../runtime/lib/redaction';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import { fmt, logLines } from '../helpers/pretty-format';
+import { detectJsPackageManager } from '../helpers/js-package-manager-utils';
+import { isBundledSEA } from '../helpers/install-detection';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 
 // Directories to always skip when walking the file tree
@@ -70,11 +74,15 @@ export const commandSpec = define({
   args: {
     staged: {
       type: 'boolean',
-      description: 'Only scan staged git files (useful as a pre-commit hook)',
+      description: 'Only scan staged git files',
     },
     'include-ignored': {
       type: 'boolean',
       description: 'Include git-ignored files in the scan',
+    },
+    'install-hook': {
+      type: 'boolean',
+      description: 'Set up varlock scan as a git pre-commit hook',
     },
     path: {
       type: 'string',
@@ -88,21 +96,20 @@ ensure none of those sensitive values appear in plaintext.
 
 Examples:
   varlock scan                    # Scan non-git-ignored files in current directory
-  varlock scan --staged           # Only scan staged files (useful as a pre-commit hook)
+  varlock scan --staged           # Only scan staged git files
   varlock scan --include-ignored  # Scan all files, including git-ignored ones
   varlock scan --path .env.prod   # Use a specific .env file as the schema entry point
-
-Git hook setup (add to .git/hooks/pre-commit):
-  #!/bin/sh
-  varlock scan --staged
+  varlock scan --install-hook     # Set up as a git pre-commit hook
   `.trim(),
 });
 
 export interface ScanFinding {
   filePath: string;
   lineNumber: number;
+  columnNumber: number;
   line: string;
   sensitiveKeyName: string;
+  sensitiveValue: string;
 }
 
 export async function getGitFiles(cwd: string, onlyStaged: boolean): Promise<Array<string> | null> {
@@ -121,7 +128,9 @@ export async function getGitFiles(cwd: string, onlyStaged: boolean): Promise<Arr
         { cwd },
       );
     }
-    return output.split('\0').filter(Boolean).map((f) => path.resolve(cwd, f));
+    return output.split('\0').filter(Boolean)
+      .filter((f) => !BINARY_EXTENSIONS.has(path.extname(f).toLowerCase()))
+      .map((f) => path.resolve(cwd, f));
   } catch {
     return null;
   }
@@ -182,12 +191,15 @@ export async function scanFileForValues(
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     for (const [keyName, val] of sensitiveValues) {
-      if (line.includes(val)) {
+      const colIdx = line.indexOf(val);
+      if (colIdx !== -1) {
         findings.push({
           filePath,
           lineNumber: i + 1,
+          columnNumber: colIdx + 1,
           line: line.trim(),
           sensitiveKeyName: keyName,
+          sensitiveValue: val,
         });
         break; // one finding per line is enough
       }
@@ -196,7 +208,165 @@ export async function scanFileForValues(
   return findings;
 }
 
+const SCAN_COMMAND = 'varlock scan';
+
+/**
+ * Determines the correct command to use in a git hook script.
+ * If varlock is installed as a standalone binary, uses `varlock` directly.
+ * Otherwise, prefixes with the detected JS package manager's exec command.
+ */
+function getHookCommand(): string {
+  if (isBundledSEA()) return SCAN_COMMAND;
+  const pm = detectJsPackageManager();
+  if (pm) return `${pm.exec} ${SCAN_COMMAND}`;
+  // fallback - assume varlock is available on PATH
+  return SCAN_COMMAND;
+}
+
+type HookManagerKind = 'husky' | 'lefthook' | 'simple-git-hooks';
+
+async function detectHookManager(cwd: string): Promise<HookManagerKind | null> {
+  // Check for husky
+  if (await pathExists(path.join(cwd, '.husky'))) return 'husky';
+
+  // Check for lefthook config files
+  const lefthookFiles = ['lefthook.yml', 'lefthook.yaml', '.lefthook.yml', '.lefthook.yaml'];
+  for (const file of lefthookFiles) {
+    if (await pathExists(path.join(cwd, file))) return 'lefthook';
+  }
+
+  // Check for simple-git-hooks in package.json
+  const pkgJsonPath = path.join(cwd, 'package.json');
+  if (await pathExists(pkgJsonPath)) {
+    try {
+      const pkgJson = JSON.parse(await fs.readFile(pkgJsonPath, 'utf-8'));
+      if (pkgJson['simple-git-hooks']) return 'simple-git-hooks';
+    } catch { /* ignore parse errors */ }
+  }
+
+  return null;
+}
+
+async function findGitRoot(cwd: string): Promise<string | null> {
+  try {
+    const root = await spawnAsync('git', ['rev-parse', '--show-toplevel'], { cwd });
+    return root.trim();
+  } catch {
+    return null;
+  }
+}
+
+async function installHook(cwd: string): Promise<void> {
+  const gitRoot = await findGitRoot(cwd);
+  if (!gitRoot) {
+    throw new CliExitError('Not inside a git repository', {
+      suggestion: 'Run `git init` first, or make sure you are inside a git repository.',
+    });
+  }
+
+  const hookCommand = getHookCommand();
+  const hookScript = `#!/bin/sh\n${hookCommand}\n`;
+  const hookManager = await detectHookManager(gitRoot);
+
+  if (hookManager === 'husky') {
+    logLines([
+      '',
+      `Detected ${ansis.bold('husky')} as your git hook manager.`,
+      '',
+      `Add ${ansis.bold(hookCommand)} to your pre-commit hook:`,
+      '',
+      ansis.dim(`  echo "${hookCommand}" >> .husky/pre-commit`),
+      '',
+      `Or if creating a new hook:`,
+      '',
+      ansis.dim(`  echo "${hookCommand}" > .husky/pre-commit`),
+      '',
+    ]);
+    return;
+  }
+
+  if (hookManager === 'lefthook') {
+    logLines([
+      '',
+      `Detected ${ansis.bold('lefthook')} as your git hook manager.`,
+      '',
+      'Add the following to your lefthook config:',
+      '',
+      ansis.dim('  pre-commit:'),
+      ansis.dim('    commands:'),
+      ansis.dim('      varlock-scan:'),
+      ansis.dim(`        run: ${hookCommand}`),
+      '',
+    ]);
+    return;
+  }
+
+  if (hookManager === 'simple-git-hooks') {
+    logLines([
+      '',
+      `Detected ${ansis.bold('simple-git-hooks')} in your package.json.`,
+      '',
+      'Add the following to your package.json:',
+      '',
+      ansis.dim('  "simple-git-hooks": {'),
+      ansis.dim(`    "pre-commit": "${hookCommand}"`),
+      ansis.dim('  }'),
+      '',
+      `Then run ${ansis.dim('npx simple-git-hooks')} to update the hooks.`,
+      '',
+    ]);
+    return;
+  }
+
+  // No hook manager detected -- install directly to .git/hooks/pre-commit
+  const hooksDir = path.join(gitRoot, '.git', 'hooks');
+  const hookPath = path.join(hooksDir, 'pre-commit');
+
+  // Ensure hooks directory exists
+  await fs.mkdir(hooksDir, { recursive: true });
+
+  // Check if a pre-commit hook already exists
+  if (await pathExists(hookPath)) {
+    const existingContent = await fs.readFile(hookPath, 'utf-8');
+    if (existingContent.includes(SCAN_COMMAND)) {
+      logLines([
+        '',
+        ansis.green(`The pre-commit hook already includes ${ansis.bold(SCAN_COMMAND)} - nothing to do!`),
+        '',
+      ]);
+      return;
+    }
+    // Append to existing hook
+    const updatedContent = existingContent.trimEnd() + `\n${hookCommand}\n`;
+    await fs.writeFile(hookPath, updatedContent);
+    await fs.chmod(hookPath, 0o755);
+    logLines([
+      '',
+      ansis.green(`Added ${ansis.bold(hookCommand)} to existing pre-commit hook.`),
+      fmt.filePath(hookPath),
+      '',
+    ]);
+    return;
+  }
+
+  // Create new hook
+  await fs.writeFile(hookPath, hookScript);
+  await fs.chmod(hookPath, 0o755);
+  logLines([
+    '',
+    ansis.green(`Created pre-commit hook at ${fmt.filePath(hookPath)}`),
+    ansis.dim('Your staged files will now be scanned for sensitive values before each commit.'),
+    '',
+  ]);
+}
+
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
+  // Handle --install-hook before doing any scanning
+  if (ctx.values['install-hook']) {
+    await installHook(process.cwd());
+    return;
+  }
+
   const onlyStaged = ctx.values.staged ?? false;
   const includeIgnored = ctx.values['include-ignored'] ?? false;
 
@@ -283,12 +453,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   console.error(ansis.red(`\n🚨 Found ${allFindings.length} sensitive value(s) in plaintext across ${findingsByFile.size} file(s):\n`));
   for (const [filePath, findings] of findingsByFile) {
     const relPath = path.relative(cwd, filePath);
-    console.error(fmt.filePath(relPath));
     for (const finding of findings) {
-      const truncatedLine = finding.line.length > 100
-        ? `${finding.line.substring(0, 100)}…`
-        : finding.line;
-      console.error(`  Line ${finding.lineNumber}: ${ansis.yellow(finding.sensitiveKeyName)}`);
+      // Redact the actual secret value in the displayed line
+      const redactedLine = finding.line.replaceAll(finding.sensitiveValue, redactString(finding.sensitiveValue)!);
+      const truncatedLine = redactedLine.length > 100
+        ? `${redactedLine.substring(0, 100)}…`
+        : redactedLine;
+      console.error(`  ${fmt.fileName(`${relPath}:${finding.lineNumber}:${finding.columnNumber}`)} ${ansis.yellow(finding.sensitiveKeyName)}`);
       console.error(`    ${ansis.dim(truncatedLine)}`);
     }
     console.error('');

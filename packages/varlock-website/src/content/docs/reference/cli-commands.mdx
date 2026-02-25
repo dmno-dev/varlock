@@ -171,6 +171,55 @@ sh -c 'echo $(varlock printenv MY_VAR)'  # ✅ embed in a larger command
 </div>
 
 <div>
+### `varlock scan` ||scan||
+
+Scans your project files for sensitive config values that should not appear in plaintext. Loads your varlock config, resolves all `@sensitive` values, then checks files for any occurrences of those values.
+
+This is especially useful as a **pre-commit git hook** to prevent accidentally committing secrets into version control.
+
+```bash
+varlock scan [options]
+```
+
+**Options:**
+- `--staged`:           Only scan staged git files
+- `--include-ignored`:  Include git-ignored files in the scan (by default, gitignored files are skipped)
+- `--install-hook`:     Set up `varlock scan` as a git pre-commit hook
+- `--path` / `-p`:      Path to a specific `.env` file or directory to use as the schema entry point
+
+**Examples:**
+```bash
+# Scan all non-gitignored files in the current directory
+varlock scan
+
+# Only scan staged git files
+varlock scan --staged
+
+# Scan all files, including gitignored ones
+varlock scan --include-ignored
+
+# Use a specific .env file as the schema entry point
+varlock scan --path .env.prod
+
+# Set up as a git pre-commit hook
+varlock scan --install-hook
+```
+
+:::tip[Git pre-commit hook]
+The easiest way to set up scanning as a pre-commit hook is to run:
+```bash
+varlock scan --install-hook
+```
+This will detect if you are using a hook manager (like husky or lefthook) and provide the appropriate setup instructions. Otherwise, it will create a `.git/hooks/pre-commit` hook for you automatically.
+
+If varlock is installed as a project dependency, the hook command will be automatically prefixed with your package manager (e.g., `npx varlock scan`).
+
+You can also set it up manually -- see the [Secrets guide](/guides/secrets/#scanning-for-leaked-secrets) for more details.
+:::
+
+</div>
+
+<div>
 ### `varlock telemetry` ||telemetry||
 
 Opts in/out of anonymous usage analytics. This command creates/updates a configuration file at `~/.varlock/config.json` saving your preference.
