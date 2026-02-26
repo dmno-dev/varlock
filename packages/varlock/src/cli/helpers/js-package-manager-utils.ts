@@ -12,7 +12,7 @@ export type JsPackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'deno';
 
 export type JsPackageManagerMeta = {
   name: JsPackageManager;
-  lockfile: string;
+  lockfiles: Array<string>;
   add: string;
   exec: string;
   dlx: string;
@@ -21,35 +21,35 @@ export type JsPackageManagerMeta = {
 export const JS_PACKAGE_MANAGERS: Record<JsPackageManager, JsPackageManagerMeta> = Object.freeze({
   npm: {
     name: 'npm',
-    lockfile: 'package-lock.json',
+    lockfiles: ['package-lock.json'],
     add: 'npm install', // add also works
     exec: 'npm exec --',
     dlx: 'npx',
   },
   pnpm: {
     name: 'pnpm',
-    lockfile: 'pnpm-lock.yaml',
+    lockfiles: ['pnpm-lock.yaml'],
     add: 'pnpm add',
     exec: 'pnpm exec',
     dlx: 'pnpm dlx',
   },
   yarn: {
     name: 'yarn',
-    lockfile: 'yarn.lock',
+    lockfiles: ['yarn.lock'],
     add: 'yarn add',
     exec: 'yarn exec --',
     dlx: 'yarn dlx',
   },
   bun: {
     name: 'bun',
-    lockfile: 'bun.lockb',
+    lockfiles: ['bun.lock', 'bun.lockb'],
     add: 'bun add',
     exec: 'bun run',
     dlx: 'bunx',
   },
   deno: { //! deno not fully supported yet
     name: 'deno',
-    lockfile: 'deno.lock',
+    lockfiles: ['deno.lock'],
     add: 'deno add',
     // TODO: don't think these are quite right...
     exec: 'deno run',
@@ -76,20 +76,19 @@ export function detectJsPackageManager(opts?: {
     let pm: JsPackageManager;
     let detectedPm: JsPackageManager | undefined;
     for (pm in JS_PACKAGE_MANAGERS) {
-      const lockFilePath = path.join(
-        cwd,
-        JS_PACKAGE_MANAGERS[pm].lockfile,
+      const foundLockfile = JS_PACKAGE_MANAGERS[pm].lockfiles.find(
+        (lockfile) => pathExistsSync(path.join(cwd, lockfile)),
       );
 
-      if (pathExistsSync(lockFilePath)) {
+      if (foundLockfile) {
         // if we find 2 lockfiles at the same level, store them and continue
         // this can happen in monorepos or when switching package managers
         if (detectedPm) {
-          debug(`> found multiple lockfiles: ${JS_PACKAGE_MANAGERS[pm].lockfile} and ${JS_PACKAGE_MANAGERS[detectedPm].lockfile}`);
+          debug(`> found multiple lockfiles: ${foundLockfile} and ${JS_PACKAGE_MANAGERS[detectedPm].lockfiles[0]}`);
           multipleLockfilesDetected = [detectedPm, pm];
           break;
         }
-        debug(`> found ${JS_PACKAGE_MANAGERS[pm].lockfile}`);
+        debug(`> found ${foundLockfile}`);
         detectedPm = pm;
       }
     }

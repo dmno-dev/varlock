@@ -258,4 +258,32 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       ]);
     }
   }
+
+  // * CONFIGURE BUNFIG.TOML FOR BUN PROJECTS ----------------------------------
+  if (jsPackageManager?.name === 'bun') {
+    const bunfigPath = path.join(process.cwd(), 'bunfig.toml');
+    const bunfigExists = await pathExists(bunfigPath);
+
+    if (bunfigExists) {
+      const bunfigContents = await fs.readFile(bunfigPath, 'utf-8');
+      // check if `env = false` is already set (allowing for whitespace variations)
+      if (!/^\s*env\s*=\s*false\s*$/m.test(bunfigContents)) {
+        await fs.writeFile(bunfigPath, `env = false\n${bunfigContents}`);
+        logLines([
+          '',
+          `✅ Added ${ansis.bold('env = false')} to your existing ${fmt.fileName('bunfig.toml')}`,
+          ansis.dim('This disables Bun\'s automatic .env loading, which conflicts with Varlock.'),
+          ansis.dim(`See ${ansis.underline('https://varlock.dev/integrations/bun')} for more info.`),
+        ]);
+      }
+    } else {
+      await fs.writeFile(bunfigPath, 'env = false\n');
+      logLines([
+        '',
+        `✅ Created ${fmt.fileName('bunfig.toml')} with ${ansis.bold('env = false')}`,
+        ansis.dim('This disables Bun\'s automatic .env loading, which conflicts with Varlock.'),
+        ansis.dim(`See ${ansis.underline('https://varlock.dev/integrations/bun')} for more info.`),
+      ]);
+    }
+  }
 };
