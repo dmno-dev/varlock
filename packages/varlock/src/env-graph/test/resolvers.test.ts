@@ -532,3 +532,33 @@ describe('unknown resolver', functionValueTests({
     expected: { ITEM: SchemaError },
   },
 }));
+
+describe('resolveItemWithDeps()', () => {
+  it('resolves a single item and its transitive dependencies', async () => {
+    IncrementResolver.counter = 0;
+    const g = new EnvGraph();
+    g.registerResolver(IncrementResolver);
+    const testDataSource = new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @defaultRequired=false
+        # ---
+        A=a-val
+        B=$A
+        C=c-val
+        UNREACHABLE=concat(increment(), increment())
+      `,
+    });
+    await g.setRootDataSource(testDataSource);
+    await g.finishLoad();
+
+    // Only resolve B (and its dependency A), not C or UNREACHABLE
+    await g.resolveItemWithDeps('B');
+
+    expect(g.configSchema.A.resolvedValue).toEqual('a-val');
+    expect(g.configSchema.B.resolvedValue).toEqual('a-val');
+    // C and UNREACHABLE should not have been resolved
+    expect(g.configSchema.C.resolvedValue).toBeUndefined();
+    // increment() should not have been called (counter stays at 0)
+    expect(IncrementResolver.counter).toEqual(0);
+  });
+});
