@@ -73,11 +73,12 @@ export function detectJsPackageManager(opts?: {
   let multipleLockfilesDetected: Array<JsPackageManager> | undefined;
   do {
     debug(`> scanning ${cwd}`);
+    const scanDir = cwd;
     let pm: JsPackageManager;
     let detectedPm: JsPackageManager | undefined;
     for (pm in JS_PACKAGE_MANAGERS) {
       const foundLockfile = JS_PACKAGE_MANAGERS[pm].lockfiles.find(
-        (lockfile) => pathExistsSync(path.join(cwd, lockfile)),
+        (lockfile) => pathExistsSync(path.join(scanDir, lockfile)),
       );
 
       if (foundLockfile) {
