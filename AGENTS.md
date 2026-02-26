@@ -27,3 +27,9 @@
 - Unit/integration tests use **Vitest**
 - Smoke tests live in `smoke-tests/` and test the CLI end-to-end
 - Binary-specific tests in `smoke-tests/tests/binary.test.ts` require the SEA binary to be built first
+
+## Linting
+
+- Run **`bun run lint:fix`** from the repo root after completing a significant chunk of work (new feature, refactor, bug fix, etc.)
+- The linter uses ESLint with `@stylistic` and other plugins — auto-fix handles most formatting issues
+- Do not leave lint errors unresolved; fix any that `--fix` cannot handle automatically

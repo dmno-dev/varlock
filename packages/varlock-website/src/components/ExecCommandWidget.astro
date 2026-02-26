@@ -14,17 +14,17 @@ const { command, showBinary = true, dlx = false } = Astro.props;
   <TabItem label="npm">
     <Code code={`${dlx ? "npx" : "npm exec --"} ${command}`} lang="bash" />
   </TabItem>
-  <TabItem label="yarn">
-    <Code code={`yarn ${dlx ? "dlx" : "exec --"} ${command}`} lang="bash" />
-  </TabItem>
   <TabItem label="pnpm">
     <Code code={`pnpm ${dlx ? "dlx" : "exec --"} ${command}`} lang="bash" />
+  </TabItem>
+  <TabItem label="bun">
+    <Code code={`${dlx ? "bunx" : "bun exec"} ${command}`} lang="bash" />
   </TabItem>
   <TabItem label="vlt">
     <Code code={`${dlx ? "vlx" : "vlx --"} ${command}`} lang="bash" />
   </TabItem>
-  <TabItem label="bun">
-    <Code code={`${dlx ? "bunx" : "bun run"} ${command}`} lang="bash" />
+  <TabItem label="yarn">
+    <Code code={`yarn ${dlx ? "dlx" : "exec --"} ${command}`} lang="bash" />
   </TabItem>
   {
     showBinary && (
