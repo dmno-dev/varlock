@@ -155,11 +155,11 @@ export class EnvGraph {
 
   /**
    * Register a builtin VARLOCK_* variable.
-   * Creates a ConfigItem with a special resolver that calls the builtin var's resolver function.
+   * Creates a ConfigItem with an internal def so it flows through the normal pipeline.
    */
   registerBuiltinVar(key: string) {
-    const def = BUILTIN_VARS[key];
-    if (!def) throw new Error(`Unknown builtin var: ${key}`);
+    const builtinDef = BUILTIN_VARS[key];
+    if (!builtinDef) throw new Error(`Unknown builtin var: ${key}`);
 
     // Check if already registered
     if (this.configSchema[key]) return;
@@ -168,33 +168,40 @@ export class EnvGraph {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const graph = this;
 
-    // Create a special resolver for this builtin var
+    // Create the resolver for this builtin var
     const BuiltinVarResolver = createResolver({
       name: `\0builtin:${key}`,
-      description: def.description,
+      description: builtinDef.description,
       inferredType: 'string',
       async resolve() {
-        return def.resolver(graph.ciEnvInfo, graph.processEnvForBuiltins);
+        return builtinDef.resolver(graph.ciEnvInfo, graph.processEnvForBuiltins);
       },
     });
 
-    // Create the ConfigItem
     const item = new ConfigItem(this, key);
     item.isBuiltin = true;
-    // Set data type directly since builtin vars are always strings
-    // (avoids needing async process() call)
+    // Pre-set defaults — builtins are optional and public.
+    // processRequired/processSensitive will not override these since the
+    // internal def has no decorators and no source with root-level defaults.
+    item._isRequired = false;
+    item._isSensitive = false;
+    // Set dataType directly since registerBuiltinVar is called synchronously
+    // during resolver processing, and the item may not get a process() call
+    // from the finishLoad loop (for...in doesn't reliably visit new keys).
     item.dataType = this.dataTypesRegistry.string();
 
-    const resolver = new BuiltinVarResolver([], undefined, undefined);
-
-    this._builtinVarResolvers ??= {};
-    this._builtinVarResolvers[key] = resolver;
+    // Attach an internal def with description and resolver
+    // so the normal defs pipeline handles everything
+    item._internalDefs.push({
+      itemDef: {
+        description: builtinDef.description,
+        parsedValue: undefined,
+        resolver: new BuiltinVarResolver([], undefined, undefined),
+      },
+    });
 
     this.configSchema[key] = item;
   }
-
-  /** Resolvers for builtin vars, keyed by var name */
-  _builtinVarResolvers?: Record<string, InstanceType<typeof import('./resolver').Resolver>>;
 
   async setRootDataSource(source: EnvGraphDataSource) {
     if (this.rootDataSource) throw new Error('root data source already set');
