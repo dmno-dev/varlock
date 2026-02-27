@@ -1,0 +1,333 @@
+---
+title: Pass Plugin
+description: Using pass (the standard unix password manager) with Varlock
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/pass-plugin" />
+</div>
+
+Our [pass](https://www.passwordstore.org/) plugin enables loading secrets from `pass` (the standard unix password manager) using declarative instructions within your `.env` files.
+
+Pass stores each secret as a GPG-encrypted file in `~/.password-store`, organized in a simple directory hierarchy. This plugin shells out to the `pass` CLI, so it works with your existing GPG agent, git-backed stores, and all standard pass configuration.
+
+## Features
+
+- **Zero-config** - Works with your existing pass store out of the box
+- **GPG-backed encryption** - Leverages pass's native GPG security model
+- **Auto-infer entry paths** from variable names for convenience
+- **Bulk-load secrets** with `passBulk()` via `@setValuesBulk`
+- **Multiple store instances** for accessing different pass stores
+- **Name prefixing** for scoped entry access
+- **`allowMissing`** option for graceful handling of optional secrets
+- **In-session caching** - Each entry is decrypted only once per resolution
+- **Helpful error messages** with resolution tips
+
+## Installation and setup
+
+In a JS/TS project, you may install the `@varlock/pass-plugin` package as a normal dependency.
+Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
+
+```env-spec title=".env.schema"
+# 1. Load the plugin
+# @plugin(@varlock/pass-plugin)
+#
+# 2. Initialize the plugin - no arguments needed for default setup
+# @initPass()
+# ---
+```
+
+### Prerequisites
+
+You must have `pass` installed on your system:
+
+```bash
+# macOS
+brew install pass
+
+# Ubuntu/Debian
+sudo apt-get install pass
+
+# Arch
+pacman -S pass
+```
+
+Your password store must already be initialized (`pass init "Your GPG Key ID"`). See the [pass documentation](https://www.passwordstore.org/) for setup details.
+
+:::note
+The plugin does **not** fail at load time if `pass` is not installed. It only fails when you actually try to access a secret, making it safe to include in shared configs where some developers may not have pass set up.
+:::
+
+### Custom store path
+
+If your password store is in a non-standard location, use `storePath`:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/pass-plugin)
+# @initPass(storePath=/path/to/custom/store)
+# ---
+```
+
+This sets `PASSWORD_STORE_DIR` for all pass commands issued by this plugin instance.
+
+### Name prefixing
+
+Use `namePrefix` to scope all entry lookups under a common prefix:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/pass-plugin)
+# @initPass(namePrefix=production/app/)
+# ---
+
+# Fetches "production/app/DATABASE_PASSWORD" from the store
+DATABASE_PASSWORD=pass()
+
+# Fetches "production/app/stripe-key"
+STRIPE_KEY=pass("stripe-key")
+```
+
+### Multiple instances
+
+Access multiple different password stores (e.g., personal and team):
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/pass-plugin)
+# @initPass(id=personal)
+# @initPass(id=team, storePath=/shared/team-store)
+# ---
+
+MY_TOKEN=pass(personal, "tokens/github")
+SHARED_KEY=pass(team, "api-keys/stripe")
+```
+
+## Loading secrets
+
+Once the plugin is installed and initialized, you can start adding config items that load values using the `pass()` resolver function.
+
+### Basic usage
+
+Fetch secrets from your pass store:
+
+```env-spec title=".env.schema"
+# Entry path defaults to the variable name
+DATABASE_PASSWORD=pass()
+API_KEY=pass()
+
+# Or explicitly specify the entry path
+STRIPE_KEY=pass("services/stripe/live-key")
+
+# Nested entries
+DB_URL=pass("production/database/url")
+```
+
+When called without arguments, `pass()` automatically uses the config item key as the entry path. This provides a convenient convention-over-configuration approach.
+
+### Handling optional secrets
+
+Use `allowMissing` when a secret may not exist in the store:
+
+```env-spec title=".env.schema"
+# Returns empty string instead of erroring if entry doesn't exist
+OPTIONAL_KEY=pass("monitoring/datadog-key", allowMissing=true)
+```
+
+### Multiline entries
+
+The `pass()` resolver returns the full decrypted content of the entry (all lines, trailing whitespace trimmed). This works naturally with pass's convention of storing the password on the first line and metadata on subsequent lines:
+
+```
+# Example entry (pass show services/example):
+# mysecretpassword
+# URL: https://example.com
+# Username: admin
+```
+
+### Bulk loading secrets
+
+Use `passBulk()` with `@setValuesBulk` to load all entries under a directory in your pass store at once, instead of wiring up each secret individually:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/pass-plugin)
+# @initPass()
+# @setValuesBulk(passBulk("services"))
+# ---
+
+# These will be populated from entries under services/ in the pass store
+STRIPE_KEY=
+DATABASE_URL=
+```
+
+You can customize the scope:
+
+```env-spec title=".env.schema"
+# Load everything from the store root
+# @setValuesBulk(passBulk())
+
+# Load from a specific subdirectory
+# @setValuesBulk(passBulk("production/api"))
+
+# With a named instance
+# @setValuesBulk(passBulk(team, "shared"))
+```
+
+`passBulk()` lists entries using `pass ls`, then fetches each one in parallel and returns a JSON map of `{ "entryPath": "decryptedValue" }` pairs.
+
+---
+
+## Reference
+
+### Root decorators
+<div class="reference-docs">
+<div>
+#### `@initPass()`
+
+Initialize a pass plugin instance for accessing secrets from a password store.
+
+**Key/value args:**
+- `storePath` (optional): Custom password store path (overrides `PASSWORD_STORE_DIR`, defaults to `~/.password-store`)
+- `namePrefix` (optional): Prefix automatically prepended to all entry paths
+- `id` (optional): Instance identifier for multiple instances
+
+```env-spec "@initPass"
+# Default setup
+# @initPass()
+
+# Custom store location
+# @initPass(storePath=/path/to/store)
+
+# With prefix and ID
+# @initPass(id=prod, namePrefix=production/)
+```
+</div>
+</div>
+
+### Resolver functions
+<div class="reference-docs">
+<div>
+#### `pass()`
+
+Fetch a secret from the pass store.
+
+**Array args:**
+- `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
+- `entryPath` (optional): path to the entry in the pass store. If omitted, uses the variable name.
+
+**Key/value args:**
+- `allowMissing` (optional): if `true`, returns empty string instead of erroring when the entry doesn't exist
+
+```env-spec /pass\\(.*\\)/
+# Auto-infer entry path from variable name
+DATABASE_PASSWORD=pass()
+
+# Explicit entry path
+STRIPE_KEY=pass("services/stripe/live-key")
+
+# With instance ID
+TEAM_SECRET=pass(team, "shared/api-key")
+
+# Allow missing entries
+OPTIONAL=pass("maybe/exists", allowMissing=true)
+```
+</div>
+
+<div>
+#### `passBulk()`
+
+Bulk-load all secrets from a directory in the pass store. Intended for use with `@setValuesBulk`.
+
+**Array args:**
+- `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
+- `pathPrefix` (optional): directory prefix to load entries from
+
+```env-spec /passBulk\\(.*\\)/
+# Load all entries from the store root
+# @setValuesBulk(passBulk())
+
+# Load entries under a specific path
+# @setValuesBulk(passBulk("services"))
+
+# With instance ID
+# @setValuesBulk(passBulk(team, "shared"))
+```
+</div>
+</div>
+
+---
+
+## Example configurations
+
+### Simple development setup
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/pass-plugin)
+# @initPass()
+# ---
+
+# Entry paths match variable names
+DATABASE_URL=pass()
+REDIS_URL=pass()
+STRIPE_KEY=pass()
+```
+
+### Production with path organization
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/pass-plugin)
+# @initPass(namePrefix=production/)
+# ---
+
+# Fetches production/database/url, production/database/password, etc.
+DB_URL=pass("database/url")
+DB_PASSWORD=pass("database/password")
+STRIPE_KEY=pass("api/stripe-key")
+SENDGRID_KEY=pass("api/sendgrid-key")
+```
+
+### Team and personal stores
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/pass-plugin)
+# @initPass(id=personal)
+# @initPass(id=team, storePath=/shared/team-pass-store)
+# ---
+
+# Personal dev tokens
+GH_TOKEN=pass(personal, "tokens/github")
+
+# Shared team secrets
+SHARED_DB=pass(team, "databases/staging")
+SHARED_API_KEY=pass(team, "api-keys/internal")
+```
+
+---
+
+## Troubleshooting
+
+### `pass` command not found
+- Install pass using your system package manager (see [Prerequisites](#prerequisites))
+- Ensure `pass` is in your `PATH`
+
+### Entry not found
+- Verify the entry exists: `pass show <path>`
+- List available entries: `pass ls`
+- Check for typos in the entry path
+- If using `namePrefix`, remember it's prepended automatically
+
+### GPG decryption failed
+- Ensure your GPG key is available: `gpg --list-keys`
+- Start the GPG agent: `gpgconf --launch gpg-agent`
+- You may need to enter your GPG passphrase
+
+### Password store not initialized
+- Run `pass init "Your GPG Key ID"` to initialize the store
+- See `pass init --help` for details
+
+## Resources
+
+- [pass - The Standard Unix Password Manager](https://www.passwordstore.org/)
+- [pass man page](https://git.zx2c4.com/password-store/about/)
+- [GPG documentation](https://gnupg.org/documentation/)
