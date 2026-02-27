@@ -14,6 +14,8 @@ export function envFilesTest(spec: {
   files?: Record<string, string>;
   fallbackEnv?: string,
   overrideValues?: Record<string, string>;
+  /** Override process.env for builtin var detection (avoids modifying real process.env) */
+  processEnv?: Record<string, string | undefined>;
   debug?: boolean;
   earlyError?: boolean;
   loadingError?: boolean;
@@ -32,6 +34,7 @@ export function envFilesTest(spec: {
     const g = new EnvGraph();
     if (spec.overrideValues) g.overrideValues = spec.overrideValues;
     if (spec.fallbackEnv) g.envFlagFallback = spec.fallbackEnv;
+    if (spec.processEnv) g.processEnvOverride = spec.processEnv;
     if (spec.files) {
       g.setVirtualImports(currentDir, spec.files);
       const source = new DirectoryDataSource(currentDir);

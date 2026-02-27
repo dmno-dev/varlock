@@ -27,11 +27,17 @@ export type ConfigItemDef = {
 };
 export type ConfigItemDefAndSource = {
   itemDef: ConfigItemDef;
-  source: EnvGraphDataSource;
+  source?: EnvGraphDataSource;
 };
 
 
 export class ConfigItem {
+  /** Whether this is a builtin VARLOCK_* variable */
+  isBuiltin?: boolean;
+
+  /** Programmatic definitions not tied to a data source (e.g. builtin vars) */
+  _internalDefs: Array<ConfigItemDefAndSource> = [];
+
   constructor(
     readonly envGraph: EnvGraph,
     readonly key: string,
@@ -40,6 +46,7 @@ export class ConfigItem {
 
   /**
    * fetch ordered list of definitions for this item, by following up sorted data sources list
+   * internal defs (builtins) are appended last (lowest priority)
    */
   get defs() {
     // TODO: this is somewhat inneficient, because some of the checks on the data source follow up the parent chain
@@ -53,6 +60,7 @@ export class ConfigItem {
       const itemDef = source.configItemDefs[this.key];
       if (itemDef) defs.push({ itemDef, source });
     }
+    defs.push(...this._internalDefs);
     return defs;
   }
 
@@ -103,8 +111,18 @@ export class ConfigItem {
       return new StaticValueResolver(this.envGraph.overrideValues[this.key]);
     }
 
+    const hasInternalResolver = this._internalDefs.some((d) => d.itemDef.resolver);
     for (const def of this.defs) {
       if (def.itemDef.resolver) {
+        // Skip empty static values when an internal fallback resolver exists
+        // (e.g., user defines VARLOCK_ENV= to add decorators — the builtin resolver still applies)
+        if (
+          hasInternalResolver
+          && def.itemDef.resolver instanceof StaticValueResolver
+          && !def.itemDef.resolver.staticValue
+        ) {
+          continue;
+        }
         return def.itemDef.resolver;
       }
     }
@@ -152,7 +170,7 @@ export class ConfigItem {
       if (def.itemDef.parsedValue && !def.itemDef.resolver) {
         def.itemDef.resolver = convertParsedValueToResolvers(
           def.itemDef.parsedValue,
-          def.source,
+          def.source!, // parsedValue is only set for source-backed defs
           this.envGraph.registeredResolverFunctions,
         );
       }
@@ -161,7 +179,9 @@ export class ConfigItem {
 
     // process decorators and decorator value resolvers
     for (const def of this.defs) {
-      def.itemDef.decorators = def.itemDef.parsedDecorators?.map((d) => new ItemDecoratorInstance(this, def.source, d));
+      def.itemDef.decorators = def.itemDef.parsedDecorators?.map(
+        (d) => new ItemDecoratorInstance(this, def.source!, d),
+      );
       // track all non fn call decs used in this definition - so we can error if used twice
       const decKeysInThisDef = new Set<string>();
       const allDecsInThisDef = def.itemDef.decorators?.map((d) => d.name);
@@ -294,8 +314,8 @@ export class ConfigItem {
           }
         }
 
-        // Root-level @defaultRequired
-        const defaultRequiredDec = def.source.getRootDec('defaultRequired');
+        // Root-level @defaultRequired (skip for defs without a source, e.g. builtins)
+        const defaultRequiredDec = def.source?.getRootDec('defaultRequired');
         if (defaultRequiredDec) {
           const defaultRequiredVal = await defaultRequiredDec.resolve();
           // @defaultRequired = true/false
@@ -361,7 +381,8 @@ export class ConfigItem {
       // we skip `defaultSensitive` behaviour if the data type specifies sensitivity
       if (sensitiveFromDataType !== undefined) continue;
 
-      const defaultSensitiveDec = def.source.getRootDec('defaultSensitive');
+      // skip for defs without a source (e.g. builtins)
+      const defaultSensitiveDec = def.source?.getRootDec('defaultSensitive');
       if (defaultSensitiveDec) {
         if (!defaultSensitiveDec.decValueResolver) throw new Error('expected defaultSensitive to have a value resolver');
         // special case for inferFromPrefix()

@@ -1,0 +1,35 @@
+---
+description: Do not use .js (or .ts) extensions in TypeScript import/export paths
+globs: "*.ts"
+alwaysApply: false
+---
+# No .js Extension in TypeScript Imports
+
+<rule>
+name: no_js_extension_imports
+description: |
+  This project uses TypeScript with "moduleResolution": "bundler" (or "node16"/"nodenext" in a way that relies on the bundler to resolve modules). Do not add .js or .ts extensions to import or export paths in TypeScript files.
+
+filters:
+  - type: file_extension
+    pattern: "\\.ts$"
+
+actions:
+  - type: suggest
+    message: |
+      Do not use .js or .ts in TypeScript import/export paths. We use bundler module resolution, so write:
+
+        import { foo } from './bar';
+        export { foo } from './bar';
+
+      Not:
+
+        import { foo } from './bar.js';
+        export { foo } from './bar.js';
+
+      This keeps code consistent and avoids confusion between source and output paths.
+
+metadata:
+  priority: high
+  version: 1.0
+</rule>

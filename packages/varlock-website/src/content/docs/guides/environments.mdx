@@ -31,6 +31,15 @@ The files are applied with a specific precedence (increasing):
 - `.env.[currentEnv]` - environment-specific values
 - `.env.[currentEnv].local` - environment-specific local overrides (gitignored)
 
+:::tip[Auto-detect with `VARLOCK_ENV`]
+Instead of managing your own environment flag, you can use the built-in `$VARLOCK_ENV` variable which auto-detects the environment from your CI/deploy platform. See the [builtin variables reference](/reference/builtin-variables/) for details.
+
+```env-spec title=".env.schema"
+# @currentEnv=$VARLOCK_ENV
+# ---
+```
+:::
+
 For example, consider the following `.env.schema`:
 ```env-spec title=".env.schema"
 # @currentEnv=$APP_ENV

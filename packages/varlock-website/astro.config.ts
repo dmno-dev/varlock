@@ -185,6 +185,7 @@ export default defineConfig({
             { label: 'Item decorators', slug: 'reference/item-decorators' },
             { label: '> @type data types', slug: 'reference/data-types' },
             { label: 'Value functions', slug: 'reference/functions' },
+            { label: 'Builtin variables', slug: 'reference/builtin-variables', badge: 'new' },
           ],
         },
         {
@@ -215,7 +216,7 @@ export default defineConfig({
         {
           userAgent: '*',
           // The next line enables or disables the crawling on the `robots.txt` level
-          disallow: ENV.APP_ENV === 'production' ? '' : '/',
+          disallow: ENV.VARLOCK_ENV === 'production' ? '' : '/',
         },
       ],
     }),
