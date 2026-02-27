@@ -1,7 +1,7 @@
 {
   "name": "@varlock/ci-env-info",
   "description": "Detect CI environment and normalize other data like environment, repo, branch, PR, commit, etc.",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "repository": {
     "type": "git",
@@ -23,10 +23,20 @@
     "test": "vitest",
     "test:ci": "vitest --run"
   },
-  "keywords": ["ci", "environment", "detection", "github-actions", "vercel", "netlify", "env vars"],
+  "keywords": [
+    "ci",
+    "environment",
+    "detection",
+    "github-actions",
+    "vercel",
+    "netlify",
+    "env vars"
+  ],
   "author": "dmno-dev",
   "license": "MIT",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "devDependencies": {
     "@types/node": "catalog:",
     "tsup": "catalog:",

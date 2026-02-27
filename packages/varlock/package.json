@@ -1,6 +1,6 @@
 {
   "name": "varlock",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "The unified env var toolkit - load, validate, and secure your environment variables",
   "main": "index.js",
   "type": "module",
