@@ -100,13 +100,11 @@ subCommands.set('scan', buildLazyCommand(scanCommandSpec, async () => await impo
         suggestion: `Run \`${fmt.command('varlock --help', { jsPackageManager: true })}\` for more info.`,
       });
       console.error(badCommandErr.getFormattedOutput());
-      gracefulExit(1);
     } else if (error instanceof CliExitError || error instanceof InvalidEnvError) {
       // in watch mode, we just log but do not actually exit
       console.error(error.getFormattedOutput());
       // TODO: we'll probably want to implement watch mode, so it wont actually exit
       // process.exit(1);
-      gracefulExit(1);
     } else {
       throw error;
     }
