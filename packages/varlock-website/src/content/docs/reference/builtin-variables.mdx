@@ -36,7 +36,9 @@ Auto-detection is based on environment variables set by each CI/deploy platform.
 :::
 
 
-## `VARLOCK_ENV`
+## Builtin Vars
+
+### `VARLOCK_ENV`
 
 **Type:** `string` — one of `development`, `preview`, `staging`, `production`, `test`
 
@@ -48,7 +50,7 @@ The inferred deployment environment. Detection follows this priority:
 4. **CI fallback** — if in CI but no branch info is available, defaults to `preview`
 5. **Local fallback** — if not in CI, defaults to `development`
 
-### Using with `@currentEnv`
+#### Using with `@currentEnv`
 
 ```env-spec title=".env.schema"
 # @currentEnv=$VARLOCK_ENV
@@ -58,7 +60,7 @@ DB_NAME=myapp
 DB_URL="postgres://$DB_HOST/$DB_NAME"
 ```
 
-### Test environment caveat
+#### Test environment caveat
 
 :::caution[Test runners and `VARLOCK_ENV`]
 Many test runners (Vitest, Jest, etc.) set `NODE_ENV=test` **after** the process has started — often after varlock has already loaded and resolved your env vars. This means `VARLOCK_ENV` may not detect `test` automatically in all setups.
@@ -75,56 +77,56 @@ This is the same pattern recommended for any environment flag — see the [envir
 :::
 
 
-## `VARLOCK_IS_CI`
+### `VARLOCK_IS_CI`
 
 **Type:** `string` — `"true"` or `"false"`
 
 Whether the current process is running in a CI environment.
 
 
-## `VARLOCK_BRANCH`
+### `VARLOCK_BRANCH`
 
 **Type:** `string | undefined`
 
 The current git branch name, as reported by the CI platform. Undefined when not in CI or when the platform doesn't expose branch info.
 
 
-## `VARLOCK_PR_NUMBER`
+### `VARLOCK_PR_NUMBER`
 
 **Type:** `string | undefined`
 
 The pull/merge request number, if the current build is for a PR. Undefined otherwise.
 
 
-## `VARLOCK_COMMIT_SHA`
+### `VARLOCK_COMMIT_SHA`
 
 **Type:** `string | undefined`
 
 The full git commit SHA.
 
 
-## `VARLOCK_COMMIT_SHA_SHORT`
+### `VARLOCK_COMMIT_SHA_SHORT`
 
 **Type:** `string | undefined`
 
 The short (7-character) git commit SHA.
 
 
-## `VARLOCK_PLATFORM`
+### `VARLOCK_PLATFORM`
 
 **Type:** `string | undefined`
 
 The name of the detected CI/deploy platform (e.g., `"GitHub Actions"`, `"Vercel"`, `"Netlify CI"`).
 
 
-## `VARLOCK_BUILD_URL`
+### `VARLOCK_BUILD_URL`
 
 **Type:** `string | undefined`
 
 A URL linking to the current build or deploy in the CI platform's UI.
 
 
-## `VARLOCK_REPO`
+### `VARLOCK_REPO`
 
 **Type:** `string | undefined`
 
