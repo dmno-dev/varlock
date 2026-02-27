@@ -7,9 +7,8 @@ on:
         description: 'Version (ex: "0.1.0")'
         required: true
         type: string
-  push:
-    tags:
-      - 'env-spec-language@*'
+  release:
+    types: [published]
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 

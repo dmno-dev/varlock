@@ -1,6 +1,6 @@
 {
   "name": "env-spec-language",
-  "displayName": "@env-spec (.env) language support",
+  "displayName": "@env-spec (.env) language support - VSCode/OVSX extension",
   "description": "Adds syntax highlighting and additional tooling for @env-spec enabled .env files",
   "icon": "images/marketplace-icon.png",
   "galleryBanner": {
@@ -11,7 +11,6 @@
   "publisher": "varlock",
   "author": "dmno-dev",
   "license": "MIT",
-  "private": true,
   "homepage": "https://varlock.dev/env-spec",
   "repository": {
     "type": "git",
@@ -84,6 +83,8 @@
     "dev": "tsup --watch",
     "build": "tsup",
     "test": "vscode-tmgrammar-test -g ./language/env-spec.tmLanguage.json ./test/grammar.test.txt",
+    "prepack": "cp README.md README.marketplace.md && cp README.npm.md README.md",
+    "postpack": "mv README.marketplace.md README.md",
     "package": "bun run build && vsce package -o env-spec-language.vsix",
     "publish:vsce": "vsce publish -i env-spec-language.vsix",
     "publish:ovsx": "ovsx publish -i env-spec-language.vsix",
