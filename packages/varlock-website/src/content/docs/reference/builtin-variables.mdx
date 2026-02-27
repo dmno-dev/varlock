@@ -1,0 +1,148 @@
+---
+title: "Builtin variables"
+description: Auto-detected VARLOCK_* variables for CI platform, branch, commit, and environment info
+---
+
+Varlock provides a set of **builtin `VARLOCK_*` variables** that are automatically populated with information about the current CI/deploy platform, git branch, commit, and inferred deployment environment. They are entirely **opt-in** — they only exist in your schema when you reference them.
+
+## Usage
+
+Reference any `VARLOCK_*` variable in your schema just like any other variable:
+
+```env-spec title=".env.schema"
+# @currentEnv=$VARLOCK_ENV
+# ---
+MY_BRANCH=$VARLOCK_BRANCH
+BUILD_TAG="build-$VARLOCK_COMMIT_SHA_SHORT"
+```
+
+You can also use `VARLOCK_ENV` as your environment flag with `@currentEnv`, which means you don't need to create your own `APP_ENV` variable — Varlock will auto-detect the environment for you.
+
+:::caution[Verify detection works for your setup]
+Auto-detection is based on environment variables set by each CI/deploy platform. Different platforms expose different information, and detection heuristics (especially branch-to-environment inference) may not match your conventions.
+
+**Always verify that the detected values match your expectations** before relying on them in production. You can check the resolved values using `varlock run -- env | grep VARLOCK_` or by inspecting the output of `varlock load`.
+:::
+
+
+## `VARLOCK_ENV`
+
+**Type:** `string` — one of `development`, `preview`, `staging`, `production`, `test`
+
+The inferred deployment environment. Detection follows this priority:
+
+1. **Test environment** — detected from `NODE_ENV=test`, `VITEST`, `JEST_WORKER_ID`, or `VITEST_POOL_ID`
+2. **Platform-provided** — uses the platform's own environment concept (e.g., Vercel's `VERCEL_ENV`, Netlify's `CONTEXT`)
+3. **Branch inference** — in CI, infers from branch name: `main`/`master`/`production`/`prod` &rarr; `production`, `staging`/`stage`/`develop`/`dev` &rarr; `staging`, `qa`/`test` &rarr; `test`, anything else &rarr; `preview`
+4. **CI fallback** — if in CI but no branch info is available, defaults to `preview`
+5. **Local fallback** — if not in CI, defaults to `development`
+
+### Using with `@currentEnv`
+
+```env-spec title=".env.schema"
+# @currentEnv=$VARLOCK_ENV
+# ---
+DB_URL=postgres://localhost/myapp
+```
+
+```env-spec title=".env.production"
+DB_URL=postgres://prod-db.example.com/myapp
+```
+
+```env-spec title=".env.staging"
+DB_URL=postgres://staging-db.example.com/myapp
+```
+
+### Test environment caveat
+
+:::caution[Test runners and `VARLOCK_ENV`]
+Many test runners (Vitest, Jest, etc.) set `NODE_ENV=test` **after** the process has started — often after varlock has already loaded and resolved your env vars. This means `VARLOCK_ENV` may not detect `test` automatically in all setups.
+
+If you depend on `VARLOCK_ENV=test` to load `.env.test` or toggle behavior via `forEnv(test)`, **explicitly pass it** when running tests:
+
+```bash
+VARLOCK_ENV=test bun run test
+# or
+VARLOCK_ENV=test varlock run -- vitest
+```
+
+This is the same pattern recommended for any environment flag — see the [environments guide](/guides/environments/) for more details.
+:::
+
+
+## `VARLOCK_IS_CI`
+
+**Type:** `string` — `"true"` or `"false"`
+
+Whether the current process is running in a CI environment.
+
+
+## `VARLOCK_BRANCH`
+
+**Type:** `string | undefined`
+
+The current git branch name, as reported by the CI platform. Undefined when not in CI or when the platform doesn't expose branch info.
+
+
+## `VARLOCK_PR_NUMBER`
+
+**Type:** `string | undefined`
+
+The pull/merge request number, if the current build is for a PR. Undefined otherwise.
+
+
+## `VARLOCK_COMMIT_SHA`
+
+**Type:** `string | undefined`
+
+The full git commit SHA.
+
+
+## `VARLOCK_COMMIT_SHA_SHORT`
+
+**Type:** `string | undefined`
+
+The short (7-character) git commit SHA.
+
+
+## `VARLOCK_PLATFORM`
+
+**Type:** `string | undefined`
+
+The name of the detected CI/deploy platform (e.g., `"GitHub Actions"`, `"Vercel"`, `"Netlify CI"`).
+
+
+## `VARLOCK_BUILD_URL`
+
+**Type:** `string | undefined`
+
+A URL linking to the current build or deploy in the CI platform's UI.
+
+
+## `VARLOCK_REPO`
+
+**Type:** `string | undefined`
+
+The repository name in `owner/repo` format.
+
+
+## Supported platforms
+
+Detection is built-in for these platforms (no configuration required):
+
+- GitHub Actions
+- GitLab CI
+- Vercel
+- Netlify
+- Cloudflare Pages / Workers
+- AWS CodeBuild
+- Azure Pipelines
+- Bitbucket Pipelines
+- Buildkite
+- CircleCI
+- Jenkins
+- Render
+- Travis CI
+- and [many more](https://github.com/dmno-dev/varlock/tree/main/packages/ci-env-info/src/platforms.ts)
+
+Not all platforms expose all fields. For example, some may not provide branch name or PR number.

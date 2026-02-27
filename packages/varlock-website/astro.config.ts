@@ -185,6 +185,7 @@ export default defineConfig({
             { label: 'Item decorators', slug: 'reference/item-decorators' },
             { label: '> @type data types', slug: 'reference/data-types' },
             { label: 'Value functions', slug: 'reference/functions' },
+            { label: 'Builtin variables', slug: 'reference/builtin-variables', badge: 'new' },
           ],
         },
         {

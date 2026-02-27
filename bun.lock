@@ -21,6 +21,16 @@
         "typescript-eslint": "^8.39.0",
       },
     },
+    "packages/ci-env-info": {
+      "name": "@varlock/ci-env-info",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "tsup": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/env-spec-parser": {
       "name": "@env-spec/parser",
       "version": "0.1.0",
@@ -204,6 +214,7 @@
         "@sindresorhus/is": "catalog:",
         "@types/node": "catalog:",
         "@types/semver": "^7.7.1",
+        "@varlock/ci-env-info": "workspace:^",
         "ansis": "catalog:",
         "browser-or-node": "^3.0.0",
         "ci-info": "^4.3.1",
@@ -1144,6 +1155,8 @@
     "@varlock/azure-key-vault-plugin": ["@varlock/azure-key-vault-plugin@workspace:packages/plugins/azure-key-vault"],
 
     "@varlock/bitwarden-plugin": ["@varlock/bitwarden-plugin@workspace:packages/plugins/bitwarden"],
+
+    "@varlock/ci-env-info": ["@varlock/ci-env-info@workspace:packages/ci-env-info"],
 
     "@varlock/google-secret-manager-plugin": ["@varlock/google-secret-manager-plugin@workspace:packages/plugins/google-secret-manager"],
 

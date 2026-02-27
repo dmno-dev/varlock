@@ -1,11 +1,13 @@
 # @varlock/ci-env-info
 
-Detect the current CI environment and expose normalized fields: repo (owner/name), branch, PR number, commit SHA, and deployment environment (development / preview / staging / production).
+Detect the current CI/deploy platform and expose normalized metadata: repo, branch, PR number, commit SHA, build URL, deployment environment, and more.
+
+This package powers the `VARLOCK_*` builtin variables in [Varlock](https://varlock.dev). It can also be used standalone.
 
 ## Usage
 
 ```ts
-import { getCiEnvFromProcess, getCiEnv } from '@varlock/ci-env';
+import { getCiEnvFromProcess, getCiEnv } from '@varlock/ci-env-info';
 
 // Use current process.env
 const info = getCiEnvFromProcess();
@@ -13,18 +15,28 @@ if (info.isCI) {
   console.log('Platform:', info.name);
   console.log('Repo:', info.fullRepoName);
   console.log('Branch:', info.branch);
-  console.log('Docs:', info.docsUrl);
+  console.log('Commit:', info.commitShaShort);
+  console.log('Environment:', info.environment);
 }
 
-// Or pass an env record (e.g. for tests)
+// Or pass an env record (useful for testing)
 const info2 = getCiEnv({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'owner/repo' });
 ```
 
 ## API
 
-- **`getCiEnv(env: EnvRecord): CiEnvInfo`** – Core: returns CI environment info from the given env record.
-- **`getCiEnvFromProcess(): CiEnvInfo`** – Convenience: same as `getCiEnv(process.env)`.
-- **`EnvRecord`** – `Record<string, string | undefined>` (env-like object).
-- **`CiEnvInfo`** – `isCI`, `name`, `docsUrl`, `isPR`, `repo`, `fullRepoName`, `branch`, `prNumber`, `commitSha`, `commitShaShort`, `environment`, `raw`.
+- **`getCiEnv(env: EnvRecord): CiEnvInfo`** – Returns CI environment info from the given env record.
+- **`getCiEnvFromProcess(): CiEnvInfo`** – Convenience wrapper: calls `getCiEnv(process.env)`.
+- **`EnvRecord`** – `Record<string, string | undefined>`.
+- **`CiEnvInfo`** – `isCI`, `name`, `docsUrl`, `isPR`, `repo`, `fullRepoName`, `branch`, `prNumber`, `commitSha`, `commitShaShort`, `environment`, `runId`, `buildUrl`, `workflowName`, `actor`, `eventName`, `raw`.
+- **`DeploymentEnvironment`** – `'development' | 'preview' | 'staging' | 'production' | 'test'`.
 
-Platforms are defined in TypeScript (no external ci-info dependency); detection and extractors can be a simple env var name (string) or a function for custom logic.
+## Supported platforms
+
+GitHub Actions, GitLab CI, Vercel, Netlify, Cloudflare Pages, Cloudflare Workers, AWS CodeBuild, Azure Pipelines, Bitbucket Pipelines, Buildkite, CircleCI, Jenkins, Render, Travis CI, and many more.
+
+Platforms are defined in TypeScript with no external dependencies. Detection uses environment variables specific to each platform.
+
+## Learn more
+
+Check out the [Varlock docs](https://varlock.dev) for more about how this fits into env var management.
