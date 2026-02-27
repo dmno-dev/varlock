@@ -1,5 +1,27 @@
 # varlock
 
+## 0.3.0
+
+### Minor Changes
+
+- [#316](https://github.com/dmno-dev/varlock/pull/316) [`9d8302f`](https://github.com/dmno-dev/varlock/commit/9d8302f2397abef7b49a62d1700f1339be8aa8d9) - Add `varlock scan` command to detect leaked secrets in project files, with `--install-hook` flag to set up a git pre-commit hook. Automatically detects package manager (npm, pnpm, bun, etc.) and hook managers (husky, lefthook, simple-git-hooks) for correct setup.
+
+- [#313](https://github.com/dmno-dev/varlock/pull/313) [`ccff56b`](https://github.com/dmno-dev/varlock/commit/ccff56b6fba018c3e30d3f91261a4a03c1548c6d) - migrate to bun as package manager and for SEA
+
+### Patch Changes
+
+- [#314](https://github.com/dmno-dev/varlock/pull/314) [`1a42d3f`](https://github.com/dmno-dev/varlock/commit/1a42d3f88c89a136f3745a1586e9b43bc9b7b069) - add `varlock printenv` command to print a single env value
+
+- [#319](https://github.com/dmno-dev/varlock/pull/319) [`6b64a4f`](https://github.com/dmno-dev/varlock/commit/6b64a4fce63e951d116b2ad5df3027906e9b9f8f) - add bunfig setup to varlock init for bun projects
+
+- [#254](https://github.com/dmno-dev/varlock/pull/254) [`98fccd6`](https://github.com/dmno-dev/varlock/commit/98fccd6c2ce48897bbe3db1aad9191171c4a84f2) - Fix assertion failure on Windows when varlock cli exits
+
+- [#307](https://github.com/dmno-dev/varlock/pull/307) [`2af0b2f`](https://github.com/dmno-dev/varlock/commit/2af0b2f8ae4aff3a89a53e22cd9483abce22ea39) - new @setValuesBulk root decorator
+
+- [#285](https://github.com/dmno-dev/varlock/pull/285) [`2d15354`](https://github.com/dmno-dev/varlock/commit/2d153547a08cc9b23e85d6e66a4b557222c9c206) - new auto-inferred VARLOCK_ENV from ci info (uses new ci-env-info package)
+
+- [#307](https://github.com/dmno-dev/varlock/pull/307) [`2af0b2f`](https://github.com/dmno-dev/varlock/commit/2af0b2f8ae4aff3a89a53e22cd9483abce22ea39) - add 1password environments loader, improve how resolver errors are shown to the user
+
 ## 0.2.3
 
 ### Patch Changes

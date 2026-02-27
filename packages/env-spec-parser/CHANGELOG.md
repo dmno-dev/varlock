@@ -1,5 +1,11 @@
 # @env-spec/parser
 
+## 0.1.1
+
+### Patch Changes
+
+- [#307](https://github.com/dmno-dev/varlock/pull/307) [`2af0b2f`](https://github.com/dmno-dev/varlock/commit/2af0b2f8ae4aff3a89a53e22cd9483abce22ea39) - add 1password environments loader, improve how resolver errors are shown to the user
+
 ## 0.1.0
 
 ### Minor Changes
