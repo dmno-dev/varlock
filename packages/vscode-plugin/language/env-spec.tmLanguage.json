@@ -290,6 +290,11 @@
         { "include": "#expansion" },
         { "include": "#unquoted-string-within-fn-call" },
         {
+          "comment": "extra $",
+          "match": "\\$",
+          "name": "string.unquoted.env-spec"
+        },
+        {
           "match": "\\s*,\\s*",
           "name": "punctuation.separator.comma.env-spec"
         },
@@ -470,7 +475,7 @@
           "begin": "\\$\\(",
           "end": "\\)",
           "name": "punctuation.section.interpolation.env-spec",
-          "contentName": "source.bash.embedded.env-spec"
+          "contentName": "variable.function.env-spec"
         }
       }
     },
@@ -525,7 +530,13 @@
             { "include": "#literal-value" },
             { "include": "#quoted-value" },
             { "include": "#key-value-pair" },
+            { "include": "#expansion" },
             { "include": "#unquoted-string-within-fn-call" },
+            {
+              "comment": "extra $",
+              "match": "\\$",
+              "name": "string.unquoted.env-spec"
+            },
             {
               "comment": "decorator fn arg separator",
               "match": "\\s*,\\s*",
@@ -601,7 +612,13 @@
         { "include": "#literal-value" },
         { "include": "#quoted-value" },
         { "include": "#key-value-pair" },
+        { "include": "#expansion" },
         { "include": "#unquoted-string-within-fn-call" },
+        {
+          "comment": "extra $",
+          "match": "\\$",
+          "name": "string.unquoted.env-spec"
+        },
         {
           "comment": "decorator fn arg separator",
           "match": "\\s*,\\s*",
@@ -612,7 +629,7 @@
 
     "unquoted-string-within-fn-call": {
       "comment": "unquoted string value within fn call",
-      "match": "([^ \n#,)]+)",
+      "match": "([^ \n#,)$]+)",
       "name": "string.unquoted.env-spec",
       "captures": {
         "1": {
@@ -636,7 +653,13 @@
         { "include": "#env-item-value-fn-call" },
         { "include": "#literal-value" },
         { "include": "#quoted-value" },
-        { "include": "#unquoted-string-within-fn-call" }
+        { "include": "#expansion" },
+        { "include": "#unquoted-string-within-fn-call" },
+        {
+          "comment": "extra $",
+          "match": "\\$",
+          "name": "string.unquoted.env-spec"
+        }
       ]
     },
 
@@ -675,7 +698,12 @@
         { "include": "#env-item-value-fn-call" },
         { "include": "#expansion" },
         { "include": "#quoted-value" },
-        { "include": "#unquoted-string-within-fn-call" }
+        { "include": "#unquoted-string-within-fn-call" },
+        {
+          "comment": "extra $",
+          "match": "\\$",
+          "name": "string.unquoted.env-spec"
+        }
       ]
     }
   }

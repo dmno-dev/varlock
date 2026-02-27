@@ -1,0 +1,26 @@
+diff --git a/dist/changesets-config.cjs.js b/dist/changesets-config.cjs.js
+--- a/dist/changesets-config.cjs.js
++++ b/dist/changesets-config.cjs.js
+@@ -226,6 +226,9 @@
+         bumpVersionsWithWorkspaceProtocolOnly: json.bumpVersionsWithWorkspaceProtocolOnly
+       });
+       for (const ignoredPackage of json.ignore) {
++        // Skip dependent validation for private packages (they are bundled, not installed from npm)
++        const ignoredPkg = packages.packages.find(p => p.packageJson.name === ignoredPackage);
++        if (ignoredPkg && ignoredPkg.packageJson.private) continue;
+         const dependents = dependentsGraph.get(ignoredPackage) || [];
+         for (const dependent of dependents) {
+           if (!json.ignore.includes(dependent)) {
+diff --git a/dist/changesets-config.esm.js b/dist/changesets-config.esm.js
+--- a/dist/changesets-config.esm.js
++++ b/dist/changesets-config.esm.js
+@@ -198,6 +198,9 @@
+         bumpVersionsWithWorkspaceProtocolOnly: json.bumpVersionsWithWorkspaceProtocolOnly
+       });
+       for (const ignoredPackage of json.ignore) {
++        // Skip dependent validation for private packages (they are bundled, not installed from npm)
++        const ignoredPkg = packages.packages.find(p => p.packageJson.name === ignoredPackage);
++        if (ignoredPkg && ignoredPkg.packageJson.private) continue;
+         const dependents = dependentsGraph.get(ignoredPackage) || [];
+         for (const dependent of dependents) {
+           if (!json.ignore.includes(dependent)) {

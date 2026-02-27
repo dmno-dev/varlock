@@ -4,13 +4,13 @@
   "commit": false,
   "fixed": [],
   "linked": [],
-  "ignore": [],
+  "ignore": ["@env-spec/utils", "varlock-docs-mcp", "@varlock/website"],
   "access": "public",
   "baseBranch": "origin/main",
   "updateInternalDependencies": "patch",
   "privatePackages": {
-    "version": false,
-    "tag": false
+    "version": true,
+    "tag": true
   },
   "___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH": {
     "onlyUpdatePeerDependentsWhenOutOfRange": true

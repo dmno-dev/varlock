@@ -1,0 +1,53 @@
+name: Release VSCode extension
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (ex: "0.1.0")'
+        required: true
+        type: string
+  push:
+    tags:
+      - 'env-spec-language@*'
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  publish-extension:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'env-spec-language@')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22.x"
+      - name: Install node deps
+        run: bun install
+
+      - name: Build and package extension
+        working-directory: packages/vscode-plugin
+        run: bun run package
+
+      - name: Publish to VS Code Marketplace
+        working-directory: packages/vscode-plugin
+        run: bun run publish:vsce
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to Open VSX
+        working-directory: packages/vscode-plugin
+        run: bun run publish:ovsx
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+

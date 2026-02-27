@@ -63,6 +63,7 @@
     "vitest": "^4.0.18"
   },
   "patchedDependencies": {
-    "@changesets/assemble-release-plan@6.0.9": "patches/@changesets%2Fassemble-release-plan@6.0.9.patch"
+    "@changesets/assemble-release-plan@6.0.9": "patches/@changesets%2Fassemble-release-plan@6.0.9.patch",
+    "@changesets/config@3.1.2": "patches/@changesets%2Fconfig@3.1.2.patch"
   }
 }
