@@ -146,20 +146,32 @@ OPTIONAL_KEY=pass("monitoring/datadog-key", allowMissing=true)
 
 ### Multiline entries
 
-The `pass()` resolver returns the full decrypted content of the entry (all lines). This is useful for entries that store metadata alongside the password:
+By default, `pass()` returns only the **first line** of the entry (the password), matching pass's own convention where the password lives on line 1 and metadata follows on subsequent lines. This is the same behavior as `pass -c` (copy to clipboard).
 
-```
-# Entry stored as:
-# mysecretpassword
-# URL: https://example.com
-# Username: admin
+To retrieve the full multiline content, use `multiline=true`:
+
+```env-spec title=".env.schema"
+# Only returns the first line (the password)
+DB_PASSWORD=pass("production/database")
+
+# Returns all lines (password + metadata)
+DB_FULL_ENTRY=pass("production/database", multiline=true)
 ```
 
-`pass("example")` returns the entire content. If you only need the password (first line), you can handle that in your application.
+Example entry (`pass show production/database`):
+```
+mysecretpassword
+URL: https://db.example.com
+Username: admin
+Port: 5432
+```
+
+- `pass("production/database")` returns `mysecretpassword`
+- `pass("production/database", multiline=true)` returns the full content
 
 ### Bulk loading secrets
 
-Use `passBulk()` with `@setValuesBulk` to load all entries under a directory in your pass store:
+Use `passBulk()` with `@setValuesBulk` to fetch all entries under a directory in your pass store in one go:
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/pass-plugin)
@@ -173,7 +185,7 @@ STRIPE_KEY=
 DATABASE_URL=
 ```
 
-`passBulk()` returns a JSON map of `{ "path": "decrypted_value", ... }` for all entries found under the specified prefix.
+`passBulk()` lists all entries under the given path prefix, fetches each one (first line only, matching the `pass()` default), and returns a JSON map of `{ "entryPath": "password", ... }`.
 
 ```env-spec title=".env.schema"
 # Load everything from the store root
@@ -212,19 +224,22 @@ Fetch a secret from the pass store.
 - `pass(entryPath)` - Fetch by explicit entry path
 - `pass(instanceId, entryPath)` - Fetch from a specific instance
 - `pass(entryPath, allowMissing=true)` - Fetch with graceful missing handling
+- `pass(entryPath, multiline=true)` - Fetch the full multiline content
 
-**Returns:** The full decrypted content of the pass entry as a string.
+**Returns:** The first line (password) of the pass entry by default, or the full content if `multiline=true`.
 
 #### `passBulk()`
 
-Bulk-load all secrets from a directory in the pass store. Intended for use with `@setValuesBulk`.
+Fetch all entries under a directory in the pass store at once. Intended for use with `@setValuesBulk`.
+
+Lists entries via `pass ls`, then fetches each one in parallel. Each entry returns the first line only (matching the `pass()` default).
 
 **Signatures:**
 - `passBulk()` - Load all entries from the store root
 - `passBulk(pathPrefix)` - Load entries under a specific path prefix
 - `passBulk(instanceId, pathPrefix)` - Load from a named instance with prefix
 
-**Returns:** JSON string of `{ "entryPath": "decryptedValue", ... }` pairs.
+**Returns:** JSON string of `{ "entryPath": "firstLineValue", ... }` pairs.
 
 ---
 

@@ -93,15 +93,20 @@ class PassPluginInstance {
 
   /**
    * Retrieve a single entry from the pass store.
-   * Returns the full decrypted content (all lines).
+   *
+   * By default returns only the first line (the password), matching pass's
+   * own convention where the password is on line 1 and metadata follows.
+   * Set `fullContent` to true to return all lines.
    */
-  async getSecret(entryPath: string): Promise<string> {
+  async getSecret(entryPath: string, fullContent = false): Promise<string> {
     await this.ensurePassInstalled();
 
     // Check cache first
     if (this.cache.has(entryPath)) {
       debug('cache hit for', entryPath);
-      return this.cache.get(entryPath)!;
+      const cached = this.cache.get(entryPath)!;
+      if (fullContent) return cached;
+      return cached.split('\n')[0];
     }
 
     try {
@@ -114,8 +119,10 @@ class PassPluginInstance {
 
       // Trim trailing whitespace/newlines that the shell may add
       const value = result.trimEnd();
+      // Cache the full content; callers can request first line only
       this.cache.set(entryPath, value);
-      return value;
+      if (fullContent) return value;
+      return value.split('\n')[0];
     } catch (err) {
       return this.handlePassError(err, entryPath);
     }
@@ -151,14 +158,14 @@ class PassPluginInstance {
 
   /**
    * Retrieve all entries under a given prefix, returning them as a JSON map.
-   * Keys are entry paths (relative to store root), values are decrypted content.
+   * Keys are entry paths (relative to store root), values are first line (password) of each entry.
    */
   async getAllSecrets(pathPrefix?: string): Promise<string> {
     const entries = await this.listEntries(pathPrefix);
     debug('bulk fetching', entries.length, 'entries under', pathPrefix || '(root)');
 
     const result: Record<string, string> = {};
-    // Fetch all entries in parallel
+    // Fetch all entries in parallel (first line only, matching pass convention)
     const fetchPromises = entries.map(async (entryPath) => {
       const value = await this.getSecret(entryPath);
       result[entryPath] = value;
@@ -349,6 +356,9 @@ plugin.registerResolverFunction({
     // Check for named `allowMissing` parameter
     const allowMissingResolver = this.objArgs?.allowMissing;
 
+    // Check for named `multiline` parameter (returns all lines instead of just first)
+    const multilineResolver = this.objArgs?.multiline;
+
     // Parse positional arguments
     const argCount = this.arrArgs?.length ?? 0;
 
@@ -403,11 +413,11 @@ plugin.registerResolverFunction({
     }
 
     return {
-      instanceId, entryPathResolver, inferredEntryPath, allowMissingResolver,
+      instanceId, entryPathResolver, inferredEntryPath, allowMissingResolver, multilineResolver,
     };
   },
   async resolve({
-    instanceId, entryPathResolver, inferredEntryPath, allowMissingResolver,
+    instanceId, entryPathResolver, inferredEntryPath, allowMissingResolver, multilineResolver,
   }) {
     const selectedInstance = pluginInstances[instanceId];
 
@@ -435,8 +445,15 @@ plugin.registerResolverFunction({
       allowMissing = resolved === true || resolved === 'true';
     }
 
+    // Resolve multiline
+    let multiline = false;
+    if (multilineResolver) {
+      const resolved = await multilineResolver.resolve();
+      multiline = resolved === true || resolved === 'true';
+    }
+
     try {
-      return await selectedInstance.getSecret(finalPath);
+      return await selectedInstance.getSecret(finalPath, multiline);
     } catch (err) {
       if (allowMissing && err instanceof ResolutionError && err.message.includes('not found')) {
         return '';

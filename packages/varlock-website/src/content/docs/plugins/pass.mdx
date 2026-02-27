@@ -137,18 +137,21 @@ OPTIONAL_KEY=pass("monitoring/datadog-key", allowMissing=true)
 
 ### Multiline entries
 
-The `pass()` resolver returns the full decrypted content of the entry (all lines, trailing whitespace trimmed). This works naturally with pass's convention of storing the password on the first line and metadata on subsequent lines:
+By default, `pass()` returns only the **first line** of the entry (the password), matching pass's own convention where the password lives on line 1 and metadata follows. This is the same behavior as `pass -c` (copy to clipboard).
 
-```
-# Example entry (pass show services/example):
-# mysecretpassword
-# URL: https://example.com
-# Username: admin
+To retrieve the full multiline content, use `multiline=true`:
+
+```env-spec title=".env.schema"
+# Only returns the first line (the password)
+DB_PASSWORD=pass("production/database")
+
+# Returns all lines (password + metadata)
+DB_FULL_ENTRY=pass("production/database", multiline=true)
 ```
 
 ### Bulk loading secrets
 
-Use `passBulk()` with `@setValuesBulk` to load all entries under a directory in your pass store at once, instead of wiring up each secret individually:
+Use `passBulk()` with `@setValuesBulk` to fetch all entries under a directory in your pass store in one go, instead of wiring up each secret individually:
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/pass-plugin)
@@ -160,6 +163,8 @@ Use `passBulk()` with `@setValuesBulk` to load all entries under a directory in 
 STRIPE_KEY=
 DATABASE_URL=
 ```
+
+`passBulk()` lists entries via `pass ls`, then fetches each one in parallel. Each entry returns the first line only (matching the `pass()` default).
 
 You can customize the scope:
 
@@ -173,8 +178,6 @@ You can customize the scope:
 # With a named instance
 # @setValuesBulk(passBulk(team, "shared"))
 ```
-
-`passBulk()` lists entries using `pass ls`, then fetches each one in parallel and returns a JSON map of `{ "entryPath": "decryptedValue" }` pairs.
 
 ---
 
@@ -210,7 +213,7 @@ Initialize a pass plugin instance for accessing secrets from a password store.
 <div>
 #### `pass()`
 
-Fetch a secret from the pass store.
+Fetch a secret from the pass store. Returns the first line of the entry (the password) by default, matching pass's convention.
 
 **Array args:**
 - `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
@@ -218,6 +221,7 @@ Fetch a secret from the pass store.
 
 **Key/value args:**
 - `allowMissing` (optional): if `true`, returns empty string instead of erroring when the entry doesn't exist
+- `multiline` (optional): if `true`, returns the full entry content instead of just the first line
 
 ```env-spec /pass\\(.*\\)/
 # Auto-infer entry path from variable name
@@ -231,13 +235,18 @@ TEAM_SECRET=pass(team, "shared/api-key")
 
 # Allow missing entries
 OPTIONAL=pass("maybe/exists", allowMissing=true)
+
+# Get full multiline content
+FULL_ENTRY=pass("services/config", multiline=true)
 ```
 </div>
 
 <div>
 #### `passBulk()`
 
-Bulk-load all secrets from a directory in the pass store. Intended for use with `@setValuesBulk`.
+Fetch all entries under a directory in the pass store at once. Intended for use with `@setValuesBulk`.
+
+Lists entries via `pass ls`, then fetches each one in parallel. Each entry returns the first line only (matching the `pass()` default).
 
 **Array args:**
 - `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
