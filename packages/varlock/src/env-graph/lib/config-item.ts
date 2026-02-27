@@ -111,8 +111,18 @@ export class ConfigItem {
       return new StaticValueResolver(this.envGraph.overrideValues[this.key]);
     }
 
+    const hasInternalResolver = this._internalDefs.some((d) => d.itemDef.resolver);
     for (const def of this.defs) {
       if (def.itemDef.resolver) {
+        // Skip empty static values when an internal fallback resolver exists
+        // (e.g., user defines VARLOCK_ENV= to add decorators — the builtin resolver still applies)
+        if (
+          hasInternalResolver
+          && def.itemDef.resolver instanceof StaticValueResolver
+          && !def.itemDef.resolver.staticValue
+        ) {
+          continue;
+        }
         return def.itemDef.resolver;
       }
     }

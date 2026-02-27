@@ -15,7 +15,7 @@ import {
 import { getErrorLocation } from './error-location';
 import type { VarlockPlugin } from './plugins';
 import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
-import { BUILTIN_VARS } from './builtin-vars';
+import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -155,14 +155,17 @@ export class EnvGraph {
 
   /**
    * Register a builtin VARLOCK_* variable.
-   * Creates a ConfigItem with an internal def so it flows through the normal pipeline.
+   * Attaches an internal def with the builtin resolver so it flows through the normal pipeline.
+   * If the item already exists (user-defined), the internal def is added as a fallback.
    */
   registerBuiltinVar(key: string) {
     const builtinDef = BUILTIN_VARS[key];
     if (!builtinDef) throw new Error(`Unknown builtin var: ${key}`);
 
-    // Check if already registered
-    if (this.configSchema[key]) return;
+    let item = this.configSchema[key];
+
+    // Already has builtin def attached — nothing to do
+    if (item?._internalDefs.length) return;
 
     // Need to capture `this` (the graph) for the resolver closure
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -178,20 +181,26 @@ export class EnvGraph {
       },
     });
 
-    const item = new ConfigItem(this, key);
-    item.isBuiltin = true;
-    // Pre-set defaults — builtins are optional and public.
-    // processRequired/processSensitive will not override these since the
-    // internal def has no decorators and no source with root-level defaults.
-    item._isRequired = false;
-    item._isSensitive = false;
-    // Set dataType directly since registerBuiltinVar is called synchronously
-    // during resolver processing, and the item may not get a process() call
-    // from the finishLoad loop (for...in doesn't reliably visit new keys).
-    item.dataType = this.dataTypesRegistry.string();
+    if (!item) {
+      // No user definition — create the item from scratch
+      item = new ConfigItem(this, key);
+      // Pre-set defaults — builtins are optional and public.
+      // processRequired/processSensitive will not override these since the
+      // internal def has no decorators and no source with root-level defaults.
+      item._isRequired = false;
+      item._isSensitive = false;
+      // Set dataType directly since registerBuiltinVar is called synchronously
+      // during resolver processing, and the item may not get a process() call
+      // from the finishLoad loop (for...in doesn't reliably visit new keys).
+      item.dataType = this.dataTypesRegistry.string();
+      this.configSchema[key] = item;
+    }
 
-    // Attach an internal def with description and resolver
-    // so the normal defs pipeline handles everything
+    item.isBuiltin = true;
+
+    // Attach an internal def with description and resolver.
+    // For user-defined items, this sits at lowest priority in defs —
+    // the builtin resolver acts as a fallback when no explicit value is set.
     item._internalDefs.push({
       itemDef: {
         description: builtinDef.description,
@@ -199,8 +208,6 @@ export class EnvGraph {
         resolver: new BuiltinVarResolver([], undefined, undefined),
       },
     });
-
-    this.configSchema[key] = item;
   }
 
   async setRootDataSource(source: EnvGraphDataSource) {
@@ -217,6 +224,12 @@ export class EnvGraph {
     }
     for (const plugin of this.plugins) {
       if (plugin.loadingError) return;
+    }
+
+    // Attach builtin defs to any user-defined VARLOCK_* items
+    // (they may have been defined directly without a $VARLOCK_* reference)
+    for (const key in this.configSchema) {
+      if (isBuiltinVar(key)) this.registerBuiltinVar(key);
     }
 
     // process root decorators

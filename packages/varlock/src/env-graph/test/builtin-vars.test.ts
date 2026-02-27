@@ -200,6 +200,27 @@ describe('VARLOCK_* builtin variables', () => {
     }));
   });
 
+  describe('explicit definition with empty value', () => {
+    test('defining VARLOCK_ENV= still uses builtin auto-detection', envFilesTest({
+      envFile: 'VARLOCK_ENV=',
+      processEnv: { NODE_ENV: 'test' },
+      expectValues: { VARLOCK_ENV: 'test' },
+    }));
+
+    test('defining VARLOCK_ENV with explicit value overrides auto-detection', envFilesTest({
+      envFile: 'VARLOCK_ENV=production',
+      processEnv: {},
+      expectValues: { VARLOCK_ENV: 'production' },
+    }));
+
+    test('process.env override still takes precedence over builtin', envFilesTest({
+      envFile: 'MY_ENV=$VARLOCK_ENV',
+      processEnv: {},
+      overrideValues: { VARLOCK_ENV: 'staging' },
+      expectValues: { VARLOCK_ENV: 'staging' },
+    }));
+  });
+
   describe('@currentEnv=$VARLOCK_ENV', () => {
     test('VARLOCK_ENV works with @currentEnv and env-specific files', envFilesTest({
       files: {

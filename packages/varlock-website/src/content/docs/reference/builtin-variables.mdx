@@ -7,13 +7,20 @@ Varlock provides a set of **builtin `VARLOCK_*` variables** that are automatical
 
 ## Usage
 
-Reference any `VARLOCK_*` variable in your schema just like any other variable:
+Builtin variables are activated when you reference them via `$VARLOCK_*` in a value expression:
 
 ```env-spec title=".env.schema"
 # @currentEnv=$VARLOCK_ENV
 # ---
-MY_BRANCH=$VARLOCK_BRANCH
 BUILD_TAG="build-$VARLOCK_COMMIT_SHA_SHORT"
+```
+
+If you want to include a builtin variable in your resolved env without referencing it from another item, just define it with an empty value — varlock will populate it automatically:
+
+```env-spec title=".env.schema"
+# ---
+VARLOCK_BRANCH=
+VARLOCK_COMMIT_SHA_SHORT=
 ```
 
 You can also use `VARLOCK_ENV` as your environment flag with `@currentEnv`, which means you don't need to create your own `APP_ENV` variable — Varlock will auto-detect the environment for you.
@@ -42,15 +49,9 @@ The inferred deployment environment. Detection follows this priority:
 ```env-spec title=".env.schema"
 # @currentEnv=$VARLOCK_ENV
 # ---
-DB_URL=postgres://localhost/myapp
-```
-
-```env-spec title=".env.production"
-DB_URL=postgres://prod-db.example.com/myapp
-```
-
-```env-spec title=".env.staging"
-DB_URL=postgres://staging-db.example.com/myapp
+DB_HOST=if(forEnv(production), "prod-db.example.com", "localhost")
+DB_NAME=myapp
+DB_URL="postgres://$DB_HOST/$DB_NAME"
 ```
 
 ### Test environment caveat

@@ -216,7 +216,7 @@ export default defineConfig({
         {
           userAgent: '*',
           // The next line enables or disables the crawling on the `robots.txt` level
-          disallow: ENV.APP_ENV === 'production' ? '' : '/',
+          disallow: ENV.VARLOCK_ENV === 'production' ? '' : '/',
         },
       ],
     }),
