@@ -16,6 +16,8 @@ jobs:
   publish-extension:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'env-spec-language@')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - name: Setup Bun
