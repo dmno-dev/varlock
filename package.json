@@ -28,8 +28,8 @@
     "release:create-missing-tags": "node scripts/create-missing-release-tags.js"
   },
   "devDependencies": {
-    "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.29.8",
+    "@varlock/changeset-changelog": "workspace:*",
     "@eslint/js": "^9.32.0",
     "@stylistic/eslint-plugin": "^5.2.2",
     "eslint": "^9.32.0",

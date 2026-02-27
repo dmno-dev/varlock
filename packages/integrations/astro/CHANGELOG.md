@@ -4,7 +4,7 @@
 
 ### Patch Changes
 
-- [#299](https://github.com/dmno-dev/varlock/pull/299) [`9eb37b2`](https://github.com/dmno-dev/varlock/commit/9eb37b232b0054078ac26525d6a84f384d16aed8) Thanks [@theoephraim](https://github.com/theoephraim)! - ripped out some deps, minor cleanup
+- [#299](https://github.com/dmno-dev/varlock/pull/299) [`9eb37b2`](https://github.com/dmno-dev/varlock/commit/9eb37b232b0054078ac26525d6a84f384d16aed8) - ripped out some deps, minor cleanup
 
 - Updated dependencies [[`a4bb4e9`](https://github.com/dmno-dev/varlock/commit/a4bb4e9e2ef8e604b99e39a0425806ceb8b60188), [`9eb37b2`](https://github.com/dmno-dev/varlock/commit/9eb37b232b0054078ac26525d6a84f384d16aed8)]:
   - varlock@0.2.3
@@ -62,7 +62,7 @@
 
 ### Patch Changes
 
-- [#130](https://github.com/dmno-dev/varlock/pull/130) [`17206e8`](https://github.com/dmno-dev/varlock/commit/17206e86e10ca178ce2e6115ecf1d42b4e8dce7e) Thanks [@theoephraim](https://github.com/theoephraim)! - fix for astro+vite plugin
+- [#130](https://github.com/dmno-dev/varlock/pull/130) [`17206e8`](https://github.com/dmno-dev/varlock/commit/17206e86e10ca178ce2e6115ecf1d42b4e8dce7e) - fix for astro+vite plugin
 
 - Updated dependencies [[`17206e8`](https://github.com/dmno-dev/varlock/commit/17206e86e10ca178ce2e6115ecf1d42b4e8dce7e)]:
   - varlock@0.0.10
@@ -71,7 +71,7 @@
 
 ### Patch Changes
 
-- [#116](https://github.com/dmno-dev/varlock/pull/116) [`9e8b40a`](https://github.com/dmno-dev/varlock/commit/9e8b40a04360dc78c82d29da261f378a0d2d92f5) Thanks [@theoephraim](https://github.com/theoephraim)! - - make Vite plugin work for SSR scenarios, injecting code and resolved env (in some cases)
+- [#116](https://github.com/dmno-dev/varlock/pull/116) [`9e8b40a`](https://github.com/dmno-dev/varlock/commit/9e8b40a04360dc78c82d29da261f378a0d2d92f5) - - make Vite plugin work for SSR scenarios, injecting code and resolved env (in some cases)
   - detect Cloudflare Vite plugin
   - make compatible with React Router 7
   - simplify astro integration to rely on vite integration more
@@ -82,7 +82,7 @@
 
 ### Patch Changes
 
-- [#111](https://github.com/dmno-dev/varlock/pull/111) [`429b7cc`](https://github.com/dmno-dev/varlock/commit/429b7ccf084f9d7630f31e0fcb9e5366c1c199a4) Thanks [@theoephraim](https://github.com/theoephraim)! - update deps
+- [#111](https://github.com/dmno-dev/varlock/pull/111) [`429b7cc`](https://github.com/dmno-dev/varlock/commit/429b7ccf084f9d7630f31e0fcb9e5366c1c199a4) - update deps
 
 - Updated dependencies [[`f4ed06e`](https://github.com/dmno-dev/varlock/commit/f4ed06eb62c7aa0bc858e0e710e620bd330604fa), [`1bc2650`](https://github.com/dmno-dev/varlock/commit/1bc26508760c8dd4940393f40e94b00d9a2f2688), [`429b7cc`](https://github.com/dmno-dev/varlock/commit/429b7ccf084f9d7630f31e0fcb9e5366c1c199a4)]:
   - varlock@0.0.8
@@ -91,13 +91,13 @@
 
 ### Patch Changes
 
-- [`91999c5`](https://github.com/dmno-dev/varlock/commit/91999c505ec24146f2357ff9640b8a43ba555141) Thanks [@theoephraim](https://github.com/theoephraim)! - fix astro integration readme
+- [`91999c5`](https://github.com/dmno-dev/varlock/commit/91999c505ec24146f2357ff9640b8a43ba555141) - fix astro integration readme
 
 ## 0.0.1
 
 ### Patch Changes
 
-- [#101](https://github.com/dmno-dev/varlock/pull/101) [`48d1c4d`](https://github.com/dmno-dev/varlock/commit/48d1c4d76eb40e0b44321fc5ff7073daa4707702) Thanks [@theoephraim](https://github.com/theoephraim)! - new astro integration, based on vite integration
+- [#101](https://github.com/dmno-dev/varlock/pull/101) [`48d1c4d`](https://github.com/dmno-dev/varlock/commit/48d1c4d76eb40e0b44321fc5ff7073daa4707702) - new astro integration, based on vite integration
 
 - Updated dependencies [[`48d1c4d`](https://github.com/dmno-dev/varlock/commit/48d1c4d76eb40e0b44321fc5ff7073daa4707702), [`d657b50`](https://github.com/dmno-dev/varlock/commit/d657b501013ce88ac65cb523ca8d61cb4f941a1f)]:
   - varlock@0.0.7
