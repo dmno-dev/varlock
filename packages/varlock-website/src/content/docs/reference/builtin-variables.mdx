@@ -13,12 +13,16 @@ Builtin variables are activated when you reference them via `$VARLOCK_*` in a va
 # @currentEnv=$VARLOCK_ENV
 # ---
 BUILD_TAG="build-$VARLOCK_COMMIT_SHA_SHORT"
+DB_URL=if(
+  eq($VARLOCK_ENV, development),
+  postgres://localhost/myapp,
+  postgres://${VARLOCK_ENV}-db.example.com/myapp
+)
 ```
 
 If you want to include a builtin variable in your resolved env without referencing it from another item, just define it with an empty value — varlock will populate it automatically:
 
 ```env-spec title=".env.schema"
-# ---
 VARLOCK_BRANCH=
 VARLOCK_COMMIT_SHA_SHORT=
 ```
@@ -147,3 +151,5 @@ Detection is built-in for these platforms (no configuration required):
 - and [many more](https://github.com/dmno-dev/varlock/tree/main/packages/ci-env-info/src/platforms.ts)
 
 Not all platforms expose all fields. For example, some may not provide branch name or PR number.
+
+CI/deploy platform detection is powered by [`@varlock/ci-env-info`](https://www.npmjs.com/package/@varlock/ci-env-info), which can also be used as a standalone package.
