@@ -1,20 +1,12 @@
 name: Release VSCode extension
 
+# Manual fallback for re-publishing the extension without a full npm release
+# Normal releases are handled automatically by the publish lifecycle script in changeset:publish
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version (ex: "0.1.0")'
-        required: true
-        type: string
-  release:
-    types: [published]
-
-concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
   publish-extension:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'env-spec-language@')
     runs-on: ubuntu-latest
     permissions:
       contents: read
