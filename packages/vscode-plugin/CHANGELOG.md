@@ -1,5 +1,11 @@
 # env-spec-language
 
+## 0.0.5
+
+### Patch Changes
+
+- [#327](https://github.com/dmno-dev/varlock/pull/327) [`2359444`](https://github.com/dmno-dev/varlock/commit/2359444e9298f8bd572ac62ddbb1861b40bd9878) - trigger publishing again
+
 ## 0.0.4
 
 ### Patch Changes
