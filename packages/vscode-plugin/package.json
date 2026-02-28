@@ -85,7 +85,7 @@
     "test": "vscode-tmgrammar-test -g ./language/env-spec.tmLanguage.json ./test/grammar.test.txt",
     "prepack": "cp README.md README.marketplace.md && cp README.npm.md README.md",
     "postpack": "mv README.marketplace.md README.md",
-    "package": "bun run build && vsce package -o env-spec-language.vsix",
+    "package": "bun run build && vsce package -o env-spec-language.vsix --no-dependencies",
     "publish:vsce": "vsce publish -i env-spec-language.vsix",
     "publish:ovsx": "ovsx publish -i env-spec-language.vsix",
     "publish": "vsce package -o env-spec-language.vsix && bun run publish:vsce && bun run publish:ovsx"
