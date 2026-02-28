@@ -61,5 +61,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PUBLISHING_GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           BUILD_TYPE: release
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
       # TODO: send notifications?
