@@ -1,0 +1,44 @@
+{
+  "name": "@varlock/pass-plugin",
+  "description": "Varlock plugin to load secrets from pass (the standard unix password manager)",
+  "version": "0.0.1",
+  "type": "module",
+  "homepage": "https://varlock.dev/plugins/pass/",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/plugins/pass"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    "./plugin": "./dist/plugin.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "test": "vitest"
+  },
+  "keywords": [
+    "varlock", "plugin", "varlock-plugin", "pass", "password-store", "passwordstore",
+    "gpg", "secrets", "secret-management",
+    "env", ".env", "dotenv", "environment variables", "env vars", "config"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^"
+  },
+  "devDependencies": {
+    "@env-spec/utils": "workspace:^",
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "varlock": "workspace:^",
+    "vitest": "catalog:"
+  }
+}

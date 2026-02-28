@@ -175,6 +175,7 @@ export default defineConfig({
             { label: 'Bitwarden', slug: 'plugins/bitwarden' },
             { label: 'GCP Secret Manager', slug: 'plugins/google-secret-manager' },
             { label: 'Infisical', slug: 'plugins/infisical' },
+            { label: 'Pass', slug: 'plugins/pass' },
           ],
         },
         {
