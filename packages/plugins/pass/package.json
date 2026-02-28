@@ -1,7 +1,7 @@
 {
   "name": "@varlock/pass-plugin",
   "description": "Varlock plugin to load secrets from pass (the standard unix password manager)",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/pass/",
   "bugs": "https://github.com/dmno-dev/varlock/issues",
@@ -22,9 +22,21 @@
     "test": "vitest"
   },
   "keywords": [
-    "varlock", "plugin", "varlock-plugin", "pass", "password-store", "passwordstore",
-    "gpg", "secrets", "secret-management",
-    "env", ".env", "dotenv", "environment variables", "env vars", "config"
+    "varlock",
+    "plugin",
+    "varlock-plugin",
+    "pass",
+    "password-store",
+    "passwordstore",
+    "gpg",
+    "secrets",
+    "secret-management",
+    "env",
+    ".env",
+    "dotenv",
+    "environment variables",
+    "env vars",
+    "config"
   ],
   "author": "dmno-dev",
   "license": "MIT",
