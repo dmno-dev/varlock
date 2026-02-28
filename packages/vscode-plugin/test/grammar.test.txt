@@ -75,6 +75,29 @@ REF_BRACKETED=${OTHER}
 EXEC_EXPANSION=$(echo hello)
 #              ^^ punctuation.section.interpolation.env-spec
 
+MIXED_UNQUOTED=foo-${OTHER}-bar
+#              ^^^^ string.unquoted.env-spec
+#                  ^^ punctuation.section.interpolation.env-spec
+#                    ^^^^^ variable.function.env-spec
+#                         ^ punctuation.section.interpolation.env-spec
+#                          ^^^^ string.unquoted.env-spec
+
+FN_EXPANSION=fn(foo-${OTHER})
+#            ^^ variable.function.env-spec
+#              ^ punctuation.definition.parameters.begin.env-spec
+#               ^^^^ string.unquoted.env-spec
+#                   ^^ punctuation.section.interpolation.env-spec
+#                     ^^^^^ variable.function.env-spec
+#                          ^ punctuation.section.interpolation.env-spec
+#                           ^ punctuation.definition.parameters.end.env-spec
+
+EXEC_IN_DQ="pre-$(echo whoami)-post"
+#           ^^^^ string.quoted.double.env-spec
+#               ^^ punctuation.section.interpolation.env-spec
+#                 ^^^^^^^^^^^ variable.function.env-spec
+#                            ^ punctuation.section.interpolation.env-spec
+#                             ^^^^^ string.quoted.double.env-spec
+
 # ======================
 # Literal values
 # ======================
