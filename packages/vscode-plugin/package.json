@@ -88,7 +88,7 @@
     "package": "bun run build && vsce package -o env-spec-language.vsix --no-dependencies",
     "publish:vsce": "vsce publish -i env-spec-language.vsix",
     "publish:ovsx": "ovsx publish -i env-spec-language.vsix",
-    "publish": "vsce package -o env-spec-language.vsix && bun run publish:vsce && bun run publish:ovsx"
+    "publish": "bun run package && bun run publish:vsce && bun run publish:ovsx"
   },
   "devDependencies": {
     "@types/node": "catalog:",
