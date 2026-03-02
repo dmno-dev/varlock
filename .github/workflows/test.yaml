@@ -16,7 +16,7 @@ jobs:
       # downloading the cache adds a few seconds
       # and then installing is a bit faster
       - name: Cache bun dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
