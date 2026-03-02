@@ -8,14 +8,57 @@ const secretsLogos: LogoItem[] = [
     href: "/plugins/1password/",
   },
   {
-    title: "Any CLI tool",
-    icon: "simple-icons:gnubash",
-    href: "reference/functions/#exec",
+    title: "Infisical",
+    icon: "mdi:shield-key-outline",
+    href: "/plugins/infisical/",
   },
   {
-    title: "More soon...",
-    icon: "mdi:lock",
-    href: "/plugins/overview/",
+    title: "AWS Secrets",
+    icon: "simple-icons:amazonaws",
+    href: "/plugins/aws-secrets/",
+  },
+  {
+    title: "Azure Key Vault",
+    icon: "simple-icons:microsoftazure",
+    href: "/plugins/azure-key-vault/",
+  },
+  {
+    title: "Google Secret Manager",
+    icon: "simple-icons:googlecloud",
+    href: "/plugins/google-secret-manager/",
+  },
+  {
+    title: "Bitwarden",
+    icon: "simple-icons:bitwarden",
+    href: "/plugins/bitwarden/",
+  },
+];
+
+const aiToolsLogos: LogoItem[] = [
+  {
+    title: "Claude Code",
+    icon: "simple-icons:anthropic",
+    href: "/guides/ai-tools/",
+  },
+  {
+    title: "Cursor",
+    icon: "simple-icons:cursor",
+    href: "/guides/ai-tools/",
+  },
+  {
+    title: "Gemini CLI",
+    icon: "simple-icons:googlegemini",
+    href: "/guides/ai-tools/",
+  },
+  {
+    title: "Opencode",
+    icon: "simple-icons:openapiinitiative",
+    href: "/guides/ai-tools/",
+  },
+  {
+    title: "...and more",
+    icon: "mdi:robot-outline",
+    href: "/guides/ai-tools/",
   },
 ];
 
@@ -107,6 +150,7 @@ const integrationsLogos: LogoItem[] = [
 ---
 
 <div class="works-with-container">
+  <LogoList title="AI Tools" logos={aiToolsLogos} theme="orange" />
   <LogoList title="Plugins" logos={secretsLogos} theme="purple" />
   <LogoList title="Integrations" logos={integrationsLogos} theme="cyan" />
   <LogoList title="Languages" logos={languagesLogos} theme="green" />
@@ -115,9 +159,15 @@ const integrationsLogos: LogoItem[] = [
 <style>
   .works-with-container {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 2rem;
     margin: 4rem 0;
+  }
+
+  @media (max-width: 1000px) {
+    .works-with-container {
+      grid-template-columns: repeat(2, 1fr);
+    }
   }
 
   @media (max-width: 768px) {

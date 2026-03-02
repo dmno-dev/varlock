@@ -14,13 +14,14 @@
 <br/>
 
 ## Varlock
-> add declarative schema to your .env files using @env-spec decorator comments
+> AI-safe .env files: Schemas for agents, Secrets for humans.
 
+- 🤖 AI-safe config — agents read your schema, never your secrets
+- 🔍 proactive leak scanning via `varlock scan` + git hooks
+- 🔏 runtime protection — log redaction and leak prevention
 - 🛡️ validation, coercion, type safety w/ IntelliSense
-- 🔏 protection for sensitive config values (log redaction, leak prevention)
-- 🌐 flexible multi-environment management - auto .env.* loading and explicit import
-- 💫 flexible composition and toggling using functions() and $references
-- 🔌 plugin system for secure secret loading from various sources
+- 🌐 flexible multi-environment management — auto .env.* loading and explicit import
+- 🔌 6 secret manager plugins (1Password, Infisical, AWS, Azure, GCP, Bitwarden)
 
 Unlike .env.example, **your .env.schema is a single source of truth**, built for collaboration, that will never be out of sync.
 
@@ -91,6 +92,10 @@ varlock run -- python script.py
 ```
 
 In many cases you can use our [drop-in integrations](https://varlock.dev/integrations/javascript/) for seamless experience - with additional security guardrails, like log redaction and leak prevention.
+
+## AI-Safe Config
+
+Your `.env.schema` gives AI agents full context on your config — variable names, types, validation rules, descriptions — without ever exposing secret values. Combined with `varlock scan` to catch leaked secrets in AI-generated code, varlock is purpose-built for the AI era. Learn more in the [AI-safe config guide](https://varlock.dev/guides/ai-tools/).
 
 ## @env-spec
 
