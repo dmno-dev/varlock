@@ -128,6 +128,7 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Getting Started',
+          collapsed: true,
           items: [
             { label: 'Introduction', slug: 'getting-started/introduction' },
             { label: 'Installation', slug: 'getting-started/installation' },
@@ -138,6 +139,7 @@ export default defineConfig({
         },
         {
           label: 'Guides',
+          collapsed: true,
           items: [
             { label: 'Schema', slug: 'guides/schema' },
             { label: 'Secrets', slug: 'guides/secrets' },
@@ -152,6 +154,7 @@ export default defineConfig({
         },
         {
           label: 'Integrations',
+          collapsed: true,
           items: [
             { label: 'Overview', slug: 'integrations/overview' },
             { label: 'JavaScript / Node.js', slug: 'integrations/javascript' },
@@ -167,6 +170,7 @@ export default defineConfig({
         },
         {
           label: 'Plugins',
+          collapsed: true,
           items: [
             { label: 'Overview', slug: 'plugins/overview' },
             { label: '1Password', slug: 'plugins/1password' },
@@ -179,6 +183,7 @@ export default defineConfig({
         },
         {
           label: 'Reference',
+          collapsed: true,
           items: [
             { label: 'CLI', slug: 'reference/cli-commands' },
             { label: 'Root decorators', slug: 'reference/root-decorators' },
@@ -189,6 +194,7 @@ export default defineConfig({
         },
         {
           label: '@env-spec',
+          collapsed: true,
           items: [
             { label: 'Overview', slug: 'env-spec/overview' },
             { label: 'Reference', slug: 'env-spec/reference' },

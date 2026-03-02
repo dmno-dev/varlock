@@ -1,7 +1,7 @@
 {
   "name": "varlock",
   "version": "0.2.3",
-  "description": "The unified env var toolkit - load, validate, and secure your environment variables",
+  "description": "AI-safe .env files: Schemas for agents, Secrets for humans.",
   "main": "index.js",
   "type": "module",
   "author": "dmno-dev",
