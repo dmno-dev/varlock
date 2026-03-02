@@ -7,25 +7,22 @@ authors:
   - name: "Varlock Team"
 ---
 
-February was a big month: we shipped varlock 0.2.0 with lots of improvements, launched four new secret manager plugins, and announced our participation in the [GitHub Secure Open Source Fund](https://varlock.dev/blog/github-secure-open-source-fund).
+February was a big month: we shipped lots of core improvements, launched four new secret manager plugins, and announced our participation in the [GitHub Secure Open Source Fund](https://varlock.dev/blog/github-secure-open-source-fund).
 
-## Major Release: varlock@0.2.0
+## Core Improvements
 
-**[`varlock@0.2.0`](https://github.com/dmno-dev/varlock/releases/tag/varlock%400.2.0)** introduced several core improvements:
+These features are all available in [`varlock@0.2.3`](https://github.com/dmno-dev/varlock/releases/tag/varlock%400.2.3):
 
 - **Multi-line function calls** — Both decorators and item values now support multi-line syntax, making complex configs easier to read and maintain.
 - **Conditional `@import`** — The `enabled` parameter lets you conditionally load env files (e.g. by environment or feature flags).
 - **`@public` decorator** — New counterpart to `@sensitive` for explicitly marking values as safe to log or expose.
-- **`--compact` flag** — For `varlock load`, outputs a compact format suitable for scripts and CI.
-- **Import from `~`** — You can now reference home directory paths in imports.
-- **`allowMissing` on `@import`** — Lets imports optionally succeed when the target file doesn't exist.
+- **`--path` / `-p`** — For `load` and `run`, specify a `.env` file or directory as the entry point.
+- **`--compact`** — For `varlock load`, outputs a compact format suitable for scripts and CI.
+- **`--no-redact-stdout`** — For `varlock run`, allows unredacted output when needed (e.g. interactive tools).
+- **Import from `~`** — Reference home directory paths in imports.
+- **`allowMissing` on `@import`** — Imports optionally succeed when the target file doesn't exist.
 - **Package manager detection** — Better handling when multiple lockfiles (e.g. npm + Bun) are present; no more crashes in monorepos.
 - **Improved CLI help** — All commands now have clearer examples and usage guidance.
-
-## Other Releases
-
-- **[`varlock@0.2.1`](https://github.com/dmno-dev/varlock/releases/tag/varlock%400.2.1)**: Added `--path` / `-p` to `load` and `run` so you can specify a `.env` file or directory as the entry point.
-- **[`varlock@0.1.6`](https://github.com/dmno-dev/varlock/releases/tag/varlock%400.1.6)**: Added `--no-redact-stdout` flag to `varlock run` for cases where you need unredacted output (e.g., running Claude interactively).
 
 ## New Secret Manager Plugins
 
