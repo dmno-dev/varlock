@@ -174,7 +174,7 @@ export default tseslint.config(
   {
     files: ['**/*.json'],
     plugins: { jsonc: eslintPluginJsonc },
-    languageOptions: { parser: eslintPluginJsonc },
+    language: 'jsonc/json',
     rules: {
       // generic rules
       '@stylistic/max-len': 0,
@@ -214,11 +214,10 @@ export default tseslint.config(
 
   { // JSONC
     files: ['**/tsconfig.json', '**/tsconfig.*.json', '**/.vscode/*.json', 'turbo.json'],
+    language: 'jsonc/jsonc',
     rules: {
       'jsonc/comma-dangle': ['error', 'only-multiline'],
       'jsonc/no-comments': 0,
     },
-
-
   },
 );
