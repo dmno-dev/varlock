@@ -28,7 +28,7 @@ Unlike .env.example, **your .env.schema is a single source of truth**, built for
 # @defaultSensitive=false @defaultRequired=infer @currentEnv=$APP_ENV
 # ---
 # our environment flag, will control automatic loading of `.env.xxx` files
-# @type=enum(development, preview, production, test
+# @type=enum(development, preview, production, test)
 APP_ENV=development # default value, can override
 
 # @type=port
