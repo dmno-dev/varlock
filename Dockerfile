@@ -5,15 +5,22 @@ FROM alpine:3.19 AS builder
 RUN apk add --no-cache curl tar gzip jq
 
 # Download and extract the varlock binary
+# TARGETARCH is set automatically by Docker Buildx for multi-platform builds (amd64, arm64)
+# VARLOCK_ARCH can override for single-platform local builds (e.g. publish-docker.sh)
+ARG TARGETARCH
 ARG VARLOCK_VERSION
-ARG VARLOCK_ARCH=linux-musl-x64
+ARG VARLOCK_ARCH
 
-# Download the appropriate binary based on architecture
-RUN if [ "$VARLOCK_VERSION" = "latest" ]; then \
+# Map TARGETARCH to release archive name: amd64->linux-musl-x64, arm64->linux-musl-arm64
+# VARLOCK_ARCH overrides when set (e.g. single-platform local builds)
+RUN if [ -n "$VARLOCK_ARCH" ]; then ARCH="$VARLOCK_ARCH"; \
+    elif [ "$TARGETARCH" = "arm64" ]; then ARCH="linux-musl-arm64"; \
+    else ARCH="linux-musl-x64"; fi && \
+    if [ "$VARLOCK_VERSION" = "latest" ]; then \
         LATEST_VERSION=$(curl -s https://api.github.com/repos/dmno-dev/varlock/releases | jq -r '.[0].tag_name' | sed 's/varlock@//'); \
-        curl -L -o varlock.tar.gz "https://github.com/dmno-dev/varlock/releases/download/varlock@${LATEST_VERSION}/varlock-${VARLOCK_ARCH}.tar.gz"; \
+        curl -L -o varlock.tar.gz "https://github.com/dmno-dev/varlock/releases/download/varlock@${LATEST_VERSION}/varlock-${ARCH}.tar.gz"; \
     else \
-        curl -L -o varlock.tar.gz "https://github.com/dmno-dev/varlock/releases/download/varlock@${VARLOCK_VERSION}/varlock-${VARLOCK_ARCH}.tar.gz"; \
+        curl -L -o varlock.tar.gz "https://github.com/dmno-dev/varlock/releases/download/varlock@${VARLOCK_VERSION}/varlock-${ARCH}.tar.gz"; \
     fi && \
     tar -xzf varlock.tar.gz && \
     chmod +x varlock && \
