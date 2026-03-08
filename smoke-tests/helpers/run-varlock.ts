@@ -58,6 +58,11 @@ export function varlockLoad(options?: { cwd?: string; format?: string }) {
   return runVarlock(args, { cwd: options?.cwd });
 }
 
+export function varlockTypegen(options?: { cwd?: string }) {
+  const args = ['typegen'];
+  return runVarlock(args, { cwd: options?.cwd, captureOutput: true });
+}
+
 export function varlockRun(command: Array<string>, options?: {
   cwd?: string;
   env?: Record<string, string>;

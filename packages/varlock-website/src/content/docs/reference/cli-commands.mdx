@@ -86,6 +86,35 @@ Setting `@currentEnv` in your `.env.schema` will override the `--env` flag.
 </div>
 
 <div>
+### `varlock typegen` ||typegen||
+
+Regenerates TypeScript type definitions (`.d.ts` files) from your `.env.schema` without running validation or producing output. Requires the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) in your schema.
+
+Useful for editors, TypeScript, and CI when you need type generation separate from validation. Succeeds silently on success.
+
+```bash
+varlock typegen [options]
+```
+
+**Options:**
+- `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@currentEnv` in `.env.schema`
+- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
+
+**Examples:**
+```bash
+# Regenerate types (silent on success)
+varlock typegen
+
+# Use a specific entry point
+varlock typegen --path .env.prod
+
+# Use a specific environment
+varlock typegen --env production
+```
+
+</div>
+
+<div>
 ### `varlock run` ||run||
 
 Executes a command in a child process, injecting your resolved and validated environment variables from your .env files. This is useful when a code-level integration is not possible.

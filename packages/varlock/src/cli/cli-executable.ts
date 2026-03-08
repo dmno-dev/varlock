@@ -11,6 +11,7 @@ import packageJson from '../../package.json';
 // we'll import just the spec from each, so the implementations can be lazy loaded
 import { commandSpec as initCommandSpec } from './commands/init.command';
 import { commandSpec as loadCommandSpec } from './commands/load.command';
+import { commandSpec as typegenCommandSpec } from './commands/typegen.command';
 import { commandSpec as runCommandSpec } from './commands/run.command';
 import { commandSpec as printenvCommandSpec } from './commands/printenv.command';
 // import { commandSpec as encryptCommandSpec } from './commands/encrypt.command';
@@ -45,6 +46,7 @@ function buildLazyCommand(
 const subCommands = new Map();
 subCommands.set('init', buildLazyCommand(initCommandSpec, async () => await import('./commands/init.command')));
 subCommands.set('load', buildLazyCommand(loadCommandSpec, async () => await import('./commands/load.command')));
+subCommands.set('typegen', buildLazyCommand(typegenCommandSpec, async () => await import('./commands/typegen.command')));
 subCommands.set('run', buildLazyCommand(runCommandSpec, async () => await import('./commands/run.command')));
 subCommands.set('printenv', buildLazyCommand(printenvCommandSpec, async () => await import('./commands/printenv.command')));
 // subCommands.set('encrypt', buildLazyCommand(encryptCommandSpec, async () => await import('./commands/encrypt.command')));

@@ -197,7 +197,7 @@
     },
     "packages/plugins/pass": {
       "name": "@varlock/pass-plugin",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -291,7 +291,7 @@
     },
     "packages/vscode-plugin": {
       "name": "env-spec-language",
-      "version": "0.0.2",
+      "version": "0.0.5",
       "devDependencies": {
         "@types/node": "catalog:",
         "@types/vscode": "^1.99.0",
