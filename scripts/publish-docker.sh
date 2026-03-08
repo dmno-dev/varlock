@@ -41,10 +41,18 @@ fi
 echo "Authenticating with GitHub Container Registry..."
 gh auth token | docker login ghcr.io -u $(gh api user --jq .login) --password-stdin
 
+# Detect host architecture for single-platform build (TARGETARCH not set without --platform)
+ARCH=$(uname -m)
+if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
+    VARLOCK_ARCH="linux-musl-arm64"
+else
+    VARLOCK_ARCH="linux-musl-x64"
+fi
+
 # Build the image
-echo "Building Docker image..."
-docker build --build-arg VARLOCK_VERSION=$VERSION -t ${FULL_IMAGE_NAME}:$VERSION .
-docker build --build-arg VARLOCK_VERSION=$VERSION -t ${FULL_IMAGE_NAME}:latest .
+echo "Building Docker image for $ARCH..."
+docker build --build-arg VARLOCK_VERSION=$VERSION --build-arg VARLOCK_ARCH=$VARLOCK_ARCH -t ${FULL_IMAGE_NAME}:$VERSION .
+docker build --build-arg VARLOCK_VERSION=$VERSION --build-arg VARLOCK_ARCH=$VARLOCK_ARCH -t ${FULL_IMAGE_NAME}:latest .
 
 # Test the image
 echo "Testing the image..."

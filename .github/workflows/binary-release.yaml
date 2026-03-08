@@ -139,5 +139,4 @@ jobs:
             ghcr.io/dmno-dev/varlock:latest
           build-args: |
             VARLOCK_VERSION=${{ env.RELEASE_VERSION }}
-            VARLOCK_ARCH=linux-musl-x64
           platforms: linux/amd64,linux/arm64
