@@ -1,11 +1,6 @@
 ---
-import { readFileSync } from "node:fs";
 import LogoList, { type LogoItem } from "./LogoList.astro";
-
-const opencodeSvg = readFileSync(
-  new URL("../custom-icons/opencode-logo.svg", import.meta.url),
-  "utf-8",
-);
+import opencodeSvg from "../custom-icons/opencode-logo.svg?raw";
 
 const secretsLogos: LogoItem[] = [
   {
