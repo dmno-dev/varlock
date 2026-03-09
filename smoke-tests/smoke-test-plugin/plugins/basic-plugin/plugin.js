@@ -1,3 +1,4 @@
+/// <reference path="../../../../packages/varlock/src/plugin-lib.ts" />
 // Minimal plugin - no imports, just registers a test() resolver
 plugin.registerResolverFunction({
   name: 'test',

@@ -1,5 +1,9 @@
+/// <reference path="../../../../packages/varlock/src/plugin-lib.ts" />
 // Plugin with ESM imports of Node builtins — mimics the pattern used by
 // real plugins like @varlock/pass-plugin and @varlock/bitwarden-plugin
+// Some imports are intentionally unused — they exist to test that the plugin
+// loader correctly rewrites ESM imports when bundling for the SEA binary.
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { execSync, spawn } from 'child_process';
 import { readFileSync, existsSync } from 'fs';
 import path from 'path';
