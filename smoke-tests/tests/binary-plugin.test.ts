@@ -90,7 +90,8 @@ describe('Binary plugin loading', () => {
       const env = JSON.parse(result.stdout);
       // The resolver exercises path.join, Buffer, and crypto
       expect(env.RESULT).toContain('works');
-      expect(env.RESULT).toContain('path=/tmp/test');
+      expect(env.RESULT).toContain('path=');
+      expect(env.RESULT).toMatch(/path=.tmp.test/); // path separator varies by OS
       expect(env.RESULT).toContain('b64=aGVsbG8='); // Buffer.from('hello').toString('base64')
       expect(env.RESULT).toContain('hash='); // crypto hash present
     });
