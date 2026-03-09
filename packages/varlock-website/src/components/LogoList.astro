@@ -4,7 +4,7 @@ import { Icon } from "astro-iconify";
 export interface LogoItem {
   title: string;
   icon?: string;
-  customSvg?: string;
+  customIcon?: astroHTML.JSX.Element | ((_props: Record<string, any>) => any);
   href?: string;
   alt?: string;
 }
@@ -30,17 +30,18 @@ const { title, logos, theme = "purple" } = Astro.props;
   <h2>{title}</h2>
   <ul>
     {
-      logos.map(({ title, icon, customSvg, href, alt }) => {
+      logos.map(({ title, icon, customIcon: CustomIcon, href, alt }) => {
         const content = (
           <div class="logo-tile">
-            {customSvg ? (
+            {CustomIcon ? (
               <div
                 class="logo-icon custom-svg"
                 role="img"
                 aria-label={alt ?? title}
                 title={alt ?? title}
-                set:html={customSvg}
-              />
+              >
+                <CustomIcon />
+              </div>
             ) : (
               <Icon
                 name={icon}
