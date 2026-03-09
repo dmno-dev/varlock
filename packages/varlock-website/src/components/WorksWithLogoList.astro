@@ -1,5 +1,11 @@
 ---
+import { readFileSync } from "node:fs";
 import LogoList, { type LogoItem } from "./LogoList.astro";
+
+const opencodeSvg = readFileSync(
+  new URL("../custom-icons/opencode-logo.svg", import.meta.url),
+  "utf-8",
+);
 
 const secretsLogos: LogoItem[] = [
   {
@@ -52,7 +58,7 @@ const aiToolsLogos: LogoItem[] = [
   },
   {
     title: "Opencode",
-    icon: "simple-icons:openapiinitiative",
+    customSvg: opencodeSvg,
     href: "/guides/ai-tools/",
   },
   {
