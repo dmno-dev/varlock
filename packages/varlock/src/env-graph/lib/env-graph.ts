@@ -448,6 +448,44 @@ export class EnvGraph {
     await generateTypes(this, lang, outputPath);
   }
 
+  /**
+   * Resolve @generateTypes decorators and generate type files.
+   * This should be called after finishLoad() but before resolveEnvValues().
+   * The @generateTypes decorator args (lang, path) are static, so we can resolve them
+   * without needing full env resolution. Type info is computed from non-env-specific
+   * definitions only, so the output is deterministic regardless of environment.
+   *
+   * @param opts.ignoreAutoFalse - if true, generate types even if `auto=false` is set.
+   *   Used by the `varlock typegen` command to force generation.
+   */
+  async generateTypesIfNeeded(opts?: { ignoreAutoFalse?: boolean }) {
+    const generateTypesDecs = this.getRootDecFns('generateTypes');
+    let generatedCount = 0;
+    for (const generateTypesDec of generateTypesDecs) {
+      const typeGenSettings = await generateTypesDec.resolve();
+
+      // we skip generating types if `@generateTypes` was not in the main file
+      // unless the `executeWhenImported` flag is set
+      if (generateTypesDec.dataSource.isImport && !typeGenSettings.obj.executeWhenImported) continue;
+
+      // skip if auto=false unless explicitly overridden (e.g., `varlock typegen`)
+      if (typeGenSettings.obj.auto === false && !opts?.ignoreAutoFalse) continue;
+
+      if (!typeGenSettings.obj.lang) throw new Error('@generateTypes - must set `lang` arg');
+      if (typeGenSettings.obj.lang !== 'ts') throw new Error(`@generateTypes - unsupported language: ${typeGenSettings.obj.lang}`);
+      if (!typeGenSettings.obj.path) throw new Error('@generateTypes - must set `path` arg');
+      if (!_.isString(typeGenSettings.obj.path)) throw new Error('@generateTypes - `path` arg must be a string');
+
+      const outputPath = generateTypesDec.dataSource instanceof FileBasedDataSource
+        ? path.resolve(generateTypesDec.dataSource.fullPath, '..', typeGenSettings.obj.path)
+        : typeGenSettings.obj.path;
+
+      await this.generateTypes(typeGenSettings.obj.lang, outputPath);
+      generatedCount++;
+    }
+    return generatedCount;
+  }
+
   getRootDec(decoratorName: string) {
     // currently this is just used above, but may want to rework
     // to track values once as we process sources

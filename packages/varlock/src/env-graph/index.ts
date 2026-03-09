@@ -5,7 +5,7 @@ export {
   FileBasedDataSource, DotEnvFileDataSource, DirectoryDataSource,
 } from './lib/data-source';
 export { Resolver, StaticValueResolver } from './lib/resolver';
-export { ConfigItem } from './lib/config-item';
+export { ConfigItem, type TypeGenItemInfo } from './lib/config-item';
 export {
   VarlockError,
   ConfigLoadError, SchemaError, ValidationError, CoercionError, ResolutionError,
@@ -13,3 +13,4 @@ export {
 export {
   BUILTIN_VARS, isBuiltinVar,
 } from './lib/builtin-vars';
+export { generateTsTypesSrc, getTsDefinitionForItem } from './lib/type-generation';

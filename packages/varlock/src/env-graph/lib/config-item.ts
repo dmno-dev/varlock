@@ -64,6 +64,15 @@ export class ConfigItem {
     return defs;
   }
 
+  /**
+   * Like `defs` but filtered to exclude environment-specific data sources.
+   * Used by type generation so that generated types are deterministic
+   * regardless of which environment is being loaded.
+   */
+  get defsForTypeGeneration() {
+    return this.defs.filter((def) => !def.source || !def.source.isEnvSpecific);
+  }
+
   get description() {
     for (const def of this.defs) {
       if (def.itemDef.description) return def.itemDef.description;
@@ -556,4 +565,195 @@ export class ConfigItem {
   get isValid() {
     return this.validationState === 'valid';
   }
+
+  /**
+   * Compute schema-level info for type generation using only non-env-specific definitions.
+   * This mirrors the logic of processRequired/processSensitive but:
+   * - Uses defsForTypeGeneration (excludes env-specific sources)
+   * - Returns a result object instead of mutating item state
+   * - Resolves only static decorators from non-env-specific sources
+   */
+  async getTypeGenInfo(): Promise<TypeGenItemInfo> {
+    const defs = this.defsForTypeGeneration;
+
+    // description - first non-empty from filtered defs
+    let description: string | undefined;
+    for (const def of defs) {
+      if (def.itemDef.description) {
+        description = def.itemDef.description;
+        break;
+      }
+    }
+
+    // isRequired / isRequiredDynamic - mirrors processRequired() logic
+    let isRequired = true;
+    let isRequiredDynamic = false;
+    try {
+      for (const def of defs) {
+        const requiredDecs = def.itemDef.decorators?.filter((d) => d.name === 'required' || d.name === 'optional') || [];
+        const requiredDec = requiredDecs[0];
+
+        if (requiredDec) {
+          const usingOptional = requiredDec.name === 'optional';
+          if (requiredDec.decValueResolver?.fnName !== '\0static') {
+            isRequiredDynamic = true;
+          }
+
+          const requiredDecoratorVal = await requiredDec.resolve();
+          if (requiredDec.schemaErrors.length) {
+            isRequired = false;
+            break;
+          }
+          if (![true, false, undefined].includes(requiredDecoratorVal)) break;
+          if (requiredDecoratorVal !== undefined) {
+            isRequired = usingOptional ? !requiredDecoratorVal : requiredDecoratorVal;
+            break;
+          }
+        }
+
+        const defaultRequiredDec = def.source?.getRootDec('defaultRequired');
+        if (defaultRequiredDec) {
+          const defaultRequiredVal = await defaultRequiredDec.resolve();
+          if (_.isBoolean(defaultRequiredVal)) {
+            isRequired = defaultRequiredVal;
+            break;
+          } else if (defaultRequiredVal === 'infer') {
+            if (def.itemDef.resolver) {
+              if (def.itemDef.resolver instanceof StaticValueResolver) {
+                isRequired = def.itemDef.resolver.staticValue !== undefined && def.itemDef.resolver.staticValue !== '';
+              } else {
+                isRequired = true;
+              }
+            } else {
+              isRequired = false;
+            }
+            break;
+          }
+        }
+      }
+    } catch {
+      // on error, fall back to defaults (required=true, not dynamic)
+    }
+
+    // isSensitive - mirrors processSensitive() logic
+    let isSensitive = true;
+    const sensitiveFromDataType = this.dataType?.isSensitive;
+    try {
+      let foundSensitive = false;
+      for (const def of defs) {
+        const sensitiveDecs = def.itemDef.decorators?.filter((d) => d.name === 'sensitive' || d.name === 'public') || [];
+        const sensitiveDec = sensitiveDecs[0];
+
+        if (sensitiveDec) {
+          const usingPublic = sensitiveDec.name === 'public';
+          const sensitiveDecValue = await sensitiveDec.resolve();
+          if (sensitiveDec.schemaErrors.length) break;
+          if (![true, false, undefined].includes(sensitiveDecValue)) break;
+          if (sensitiveDecValue !== undefined) {
+            isSensitive = usingPublic ? !sensitiveDecValue : sensitiveDecValue;
+            foundSensitive = true;
+            break;
+          }
+        }
+
+        if (sensitiveFromDataType !== undefined) continue;
+
+        const defaultSensitiveDec = def.source?.getRootDec('defaultSensitive');
+        if (defaultSensitiveDec) {
+          if (!defaultSensitiveDec.decValueResolver) break;
+          if (defaultSensitiveDec.decValueResolver.fnName === 'inferFromPrefix') {
+            const prefix = defaultSensitiveDec.decValueResolver.arrArgs![0].staticValue;
+            if (_.isString(prefix)) {
+              isSensitive = !this.key.startsWith(prefix);
+              foundSensitive = true;
+              break;
+            }
+          } else {
+            const defaultSensitiveVal = await defaultSensitiveDec.resolve();
+            if (_.isBoolean(defaultSensitiveVal)) {
+              isSensitive = defaultSensitiveVal;
+              foundSensitive = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!foundSensitive && sensitiveFromDataType !== undefined) {
+        isSensitive = sensitiveFromDataType;
+      }
+    } catch {
+      // on error, fall back to default (sensitive=true, safe default)
+    }
+
+    // icon - resolve from filtered defs' decorators
+    let icon: string | undefined;
+    for (const def of defs) {
+      const iconDec = def.itemDef.decorators?.find((d) => d.name === 'icon');
+      if (iconDec) {
+        try {
+          icon = await iconDec.resolve();
+        } catch {
+          // skip icon on error
+        }
+        break;
+      }
+    }
+    icon ??= this.dataType?.icon;
+
+    // docsLinks - resolve from filtered defs' decorators
+    const docsLinks: Array<{ url: string, description?: string }> = [];
+    if (this.dataType?.docsEntries) {
+      for (const entry of this.dataType.docsEntries) {
+        if (_.isPlainObject(entry)) docsLinks.push(entry);
+        else docsLinks.push({ url: entry });
+      }
+    }
+    for (const def of defs) {
+      // @docsUrl (deprecated)
+      const docsUrlDec = def.itemDef.decorators?.find((d) => d.name === 'docsUrl');
+      if (docsUrlDec) {
+        try {
+          const val = await docsUrlDec.resolve();
+          if (val) docsLinks.push({ url: val });
+        } catch { /* skip */ }
+      }
+      // @docs() function calls
+      const docsFnDecs = def.itemDef.decorators?.filter((d) => d.name === 'docs' && d.isFunctionCall) || [];
+      for (const docsDec of docsFnDecs) {
+        try {
+          const decVal = await docsDec.resolve();
+          if (decVal?.arr && _.isArray(decVal.arr)) {
+            if (decVal.arr.length === 1) {
+              docsLinks.push({ url: decVal.arr[0] });
+            } else if (decVal.arr.length === 2) {
+              docsLinks.push({ url: decVal.arr[1], description: decVal.arr[0] });
+            }
+          }
+        } catch { /* skip */ }
+      }
+    }
+
+    return {
+      key: this.key,
+      description,
+      dataType: this.dataType,
+      isRequired,
+      isRequiredDynamic,
+      isSensitive,
+      icon,
+      docsLinks,
+    };
+  }
 }
+
+/** Schema-level info for a config item, computed from non-env-specific definitions only */
+export type TypeGenItemInfo = {
+  key: string;
+  description?: string;
+  dataType?: EnvGraphDataType;
+  isRequired: boolean;
+  isRequiredDynamic: boolean;
+  isSensitive: boolean;
+  icon?: string;
+  docsLinks: Array<{ url: string, description?: string }>;
+};
