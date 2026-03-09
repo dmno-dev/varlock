@@ -7,8 +7,10 @@
     "package.json": "json",
     "turbo.json": "jsonc",
   },
+  "eslint.runtime": "bun",
   "eslint.validate": [
     // enable eslint on file types other than js/ts
+    "javascript",
     "typescript",
     "astro",
     "mdx",

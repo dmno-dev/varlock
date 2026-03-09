@@ -1,0 +1,10 @@
+{
+  "name": "@varlock/test-plugin-import-meta",
+  "private": true,
+  "description": "Test plugin using import.meta.url and createRequire (mimics 1password plugin)",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./plugin": "./plugin.js"
+  }
+}
