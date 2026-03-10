@@ -53,6 +53,8 @@ export abstract class EnvGraphDataSource {
   importMeta?: {
     isImport?: boolean,
     importKeys?: Array<string>,
+    /** true when the @import had a non-static `enabled` parameter (e.g. `enabled=forEnv("dev")`) */
+    isConditionallyEnabled?: boolean,
   };
   get isImport(): boolean {
     return !!this.importMeta?.isImport || !!this.parent?.isImport;
@@ -87,6 +89,30 @@ export abstract class EnvGraphDataSource {
     if (importMeta) child.importMeta = importMeta;
     await child.finishInit();
   }
+
+  /**
+   * Whether this data source is environment-specific.
+   * A source is env-specific if:
+   * - it was auto-loaded for a specific env (e.g., `.env.production` loaded by a DirectoryDataSource)
+   * - it has a conditional `@disable` decorator (e.g., `@disable=forEnv(test)`)
+   * - it was conditionally imported (e.g., `@import(..., enabled=forEnv("dev"))`)
+   * - any of its ancestors are env-specific
+   * Used by type generation to filter out env-dependent definitions.
+   *
+   * Note: `applyForEnv` from filename parsing is only relevant for auto-loaded files.
+   * Explicitly imported files (via `@import`) are controlled by the import mechanism,
+   * not the auto-load-by-env logic, so their `applyForEnv` is ignored here.
+   */
+  get isEnvSpecific(): boolean {
+    if (this.applyForEnv && !this.isImport) return true;
+    if (this._hasConditionalDisable) return true;
+    if (this.importMeta?.isConditionallyEnabled) return true;
+    if (this.parent?.isEnvSpecific) return true;
+    return false;
+  }
+
+  /** true when the source has a `@disable` decorator whose value is not static */
+  _hasConditionalDisable?: boolean;
 
   /** environment flag key (as set by @envFlag decorator) - only if set within this source */
   _envFlagKey?: string;
@@ -153,6 +179,10 @@ export abstract class EnvGraphDataSource {
         return;
       }
       this._disabled = disabledVal;
+      // track if @disable is conditional (non-static value like forEnv) for type generation
+      if (disabledDec.decValueResolver && !disabledDec.decValueResolver.isStatic) {
+        this._hasConditionalDisable = true;
+      }
     }
 
     // this will also respect if the parent is disabled
@@ -296,6 +326,11 @@ export abstract class EnvGraphDataSource {
           // Skip this import if it's not enabled
           if (!enabledValue) continue;
 
+          // Track if this import was conditionally enabled (non-static enabled resolver)
+          // Used by type generation to identify env-dependent sources
+          const enabledResolver = importDec.decValueResolver?.objArgs?.enabled;
+          const isConditionallyEnabled = !!enabledResolver && !enabledResolver.isStatic;
+
           // Check if missing imports should be allowed (defaults to false if not specified)
           const allowMissing = importArgs.obj.allowMissing ?? false;
           if (!_.isBoolean(allowMissing)) {
@@ -316,7 +351,7 @@ export abstract class EnvGraphDataSource {
                 }
                 // eslint-disable-next-line no-use-before-define
                 await this.addChild(new DirectoryDataSource(fullImportPath), {
-                  isImport: true, importKeys,
+                  isImport: true, importKeys, isConditionallyEnabled,
                 });
               } else {
                 const fileExists = this.graph.virtualImports[fullImportPath];
@@ -329,7 +364,7 @@ export abstract class EnvGraphDataSource {
                 const source = new DotEnvFileDataSource(fullImportPath, {
                   overrideContents: this.graph.virtualImports[fullImportPath],
                 });
-                await this.addChild(source, { isImport: true, importKeys });
+                await this.addChild(source, { isImport: true, importKeys, isConditionallyEnabled });
               }
             } else {
               const fsStat = await tryCatch(async () => fs.stat(fullImportPath), (_err) => {
@@ -347,7 +382,7 @@ export abstract class EnvGraphDataSource {
                 if (fsStat.isDirectory()) {
                   // eslint-disable-next-line no-use-before-define
                   await this.addChild(new DirectoryDataSource(fullImportPath), {
-                    isImport: true, importKeys,
+                    isImport: true, importKeys, isConditionallyEnabled,
                   });
                 } else {
                   this._loadingError = new Error(`Imported path ending with "/" is not a directory: ${fullImportPath}`);
@@ -364,7 +399,9 @@ export abstract class EnvGraphDataSource {
                 }
                 // TODO: once we have more file types, here we would detect the type and import it correctly
                 // eslint-disable-next-line no-use-before-define
-                await this.addChild(new DotEnvFileDataSource(fullImportPath), { isImport: true, importKeys });
+                await this.addChild(new DotEnvFileDataSource(fullImportPath), {
+                  isImport: true, importKeys, isConditionallyEnabled,
+                });
               }
             }
           } else if (importPath.startsWith('http://') || importPath.startsWith('https://')) {

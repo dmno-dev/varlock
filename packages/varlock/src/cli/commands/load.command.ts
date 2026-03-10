@@ -1,12 +1,9 @@
 import { define } from 'gunshi';
-import _ from '@env-spec/utils/my-dash';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { getItemSummary } from '../../lib/formatting';
 import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
-import path from 'node:path';
-import { FileBasedDataSource } from '../../env-graph';
 
 export const commandSpec = define({
   name: 'load',
@@ -64,30 +61,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   if (!envGraph.rootDataSource) throw new Error('expected root data source to be set');
 
+  // Generate types before resolving values — uses only non-env-specific schema info
+  await envGraph.generateTypesIfNeeded();
+
   await envGraph.resolveEnvValues();
-
-  // ideally we could be smarter about generating types without needing to resolve values
-  // but for now the decorators are all resolved as part of the general resolution process
-  const generateTypesDecs = envGraph.getRootDecFns('generateTypes');
-  for (const generateTypesDec of generateTypesDecs) {
-    const typeGenSettings = await generateTypesDec.resolve();
-
-    // we skip generating types if `@generateTypes` was not in the main file
-    // unless the `executeWhenImported` flag is set
-    if (generateTypesDec.dataSource.isImport && !typeGenSettings.obj.executeWhenImported) continue;
-
-    if (!typeGenSettings.obj.lang) throw new Error('@generateTypes - must set `lang` arg');
-    if (typeGenSettings.obj.lang !== 'ts') throw new Error(`@generateTypes - unsupported language: ${typeGenSettings.obj.lang}`);
-    if (!typeGenSettings.obj.path) throw new Error('@generateTypes - must set `path` arg');
-    if (!_.isString(typeGenSettings.obj.path)) throw new Error('@generateTypes - `path` arg must be a string');
-
-    const outputPath = generateTypesDec.dataSource instanceof FileBasedDataSource
-      ? path.resolve(generateTypesDec.dataSource.fullPath, '..', typeGenSettings.obj.path)
-      : typeGenSettings.obj.path;
-
-    await envGraph.generateTypes(typeGenSettings.obj.lang, outputPath);
-  }
-
   checkForConfigErrors(envGraph, { showAll });
 
   if (format === 'pretty') {
@@ -124,7 +101,4 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   } else {
     throw new Error(`Unknown format: ${format}`);
   }
-
-  // const resolvedEnv = envGraph.getResolvedEnvObject();
-  // console.log(resolvedEnv);
 };
