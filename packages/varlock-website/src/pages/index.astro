@@ -26,9 +26,8 @@ import EmailSignup from "../components/EmailSignup.vue";
           <div>
             <!-- <span class="tagline">Env files you can share!</span> -->
             <!-- <br /> -->
-            <span class="sparkle">Magic</span> .env files built for sharing: <br
-            />
-            Human-first, AI-friendly
+            <span class="sparkle">AI-safe</span> .env files: <br />
+            Schemas for agents, <br />Secrets for humans.
           </div>
           <!-- <div>
             Environment variables with<br />the right amount of magic
@@ -44,7 +43,7 @@ import EmailSignup from "../components/EmailSignup.vue";
         title=".env.schema"
         lang="env-spec"
         code=`
-# Add declarative schema info to your env vars using @decorator comments
+# Declarative schema — AI agents get full context, never secret values
 # @sensitive @required @type=string(startsWith=sk-)
 OPENAI_API_KEY=
 
@@ -57,7 +56,8 @@ XYZ_TOKEN=exec('op read "op://api-prod/xyz/auth-token"')
       />
       <p class="env-spec-example-note">
         Unlike <i>.env.example</i>, your <i>.env.schema</i> is a single source of
-        truth, built for collaboration, that will never be out of sync.
+        truth, built for collaboration, that will never be out of sync. AI agents
+        can read your schema for full context — without accessing your secrets.
       </p>
 
       <div class="button-container">
@@ -73,6 +73,55 @@ XYZ_TOKEN=exec('op read "op://api-prod/xyz/auth-token"')
       <EmailSignup client:load />
       <WorksWithLogoList />
       <div class="features-grid">
+        <div class="text-only-card">
+          <div>
+            <h3>
+              <img
+                src="https://varlock-pixel-art.dmno.workers.dev/potions/6.gif"
+              />
+              AI-Safe Config
+            </h3>
+            <p>
+              Your <code>.env.schema</code> is readable by AI agents — they get full
+              context on your config without ever seeing secret values. Prevent leaks
+              to AI servers by design.
+            </p>
+          </div>
+        </div>
+        <div class="text-only-card">
+          <div>
+            <h3>
+              <img
+                src="https://varlock-pixel-art.dmno.workers.dev/potions/5.gif"
+              />
+              Leak Scanning
+            </h3>
+            <p>
+              Proactively scan your codebase for leaked secrets with <code
+                >varlock scan</code
+              >. Set up git hooks to catch leaks before they're committed.
+            </p>
+          </div>
+        </div>
+        <div>
+          <div>
+            <h3>
+              <img
+                src="https://varlock-pixel-art.dmno.workers.dev/potions/8.gif"
+              />
+              Runtime Protection
+            </h3>
+            <p>
+              Redact sensitive values from logs and console output. Detect leaks
+              in bundled client code and outgoing server responses at runtime.
+            </p>
+          </div>
+          <Image
+            src={redactionImg}
+            alt="Redaction demo"
+            class="img-with-border"
+          />
+        </div>
         <div>
           <div>
             <h3>
@@ -116,25 +165,6 @@ XYZ_TOKEN=exec('op read "op://api-prod/xyz/auth-token"')
           <div>
             <h3>
               <img
-                src="https://varlock-pixel-art.dmno.workers.dev/potions/8.gif"
-              />
-              Security
-            </h3>
-            <p>
-              Redact sensitive info from stdout and global console methods.
-              Detect leaks in bundled client code and outgoing server responses.
-            </p>
-          </div>
-          <Image
-            src={redactionImg}
-            alt="Redaction demo"
-            class="img-with-border"
-          />
-        </div>
-        <div>
-          <div>
-            <h3>
-              <img
                 src="https://varlock-pixel-art.dmno.workers.dev/potions/4.gif"
               />
               Environments
@@ -159,7 +189,11 @@ XYZ_TOKEN=exec('op read "op://api-prod/xyz/auth-token"')
               />
               Secure secrets
             </h3>
-            <p>Read from any external providers via plugins or CLI commands.</p>
+            <p>
+              Load secrets from 6 provider plugins — 1Password, Infisical, AWS
+              Secrets Manager, Azure Key Vault, Google Secret Manager, and
+              Bitwarden — or any CLI tool.
+            </p>
           </div>
           <Image
             src={externalProvidersImg}
@@ -411,6 +445,12 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
       @media screen and (max-width: 700px) {
         grid-template-columns: 1fr;
       }
+    }
+    > div.text-only-card {
+      grid-template-columns: 1fr;
+      border: 1px dotted var(--brand-purple--t1);
+      border-radius: 12px;
+      padding: 1.5rem;
     }
     img {
       margin: 0;

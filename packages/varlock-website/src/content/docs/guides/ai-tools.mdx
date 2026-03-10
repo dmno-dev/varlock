@@ -1,12 +1,15 @@
 ---
 title: AI Tools
-description: Using varlock with AI tools - preventing secrets from being leaked to your AI agents
+description: Varlock is purpose-built for the AI era — your schema gives agents full context, your secrets never touch AI servers
 ---
 import { TabItem, Tabs } from "@astrojs/starlight/components";
 
-AI tools like [Cursor](https://www.cursor.com/), [Gemini](https://gemini.google.com), [Claude](https://claude.ai/), and [GitHub Copilot](https://github.com/features/copilot) have accelerated workflows for many development teams. This, however, comes with some risks. Unless your team has gone to great lengths to hide secrets from your AI tools, you're probably sending secrets to their AI agents and potentially leaking them in the code it generates.
+Varlock is purpose-built for the AI era. Your `.env.schema` gives AI agents full context on your configuration — variable names, types, validation rules, descriptions — while your secret values never leave your machine or touch AI servers.
 
-`varlock` exists to solve both of those problems. By never storing the secret _values_, you never have to worry about sending them to AI servers. And because of the new [@env-spec](/env-spec/overview) format you will have better AX (agent experience) when dealing with environment variables in your generated code.
+This solves two critical problems with AI-assisted development:
+
+1. **Secret exposure** — AI tools read your project files, including `.env` files. With varlock, secrets are never stored in plain text — they're fetched at runtime from secure providers.
+2. **AI-generated leaks** — AI agents may hardcode secrets or log sensitive values in generated code. `varlock scan` catches these leaks before they're committed, and runtime protection redacts secrets from logs and responses.
 
 ## Securely inject secrets into AI CLI tools
 
@@ -50,34 +53,6 @@ varlock run -- <your-cli-command>
 Here's how to configure and run popular AI coding CLI tools with varlock:
 
 <Tabs>
-  <TabItem label="Aider">
-    [Aider](https://aider.chat/) is a popular AI pair programming tool that works in your terminal.
-
-    **Environment variables:**
-    - `OPENAI_API_KEY` - For OpenAI models (GPT-4, etc.)
-    - `ANTHROPIC_API_KEY` - For Claude models
-    - `GEMINI_API_KEY` - For Google Gemini models
-
-    **Add to `.env.schema`:**
-    ```env-spec
-    # @sensitive @required
-    OPENAI_API_KEY=exec('op read "op://api-local/openai/api-key"')
-    
-    # @sensitive
-    ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
-    ```
-
-    **Run with varlock:**
-    ```bash
-    varlock run -- aider
-    
-    # or with specific options
-    varlock run -- aider --model gpt-4-turbo
-    ```
-
-    See supported env variables [here](https://aider.chat/docs/getting-started/quickstart#environment-variables).
-  </TabItem>
-
   <TabItem label="Claude">
     [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) is Anthropic's CLI tool for AI-assisted coding.
 
@@ -185,6 +160,27 @@ If you use a tool with its own ignore file, check that tool's documentation to s
 To give your AI tool full context about `varlock`, you can provide it with the [full Varlock `llms.txt`](https://varlock.dev/llms-full.txt). In Cursor, this is accomplished via 'Add New Custom Docs'. 
 
 If your tool supports custom rules, you can use our own varlock [Cursor rule file from this repo](https://github.com/dmno-dev/varlock/blob/main/.cursor/rules/varlock.mdc) as a starting point to create your own that is most suited to your workflow. 
+
+## Scan for leaked secrets
+
+AI agents can sometimes hardcode secret values or leak them into generated code. Use `varlock scan` to proactively detect leaked secrets in your codebase:
+
+```bash
+# Scan the current directory for leaked secret values
+varlock scan
+
+# Scan specific paths
+varlock scan ./src ./config
+```
+
+You can also set up `varlock scan` as a git pre-commit hook to automatically catch leaks before they're committed:
+
+```bash
+# Add to your .git/hooks/pre-commit or use a hook manager like husky/lefthook
+varlock scan --staged
+```
+
+This is especially valuable when working with AI coding tools — the scan command compares your resolved secret values against your codebase to find any that may have been accidentally included in plain text.
 
 ## Varlock Docs MCP
 
