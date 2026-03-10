@@ -305,14 +305,6 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
             throw new SchemaError('@setValuesBulk: createMissing must be true or false');
           }
         }
-        // validate enabled option if static
-        const enabledResolver = argsVal.objArgs.enabled;
-        if (enabledResolver?.isStatic) {
-          const enabledVal = enabledResolver.staticValue;
-          if (enabledVal !== true && enabledVal !== false) {
-            throw new SchemaError('@setValuesBulk: enabled must be true or false');
-          }
-        }
       }
 
       return {
