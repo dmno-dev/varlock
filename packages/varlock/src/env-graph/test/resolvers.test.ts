@@ -562,3 +562,51 @@ describe('resolveItemWithDeps()', () => {
     expect(IncrementResolver.counter).toEqual(0);
   });
 });
+
+describe('process.env override vs function-call resolver', () => {
+  it('should run resolver when override value matches the function call defined in the source file', async () => {
+    // Simulates the case where a runtime (e.g., Bun) auto-loads a varlock-managed .env file
+    // before varlock processes it, injecting the literal resolver call string into process.env.
+    // The resolver should still run instead of using the literal string as the value.
+    IncrementResolver.counter = 0;
+    const g = new EnvGraph();
+    g.registerResolver(IncrementResolver);
+    // Simulate Bun loading ITEM=increment() from .env.local into process.env
+    g.overrideValues = { ITEM: 'increment()' };
+    const testDataSource = new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @defaultRequired=false
+        # ---
+        ITEM=increment()
+      `,
+    });
+    await g.setRootDataSource(testDataSource);
+    await g.finishLoad();
+    await g.resolveEnvValues();
+
+    // The resolver should have run (counter incremented), not returned the literal string
+    expect(g.configSchema.ITEM.resolvedValue).toEqual(1);
+  });
+
+  it('should use static override when override value is a plain string (user-set override)', async () => {
+    IncrementResolver.counter = 0;
+    const g = new EnvGraph();
+    g.registerResolver(IncrementResolver);
+    // User explicitly set ITEM=user-override before running bun
+    g.overrideValues = { ITEM: 'user-override' };
+    const testDataSource = new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @defaultRequired=false
+        # ---
+        ITEM=increment()
+      `,
+    });
+    await g.setRootDataSource(testDataSource);
+    await g.finishLoad();
+    await g.resolveEnvValues();
+
+    // The plain string override should be used, resolver should NOT run
+    expect(g.configSchema.ITEM.resolvedValue).toEqual('user-override');
+    expect(IncrementResolver.counter).toEqual(0);
+  });
+});

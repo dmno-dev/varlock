@@ -115,9 +115,19 @@ export class ConfigItem {
   }
 
   get valueResolver() {
-    // special case for process.env overrides - always return the static value
+    // special case for process.env overrides - return the static value,
+    // UNLESS the override value matches a resolver function call defined in a source file.
+    // This handles the case where a runtime (e.g., Bun) auto-loads varlock-managed .env files
+    // before varlock processes them, injecting literal resolver call strings into process.env.
     if (this.key in this.envGraph.overrideValues) {
-      return new StaticValueResolver(this.envGraph.overrideValues[this.key]);
+      const overrideValue = this.envGraph.overrideValues[this.key];
+      const matchesFunctionCall = this.defs.some(
+        (def) => def.itemDef.parsedValue instanceof ParsedEnvSpecFunctionCall
+          && def.itemDef.parsedValue.toString() === overrideValue,
+      );
+      if (!matchesFunctionCall) {
+        return new StaticValueResolver(overrideValue);
+      }
     }
 
     const hasInternalResolver = this._internalDefs.some((d) => d.itemDef.resolver);
