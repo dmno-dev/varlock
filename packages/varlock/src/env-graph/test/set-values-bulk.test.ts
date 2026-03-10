@@ -203,6 +203,43 @@ describe('@setValuesBulk() root decorator', () => {
     }));
   });
 
+  describe('enabled option', () => {
+    test('enabled=true processes normally', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"API_KEY":"from-bulk"}', format=json, enabled=true)
+        # ---
+        API_KEY=
+      `,
+      expectValues: {
+        API_KEY: 'from-bulk',
+      },
+    }));
+
+    test('enabled=false skips processing entirely', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"API_KEY":"from-bulk"}', format=json, enabled=false)
+        # ---
+        API_KEY=from-schema
+      `,
+      expectValues: {
+        API_KEY: 'from-schema',
+      },
+    }));
+
+    test('enabled using dynamic expression', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"API_KEY":"from-bulk1"}', format=json, enabled=eq($SOME_VAR, "enable"))
+        # @setValuesBulk('{"API_KEY":"from-bulk2"}', format=json, enabled=eq($SOME_VAR, "disable"))
+        # ---
+        API_KEY=
+        SOME_VAR=enable
+      `,
+      expectValues: {
+        API_KEY: 'from-bulk1',
+      },
+    }));
+  });
+
   describe('edge cases', () => {
     test('empty data string is no-op', envFilesTest({
       envFile: outdent`
