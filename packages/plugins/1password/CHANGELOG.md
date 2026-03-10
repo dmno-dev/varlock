@@ -1,5 +1,12 @@
 # @varlock/1password-plugin
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [[`e30ec1f`](https://github.com/dmno-dev/varlock/commit/e30ec1f6c193365903c734f9443dea0ae420c9bb)]:
+  - varlock@0.4.0
+
 ## 0.2.1
 
 ### Patch Changes
