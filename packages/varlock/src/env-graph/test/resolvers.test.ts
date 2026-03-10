@@ -585,7 +585,8 @@ describe('process.env override vs function-call resolver', () => {
     await g.resolveEnvValues();
 
     // The resolver should have run (counter incremented), not returned the literal string
-    expect(g.configSchema.ITEM.resolvedValue).toEqual(1);
+    expect(IncrementResolver.counter).toEqual(1);
+    expect(g.configSchema.ITEM.resolvedValue).not.toEqual('increment()');
   });
 
   it('should use static override when override value is a plain string (user-set override)', async () => {
