@@ -15,6 +15,7 @@ import isWSL from 'is-wsl';
 import packageJson from '../../../package.json';
 
 import { CONFIG } from '../../config';
+import { getUserVarlockDir } from '../../lib/user-config-dir';
 
 
 const debug = createDebug('varlock:telemetry');
@@ -22,7 +23,7 @@ const debug = createDebug('varlock:telemetry');
 const TRUE_ENV_VAR_VALUES = ['true', '1', 't'];
 
 
-const userVarlockDirPath = join(os.homedir(), '.varlock');
+const userVarlockDirPath = getUserVarlockDir();
 const userVarlockConfigFilePath = join(userVarlockDirPath, 'config.json');
 let userVarlockConfig: Record<string, any> | undefined;
 let projectVarlockConfig: Record<string, any> | undefined;
@@ -79,7 +80,7 @@ function findProjectDirs() {
 function loadVarlockConfig() {
   if (mergedVarlockConfigFileContents) return mergedVarlockConfigFileContents;
 
-  // load user config file - ~/.varlock/config.json
+  // load user config file - $XDG_CONFIG_HOME/varlock/config.json (or ~/.config/varlock/config.json)
   try {
     const userConfigStr = readFileSync(userVarlockConfigFilePath, 'utf-8');
     userVarlockConfig = userConfigStr.trim() ? JSON.parse(userConfigStr) : undefined;
@@ -123,7 +124,7 @@ function loadVarlockConfig() {
 
   return mergedVarlockConfigFileContents;
 }
-// we will identify users using a random UUID stored in the `~/.varlock/config.json` file
+// we will identify users using a random UUID stored in the user varlock config dir
 let cachedAnonymousId: string | undefined;
 function getAnonymousId() {
   if (cachedAnonymousId) return cachedAnonymousId;
@@ -134,7 +135,7 @@ function getAnonymousId() {
     return varlockConfig.anonymousId;
   }
 
-  // generate new anon ID and save in ~/.varlock/config.json
+  // generate new anon ID and save in user varlock config
   const newAnonymousId = `${isCI ? 'ci-' : ''}${crypto.randomUUID()}`;
 
   try {
@@ -160,9 +161,9 @@ function getAnonymousId() {
       ].join('\n'));
     } else {
       console.error([
-        'There was a problem writing to the ~/.varlock folder',
+        `There was a problem writing to the varlock config folder (${userVarlockDirPath})`,
         (err as Error).message,
-        'Please ensure your home folder (or at least the ~/.varlock folder) is writable',
+        `Please ensure the varlock config folder (${userVarlockDirPath}) is writable`,
       ].join('\n'));
     }
     gracefulExit(1);

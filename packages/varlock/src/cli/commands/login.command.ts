@@ -138,8 +138,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     publicKey?: string;
   };
 
-  // TODO: if app exists, pass off login info to it instead of storing in home folder
-  // otherwise save login info in ~/.varlock/identity.json
+  // TODO: if app exists, pass off login info to it instead of storing in config folder
+  // otherwise save login info in the user varlock config dir (e.g. ~/.config/varlock/identity.json)
   // also save it along with a new keypair if necessary, and send the public key to the api
 
   console.log(`✅ Logged in as ${authRes.user.githubUsername} (${authRes.user.name})!`);
