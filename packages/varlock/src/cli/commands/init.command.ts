@@ -164,7 +164,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       `We've done our best to get you started, but you must review and make sure it is correct!`,
       '',
       `👉 Some helpful pointers to get you started:`,
-      `- add a description to each item when the name is not self explanitory - it will come through in generated types`,
+      `- add a description to each item when the name is not self explanatory - it will come through in generated types`,
       `- use ${fmt.decorator('@required')} (or ${fmt.decorator('@optional')}) to tag items that should fail validation when empty`,
       `- use ${fmt.decorator('@sensitive')} to tag items that contain sensitive secrets, and must be handled accordingly`,
       `- use ${fmt.decorator('@type')} to set an item's data type (if not a basic string), which affects validation and coercion logic`,
