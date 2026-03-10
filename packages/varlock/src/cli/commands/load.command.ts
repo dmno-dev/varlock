@@ -12,13 +12,13 @@ export const commandSpec = define({
     format: {
       type: 'enum',
       short: 'f',
-      choices: ['pretty', 'json', 'env', 'json-full'],
+      choices: ['pretty', 'json', 'env', 'shell', 'json-full'],
       description: 'Format of output',
       default: 'pretty',
     },
     compact: {
       type: 'boolean',
-      description: 'Use compact format (for json-full: no indentation, for env: skip undefined values)',
+      description: 'Use compact format (for json-full: no indentation, for env/shell: skip undefined values)',
     },
     'show-all': {
       type: 'boolean',
@@ -41,9 +41,10 @@ Useful for debugging locally, and in CI to print out a summary of env vars.
 Examples:
   varlock load                    # Load and validate with pretty output
   varlock load --format json      # Output in JSON format
+  varlock load --format shell     # Output as shell export statements (useful with direnv)
   varlock load --show-all         # Show all items when validation fails
   varlock load --path .env.prod   # Load from a specific .env file
-  varlock looad --compact         # Use compact format - skips undefined values, no indentation for json-full
+  varlock load --compact          # Use compact format - skips undefined values, no indentation for json-full
   varlock load --env production   # Load for a specific environment (⚠️ ignored if using @currentEnv!)
 `.trim(),
 });
@@ -77,9 +78,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   } else if (format === 'json-full') {
     const indent = compact ? 0 : 2;
     console.log(JSON.stringify(envGraph.getSerializedGraph(), null, indent));
-  } else if (format === 'env') {
+  } else if (format === 'env' || format === 'shell') {
     const resolvedEnv = envGraph.getResolvedEnvObject();
     const skipUndefined = compact === true;
+    const prefix = format === 'shell' ? 'export ' : '';
 
     for (const key in resolvedEnv) {
       const value = resolvedEnv[key];
@@ -96,7 +98,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       } else {
         strValue = JSON.stringify(value);
       }
-      console.log(`${key}=${strValue}`);
+      console.log(`${prefix}${key}=${strValue}`);
     }
   } else {
     throw new Error(`Unknown format: ${format}`);
