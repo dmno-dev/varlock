@@ -53,7 +53,7 @@ varlock load [options]
 ```
 
 **Options:**
-- `--format`:     Format of output [pretty|json|env]
+- `--format`:     Format of output [pretty|json|env|shell]
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@currentEnv` in `.env.schema`
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
@@ -68,6 +68,9 @@ varlock load --env production
 
 # Output validation results in JSON format
 varlock load --format json
+
+# Output as shell export statements (useful for direnv / eval)
+varlock load --format shell
 
 # When validation is failing, will show all items, rather than just failing ones
 varlock load --show-all

@@ -166,6 +166,7 @@ export default defineConfig({
             { label: 'Cloudflare Workers', slug: 'integrations/cloudflare', badge: 'new' },
             { label: 'Docker', slug: 'guides/docker' },
             { label: 'GitHub Actions', slug: 'integrations/github-action' },
+            { label: 'direnv', slug: 'integrations/direnv' },
           ],
         },
         {
