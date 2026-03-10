@@ -14,8 +14,17 @@ OS=""
 ARCH=""
 VERSION=""
 LATEST_VERSION=""
-INSTALL_DIR="${HOME}/.varlock/bin"
-INSTALL_DIR_UNEXPANDED="~/.varlock/bin"
+# Resolve the varlock config directory respecting XDG Base Directory Spec
+if [ -n "${XDG_CONFIG_HOME}" ]; then
+  VARLOCK_CONFIG_DIR="${XDG_CONFIG_HOME}/varlock"
+elif [ -d "${HOME}/.varlock" ]; then
+  VARLOCK_CONFIG_DIR="${HOME}/.varlock"
+else
+  VARLOCK_CONFIG_DIR="${HOME}/.config/varlock"
+fi
+
+INSTALL_DIR="${VARLOCK_CONFIG_DIR}/bin"
+INSTALL_DIR_UNEXPANDED="\${XDG_CONFIG_HOME:-~/.config}/varlock/bin"
 REINSTALL=""
 FORCE_NO_BREW="false"
 
