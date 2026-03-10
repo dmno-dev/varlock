@@ -23,7 +23,7 @@
     "changeset:add": "changeset add",
     "changeset:empty": "changeset add --empty",
     "changeset:version": "changeset version && bun run lint:fix",
-    "changeset:publish": "bun run build:libs && changeset publish",
+    "changeset:publish": "bun run build:libs && bun run scripts/resolve-workspace-versions.ts && changeset publish",
     "release:create-missing-tags": "node scripts/create-missing-release-tags.js"
   },
   "devDependencies": {
