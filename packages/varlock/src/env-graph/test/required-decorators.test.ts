@@ -241,6 +241,20 @@ describe('required decorators', () => {
         REQ_IF_F: false,
       },
     }));
+    test('dynamic @required works (with type gen running first)', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @generateTypes(lang=ts, path=env.d.ts)
+          # ---
+          OTHER=foo
+          REQ_IF_FOO= # @required=eq($OTHER, foo)
+        `,
+      },
+      runTypeGeneration: true,
+      expectRequired: {
+        REQ_IF_FOO: true,
+      },
+    }));
     test('ensure @required isDynamic is correct (affects type generation)', envFilesTest({
       files: {
         '.env.schema': outdent`
