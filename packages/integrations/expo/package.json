@@ -1,0 +1,64 @@
+{
+  "name": "@varlock/expo-integration",
+  "description": "Expo/React Native Babel plugin to use varlock for .env file loading - adds validation, type-safety, and extra security features",
+  "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/integrations/expo"
+  },
+  "type": "module",
+  "main": "dist/babel-plugin.cjs",
+  "types": "dist/babel-plugin.d.ts",
+  "exports": {
+    ".": {
+      "require": "./dist/babel-plugin.cjs",
+      "import": "./dist/babel-plugin.js",
+      "types": "./dist/babel-plugin.d.ts"
+    },
+    "./babel-plugin": {
+      "require": "./dist/babel-plugin.cjs",
+      "import": "./dist/babel-plugin.js",
+      "types": "./dist/babel-plugin.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "test": "vitest",
+    "test:ci": "vitest --run"
+  },
+  "keywords": [
+    "varlock",
+    "expo",
+    "react-native",
+    "babel",
+    "babel-plugin",
+    "env",
+    ".env",
+    "environment variables",
+    "env vars",
+    "config",
+    "security",
+    "validation",
+    "leak protection",
+    "varlock-integration"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^",
+    "@babel/core": ">=7"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.0.0",
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "varlock": "workspace:^",
+    "vitest": "catalog:"
+  }
+}
