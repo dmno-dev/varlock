@@ -5,6 +5,7 @@ export default defineConfig({
   clean: true, // Clean output directory before building
   outDir: 'dist', // Output directory
   format: ['cjs'], // Output format(s)
+  sourcemap: true, // Keep TS breakpoints mapped cleanly in the extension host
   splitting: false, // split output into chunks - MUST BE ON! or we get issues with multiple copies of classes and instanceof
   keepNames: true, // stops build from prefixing our class names with `_` in some cases
   external: ['vscode'],

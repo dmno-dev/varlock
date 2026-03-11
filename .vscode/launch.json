@@ -3,16 +3,17 @@
   "configurations": [
     {
       // this launches the vscode plugin debug environment
-      // TODO: ideally this would live within the vscode extension folder?
       "name": "Launch Extension: @env-spec language",
       "type": "extensionHost",
       "request": "launch",
+      "preLaunchTask": "watch:vscode-plugin",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}/packages/vscode-plugin",
         "--disable-extensions",
         "${workspaceFolder}/packages/vscode-plugin", // using our example repo as the folder to open
       ],
-      "outFiles": ["${workspaceFolder}/packages/vscode-plugin/**/*.js"]
-    },
-  ],
+      "outFiles": ["${workspaceFolder}/packages/vscode-plugin/dist/**/*.js"],
+      "sourceMaps": true
+    }
+  ]
 }
