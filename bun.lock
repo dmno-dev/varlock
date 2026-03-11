@@ -83,6 +83,21 @@
         "varlock": "workspace:^",
       },
     },
+    "packages/integrations/expo": {
+      "name": "@varlock/expo-integration",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@babel/core": "^7.0.0",
+        "@types/node": "catalog:",
+        "tsup": "catalog:",
+        "varlock": "workspace:^",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "@babel/core": ">=7",
+        "varlock": "workspace:^",
+      },
+    },
     "packages/integrations/vite": {
       "name": "@varlock/vite-integration",
       "version": "0.2.7",
