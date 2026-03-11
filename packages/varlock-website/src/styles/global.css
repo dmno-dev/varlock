@@ -624,23 +624,38 @@ will move to component */
 }
 
 
-/* custom cursors */
+/* custom cursors - hot spot at finger tip (top-left like default arrow) */
 body {
-  cursor: url('../assets/gauntlet_default.svg') 8 8, default;
-  /* cursor: url('https://varlock-pixel-art.dmno.workers.dev/icons/finger.png') 8 8, default; */
+  cursor: url('../assets/gauntlet_default.svg') 4 4, default;
 }
 
 *:active {
-  cursor: url('../assets/gauntlet_open.svg') 8 8, pointer;
+  cursor: url('../assets/gauntlet_open.svg') 4 4, pointer;
 }
 
 a,
 button:hover {
-  cursor: url('../assets/gauntlet_point.svg') 8 8, pointer;
+  cursor: url('../assets/gauntlet_point.svg') 4 4, pointer;
 }
 
 summary {
-  cursor: url('../assets/gauntlet_point.svg') 8 8, pointer;
+  cursor: url('../assets/gauntlet_point.svg') 4 4, pointer;
+}
+
+/* use default cursor over code for easier text selection/highlighting */
+code,
+code:active,
+pre,
+pre:active,
+.expressive-code,
+.expressive-code *,
+.expressive-code *:active {
+  cursor: text;
+}
+
+.expressive-code .copy,
+.expressive-code .copy * {
+  cursor: pointer;
 }
 
 /* fix for anchor link appearing on next line */
