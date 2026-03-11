@@ -1,6 +1,8 @@
 /* eslint-disable no-console */
 import { ExtensionContext } from 'vscode';
 
+import { addCompletionProvider } from './completion-provider';
+import { addDiagnosticsProvider } from './diagnostics-provider';
 import { addHoverProvider } from './hover-provider';
 import { addLanguageConfig } from './lang-config';
 import { addToggleCommentsCommand } from './toggle-comments';
@@ -9,6 +11,8 @@ import { addToggleCommentsCommand } from './toggle-comments';
 export function activate(context: ExtensionContext) {
   console.log('Activated @env-spec language plugin');
   addLanguageConfig(context);
+  addCompletionProvider(context);
+  addDiagnosticsProvider(context);
   addHoverProvider(context);
   addToggleCommentsCommand(context);
 }

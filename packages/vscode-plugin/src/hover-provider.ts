@@ -8,82 +8,7 @@ import {
 } from 'vscode';
 import { LANG_ID } from './constants';
 import { deindent } from './utils/deindent';
-
-// NOTE - the content supports markdown, and will be deindented
-const ITEM_DECORATORS: Record<string, any> = {
-  required: {
-    hoverContent: `
-      Sets whether item must be set to pass validation - can be set to true or false.
-
-      Overrides default behaviour set by \`@defaultRequired\` root decorator.
-
-      Opposite decorator \`@optional\` is also available.
-    `,
-  },
-  optional: {
-    hoverContent: `
-      Sets whether an item is required, as the opposite of \`@required\`.
-
-      Overrides default behaviour set by \`@defaultRequired\` root decorator.
-    `,
-  },
-  sensitive: {
-    hoverContent: `
-      Sets whether an item should be treated as a sensitive secret.
-
-      Overrides default behaviour set by \`@defaultSensitive\` root decorator.
-    `,
-  },
-  type: {
-    hoverContent: `
-      Sets the data type of this item. Some data types take additional arguments.
-
-      \`@type=boolean\`
-      \`@type=number(min=1, max=100)\`
-
-      See https://varlock.dev for list of built-in types
-    `,
-  },
-  example: {
-    hoverContent: `
-      Sets an example value
-    `,
-  },
-};
-const ROOT_DECORATORS: Record<string, any> = {
-  envFlag: {
-    hoverContent: `
-      Sets the name of the env var to use for the "environment flag" - which will be used to toggle automatic loading of environment-specific env files (e.g., \`.env.test\`).
-      
-      For example, setting \`# @envFlag=APP_ENV\` and booting up your application with \`APP_ENV=test\` would cause your \`.env.test\` file to be loaded.
-    `,
-  },
-  defaultRequired: {
-    hoverContent: `
-      Sets the default behavior for whether items should be considered "required" or not - required items that are emtpy will fail validation.
-
-      Overridden by \`@required\` and \`@optional\` decorators on individual items.
-    `,
-  },
-  defaultSensitive: {
-    hoverContent: `
-      Sets the default behavior for whether items should be considered "sensitive" (secret) or not - which will trigger special handling to prevent leaking these values.
-
-      Overridden by \`@sensitive\` decorator on individual items.
-    `,
-  },
-  generateTypes: {
-    hoverContent: `
-      Enables generation of language specific types based on the decorators in your .env file(s)
-
-      Takes 2 required arguments:
-      - \`lang\`: language to generate types for (currently only TypeScript (\`ts\`) is supported)
-      - \`path\`: path to the generated type file
-
-      Example: \`@generateTypes(lang=ts, path=env.d.ts)\`
-    `,
-  },
-};
+import { DECORATORS_BY_NAME } from './intellisense-catalog';
 
 export function addHoverProvider(_context: ExtensionContext) {
   languages.registerHoverProvider(LANG_ID, {
@@ -98,11 +23,15 @@ export function addHoverProvider(_context: ExtensionContext) {
 
         if (hoveredText.startsWith('@')) {
           const decName = hoveredText.substring(1);
-          const dec = ITEM_DECORATORS[decName] || ROOT_DECORATORS[decName];
+          const dec = DECORATORS_BY_NAME[decName];
           if (dec) {
             const mds = new MarkdownString();
             mds.supportThemeIcons = true;
-            mds.appendMarkdown(deindent(dec.hoverContent));
+            mds.appendMarkdown(deindent(`
+              ${dec.summary}
+
+              ${dec.documentation}
+            `));
             return new Hover(mds);
           }
         }
