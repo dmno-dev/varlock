@@ -8,8 +8,9 @@
     "url": "https://github.com/dmno-dev/core.git"
   },
   "workspaces": [
-    "packages/**/*",
-    "!packages/**/test/**"
+    "packages/*",
+    "packages/integrations/*",
+    "packages/plugins/*"
   ],
   "scripts": {
     "build": "turbo build --filter=\"!smoke-test-*\"",
