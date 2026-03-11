@@ -34,7 +34,9 @@ Examples:
 });
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
-  const positionals = ctx.positionals ?? [];
+  // ctx.positionals includes the subcommand name(s) themselves, so we skip them
+  // by slicing off ctx.commandPath.length entries (e.g. skips 'printenv' at index 0)
+  const positionals = (ctx.positionals ?? []).slice(ctx.commandPath?.length ?? 0);
   if (!positionals.length) {
     throw new CliExitError('Missing required argument: variable name', {
       suggestion: 'Run `varlock printenv MY_VAR` to print the value of MY_VAR',

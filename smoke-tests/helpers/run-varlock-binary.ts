@@ -38,4 +38,16 @@ export function binaryRun(command: Array<string>, options?: {
   return runBinary(['run', '--', ...command], options);
 }
 
+export function binaryPrintenv(varName: string, options?: {
+  cwd?: string;
+  path?: string;
+}) {
+  const args = ['printenv'];
+  if (options?.path) {
+    args.push('--path', options.path);
+  }
+  args.push(varName);
+  return runBinary(args, { cwd: options?.cwd });
+}
+
 export { BINARY_PATH };

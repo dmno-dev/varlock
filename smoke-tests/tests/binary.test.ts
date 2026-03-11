@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import {
-  runBinary, binaryRun, BINARY_PATH,
+  runBinary, binaryRun, binaryPrintenv, BINARY_PATH,
 } from '../helpers/run-varlock-binary.js';
 
 describe('Compiled binary tests', () => {
@@ -112,6 +112,41 @@ describe('Compiled binary tests', () => {
 
       expect(result.exitCode).toBe(0);
       expect(result.output).toMatch(/\d+\.\d+\.\d+/);
+    });
+  });
+
+  describe('printenv command', () => {
+    test('printenv prints a public variable value', () => {
+      const result = binaryPrintenv('PUBLIC_VAR', { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe('public-value');
+    });
+
+    test('printenv prints a sensitive variable value', () => {
+      const result = binaryPrintenv('SECRET_TOKEN', { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe('super-secret-token-12345');
+    });
+
+    test('printenv with --path flag prints variable value', () => {
+      const result = binaryPrintenv('PUBLIC_VAR', {
+        cwd: 'smoke-test-basic',
+        path: '.env.schema',
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe('public-value');
+    });
+
+    test('printenv with unknown variable returns error', () => {
+      const result = binaryPrintenv('DOES_NOT_EXIST', { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).toContain('DOES_NOT_EXIST');
+    });
+
+    test('printenv with no variable name returns error', () => {
+      const result = runBinary(['printenv'], { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).toContain('Missing required argument');
     });
   });
 });

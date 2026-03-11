@@ -68,3 +68,15 @@ export function varlockRun(command: Array<string>, options?: {
     captureOutput: true,
   });
 }
+
+export function varlockPrintenv(varName: string, options?: {
+  cwd?: string;
+  path?: string;
+}) {
+  const args = ['printenv'];
+  if (options?.path) {
+    args.push('--path', options.path);
+  }
+  args.push(varName);
+  return runVarlock(args, { cwd: options?.cwd, captureOutput: true });
+}
