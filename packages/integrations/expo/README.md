@@ -40,7 +40,7 @@ module.exports = {
 Then use `ENV.xxx` in your code to access environment variables:
 
 ```ts
-import ENV from '@varlock/env'; // or wherever you define your ENV proxy
+import { ENV } from 'varlock/env';
 
 const apiUrl = ENV.API_URL; // replaced at compile time if non-sensitive
 ```
