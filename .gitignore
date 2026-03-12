@@ -13,4 +13,5 @@ changesets-summary.json
 env.d.ts
 
 smoke-tests/pnpm-lock.yaml
-.magenteslint-output.txt
+.magent
+eslint-output.txt
