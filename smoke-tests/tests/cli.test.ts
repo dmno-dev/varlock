@@ -1,7 +1,11 @@
-import { describe, test, expect, beforeEach } from 'vitest';
+import {
+  describe, test, expect, beforeEach,
+} from 'vitest';
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { varlockLoad, varlockRun, varlockPrintenv, runVarlock } from '../helpers/run-varlock.js';
+import {
+  varlockLoad, varlockRun, varlockPrintenv, runVarlock,
+} from '../helpers/run-varlock.js';
 
 const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
 
