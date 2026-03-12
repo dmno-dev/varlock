@@ -7,6 +7,10 @@ import { Steps } from "@astrojs/starlight/components";
 
 [direnv](https://direnv.net/) is a shell extension that automatically loads and unloads environment variables when you enter and leave a directory. By combining it with varlock, you can get validated, schema-driven environment variables loaded directly into your shell session.
 
+:::tip[Consider a deeper integration]
+For projects where you control the codebase, using one of varlock's [framework integrations](/integrations/overview/) or the [JavaScript / Node.js integration](/integrations/javascript/) is usually a better fit than direnv. Those integrations wire validation, type safety, and leak protection directly into your build and runtime — rather than relying on shell-level injection. direnv is most useful when you need env vars available in your shell session itself, or when working with tools that are not started through varlock.
+:::
+
 ## How it works
 
 direnv works by executing a `.envrc` file in your project directory and capturing any exported variables into the current shell. Varlock's `--format shell` flag outputs your resolved env vars as `export KEY=VALUE` lines that direnv can capture via `eval`.
@@ -33,11 +37,15 @@ When you `cd` into your project, direnv runs this command and exports all your v
 2. **Create a `.envrc` file** in your project root
 
    ```bash title=".envrc"
-   watch_file .env.schema .env
+   watch_file .env .env.*
    eval "$(varlock load --format shell)"
    ```
 
-   The `watch_file` lines tell direnv to re-evaluate when those files change.
+   The `watch_file` line tells direnv to re-evaluate whenever any of your `.env` files change. Note that **new files added after the initial load will not be watched until you run `direnv reload`** — but this is rarely a concern since adding new env files is uncommon.
+
+   :::caution[Imported files outside the project directory]
+   If your `.env` files [import](/guides/import/) other files from outside the current directory, those external files will **not** be watched automatically. You would need to add additional `watch_file` entries for them, or run `direnv reload` manually after changing them.
+   :::
 
 3. **Allow the `.envrc` file**
 
@@ -64,7 +72,7 @@ And when you leave the directory, those variables are automatically unloaded.
 By default, varlock outputs an empty assignment for undefined optional variables (e.g. `OPTIONAL_VAR=""`). If you prefer to skip undefined values entirely, use the `--compact` flag:
 
 ```bash title=".envrc"
-watch_file .env.schema .env
+watch_file .env .env.*
 eval "$(varlock load --format shell --compact)"
 ```
 
