@@ -19,9 +19,9 @@ export function checkBunVersion() {
   if (!semver.gte(bunVersion, MIN_BUN_VERSION)) {
     throw new Error(
       `Varlock requires Bun >= ${MIN_BUN_VERSION}, but you are using Bun ${bunVersion}.\n`
-      + `Please upgrade Bun by running: \`bun upgrade\`\n`
+      + 'Please upgrade Bun by running: `bun upgrade`\n'
       + `Bun ${MIN_BUN_VERSION} introduced the \`--no-env-file\` flag which is required to prevent `
-      + `conflicts with varlock's own .env loading.`,
+      + 'conflicts with varlock\'s own .env loading.',
     );
   }
 }
