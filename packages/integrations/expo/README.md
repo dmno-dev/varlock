@@ -7,6 +7,7 @@ It is designed as a [Babel plugin](https://docs.expo.dev/guides/using-custom-bab
 Compared to the default Expo behavior, this package provides:
 
 - Validation of your env vars against your `.env.schema`
+- Optional declarative loading of env var values via [plugins](https://varlock.dev/guides/plugins/)
 - Type-generation and type-safe env var access with built-in docs
 - Redaction of sensitive values from application logs
 - Leak detection and prevention at build time (sensitive values are never inlined into your bundle)
