@@ -41,6 +41,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   const configDir = getUserVarlockDir();
+  if (!configDir) {
+    throw new CliExitError(
+      'No user config directory available (HOME is not set). '
+      + 'Set the HOME or XDG_CONFIG_HOME environment variable to a writable path and try again.',
+      { forceExit: true },
+    );
+  }
   const configPath = join(configDir, 'config.json');
 
   try {

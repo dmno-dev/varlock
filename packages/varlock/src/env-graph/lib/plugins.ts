@@ -11,7 +11,7 @@ import vm from 'node:vm';
 import semver from 'semver';
 import _ from '@env-spec/utils/my-dash';
 import { pathExists } from '@env-spec/utils/fs-utils';
-import { getUserVarlockDir } from '../../lib/user-config-dir';
+import { getPluginCacheDir } from '../../lib/user-config-dir';
 
 
 import { FileBasedDataSource, type EnvGraphDataSource } from './data-source';
@@ -342,7 +342,7 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
 
 async function downloadPlugin(url: string) {
   const exec = promisify(execCb);
-  const cacheDir = path.join(getUserVarlockDir(), 'plugins-cache');
+  const cacheDir = getPluginCacheDir();
   const indexPath = path.join(cacheDir, 'index.json');
   await fs.mkdir(cacheDir, { recursive: true });
 

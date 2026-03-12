@@ -24,7 +24,7 @@ const TRUE_ENV_VAR_VALUES = ['true', '1', 't'];
 
 
 const userVarlockDirPath = getUserVarlockDir();
-const userVarlockConfigFilePath = join(userVarlockDirPath, 'config.json');
+const userVarlockConfigFilePath = userVarlockDirPath ? join(userVarlockDirPath, 'config.json') : null;
 let userVarlockConfig: Record<string, any> | undefined;
 let projectVarlockConfig: Record<string, any> | undefined;
 let mergedVarlockConfigFileContents: Record<string, any> | undefined;
@@ -81,17 +81,19 @@ function loadVarlockConfig() {
   if (mergedVarlockConfigFileContents) return mergedVarlockConfigFileContents;
 
   // load user config file - $XDG_CONFIG_HOME/varlock/config.json (or ~/.config/varlock/config.json)
-  try {
-    const userConfigStr = readFileSync(userVarlockConfigFilePath, 'utf-8');
-    userVarlockConfig = userConfigStr.trim() ? JSON.parse(userConfigStr) : undefined;
-  } catch (err) {
-    // file does not exist (we jsut do this to avoid doing an extra step to check)
-    if (err instanceof Error && 'code' in err && err.code === 'ENOENT') {
-      debug(`User varlock config file not found - ${userVarlockConfigFilePath}`);
-    } else if (err instanceof SyntaxError) {
-      throw new Error(`Invalid JSON in project varlock config - ${userVarlockConfigFilePath}`, { cause: err });
-    } else {
-      throw new Error(`Problem reading project varlock config - ${userVarlockConfigFilePath}`, { cause: err });
+  if (userVarlockConfigFilePath) {
+    try {
+      const userConfigStr = readFileSync(userVarlockConfigFilePath, 'utf-8');
+      userVarlockConfig = userConfigStr.trim() ? JSON.parse(userConfigStr) : undefined;
+    } catch (err) {
+      // file does not exist (we jsut do this to avoid doing an extra step to check)
+      if (err instanceof Error && 'code' in err && err.code === 'ENOENT') {
+        debug(`User varlock config file not found - ${userVarlockConfigFilePath}`);
+      } else if (err instanceof SyntaxError) {
+        throw new Error(`Invalid JSON in project varlock config - ${userVarlockConfigFilePath}`, { cause: err });
+      } else {
+        throw new Error(`Problem reading project varlock config - ${userVarlockConfigFilePath}`, { cause: err });
+      }
     }
   }
 
@@ -138,36 +140,31 @@ function getAnonymousId() {
   // generate new anon ID and save in user varlock config
   const newAnonymousId = `${isCI ? 'ci-' : ''}${crypto.randomUUID()}`;
 
-  try {
-    if (!existsSync(userVarlockDirPath)) {
-      mkdirSync(userVarlockDirPath, { recursive: true });
-    }
+  if (userVarlockDirPath && userVarlockConfigFilePath) {
+    try {
+      if (!existsSync(userVarlockDirPath)) {
+        mkdirSync(userVarlockDirPath, { recursive: true });
+      }
 
-    writeFileSync(
-      userVarlockConfigFilePath,
-      JSON.stringify({
-        ...userVarlockConfig,
-        anonymousId: newAnonymousId,
-      }, null, 2),
-      { flag: 'w' },
-    );
-  } catch (err) {
-    // known case when running within Docker and have no HOME folder set
-    if (os.homedir() === '/dev/null') {
-      console.error([
-        'Your HOME directory is not set - probably because you are running within Docker.',
-        'Please set HOME within your Dockerfile to a writable directory.',
-        'For example: `ENV HOME=/app/.home` (or whatever directory you want to use).',
-      ].join('\n'));
-    } else {
+      writeFileSync(
+        userVarlockConfigFilePath,
+        JSON.stringify({
+          ...userVarlockConfig,
+          anonymousId: newAnonymousId,
+        }, null, 2),
+        { flag: 'w' },
+      );
+    } catch (err) {
+      debug('failed to persist anonymous ID to user varlock config:', err);
       console.error([
         `There was a problem writing to the varlock config folder (${userVarlockDirPath})`,
         (err as Error).message,
         `Please ensure the varlock config folder (${userVarlockDirPath}) is writable`,
       ].join('\n'));
+      gracefulExit(1);
     }
-    gracefulExit(1);
   }
+
   cachedAnonymousId = newAnonymousId;
   return newAnonymousId;
 }
@@ -177,6 +174,12 @@ function checkIsOptedOut() {
   // Check if this is a dev build, rather than a published npm package or standalone binary
   if (__VARLOCK_BUILD_TYPE__ === 'dev') {
     debug('telemetry opted out - dev build');
+    return true;
+  }
+
+  // Skip telemetry when no user config dir is available (e.g., Docker with no HOME set)
+  if (!userVarlockDirPath) {
+    debug('telemetry opted out - no user config dir (no HOME)');
     return true;
   }
 
