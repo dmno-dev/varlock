@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/babel-plugin.ts'],
+  entry: ['src/babel-plugin.ts', 'src/metro-config.ts'],
   dts: true,
   sourcemap: true,
   treeshake: true,

@@ -12,14 +12,14 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
   <Badge npmPackage="@varlock/expo-integration" />
 </div>
 
-Expo and React Native projects use the [Metro bundler](https://metrobundler.dev/), which has its own approach to environment variables. Varlock integrates via a [Babel plugin](https://docs.expo.dev/guides/using-custom-babel-plugins/) that runs during the Metro bundling process, replacing `ENV.xxx` member expressions with their resolved values at compile time — similar to how Vite/webpack replace `import.meta.env.xxx` or `process.env.xxx`.
+Expo and React Native projects use the [Metro bundler](https://metrobundler.dev/), which has its own approach to environment variables. Varlock integrates via a **Babel plugin** that replaces `ENV.xxx` references with their resolved values at compile time, and a **Metro config wrapper** that initializes the `ENV` proxy at runtime for server routes.
 
 To integrate varlock into an Expo / React Native application, you must use our [`@varlock/expo-integration`](https://www.npmjs.com/package/@varlock/expo-integration) package.
 
-This plugin does a few things:
+This integration does a few things:
 - Loads and validates your `.env` files using varlock at bundle time
 - Replaces `ENV.xxx` references to non-sensitive config items with their literal values at compile time
-- Sensitive values are **never** inlined into your bundle, and must be accessed at runtime via the `ENV` proxy
+- Sensitive values are **never** inlined into your bundle — they are accessible at runtime only in [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/) (`+api` files)
 - Patches the global console to redact sensitive values from logs
 
 ## Setup
@@ -50,6 +50,24 @@ This plugin does a few things:
     +  ],
     };
     ```
+
+1. **Wrap your Metro config (required for server routes)**
+
+    If you use [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/) (`+api` files), wrap your Metro config with `withVarlockMetroConfig`. This initializes the `ENV` proxy in the main Metro process so that sensitive values are available at runtime in server routes.
+
+    ```diff lang="js" title="metro.config.js"
+    const { getDefaultConfig } = require('expo/metro-config');
+    +const { withVarlockMetroConfig } = require('@varlock/expo-integration/metro-config');
+
+    const config = getDefaultConfig(__dirname);
+
+    -module.exports = config;
+    +module.exports = withVarlockMetroConfig(config);
+    ```
+
+    :::tip[Why is this needed?]
+    Metro forks worker processes for Babel transforms. The Babel plugin runs in those workers, but `+api` server routes are evaluated in the main Metro process. The Metro config wrapper ensures the environment is initialized in the correct process.
+    :::
 
 </Steps>
 
@@ -92,7 +110,7 @@ const port = 3000;
 const debug = false;
 ```
 
-Sensitive items (marked with `@sensitive` in your `.env.schema`) are **never** replaced and remain as runtime references via the `ENV` proxy.
+Sensitive items (marked with `@sensitive` in your `.env.schema`) are **never** replaced — they remain as `ENV.xxx` references and are resolved at runtime via the proxy in server routes.
 
 ### Type-safety and IntelliSense
 
@@ -146,6 +164,37 @@ SECRET_KEY=     # sensitive - will NEVER be inlined, runtime only
 Non-sensitive items are inlined into your JavaScript bundle. Anyone who extracts your app's bundle can read these values. **Never** mark credentials, tokens, or other secrets as non-sensitive.
 :::
 
+### Sensitive values in server routes
+
+If you use [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/) (`+api` files), sensitive values **are** accessible at runtime via the `ENV` proxy. These files run server-side in the Metro process where `withVarlockMetroConfig` has initialized the environment.
+
+```ts title="app/secret+api.ts"
+import { ENV } from 'varlock/env';
+
+export function GET() {
+  // ✅ Sensitive values work in +api server routes
+  const key = ENV.SECRET_KEY;
+  return Response.json({ authorized: !!key });
+}
+```
+
+### Sensitive values in native code
+
+In native app code (anything that isn't a `+api` server route), sensitive values are **not available**. React Native apps run entirely on the device — there is no server to keep secrets safe. Accessing a sensitive value in native code will **throw at runtime**.
+
+The Babel plugin also emits a **build-time warning** when it detects a sensitive `ENV.xxx` reference in a non-server file, helping you catch these issues early.
+
+```ts title="app/index.tsx"
+import { ENV } from 'varlock/env';
+
+const url = ENV.API_URL;     // ✅ non-sensitive — inlined at build time
+const key = ENV.SECRET_KEY;  // ❌ throws at runtime, build-time warning
+```
+
+:::note[Expo pages are universal]
+Unlike Next.js Server Components, Expo Router page components run on **both** the server (SSR) and the client (hydration). This means you cannot safely access sensitive values in page components — use `+api` server routes instead.
+:::
+
 ---
 
 ## Reference
@@ -153,4 +202,5 @@ Non-sensitive items are inlined into your JavaScript bundle. Anyone who extracts
 - [Item decorators reference](/reference/item-decorators)
 - [Functions reference](/reference/functions)
 - [Expo environment variables docs](https://docs.expo.dev/guides/environment-variables/)
+- [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/)
 - [Metro bundler docs](https://metrobundler.dev/)

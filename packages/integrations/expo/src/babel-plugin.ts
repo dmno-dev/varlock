@@ -24,6 +24,11 @@ function loadVarlockConfig() {
     varlockLoadedEnv = JSON.parse(process.env.__VARLOCK_ENV) as SerializedEnvGraph;
     configIsValid = true;
 
+    // Make the loaded env available on globalThis so that any module instance
+    // of varlock/env (including Metro's SSR bundle) can pick it up during
+    // lazy/auto initialization.
+    (globalThis as any).__varlockLoadedEnv = varlockLoadedEnv;
+
     // initialize varlock and patch globals as necessary
     initVarlockEnv();
     // this will be a no-op if disabled by settings
@@ -58,6 +63,16 @@ type BabelNodePath = {
   replaceWith: (node: object) => void;
 };
 
+type BabelState = {
+  filename?: string;
+};
+
+/** Expo Router convention: server-only files contain `+api` in the filename. */
+function isServerFile(filename?: string): boolean {
+  if (!filename) return false;
+  return /\+api\./.test(filename);
+}
+
 function valueToNode(t: BabelAPI['types'], value: unknown): object {
   if (value === null) return t.nullLiteral();
   if (value === undefined) return t.identifier('undefined');
@@ -76,8 +91,9 @@ function valueToNode(t: BabelAPI['types'], value: unknown): object {
  * Babel plugin for Expo/React Native projects that integrates varlock.
  *
  * Replaces `ENV.xxx` member expressions with their static values at compile time
- * for non-sensitive config items. Sensitive items are left as-is and rely on
- * runtime initialization via `initVarlockEnv()`.
+ * for non-sensitive config items. Sensitive items are NOT inlined and are only
+ * accessible at runtime in Expo server routes (+api files) via the ENV proxy.
+ * Accessing a sensitive value in native code will emit a build-time warning.
  *
  * @example
  * // babel.config.js
@@ -105,6 +121,7 @@ export default function varlockExpoBabelPlugin(api: BabelAPI) {
   const t = api.types;
 
   // Build the set of non-sensitive keys that can be statically replaced
+  const warnedSensitiveKeys = new Set<string>();
   const nonSensitiveKeys = new Set<string>();
   for (const itemKey in config) {
     if (!config[itemKey].isSensitive) {
@@ -117,7 +134,7 @@ export default function varlockExpoBabelPlugin(api: BabelAPI) {
   return {
     name: 'varlock-expo-integration',
     visitor: {
-      MemberExpression(nodePath: BabelNodePath) {
+      MemberExpression(nodePath: BabelNodePath, state: BabelState) {
         const { node } = nodePath;
 
         // Match `ENV.xxx` (where ENV is a simple identifier, not computed)
@@ -134,9 +151,17 @@ export default function varlockExpoBabelPlugin(api: BabelAPI) {
             nodePath.replaceWith(valueToNode(t, item.value));
             debug(`replaced ENV.${key} with static value`);
           } else if (config[key]?.isSensitive) {
-            // Sensitive values cannot be statically replaced at build time.
-            // They remain as-is and must be accessed at runtime via the ENV proxy.
             debug(`ENV.${key} is sensitive - skipping static replacement`);
+
+            if (!isServerFile(state.filename) && !warnedSensitiveKeys.has(key)) {
+              warnedSensitiveKeys.add(key);
+              console.warn([
+                `⚠️  @varlock/expo-integration: ENV.${key} is marked @sensitive and was not inlined.`,
+                `  → ${state.filename ?? '<unknown file>'}`,
+                '  Sensitive values are only accessible in Expo server routes (+api files).',
+                '  Accessing this value in native code will throw at runtime.',
+              ].join('\n'));
+            }
           }
           // If the key doesn't exist in config at all, leave it as-is.
           // Runtime code will throw if __varlockThrowOnMissingKeys is set.
