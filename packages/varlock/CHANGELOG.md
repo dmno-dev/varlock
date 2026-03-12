@@ -1,5 +1,23 @@
 # varlock
 
+## 0.4.1
+
+### Patch Changes
+
+- [#358](https://github.com/dmno-dev/varlock/pull/358) [`c7e2d7a`](https://github.com/dmno-dev/varlock/commit/c7e2d7a752e53a1bbb30fddf4fb88e7834d47be3) - Add `shell` output format to `varlock load` command. `--format shell` outputs `export KEY=VALUE` lines suitable for `eval` or sourcing into the current shell session, enabling easy integration with tools like [direnv](https://direnv.net/).
+
+- [#371](https://github.com/dmno-dev/varlock/pull/371) [`1b9797e`](https://github.com/dmno-dev/varlock/commit/1b9797ed339b6b9955d5356da4f29517d23dfea3) - Fix dynamic `@required` being incorrectly resolved after type generation runs.
+
+  When `generateTypesIfNeeded()` ran before `resolveEnvValues()` (as it does in the CLI), `getTypeGenInfo()` would call `resolve()` on dynamic decorators like `@required=eq($OTHER, foo)` before their dependencies were resolved. This cached a stale result on the decorator, causing `processRequired()` to return the wrong value when env values were later resolved.
+
+  The fix skips calling `resolve()` for dynamic decorators in `getTypeGenInfo()` — their runtime value is irrelevant for type generation anyway (dynamic required items are always typed as optional).
+
+- [#364](https://github.com/dmno-dev/varlock/pull/364) [`78307f9`](https://github.com/dmno-dev/varlock/commit/78307f987dbc25a3c0565b6739802e9f06a8305a) - fix: `varlock printenv MY_VAR` was failing with `Variable "printenv" not found in schema` because gunshi includes the subcommand name in `ctx.positionals`. Now correctly slices past the subcommand path to extract the variable name.
+
+- [#356](https://github.com/dmno-dev/varlock/pull/356) [`61e2094`](https://github.com/dmno-dev/varlock/commit/61e2094f28ab9d6abcc9aefebfdd267a88dea2b2) - Add `enabled` option to `@setValuesBulk` decorator, allowing conditional bulk value injection based on boolean expressions (including dynamic expressions referencing other config items).
+
+- [#352](https://github.com/dmno-dev/varlock/pull/352) [`0e4d39a`](https://github.com/dmno-dev/varlock/commit/0e4d39acba3707cfb30f534ed47161e64b805a00) - Support XDG Base Directory Specification for user config directory. Varlock now respects `$XDG_CONFIG_HOME` and defaults to `~/.config/varlock` instead of `~/.varlock` for new installations, while maintaining backwards compatibility with existing `~/.varlock` directories.
+
 ## 0.4.0
 
 ### Minor Changes
