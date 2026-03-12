@@ -18,4 +18,15 @@ describe('CLI Commands', () => {
     expect(result.exitCode).toBe(0);
     expect(() => JSON.parse(result.stdout)).not.toThrow();
   });
+
+  test('varlock load --format shell should output export statements', () => {
+    const result = varlockLoad({ cwd: 'smoke-test-basic', format: 'shell' });
+    expect(result.exitCode).toBe(0);
+    // Every non-empty line should start with "export "
+    const lines = result.stdout.trim().split('\n').filter((l) => l.trim().length > 0);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) {
+      expect(line).toMatch(/^export [A-Z_]+=.*/);
+    }
+  });
 });
