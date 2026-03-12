@@ -283,10 +283,10 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
         throw new SchemaError('@setValuesBulk expects only one positional argument - the data resolver');
       }
       if (argsVal.objArgs) {
-        const validOptions = new Set(['format', 'createMissing']);
+        const validOptions = new Set(['format', 'createMissing', 'enabled']);
         for (const key of Object.keys(argsVal.objArgs)) {
           if (!validOptions.has(key)) {
-            throw new SchemaError(`@setValuesBulk: unknown option "${key}". Valid options: format, createMissing`);
+            throw new SchemaError(`@setValuesBulk: unknown option "${key}". Valid options: format, createMissing, enabled`);
           }
         }
         // validate format option if static
@@ -319,6 +319,17 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
         dataSource: EnvGraphDataSource;
         argsResolver: Resolver;
       };
+
+      // check enabled before resolving data - important so disabled sources don't trigger data fetching
+      const enabledResolver = argsResolver.objArgs?.enabled;
+      if (enabledResolver !== undefined) {
+        const enabledValue = await enabledResolver.resolve();
+        if (!_.isBoolean(enabledValue)) {
+          dataSource._loadingError = new SchemaError('@setValuesBulk: enabled must be a boolean');
+          return;
+        }
+        if (!enabledValue) return; // disabled - skip data resolution entirely
+      }
 
       // resolve the args
       const resolved = await argsResolver.resolve() as { arr: Array<any>, obj: Record<string, any> };

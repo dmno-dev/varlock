@@ -161,7 +161,7 @@ IMPORTED_ITEM=overriden-value
 <div>
 ### `@setValuesBulk()`
 **Arg types:** `[ data: string ]`
-**Named args:** `format?: "json" | "env"`, `createMissing?: boolean`
+**Named args:** `format?: "json" | "env"`, `createMissing?: boolean`, `enabled?: boolean`
 
 Injects multiple config values at once from an external data source. The first argument is a resolver that produces a string (e.g., `exec()` calling a secrets manager), which is parsed and injected as definitions within the file containing the decorator.
 
@@ -170,6 +170,7 @@ Bulk values participate in the normal file override chain — `process.env` stil
 **Options:**
 - `format`: How to parse the data string. `json` expects a flat JSON object, `env` expects `.env` file format. If not specified, auto-detected by checking if the string starts with `{`.
 - `createMissing`: If `true`, keys in the bulk data that don't already exist in your schema will be created as new config items. Defaults to `false` (unknown keys are silently skipped).
+- `enabled`: If `false`, the bulk data resolver is skipped entirely. Accepts any boolean expression, including dynamic references to other config items. Defaults to `true`.
 
 _Can be called multiple times — later calls overwrite earlier ones for the same keys._
 
@@ -195,8 +196,22 @@ DB_PASSWORD=
 # ---
 ```
 
+```env-spec title=".env.schema"
+# Only fetch from the vault in non-production environments
+# @setValuesBulk(exec("vault kv get -format=json secret/dev"), format=json, enabled=eq($APP_ENV, "dev"))
+# ---
+API_KEY=
+APP_ENV=dev
+```
+
 :::note
 When using `format=env`, function calls like `$VAR` references in unquoted values are not supported and will cause an error. Use single quotes for literal `$` signs (e.g., `'$LITERAL'`) or use `format=json` instead.
+:::
+
+:::caution[`createMissing` and type generation]
+Items created via `createMissing=true` — those that don't already exist in your schema — **will not be included in generated TypeScript types**. Type generation happens at build/schema-load time before values are fetched, so dynamically created keys are invisible to the type generator.
+
+For this reason, **`createMissing=true` is not recommended**. Instead, declare all expected items explicitly in your schema (with an empty value) so they are known at type-generation time.
 :::
 
 </div>
