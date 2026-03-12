@@ -1,6 +1,7 @@
 import { checkForConfigErrors } from './cli/helpers/error-checks';
 import { loadVarlockEnvGraph } from './lib/load-graph';
 import { initVarlockEnv } from './runtime/env';
+import { checkBunVersion } from './lib/check-bun-version';
 
 // Import env-graph components for internal API
 import {
@@ -16,6 +17,7 @@ import {
 } from './env-graph';
 
 export async function load() {
+  checkBunVersion();
   // TODO: add some options
   const envGraph = await loadVarlockEnvGraph();
   await envGraph.resolveEnvValues();
