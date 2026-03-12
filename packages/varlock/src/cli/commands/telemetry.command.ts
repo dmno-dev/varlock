@@ -61,7 +61,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     else delete config.telemetryDisabled;
     await writeFile(configPath, JSON.stringify(config, null, 2));
 
-    if (ctx.values.mode) {
+    if (ctx.values.mode === 'enable') {
       console.log('✅ Successfully enabled anonymous usage analytics');
     } else {
       console.log('✅ Successfully disabled anonymous usage analytics');
