@@ -223,6 +223,31 @@ You can also set it up manually -- see the [Secrets guide](/guides/secrets/#scan
 </div>
 
 <div>
+### `varlock typegen` ||typegen||
+
+Generates TypeScript type definitions from your `.env` schema files. Uses only non-environment-specific schema info, so output is deterministic regardless of which environment is active.
+
+This command is particularly useful when you have set `auto=false` on the [`@generateTypes`](/reference/root-decorators/#generatetypes) decorator to disable automatic type generation during `varlock load` or `varlock run`.
+
+```bash
+varlock typegen [options]
+```
+
+**Options:**
+- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
+
+**Examples:**
+```bash
+# Generate types using the default schema
+varlock typegen
+
+# Generate types from a specific .env file
+varlock typegen --path .env.prod
+```
+
+</div>
+
+<div>
 ### `varlock telemetry` ||telemetry||
 
 Opts in/out of anonymous usage analytics. This command creates/updates a configuration file at `~/.varlock/config.json` saving your preference.

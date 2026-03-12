@@ -242,6 +242,7 @@ XYZ_API_KEY=op(op://api-prod/xyz/api-key) # new resolver
 - `lang`: Language to generate types for. Supported languages:
   - `ts` - TypeScript
 - `path`: Relative filepath to output generated type file
+- `auto`: Controls whether types are generated automatically on every load (defaults to `true`). Set to `false` to disable automatic generation and instead run [`varlock typegen`](/reference/cli-commands/#typegen) explicitly.
 - `executeWhenImported`: overrides the default behaviour of not executing when the containing file is imported (defaults to `false`)
 
 Enables automatic type generation based on your schema. _Can be called multiple times._
@@ -255,6 +256,17 @@ Enables automatic type generation based on your schema. _Can be called multiple 
 Usually this decorator will live in your primary `.env.schema` file, and it will be ignored if it is within an imported file.
 
 To override this behaviour, set `executeWhenImported` to `true`.
+:::
+
+:::note[Disabling automatic type generation]
+If you prefer to generate types manually rather than on every load, set `auto=false` and run [`varlock typegen`](/reference/cli-commands/#typegen) explicitly:
+
+```env-spec
+# @generateTypes(lang=ts, path=./env.d.ts, auto=false)
+# ---
+```
+
+This is useful when you want full control over when your type definitions are updated, for example in a CI pipeline or as a dedicated build step.
 :::
 
 </div>
