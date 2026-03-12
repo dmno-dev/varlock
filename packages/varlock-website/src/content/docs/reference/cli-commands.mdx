@@ -70,7 +70,7 @@ varlock load --env production
 varlock load --format json
 
 # Output as shell export statements (useful for direnv / eval)
-varlock load --format shell
+eval "$(varlock load --format shell)"
 
 # When validation is failing, will show all items, rather than just failing ones
 varlock load --show-all

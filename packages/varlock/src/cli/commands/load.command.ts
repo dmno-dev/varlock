@@ -41,7 +41,7 @@ Useful for debugging locally, and in CI to print out a summary of env vars.
 Examples:
   varlock load                    # Load and validate with pretty output
   varlock load --format json      # Output in JSON format
-  varlock load --format shell     # Output as shell export statements (useful with direnv)
+  eval "$(varlock load --format shell)"  # Load vars into current shell (useful with direnv)
   varlock load --show-all         # Show all items when validation fails
   varlock load --path .env.prod   # Load from a specific .env file
   varlock load --compact          # Use compact format - skips undefined values, no indentation for json-full
