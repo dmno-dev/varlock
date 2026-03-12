@@ -15,6 +15,11 @@ export function patchGlobalResponse() {
   const _UnpatchedResponse = globalThis.Response;
   globalThis.Response = class VarlockPatchedResponse extends _UnpatchedResponse {
     static _patchedByVarlock = true;
+    // Make native fetch() responses (which are instances of the original Response)
+    // pass instanceof checks against the patched globalThis.Response.
+    static [Symbol.hasInstance](instance: unknown) {
+      return instance instanceof _UnpatchedResponse;
+    }
     constructor(body: any, init: any) {
       debug('⚡️ patched Response constructor');
       super(scanForLeaks(body, { method: 'patched Response constructor' }) as any, init);
