@@ -14,3 +14,4 @@ env.d.ts
 
 smoke-tests/pnpm-lock.yaml
 .magent
+eslint-output.txt
