@@ -42,9 +42,9 @@ module.exports = {
 
 This handles compile-time replacement of non-sensitive `ENV.xxx` references with their resolved values, similar to how Vite/webpack replace `import.meta.env.xxx` or `process.env.xxx`.
 
-### 2. Metro config (required for server routes)
+### 2. Metro config
 
-If you use [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/) (`+api` files), wrap your Metro config with `withVarlockMetroConfig`:
+Wrap your Metro config with `withVarlockMetroConfig`:
 
 ```js
 // metro.config.js
@@ -56,7 +56,10 @@ const config = getDefaultConfig(__dirname);
 module.exports = withVarlockMetroConfig(config);
 ```
 
-This initializes the `ENV` proxy in the main Metro process so that sensitive values are available at runtime in server routes. Without this, `ENV.xxx` for sensitive values will throw in `+api` files.
+This wrapper automatically:
+
+- Enables Metro's `unstable_enablePackageExports` resolver so that `import { ENV } from 'varlock/env'` works (Metro doesn't support `package.json` `"exports"` subpaths by default).
+- Initializes the varlock `ENV` proxy in the main Metro process so that sensitive values are available at runtime in [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/) (`+api` files).
 
 > **Why is this needed?** Metro forks worker processes for Babel transforms. The Babel plugin runs in those workers, but server routes are evaluated in the main Metro process. The Metro config wrapper ensures the environment is initialized in the correct process.
 
