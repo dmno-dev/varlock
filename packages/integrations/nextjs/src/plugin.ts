@@ -147,20 +147,58 @@ export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
         resolvedNextConfig = nextConfig;
       }
 
-      if (process.env.TURBOPACK || process.env.npm_config_turbopack) {
-        console.error([
-          '🚨 @varlock/nextjs-integration: Turbopack is not yet supported for varlockNextConfigPlugin 🚨',
-          '',
-          'You can either stop using the `--turbopack` flag',
-          'or remove this plugin from your config, and only use the @next/env override.',
-          "However if you don't use the plugin, you will not get all the benefits of this integration.",
-          '',
-        ].join('\n'));
-        throw new Error('varlockNextConfigPlugin: Turbopack is not yet supported');
+      // Next 16+ uses Turbopack by default for dev, but may not set TURBOPACK env var
+      const isTurbopack = !!(
+        process.env.TURBOPACK
+        || process.env.TURBOPACK_DEV
+        || process.env.TURBOPACK_BUILD
+        || process.env.npm_config_turbopack
+      );
+      debug(`turbopack detection: TURBOPACK=${process.env.TURBOPACK}, TURBOPACK_DEV=${process.env.TURBOPACK_DEV}, TURBOPACK_BUILD=${process.env.TURBOPACK_BUILD}, phase=${phase}, isTurbopack=${isTurbopack}`);
+
+      if (isTurbopack) {
+        debug('turbopack detected, injecting turbopack loader rules');
+
+        // turbopack config can be under `turbopack` (Next 15+) or `experimental.turbo` (older)
+        let turbopackConfig = (resolvedNextConfig as any).turbopack
+          ?? (resolvedNextConfig as any).experimental?.turbo;
+
+        if (!turbopackConfig) {
+          turbopackConfig = {};
+          (resolvedNextConfig as any).turbopack = turbopackConfig;
+        }
+
+        // inject loader rules
+        const loaderRule = {
+          loaders: [require.resolve('./turbopack-loader')],
+        };
+        turbopackConfig.rules ||= {};
+        turbopackConfig.rules['*.{js,jsx,ts,tsx,mjs,mts}'] = loaderRule;
+
+        // alias varlock/env to our self-contained bundle so Turbopack can resolve it
+        // (Turbopack resolves imports before running loaders, so without this alias
+        // the import fails before our loader gets a chance to transform it)
+        // We copy the bundle into node_modules/.varlock/ because Turbopack can't
+        // resolve symlinked workspace packages, and doesn't support absolute paths
+        const inlineSrc = path.resolve(__dirname, './varlock-env-inline.js');
+        const cacheDir = path.resolve(process.cwd(), 'node_modules/.varlock');
+        const inlineDest = path.join(cacheDir, 'env-inline.js');
+        try {
+          fs.mkdirSync(cacheDir, { recursive: true });
+          fs.copyFileSync(inlineSrc, inlineDest);
+          debug('copied varlock-env-inline.js to', inlineDest);
+        } catch (err) {
+          console.warn('[varlock] failed to copy env-inline bundle:', err);
+        }
+        turbopackConfig.resolveAlias ||= {};
+        turbopackConfig.resolveAlias['varlock/env'] = './node_modules/.varlock/env-inline.js';
+        debug('set resolveAlias varlock/env -> ./node_modules/.varlock/env-inline.js');
       }
 
       return {
         ...resolvedNextConfig,
+        // turbopack config needs to be spread through
+        ...(isTurbopack ? { turbopack: (resolvedNextConfig as any).turbopack } : {}),
         webpack(webpackConfig, options) {
           debug('varlockNextConfigPlugin webpack config patching');
 
