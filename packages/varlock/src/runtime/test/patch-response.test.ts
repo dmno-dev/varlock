@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import {
+  describe, it, expect, beforeEach, afterEach,
+} from 'vitest';
 import { patchGlobalResponse } from '../patch-response';
 import { varlockSettings } from '../env';
 
