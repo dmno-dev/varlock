@@ -1,7 +1,7 @@
 {
   "name": "@varlock/expo-integration",
   "description": "Expo/React Native Babel plugin to use varlock for .env file loading - adds validation, type-safety, and extra security features",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/dmno-dev/varlock.git",
@@ -12,14 +12,19 @@
   "types": "dist/babel-plugin.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/babel-plugin.d.ts",
       "require": "./dist/babel-plugin.cjs",
-      "import": "./dist/babel-plugin.js",
-      "types": "./dist/babel-plugin.d.ts"
+      "import": "./dist/babel-plugin.js"
     },
     "./babel-plugin": {
+      "types": "./dist/babel-plugin.d.ts",
       "require": "./dist/babel-plugin.cjs",
-      "import": "./dist/babel-plugin.js",
-      "types": "./dist/babel-plugin.d.ts"
+      "import": "./dist/babel-plugin.js"
+    },
+    "./metro-config": {
+      "types": "./dist/metro-config.d.ts",
+      "require": "./dist/metro-config.cjs",
+      "import": "./dist/metro-config.js"
     }
   },
   "files": ["dist"],

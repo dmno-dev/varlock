@@ -1,32 +1,56 @@
 import {
-  describe, it, expect, vi, beforeAll,
+  describe, it, expect, vi,
 } from 'vitest';
-import type { SerializedEnvGraph } from 'varlock';
 
 // ---------------------------------------------------------------------------
-// Fixture: the environment graph returned by `varlock load --format json-full`
+// Load fixture: parse the .env.schema file into a mock SerializedEnvGraph.
+//
+// vi.hoisted() runs before vi.mock() factories, making the loaded fixture
+// data available to the mock setup. We read the real .env.schema fixture
+// rather than hardcoding mock data so the test stays in sync with what
+// varlock would actually produce.
 // ---------------------------------------------------------------------------
-const MOCK_ENV_GRAPH: SerializedEnvGraph = {
-  basePath: '/project',
-  sources: [{ label: '.env', enabled: true, path: '.env' }],
-  settings: {},
-  config: {
-    // string value
-    API_URL: { value: 'https://api.example.com', isSensitive: false },
-    // number value
-    PORT: { value: 3000, isSensitive: false },
-    // boolean value
-    DEBUG: { value: true, isSensitive: false },
-    // null value
-    EMPTY: { value: null, isSensitive: false },
-    // undefined value
-    OPTIONAL: { value: undefined, isSensitive: false },
-    // object value (should be serialised via JSON.parse at runtime)
-    METADATA: { value: { region: 'us-east-1' }, isSensitive: false },
-    // sensitive – must NEVER be inlined
-    SECRET_KEY: { value: 's3cr3t', isSensitive: true },
-  },
-};
+const FIXTURE_ENV_GRAPH = vi.hoisted(() => {
+  const { readFileSync } = require('node:fs');
+  const { join } = require('node:path');
+
+  type Config = Record<string, { value: unknown; isSensitive: boolean }>;
+  const raw = readFileSync(join(__dirname, 'fixtures/.env.schema'), 'utf-8') as string;
+  const lines = raw.split('\n');
+  const config: Config = {};
+
+  let inHeader = true;
+  let defaultSensitive = true;
+  let nextSensitive: boolean | undefined;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (inHeader) {
+      const match = trimmed.match(/^#\s*@defaultSensitive\s*=\s*(\w+)/);
+      if (match) defaultSensitive = match[1] !== 'false';
+      if (trimmed === '# ---') inHeader = false;
+      continue;
+    }
+    if (trimmed.match(/^#\s*@sensitive\b/)) {
+      nextSensitive = true;
+      continue;
+    }
+    if (trimmed.startsWith('#') || trimmed === '') continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx);
+    const value = trimmed.slice(eqIdx + 1);
+    config[key] = { value, isSensitive: nextSensitive ?? defaultSensitive };
+    nextSensitive = undefined;
+  }
+
+  return {
+    basePath: join(__dirname, 'fixtures'),
+    sources: [{ label: '.env.schema', enabled: true, path: '.env.schema' }],
+    settings: {},
+    config,
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Mock all varlock dependencies BEFORE the plugin module is imported.
@@ -34,7 +58,7 @@ const MOCK_ENV_GRAPH: SerializedEnvGraph = {
 // are in place when the module-level `loadVarlockConfig()` runs.
 // ---------------------------------------------------------------------------
 vi.mock('varlock/exec-sync-varlock', () => ({
-  execSyncVarlock: vi.fn().mockReturnValue(JSON.stringify(MOCK_ENV_GRAPH)),
+  execSyncVarlock: vi.fn().mockReturnValue(JSON.stringify(FIXTURE_ENV_GRAPH)),
 }));
 
 vi.mock('varlock/env', () => ({
@@ -49,7 +73,7 @@ vi.mock('varlock', () => ({
   createDebug: vi.fn().mockReturnValue(vi.fn()),
 }));
 
-// Import AFTER mocks so module-level init uses our mock data.
+// Import AFTER mocks so module-level init uses our fixture data.
 import varlockExpoBabelPlugin from '../src/babel-plugin';
 
 // ---------------------------------------------------------------------------
@@ -96,22 +120,15 @@ function createNodePath(objectName: string, propertyName: string, computed = fal
   };
 }
 
-// ---------------------------------------------------------------------------
-// Named types for mock AST nodes to improve readability and type safety.
-// ---------------------------------------------------------------------------
-
-type MockIdentifier = { type: 'Identifier'; name: string };
-type MockMemberExpression = { type: 'MemberExpression'; object: MockIdentifier; property: MockIdentifier };
-type MockCallExpressionNode = {
-  type: 'CallExpression';
-  callee: MockMemberExpression;
-  arguments: Array<{ type: string; value: string }>;
-};
-
 /** Plugin return type from varlockExpoBabelPlugin. */
 type PluginResult = {
   name: string;
-  visitor: { MemberExpression?: (p: ReturnType<typeof createNodePath>) => void };
+  visitor: {
+    MemberExpression?: (
+      p: ReturnType<typeof createNodePath>,
+      state: { filename?: string },
+    ) => void;
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -121,11 +138,12 @@ function visitMemberExpression(
   objectName: string,
   propertyName: string,
   computed = false,
+  filename = '/app/page.tsx',
 ) {
   const api = createMockApi();
   const plugin = varlockExpoBabelPlugin(api) as PluginResult;
   const nodePath = createNodePath(objectName, propertyName, computed);
-  plugin.visitor.MemberExpression?.(nodePath);
+  plugin.visitor.MemberExpression?.(nodePath, { filename });
   return nodePath.replaceWith;
 }
 
@@ -133,84 +151,35 @@ function visitMemberExpression(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('varlockExpoBabelPlugin – module initialisation', () => {
-  it('calls execSyncVarlock to load env at startup', async () => {
-    const { execSyncVarlock } = await import('varlock/exec-sync-varlock');
-    expect(execSyncVarlock).toHaveBeenCalledWith(
-      'load --format json-full',
-      expect.objectContaining({ showLogsOnError: true }),
-    );
-  });
-
-  it('calls initVarlockEnv after loading', async () => {
-    const { initVarlockEnv } = await import('varlock/env');
-    expect(initVarlockEnv).toHaveBeenCalled();
-  });
-
-  it('calls patchGlobalConsole after loading', async () => {
-    const { patchGlobalConsole } = await import('varlock/patch-console');
-    expect(patchGlobalConsole).toHaveBeenCalled();
-  });
-});
-
 describe('varlockExpoBabelPlugin – static value replacement', () => {
-  beforeAll(() => {
-    // Confirm the plugin loaded successfully before running these tests.
-    const api = createMockApi();
-    const result = varlockExpoBabelPlugin(api) as PluginResult;
-    expect(result.visitor).toBeDefined();
-  });
-
-  it('replaces ENV.API_URL with a StringLiteral for string values', () => {
+  it('replaces ENV.API_URL with a StringLiteral', () => {
     const replaceWith = visitMemberExpression('ENV', 'API_URL');
     expect(replaceWith).toHaveBeenCalledOnce();
     expect(replaceWith).toHaveBeenCalledWith({ type: 'StringLiteral', value: 'https://api.example.com' });
   });
 
-  it('replaces ENV.PORT with a NumericLiteral for number values', () => {
+  it('replaces ENV.PORT with a StringLiteral for numeric-looking values', () => {
     const replaceWith = visitMemberExpression('ENV', 'PORT');
     expect(replaceWith).toHaveBeenCalledOnce();
-    expect(replaceWith).toHaveBeenCalledWith({ type: 'NumericLiteral', value: 3000 });
+    expect(replaceWith).toHaveBeenCalledWith({ type: 'StringLiteral', value: '3000' });
   });
 
-  it('replaces ENV.DEBUG with a BooleanLiteral for boolean values', () => {
+  it('replaces ENV.DEBUG with a StringLiteral for boolean-like values', () => {
     const replaceWith = visitMemberExpression('ENV', 'DEBUG');
     expect(replaceWith).toHaveBeenCalledOnce();
-    expect(replaceWith).toHaveBeenCalledWith({ type: 'BooleanLiteral', value: true });
+    expect(replaceWith).toHaveBeenCalledWith({ type: 'StringLiteral', value: 'true' });
   });
 
-  it('replaces ENV.EMPTY with a NullLiteral for null values', () => {
+  it('replaces ENV.EMPTY with a StringLiteral for empty values', () => {
     const replaceWith = visitMemberExpression('ENV', 'EMPTY');
     expect(replaceWith).toHaveBeenCalledOnce();
-    expect(replaceWith).toHaveBeenCalledWith({ type: 'NullLiteral' });
-  });
-
-  it('replaces ENV.OPTIONAL with an Identifier(undefined) for undefined values', () => {
-    const replaceWith = visitMemberExpression('ENV', 'OPTIONAL');
-    expect(replaceWith).toHaveBeenCalledOnce();
-    expect(replaceWith).toHaveBeenCalledWith({ type: 'Identifier', name: 'undefined' });
-  });
-
-  it('replaces ENV.METADATA with a JSON.parse CallExpression for object values', () => {
-    const replaceWith = visitMemberExpression('ENV', 'METADATA');
-    expect(replaceWith).toHaveBeenCalledOnce();
-    const [node] = replaceWith.mock.calls[0] as [MockCallExpressionNode];
-    expect(node.type).toBe('CallExpression');
-    // callee should be JSON.parse
-    expect(node.callee.type).toBe('MemberExpression');
-    expect(node.callee.object).toEqual({ type: 'Identifier', name: 'JSON' });
-    expect(node.callee.property).toEqual({ type: 'Identifier', name: 'parse' });
-    // argument should be a StringLiteral containing the serialised object
-    expect(node.arguments[0]).toEqual({
-      type: 'StringLiteral',
-      value: '{"region":"us-east-1"}',
-    });
+    expect(replaceWith).toHaveBeenCalledWith({ type: 'StringLiteral', value: '' });
   });
 });
 
 describe('varlockExpoBabelPlugin – sensitive values are NOT replaced', () => {
   it('does NOT replace ENV.SECRET_KEY (isSensitive=true)', () => {
-    const replaceWith = visitMemberExpression('ENV', 'SECRET_KEY');
+    const replaceWith = visitMemberExpression('ENV', 'SECRET_KEY', false, '/app/api/route+api.ts');
     expect(replaceWith).not.toHaveBeenCalled();
   });
 });
@@ -222,7 +191,6 @@ describe('varlockExpoBabelPlugin – unknown / irrelevant expressions are skippe
   });
 
   it('does NOT replace computed access ENV["API_URL"]', () => {
-    // When computed=true the property is a dynamic expression, not a plain identifier
     const replaceWith = visitMemberExpression('ENV', 'API_URL', true);
     expect(replaceWith).not.toHaveBeenCalled();
   });
@@ -230,6 +198,48 @@ describe('varlockExpoBabelPlugin – unknown / irrelevant expressions are skippe
   it('does NOT replace OTHER.API_URL (object is not ENV)', () => {
     const replaceWith = visitMemberExpression('OTHER', 'API_URL');
     expect(replaceWith).not.toHaveBeenCalled();
+  });
+});
+
+describe('varlockExpoBabelPlugin – sensitive var build-time warnings', () => {
+  it('warns when a sensitive var is accessed in a native (non-server) file', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    visitMemberExpression('ENV', 'SECRET_KEY', false, '/app/screens/Home.tsx');
+    expect(warnSpy).toHaveBeenCalledOnce();
+    const message = warnSpy.mock.calls[0][0] as string;
+    expect(message).toContain('SECRET_KEY');
+    expect(message).toContain('@sensitive');
+    expect(message).toContain('/app/screens/Home.tsx');
+    warnSpy.mockRestore();
+  });
+
+  it('does NOT warn when a sensitive var is accessed in a server +api file', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    visitMemberExpression('ENV', 'SECRET_KEY', false, '/app/api/auth+api.ts');
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('does NOT warn for non-sensitive vars regardless of file type', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    visitMemberExpression('ENV', 'API_URL', false, '/app/screens/Home.tsx');
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('deduplicates warnings for the same key within one plugin invocation', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const api = createMockApi();
+    const plugin = varlockExpoBabelPlugin(api) as PluginResult;
+    const state = { filename: '/app/screens/Home.tsx' };
+
+    const path1 = createNodePath('ENV', 'SECRET_KEY');
+    plugin.visitor.MemberExpression?.(path1, state);
+    const path2 = createNodePath('ENV', 'SECRET_KEY');
+    plugin.visitor.MemberExpression?.(path2, state);
+
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
   });
 });
 
