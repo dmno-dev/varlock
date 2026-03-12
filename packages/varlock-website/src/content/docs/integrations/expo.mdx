@@ -51,9 +51,9 @@ This integration does a few things:
     };
     ```
 
-1. **Wrap your Metro config (required for server routes)**
+1. **Wrap your Metro config**
 
-    If you use [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/) (`+api` files), wrap your Metro config with `withVarlockMetroConfig`. This initializes the `ENV` proxy in the main Metro process so that sensitive values are available at runtime in server routes.
+    Wrap your Metro config with `withVarlockMetroConfig`. This automatically configures Metro to resolve varlock's subpath exports (e.g. `varlock/env`) and initializes the `ENV` proxy in the main Metro process so that sensitive values are available at runtime in server routes.
 
     ```diff lang="js" title="metro.config.js"
     const { getDefaultConfig } = require('expo/metro-config');
@@ -65,8 +65,9 @@ This integration does a few things:
     +module.exports = withVarlockMetroConfig(config);
     ```
 
-    :::tip[Why is this needed?]
-    Metro forks worker processes for Babel transforms. The Babel plugin runs in those workers, but `+api` server routes are evaluated in the main Metro process. The Metro config wrapper ensures the environment is initialized in the correct process.
+    :::tip[What does this do?]
+    - Enables Metro's `unstable_enablePackageExports` resolver so that `import { ENV } from 'varlock/env'` works (Metro doesn't support `package.json` `"exports"` subpaths by default).
+    - Initializes the varlock `ENV` proxy in the main Metro process. Metro forks worker processes for Babel transforms, but `+api` server routes are evaluated in the main process — this wrapper ensures sensitive values are available there.
     :::
 
 </Steps>

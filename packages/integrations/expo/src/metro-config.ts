@@ -5,13 +5,33 @@ import { initVarlockEnv } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import type { SerializedEnvGraph } from 'varlock';
 
+const VARLOCK_SUBPATHS = [
+  'varlock/env',
+  'varlock/patch-console',
+  'varlock/patch-response',
+  'varlock/patch-server-response',
+  'varlock/auto-load',
+  'varlock/exec-sync-varlock',
+];
+
+// Pre-resolve subpaths using Node.js (which supports package.json "exports"),
+// so we can hand absolute file paths to Metro's resolver (which does not).
+const resolvedVarlockPaths: Record<string, string> = {};
+for (const subpath of VARLOCK_SUBPATHS) {
+  try {
+    resolvedVarlockPaths[subpath] = require.resolve(subpath);
+  } catch { /* varlock not installed — resolver will be a no-op */ }
+}
+
 /**
  * Wraps the Metro config to initialize varlock in the main Metro process.
  *
- * The babel plugin runs in Metro's forked worker processes, so it cannot set
- * `process.env.__VARLOCK_ENV` for the main process where server routes (+api
- * files) are evaluated. This wrapper ensures the ENV proxy is initialized in
- * the correct process.
+ * - Adds a custom resolver so Metro can resolve `varlock/env` and other
+ *   subpath exports (Metro doesn't support package.json `"exports"` by default).
+ * - Ensures the varlock package directory is in Metro's `watchFolders` so
+ *   resolved files are accessible (needed when using linked/local deps).
+ * - Initializes the ENV proxy in the main process so sensitive values are
+ *   available at runtime in Expo Router server routes (`+api` files).
  *
  * @example
  * // metro.config.js
@@ -22,6 +42,39 @@ import type { SerializedEnvGraph } from 'varlock';
  * module.exports = withVarlockMetroConfig(config);
  */
 export function withVarlockMetroConfig<T extends Record<string, any>>(config: T): T {
+  const c = config as Record<string, any>;
+  c.resolver ??= {};
+
+  // Install custom resolver for varlock subpath exports
+  const existingResolveRequest = c.resolver.resolveRequest;
+  c.resolver.resolveRequest = (
+    context: any,
+    moduleName: string,
+    platform: string | null,
+  ) => {
+    const absolutePath = resolvedVarlockPaths[moduleName];
+    if (absolutePath) {
+      return { type: 'sourceFile', filePath: absolutePath };
+    }
+    if (existingResolveRequest) {
+      return existingResolveRequest(context, moduleName, platform);
+    }
+    return context.resolveRequest(context, moduleName, platform);
+  };
+
+  // Ensure the varlock package dir is in watchFolders so Metro can access
+  // resolved files (required when varlock is linked via symlink/local deps).
+  const envPath = resolvedVarlockPaths['varlock/env'];
+  if (envPath) {
+    const path = require('path');
+    const varlockPkgDir = path.resolve(path.dirname(envPath), '..', '..');
+    const watchFolders: string[] = c.watchFolders ?? [];
+    if (!watchFolders.some((f: string) => varlockPkgDir.startsWith(f) || f.startsWith(varlockPkgDir))) {
+      watchFolders.push(varlockPkgDir);
+    }
+    c.watchFolders = watchFolders;
+  }
+
   if (process.env.__VARLOCK_ENV) return config;
 
   try {
