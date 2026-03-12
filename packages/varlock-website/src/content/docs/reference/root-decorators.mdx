@@ -239,13 +239,12 @@ XYZ_API_KEY=op(op://api-prod/xyz/api-key) # new resolver
 <div>
 ### `@generateTypes()`
 **Arg types (key/value):**
-- `lang`: Language to generate types for. Supported languages:
-  - `ts` - TypeScript
+- `lang`: Language to generate types for (currently only `ts` / TypeScript is supported, with more languages planned)
 - `path`: Relative filepath to output generated type file
 - `auto`: Controls whether types are generated automatically on every load (defaults to `true`). Set to `false` to disable automatic generation and instead run [`varlock typegen`](/reference/cli-commands/#typegen) explicitly.
 - `executeWhenImported`: overrides the default behaviour of not executing when the containing file is imported (defaults to `false`)
 
-Enables automatic type generation based on your schema. _Can be called multiple times._
+Triggers type generation based on your schema. _Can be called multiple times._
 
 ```env-spec
 # @generateTypes(lang=ts, path=./env.d.ts)
