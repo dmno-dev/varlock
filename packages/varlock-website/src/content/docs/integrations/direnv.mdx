@@ -8,7 +8,7 @@ import { Steps } from "@astrojs/starlight/components";
 [direnv](https://direnv.net/) is a shell extension that automatically loads and unloads environment variables when you enter and leave a directory. By combining it with varlock, you can get validated, schema-driven environment variables loaded directly into your shell session.
 
 :::tip[Consider a deeper integration]
-For projects where you control the codebase, using one of varlock's [framework integrations](/integrations/overview/) or the [JavaScript / Node.js integration](/integrations/javascript/) is usually a better fit than direnv. Those integrations wire validation, type safety, and leak protection directly into your build and runtime — rather than relying on shell-level injection. direnv is most useful when you need env vars available in your shell session itself, or when working with tools that are not started through varlock.
+For projects where you control the codebase, using one of varlock's [framework integrations](/integrations/overview/) or the [JavaScript / Node.js integration](/integrations/javascript/) is usually a better fit than direnv. Those integrations wire validation, type safety, and leak protection directly into your build and runtime — rather than relying on shell-level injection. You can also use [`varlock run`](/reference/cli/#run) to inject env vars into any process without needing direnv. direnv is most useful when you need env vars available in your shell session itself, or when working with tools that cannot be launched via `varlock run`.
 :::
 
 ## How it works
