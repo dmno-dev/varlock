@@ -3,53 +3,26 @@ import {
 } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Load fixture: parse the .env.schema file into a mock SerializedEnvGraph.
+// Load fixture: use varlock's EnvGraph to parse the .env.schema into a real
+// SerializedEnvGraph. This ensures the test fixture is parsed exactly the
+// same way the production code does, avoiding a hand-rolled parser that can
+// drift out of sync.
 //
-// vi.hoisted() runs before vi.mock() factories, making the loaded fixture
-// data available to the mock setup. We read the real .env.schema fixture
-// rather than hardcoding mock data so the test stays in sync with what
-// varlock would actually produce.
+// vi.hoisted() runs before vi.mock() factories. We dynamically import varlock
+// (the real one, before it gets mocked) and load the fixture with EnvGraph.
 // ---------------------------------------------------------------------------
-const FIXTURE_ENV_GRAPH = vi.hoisted(() => {
-  const { readFileSync } = require('node:fs');
-  const { join } = require('node:path');
+const FIXTURE_ENV_GRAPH = vi.hoisted(async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const varlock = await vi.importActual<typeof import('varlock')>('varlock');
 
-  type Config = Record<string, { value: unknown; isSensitive: boolean }>;
-  const raw = readFileSync(join(__dirname, 'fixtures/.env.schema'), 'utf-8') as string;
-  const lines = raw.split('\n');
-  const config: Config = {};
-
-  let inHeader = true;
-  let defaultSensitive = true;
-  let nextSensitive: boolean | undefined;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (inHeader) {
-      const match = trimmed.match(/^#\s*@defaultSensitive\s*=\s*(\w+)/);
-      if (match) defaultSensitive = match[1] !== 'false';
-      if (trimmed === '# ---') inHeader = false;
-      continue;
-    }
-    if (trimmed.match(/^#\s*@sensitive\b/)) {
-      nextSensitive = true;
-      continue;
-    }
-    if (trimmed.startsWith('#') || trimmed === '') continue;
-    const eqIdx = trimmed.indexOf('=');
-    if (eqIdx === -1) continue;
-    const key = trimmed.slice(0, eqIdx);
-    const value = trimmed.slice(eqIdx + 1);
-    config[key] = { value, isSensitive: nextSensitive ?? defaultSensitive };
-    nextSensitive = undefined;
-  }
-
-  return {
-    basePath: join(__dirname, 'fixtures'),
-    sources: [{ label: '.env.schema', enabled: true, path: '.env.schema' }],
-    settings: {},
-    config,
-  };
+  const fixtureContents = readFileSync(join(__dirname, 'fixtures/.env.schema'), 'utf-8');
+  const g = new varlock.internal.EnvGraph();
+  const source = new varlock.internal.DotEnvFileDataSource('.env.schema', { overrideContents: fixtureContents });
+  await g.setRootDataSource(source);
+  await g.finishLoad();
+  await g.resolveEnvValues();
+  return g.getSerializedGraph();
 });
 
 // ---------------------------------------------------------------------------
@@ -57,8 +30,8 @@ const FIXTURE_ENV_GRAPH = vi.hoisted(() => {
 // vi.mock() calls are hoisted to the top of the file by Vitest, so the mocks
 // are in place when the module-level `loadVarlockConfig()` runs.
 // ---------------------------------------------------------------------------
-vi.mock('varlock/exec-sync-varlock', () => ({
-  execSyncVarlock: vi.fn().mockReturnValue(JSON.stringify(FIXTURE_ENV_GRAPH)),
+vi.mock('varlock/exec-sync-varlock', async () => ({
+  execSyncVarlock: vi.fn().mockReturnValue(JSON.stringify(await FIXTURE_ENV_GRAPH)),
 }));
 
 vi.mock('varlock/env', () => ({
@@ -158,22 +131,22 @@ describe('varlockExpoBabelPlugin – static value replacement', () => {
     expect(replaceWith).toHaveBeenCalledWith({ type: 'StringLiteral', value: 'https://api.example.com' });
   });
 
-  it('replaces ENV.PORT with a StringLiteral for numeric-looking values', () => {
+  it('replaces ENV.PORT with a NumericLiteral', () => {
     const replaceWith = visitMemberExpression('ENV', 'PORT');
     expect(replaceWith).toHaveBeenCalledOnce();
-    expect(replaceWith).toHaveBeenCalledWith({ type: 'StringLiteral', value: '3000' });
+    expect(replaceWith).toHaveBeenCalledWith({ type: 'NumericLiteral', value: 3000 });
   });
 
-  it('replaces ENV.DEBUG with a StringLiteral for boolean-like values', () => {
+  it('replaces ENV.DEBUG with a BooleanLiteral', () => {
     const replaceWith = visitMemberExpression('ENV', 'DEBUG');
     expect(replaceWith).toHaveBeenCalledOnce();
-    expect(replaceWith).toHaveBeenCalledWith({ type: 'StringLiteral', value: 'true' });
+    expect(replaceWith).toHaveBeenCalledWith({ type: 'BooleanLiteral', value: true });
   });
 
-  it('replaces ENV.EMPTY with a StringLiteral for empty values', () => {
+  it('replaces ENV.EMPTY with an undefined identifier', () => {
     const replaceWith = visitMemberExpression('ENV', 'EMPTY');
     expect(replaceWith).toHaveBeenCalledOnce();
-    expect(replaceWith).toHaveBeenCalledWith({ type: 'StringLiteral', value: '' });
+    expect(replaceWith).toHaveBeenCalledWith({ type: 'Identifier', name: 'undefined' });
   });
 });
 
