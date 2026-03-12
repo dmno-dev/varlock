@@ -225,7 +225,7 @@ You can also set it up manually -- see the [Secrets guide](/guides/secrets/#scan
 <div>
 ### `varlock typegen` ||typegen||
 
-Generates TypeScript type definitions from your `.env` schema files. Uses only non-environment-specific schema info, so output is deterministic regardless of which environment is active.
+Generates type files according to [`@generateTypes`](/reference/root-decorators/#generatetypes) and your config schema. Uses only non-environment-specific schema info, so output is deterministic regardless of which environment is active.
 
 This command is particularly useful when you have set `auto=false` on the [`@generateTypes`](/reference/root-decorators/#generatetypes) decorator to disable automatic type generation during `varlock load` or `varlock run`.
 
