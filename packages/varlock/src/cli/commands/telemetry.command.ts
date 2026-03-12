@@ -1,4 +1,3 @@
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -7,6 +6,7 @@ import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { gracefulExit } from 'exit-hook';
 import { fmt } from '../helpers/pretty-format';
 import { CliExitError } from '../helpers/exit-error';
+import { getUserVarlockDir } from '../../lib/user-config-dir';
 
 
 export const commandSpec = define({
@@ -20,7 +20,8 @@ export const commandSpec = define({
   },
   examples: `
 Opts in/out of anonymous usage analytics. This command creates/updates a configuration
-file at ~/.varlock/config.json saving your preference.
+file at $XDG_CONFIG_HOME/varlock/config.json (or ~/.config/varlock/config.json) saving
+your preference.
 
 Examples:
   varlock telemetry disable    # Opt out of telemetry
@@ -39,7 +40,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     });
   }
 
-  const configDir = join(homedir(), '.varlock');
+  const configDir = getUserVarlockDir();
   const configPath = join(configDir, 'config.json');
 
   try {

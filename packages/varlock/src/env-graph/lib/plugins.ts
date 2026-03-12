@@ -2,7 +2,6 @@ import path from 'node:path';
 import { exec as execCb } from 'node:child_process';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -12,6 +11,7 @@ import vm from 'node:vm';
 import semver from 'semver';
 import _ from '@env-spec/utils/my-dash';
 import { pathExists } from '@env-spec/utils/fs-utils';
+import { getUserVarlockDir } from '../../lib/user-config-dir';
 
 
 import { FileBasedDataSource, type EnvGraphDataSource } from './data-source';
@@ -342,7 +342,7 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
 
 async function downloadPlugin(url: string) {
   const exec = promisify(execCb);
-  const cacheDir = path.join(os.homedir(), '.varlock', 'plugins-cache');
+  const cacheDir = path.join(getUserVarlockDir(), 'plugins-cache');
   const indexPath = path.join(cacheDir, 'index.json');
   await fs.mkdir(cacheDir, { recursive: true });
 
@@ -534,7 +534,7 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
               throw new Error(`Failed to find tarball URL for plugin "${moduleName}@${versionDescriptor}" from npm`);
             }
 
-            // downloads into local cache folder (~/.varlock/plugins-cache/)
+            // downloads into local cache folder (user varlock config dir / plugins-cache/)
             const downloadedPluginPath = await downloadPlugin(tarballUrl);
             pluginSrcPath = downloadedPluginPath;
           }
