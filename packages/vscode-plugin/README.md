@@ -11,9 +11,62 @@ This new DSL builds upon the common `.env` format, adding support for JSDoc styl
 ## Features
 
 - Syntax highlighting
+- IntelliSense for decorators, `@type` values, type options, resolver functions, and `$KEY` references
+- Enum value completion for item values below `@type=enum(...)`
+- Inline validation for invalid enum values, incompatible decorators, and obvious static `@type` mismatches
 - Hover info for common `@decorators`
 - Better toggle-comment behavior (CMD+/), to enable/disable decorators within comment blocks
 - Comment continuation (automatically continue comment blocks when you hit enter within one)
+
+## IntelliSense and diagnostics
+
+### Decorators and built-in types
+
+Get completions for common item and root decorators, plus built-in `@type=` values while editing comment blocks.
+
+![@env-spec decorator and type completion](./images/autocomplete.gif "Decorator and @type completion")
+
+### Type option completions
+
+Built-in types surface context-aware option completions like `email(normalize=...)`, `ip(version=..., normalize=...)`, and `url(prependHttps=...)`.
+
+![@env-spec type option completion](./images/types.gif "Type option completion")
+
+### Email-specific option completions
+
+Type-specific completions also work for focused cases like `email(normalize=...)`, with boolean choice values suggested inline.
+
+![@env-spec email option completion](./images/email.gif "Email option completion")
+
+### Enum value completions
+
+When an item is declared as `@type=enum(...)`, the allowed values are suggested directly on the item value line below.
+
+![@env-spec enum value completion](./images/enum.gif "Enum value completion")
+
+### Variable references
+
+Typing `$` inside values and decorator expressions suggests config keys from the current file.
+
+![@env-spec key reference completion](./images/key.gif "Key reference completion")
+
+### Prefix-aware completions
+
+Decorator and validation workflows also support prefix-related configuration scenarios while editing schema comments.
+
+![@env-spec prefix behavior](./images/prefix.gif "Prefix-related completion or validation")
+
+### Invalid decorator combinations
+
+Autocomplete filters out incompatible decorators like `@required` and `@optional`, and inline diagnostics catch invalid combinations if they still appear in the file.
+
+![@env-spec incompatible decorator diagnostics](./images/exclusive_options.gif "Incompatible decorator diagnostics")
+
+### Inline validation
+
+The extension also highlights obvious static validation issues, such as invalid enum values or incorrect `prependHttps` URL usage.
+
+![@env-spec inline validation](./images/prepend_https.gif "Inline validation")
 
 ## How to use this extension
 
