@@ -76,6 +76,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   });
   checkForSchemaErrors(envGraph);
   checkForNoEnvFiles(envGraph);
+
+  // Generate types before resolving values — uses only non-env-specific schema info
+  await envGraph.generateTypesIfNeeded();
+
   await envGraph.resolveEnvValues();
   checkForConfigErrors(envGraph);
 

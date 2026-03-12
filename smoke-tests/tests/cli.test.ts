@@ -1,5 +1,9 @@
-import { describe, test, expect } from 'vitest';
-import { varlockLoad, varlockPrintenv, runVarlock } from '../helpers/run-varlock.js';
+import { describe, test, expect, beforeEach } from 'vitest';
+import { existsSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { varlockLoad, varlockRun, varlockPrintenv, runVarlock } from '../helpers/run-varlock.js';
+
+const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
 
 describe('CLI Commands', () => {
   test('varlock --help should work', () => {
@@ -62,6 +66,45 @@ describe('CLI Commands', () => {
       const result = runVarlock(['printenv'], { cwd: 'smoke-test-basic', captureOutput: true });
       expect(result.exitCode).not.toBe(0);
       expect(result.output).toContain('Missing required argument');
+    });
+  });
+
+  describe('type generation', () => {
+    const typeFilePath = join(SMOKE_TESTS_DIR, 'smoke-test-basic', 'env.d.ts');
+    const typeFilePathAutoFalse = join(SMOKE_TESTS_DIR, 'smoke-test-typegen-auto', 'env.d.ts');
+
+    beforeEach(() => {
+      // Clean up generated type files before each test
+      if (existsSync(typeFilePath)) rmSync(typeFilePath);
+      if (existsSync(typeFilePathAutoFalse)) rmSync(typeFilePathAutoFalse);
+    });
+
+    test('varlock load generates type file when @generateTypes is set', () => {
+      expect(existsSync(typeFilePath)).toBe(false);
+      const result = varlockLoad({ cwd: 'smoke-test-basic' });
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(typeFilePath)).toBe(true);
+    });
+
+    test('varlock run generates type file when @generateTypes is set', () => {
+      expect(existsSync(typeFilePath)).toBe(false);
+      const result = varlockRun(['node', '-e', 'process.exit(0)'], { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(typeFilePath)).toBe(true);
+    });
+
+    test('varlock load skips type generation when auto=false', () => {
+      expect(existsSync(typeFilePathAutoFalse)).toBe(false);
+      const result = varlockLoad({ cwd: 'smoke-test-typegen-auto' });
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(typeFilePathAutoFalse)).toBe(false);
+    });
+
+    test('varlock run skips type generation when auto=false', () => {
+      expect(existsSync(typeFilePathAutoFalse)).toBe(false);
+      const result = varlockRun(['node', '-e', 'process.exit(0)'], { cwd: 'smoke-test-typegen-auto' });
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(typeFilePathAutoFalse)).toBe(false);
     });
   });
 });
