@@ -57,6 +57,17 @@ export abstract class DecoratorInstance {
         : this.graph.itemDecoratorsRegistry;
       this.decoratorDef = decRegistry[this.name];
       if (!this.decoratorDef) {
+        // check if the decorator exists in the other registry (misplaced)
+        const otherRegistry = this.isRootDecorator
+          ? this.graph.itemDecoratorsRegistry
+          : this.graph.rootDecoratorsRegistry;
+        if (otherRegistry[this.name]) {
+          if (this.isRootDecorator) {
+            throw new SchemaError(`@${this.name} is an item decorator and cannot be used in the file header - it must be attached to a config item`);
+          } else {
+            throw new SchemaError(`@${this.name} is a root decorator and cannot be attached to a config item - it must be in the file header (before the first config item)`);
+          }
+        }
         throw new Error(`Unknown decorator: @${this.name}`);
       }
 
@@ -102,7 +113,11 @@ export abstract class DecoratorInstance {
     if (this.isResolved) return this.resolvedValue;
 
     await this.process();
-    if (!this.decValueResolver) throw new Error('expected decorator to have a value resolver');
+    if (!this.decValueResolver) {
+      // process() already recorded schema errors, don't throw again
+      if (this._schemaErrors.length > 0) return;
+      throw new Error('expected decorator to have a value resolver');
+    }
     try {
       this.resolvedValue = await this.decValueResolver.resolve();
     } catch (err) {
