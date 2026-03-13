@@ -4,7 +4,8 @@ import path from 'node:path';
 import _ from '@env-spec/utils/my-dash';
 import { tryCatch } from '@env-spec/utils/try-catch';
 import {
-  ParsedEnvSpecDecorator, ParsedEnvSpecFile, ParsedEnvSpecFunctionCall, parseEnvSpecDotEnvFile,
+  ParsedEnvSpecDecorator, ParsedEnvSpecDecoratorComment, ParsedEnvSpecFile,
+  ParsedEnvSpecFunctionCall, parseEnvSpecDotEnvFile,
 } from '@env-spec/parser';
 
 import { ConfigItem, type ConfigItemDef } from './config-item';
@@ -615,6 +616,9 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
 
     this.rootDecorators = this.parsedFile.decoratorsArray.map((d) => new RootDecoratorInstance(this, d));
 
+    // validate decorator placement
+    this._validateDecoratorPlacement(this.parsedFile);
+
     for (const item of this.parsedFile.configItems) {
       this.configItemDefs[item.key] = {
         description: item.description,
@@ -622,6 +626,55 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
         parsedDecorators: item.decoratorsArray,
       };
     }
+  }
+
+  private _validateDecoratorPlacement(parsedFile: ParsedEnvSpecFile) {
+    // check for item decorators in the header
+    for (const dec of parsedFile.decoratorsArray) {
+      if (dec.name in this.graph!.itemDecoratorsRegistry) {
+        this._schemaErrors.push(new SchemaError(
+          `Item decorator @${dec.name} cannot be used in the file header - it must be attached to a config item`,
+          { location: this._locationFromParsed(dec) },
+        ));
+      }
+    }
+
+    // check for root decorators attached to config items
+    for (const item of parsedFile.configItems) {
+      for (const dec of item.decoratorsArray) {
+        if (dec.name in this.graph!.rootDecoratorsRegistry) {
+          this._schemaErrors.push(new SchemaError(
+            `Root decorator @${dec.name} cannot be attached to config item "${item.key}" - it must be in the file header (before the first config item)`,
+            { location: this._locationFromParsed(dec) },
+          ));
+        }
+      }
+    }
+
+    // check for any decorators in orphan comment blocks (not header, not attached to items)
+    for (const block of parsedFile.orphanCommentBlocks) {
+      for (const comment of block.comments) {
+        if (comment instanceof ParsedEnvSpecDecoratorComment) {
+          for (const dec of comment.decorators) {
+            this._schemaErrors.push(new SchemaError(
+              `Decorator @${dec.name} is in a detached comment block - decorators must be in the file header or attached directly to a config item (no blank lines between the decorator and the item)`,
+              { location: this._locationFromParsed(dec) },
+            ));
+          }
+        }
+      }
+    }
+  }
+
+  private _locationFromParsed(dec: ParsedEnvSpecDecorator) {
+    const loc = dec.data._location;
+    if (!loc || !this.rawContents) return undefined;
+    return {
+      id: this.fullPath,
+      lineNumber: loc.start.line,
+      colNumber: loc.start.column,
+      lineStr: this.rawContents.split('\n')[loc.start.line - 1] || '',
+    };
   }
 }
 

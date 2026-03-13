@@ -27,13 +27,11 @@ npm install @varlock/aws-secrets-plugin
 And then register the plugin without any version number
 ```env-spec title=".env.schema"
 # @plugin(@varlock/aws-secrets-plugin)
-# ---
 ```
 
 Otherwise just set the explicit version number when you register it
 ```env-spec title=".env.schema"
 # @plugin(@varlock/aws-secrets-plugin@1.2.3)
-# ---
 ```
 
 See our [Plugin Guide](https://varlock.dev/guides/plugins/#installation) for more details.
@@ -49,7 +47,6 @@ For most use cases, you only need to provide the AWS region:
 ```env-spec
 # @plugin(@varlock/aws-secrets-plugin)
 # @initAws(region=us-east-1)
-# ---
 ```
 
 **How this works:**

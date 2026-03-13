@@ -24,13 +24,11 @@ npm install @varlock/1password-plugin
 And then register the plugin without any version number
 ```env-spec title=".env.schema"
 # @plugin(@varlock/1password-plugin)
-# ---
 ```
 
 Otherwise just set the explicit version number when you register it
 ```env-spec title=".env.schema"
 # @plugin(@varlock/1password-plugin@1.2.3)
-# ---
 ```
 
 See our [Plugin Guide](https://varlock.dev/guides/plugins/#installation) for more details.

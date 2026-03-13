@@ -24,13 +24,11 @@ npm install @varlock/azure-key-vault-plugin
 And then register the plugin without any version number
 ```env-spec title=".env.schema"
 # @plugin(@varlock/azure-key-vault-plugin)
-# ---
 ```
 
 Otherwise just set the explicit version number when you register it
 ```env-spec title=".env.schema"
 # @plugin(@varlock/azure-key-vault-plugin@1.2.3)
-# ---
 ```
 
 See our [Plugin Guide](https://varlock.dev/guides/plugins/#installation) for more details.
@@ -46,7 +44,6 @@ For most use cases, you only need to provide the vault URL:
 ```env-spec
 # @plugin(@varlock/azure-key-vault-plugin)
 # @initAzure(vaultUrl="https://my-vault.vault.azure.net/")
-# ---
 ```
 
 **How this works:**

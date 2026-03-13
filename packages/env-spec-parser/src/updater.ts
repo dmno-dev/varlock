@@ -10,7 +10,7 @@ function ensureHeader(file: ParsedEnvSpecFile, newHeaderContents?: string) {
   if (!file.header) {
     newHeaderContents ||= 'This env file uses @env-spec - see https://varlock.dev/env-spec for more info\n';
     file.contents.unshift(
-      // header is a comment block at the beginning of the file and must end with a divider
+      // header is any comment block(s) before the first config item; we add a divider for clarity
       new ParsedEnvSpecCommentBlock({
         // we'll break up the passed in content and add a comment line for each
         comments: newHeaderContents.split('\n').map((line) => (

@@ -4,15 +4,13 @@ description: A reference page of available env-spec decorators that apply to the
 ---
 import Decorator from '@/components/decorator-doc-entry.astro'
 
-Root decorators appear in the _header_ section of a .env file - which is a comment block at the beginning of the file that ends with a divider. Usually root decorators are used only in your `.env.schema` file.
+Root decorators appear in the _header_ section of a .env file - which is any comment block(s) at the beginning of the file, before the first config item. Usually root decorators are used only in your `.env.schema` file.
 
 
 ```env-spec title=".env.schema"
 # This is the header, it can contain root decorators
 # @defaultSensitive=false @defaultRequired=infer
 # @generateTypes(lang=ts, path=./env.d.ts)
-# ---
-# ... config items
 ```
 
 
@@ -193,7 +191,6 @@ DB_PASSWORD=
 ```env-spec title=".env.schema"
 # Create items not already in the schema
 # @setValuesBulk(exec("vault kv get -format=json secret/myapp"), format=json, createMissing=true)
-# ---
 ```
 
 ```env-spec title=".env.schema"
@@ -248,10 +245,9 @@ Triggers type generation based on your schema. _Can be called multiple times._
 
 ```env-spec
 # @generateTypes(lang=ts, path=./env.d.ts)
-# ---
 ```
 
-:::tip 
+:::tip
 Usually this decorator will live in your primary `.env.schema` file, and it will be ignored if it is within an imported file.
 
 To override this behaviour, set `executeWhenImported` to `true`.
@@ -262,7 +258,6 @@ If you prefer to generate types manually rather than on every load, set `auto=fa
 
 ```env-spec
 # @generateTypes(lang=ts, path=./env.d.ts, auto=false)
-# ---
 ```
 
 This is useful when you want full control over when your type definitions are updated, for example in a CI pipeline or as a dedicated build step.
