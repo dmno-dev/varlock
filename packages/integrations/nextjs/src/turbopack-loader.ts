@@ -99,13 +99,12 @@ function turbopackLoader(this: LoaderContext, source: string) {
 
   if (isInstrumentationFile) {
     // instrumentation.ts/js: runs once at server startup, guaranteed server-only.
-    // This is the safe place to inline __VARLOCK_ENV for production (e.g., Vercel)
-    // where the env data needs to be baked into the build.
-    // We use the self-contained inline bundle (same as proxy) to avoid
-    // Turbopack resolution issues with varlock/* imports.
+    // Inline the self-contained bundle to init varlock and apply all patches
+    // (console redaction, response scanning, leak prevention).
+    // The actual env data comes from process.env.__VARLOCK_ENV which is set by
+    // .env.production.local (on Vercel) or next-env-compat.ts (in dev).
     if (varlockEnvInlineCode) {
       result = [
-        `process.env.__VARLOCK_ENV = process.env.__VARLOCK_ENV || ${JSON.stringify(rawEnv)};`,
         varlockEnvInlineCode,
         '',
         result,

@@ -142,7 +142,6 @@ function detectOpenNextCloudflareBuild() {
   return false;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function writeResolvedEnvFile() {
   // things get complicated on platforms like vercel/cloudflare, they do some of their own magic to load env vars
   // our loader (this file) will run during the _build_ process, but not when the platform is handling server rendered requests
@@ -351,9 +350,9 @@ export function loadEnvConfig(
   combinedEnv = { ...initialEnv, ...parsedEnv };
   loadedEnvFiles = getVarlockSourcesAsLoadedEnvFiles();
 
-  // if not a dev build, we may need to write a temp resolved .env file
-  // TODO: re-enable once we verify this is needed for vercel/cloudflare
-  // if (!dev) writeResolvedEnvFile();
+  // write a resolved .env file for platforms like Vercel/Cloudflare that need
+  // pre-resolved env values at runtime (they don't re-run @next/env on boot)
+  if (!dev) writeResolvedEnvFile();
 
   return { combinedEnv, parsedEnv, loadedEnvFiles };
 }
