@@ -16,7 +16,9 @@ export function runVarlock(args: Array<string>, options?: {
       cwd,
       env,
       encoding: 'utf-8',
-      shell: true,
+      // On Windows, shell is needed to invoke pnpm.cmd. On Unix, avoid shell so that
+      // argument strings like "process.exit(0)" are not misinterpreted as subshell syntax.
+      shell: process.platform === 'win32',
     });
 
     return {
