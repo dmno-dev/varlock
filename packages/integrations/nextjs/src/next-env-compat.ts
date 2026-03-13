@@ -179,16 +179,7 @@ function writeResolvedEnvFile() {
     if (!rootDir) throw new Error('expected rootDir to be set');
     const resolvedEnvFilePath = path.resolve(rootDir, resolvedEnvFileName);
     fs.writeFileSync(resolvedEnvFilePath, dotEnvStrLines.join('\n'), 'utf-8');
-    // eslint-disable-next-line no-console
-    console.log(`[varlock] wrote resolved env file: ${resolvedEnvFilePath} (${dotEnvStrLines.length} entries)`);
-  } else {
-    // eslint-disable-next-line no-console
-    console.log('[varlock] skipped writing resolved env file (no platform detected)');
-    // log env vars that might help detect platforms
-    const platformEnvKeys = Object.keys(process.env).filter((k) =>
-      /^(VERCEL|NETLIFY|CF_|WORKERS_|AWS_|NEXT_|NODE_ENV|CI|_VARLOCK)/.test(k));
-    // eslint-disable-next-line no-console
-    console.log('[varlock] platform env keys:', platformEnvKeys.join(', ') || '(none)');
+    debug('wrote resolved env file:', resolvedEnvFilePath);
   }
 }
 
@@ -257,6 +248,7 @@ export function loadEnvConfig(
   // store actual process.env so we can restore it later
   initialEnv ||= { ...process.env };
 
+  loadCount++;
   debug('loadEnvConfig!', 'forceReload = ', forceReload);
 
   // onReload is used to show a log of which .env file changed
@@ -309,12 +301,14 @@ export function loadEnvConfig(
   debug('Inferred env mode (to match @next/env):', envFromNextCommand);
 
   try {
-    loadCount++;
+    // strip DEBUG_VARLOCK from env to prevent debug output from contaminating JSON stdout
+    const cleanEnv = { ...initialEnv };
+    delete cleanEnv.DEBUG_VARLOCK;
     const varlockLoadedEnvStr = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
       showLogsOnError: true,
       // in a build, we want to fail and exit, while in dev we can keep retrying when changes are detected
       exitOnError: !dev,
-      env: initialEnv as any,
+      env: cleanEnv as any,
     });
     if (loadCount >= 2) {
       // eslint-disable-next-line no-console
