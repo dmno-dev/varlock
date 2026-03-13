@@ -2,6 +2,7 @@
 import { getCollection, render } from "astro:content";
 import { Image } from "astro:assets";
 import Layout from "../../layouts/Layout.astro";
+import { createMetaHead } from "../../lib/meta";
 
 export async function getStaticPaths() {
   const posts = await getCollection("blog");
@@ -32,18 +33,22 @@ const sidebar = [
 ];
 
 const site = Astro.site ?? new URL(Astro.url.origin);
+const pageUrl = new URL(Astro.url.pathname, site).href;
 const ogImageUrl = new URL(`/og-images/blog/${post.id}.png`, site).href;
 ---
 
 <Layout
   title={post.data.title}
+  description={post.data.description}
   showSearch={false}
   showSidebar={true}
   sidebar={sidebar}
-  head={[
-    { tag: "meta", attrs: { property: "og:image", content: ogImageUrl } },
-    { tag: "meta", attrs: { name: "twitter:image", content: ogImageUrl } },
-  ]}
+  head={createMetaHead({
+    title: post.data.title,
+    description: post.data.description,
+    url: pageUrl,
+    ogImageUrl,
+  })}
 >
   <main>
     <div class="blog-post-container">

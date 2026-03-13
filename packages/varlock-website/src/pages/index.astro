@@ -2,6 +2,7 @@
 import { Image } from "astro:assets";
 
 import Layout from "../layouts/Layout.astro";
+import { createMetaHead } from "../lib/meta";
 import { LinkButton, Code } from "@astrojs/starlight/components";
 import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
 import WorksWithLogoList from "../components/WorksWithLogoList.astro";
@@ -11,9 +12,27 @@ import redactionImg from "../assets/demo-images/redaction.png";
 import multiEnvImg from "../assets/demo-images/multi-env.png";
 import externalProvidersImg from "../assets/demo-images/external-providers.png";
 import EmailSignup from "../components/EmailSignup.vue";
+
+const site = Astro.site ?? new URL(Astro.url.origin);
+const pageUrl = new URL(Astro.url.pathname, site).href;
+const ogImageUrl = new URL("/og-images/index.png", site).href;
+const pageTitle = "Varlock - AI-safe .env files";
+const pageDescription =
+  "AI-safe .env files: schemas for agents, secrets for humans. Validate, secure, and share environment variables with type-safety, leak prevention, and integrations for Next.js, Vite, Astro, and more.";
+const metaHead = createMetaHead({
+  title: pageTitle,
+  description: pageDescription,
+  url: pageUrl,
+  ogImageUrl,
+});
 ---
 
-<Layout showSearch={false}>
+<Layout
+  title={pageTitle}
+  description={pageDescription}
+  showSearch={false}
+  head={metaHead}
+>
   <main>
     <div class="container">
       <div class="homepage-hero not-content">

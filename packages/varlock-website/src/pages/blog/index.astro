@@ -2,6 +2,7 @@
 import { getCollection } from "astro:content";
 import { Image } from "astro:assets";
 import Layout from "../../layouts/Layout.astro";
+import { createMetaHead } from "../../lib/meta";
 
 const posts = (await getCollection("blog")).sort(
   (a, b) => b.data.date.valueOf() - a.data.date.valueOf()
@@ -21,18 +22,25 @@ const sidebar = [
 ];
 
 const site = Astro.site ?? new URL(Astro.url.origin);
+const pageUrl = new URL(Astro.url.pathname, site).href;
 const ogImageUrl = new URL("/og-images/blog.png", site).href;
+const pageTitle = "Blog";
+const pageDescription =
+  "Updates, guides, and tips from the Varlock team.";
 ---
 
 <Layout
-  title="Blog"
+  title={pageTitle}
+  description={pageDescription}
   showSearch={false}
   showSidebar={true}
   sidebar={sidebar}
-  head={[
-    { tag: "meta", attrs: { property: "og:image", content: ogImageUrl } },
-    { tag: "meta", attrs: { name: "twitter:image", content: ogImageUrl } },
-  ]}
+  head={createMetaHead({
+    title: pageTitle,
+    description: pageDescription,
+    url: pageUrl,
+    ogImageUrl,
+  })}
 >
   <main>
     <div class="blog-container">

@@ -23,8 +23,8 @@ export const { getStaticPaths, GET } = OGImageRoute({
     ...docsPages,
     ...blogPages,
     index: {
-      title: 'varlock',
-      description: 'varlock',
+      title: 'Varlock',
+      description: 'AI-safe .env files: schemas for agents, secrets for humans.',
     },
     blog: {
       title: 'Blog',

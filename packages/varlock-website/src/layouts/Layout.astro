@@ -5,16 +5,18 @@ import MobileStarDialog from "../components/MobileStarDialog.vue";
 
 interface Props {
   title?: string;
+  description?: string;
   showTopBar?: boolean;
   showSearch?: boolean;
   showTableOfContents?: boolean;
   showSidebar?: boolean;
   sidebar?: Array<any>;
-  head?: Array<{ tag: "meta"; attrs?: Record<string, string>; content?: string }>;
+  head?: import("../lib/meta").MetaHeadItem[];
 }
 
 const {
   title,
+  description,
   showTopBar = true,
   showSearch = true,
   showTableOfContents = false,
@@ -28,8 +30,9 @@ const {
 <StarlightPage
   frontmatter={{
     title: title ?? "varlock",
+    description: description,
     tableOfContents: showTableOfContents,
-    ...(head ? { head } : {}),
+    ...(head?.length ? { head } : {}),
   }}
   hasSidebar={showSidebar}
   {...(showSidebar ? { sidebar } : {})}
