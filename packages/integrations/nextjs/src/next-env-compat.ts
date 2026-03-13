@@ -177,7 +177,18 @@ function writeResolvedEnvFile() {
       resolvedEnvFileName = process.env._VARLOCK_EXPORT_RESOLVED_ENV_FILE;
     }
     if (!rootDir) throw new Error('expected rootDir to be set');
-    fs.writeFileSync(path.resolve(rootDir, resolvedEnvFileName), dotEnvStrLines.join('\n'), 'utf-8');
+    const resolvedEnvFilePath = path.resolve(rootDir, resolvedEnvFileName);
+    fs.writeFileSync(resolvedEnvFilePath, dotEnvStrLines.join('\n'), 'utf-8');
+    // eslint-disable-next-line no-console
+    console.log(`[varlock] wrote resolved env file: ${resolvedEnvFilePath} (${dotEnvStrLines.length} entries)`);
+  } else {
+    // eslint-disable-next-line no-console
+    console.log('[varlock] skipped writing resolved env file (no platform detected)');
+    // log env vars that might help detect platforms
+    const platformEnvKeys = Object.keys(process.env).filter((k) =>
+      /^(VERCEL|NETLIFY|CF_|WORKERS_|AWS_|NEXT_|NODE_ENV|CI|_VARLOCK)/.test(k));
+    // eslint-disable-next-line no-console
+    console.log('[varlock] platform env keys:', platformEnvKeys.join(', ') || '(none)');
   }
 }
 
