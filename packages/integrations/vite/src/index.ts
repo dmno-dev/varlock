@@ -169,7 +169,7 @@ export function varlockVitePlugin(
       // we need to detect if this module is one of our worker entry points
       // when running `vite build`, we could use `this.getModuleInfo(id).isEntry`
       // but that doesnt work in dev, so we try to detect it another way
-      const fileExt = id.split('.').pop() || '';
+      const fileExt = id.replace(/[?#].*$/, '').split('.').pop() || '';
       let isEntry = false;
       if (SUPPORTED_FILES.includes(fileExt)) {
         const moduleIds = Array.from(this.getModuleIds());
