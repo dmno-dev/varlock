@@ -57,7 +57,7 @@ export function createReplacerTransformFn(opts: {
   ) {
     if (keys.length === 0) return null;
 
-    const fileExt = id.replace(/[?#].*$/, '').split('.').pop() || '';
+    const fileExt = id.split('?')[0].split('#')[0].split('.').pop() || '';
     if (!SUPPORTED_FILES.includes(fileExt)) return null;
 
     if (code.search(findAnyReplacementRegex) === -1) return null;
