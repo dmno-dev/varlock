@@ -268,6 +268,13 @@ class AwsPluginInstance {
     const client = await this.initSSMClient();
     if (!client) throw new Error('Expected AWS SSM client to be initialized');
 
+    // Validate parameter name format before making the AWS call
+    if (!name.startsWith('/')) {
+      throw new ResolutionError(`Invalid AWS SSM parameter name: "${name}"`, {
+        tip: `SSM parameter names must start with "/"\n  Try: "/${name}"`,
+      });
+    }
+
     try {
       const command = new GetParameterCommand({
         Name: name,
@@ -313,7 +320,10 @@ class AwsPluginInstance {
       const errorName = err.name || err.__type || '';
       const errorCode = err.$metadata?.httpStatusCode;
 
-      if (errorName === 'ParameterNotFound' || errorCode === 404) {
+      if (errorName === 'ParameterInvalidException' || errorName === 'ValidationException') {
+        errorMessage = `Invalid AWS SSM parameter name: "${name}"`;
+        errorTip = 'Parameter names must start with "/" and can only contain letters, numbers, and the symbols . - _';
+      } else if (errorName === 'ParameterNotFound' || errorCode === 404) {
         errorMessage = `Parameter "${name}" not found`;
         errorTip = [
           'Verify the parameter exists in AWS Systems Manager Parameter Store',
