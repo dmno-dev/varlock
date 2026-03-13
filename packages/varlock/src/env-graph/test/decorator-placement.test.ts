@@ -116,6 +116,44 @@ describe('decorator placement validation', () => {
     }));
   });
 
+  describe('duplicate non-function root decorators trigger errors', () => {
+    test('duplicate root decorator in same comment block', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @defaultRequired=true @defaultRequired=false
+          # ---
+          ITEM=foo
+        `,
+      },
+      earlyError: true,
+    }));
+
+    test('duplicate root decorator across header comment blocks', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @defaultRequired=true
+
+          # @defaultRequired=false
+
+          ITEM=foo
+        `,
+      },
+      earlyError: true,
+    }));
+
+    test('function-call root decorators can be used multiple times', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @generateTypes(lang=ts, path=env.d.ts)
+          # @generateTypes(lang=ts, path=env2.d.ts)
+          # ---
+          ITEM=foo
+        `,
+      },
+      expectValues: { ITEM: 'foo' },
+    }));
+  });
+
   describe('unknown decorators trigger errors', () => {
     test('unknown item decorator causes schema error', envFilesTest({
       files: {

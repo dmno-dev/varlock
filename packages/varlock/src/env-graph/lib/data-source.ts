@@ -629,13 +629,22 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
   }
 
   private _validateDecoratorPlacement(parsedFile: ParsedEnvSpecFile) {
-    // check for item decorators in the header
+    // check for item decorators in the header, and duplicate non-fn root decorators
+    const seenRootDecs = new Set<string>();
     for (const dec of parsedFile.decoratorsArray) {
       if (dec.name in this.graph!.itemDecoratorsRegistry) {
         this._schemaErrors.push(new SchemaError(
           `Item decorator @${dec.name} cannot be used in the file header - it must be attached to a config item`,
           { location: this._locationFromParsed(dec) },
         ));
+      } else if (!dec.isBareFnCall) {
+        if (seenRootDecs.has(dec.name)) {
+          this._schemaErrors.push(new SchemaError(
+            `Root decorator @${dec.name} cannot be used more than once in the same file`,
+            { location: this._locationFromParsed(dec) },
+          ));
+        }
+        seenRootDecs.add(dec.name);
       }
     }
 
