@@ -41,17 +41,14 @@ try {
 
 /**
  * Turbopack-compatible webpack loader that:
- * 1. In instrumentation.ts/js: inlines __VARLOCK_ENV + initVarlockEnv() + all patches
- *    (guaranteed server-only, runs once at startup — safe for production/Vercel)
+ * 1. In instrumentation.ts/js: inlines __VARLOCK_ENV + self-contained env bundle
+ *    (guaranteed server-only, runs once at startup — handles init + all patches)
  * 2. In proxy.ts/proxy.js: replaces `import { ENV } from 'varlock/env'` with inlined
- *    env values (Turbopack can't resolve varlock/env in the proxy/middleware context)
- * 3. In other server files: injects `import 'varlock/env'` for patch side-effects
- * 4. Replaces `ENV.KEY` references for non-sensitive vars with literal JSON values
+ *    env bundle (Turbopack can't resolve varlock/env in the proxy/middleware context)
+ * 3. Replaces `ENV.KEY` references for non-sensitive vars with literal JSON values
  *
  * SECURITY: Sensitive env values are ONLY embedded into files that are guaranteed
- * server-only (instrumentation.ts, proxy.ts). The varlock/env module reads
- * process.env.__VARLOCK_ENV at runtime, so even if a file is bundled for the client,
- * process.env will be empty and no secrets leak. The static ENV.KEY replacements
+ * server-only (instrumentation.ts, proxy.ts). The static ENV.KEY replacements
  * explicitly skip sensitive vars.
  */
 function turbopackLoader(this: LoaderContext, source: string) {
@@ -131,20 +128,10 @@ function turbopackLoader(this: LoaderContext, source: string) {
     } else {
       console.warn('[varlock-turbopack] ⚠️ proxy file has varlock/env import but inline bundle not available!');
     }
-  } else if (!hasVarlockImport) {
-    // server file without varlock/env import — inject a side-effect import
-    // so that the patches (console redaction, leak prevention) are applied globally.
-    // The module is cached so the patches only execute once.
-    // SAFETY: we do NOT inline __VARLOCK_ENV here — it's already available in the
-    // Node process (set by next-env-compat.ts). The varlock/env module reads it
-    // at runtime, so even if this file ends up in a client bundle, no secrets leak
-    // (process.env is empty/undefined in the browser).
-    result = `import 'varlock/env';\n${result}`;
-    console.log(`[varlock-turbopack] injected varlock/env import into server file: ${relPath}`);
   }
 
   // static replacements for non-sensitive env vars
-  if (source.includes('ENV')) {
+  if (source.includes('ENV.')) {
     for (const [key, item] of Object.entries(envGraph.config)) {
       if (item.isSensitive) continue;
 
