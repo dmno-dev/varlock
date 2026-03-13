@@ -43,7 +43,7 @@ describe('CLI plugin loading (non-binary)', () => {
 
     test('load resolves plugin values', () => {
       const result = runVarlock(['load', '--format', 'json'], { cwd });
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.output).toBe(0);
 
       const env = JSON.parse(result.stdout);
       expect(env.BASIC_RESULT).toBe('hello-basic');
@@ -52,11 +52,12 @@ describe('CLI plugin loading (non-binary)', () => {
 
     test('run injects plugin-resolved values into child process', () => {
       const result = runVarlock(
-        ['run', '--', 'node', '-e', 'console.log("BASIC_RESULT=" + process.env.BASIC_RESULT)'],
+        // Use process.env access without string literals to avoid cmd.exe quoting issues on Windows
+        ['run', '--', 'node', '-e', 'console.log(process.env.BASIC_RESULT)'],
         { cwd, captureOutput: true },
       );
-      expect(result.exitCode).toBe(0);
-      expect(result.output).toContain('BASIC_RESULT=hello-basic');
+      expect(result.exitCode, result.output).toBe(0);
+      expect(result.output).toContain('hello-basic');
     });
   });
 
@@ -74,7 +75,7 @@ describe('CLI plugin loading (non-binary)', () => {
 
     test('load resolves values using imported Node builtins', () => {
       const result = runVarlock(['load', '--format', 'json'], { cwd });
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.output).toBe(0);
 
       const env = JSON.parse(result.stdout);
       expect(env.RESULT).toContain('works');
@@ -97,7 +98,7 @@ describe('CLI plugin loading (non-binary)', () => {
 
     test('load resolves single-file plugin values', () => {
       const result = runVarlock(['load', '--format', 'json'], { cwd });
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.output).toBe(0);
 
       const env = JSON.parse(result.stdout);
       expect(env.RESULT).toContain('works');
