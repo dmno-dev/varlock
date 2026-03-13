@@ -1,6 +1,9 @@
 import { getCollection } from 'astro:content';
 import { OGImageRoute } from 'astro-og-canvas';
 
+const DEFAULT_OG_DESCRIPTION =
+  'AI-safe .env files: schemas for agents, secrets for humans.';
+
 const docsEntries = await getCollection('docs');
 const blogEntries = await getCollection('blog');
 
@@ -32,16 +35,24 @@ export const { getStaticPaths, GET } = OGImageRoute({
     },
   },
 
-  getImageOptions: (path, page) => ({
-    title: page.title,
-    description: page.description,
-    logo: {
-      path: './src/assets/logos/wordmark-sm.png',
-    },
-    font: {
-      title: {
-        color: [236, 48, 48],
+  getImageOptions: (path, page) => {
+    const description =
+      (page.description as string | undefined)?.trim() || DEFAULT_OG_DESCRIPTION;
+    return {
+      title: page.title,
+      description,
+      logo: {
+        path: './src/assets/logos/wordmark-sm.png',
       },
-    },
-  }),
+      font: {
+        title: {
+          color: [236, 48, 48],
+        },
+        description: {
+          color: [255, 255, 255],
+          size: 40,
+        },
+      },
+    };
+  },
 });
