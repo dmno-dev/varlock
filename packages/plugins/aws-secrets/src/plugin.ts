@@ -274,6 +274,12 @@ class AwsPluginInstance {
         tip: `SSM parameter names must start with "/"\n  Try: "/${name}"`,
       });
     }
+    // AWS reserves the /ssm prefix (case-insensitive)
+    if (/^\/ssm(\/|$)/i.test(name)) {
+      throw new ResolutionError(`Invalid AWS SSM parameter name: "${name}"`, {
+        tip: 'SSM parameter names cannot start with "/ssm" (AWS reserved prefix, case-insensitive)',
+      });
+    }
     // Validate parameter name characters (letters, numbers, and . - _ / are allowed)
     if (!/^[a-zA-Z0-9/._-]+$/.test(name)) {
       const invalidChars = [...new Set(name.match(/[^a-zA-Z0-9/._-]/g) || [])].join('');
