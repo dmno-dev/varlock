@@ -191,8 +191,14 @@ export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
           console.warn('[varlock] failed to copy env-inline bundle:', err);
         }
         turbopackConfig.resolveAlias ||= {};
+        // The inline bundle is self-contained (includes env runtime + all patches).
+        // Alias varlock/env and all patch subpaths to it so Turbopack can resolve them.
+        // The patches are idempotent so it's safe if the module is imported multiple times.
         turbopackConfig.resolveAlias['varlock/env'] = './node_modules/.varlock/env-inline.js';
-        debug('set resolveAlias varlock/env -> ./node_modules/.varlock/env-inline.js');
+        turbopackConfig.resolveAlias['varlock/patch-console'] = './node_modules/.varlock/env-inline.js';
+        turbopackConfig.resolveAlias['varlock/patch-server-response'] = './node_modules/.varlock/env-inline.js';
+        turbopackConfig.resolveAlias['varlock/patch-response'] = './node_modules/.varlock/env-inline.js';
+        debug('set resolveAlias for varlock/env + patches -> ./node_modules/.varlock/env-inline.js');
       }
 
       return {
@@ -281,18 +287,18 @@ export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
             return function assetUpdateFn(origSource: any) {
               const origSourceStr = origSource.source();
 
-              // we will inline the injector code, but need a different version if we are running in the edge runtime
-              // const injectorSrc = getCjsModuleSource(`dmno/injector-standalone${edgeRuntime ? '/edge' : ''}`);
               const injectorPath = path.resolve(__dirname, './patch-next-runtime.js');
               const injectorSrc = fs.readFileSync(injectorPath, 'utf8');
 
+              // inline the resolved env so it's baked into the build
+              // this removes the need for a .env.production.local file on platforms like Vercel
+              const rawEnv = process.env.__VARLOCK_ENV;
+              const envInline = rawEnv
+                ? `process.env.__VARLOCK_ENV = process.env.__VARLOCK_ENV || ${JSON.stringify(rawEnv)};`
+                : '';
 
               const updatedSourceStr = [
-                // TODO: reimplement dynamic/static functionality, which triggers a call to next/headers (or similar)
-                // when accessing a dynamic env item. This will force the page into dynamic rendering mode
-                // see DMNO integration for more details
-
-                // inline the dmno injector code
+                envInline,
                 injectorSrc,
                 origSourceStr,
               ].join('\n');
