@@ -1,6 +1,7 @@
 import { describe, test } from 'vitest';
 import outdent from 'outdent';
 import { envFilesTest } from './helpers/generic-test';
+import { SchemaError } from '../lib/errors';
 
 describe('decorator placement validation', () => {
   describe('header without divider', () => {
@@ -109,6 +110,29 @@ describe('decorator placement validation', () => {
           # @required
 
           ITEM2=bar
+        `,
+      },
+      earlyError: true,
+    }));
+  });
+
+  describe('unknown decorators trigger errors', () => {
+    test('unknown item decorator causes schema error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @requred
+          ITEM=foo
+        `,
+      },
+      expectValues: { ITEM: SchemaError },
+    }));
+
+    test('unknown root decorator causes schema error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @nonExistentRootDec
+          # ---
+          ITEM=foo
         `,
       },
       earlyError: true,
