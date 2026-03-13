@@ -11,7 +11,7 @@ import { patchGlobalResponse } from 'varlock/patch-response';
 import { createDebug, type SerializedEnvGraph } from 'varlock';
 import { execSyncVarlock } from 'varlock/exec-sync-varlock';
 
-import { createReplacerTransformFn } from './transform';
+import { createReplacerTransformFn, SUPPORTED_FILES } from './transform';
 
 
 // enables throwing when user accesses a bad key on ENV
@@ -169,9 +169,12 @@ export function varlockVitePlugin(
       // we need to detect if this module is one of our worker entry points
       // when running `vite build`, we could use `this.getModuleInfo(id).isEntry`
       // but that doesnt work in dev, so we try to detect it another way
+      const fileExt = id.split('.').pop() || '';
       let isEntry = false;
-      const moduleIds = Array.from(this.getModuleIds());
-      if (moduleIds[0] === id) isEntry = true;
+      if (SUPPORTED_FILES.includes(fileExt)) {
+        const moduleIds = Array.from(this.getModuleIds());
+        if (moduleIds[0] === id) isEntry = true;
+      }
 
       if (isEntry) {
         // using env.command (in config hook) is misleading

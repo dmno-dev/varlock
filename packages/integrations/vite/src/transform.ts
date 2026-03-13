@@ -34,7 +34,7 @@ function markEdited(node: AstNode, edits: Array<Edit>): number | false {
   return edits.push([node.start, node.end]);
 }
 
-const SUPPORTED_FILES = ['js', 'ts', 'mjs', 'mts', 'cjs', 'cts', 'jsx', 'tsx', 'vue', 'svelte'];
+export const SUPPORTED_FILES = ['js', 'ts', 'mjs', 'mts', 'cjs', 'cts', 'jsx', 'tsx', 'vue', 'svelte'];
 
 type MatchersArray = Array<{ matcher: ReturnType<typeof astMatcher>, replacement: string }>;
 
