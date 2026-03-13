@@ -274,6 +274,13 @@ class AwsPluginInstance {
         tip: `SSM parameter names must start with "/"\n  Try: "/${name}"`,
       });
     }
+    // Validate parameter name characters (letters, numbers, and . - _ / are allowed)
+    if (!/^[a-zA-Z0-9/._-]+$/.test(name)) {
+      const invalidChars = [...new Set(name.match(/[^a-zA-Z0-9/._-]/g) || [])].join('');
+      throw new ResolutionError(`Invalid AWS SSM parameter name: "${name}"`, {
+        tip: `SSM parameter names can only contain letters, numbers, and the symbols / . - _\n  Invalid character(s): ${invalidChars}`,
+      });
+    }
 
     try {
       const command = new GetParameterCommand({
@@ -322,7 +329,7 @@ class AwsPluginInstance {
 
       if (errorName === 'ParameterInvalidException' || errorName === 'ValidationException') {
         errorMessage = `Invalid AWS SSM parameter name: "${name}"`;
-        errorTip = 'Parameter names must start with "/" and can only contain letters, numbers, and the symbols . - _';
+        errorTip = 'Parameter names must start with "/" and can only contain letters, numbers, and the symbols / . - _';
       } else if (errorName === 'ParameterNotFound' || errorCode === 404) {
         errorMessage = `Parameter "${name}" not found`;
         errorTip = [
@@ -386,12 +393,6 @@ plugin.registerRootDecorator({
       throw new SchemaError(`Instance with id "${id}" already initialized`);
     }
 
-    // Validate profile is static
-    if (objArgs.profile && !objArgs.profile.isStatic) {
-      throw new SchemaError('Expected profile to be static');
-    }
-    const profile = objArgs?.profile ? String(objArgs?.profile?.staticValue) : undefined;
-
     // Region is required
     if (!objArgs.region) {
       throw new SchemaError('region parameter is required');
@@ -401,7 +402,7 @@ plugin.registerRootDecorator({
 
     return {
       id,
-      profile,
+      profileResolver: objArgs.profile,
       regionResolver: objArgs.region,
       accessKeyIdResolver: objArgs.accessKeyId,
       secretAccessKeyResolver: objArgs.secretAccessKey,
@@ -411,7 +412,7 @@ plugin.registerRootDecorator({
   },
   async execute({
     id,
-    profile,
+    profileResolver,
     regionResolver,
     accessKeyIdResolver,
     secretAccessKeyResolver,
@@ -422,6 +423,7 @@ plugin.registerRootDecorator({
     const accessKeyId = await accessKeyIdResolver?.resolve();
     const secretAccessKey = await secretAccessKeyResolver?.resolve();
     const sessionToken = await sessionTokenResolver?.resolve();
+    const profile = await profileResolver?.resolve();
     const namePrefix = await namePrefixResolver?.resolve();
     pluginInstances[id].setAuth(region, accessKeyId, secretAccessKey, sessionToken, profile, namePrefix);
   },
