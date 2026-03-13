@@ -48,6 +48,8 @@ class BitwardenPluginInstance {
   private identityUrl: string = 'https://identity.bitwarden.com';
   /** Cached authentication */
   private cachedAuth?: CachedAuth;
+  /** In-flight auth promise - prevents parallel resolution from triggering multiple auth requests (rate limit fix) */
+  private authInFlight?: Promise<CachedAuth>;
 
   constructor(
     readonly id: string,
