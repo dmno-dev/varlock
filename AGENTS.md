@@ -33,3 +33,39 @@
 - Run **`bun run lint:fix`** from the repo root after completing a significant chunk of work (new feature, refactor, bug fix, etc.)
 - The linter uses ESLint with `@stylistic` and other plugins — auto-fix handles most formatting issues
 - Do not leave lint errors unresolved; fix any that `--fix` cannot handle automatically
+
+## Sandbox environment (GitHub Copilot Agent)
+
+The Copilot Agent sandbox uses a MITM proxy that **corrupts Brotli-encoded npm registry responses**, causing `bun install` to fail with `HTTPError` or `Unterminated string literal` errors.
+
+### Installing bun
+
+Bun is not pre-installed. Install it first:
+
+```bash
+curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.9"
+export PATH="$HOME/.bun/bin:$PATH"
+```
+
+### Running `bun install`
+
+Use the local npm proxy script to bypass the Brotli corruption issue:
+
+```bash
+# 1. Start the proxy in the background (redirecting its output)
+python3 scripts/sandbox-npm-proxy.py >> /tmp/proxy.log 2>&1 &
+
+# 2. Install dependencies using the proxy
+BUN_CONFIG_REGISTRY="http://127.0.0.1:4873" bun install --frozen-lockfile
+```
+
+The proxy (`scripts/sandbox-npm-proxy.py`) re-fetches npm packages using gzip instead of Brotli, avoiding the MITM proxy corruption. The `--frozen-lockfile` flag ensures bun uses the existing `bun.lock` (resolving `catalog:` references from there) rather than re-resolving from scratch.
+
+### Running the linter
+
+After `bun install`, you can run the linter normally:
+
+```bash
+bun run lint       # check
+bun run lint:fix   # auto-fix
+```
