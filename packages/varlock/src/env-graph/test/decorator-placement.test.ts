@@ -85,7 +85,7 @@ describe('decorator placement validation', () => {
           ITEM=foo
         `,
       },
-      earlyError: true,
+      expectValues: { ITEM: SchemaError },
     }));
 
     test('root decorator as post-comment on config item causes schema error', envFilesTest({
@@ -94,7 +94,7 @@ describe('decorator placement validation', () => {
           ITEM=foo # @defaultRequired
         `,
       },
-      earlyError: true,
+      expectValues: { ITEM: SchemaError },
     }));
   });
 
@@ -151,6 +151,50 @@ describe('decorator placement validation', () => {
         `,
       },
       expectValues: { ITEM: 'foo' },
+    }));
+  });
+
+  describe('decorator syntax validation (fn call vs value)', () => {
+    test('function-only decorator used as value causes schema error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import=../.env
+          # ---
+          ITEM=foo
+        `,
+      },
+      earlyError: true,
+    }));
+
+    test('value-only decorator used as function call causes schema error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @defaultRequired(false)
+          # ---
+          ITEM=foo
+        `,
+      },
+      earlyError: true,
+    }));
+
+    test('item function-only decorator used as value causes schema error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @docs=https://example.com
+          ITEM=foo
+        `,
+      },
+      expectValues: { ITEM: SchemaError },
+    }));
+
+    test('item value-only decorator used as function call causes schema error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @required(true)
+          ITEM=foo
+        `,
+      },
+      expectValues: { ITEM: SchemaError },
     }));
   });
 

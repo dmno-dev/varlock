@@ -71,6 +71,18 @@ export abstract class DecoratorInstance {
         throw new Error(`Unknown decorator: @${this.name}`);
       }
 
+      // validate function-call vs value syntax
+      if (this.decoratorDef.isFunction && !this.isFunctionCall) {
+        throw new SchemaError(
+          `@${this.name} must be used as a function call - use @${this.name}(...) instead of @${this.name}=value`,
+        );
+      }
+      if (!this.decoratorDef.isFunction && this.isFunctionCall) {
+        throw new SchemaError(
+          `@${this.name} cannot be used as a function call - use @${this.name}=value instead of @${this.name}(...)`,
+        );
+      }
+
       // this is so we can deal with @type, where each data type is not a real resolver
       // so instead we just make a new dummy resolver holding the args
       if (

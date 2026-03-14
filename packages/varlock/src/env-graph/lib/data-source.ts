@@ -648,17 +648,8 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
       }
     }
 
-    // check for root decorators attached to config items
-    for (const item of parsedFile.configItems) {
-      for (const dec of item.decoratorsArray) {
-        if (dec.name in this.graph!.rootDecoratorsRegistry) {
-          this._schemaErrors.push(new SchemaError(
-            `Root decorator @${dec.name} cannot be attached to config item "${item.key}" - it must be in the file header (before the first config item)`,
-            { location: this._locationFromParsed(dec) },
-          ));
-        }
-      }
-    }
+    // NOTE: root decorators attached to config items are caught during
+    // DecoratorInstance.process() which gives a clear error on the individual item
 
     // check for any decorators in orphan comment blocks (not header, not attached to items)
     for (const block of parsedFile.orphanCommentBlocks) {
