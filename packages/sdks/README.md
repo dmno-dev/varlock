@@ -1,7 +1,7 @@
-# Varlock PHP SDK — Proof of Concept
+# Varlock PHP SDK - Proof of Concept
 
 > **TL;DR:** This PoC proves that `varlock compile` can produce a JSON manifest
-> that PHP frameworks consume at boot time — no Node.js runtime, no `exec()`,
+> that PHP frameworks consume at boot time - no Node.js runtime, no `exec()`,
 > no sidecar. Secrets are resolved from external APIs (1Password, Vault, etc.)
 > and never stored in `.env` files. This makes codebases safe for AI agents
 > that can read the filesystem but cannot reach a secrets API.
@@ -26,7 +26,7 @@
 
 ## Why PHP needs a different approach
 
-In the JS ecosystem, varlock hooks into the module loader — it intercepts
+In the JS ecosystem, varlock hooks into the module loader - it intercepts
 `process.env` access at the language level. PHP has no equivalent. There is no
 module loader to hook into, no way to intercept `$_ENV` reads, and shelling out
 to a Node.js binary on every request is a non-starter for performance.
@@ -34,7 +34,7 @@ to a Node.js binary on every request is a non-starter for performance.
 But PHP applications **do** have a well-defined boot sequence with a clear
 moment where env vars are loaded. If we can inject values into `$_ENV` at the
 right point in that sequence, every call to `env('DB_PASSWORD')` downstream
-sees our values — no framework patches, no monkey-patching.
+sees our values - no framework patches, no monkey-patching.
 
 That is what this PoC does. The JS side (`varlock compile`) produces a static
 JSON manifest. The PHP side reads it once at boot and injects values into the
@@ -74,15 +74,15 @@ Laravel boots in a strict order. Understanding this order is critical because
 **varlock must inject values after step 1 but before step 2**:
 
 ```
-1. LoadEnvironmentVariables  — reads .env via vlucas/phpdotenv, populates $_ENV
-2. LoadConfiguration         — requires config/*.php files, each calls env('APP_KEY')
-3. RegisterProviders         — runs service providers (too late for env injection)
-4. BootProviders             — calls boot() on each provider
+1. LoadEnvironmentVariables  - reads .env via vlucas/phpdotenv, populates $_ENV
+2. LoadConfiguration         - requires config/*.php files, each calls env('APP_KEY')
+3. RegisterProviders         - runs service providers (too late for env injection)
+4. BootProviders             - calls boot() on each provider
 ```
 
 The `env()` helper in step 2 reads from `$_ENV`. If `APP_KEY` is empty in
 `$_ENV` at that point, `config('app.key')` will be empty for the entire
-request — even if a service provider later sets it.
+request - even if a service provider later sets it.
 
 **Our hook point:**
 
@@ -99,7 +99,7 @@ our bootstrap can see them, decide which ones are empty, resolve the missing
 secrets from an external API, and write them back into `$_ENV` before
 `config/app.php` ever calls `env('APP_KEY')`.
 
-**Key detail — immutable Dotenv:** Laravel uses `Dotenv::createImmutable()`,
+**Key detail - immutable Dotenv:** Laravel uses `Dotenv::createImmutable()`,
 which means Dotenv will **not** overwrite values that already exist in `$_ENV`.
 This is a feature for us: if we wrote values into `$_ENV` before Dotenv ran,
 Dotenv would skip them. But since we run *after* Dotenv, we're the ones
@@ -108,7 +108,7 @@ overwriting Dotenv's empty values with resolved secrets. Both directions work.
 **Config caching:** In production, Laravel can cache all config into a single
 PHP file (`php artisan config:cache`). When this cache exists, `.env` is never
 read and `env()` calls return `null`. Our bootstrap detects this
-(`bootstrap/cache/config.php` exists) and skips resolution entirely — the
+(`bootstrap/cache/config.php` exists) and skips resolution entirely - the
 cached config already has the baked-in values from when the cache was generated.
 
 ### Symfony's boot sequence
@@ -116,10 +116,10 @@ cached config already has the baked-in values from when the cache was generated.
 Symfony is simpler but has its own quirk:
 
 ```
-1. public/index.php          — requires autoload_runtime.php
-2. autoload_runtime.php       — loads .env via Symfony\Dotenv, boots the runtime
-3. Runtime calls the closure  — receives $context with APP_ENV, APP_DEBUG
-4. Kernel boots               — compiles the container, loads bundles
+1. public/index.php          - requires autoload_runtime.php
+2. autoload_runtime.php       - loads .env via Symfony\Dotenv, boots the runtime
+3. Runtime calls the closure  - receives $context with APP_ENV, APP_DEBUG
+4. Kernel boots               - compiles the container, loads bundles
 ```
 
 The `.env` is loaded inside `autoload_runtime.php` (step 2), and the closure
@@ -206,7 +206,7 @@ Secrets Manager, or any HTTP API.
 
 ```
 packages/sdks/
-├── php-core/                          # varlock/php-core — framework-agnostic
+├── php-core/                          # varlock/php-core - framework-agnostic
 │   ├── composer.json
 │   └── src/
 │       ├── ManifestLoader.php         # Reads .varlock/manifest.json
@@ -226,7 +226,7 @@ packages/sdks/
 │           ├── VarlockValidationException.php
 │           └── ManifestNotFoundException.php
 │
-├── php-laravel/                       # varlock/laravel — Laravel integration
+├── php-laravel/                       # varlock/laravel - Laravel integration
 │   ├── composer.json
 │   └── src/
 │       ├── VarlockBootstrap.php       # The main entry point, called from bootstrap/app.php
@@ -236,7 +236,7 @@ packages/sdks/
 │       └── Logging/
 │           └── RedactSensitiveProcessor.php  # Monolog processor
 │
-└── php-symfony/                       # varlock/symfony-bundle — Symfony integration
+└── php-symfony/                       # varlock/symfony-bundle - Symfony integration
     ├── composer.json
     └── src/
         ├── VarlockBootstrap.php       # Called from public/index.php
@@ -247,7 +247,7 @@ packages/sdks/
 
 **Why three packages?**
 
-- `php-core` has zero framework dependencies — just PHP 8.2. Could be used
+- `php-core` has zero framework dependencies - just PHP 8.2. Could be used
   with Slim, Laminas, WordPress, or any custom app.
 - `php-laravel` and `php-symfony` are thin wrappers that know where to hook
   into each framework's boot sequence.
@@ -263,16 +263,16 @@ Every request (HTTP or CLI) goes through this flow once:
 
 ```
 1. Framework loads .env file into $_ENV
-   └─ At this point: DB_PASSWORD="" (empty — no secret in .env)
+   └─ At this point: DB_PASSWORD="" (empty - no secret in .env)
 
 2. VarlockBootstrap::load() runs
    ├─ Reads .varlock/manifest.json
    ├─ For each item in manifest:
-   │   ├─ Check $_ENV — is there already a value?     → use it
+   │   ├─ Check $_ENV - is there already a value?     → use it
    │   ├─ Is there a "resolve" block?                  → call secret API
    │   └─ Is there a "default"?                        → use it
    ├─ Validate all values (required? correct type?)
-   ├─ Coerce types (Laravel only — Symfony skips this)
+   ├─ Coerce types (Laravel only - Symfony skips this)
    ├─ Write resolved values into $_ENV / $_SERVER / putenv()
    └─ Store sensitive value map in VarlockState singleton
 
@@ -296,18 +296,18 @@ process memory for the duration of the request.
 For each item in the manifest, the bootstrap tries three sources in order:
 
 ```
-1. Existing env var  ─  from .env, process env, or Docker/K8s injection
-2. Resolve block     ─  calls external API (1Password, Vault, HTTP, etc.)
-3. Default value     ─  from the manifest itself
+1. Existing env var  -  from .env, process env, or Docker/K8s injection
+2. Resolve block     -  calls external API (1Password, Vault, HTTP, etc.)
+3. Default value     -  from the manifest itself
 ```
 
 If all three fail for a `required: true` item, the app crashes at boot with a
-clear error message listing all missing vars. This is intentional — fail fast,
+clear error message listing all missing vars. This is intentional - fail fast,
 fail loud.
 
 ### Built-in resolvers
 
-**HttpSecretResolver** — The workhorse. Calls any HTTP endpoint, parses JSON,
+**HttpSecretResolver** - The workhorse. Calls any HTTP endpoint, parses JSON,
 extracts a field by dot-notation path. Caches responses per endpoint so
 multiple secrets from the same API (e.g. batch endpoint) make only one HTTP
 request.
@@ -323,17 +323,17 @@ request.
 }
 ```
 
-Note the `{{OP_CONNECT_TOKEN}}` — header values can reference process
+Note the `{{OP_CONNECT_TOKEN}}` - header values can reference process
 env vars (injected by the orchestrator, not from `.env`). This way the
 *token to authenticate with the secret manager* also never touches the
 filesystem.
 
-**EnvSecretResolver** — For Docker/Kubernetes environments where the
+**EnvSecretResolver** - For Docker/Kubernetes environments where the
 orchestrator injects secrets as process env vars. Reads from
 `VARLOCK_SECRET_DB_PASSWORD` (prefixed to avoid collision with the actual
 `DB_PASSWORD` key).
 
-**CallbackSecretResolver** — Escape hatch. Wrap any PHP closure:
+**CallbackSecretResolver** - Escape hatch. Wrap any PHP closure:
 
 ```php
 SecretResolverFactory::register('custom', new CallbackSecretResolver(
@@ -341,7 +341,7 @@ SecretResolverFactory::register('custom', new CallbackSecretResolver(
 ));
 ```
 
-**ChainSecretResolver** — Try multiple resolvers in order:
+**ChainSecretResolver** - Try multiple resolvers in order:
 
 ```php
 SecretResolverFactory::register('1password', new ChainSecretResolver([
@@ -355,7 +355,7 @@ SecretResolverFactory::register('1password', new ChainSecretResolver([
 The bootstrap scans the manifest for `resolve` blocks. If a plugin has an
 `endpoint` field and no resolver is manually registered, the
 `HttpSecretResolver` is automatically registered for that plugin. This means
-**zero configuration** for HTTP-based secret managers — just put the endpoint
+**zero configuration** for HTTP-based secret managers - just put the endpoint
 in the manifest.
 
 ---
@@ -375,7 +375,7 @@ error reports.
 ### The current state
 
 ```
-# .env (today — secrets on filesystem)
+# .env (today - secrets on filesystem)
 APP_KEY=base64:9McFRwiu6WCB21XjXdjz2b3njJCsnsVS6Qmz9FbdDGk=
 DB_PASSWORD=prod-db-P@ssw0rd!-2026-rotated
 STRIPE_SECRET=sk_live_abc123...
@@ -386,14 +386,14 @@ Every file-reading tool call can leak these.
 ### With varlock
 
 ```
-# .env (with varlock — no secrets on filesystem)
+# .env (with varlock - no secrets on filesystem)
 APP_KEY=
 DB_PASSWORD=
 STRIPE_SECRET=
 ```
 
 ```json
-// .varlock/manifest.json (safe to read — zero secrets)
+// .varlock/manifest.json (safe to read - zero secrets)
 {
   "items": {
     "DB_PASSWORD": {
@@ -470,7 +470,7 @@ php artisan varlock:status
 # Web server works too:
 php artisan serve --port=8077 &
 curl localhost:8077/varlock/status    # JSON with redacted secrets
-curl localhost:8077/varlock/log-test  # check storage/logs/laravel.log — password is [REDACTED]
+curl localhost:8077/varlock/log-test  # check storage/logs/laravel.log - password is [REDACTED]
 ```
 
 ### 3. Symfony
@@ -505,7 +505,7 @@ interface ManifestItem {
   type: 'string' | 'boolean' | 'number' | 'integer' | 'email' | 'url';
   required: boolean;
   sensitive: boolean;
-  default?: string;        // always a string — PHP SDK handles coercion
+  default?: string;        // always a string - PHP SDK handles coercion
   resolve?: ResolveConfig; // only for items backed by a secret manager
 }
 
@@ -528,7 +528,7 @@ everything else.
 | `@required` decorator | `required` | |
 | `@sensitive` decorator | `sensitive` | Drives redaction |
 | Default value | `default` | Serialized as string |
-| `op()` / `awsSecret()` resolver | `resolve.plugin` + `resolve.endpoint` | The PHP SDK doesn't import the JS plugin — it just calls the HTTP endpoint |
+| `op()` / `awsSecret()` resolver | `resolve.plugin` + `resolve.endpoint` | The PHP SDK doesn't import the JS plugin - it just calls the HTTP endpoint |
 | `@initOp()` config | `resolve.headers` | Auth tokens etc. |
 
 ---
@@ -573,7 +573,7 @@ can access the sensitive values map without constructor injection.
 
 When `php artisan config:cache` runs, it evaluates all `env()` calls once and
 dumps the results to `bootstrap/cache/config.php`. After that, `env()` returns
-`null` — the cached values are used directly. Calling the secret API would
+`null` - the cached values are used directly. Calling the secret API would
 be wasteful and would fail if the API isn't reachable during deployment.
 
 ---
@@ -583,12 +583,12 @@ be wasteful and would fail if the API isn't reachable during deployment.
 The manifest approach is designed to be language-agnostic. Here's what each
 new language SDK needs:
 
-1. **Manifest reader** — Parse JSON. Every language has this.
-2. **Env injector** — Write values into the language's env mechanism
+1. **Manifest reader** - Parse JSON. Every language has this.
+2. **Env injector** - Write values into the language's env mechanism
    (`process.env`, `os.environ`, `$_ENV`, `System.getenv()`).
-3. **Boot hook** — Find the right moment in the framework's lifecycle.
-4. **Secret resolver** — HTTP client to call the secrets API.
-5. **Log redactor** — Hook into the logging framework.
+3. **Boot hook** - Find the right moment in the framework's lifecycle.
+4. **Secret resolver** - HTTP client to call the secrets API.
+5. **Log redactor** - Hook into the logging framework.
 
 | Language | Framework | Boot hook | Env mechanism | Logging |
 |---|---|---|---|---|
