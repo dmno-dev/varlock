@@ -26,6 +26,21 @@ class VarlockBootstrap
      */
     public static function load(string $basePath): void
     {
+        // This method runs very early in the boot sequence (after Dotenv,
+        // before config/container). Laravel's error handler, logger, and
+        // config service do NOT exist yet. Any uncaught exception would
+        // cascade into "Target class [config] does not exist" because the
+        // exception handler tries to log via LogManager which needs config.
+        // We catch everything and write a clean message to STDERR instead.
+        try {
+            self::doLoad($basePath);
+        } catch (\Throwable $e) {
+            self::abort($e);
+        }
+    }
+
+    private static function doLoad(string $basePath): void
+    {
         $manifest = ManifestLoader::load($basePath);
         $items = $manifest['items'];
 
@@ -51,13 +66,18 @@ class VarlockBootstrap
 
         $values = [];
         $sensitiveKeys = [];
+        $resolveErrors = [];
 
         foreach ($items as $key => $schema) {
             // Priority: existing env > secret manager > manifest default
             $value = self::getExistingEnv($key);
 
             if ($value === null && isset($schema['resolve'])) {
-                $value = SecretResolverFactory::resolve($schema['resolve'], $key);
+                try {
+                    $value = SecretResolverFactory::resolve($schema['resolve'], $key);
+                } catch (\Throwable $e) {
+                    $resolveErrors[$key] = $e->getMessage();
+                }
             }
 
             if ($value === null && array_key_exists('default', $schema)) {
@@ -71,6 +91,16 @@ class VarlockBootstrap
             if (!empty($schema['sensitive'])) {
                 $sensitiveKeys[$key] = true;
             }
+        }
+
+        // Report resolution errors before validation so the developer sees
+        // both "couldn't reach secret server" AND "these vars are missing".
+        if (!empty($resolveErrors)) {
+            $msg = "Varlock: failed to resolve secrets from external source:\n";
+            foreach ($resolveErrors as $key => $error) {
+                $msg .= "  - {$key}: {$error}\n";
+            }
+            fwrite(STDERR, "\n\033[33m{$msg}\033[0m\n");
         }
 
         // Validate before coercion (validation works on string values)
@@ -88,6 +118,25 @@ class VarlockBootstrap
 
         // Initialize state singleton
         VarlockState::getInstance()->initialize($coerced, $sensitiveKeys, $items);
+    }
+
+    /**
+     * Output a fatal error and exit. Used when we're too early in the boot
+     * sequence for Laravel's exception handler to work.
+     */
+    private static function abort(\Throwable $e): never
+    {
+        $message = $e->getMessage();
+
+        if (PHP_SAPI === 'cli') {
+            fwrite(STDERR, "\n\033[31mVarlock bootstrap failed:\033[0m\n{$message}\n\n");
+        } else {
+            // Minimal HTML for browser display during development
+            http_response_code(500);
+            echo "<h2>Varlock bootstrap failed</h2><pre>" . htmlspecialchars($message) . "</pre>";
+        }
+
+        exit(1);
     }
 
     private static function getExistingEnv(string $key): ?string
