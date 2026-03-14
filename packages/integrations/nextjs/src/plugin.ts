@@ -54,6 +54,46 @@ async function scanStaticFiles(nextDirPath: string) {
   }
 }
 
+let scrubbedSourcemaps = false;
+async function scrubSourcemaps(nextDirPath: string) {
+  if (scrubbedSourcemaps) return;
+  scrubbedSourcemaps = true;
+
+  // build a list of sensitive values and their same-length replacements
+  const envGraph: SerializedEnvGraph = JSON.parse(process.env.__VARLOCK_ENV || '{}');
+  const sensitiveValues: Array<{ value: string, replacement: string }> = [];
+  for (const itemKey in envGraph.config) {
+    const item = envGraph.config[itemKey];
+    if (item.isSensitive && item.value && typeof item.value === 'string' && item.value.length > 0) {
+      // same-length replacement to preserve sourcemap column offsets
+      sensitiveValues.push({
+        value: item.value,
+        replacement: '*'.repeat(item.value.length),
+      });
+    }
+  }
+  if (!sensitiveValues.length) {
+    debug('no sensitive values to scrub from sourcemaps');
+    return;
+  }
+  // sort longest first for maximal munch
+  sensitiveValues.sort((a, b) => b.value.length - a.value.length);
+
+  let scrubCount = 0;
+  for await (const mapFile of fs.promises.glob(`${nextDirPath}/**/*.map`)) {
+    const contents = await fs.promises.readFile(mapFile, 'utf8');
+    let scrubbed = contents;
+    for (const { value, replacement } of sensitiveValues) {
+      scrubbed = scrubbed.replaceAll(value, replacement);
+    }
+    if (scrubbed !== contents) {
+      await fs.promises.writeFile(mapFile, scrubbed);
+      scrubCount++;
+    }
+  }
+  debug(`scrubbed sensitive values from ${scrubCount} sourcemap files`);
+}
+
 // not all file writes go through this, at least in Next 15
 // (likely because webpack and prerendering are happening in workers)
 // but we can use this to monitor writing of certain files and give ourselves a "hook"
@@ -64,11 +104,15 @@ function patchGlobalFsMethods() {
   fs.promises.writeFile = async function dmnoPatchedWriteFile(...args) {
     const filePath = args[0].toString();
     // const fileContents = args[1].toString();
-    // console.log('⚡️ patched fs.promises.writeFile', filePath);
+    debug('⚡️ fs.promises.writeFile:', filePath);
 
     if (filePath.endsWith('/.next/next-server.js.nft.json') && !scannedStaticFiles) {
       const nextDirPath = filePath.substring(0, filePath.lastIndexOf('/'));
       await scanStaticFiles(nextDirPath);
+    }
+    if (filePath.endsWith('/.next/BUILD_ID') && !scrubbedSourcemaps) {
+      const nextDirPath = filePath.substring(0, filePath.lastIndexOf('/'));
+      await scrubSourcemaps(nextDirPath);
     }
 
     // // naively enable/disable detection based on file extension... probably not the best logic but it might be enough?
@@ -83,6 +127,14 @@ function patchGlobalFsMethods() {
     // }
 
     return origWriteFileFn.call(this, ...args);
+  };
+
+  // also patch sync version in case turbopack uses it
+  const origWriteFileSyncFn = fs.writeFileSync;
+  fs.writeFileSync = function dmnoPatchedWriteFileSync(...args: Parameters<typeof fs.writeFileSync>) {
+    const filePath = args[0].toString();
+    debug('⚡️ fs.writeFileSync:', filePath);
+    return origWriteFileSyncFn.call(this, ...args);
   };
 }
 
@@ -158,6 +210,7 @@ export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
 
       if (isTurbopack) {
         debug('turbopack detected, injecting turbopack loader rules');
+        patchGlobalFsMethods();
 
         // turbopack config can be under `turbopack` (Next 15+) or `experimental.turbo` (older)
         let turbopackConfig = (resolvedNextConfig as any).turbopack
