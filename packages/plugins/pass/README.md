@@ -26,13 +26,11 @@ npm install @varlock/pass-plugin
 And then register the plugin without any version number:
 ```env-spec title=".env.schema"
 # @plugin(@varlock/pass-plugin)
-# ---
 ```
 
 Otherwise just set the explicit version number when you register it:
 ```env-spec title=".env.schema"
 # @plugin(@varlock/pass-plugin@0.0.1)
-# ---
 ```
 
 See our [Plugin Guide](https://varlock.dev/guides/plugins/#installation) for more details.
@@ -70,7 +68,6 @@ For most use cases, no configuration is needed:
 ```env-spec title=".env.schema"
 # @plugin(@varlock/pass-plugin)
 # @initPass()
-# ---
 ```
 
 This uses the default `~/.password-store` directory and your existing GPG configuration.
@@ -82,7 +79,6 @@ If your password store is in a non-standard location:
 ```env-spec title=".env.schema"
 # @plugin(@varlock/pass-plugin)
 # @initPass(storePath=/path/to/custom/store)
-# ---
 ```
 
 ### Name prefixing

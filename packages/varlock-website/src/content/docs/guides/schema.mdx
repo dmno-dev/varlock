@@ -12,7 +12,7 @@ The more complete your schema is, the more validation and coercion `varlock` can
 
 
 ## Root Decorators
-The _header_ section of a `.env` file is a comment block at the beginning of the file that ends with a divider. Within this header, you can use [root decorators](/reference/root-decorators) to specify global settings and default behavior for all config items.
+The _header_ section of a `.env` file is any comment block(s) at the beginning of the file, before the first config item. Within this header, you can use [root decorators](/reference/root-decorators) to specify global settings and default behavior for all config items.
 
 ```env-spec title=".env.schema"
 # This is the header, and may contain root decorators

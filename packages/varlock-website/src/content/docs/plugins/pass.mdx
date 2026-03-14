@@ -38,7 +38,6 @@ See the [plugins guide](/guides/plugins/#installation) for more instructions on 
 #
 # 2. Initialize the plugin - no arguments needed for default setup
 # @initPass()
-# ---
 ```
 
 ### Prerequisites
@@ -69,7 +68,6 @@ If your password store is in a non-standard location, use `storePath`:
 ```env-spec title=".env.schema"
 # @plugin(@varlock/pass-plugin)
 # @initPass(storePath=/path/to/custom/store)
-# ---
 ```
 
 This sets `PASSWORD_STORE_DIR` for all pass commands issued by this plugin instance.

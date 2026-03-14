@@ -11,7 +11,6 @@ The [`@import()` root decorator](/reference/root-decorators/#import) allows you 
 # @import(./env-dir/)                   # import directory
 # @import(./.env.partial, KEY1, KEY2)   # import specific keys
 # @import(~/.env.shared)                # import from home directory
-# ---
 ```
 
 ## Import source types
@@ -58,7 +57,6 @@ You can import files from your home directory using the `~/` prefix. This is use
 
 ```env-spec
 # @import(https://env-schema.varlock.dev/platforms/.env.vercel)
-# ---
 ```
 
 ### JS package registries (👀 coming soon)
@@ -67,7 +65,6 @@ A registry (npm, jsr, etc.), package name, version, and path can be used to impo
 
 ```env-spec
 # @import(npm:@varlock/vercel-integration@1.2.3/.env)
-# ---
 ```
  */}
 
@@ -105,14 +102,12 @@ The `allowMissing` parameter accepts a boolean value (defaults to `false`). It c
 ```env-spec title=".env.schema"
 # Import if exists, skip if not
 # @import(./.env.local, allowMissing=true)
-# ---
 ```
 
 **Combine with other parameters:**
 ```env-spec title=".env.schema"
 # Optional partial import with conditional loading
 # @import(./.env.features, FEATURE_X, enabled=true, allowMissing=true)
-# ---
 ```
 
 ## Import precedence and merging multiple sources
@@ -132,7 +127,6 @@ For example, given a `.env.local` and a `.env.schema` that imports 2 files:
 ```env-spec title=".env.schema"
 # @import(./.env.import1)
 # @import(./.env.import2)
-# ---
 ```
 
 The precedence order would be `.env.import1` < `.env.import2` < `.env.schema` < `.env.local`.
