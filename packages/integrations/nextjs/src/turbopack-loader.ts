@@ -14,8 +14,8 @@ function escapeRegExp(str: string) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// matches: import { ENV } from 'varlock/env'  (with various quote styles and spacing)
-const VARLOCK_ENV_IMPORT_RE = /import\s*\{\s*ENV\s*\}\s*from\s*['"]varlock\/env['"]\s*;?/;
+// matches: import { ... } from 'varlock/env'  (with various quote styles, spacing, and any named imports)
+const VARLOCK_ENV_IMPORT_RE = /import\s*\{[^}]*\}\s*from\s*['"]varlock\/env['"]\s*;?/;
 
 // detect 'use client' directive at top of file (before any code, after optional comments)
 const USE_CLIENT_RE = /^(?:\s*\/\/[^\n]*\n|\s*\/\*[\s\S]*?\*\/\s*\n)*\s*['"]use client['"]/;
