@@ -48,6 +48,8 @@ class BitwardenPluginInstance {
   private identityUrl: string = 'https://identity.bitwarden.com';
   /** Cached authentication */
   private cachedAuth?: CachedAuth;
+  /** In-flight auth promise - prevents parallel resolution from triggering multiple auth requests (rate limit fix) */
+  private authInFlight?: Promise<CachedAuth>;
 
   constructor(
     readonly id: string,
@@ -94,6 +96,8 @@ class BitwardenPluginInstance {
 
   /**
    * Authenticate and get JWT + organization key
+   * Uses authInFlight to prevent parallel secret resolution
+   * from triggering multiple auth requests & getting rate limited
    */
   private async authenticate(): Promise<CachedAuth> {
     if (!this.accessToken) {
@@ -106,7 +110,26 @@ class BitwardenPluginInstance {
       return this.cachedAuth;
     }
 
-    const { clientId, clientSecret, encryptionKey } = this.parseAccessToken(this.accessToken);
+    // If auth is already in progress, wait for it
+    if (this.authInFlight) {
+      await this.authInFlight;
+      if (this.cachedAuth && this.cachedAuth.expiresAt > Date.now()) {
+        return this.cachedAuth;
+      }
+    }
+
+    this.authInFlight = this._doAuthenticate();
+    try {
+      const result = await this.authInFlight;
+      this.cachedAuth = result;
+      return result;
+    } finally {
+      this.authInFlight = undefined;
+    }
+  }
+
+  private async _doAuthenticate(): Promise<CachedAuth> {
+    const { clientId, clientSecret, encryptionKey } = this.parseAccessToken(this.accessToken!);
 
     // Step 1: Exchange access token for JWT
     debug('Exchanging access token for JWT at:', this.identityUrl);
@@ -179,7 +202,6 @@ class BitwardenPluginInstance {
       expiresAt: Date.now() + (tokenResponse.expires_in - 60) * 1000,
     };
 
-    this.cachedAuth = authCache;
     return authCache;
   }
 
