@@ -65,6 +65,14 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
   redactorFindReplace = { find: findRegex, replace: replaceFn };
 }
 
+/** Returns diagnostic info about the current redaction state (safe to expose — no secrets) */
+export function getRedactionMapInfo() {
+  return {
+    sensitiveItemCount: Object.keys(sensitiveSecretsMap).length,
+    hasRedactorRegex: !!redactorFindReplace,
+  };
+}
+
 
 // While the module itself acts as a singleton to hold the current map of redacted values
 // we expose only the below const to end users
