@@ -1,5 +1,14 @@
 # @varlock/aws-secrets-plugin
 
+## 0.0.4
+
+### Patch Changes
+
+- [#395](https://github.com/dmno-dev/varlock/pull/395) [`95511d6`](https://github.com/dmno-dev/varlock/commit/95511d6e04a793c9943243172c2aea7804ec780e) - Improve error message for awsParam()
+
+- Updated dependencies [[`4d436ff`](https://github.com/dmno-dev/varlock/commit/4d436ff42863136fb5ebb7016e525ef54732ea20), [`ca51993`](https://github.com/dmno-dev/varlock/commit/ca5199371cd6126794e215f67cfcc5f20342eaaa)]:
+  - varlock@0.5.0
+
 ## 0.0.3
 
 ### Patch Changes

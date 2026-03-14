@@ -1,5 +1,15 @@
 # varlock
 
+## 0.5.0
+
+### Minor Changes
+
+- [#406](https://github.com/dmno-dev/varlock/pull/406) [`ca51993`](https://github.com/dmno-dev/varlock/commit/ca5199371cd6126794e215f67cfcc5f20342eaaa) - Relax header divider requirement - the header block no longer requires a trailing `# ---` divider. All comment blocks before the first config item are now treated as part of the header. Add validation errors for misplaced decorators: item decorators in the header, root decorators on config items, and decorators in detached comment blocks.
+
+### Patch Changes
+
+- [#398](https://github.com/dmno-dev/varlock/pull/398) [`4d436ff`](https://github.com/dmno-dev/varlock/commit/4d436ff42863136fb5ebb7016e525ef54732ea20) - fix: convert plugin file paths to `file://` URLs before dynamic `import()` to resolve `ERR_UNSUPPORTED_ESM_URL_SCHEME` on Windows
+
 ## 0.4.2
 
 ### Patch Changes
