@@ -15,3 +15,11 @@ env.d.ts
 smoke-tests/pnpm-lock.yaml
 .magent
 eslint-output.txt
+
+# PHP
+vendor/
+composer.lock
+*.cache
+examples/laravel-app/.env
+examples/symfony-app/.env.local
+examples/symfony-app/.env.dev
