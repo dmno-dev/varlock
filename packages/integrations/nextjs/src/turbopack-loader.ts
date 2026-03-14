@@ -39,9 +39,10 @@ let varlockEnvInlineCode: string | undefined;
 const inlinePath = path.resolve(__dirname, './varlock-env-inline.js');
 try {
   const rawCjs = fs.readFileSync(inlinePath, 'utf8');
-  // wrap CJS bundle in an IIFE so `ENV` becomes a local binding when inlined
+  // wrap CJS bundle in an IIFE so exports become local bindings when inlined
+  // extract all known exports from varlock-env-inline.ts
   varlockEnvInlineCode = [
-    'var { ENV } = (function() {',
+    'var { ENV, initVarlockEnv, getRedactionMapInfo } = (function() {',
     '  var module = { exports: {} }; var exports = module.exports;',
     rawCjs,
     '  return module.exports;',
