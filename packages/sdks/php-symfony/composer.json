@@ -1,0 +1,18 @@
+{
+    "name": "varlock/symfony-bundle",
+    "description": "Symfony bundle for Varlock - env validation, secret resolution, and log redaction",
+    "type": "symfony-bundle",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "varlock/php-core": "*",
+        "symfony/framework-bundle": "^7.0|^8.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Varlock\\Symfony\\": "src/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
