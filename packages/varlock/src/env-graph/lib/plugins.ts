@@ -235,7 +235,7 @@ export class VarlockPlugin {
       if (isSEABuild()) {
         await loadPluginModuleInSEA(this.pluginFilePath);
       } else {
-        await import(this.pluginFilePath);
+        await import(pathToFileURL(this.pluginFilePath).href);
       }
     } catch (err) {
       this.loadingError = err as Error;
