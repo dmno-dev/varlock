@@ -16,26 +16,42 @@ function isString(s: any) {
 const UNMASK_STR = '👁';
 
 
-/** key value lookup of sensitive values to their redacted version */
-let sensitiveSecretsMap: Record<string, { key: string, redacted: string }> = {};
-
+// Store redaction state on globalThis so all module instances (e.g., multiple CJS bundles
+// in Turbopack's middleware context) share the same redaction map.
+// Without this, the module instance that patches console.log may have an empty map
+// while a different instance has the populated one.
+type RedactionState = {
+  sensitiveSecretsMap: Record<string, { key: string, redacted: string }>,
+  redactorFindReplace: undefined | { find: RegExp, replace: ReplaceFn },
+};
 type ReplaceFn = (match: string, pre: string, val: string, post: string) => string;
-let redactorFindReplace: undefined | { find: RegExp, replace: ReplaceFn };
+
+const REDACTION_STATE_KEY = '__varlockRedactionState';
+function getRedactionState(): RedactionState {
+  if (!(globalThis as any)[REDACTION_STATE_KEY]) {
+    (globalThis as any)[REDACTION_STATE_KEY] = {
+      sensitiveSecretsMap: {},
+      redactorFindReplace: undefined,
+    };
+  }
+  return (globalThis as any)[REDACTION_STATE_KEY];
+}
 
 export function resetRedactionMap(graph: SerializedEnvGraph) {
+  const state = getRedactionState();
   // reset map of { [sensitive] => redacted }
-  sensitiveSecretsMap = {};
+  state.sensitiveSecretsMap = {};
   for (const itemKey in graph.config) {
     const item = graph.config[itemKey];
     if (item.isSensitive && item.value && isString(item.value)) {
       // TODO: we want to respect masking settings from the schema (once added)
       const redacted = redactString(item.value);
-      if (redacted) sensitiveSecretsMap[item.value] = { key: itemKey, redacted };
+      if (redacted) state.sensitiveSecretsMap[item.value] = { key: itemKey, redacted };
     }
   }
   // if no sensitive items exist, we dont need to do any redaction, but the redact fn is checking for undefined
-  if (!Object.keys(sensitiveSecretsMap).length) {
-    redactorFindReplace = undefined;
+  if (!Object.keys(state.sensitiveSecretsMap).length) {
+    state.redactorFindReplace = undefined;
     return;
   }
 
@@ -44,7 +60,7 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
     [
       `(${UNMASK_STR} )?`,
       '(',
-      Object.keys(sensitiveSecretsMap)
+      Object.keys(state.sensitiveSecretsMap)
         // Escape special characters
         .map((s) => s.replace(/[()[\]{}*+?^$|#.,/\\\s-]/g, '\\$&'))
         // Sort for maximal munch
@@ -60,16 +76,17 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
     // the pre and post matches only will be populated if they were present
     // and they are used to unmask the secret - so we do not want to replace in this case
     if (pre && post) return match;
-    return sensitiveSecretsMap[val].redacted;
+    return state.sensitiveSecretsMap[val].redacted;
   };
-  redactorFindReplace = { find: findRegex, replace: replaceFn };
+  state.redactorFindReplace = { find: findRegex, replace: replaceFn };
 }
 
 /** Returns diagnostic info about the current redaction state (safe to expose — no secrets) */
 export function getRedactionMapInfo() {
+  const state = getRedactionState();
   return {
-    sensitiveItemCount: Object.keys(sensitiveSecretsMap).length,
-    hasRedactorRegex: !!redactorFindReplace,
+    sensitiveItemCount: Object.keys(state.sensitiveSecretsMap).length,
+    hasRedactorRegex: !!state.redactorFindReplace,
   };
 }
 
@@ -84,6 +101,7 @@ export function getRedactionMapInfo() {
  * NOTE - must be used only after varlock has loaded config
  * */
 export function redactSensitiveConfig(o: any): any {
+  const { redactorFindReplace } = getRedactionState();
   if (!redactorFindReplace) return o;
   if (!o) return o;
 
@@ -139,6 +157,7 @@ export function scanForLeaks(
 
   function scanStrForLeaks(strToScan: string) {
     // console.log('[varlock leak scanner] ', strToScan.substr(0, 100));
+    const { sensitiveSecretsMap } = getRedactionState();
 
     // TODO: probably should use a single regex
     for (const sensitiveValue in sensitiveSecretsMap) {

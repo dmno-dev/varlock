@@ -42,7 +42,7 @@ try {
   // wrap CJS bundle in an IIFE so exports become local bindings when inlined
   // extract all known exports from varlock-env-inline.ts
   varlockEnvInlineCode = [
-    'var { ENV, initVarlockEnv, getRedactionMapInfo } = (function() {',
+    'var { ENV, initVarlockEnv, getRedactionMapInfo, redactSensitiveConfig } = (function() {',
     '  var module = { exports: {} }; var exports = module.exports;',
     rawCjs,
     '  return module.exports;',
@@ -127,7 +127,28 @@ function turbopackLoader(this: LoaderContext, source: string) {
       console.warn('[varlock-turbopack] ⚠️ instrumentation file found but inline bundle not available!');
     }
   } else if (isProxyFile && hasVarlockImport) {
-    if (varlockEnvInlineCode) {
+    if (!process.env.VARLOCK_FORCE_PROXY_INLINE && varlockEnvInlineCode) {
+      // By default, let the resolve alias handle varlock/env in the proxy file.
+      // Set VARLOCK_FORCE_PROXY_INLINE=1 to inline the IIFE bundle instead
+      // (needed when Turbopack can't resolve the alias in edge/middleware context).
+      // ESM imports are hoisted, so we can't just prepend process.env.__VARLOCK_ENV
+      // before the import — the import's module-level init runs first.
+      // Instead, inject env data + explicit initVarlockEnv() call AFTER the import.
+      const initCode = [
+        `process.env.__VARLOCK_ENV = ${JSON.stringify(rawEnv)};`,
+        'initVarlockEnv();',
+      ].join('\n');
+      // expand the existing import to include initVarlockEnv if not already imported
+      if (!result.includes('initVarlockEnv')) {
+        result = result.replace(
+          VARLOCK_ENV_IMPORT_RE,
+          (m) => m.replace(/\}/, ', initVarlockEnv }'),
+        );
+      }
+      // inject right after the import statement
+      result = result.replace(VARLOCK_ENV_IMPORT_RE, (m) => `${m}\n${initCode}`);
+      console.log(`[varlock-turbopack] ✅ injected env init into proxy (resolve alias mode): ${relPath}`);
+    } else if (varlockEnvInlineCode) {
       // proxy.ts/js: runs in an isolated middleware/edge context where Turbopack
       // can't resolve varlock/env. Inline the entire module + env data.
       // This is safe because proxy files are always server-only.
