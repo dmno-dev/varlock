@@ -1,0 +1,207 @@
+---
+title: Expo / React Native
+description: How to integrate varlock with Expo and React Native for secure, type-safe environment management
+---
+import SyncedCodeTabs from '@/components/SyncedCodeTabs.astro'
+import { TabItem, Tabs, Steps } from "@astrojs/starlight/components";
+import Badge from '@/components/Badge.astro';
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/expo-integration" />
+</div>
+
+Expo and React Native projects use the [Metro bundler](https://metrobundler.dev/), which has its own approach to environment variables. Varlock integrates via a **Babel plugin** that replaces `ENV.xxx` references with their resolved values at compile time, and a **Metro config wrapper** that initializes the `ENV` proxy at runtime for server routes.
+
+To integrate varlock into an Expo / React Native application, you must use our [`@varlock/expo-integration`](https://www.npmjs.com/package/@varlock/expo-integration) package.
+
+This integration does a few things:
+- Loads and validates your `.env` files using varlock at bundle time
+- Replaces `ENV.xxx` references to non-sensitive config items with their literal values at compile time
+- Sensitive values are **never** inlined into your bundle — they are accessible at runtime only in [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/) (`+api` files)
+- Patches the global console to redact sensitive values from logs
+
+## Setup
+
+:::caution[Requirements]
+- Node.js v22 or higher
+- Expo SDK v50 or higher
+:::
+
+<Steps>
+
+1. **Install varlock and the Expo integration package**
+    <InstallJsDepsWidget packages="@varlock/expo-integration varlock" />
+
+1. **Run `varlock init` to set up your `.env.schema` file**
+
+    This will guide you through setting up your `.env.schema` file, based on your existing `.env` file(s). Make sure to review it carefully.
+
+    <ExecCommandWidget command="varlock init" showBinary={false} />
+
+1. **Add the Babel plugin to your `babel.config.js`**
+
+    ```diff lang="js" title="babel.config.js"
+    module.exports = {
+      presets: ['babel-preset-expo'],
+    +  plugins: [
+    +    require('@varlock/expo-integration/babel-plugin'),
+    +  ],
+    };
+    ```
+
+1. **Wrap your Metro config**
+
+    Wrap your Metro config with `withVarlockMetroConfig`. This automatically configures Metro to resolve varlock's subpath exports (e.g. `varlock/env`) and initializes the `ENV` proxy in the main Metro process so that sensitive values are available at runtime in server routes.
+
+    ```diff lang="js" title="metro.config.js"
+    const { getDefaultConfig } = require('expo/metro-config');
+    +const { withVarlockMetroConfig } = require('@varlock/expo-integration/metro-config');
+
+    const config = getDefaultConfig(__dirname);
+
+    -module.exports = config;
+    +module.exports = withVarlockMetroConfig(config);
+    ```
+
+    :::tip[What does this do?]
+    - Enables Metro's `unstable_enablePackageExports` resolver so that `import { ENV } from 'varlock/env'` works (Metro doesn't support `package.json` `"exports"` subpaths by default).
+    - Initializes the varlock `ENV` proxy in the main Metro process. Metro forks worker processes for Babel transforms, but `+api` server routes are evaluated in the main process — this wrapper ensures sensitive values are available there.
+    :::
+
+</Steps>
+
+---
+
+## Accessing environment variables
+
+Rather than using `process.env.SOMEVAR` directly, use varlock's `ENV` object for better type-safety:
+
+```ts title="example.ts"
+import { ENV } from 'varlock/env';
+
+// Non-sensitive values are inlined at bundle time:
+const apiUrl = ENV.API_URL;   // ✨ recommended — replaced at compile time
+
+// process.env still works, but loses type-safety and compile-time replacement:
+const legacyUrl = process.env.API_URL; // 🆗 still works
+```
+
+#### Why use `ENV` instead of `process.env`?
+- Non-string values (e.g., number, boolean) are properly typed and coerced
+- Non-sensitive items are replaced with their literal values at bundle time (smaller bundle, no runtime lookup)
+- Sensitive items are never embedded in the bundle
+- Better error messages for invalid or unavailable keys
+
+### How compile-time replacement works
+
+When Metro compiles your project, the Babel plugin traverses the AST and replaces `ENV.xxx` member expressions:
+
+```ts title="your-code.ts (before bundling)"
+import { ENV } from 'varlock/env';
+const url = ENV.API_URL;
+const port = ENV.PORT;
+const debug = ENV.DEBUG;
+```
+
+```ts title="compiled output (after bundling)"
+const url = "https://api.example.com";
+const port = 3000;
+const debug = false;
+```
+
+Sensitive items (marked with `@sensitive` in your `.env.schema`) are **never** replaced — they remain as `ENV.xxx` references and are resolved at runtime via the proxy in server routes.
+
+### Type-safety and IntelliSense
+
+To enable type-safety and IntelliSense for your env vars, enable the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
+
+```diff lang="env-spec" title=".env.schema"
++# @generateTypes(lang='ts', path='env.d.ts')
+# ---
+# your config items...
+```
+
+:::caution[TypeScript config]
+If you find you are not getting type completion on `ENV`, you may need to add your generated type files (usually `env.d.ts`) to your `tsconfig.json`'s `include` array.
+:::
+
+---
+
+## Managing multiple environments
+
+Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv).
+
+Usually this env var will be defaulted to something like `development` in your `.env.schema` file, and you can override it when running commands. For Expo projects, you can set it in your `package.json` scripts or via [EAS environment variables](https://docs.expo.dev/eas/environment-variables/):
+
+```diff lang="json" title="package.json" add=/APP_ENV=[a-z]+/
+{
+  "scripts": {
+    "start": "expo start",
+    "build:staging": "APP_ENV=staging eas build",
+    "build:production": "APP_ENV=production eas build",
+  }
+}
+```
+
+See the [environments guide](/guides/environments) for more information.
+
+## Managing sensitive config values
+
+Sensitive values (marked with `@sensitive`) are **never** statically inlined into your bundle — regardless of any prefix conventions. You control this with the [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) root decorator and the [`@sensitive`](/reference/item-decorators/#sensitive) item decorator. See the [secrets guide](/guides/secrets) for more information.
+
+Set a default and explicitly mark items:
+
+```diff lang="env-spec" title=".env.schema" add="@sensitive"
++# @defaultSensitive=false
+# ---
+NON_SECRET_FOO= # non-sensitive - will be inlined into bundle
+# @sensitive
+SECRET_KEY=     # sensitive - will NEVER be inlined, runtime only
+```
+
+:::caution[Bundle security]
+Non-sensitive items are inlined into your JavaScript bundle. Anyone who extracts your app's bundle can read these values. **Never** mark credentials, tokens, or other secrets as non-sensitive.
+:::
+
+### Sensitive values in server routes
+
+If you use [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/) (`+api` files), sensitive values **are** accessible at runtime via the `ENV` proxy. These files run server-side in the Metro process where `withVarlockMetroConfig` has initialized the environment.
+
+```ts title="app/secret+api.ts"
+import { ENV } from 'varlock/env';
+
+export function GET() {
+  // ✅ Sensitive values work in +api server routes
+  const key = ENV.SECRET_KEY;
+  return Response.json({ authorized: !!key });
+}
+```
+
+### Sensitive values in native code
+
+In native app code (anything that isn't a `+api` server route), sensitive values are **not available**. React Native apps run entirely on the device — there is no server to keep secrets safe. Accessing a sensitive value in native code will **throw at runtime**.
+
+The Babel plugin also emits a **build-time warning** when it detects a sensitive `ENV.xxx` reference in a non-server file, helping you catch these issues early.
+
+```ts title="app/index.tsx"
+import { ENV } from 'varlock/env';
+
+const url = ENV.API_URL;     // ✅ non-sensitive — inlined at build time
+const key = ENV.SECRET_KEY;  // ❌ throws at runtime, build-time warning
+```
+
+:::note[Expo pages are universal]
+Unlike Next.js Server Components, Expo Router page components run on **both** the server (SSR) and the client (hydration). This means you cannot safely access sensitive values in page components — use `+api` server routes instead.
+:::
+
+---
+
+## Reference
+- [Root decorators reference](/reference/root-decorators)
+- [Item decorators reference](/reference/item-decorators)
+- [Functions reference](/reference/functions)
+- [Expo environment variables docs](https://docs.expo.dev/guides/environment-variables/)
+- [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/)
+- [Metro bundler docs](https://metrobundler.dev/)
