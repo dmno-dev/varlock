@@ -94,6 +94,58 @@ async function scrubSourcemaps(nextDirPath: string) {
   debug(`scrubbed sensitive values from ${scrubCount} sourcemap files`);
 }
 
+let scannedBuildOutput = false;
+async function scanBuildOutputForLeaks(nextDirPath: string, opts?: { failBuild?: boolean }) {
+  if (scannedBuildOutput) return;
+  scannedBuildOutput = true;
+
+  if (!varlockSettings.preventLeaks) return;
+
+  const leakedFiles: string[] = [];
+
+  // scan JS chunks in .next/static/chunks/ — these are client-facing bundles
+  // that should never contain sensitive values
+  for await (const file of fs.promises.glob(`${nextDirPath}/static/chunks/**/*.js`)) {
+    const fileContents = await fs.promises.readFile(file, 'utf8');
+    try {
+      scanForLeaks(fileContents, {
+        method: 'nextjs post-build scan (static chunks)',
+        file,
+      });
+    } catch (err) {
+      leakedFiles.push(file);
+      // redact the file so the leak doesn't ship
+      await fs.promises.writeFile(file, redactSensitiveConfig(fileContents));
+    }
+  }
+
+  // also scan prerendered HTML, RSC, and body files
+  for (const ext of ['html', 'rsc', 'body']) {
+    for await (const file of fs.promises.glob(`${nextDirPath}/**/*.${ext}`)) {
+      const fileContents = await fs.promises.readFile(file, 'utf8');
+      try {
+        scanForLeaks(fileContents, {
+          method: `nextjs post-build scan (.${ext})`,
+          file,
+        });
+      } catch (err) {
+        leakedFiles.push(file);
+        await fs.promises.writeFile(file, redactSensitiveConfig(fileContents));
+      }
+    }
+  }
+
+  if (leakedFiles.length > 0) {
+    const msg = `[varlock] ⚠️ found and redacted leaked secrets in ${leakedFiles.length} build output file(s):\n${leakedFiles.map((f) => `  - ${f}`).join('\n')}`;
+    if (opts?.failBuild) {
+      throw new Error(msg);
+    }
+    console.error(msg);
+  } else {
+    debug('✅ no leaks found in build output');
+  }
+}
+
 // not all file writes go through this, at least in Next 15
 // (likely because webpack and prerendering are happening in workers)
 // but we can use this to monitor writing of certain files and give ourselves a "hook"
@@ -110,9 +162,10 @@ function patchGlobalFsMethods() {
       const nextDirPath = filePath.substring(0, filePath.lastIndexOf('/'));
       await scanStaticFiles(nextDirPath);
     }
-    if (filePath.endsWith('/.next/BUILD_ID') && !scrubbedSourcemaps) {
+    if (filePath.endsWith('/.next/BUILD_ID')) {
       const nextDirPath = filePath.substring(0, filePath.lastIndexOf('/'));
-      await scrubSourcemaps(nextDirPath);
+      if (!scrubbedSourcemaps) await scrubSourcemaps(nextDirPath);
+      if (!scannedBuildOutput) await scanBuildOutputForLeaks(nextDirPath, { failBuild: true });
     }
 
     // // naively enable/disable detection based on file extension... probably not the best logic but it might be enough?
@@ -263,11 +316,11 @@ export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
 
           const { dev } = options; // also available - isServer, nextRuntime
 
-          if (varlockSettings.preventLeaks) {
-            // we patch fs methods - ideally we would just path them to scan while files are written
-            // but instead we use it to detect what phase the build is in, and then run our own scan on already built files
-            patchGlobalFsMethods();
+          // patch fs methods to detect build phases and trigger post-build
+          // actions (sourcemap scrubbing, leak scanning)
+          patchGlobalFsMethods();
 
+          if (varlockSettings.preventLeaks) {
             // have to wait to run this until here when we know if this is dev mode or not
             patchGlobalServerResponse({
               // ignore sourcemaps - although we may in future want to scrub them?

@@ -85,17 +85,18 @@ function turbopackLoader(this: LoaderContext, source: string) {
   let result = source;
 
   const hasVarlockImport = VARLOCK_ENV_IMPORT_RE.test(result);
-  const isProxyFile = /[/\\]proxy\.[jt]sx?$/.test(this.resourcePath);
+  // proxy.ts (Next 16+) and middleware.ts (Next 15, deprecated) both run at the network edge/proxy layer
+  const isProxyOrMiddlewareFile = /[/\\](?:proxy|middleware)\.[jt]sx?$/.test(this.resourcePath);
   const isInstrumentationFile = /[/\\]instrumentation\.[jt]sx?$/.test(this.resourcePath);
-  console.log(`[varlock-turbopack] ${relPath}: hasVarlockImport=${hasVarlockImport}, isProxyFile=${isProxyFile}, isInstrumentation=${isInstrumentationFile}`);
+  console.log(`[varlock-turbopack] ${relPath}: hasVarlockImport=${hasVarlockImport}, isProxyOrMiddleware=${isProxyOrMiddlewareFile}, isInstrumentation=${isInstrumentationFile}`);
 
-  // For proxy and instrumentation files: ensure varlock is initialized with env data.
+  // For proxy/middleware and instrumentation files: ensure varlock is initialized with env data.
   // The resolve alias maps varlock/env to a self-contained bundle that includes
   // the env runtime + all patches. Importing it triggers patches as a side effect.
   // We then inject the resolved env JSON + an explicit initVarlockEnv() call,
   // because ESM imports are hoisted (the module's auto-init runs before our env
   // data is set, so we need to re-init after setting it).
-  if (isInstrumentationFile || isProxyFile) {
+  if (isInstrumentationFile || isProxyOrMiddlewareFile) {
     if (hasVarlockImport) {
       // expand existing import to include initVarlockEnv if not already there
       if (!result.includes('initVarlockEnv')) {
