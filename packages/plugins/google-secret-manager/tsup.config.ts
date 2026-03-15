@@ -16,9 +16,10 @@ export default defineConfig({
       return ({
         js: [
           'import { createRequire } from \'module\';',
+          'import { fileURLToPath } from \'url\';',
           'const require = createRequire(import.meta.url);',
-          'const __dirname = new URL(\'.\', import.meta.url).pathname;',
-          'const __filename = new URL(\'./plugin.cjs\', import.meta.url).pathname;',
+          'const __dirname = fileURLToPath(new URL(\'.\', import.meta.url));',
+          'const __filename = fileURLToPath(new URL(\'./plugin.cjs\', import.meta.url));',
         ].join('\n'),
       });
     }

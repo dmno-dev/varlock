@@ -6,11 +6,12 @@
 // loader correctly rewrites ESM imports when bundling for the SEA binary.
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 
 const require = createRequire(import.meta.url);
-const __dirname = new URL('.', import.meta.url).pathname;
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 plugin.name = 'import-meta-test';
 
