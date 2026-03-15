@@ -5,9 +5,11 @@ declare const self: any;
 // declare const process: any;
 
 
-export const isNode: boolean = typeof process !== 'undefined'
-  && process.versions != null
-  && process.versions.node != null;
+let versionsStr = 'versions'; // eslint-disable-line
+// we use a string here so nextjs static analysis doesnt get angry
+const processVersions = typeof process !== 'undefined' && (process as any)[versionsStr as any]; // @ts-ignore
+
+export const isNode: boolean = processVersions && processVersions.node != null;
 
 export const isWebWorker: boolean = typeof self === 'object'
   && self.constructor
@@ -26,7 +28,7 @@ export const isDeno: boolean = typeof Deno !== 'undefined'
   && typeof Deno.version.deno !== 'undefined';
 
 /** @see {@link https://bun.sh/guides/util/detect-bun} */
-export const isBun = typeof process !== 'undefined' && process.versions != null && process.versions.bun != null;
+export const isBun = processVersions && processVersions.bun != null;
 
 
 

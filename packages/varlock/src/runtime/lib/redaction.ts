@@ -7,8 +7,35 @@ export type RedactMode = 'show_first_2' | 'show_last_2' | 'show_first_last';
  *
  * To redact sensitive parts of a larger object/string, use redactSensitiveConfig
  * */
-export function redactString(valStr: string | undefined, mode?: RedactMode, hideLength = true) {
+export function redactString(valStr: string | undefined, opts?: {
+  mode?: RedactMode,
+  hideLength?: boolean,
+  /** replace entire string with same-length mask (useful for sourcemap scrubbing) */
+  preserveLength?: boolean,
+}): string | undefined;
+/** @deprecated use opts object instead */
+export function redactString(valStr: string | undefined, mode?: RedactMode, hideLength?: boolean): string | undefined;
+export function redactString(
+  valStr: string | undefined,
+  modeOrOpts?: RedactMode | { mode?: RedactMode, hideLength?: boolean, preserveLength?: boolean },
+  hideLength = true,
+) {
   if (!valStr) return valStr;
+
+  let mode: RedactMode | undefined;
+  let preserveLength = false;
+
+  if (typeof modeOrOpts === 'object') {
+    mode = modeOrOpts.mode;
+    hideLength = modeOrOpts.hideLength ?? true;
+    preserveLength = modeOrOpts.preserveLength ?? false;
+  } else {
+    mode = modeOrOpts;
+  }
+
+  if (preserveLength) {
+    return '*'.repeat(valStr.length);
+  }
 
   const hiddenLength = hideLength ? 5 : valStr.length - 2;
   const hiddenStr = '▒'.repeat(hiddenLength);

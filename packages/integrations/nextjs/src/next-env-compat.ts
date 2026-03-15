@@ -142,6 +142,7 @@ function detectOpenNextCloudflareBuild() {
   return false;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function writeResolvedEnvFile() {
   // things get complicated on platforms like vercel/cloudflare, they do some of their own magic to load env vars
   // our loader (this file) will run during the _build_ process, but not when the platform is handling server rendered requests
@@ -177,7 +178,9 @@ function writeResolvedEnvFile() {
       resolvedEnvFileName = process.env._VARLOCK_EXPORT_RESOLVED_ENV_FILE;
     }
     if (!rootDir) throw new Error('expected rootDir to be set');
-    fs.writeFileSync(path.resolve(rootDir, resolvedEnvFileName), dotEnvStrLines.join('\n'), 'utf-8');
+    const resolvedEnvFilePath = path.resolve(rootDir, resolvedEnvFileName);
+    fs.writeFileSync(resolvedEnvFilePath, dotEnvStrLines.join('\n'), 'utf-8');
+    debug('wrote resolved env file:', resolvedEnvFilePath);
   }
 }
 
@@ -246,6 +249,7 @@ export function loadEnvConfig(
   // store actual process.env so we can restore it later
   initialEnv ||= { ...process.env };
 
+  loadCount++;
   debug('loadEnvConfig!', 'forceReload = ', forceReload);
 
   // onReload is used to show a log of which .env file changed
@@ -298,12 +302,14 @@ export function loadEnvConfig(
   debug('Inferred env mode (to match @next/env):', envFromNextCommand);
 
   try {
-    loadCount++;
+    // strip DEBUG_VARLOCK from env to prevent debug output from contaminating JSON stdout
+    const cleanEnv = { ...initialEnv };
+    delete cleanEnv.DEBUG_VARLOCK;
     const varlockLoadedEnvStr = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
       showLogsOnError: true,
       // in a build, we want to fail and exit, while in dev we can keep retrying when changes are detected
       exitOnError: !dev,
-      env: initialEnv as any,
+      env: cleanEnv as any,
     });
     if (loadCount >= 2) {
       // eslint-disable-next-line no-console
@@ -323,6 +329,9 @@ export function loadEnvConfig(
       ].join('\n'));
       process.exit(1);
     }
+
+    // eslint-disable-next-line no-console
+    console.error(`[varlock] ⚠️ failed to load env via execSyncVarlock: ${(err as any).message}`);
 
     // if we dont do this, we'll see an error that looks like `process.env.__VARLOCK_ENV is not set` which is misleading.
     // Ideally we would pass through an error of some kind and trigger the webpack runtime error popup
@@ -350,8 +359,10 @@ export function loadEnvConfig(
   combinedEnv = { ...initialEnv, ...parsedEnv };
   loadedEnvFiles = getVarlockSourcesAsLoadedEnvFiles();
 
-  // if not a dev build, we may need to write a temp resolved .env file
-  if (!dev) writeResolvedEnvFile();
+  // write a resolved .env file for platforms like Vercel/Cloudflare that need
+  // pre-resolved env values at runtime (they don't re-run @next/env on boot)
+  // TODO: re-enable once we verify instrumentation approach works for prod
+  // if (!dev) writeResolvedEnvFile();
 
   return { combinedEnv, parsedEnv, loadedEnvFiles };
 }
