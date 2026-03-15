@@ -6,7 +6,6 @@ export default defineConfig([
       'src/next-env-compat.ts',
       'src/plugin.ts',
 
-      'src/patch-next-runtime.ts',
       'src/edge-env.ts',
       'src/turbopack-loader.ts',
     ],
@@ -24,10 +23,14 @@ export default defineConfig([
     format: ['cjs'], // Output format(s)
     splitting: false,
   },
-  // Self-contained bundle of varlock/env for inlining into proxy.ts
-  // Runs after the main build (clean: false so it doesn't wipe dist/)
+  // Self-contained bundles that get injected as raw JS (not processed by webpack/turbopack).
+  // All dependencies must be bundled inline (noExternal) since these files are read
+  // and prepended to runtime files at build time.
   {
-    entry: { 'varlock-env-inline': 'src/varlock-env-inline.ts' },
+    entry: {
+      'varlock-env-inline': 'src/varlock-env-inline.ts',
+      'patch-next-runtime': 'src/patch-next-runtime.ts',
+    },
     noExternal: [/.*/],
     clean: false,
     sourcemap: false,
