@@ -158,7 +158,7 @@ export function scanForLeaks(
   if (isString(toScan)) {
     scanStrForLeaks(toScan as string);
     return toScan;
-  } else if (toScan instanceof Buffer) {
+  } else if (typeof Buffer !== 'undefined' && toScan instanceof Buffer) {
     scanStrForLeaks(toScan.toString());
     return toScan;
   // scan a ReadableStream by piping it through a scanner
