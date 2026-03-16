@@ -84,7 +84,7 @@ For example, on the Cloudflare Workers CI platform, we get the current branch na
 # set to current branch name when build is running on Cloudflare CI, empty otherwise
 WORKERS_CI_BRANCH=
 # @type=enum(development, preview, production, test)
-APP_ENV=remap($WORKERS_CI_BRANCH, production="main", preview=regex(.*), development=undefined)
+APP_ENV=remap($WORKERS_CI_BRANCH, "main", production, regex(.*), preview, undefined, development)
 ```
 
 You'll notice that `test` is one of the possible enum values, but it is not listed in the remap.
@@ -206,6 +206,6 @@ Use the branch name in `WORKERS_CI_BRANCH` to determine the environment:
 # ---
 WORKERS_CI_BRANCH=
 # @type=enum(development, preview, production, test)
-APP_ENV=remap($WORKERS_CI_BRANCH, production="main", preview=regex(.*), development=undefined)
+APP_ENV=remap($WORKERS_CI_BRANCH, "main", production, regex(.*), preview, undefined, development)
 ```
 

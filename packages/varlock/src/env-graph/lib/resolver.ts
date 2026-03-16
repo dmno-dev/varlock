@@ -423,23 +423,27 @@ export const RemapResolver: typeof Resolver = createResolver({
   name: 'remap',
   icon: 'codicon:replace',
   argsSchema: {
-    type: 'mixed',
-    arrayExactLength: 1,
-    objKeyMinLength: 1,
+    type: 'array',
+    arrayMinLength: 3,
   },
-  process() {
-    return this.objArgs!;
-  },
-  async resolve(remappings) {
-    const originalValue = await this.arrArgs![0].resolve();
-    for (const [remappedVal, matchValResolver] of Object.entries(remappings)) {
-      const matchVal = await matchValResolver.resolve();
+  async resolve() {
+    const args = this.arrArgs!;
+    const originalValue = await args[0].resolve();
+    const remainingArgs = args.slice(1);
+    // iterate in pairs of (match, result)
+    for (let i = 0; i + 1 < remainingArgs.length; i += 2) {
+      const matchVal = await remainingArgs[i].resolve();
       if (matchVal instanceof RegExp && originalValue !== undefined) {
-        if (matchVal.test(String(originalValue))) return remappedVal;
+        if (matchVal.test(String(originalValue))) return remainingArgs[i + 1].resolve();
       } else {
-        if (matchVal === originalValue) return remappedVal;
+        if (matchVal === originalValue) return remainingArgs[i + 1].resolve();
       }
     }
+    // if odd number of remaining args, the last arg is a default value
+    if (remainingArgs.length % 2 === 1) {
+      return remainingArgs[remainingArgs.length - 1].resolve();
+    }
+    // no match found, return original value
     return originalValue;
   },
 });
@@ -521,6 +525,30 @@ export const IfResolver: typeof Resolver = createResolver({
   },
 });
 
+export const IfsResolver: typeof Resolver = createResolver({
+  name: 'ifs',
+  icon: 'material-symbols:rule',
+  argsSchema: {
+    type: 'array',
+    arrayMinLength: 1,
+  },
+  async resolve() {
+    const args = this.arrArgs!;
+    // iterate in pairs of (condition, value)
+    for (let i = 0; i + 1 < args.length; i += 2) {
+      const condition = await args[i].resolve();
+      if (condition) {
+        return args[i + 1].resolve();
+      }
+    }
+    // if odd total number of args, last is the default value
+    if (args.length % 2 === 1) {
+      return args[args.length - 1].resolve();
+    }
+    return undefined;
+  },
+});
+
 export const NotResolver: typeof Resolver = createResolver({
   name: 'not',
   icon: 'material-symbols:not-equal',
@@ -584,6 +612,7 @@ export const BaseResolvers: Array<ResolverChildClass> = [
   RefResolver,
   ExecResolver,
   RemapResolver,
+  IfsResolver,
   ForEnvResolver,
   EqResolver,
   IfResolver,

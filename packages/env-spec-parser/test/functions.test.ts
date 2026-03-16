@@ -70,7 +70,7 @@ describe('function calls', functionValueTests({
     expected: { ITEM: 'abcd' },
   },
   'nested function calls - key/value': {
-    input: 'ITEM=remap("foo", zzz=aaa, bar=fallback("", "foo"))',
+    input: 'ITEM=remap("foo", aaa, zzz, fallback("", "foo"), bar)',
     expected: { ITEM: 'bar' },
   },
 }));
@@ -224,15 +224,15 @@ describe('multi-line function calls in values', functionValueTests({
     `,
     expected: { ITEM: 'abc' },
   },
-  'multi-line with key=value args': {
+  'multi-line with positional args': {
     input: outdent`
       ITEM=remap(
         "baz",
-        bar=baz,
-        foo=qux
+        baz, bar,
+        qux, foo
       )
     `,
-    expected: { ITEM: 'bar' }, // remap returns KEY whose VALUE matches
+    expected: { ITEM: 'bar' },
   },
   'multi-line empty': {
     input: outdent`

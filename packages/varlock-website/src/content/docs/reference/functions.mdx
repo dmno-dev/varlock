@@ -89,18 +89,41 @@ EXAMPLE=fallback(ref(POSSIBLY_EMPTY), ref(ANOTHER), "default-val")
 <div>
 ### `remap()`
 
-Maps a value to a new value based on a set of remapping rules. This is useful for translating one value, often provided by an external platform, into another.
+Maps a value to a new value based on a set of lookup pairs. This is useful for translating one value, often provided by an external platform, into another.
 
 - The first argument is the value to remap (often a `ref()` to another variable).
-- All following arguments are key=value pairs, where the key is the new value and the value is what to match against, which can be a string, `undefined`, or a `regex()` call.
-- If no match is found, the original value is returned.
+- All following arguments are pairs of `(matchValue, resultValue)`.
+- An optional trailing default value can be added as the last argument (when the total number of remaining args is odd).
+- Match values can be a string, `undefined`, or a `regex()` call.
+- If no match is found and there is no default, the original value is returned.
 
 ```env-spec "remap"
 # env var that is set by CI/platform
 CI_BRANCH=
 
 # @type=enum(development, preview, production)
-APP_ENV=remap($CI_BRANCH, production="main", preview=regex(.*), development=undefined)
+APP_ENV=remap($CI_BRANCH, "main", production, regex(.*), preview, undefined, development)
+```
+</div>
+
+<div>
+### `ifs()`
+
+Evaluates a series of condition/value pairs, returning the value for the first truthy condition. Similar to Excel's `IFS` function.
+
+- Arguments are pairs of `(condition, value)`.
+- An optional trailing default value can be added as the last argument (when the total number of args is odd).
+- If no condition is truthy and there is no default, returns `undefined`.
+
+```env-spec "ifs"
+ENV=staging
+
+# returns the value matching the first truthy condition
+API_URL=ifs(
+  eq($ENV, production), https://api.example.com,
+  eq($ENV, staging), https://staging-api.example.com,
+  http://localhost:3000
+)
 ```
 </div>
 
@@ -114,7 +137,7 @@ Creates a regular expression for use in other functions, such as `remap()`.
 
 ```env-spec "regex"
 # Example usage within remap
-ENV_TYPE=remap($APP_ENV, dev=regex("^dev.*"), prod="production")
+ENV_TYPE=remap($APP_ENV, regex("^dev.*"), dev, "production", prod)
 ```
 </div>
 

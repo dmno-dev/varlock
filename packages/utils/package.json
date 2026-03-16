@@ -3,7 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "description": "internal utils shared by env-spec and varlock",
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "type": "module",
   "main": "./src/index.ts",
   "exports": {

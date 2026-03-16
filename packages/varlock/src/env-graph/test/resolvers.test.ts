@@ -216,7 +216,7 @@ describe('regex()', functionValueTests({
   'error - invalid regex': {
     input: outdent`
       OTHER=other
-      ITEM=remap(OTHER, bad=regex("("), default)
+      ITEM=remap($OTHER, regex("("), bad, foo, default)
     `,
     expected: { ITEM: SchemaError },
   },
@@ -227,41 +227,48 @@ describe('remap()', functionValueTests({
   'keeps original value if no match found': {
     input: outdent`
       REMAP_ME=foo
-      ITEM=remap($REMAP_ME, a=b, b=c)
+      ITEM=remap($REMAP_ME, b, a, c, b)
     `,
     expected: { ITEM: 'foo' },
   },
   'remaps exact match': {
     input: outdent`
       REMAP_ME=foo
-      ITEM=remap($REMAP_ME, biz=buz, bar=foo)
+      ITEM=remap($REMAP_ME, buz, biz, foo, bar)
     `,
     expected: { ITEM: 'bar' },
   },
   'remaps regex match': {
     input: outdent`
       REMAP_ME=foo
-      ITEM=remap($REMAP_ME, biz=buz, bar=regex(fo+))
+      ITEM=remap($REMAP_ME, buz, biz, regex(fo+), bar)
     `,
     expected: { ITEM: 'bar' },
   },
   'remaps undefined match': {
     input: outdent`
       REMAP_ME=
-      ITEM=remap($REMAP_ME, biz=buz, bar=undefined)
+      ITEM=remap($REMAP_ME, buz, biz, undefined, bar)
     `,
     expected: { REMAP_ME: undefined, ITEM: 'bar' },
+  },
+  'uses default when no match': {
+    input: outdent`
+      REMAP_ME=unknown
+      ITEM=remap($REMAP_ME, foo, a, bar, b, default-val)
+    `,
+    expected: { ITEM: 'default-val' },
   },
   'error - no args': {
     input: 'ITEM=remap()',
     expected: { ITEM: SchemaError },
   },
-  'error - no value': {
-    input: 'ITEM=remap(key=val)',
+  'error - too few args': {
+    input: 'ITEM=remap("value")',
     expected: { ITEM: SchemaError },
   },
-  'error - extra arg': {
-    input: 'ITEM=remap("value", key=val, "extra")',
+  'error - key/val args not supported': {
+    input: 'ITEM=remap("value", key=val)',
     expected: { ITEM: SchemaError },
   },
 }));
@@ -393,6 +400,55 @@ describe('if()', functionValueTests({
   },
   'error - nested bad arg': {
     input: 'ITEM=if(ref(BADKEY), "yes", "no")',
+    expected: { ITEM: SchemaError },
+  },
+}));
+
+describe('ifs()', functionValueTests({
+  'returns value for first truthy condition': {
+    input: outdent`
+      ITEM=ifs(false, first, true, second, third)
+    `,
+    expected: { ITEM: 'second' },
+  },
+  'returns default when no condition matches': {
+    input: outdent`
+      ITEM=ifs(false, first, false, second, default-val)
+    `,
+    expected: { ITEM: 'default-val' },
+  },
+  'returns undefined when no match and no default': {
+    input: outdent`
+      ITEM=ifs(false, first, false, second)
+    `,
+    expected: { ITEM: undefined },
+  },
+  'with nested eq() conditions': {
+    input: outdent`
+      ENV=dev
+      ITEM=ifs(eq($ENV, prod), prod-url, eq($ENV, staging), staging-url, dev-url)
+    `,
+    expected: { ITEM: 'dev-url' },
+  },
+  'with eq() matching first condition': {
+    input: outdent`
+      ENV=prod
+      ITEM=ifs(eq($ENV, prod), prod-url, eq($ENV, staging), staging-url, dev-url)
+    `,
+    expected: { ITEM: 'prod-url' },
+  },
+  'single condition as default': {
+    input: outdent`
+      ITEM=ifs(eq("a", "b"), first, eq("b", "c"), second, default-val)
+    `,
+    expected: { ITEM: 'default-val' },
+  },
+  'error - no args': {
+    input: 'ITEM=ifs()',
+    expected: { ITEM: SchemaError },
+  },
+  'error - key/val args': {
+    input: 'ITEM=ifs(condition=true, val="yes")',
     expected: { ITEM: SchemaError },
   },
 }));
