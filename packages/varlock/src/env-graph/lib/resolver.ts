@@ -430,7 +430,8 @@ export const RemapResolver: typeof Resolver = createResolver({
     const args = this.arrArgs!;
     const originalValue = await args[0].resolve();
     const remainingArgs = args.slice(1);
-    // iterate in pairs of (match, result)
+    // iterate in pairs of (match, result); `i + 1 < length` ensures we
+    // process only complete pairs, leaving a potential trailing default unprocessed
     for (let i = 0; i + 1 < remainingArgs.length; i += 2) {
       const matchVal = await remainingArgs[i].resolve();
       if (matchVal instanceof RegExp && originalValue !== undefined) {
@@ -534,7 +535,8 @@ export const IfsResolver: typeof Resolver = createResolver({
   },
   async resolve() {
     const args = this.arrArgs!;
-    // iterate in pairs of (condition, value)
+    // iterate in pairs of (condition, value); `i + 1 < length` ensures we
+    // process only complete pairs, leaving a potential trailing default unprocessed
     for (let i = 0; i + 1 < args.length; i += 2) {
       const condition = await args[i].resolve();
       if (condition) {

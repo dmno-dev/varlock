@@ -71,6 +71,8 @@ export function simpleResolver(
         ) throw new Error('Expected first arg to be a static value or function call');
         const val = valueResolver(args[0]);
         const remainingArgs = args.slice(1);
+        // iterate in pairs of (match, result); `i + 1 < length` ensures we
+        // process only complete pairs, leaving a potential trailing default unprocessed
         for (let i = 0; i + 1 < remainingArgs.length; i += 2) {
           const matchArg = remainingArgs[i];
           const resultArg = remainingArgs[i + 1];
