@@ -7,7 +7,7 @@
     "dev": "astro dev",
     "start": "astro dev",
     "build": "astro build",
-    "build:cloudflare": "turbo build --filter=@varlock/astro-integration && varlock load && turbo build",
+    "build:cloudflare": "turbo build --filter=@varlock/astro-integration && varlock run -- turbo build",
     "preview": "astro preview",
     "astro": "astro"
   },
