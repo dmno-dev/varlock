@@ -1,5 +1,5 @@
 ---
-"varlock": minor
+"varlock": patch
 ---
 
 feat: add `ifs()` function and update `remap()` to support positional arg pairs
