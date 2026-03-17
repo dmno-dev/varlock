@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const { SchemaError, ResolutionError, ValidationError } = plugin.ERRORS;
+const { SchemaError, ResolutionError } = plugin.ERRORS;
 
 const VAULT_ICON = 'simple-icons:vault';
 
@@ -364,16 +364,7 @@ plugin.registerDataType({
       description: 'Vault Tokens',
       url: 'https://developer.hashicorp.com/vault/docs/concepts/tokens',
     },
-  ],
-  async validate(val): Promise<true> {
-    if (typeof val !== 'string') {
-      throw new ValidationError('Must be a string');
-    }
-    if (val.length === 0) {
-      throw new ValidationError('Must not be empty');
-    }
-    return true;
-  },
+  ], 
 });
 
 plugin.registerResolverFunction({
