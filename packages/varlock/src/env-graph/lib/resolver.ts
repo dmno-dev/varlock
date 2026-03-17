@@ -171,12 +171,20 @@ export class Resolver {
       const resolvedValue = await this.def.resolve.call(this, this.meta);
       return resolvedValue;
     } catch (err) {
-      // enrich errors with location info from the parsed node if available
-      if (err instanceof VarlockError && !err.more?.location && this._parsedNode && this.dataSource) {
-        const location = getErrorLocation(this.dataSource, this._parsedNode);
-        if (location) {
-          (err as any).more ??= {};
-          (err as any).more.location = location;
+      if (err instanceof VarlockError) {
+        // prefix error message with resolver function name (matching schema error behavior)
+        // only prefix if the error wasn't already prefixed by a child resolver
+        if (!this.def.name.startsWith('\0') && !(err as any)._resolverPrefixed) {
+          err.message = `${this.def.name}(): ${err.message}`;
+          (err as any)._resolverPrefixed = true;
+        }
+        // enrich errors with location info from the parsed node if available
+        if (!err.more?.location && this._parsedNode && this.dataSource) {
+          const location = getErrorLocation(this.dataSource, this._parsedNode);
+          if (location) {
+            (err as any).more ??= {};
+            (err as any).more.location = location;
+          }
         }
       }
       throw err;
