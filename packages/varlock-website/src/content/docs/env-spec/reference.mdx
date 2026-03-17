@@ -87,7 +87,7 @@ A divider is a comment that serves as a separator, like a `<hr/>` in HTML.
 
 
 ```env-spec
-# the header comment block (see below) must end with a divider
+# a divider can be used to visually separate sections
 # ---
 ITEM1=
 ITEM2=
@@ -123,8 +123,9 @@ ITEM2=
 A comment block is a group of continuous comments that is not attached to a specific config item.
 
 - The comment block is ended by an empty line, a divider, or the end of the file
-- A comment block that is the first element of the document and ends with a divider is the _document header_
+- Any comment blocks before the first config item in a document are considered part of the _document header_
 - Decorators from this header can be used to configure all contained elements, or the loading process itself
+- We recommend ending the header with a divider for clarity, but it is not required
 
 ```env-spec
 # this is the document header and usually contains root decorators

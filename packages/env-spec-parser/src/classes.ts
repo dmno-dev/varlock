@@ -363,22 +363,51 @@ export class ParsedEnvSpecFile {
   get configItems() {
     return this.contents.filter((item) => item instanceof ParsedEnvSpecConfigItem);
   }
-  get header() {
-    // header is a comment block at the the start of the file that ends with a divider
-    // it may be preceeded by blank lines only
+  /** all comment blocks before the first config item (the "header" area) */
+  get headerBlocks() {
+    const blocks: Array<ParsedEnvSpecCommentBlock> = [];
     for (const item of this.contents) {
-      if (item instanceof ParsedEnvSpecCommentBlock && item.divider) {
-        return item;
-      } else if (!(item instanceof ParsedEnvSpecBlankLine)) {
-        return;
+      if (item instanceof ParsedEnvSpecCommentBlock) {
+        blocks.push(item);
+      } else if (item instanceof ParsedEnvSpecBlankLine || item instanceof ParsedEnvSpecDivider) {
+        continue;
+      } else {
+        break; // hit a config item
       }
     }
+    return blocks;
+  }
+  /** primary header block - the last comment block before the first config item */
+  get header() {
+    const blocks = this.headerBlocks;
+    return blocks.length > 0 ? blocks[blocks.length - 1] : undefined;
   }
   get decoratorsObject() {
-    return this.header?.decoratorsObject ?? {};
+    const decObj = {} as Record<string, ParsedEnvSpecDecorator>;
+    for (const block of this.headerBlocks) {
+      Object.assign(decObj, block.decoratorsObject);
+    }
+    return decObj;
   }
   get decoratorsArray() {
-    return this.header?.decoratorsArray ?? [];
+    const decArr: Array<ParsedEnvSpecDecorator> = [];
+    for (const block of this.headerBlocks) {
+      decArr.push(...block.decoratorsArray);
+    }
+    return decArr;
+  }
+
+  /**
+   * Comment blocks that are NOT part of the header and NOT attached to a config item.
+   * Any decorators in these blocks are misplaced.
+   */
+  get orphanCommentBlocks() {
+    const headerBlockSet = new Set(this.headerBlocks);
+    return this.contents.filter(
+      (item): item is ParsedEnvSpecCommentBlock => (
+        item instanceof ParsedEnvSpecCommentBlock && !headerBlockSet.has(item)
+      ),
+    );
   }
 
   toString() {

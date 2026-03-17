@@ -6,6 +6,7 @@ import { CliExitError } from './helpers/exit-error';
 import { fmt } from './helpers/pretty-format';
 import { trackCommand, trackInstall } from './helpers/telemetry';
 import { InvalidEnvError } from './helpers/error-checks';
+import { checkBunVersion } from '../lib/check-bun-version';
 import packageJson from '../../package.json';
 
 // we'll import just the spec from each, so the implementations can be lazy loaded
@@ -59,6 +60,12 @@ subCommands.set('typegen', buildLazyCommand(typegenCommandSpec, async () => awai
 
 (async function go() {
   try {
+    try {
+      checkBunVersion();
+    } catch (e) {
+      throw new CliExitError((e as Error).message, { forceExit: true });
+    }
+
     let args = process.argv.slice(2);
 
     // TODO: remove this once we have a better way to re-trigger help

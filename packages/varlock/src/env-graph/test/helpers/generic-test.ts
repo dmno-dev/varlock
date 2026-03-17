@@ -25,6 +25,12 @@ export function envFilesTest(spec: {
   expectRequiredIsDynamic?: Record<string, boolean>;
   expectSensitive?: Record<string, boolean | Constructor<Error>>;
   expectSerializedMatches?: any;
+  /**
+   * Simulate calling getTypeGenInfo() on all items before resolveEnvValues(),
+   * which mirrors what the CLI does (generateTypesIfNeeded before resolveEnvValues).
+   * This is used to reproduce bugs where early type-gen resolution corrupts cached state.
+   */
+  runTypeGeneration?: boolean;
 }) {
   return async () => {
     // mock process.cwd to be the current test file
@@ -82,6 +88,13 @@ export function envFilesTest(spec: {
         firstLoadingError,
         `Expected no loading errors, but got - ${firstLoadingError?.message}`,
       ).toBeFalsy();
+
+      // Simulate calling getTypeGenInfo() before resolveEnvValues(), as the CLI does
+      if (spec.runTypeGeneration) {
+        for (const key of Object.keys(g.configSchema)) {
+          await g.configSchema[key].getTypeGenInfo();
+        }
+      }
 
       await g.resolveEnvValues();
 

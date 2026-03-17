@@ -53,7 +53,7 @@ describe('Binary plugin loading', () => {
 
     test('load resolves plugin values', () => {
       const result = runBinary(['load', '--format', 'json'], { cwd });
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.output).toBe(0);
 
       const env = JSON.parse(result.stdout);
       expect(env.BASIC_RESULT).toBe('hello-basic');
@@ -66,7 +66,7 @@ describe('Binary plugin loading', () => {
         { cwd },
       );
 
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.output).toBe(0);
       expect(result.output).toContain('BASIC_RESULT=hello-basic');
     });
   });
@@ -85,7 +85,7 @@ describe('Binary plugin loading', () => {
 
     test('load resolves values using imported Node builtins', () => {
       const result = runBinary(['load', '--format', 'json'], { cwd });
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.output).toBe(0);
 
       const env = JSON.parse(result.stdout);
       // The resolver exercises path.join, Buffer, and crypto
@@ -102,7 +102,7 @@ describe('Binary plugin loading', () => {
         { cwd },
       );
 
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.output).toBe(0);
       expect(result.output).toContain('R=works:path=');
     });
   });
@@ -121,7 +121,7 @@ describe('Binary plugin loading', () => {
 
     test('import.meta.url resolves to correct plugin directory', () => {
       const result = runBinary(['load', '--format', 'json'], { cwd });
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.output).toBe(0);
 
       const env = JSON.parse(result.stdout);
       expect(env.RESULT).toContain('works');
@@ -143,7 +143,7 @@ describe('Binary plugin loading', () => {
 
     test('load resolves single-file plugin values', () => {
       const result = runBinary(['load', '--format', 'json'], { cwd });
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.output).toBe(0);
 
       const env = JSON.parse(result.stdout);
       expect(env.RESULT).toContain('works');
@@ -168,7 +168,7 @@ describe('Binary plugin loading', () => {
 
     test('both plugins load and resolve correctly', () => {
       const result = runBinary(['load', '--format', 'json'], { cwd });
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.output).toBe(0);
 
       const env = JSON.parse(result.stdout);
       expect(env.FROM_BASIC).toBe('basic-val');

@@ -15,7 +15,11 @@
       >
         <img src="https://varlock-pixel-art.dmno.workers.dev/icons/octocat.gif" />
         <div>Please help us grow by starring<br>varlock <u>on GitHub</u>!</div>
-        <img class="mobile-dialog-star" src="https://varlock-pixel-art.dmno.workers.dev/icons/star.png" />
+        <span class="mobile-dialog-star-count">
+          <img class="mobile-dialog-star" src="https://varlock-pixel-art.dmno.workers.dev/icons/star.png" />
+          <span v-if="starCount !== null" class="mobile-dialog-count">{{ formatCount(starCount) }}</span>
+          <span v-else class="mobile-dialog-count mobile-dialog-count-loading">...</span>
+        </span>
       </a>
     </div>
   </transition>
@@ -24,8 +28,40 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
 
+const CACHE_KEY = 'starCountCache';
+
 const showMobileDialog = ref(false);
 const dialogDismissed = ref(false);
+const starCount = ref(getCachedCount());
+
+function getCachedCount() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const n = parseInt(raw, 10);
+    return Number.isNaN(n) ? null : n;
+  } catch {
+    return null;
+  }
+}
+
+function setCachedCount(count) {
+  if (typeof window !== 'undefined' && count != null) {
+    try {
+      localStorage.setItem(CACHE_KEY, String(count));
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function formatCount(n) {
+  if (n >= 1000) {
+    return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  }
+  return n.toLocaleString();
+}
 
 function hideMobileDialog() {
   showMobileDialog.value = false;
@@ -60,6 +96,15 @@ onMounted(() => {
       window.addEventListener('scroll', scrollHandler);
       setTimeout(showAfterTimeout, 5000);
     }
+
+    fetch('https://api.github.com/repos/dmno-dev/varlock')
+      .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+      .then((data) => {
+        const count = data.stargazers_count ?? null;
+        starCount.value = count;
+        setCachedCount(count);
+      })
+      .catch(() => {});
   }
 });
 onUnmounted(() => {
@@ -117,6 +162,29 @@ onUnmounted(() => {
   > img {
     height: 50px;
   }
+}
+
+.mobile-dialog-star-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.mobile-dialog-star {
+  height: 1.5em;
+  width: auto;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+}
+
+.mobile-dialog-count {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.mobile-dialog-count-loading {
+  opacity: 0.7;
 }
 
 .dialog-slide-enter-active, .dialog-slide-leave-active {

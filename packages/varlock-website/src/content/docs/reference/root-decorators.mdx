@@ -4,15 +4,13 @@ description: A reference page of available env-spec decorators that apply to the
 ---
 import Decorator from '@/components/decorator-doc-entry.astro'
 
-Root decorators appear in the _header_ section of a .env file - which is a comment block at the beginning of the file that ends with a divider. Usually root decorators are used only in your `.env.schema` file.
+Root decorators appear in the _header_ section of a .env file - which is any comment block(s) at the beginning of the file, before the first config item. Usually root decorators are used only in your `.env.schema` file.
 
 
 ```env-spec title=".env.schema"
 # This is the header, it can contain root decorators
 # @defaultSensitive=false @defaultRequired=infer
 # @generateTypes(lang=ts, path=./env.d.ts)
-# ---
-# ... config items
 ```
 
 
@@ -161,7 +159,7 @@ IMPORTED_ITEM=overriden-value
 <div>
 ### `@setValuesBulk()`
 **Arg types:** `[ data: string ]`
-**Named args:** `format?: "json" | "env"`, `createMissing?: boolean`
+**Named args:** `format?: "json" | "env"`, `createMissing?: boolean`, `enabled?: boolean`
 
 Injects multiple config values at once from an external data source. The first argument is a resolver that produces a string (e.g., `exec()` calling a secrets manager), which is parsed and injected as definitions within the file containing the decorator.
 
@@ -170,6 +168,7 @@ Bulk values participate in the normal file override chain — `process.env` stil
 **Options:**
 - `format`: How to parse the data string. `json` expects a flat JSON object, `env` expects `.env` file format. If not specified, auto-detected by checking if the string starts with `{`.
 - `createMissing`: If `true`, keys in the bulk data that don't already exist in your schema will be created as new config items. Defaults to `false` (unknown keys are silently skipped).
+- `enabled`: If `false`, the bulk data resolver is skipped entirely. Accepts any boolean expression, including dynamic references to other config items. Defaults to `true`.
 
 _Can be called multiple times — later calls overwrite earlier ones for the same keys._
 
@@ -192,11 +191,24 @@ DB_PASSWORD=
 ```env-spec title=".env.schema"
 # Create items not already in the schema
 # @setValuesBulk(exec("vault kv get -format=json secret/myapp"), format=json, createMissing=true)
+```
+
+```env-spec title=".env.schema"
+# Only fetch from the vault in non-production environments
+# @setValuesBulk(exec("vault kv get -format=json secret/dev"), format=json, enabled=eq($APP_ENV, "dev"))
 # ---
+API_KEY=
+APP_ENV=dev
 ```
 
 :::note
 When using `format=env`, function calls like `$VAR` references in unquoted values are not supported and will cause an error. Use single quotes for literal `$` signs (e.g., `'$LITERAL'`) or use `format=json` instead.
+:::
+
+:::caution[`createMissing` and type generation]
+Items created via `createMissing=true` — those that don't already exist in your schema — **will not be included in generated TypeScript types**. Type generation happens at build/schema-load time before values are fetched, so dynamically created keys are invisible to the type generator.
+
+For this reason, **`createMissing=true` is not recommended**. Instead, declare all expected items explicitly in your schema (with an empty value) so they are known at type-generation time.
 :::
 
 </div>
@@ -224,22 +236,31 @@ XYZ_API_KEY=op(op://api-prod/xyz/api-key) # new resolver
 <div>
 ### `@generateTypes()`
 **Arg types (key/value):**
-- `lang`: Language to generate types for. Supported languages:
-  - `ts` - TypeScript
+- `lang`: Language to generate types for (currently only `ts` / TypeScript is supported, with more languages planned)
 - `path`: Relative filepath to output generated type file
+- `auto`: Controls whether types are generated automatically on every load (defaults to `true`). Set to `false` to disable automatic generation and instead run [`varlock typegen`](/reference/cli-commands/#typegen) explicitly.
 - `executeWhenImported`: overrides the default behaviour of not executing when the containing file is imported (defaults to `false`)
 
-Enables automatic type generation based on your schema. _Can be called multiple times._
+Triggers type generation based on your schema. _Can be called multiple times._
 
 ```env-spec
 # @generateTypes(lang=ts, path=./env.d.ts)
-# ---
 ```
 
-:::tip 
+:::tip
 Usually this decorator will live in your primary `.env.schema` file, and it will be ignored if it is within an imported file.
 
 To override this behaviour, set `executeWhenImported` to `true`.
+:::
+
+:::note[Disabling automatic type generation]
+If you prefer to generate types manually rather than on every load, set `auto=false` and run [`varlock typegen`](/reference/cli-commands/#typegen) explicitly:
+
+```env-spec
+# @generateTypes(lang=ts, path=./env.d.ts, auto=false)
+```
+
+This is useful when you want full control over when your type definitions are updated, for example in a CI pipeline or as a dedicated build step.
 :::
 
 </div>

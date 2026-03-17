@@ -34,7 +34,7 @@ function markEdited(node: AstNode, edits: Array<Edit>): number | false {
   return edits.push([node.start, node.end]);
 }
 
-const SUPPORTED_FILES = ['js', 'ts', 'mjs', 'mts', 'cjs', 'cts', 'jsx', 'tsx', 'vue', 'svelte'];
+export const SUPPORTED_FILES = ['js', 'ts', 'mjs', 'mts', 'cjs', 'cts', 'jsx', 'tsx', 'vue', 'svelte'];
 
 type MatchersArray = Array<{ matcher: ReturnType<typeof astMatcher>, replacement: string }>;
 
@@ -57,7 +57,7 @@ export function createReplacerTransformFn(opts: {
   ) {
     if (keys.length === 0) return null;
 
-    const fileExt = id.split('.').pop() || '';
+    const fileExt = id.split('?')[0].split('#')[0].split('.').pop() || '';
     if (!SUPPORTED_FILES.includes(fileExt)) return null;
 
     if (code.search(findAnyReplacementRegex) === -1) return null;

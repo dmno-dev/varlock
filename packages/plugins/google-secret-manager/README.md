@@ -23,13 +23,11 @@ npm install @varlock/google-secret-manager-plugin
 And then register the plugin without any version number
 ```env-spec title=".env.schema"
 # @plugin(@varlock/google-secret-manager-plugin)
-# ---
 ```
 
 Otherwise just set the explicit version number when you register it
 ```env-spec title=".env.schema"
 # @plugin(@varlock/google-secret-manager-plugin@1.2.3)
-# ---
 ```
 
 See our [Plugin Guide](https://varlock.dev/guides/plugins/#installation) for more details.
@@ -45,7 +43,6 @@ The simplest setup uses Application Default Credentials:
 ```env-spec
 # @plugin(@varlock/google-secret-manager-plugin)
 # @initGsm(projectId=my-gcp-project)
-# ---
 ```
 
 **Setting up ADC:**

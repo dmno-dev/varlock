@@ -53,7 +53,7 @@ varlock load [options]
 ```
 
 **Options:**
-- `--format`:     Format of output [pretty|json|env]
+- `--format`:     Format of output [pretty|json|env|shell]
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@currentEnv` in `.env.schema`
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
@@ -68,6 +68,9 @@ varlock load --env production
 
 # Output validation results in JSON format
 varlock load --format json
+
+# Output as shell export statements (useful for direnv / eval)
+eval "$(varlock load --format shell)"
 
 # When validation is failing, will show all items, rather than just failing ones
 varlock load --show-all
@@ -220,9 +223,34 @@ You can also set it up manually -- see the [Secrets guide](/guides/secrets/#scan
 </div>
 
 <div>
+### `varlock typegen` ||typegen||
+
+Generates type files according to [`@generateTypes`](/reference/root-decorators/#generatetypes) and your config schema. Uses only non-environment-specific schema info, so output is deterministic regardless of which environment is active.
+
+This command is particularly useful when you have set `auto=false` on the [`@generateTypes`](/reference/root-decorators/#generatetypes) decorator to disable automatic type generation during `varlock load` or `varlock run`.
+
+```bash
+varlock typegen [options]
+```
+
+**Options:**
+- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
+
+**Examples:**
+```bash
+# Generate types using the default schema
+varlock typegen
+
+# Generate types from a specific .env file
+varlock typegen --path .env.prod
+```
+
+</div>
+
+<div>
 ### `varlock telemetry` ||telemetry||
 
-Opts in/out of anonymous usage analytics. This command creates/updates a configuration file at `~/.varlock/config.json` saving your preference.
+Opts in/out of anonymous usage analytics. This command creates/updates a configuration file at `$XDG_CONFIG_HOME/varlock/config.json` (defaults to `~/.config/varlock/config.json`) saving your preference.
 
 ```bash
 varlock telemetry disable

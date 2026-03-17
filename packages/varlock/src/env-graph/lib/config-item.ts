@@ -597,6 +597,10 @@ export class ConfigItem {
           const usingOptional = requiredDec.name === 'optional';
           if (requiredDec.decValueResolver?.fnName !== '\0static') {
             isRequiredDynamic = true;
+            // Dynamic decorators depend on runtime values not yet resolved here.
+            // Skip resolve() to avoid caching a stale result that would corrupt
+            // the later processRequired() call during resolveEnvValues().
+            break;
           }
 
           const requiredDecoratorVal = await requiredDec.resolve();
@@ -646,6 +650,8 @@ export class ConfigItem {
 
         if (sensitiveDec) {
           const usingPublic = sensitiveDec.name === 'public';
+          // Skip dynamic decorators to avoid caching a stale result (same as @required fix above)
+          if (sensitiveDec.decValueResolver?.fnName !== '\0static') break;
           const sensitiveDecValue = await sensitiveDec.resolve();
           if (sensitiveDec.schemaErrors.length) break;
           if (![true, false, undefined].includes(sensitiveDecValue)) break;

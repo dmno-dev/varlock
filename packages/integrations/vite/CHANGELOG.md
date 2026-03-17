@@ -1,5 +1,23 @@
 # @varlock/vite-integration
 
+## 0.2.5
+
+### Patch Changes
+
+- [#402](https://github.com/dmno-dev/varlock/pull/402) [`f1873ec`](https://github.com/dmno-dev/varlock/commit/f1873ec56834122b323b1ef27c7715250433a0dc) - Fix ENV.\* static replacement being skipped for Vite dev module IDs with query suffixes (e.g. `?tsr-split=component` from TanStack Router split routes). The file extension is now extracted from the path portion of the ID only, ignoring any query string or hash fragment.
+
+- Updated dependencies [[`4d436ff`](https://github.com/dmno-dev/varlock/commit/4d436ff42863136fb5ebb7016e525ef54732ea20), [`ca51993`](https://github.com/dmno-dev/varlock/commit/ca5199371cd6126794e215f67cfcc5f20342eaaa)]:
+  - varlock@0.5.0
+
+## 0.2.4
+
+### Patch Changes
+
+- [#397](https://github.com/dmno-dev/varlock/pull/397) [`b62a7f7`](https://github.com/dmno-dev/varlock/commit/b62a7f71ba348abdb35677a6840f2d092c351b7f) - add file type guard on varlock injection
+
+- Updated dependencies [[`5890ee6`](https://github.com/dmno-dev/varlock/commit/5890ee6864930ac4561589d86c87e749733e3755), [`0642185`](https://github.com/dmno-dev/varlock/commit/06421851813e838ea38a4730ab5dec55d8b625ed), [`64c8ba9`](https://github.com/dmno-dev/varlock/commit/64c8ba98be7f5616ac556b8e4bd6a66bd73767d4)]:
+  - varlock@0.4.2
+
 ## 0.2.3
 
 ### Patch Changes
