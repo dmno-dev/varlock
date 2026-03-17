@@ -438,9 +438,11 @@ export const RemapResolver: typeof Resolver = createResolver({
       if (Object.keys(this.objArgs!).length === 0) {
         throw new SchemaError('expects at least 1 key=value remapping pair');
       }
-      // warn about deprecation (we use console.warn to avoid failing validation)
-      // eslint-disable-next-line no-console
-      console.warn('remap(): key=value syntax is deprecated - use positional pairs: remap($VAR, match, result, ...)');
+      // add a deprecation warning - will show in `varlock load` pretty output below the item
+      this._schemaErrors.push(new SchemaError('key=value syntax is deprecated', {
+        isWarning: true,
+        tip: 'Use positional pairs instead: remap($VAR, match1, result1, match2, result2, ...)',
+      }));
     } else {
       // new positional mode: 3+ args (value, match1, result1, ...)
       if ((this.arrArgs?.length ?? 0) < 3) {

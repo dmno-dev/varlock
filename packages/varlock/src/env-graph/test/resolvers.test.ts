@@ -29,12 +29,14 @@ class IncrementResolver extends Resolver {
 function functionValueTests(
   tests: Record<string, {
     input: string;
-    expected: Record<string, string | number | boolean | undefined | Constructor<Error>>
+    expected: Record<string, string | number | boolean | undefined | Constructor<Error>>;
+    /** if true, expects items to have only warnings (not full errors) while still resolving */
+    expectWarnings?: boolean;
   }>,
 ) {
   return () => {
     Object.entries(tests).forEach(([label, spec]) => {
-      const { input, expected } = spec;
+      const { input, expected, expectWarnings } = spec;
       it(label, async () => {
         const g = new EnvGraph();
 
@@ -63,7 +65,12 @@ function functionValueTests(
           } else if (expectedValue === ResolutionError) {
             expect(item.resolutionError).toBeInstanceOf(ResolutionError);
           } else {
-            expect(item.isValid, `Expected item ${key} to be valid`).toBeTruthy();
+            if (expectWarnings) {
+              // item should have warnings only (not hard errors), and still resolve
+              expect(item.validationState, `Expected item ${key} to have warnings, not errors`).not.toBe('error');
+            } else {
+              expect(item.isValid, `Expected item ${key} to be valid`).toBeTruthy();
+            }
             expect(item.resolvedValue).toEqual(expectedValue);
           }
         }
@@ -266,13 +273,14 @@ describe('remap()', functionValueTests({
     `,
     expected: { ITEM: 'default-val' },
   },
-  // legacy key=value syntax (deprecated but still supported)
+  // legacy key=value syntax (deprecated but still supported - emits a deprecation warning)
   'legacy key=val: keeps original value if no match found': {
     input: outdent`
       REMAP_ME=foo
       ITEM=remap($REMAP_ME, a=b, b=c)
     `,
     expected: { ITEM: 'foo' },
+    expectWarnings: true,
   },
   'legacy key=val: remaps exact match': {
     input: outdent`
@@ -280,6 +288,7 @@ describe('remap()', functionValueTests({
       ITEM=remap($REMAP_ME, biz=buz, bar=foo)
     `,
     expected: { ITEM: 'bar' },
+    expectWarnings: true,
   },
   'legacy key=val: remaps regex match': {
     input: outdent`
@@ -287,6 +296,7 @@ describe('remap()', functionValueTests({
       ITEM=remap($REMAP_ME, biz=buz, bar=regex(fo+))
     `,
     expected: { ITEM: 'bar' },
+    expectWarnings: true,
   },
   'legacy key=val: remaps undefined match': {
     input: outdent`
@@ -294,6 +304,7 @@ describe('remap()', functionValueTests({
       ITEM=remap($REMAP_ME, biz=buz, bar=undefined)
     `,
     expected: { REMAP_ME: undefined, ITEM: 'bar' },
+    expectWarnings: true,
   },
   'error - no args': {
     input: 'ITEM=remap()',
