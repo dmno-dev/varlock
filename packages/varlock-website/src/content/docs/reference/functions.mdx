@@ -104,6 +104,14 @@ CI_BRANCH=
 # @type=enum(development, preview, production)
 APP_ENV=remap($CI_BRANCH, "main", production, regex(.*), preview, undefined, development)
 ```
+
+:::note[Deprecated syntax]
+The old key=value syntax (`result=match`) is still supported but deprecated. Use positional pairs instead.
+```env-spec
+# deprecated - key is the result, value is what to match (backwards and limited by key naming)
+APP_ENV=remap($CI_BRANCH, production="main", preview=regex(.*), development=undefined)
+```
+:::
 </div>
 
 <div>

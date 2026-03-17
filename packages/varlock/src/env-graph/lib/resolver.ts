@@ -423,13 +423,49 @@ export const RemapResolver: typeof Resolver = createResolver({
   name: 'remap',
   icon: 'codicon:replace',
   argsSchema: {
-    type: 'array',
-    arrayMinLength: 3,
+    // supports both old key=value syntax and new positional syntax
+    // old: remap($VAR, result1=match1, result2=match2)  -- arrArgs has 1 item, objArgs has the mappings
+    // new: remap($VAR, match1, result1, match2, result2, default?)  -- arrArgs has 3+ items
+    type: 'mixed',
   },
-  async resolve() {
-    const args = this.arrArgs!;
-    const originalValue = await args[0].resolve();
-    const remainingArgs = args.slice(1);
+  process() {
+    const isLegacyKeyValMode = this.objArgs !== undefined && Object.keys(this.objArgs).length > 0;
+    if (isLegacyKeyValMode) {
+      // legacy mode: 1 positional arg + key=value pairs
+      if ((this.arrArgs?.length ?? 0) !== 1) {
+        throw new SchemaError('expects exactly 1 positional argument followed by key=value remapping pairs');
+      }
+      if (Object.keys(this.objArgs!).length === 0) {
+        throw new SchemaError('expects at least 1 key=value remapping pair');
+      }
+      // warn about deprecation (we use console.warn to avoid failing validation)
+      // eslint-disable-next-line no-console
+      console.warn('remap(): key=value syntax is deprecated - use positional pairs: remap($VAR, match, result, ...)');
+    } else {
+      // new positional mode: 3+ args (value, match1, result1, ...)
+      if ((this.arrArgs?.length ?? 0) < 3) {
+        throw new SchemaError('expects at least 3 arguments: (value, match1, result1, ...)');
+      }
+    }
+    return { isLegacyKeyValMode };
+  },
+  async resolve({ isLegacyKeyValMode }) {
+    const originalValue = await this.arrArgs![0].resolve();
+
+    if (isLegacyKeyValMode) {
+      // legacy key=value mode: key is the result, value is what to match against
+      for (const [remappedVal, matchValResolver] of Object.entries(this.objArgs!)) {
+        const matchVal = await matchValResolver.resolve();
+        if (matchVal instanceof RegExp && originalValue !== undefined) {
+          if (matchVal.test(String(originalValue))) return remappedVal;
+        } else {
+          if (matchVal === originalValue) return remappedVal;
+        }
+      }
+      return originalValue;
+    }
+
+    const remainingArgs = this.arrArgs!.slice(1);
     // iterate in pairs of (match, result); `i + 1 < length` ensures we
     // process only complete pairs, leaving a potential trailing default unprocessed
     for (let i = 0; i + 1 < remainingArgs.length; i += 2) {

@@ -220,6 +220,13 @@ describe('regex()', functionValueTests({
     `,
     expected: { ITEM: SchemaError },
   },
+  'error - invalid regex (legacy syntax)': {
+    input: outdent`
+      OTHER=other
+      ITEM=remap($OTHER, bad=regex("("), default)
+    `,
+    expected: { ITEM: SchemaError },
+  },
   // functionality is checked below within remap() tests
 }));
 
@@ -259,6 +266,35 @@ describe('remap()', functionValueTests({
     `,
     expected: { ITEM: 'default-val' },
   },
+  // legacy key=value syntax (deprecated but still supported)
+  'legacy key=val: keeps original value if no match found': {
+    input: outdent`
+      REMAP_ME=foo
+      ITEM=remap($REMAP_ME, a=b, b=c)
+    `,
+    expected: { ITEM: 'foo' },
+  },
+  'legacy key=val: remaps exact match': {
+    input: outdent`
+      REMAP_ME=foo
+      ITEM=remap($REMAP_ME, biz=buz, bar=foo)
+    `,
+    expected: { ITEM: 'bar' },
+  },
+  'legacy key=val: remaps regex match': {
+    input: outdent`
+      REMAP_ME=foo
+      ITEM=remap($REMAP_ME, biz=buz, bar=regex(fo+))
+    `,
+    expected: { ITEM: 'bar' },
+  },
+  'legacy key=val: remaps undefined match': {
+    input: outdent`
+      REMAP_ME=
+      ITEM=remap($REMAP_ME, biz=buz, bar=undefined)
+    `,
+    expected: { REMAP_ME: undefined, ITEM: 'bar' },
+  },
   'error - no args': {
     input: 'ITEM=remap()',
     expected: { ITEM: SchemaError },
@@ -267,8 +303,8 @@ describe('remap()', functionValueTests({
     input: 'ITEM=remap("value")',
     expected: { ITEM: SchemaError },
   },
-  'error - key/val args not supported': {
-    input: 'ITEM=remap("value", key=val)',
+  'error - too few args (2 positional)': {
+    input: 'ITEM=remap("value", "match")',
     expected: { ITEM: SchemaError },
   },
 }));
