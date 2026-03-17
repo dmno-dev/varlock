@@ -1,5 +1,8 @@
 # Varlock GitHub Action
 
-See [Varlock GitHub Action docs](https://varlock.dev/integrations/github-action/) for more information.
+Use `dmno-dev/varlock-action@v1` in your workflows to load and validate environment variables with varlock.
 
-The repo is available here: [varlock-action](https://github.com/dmno-dev/varlock-action).
+See [Varlock GitHub Action docs](https://varlock.dev/integrations/github-action/) for full documentation.
+
+- **Repository**: [dmno-dev/varlock-action](https://github.com/dmno-dev/varlock-action)
+- **Marketplace**: [Varlock Environment Loader](https://github.com/marketplace/actions/varlock-environment-loader)
