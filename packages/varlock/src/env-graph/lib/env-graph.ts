@@ -34,6 +34,7 @@ export type SerializedEnvGraph = {
   config: Record<string, {
     value: any;
     isSensitive: boolean;
+    syncTargets?: Array<string>;
   }>;
 };
 
@@ -427,10 +428,21 @@ export class EnvGraph {
     }
     for (const itemKey of this.sortedConfigKeys) {
       const item = this.configSchema[itemKey];
-      serializedGraph.config[itemKey] = {
+      const serializedItem: SerializedEnvGraph['config'][string] = {
         value: item.resolvedValue,
         isSensitive: item.isSensitive,
       };
+
+      // collect sync targets from @syncTarget decorators (e.g., @syncTarget(convex))
+      // resolvedValue for function-call decorators is { arr: [...], obj: {} }
+      const syncTargetDecs = item.getDecFns('syncTarget');
+      if (syncTargetDecs.length > 0) {
+        serializedItem.syncTargets = syncTargetDecs
+          .map((d) => d.resolvedValue?.arr?.[0])
+          .filter((v): v is string => typeof v === 'string');
+      }
+
+      serializedGraph.config[itemKey] = serializedItem;
     }
 
     // expose a few root level settings

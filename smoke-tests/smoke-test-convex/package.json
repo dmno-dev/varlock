@@ -1,0 +1,9 @@
+{
+  "name": "smoke-test-convex",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@varlock/convex-integration": "link:../../packages/integrations/convex",
+    "varlock": "link:../../packages/varlock"
+  }
+}
