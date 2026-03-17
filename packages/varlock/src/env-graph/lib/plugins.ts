@@ -476,24 +476,21 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
             throw new SchemaError('Bad @plugin version descriptor - remove "@" or specify a valid version');
           }
 
+          // Walk up the directory tree checking each node_modules for the plugin.
+          // This supports monorepos where npm/yarn/pnpm may hoist packages to the
+          // root node_modules rather than the workspace's own node_modules.
           let currentDir = dataSourceDir;
           let nodeModulesPath: string | undefined;
           while (currentDir) {
-            if (await pathExists(path.join(currentDir, 'package.json'))) {
+            if (!nodeModulesPath && await pathExists(path.join(currentDir, 'package.json'))) {
+              // Track the nearest package.json's node_modules for error messages
               nodeModulesPath = path.join(currentDir, 'node_modules');
-              break;
             }
-            const parentDir = path.dirname(currentDir);
-            if (parentDir === currentDir) break; // will stop when we reach the root
-            currentDir = parentDir;
-          }
 
-          if (nodeModulesPath) {
-            const pluginPackagePath = path.join(nodeModulesPath, moduleName);
-            // use locally installed version if it exsists
-            if (await pathExists(pluginPackagePath)) {
+            const candidatePluginPath = path.join(currentDir, 'node_modules', moduleName);
+            if (await pathExists(candidatePluginPath)) {
               // TODO: cache the package.json since we will read it again later
-              const pluginPackageJsonPath = path.join(pluginPackagePath, 'package.json');
+              const pluginPackageJsonPath = path.join(candidatePluginPath, 'package.json');
               const packageJsonString = await fs.readFile(pluginPackageJsonPath, 'utf-8');
               const packageJson = JSON.parse(packageJsonString);
               const packageVersion = packageJson.version;
@@ -502,8 +499,13 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
                   location: getErrorLocation(dataSource, pluginDecorator),
                 });
               }
-              pluginSrcPath = pluginPackagePath;
+              pluginSrcPath = candidatePluginPath;
+              break;
             }
+
+            const parentDir = path.dirname(currentDir);
+            if (parentDir === currentDir) break; // will stop when we reach the root
+            currentDir = parentDir;
           }
 
           // attempt to fetch from npm if we did not succeed getting a local path above
