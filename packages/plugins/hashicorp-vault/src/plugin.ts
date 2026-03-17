@@ -364,7 +364,7 @@ plugin.registerDataType({
       description: 'Vault Tokens',
       url: 'https://developer.hashicorp.com/vault/docs/concepts/tokens',
     },
-  ], 
+  ],
 });
 
 plugin.registerResolverFunction({
@@ -387,17 +387,18 @@ plugin.registerResolverFunction({
       keyResolver = this.objArgs.key;
     }
 
-    // No args - auto-infer from parent config item key
+    // No args - use defaultPath with item key as the JSON key
     if (!this.arrArgs || this.arrArgs.length === 0) {
       instanceId = '_default';
       const parent = (this as any).parent;
       const itemKey = parent?.key || '';
       if (!itemKey) {
-        throw new SchemaError('Could not infer secret path - no parent config item key found', {
+        throw new SchemaError('Could not infer secret key - no parent config item key found', {
           tip: 'Either provide a secret path as an argument, or ensure this is used within a config item',
         });
       }
-      inferredSecretRef = itemKey;
+      // Pass empty path so buildPath() uses defaultPath, and use the item key as the JSON key
+      inferredSecretRef = `#${itemKey}`;
     } else if (this.arrArgs.length === 1) {
       instanceId = '_default';
       secretRefResolver = this.arrArgs[0];

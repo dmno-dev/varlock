@@ -164,6 +164,9 @@ Use `defaultPath` to set a common path for secrets when no path argument is prov
 DB_PASSWORD=vaultSecret()
 API_KEY=vaultSecret()
 
+# Override the inferred key using # syntax
+STRIPE_KEY=vaultSecret("#stripe_api_key")
+
 # This still uses an explicit path
 OTHER_SECRET=vaultSecret("secret/other/path#KEY")
 ```
@@ -335,7 +338,7 @@ Fetch a secret from HashiCorp Vault's KV v2 secrets engine.
 
 **Array args:**
 - `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
-- `secretRef` (optional): secret path, or path with JSON key using `#` syntax. If omitted, uses the variable name.
+- `secretRef` (optional): secret path, or path with JSON key using `#` syntax. If omitted, uses `defaultPath` with the variable name as the JSON key. Use `#key` (without a path) to override the inferred key while still using `defaultPath`.
 - `key` (optional, named parameter): JSON key to extract from the secret
 
 **How paths work:**
@@ -343,8 +346,11 @@ Fetch a secret from HashiCorp Vault's KV v2 secrets engine.
 Vault KV v2 stores key/value pairs at a path. Given a path like `secret/myapp/config`, the plugin calls `GET /v1/secret/data/myapp/config` (the first path segment is the mount point, and `/data/` is inserted for the KV v2 API).
 
 ```env-spec /vaultSecret\\(.*\\)/
-# Auto-infer secret ref
+# Auto-infer: uses defaultPath with item key as JSON key
 DATABASE_URL=vaultSecret()
+
+# Override inferred key using # syntax (still uses defaultPath)
+STRIPE_KEY=vaultSecret("#stripe_api_key")
 
 # Explicit path with key extraction
 DB_HOST=vaultSecret("secret/db/config#HOST")

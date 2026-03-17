@@ -150,6 +150,9 @@ Use `defaultPath` to set a common path for secrets when no path argument is prov
 DB_PASSWORD=vaultSecret()
 API_KEY=vaultSecret()
 
+# Override the inferred key using # syntax
+STRIPE_KEY=vaultSecret("#stripe_api_key")
+
 # This still uses an explicit path
 OTHER_SECRET=vaultSecret("secret/other/path#KEY")
 ```
