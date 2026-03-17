@@ -132,4 +132,17 @@ describe('diagnostics-core', () => {
       ),
     ).toBe('Port must be greater than or equal to 1024.');
   });
+
+  it('skips overly long string match patterns', () => {
+    expect(
+      validateStaticValue(
+        {
+          name: 'string',
+          args: [],
+          options: { matches: 'a'.repeat(201) },
+        },
+        'bbb',
+      ),
+    ).toBeUndefined();
+  });
 });

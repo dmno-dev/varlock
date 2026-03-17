@@ -4,6 +4,7 @@ import type { LineDocument } from './document-lines';
 import { DECORATORS_BY_NAME } from './intellisense-catalog';
 
 const DECORATOR_PATTERN = /@([A-Za-z][\w-]*)(?:\([^)]*\)|=[^\s#]+)?/g;
+const MAX_MATCHES_PATTERN_LENGTH = 200;
 const INCOMPATIBLE_DECORATOR_PAIRS = [
   ['required', 'optional'],
   ['sensitive', 'public'],
@@ -264,6 +265,8 @@ function validateStringValue(value: string, options: TypeInfo['options']) {
   }
 
   if (typeof options.matches === 'string') {
+    if (options.matches.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
+
     try {
       const regex = new RegExp(options.matches);
       if (!regex.test(value)) return `Value must match \`${options.matches}\`.`;
