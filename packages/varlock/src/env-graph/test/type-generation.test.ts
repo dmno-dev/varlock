@@ -72,20 +72,14 @@ describe('type generation', () => {
       expect(schemaSource!.isEnvSpecific).toBe(false);
     });
 
-    test('sources with @disable=forEnv() are marked isEnvSpecific', async () => {
+    test('local files (.env.local) are marked isEnvSpecific', async () => {
       const g = await loadGraph({
-        overrideValues: { APP_ENV: 'dev' },
         files: {
           '.env.schema': outdent`
-            # @currentEnv=$APP_ENV
-            # ---
-            APP_ENV=dev
             ITEM1=schema-val
           `,
           '.env.local': outdent`
-            # @disable=forEnv(test)
-            # ---
-            ITEM1=local-val
+            ITEM2=local-val
           `,
         },
       });
@@ -93,25 +87,54 @@ describe('type generation', () => {
       const localSource = g.sortedDataSources.find((s) => s.label.includes('.env.local'));
       expect(localSource).toBeDefined();
       expect(localSource!.isEnvSpecific).toBe(true);
+
+      const item2 = g.configSchema.ITEM2;
+      expect(item2.defsForTypeGeneration.length).toBe(0);
+    });
+
+    test('sources with @disable=forEnv() are marked isEnvSpecific', async () => {
+      const g = await loadGraph({
+        overrideValues: { APP_ENV: 'dev' },
+        files: {
+          '.env.schema': outdent`
+            # @currentEnv=$APP_ENV
+            # @import(./.env.imported)
+            # ---
+            APP_ENV=dev
+            ITEM1=schema-val
+          `,
+          '.env.imported': outdent`
+            # @disable=forEnv(test)
+            # ---
+            ITEM1=imported-val
+          `,
+        },
+      });
+
+      const importedSource = g.sortedDataSources.find((s) => s.label.includes('.env.imported'));
+      expect(importedSource).toBeDefined();
+      expect(importedSource!.isEnvSpecific).toBe(true);
     });
 
     test('sources with static @disable are NOT marked isEnvSpecific', async () => {
       const g = await loadGraph({
         files: {
           '.env.schema': outdent`
+            # @import(./.env.imported)
+            # ---
             ITEM1=schema-val
           `,
-          '.env.local': outdent`
+          '.env.imported': outdent`
             # @disable=false
             # ---
-            ITEM1=local-val
+            ITEM1=imported-val
           `,
         },
       });
 
-      const localSource = g.sortedDataSources.find((s) => s.label.includes('.env.local'));
-      expect(localSource).toBeDefined();
-      expect(localSource!.isEnvSpecific).toBe(false);
+      const importedSource = g.sortedDataSources.find((s) => s.label.includes('.env.imported'));
+      expect(importedSource).toBeDefined();
+      expect(importedSource!.isEnvSpecific).toBe(false);
     });
 
     test('conditionally imported sources are marked isEnvSpecific', async () => {
@@ -379,21 +402,22 @@ describe('type generation', () => {
         files: {
           '.env.schema': outdent`
             # @currentEnv=$APP_ENV @defaultSensitive=false
+            # @import(./.env.imported)
             # ---
             APP_ENV=dev
             ITEM1=schema-val
           `,
-          '.env.local': outdent`
+          '.env.imported': outdent`
             # @disable=forEnv(test)
             # ---
-            ITEM1=local-val     # @sensitive
+            ITEM1=imported-val  # @sensitive
           `,
         },
       });
 
       const infos = await getTypeGenInfoMap(g);
 
-      // .env.local has conditional @disable, so it's env-specific
+      // .env.imported has conditional @disable, so it's env-specific
       // type gen should use schema values only
       expect(infos.ITEM1.isSensitive).toBe(false);
     });
@@ -462,7 +486,7 @@ describe('type generation', () => {
       expect(infos2.ITEM1.isRequired).toBe(false);
     });
 
-    test('non-env-specific .env and .env.local still contribute to type gen', async () => {
+    test('non-env-specific .env still contributes to type gen, but .env.local does not', async () => {
       const g = await loadGraph({
         files: {
           '.env.schema': outdent`
@@ -482,9 +506,9 @@ describe('type generation', () => {
 
       const infos = await getTypeGenInfoMap(g);
 
-      // .env and .env.local are not env-specific (no applyForEnv, no conditional disable)
+      // .env is not env-specific, but .env.local is now skipped
       expect(infos.ITEM1.isSensitive).toBe(true);
-      expect(infos.ITEM2.isSensitive).toBe(true);
+      expect(infos.ITEM2.isSensitive).toBe(false);
     });
 
     test('items only defined in env-specific sources are excluded from type gen', async () => {
