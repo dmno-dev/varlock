@@ -19,11 +19,11 @@ function escapeRegExp(str: string) {
 
 // detect 'use client' directive at top of file (before any code, after optional comments)
 // uses [^\S\n]* (horizontal whitespace) instead of \s* to avoid exponential backtracking
-const USE_CLIENT_RE = /^(?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[\s\S]*?\*\/[^\S\n]*\n|[^\S\n]*\n)*[^\S\n]*['"]use client['"]/;
+const USE_CLIENT_RE = /^(?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/[^\S\n]*\n|[^\S\n]*\n)*[^\S\n]*['"]use client['"]/;
 
 // match directive prologue ('use server', 'use client', etc.) + optional trailing semicolons/newlines
 // captures the directive block so we can inject code after it
-const DIRECTIVE_PROLOGUE_RE = /^((?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[\s\S]*?\*\/[^\S\n]*\n|[^\S\n]*\n)*[^\S\n]*['"]use (?:server|client|strict)['"][^\S\n]*;?[^\S\n]*\n?)/;
+const DIRECTIVE_PROLOGUE_RE = /^((?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/[^\S\n]*\n|[^\S\n]*\n)*[^\S\n]*['"]use (?:server|client|strict)['"][^\S\n]*;?[^\S\n]*\n?)/;
 
 /** Prepend code after any directive prologue (e.g. 'use server') to avoid breaking it */
 function prependAfterDirectives(source: string, codeToPrepend: string): string {
