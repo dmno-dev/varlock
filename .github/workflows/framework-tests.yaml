@@ -1,0 +1,133 @@
+name: Framework Integration Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      force-all:
+        description: 'Run all framework tests regardless of changesets'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  detect-integrations:
+    name: Detect Changed Integrations
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      any-changed: ${{ steps.detect.outputs.any-changed }}
+      integrations: ${{ steps.detect.outputs.integrations }}
+      # Per-integration flags — add new ones here as integrations are added
+      nextjs: ${{ steps.detect.outputs.nextjs }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Detect changed integrations from changesets
+        id: detect
+        run: |
+          if [[ "${{ github.event.inputs.force-all }}" == "true" ]] || [[ "${{ contains(github.event.pull_request.labels.*.name, 'framework-tests') }}" == "true" ]]; then
+            # Force all integrations
+            echo "any-changed=true" >> "$GITHUB_OUTPUT"
+            echo 'integrations=["nextjs"]' >> "$GITHUB_OUTPUT"
+            echo "nextjs=true" >> "$GITHUB_OUTPUT"
+          else
+            bun run scripts/detect-changed-integrations.ts
+          fi
+
+  build:
+    name: Build Libraries
+    needs: detect-integrations
+    if: needs.detect-integrations.outputs.any-changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.x'
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@v2.3.11
+
+      - name: Build libraries
+        run: bun run build:libs
+
+      - name: Upload built repo for framework tests
+        uses: actions/upload-artifact@v7
+        with:
+          name: built-repo
+          path: |
+            packages/*/dist/
+            packages/integrations/*/dist/
+          retention-days: 1
+
+  # ──────────────────────────────────────────────────────
+  # Next.js framework tests
+  # To add a new integration, copy this job block and update:
+  #   1. Job name and if-condition to reference the new integration flag
+  #   2. The vitest filter pattern to match the new test directory
+  #   3. Add the integration flag output in detect-integrations job
+  #   4. Add the package mapping in scripts/detect-changed-integrations.ts
+  # ──────────────────────────────────────────────────────
+  test-nextjs:
+    name: Framework Tests (Next.js)
+    needs: [detect-integrations, build]
+    if: needs.detect-integrations.outputs.nextjs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.x'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Download built libraries
+        uses: actions/download-artifact@v8
+        with:
+          name: built-repo
+
+      - name: Run Next.js framework tests
+        run: cd framework-tests && bun run vitest run --reporter=verbose frameworks/nextjs/
+        timeout-minutes: 15
