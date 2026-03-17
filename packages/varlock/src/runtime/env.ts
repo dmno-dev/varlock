@@ -16,26 +16,42 @@ function isString(s: any) {
 const UNMASK_STR = '👁';
 
 
-/** key value lookup of sensitive values to their redacted version */
-let sensitiveSecretsMap: Record<string, { key: string, redacted: string }> = {};
-
+// Store redaction state on globalThis so all module instances (e.g., multiple CJS bundles
+// in Turbopack's middleware context) share the same redaction map.
+// Without this, the module instance that patches console.log may have an empty map
+// while a different instance has the populated one.
+type RedactionState = {
+  sensitiveSecretsMap: Record<string, { key: string, redacted: string }>,
+  redactorFindReplace: undefined | { find: RegExp, replace: ReplaceFn },
+};
 type ReplaceFn = (match: string, pre: string, val: string, post: string) => string;
-let redactorFindReplace: undefined | { find: RegExp, replace: ReplaceFn };
+
+const REDACTION_STATE_KEY = '__varlockRedactionState';
+function getRedactionState(): RedactionState {
+  if (!(globalThis as any)[REDACTION_STATE_KEY]) {
+    (globalThis as any)[REDACTION_STATE_KEY] = {
+      sensitiveSecretsMap: {},
+      redactorFindReplace: undefined,
+    };
+  }
+  return (globalThis as any)[REDACTION_STATE_KEY];
+}
 
 export function resetRedactionMap(graph: SerializedEnvGraph) {
+  const state = getRedactionState();
   // reset map of { [sensitive] => redacted }
-  sensitiveSecretsMap = {};
+  state.sensitiveSecretsMap = {};
   for (const itemKey in graph.config) {
     const item = graph.config[itemKey];
     if (item.isSensitive && item.value && isString(item.value)) {
       // TODO: we want to respect masking settings from the schema (once added)
       const redacted = redactString(item.value);
-      if (redacted) sensitiveSecretsMap[item.value] = { key: itemKey, redacted };
+      if (redacted) state.sensitiveSecretsMap[item.value] = { key: itemKey, redacted };
     }
   }
   // if no sensitive items exist, we dont need to do any redaction, but the redact fn is checking for undefined
-  if (!Object.keys(sensitiveSecretsMap).length) {
-    redactorFindReplace = undefined;
+  if (!Object.keys(state.sensitiveSecretsMap).length) {
+    state.redactorFindReplace = undefined;
     return;
   }
 
@@ -44,7 +60,7 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
     [
       `(${UNMASK_STR} )?`,
       '(',
-      Object.keys(sensitiveSecretsMap)
+      Object.keys(state.sensitiveSecretsMap)
         // Escape special characters
         .map((s) => s.replace(/[()[\]{}*+?^$|#.,/\\\s-]/g, '\\$&'))
         // Sort for maximal munch
@@ -60,9 +76,18 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
     // the pre and post matches only will be populated if they were present
     // and they are used to unmask the secret - so we do not want to replace in this case
     if (pre && post) return match;
-    return sensitiveSecretsMap[val].redacted;
+    return state.sensitiveSecretsMap[val].redacted;
   };
-  redactorFindReplace = { find: findRegex, replace: replaceFn };
+  state.redactorFindReplace = { find: findRegex, replace: replaceFn };
+}
+
+/** Returns diagnostic info about the current redaction state (safe to expose — no secrets) */
+export function getRedactionMapInfo() {
+  const state = getRedactionState();
+  return {
+    sensitiveItemCount: Object.keys(state.sensitiveSecretsMap).length,
+    hasRedactorRegex: !!state.redactorFindReplace,
+  };
 }
 
 
@@ -76,6 +101,7 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
  * NOTE - must be used only after varlock has loaded config
  * */
 export function redactSensitiveConfig(o: any): any {
+  const { redactorFindReplace } = getRedactionState();
   if (!redactorFindReplace) return o;
   if (!o) return o;
 
@@ -130,7 +156,7 @@ export function scanForLeaks(
   if (!toScan) return toScan;
 
   function scanStrForLeaks(strToScan: string) {
-    // console.log('[varlock leak scanner] ', strToScan.substr(0, 100));
+    const { sensitiveSecretsMap } = getRedactionState();
 
     // TODO: probably should use a single regex
     for (const sensitiveValue in sensitiveSecretsMap) {
@@ -158,16 +184,16 @@ export function scanForLeaks(
   if (isString(toScan)) {
     scanStrForLeaks(toScan as string);
     return toScan;
-  } else if (toScan instanceof Buffer) {
+  // typeof guard needed: in edge runtime, this code runs as raw injected JS outside webpack's
+  // module resolution, so bare `Buffer` is a ReferenceError even though edge supports it via
+  // the sandbox's node:buffer module. This branch is unreachable in edge anyway (only strings/streams).
+  } else if (typeof Buffer !== 'undefined' && toScan instanceof Buffer) {
     scanStrForLeaks(toScan.toString());
     return toScan;
   // scan a ReadableStream by piping it through a scanner
   } else if (toScan instanceof ReadableStream) {
     if (toScan.locked) {
-      // console.log('> stream already locked');
       return toScan;
-    } else {
-      // console.log('> stream will be scanned!');
     }
     const chunkDecoder = new TextDecoder();
     return toScan.pipeThrough(

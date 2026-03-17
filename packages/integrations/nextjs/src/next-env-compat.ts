@@ -65,39 +65,50 @@ function debug(...args: Array<any>) {
 debug('✨ LOADED @next/env module!');
 
 
-// Next.js only watches .env, .env.local, .env.development, .env.development.local
-// but we want to trigger reloads when .env.schema changes
-// so we set up an extra watcher, and trigger no-op changes to one of those files
-let extraWatcherEnabled = false;
+// Next.js only watches a fixed set of .env files for changes. Varlock may load
+// additional files (e.g. .env.schema, .env.staging, custom sources). We watch
+// those extra files and trigger a reload by touching one of Next's watched files.
 const NEXT_WATCHED_ENV_FILES = ['.env', '.env.local', '.env.development', '.env.development.local'];
-function enableExtraFileWatchers() {
-  if (extraWatcherEnabled || IS_WORKER) return;
-  extraWatcherEnabled = true;
+const watchedExtraFiles = new Set<string>();
 
-  if (!rootDir) throw new Error('expected rootDir to be set');
-  const envSchemaPath = path.join(rootDir, '.env.schema');
-  // its faster to update an existing file, so we check if the user has any
-  // otherwise we can create and destroy
-  let envFilePathToUpdate: string | null = null;
+function enableExtraFileWatchers(sources: SerializedEnvGraph['sources'], basePath?: string) {
+  if (IS_WORKER || !rootDir) return;
+
+  // Collect absolute paths of source files that Next.js does NOT already watch
+  const nextWatchedAbsolute = new Set(NEXT_WATCHED_ENV_FILES.map((f) => path.join(rootDir!, f)));
+  const extraFilePaths: Array<string> = [];
+  for (const source of sources) {
+    if (!source.enabled || !source.path) continue;
+    const absPath = basePath ? path.resolve(basePath, source.path) : path.resolve(rootDir!, source.path);
+    if (!nextWatchedAbsolute.has(absPath) && !watchedExtraFiles.has(absPath)) {
+      extraFilePaths.push(absPath);
+    }
+  }
+  // Also always watch .env.schema even if it wasn't in sources (it may not exist yet)
+  const envSchemaPath = path.join(rootDir!, '.env.schema');
+  if (!nextWatchedAbsolute.has(envSchemaPath) && !watchedExtraFiles.has(envSchemaPath)) {
+    extraFilePaths.push(envSchemaPath);
+  }
+
+  if (!extraFilePaths.length) return;
+
+  // Find a Next-watched file to touch as the reload trigger.
+  // Prefer an existing file (cheaper), otherwise we'll create+destroy .env
+  let triggerFilePath: string | null = null;
   for (const envFileName of NEXT_WATCHED_ENV_FILES) {
-    const filePath = path.join(rootDir, envFileName);
+    const filePath = path.join(rootDir!, envFileName);
     if (fs.existsSync(filePath)) {
-      envFilePathToUpdate = filePath;
+      triggerFilePath = filePath;
       break;
     }
   }
-  let destroyFile = false;
-  if (!envFilePathToUpdate) {
-    envFilePathToUpdate ||= path.join(rootDir, '.env');
-    destroyFile = true;
-  }
+  const mustDestroyTriggerFile = !triggerFilePath;
+  triggerFilePath ||= path.join(rootDir!, '.env');
 
-  debug('set up extra file watchers', envFilePathToUpdate, destroyFile);
-
-  fs.watchFile(envSchemaPath, { interval: 500 }, (_curr, _prev) => {
-    debug('.env.schema changed', envFilePathToUpdate, destroyFile);
-    if (destroyFile) {
-      fs.writeFileSync(envFilePathToUpdate, [
+  function triggerNextReload(changedPath: string) {
+    debug('extra file changed, triggering reload:', changedPath);
+    if (mustDestroyTriggerFile) {
+      fs.writeFileSync(triggerFilePath!, [
         '# This file was created by @varlock/nextjs-integration',
         '# It is used to trigger Next.js to reload when non-standard .env files change',
         '# You can safely ignore and delete it',
@@ -105,13 +116,22 @@ function enableExtraFileWatchers() {
         '# ---',
       ].join('\n'), 'utf-8');
       setTimeout(() => {
-        fs.unlinkSync(envFilePathToUpdate);
+        // eslint-disable-next-line
+        try { fs.unlinkSync(triggerFilePath!); } catch { /* may already be gone */ }
       }, 1000);
     } else {
-      const currentContents = fs.readFileSync(envFilePathToUpdate, 'utf-8');
-      fs.writeFileSync(envFilePathToUpdate, currentContents, 'utf-8');
+      const currentContents = fs.readFileSync(triggerFilePath!, 'utf-8');
+      fs.writeFileSync(triggerFilePath!, currentContents, 'utf-8');
     }
-  });
+  }
+
+  debug('setting up extra file watchers for:', extraFilePaths);
+  for (const filePath of extraFilePaths) {
+    watchedExtraFiles.add(filePath);
+    fs.watchFile(filePath, { interval: 500 }, () => {
+      triggerNextReload(filePath);
+    });
+  }
 }
 
 function detectOpenNextCloudflareBuild() {
@@ -142,6 +162,7 @@ function detectOpenNextCloudflareBuild() {
   return false;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function writeResolvedEnvFile() {
   // things get complicated on platforms like vercel/cloudflare, they do some of their own magic to load env vars
   // our loader (this file) will run during the _build_ process, but not when the platform is handling server rendered requests
@@ -177,7 +198,9 @@ function writeResolvedEnvFile() {
       resolvedEnvFileName = process.env._VARLOCK_EXPORT_RESOLVED_ENV_FILE;
     }
     if (!rootDir) throw new Error('expected rootDir to be set');
-    fs.writeFileSync(path.resolve(rootDir, resolvedEnvFileName), dotEnvStrLines.join('\n'), 'utf-8');
+    const resolvedEnvFilePath = path.resolve(rootDir, resolvedEnvFileName);
+    fs.writeFileSync(resolvedEnvFilePath, dotEnvStrLines.join('\n'), 'utf-8');
+    debug('wrote resolved env file:', resolvedEnvFilePath);
   }
 }
 
@@ -246,6 +269,7 @@ export function loadEnvConfig(
   // store actual process.env so we can restore it later
   initialEnv ||= { ...process.env };
 
+  loadCount++;
   debug('loadEnvConfig!', 'forceReload = ', forceReload);
 
   // onReload is used to show a log of which .env file changed
@@ -254,13 +278,16 @@ export function loadEnvConfig(
   rootDir ||= dir;
   if (rootDir !== dir) throw new Error('root directory changed');
 
-  if (dev) enableExtraFileWatchers();
+  // Always watch .env.schema early — even before the first successful load —
+  // so that if the load fails (e.g. validation error), the user can fix the
+  // schema and have the dev server automatically retry without a restart.
+  if (dev) enableExtraFileWatchers([], undefined);
 
   let useCachedEnv = !!process.env.__VARLOCK_ENV;
   if (forceReload) {
-    if (!lastReloadAt) {
-      lastReloadAt = new Date();
-    } else if (lastReloadAt.getTime() < Date.now() - 1000) {
+    // Throttle reloads to at most once per second to avoid spinning during
+    // rapid file-change bursts (Next.js may fire multiple events per edit)
+    if (!lastReloadAt || lastReloadAt.getTime() < Date.now() - 1000) {
       lastReloadAt = new Date();
       useCachedEnv = false;
     }
@@ -280,6 +307,8 @@ export function loadEnvConfig(
 
     combinedEnv = { ...initialEnv, ...parsedEnv };
 
+    if (dev) enableExtraFileWatchers(varlockLoadedEnv.sources, varlockLoadedEnv.basePath);
+
     debug('>> USING CACHED ENV');
 
     return { combinedEnv, parsedEnv, loadedEnvFiles };
@@ -298,12 +327,14 @@ export function loadEnvConfig(
   debug('Inferred env mode (to match @next/env):', envFromNextCommand);
 
   try {
-    loadCount++;
+    // strip DEBUG_VARLOCK from env to prevent debug output from contaminating JSON stdout
+    const cleanEnv = { ...initialEnv };
+    delete cleanEnv.DEBUG_VARLOCK;
     const varlockLoadedEnvStr = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
       showLogsOnError: true,
       // in a build, we want to fail and exit, while in dev we can keep retrying when changes are detected
       exitOnError: !dev,
-      env: initialEnv as any,
+      env: cleanEnv as any,
     });
     if (loadCount >= 2) {
       // eslint-disable-next-line no-console
@@ -323,6 +354,11 @@ export function loadEnvConfig(
       ].join('\n'));
       process.exit(1);
     }
+
+    // showLogsOnError already printed the formatted CLI output above,
+    // so we only add a short note here (err.message duplicates stderr)
+    // eslint-disable-next-line no-console
+    console.error('[varlock] ⚠️ failed to load env — see error above');
 
     // if we dont do this, we'll see an error that looks like `process.env.__VARLOCK_ENV is not set` which is misleading.
     // Ideally we would pass through an error of some kind and trigger the webpack runtime error popup
@@ -350,8 +386,14 @@ export function loadEnvConfig(
   combinedEnv = { ...initialEnv, ...parsedEnv };
   loadedEnvFiles = getVarlockSourcesAsLoadedEnvFiles();
 
-  // if not a dev build, we may need to write a temp resolved .env file
-  if (!dev) writeResolvedEnvFile();
+  // Set up watchers for source files that Next.js doesn't natively watch.
+  // Called after every reload so newly-added sources get watched too.
+  if (dev) enableExtraFileWatchers(varlockLoadedEnv.sources, varlockLoadedEnv.basePath);
+
+  // write a resolved .env file for platforms like Vercel/Cloudflare that need
+  // pre-resolved env values at runtime (they don't re-run @next/env on boot)
+  // TODO: re-enable once we verify instrumentation approach works for prod
+  // if (!dev) writeResolvedEnvFile();
 
   return { combinedEnv, parsedEnv, loadedEnvFiles };
 }

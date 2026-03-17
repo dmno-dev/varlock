@@ -84,6 +84,16 @@
       "types": "./dist/runtime/patch-server-response.d.ts",
       "default": "./dist/runtime/patch-server-response.js"
     },
+    "./init-server": {
+      "ts-src": "./src/runtime/init-server.ts",
+      "types": "./dist/runtime/init-server.d.cts",
+      "default": "./dist/runtime/init-server.cjs"
+    },
+    "./init-edge": {
+      "ts-src": "./src/runtime/init-edge.ts",
+      "types": "./dist/runtime/init-edge.d.cts",
+      "default": "./dist/runtime/init-edge.cjs"
+    },
     "./exec-sync-varlock": {
       "ts-src": "./src/lib/exec-sync-varlock.ts",
       "types": "./dist/lib/exec-sync-varlock.d.ts",
