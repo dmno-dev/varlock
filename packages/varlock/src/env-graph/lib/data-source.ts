@@ -106,6 +106,7 @@ export abstract class EnvGraphDataSource {
    */
   get isEnvSpecific(): boolean {
     if (this.applyForEnv && !this.isImport) return true;
+    if (this.type === 'overrides') return true;
     if (this._hasConditionalDisable) return true;
     if (this.importMeta?.isConditionallyEnabled) return true;
     if (this.parent?.isEnvSpecific) return true;
