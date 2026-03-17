@@ -1,6 +1,5 @@
 ---
 "varlock": minor
-"@env-spec/parser": minor
 ---
 
 feat: add `ifs()` function and update `remap()` to support positional arg pairs
