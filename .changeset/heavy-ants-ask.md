@@ -1,5 +1,5 @@
 ---
-"@varlock/nextjs-integration": patch
+"@varlock/nextjs-integration": minor
 "varlock": patch
 ---
 
