@@ -4,7 +4,6 @@
 "core:varlock":
 - changed-files:
   - any-glob-to-any-file: 'packages/varlock/**'
-  - any-glob-to-any-file: 'packages/env-graph/**'
 "core:parser":
 - changed-files:
   - any-glob-to-any-file: 'packages/env-spec-parser/**'
