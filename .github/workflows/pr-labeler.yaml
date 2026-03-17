@@ -22,13 +22,20 @@ jobs:
         with:
           script: |
             const MAINTAINERS = 'theoephraim philmillman'.split(' ');
+            const pr = context.payload.pull_request;
+            const isRelease = pr.head.ref === 'changeset-release/main';
+            const isRenovate = pr.user.login === 'renovate[bot]';
+            const isCopilot = pr.user.login === 'copilot[bot]';
+            const isMaintainer = MAINTAINERS.includes(pr.user.login);
+            let label = 'community';
+            if (isRelease) label = 'release';
+            else if (isRenovate) label = 'bot';
+            else if (isMaintainer || isCopilot) label = 'maintainer';
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              labels: [
-                MAINTAINERS.includes(context.payload.pull_request.user.login) ? 'maintainer' : 'community'
-              ]
+              labels: [label]
             });
       - name: Label PR based on changed files
         uses: actions/labeler@v6
