@@ -53,9 +53,14 @@ export function spawnAsyncHelper(
 export async function spawnAsync(
   command: string,
   args: Array<string>,
-  opts?: SpawnOptions,
+  opts?: SpawnOptions & { input?: string },
 ) {
-  const { execResult } = spawnAsyncHelper(command, args, opts);
+  const { input, ...spawnOpts } = opts ?? {};
+  const { childProcess, execResult } = spawnAsyncHelper(command, args, spawnOpts);
+  if (input !== undefined && childProcess.stdin) {
+    childProcess.stdin.write(input);
+    childProcess.stdin.end();
+  }
   return execResult;
 }
 

@@ -21,7 +21,7 @@
 - 🔏 runtime protection — log redaction and leak prevention
 - 🛡️ validation, coercion, type safety w/ IntelliSense
 - 🌐 flexible multi-environment management — auto .env.* loading and explicit import
-- 🔌 6 secret manager plugins (1Password, Infisical, AWS, Azure, GCP, Bitwarden)
+- 🔌 8 secret manager plugins (1Password, Infisical, AWS, Azure, GCP, Bitwarden, KeePass, pass)
 
 Unlike .env.example, **your .env.schema is a single source of truth**, built for collaboration, that will never be out of sync.
 
@@ -124,6 +124,7 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 | [@varlock/bitwarden-plugin](packages/plugins/bitwarden) | [![npm version](https://img.shields.io/npm/v/@varlock/bitwarden-plugin.svg)](https://npmjs.com/package/@varlock/bitwarden-plugin) |
 | [@varlock/google-secret-manager-plugin](packages/plugins/google-secret-manager) | [![npm version](https://img.shields.io/npm/v/@varlock/google-secret-manager-plugin.svg)](https://npmjs.com/package/@varlock/google-secret-manager-plugin) |
 | [@varlock/infisical-plugin](packages/plugins/infisical) | [![npm version](https://img.shields.io/npm/v/@varlock/infisical-plugin.svg)](https://npmjs.com/package/@varlock/infisical-plugin) |
+| [@varlock/keepass-plugin](packages/plugins/keepass) | [![npm version](https://img.shields.io/npm/v/@varlock/keepass-plugin.svg)](https://npmjs.com/package/@varlock/keepass-plugin) |
 | [@varlock/pass-plugin](packages/plugins/pass) | [![npm version](https://img.shields.io/npm/v/@varlock/pass-plugin.svg)](https://npmjs.com/package/@varlock/pass-plugin) |
 
 ### Framework Integrations
