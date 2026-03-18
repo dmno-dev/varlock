@@ -33,28 +33,15 @@ import type { EnvGraph } from './env-graph';
 // so we track just to ensure we don't attempt to do load it multiple times
 const importedPluginModulePaths = new Set<string>();
 
-/** Check if we are running inside a compiled binary (SEA = Single Executable Application) */
-function isSEABuild(): boolean {
-  try {
-    return __VARLOCK_SEA_BUILD__;
-  } catch {
-    return false;
-  }
-}
-
-
 /**
- * Loads and executes a CJS plugin module in SEA (single executable application) builds.
+ * Loads and executes a CJS plugin module via node:vm.
  *
- * In compiled binaries, `require(filePath)` for external files may not work, so we:
- *   1. Read the plugin file from disk
- *   2. Execute it via `node:vm` with a standard CJS module context
- *      (require, module, exports, __dirname, __filename)
- *
- * Plugins are built as CJS (not ESM) specifically to make this straightforward —
- * no import-to-require transformation needed.
+ * Plugins are built as CJS so they can be executed directly in a standard CJS
+ * module context (require, module, exports, __dirname, __filename) with no
+ * import-to-require transformation needed. Using node:vm works in both normal
+ * and SEA (compiled binary) builds — dynamic import() does not work in SEA builds.
  */
-function loadPluginModuleInSEA(filePath: string): void {
+function loadPluginModule(filePath: string): void {
   const code = fsSync.readFileSync(filePath, 'utf-8');
   const pluginDir = path.dirname(filePath);
   const moduleObj = { exports: {} as any };
@@ -174,14 +161,7 @@ export class VarlockPlugin {
       // note - we don't export anything
       // instead we inject the plugin, and then modify it
 
-      // In SEA (compiled binary) builds, dynamic import() of external files fails with
-      // ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING. We use node:vm with a CJS module context instead.
-      // Plugins are built as CJS to make this straightforward.
-      if (isSEABuild()) {
-        loadPluginModuleInSEA(this.pluginFilePath);
-      } else {
-        createRequire(import.meta.url)(this.pluginFilePath);
-      }
+      loadPluginModule(this.pluginFilePath);
     } catch (err) {
       this.loadingError = err as Error;
     }
