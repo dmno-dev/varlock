@@ -173,6 +173,12 @@ export default tseslint.config(
     },
   },
   {
+    files: ['smoke-tests/smoke-test-plugin/plugins/**'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 0,
+    },
+  },
+  {
     // plugin files use triple-slash directives for the `plugin` global type
     // which is injected at runtime by varlock via globalThis
     files: [

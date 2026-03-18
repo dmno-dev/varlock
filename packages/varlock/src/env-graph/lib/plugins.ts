@@ -4,7 +4,7 @@ import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
+
 import crypto from 'node:crypto';
 import https from 'node:https';
 import vm from 'node:vm';
@@ -44,88 +44,32 @@ function isSEABuild(): boolean {
 
 
 /**
- * Loads and executes a plugin module in SEA (single executable application) builds.
+ * Loads and executes a CJS plugin module in SEA (single executable application) builds.
  *
- * In compiled binaries, `await import(filePath)` fails with ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING
- * because the ESM loader is not wired up for external files. Instead we:
+ * In compiled binaries, `require(filePath)` for external files may not work, so we:
  *   1. Read the plugin file from disk
- *   2. Rewrite ESM `import` declarations to CJS `require()` calls
- *   3. Provide a synthetic `import.meta` object
- *   4. Execute via `node:vm` with access to the current global scope
+ *   2. Execute it via `node:vm` with a standard CJS module context
+ *      (require, module, exports, __dirname, __filename)
  *
- * This works because plugin bundles only import Node builtins (tsup inlines everything else)
- * and interact with varlock through the `plugin` global.
+ * Plugins are built as CJS (not ESM) specifically to make this straightforward —
+ * no import-to-require transformation needed.
  */
-async function loadPluginModuleInSEA(filePath: string): Promise<void> {
+function loadPluginModuleInSEA(filePath: string): void {
   const code = fsSync.readFileSync(filePath, 'utf-8');
-
-  // Build a file:// URL for the plugin so import.meta.url resolves correctly.
-  // This is critical for plugins that derive __dirname from import.meta.url
-  // (e.g. to locate co-located .wasm files).
-  const fileUrl = pathToFileURL(filePath).href;
   const pluginDir = path.dirname(filePath);
-
-  // Create a require function scoped to the plugin's directory so
-  // bare-specifier requires (e.g. 'fs', 'path') resolve correctly.
-  const pluginRequire = createRequire(filePath);
-
-  // Rewrite top-level ESM import declarations → CJS require() calls.
-  // We handle the patterns that tsup/esbuild actually emit:
-  //   import X from 'mod'            → const X = require('mod')
-  //   import { a, b } from 'mod'     → const { a, b } = require('mod')
-  //   import X, { a, b } from 'mod'  → const X = require('mod'); const { a, b } = X;
-  //   import * as X from 'mod'       → const X = require('mod')
-  //   import 'mod'                    → require('mod')
-  let transformed = code
-    // import DefaultExport, { named1, named2 } from 'module'  (must come first - most specific)
-    .replace(
-      /^import\s+(\w+)\s*,\s*(\{[^}]+\})\s+from\s+['"]([^'"]+)['"]\s*;?/gm,
-      'const $1 = __plugin_require__("$3"); const $2 = $1;',
-    )
-    // import * as X from 'module'
-    .replace(
-      /^import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]\s*;?/gm,
-      'const $1 = __plugin_require__("$2");',
-    )
-    // import { a, b as c } from 'module'
-    .replace(
-      /^import\s+(\{[^}]+\})\s+from\s+['"]([^'"]+)['"]\s*;?/gm,
-      'const $1 = __plugin_require__("$2");',
-    )
-    // import DefaultExport from 'module'
-    .replace(
-      /^import\s+(\w+)\s+from\s+['"]([^'"]+)['"]\s*;?/gm,
-      'const $1 = __plugin_require__("$2");',
-    )
-    // side-effect-only: import 'module'
-    .replace(
-      /^import\s+['"]([^'"]+)['"]\s*;?/gm,
-      '__plugin_require__("$1");',
-    );
-
-  // Replace import.meta references with our synthetic object
-  transformed = transformed.replace(/import\.meta/g, '__plugin_import_meta__');
-
-  // Wrap in async IIFE to support top-level await in plugin code
-  const wrapped = `(async () => {\n${transformed}\n})()`;
+  const moduleObj = { exports: {} as any };
 
   const context = vm.createContext(globalThis, {
     codeGeneration: { strings: true, wasm: true },
   });
+  context.require = createRequire(filePath);
+  context.module = moduleObj;
+  context.exports = moduleObj.exports;
+  context.__dirname = pluginDir;
+  context.__filename = filePath;
 
-  // Inject helpers into the vm context
-  context.__plugin_require__ = pluginRequire;
-  context.__plugin_import_meta__ = Object.freeze({
-    url: fileUrl,
-    dirname: pluginDir,
-    filename: filePath,
-  });
-
-  const script = new vm.Script(wrapped, { filename: filePath });
-  const result = script.runInContext(context);
-
-  // Await the async IIFE in case the plugin uses top-level await
-  await result;
+  const script = new vm.Script(code, { filename: filePath });
+  script.runInContext(context);
 }
 
 
@@ -231,12 +175,12 @@ export class VarlockPlugin {
       // instead we inject the plugin, and then modify it
 
       // In SEA (compiled binary) builds, dynamic import() of external files fails with
-      // ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING. We use a custom loader that rewrites
-      // ESM to CJS and evaluates via node:vm instead.
+      // ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING. We use node:vm with a CJS module context instead.
+      // Plugins are built as CJS to make this straightforward.
       if (isSEABuild()) {
-        await loadPluginModuleInSEA(this.pluginFilePath);
+        loadPluginModuleInSEA(this.pluginFilePath);
       } else {
-        await import(pathToFileURL(this.pluginFilePath).href);
+        createRequire(import.meta.url)(this.pluginFilePath);
       }
     } catch (err) {
       this.loadingError = err as Error;

@@ -4,7 +4,7 @@ import {
 import {
   mkdirSync, writeFileSync, existsSync, cpSync, rmSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   runBinary, binaryRun, hasBinary,
 } from '../helpers/run-varlock-binary.js';
@@ -148,6 +148,57 @@ describe('Binary plugin loading', () => {
       const env = JSON.parse(result.stdout);
       expect(env.RESULT).toContain('works');
       expect(env.RESULT).toContain('sep=');
+    });
+  });
+
+  describe('real monorepo plugins load without parse errors', () => {
+    // Temp projects sit at smoke-tests/smoke-test-plugin/tmp-<name>/
+    // so 3 levels up reaches the monorepo root → packages/plugins/<name>
+    const PLUGINS_ROOT = '../../../packages/plugins';
+    const REAL_PLUGINS = [
+      'aws-secrets',
+      'google-secret-manager',
+      'infisical',
+      'azure-key-vault',
+      'bitwarden',
+      'pass',
+      '1password',
+    ];
+
+    let cwd: string;
+
+    beforeAll(() => {
+      const sampleDist = resolve(
+        import.meta.dirname,
+        '../../packages/plugins/aws-secrets/dist/plugin.cjs',
+      );
+      if (!existsSync(sampleDist)) {
+        console.warn('Skipping real-plugin load test: plugins not built (run `bun run --filter "@varlock/*-plugin" build` first)');
+        return;
+      }
+
+      const pluginLines = REAL_PLUGINS.map((p) => `# @plugin(${PLUGINS_ROOT}/${p})`);
+      cwd = createPluginTestProject('real-plugins', [
+        ...pluginLines,
+        '# @defaultSensitive=false',
+        '# ---',
+        'STATIC=plain-value',
+      ].join('\n'));
+    });
+
+    test('all real plugins load without SyntaxError', () => {
+      const sampleDist = resolve(
+        import.meta.dirname,
+        '../../packages/plugins/aws-secrets/dist/plugin.cjs',
+      );
+      if (!existsSync(sampleDist)) return;
+
+      const result = runBinary(['load', '--format', 'json'], { cwd });
+
+      // Plugins may fail to connect (no credentials in CI), but must NOT produce parse errors
+      expect(result.output).not.toContain("Unexpected identifier 'as'");
+      expect(result.output).not.toContain('SyntaxError');
+      expect(result.output).not.toContain('loadingError');
     });
   });
 
