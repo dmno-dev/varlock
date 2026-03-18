@@ -3,7 +3,6 @@
   "private": true,
   "description": "Basic test plugin - no imports, just registers a resolver",
   "version": "1.0.0",
-  "type": "module",
   "exports": {
     "./plugin": "./plugin.js"
   }

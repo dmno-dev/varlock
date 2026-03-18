@@ -7,19 +7,8 @@ export default defineConfig({
   treeshake: true,
   clean: false,
   outDir: 'dist',
-  format: ['esm'],
+  format: ['cjs'],
   splitting: false,
   target: 'esnext',
   external: ['varlock'],
-  banner: ({ format }) => {
-    if (format === 'esm') {
-      return ({
-        js: [
-          'import { createRequire } from \'module\';',
-          'const require = createRequire(import.meta.url);',
-        ].join('\n'),
-      });
-    }
-    return {};
-  },
 });

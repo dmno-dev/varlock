@@ -1,6 +1,6 @@
 /// <reference path="../../../packages/varlock/src/plugin-lib.ts" />
 // Single-file plugin (no package.json) — tests the .js file plugin path
-import path from 'path';
+const path = require('path');
 
 plugin.registerResolverFunction({
   name: 'singleFileTest',

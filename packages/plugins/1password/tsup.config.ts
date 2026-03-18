@@ -14,23 +14,9 @@ export default defineConfig({
   clean: false, // Clean output directory before building
   outDir: 'dist', // Output directory
 
-  format: ['esm'], // Output format(s)
+  format: ['cjs'], // Output format(s)
   splitting: false,
 
   target: 'esnext',
   external: ['varlock'],
-  banner: ({ format }) => {
-    if (format === 'esm') {
-      return ({
-        js: [
-          'import { createRequire } from \'module\';',
-          'import { fileURLToPath } from \'url\';',
-          'const require = createRequire(import.meta.url);',
-          'const __dirname = fileURLToPath(new URL(\'.\', import.meta.url));',
-          'const __filename = fileURLToPath(new URL(\'./plugin.cjs\', import.meta.url));',
-        ].join('\n'),
-      });
-    }
-    return {};
-  },
 });

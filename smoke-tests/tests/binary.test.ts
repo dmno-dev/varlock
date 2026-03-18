@@ -35,6 +35,21 @@ describe('Compiled binary tests', () => {
     expect(result.exitCode).toBe(42);
   });
 
+  test('.env.local function calls are resolved, not treated as literal strings', () => {
+    // If Bun's auto-dotenv-loading is not disabled for the compiled binary,
+    // it pre-loads .env.local into process.env before varlock starts.
+    // env-graph.ts captures process.env as overrideValues, and config-item.ts
+    // would then return the literal function call string instead of resolving it.
+    const result = binaryRun(
+      ['node', '-e', 'console.log("PUBLIC_VAR=" + process.env.PUBLIC_VAR)'],
+      { cwd: 'smoke-test-dotenv-isolation' },
+    );
+
+    expect(result.exitCode).toBe(0);
+    // without --no-compile-autoload-dotenv this would be the literal: 'if(true, a, b)'
+    expect(result.output).toContain('PUBLIC_VAR=a');
+  });
+
   describe('nested varlock run (issue #312)', () => {
     test('inner binary can run and inject env vars', () => {
       // Outer varlock run spawns inner varlock run, which spawns node

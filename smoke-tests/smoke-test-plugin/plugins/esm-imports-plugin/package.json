@@ -1,9 +1,8 @@
 {
   "name": "@varlock/test-plugin-esm-imports",
   "private": true,
-  "description": "Test plugin with ESM imports of Node builtins (mimics pass/bitwarden plugins)",
+  "description": "Test plugin with CJS requires of Node builtins (mimics pass/bitwarden plugins)",
   "version": "1.0.0",
-  "type": "module",
   "exports": {
     "./plugin": "./plugin.js"
   }
