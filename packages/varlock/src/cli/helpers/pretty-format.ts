@@ -1,5 +1,5 @@
 import ansis from 'ansis';
-import { detectJsPackageManager, JsPackageManagerMeta } from './js-package-manager-utils';
+import { detectJsPackageManager, type JsPackageManagerMeta } from './js-package-manager-utils';
 
 
 export const fmt = {

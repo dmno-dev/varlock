@@ -1,148 +1,37 @@
+// Re-exports for backward compatibility - prefer importing from lib/workspace-utils directly
+export {
+  JS_PACKAGE_MANAGERS,
+  detectWorkspaceInfo,
+  getWorkspaceInfo,
+  runWithWorkspaceInfo,
+  type JsPackageManager,
+  type JsPackageManagerMeta,
+  type WorkspaceInfo,
+  type MonorepoTool,
+} from '../../lib/workspace-utils';
+
 import path from 'node:path';
 import fs, { existsSync } from 'node:fs';
-import { pathExistsSync } from '@env-spec/utils/fs-utils';
-import { createDebug } from '../../lib/debug';
-
-import { CliExitError } from './exit-error';
 import { execSync } from 'node:child_process';
+import { CliExitError } from './exit-error';
+import { detectWorkspaceInfo, type JsPackageManager } from '../../lib/workspace-utils';
 
-const debug = createDebug('varlock:js-package-manager-utils');
-
-export type JsPackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'deno';
-
-export type JsPackageManagerMeta = {
-  name: JsPackageManager;
-  lockfiles: Array<string>;
-  add: string;
-  exec: string;
-  dlx: string;
-};
-
-export const JS_PACKAGE_MANAGERS: Record<JsPackageManager, JsPackageManagerMeta> = Object.freeze({
-  npm: {
-    name: 'npm',
-    lockfiles: ['package-lock.json'],
-    add: 'npm install', // add also works
-    exec: 'npm exec --',
-    dlx: 'npx',
-  },
-  pnpm: {
-    name: 'pnpm',
-    lockfiles: ['pnpm-lock.yaml'],
-    add: 'pnpm add',
-    exec: 'pnpm exec',
-    dlx: 'pnpm dlx',
-  },
-  yarn: {
-    name: 'yarn',
-    lockfiles: ['yarn.lock'],
-    add: 'yarn add',
-    exec: 'yarn exec --',
-    dlx: 'yarn dlx',
-  },
-  bun: {
-    name: 'bun',
-    lockfiles: ['bun.lock', 'bun.lockb'],
-    add: 'bun add',
-    exec: 'bun run',
-    dlx: 'bunx',
-  },
-  deno: { //! deno not fully supported yet
-    name: 'deno',
-    lockfiles: ['deno.lock'],
-    add: 'deno add',
-    // TODO: don't think these are quite right...
-    exec: 'deno run',
-    dlx: 'deno run',
-  },
-});
-
-/**
- * detect js package manager
- *
- * currently go up the folder tree looking for lockfiles (ex: package-lock.json, pnpm-lock.yaml)
- * if nothing found, we'll look at process.env.npm_config_user_agent
- * */
 export function detectJsPackageManager(opts?: {
   cwd?: string,
-  workspaceRootPath?: string,
   exitIfNotFound?: boolean,
 }) {
-  debug('Detecting js package manager');
-  let cwd = opts?.cwd || process.cwd();
-  let multipleLockfilesDetected: Array<JsPackageManager> | undefined;
-  do {
-    debug(`> scanning ${cwd}`);
-    const scanDir = cwd;
-    let pm: JsPackageManager;
-    let detectedPm: JsPackageManager | undefined;
-    for (pm in JS_PACKAGE_MANAGERS) {
-      const foundLockfile = JS_PACKAGE_MANAGERS[pm].lockfiles.find(
-        (lockfile) => pathExistsSync(path.join(scanDir, lockfile)),
-      );
-
-      if (foundLockfile) {
-        // if we find 2 lockfiles at the same level, store them and continue
-        // this can happen in monorepos or when switching package managers
-        if (detectedPm) {
-          debug(`> found multiple lockfiles: ${foundLockfile} and ${JS_PACKAGE_MANAGERS[detectedPm].lockfiles[0]}`);
-          multipleLockfilesDetected = [detectedPm, pm];
-          break;
-        }
-        debug(`> found ${foundLockfile}`);
-        detectedPm = pm;
-      }
+  const info = detectWorkspaceInfo({ cwd: opts?.cwd });
+  if (!info) {
+    if (opts?.exitIfNotFound) {
+      throw new CliExitError('Unable to detect your JavaScript package manager!', {
+        suggestion: 'We look for lock files (ex: package-lock.json) so you may just need to run a dependency install (ie `npm install`)',
+        forceExit: true,
+      });
     }
-    if (detectedPm && !multipleLockfilesDetected) return JS_PACKAGE_MANAGERS[detectedPm];
-    if (multipleLockfilesDetected) break;
-
-    // will break when we reach the root
-    const parentDir = path.dirname(cwd);
-    if (parentDir === cwd) break;
-    cwd = parentDir;
-
-    if (opts?.workspaceRootPath) {
-      if (opts.workspaceRootPath === cwd) {
-        debug('> found workspace root');
-        break;
-      }
-    } else {
-      // if we don't have a workspace root path, we'll break if we hit the git repo root
-      if (pathExistsSync(path.join(cwd, '.git'))) {
-        debug('> found git root');
-        break;
-      }
-    }
-  } while (cwd);
-
-  // if we did not find a lockfile, we'll look at env vars for other hints
-  if (process.env.npm_config_user_agent) {
-    const pmFromAgent = process.env.npm_config_user_agent.split('/')[0];
-    if (Object.keys(JS_PACKAGE_MANAGERS).includes(pmFromAgent)) {
-      debug(`> found ${pmFromAgent} using npm_config_user_agent`);
-      return JS_PACKAGE_MANAGERS[pmFromAgent as JsPackageManager];
-    }
+    return undefined;
   }
-
-  // if we found multiple lockfiles and env var detection failed, return the first detected one
-  // we choose the first one because the order is deterministic (based on the order in JS_PACKAGE_MANAGERS)
-  // and this provides a reasonable fallback when we can't determine the active package manager
-  if (multipleLockfilesDetected) {
-    debug(`> using ${multipleLockfilesDetected[0]} from multiple detected lockfiles`);
-    return JS_PACKAGE_MANAGERS[multipleLockfilesDetected[0]];
-  }
-
-  if (opts?.exitIfNotFound) {
-    // show some hopefully useful error messaging if we hit the root folder without finding anything
-    throw new CliExitError('Unable to find detect your JavaScript package manager!', {
-      suggestion: 'We look for lock files (ex: package-lock.json) so you may just need to run a dependency install (ie `npm install`)',
-      forceExit: true,
-    });
-  }
+  return info.packageManager;
 }
-
-
-
 
 export function installJsDependency(opts: {
   packageName: string,
@@ -172,4 +61,3 @@ export function installJsDependency(opts: {
 
   return true;
 }
-

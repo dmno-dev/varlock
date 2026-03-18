@@ -26,6 +26,7 @@ import type {
 import { createEnvGraphDataType } from './data-types';
 
 import { createDebug, type Debugger } from '../../lib/debug';
+import { getWorkspaceInfo } from '../../lib/workspace-utils';
 import type { EnvGraph } from './env-graph';
 
 // module caching means the file will not be executed multiple times
@@ -479,6 +480,8 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
           // Walk up the directory tree checking each node_modules for the plugin.
           // This supports monorepos where npm/yarn/pnpm may hoist packages to the
           // root node_modules rather than the workspace's own node_modules.
+          const workspaceRootPath = getWorkspaceInfo()?.rootPath;
+
           let currentDir = dataSourceDir;
           let nodeModulesPath: string | undefined;
           while (currentDir) {
@@ -503,8 +506,11 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
               break;
             }
 
+            // stop at the workspace root - no need to search beyond it
+            if (workspaceRootPath && currentDir === workspaceRootPath) break;
+
             const parentDir = path.dirname(currentDir);
-            if (parentDir === currentDir) break; // will stop when we reach the root
+            if (parentDir === currentDir) break; // will stop when we reach the filesystem root
             currentDir = parentDir;
           }
 
