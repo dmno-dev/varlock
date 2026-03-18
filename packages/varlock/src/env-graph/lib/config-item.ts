@@ -452,9 +452,9 @@ export class ConfigItem {
   }
 
   async resolve(reset = false) {
-    // bail early if we have a schema error
-    if (this._schemaErrors.length) return;
-    if (this.resolverSchemaErrors.length) return;
+    // bail early if we have real schema errors (warnings do not block resolution)
+    if (this._schemaErrors.some((e) => !e.isWarning)) return;
+    if (this.resolverSchemaErrors.some((e) => !e.isWarning)) return;
 
     if (reset) {
       this.isResolved = false;

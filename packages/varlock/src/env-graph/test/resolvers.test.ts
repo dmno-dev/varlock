@@ -29,12 +29,14 @@ class IncrementResolver extends Resolver {
 function functionValueTests(
   tests: Record<string, {
     input: string;
-    expected: Record<string, string | number | boolean | undefined | Constructor<Error>>
+    expected: Record<string, string | number | boolean | undefined | Constructor<Error>>;
+    /** if true, expects items to have only warnings (not full errors) while still resolving */
+    expectWarnings?: boolean;
   }>,
 ) {
   return () => {
     Object.entries(tests).forEach(([label, spec]) => {
-      const { input, expected } = spec;
+      const { input, expected, expectWarnings } = spec;
       it(label, async () => {
         const g = new EnvGraph();
 
@@ -63,7 +65,12 @@ function functionValueTests(
           } else if (expectedValue === ResolutionError) {
             expect(item.resolutionError).toBeInstanceOf(ResolutionError);
           } else {
-            expect(item.isValid, `Expected item ${key} to be valid`).toBeTruthy();
+            if (expectWarnings) {
+              // item should have warnings only (not hard errors), and still resolve
+              expect(item.validationState, `Expected item ${key} to have warnings, not errors`).not.toBe('error');
+            } else {
+              expect(item.isValid, `Expected item ${key} to be valid`).toBeTruthy();
+            }
             expect(item.resolvedValue).toEqual(expectedValue);
           }
         }
@@ -216,7 +223,14 @@ describe('regex()', functionValueTests({
   'error - invalid regex': {
     input: outdent`
       OTHER=other
-      ITEM=remap(OTHER, bad=regex("("), default)
+      ITEM=remap($OTHER, regex("("), bad, foo, default)
+    `,
+    expected: { ITEM: SchemaError },
+  },
+  'error - invalid regex (legacy syntax)': {
+    input: outdent`
+      OTHER=other
+      ITEM=remap($OTHER, bad=regex("("), default)
     `,
     expected: { ITEM: SchemaError },
   },
@@ -227,41 +241,81 @@ describe('remap()', functionValueTests({
   'keeps original value if no match found': {
     input: outdent`
       REMAP_ME=foo
-      ITEM=remap($REMAP_ME, a=b, b=c)
+      ITEM=remap($REMAP_ME, b, a, c, b)
     `,
     expected: { ITEM: 'foo' },
   },
   'remaps exact match': {
     input: outdent`
       REMAP_ME=foo
-      ITEM=remap($REMAP_ME, biz=buz, bar=foo)
+      ITEM=remap($REMAP_ME, buz, biz, foo, bar)
     `,
     expected: { ITEM: 'bar' },
   },
   'remaps regex match': {
     input: outdent`
       REMAP_ME=foo
-      ITEM=remap($REMAP_ME, biz=buz, bar=regex(fo+))
+      ITEM=remap($REMAP_ME, buz, biz, regex(fo+), bar)
     `,
     expected: { ITEM: 'bar' },
   },
   'remaps undefined match': {
     input: outdent`
       REMAP_ME=
+      ITEM=remap($REMAP_ME, buz, biz, undefined, bar)
+    `,
+    expected: { REMAP_ME: undefined, ITEM: 'bar' },
+  },
+  'uses default when no match': {
+    input: outdent`
+      REMAP_ME=unknown
+      ITEM=remap($REMAP_ME, foo, a, bar, b, default-val)
+    `,
+    expected: { ITEM: 'default-val' },
+  },
+  // legacy key=value syntax (deprecated but still supported - emits a deprecation warning)
+  'legacy key=val: keeps original value if no match found': {
+    input: outdent`
+      REMAP_ME=foo
+      ITEM=remap($REMAP_ME, a=b, b=c)
+    `,
+    expected: { ITEM: 'foo' },
+    expectWarnings: true,
+  },
+  'legacy key=val: remaps exact match': {
+    input: outdent`
+      REMAP_ME=foo
+      ITEM=remap($REMAP_ME, biz=buz, bar=foo)
+    `,
+    expected: { ITEM: 'bar' },
+    expectWarnings: true,
+  },
+  'legacy key=val: remaps regex match': {
+    input: outdent`
+      REMAP_ME=foo
+      ITEM=remap($REMAP_ME, biz=buz, bar=regex(fo+))
+    `,
+    expected: { ITEM: 'bar' },
+    expectWarnings: true,
+  },
+  'legacy key=val: remaps undefined match': {
+    input: outdent`
+      REMAP_ME=
       ITEM=remap($REMAP_ME, biz=buz, bar=undefined)
     `,
     expected: { REMAP_ME: undefined, ITEM: 'bar' },
+    expectWarnings: true,
   },
   'error - no args': {
     input: 'ITEM=remap()',
     expected: { ITEM: SchemaError },
   },
-  'error - no value': {
-    input: 'ITEM=remap(key=val)',
+  'error - too few args': {
+    input: 'ITEM=remap("value")',
     expected: { ITEM: SchemaError },
   },
-  'error - extra arg': {
-    input: 'ITEM=remap("value", key=val, "extra")',
+  'error - too few args (2 positional)': {
+    input: 'ITEM=remap("value", "match")',
     expected: { ITEM: SchemaError },
   },
 }));
@@ -393,6 +447,55 @@ describe('if()', functionValueTests({
   },
   'error - nested bad arg': {
     input: 'ITEM=if(ref(BADKEY), "yes", "no")',
+    expected: { ITEM: SchemaError },
+  },
+}));
+
+describe('ifs()', functionValueTests({
+  'returns value for first truthy condition': {
+    input: outdent`
+      ITEM=ifs(false, first, true, second, third)
+    `,
+    expected: { ITEM: 'second' },
+  },
+  'returns default when no condition matches': {
+    input: outdent`
+      ITEM=ifs(false, first, false, second, default-val)
+    `,
+    expected: { ITEM: 'default-val' },
+  },
+  'returns undefined when no match and no default': {
+    input: outdent`
+      ITEM=ifs(false, first, false, second)
+    `,
+    expected: { ITEM: undefined },
+  },
+  'with nested eq() conditions': {
+    input: outdent`
+      ENV=dev
+      ITEM=ifs(eq($ENV, prod), prod-url, eq($ENV, staging), staging-url, dev-url)
+    `,
+    expected: { ITEM: 'dev-url' },
+  },
+  'with eq() matching first condition': {
+    input: outdent`
+      ENV=prod
+      ITEM=ifs(eq($ENV, prod), prod-url, eq($ENV, staging), staging-url, dev-url)
+    `,
+    expected: { ITEM: 'prod-url' },
+  },
+  'single condition as default': {
+    input: outdent`
+      ITEM=ifs(eq("a", "b"), first, eq("b", "c"), second, default-val)
+    `,
+    expected: { ITEM: 'default-val' },
+  },
+  'error - no args': {
+    input: 'ITEM=ifs()',
+    expected: { ITEM: SchemaError },
+  },
+  'error - key/val args': {
+    input: 'ITEM=ifs(condition=true, val="yes")',
     expected: { ITEM: SchemaError },
   },
 }));

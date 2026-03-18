@@ -346,8 +346,8 @@ export class EnvGraph {
 
         const item = this.configSchema[itemKey];
 
-        // if item is already invalid, we are done
-        if (item.errors.length) {
+        // if item has real errors (not just warnings), we are done - skip resolution
+        if (item.errors.some((e) => !e.isWarning)) {
           markItemCompleted(itemKey);
           return;
         }

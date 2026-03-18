@@ -268,7 +268,7 @@ Use the branch name in `WORKERS_CI_BRANCH` to determine the environment:
 # ---
 WORKERS_CI_BRANCH=
 # @type=enum(development, preview, production, test)
-APP_ENV=remap($WORKERS_CI_BRANCH, production="main", preview=regex(.*), development=undefined)
+APP_ENV=remap($WORKERS_CI_BRANCH, "main", production, regex(.*), preview, undefined, development)
 ```
 
 ---
