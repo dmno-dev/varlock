@@ -1,6 +1,6 @@
 import { Resolver } from 'varlock/plugin-lib';
 
-import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+import { GoogleAuth } from 'google-auth-library';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
@@ -26,13 +26,15 @@ class GsmPluginInstance {
     debug('gsm instance', this.id, 'set auth - projectId:', projectId, 'hasCredentials:', !!credentials);
   }
 
-  private clientPromise: Promise<SecretManagerServiceClient> | undefined;
+  private authClientPromise: Promise<GoogleAuth> | undefined;
   async initClient() {
-    if (this.clientPromise) return this.clientPromise;
+    if (this.authClientPromise) return this.authClientPromise;
 
-    this.clientPromise = (async () => {
+    this.authClientPromise = (async () => {
       try {
-        const clientConfig: any = {};
+        const authConfig: ConstructorParameters<typeof GoogleAuth>[0] = {
+          scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+        };
 
         if (this.credentials) {
           // Parse credentials if it's a string
@@ -44,7 +46,7 @@ class GsmPluginInstance {
               throw new SchemaError('Invalid service account JSON format');
             }
           }
-          clientConfig.credentials = parsedCredentials;
+          authConfig.credentials = parsedCredentials;
 
           // Extract projectId from credentials if not explicitly provided
           if (!this.projectId && parsedCredentials.project_id) {
@@ -52,18 +54,16 @@ class GsmPluginInstance {
           }
           debug('Using Service Account Credentials');
         } else {
-          // Use Application Default Credentials (will auto-detect from environment)
-          // Default to ADC when no credentials are provided
           debug('Using Application Default Credentials');
         }
 
         if (this.projectId) {
-          clientConfig.projectId = this.projectId;
+          authConfig.projectId = this.projectId;
         }
 
-        const client = new SecretManagerServiceClient(clientConfig);
-        debug('GSM client initialized for instance', this.id);
-        return client;
+        const auth = new GoogleAuth(authConfig);
+        debug('GSM auth client initialized for instance', this.id);
+        return auth;
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         throw new SchemaError(`Failed to initialize Google Secret Manager client: ${errorMsg}`, {
@@ -76,7 +76,7 @@ class GsmPluginInstance {
       }
     })();
 
-    return this.clientPromise;
+    return this.authClientPromise;
   }
 
   private buildSecretPath(secretRef: string): string {
@@ -98,13 +98,49 @@ class GsmPluginInstance {
   }
 
   async readSecret(secretRef: string): Promise<string> {
-    const client = await this.initClient();
-    if (!client) throw new Error('Expected GSM client to be initialized');
+    const auth = await this.initClient();
 
     try {
       const secretPath = this.buildSecretPath(secretRef);
-      const [response] = await client.accessSecretVersion({ name: secretPath });
-      const secretData = response.payload?.data?.toString();
+      const url = `https://secretmanager.googleapis.com/v1/${secretPath}:access`;
+
+      const client = await auth.getClient();
+      const headers = await client.getRequestHeaders();
+      const response = await fetch(url, { headers });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as any;
+        const status = response.status;
+        const errorMsg = body?.error?.message || response.statusText;
+
+        if (status === 404) {
+          const secretName = secretRef.split('@')[0];
+          throw new ResolutionError(`Secret "${secretName}" not found`, {
+            tip: 'Verify secret exists in Google Cloud Console',
+          });
+        } else if (status === 403) {
+          throw new ResolutionError(`Permission denied accessing secret "${secretRef}"`, {
+            tip: 'Ensure the account has "Secret Manager Secret Accessor" role',
+          });
+        } else if (status === 401) {
+          throw new ResolutionError('Authentication failed', {
+            tip: [
+              errorMsg,
+              'To fix this, choose one of the following:',
+              '  1. Run: `gcloud auth application-default login`',
+              '  2. Set GOOGLE_APPLICATION_CREDENTIALS environment variable to a service account JSON file path',
+              '  3. Provide credentials explicitly via @initGsm(credentials=$GCP_SA_KEY)',
+            ].join('\n'),
+          });
+        } else {
+          throw new ResolutionError(`Google Secret Manager error (${status}): ${errorMsg}`);
+        }
+      }
+
+      const body = await response.json() as any;
+      const secretData = body?.payload?.data
+        ? Buffer.from(body.payload.data, 'base64').toString('utf-8')
+        : undefined;
 
       if (!secretData) {
         throw new ResolutionError('Secret data is empty');
@@ -112,48 +148,13 @@ class GsmPluginInstance {
 
       return secretData;
     } catch (err) {
-      // Re-throw ResolutionError as-is
-      if (err instanceof ResolutionError) {
+      // Re-throw our own errors as-is
+      if (err instanceof ResolutionError || err instanceof SchemaError) {
         throw err;
       }
 
-      let errorMessage = 'Failed to fetch secret';
-      let errorTip: string | undefined;
-
-      // Handle common GSM errors
-      const error = err as Error & { code?: number };
-      if (error.code === 5 || error.message?.includes('NOT_FOUND')) {
-        const secretName = secretRef.split('@')[0];
-        errorMessage = `Secret "${secretName}" not found`;
-        errorTip = 'Verify secret exists in Google Cloud Console';
-      } else if (error.code === 7 || error.message?.includes('PERMISSION_DENIED')) {
-        errorMessage = `Permission denied accessing secret "${secretRef}"`;
-        errorTip = 'Ensure service account has "Secret Manager Secret Accessor" role';
-      } else if (
-        error.code === 16
-        || error.message.includes('credentials')
-      ) {
-        // Check if we're using ADC (no explicit credentials provided)
-        if (!this.credentials) {
-          errorMessage = 'Authentication failed';
-          errorTip = [
-            error.message,
-            'To fix this, choose one of the following:',
-            '  1. Run: `gcloud auth application-default login`',
-            '  2. Set GOOGLE_APPLICATION_CREDENTIALS environment variable to a service account JSON file path',
-            '  3. Provide credentials explicitly via @initGsm(credentials=$GCP_SA_KEY)',
-          ].join('\n');
-        } else {
-          errorMessage = 'Authentication failed with provided credentials';
-          errorTip = 'Verify that the service account JSON is valid and has the required permissions';
-        }
-      } else if (error.message) {
-        errorMessage = `Google Secret Manager error: ${error.message}`;
-      }
-
-      throw new ResolutionError(errorMessage, {
-        tip: errorTip,
-      });
+      const error = err as Error;
+      throw new ResolutionError(`Google Secret Manager error: ${error.message}`);
     }
   }
 }

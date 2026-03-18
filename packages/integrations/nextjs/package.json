@@ -11,12 +11,14 @@
   "types": "dist/next-env-compat.d.ts",
   "exports": {
     ".": "./dist/next-env-compat.js",
-    "./plugin": "./dist/plugin.js"
+    "./plugin": "./dist/plugin.js",
+    "./loader": "./dist/loader.js",
+    "./varlock-env-inline": "./dist/varlock-env-inline.js"
   },
   "files": ["dist"],
   "scripts": {
     "dev": "tsup --watch",
-    "build": "tsup"
+    "build": "rm -rf dist && tsup"
   },
   "keywords": [
     "varlock",

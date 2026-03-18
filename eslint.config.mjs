@@ -54,6 +54,8 @@ export default tseslint.config(
       '**/out',
       '**/next-env.d.ts',
       '.magent',
+      'framework-tests/.test-projects',
+      'framework-tests/.packed',
     ],
   },
 
@@ -164,6 +166,7 @@ export default tseslint.config(
       'packages/varlock/src/cli/**',
       'packages/varlock/scripts/**',
       'smoke-tests/**',
+      'framework-tests/**',
     ],
     rules: {
       'no-console': 0,

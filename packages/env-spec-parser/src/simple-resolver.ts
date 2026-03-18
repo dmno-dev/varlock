@@ -70,14 +70,27 @@ export function simpleResolver(
           && !(args[0] instanceof ParsedEnvSpecFunctionCall)
         ) throw new Error('Expected first arg to be a static value or function call');
         const val = valueResolver(args[0]);
-        for (const remapArg of args.slice(1)) {
-          if (!(remapArg instanceof ParsedEnvSpecKeyValuePair)) {
-            throw new Error('`remap` args after first should all be key-value pairs');
+        const remainingArgs = args.slice(1);
+        // iterate in pairs of (match, result); `i + 1 < length` ensures we
+        // process only complete pairs, leaving a potential trailing default unprocessed
+        for (let i = 0; i + 1 < remainingArgs.length; i += 2) {
+          const matchArg = remainingArgs[i];
+          const resultArg = remainingArgs[i + 1];
+          if (matchArg instanceof ParsedEnvSpecKeyValuePair || resultArg instanceof ParsedEnvSpecKeyValuePair) {
+            throw new Error('`remap` args should not be key-value pairs');
           }
-          const remapVal = valueResolver(remapArg.value);
-          if (val === remapVal) return remapArg.key;
+          const matchVal = valueResolver(matchArg);
+          if (val === matchVal) return valueResolver(resultArg);
         }
-        return val;
+        // if odd number of remaining args, last is the default
+        if (remainingArgs.length % 2 === 1) {
+          const defaultArg = remainingArgs[remainingArgs.length - 1];
+          if (defaultArg instanceof ParsedEnvSpecKeyValuePair) {
+            throw new Error('`remap` args should not be key-value pairs');
+          }
+          return valueResolver(defaultArg);
+        }
+        return val; // return original value if no match
       } else {
         throw new Error(`Unknown function: ${valOrFn.name}`);
       }

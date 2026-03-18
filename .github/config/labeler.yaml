@@ -1,24 +1,58 @@
 # Labeler configuration
 
 ## core packages
-varlock:
+"core:varlock":
 - changed-files:
-  - any-glob-to-any-file: 'packages/varlock/*'
-  - any-glob-to-any-file: 'packages/env-graph/*'
-parser:
+  - any-glob-to-any-file: 'packages/varlock/**'
+"core:parser":
 - changed-files:
-  - any-glob-to-any-file: 'packages/env-spec-parser/*'
-vscode-plugin:
+  - any-glob-to-any-file: 'packages/env-spec-parser/**'
+"core:vscode-plugin":
 - changed-files:
-  - any-glob-to-any-file: 'packages/vscode-plugin/*'
-nextjs-integration:
+  - any-glob-to-any-file: 'packages/vscode-plugin/**'
+"core:website":
 - changed-files:
-  - any-glob-to-any-file: 'packages/integrations/nextjs/*'
-vite-integration:
+  - any-glob-to-any-file: 'packages/varlock-website/**'
+"core:docs-mcp":
 - changed-files:
-  - any-glob-to-any-file: 'packages/integrations/vite/*'
+  - any-glob-to-any-file: 'packages/varlock-docs-mcp/**'
+"core:ci-env-info":
+- changed-files:
+  - any-glob-to-any-file: 'packages/ci-env-info/**'
+"core:utils":
+- changed-files:
+  - any-glob-to-any-file: 'packages/utils/**'
 
-## website + docs
-docs:
+## integrations
+"integration:nextjs":
 - changed-files:
-  - any-glob-to-any-file: 'packages/varlock-website/*'
+  - any-glob-to-any-file: 'packages/integrations/nextjs/**'
+"integration:vite":
+- changed-files:
+  - any-glob-to-any-file: 'packages/integrations/vite/**'
+"integration:astro":
+- changed-files:
+  - any-glob-to-any-file: 'packages/integrations/astro/**'
+
+## plugins
+"plugin:1password":
+- changed-files:
+  - any-glob-to-any-file: 'packages/plugins/1password/**'
+"plugin:aws-secrets":
+- changed-files:
+  - any-glob-to-any-file: 'packages/plugins/aws-secrets/**'
+"plugin:azure-key-vault":
+- changed-files:
+  - any-glob-to-any-file: 'packages/plugins/azure-key-vault/**'
+"plugin:bitwarden":
+- changed-files:
+  - any-glob-to-any-file: 'packages/plugins/bitwarden/**'
+"plugin:google-secret-manager":
+- changed-files:
+  - any-glob-to-any-file: 'packages/plugins/google-secret-manager/**'
+"plugin:infisical":
+- changed-files:
+  - any-glob-to-any-file: 'packages/plugins/infisical/**'
+"plugin:pass":
+- changed-files:
+  - any-glob-to-any-file: 'packages/plugins/pass/**'

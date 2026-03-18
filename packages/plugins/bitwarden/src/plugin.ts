@@ -56,11 +56,11 @@ class BitwardenPluginInstance {
   ) {}
 
   setAuth(
-    accessToken: string,
+    accessToken: any,
     apiUrl?: string,
     identityUrl?: string,
   ) {
-    this.accessToken = accessToken;
+    if (accessToken && typeof accessToken === 'string') this.accessToken = accessToken;
     if (apiUrl) {
       this.apiUrl = apiUrl;
     }
@@ -338,11 +338,9 @@ plugin.registerRootDecorator({
     identityUrl,
     accessTokenResolver,
   }) {
+    // even if the token is empty, we can't throw errors yet
+    // in case the instance is never actually used
     const accessTokenValue = await accessTokenResolver?.resolve();
-
-    if (!accessTokenValue || typeof accessTokenValue !== 'string') {
-      throw new SchemaError('accessToken must resolve to a string');
-    }
 
     pluginInstances[id].setAuth(
       accessTokenValue,

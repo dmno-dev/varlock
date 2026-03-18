@@ -171,12 +171,20 @@ export class Resolver {
       const resolvedValue = await this.def.resolve.call(this, this.meta);
       return resolvedValue;
     } catch (err) {
-      // enrich errors with location info from the parsed node if available
-      if (err instanceof VarlockError && !err.more?.location && this._parsedNode && this.dataSource) {
-        const location = getErrorLocation(this.dataSource, this._parsedNode);
-        if (location) {
-          (err as any).more ??= {};
-          (err as any).more.location = location;
+      if (err instanceof VarlockError) {
+        // prefix error message with resolver function name (matching schema error behavior)
+        // only prefix if the error wasn't already prefixed by a child resolver
+        if (!this.def.name.startsWith('\0') && !(err as any)._resolverPrefixed) {
+          err.message = `${this.def.name}(): ${err.message}`;
+          (err as any)._resolverPrefixed = true;
+        }
+        // enrich errors with location info from the parsed node if available
+        if (!err.more?.location && this._parsedNode && this.dataSource) {
+          const location = getErrorLocation(this.dataSource, this._parsedNode);
+          if (location) {
+            (err as any).more ??= {};
+            (err as any).more.location = location;
+          }
         }
       }
       throw err;
@@ -423,23 +431,66 @@ export const RemapResolver: typeof Resolver = createResolver({
   name: 'remap',
   icon: 'codicon:replace',
   argsSchema: {
+    // supports both old key=value syntax and new positional syntax
+    // old: remap($VAR, result1=match1, result2=match2)  -- arrArgs has 1 item, objArgs has the mappings
+    // new: remap($VAR, match1, result1, match2, result2, default?)  -- arrArgs has 3+ items
     type: 'mixed',
-    arrayExactLength: 1,
-    objKeyMinLength: 1,
   },
   process() {
-    return this.objArgs!;
-  },
-  async resolve(remappings) {
-    const originalValue = await this.arrArgs![0].resolve();
-    for (const [remappedVal, matchValResolver] of Object.entries(remappings)) {
-      const matchVal = await matchValResolver.resolve();
-      if (matchVal instanceof RegExp && originalValue !== undefined) {
-        if (matchVal.test(String(originalValue))) return remappedVal;
-      } else {
-        if (matchVal === originalValue) return remappedVal;
+    const isLegacyKeyValMode = this.objArgs !== undefined && Object.keys(this.objArgs).length > 0;
+    if (isLegacyKeyValMode) {
+      // legacy mode: 1 positional arg + key=value pairs
+      if ((this.arrArgs?.length ?? 0) !== 1) {
+        throw new SchemaError('expects exactly 1 positional argument followed by key=value remapping pairs');
+      }
+      if (Object.keys(this.objArgs!).length === 0) {
+        throw new SchemaError('expects at least 1 key=value remapping pair');
+      }
+      // add a deprecation warning - will show in `varlock load` pretty output below the item
+      this._schemaErrors.push(new SchemaError('key=value syntax is deprecated', {
+        isWarning: true,
+        tip: 'Use positional pairs instead: remap($VAR, match1, result1, match2, result2, ...)',
+      }));
+    } else {
+      // new positional mode: 3+ args (value, match1, result1, ...)
+      if ((this.arrArgs?.length ?? 0) < 3) {
+        throw new SchemaError('expects at least 3 arguments: (value, match1, result1, ...)');
       }
     }
+    return { isLegacyKeyValMode };
+  },
+  async resolve({ isLegacyKeyValMode }) {
+    const originalValue = await this.arrArgs![0].resolve();
+
+    if (isLegacyKeyValMode) {
+      // legacy key=value mode: key is the result, value is what to match against
+      for (const [remappedVal, matchValResolver] of Object.entries(this.objArgs!)) {
+        const matchVal = await matchValResolver.resolve();
+        if (matchVal instanceof RegExp && originalValue !== undefined) {
+          if (matchVal.test(String(originalValue))) return remappedVal;
+        } else {
+          if (matchVal === originalValue) return remappedVal;
+        }
+      }
+      return originalValue;
+    }
+
+    const remainingArgs = this.arrArgs!.slice(1);
+    // iterate in pairs of (match, result); `i + 1 < length` ensures we
+    // process only complete pairs, leaving a potential trailing default unprocessed
+    for (let i = 0; i + 1 < remainingArgs.length; i += 2) {
+      const matchVal = await remainingArgs[i].resolve();
+      if (matchVal instanceof RegExp && originalValue !== undefined) {
+        if (matchVal.test(String(originalValue))) return remainingArgs[i + 1].resolve();
+      } else {
+        if (matchVal === originalValue) return remainingArgs[i + 1].resolve();
+      }
+    }
+    // if odd number of remaining args, the last arg is a default value
+    if (remainingArgs.length % 2 === 1) {
+      return remainingArgs[remainingArgs.length - 1].resolve();
+    }
+    // no match found, return original value
     return originalValue;
   },
 });
@@ -521,6 +572,31 @@ export const IfResolver: typeof Resolver = createResolver({
   },
 });
 
+export const IfsResolver: typeof Resolver = createResolver({
+  name: 'ifs',
+  icon: 'material-symbols:rule',
+  argsSchema: {
+    type: 'array',
+    arrayMinLength: 1,
+  },
+  async resolve() {
+    const args = this.arrArgs!;
+    // iterate in pairs of (condition, value); `i + 1 < length` ensures we
+    // process only complete pairs, leaving a potential trailing default unprocessed
+    for (let i = 0; i + 1 < args.length; i += 2) {
+      const condition = await args[i].resolve();
+      if (condition) {
+        return args[i + 1].resolve();
+      }
+    }
+    // if odd total number of args, last is the default value
+    if (args.length % 2 === 1) {
+      return args[args.length - 1].resolve();
+    }
+    return undefined;
+  },
+});
+
 export const NotResolver: typeof Resolver = createResolver({
   name: 'not',
   icon: 'material-symbols:not-equal',
@@ -584,6 +660,7 @@ export const BaseResolvers: Array<ResolverChildClass> = [
   RefResolver,
   ExecResolver,
   RemapResolver,
+  IfsResolver,
   ForEnvResolver,
   EqResolver,
   IfResolver,

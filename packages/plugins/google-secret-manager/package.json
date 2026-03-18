@@ -45,7 +45,7 @@
     "varlock": "workspace:^"
   },
   "devDependencies": {
-    "@google-cloud/secret-manager": "^6.1.1",
+    "google-auth-library": "^10.6.2",
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
     "tsup": "catalog:",

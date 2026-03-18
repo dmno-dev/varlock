@@ -162,7 +162,7 @@ If you are using Cloudflare's CI, you can use the current branch name (`WORKERS_
 # ---
 WORKERS_CI_BRANCH=
 # @type=enum(development, preview, production, test)
-APP_ENV=remap($WORKERS_CI_BRANCH, production="main", preview=regex(.*), development=undefined)
+APP_ENV=remap($WORKERS_CI_BRANCH, "main", production, regex(.*), preview, undefined, development)
 ```
 
 For more information, see the [environments guide](/guides/environments).

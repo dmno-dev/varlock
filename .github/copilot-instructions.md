@@ -1,5 +1,7 @@
 # Copilot Instructions for Varlock
 
+🚨 MANDATORY WORKFLOW STEPS - See [COPILOT_RULES.md](COPILOT_RULES.md) for important checklist of tasks to complete before committing any work.
+
 ## Project Overview
 
 Varlock is a tool that adds declarative schema to `.env` files using `@env-spec` decorator comments. It provides validation, coercion, type safety, protection for sensitive values, and flexible multi-environment management.
@@ -70,6 +72,7 @@ bun run test:ci          # Run tests once (CI mode)
 bun run lint             # Run ESLint
 bun run lint:fix         # Run ESLint with auto-fix
 ```
+**🚨 CRITICAL**: Always run `bun run lint:fix` before completing any task!
 
 ### Changesets
 ```bash
@@ -78,8 +81,15 @@ bun run changeset:empty  # Add an empty changeset
 bun run changeset:version # Version packages and update changelogs
 bun run changeset:publish # Build and publish packages
 ```
+**🚨 CRITICAL**: Always add a changeset for package changes that affect users!
 
 ## Coding Standards
+
+### 🚨 MANDATORY PRE-COMPLETION CHECKLIST
+Before marking any task as complete, you MUST:
+- [ ] Run `bun run lint:fix` and resolve any remaining errors
+- [ ] Add a changeset with `bun run changeset:add` (unless internal-only change)
+- [ ] Verify build passes with `bun run build:libs`
 
 ### Style & Formatting
 - **Indentation**: 2 spaces (enforced by .editorconfig)

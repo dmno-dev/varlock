@@ -5,15 +5,17 @@ import path from 'node:path';
 import type { NextConfig } from 'next';
 
 import {
-  redactSensitiveConfig, scanForLeaks, varlockSettings,
+  getRedactionMapInfo, initVarlockEnv, redactSensitiveConfig, scanForLeaks, varlockSettings,
 } from 'varlock/env';
-import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 import { patchGlobalConsole } from 'varlock/patch-console';
+import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 
 import { type SerializedEnvGraph } from 'varlock';
+import { createWebpackConfigFn } from './webpack-plugin';
+import { injectVarlockInitIntoTurbopackRuntime, isInjectedTurbopackRuntime } from './turbopack-runtime-inject';
 
-// make sure varlock has acutally loaded the env files
-// NOTE - we dont need to call `initVarlockEnv` becuase the next-env-compat has already been loaded and called it
+// make sure varlock has actually loaded the env files
+// NOTE - we don't need to call `initVarlockEnv` because the next-env-compat has already been loaded and called it
 if (!process.env.__VARLOCK_ENV) {
   console.error([
     '🚨 process.env.__VARLOCK_ENV is not set 🚨',
@@ -27,6 +29,29 @@ if (!process.env.__VARLOCK_ENV) {
 
 patchGlobalConsole();
 
+// Turbopack detection at module level — needed to apply patches in worker processes
+// (the config function only runs in the main process, but workers also load this module)
+const IS_TURBOPACK = !!(
+  process.env.TURBOPACK
+  || process.env.TURBOPACK_DEV
+  || process.env.TURBOPACK_BUILD
+  || process.env.npm_config_turbopack
+);
+
+// For turbopack, apply server response patching at module level so it takes effect
+// in worker processes (which serve actual responses). The config function's turbopack
+// branch only runs in the main process, which doesn't handle HTTP responses.
+if (IS_TURBOPACK && varlockSettings.preventLeaks) {
+  patchGlobalServerResponse({
+    ignoreUrlPatterns: [
+      /^\/__nextjs_source-map\?.*/, // sourcemaps
+      /[?&]_rsc=/, // RSC payloads are server-side and expected to contain sensitive data
+    ],
+    // always redact in dev to avoid crashing the dev server; prod builds override via init bundles
+    redactInsteadOfThrow: true,
+  });
+}
+
 const IS_WORKER = !!process.env.NEXT_PRIVATE_WORKER;
 function debug(...args: Array<any>) {
   if (!process.env.DEBUG_VARLOCK_NEXT_INTEGRATION) return;
@@ -38,8 +63,6 @@ function debug(...args: Array<any>) {
   );
 }
 debug('✨ LOADED @varlock/next-integration/plugin module!');
-
-const WEBPACK_PLUGIN_NAME = 'VarlockNextWebpackPlugin';
 
 type VarlockPluginOptions = {
   // injectResolvedConfigAtBuildTime: boolean,
@@ -54,75 +77,175 @@ async function scanStaticFiles(nextDirPath: string) {
   }
 }
 
+let scrubbedSourcemaps = false;
+async function scrubSourcemaps(nextDirPath: string) {
+  if (scrubbedSourcemaps) return;
+  scrubbedSourcemaps = true;
+
+  // build a list of sensitive values and their same-length replacements
+  const envGraph: SerializedEnvGraph = JSON.parse(process.env.__VARLOCK_ENV || '{}');
+  const sensitiveValues: Array<{ value: string, replacement: string }> = [];
+  for (const itemKey in envGraph.config) {
+    const item = envGraph.config[itemKey];
+    if (item.isSensitive && item.value && typeof item.value === 'string' && item.value.length > 0) {
+      // same-length replacement to preserve sourcemap column offsets
+      sensitiveValues.push({
+        value: item.value,
+        replacement: '*'.repeat(item.value.length),
+      });
+    }
+  }
+  if (!sensitiveValues.length) {
+    debug('no sensitive values to scrub from sourcemaps');
+    return;
+  }
+  // sort longest first for maximal munch
+  sensitiveValues.sort((a, b) => b.value.length - a.value.length);
+
+  let scrubCount = 0;
+  for await (const mapFile of fs.promises.glob(`${nextDirPath}/**/*.map`)) {
+    const contents = await fs.promises.readFile(mapFile, 'utf8');
+    let scrubbed = contents;
+    for (const { value, replacement } of sensitiveValues) {
+      scrubbed = scrubbed.replaceAll(value, replacement);
+    }
+    if (scrubbed !== contents) {
+      await fs.promises.writeFile(mapFile, scrubbed);
+      scrubCount++;
+    }
+  }
+  debug(`scrubbed sensitive values from ${scrubCount} sourcemap files`);
+}
+
+let scannedBuildOutput = false;
+async function scanBuildOutputForLeaks(nextDirPath: string, opts?: { failBuild?: boolean }) {
+  if (scannedBuildOutput) return;
+  scannedBuildOutput = true;
+
+  // varlockSettings may not be populated if initVarlockEnv hasn't run in this process,
+  // so fall back to reading the setting directly from the env data
+  let preventLeaks = varlockSettings.preventLeaks;
+  if (preventLeaks === undefined && process.env.__VARLOCK_ENV) {
+    try {
+      const envGraph: SerializedEnvGraph = JSON.parse(process.env.__VARLOCK_ENV);
+      preventLeaks = envGraph.settings?.preventLeaks;
+    } catch { /* ignore */ }
+  }
+  // Ensure the redaction map is populated so scanForLeaks knows what to look for.
+  // initVarlockEnv may not have run in this process (the plugin's main process).
+  if (process.env.__VARLOCK_ENV) {
+    // eslint-disable-next-line @stylistic/max-statements-per-line
+    try { initVarlockEnv(); } catch { /* ignore if already initialized or fails */ }
+  }
+  const redactionInfo = getRedactionMapInfo();
+  debug(`scanBuildOutputForLeaks: preventLeaks=${preventLeaks}, redactionInfo=${JSON.stringify(redactionInfo)}`);
+  if (!preventLeaks) return;
+
+  const leakedFiles: Array<string> = [];
+  let scannedCount = 0;
+
+  // scan JS chunks in .next/static/chunks/ — these are client-facing bundles
+  // that should never contain sensitive values
+  for await (const file of fs.promises.glob(`${nextDirPath}/static/chunks/**/*.js`)) {
+    scannedCount++;
+    const fileContents = await fs.promises.readFile(file, 'utf8');
+    try {
+      scanForLeaks(fileContents, {
+        method: 'nextjs post-build scan (static chunks)',
+        file,
+      });
+    } catch (err) {
+      leakedFiles.push(file);
+      // redact the file so the leak doesn't ship
+      await fs.promises.writeFile(file, redactSensitiveConfig(fileContents));
+    }
+  }
+
+  debug(`scanned ${scannedCount} static chunk files in ${nextDirPath}/static/chunks/`);
+
+  // scan prerendered HTML files (client-facing static output)
+  // NOTE: .rsc and .body files are server-side (RSC payloads) and are expected
+  // to access sensitive data, so we don't scan those
+  for (const ext of ['html']) {
+    for await (const file of fs.promises.glob(`${nextDirPath}/**/*.${ext}`)) {
+      scannedCount++;
+      const fileContents = await fs.promises.readFile(file, 'utf8');
+      try {
+        scanForLeaks(fileContents, {
+          method: `nextjs post-build scan (.${ext})`,
+          file,
+        });
+      } catch (err) {
+        leakedFiles.push(file);
+        await fs.promises.writeFile(file, redactSensitiveConfig(fileContents));
+      }
+    }
+  }
+
+  debug(`scanned ${scannedCount} total build output files`);
+
+  if (leakedFiles.length > 0) {
+    const msg = `[varlock] ⚠️ found and redacted leaked secrets in ${leakedFiles.length} build output file(s):\n${leakedFiles.map((f) => `  - ${f}`).join('\n')}`;
+    if (opts?.failBuild) {
+      throw new Error(msg);
+    }
+    console.error(msg);
+  } else {
+    debug('✅ no leaks found in build output');
+  }
+}
+
 // not all file writes go through this, at least in Next 15
 // (likely because webpack and prerendering are happening in workers)
 // but we can use this to monitor writing of certain files and give ourselves a "hook"
 // which we can then scan existing files
 function patchGlobalFsMethods() {
+  debug('patching global fs methods');
   // patch fs.promises.writeFile
   const origWriteFileFn = fs.promises.writeFile;
   fs.promises.writeFile = async function dmnoPatchedWriteFile(...args) {
     const filePath = args[0].toString();
-    // const fileContents = args[1].toString();
-    // console.log('⚡️ patched fs.promises.writeFile', filePath);
+    debug('fs.promises.writeFile:', filePath);
+
+    // BUILD_ID is written after turbopack compilation completes but before pre-rendering.
+    // This is our hook to inject the init bundle into turbopack runtime files.
+    if (!isInjectedTurbopackRuntime() && filePath.endsWith('/.next/export-detail.json')) {
+      const nextDirPath = filePath.substring(0, filePath.lastIndexOf('/'));
+      injectVarlockInitIntoTurbopackRuntime(nextDirPath);
+    }
 
     if (filePath.endsWith('/.next/next-server.js.nft.json') && !scannedStaticFiles) {
       const nextDirPath = filePath.substring(0, filePath.lastIndexOf('/'));
       await scanStaticFiles(nextDirPath);
     }
-
-    // // naively enable/disable detection based on file extension... probably not the best logic but it might be enough?
-    // if (
-    //   filePath.endsWith('.html')
-    //   || filePath.endsWith('.rsc')
-    //   || filePath.endsWith('.body')
-    //   // we also need to scan .js files, but they are already built by webpack so we can't catch it here
-    // ) {
-    //   // TODO: better error details to help user _find_ the problem
-    //   scanForLeaks(fileContents, { method: 'nextjs fs.writeFile', file: filePath });
-    // }
+    // next-server.js.nft.json is written near the end of the build, after prerendering (webpack)
+    // prerender-manifest.json is written after "Generating static pages" completes (turbopack + webpack)
+    if (
+      filePath.endsWith('/.next/next-server.js.nft.json')
+      || filePath.endsWith('/.next/prerender-manifest.json')
+    ) {
+      const nextDirPath = filePath.substring(0, filePath.lastIndexOf('/'));
+      if (!scrubbedSourcemaps) await scrubSourcemaps(nextDirPath);
+      if (!scannedBuildOutput) await scanBuildOutputForLeaks(nextDirPath, { failBuild: true });
+    }
 
     return origWriteFileFn.call(this, ...args);
   };
-}
 
+  // also patch sync version in case turbopack uses it
+  const origWriteFileSyncFn = fs.writeFileSync;
+  fs.writeFileSync = function dmnoPatchedWriteFileSync(...args: Parameters<typeof fs.writeFileSync>) {
+    const filePath = args[0].toString();
+    debug('fs.writeFileSync:', filePath);
 
-// We use a proxy object for the static replacements that we pass to webpack.DefinePlugin
-// because this plugin/webpack code is not invoked again when env files change
-// instead next is direcly messing with the existing plugins for their own changes
-// so instead we use a proxy object, and grab the values off of process.env.__VARLOCK_ENV
-// which will have been updated by our next-env-compat code
-let latestLoadedVarlockEnv: SerializedEnvGraph | undefined;
-const StaticReplacementsProxy = new Proxy({} as Record<string, string>, {
-  ownKeys(_target) {
-    latestLoadedVarlockEnv = JSON.parse(process.env.__VARLOCK_ENV || '{}') as SerializedEnvGraph;
-    const replaceKeys = [] as Array<string>;
-    for (const itemKey in latestLoadedVarlockEnv.config) {
-      const item = latestLoadedVarlockEnv.config[itemKey];
-      if (!item.isSensitive) replaceKeys.push(`ENV.${itemKey}`);
+    if (!isInjectedTurbopackRuntime() && filePath.endsWith('/.next/diagnostics/build-diagnostics.json')) {
+      const nextDirPath = filePath.substring(0, filePath.lastIndexOf('/'));
+      injectVarlockInitIntoTurbopackRuntime(nextDirPath);
     }
-    debug('reloaded static replacements keys', replaceKeys);
-    return replaceKeys;
-  },
-  getOwnPropertyDescriptor(_target, prop) {
-    const itemKey = prop.toString().split('.')[1];
-    const item = latestLoadedVarlockEnv?.config[itemKey];
-    if (!item || item.isSensitive) return;
-    return {
-      value: '', // this value is not used, the get handler will return the value
-      writable: false,
-      enumerable: true,
-      configurable: true,
-    };
-  },
-  get(_target, prop) {
-    const itemKey = prop.toString().split('.')[1];
-    const item = latestLoadedVarlockEnv?.config[itemKey];
-    if (item && !item.isSensitive) return JSON.stringify(item.value);
-  },
-});
 
-
+    return origWriteFileSyncFn.call(this, ...args);
+  };
+}
 
 
 export type NextConfigFunction = (
@@ -147,156 +270,104 @@ export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
         resolvedNextConfig = nextConfig;
       }
 
-      if (process.env.TURBOPACK || process.env.npm_config_turbopack) {
-        console.error([
-          '🚨 @varlock/nextjs-integration: Turbopack is not yet supported for varlockNextConfigPlugin 🚨',
-          '',
-          'You can either stop using the `--turbopack` flag',
-          'or remove this plugin from your config, and only use the @next/env override.',
-          "However if you don't use the plugin, you will not get all the benefits of this integration.",
-          '',
-        ].join('\n'));
-        throw new Error('varlockNextConfigPlugin: Turbopack is not yet supported');
+      // Next 16+ uses Turbopack by default for dev, but may not set TURBOPACK env var
+      const isTurbopack = !!(
+        process.env.TURBOPACK
+        || process.env.TURBOPACK_DEV
+        || process.env.TURBOPACK_BUILD
+        || process.env.npm_config_turbopack
+      );
+      const isBuild = phase === 'phase-production-build';
+      debug(`turbopack detection: TURBOPACK=${process.env.TURBOPACK}, TURBOPACK_DEV=${process.env.TURBOPACK_DEV}, TURBOPACK_BUILD=${process.env.TURBOPACK_BUILD}, phase=${phase}, isTurbopack=${isTurbopack}, isBuild=${isBuild}`);
+
+      // For production builds, schedule a post-build scan as a safety net.
+      // The fs.writeFile patches may not intercept all writes (workers), and
+      // BUILD_ID is written before prerendering completes. beforeExit fires
+      // after the build finishes, ensuring all output files exist.
+      if (isBuild) {
+        process.once('beforeExit', () => {
+          const nextDirPath = path.resolve(process.cwd(), '.next');
+          const scanPromises: Array<Promise<void>> = [];
+          if (!scrubbedSourcemaps) scanPromises.push(scrubSourcemaps(nextDirPath));
+          if (!scannedBuildOutput) scanPromises.push(scanBuildOutputForLeaks(nextDirPath, { failBuild: true }));
+          if (scanPromises.length > 0) {
+            // The async work keeps the event loop alive, and beforeExit
+            // will fire again once it completes (but the guards prevent re-runs)
+            Promise.all(scanPromises).catch((err) => {
+              console.error('[varlock] post-build scan failed:', err);
+              process.exitCode = 1;
+            });
+          }
+        });
+      }
+
+      if (isTurbopack) {
+        debug('turbopack detected, injecting loader rules');
+        // only patch fs methods during builds — they create "hooks" for post-build
+        // scanning/scrubbing and are unnecessary (and noisy) during dev
+        if (isBuild) patchGlobalFsMethods();
+
+        // turbopack config can be under `turbopack` (Next 15+) or `experimental.turbo` (older)
+        let turbopackConfig = (resolvedNextConfig as any).turbopack
+          ?? (resolvedNextConfig as any).experimental?.turbo;
+
+        if (!turbopackConfig) {
+          turbopackConfig = {};
+          (resolvedNextConfig as any).turbopack = turbopackConfig;
+        }
+
+        // inject loader rules
+        const loaderRule = {
+          loaders: [require.resolve('./loader')],
+        };
+        turbopackConfig.rules ||= {};
+        turbopackConfig.rules['*.{js,jsx,ts,tsx,mjs,mts}'] = loaderRule;
+
+        // Turbopack can't resolve symlinked packages (e.g. link: or workspace: installs).
+        // If varlock is symlinked, we copy dist files into node_modules/.varlock/ as real
+        // files and set up resolve aliases so turbopack can find them.
+        const varlockNodeModulesPath = path.resolve(process.cwd(), 'node_modules/varlock');
+        let isSymlinked = false;
+        try {
+          isSymlinked = fs.lstatSync(varlockNodeModulesPath).isSymbolicLink();
+        } catch { /* not found — might be hoisted or nested, skip */ }
+
+        if (isSymlinked) {
+          debug('varlock is symlinked, copying dist files for turbopack');
+          const varlockDistDir = path.resolve(path.dirname(require.resolve('varlock/env')), '..');
+          const varlockRoot = path.resolve(varlockDistDir, '..');
+          const cacheDir = path.resolve(process.cwd(), 'node_modules/.varlock');
+          const cacheDistDir = path.join(cacheDir, 'dist');
+          try {
+            fs.mkdirSync(cacheDir, { recursive: true });
+            // copy dist/ and package.json so turbopack can resolve subpath exports
+            fs.cpSync(varlockDistDir, cacheDistDir, { recursive: true });
+            fs.copyFileSync(path.join(varlockRoot, 'package.json'), path.join(cacheDir, 'package.json'));
+            debug('copied varlock package files to', cacheDir);
+          } catch (err) {
+            console.warn('[varlock] failed to copy varlock package files:', err);
+          }
+
+          turbopackConfig.resolveAlias ||= {};
+          turbopackConfig.resolveAlias['varlock/env'] = './node_modules/.varlock/dist/runtime/env.js';
+          turbopackConfig.resolveAlias['varlock/patch-console'] = './node_modules/.varlock/dist/runtime/patch-console.js';
+          turbopackConfig.resolveAlias['varlock/patch-server-response'] = './node_modules/.varlock/dist/runtime/patch-server-response.js';
+          turbopackConfig.resolveAlias['varlock/patch-response'] = './node_modules/.varlock/dist/runtime/patch-response.js';
+          turbopackConfig.resolveAlias['varlock/init-server'] = './node_modules/.varlock/dist/runtime/init-server.cjs';
+          turbopackConfig.resolveAlias['varlock/init-edge'] = './node_modules/.varlock/dist/runtime/init-edge.cjs';
+          debug('set resolveAlias for varlock subpaths -> ./node_modules/.varlock/dist/...');
+        } else {
+          debug('varlock is not symlinked, turbopack can resolve it natively');
+        }
       }
 
       return {
         ...resolvedNextConfig,
-        webpack(webpackConfig, options) {
-          debug('varlockNextConfigPlugin webpack config patching');
-
-          const { dev } = options; // also available - isServer, nextRuntime
-
-          if (varlockSettings.preventLeaks) {
-            // we patch fs methods - ideally we would just path them to scan while files are written
-            // but instead we use it to detect what phase the build is in, and then run our own scan on already built files
-            patchGlobalFsMethods();
-
-            // have to wait to run this until here when we know if this is dev mode or not
-            patchGlobalServerResponse({
-              // ignore sourcemaps - although we may in future want to scrub them?
-              ignoreUrlPatterns: [/^\/__nextjs_source-map\?.*/],
-              // in dev mode, we redact the secrets rather than throwing, because otherwise the dev server crashes
-              redactInsteadOfThrow: dev,
-            });
-          }
-
-          // webpack itself is passed in so we dont have to import it (or make it a dependency)
-          const webpack = options.webpack;
-
-          // apply existing user customizations if there are any
-          if (resolvedNextConfig.webpack) {
-            webpackConfig = resolvedNextConfig.webpack(webpackConfig, options);
-          }
-
-          if (!process.env.__VARLOCK_ENV) throw new Error('VarlockNextWebpackPlugin: __VARLOCK_ENV is not set');
-
-          // Set up build-time replacements / rewrites - using webpack.DefinePlugin and a proxy
-          // TODO: use shared helpers from core library?
-          debug('adding ENV.xxx static replacements proxy object');
-          webpackConfig.plugins.push(new webpack.DefinePlugin(StaticReplacementsProxy));
-
-          if (varlockSettings.preventLeaks) {
-            webpackConfig.plugins.push({
-              apply(compiler: any) {
-                compiler.hooks.assetEmitted.tap(WEBPACK_PLUGIN_NAME, (file: any, assetDetails: any) => {
-                  const { content, targetPath } = assetDetails;
-                  // debug('emit file: ', targetPath);
-
-                  if (
-                    targetPath.includes('/.next/static/chunks/')
-                    // Dont think these actually ever happen?
-                    || targetPath.endsWith('.html')
-                    || targetPath.endsWith('.body')
-                    || targetPath.endsWith('.rsc')
-                  ) {
-                    // NOTE - in dev mode the request hangs on the error, but the console error should help
-                    // and during a build, it will actually fail the build
-                    try {
-                      scanForLeaks(content, {
-                        method: '@varlock/nextjs-integration/plugin - assetEmitted hook',
-                        file: targetPath,
-                      });
-                    } catch (err) {
-                      if (dev) {
-                        // overwrite file with redacted version
-                        fs.writeFileSync(targetPath, redactSensitiveConfig(content.toString()));
-                      } else {
-                        throw err;
-                      }
-                    }
-                  }
-                });
-              },
-            });
-          }
-
-
-
-
-          // we need to inject the dmno globals injector and call it
-          // and in vercel/netlify etc where we can't run via `dmno run` we need to inject the resolved config into the build
-          // not sure if this is the best way, but injecting into the `webpack-runtime.js` file seems to run everywhere
-
-          // updates the webpack source to inject dmno global logic and call it
-          // we run this on the runtimes for serverless and edge
-          function injectVarlockInitIntoWebpackRuntime(_edgeRuntime = false) {
-            return function assetUpdateFn(origSource: any) {
-              const origSourceStr = origSource.source();
-
-              // we will inline the injector code, but need a different version if we are running in the edge runtime
-              // const injectorSrc = getCjsModuleSource(`dmno/injector-standalone${edgeRuntime ? '/edge' : ''}`);
-              const injectorPath = path.resolve(__dirname, './patch-next-runtime.js');
-              const injectorSrc = fs.readFileSync(injectorPath, 'utf8');
-
-
-              const updatedSourceStr = [
-                // TODO: reimplement dynamic/static functionality, which triggers a call to next/headers (or similar)
-                // when accessing a dynamic env item. This will force the page into dynamic rendering mode
-                // see DMNO integration for more details
-
-                // inline the dmno injector code
-                injectorSrc,
-                origSourceStr,
-              ].join('\n');
-
-              return new webpack.sources.RawSource(updatedSourceStr);
-            };
-          }
-
-          webpackConfig.plugins.push({
-            apply(compiler: any) {
-              compiler.hooks.thisCompilation.tap(WEBPACK_PLUGIN_NAME, (compilation: any) => {
-                compilation.hooks.processAssets.tap(
-                  {
-                    name: WEBPACK_PLUGIN_NAME,
-                    stage: webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONS,
-                  },
-                  () => {
-                    // not sure why, but these paths are different in build vs dev
-                    if (compilation.getAsset('webpack-runtime.js')) {
-                      compilation.updateAsset('webpack-runtime.js', injectVarlockInitIntoWebpackRuntime());
-                    }
-                    if (compilation.getAsset('../webpack-runtime.js')) {
-                      compilation.updateAsset('../webpack-runtime.js', injectVarlockInitIntoWebpackRuntime());
-                    }
-                    if (compilation.getAsset('webpack-api-runtime.js')) {
-                      compilation.updateAsset('webpack-api-runtime.js', injectVarlockInitIntoWebpackRuntime());
-                    }
-                    if (compilation.getAsset('../webpack-api-runtime.js')) {
-                      compilation.updateAsset('../webpack-api-runtime.js', injectVarlockInitIntoWebpackRuntime());
-                    }
-
-                    if (compilation.getAsset('edge-runtime-webpack.js')) {
-                      compilation.updateAsset('edge-runtime-webpack.js', injectVarlockInitIntoWebpackRuntime(true));
-                    }
-                  },
-                );
-              });
-            },
-
-          });
-
-          return webpackConfig; // must return the modified config
+        ...isTurbopack && {
+          turbopack: (resolvedNextConfig as any).turbopack,
+        },
+        ...!IS_TURBOPACK && {
+          webpack: createWebpackConfigFn(resolvedNextConfig, patchGlobalFsMethods, debug, isBuild),
         },
       };
     };

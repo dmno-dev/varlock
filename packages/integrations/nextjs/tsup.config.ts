@@ -5,7 +5,8 @@ export default defineConfig({
     'src/next-env-compat.ts',
     'src/plugin.ts',
 
-    'src/patch-next-runtime.ts',
+    'src/edge-env.ts',
+    'src/loader.ts',
   ],
 
   dts: true,
@@ -14,7 +15,7 @@ export default defineConfig({
   sourcemap: true, // Generate sourcemaps
   treeshake: true, // Remove unused code
 
-  clean: true, // Clean output directory before building
+  clean: true,
   outDir: 'dist', // Output directory
 
   // ! we are exporting cjs to match @next/env

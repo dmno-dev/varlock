@@ -29,17 +29,17 @@ class InfisicalPluginInstance {
   ) {}
 
   setAuth(
-    projectId: string,
-    environment: string,
-    clientId: string,
-    clientSecret: string,
+    projectId: any,
+    environment: any,
+    clientId: any,
+    clientSecret: any,
     siteUrl?: string,
     secretPath?: string,
   ) {
-    this.projectId = projectId;
-    this.environment = environment;
-    this.clientId = clientId;
-    this.clientSecret = clientSecret;
+    if (projectId && typeof projectId === 'string') this.projectId = projectId;
+    if (environment && typeof environment === 'string') this.environment = environment;
+    if (clientId && typeof clientId === 'string') this.clientId = clientId;
+    if (clientSecret && typeof clientSecret === 'string') this.clientSecret = clientSecret;
     this.siteUrl = siteUrl;
     this.secretPath = secretPath;
     debug('infisical instance', this.id, 'set auth - projectId:', projectId, 'environment:', environment);
@@ -283,23 +283,12 @@ plugin.registerRootDecorator({
     clientIdResolver,
     clientSecretResolver,
   }) {
+    // even if these are empty, we can't throw errors yet
+    // in case the instance is never actually used
     const projectId = await projectIdResolver?.resolve();
     const environment = await environmentResolver?.resolve();
     const clientId = await clientIdResolver?.resolve();
     const clientSecret = await clientSecretResolver?.resolve();
-
-    if (!projectId || typeof projectId !== 'string') {
-      throw new SchemaError('projectId must resolve to a string');
-    }
-    if (!environment || typeof environment !== 'string') {
-      throw new SchemaError('environment must resolve to a string');
-    }
-    if (!clientId || typeof clientId !== 'string') {
-      throw new SchemaError('clientId must resolve to a string');
-    }
-    if (!clientSecret || typeof clientSecret !== 'string') {
-      throw new SchemaError('clientSecret must resolve to a string');
-    }
 
     pluginInstances[id].setAuth(
       projectId,
