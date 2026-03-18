@@ -12,9 +12,62 @@ The extension is available on the [VS Code Marketplace](https://marketplace.visu
 ## Features
 
 - Syntax highlighting
+- IntelliSense for decorators, `@type` values, type options, resolver functions, and `$KEY` references
+- Enum value completion for item values below `@type=enum(...)`
+- Inline validation for invalid enum values, incompatible decorators, and obvious static `@type` mismatches
 - Hover info for common @decorators
 - Comment continuation - automatically continue comment blocks when you hit enter within one
 
-## How to use this extension 
+## IntelliSense and diagnostics
+
+### Decorators and built-in types
+
+The extension suggests decorators and built-in `@type=` values directly inside comment blocks.
+
+![Decorator and type completion](/env-spec-vscode/autocomplete.gif)
+
+### Type option completions
+
+Built-in types surface context-aware option completions like `email(normalize=...)`, `ip(version=..., normalize=...)`, and `url(prependHttps=...)`.
+
+![Type option completion](/env-spec-vscode/types.gif)
+
+### Email-specific option completions
+
+Type-specific completions also work for focused cases like `email(normalize=...)`, with boolean choice values suggested inline.
+
+![Email option completion](/env-spec-vscode/email.gif)
+
+### Enum value completions
+
+When an item is declared as `@type=enum(...)`, the allowed values are suggested directly on the item value line below.
+
+![Enum value completion](/env-spec-vscode/enum.gif)
+
+### Variable references
+
+Typing `$` inside values and decorator expressions suggests config keys from the current file.
+
+![Key reference completion](/env-spec-vscode/key.gif)
+
+### Prefix-aware completions
+
+Decorator and validation workflows also support prefix-related configuration scenarios while editing schema comments.
+
+![Prefix-related completion or validation](/env-spec-vscode/prefix.gif)
+
+### Invalid decorator combinations
+
+Autocomplete filters out incompatible decorators like `@required` and `@optional`, and inline diagnostics catch invalid combinations if they still appear in the file.
+
+![Incompatible decorator diagnostics](/env-spec-vscode/exclusive_options.gif)
+
+### Inline validation
+
+The extension also highlights obvious static validation issues, such as invalid enum values or incorrect `prependHttps` URL usage.
+
+![Inline validation](/env-spec-vscode/prepend_https.gif)
+
+## How to use this extension
 
 The new @env-spec language mode should be enabled automatically for any .env and .env.* files, but you can always set it via the Language Mode selector in the bottom right of your editor.
