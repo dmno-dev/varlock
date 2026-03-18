@@ -116,6 +116,9 @@ export function detectWorkspaceInfo(opts?: {
     const parentDir = path.dirname(cwd);
     if (parentDir === cwd) break;
     cwd = parentDir;
+
+    // stop at git root as a fallback boundary when no lockfile has been found yet
+    if (pathExistsSync(path.join(cwd, '.git'))) break;
   } while (cwd);
 
   // if we did not find a lockfile, check env vars for hints (rootPath will be cwd in this case)
