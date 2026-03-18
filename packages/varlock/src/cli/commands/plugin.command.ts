@@ -1,5 +1,5 @@
 import { define } from 'gunshi';
-import { loadEnvGraph } from '../../env-graph';
+import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { checkForSchemaErrors } from '../helpers/error-checks';
 
@@ -16,7 +16,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   console.log('');
   await console.log('🧙 Scanning for issues... ✨');
 
-  const envGraph = await loadEnvGraph();
+  const envGraph = await loadVarlockEnvGraph();
   checkForSchemaErrors(envGraph);
   await envGraph.resolveEnvValues();
   // const resolvedEnv = envGraph.getResolvedEnvObject();
