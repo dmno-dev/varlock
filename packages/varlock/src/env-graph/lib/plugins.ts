@@ -7,7 +7,6 @@ import { createRequire } from 'node:module';
 
 import crypto from 'node:crypto';
 import https from 'node:https';
-import vm from 'node:vm';
 import semver from 'semver';
 import _ from '@env-spec/utils/my-dash';
 import { pathExists } from '@env-spec/utils/fs-utils';
@@ -33,30 +32,51 @@ import type { EnvGraph } from './env-graph';
 // so we track just to ensure we don't attempt to do load it multiple times
 const importedPluginModulePaths = new Set<string>();
 
+// One-time Bun compat patch applied before any plugin loads.
+// In Bun, globalThis.crypto IS the Web Crypto API (no .webcrypto sub-property).
+// CJS bundles (e.g. bitwarden) use `crypto.webcrypto.subtle`, so we patch it once.
+let _cryptoShimApplied = false;
+function applyBunCryptoShim() {
+  if (_cryptoShimApplied) return;
+  _cryptoShimApplied = true;
+  const globalCrypto = (globalThis as any).crypto;
+  if (globalCrypto && !globalCrypto.webcrypto) {
+    try {
+      Object.defineProperty(globalCrypto, 'webcrypto', {
+        get() { return globalCrypto; },
+        configurable: true,
+        enumerable: false,
+      });
+    } catch {
+      // ignore if crypto object is not extensible
+    }
+  }
+}
+
 /**
- * Loads and executes a CJS plugin module via node:vm.
+ * Loads and executes a CJS plugin module.
  *
- * Plugins are built as CJS so they can be executed directly in a standard CJS
- * module context (require, module, exports, __dirname, __filename) with no
- * import-to-require transformation needed. Using node:vm works in both normal
- * and SEA (compiled binary) builds — dynamic import() does not work in SEA builds.
+ * Plugins are built as CJS. We use `new Function` to create a CJS module scope
+ * (exports, require, module, __filename, __dirname) — this runs in the main
+ * Node.js/Bun context so all built-in globals (DOMException, fetch, etc.) work
+ * correctly. Top-level var/let/const declarations are scoped to the function and
+ * do not leak between plugins.
+ *
+ * We intentionally avoid vm.createContext with a Proxy sandbox because Node.js
+ * C++ lazy property initializers (e.g. for DOMException) assert IsolateData
+ * exists on the context, which is not set up for Proxy-based vm contexts.
  */
 function loadPluginModule(filePath: string): void {
+  applyBunCryptoShim();
+
   const code = fsSync.readFileSync(filePath, 'utf-8');
   const pluginDir = path.dirname(filePath);
   const moduleObj = { exports: {} as any };
+  const requireFn = createRequire(filePath);
 
-  const context = vm.createContext(globalThis, {
-    codeGeneration: { strings: true, wasm: true },
-  });
-  context.require = createRequire(filePath);
-  context.module = moduleObj;
-  context.exports = moduleObj.exports;
-  context.__dirname = pluginDir;
-  context.__filename = filePath;
-
-  const script = new vm.Script(code, { filename: filePath });
-  script.runInContext(context);
+  // eslint-disable-next-line no-new-func
+  const moduleFn = new Function('exports', 'require', 'module', '__filename', '__dirname', code);
+  moduleFn(moduleObj.exports, requireFn, moduleObj, filePath, pluginDir);
 }
 
 

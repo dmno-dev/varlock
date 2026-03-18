@@ -21,8 +21,13 @@ function showErrorLocationDetails(err: Error) {
 
 export function checkForNoEnvFiles(envGraph: EnvGraph) {
   if (Object.keys(envGraph.configSchema).length === 0) {
-    console.error('🚨 No .env or .env.schema files found\n');
-    console.error('Run `varlock init` to create a .env.schema file, or use `--path` to specify a file or directory.');
+    if (!envGraph.rootDataSource) {
+      console.error('🚨 No .env or .env.schema files found\n');
+      console.error('Run `varlock init` to create a .env.schema file, or use `--path` to specify a file or directory.');
+    } else {
+      console.error('🚨 No items defined in your .env or .env.schema files\n');
+      console.error('Add items to your .env.schema file to get started.');
+    }
     return gracefulExit(1);
   }
 }
