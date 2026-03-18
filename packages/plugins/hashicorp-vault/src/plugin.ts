@@ -372,33 +372,40 @@ plugin.registerResolverFunction({
   label: 'Fetch secret from HashiCorp Vault KV v2',
   icon: VAULT_ICON,
   argsSchema: {
-    type: 'array',
+    type: 'mixed',
     arrayMinLength: 0,
     arrayMaxLength: 2,
   },
   process() {
     let instanceId: string;
     let secretRefResolver: Resolver | undefined;
-    let inferredSecretRef: string | undefined;
     let keyResolver: Resolver | undefined;
+    let returnJson = false;
 
     // Check for named 'key' parameter
     if (this.objArgs?.key) {
       keyResolver = this.objArgs.key;
     }
 
-    // No args - use defaultPath with item key as the JSON key
-    if (!this.arrArgs || this.arrArgs.length === 0) {
-      instanceId = '_default';
-      const parent = (this as any).parent;
-      const itemKey = parent?.key || '';
-      if (!itemKey) {
-        throw new SchemaError('Could not infer secret key - no parent config item key found', {
-          tip: 'Either provide a secret path as an argument, or ensure this is used within a config item',
+    // Check for named 'raw' flag - returns full secret as JSON blob instead of extracting a key
+    if (this.objArgs?.raw) {
+      if (!this.objArgs.raw.isStatic || this.objArgs.raw.staticValue !== true) {
+        throw new SchemaError('Expected raw=true');
+      }
+      if (keyResolver) {
+        throw new SchemaError('Cannot use raw=true with key= parameter', {
+          tip: 'Remove the key= parameter, or remove raw=true',
         });
       }
-      // Pass empty path so buildPath() uses defaultPath, and use the item key as the JSON key
-      inferredSecretRef = `#${itemKey}`;
+      returnJson = true;
+    }
+
+    // Get the item key for auto-inferring the JSON key
+    const parent = (this as any).parent;
+    const itemKey = parent?.key || '';
+
+    if (!this.arrArgs || this.arrArgs.length === 0) {
+      instanceId = '_default';
     } else if (this.arrArgs.length === 1) {
       instanceId = '_default';
       secretRefResolver = this.arrArgs[0];
@@ -438,50 +445,68 @@ plugin.registerResolverFunction({
     }
 
     return {
-      instanceId, secretRefResolver, inferredSecretRef, keyResolver,
+      instanceId, secretRefResolver, keyResolver, itemKey, returnJson,
     };
   },
   async resolve({
-    instanceId, secretRefResolver, inferredSecretRef, keyResolver,
+    instanceId, secretRefResolver, keyResolver, itemKey, returnJson,
   }) {
     const selectedInstance = pluginInstances[instanceId];
 
-    let secretRefWithKey: string;
-    if (inferredSecretRef) {
-      secretRefWithKey = inferredSecretRef;
-    } else if (secretRefResolver) {
-      const secretRef = await secretRefResolver.resolve();
-      if (typeof secretRef !== 'string') {
+    // Resolve the secret ref (path, possibly with #KEY syntax)
+    let secretRef: string | undefined;
+    if (secretRefResolver) {
+      const resolved = await secretRefResolver.resolve();
+      if (typeof resolved !== 'string') {
         throw new SchemaError('Expected secret reference to resolve to a string');
       }
-      secretRefWithKey = secretRef;
-    } else {
-      throw new SchemaError('No secret reference provided or inferred');
+      secretRef = resolved;
     }
 
-    // Parse for JSON key extraction (using # syntax)
-    // e.g., "secret/path#KEY_NAME" -> path="secret/path", jsonKey="KEY_NAME"
+    // Parse for explicit JSON key using # syntax
+    // e.g., "secret/path#KEY_NAME" -> path="secret/path", explicitKey="KEY_NAME"
     let secretPath: string;
-    let jsonKey: string | undefined;
-    const hashIndex = secretRefWithKey.indexOf('#');
-    if (hashIndex !== -1) {
-      secretPath = secretRefWithKey.substring(0, hashIndex);
-      jsonKey = secretRefWithKey.substring(hashIndex + 1);
+    let explicitKey: string | undefined;
+    if (secretRef) {
+      const hashIndex = secretRef.indexOf('#');
+      if (hashIndex !== -1) {
+        secretPath = secretRef.substring(0, hashIndex);
+        explicitKey = secretRef.substring(hashIndex + 1);
+      } else {
+        secretPath = secretRef;
+      }
     } else {
-      secretPath = secretRefWithKey;
+      // No path arg — will use defaultPath via buildPath
+      secretPath = '';
     }
 
-    // Named 'key' parameter takes precedence over # syntax
+    // Validate conflicting options
+    if (returnJson && explicitKey) {
+      throw new SchemaError('Cannot use raw=true with #KEY syntax', {
+        tip: 'Remove the #KEY from the path, or remove raw=true',
+      });
+    }
+
+    // Determine the JSON key to extract:
+    // 1. Named 'key' parameter takes highest precedence
+    // 2. Explicit #KEY in path
+    // 3. json=true skips key extraction entirely
+    // 4. Default: use the item key name
+    let jsonKey: string | undefined;
     if (keyResolver) {
       const keyValue = await keyResolver.resolve();
       if (typeof keyValue !== 'string') {
         throw new SchemaError('Expected key parameter to resolve to a string');
       }
       jsonKey = keyValue;
+    } else if (explicitKey) {
+      jsonKey = explicitKey;
+    } else if (!returnJson) {
+      jsonKey = itemKey || undefined;
     }
 
     // Build the full path using pathPrefix/defaultPath
-    const fullPath = selectedInstance.buildPath(secretPath);
+    const fullPath = selectedInstance.buildPath(secretPath || undefined);
 
     return await selectedInstance.getSecret(fullPath, jsonKey);
   },
