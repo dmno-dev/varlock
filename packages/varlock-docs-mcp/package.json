@@ -13,8 +13,8 @@
     "inspector": "bunx @modelcontextprotocol/inspector@latest"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.20.2",
-    "agents": "^0.2.8",
+    "@modelcontextprotocol/sdk": "1.27.1",
+    "agents": "^0.7.6",
     "ai": "^5.0.0",
     "zod": "^4.3.5"
   },
