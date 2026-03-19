@@ -34,6 +34,7 @@ class VaultPluginInstance {
   private defaultPath?: string;
   private pathPrefix?: string;
   private cachedToken?: CachedToken;
+  private secretCache = new Map<string, Promise<Record<string, any>>>();
 
   constructor(
     readonly id: string,
@@ -193,7 +194,22 @@ class VaultPluginInstance {
     return basePath;
   }
 
-  async getSecret(secretPath: string, jsonKey?: string): Promise<string> {
+  private fetchSecretData(secretPath: string): Promise<Record<string, any>> {
+    // Deduplicate concurrent fetches for the same path
+    const cached = this.secretCache.get(secretPath);
+    if (cached) {
+      debug(`Using cached fetch for: ${secretPath}`);
+      return cached;
+    }
+
+    const promise = this._fetchSecretData(secretPath);
+    this.secretCache.set(secretPath, promise);
+    // Clear cache entry on failure so retries can try again
+    promise.catch(() => this.secretCache.delete(secretPath));
+    return promise;
+  }
+
+  private async _fetchSecretData(secretPath: string): Promise<Record<string, any>> {
     if (!this.url) {
       throw new SchemaError('Vault URL is required');
     }
@@ -222,7 +238,7 @@ class VaultPluginInstance {
     if (this.namespace) headers['X-Vault-Namespace'] = this.namespace;
 
     try {
-      debug(`Fetching secret: ${secretPath}${jsonKey ? `#${jsonKey}` : ''}`);
+      debug(`Fetching secret: ${secretPath}`);
 
       const response = await ky.get(apiUrl, { headers })
         .json<{ data: { data: Record<string, any>; metadata: any } }>();
@@ -232,22 +248,7 @@ class VaultPluginInstance {
         throw new ResolutionError('Secret data is empty');
       }
 
-      // If a JSON key is specified, extract it
-      if (jsonKey) {
-        if (!(jsonKey in secretData)) {
-          throw new ResolutionError(`Key "${jsonKey}" not found in secret`, {
-            tip: `Available keys: ${Object.keys(secretData).join(', ')}`,
-          });
-        }
-        return String(secretData[jsonKey]);
-      }
-
-      // No key specified: if single key, return its value; otherwise return JSON
-      const keys = Object.keys(secretData);
-      if (keys.length === 1) {
-        return String(secretData[keys[0]]);
-      }
-      return JSON.stringify(secretData);
+      return secretData;
     } catch (err: any) {
       if (err instanceof ResolutionError) throw err;
 
@@ -304,6 +305,27 @@ class VaultPluginInstance {
         tip: errorTip,
       });
     }
+  }
+
+  async getSecret(secretPath: string, jsonKey?: string): Promise<string> {
+    const secretData = await this.fetchSecretData(secretPath);
+
+    // If a JSON key is specified, extract it
+    if (jsonKey) {
+      if (!(jsonKey in secretData)) {
+        throw new ResolutionError(`Key "${jsonKey}" not found in secret`, {
+          tip: `Available keys: ${Object.keys(secretData).join(', ')}`,
+        });
+      }
+      return String(secretData[jsonKey]);
+    }
+
+    // No key specified: if single key, return its value; otherwise return JSON
+    const keys = Object.keys(secretData);
+    if (keys.length === 1) {
+      return String(secretData[keys[0]]);
+    }
+    return JSON.stringify(secretData);
   }
 }
 
