@@ -66,10 +66,10 @@ If you're deploying outside of Azure (e.g., AWS, GCP, on-premises), wire up serv
 # )
 # ---
 
-# @type=azureTenantId @sensitive
+# @type=azureTenantId
 AZURE_TENANT_ID=
 
-# @type=azureClientId @sensitive
+# @type=azureClientId
 AZURE_CLIENT_ID=
 
 # @type=azureClientSecret @sensitive
@@ -114,8 +114,9 @@ API_KEY=azureSecret()
 # Explicit secret names
 CUSTOM_SECRET=azureSecret("my-custom-secret-name")
 
-# Versioned secrets
+# Versioned secrets - using @ suffix or named version= param
 API_KEY_V1=azureSecret("api-key@abc123def456")
+API_KEY_V2=azureSecret("api-key", version=abc123def456)
 
 # If using multiple named vault instances
 PROD_SECRET=azureSecret(prod, "database-url")
@@ -150,16 +151,21 @@ Fetch a secret from Azure Key Vault.
 - `azureSecret()` - Auto-infers secret name from variable name (`DATABASE_URL` → `database-url`)
 - `azureSecret(secretName)` - Fetch by explicit secret name
 - `azureSecret(instanceId, secretName)` - Fetch from a specific vault instance
+- `azureSecret(secretName, version=versionId)` - Fetch a specific version
+
+**Named parameters:**
+
+- `version=` - Secret version (alternative to `@version` suffix in the secret name)
 
 **Secret Name Formats:**
 
 - Latest version: `"my-secret"`
-- Specific version: `"my-secret@abc123def456"`
+- Specific version: `"my-secret@abc123def456"` or `azureSecret("my-secret", version=abc123def456)`
 
 ### Data Types
 
-- `azureTenantId` - Azure AD tenant ID (UUID format, sensitive)
-- `azureClientId` - Service principal application ID (UUID format, sensitive)
+- `azureTenantId` - Azure AD tenant ID (UUID format)
+- `azureClientId` - Service principal application ID (UUID format)
 - `azureClientSecret` - Service principal client secret (sensitive)
 
 ---

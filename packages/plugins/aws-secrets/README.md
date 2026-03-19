@@ -226,7 +226,7 @@ Fetch a parameter from AWS Systems Manager Parameter Store.
 
 ### Data Types
 
-- `awsAccessKey` - AWS access key ID (20-character alphanumeric, sensitive)
+- `awsAccessKey` - AWS access key ID (20-character alphanumeric)
 - `awsSecretKey` - AWS secret access key (40 characters, sensitive)
 
 ---

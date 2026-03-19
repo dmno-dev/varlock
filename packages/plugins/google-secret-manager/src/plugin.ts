@@ -10,6 +10,13 @@ plugin.name = 'gsm';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = GSM_ICON;
+plugin.standardVars = {
+  initDecorator: '@initGsm',
+  params: {
+    projectId: { key: ['GOOGLE_CLOUD_PROJECT', 'GCLOUD_PROJECT'] },
+    credentials: { key: 'GOOGLE_APPLICATION_CREDENTIALS' },
+  },
+};
 
 class GsmPluginInstance {
   private projectId?: string;
@@ -250,23 +257,17 @@ plugin.registerResolverFunction({
     arrayMinLength: 0,
   },
   process() {
-    let instanceId: string;
+    let instanceId = '_default';
     let secretRefResolver: Resolver | undefined;
     let itemKey: string | undefined;
 
     const argCount = this.arrArgs?.length ?? 0;
 
-    // Parse arguments based on count
     if (argCount === 0) {
-      // gsm() - use item key as secret name
-      instanceId = '_default';
-      // secretRefResolver will remain undefined, signaling to use item key
+      // gsm() - use item key
     } else if (argCount === 1) {
-      // gsm("secretName")
-      instanceId = '_default';
       secretRefResolver = this.arrArgs![0];
     } else if (argCount === 2) {
-      // gsm(instanceId, "secretName")
       if (!(this.arrArgs![0].isStatic)) {
         throw new SchemaError('Expected instance id to be a static value');
       }

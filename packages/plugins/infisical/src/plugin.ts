@@ -1,7 +1,7 @@
 import { Resolver } from 'varlock/plugin-lib';
 import { InfisicalSDK } from '@infisical/sdk';
 
-const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
+const { SchemaError, ResolutionError } = plugin.ERRORS;
 
 const INFISICAL_ICON = 'simple-icons:infisical';
 
@@ -9,6 +9,13 @@ plugin.name = 'infisical';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = INFISICAL_ICON;
+plugin.standardVars = {
+  initDecorator: '@initInfisical',
+  params: {
+    clientId: { key: 'INFISICAL_CLIENT_ID' },
+    clientSecret: { key: 'INFISICAL_CLIENT_SECRET' },
+  },
+};
 
 class InfisicalPluginInstance {
   /** Infisical project ID */
@@ -312,11 +319,6 @@ plugin.registerDataType({
       url: 'https://infisical.com/docs/documentation/platform/identities/machine-identities',
     },
   ],
-  async validate(val) {
-    if (typeof val !== 'string' || val.length === 0) {
-      throw new ValidationError('Client ID must be a non-empty string');
-    }
-  },
 });
 
 plugin.registerDataType({
@@ -330,11 +332,6 @@ plugin.registerDataType({
       url: 'https://infisical.com/docs/documentation/platform/identities/universal-auth',
     },
   ],
-  async validate(val) {
-    if (typeof val !== 'string' || val.length === 0) {
-      throw new ValidationError('Client Secret must be a non-empty string');
-    }
-  },
 });
 
 plugin.registerResolverFunction({
@@ -346,20 +343,15 @@ plugin.registerResolverFunction({
     arrayMinLength: 0,
   },
   process() {
-    let instanceId: string;
+    let instanceId = '_default';
     let secretNameResolver: Resolver | undefined;
     let secretPathResolver: Resolver | undefined;
 
     const argCount = this.arrArgs?.length ?? 0;
 
-    // Parse arguments based on count
     if (argCount === 0) {
       // infisical() - use item key as secret name
-      instanceId = '_default';
-      // secretNameResolver will remain undefined, signaling to use item key
     } else if (argCount === 1) {
-      // infisical("secretName") OR infisical(instanceId) if parent is ConfigItem
-      instanceId = '_default';
       secretNameResolver = this.arrArgs![0];
     } else if (argCount === 2) {
       // Could be: infisical(instanceId, "secretName") OR infisical("secretName", "path")
@@ -369,7 +361,6 @@ plugin.registerResolverFunction({
         secretNameResolver = this.arrArgs![1];
       } else {
         // Assume first is secret name, second is path
-        instanceId = '_default';
         secretNameResolver = this.arrArgs![0];
         secretPathResolver = this.arrArgs![1];
       }

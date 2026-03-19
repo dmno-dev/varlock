@@ -14,6 +14,12 @@ plugin.name = 'bitwarden';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = BITWARDEN_ICON;
+plugin.standardVars = {
+  initDecorator: '@initBitwarden',
+  params: {
+    accessToken: { key: 'BWS_ACCESS_TOKEN' },
+  },
+};
 
 interface BitwardenSecretResponse {
   id: string;
@@ -178,7 +184,7 @@ class BitwardenPluginInstance {
     // Split into encryption and MAC keys
     const orgEncKey = await subtle.importKey(
       'raw',
-      orgKeyBytes.slice(0, 32),
+      orgKeyBytes.subarray(0, 32),
       { name: 'AES-CBC' },
       false,
       ['decrypt'],
@@ -186,7 +192,7 @@ class BitwardenPluginInstance {
 
     const orgMacKey = await subtle.importKey(
       'raw',
-      orgKeyBytes.slice(32, 64),
+      orgKeyBytes.subarray(32, 64),
       { name: 'HMAC', hash: 'SHA-256' },
       false,
       ['verify'],
@@ -306,7 +312,7 @@ plugin.registerRootDecorator({
     // Validate required fields
     if (!objArgs.accessToken) {
       throw new SchemaError('accessToken is required', {
-        tip: 'Add accessToken parameter: @initBitwarden(accessToken=$BITWARDEN_ACCESS_TOKEN)',
+        tip: 'Add accessToken parameter: @initBitwarden(accessToken=$BWS_ACCESS_TOKEN)',
       });
     }
 
@@ -362,9 +368,6 @@ plugin.registerDataType({
     },
   ],
   async validate(val) {
-    if (typeof val !== 'string' || val.length === 0) {
-      throw new ValidationError('Access token must be a non-empty string');
-    }
     // Validate format: 0.<client_id>.<client_secret>:<encryption_key>
     const parts = val.split('.');
     if (parts.length !== 3 || parts[0] !== '0') {
@@ -388,10 +391,6 @@ plugin.registerDataType({
     },
   ],
   async validate(val) {
-    if (typeof val !== 'string') {
-      throw new ValidationError('Secret ID must be a string');
-    }
-    // Validate UUID format
     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidPattern.test(val)) {
       throw new ValidationError('Secret ID must be a valid UUID');
@@ -411,10 +410,6 @@ plugin.registerDataType({
     },
   ],
   async validate(val) {
-    if (typeof val !== 'string') {
-      throw new ValidationError('Organization ID must be a string');
-    }
-    // Validate UUID format
     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidPattern.test(val)) {
       throw new ValidationError('Organization ID must be a valid UUID');
@@ -432,21 +427,12 @@ plugin.registerResolverFunction({
     arrayMaxLength: 2,
   },
   process() {
-    let instanceId: string;
-    let secretIdResolver: Resolver;
+    let instanceId = '_default';
+    let secretIdResolver: Resolver | undefined;
 
-    const argCount = this.arrArgs?.length ?? 0;
-
-    if (argCount === 0) {
-      throw new SchemaError('Expected secret ID as argument', {
-        tip: 'Provide a secret UUID: bitwarden("12345678-1234-1234-1234-123456789abc")',
-      });
-    } else if (argCount === 1) {
-      // bitwarden("secretId")
-      instanceId = '_default';
+    if (this.arrArgs!.length === 1) {
       secretIdResolver = this.arrArgs![0];
-    } else if (argCount === 2) {
-      // bitwarden(instanceId, "secretId")
+    } else if (this.arrArgs!.length === 2) {
       if (!this.arrArgs![0].isStatic) {
         throw new SchemaError('Expected instance id (first argument) to be a static value');
       }

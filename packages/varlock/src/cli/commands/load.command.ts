@@ -2,7 +2,9 @@ import { define } from 'gunshi';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { getItemSummary } from '../../lib/formatting';
-import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
+import {
+  checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
+} from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
 export const commandSpec = define({
@@ -69,6 +71,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   checkForConfigErrors(envGraph, { showAll });
 
   if (format === 'pretty') {
+    showPluginWarnings(envGraph);
     for (const itemKey of envGraph.sortedConfigKeys) {
       const item = envGraph.configSchema[itemKey];
       console.log(getItemSummary(item));

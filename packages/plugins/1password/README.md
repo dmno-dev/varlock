@@ -200,11 +200,6 @@ Load all variables from a 1Password environment. Intended for use with `@setValu
 - `opLoadEnvironment(environmentId)` - Load from default instance
 - `opLoadEnvironment(instanceId, environmentId)` - Load from a specific instance
 
-**Parameters:**
-
-- `environmentId: string` - The 1Password environment ID
-- `instanceId?: string` - Instance identifier (static, when using multiple instances)
-
 ### Data Types
 
 - `opServiceAccountToken` - 1Password service account token (sensitive, validated format)
