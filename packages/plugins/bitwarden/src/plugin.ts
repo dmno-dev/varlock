@@ -311,20 +311,9 @@ plugin.registerRootDecorator({
 
     // Validate required fields
     if (!objArgs.accessToken) {
-      const tips: Array<string> = ['Add accessToken parameter: @initBitwarden(accessToken=$BWS_ACCESS_TOKEN)'];
-      if (process.env.BWS_ACCESS_TOKEN) {
-        tips.unshift(
-          'Detected BWS_ACCESS_TOKEN in your environment, but varlock does not read env vars automatically.',
-          'Add BWS_ACCESS_TOKEN to your schema and wire it in:',
-          '',
-          '  # @initBitwarden(accessToken=$BWS_ACCESS_TOKEN)',
-          '  # ---',
-          '  # @type=bitwardenAccessToken @sensitive',
-          '  BWS_ACCESS_TOKEN=',
-          '',
-        );
-      }
-      throw new SchemaError('accessToken is required', { tip: tips.join('\n') });
+      throw new SchemaError('accessToken is required', {
+        tip: 'Add accessToken parameter: @initBitwarden(accessToken=$BWS_ACCESS_TOKEN)',
+      });
     }
 
     // Validate apiUrl is static if provided

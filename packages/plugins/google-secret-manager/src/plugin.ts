@@ -185,25 +185,6 @@ plugin.registerRootDecorator({
     }
     pluginInstances[id] = new GsmPluginInstance(id);
 
-    // Suggest wiring up known GCP env vars if not explicitly provided
-    if (!objArgs.credentials && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      debug(
-        'Detected GOOGLE_APPLICATION_CREDENTIALS in your environment, but varlock does not read env vars automatically.',
-        'To track it explicitly in your schema:',
-        '  # @initGsm(credentials=$GCP_SA_KEY)',
-        '  # ---',
-        '  # @type=gcpServiceAccountJson @sensitive',
-        '  GCP_SA_KEY=',
-      );
-    }
-    if (!objArgs.projectId && (process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT)) {
-      const envVar = process.env.GOOGLE_CLOUD_PROJECT ? 'GOOGLE_CLOUD_PROJECT' : 'GCLOUD_PROJECT';
-      debug(
-        `Detected ${envVar} in your environment, but varlock does not read env vars automatically.`,
-        `To track it explicitly: @initGsm(projectId=$${envVar})`,
-      );
-    }
-
     return {
       id,
       projectIdResolver: objArgs.projectId,

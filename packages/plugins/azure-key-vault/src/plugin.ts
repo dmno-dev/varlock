@@ -236,38 +236,23 @@ class AzurePluginInstance {
     }
 
     // No credentials available
-    const tips: Array<string> = [
-      'Option 1: Use Azure CLI (easiest for local development)',
-      '  - Run: az login',
-      '  - This will automatically work with varlock',
-      '',
-      'Option 2: Use Managed Identity (for Azure-hosted apps)',
-      '  - Enable system-assigned or user-assigned managed identity on your Azure resource',
-      '  - Grant the identity "Key Vault Secrets User" role on your Key Vault',
-      '  - No credentials needed in your code!',
-      '',
-      'Option 3: Provide service principal credentials via @initAzure():',
-      '  - tenantId: Your Azure AD tenant ID',
-      '  - clientId: Your service principal application (client) ID',
-      '  - clientSecret: Your service principal client secret',
-    ];
-    if (process.env.AZURE_TENANT_ID && process.env.AZURE_CLIENT_ID && process.env.AZURE_CLIENT_SECRET) {
-      tips.unshift(
-        'Detected AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET in your environment, but varlock does not read env vars automatically.',
-        'Add them to your schema and wire them in:',
+    throw new SchemaError('Azure credentials are required', {
+      tip: [
+        'Option 1: Use Azure CLI (easiest for local development)',
+        '  - Run: az login',
+        '  - This will automatically work with varlock',
         '',
-        '  # @initAzure(vaultUrl=..., tenantId=$AZURE_TENANT_ID, clientId=$AZURE_CLIENT_ID, clientSecret=$AZURE_CLIENT_SECRET)',
-        '  # ---',
-        '  # @type=azureTenantId',
-        '  AZURE_TENANT_ID=',
-        '  # @type=azureClientId',
-        '  AZURE_CLIENT_ID=',
-        '  # @type=azureClientSecret @sensitive',
-        '  AZURE_CLIENT_SECRET=',
+        'Option 2: Use Managed Identity (for Azure-hosted apps)',
+        '  - Enable system-assigned or user-assigned managed identity on your Azure resource',
+        '  - Grant the identity "Key Vault Secrets User" role on your Key Vault',
+        '  - No credentials needed in your code!',
         '',
-      );
-    }
-    throw new SchemaError('Azure credentials are required', { tip: tips.join('\n') });
+        'Option 3: Provide service principal credentials via @initAzure():',
+        '  - tenantId: Your Azure AD tenant ID',
+        '  - clientId: Your service principal application (client) ID',
+        '  - clientSecret: Your service principal client secret',
+      ].join('\n'),
+    });
   }
 
   private async getServicePrincipalToken(tenantId: string, clientId: string, clientSecret: string): Promise<string> {

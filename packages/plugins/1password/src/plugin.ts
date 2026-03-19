@@ -200,25 +200,12 @@ plugin.registerRootDecorator({
     // user should either be setting token, allowAppAuth, or both
     // we will check again later with resovled values
     if (!objArgs.token && !objArgs.allowAppAuth) {
-      const tips: Array<string> = [
-        'Options:',
-        '  1. Use a service account token: @initOp(token=$OP_SERVICE_ACCOUNT_TOKEN)',
-        '  2. Use 1Password desktop app auth: @initOp(allowAppAuth=true)',
-      ];
-      if (process.env.OP_SERVICE_ACCOUNT_TOKEN) {
-        tips.unshift(
-          'Detected OP_SERVICE_ACCOUNT_TOKEN in your environment, but varlock does not read env vars automatically.',
-          'Add OP_SERVICE_ACCOUNT_TOKEN to your schema and wire it in:',
-          '',
-          '  # @initOp(token=$OP_SERVICE_ACCOUNT_TOKEN)',
-          '  # ---',
-          '  # @type=opServiceAccountToken @sensitive',
-          '  OP_SERVICE_ACCOUNT_TOKEN=',
-          '',
-        );
-      }
       throw new SchemaError('Either token or allowAppAuth must be set', {
-        tip: tips.join('\n'),
+        tip: [
+          'Options:',
+          '  1. Use a service account token: @initOp(token=$OP_SERVICE_ACCOUNT_TOKEN)',
+          '  2. Use 1Password desktop app auth: @initOp(allowAppAuth=true)',
+        ].join('\n'),
       });
     }
 

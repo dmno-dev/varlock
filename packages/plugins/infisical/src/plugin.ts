@@ -245,37 +245,15 @@ plugin.registerRootDecorator({
     }
 
     if (!objArgs.clientId) {
-      const tips: Array<string> = ['Add clientId parameter: @initInfisical(clientId=$INFISICAL_CLIENT_ID, ...)'];
-      if (process.env.INFISICAL_CLIENT_ID) {
-        tips.unshift(
-          'Detected INFISICAL_CLIENT_ID in your environment, but varlock does not read env vars automatically.',
-          'Add INFISICAL_CLIENT_ID to your schema and wire it in:',
-          '',
-          '  # @initInfisical(clientId=$INFISICAL_CLIENT_ID, ...)',
-          '  # ---',
-          '  # @type=infisicalClientId',
-          '  INFISICAL_CLIENT_ID=',
-          '',
-        );
-      }
-      throw new SchemaError('clientId is required', { tip: tips.join('\n') });
+      throw new SchemaError('clientId is required', {
+        tip: 'Add clientId parameter: @initInfisical(clientId=$INFISICAL_CLIENT_ID, ...)',
+      });
     }
 
     if (!objArgs.clientSecret) {
-      const tips: Array<string> = ['Add clientSecret parameter: @initInfisical(clientSecret=$INFISICAL_CLIENT_SECRET, ...)'];
-      if (process.env.INFISICAL_CLIENT_SECRET) {
-        tips.unshift(
-          'Detected INFISICAL_CLIENT_SECRET in your environment, but varlock does not read env vars automatically.',
-          'Add INFISICAL_CLIENT_SECRET to your schema and wire it in:',
-          '',
-          '  # @initInfisical(clientSecret=$INFISICAL_CLIENT_SECRET, ...)',
-          '  # ---',
-          '  # @type=infisicalClientSecret @sensitive',
-          '  INFISICAL_CLIENT_SECRET=',
-          '',
-        );
-      }
-      throw new SchemaError('clientSecret is required', { tip: tips.join('\n') });
+      throw new SchemaError('clientSecret is required', {
+        tip: 'Add clientSecret parameter: @initInfisical(clientSecret=$INFISICAL_CLIENT_SECRET, ...)',
+      });
     }
 
     // Validate siteUrl is static if provided
