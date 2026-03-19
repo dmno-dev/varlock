@@ -14,6 +14,12 @@ plugin.name = 'bitwarden';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = BITWARDEN_ICON;
+plugin.standardVars = {
+  initDecorator: '@initBitwarden',
+  params: {
+    accessToken: { key: 'BWS_ACCESS_TOKEN' },
+  },
+};
 
 interface BitwardenSecretResponse {
   id: string;

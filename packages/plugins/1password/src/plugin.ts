@@ -13,6 +13,12 @@ plugin.name = '1pass';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = OP_ICON;
+plugin.standardVars = {
+  initDecorator: '@initOp',
+  params: {
+    token: { key: 'OP_SERVICE_ACCOUNT_TOKEN' },
+  },
+};
 
 /** Parse env format output from `op environment read` into a flat {name: value} JSON string */
 function parseOpEnvOutput(raw: string): string {

@@ -75,6 +75,20 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
 }
 
 
+export function showPluginWarnings(envGraph: EnvGraph) {
+  for (const plugin of envGraph.plugins) {
+    if (!plugin.warnings.length) continue;
+    for (const warning of plugin.warnings) {
+      console.log(ansis.yellow(`[WARNING] ${warning.message}`));
+      if (warning.tip) {
+        for (const line of warning.tip.split('\n')) {
+          console.log(`  ${line}`);
+        }
+      }
+    }
+  }
+}
+
 export class InvalidEnvError extends Error {
   constructor() {
     super('Resolved config/env did not pass validation');
@@ -134,6 +148,7 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
       });
     }
 
+    showPluginWarnings(envGraph);
     throw new InvalidEnvError();
   }
 }

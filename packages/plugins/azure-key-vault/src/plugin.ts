@@ -13,6 +13,14 @@ plugin.name = 'azure';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = AZURE_ICON;
+plugin.standardVars = {
+  initDecorator: '@initAzure',
+  params: {
+    tenantId: { key: 'AZURE_TENANT_ID' },
+    clientId: { key: 'AZURE_CLIENT_ID' },
+    clientSecret: { key: 'AZURE_CLIENT_SECRET' },
+  },
+};
 
 interface AzureTokenResponse {
   access_token: string;

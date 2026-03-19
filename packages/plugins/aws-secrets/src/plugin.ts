@@ -21,6 +21,15 @@ const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = AWS_ICON;
 
+plugin.standardVars = {
+  initDecorator: '@initAws',
+  params: {
+    region: { key: ['AWS_REGION', 'AWS_DEFAULT_REGION'] },
+    accessKeyId: { key: 'AWS_ACCESS_KEY_ID', dataType: 'awsAccessKey' },
+    secretAccessKey: { key: 'AWS_SECRET_ACCESS_KEY', dataType: 'awsSecretKey' },
+  },
+};
+
 const FIX_AUTH_TIP = [
   'Verify your AWS credentials are configured correctly. Use one of the following options:',
   '  1. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables',
@@ -401,22 +410,7 @@ plugin.registerRootDecorator({
 
     // Region is required
     if (!objArgs.region) {
-      let envRegionVar: string | undefined;
-      if (process.env.AWS_REGION) envRegionVar = 'AWS_REGION';
-      else if (process.env.AWS_DEFAULT_REGION) envRegionVar = 'AWS_DEFAULT_REGION';
-      const tips: Array<string> = ['Provide region: @initAws(region=us-east-1)'];
-      if (envRegionVar) {
-        tips.unshift(
-          `Detected ${envRegionVar} in your environment, but varlock does not read env vars automatically.`,
-          `Add ${envRegionVar} to your schema and wire it in:`,
-          '',
-          `  # @initAws(region=$${envRegionVar})`,
-          '  # ---',
-          `  ${envRegionVar}=`,
-          '',
-        );
-      }
-      throw new SchemaError('region parameter is required', { tip: tips.join('\n') });
+      throw new SchemaError('Region parameter is required');
     }
 
     pluginInstances[id] = new AwsPluginInstance(id);

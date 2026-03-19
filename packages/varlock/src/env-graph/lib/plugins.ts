@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 
 import crypto from 'node:crypto';
 import https from 'node:https';
+import ansis from 'ansis';
 import semver from 'semver';
 import _ from '@env-spec/utils/my-dash';
 import { pathExists } from '@env-spec/utils/fs-utils';
@@ -104,6 +105,7 @@ export class VarlockPlugin {
   set icon(val: string) { this._icon = val; }
 
   loadingError?: Error;
+  warnings: Array<SchemaError> = [];
 
   readonly localPath?: string;
 
@@ -159,6 +161,71 @@ export class VarlockPlugin {
   registerResolverFunction<T>(resolverDef: ResolverDef<T>) {
     this.debug('registerResolverFunction', resolverDef.name);
     this.resolverFunctions!.push(resolverDef);
+  }
+
+  /**
+   * Declare standard env vars this plugin uses.
+   * Set during plugin init — the loading infrastructure will automatically
+   * check for these vars and generate warnings if they are detected but not wired up.
+   *
+   * `key` accepts a single env var name or an array of alternatives — the first match is used.
+   * `dataType` is used to generate `# @type=...` schema lines for vars not in the schema.
+   */
+  standardVars?: {
+    initDecorator: string,
+    params: Record<string, { key: string | Array<string>, dataType?: string }>,
+  };
+
+  /** called by the loading infrastructure — checks declared standardVars against the graph */
+  _checkStandardVars(graph: { overrideValues: Record<string, string | undefined>, configSchema: Record<string, any> }) {
+    if (!this.standardVars) return;
+    const { initDecorator, params } = this.standardVars;
+
+    // resolve each param to the first matching env key
+    const resolved = Object.entries(params).map(([paramName, { key, dataType }]) => {
+      const keys = Array.isArray(key) ? key : [key];
+      const matchedKey = keys.find((k) => graph.overrideValues[k]);
+      return {
+        paramName, matchedKey, resolvedKey: matchedKey || keys[0], dataType,
+      };
+    });
+
+    const detected = resolved.filter((v) => v.matchedKey);
+    if (detected.length === 0) return;
+
+    const detectedKeys = detected.map((v) => v.matchedKey!);
+    const needsSchemaSet = new Set(
+      detected.filter((v) => !(v.resolvedKey in graph.configSchema)).map((v) => v.resolvedKey),
+    );
+
+    const wiringParams = detected
+      .map((v) => ansis.green(`${v.paramName}=$${v.resolvedKey}`))
+      .join(', ');
+
+    const tip: Array<string> = [
+      '',
+      'Include in your schema and use in plugin initialization:',
+      '',
+      `  # ${initDecorator}(..., ${wiringParams})`,
+      '  # ---',
+    ];
+
+    for (const v of detected) {
+      const inSchema = !needsSchemaSet.has(v.resolvedKey);
+      if (v.dataType) {
+        const typeLine = `  # @type=${v.dataType}`;
+        tip.push(inSchema ? typeLine : ansis.green(typeLine));
+      }
+      const itemLine = `  ${v.resolvedKey}=`;
+      tip.push(inSchema ? itemLine : ansis.green(itemLine));
+    }
+
+    tip.push('');
+
+    this.warnings.push(new SchemaError(
+      `${detectedKeys.join(', ')} found in environment but not connected to plugin`,
+      { isWarning: true, tip },
+    ));
   }
 
   get pluginFilePath() {

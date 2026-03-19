@@ -10,6 +10,13 @@ plugin.name = 'gsm';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = GSM_ICON;
+plugin.standardVars = {
+  initDecorator: '@initGsm',
+  params: {
+    projectId: { key: ['GOOGLE_CLOUD_PROJECT', 'GCLOUD_PROJECT'] },
+    credentials: { key: 'GOOGLE_APPLICATION_CREDENTIALS' },
+  },
+};
 
 class GsmPluginInstance {
   private projectId?: string;

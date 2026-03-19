@@ -226,6 +226,11 @@ export class EnvGraph {
       if (plugin.loadingError) return;
     }
 
+    // check declared standardVars against the environment
+    for (const plugin of this.plugins) {
+      plugin._checkStandardVars(this);
+    }
+
     // Attach builtin defs to any user-defined VARLOCK_* items
     // (they may have been defined directly without a $VARLOCK_* reference)
     for (const key in this.configSchema) {
@@ -238,7 +243,7 @@ export class EnvGraph {
       if (source.disabled) continue;
       for (const decInstance of source.rootDecorators) {
         await decInstance.process();
-        if (decInstance.schemaErrors.length) processingError = true;
+        if (decInstance.schemaErrors.some((e) => !e.isWarning)) processingError = true;
       }
     }
 

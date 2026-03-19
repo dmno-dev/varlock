@@ -9,6 +9,13 @@ plugin.name = 'infisical';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = INFISICAL_ICON;
+plugin.standardVars = {
+  initDecorator: '@initInfisical',
+  params: {
+    clientId: { key: 'INFISICAL_CLIENT_ID' },
+    clientSecret: { key: 'INFISICAL_CLIENT_SECRET' },
+  },
+};
 
 class InfisicalPluginInstance {
   /** Infisical project ID */
