@@ -1,7 +1,7 @@
 import { Resolver } from 'varlock/plugin-lib';
 import { InfisicalSDK } from '@infisical/sdk';
 
-const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
+const { SchemaError, ResolutionError } = plugin.ERRORS;
 
 const INFISICAL_ICON = 'simple-icons:infisical';
 
@@ -238,15 +238,37 @@ plugin.registerRootDecorator({
     }
 
     if (!objArgs.clientId) {
-      throw new SchemaError('clientId is required', {
-        tip: 'Add clientId parameter: @initInfisical(clientId=$INFISICAL_CLIENT_ID, ...)',
-      });
+      const tips: Array<string> = ['Add clientId parameter: @initInfisical(clientId=$INFISICAL_CLIENT_ID, ...)'];
+      if (process.env.INFISICAL_CLIENT_ID) {
+        tips.unshift(
+          'Detected INFISICAL_CLIENT_ID in your environment, but varlock does not read env vars automatically.',
+          'Add INFISICAL_CLIENT_ID to your schema and wire it in:',
+          '',
+          '  # @initInfisical(clientId=$INFISICAL_CLIENT_ID, ...)',
+          '  # ---',
+          '  # @type=infisicalClientId',
+          '  INFISICAL_CLIENT_ID=',
+          '',
+        );
+      }
+      throw new SchemaError('clientId is required', { tip: tips.join('\n') });
     }
 
     if (!objArgs.clientSecret) {
-      throw new SchemaError('clientSecret is required', {
-        tip: 'Add clientSecret parameter: @initInfisical(clientSecret=$INFISICAL_CLIENT_SECRET, ...)',
-      });
+      const tips: Array<string> = ['Add clientSecret parameter: @initInfisical(clientSecret=$INFISICAL_CLIENT_SECRET, ...)'];
+      if (process.env.INFISICAL_CLIENT_SECRET) {
+        tips.unshift(
+          'Detected INFISICAL_CLIENT_SECRET in your environment, but varlock does not read env vars automatically.',
+          'Add INFISICAL_CLIENT_SECRET to your schema and wire it in:',
+          '',
+          '  # @initInfisical(clientSecret=$INFISICAL_CLIENT_SECRET, ...)',
+          '  # ---',
+          '  # @type=infisicalClientSecret @sensitive',
+          '  INFISICAL_CLIENT_SECRET=',
+          '',
+        );
+      }
+      throw new SchemaError('clientSecret is required', { tip: tips.join('\n') });
     }
 
     // Validate siteUrl is static if provided
@@ -312,11 +334,6 @@ plugin.registerDataType({
       url: 'https://infisical.com/docs/documentation/platform/identities/machine-identities',
     },
   ],
-  async validate(val) {
-    if (typeof val !== 'string' || val.length === 0) {
-      throw new ValidationError('Client ID must be a non-empty string');
-    }
-  },
 });
 
 plugin.registerDataType({
@@ -330,11 +347,6 @@ plugin.registerDataType({
       url: 'https://infisical.com/docs/documentation/platform/identities/universal-auth',
     },
   ],
-  async validate(val) {
-    if (typeof val !== 'string' || val.length === 0) {
-      throw new ValidationError('Client Secret must be a non-empty string');
-    }
-  },
 });
 
 plugin.registerResolverFunction({
@@ -346,20 +358,15 @@ plugin.registerResolverFunction({
     arrayMinLength: 0,
   },
   process() {
-    let instanceId: string;
+    let instanceId = '_default';
     let secretNameResolver: Resolver | undefined;
     let secretPathResolver: Resolver | undefined;
 
     const argCount = this.arrArgs?.length ?? 0;
 
-    // Parse arguments based on count
     if (argCount === 0) {
       // infisical() - use item key as secret name
-      instanceId = '_default';
-      // secretNameResolver will remain undefined, signaling to use item key
     } else if (argCount === 1) {
-      // infisical("secretName") OR infisical(instanceId) if parent is ConfigItem
-      instanceId = '_default';
       secretNameResolver = this.arrArgs![0];
     } else if (argCount === 2) {
       // Could be: infisical(instanceId, "secretName") OR infisical("secretName", "path")
@@ -369,7 +376,6 @@ plugin.registerResolverFunction({
         secretNameResolver = this.arrArgs![1];
       } else {
         // Assume first is secret name, second is path
-        instanceId = '_default';
         secretNameResolver = this.arrArgs![0];
         secretPathResolver = this.arrArgs![1];
       }

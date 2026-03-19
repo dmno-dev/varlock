@@ -159,7 +159,7 @@ class OpPluginInstance {
       for (const ref in batch) {
         for (const dp of batch[ref].defers) {
           const wrappedErr = new Error(`1Password error - ${commonErr.message}`);
-          wrappedErr.cause = commonErr;
+          (wrappedErr as any).cause = commonErr;
           dp.reject(err);
         }
       }
@@ -194,7 +194,26 @@ plugin.registerRootDecorator({
     // user should either be setting token, allowAppAuth, or both
     // we will check again later with resovled values
     if (!objArgs.token && !objArgs.allowAppAuth) {
-      throw new SchemaError('Either token or allowAppAuth must be set');
+      const tips: Array<string> = [
+        'Options:',
+        '  1. Use a service account token: @initOp(token=$OP_SERVICE_ACCOUNT_TOKEN)',
+        '  2. Use 1Password desktop app auth: @initOp(allowAppAuth=true)',
+      ];
+      if (process.env.OP_SERVICE_ACCOUNT_TOKEN) {
+        tips.unshift(
+          'Detected OP_SERVICE_ACCOUNT_TOKEN in your environment, but varlock does not read env vars automatically.',
+          'Add OP_SERVICE_ACCOUNT_TOKEN to your schema and wire it in:',
+          '',
+          '  # @initOp(token=$OP_SERVICE_ACCOUNT_TOKEN)',
+          '  # ---',
+          '  # @type=opServiceAccountToken @sensitive',
+          '  OP_SERVICE_ACCOUNT_TOKEN=',
+          '',
+        );
+      }
+      throw new SchemaError('Either token or allowAppAuth must be set', {
+        tip: tips.join('\n'),
+      });
     }
 
     return {
@@ -244,22 +263,17 @@ plugin.registerResolverFunction({
     arrayMinLength: 1,
   },
   process() {
-    if (!this.arrArgs || !this.arrArgs.length) {
-      throw new SchemaError('Expected 1 or 2 arguments');
-    }
+    let instanceId = '_default';
+    let itemLocationResolver: Resolver | undefined;
 
-    let instanceId: string;
-    let itemLocationResolver: Resolver;
-    if (this.arrArgs.length === 1) {
-      instanceId = '_default';
-      itemLocationResolver = this.arrArgs[0];
-    } else if (this.arrArgs.length === 2) {
-      if (!(this.arrArgs[0].isStatic)) {
+    if (this.arrArgs!.length === 1) {
+      itemLocationResolver = this.arrArgs![0];
+    } else if (this.arrArgs!.length === 2) {
+      if (!(this.arrArgs![0].isStatic)) {
         throw new SchemaError('expected instance id to be a static value');
-      } else {
-        instanceId = String(this.arrArgs[0].staticValue);
       }
-      itemLocationResolver = this.arrArgs[1];
+      instanceId = String(this.arrArgs![0].staticValue);
+      itemLocationResolver = this.arrArgs![1];
     } else {
       throw new SchemaError('Expected 1 or 2 args');
     }
@@ -311,22 +325,17 @@ plugin.registerResolverFunction({
     arrayMaxLength: 2,
   },
   process() {
-    if (!this.arrArgs || !this.arrArgs.length) {
-      throw new SchemaError('Expected 1 or 2 arguments');
-    }
+    let instanceId = '_default';
+    let environmentIdResolver: Resolver | undefined;
 
-    let instanceId: string;
-    let environmentIdResolver: Resolver;
-
-    if (this.arrArgs.length === 1) {
-      instanceId = '_default';
-      environmentIdResolver = this.arrArgs[0];
-    } else if (this.arrArgs.length === 2) {
-      if (!this.arrArgs[0].isStatic) {
+    if (this.arrArgs!.length === 1) {
+      environmentIdResolver = this.arrArgs![0];
+    } else if (this.arrArgs!.length === 2) {
+      if (!this.arrArgs![0].isStatic) {
         throw new SchemaError('expected instance id to be a static value');
       }
-      instanceId = String(this.arrArgs[0].staticValue);
-      environmentIdResolver = this.arrArgs[1];
+      instanceId = String(this.arrArgs![0].staticValue);
+      environmentIdResolver = this.arrArgs![1];
     } else {
       throw new SchemaError('Expected 1 or 2 args');
     }

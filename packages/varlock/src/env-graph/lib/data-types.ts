@@ -25,7 +25,7 @@ type EnvGraphDataTypeDef<CoerceReturnType, ValidateInputType = FallbackIfUnknown
    * - if validation passes, should return true
    * - if validation fails, should return a ValidationError or array of errors - or throw an error
    * */
-  validate: (value: ValidateInputType) => MaybePromise<(true | undefined | void | Error | Array<Error>)>;
+  validate?: (value: ValidateInputType) => MaybePromise<(true | undefined | void | Error | Array<Error>)>;
 
   // asyncValidate? - async validation function, meant to be called more sparingly
   // for example, when could validate an API key is currently valid

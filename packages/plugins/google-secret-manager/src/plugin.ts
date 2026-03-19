@@ -178,6 +178,25 @@ plugin.registerRootDecorator({
     }
     pluginInstances[id] = new GsmPluginInstance(id);
 
+    // Suggest wiring up known GCP env vars if not explicitly provided
+    if (!objArgs.credentials && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      debug(
+        'Detected GOOGLE_APPLICATION_CREDENTIALS in your environment, but varlock does not read env vars automatically.',
+        'To track it explicitly in your schema:',
+        '  # @initGsm(credentials=$GCP_SA_KEY)',
+        '  # ---',
+        '  # @type=gcpServiceAccountJson @sensitive',
+        '  GCP_SA_KEY=',
+      );
+    }
+    if (!objArgs.projectId && (process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT)) {
+      const envVar = process.env.GOOGLE_CLOUD_PROJECT ? 'GOOGLE_CLOUD_PROJECT' : 'GCLOUD_PROJECT';
+      debug(
+        `Detected ${envVar} in your environment, but varlock does not read env vars automatically.`,
+        `To track it explicitly: @initGsm(projectId=$${envVar})`,
+      );
+    }
+
     return {
       id,
       projectIdResolver: objArgs.projectId,
@@ -250,23 +269,17 @@ plugin.registerResolverFunction({
     arrayMinLength: 0,
   },
   process() {
-    let instanceId: string;
+    let instanceId = '_default';
     let secretRefResolver: Resolver | undefined;
     let itemKey: string | undefined;
 
     const argCount = this.arrArgs?.length ?? 0;
 
-    // Parse arguments based on count
     if (argCount === 0) {
-      // gsm() - use item key as secret name
-      instanceId = '_default';
-      // secretRefResolver will remain undefined, signaling to use item key
+      // gsm() - use item key
     } else if (argCount === 1) {
-      // gsm("secretName")
-      instanceId = '_default';
       secretRefResolver = this.arrArgs![0];
     } else if (argCount === 2) {
-      // gsm(instanceId, "secretName")
       if (!(this.arrArgs![0].isStatic)) {
         throw new SchemaError('Expected instance id to be a static value');
       }

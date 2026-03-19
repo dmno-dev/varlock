@@ -401,7 +401,22 @@ plugin.registerRootDecorator({
 
     // Region is required
     if (!objArgs.region) {
-      throw new SchemaError('region parameter is required');
+      let envRegionVar: string | undefined;
+      if (process.env.AWS_REGION) envRegionVar = 'AWS_REGION';
+      else if (process.env.AWS_DEFAULT_REGION) envRegionVar = 'AWS_DEFAULT_REGION';
+      const tips: Array<string> = ['Provide region: @initAws(region=us-east-1)'];
+      if (envRegionVar) {
+        tips.unshift(
+          `Detected ${envRegionVar} in your environment, but varlock does not read env vars automatically.`,
+          `Add ${envRegionVar} to your schema and wire it in:`,
+          '',
+          `  # @initAws(region=$${envRegionVar})`,
+          '  # ---',
+          `  ${envRegionVar}=`,
+          '',
+        );
+      }
+      throw new SchemaError('region parameter is required', { tip: tips.join('\n') });
     }
 
     pluginInstances[id] = new AwsPluginInstance(id);
@@ -437,7 +452,7 @@ plugin.registerRootDecorator({
 
 plugin.registerDataType({
   name: 'awsAccessKey',
-  sensitive: true,
+  sensitive: false,
   typeDescription: 'AWS access key ID for IAM authentication',
   icon: AWS_ICON,
   docs: [
@@ -447,9 +462,6 @@ plugin.registerDataType({
     },
   ],
   async validate(val): Promise<true> {
-    if (typeof val !== 'string') {
-      throw new ValidationError('Must be a string');
-    }
     // AWS access keys are typically 20 characters and alphanumeric
     if (!/^[A-Z0-9]{20}$/.test(val)) {
       throw new ValidationError('Must be a 20-character alphanumeric string (typically starts with AKIA)');
@@ -470,9 +482,6 @@ plugin.registerDataType({
     },
   ],
   async validate(val): Promise<true> {
-    if (typeof val !== 'string') {
-      throw new ValidationError('Must be a string');
-    }
     // AWS secret keys are typically 40 characters
     if (val.length !== 40) {
       throw new ValidationError('Must be exactly 40 characters long');
@@ -486,7 +495,7 @@ plugin.registerResolverFunction({
   label: 'Fetch secret from AWS Secrets Manager',
   icon: AWS_ICON,
   argsSchema: {
-    type: 'array',
+    type: 'mixed',
     arrayMinLength: 0,
   },
   process() {
@@ -605,7 +614,7 @@ plugin.registerResolverFunction({
   label: 'Fetch parameter from AWS Systems Manager Parameter Store',
   icon: AWS_ICON,
   argsSchema: {
-    type: 'array',
+    type: 'mixed',
     arrayMinLength: 0,
   },
   process() {

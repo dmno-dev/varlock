@@ -228,23 +228,38 @@ class AzurePluginInstance {
     }
 
     // No credentials available
-    throw new SchemaError('Azure credentials are required', {
-      tip: [
-        'Option 1: Use Azure CLI (easiest for local development)',
-        '  - Run: az login',
-        '  - This will automatically work with varlock',
+    const tips: Array<string> = [
+      'Option 1: Use Azure CLI (easiest for local development)',
+      '  - Run: az login',
+      '  - This will automatically work with varlock',
+      '',
+      'Option 2: Use Managed Identity (for Azure-hosted apps)',
+      '  - Enable system-assigned or user-assigned managed identity on your Azure resource',
+      '  - Grant the identity "Key Vault Secrets User" role on your Key Vault',
+      '  - No credentials needed in your code!',
+      '',
+      'Option 3: Provide service principal credentials via @initAzure():',
+      '  - tenantId: Your Azure AD tenant ID',
+      '  - clientId: Your service principal application (client) ID',
+      '  - clientSecret: Your service principal client secret',
+    ];
+    if (process.env.AZURE_TENANT_ID && process.env.AZURE_CLIENT_ID && process.env.AZURE_CLIENT_SECRET) {
+      tips.unshift(
+        'Detected AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET in your environment, but varlock does not read env vars automatically.',
+        'Add them to your schema and wire them in:',
         '',
-        'Option 2: Use Managed Identity (for Azure-hosted apps)',
-        '  - Enable system-assigned or user-assigned managed identity on your Azure resource',
-        '  - Grant the identity "Key Vault Secrets User" role on your Key Vault',
-        '  - No credentials needed in your code!',
+        '  # @initAzure(vaultUrl=..., tenantId=$AZURE_TENANT_ID, clientId=$AZURE_CLIENT_ID, clientSecret=$AZURE_CLIENT_SECRET)',
+        '  # ---',
+        '  # @type=azureTenantId',
+        '  AZURE_TENANT_ID=',
+        '  # @type=azureClientId',
+        '  AZURE_CLIENT_ID=',
+        '  # @type=azureClientSecret @sensitive',
+        '  AZURE_CLIENT_SECRET=',
         '',
-        'Option 3: Provide service principal credentials via @initAzure():',
-        '  - tenantId: Your Azure AD tenant ID',
-        '  - clientId: Your service principal application (client) ID',
-        '  - clientSecret: Your service principal client secret',
-      ].join('\n'),
-    });
+      );
+    }
+    throw new SchemaError('Azure credentials are required', { tip: tips.join('\n') });
   }
 
   private async getServicePrincipalToken(tenantId: string, clientId: string, clientSecret: string): Promise<string> {
@@ -435,7 +450,7 @@ plugin.registerRootDecorator({
 
 plugin.registerDataType({
   name: 'azureTenantId',
-  sensitive: true,
+  sensitive: false,
   typeDescription: 'Azure AD tenant ID (directory ID) for authentication',
   icon: AZURE_ICON,
   docs: [
@@ -445,9 +460,6 @@ plugin.registerDataType({
     },
   ],
   async validate(val): Promise<true> {
-    if (typeof val !== 'string') {
-      throw new ValidationError('Must be a string');
-    }
     // Azure tenant IDs are UUIDs
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) {
       throw new ValidationError('Must be a valid UUID format (e.g., 12345678-1234-1234-1234-123456789012)');
@@ -458,7 +470,7 @@ plugin.registerDataType({
 
 plugin.registerDataType({
   name: 'azureClientId',
-  sensitive: true,
+  sensitive: false,
   typeDescription: 'Azure service principal application (client) ID',
   icon: AZURE_ICON,
   docs: [
@@ -468,9 +480,6 @@ plugin.registerDataType({
     },
   ],
   async validate(val): Promise<true> {
-    if (typeof val !== 'string') {
-      throw new ValidationError('Must be a string');
-    }
     // Azure client IDs are UUIDs
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) {
       throw new ValidationError('Must be a valid UUID format (e.g., 12345678-1234-1234-1234-123456789012)');
@@ -490,16 +499,6 @@ plugin.registerDataType({
       url: 'https://learn.microsoft.com/en-us/azure/active-directory/develop/howto-create-service-principal-portal',
     },
   ],
-  async validate(val): Promise<true> {
-    if (typeof val !== 'string') {
-      throw new ValidationError('Must be a string');
-    }
-    // Azure client secrets don't have a specific format, just check it's not empty
-    if (val.length === 0) {
-      throw new ValidationError('Must not be empty');
-    }
-    return true;
-  },
 });
 
 plugin.registerResolverFunction({
@@ -507,21 +506,21 @@ plugin.registerResolverFunction({
   label: 'Fetch secret from Azure Key Vault',
   icon: AZURE_ICON,
   argsSchema: {
-    type: 'array',
+    type: 'mixed',
     arrayMinLength: 0,
   },
   process() {
-    let instanceId: string;
+    let instanceId = '_default';
     let secretRefResolver: Resolver | undefined;
     let inferredSecretName: string | undefined;
 
+    // Named modifier: version=
+    const versionResolver = this.objArgs?.version;
+
     if (!this.arrArgs || this.arrArgs.length === 0) {
       // No arguments - infer secret name from item name
-      instanceId = '_default';
       // Convert UPPER_SNAKE_CASE to lower-kebab-case
       // e.g., DATABASE_URL -> database-url
-
-      // Access the item key from this.parent (which should be a ConfigItem)
       const parent = (this as any).parent;
       const itemKey = parent?.key || '';
       if (!itemKey) {
@@ -532,14 +531,12 @@ plugin.registerResolverFunction({
       inferredSecretName = itemKey.toLowerCase().replace(/_/g, '-');
       debug(`Auto-inferred secret name from item key "${itemKey}": "${inferredSecretName}"`);
     } else if (this.arrArgs.length === 1) {
-      instanceId = '_default';
       secretRefResolver = this.arrArgs[0];
     } else if (this.arrArgs.length === 2) {
       if (!(this.arrArgs[0].isStatic)) {
         throw new SchemaError('Expected instance id to be a static value');
-      } else {
-        instanceId = String(this.arrArgs[0].staticValue);
       }
+      instanceId = String(this.arrArgs[0].staticValue);
       secretRefResolver = this.arrArgs[1];
     } else {
       throw new SchemaError('Expected 0, 1, or 2 args');
@@ -569,9 +566,13 @@ plugin.registerResolverFunction({
       }
     }
 
-    return { instanceId, secretRefResolver, inferredSecretName };
+    return {
+      instanceId, secretRefResolver, inferredSecretName, versionResolver,
+    };
   },
-  async resolve({ instanceId, secretRefResolver, inferredSecretName }) {
+  async resolve({
+    instanceId, secretRefResolver, inferredSecretName, versionResolver,
+  }) {
     const selectedInstance = pluginInstances[instanceId];
 
     let secretRef: string;
@@ -585,6 +586,14 @@ plugin.registerResolverFunction({
       secretRef = resolvedRef;
     } else {
       throw new SchemaError('Expected either a secret name argument or an item key to infer from');
+    }
+
+    // Named version= param takes precedence over @version suffix in the ref string
+    if (versionResolver) {
+      const version = await versionResolver.resolve();
+      if (typeof version !== 'string') throw new SchemaError('Expected version to resolve to a string');
+      // Strip any existing @version suffix before appending
+      secretRef = `${secretRef.split('@')[0]}@${version}`;
     }
 
     const secretValue = await selectedInstance.getSecret(secretRef);
