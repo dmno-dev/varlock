@@ -72,7 +72,7 @@ AZURE_TENANT_ID=
 # @type=azureClientId
 AZURE_CLIENT_ID=
 
-# @type=azureClientSecret
+# @type=azureClientSecret @sensitive
 AZURE_CLIENT_SECRET=
 ```
 
