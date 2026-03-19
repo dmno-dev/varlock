@@ -44,9 +44,6 @@ function prependAfterDirectives(source: string, codeToPrepend: string): string {
  * sensitive vars.
  */
 function webpackLoader(this: LoaderContext, source: string) {
-  // disable caching so we always re-run when env values change
-  this.cacheable(false); // TODO: probably dont want this?
-
   // only transform files within the project root
   // this skips node_modules AND symlinked workspace packages (e.g. varlock/env)
   // which turbopack resolves to their real paths outside node_modules
@@ -116,6 +113,8 @@ function webpackLoader(this: LoaderContext, source: string) {
   // static replacements for non-sensitive env vars
   // webpack uses DefinePlugin for this, so only needed for turbopack
   if (isTurbopack && source.includes('ENV.')) {
+    // disable caching only for files that reference ENV — their output depends on env values
+    this.cacheable(false);
     for (const [key, item] of Object.entries(envGraph.config)) {
       if (item.isSensitive) continue;
 

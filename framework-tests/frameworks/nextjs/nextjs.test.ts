@@ -9,8 +9,9 @@ const BUNDLERS = [
   'turbopack',
 ];
 const NEXT_VERSIONS = [
-  '15',
-  '16',
+  14,
+  15,
+  16,
 ];
 
 NEXT_VERSIONS.forEach((nextVersion) => {
@@ -48,10 +49,20 @@ NEXT_VERSIONS.forEach((nextVersion) => {
 
     BUNDLERS.forEach((webpackOrTurbo) => {
       let buildToolFlag = webpackOrTurbo === 'turbopack' ? '--turbopack' : '--webpack';
-      if (nextVersion === '15') {
+      if (nextVersion === 14) {
+        buildToolFlag = webpackOrTurbo === 'turbopack' ? '--turbo' : '';
+      } else if (nextVersion === 15) {
         buildToolFlag = webpackOrTurbo === 'turbopack' ? '--turbopack' : '';
-      } else {
+      } else if (nextVersion === 16) {
         buildToolFlag = webpackOrTurbo === 'turbopack' ? '' : '--webpack';
+      } else {
+        throw new Error(`Unsupported Next.js version: ${nextVersion}`);
+      }
+
+      // next 14 only supports --turbo for dev command, which we are not testing yet
+      // TODO: smarter skipping once we add dev tests
+      if (nextVersion === 14 && webpackOrTurbo === 'turbopack') {
+        return;
       }
 
       const buildCommand = `next build ${buildToolFlag}`;
