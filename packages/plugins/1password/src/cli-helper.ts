@@ -60,7 +60,10 @@ export async function execOpCliCommand(cmdArgs: Array<string>) {
   try {
     // uses system-installed copy of `op`
     debug('op cli command args', cmdArgs);
-    const cliResult = await spawnAsync('op', cmdArgs);
+    // strip OP_SERVICE_ACCOUNT_TOKEN from env so the CLI doesn't auto-detect it
+    // when the user hasn't explicitly wired it into their schema
+    const { OP_SERVICE_ACCOUNT_TOKEN: _, ...cleanEnv } = process.env;
+    const cliResult = await spawnAsync('op', cmdArgs, { env: cleanEnv });
     authCompletedFn?.(true);
     debug(`> took ${+new Date() - +startAt}ms`);
     // OP_CLI_CACHE[cacheKey] = cliResult;

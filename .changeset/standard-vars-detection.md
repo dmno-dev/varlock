@@ -1,7 +1,7 @@
 ---
 "varlock": minor
 "@varlock/aws-secrets-plugin": patch
-"@varlock/1password-plugin": patch
+"@varlock/1password-plugin": minor
 "@varlock/bitwarden-plugin": patch
 "@varlock/google-secret-manager-plugin": patch
 "@varlock/infisical-plugin": patch
