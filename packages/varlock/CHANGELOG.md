@@ -1,5 +1,49 @@
 # varlock
 
+## 0.6.0
+
+### Minor Changes
+
+- [#436](https://github.com/dmno-dev/varlock/pull/436) [`eaf6c10`](https://github.com/dmno-dev/varlock/commit/eaf6c104259899df6fa4128cfe569f7ef3e9acac) - fix: switch plugins to CJS output to fix plugin loading errors in the standalone binary
+
+  Previously plugins were built as ESM and the loader performed a fragile regex-based ESM→CJS transformation. Plugins now build as CJS directly and are loaded via `new Function` in the main runtime context, which avoids both the ESM parse errors and Node.js internal assertion failures (e.g. `DOMException` lazy getter crashing in vm sandbox contexts).
+
+- [#438](https://github.com/dmno-dev/varlock/pull/438) [`b540985`](https://github.com/dmno-dev/varlock/commit/b5409857a74874bbcd8850251a38e51ddcb8e6a4) - general cleanup and standardization of plugins
+
+  feat: add `standardVars` plugin property for automatic env var detection warnings
+
+  Plugins can now declaratively set `plugin.standardVars` to define well-known env vars they use. The loading infrastructure automatically checks for these vars in the environment and shows non-blocking warnings (in pretty output or on failure) when they are detected but not wired into the schema or plugin decorator. Green highlighting indicates items that need to be added.
+
+### Patch Changes
+
+- [#421](https://github.com/dmno-dev/varlock/pull/421) [`7b31afe`](https://github.com/dmno-dev/varlock/commit/7b31afecf9b571452be87c86f9ef54731235c06e) - feat: add `ifs()` function and update `remap()` to support positional arg pairs
+
+  - **New `ifs()` function**: Excel-style conditional that evaluates condition/value pairs and returns the value for the first truthy condition. An optional trailing default value is used when no condition matches.
+
+    ```env-spec
+    API_URL=ifs(
+      eq($ENV, production), https://api.example.com,
+      eq($ENV, staging), https://staging-api.example.com,
+      http://localhost:3000
+    )
+    ```
+
+  - **Updated `remap()` function**: Now supports positional `(match, result)` pairs as the preferred syntax. The old key=value syntax (`result=match`) is still supported but deprecated.
+
+    ```env-spec
+    # new preferred syntax (match first, result second)
+    APP_ENV=remap($CI_BRANCH, "main", production, regex(.*), preview, undefined, development)
+
+    # old syntax (still works but deprecated)
+    APP_ENV=remap($CI_BRANCH, production="main", preview=regex(.*), development=undefined)
+    ```
+
+- [#429](https://github.com/dmno-dev/varlock/pull/429) [`dbf0bd4`](https://github.com/dmno-dev/varlock/commit/dbf0bd4fb46918cafb7b72cb0cfd4bbc9132b3d3) - fix: defer plugin auth errors until resolver is actually used, and prefix resolution errors with resolver function name for clearer error messages
+
+- [#393](https://github.com/dmno-dev/varlock/pull/393) [`1e8bca6`](https://github.com/dmno-dev/varlock/commit/1e8bca69b0f455ed58390545a1f9cbfb90d92131) - turbopack support
+
+- [#431](https://github.com/dmno-dev/varlock/pull/431) [`ab417d7`](https://github.com/dmno-dev/varlock/commit/ab417d772ed06d671060a16273f33c1503e44333) - Fix: Exclude `.env.local` files and their imports from generated TypeScript types.
+
 ## 0.5.0
 
 ### Minor Changes

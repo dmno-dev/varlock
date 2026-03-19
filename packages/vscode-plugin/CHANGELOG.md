@@ -1,5 +1,11 @@
 # env-spec-language
 
+## 0.1.0
+
+### Minor Changes
+
+- [#370](https://github.com/dmno-dev/varlock/pull/370) [`5fa49f7`](https://github.com/dmno-dev/varlock/commit/5fa49f7aa25e2b7d13dc0980c19b200bf0e470a7) Thanks [@voiys](https://github.com/voiys)! - Add IntelliSense, inline diagnostics, and docs demos for the VS Code extension.
+
 ## 0.0.5
 
 ### Patch Changes
