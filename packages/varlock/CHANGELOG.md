@@ -1,5 +1,13 @@
 # varlock
 
+## 0.6.2
+
+### Patch Changes
+
+- [#450](https://github.com/dmno-dev/varlock/pull/450) [`40b65e8`](https://github.com/dmno-dev/varlock/commit/40b65e82578d358917b916c9bc1436849d0400a8) - fix: warning-level schema errors no longer block plugin loading or item resolution
+
+  Warning errors (e.g., deprecated syntax warnings) were incorrectly treated as hard errors in several places, causing early bail-outs that prevented plugins from loading and items from resolving. Fixed `isValid`, `finishLoad`, and decorator `resolve` checks to filter out warnings.
+
 ## 0.6.1
 
 ### Patch Changes
