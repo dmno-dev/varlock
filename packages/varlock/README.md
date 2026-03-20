@@ -9,7 +9,7 @@
 - 🔏 runtime protection — log redaction and leak prevention
 - 🛡️ validation, coercion, type safety w/ IntelliSense
 - 🌐 flexible multi-environment management — auto .env.* loading and explicit import
-- 🔌 6 secret manager plugins (1Password, Infisical, AWS, Azure, GCP, Bitwarden)
+- 🔌 8 secret manager plugins (1Password, Infisical, AWS, Azure, GCP, Bitwarden, HashiCorp Vault, Pass)
 
 See https://varlock.dev for full docs and examples.
 
