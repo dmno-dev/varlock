@@ -1,5 +1,14 @@
 # @varlock/nextjs-integration
 
+## 0.3.1
+
+### Patch Changes
+
+- [#443](https://github.com/dmno-dev/varlock/pull/443) [`a271d6a`](https://github.com/dmno-dev/varlock/commit/a271d6a521e17462c6f3184940ebe8a8b1292ebb) - Improved loader caching: only disable cache for files that reference `ENV.` (turbopack only), allowing most files to benefit from build caching. Updated docs and README to reflect full Next.js 15/16 and Turbopack support.
+
+- Updated dependencies [[`57f0e04`](https://github.com/dmno-dev/varlock/commit/57f0e04e1f86b22f08a3a3a0a1bce29b7f38d1fc)]:
+  - varlock@0.6.1
+
 ## 0.3.0
 
 ### Minor Changes
