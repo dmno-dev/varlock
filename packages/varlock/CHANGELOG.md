@@ -1,5 +1,11 @@
 # varlock
 
+## 0.6.1
+
+### Patch Changes
+
+- [#445](https://github.com/dmno-dev/varlock/pull/445) [`57f0e04`](https://github.com/dmno-dev/varlock/commit/57f0e04e1f86b22f08a3a3a0a1bce29b7f38d1fc) - update bun to v1.3.11 - publish new binaries
+
 ## 0.6.0
 
 ### Minor Changes
