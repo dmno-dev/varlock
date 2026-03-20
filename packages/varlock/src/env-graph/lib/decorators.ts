@@ -126,8 +126,8 @@ export abstract class DecoratorInstance {
 
     await this.process();
     if (!this.decValueResolver) {
-      // process() already recorded schema errors, don't throw again
-      if (this._schemaErrors.length > 0) return;
+      // process() already recorded schema errors, don't throw again (warnings don't block)
+      if (this._schemaErrors.some((e) => !e.isWarning)) return;
       throw new Error('expected decorator to have a value resolver');
     }
     try {
@@ -468,4 +468,14 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
   {
     name: 'icon',
   },
+
+  // test-only decorators — dropped in release builds
+  ...__VARLOCK_BUILD_TYPE__ === 'test' ? [
+    {
+      name: 'warn',
+      process() {
+        throw new SchemaError('test warning', { isWarning: true });
+      },
+    },
+  ] as Array<ItemDecoratorDef<any>> : [],
 ];

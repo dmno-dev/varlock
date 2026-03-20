@@ -73,4 +73,25 @@ describe('plugins ', () => {
     `,
     earlyError: true,
   }));
+
+  test('warning on item does not block plugin resolver on same item', envFilesTest({
+    envFile: outdent`
+      # @plugin(./plugins/test-plugin/)
+      # ---
+      # @warn
+      PLUGIN_RESOLVER_TEST=test(foo)
+    `,
+    expectValues: { PLUGIN_RESOLVER_TEST: 'foo' },
+  }));
+
+  test('warning on one item does not block other items', envFilesTest({
+    envFile: outdent`
+      # @plugin(./plugins/test-plugin/)
+      # ---
+      # @warn
+      WARNED_ITEM=some_value
+      OTHER_ITEM=test(bar)
+    `,
+    expectValues: { WARNED_ITEM: 'some_value', OTHER_ITEM: 'bar' },
+  }));
 });

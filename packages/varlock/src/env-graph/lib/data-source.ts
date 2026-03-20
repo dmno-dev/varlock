@@ -478,7 +478,7 @@ export abstract class EnvGraphDataSource {
   }
 
   get isValid() {
-    return !this.loadingError && !this.schemaErrors.length && !this.resolutionErrors.length;
+    return !this.loadingError && !this.schemaErrors.some((e) => !e.isWarning) && !this.resolutionErrors.length;
   }
 
   configItemDefs: Record<string, ConfigItemDef> = {};
