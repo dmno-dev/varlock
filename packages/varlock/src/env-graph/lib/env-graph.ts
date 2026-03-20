@@ -252,7 +252,7 @@ export class EnvGraph {
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
       await item.process();
-      if (item.errors.length) processingError = true;
+      if (item.errors.some((e) => !e.isWarning)) processingError = true;
     }
 
     if (processingError) return;
