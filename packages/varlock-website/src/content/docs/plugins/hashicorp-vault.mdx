@@ -130,26 +130,20 @@ Once the plugin is installed and initialized, you can start adding config items 
 
 ### Basic usage
 
-```env-spec title=".env.schema"
-# Auto-infer: uses item key as the secret ref
-DATABASE_URL=vaultSecret()
-
-# Explicit path with key extraction via #
-DB_HOST=vaultSecret("secret/db/config#HOST")
-DB_PASSWORD=vaultSecret("secret/db/config#PASSWORD")
-```
-
-### JSON key extraction
-
-Vault KV v2 stores key/value pairs at a path. You can extract specific keys using `#` syntax or the named `key` parameter:
+Since Vault KV v2 always stores key/value pairs, the item key (variable name) is automatically used as the JSON key to extract from the secret:
 
 ```env-spec title=".env.schema"
-# Using # syntax (shorthand)
-DB_HOST=vaultSecret("secret/db/config#HOST")
-DB_PASSWORD=vaultSecret("secret/db/config#PASSWORD")
+# Fetches "secret/db/config" and extracts "DB_HOST" key
+DB_HOST=vaultSecret("secret/db/config")
+
+# Override the extracted key with # syntax
+DB_PASSWORD=vaultSecret("secret/db/config#password")
 
 # Or use named "key" parameter
 DB_PORT=vaultSecret("secret/db/config", key="PORT")
+
+# Fetch entire secret as JSON blob
+DB_CONFIG=vaultSecret("secret/db/config", raw=true)
 ```
 
 ### Default path
@@ -160,15 +154,15 @@ Use `defaultPath` to set a common path for secrets when no path argument is prov
 # @initHcpVault(url="https://vault.example.com:8200", defaultPath=secret/myapp/config)
 # ---
 
-# Both fetch from "secret/myapp/config" using the item key as the JSON key
+# Both fetch from "secret/myapp/config" extracting item key
 DB_PASSWORD=vaultSecret()
 API_KEY=vaultSecret()
 
 # Override the inferred key using # syntax
 STRIPE_KEY=vaultSecret("#stripe_api_key")
 
-# This still uses an explicit path
-OTHER_SECRET=vaultSecret("secret/other/path#KEY")
+# Explicit path still extracts item key by default
+OTHER_SECRET=vaultSecret("secret/other/path")
 ```
 
 ### Path prefixing
@@ -193,6 +187,22 @@ You can even use dynamic prefixes:
 # In dev: fetches from "secret/dev/db/config"
 DB_HOST=vaultSecret("db/config#HOST")
 ```
+
+### Bulk loading secrets
+
+Use `raw=true` with `@setValuesBulk` to load all key/value pairs from a Vault path at once, instead of wiring up each secret individually:
+
+```env-spec title=".env.schema"
+# @initHcpVault(url="https://vault.example.com:8200")
+# @setValuesBulk(vaultSecret("secret/myapp/config", raw=true))
+# ---
+
+DB_HOST=
+DB_PASSWORD=
+API_KEY=
+```
+
+This fetches all keys stored at `secret/myapp/config` and maps them to matching item keys. Only items declared in your schema will be populated — any extra keys in the Vault secret are ignored.
 
 ---
 
@@ -338,28 +348,39 @@ Fetch a secret from HashiCorp Vault's KV v2 secrets engine.
 
 **Array args:**
 - `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
-- `secretRef` (optional): secret path, or path with JSON key using `#` syntax. If omitted, uses `defaultPath` with the variable name as the JSON key. Use `#key` (without a path) to override the inferred key while still using `defaultPath`.
-- `key` (optional, named parameter): JSON key to extract from the secret
+- `secretRef` (optional): secret path, optionally with `#KEY` to override the extracted key. If omitted, uses `defaultPath`. Use `#key` (without a path) to override the inferred key while still using `defaultPath`.
+
+**Named args:**
+- `key` (optional): JSON key to extract from the secret (overrides `#KEY` syntax and item key default)
+- `raw` (optional): set to `true` to return all key/value pairs as a JSON blob instead of extracting a single key. Useful with `@setValuesBulk` for bulk loading.
+
+**Key extraction:** By default, the item key (variable name) is used as the JSON key. Override with `#KEY` or `key=`, or use `raw=true` to get everything.
 
 **How paths work:**
 
 Vault KV v2 stores key/value pairs at a path. Given a path like `secret/myapp/config`, the plugin calls `GET /v1/secret/data/myapp/config` (the first path segment is the mount point, and `/data/` is inserted for the KV v2 API).
 
 ```env-spec /vaultSecret\\(.*\\)/
-# Auto-infer: uses defaultPath with item key as JSON key
+# Uses defaultPath, extracts item key
 DATABASE_URL=vaultSecret()
 
 # Override inferred key using # syntax (still uses defaultPath)
 STRIPE_KEY=vaultSecret("#stripe_api_key")
 
-# Explicit path with key extraction
-DB_HOST=vaultSecret("secret/db/config#HOST")
+# Explicit path, extracts item key "DB_HOST"
+DB_HOST=vaultSecret("secret/db/config")
+
+# Override key with # syntax
+DB_PASSWORD=vaultSecret("secret/db/config#password")
 
 # Extract key (named parameter)
 DB_PORT=vaultSecret("secret/db/config", key="PORT")
 
+# Fetch full secret as JSON
+DB_CONFIG=vaultSecret("secret/db/config", raw=true)
+
 # With instance ID
-PROD_SECRET=vaultSecret(prod, "secret/api/keys#API_KEY")
+PROD_SECRET=vaultSecret(prod, "secret/api/keys")
 ```
 </div>
 </div>

@@ -12,6 +12,14 @@ plugin.name = 'vault';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = VAULT_ICON;
+plugin.standardVars = {
+  initDecorator: '@initHcpVault',
+  params: {
+    url: { key: 'VAULT_ADDR' },
+    token: { key: 'VAULT_TOKEN', dataType: 'vaultToken' },
+    namespace: { key: 'VAULT_NAMESPACE' },
+  },
+};
 
 const FIX_AUTH_TIP = [
   'Verify your Vault credentials are configured correctly. Use one of the following options:',
@@ -106,21 +114,8 @@ class VaultPluginInstance {
       }
     }
 
-    const tips = [FIX_AUTH_TIP];
-    if (process.env.VAULT_TOKEN) {
-      tips.unshift(
-        'Detected VAULT_TOKEN in your environment, but varlock does not read env vars automatically.',
-        'Add VAULT_TOKEN to your schema and wire it in:',
-        '',
-        '  # @initHcpVault(url=..., token=$VAULT_TOKEN)',
-        '  # ---',
-        '  # @type=vaultToken @sensitive',
-        '  VAULT_TOKEN=',
-        '',
-      );
-    }
     throw new SchemaError('No Vault authentication found', {
-      tip: tips.join('\n'),
+      tip: FIX_AUTH_TIP,
     });
   }
 
@@ -350,18 +345,9 @@ plugin.registerRootDecorator({
 
     // url is required
     if (!objArgs.url) {
-      const tip = process.env.VAULT_ADDR
-        ? [
-          `Detected VAULT_ADDR="${process.env.VAULT_ADDR}" in your environment, but varlock does not read env vars automatically.`,
-          'Add VAULT_ADDR to your schema and wire it in:',
-          '',
-          '  # @initHcpVault(url=$VAULT_ADDR)',
-          '  # ---',
-          '  # @type=url',
-          '  VAULT_ADDR=',
-        ].join('\n')
-        : 'Provide your Vault server URL: @initHcpVault(url="https://vault.example.com:8200")';
-      throw new SchemaError('url parameter is required', { tip });
+      throw new SchemaError('url parameter is required', {
+        tip: 'Provide your Vault server URL: @initHcpVault(url="https://vault.example.com:8200")',
+      });
     }
 
     pluginInstances[id] = new VaultPluginInstance(id);

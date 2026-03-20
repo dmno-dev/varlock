@@ -118,24 +118,28 @@ If you need to connect to multiple Vault instances, register named instances:
 
 This plugin introduces the `vaultSecret()` function to fetch secret values from Vault's KV v2 secrets engine.
 
+Since Vault KV v2 always stores key/value pairs, the item key (variable name) is automatically used as the JSON key to extract from the secret. You can override this with `#KEY` syntax or the `key` parameter.
+
 ```env-spec title=".env.schema"
 # @plugin(@varlock/hashicorp-vault-plugin)
 # @initHcpVault(url="https://vault.example.com:8200")
 # ---
 
-# Auto-infer: uses item key as the secret ref
-DATABASE_URL=vaultSecret()
+# Fetches "secret/db/config" and extracts "DB_HOST" key
+DB_HOST=vaultSecret("secret/db/config")
 
-# Explicit path with key extraction via #
-DB_HOST=vaultSecret("secret/db/config#HOST")
-DB_PASSWORD=vaultSecret("secret/db/config#PASSWORD")
+# Override the extracted key with # syntax
+DB_PASSWORD=vaultSecret("secret/db/config#password")
 
 # Or use named "key" parameter
 DB_PORT=vaultSecret("secret/db/config", key="PORT")
 
+# Fetch entire secret as JSON blob
+DB_CONFIG=vaultSecret("secret/db/config", raw=true)
+
 # If using multiple instances
-PROD_KEY=vaultSecret(prod, "secret/api/keys#API_KEY")
-DEV_KEY=vaultSecret(dev, "secret/api/keys#API_KEY")
+PROD_KEY=vaultSecret(prod, "secret/api/keys")
+DEV_KEY=vaultSecret(dev, "secret/api/keys")
 ```
 
 ### Default path
@@ -146,15 +150,18 @@ Use `defaultPath` to set a common path for secrets when no path argument is prov
 # @initHcpVault(url="https://vault.example.com:8200", defaultPath=secret/myapp/config)
 # ---
 
-# Both fetch from "secret/myapp/config" using the item key
+# Both fetch from "secret/myapp/config" extracting item key
 DB_PASSWORD=vaultSecret()
 API_KEY=vaultSecret()
 
 # Override the inferred key using # syntax
 STRIPE_KEY=vaultSecret("#stripe_api_key")
 
-# This still uses an explicit path
-OTHER_SECRET=vaultSecret("secret/other/path#KEY")
+# Explicit path still extracts item key by default
+OTHER_SECRET=vaultSecret("secret/other/path")
+
+# Or override key on explicit path
+OTHER_KEY=vaultSecret("secret/other/path#SPECIFIC_KEY")
 ```
 
 ### Path prefixing
@@ -177,6 +184,22 @@ You can even use dynamic prefixes:
 # In dev: fetches from "secret/dev/..."
 DB_HOST=vaultSecret("db/config#HOST")
 ```
+
+### Bulk loading secrets
+
+Use `raw=true` with `@setValuesBulk` to load all key/value pairs from a Vault path at once, instead of wiring up each secret individually:
+
+```env-spec
+# @initHcpVault(url="https://vault.example.com:8200")
+# @setValuesBulk(vaultSecret("secret/myapp/config", raw=true))
+# ---
+
+DB_HOST=
+DB_PASSWORD=
+API_KEY=
+```
+
+This fetches all keys from `secret/myapp/config` and maps them to matching item keys.
 
 ---
 
@@ -207,15 +230,20 @@ Fetch a secret from HashiCorp Vault's KV v2 secrets engine.
 
 **Signatures:**
 
-- `vaultSecret()` - Auto-infers secret ref from variable name
-- `vaultSecret(secretRef)` - Fetch by explicit path (with optional `#key`)
+- `vaultSecret()` - Uses `defaultPath`, extracts item key
+- `vaultSecret(secretRef)` - Fetch by explicit path, extracts item key
 - `vaultSecret(secretRef, key="jsonKey")` - Fetch and extract a specific key
+- `vaultSecret(secretRef, raw=true)` - Fetch all key/value pairs as JSON blob (useful with `@setValuesBulk`)
 - `vaultSecret(instanceId, secretRef)` - Fetch from a specific Vault instance
+
+**Key extraction:**
+
+By default, the item key (variable name) is used as the JSON key to extract from the secret. You can override this with `#KEY` syntax in the path or the named `key` parameter, or use `raw=true` to get the full key/value blob.
 
 **Secret Ref Formats:**
 
-- Path only: `"secret/myapp/config"` (returns single value or JSON of all keys)
-- Path with key: `"secret/myapp/config#DB_PASSWORD"` (extracts specific key)
+- Path only: `"secret/myapp/config"` (extracts item key from the secret)
+- Path with key override: `"secret/myapp/config#DB_PASSWORD"` (extracts specific key)
 
 **How paths work:**
 
