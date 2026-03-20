@@ -300,6 +300,7 @@ export function loadEnvConfig(
         Object.entries(varlockLoadedEnv.config).map(([key, value]) => [key, value.value]),
       );
 
+      initVarlockEnv();
       resetRedactionMap(varlockLoadedEnv);
       debug('patching console with varlock redactor');
       patchGlobalConsole();
