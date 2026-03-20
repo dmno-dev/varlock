@@ -31,14 +31,28 @@ Please reach out on [Discord](https://chat.dmno.dev) if you are interested in de
 
 ## Plugin installation ||installation||
 
-Plugins are loaded using their npm package name, and an optional version specifier. The version can be a fixed version or a [simple semver range](https://devhints.io/semver), similar to what is used in `package.json` files (e.g., `1.2.3`,`1.x`, `^1.2.3`, etc).
+Plugins are loaded using the `@plugin()` root decorator with an npm package name. How you specify the version depends on whether you are in a JavaScript project or using the standalone binary.
 
-You may omit the version specifier only if your project has a `package.json` file - in which case the version installed in your `node_modules` directory will be used. If you add a version specifier AND it is installed locally, the local version will be used unless it does not satisfy the specified version/range - in which case an error will be thrown.
+### JavaScript projects
+
+In a JavaScript project (where a `package.json` file is present), you must install the plugin as a dependency in your project and load it **without** a version specifier. Varlock will use the version installed in your `node_modules` directory.
 
 ```env-spec title=".env.schema"
-# @plugin(@varlock/a-plugin)        # use installed version
-# @plugin(@varlock/b-plugin@1.2.3)  # pinned to v1.2.3
-# @plugin(@varlock/c-plugin@^2.3.4) # use latest v2.3.x
+# @plugin(@varlock/a-plugin) # uses the locally installed version
+```
+
+You can optionally add a version specifier to validate that the installed version satisfies a [semver range](https://devhints.io/semver) — but the local version is always what gets loaded. If the installed version doesn't match the specified range, an error will be thrown.
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/a-plugin@^2.3.4) # validates installed version is >=2.3.4 <3.0.0
+```
+
+### Standalone binary
+
+When using the standalone binary (no `package.json` present), you must specify a **fixed version number** (e.g., `1.2.3`). Semver ranges are not supported in this mode. Varlock will automatically download and cache the plugin from npm.
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/a-plugin@1.2.3) # downloads and caches v1.2.3 from npm
 ```
 
 :::caution[Only `@varlock/*` plugins supported for now]

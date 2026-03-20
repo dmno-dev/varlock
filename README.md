@@ -21,7 +21,7 @@
 - 🔏 runtime protection — log redaction and leak prevention
 - 🛡️ validation, coercion, type safety w/ IntelliSense
 - 🌐 flexible multi-environment management — auto .env.* loading and explicit import
-- 🔌 6 secret manager plugins (1Password, Infisical, AWS, Azure, GCP, Bitwarden)
+- 🔌 [plugins](https://varlock.dev/plugins/overview/) to pull data from various backends (1Password, Infisical, AWS, Azure, GCP, HCP Vault, more!)
 
 Unlike .env.example, **your .env.schema is a single source of truth**, built for collaboration, that will never be out of sync.
 
@@ -123,6 +123,7 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 | [@varlock/azure-key-vault-plugin](packages/plugins/azure-key-vault) | [![npm version](https://img.shields.io/npm/v/@varlock/azure-key-vault-plugin.svg)](https://npmjs.com/package/@varlock/azure-key-vault-plugin) |
 | [@varlock/bitwarden-plugin](packages/plugins/bitwarden) | [![npm version](https://img.shields.io/npm/v/@varlock/bitwarden-plugin.svg)](https://npmjs.com/package/@varlock/bitwarden-plugin) |
 | [@varlock/google-secret-manager-plugin](packages/plugins/google-secret-manager) | [![npm version](https://img.shields.io/npm/v/@varlock/google-secret-manager-plugin.svg)](https://npmjs.com/package/@varlock/google-secret-manager-plugin) |
+| [@varlock/hashicorp-vault-plugin](packages/plugins/hashicorp-vault) | [![npm version](https://img.shields.io/npm/v/@varlock/hashicorp-vault-plugin.svg)](https://npmjs.com/package/@varlock/hashicorp-vault-plugin) |
 | [@varlock/infisical-plugin](packages/plugins/infisical) | [![npm version](https://img.shields.io/npm/v/@varlock/infisical-plugin.svg)](https://npmjs.com/package/@varlock/infisical-plugin) |
 | [@varlock/pass-plugin](packages/plugins/pass) | [![npm version](https://img.shields.io/npm/v/@varlock/pass-plugin.svg)](https://npmjs.com/package/@varlock/pass-plugin) |
 
