@@ -182,6 +182,21 @@
         "varlock": "workspace:^",
       },
     },
+    "packages/plugins/hashicorp-vault": {
+      "name": "@varlock/hashicorp-vault-plugin",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@env-spec/utils": "workspace:^",
+        "@types/node": "catalog:",
+        "ky": "catalog:",
+        "tsup": "catalog:",
+        "varlock": "workspace:^",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "varlock": "workspace:^",
+      },
+    },
     "packages/plugins/infisical": {
       "name": "@varlock/infisical-plugin",
       "version": "0.0.5",
@@ -1146,6 +1161,8 @@
     "@varlock/ci-env-info": ["@varlock/ci-env-info@workspace:packages/ci-env-info"],
 
     "@varlock/google-secret-manager-plugin": ["@varlock/google-secret-manager-plugin@workspace:packages/plugins/google-secret-manager"],
+
+    "@varlock/hashicorp-vault-plugin": ["@varlock/hashicorp-vault-plugin@workspace:packages/plugins/hashicorp-vault"],
 
     "@varlock/infisical-plugin": ["@varlock/infisical-plugin@workspace:packages/plugins/infisical"],
 

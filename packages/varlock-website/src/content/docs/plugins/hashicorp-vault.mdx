@@ -1,0 +1,419 @@
+---
+title: HashiCorp Vault Plugin
+description: Using HashiCorp Vault and OpenBao with Varlock
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/hashicorp-vault-plugin" />
+</div>
+
+Our HashiCorp Vault plugin enables secure loading of secrets from [HashiCorp Vault](https://www.vaultproject.io/) (KV v2 secrets engine) and [OpenBao](https://openbao.org/) using declarative instructions within your `.env` files.
+
+The plugin supports multiple authentication methods including explicit tokens, AppRole for CI/CD, and automatic CLI token detection for local development.
+
+## Features
+
+- **Zero-config authentication** - Automatically uses Vault token from CLI login
+- **AppRole authentication** - For automated and CI/CD workflows
+- **Vault CLI integration** - Works seamlessly with `vault login` for local development
+- **OpenBao compatible** - Works with OpenBao (detects `~/.bao-token` automatically)
+- **Auto-infer secret keys** from environment variable names
+- **JSON key extraction** from secrets using `#` syntax or named `key` parameter
+- **Path prefixing** with `pathPrefix` option for organized secret management
+- **Default path** support for sharing a common secret path across items
+- Support for Vault Enterprise namespaces
+- Support for multiple Vault instances
+
+## Installation and setup
+
+In a JS/TS project, you may install the `@varlock/hashicorp-vault-plugin` package as a normal dependency.
+Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
+
+```env-spec title=".env.schema"
+# 1. Load the plugin
+# @plugin(@varlock/hashicorp-vault-plugin)
+#
+# 2. Initialize the plugin - see below for more details on options
+# @initHcpVault(url="https://vault.example.com:8200")
+```
+
+### Authentication options
+
+The plugin tries authentication methods in this priority order:
+1. **Explicit token** - If `token` is provided in `@initHcpVault()`
+2. **AppRole** - If both `roleId` and `secretId` are provided
+3. **CLI token file** - From `~/.vault-token` (created by `vault login`) or `~/.bao-token` (created by `bao login` for OpenBao)
+
+### Automatic authentication (Recommended for local dev)
+
+For local development, just provide the Vault URL - the plugin will pick up your CLI token automatically:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/hashicorp-vault-plugin)
+# @initHcpVault(url="https://vault.example.com:8200")
+```
+
+**How this works:**
+
+- **Local development:** Run `vault login` → automatically uses the token from `~/.vault-token`
+- **OpenBao users:** Run `bao login` → automatically uses the token from `~/.bao-token`
+
+### AppRole auth (For CI/CD and automated workflows)
+
+AppRole is the recommended auth method for CI/CD and server environments:
+
+<Steps>
+1. **Set up AppRole in Vault** (see Vault Setup section below)
+
+2. **Wire up the credentials in your config**. Add config items for the role ID and secret ID, and reference them when initializing the plugin.
+
+    ```env-spec title=".env.schema"
+    # @plugin(@varlock/hashicorp-vault-plugin)
+    # @initHcpVault(
+    #   url="https://vault.example.com:8200",
+    #   roleId=$VAULT_ROLE_ID,
+    #   secretId=$VAULT_SECRET_ID
+    # )
+    # ---
+
+    VAULT_ROLE_ID=
+    # @sensitive
+    VAULT_SECRET_ID=
+    ```
+
+3. **Set your credentials in deployed environments**. Use your platform's env var management UI to securely inject these values.
+</Steps>
+
+### Explicit token
+
+You can also provide a token directly:
+
+```env-spec title=".env.schema"
+# @initHcpVault(
+#   url="https://vault.example.com:8200",
+#   token=$VAULT_TOKEN
+# )
+# ---
+
+# @type=vaultToken @sensitive
+VAULT_TOKEN=
+```
+
+### Vault Enterprise namespaces
+
+For Vault Enterprise, specify the namespace:
+
+```env-spec title=".env.schema"
+# @initHcpVault(url="https://vault.example.com:8200", namespace="admin/team-a")
+```
+
+### Multiple instances
+
+If you need to connect to multiple Vault instances, register named instances:
+
+```env-spec title=".env.schema"
+# @initHcpVault(id=prod, url="https://vault-prod.example.com:8200")
+# @initHcpVault(id=dev, url="https://vault-dev.example.com:8200")
+# ---
+
+PROD_KEY=vaultSecret(prod, "secret/api/keys#API_KEY")
+DEV_KEY=vaultSecret(dev, "secret/api/keys#API_KEY")
+```
+
+## Loading secrets
+
+Once the plugin is installed and initialized, you can start adding config items that load values using the `vaultSecret()` resolver function.
+
+### Basic usage
+
+Since Vault KV v2 always stores key/value pairs, the item key (variable name) is automatically used as the JSON key to extract from the secret:
+
+```env-spec title=".env.schema"
+# Fetches "secret/db/config" and extracts "DB_HOST" key
+DB_HOST=vaultSecret("secret/db/config")
+
+# Override the extracted key with # syntax
+DB_PASSWORD=vaultSecret("secret/db/config#password")
+
+# Or use named "key" parameter
+DB_PORT=vaultSecret("secret/db/config", key="PORT")
+
+# Fetch entire secret as JSON blob
+DB_CONFIG=vaultSecret("secret/db/config", raw=true)
+```
+
+### Default path
+
+Use `defaultPath` to set a common path for secrets when no path argument is provided:
+
+```env-spec title=".env.schema"
+# @initHcpVault(url="https://vault.example.com:8200", defaultPath=secret/myapp/config)
+# ---
+
+# Both fetch from "secret/myapp/config" extracting item key
+DB_PASSWORD=vaultSecret()
+API_KEY=vaultSecret()
+
+# Override the inferred key using # syntax
+STRIPE_KEY=vaultSecret("#stripe_api_key")
+
+# Explicit path still extracts item key by default
+OTHER_SECRET=vaultSecret("secret/other/path")
+```
+
+### Path prefixing
+
+Use `pathPrefix` to automatically prefix all secret paths for better organization:
+
+```env-spec title=".env.schema"
+# @initHcpVault(url="https://vault.example.com:8200", pathPrefix="secret/myapp")
+# ---
+
+# Fetches from "secret/myapp/db/config"
+DB_HOST=vaultSecret("db/config#HOST")
+```
+
+You can even use dynamic prefixes:
+
+```env-spec title=".env.schema"
+# @initHcpVault(url="https://vault.example.com:8200", pathPrefix="secret/${ENV}")
+# ---
+
+# In prod: fetches from "secret/prod/db/config"
+# In dev: fetches from "secret/dev/db/config"
+DB_HOST=vaultSecret("db/config#HOST")
+```
+
+### Bulk loading secrets
+
+Use `raw=true` with `@setValuesBulk` to load all key/value pairs from a Vault path at once, instead of wiring up each secret individually:
+
+```env-spec title=".env.schema"
+# @initHcpVault(url="https://vault.example.com:8200")
+# @setValuesBulk(vaultSecret("secret/myapp/config", raw=true))
+# ---
+
+DB_HOST=
+DB_PASSWORD=
+API_KEY=
+```
+
+This fetches all keys stored at `secret/myapp/config` and maps them to matching item keys. Only items declared in your schema will be populated — any extra keys in the Vault secret are ignored.
+
+---
+
+## Vault Setup
+
+### Enable KV v2 secrets engine
+
+```bash
+# KV v2 is enabled by default at "secret/" in dev mode
+# For production, enable it explicitly:
+vault secrets enable -version=2 -path=secret kv
+```
+
+### Create a policy
+
+Create a policy that allows reading secrets:
+
+```hcl title="policy.hcl"
+path "secret/data/*" {
+  capabilities = ["read"]
+}
+```
+
+```bash
+vault policy write varlock-reader policy.hcl
+```
+
+:::tip[Least privilege principle]
+For production, scope down the `path` to only the specific secret paths your application needs. For example: `path "secret/data/myapp/*"`
+:::
+
+### Set up AppRole auth (Recommended for CI/CD)
+
+<Steps>
+1. **Enable AppRole auth method**
+    ```bash
+    vault auth enable approle
+    ```
+
+2. **Create a role**
+    ```bash
+    vault write auth/approle/role/varlock-role \
+      secret_id_ttl=24h \
+      token_ttl=1h \
+      token_max_ttl=4h \
+      token_policies=varlock-reader
+    ```
+
+3. **Get the role ID and generate a secret ID**
+    ```bash
+    vault read auth/approle/role/varlock-role/role-id
+    vault write -f auth/approle/role/varlock-role/secret-id
+    ```
+    Save the `role_id` and `secret_id` from the output for your CI/CD configuration.
+</Steps>
+
+### Create a token (For simple setups)
+
+```bash
+vault token create -policy=varlock-reader -ttl=24h
+```
+
+### Store secrets
+
+```bash
+# Store a single key/value
+vault kv put secret/myapp/config DB_PASSWORD=supersecret
+
+# Store multiple keys
+vault kv put secret/myapp/config \
+  DB_HOST=db.example.com \
+  DB_PASSWORD=supersecret \
+  API_KEY=abc123
+```
+
+### Vault CLI for local development
+
+<Steps>
+1. **Set the Vault address**
+    ```bash
+    export VAULT_ADDR="https://vault.example.com:8200"
+    ```
+
+2. **Login to Vault**
+    ```bash
+    vault login
+    ```
+    This writes a token to `~/.vault-token` which the plugin will automatically pick up.
+
+3. **Test the configuration**
+    ```bash
+    vault kv get secret/myapp/config
+    ```
+</Steps>
+
+---
+
+## Reference
+
+### Root decorators
+<div class="reference-docs">
+<div>
+#### `@initHcpVault()`
+
+Initialize a HashiCorp Vault / OpenBao plugin instance.
+
+**Key/value args:**
+- `url` (required): Vault server URL (e.g., `https://vault.example.com:8200`)
+- `token` (optional): Explicit Vault authentication token
+- `roleId` (optional): AppRole role ID for automated authentication
+- `secretId` (optional): AppRole secret ID for automated authentication
+- `namespace` (optional): Vault Enterprise namespace
+- `defaultPath` (optional): Default secret path when no path argument is given to `vaultSecret()`
+- `pathPrefix` (optional): Prefix automatically prepended to all secret paths
+- `id` (optional): Instance identifier for multiple instances
+
+```env-spec "@initHcpVault"
+# @initHcpVault(url="https://vault.example.com:8200", defaultPath=secret/myapp/config)
+```
+</div>
+</div>
+
+### Data types
+<div class="reference-docs">
+<div>
+#### `vaultToken`
+
+Represents a HashiCorp Vault authentication token. This type is marked as `@sensitive`.
+
+```env-spec "vaultToken"
+# @type=vaultToken
+VAULT_TOKEN=
+```
+</div>
+</div>
+
+### Resolver functions
+<div class="reference-docs">
+<div>
+#### `vaultSecret()`
+
+Fetch a secret from HashiCorp Vault's KV v2 secrets engine.
+
+**Array args:**
+- `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
+- `secretRef` (optional): secret path, optionally with `#KEY` to override the extracted key. If omitted, uses `defaultPath`. Use `#key` (without a path) to override the inferred key while still using `defaultPath`.
+
+**Named args:**
+- `key` (optional): JSON key to extract from the secret (overrides `#KEY` syntax and item key default)
+- `raw` (optional): set to `true` to return all key/value pairs as a JSON blob instead of extracting a single key. Useful with `@setValuesBulk` for bulk loading.
+
+**Key extraction:** By default, the item key (variable name) is used as the JSON key. Override with `#KEY` or `key=`, or use `raw=true` to get everything.
+
+**How paths work:**
+
+Vault KV v2 stores key/value pairs at a path. Given a path like `secret/myapp/config`, the plugin calls `GET /v1/secret/data/myapp/config` (the first path segment is the mount point, and `/data/` is inserted for the KV v2 API).
+
+```env-spec /vaultSecret\\(.*\\)/
+# Uses defaultPath, extracts item key
+DATABASE_URL=vaultSecret()
+
+# Override inferred key using # syntax (still uses defaultPath)
+STRIPE_KEY=vaultSecret("#stripe_api_key")
+
+# Explicit path, extracts item key "DB_HOST"
+DB_HOST=vaultSecret("secret/db/config")
+
+# Override key with # syntax
+DB_PASSWORD=vaultSecret("secret/db/config#password")
+
+# Extract key (named parameter)
+DB_PORT=vaultSecret("secret/db/config", key="PORT")
+
+# Fetch full secret as JSON
+DB_CONFIG=vaultSecret("secret/db/config", raw=true)
+
+# With instance ID
+PROD_SECRET=vaultSecret(prod, "secret/api/keys")
+```
+</div>
+</div>
+
+---
+
+## Troubleshooting
+
+### Secret not found
+- Verify the secret exists: `vault kv get secret/myapp/config`
+- Check the mount point is correct (first path segment, typically `secret`)
+- Ensure you're using KV v2, not KV v1 (different API format)
+
+### Permission denied
+- Check your token's policies: `vault token lookup`
+- Ensure your policy includes `read` capability on `secret/data/*` (note the `/data/` prefix for KV v2)
+- For AppRole: verify the role has the correct policies attached
+
+### Authentication failed
+- **Local dev:** Run `vault login` (or `bao login` for OpenBao) and ensure `VAULT_ADDR` is set correctly
+- **CI/CD:** Verify your token or AppRole credentials are properly wired up in `@initHcpVault()`
+- Check if the token has expired: `vault token lookup`
+- For AppRole: verify the secret ID hasn't expired and generate a new one if needed
+
+### JSON key not found
+- Verify the key exists at the path: `vault kv get -field=MY_KEY secret/myapp/config`
+- Key names are case-sensitive
+- Check available keys: `vault kv get secret/myapp/config`
+
+## Resources
+
+- [HashiCorp Vault](https://www.vaultproject.io/)
+- [OpenBao](https://openbao.org/)
+- [Vault KV v2 Secrets Engine](https://developer.hashicorp.com/vault/docs/secrets/kv/kv-v2)
+- [Vault AppRole Auth Method](https://developer.hashicorp.com/vault/docs/auth/approle)
+- [Vault Tokens](https://developer.hashicorp.com/vault/docs/concepts/tokens)
