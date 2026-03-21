@@ -75,7 +75,7 @@ If you do not have a `.env.schema` file, the action will only load `.env`, since
            uses: actions/checkout@v4
 
          - name: Load environment variables
-           uses: dmno-dev/varlock-action@v1
+           uses: dmno-dev/varlock-action@v1.0.1
    ```
 
 </Steps>
@@ -120,7 +120,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Load environment variables
-        uses: dmno-dev/varlock-action@v1
+        uses: dmno-dev/varlock-action@v1.0.1
 
       - name: Use environment variables
         run: |
@@ -152,7 +152,7 @@ jobs:
 
       - name: Load environment variables as JSON
         id: varlock
-        uses: dmno-dev/varlock-action@v1
+        uses: dmno-dev/varlock-action@v1.0.1
         with:
           show-summary: false
           output-format: 'json'
@@ -226,7 +226,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Load environment variables
-        uses: dmno-dev/varlock-action@v1
+        uses: dmno-dev/varlock-action@v1.0.1
         env:
           # Set environment-specific values
           APP_ENV: ${{ github.ref_name == 'main' && 'production' || github.ref_name == 'staging' && 'staging' || 'development' }}
@@ -266,7 +266,7 @@ jobs:
 
       - name: Load environment variables
         id: varlock
-        uses: dmno-dev/varlock-action@v1
+        uses: dmno-dev/varlock-action@v1.0.1
         with:
           fail-on-error: false  # Don't fail on validation errors
 

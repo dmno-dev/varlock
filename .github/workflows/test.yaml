@@ -28,6 +28,18 @@ jobs:
           node-version: "22.x"
       - name: Install js deps (w/ bun)
         run: bun install
+      - name: Dogfood varlock-action
+        id: varlock
+        uses: dmno-dev/varlock-action@v1.0.1
+        with:
+          working-directory: smoke-tests/smoke-test-basic
+          show-summary: 'false'
+          fail-on-error: 'true'
+          output-format: 'json'
+      - name: Verify varlock-action output
+        run: |
+          test -n "${{ steps.varlock.outputs.json-env }}"
+          echo "Varlock action output is present"
       - name: Enable turborepo build cache
         uses: rharkor/caching-for-turbo@v2.3.11
 
