@@ -25,6 +25,22 @@ Also note that within package.json scripts, you can use it directly:
 }
 ```
 
+### `package.json` configuration
+
+You can configure varlock's default behavior by adding a `varlock` key to your `package.json`:
+
+```json title="package.json"
+{
+  "varlock": {
+    "loadPath": "./envs/"
+  }
+}
+```
+
+| Option | Description |
+|--------|-------------|
+| `loadPath` | Path to a specific `.env` file or directory to use as the default entry point when loading env files. Can be overridden by the `--path` CLI flag. |
+
 
 ## Commands reference
 
@@ -56,7 +72,7 @@ varlock load [options]
 - `--format`:     Format of output [pretty|json|env|shell]
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@currentEnv` in `.env.schema`
-- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
+- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point (overrides `varlock.loadPath` in `package.json`)
 
 **Examples:**
 ```bash

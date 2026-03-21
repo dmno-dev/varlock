@@ -100,6 +100,23 @@ export function varlockVitePlugin(
     async config(config, env) {
       debug('vite plugin - config fn called');
 
+      // warn if the user has set envDir - varlock ignores this option
+      // and instead reads env files from cwd (or the path configured in package.json)
+      if (config.envDir) {
+        console.warn(`
+[varlock] ⚠️  The \`envDir\` Vite option is not supported by varlock.
+To load .env files from a custom directory, set \`varlock.loadPath\` in your \`package.json\`:
+
+  {
+    "varlock": {
+      "loadPath": "./your-env-dir/"
+    }
+  }
+
+See https://varlock.dev/integrations/vite/ for more details.
+`);
+      }
+
       isDevCommand = env.command === 'serve';
 
       // this gets re-triggered after .env file updates
