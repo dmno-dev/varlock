@@ -1,0 +1,19 @@
+# Gradle
+.gradle/
+build/
+
+# Kotlin (incremental compilation / daemon metadata)
+.kotlin/
+
+# IntelliJ Platform Gradle Plugin (IDE dependency cache, optional project cache)
+.intellijPlatform/
+
+# IntelliJ IDEA / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Local SDK or machine-specific paths (if present)
+local.properties

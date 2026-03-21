@@ -1,0 +1,27 @@
+<idea-plugin>
+  <id>dev.dmno.env-spec</id>
+  <name>Env Spec Language</name>
+  <vendor email="support@varlock.dev" url="https://varlock.dev">dmno-dev</vendor>
+
+  <description><![CDATA[
+    Adds syntax highlighting and IntelliSense for @env-spec enabled .env files.
+    Provides completion for decorators, @type values, type options, resolver functions, and $KEY references.
+    Includes inline diagnostics for invalid enum values, incompatible decorators, and static value validation.
+  ]]></description>
+
+  <depends>com.intellij.modules.platform</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <fileType name="EnvSpec" implementationClass="dev.dmno.envspec.EnvSpecFileType" fieldName="INSTANCE"
+        language="EnvSpec" fileNames=".env" patterns=".env.*"/>
+    <lang.syntaxHighlighterFactory language="EnvSpec" implementationClass="dev.dmno.envspec.EnvSpecSyntaxHighlighterFactory"/>
+    <lang.parserDefinition language="EnvSpec" implementationClass="dev.dmno.envspec.EnvSpecParserDefinition"/>
+    <completion.contributor language="EnvSpec" implementationClass="dev.dmno.envspec.EnvSpecCompletionContributor"/>
+    <lang.commenter language="EnvSpec" implementationClass="dev.dmno.envspec.EnvSpecCommenter"/>
+    <documentationProvider implementationClass="dev.dmno.envspec.EnvSpecDocumentationProvider"/>
+    <localInspection shortName="EnvSpecValidation" displayName="Env Spec validation"
+        groupPath="Env Spec" groupName="Env Spec"
+        enabledByDefault="true" level="ERROR"
+        implementationClass="dev.dmno.envspec.EnvSpecInspection"/>
+  </extensions>
+</idea-plugin>

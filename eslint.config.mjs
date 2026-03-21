@@ -56,6 +56,7 @@ export default tseslint.config(
       '.magent',
       'framework-tests/.test-projects',
       'framework-tests/.packed',
+      'packages/intellij-plugin/build',
     ],
   },
 
