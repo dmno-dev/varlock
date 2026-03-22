@@ -39,7 +39,7 @@ You can configure varlock's default behavior by adding a `varlock` key to your `
 
 | Option | Description |
 |--------|-------------|
-| `loadPath` | Path to a specific `.env` file or directory to use as the default entry point when loading env files. Can be overridden by the `--path` CLI flag. |
+| `loadPath` | Path to a directory or specific `.env` file to use as the default entry point. Defaults to the current working directory if not set. Use a **directory path** (with trailing `/`) to automatically load all relevant files (`.env.schema`, `.env`, `.env.local`, etc.); a file path only loads that file and its explicit imports. Can be overridden by the `--path` CLI flag. Varlock looks for this config in the `package.json` in the current working directory only. |
 
 
 ## Commands reference

@@ -1,0 +1,7 @@
+{
+  "name": "smoke-test-pkg-json-config",
+  "private": true,
+  "varlock": {
+    "loadPath": "./envs/"
+  }
+}

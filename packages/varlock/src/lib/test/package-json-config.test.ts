@@ -52,7 +52,7 @@ describe('readVarlockPackageJsonConfig', () => {
     expect(result?.loadPath).toBe('./config/.env.schema');
   });
 
-  test('finds package.json in a parent directory', () => {
+  test('returns undefined when package.json is only in a parent directory, not cwd', () => {
     const subDir = path.join(tempDir, 'src', 'components');
     fs.mkdirSync(subDir, { recursive: true });
     fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify({
@@ -60,25 +60,6 @@ describe('readVarlockPackageJsonConfig', () => {
       varlock: { loadPath: './envs/' },
     }));
 
-    const result = readVarlockPackageJsonConfig({ cwd: subDir });
-    expect(result?.loadPath).toBe('./envs/');
-  });
-
-  test('stops at the first package.json found even if it has no varlock key', () => {
-    // parent has varlock config, child has package.json without varlock
-    const subDir = path.join(tempDir, 'packages', 'my-app');
-    fs.mkdirSync(subDir, { recursive: true });
-
-    // child package.json WITHOUT varlock key
-    fs.writeFileSync(path.join(subDir, 'package.json'), JSON.stringify({ name: 'my-app' }));
-
-    // parent package.json WITH varlock key
-    fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify({
-      name: 'root',
-      varlock: { loadPath: './envs/' },
-    }));
-
-    // should stop at the child package.json and return undefined
     const result = readVarlockPackageJsonConfig({ cwd: subDir });
     expect(result).toBeUndefined();
   });

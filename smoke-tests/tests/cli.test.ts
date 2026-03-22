@@ -21,6 +21,19 @@ describe('CLI Commands', () => {
     expect(result.exitCode).toBe(0);
   });
 
+  describe('package.json loadPath config', () => {
+    test('varlock load respects loadPath from package.json', () => {
+      const result = varlockLoad({ cwd: 'smoke-test-pkg-json-config' });
+      expect(result.exitCode).toBe(0);
+    });
+
+    test('varlock printenv resolves variable using loadPath from package.json', () => {
+      const result = varlockPrintenv('PKG_JSON_VAR', { cwd: 'smoke-test-pkg-json-config' });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe('hello-from-pkg-json-config');
+    });
+  });
+
   test('varlock load --format json should output valid JSON', () => {
     const result = varlockLoad({ cwd: 'smoke-test-basic', format: 'json' });
     expect(result.exitCode).toBe(0);

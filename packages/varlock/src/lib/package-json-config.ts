@@ -7,29 +7,18 @@ export type VarlockPackageJsonConfig = {
 };
 
 /**
- * Reads varlock configuration from the nearest `package.json` file.
- * Looks for a `varlock` key in the nearest `package.json` found by walking up from `cwd`.
- * Returns undefined if no `package.json` with a `varlock` key is found.
+ * Reads varlock configuration from the `package.json` in `cwd`.
+ * Returns undefined if no `package.json` exists or it has no `varlock` key.
  */
 export function readVarlockPackageJsonConfig(opts?: { cwd?: string }): VarlockPackageJsonConfig | undefined {
-  let cwd = opts?.cwd ?? process.cwd();
-
-  while (true) {
-    const pkgPath = path.join(cwd, 'package.json');
-    if (fs.existsSync(pkgPath)) {
-      try {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-        if (pkg.varlock && typeof pkg.varlock === 'object') {
-          return pkg.varlock as VarlockPackageJsonConfig;
-        }
-      } catch { /* ignore parse errors */ }
-      // Found a package.json without varlock key - stop searching, this is the project root
-      break;
+  const cwd = opts?.cwd ?? process.cwd();
+  const pkgPath = path.join(cwd, 'package.json');
+  if (!fs.existsSync(pkgPath)) return undefined;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    if (pkg.varlock && typeof pkg.varlock === 'object') {
+      return pkg.varlock as VarlockPackageJsonConfig;
     }
-    const parent = path.dirname(cwd);
-    if (parent === cwd) break; // reached filesystem root
-    cwd = parent;
-  }
-
+  } catch { /* ignore parse errors */ }
   return undefined;
 }
