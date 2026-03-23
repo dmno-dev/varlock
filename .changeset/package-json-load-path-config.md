@@ -1,5 +1,5 @@
 ---
-"varlock": minor
+"varlock": patch
 "@varlock/vite-integration": patch
 ---
 
