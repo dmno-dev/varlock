@@ -193,7 +193,10 @@ See https://varlock.dev/integrations/vite/ for more details.
         if (moduleIds[0] === id) isEntry = true;
       }
 
+      if (id === '\0virtual:cloudflare/worker-entry') isEntry = true;
+
       if (isEntry) {
+        debug(`detected entry: ${id}`);
         // using env.command (in config hook) is misleading
         // because some frameworks (react router) boot dev servers during the build process
         // even during the build, there are multiple environments
