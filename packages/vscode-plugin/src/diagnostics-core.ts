@@ -21,6 +21,7 @@ export type DecoratorOccurrence = {
   line: number;
   start: number;
   end: number;
+  isFunctionCall: boolean;
 };
 
 export type CoreDiagnostic = {
@@ -187,11 +188,13 @@ export function getDecoratorOccurrences(lineText: string, lineNumber: number) {
   for (const match of lineText.matchAll(DECORATOR_PATTERN)) {
     const name = match[1];
     const start = match.index ?? 0;
+    const suffix = match[0].slice(name.length + 1);
     occurrences.push({
       name,
       line: lineNumber,
       start,
       end: start + match[0].length,
+      isFunctionCall: suffix.startsWith('('),
     });
   }
 
@@ -208,7 +211,8 @@ export function createDecoratorDiagnostics(occurrences: Array<DecoratorOccurrenc
     seenCounts.set(occurrence.name, count + 1);
 
     const decorator = DECORATORS_BY_NAME[occurrence.name];
-    if (!decorator?.isFunction && count >= 1) {
+    const isRepeatableFunction = decorator?.isFunction ?? occurrence.isFunctionCall;
+    if (!isRepeatableFunction && count >= 1) {
       diagnostics.push({
         line: occurrence.line,
         start: occurrence.start,
