@@ -22,9 +22,15 @@ Inspired by the [VS Code / Open VSX extension](../../vscode-plugin):
 
 - **Documentation** on hover for decorators
 
-- **Syntax highlighting** for .env and .env.* files
+- **Syntax highlighting** for .env and .env.* files:
+  - Comment lines (`# …`) vs assignments (`KEY=value`, optional `export`)
+  - Colors follow **Settings → Editor → Color Scheme → Env Spec** (defaults match line comments, keywords, keys, `=`, and string-like values)
+
+- **Project view icon** for registered `.env` / `.env.*` files
 
 - **Toggle line comment** (`# `) support
+
+- **Enter on a `#` line** inserts a new line with the same indent and `# ` (block comment continuation)
 
 ## Installation
 
@@ -48,7 +54,7 @@ Inspired by the [VS Code / Open VSX extension](../../vscode-plugin):
 ## Requirements
 
 - IntelliJ IDEA 2024.3+ or WebStorm 2024.3+
-- **Java 17** (for building) — Java 24/25 are not yet supported by Gradle 8.x and the IntelliJ Platform plugin
+- **Java 17** (for building) — use a supported JDK for the Gradle version in this repo (see Troubleshooting if you see a cryptic `25` error with Java 25)
 
 ## Development
 

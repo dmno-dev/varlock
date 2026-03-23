@@ -24,7 +24,7 @@ import {
 } from './diagnostics-core';
 import { createLineDocument } from './document-lines';
 
-const ENV_ASSIGNMENT_PATTERN = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/;
+const ENV_ASSIGNMENT_PATTERN = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*(.*?)\s*$/;
 
 function toRange(diagnostic: CoreDiagnostic) {
   return new Range(
@@ -33,7 +33,9 @@ function toRange(diagnostic: CoreDiagnostic) {
   );
 }
 
-function validateDocument(document: TextDocument) {
+type DiagnosticsDocument = Pick<TextDocument, 'languageId' | 'lineCount' | 'lineAt'>;
+
+export function validateDocument(document: DiagnosticsDocument) {
   if (document.languageId !== LANG_ID) return [];
 
   const diagnostics: Array<Diagnostic> = [];
@@ -41,6 +43,7 @@ function validateDocument(document: TextDocument) {
     Array.from({ length: document.lineCount }, (_, index) => document.lineAt(index).text),
   );
   let decoratorBlock = [] as ReturnType<typeof getDecoratorOccurrences>;
+  let hasSeenConfigItem = false;
 
   const flushDecoratorBlock = () => {
     if (!decoratorBlock.length) return;
@@ -60,12 +63,16 @@ function validateDocument(document: TextDocument) {
 
     if (trimmed.startsWith('#')) {
       decoratorBlock.push(...getDecoratorOccurrences(lineText, lineNumber));
+    } else if (trimmed === '' && !hasSeenConfigItem) {
+      continue;
     } else {
       flushDecoratorBlock();
     }
 
     const match = lineText.match(ENV_ASSIGNMENT_PATTERN);
     if (!match) continue;
+
+    hasSeenConfigItem = true;
 
     const rawValue = stripInlineComment(match[2]);
     if (!rawValue) continue;

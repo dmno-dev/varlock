@@ -27,6 +27,11 @@ class EnvSpecCompletionContributor : CompletionContributor() {
 
     companion object {
         private val ENV_KEY_PATTERN = Pattern.compile("^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*=")
+        private val KOTLIN_ESCAPED_DOLLAR_RE = Regex("\\$\\{'\\$'\\}")
+        private val CHOICE_SNIPPET_RE = Regex("""\$\{\d+\|([^}]*)\|\}""")
+        private val DEFAULT_SNIPPET_RE = Regex("""\$\{\d+:([^}]*)\}""")
+        private val TABSTOP_SNIPPET_RE = Regex("""\$\{\d+\}""")
+        private val SIMPLE_TABSTOP_SNIPPET_RE = Regex("""\$\d+""")
     }
 
     private fun doAddCompletions(params: CompletionParameters, result: CompletionResultSet) {
@@ -104,6 +109,10 @@ class EnvSpecCompletionContributor : CompletionContributor() {
 
     private data class ReplaceRange(val line: Int, val start: Int, val end: Int)
 
+    override fun invokeAutoPopup(position: com.intellij.psi.PsiElement, typeChar: Char): Boolean {
+        return typeChar == '@' || typeChar == '$' || typeChar == '=' || typeChar == ','
+    }
+
     private fun matchDecoratorName(commentPrefix: String, line: Int, offset: Int, lineStart: Int): ReplaceRange? {
         val match = Regex("(^|\\s)(@[\\w-]*)$").find(commentPrefix) ?: return null
         val token = match.groupValues[2]
@@ -136,13 +145,13 @@ class EnvSpecCompletionContributor : CompletionContributor() {
     }
 
     private fun matchResolverValue(linePrefix: String, line: Int, offset: Int, lineStart: Int): ReplaceRange? {
-        val match = Regex("(?:=\\s*|[(,]\\s*)([A-Za-z][\\w-]*)$").find(linePrefix) ?: return null
+        val match = Regex("(?:=\\s*|[(,]\\s*)([A-Za-z]?[\\w-]*)$").find(linePrefix) ?: return null
         val endInLine = offset - lineStart
         return ReplaceRange(line, endInLine - match.groupValues[1].length, endInLine)
     }
 
     private fun matchDecoratorValue(commentPrefix: String, line: Int, offset: Int, lineStart: Int): ReplaceRangeDecorator? {
-        val match = Regex("(^|\\s)@([\\w-]+)=([A-Za-z][\\w-]*)$").find(commentPrefix) ?: return null
+        val match = Regex("(^|\\s)@([\\w-]+)=([A-Za-z]?[\\w-]*)$").find(commentPrefix) ?: return null
         val decorator = EnvSpecCatalog.DECORATORS_BY_NAME[match.groupValues[2]]
         val typedValue = match.groupValues[3]
         val endInLine = offset - lineStart
@@ -167,7 +176,7 @@ class EnvSpecCompletionContributor : CompletionContributor() {
     private data class EnumValueContext(val range: ReplaceRange, val enumValues: List<String>)
 
     private fun createDecoratorItem(info: DecoratorInfo, range: ReplaceRange): LookupElementBuilder {
-        val insertHandler = createReplaceHandler(range, info.insertText)
+        val insertHandler = createReplaceHandler(info.insertText)
         var item = LookupElementBuilder.create("@${info.name}")
             .withInsertHandler(insertHandler)
             .withTypeText(if (info.scope == "root") "Root decorator" else "Item decorator")
@@ -178,36 +187,66 @@ class EnvSpecCompletionContributor : CompletionContributor() {
         return item
     }
 
-    private fun createReplaceHandler(range: ReplaceRange, insertText: String): InsertHandler<LookupElement> {
+    private fun createReplaceHandler(insertText: String, caretOffsetInInsert: Int? = null): InsertHandler<LookupElement> {
+        val normalizedInsertText = normalizeSnippetInsertText(insertText)
         return InsertHandler { ctx: InsertionContext, _ ->
             WriteCommandAction.runWriteCommandAction(ctx.project) {
                 val doc = ctx.document
-                val start = doc.getLineStartOffset(range.line) + range.start
-                val end = doc.getLineStartOffset(range.line) + range.end
-                doc.replaceString(start, end, insertText)
+                // IntelliJ applies default completion insertion before this handler runs.
+                // Replace that inserted segment directly to avoid duplicate/append behavior.
+                val start = ctx.startOffset
+                val end = ctx.tailOffset
+                val hasAtPrefix = start > 0 && doc.charsSequence[start - 1] == '@'
+                val textToInsert = if (hasAtPrefix && normalizedInsertText.startsWith("@")) {
+                    normalizedInsertText.substring(1)
+                } else {
+                    normalizedInsertText
+                }
+                ctx.setAddCompletionChar(false)
+                doc.replaceString(start, end, textToInsert)
+                ctx.tailOffset = start + textToInsert.length
+                val caretOffset = if (caretOffsetInInsert == null) {
+                    start + textToInsert.length
+                } else {
+                    start + caretOffsetInInsert.coerceIn(0, textToInsert.length)
+                }
+                ctx.editor.caretModel.moveToOffset(caretOffset)
             }
         }
+    }
+
+    private fun normalizeSnippetInsertText(text: String): String {
+        var out = text
+        out = KOTLIN_ESCAPED_DOLLAR_RE.replace(out) { "$" }
+        out = CHOICE_SNIPPET_RE.replace(out) { match ->
+            match.groupValues[1].split(",").firstOrNull()?.trim().orEmpty()
+        }
+        out = DEFAULT_SNIPPET_RE.replace(out) { match -> match.groupValues[1] }
+        out = TABSTOP_SNIPPET_RE.replace(out, "")
+        out = SIMPLE_TABSTOP_SNIPPET_RE.replace(out, "")
+        return out
     }
 
     private fun createDataTypeItem(info: DataTypeInfo, range: ReplaceRange): LookupElementBuilder {
         val insertText = info.insertText ?: info.name
         return LookupElementBuilder.create(info.name)
-            .withInsertHandler(createReplaceHandler(range, insertText))
+            .withInsertHandler(createReplaceHandler(insertText))
             .withTypeText("@type data type")
             .withTailText(" ${info.summary}", true)
     }
 
     private fun createDataTypeOptionItem(option: DataTypeOptionSnippet, context: ReplaceRangeData): LookupElementBuilder {
         val range = context.range
+        val insertText = "${option.name}="
         return LookupElementBuilder.create(option.name)
-            .withInsertHandler(createReplaceHandler(range, option.insertText))
+            .withInsertHandler(createReplaceHandler(insertText, insertText.length))
             .withTypeText("@type option")
             .withTailText(" ${option.documentation}", true)
     }
 
     private fun createResolverItem(info: ResolverInfo, range: ReplaceRange): LookupElementBuilder {
         return LookupElementBuilder.create("${info.name}()")
-            .withInsertHandler(createReplaceHandler(range, info.insertText))
+            .withInsertHandler(createReplaceHandler(info.insertText))
             .withTypeText("Resolver function")
             .withTailText(" ${info.summary}", true)
     }
@@ -220,7 +259,7 @@ class EnvSpecCompletionContributor : CompletionContributor() {
         }
         return keys.sorted().map { key ->
             LookupElementBuilder.create(key)
-                .withInsertHandler(createReplaceHandler(range, key))
+                .withInsertHandler(createReplaceHandler(key))
                 .withTypeText("Config item reference")
                 .withTailText(" Reference `$key` with `\$$key`.", true)
         }
@@ -229,7 +268,7 @@ class EnvSpecCompletionContributor : CompletionContributor() {
     private fun createKeywordItems(values: List<String>, range: ReplaceRange): List<LookupElementBuilder> {
         return values.map { value ->
             LookupElementBuilder.create(value)
-                .withInsertHandler(createReplaceHandler(range, value))
+                .withInsertHandler(createReplaceHandler(value))
         }
     }
 
@@ -249,7 +288,7 @@ class EnvSpecCompletionContributor : CompletionContributor() {
         val range = context.range
         return context.enumValues.map { value ->
             LookupElementBuilder.create(value)
-                .withInsertHandler(createReplaceHandler(range, value))
+                .withInsertHandler(createReplaceHandler(value))
                 .withTypeText("@type=enum value")
                 .withTailText(" Allowed enum value `$value`.", true)
         }

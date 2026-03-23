@@ -13,6 +13,7 @@ import {
 
 import {
   filterAvailableDecorators,
+  getDecoratorCommentPrefix,
   getEnumValuesFromPrecedingComments,
   getExistingDecoratorNames,
   getTypeOptionDataType,
@@ -264,7 +265,7 @@ export function addCompletionProvider(context: ExtensionContext) {
       provideCompletionItems(document, position) {
         const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
         const commentStart = linePrefix.indexOf('#');
-        const commentPrefix = commentStart >= 0 ? linePrefix.slice(commentStart + 1) : '';
+        const commentPrefix = commentStart >= 0 ? getDecoratorCommentPrefix(linePrefix) : undefined;
 
         const referenceContext = matchReference(linePrefix, position);
         if (referenceContext) {
@@ -276,7 +277,7 @@ export function addCompletionProvider(context: ExtensionContext) {
           return createEnumValueItems(enumValueContext);
         }
 
-        if (commentStart >= 0) {
+        if (commentPrefix) {
           const existingDecoratorNames = getExistingDecoratorNames(document, position.line, commentPrefix);
 
           const typeOptionContext = matchTypeOption(commentPrefix, position);

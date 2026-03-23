@@ -5,7 +5,8 @@ type LineDocument = {
   lineAt(line: number): { text: string };
 };
 
-const HEADER_SEPARATOR_PATTERN = /^\s*#\s*---+\s*$/;
+const CONFIG_ITEM_PATTERN = /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_.-]*\s*=/;
+const DIVIDER_PATTERN = /^\s*#\s*(?:---+|===+)(?:\s|$)/;
 const DECORATOR_PATTERN = /@([A-Za-z][\w-]*)/g;
 const INCOMPATIBLE_DECORATORS = new Map<string, Set<string>>([
   ['required', new Set(['optional'])],
@@ -13,6 +14,41 @@ const INCOMPATIBLE_DECORATORS = new Map<string, Set<string>>([
   ['sensitive', new Set(['public'])],
   ['public', new Set(['sensitive'])],
 ]);
+
+function stripInlineComment(value: string) {
+  let quote: '"' | '\'' | '' = '';
+
+  for (let i = 0; i < value.length; i += 1) {
+    const char = value[i];
+    if (quote) {
+      if (char === quote) quote = '';
+      continue;
+    }
+
+    if (char === '"' || char === '\'') {
+      quote = char;
+      continue;
+    }
+
+    if (char === '#' && (i === 0 || /\s/.test(value[i - 1]))) {
+      return value.slice(0, i).trimEnd();
+    }
+  }
+
+  return value.trim();
+}
+
+export function getDecoratorCommentPrefix(lineText: string) {
+  const match = lineText.match(/^\s*#\s*(@.*)$/);
+  if (!match) return undefined;
+
+  const commentText = match[1];
+
+  if (/^@[A-Za-z]+:/.test(commentText)) return undefined;
+  if (/^@[A-Za-z]+\s+[^@#]/.test(commentText)) return undefined;
+
+  return stripInlineComment(commentText);
+}
 
 function splitArgs(input: string) {
   const parts: Array<string> = [];
@@ -61,8 +97,16 @@ function splitArgs(input: string) {
 }
 
 export function isInHeader(document: LineDocument, lineNumber: number) {
-  for (let line = lineNumber; line >= 0; line -= 1) {
-    if (HEADER_SEPARATOR_PATTERN.test(document.lineAt(line).text)) return false;
+  for (let line = lineNumber + 1; line < document.lineCount; line += 1) {
+    const text = document.lineAt(line).text.trim();
+    if (!text) break;
+    if (DIVIDER_PATTERN.test(text)) break;
+    if (CONFIG_ITEM_PATTERN.test(text)) return false;
+    if (!text.startsWith('#')) break;
+  }
+
+  for (let line = 0; line < lineNumber; line += 1) {
+    if (CONFIG_ITEM_PATTERN.test(document.lineAt(line).text)) return false;
   }
   return true;
 }
@@ -74,11 +118,30 @@ export function getExistingDecoratorNames(
 ) {
   const names = new Set<string>();
 
-  for (let line = lineNumber - 1; line >= 0; line -= 1) {
-    const text = document.lineAt(line).text.trim();
-    if (!text.startsWith('#')) break;
-    for (const match of text.matchAll(DECORATOR_PATTERN)) {
-      names.add(match[1]);
+  if (isInHeader(document, lineNumber)) {
+    for (let line = 0; line < lineNumber; line += 1) {
+      const text = document.lineAt(line).text.trim();
+      if (CONFIG_ITEM_PATTERN.test(text)) break;
+      if (!text.startsWith('#')) continue;
+
+      const decoratorCommentPrefix = getDecoratorCommentPrefix(text);
+      if (!decoratorCommentPrefix) continue;
+
+      for (const match of decoratorCommentPrefix.matchAll(DECORATOR_PATTERN)) {
+        names.add(match[1]);
+      }
+    }
+  } else {
+    for (let line = lineNumber - 1; line >= 0; line -= 1) {
+      const text = document.lineAt(line).text.trim();
+      if (!text.startsWith('#')) break;
+
+      const decoratorCommentPrefix = getDecoratorCommentPrefix(text);
+      if (!decoratorCommentPrefix) continue;
+
+      for (const match of decoratorCommentPrefix.matchAll(DECORATOR_PATTERN)) {
+        names.add(match[1]);
+      }
     }
   }
 
@@ -112,7 +175,10 @@ export function getEnumValuesFromPrecedingComments(document: LineDocument, lineN
     const text = document.lineAt(line).text.trim();
     if (!text.startsWith('#')) break;
 
-    const match = text.match(/@type=enum\((.*)\)/);
+    const decoratorCommentPrefix = getDecoratorCommentPrefix(text);
+    if (!decoratorCommentPrefix) continue;
+
+    const match = decoratorCommentPrefix.match(/@type=enum\((.*)\)/);
     if (match) return splitEnumArgs(match[1]);
   }
 

@@ -15,7 +15,9 @@
     <fileType name="EnvSpec" implementationClass="dev.dmno.envspec.EnvSpecFileType" fieldName="INSTANCE"
         language="EnvSpec" fileNames=".env" patterns=".env.*"/>
     <lang.syntaxHighlighterFactory language="EnvSpec" implementationClass="dev.dmno.envspec.EnvSpecSyntaxHighlighterFactory"/>
+    <colorSettingsPage implementation="dev.dmno.envspec.EnvSpecColorSettingsPage"/>
     <lang.parserDefinition language="EnvSpec" implementationClass="dev.dmno.envspec.EnvSpecParserDefinition"/>
+    <enterHandlerDelegate implementation="dev.dmno.envspec.EnvSpecCommentEnterHandler"/>
     <completion.contributor language="EnvSpec" implementationClass="dev.dmno.envspec.EnvSpecCompletionContributor"/>
     <lang.commenter language="EnvSpec" implementationClass="dev.dmno.envspec.EnvSpecCommenter"/>
     <documentationProvider implementationClass="dev.dmno.envspec.EnvSpecDocumentationProvider"/>

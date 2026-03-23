@@ -19,7 +19,9 @@ class EnvSpecParserDefinition : ParserDefinition {
 
     override fun getFileNodeType(): IFileElementType = FILE
 
-    override fun getCommentTokens(): TokenSet = TokenSet.EMPTY
+    override fun getCommentTokens(): TokenSet = TokenSet.create(EnvSpecTokenTypes.LINE_COMMENT)
+
+    override fun getWhitespaceTokens(): TokenSet = TokenSet.create(TokenType.WHITE_SPACE)
 
     override fun getStringLiteralElements(): TokenSet = TokenSet.EMPTY
 

@@ -27,6 +27,12 @@ tasks.test {
     useJUnitPlatform()
 }
 
+tasks.named<JavaExec>("runIde") {
+    // Open the varlock repository root when the sandbox IDE starts.
+    val repoRoot = layout.projectDirectory.dir("../..").asFile.absolutePath
+    args(repoRoot)
+}
+
 // Ensure `build` produces the plugin zip (buildPlugin is not included by default)
 tasks.named("build") {
     dependsOn(tasks.named("buildPlugin"))
