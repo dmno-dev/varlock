@@ -1,5 +1,30 @@
 # @varlock/vite-integration
 
+## 0.2.7
+
+### Patch Changes
+
+- [#459](https://github.com/dmno-dev/varlock/pull/459) [`763b4fc`](https://github.com/dmno-dev/varlock/commit/763b4fc24be6ab148bbaaf99cb1fb1511129d5cd) - detect cloudflare/worker-entry as additional entry point
+
+- [#453](https://github.com/dmno-dev/varlock/pull/453) [`bb1c075`](https://github.com/dmno-dev/varlock/commit/bb1c0755dc826a7322ecbbfa26c01c1b99f2bcb1) - Add support for configuring the default env file load path via `package.json`.
+
+  You can now set a `varlock.loadPath` key in your `package.json` to configure the default path used when loading `.env` files:
+
+  ```json title="package.json"
+  {
+    "varlock": {
+      "loadPath": "./envs/"
+    }
+  }
+  ```
+
+  This is useful when you store your `.env` files in a custom directory (e.g., when using Vite's `envDir` option). The CLI `--path` flag continues to override this setting when provided.
+
+  The Vite integration will also now show a warning if `envDir` is set in your Vite config, with instructions to use `varlock.loadPath` in `package.json` instead.
+
+- Updated dependencies [[`bb1c075`](https://github.com/dmno-dev/varlock/commit/bb1c0755dc826a7322ecbbfa26c01c1b99f2bcb1)]:
+  - varlock@0.6.3
+
 ## 0.2.6
 
 ### Patch Changes
