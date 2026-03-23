@@ -62,6 +62,30 @@ If you're using [Qwik](https://qwik.dev/) or [React Router](https://reactrouter.
 
 ---
 
+## Custom .env file location
+
+By default, varlock loads `.env` files from the current working directory. If you store your `.env` files in a custom directory, you can configure this using the `varlock.loadPath` option in your `package.json`:
+
+```json title="package.json"
+{
+  "varlock": {
+    "loadPath": "./envs/"
+  }
+}
+```
+
+This works for all varlock commands and integrations, not just Vite. The `loadPath` can point to a directory (trailing `/` recommended) or a specific `.env` file. The varlock CLI `--path` flag overrides this setting when provided. Varlock looks for this config in the `package.json` in the current working directory only — it does not walk up to parent directories.
+
+:::tip[Directory vs file path]
+Point `loadPath` to a **directory** if you want varlock to automatically load all relevant files (`.env.schema`, `.env`, `.env.local`, etc.). Pointing to a specific file will only load that file and anything it explicitly imports via `@import`.
+:::
+
+:::caution[Vite's `envDir` option is not supported]
+If you are using Vite's `envDir` option to load `.env` files from a custom directory, note that **varlock ignores this option**. Use `varlock.loadPath` in your `package.json` instead, as shown above. Varlock will show a warning if it detects `envDir` is set.
+:::
+
+---
+
 ## SSR Code Injection
 Within SSR builds, this plugin will automatically inject varlock initialization code into your entry points.
 There are 3 modes to choose from and specify during plugin initialization. For example:

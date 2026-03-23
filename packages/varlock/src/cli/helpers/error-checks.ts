@@ -1,7 +1,7 @@
 import ansis from 'ansis';
 import { gracefulExit } from 'exit-hook';
 import _ from '@env-spec/utils/my-dash';
-import { EnvGraph, ConfigItem } from '../../env-graph';
+import { EnvGraph, ConfigItem, FileBasedDataSource } from '../../env-graph';
 import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import { VarlockError } from '../../env-graph/lib/errors';
 
@@ -21,11 +21,13 @@ function showErrorLocationDetails(err: Error) {
 
 export function checkForNoEnvFiles(envGraph: EnvGraph) {
   if (Object.keys(envGraph.configSchema).length === 0) {
-    if (!envGraph.rootDataSource) {
-      console.error('🚨 No .env or .env.schema files found\n');
+    const displayPath = envGraph.basePath ?? process.cwd();
+    const hasLoadedFiles = envGraph.sortedDataSources.some((s) => s instanceof FileBasedDataSource);
+    if (!hasLoadedFiles) {
+      console.error(`🚨 No .env files found in ${displayPath}\n`);
       console.error('Run `varlock init` to create a .env.schema file, or use `--path` to specify a file or directory.');
     } else {
-      console.error('🚨 No items defined in your .env or .env.schema files\n');
+      console.error(`🚨 No config items defined in ${displayPath}\n`);
       console.error('Add items to your .env.schema file to get started.');
     }
     return gracefulExit(1);
