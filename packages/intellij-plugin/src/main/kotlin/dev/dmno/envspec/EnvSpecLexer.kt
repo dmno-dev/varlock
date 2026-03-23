@@ -226,13 +226,13 @@ class EnvSpecLexer : LexerBase() {
                     queue.add(QueuedToken(start + i, start + valueEnd, EnvSpecTokenTypes.DECORATOR_VALUE))
                     i = valueEnd
                     if (i < text.length && text[i] == '(') {
-                        queue.add(QueuedToken(start + i, start + i + 1, EnvSpecTokenTypes.EQUALS))
+                        queue.add(QueuedToken(start + i, start + i + 1, EnvSpecTokenTypes.PAREN_OPEN))
                         val close = findClosingParen(text, i)
                         if (close > i + 1) {
                             enqueueDecoratorArgsTokens(start + i + 1, text.substring(i + 1, close))
                         }
                         if (close < text.length) {
-                            queue.add(QueuedToken(start + close, start + close + 1, EnvSpecTokenTypes.EQUALS))
+                            queue.add(QueuedToken(start + close, start + close + 1, EnvSpecTokenTypes.PAREN_CLOSE))
                             i = close + 1
                         } else {
                             i = text.length
@@ -251,13 +251,13 @@ class EnvSpecLexer : LexerBase() {
             }
 
             if (i < text.length && text[i] == '(') {
-                queue.add(QueuedToken(start + i, start + i + 1, EnvSpecTokenTypes.EQUALS))
+                queue.add(QueuedToken(start + i, start + i + 1, EnvSpecTokenTypes.PAREN_OPEN))
                 val close = findClosingParen(text, i)
                 if (close > i + 1) {
                     enqueueDecoratorArgsTokens(start + i + 1, text.substring(i + 1, close))
                 }
                 if (close < text.length) {
-                    queue.add(QueuedToken(start + close, start + close + 1, EnvSpecTokenTypes.EQUALS))
+                    queue.add(QueuedToken(start + close, start + close + 1, EnvSpecTokenTypes.PAREN_CLOSE))
                     i = close + 1
                 } else {
                     i = text.length

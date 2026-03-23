@@ -69,6 +69,6 @@ class EnvSpecInspection : LocalInspectionTool() {
     }
 
     companion object {
-        private val ENV_ASSIGNMENT = Pattern.compile("^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(.*?)\\s*$")
+        private val ENV_ASSIGNMENT = Pattern.compile("^\\s*(?:export\\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\\s*=\\s*(.*?)\\s*$")
     }
 }

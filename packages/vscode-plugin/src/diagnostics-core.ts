@@ -169,6 +169,8 @@ function getDecoratorCommentText(lineText: string) {
   return stripInlineComment(commentText);
 }
 
+export { getDecoratorCommentText };
+
 export function getTypeInfoFromPrecedingComments(document: LineDocument, lineNumber: number) {
   const commentBlock = getPrecedingCommentBlock(document, lineNumber);
 

@@ -17,3 +17,6 @@ framework-tests/.packed
 framework-tests/.test-projects
 .magent
 eslint-output.txt
+
+.idea/
+*.iml

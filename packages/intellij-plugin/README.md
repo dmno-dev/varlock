@@ -71,7 +71,7 @@ Inspired by the [VS Code / Open VSX extension](../../vscode-plugin):
 
 ### Troubleshooting
 
-**Build fails with "What went wrong: 25"** — You're using Java 25, which Gradle 8.x doesn't support. Use Java 17:
+**Build fails with "What went wrong: 25"** — You're using Java 25, which isn't supported by the Gradle/toolchain used for this plugin. Use Java 17:
 
 ```bash
 # Homebrew (openjdk@17)
