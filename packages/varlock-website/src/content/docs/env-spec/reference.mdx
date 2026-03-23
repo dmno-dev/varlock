@@ -98,10 +98,11 @@ ITEM3=
 
 
 ### Config Item Comments
-Comment lines directly preceeding an item will be attached to that item, along with the decorators contained within.
+Comment lines directly preceding an item will be attached to that item, along with the decorators contained within.
 
 - A blank line or a divider will break the above comments from being attached to the item below
 - Both decorator and regular comment lines may be interspersed
+- Standalone comments only count as decorator comments when the comment content starts with `@`
 - Post-value comments may also contain decorators, but should be used sparingly
 
 ```env-spec
@@ -123,9 +124,9 @@ ITEM2=
 A comment block is a group of continuous comments that is not attached to a specific config item.
 
 - The comment block is ended by an empty line, a divider, or the end of the file
-- Any comment blocks before the first config item in a document are considered part of the _document header_
+- All comment blocks before the first config item in a document are considered part of the same _document header_ until one of those endings appears
 - Decorators from this header can be used to configure all contained elements, or the loading process itself
-- We recommend ending the header with a divider for clarity, but it is not required
+- We recommend ending the header with a divider for clarity, but `# ---` is optional
 
 ```env-spec
 # this is the document header and usually contains root decorators
