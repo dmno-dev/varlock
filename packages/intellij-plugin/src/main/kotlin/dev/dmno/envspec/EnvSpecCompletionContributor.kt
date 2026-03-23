@@ -26,12 +26,16 @@ class EnvSpecCompletionContributor : CompletionContributor() {
     }
 
     companion object {
-        private val ENV_KEY_PATTERN = Pattern.compile("^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*=")
+        private val ENV_KEY_PATTERN = Pattern.compile("^\\s*(?:export\\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\\s*=")
         private val KOTLIN_ESCAPED_DOLLAR_RE = Regex("\\$\\{'\\$'\\}")
         private val CHOICE_SNIPPET_RE = Regex("""\$\{\d+\|([^}]*)\|\}""")
         private val DEFAULT_SNIPPET_RE = Regex("""\$\{\d+:([^}]*)\}""")
         private val TABSTOP_SNIPPET_RE = Regex("""\$\{\d+\}""")
         private val SIMPLE_TABSTOP_SNIPPET_RE = Regex("""\$\d+""")
+    }
+
+    private fun getDecoratorCommentPrefix(linePrefix: String): String? {
+        return EnvSpecDiagnosticsCore.getDecoratorCommentText(linePrefix)
     }
 
     private fun doAddCompletions(params: CompletionParameters, result: CompletionResultSet) {
@@ -41,8 +45,7 @@ class EnvSpecCompletionContributor : CompletionContributor() {
         val line = document.getLineNumber(offset)
         val lineStart = document.getLineStartOffset(line)
         val linePrefix = document.getText(com.intellij.openapi.util.TextRange(lineStart, offset))
-        val commentStart = linePrefix.indexOf('#')
-        val commentPrefix = if (commentStart >= 0) linePrefix.substring(commentStart + 1) else ""
+        val commentPrefix = getDecoratorCommentPrefix(linePrefix)
 
         val lineDocument = object : LineDocument {
             override val lineCount: Int get() = document.lineCount
@@ -63,7 +66,7 @@ class EnvSpecCompletionContributor : CompletionContributor() {
             return
         }
 
-        if (commentStart >= 0) {
+        if (commentPrefix != null) {
             val existingDecoratorNames = EnvSpecCompletionCore.getExistingDecoratorNames(lineDocument, line, commentPrefix)
 
             // Type option completion

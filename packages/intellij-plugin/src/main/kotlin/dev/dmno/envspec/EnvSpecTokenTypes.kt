@@ -44,6 +44,12 @@ object EnvSpecTokenTypes {
     val EQUALS: IElementType = object : IElementType("ENV_SPEC_EQUALS", EnvSpecLanguage) {}
 
     @JvmField
+    val PAREN_OPEN: IElementType = object : IElementType("ENV_SPEC_PAREN_OPEN", EnvSpecLanguage) {}
+
+    @JvmField
+    val PAREN_CLOSE: IElementType = object : IElementType("ENV_SPEC_PAREN_CLOSE", EnvSpecLanguage) {}
+
+    @JvmField
     val ENV_VALUE: IElementType = object : IElementType("ENV_SPEC_VALUE", EnvSpecLanguage) {}
 
     /** Resolver/function name used inside assignment values (e.g. if, eq). */

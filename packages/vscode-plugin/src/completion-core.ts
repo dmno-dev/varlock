@@ -1,4 +1,5 @@
 import type { DataTypeInfo, DecoratorInfo } from './intellisense-catalog';
+import { getDecoratorCommentText } from './diagnostics-core';
 
 type LineDocument = {
   lineCount: number;
@@ -15,39 +16,9 @@ const INCOMPATIBLE_DECORATORS = new Map<string, Set<string>>([
   ['public', new Set(['sensitive'])],
 ]);
 
-function stripInlineComment(value: string) {
-  let quote: '"' | '\'' | '' = '';
-
-  for (let i = 0; i < value.length; i += 1) {
-    const char = value[i];
-    if (quote) {
-      if (char === quote) quote = '';
-      continue;
-    }
-
-    if (char === '"' || char === '\'') {
-      quote = char;
-      continue;
-    }
-
-    if (char === '#' && (i === 0 || /\s/.test(value[i - 1]))) {
-      return value.slice(0, i).trimEnd();
-    }
-  }
-
-  return value.trim();
-}
-
+/** Thin wrapper kept for API compatibility with existing callers and tests. */
 export function getDecoratorCommentPrefix(lineText: string) {
-  const match = lineText.match(/^\s*#\s*(@.*)$/);
-  if (!match) return undefined;
-
-  const commentText = match[1];
-
-  if (/^@[A-Za-z]+:/.test(commentText)) return undefined;
-  if (/^@[A-Za-z]+\s+[^@#]/.test(commentText)) return undefined;
-
-  return stripInlineComment(commentText);
+  return getDecoratorCommentText(lineText);
 }
 
 function splitArgs(input: string) {

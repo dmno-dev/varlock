@@ -4,7 +4,10 @@ import java.net.InetAddress
 
 object EnvSpecDiagnosticsCore {
 
+    private val DECORATOR_LINE_PATTERN = Regex("""^\s*#\s*(@.*)$""")
     private val DECORATOR_PATTERN = Regex("@([A-Za-z][\\w-]*)(?:\\([^)]*\\)|=[^\\s#]+)?")
+    private val NON_DECORATOR_LABEL_RE = Regex("^@[A-Za-z]+:")
+    private val NON_DECORATOR_PROSE_RE = Regex("^@[A-Za-z]+\\s+[^@#]")
     private const val MAX_MATCHES_PATTERN_LENGTH = 200
     private val INCOMPATIBLE_DECORATOR_PAIRS = listOf(
         listOf("required", "optional"),
@@ -14,6 +17,20 @@ object EnvSpecDiagnosticsCore {
     data class TypeInfo(val name: String, val args: List<String>, val options: Map<String, Any>)
     data class DecoratorOccurrence(val name: String, val line: Int, val start: Int, val end: Int)
     data class CoreDiagnostic(val line: Int, val start: Int, val end: Int, val message: String)
+
+    fun getDecoratorCommentText(lineText: String): String? {
+        return getDecoratorCommentRange(lineText)?.first
+    }
+
+    private fun getDecoratorCommentRange(lineText: String): Pair<String, Int>? {
+        val match = DECORATOR_LINE_PATTERN.find(lineText) ?: return null
+        val commentText = match.groupValues[1]
+        if (NON_DECORATOR_LABEL_RE.containsMatchIn(commentText)) return null
+        if (NON_DECORATOR_PROSE_RE.containsMatchIn(commentText)) return null
+        val stripped = stripInlineComment(commentText)
+        val startIndex = match.groups[1]!!.range.first
+        return stripped to startIndex
+    }
 
     fun stripInlineComment(value: String): String {
         var quote: Char? = null
@@ -107,7 +124,8 @@ object EnvSpecDiagnosticsCore {
     fun getTypeInfoFromPrecedingComments(document: LineDocument, lineNumber: Int): TypeInfo? {
         val commentBlock = getPrecedingCommentBlock(document, lineNumber)
         for (index in commentBlock.indices.reversed()) {
-            val match = Regex("@type=([A-Za-z][\\w-]*)(?:\\((.*)\\))?").find(commentBlock[index]) ?: continue
+            val decoratorText = getDecoratorCommentText(commentBlock[index]) ?: continue
+            val match = Regex("@type=([A-Za-z][\\w-]*)(?:\\((.*)\\))?").find(decoratorText) ?: continue
             return if (match.groupValues[1] == "enum") {
                 TypeInfo("enum", splitEnumArgs(match.groupValues[2]), emptyMap())
             } else {
@@ -118,8 +136,10 @@ object EnvSpecDiagnosticsCore {
     }
 
     fun getDecoratorOccurrences(lineText: String, lineNumber: Int): List<DecoratorOccurrence> {
-        return DECORATOR_PATTERN.findAll(lineText).map { match ->
-            DecoratorOccurrence(match.groupValues[1], lineNumber, match.range.first, match.range.last + 1)
+        val (decoratorText, startIndex) = getDecoratorCommentRange(lineText) ?: return emptyList()
+        return DECORATOR_PATTERN.findAll(decoratorText).map { match ->
+            val absStart = startIndex + (match.range.first)
+            DecoratorOccurrence(match.groupValues[1], lineNumber, absStart, absStart + match.value.length)
         }.toList()
     }
 

@@ -24,6 +24,8 @@ class EnvSpecSyntaxHighlighter : SyntaxHighlighterBase() {
             EnvSpecTokenTypes.EXPORT_KEYWORD -> KEYWORD_KEYS
             EnvSpecTokenTypes.ENV_KEY -> INSTANCE_FIELD_KEYS
             EnvSpecTokenTypes.EQUALS -> OPERATION_SIGN_KEYS
+            EnvSpecTokenTypes.PAREN_OPEN -> OPERATION_SIGN_KEYS
+            EnvSpecTokenTypes.PAREN_CLOSE -> OPERATION_SIGN_KEYS
             EnvSpecTokenTypes.ENV_VALUE -> STRING_KEYS
             EnvSpecTokenTypes.VALUE_FUNCTION -> FUNCTION_CALL_KEYS
             EnvSpecTokenTypes.VALUE_REFERENCE -> VALUE_REFERENCE_KEYS
