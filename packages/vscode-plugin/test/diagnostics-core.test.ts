@@ -13,6 +13,7 @@ describe('diagnostics-core', () => {
     const duplicates = createDecoratorDiagnostics([
       ...getDecoratorOccurrences('# @required @required', 0),
       ...getDecoratorOccurrences('# @docs(https://a.com) @docs(https://b.com)', 1),
+      ...getDecoratorOccurrences('# @initOp(allowAppAuth=true) @initOp(token=$OP_TOKEN)', 2),
     ]);
 
     expect(duplicates.map((diagnostic) => diagnostic.message)).toContain(
@@ -20,6 +21,9 @@ describe('diagnostics-core', () => {
     );
     expect(
       duplicates.some((diagnostic) => diagnostic.message.includes('@docs')),
+    ).toBe(false);
+    expect(
+      duplicates.some((diagnostic) => diagnostic.message.includes('@initOp')),
     ).toBe(false);
   });
 
