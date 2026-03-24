@@ -52,6 +52,15 @@ Examples:
 });
 
 
+/**
+ * Formats a string value for safe use in a shell export statement.
+ * Uses single-quoted strings to prevent shell injection via backticks, `$`, etc.
+ * Single quotes within the value are escaped using the `'\''` sequence.
+ */
+export function formatShellValue(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const { format, compact, 'show-all': showAll } = ctx.values;
 
@@ -97,7 +106,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       if (value === undefined) {
         strValue = '';
       } else if (typeof value === 'string') {
-        strValue = `"${value.replaceAll('"', '\\"').replaceAll('\n', '\\n')}"`;
+        if (format === 'shell') {
+          strValue = formatShellValue(value);
+        } else {
+          strValue = `"${value.replaceAll('"', '\\"').replaceAll('\n', '\\n')}"`;
+        }
       } else {
         strValue = JSON.stringify(value);
       }
