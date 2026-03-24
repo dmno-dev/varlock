@@ -1,6 +1,7 @@
 package dev.dmno.envspec
 
 import java.net.InetAddress
+import java.net.URI
 
 object EnvSpecDiagnosticsCore {
 
@@ -211,7 +212,8 @@ object EnvSpecDiagnosticsCore {
         if (prependHttps == true && hasProtocol) return "URL should omit the protocol when prependHttps=true."
         if (prependHttps != true && !hasProtocol) return "URL must include a protocol unless prependHttps=true."
         return try {
-            val url = java.net.URL(if (prependHttps == true) "https://$value" else value)
+            val spec = if (prependHttps == true) "https://$value" else value
+            val url = URI.create(spec).toURL()
             val allowedDomains = (options["allowedDomains"] as? String)?.let { splitEnumArgs(it) } ?: emptyList()
             if (allowedDomains.isNotEmpty() && !allowedDomains.contains(url.host.lowercase())) {
                 "URL host must be one of: ${allowedDomains.joinToString(", ")}."

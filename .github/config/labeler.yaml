@@ -10,6 +10,9 @@
 "core:vscode-plugin":
 - changed-files:
   - any-glob-to-any-file: 'packages/vscode-plugin/**'
+"core:intellij-plugin":
+- changed-files:
+  - any-glob-to-any-file: 'packages/intellij-plugin/**'
 "core:website":
 - changed-files:
   - any-glob-to-any-file: 'packages/varlock-website/**'

@@ -51,6 +51,13 @@ Inspired by the [VS Code / Open VSX extension](../../vscode-plugin):
 - `.env`
 - `.env.*` (e.g. `.env.schema`, `.env.local`, `.env.example`)
 
+## JetBrains IDE compatibility
+
+This plugin targets the IntelliJ Platform (`com.intellij.modules.platform`), so it is installable in most JetBrains IDEs that support plugins and `.env` workflows (IntelliJ IDEA, WebStorm, PyCharm, PhpStorm, GoLand, RubyMine, CLion, etc.), subject to Marketplace build compatibility.
+
+- Compatibility range is defined in `build.gradle.kts` via `sinceBuild` / `untilBuild`.
+- CI release validation runs JetBrains Plugin Verifier (`./gradlew verifyPlugin`) to catch cross-IDE compatibility issues before publishing.
+
 ## Requirements
 
 - IntelliJ IDEA 2024.3+ or WebStorm 2024.3+
@@ -68,6 +75,44 @@ Inspired by the [VS Code / Open VSX extension](../../vscode-plugin):
 # Run tests
 ./gradlew test
 ```
+
+## Publishing
+
+### CI (GitHub Actions)
+
+Workflow: [`.github/workflows/extensions-release.yaml`](../../.github/workflows/extensions-release.yaml) (**IntelliJ plugin release**).
+
+Runs only via **Actions → IntelliJ plugin release → Run workflow** (no automatic runs on merge).
+
+| Phase | Behavior |
+| --- | --- |
+| **Always** | Check out the **ref** you specify, run tests + Plugin Verifier, build the ZIP, upload it as a workflow artifact. |
+| **Optional** | Enable **publish** to run `publishPlugin` to JetBrains Marketplace after a successful build. |
+
+Workflow inputs:
+
+| Input | Description |
+| --- | --- |
+| **ref** | Git ref to build: branch name, tag, or full commit SHA. Default: `main`. |
+| **publish** | If enabled, runs the Marketplace publish job after a successful build. If disabled, CI still validates and uploads the ZIP artifact only. Default: off. |
+
+Secrets and varlock-loaded env for CI match local publishing (see `.env.schema`).
+
+### Local / manual Gradle
+
+Publish to JetBrains Marketplace:
+
+```bash
+JETBRAINS_MARKETPLACE_TOKEN="<your-marketplace-token>" \
+JETBRAINS_CERTIFICATE_CHAIN="<your-certificate-chain>" \
+JETBRAINS_PRIVATE_KEY="<your-private-key>" \
+JETBRAINS_PRIVATE_KEY_PASSWORD="<your-private-key-password>" \
+./gradlew publishPlugin
+```
+
+- `publishPlugin` is provided by the IntelliJ Platform Gradle plugin.
+- Signing is configured via `JETBRAINS_CERTIFICATE_CHAIN`, `JETBRAINS_PRIVATE_KEY`, and `JETBRAINS_PRIVATE_KEY_PASSWORD`.
+- Required publish/signing env vars are documented in `packages/intellij-plugin/.env.schema`.
 
 ### Troubleshooting
 

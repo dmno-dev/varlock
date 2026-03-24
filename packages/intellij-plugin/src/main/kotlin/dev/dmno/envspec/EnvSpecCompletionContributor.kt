@@ -112,6 +112,7 @@ class EnvSpecCompletionContributor : CompletionContributor() {
 
     private data class ReplaceRange(val line: Int, val start: Int, val end: Int)
 
+    @Deprecated("IntelliJ still routes auto-popup through this API; TypedHandlerDelegate-only migration broke the typing pipeline.")
     override fun invokeAutoPopup(position: com.intellij.psi.PsiElement, typeChar: Char): Boolean {
         return typeChar == '@' || typeChar == '$' || typeChar == '=' || typeChar == ','
     }

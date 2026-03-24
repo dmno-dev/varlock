@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "dev.dmno"
-version = "0.1.0"
+version = "0.1.2"
 
 repositories {
     mavenCentral()
@@ -43,10 +43,29 @@ intellijPlatform {
     pluginConfiguration {
         name.set("Env Spec Language")
         description.set("Adds syntax highlighting and IntelliSense for @env-spec enabled .env files")
+        ideaVersion {
+            // 243 = 2024.3 platform line. Keep this explicit so Marketplace compatibility is predictable.
+            sinceBuild.set("243")
+            // Allow current and near-future IDE lines; tighten if verifier starts flagging breakage.
+            untilBuild.set("251.*")
+        }
         vendor {
             name.set("dmno-dev")
             url.set("https://varlock.dev")
         }
+    }
+    pluginVerification {
+        ides {
+            recommended()
+        }
+    }
+    signing {
+        certificateChain.set(providers.environmentVariable("JETBRAINS_CERTIFICATE_CHAIN"))
+        privateKey.set(providers.environmentVariable("JETBRAINS_PRIVATE_KEY"))
+        password.set(providers.environmentVariable("JETBRAINS_PRIVATE_KEY_PASSWORD"))
+    }
+    publishing {
+        token.set(providers.environmentVariable("JETBRAINS_MARKETPLACE_TOKEN"))
     }
 }
 
