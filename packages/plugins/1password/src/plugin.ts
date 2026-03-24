@@ -1,4 +1,4 @@
-import { Resolver } from 'varlock/plugin-lib';
+import { Resolver, plugin } from 'varlock/plugin-lib';
 
 import { createDeferredPromise, DeferredPromise } from '@env-spec/utils/defer';
 import { Client, createClient } from '@1password/sdk';

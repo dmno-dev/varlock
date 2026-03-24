@@ -121,6 +121,7 @@
     "@env-spec/parser": "workspace:*",
     "@env-spec/utils": "workspace:*",
     "@sindresorhus/is": "catalog:",
+    "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "@types/semver": "^7.7.1",
     "@varlock/ci-env-info": "workspace:^",
