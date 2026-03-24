@@ -69,6 +69,32 @@
         "varlock": "workspace:^",
       },
     },
+    "packages/integrations/cloudflare": {
+      "name": "@varlock/cloudflare-integration",
+      "version": "0.0.0",
+      "bin": {
+        "varlock-wrangler": "./bin/varlock-wrangler.js",
+      },
+      "dependencies": {
+        "@varlock/vite-integration": "workspace:^",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "tsup": "catalog:",
+        "varlock": "workspace:^",
+        "vite": "^7.1.0",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "varlock": "workspace:^",
+        "vite": ">=5",
+        "wrangler": ">=3",
+      },
+      "optionalPeers": [
+        "vite",
+        "wrangler",
+      ],
+    },
     "packages/integrations/expo": {
       "name": "@varlock/expo-integration",
       "version": "0.0.0",
@@ -1188,6 +1214,8 @@
     "@varlock/changeset-changelog": ["@varlock/changeset-changelog@workspace:packages/changeset-changelog"],
 
     "@varlock/ci-env-info": ["@varlock/ci-env-info@workspace:packages/ci-env-info"],
+
+    "@varlock/cloudflare-integration": ["@varlock/cloudflare-integration@workspace:packages/integrations/cloudflare"],
 
     "@varlock/expo-integration": ["@varlock/expo-integration@workspace:packages/integrations/expo"],
 
