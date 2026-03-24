@@ -598,6 +598,36 @@ describe('type generation', () => {
       expect(src).toContain("Pick<CoercedEnvSchema, 'DB_HOST' | 'DB_PORT' | 'DEBUG' | 'APP_ENV'>");
     });
 
+    test('reset=false (default) does not add index signature to ProcessEnv or ImportMetaEnv', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          ITEM1=val
+        `,
+      });
+      const items: Array<TypeGenItemInfo> = [];
+      for (const key of g.sortedConfigKeys) {
+        items.push(await g.configSchema[key].getTypeGenInfo());
+      }
+      const src = await generateTsTypesSrc(items);
+      expect(src).not.toContain('[key: string]: unknown');
+    });
+
+    test('reset=true adds [key: string]: unknown index signature to ProcessEnv and ImportMetaEnv', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          ITEM1=val
+        `,
+      });
+      const items: Array<TypeGenItemInfo> = [];
+      for (const key of g.sortedConfigKeys) {
+        items.push(await g.configSchema[key].getTypeGenInfo());
+      }
+      const src = await generateTsTypesSrc(items, true);
+      // should appear twice: once in ProcessEnv, once in ImportMetaEnv
+      const matches = src.match(/\[key: string\]: unknown/g);
+      expect(matches).toHaveLength(2);
+    });
+
     test('type gen output is the same regardless of current environment', async () => {
       const schemaFile = outdent`
         # @currentEnv=$APP_ENV @defaultRequired=false @defaultSensitive=false

@@ -157,7 +157,7 @@ export async function getTsDefinitionForItem(info: TypeGenItemInfo, indentLevel 
   return _.map(itemSrc, (line) => `${i}${line}`);
 }
 
-export async function generateTsTypesSrc(items: Array<TypeGenItemInfo>) {
+export async function generateTsTypesSrc(items: Array<TypeGenItemInfo>, reset?: boolean) {
   // TODO: first check if schema is valid - we dont care if values are invalid
 
   const tsSrc = [
@@ -207,13 +207,30 @@ export type EnvSchemaAsStrings = {
   const importMetaEnvTypes = true;
   const processEnvTypes = true;
 
-  const IMPORT_META_AUGMENTATION = `
+  const IMPORT_META_AUGMENTATION = reset
+    ? `
+  // add types for global import.meta.env
+  interface ImportMetaEnv extends EnvSchemaAsStrings {
+    [key: string]: unknown
+  }
+  interface ImportMeta {
+    readonly env: ImportMetaEnv;
+  }`
+    : `
   // add types for global import.meta.env
   interface ImportMetaEnv extends EnvSchemaAsStrings {}
   interface ImportMeta {
     readonly env: ImportMetaEnv;
   }`;
-  const PROCESS_ENV_AUGMENTATION = `
+  const PROCESS_ENV_AUGMENTATION = reset
+    ? `
+  // add types for global process.env
+  namespace NodeJS {
+    interface ProcessEnv extends EnvSchemaAsStrings {
+      [key: string]: unknown
+    }
+  }`
+    : `
   // add types for global process.env
   namespace NodeJS {
     interface ProcessEnv extends EnvSchemaAsStrings {}
@@ -230,7 +247,7 @@ export type EnvSchemaAsStrings = {
   return tsSrc.join('\n');
 }
 
-export async function generateTypes(graph: EnvGraph, lang: string, typesPath: string) {
+export async function generateTypes(graph: EnvGraph, lang: string, typesPath: string, reset?: boolean) {
   if (lang !== 'ts') throw new Error(`Unsupported @generateTypes lang: ${lang}`);
 
   // Compute type gen info from non-env-specific definitions only
@@ -242,6 +259,6 @@ export async function generateTypes(graph: EnvGraph, lang: string, typesPath: st
     items.push(await configItem.getTypeGenInfo());
   }
 
-  const tsSrc = await generateTsTypesSrc(items);
+  const tsSrc = await generateTsTypesSrc(items, reset);
   await fs.promises.writeFile(typesPath, tsSrc, 'utf-8');
 }
