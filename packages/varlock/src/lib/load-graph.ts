@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { gracefulExit } from 'exit-hook';
 import { loadEnvGraph } from '../env-graph';
+import { CliExitError } from '../cli/helpers/exit-error';
 import { runWithWorkspaceInfo } from './workspace-utils';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { createDebug } from './debug';
@@ -29,14 +29,14 @@ export function loadVarlockEnvGraph(opts?: {
     const resolvedPath = path.resolve(resolvedEntryFilePath);
     if (!fs.existsSync(resolvedPath)) {
       if (opts?.entryFilePath) {
-        console.error(`🚨 The --path value does not exist: ${resolvedPath}\n`);
-        console.error('Use `--path` to specify a valid file or directory.');
+        throw new CliExitError(`The --path value does not exist: ${resolvedPath}`, {
+          suggestion: 'Use `--path` to specify a valid file or directory.',
+        });
       } else {
-        console.error(`🚨 The \`varlock.loadPath\` configured in package.json does not exist: ${resolvedPath}\n`);
-        console.error('Update `varlock.loadPath` in your package.json to point to a valid file or directory.');
+        throw new CliExitError(`The \`varlock.loadPath\` configured in package.json does not exist: ${resolvedPath}`, {
+          suggestion: 'Update `varlock.loadPath` in your package.json to point to a valid file or directory.',
+        });
       }
-      gracefulExit(1);
-      return new Promise(() => {}) as never;
     }
   }
 
