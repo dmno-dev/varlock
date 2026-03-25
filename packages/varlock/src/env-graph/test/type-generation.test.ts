@@ -598,7 +598,7 @@ describe('type generation', () => {
       expect(src).toContain("Pick<CoercedEnvSchema, 'DB_HOST' | 'DB_PORT' | 'DEBUG' | 'APP_ENV'>");
     });
 
-    test('reset=false (default) does not add index signature to ProcessEnv or ImportMetaEnv', async () => {
+    test('strict=false (default) does not add index signature to ProcessEnv or ImportMetaEnv', async () => {
       const g = await loadGraph({
         envFile: outdent`
           ITEM1=val
@@ -612,7 +612,7 @@ describe('type generation', () => {
       expect(src).not.toContain('[key: string]: unknown');
     });
 
-    test('reset=true adds [key: string]: unknown index signature to ProcessEnv and ImportMetaEnv', async () => {
+    test('strict=true adds [key: string]: unknown index signature to ProcessEnv and ImportMetaEnv', async () => {
       const g = await loadGraph({
         envFile: outdent`
           ITEM1=val
