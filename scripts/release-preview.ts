@@ -60,6 +60,11 @@ try {
 
   console.log('Updated packages to release:', releasePackagePaths);
 
+  // Resolve workspace: and catalog: protocols in package.json files before publishing
+  // (npm/pkg-pr-new don't understand these protocols, so we need real versions)
+  console.log('Resolving workspace/catalog versions...');
+  execSync('bun run scripts/resolve-workspace-versions.ts', { stdio: 'inherit', cwd: MONOREPO_ROOT });
+
   const publishResult = execFileSync('bunx', ['pkg-pr-new', 'publish', ...releasePackagePaths]);
   console.log('published preview packages!');
   console.log(publishResult.toString());
