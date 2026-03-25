@@ -126,6 +126,7 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 | [@varlock/hashicorp-vault-plugin](packages/plugins/hashicorp-vault) | [![npm version](https://img.shields.io/npm/v/@varlock/hashicorp-vault-plugin.svg)](https://npmjs.com/package/@varlock/hashicorp-vault-plugin) |
 | [@varlock/infisical-plugin](packages/plugins/infisical) | [![npm version](https://img.shields.io/npm/v/@varlock/infisical-plugin.svg)](https://npmjs.com/package/@varlock/infisical-plugin) |
 | [@varlock/pass-plugin](packages/plugins/pass) | [![npm version](https://img.shields.io/npm/v/@varlock/pass-plugin.svg)](https://npmjs.com/package/@varlock/pass-plugin) |
+| [@varlock/proton-pass-plugin](packages/plugins/proton-pass) | [![npm version](https://img.shields.io/npm/v/@varlock/proton-pass-plugin.svg)](https://npmjs.com/package/@varlock/proton-pass-plugin) |
 
 ### Framework Integrations
 | Package | Published listing page |
