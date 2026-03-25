@@ -6,6 +6,7 @@ type LineDocument = {
 };
 
 const HEADER_SEPARATOR_PATTERN = /^\s*#\s*---+\s*$/;
+const ENV_ASSIGNMENT_PATTERN = /^\s*[A-Za-z_][A-Za-z0-9_]*\s*=/;
 const DECORATOR_PATTERN = /@([A-Za-z][\w-]*)/g;
 const INCOMPATIBLE_DECORATORS = new Map<string, Set<string>>([
   ['required', new Set(['optional'])],
@@ -60,11 +61,47 @@ function splitArgs(input: string) {
   return parts;
 }
 
-export function isInHeader(document: LineDocument, lineNumber: number) {
-  for (let line = lineNumber; line >= 0; line -= 1) {
-    if (HEADER_SEPARATOR_PATTERN.test(document.lineAt(line).text)) return false;
+function getFirstConfigItemLine(document: LineDocument) {
+  for (let line = 0; line < document.lineCount; line += 1) {
+    if (ENV_ASSIGNMENT_PATTERN.test(document.lineAt(line).text)) return line;
   }
-  return true;
+
+  return -1;
+}
+
+function getAttachedCommentBlockRange(document: LineDocument, firstConfigItemLine: number) {
+  if (firstConfigItemLine <= 0) return undefined;
+
+  const lastCommentLine = firstConfigItemLine - 1;
+  const lastCommentText = document.lineAt(lastCommentLine).text.trim();
+  if (!lastCommentText.startsWith('#') || HEADER_SEPARATOR_PATTERN.test(lastCommentText)) {
+    return undefined;
+  }
+
+  let start = lastCommentLine;
+  while (start > 0) {
+    const previousText = document.lineAt(start - 1).text.trim();
+    if (!previousText.startsWith('#') || HEADER_SEPARATOR_PATTERN.test(previousText)) break;
+    start -= 1;
+  }
+
+  return { start, end: lastCommentLine };
+}
+
+export function getCommentScope(document: LineDocument, lineNumber: number) {
+  const firstConfigItemLine = getFirstConfigItemLine(document);
+  if (firstConfigItemLine === -1 || lineNumber >= firstConfigItemLine) return 'item';
+
+  const attachedCommentBlock = getAttachedCommentBlockRange(document, firstConfigItemLine);
+  if (attachedCommentBlock && lineNumber >= attachedCommentBlock.start && lineNumber <= attachedCommentBlock.end) {
+    return 'item';
+  }
+
+  return 'header';
+}
+
+export function isInHeader(document: LineDocument, lineNumber: number) {
+  return getCommentScope(document, lineNumber) === 'header';
 }
 
 export function getExistingDecoratorNames(

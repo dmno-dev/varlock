@@ -12,6 +12,7 @@ import {
 } from 'vscode';
 
 import { LANG_ID } from './constants';
+import { getCommentScope } from './completion-core';
 import {
   createDecoratorDiagnostics,
   getDecoratorOccurrences,
@@ -42,8 +43,21 @@ export function validateDocument(document: DiagnosticsDocument) {
   const lineDocument = createLineDocument(
     Array.from({ length: document.lineCount }, (_, index) => document.lineAt(index).text),
   );
+  let headerDecoratorBlock = [] as ReturnType<typeof getDecoratorOccurrences>;
   let decoratorBlock = [] as ReturnType<typeof getDecoratorOccurrences>;
   let hasSeenConfigItem = false;
+
+  const flushHeaderDecoratorBlock = () => {
+    if (!headerDecoratorBlock.length) return;
+    diagnostics.push(
+      ...createDecoratorDiagnostics(headerDecoratorBlock).map((diagnostic) => new Diagnostic(
+        toRange(diagnostic),
+        diagnostic.message,
+        DiagnosticSeverity.Error,
+      )),
+    );
+    headerDecoratorBlock = [];
+  };
 
   const flushDecoratorBlock = () => {
     if (!decoratorBlock.length) return;
@@ -62,10 +76,15 @@ export function validateDocument(document: DiagnosticsDocument) {
     const trimmed = lineText.trim();
 
     if (trimmed.startsWith('#')) {
-      decoratorBlock.push(...getDecoratorOccurrences(lineText, lineNumber));
+      if (!hasSeenConfigItem && getCommentScope(lineDocument, lineNumber) === 'header') {
+        headerDecoratorBlock.push(...getDecoratorOccurrences(lineText, lineNumber));
+      } else {
+        decoratorBlock.push(...getDecoratorOccurrences(lineText, lineNumber));
+      }
     } else if (trimmed === '' && !hasSeenConfigItem) {
       continue;
     } else {
+      flushHeaderDecoratorBlock();
       flushDecoratorBlock();
     }
 
@@ -94,6 +113,7 @@ export function validateDocument(document: DiagnosticsDocument) {
     ));
   }
 
+  flushHeaderDecoratorBlock();
   flushDecoratorBlock();
   return diagnostics;
 }

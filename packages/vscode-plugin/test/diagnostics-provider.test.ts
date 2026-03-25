@@ -54,10 +54,32 @@ describe('diagnostics-provider', () => {
       '',
       '# @defaultRequired=false',
       '',
+      '# @required',
+      '',
       'ITEM=',
     ]));
 
     expect(diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+      '@defaultRequired can only be used once in the same decorator block.',
+    );
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      '@required can only be used once in the same decorator block.',
+    );
+  });
+
+  it('treats the last comment block before the first item as item-attached', () => {
+    const diagnostics = validateDocument(createTestDocument([
+      '# @defaultRequired=true',
+      '',
+      '# @required',
+      '# @required',
+      'ITEM=',
+    ]));
+
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+      '@required can only be used once in the same decorator block.',
+    );
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
       '@defaultRequired can only be used once in the same decorator block.',
     );
   });

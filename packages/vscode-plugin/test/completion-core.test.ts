@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   filterAvailableDecorators,
+  getCommentScope,
   getEnumValuesFromPrecedingComments,
   getExistingDecoratorNames,
   getTypeOptionDataType,
@@ -13,14 +14,18 @@ import { DATA_TYPES, ITEM_DECORATORS } from '../src/intellisense-catalog';
 describe('completion-core', () => {
   it('detects root header vs item sections', () => {
     const document = createLineDocument([
+      '# header',
+      '',
       '# @defaultRequired=false',
-      '# ---',
+      '',
       '# @required',
       'APP_ENV=',
     ]);
 
     expect(isInHeader(document, 0)).toBe(true);
-    expect(isInHeader(document, 2)).toBe(false);
+    expect(isInHeader(document, 2)).toBe(true);
+    expect(isInHeader(document, 4)).toBe(false);
+    expect(getCommentScope(document, 4)).toBe('item');
   });
 
   it('collects decorators already used in the current block', () => {
