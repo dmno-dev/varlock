@@ -1,6 +1,6 @@
 ---
-"@varlock/cloudflare-integration": minor
-"@varlock/vite-integration": minor
+"@varlock/cloudflare-integration": patch
+"@varlock/vite-integration": patch
 ---
 
 New `@varlock/cloudflare-integration` package for Cloudflare Workers

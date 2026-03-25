@@ -160,6 +160,16 @@ async function handleTypes(args: Array<string>) {
   }
 }
 
+function formatEnvLine(key: string, value: string): string {
+  if (!value.includes("'")) {
+    // single quotes — literal, no escaping needed
+    return `${key}='${value}'`;
+  }
+  // fall back to double quotes with escaping
+  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+  return `${key}="${escaped}"`;
+}
+
 function formatEnvFileContent(graph: ReturnType<typeof loadSerializedGraph>) {
   // output as dotenv format using single quotes — single-quoted values are
   // treated as literal strings with no escape processing, which avoids issues
@@ -175,16 +185,6 @@ function formatEnvFileContent(graph: ReturnType<typeof loadSerializedGraph>) {
   // include __VARLOCK_ENV for the varlock runtime (compact JSON, no newlines)
   lines.push(formatEnvLine('__VARLOCK_ENV', graph.json));
   return lines.join('\n');
-}
-
-function formatEnvLine(key: string, value: string): string {
-  if (!value.includes("'")) {
-    // single quotes — literal, no escaping needed
-    return `${key}='${value}'`;
-  }
-  // fall back to double quotes with escaping
-  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
-  return `${key}="${escaped}"`;
 }
 
 async function handleDev(args: Array<string>) {
@@ -301,15 +301,16 @@ async function handleDev(args: Array<string>) {
       wranglerChild.stdout?.on('data', rewriteOutput(process.stdout));
       wranglerChild.stderr?.on('data', rewriteOutput(process.stderr));
 
+      const child = wranglerChild;
       const exitCode = await new Promise<number>((resolve) => {
-        wranglerChild!.on('error', (err) => {
+        child.on('error', (err) => {
           if ((err as any).code === 'ENOENT') {
             console.error('Error: wrangler not found. Install it with your package manager:');
             console.error('  npm install wrangler');
           }
           resolve(1);
         });
-        wranglerChild!.on('exit', (code, signal) => {
+        child.on('exit', (code, signal) => {
           resolve(code ?? (signal ? 1 : 0));
         });
       });
