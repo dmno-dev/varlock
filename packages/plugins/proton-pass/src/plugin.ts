@@ -335,9 +335,10 @@ plugin.registerRootDecorator({
   isFunction: true,
   async process(argsVal) {
     const objArgs = argsVal.objArgs;
-    if (!objArgs) throw new SchemaError('Expected configuration arguments');
+    // Allow `@initProtonPass()` with no key-value args (same pattern as `@initPass()`):
+    // default instance id is `_default` and credentials are optional if `pass-cli` is already logged in.
 
-    if (objArgs.id && !objArgs.id.isStatic) {
+    if (objArgs?.id && !objArgs.id.isStatic) {
       throw new SchemaError('Expected id to be a static value');
     }
     const id = String(objArgs?.id?.staticValue || '_default');
@@ -351,10 +352,10 @@ plugin.registerRootDecorator({
     // These are resolver children - they may be computed from env flags.
     return {
       id,
-      usernameResolver: objArgs.username,
-      passwordResolver: objArgs.password,
-      totpResolver: objArgs.totp,
-      extraPasswordResolver: objArgs.extraPassword,
+      usernameResolver: objArgs?.username,
+      passwordResolver: objArgs?.password,
+      totpResolver: objArgs?.totp,
+      extraPasswordResolver: objArgs?.extraPassword,
     };
   },
   async execute({
