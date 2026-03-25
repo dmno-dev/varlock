@@ -134,7 +134,7 @@ PROD_ITEM=op(prod, op://vault-name/item-name/field-name)
 
 ### Loading 1Password Environments
 
-Use `opLoadEnvironment()` with `@setValuesBulk` to load all variables from a [1Password environment](https://developer.1password.com/docs/sdks/concepts/environments/) at once:
+Use `opLoadEnvironment()` with `@setValuesBulk` to load all variables from a [1Password environment](https://developer.1password.com/docs/environments/) at once:
 
 ```env-spec
 # @plugin(@varlock/1password-plugin)
