@@ -5,7 +5,7 @@ import {
   existsSync, readFileSync, writeFileSync,
   mkdirSync,
 } from 'node:fs';
-import { asyncExitHook, gracefulExit } from 'exit-hook';
+import { asyncExitHook } from 'exit-hook';
 import { createDebug } from '../../lib/debug';
 import { name as ciName, isCI } from 'ci-info';
 import isDocker from 'is-docker';
@@ -152,21 +152,15 @@ function getAnonymousId() {
       { flag: 'w' },
     );
   } catch (err) {
-    // known case when running within Docker and have no HOME folder set
+    // Fail gracefully - writing the anonymous ID is not essential for core functionality.
+    // This is a known case in containerized environments (e.g. Kubernetes) where the
+    // config directory may not be writable.
     if (os.homedir() === '/dev/null') {
-      console.error([
-        'Your HOME directory is not set - probably because you are running within Docker.',
-        'Please set HOME within your Dockerfile to a writable directory.',
-        'For example: `ENV HOME=/app/.home` (or whatever directory you want to use).',
-      ].join('\n'));
+      debug('HOME directory is not set (probably running in Docker without HOME configured). Cannot persist anonymous ID.');
     } else {
-      console.error([
-        `There was a problem writing to the varlock config folder (${userVarlockDirPath})`,
-        (err as Error).message,
-        `Please ensure the varlock config folder (${userVarlockDirPath}) is writable`,
-      ].join('\n'));
+      debug(`Cannot write to varlock config folder (${userVarlockDirPath}): ${(err as Error).message}`);
     }
-    gracefulExit(1);
+    // Continue with the in-memory ID for this session (it will not be persisted)
   }
   cachedAnonymousId = newAnonymousId;
   return newAnonymousId;
