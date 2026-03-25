@@ -84,6 +84,29 @@ That's it! During `vite dev`, varlock loads and validates your env automatically
 - **In dev**: The Vite plugin bundles resolved env directly into the worker code (via `resolved-env` mode), so everything works locally without Cloudflare secret bindings.
 - **In production**: The worker reads the `__VARLOCK_ENV` secret from Cloudflare's bindings at runtime via `import { env } from 'cloudflare:workers'`. Individual vars are also available natively via `env.MY_VAR`.
 
+### Upgrading from `@varlock/vite-integration`
+
+If you were previously using `varlockVitePlugin()` from `@varlock/vite-integration` with Cloudflare Workers, your secrets were being bundled directly into the worker code. To upgrade:
+
+1. Install `@varlock/cloudflare-integration` (you can remove `@varlock/vite-integration` — it's included as a dependency)
+2. In `vite.config.ts`, replace `varlockVitePlugin()` with `varlockCloudflareVitePlugin()`
+3. Replace `wrangler deploy` with `varlock-wrangler deploy` in your deploy script
+
+```diff lang="ts" title="vite.config.ts"
+-import { varlockVitePlugin } from '@varlock/vite-integration';
++import { varlockCloudflareVitePlugin } from '@varlock/cloudflare-integration';
+
+export default defineConfig({
+  plugins: [
+-    varlockVitePlugin(),
++    varlockCloudflareVitePlugin(),
+    cloudflare(),
+  ],
+});
+```
+
+Your secrets will no longer be bundled into the JS artifact — they'll be stored in Cloudflare's secret management instead.
+
 ----
 
 ## Approach 2: Without Vite
