@@ -25,7 +25,7 @@ jobs:
             const pr = context.payload.pull_request;
             const isRelease = pr.head.ref === 'changeset-release/main';
             const isRenovate = pr.user.login === 'renovate[bot]';
-            const isCopilot = pr.user.login === 'copilot[bot]';
+            const isCopilot = pr.user.login === 'Copilot';
             const isMaintainer = MAINTAINERS.includes(pr.user.login);
             let label = 'community';
             if (isRelease) label = 'release';
