@@ -107,9 +107,16 @@ class AwsPluginInstance {
           };
           debug('Using explicit AWS credentials');
         } else if (this.profile) {
-          // Use named profile from ~/.aws/credentials
-          clientConfig.credentials = fromIni({ profile: this.profile });
-          debug('Using AWS profile:', this.profile);
+          // Try named profile, fall back to default credential chain if unavailable
+          // (e.g. no ~/.aws/config in containers/k8s where creds come from IRSA or env vars)
+          const profileProvider = fromIni({ profile: this.profile });
+          try {
+            await profileProvider();
+            clientConfig.credentials = profileProvider;
+            debug('Using AWS profile:', this.profile);
+          } catch {
+            debug(`AWS profile "${this.profile}" not available, falling back to default credential chain`);
+          }
         } else {
           // Use default AWS credential chain (env vars, ~/.aws/credentials, IAM roles)
           debug('Using default AWS credential chain');
@@ -148,9 +155,16 @@ class AwsPluginInstance {
           };
           debug('Using explicit AWS credentials');
         } else if (this.profile) {
-          // Use named profile from ~/.aws/credentials
-          clientConfig.credentials = fromIni({ profile: this.profile });
-          debug('Using AWS profile:', this.profile);
+          // Try named profile, fall back to default credential chain if unavailable
+          // (e.g. no ~/.aws/config in containers/k8s where creds come from IRSA or env vars)
+          const profileProvider = fromIni({ profile: this.profile });
+          try {
+            await profileProvider();
+            clientConfig.credentials = profileProvider;
+            debug('Using AWS profile:', this.profile);
+          } catch {
+            debug(`AWS profile "${this.profile}" not available, falling back to default credential chain`);
+          }
         } else {
           // Use default AWS credential chain (env vars, ~/.aws/credentials, IAM roles)
           debug('Using default AWS credential chain');
