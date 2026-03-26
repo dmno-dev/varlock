@@ -226,6 +226,20 @@
         "varlock": "workspace:^",
       },
     },
+    "packages/plugins/proton-pass": {
+      "name": "@varlock/proton-pass-plugin",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@env-spec/utils": "workspace:^",
+        "@types/node": "catalog:",
+        "tsup": "catalog:",
+        "varlock": "workspace:^",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "varlock": "workspace:^",
+      },
+    },
     "packages/utils": {
       "name": "@env-spec/utils",
       "version": "0.0.0",
@@ -1169,6 +1183,8 @@
     "@varlock/nextjs-integration": ["@varlock/nextjs-integration@workspace:packages/integrations/nextjs"],
 
     "@varlock/pass-plugin": ["@varlock/pass-plugin@workspace:packages/plugins/pass"],
+
+    "@varlock/proton-pass-plugin": ["@varlock/proton-pass-plugin@workspace:packages/plugins/proton-pass"],
 
     "@varlock/vite-integration": ["@varlock/vite-integration@workspace:packages/integrations/vite"],
 

@@ -1,0 +1,170 @@
+---
+title: Proton Pass Plugin
+description: Using Proton Pass with Varlock
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/proton-pass-plugin" />
+</div>
+
+Our [Proton Pass](https://proton.me/pass) plugin enables secure loading of secrets from Proton Pass using declarative instructions within your `.env` files.
+
+It shells out to the official Proton Pass CLI (`pass-cli`) to resolve secret references in the format `pass://vault/item/field`.
+
+## Features
+
+- **Secret references via `pass://` URIs** (`pass://vault/item/field`)
+- **Non-interactive login for CI** using environment variables (`PROTON_PASS_PASSWORD`, `PROTON_PASS_TOTP`, `PROTON_PASS_EXTRA_PASSWORD`)
+- **In-session caching** per resolution run
+- **Helpful error messages** with resolution tips
+
+## Installation and setup
+
+In a JS/TS project, you may install the `@varlock/proton-pass-plugin` package as a normal dependency.
+Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+
+See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
+
+### Install Proton Pass CLI
+
+You must have `pass-cli` installed:
+
+```bash
+curl -fsSL https://proton.me/download/pass-cli/install.sh | bash
+```
+
+See: [Proton Pass CLI overview](https://protonpass.github.io/pass-cli/).
+
+### Configure the plugin
+
+In production/CI you typically want a fully non-interactive login.
+
+```env-spec title=".env.schema"
+# 1. Load the plugin
+# @plugin(@varlock/proton-pass-plugin)
+#
+# 2. Initialize Proton Pass plugin instance
+# @initProtonPass(
+#   id=prod,
+#   username=$PROTON_PASS_USERNAME,
+#   password=$PROTON_PASS_PASSWORD,
+#   totp=$PROTON_PASS_TOTP,
+#   extraPassword=$PROTON_PASS_EXTRA_PASSWORD
+# )
+# ---
+
+# @type=protonPassPassword @sensitive
+PROTON_PASS_PASSWORD=
+
+# @type=protonPassTotp @sensitive
+PROTON_PASS_TOTP=
+
+# @type=protonPassExtraPassword @sensitive
+PROTON_PASS_EXTRA_PASSWORD=
+```
+
+The `username` is passed as an argument to `pass-cli login --interactive <username>`.
+The password/TOTP/extra password are provided to the CLI via environment variables, as supported by Proton Pass CLI login docs:
+[login command](https://protonpass.github.io/pass-cli/commands/login/).
+
+:::tip[Already logged in?]
+If `pass-cli` is already logged in, you can also omit credentials and just rely on the existing session.
+
+This mostly applies to local development, in CI, you will probably want static credentials.
+:::
+
+## Loading secrets
+
+Use the `protonPass()` resolver function to fetch a field value from a Proton Pass secret reference.
+
+Secret reference syntax (as documented by Proton Pass CLI):
+[secret references](https://protonpass.github.io/pass-cli/commands/contents/secret-references/).
+
+```env-spec title=".env.schema"
+# Fetch the `password` field from a secret reference:
+DB_PASSWORD=protonPass(pass://Production/Database/password)
+```
+
+When you need multiple plugin instances, use the optional first argument to select the `id`:
+
+```env-spec title=".env.schema"
+DB_PASSWORD=protonPass(prod, pass://Production/Database/password)
+```
+
+### Optional secrets
+
+If a secret might not exist, pass `allowMissing=true`:
+
+```env-spec title=".env.schema"
+OPTIONAL_DB_PASSWORD=protonPass(pass://Production/Database/password, allowMissing=true)
+```
+
+When allowed, missing secrets resolve to an empty string (`""`).
+
+## Reference
+
+### Root decorators
+
+<div class="reference-docs">
+<div>
+#### `@initProtonPass()`
+
+Initialize a Proton Pass plugin instance for `protonPass()` resolver.
+
+**Key/value args:**
+
+- `id` (optional): instance identifier for multiple instances
+- `username` (optional): login username/email passed to `pass-cli login --interactive`
+- `password` (optional): `pass-cli` password (maps to `PROTON_PASS_PASSWORD`)
+- `totp` (optional): `pass-cli` TOTP code (maps to `PROTON_PASS_TOTP`)
+- `extraPassword` (optional): `pass-cli` extra password (maps to `PROTON_PASS_EXTRA_PASSWORD`)
+
+```env-spec "@initProtonPass"
+# @initProtonPass(
+  id=prod, 
+  username=$PROTON_PASS_USERNAME, 
+  password=$PROTON_PASS_PASSWORD,
+  totp=$PROTON_PASS_TOTP,
+  extraPassword=$PROTON_PASS_EXTRA_PASSWORD
+)
+```
+</div>
+</div>
+
+### Resolver functions
+
+<div class="reference-docs">
+<div>
+#### `protonPass()`
+
+Fetch a field value from Proton Pass using a secret reference.
+
+**Array args:**
+
+- `secretRef` (required): `pass://vault/item/field`
+- `instanceId` (optional, if 2 args are provided): instance identifier
+
+**Key/value args:**
+
+- `allowMissing` (optional): if `true`, returns empty string when the secret is missing
+
+```env-spec /protonPass\\(.*\\)/
+# With secret reference (default instance)
+DB_PASSWORD=protonPass(pass://Production/Database/password)
+
+# With explicit instance
+DB_PASSWORD=protonPass(prod, pass://Production/Database/password)
+```
+</div>
+</div>
+
+### Under the hood
+
+This resolver uses:
+- `pass-cli info` to check authentication state
+- `pass-cli login --interactive <username>` when login is required
+- `pass-cli item view --output json <secretRef>` to fetch the requested field
+
