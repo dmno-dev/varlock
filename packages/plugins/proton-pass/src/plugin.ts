@@ -3,7 +3,7 @@ import { ExecError, spawnAsync } from '@env-spec/utils/exec-helpers';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
-const PROTON_PASS_ICON = 'simple-icons:protonpass';
+const PROTON_PASS_ICON = 'simple-icons:proton';
 
 plugin.name = 'proton-pass';
 const { debug } = plugin;
