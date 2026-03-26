@@ -44,13 +44,17 @@
   "peerDependencies": {
     "varlock": "workspace:^",
     "vite": ">=5",
-    "wrangler": ">=3"
+    "wrangler": ">=3",
+    "@cloudflare/vite-plugin": ">=1"
   },
   "peerDependenciesMeta": {
     "vite": {
       "optional": true
     },
     "wrangler": {
+      "optional": true
+    },
+    "@cloudflare/vite-plugin": {
       "optional": true
     }
   },

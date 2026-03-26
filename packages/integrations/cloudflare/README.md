@@ -4,8 +4,9 @@ This package helps you integrate [varlock](https://varlock.dev) into a [Cloudfla
 
 It provides:
 
-- a Vite plugin (`varlockCloudflareVitePlugin`) that works alongside `@cloudflare/vite-plugin` to inject resolved env at runtime via Cloudflare's secret bindings
-- a `varlock-wrangler` CLI binary that wraps `wrangler` to automatically upload resolved env vars as secrets and vars on deploy
+- a Vite plugin (`varlockCloudflareVitePlugin`) that wraps `@cloudflare/vite-plugin` with automatic env var injection into miniflare bindings and Cloudflare's secret bindings at runtime
+- a `varlock-wrangler` CLI binary — a drop-in replacement for `wrangler` that injects env via named pipe in dev, uploads vars/secrets on deploy, and generates correct types
+- a standalone init module (`@varlock/cloudflare-integration/init`) for non-Vite workers
 - validation of your env vars against your `.env.schema`
 - type-generation and type-safe env var access with built-in docs
 - redaction of sensitive values from logs

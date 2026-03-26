@@ -8,7 +8,8 @@ export default defineConfig({
   ],
 
   // cloudflare:workers is a runtime-only module (workerd/miniflare)
-  external: ['cloudflare:workers'],
+  // @cloudflare/vite-plugin is a peer dep, don't bundle it
+  external: ['cloudflare:workers', '@cloudflare/vite-plugin'],
 
   dts: true,
 
