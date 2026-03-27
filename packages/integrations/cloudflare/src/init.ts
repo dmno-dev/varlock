@@ -17,8 +17,20 @@ import { initVarlockEnv } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import { patchGlobalResponse } from 'varlock/patch-response';
 
+// load __VARLOCK_ENV — may be a single binding or split into chunks if >5KB
+let __varlockEnvJson: string | undefined;
 if (__cfEnv?.__VARLOCK_ENV) {
-  (globalThis as any).__varlockLoadedEnv = JSON.parse(__cfEnv.__VARLOCK_ENV as string);
+  __varlockEnvJson = __cfEnv.__VARLOCK_ENV as string;
+} else if (__cfEnv?.__VARLOCK_ENV_CHUNKS) {
+  const chunkCount = parseInt(__cfEnv.__VARLOCK_ENV_CHUNKS as string, 10);
+  const parts: Array<string> = [];
+  for (let i = 0; i < chunkCount; i++) {
+    parts.push((__cfEnv as any)[`__VARLOCK_ENV_${i}`] as string);
+  }
+  __varlockEnvJson = parts.join('');
+}
+if (__varlockEnvJson) {
+  (globalThis as any).__varlockLoadedEnv = JSON.parse(__varlockEnvJson);
 }
 
 (globalThis as any).__varlockThrowOnMissingKeys = true;

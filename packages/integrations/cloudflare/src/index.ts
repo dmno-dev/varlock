@@ -70,9 +70,21 @@ export function varlockCloudflareVitePlugin(
     ssrEntryCode: [
       // read the resolved env from Cloudflare's secret bindings at runtime
       // the __VARLOCK_ENV secret is uploaded via `varlock-wrangler deploy`
+      // it may be a single binding or split into chunks if >5KB
       "import { env as __cfEnv } from 'cloudflare:workers';",
-      'if (__cfEnv?.__VARLOCK_ENV) {',
-      '  globalThis.__varlockLoadedEnv = JSON.parse(__cfEnv.__VARLOCK_ENV);',
+      '{',
+      '  let __varlockEnvJson;',
+      '  if (__cfEnv?.__VARLOCK_ENV) {',
+      '    __varlockEnvJson = __cfEnv.__VARLOCK_ENV;',
+      '  } else if (__cfEnv?.__VARLOCK_ENV_CHUNKS) {',
+      '    const n = parseInt(__cfEnv.__VARLOCK_ENV_CHUNKS, 10);',
+      '    const parts = [];',
+      '    for (let i = 0; i < n; i++) parts.push(__cfEnv["__VARLOCK_ENV_" + i]);',
+      '    __varlockEnvJson = parts.join("");',
+      '  }',
+      '  if (__varlockEnvJson) {',
+      '    globalThis.__varlockLoadedEnv = JSON.parse(__varlockEnvJson);',
+      '  }',
       '}',
     ],
   });

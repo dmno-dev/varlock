@@ -149,6 +149,10 @@ function createServingTempFile(prefix: string) {
   };
 }
 
+// Cloudflare secrets are limited to 5KB each.
+// __VARLOCK_ENV can exceed this, so we split it into chunks.
+const CF_SECRET_MAX_BYTES = 5120;
+
 function formatEnvLine(key: string, value: string): string {
   if (!value.includes("'")) {
     // single quotes — literal, no escaping needed
@@ -157,6 +161,48 @@ function formatEnvLine(key: string, value: string): string {
   // fall back to double quotes with escaping
   const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
   return `${key}="${escaped}"`;
+}
+
+/**
+ * Adds __VARLOCK_ENV to a key-value record, splitting into chunks if needed.
+ * If the value fits in one secret: sets __VARLOCK_ENV directly.
+ * If too large: sets __VARLOCK_ENV_CHUNKS=N and __VARLOCK_ENV_0, __VARLOCK_ENV_1, etc.
+ */
+function addVarlockEnvToRecord(record: Record<string, string>, json: string) {
+  if (Buffer.byteLength(json) <= CF_SECRET_MAX_BYTES) {
+    record.__VARLOCK_ENV = json;
+    return;
+  }
+  const buf = Buffer.from(json);
+  const chunks: Array<string> = [];
+  for (let i = 0; i < buf.length; i += CF_SECRET_MAX_BYTES) {
+    chunks.push(buf.subarray(i, i + CF_SECRET_MAX_BYTES).toString());
+  }
+  record.__VARLOCK_ENV_CHUNKS = String(chunks.length);
+  for (let i = 0; i < chunks.length; i++) {
+    record[`__VARLOCK_ENV_${i}`] = chunks[i];
+  }
+  debug(`__VARLOCK_ENV split into ${chunks.length} chunks (${buf.length} bytes)`);
+}
+
+/**
+ * Adds __VARLOCK_ENV lines to a dotenv-format array, splitting into chunks if needed.
+ */
+function addVarlockEnvToLines(lines: Array<string>, json: string) {
+  if (Buffer.byteLength(json) <= CF_SECRET_MAX_BYTES) {
+    lines.push(formatEnvLine('__VARLOCK_ENV', json));
+    return;
+  }
+  const buf = Buffer.from(json);
+  const chunks: Array<string> = [];
+  for (let i = 0; i < buf.length; i += CF_SECRET_MAX_BYTES) {
+    chunks.push(buf.subarray(i, i + CF_SECRET_MAX_BYTES).toString());
+  }
+  lines.push(formatEnvLine('__VARLOCK_ENV_CHUNKS', String(chunks.length)));
+  for (let i = 0; i < chunks.length; i++) {
+    lines.push(formatEnvLine(`__VARLOCK_ENV_${i}`, chunks[i]));
+  }
+  debug(`__VARLOCK_ENV split into ${chunks.length} chunks (${buf.length} bytes)`);
 }
 
 function formatEnvFileContent(graph: ReturnType<typeof loadSerializedGraph>) {
@@ -178,7 +224,8 @@ function formatEnvFileContent(graph: ReturnType<typeof loadSerializedGraph>) {
     lines.push(formatEnvLine(key, strValue));
   }
   // include __VARLOCK_ENV for the varlock runtime (compact JSON, no newlines)
-  lines.push(formatEnvLine('__VARLOCK_ENV', graph.json));
+  // split into chunks if it exceeds CF's 5KB secret limit
+  addVarlockEnvToLines(lines, graph.json);
   return lines.join('\n');
 }
 
@@ -233,7 +280,8 @@ async function handleDeploy(args: Array<string>) {
       varFlags.push('--var', `${key}:${strValue}`);
     }
   }
-  secretsObj.__VARLOCK_ENV = loaded.json;
+  // split into chunks if it exceeds CF's 5KB secret limit
+  addVarlockEnvToRecord(secretsObj, loaded.json);
 
   const tmp = createServingTempFile('varlock-secrets');
   const content = JSON.stringify(secretsObj);
@@ -251,6 +299,10 @@ async function handleDeploy(args: Array<string>) {
     process.exit(1);
   });
 
+  const varCount = varFlags.length / 2; // each var is two entries: --var, KEY:VALUE
+  const secretCount = Object.keys(secretsObj).length - 1; // subtract __VARLOCK_ENV
+  console.log(`\x1b[36m✨ Deploying with varlock: ${varCount} var${varCount !== 1 ? 's' : ''}, ${secretCount} secret${secretCount !== 1 ? 's' : ''} 🧙🔒\x1b[0m`);
+
   let exitCode = 0;
   try {
     debug('deploy: spawning wrangler');
@@ -264,6 +316,7 @@ async function handleDeploy(args: Array<string>) {
 }
 
 async function handleTypes(args: Array<string>) {
+  debug('types: resolving env');
   let loaded;
   try {
     loaded = loadSerializedGraph();
@@ -273,6 +326,7 @@ async function handleTypes(args: Array<string>) {
     return;
   }
 
+  debug('types: resolved', Object.keys(loaded.graph.config).length, 'env vars');
   // generate a temp env file with just key names (no real values)
   // wrangler types reads this to discover which vars to include in the Env interface
   const envFileLines: Array<string> = [];
@@ -308,21 +362,26 @@ async function handleDev(args: Array<string>) {
     return;
   }
 
+  debug('dev: resolving env');
   let loaded;
   try {
     loaded = loadSerializedGraph();
-  } catch {
+  } catch (err) {
     console.error('Failed to resolve environment variables');
+    console.error(err);
     process.exitCode = 1;
     return;
   }
+  debug('dev: resolved', Object.keys(loaded.graph.config).length, 'env vars');
 
   const tmp = createServingTempFile('varlock-dev-env');
+  debug('dev: created FIFO at', tmp.filePath);
 
   let cachedContent = formatEnvFileContent(loaded);
   let wranglerChild: ReturnType<typeof spawn> | undefined;
   const watchers: Array<ReturnType<typeof watch>> = [];
 
+  debug('dev: starting FIFO serve');
   const handle = tmp.startServing(() => cachedContent);
 
   function cleanup() {
@@ -368,6 +427,7 @@ async function handleDev(args: Array<string>) {
       try {
         const w = watch(fullPath, () => scheduleRestart());
         watchers.push(w);
+        debug('dev: watching', fullPath);
       } catch {
         // file may not exist yet (e.g., optional env-specific file)
       }
@@ -379,6 +439,7 @@ async function handleDev(args: Array<string>) {
     // on env file changes, the watcher kills wrangler, which causes it to respawn
     // with the fresh data (FIFO serves fresh content, Windows file is refreshed)
     while (handle) {
+      debug('dev: spawning wrangler');
       wranglerChild = spawn('wrangler', [...args, '--env-file', tmp.filePath], {
         stdio: ['inherit', 'pipe', 'pipe'],
         shell: isWindows,
@@ -391,8 +452,9 @@ async function handleDev(args: Array<string>) {
       // - strip env var binding rows (other bindings like KV, D1 are preserved)
       const tmpBasename = tmp.filePath.split(/[/\\]/).pop()!;
       const loadCmd = `${getExecPrefix()}varlock load`;
+      const envVarCount = Object.keys(loaded.graph.config).length;
       let shownVarlockNotice = false;
-      const varlockNotice = '\x1b[36m✨ env vars managed by varlock 🧙🔒\x1b[0m\n'
+      const varlockNotice = `\x1b[36m✨ ${envVarCount} env var${envVarCount !== 1 ? 's' : ''} managed by varlock 🧙🔒\x1b[0m\n`
         + `\x1b[2m   run \`${loadCmd}\` to inspect\x1b[0m\n`;
       const rewriteOutput = (stream: NodeJS.WriteStream) => (chunk: Buffer) => {
         let str = chunk.toString();
@@ -434,9 +496,11 @@ async function handleDev(args: Array<string>) {
 
       // if wrangler exited on its own (not killed by us for restart), stop
       if (!restartTimeout) {
+        debug('dev: wrangler exited with code', exitCode);
         process.exitCode = exitCode;
         break;
       }
+      debug('dev: restarting wrangler due to env change');
     }
   } finally {
     cleanup();
