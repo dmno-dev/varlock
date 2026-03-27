@@ -1,5 +1,19 @@
 # varlock
 
+## 0.6.4
+
+### Patch Changes
+
+- [#490](https://github.com/dmno-dev/varlock/pull/490) [`2959826`](https://github.com/dmno-dev/varlock/commit/2959826c6c89c732a9318cfe037dd928813c50b7) - Fix process crash when config folder is not writable (e.g., in Kubernetes containers). The anonymous ID write failure now logs at debug level and continues gracefully instead of calling `gracefulExit(1)`.
+
+- [#472](https://github.com/dmno-dev/varlock/pull/472) [`0ca309d`](https://github.com/dmno-dev/varlock/commit/0ca309dea1ecabfc456d01679064f2862dd75809) - Fix: `varlock load --format shell` now properly escapes special characters in values.
+
+  Values are now wrapped in single quotes instead of double quotes, preventing shell injection via backticks, `$()` subshell syntax, and variable expansion (`$VAR`). Single quotes within values are safely escaped using the `'\''` sequence.
+
+- [#475](https://github.com/dmno-dev/varlock/pull/475) [`583c2f8`](https://github.com/dmno-dev/varlock/commit/583c2f8405db8c60915767990d12f9469e34ffcb) Thanks [@developerzeke](https://github.com/developerzeke)! - Add ts-nocheck directive to ts type-generation output
+
+- [#481](https://github.com/dmno-dev/varlock/pull/481) [`80c0475`](https://github.com/dmno-dev/varlock/commit/80c04751e5cd58bb185ddac50386490ea20479cd) - Fix: invalid load path errors now throw a `CliExitError` instead of logging and calling `gracefulExit`, for consistent error handling across the CLI.
+
 ## 0.6.3
 
 ### Patch Changes
