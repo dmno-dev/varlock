@@ -37,7 +37,7 @@
     "eslint-plugin-fix-disabled-rules": "^0.0.2",
     "eslint-plugin-jsonc": "^3.1.1",
     "eslint-plugin-n": "^17.24.0",
-    "eslint-stylistic-airbnb": "^2.0.1",
+    "eslint-stylistic-airbnb": "^3.0.0",
     "globals": "^17.3.0",
     "turbo": "^2.8.12",
     "typescript": "catalog:",
