@@ -1,6 +1,8 @@
 /* eslint-disable no-console */
 
-import { writeFileSync, unlinkSync, watch } from 'node:fs';
+import {
+  writeFileSync, unlinkSync, watch, existsSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
@@ -96,7 +98,9 @@ function createServingTempFile(prefix: string) {
       return {
         refresh() { writeFileSync(filePath, getContent()); },
         update(content: string) { writeFileSync(filePath, content); },
-        stop() {},
+        stop() {
+          /* noop on Windows */
+        },
       };
     }
 
@@ -123,7 +127,9 @@ function createServingTempFile(prefix: string) {
 
     return {
       /** Update content — not needed on Unix (FIFO reads getContent() each time via dev watcher) */
-      refresh() {},
+      refresh() {
+        /* noop — FIFO serves fresh content from getContent() */
+      },
       /** Kill and respawn the FIFO server with new content */
       update(content: string) {
         fifoServer.kill();
@@ -291,6 +297,17 @@ async function handleTypes(args: Array<string>) {
 }
 
 async function handleDev(args: Array<string>) {
+  // .dev.vars would conflict with our env injection via --env-file
+  if (existsSync('.dev.vars')) {
+    console.error([
+      'Error: a .dev.vars file was detected in your project.',
+      'This conflicts with varlock-wrangler which manages env vars automatically.',
+      'Remove .dev.vars and define your variables in .env files with a .env.schema instead.',
+    ].join('\n'));
+    process.exitCode = 1;
+    return;
+  }
+
   let loaded;
   try {
     loaded = loadSerializedGraph();
