@@ -1,169 +1,177 @@
 import type {
-    GpgChallengeRequest,
-    GpgChallengeResponse,
-    GpgMetadata,
-    GpgMetadataPrivateKey,
-    GpgSecret,
-    Resource,
-    UUIDv4String
+  FolderV5IndexAndView,
+  GpgChallengeRequest,
+  GpgChallengeResponse,
+  GpgMetadata,
+  GpgMetadataPrivateKey,
+  GpgSecret,
+  ApiResource,
+  ApiFolder,
+  FoldersResponse,
+  ResourceResponse,
+  ResourcesResponse,
+  MetadataKeyResponse,
+  ResourceV5IndexAndView,
+  LoginResponse,
+  LogoutResponse,
+  VerifyResponse,
+  RefreshResponse,
+  UUIDv4String,
 } from './types';
-import { ok } from '@oazapfts/runtime';
+import ky, { type KyInstance } from 'ky';
 import { randomUUID } from 'node:crypto';
-import { decodeMessage, encodeMessage, getPrivateKey, getPublicKey, PrivateKey } from './openpgp';
 import {
-    authJwtLogin,
-    authJwtLogout,
-    authJwtRefresh,
-    defaults,
-    indexMetadataKeys,
-    indexResources,
-    viewResource,
-    viewAuthVerify,
-    indexFolders,
-    type ResourceV5IndexAndView,
-    type FolderV4IndexAndView,
-    type FolderV5IndexAndView
-} from './generatedClientFunctions';
+  decodeMessage, encodeMessage, getPrivateKey, getPublicKey, PrivateKey,
+} from './openpgp';
 
-export type { SecretIndex, FolderV4IndexAndView, FolderV5IndexAndView } from './generatedClientFunctions';
+export class ApiClient {
+  private accessToken?: string;
+  private refreshToken?: string;
+  private tokenExpiry?: number;
+  private readonly baseUrl: string;
+  private api: KyInstance;
 
-export class ApiClient
-{
-    private accessToken?: string;
-    private refreshToken?: string;
-    private tokenExpiry?: number;
+  constructor(serverUrl: string) {
+    this.baseUrl = serverUrl;
+    this.api = ky.create({ prefixUrl: this.baseUrl });
+  }
 
-    constructor (serverUrl: string) {
-        defaults.baseUrl = serverUrl;
-        defaults.headers = { 'Content-Type': 'application/json' };
-    }
+  public get isAuthorized() {
+    return [
+      this.accessToken !== undefined,
+      this.refreshToken !== undefined,
+      this.tokenExpiry !== undefined && Date.now() <= this.tokenExpiry,
+    ].every(Boolean);
+  }
 
-    public get isAuthorized () {
-        return [
-            this.accessToken !== undefined,
-            this.refreshToken !== undefined,
-            this.tokenExpiry !== undefined && Date.now() <= this.tokenExpiry
-        ].every(Boolean);
-    }
+  private createAuthChallenge(duration: number): GpgChallengeRequest {
+    return {
+      version: '1.0.0',
+      domain: this.baseUrl,
+      verify_token: randomUUID() as UUIDv4String,
+      verify_token_expiry: Math.round((Date.now() + duration) / 1000),
+    };
+  }
 
-    private createAuthChallenge (duration: number): GpgChallengeRequest {
-        return {
-            version: '1.0.0',
-            domain: defaults.baseUrl,
-            verify_token: randomUUID() as UUIDv4String,
-            verify_token_expiry: Math.round((Date.now() + duration) / 1000)
+  public async login(userId: string, privateKey: PrivateKey, duration: number): Promise<void> {
+    try {
+      if (!this.isAuthorized) {
+        const
+          { body: publicKey } = await this.api.get('auth/verify.json').json<VerifyResponse>();
+        const pub = await getPublicKey(publicKey.keydata);
+        const authChallenge = this.createAuthChallenge(duration);
+        const challenge = await encodeMessage(authChallenge, pub, privateKey);
+        const loginRequest = { user_id: userId, challenge };
+        const { body } = await this.api.post('auth/jwt/login.json', { json: loginRequest }).json<LoginResponse>();
+        const challengeResponse = await decodeMessage(body.challenge, privateKey) as GpgChallengeResponse;
+        const { verify_token: verifyToken, access_token: accessToken, refresh_token: refreshToken } = challengeResponse;
+
+        if (accessToken && refreshToken && verifyToken === authChallenge.verify_token) {
+          this.accessToken = accessToken;
+          this.refreshToken = refreshToken;
+          this.tokenExpiry = authChallenge.verify_token_expiry * 1000;
         }
+      } else {
+        const
+          request = { user_id: userId, refresh_token: this.refreshToken! };
+        const { body } = await this.api.post('auth/jwt/refresh.json', { json: request }).json<RefreshResponse>();
+
+        this.accessToken = body.access_token;
+        this.tokenExpiry = Date.now() + duration;
+      }
+    } catch (err) {
+      this.accessToken = undefined;
+      this.refreshToken = undefined;
+      this.tokenExpiry = undefined;
+    } finally {
+      if (this.isAuthorized) {
+        this.api = this.api.extend({ headers: { Authorization: `Bearer ${this.accessToken}` } });
+      }
     }
+  }
 
-    public async login (userId: string, privateKey: PrivateKey, duration: number): Promise<void> {
-        try {
-            if (!this.isAuthorized) {
-                const
-                    { body: publicKey } = await ok(viewAuthVerify()),
-                    pub = await getPublicKey(publicKey.keydata),
-                    authChallenge = this.createAuthChallenge(duration),
-                    challenge = await encodeMessage(authChallenge, pub, privateKey),
-                    { body: auth } = await ok(authJwtLogin({ user_id: userId, challenge })),
-                    challengeResponse = await decodeMessage(auth.challenge, privateKey) as GpgChallengeResponse,
-                    { verify_token, access_token, refresh_token } = challengeResponse;
+  public async logout(): Promise<void> {
+    try {
+      if (this.isAuthorized) {
+        const request = { refresh_token: this.refreshToken };
 
-                if (access_token && refresh_token && verify_token === authChallenge.verify_token) {
-                    this.accessToken = access_token;
-                    this.refreshToken = refresh_token;
-                    this.tokenExpiry = authChallenge.verify_token_expiry * 1000;
-                }
-            } else {
-                const { body: auth } = await ok(authJwtRefresh({ user_id: userId, refresh_token: this.refreshToken! }));
+        await this.api.post('auth/jwt/logout.json', { json: request }).json<LogoutResponse>();
+      }
+      this.accessToken = undefined;
+      this.refreshToken = undefined;
+      this.tokenExpiry = undefined;
+    } catch (err) {
+      // do nothing
+    }
+  }
 
-                this.accessToken = auth.access_token;
-                this.tokenExpiry = Date.now() + duration;
+  public async getUserMetadataKeys(userId: string, privateKey: PrivateKey): Promise<Map<string, PrivateKey>> {
+    const keyMap = new Map<string, PrivateKey>();
+
+    try {
+      const
+        { origin } = new URL(this.baseUrl);
+      const searchParams = { 'filter[deleted]': 0, 'filter[expired]': 0, 'contain[metadata_private_keys]': 1 };
+      const { body } = await this.api.get('metadata/keys.json', { searchParams }).json<MetadataKeyResponse>();
+
+      for await (const { metadata_private_keys: metadataPrivateKeys } of body) {
+        for await (const { metadata_key_id: metadataKeyId, user_id: _userId, data } of metadataPrivateKeys ?? []) {
+          if (_userId === userId) {
+            const { domain, armored_key: armoredKey } = await decodeMessage(data, privateKey) as GpgMetadataPrivateKey;
+
+            if (domain === origin) {
+              keyMap.set(metadataKeyId, await getPrivateKey(armoredKey));
             }
-        } catch (err) {
-            this.accessToken = undefined;
-            this.refreshToken = undefined;
-            this.tokenExpiry = undefined;
-        } finally {
-            if (this.isAuthorized) {
-                defaults.headers = { ...defaults.headers, 'Authorization': `Bearer ${ this.accessToken }` };
-            }
+          }
         }
+      }
+    } catch (err) {
+      // do nothing
     }
+    return keyMap;
+  }
 
-    public async logout (): Promise<void> {
-        try {
-            if (this.isAuthorized) {
-                await ok(authJwtLogout({ refresh_token: this.refreshToken }));
-            }
-            this.accessToken = undefined;
-            this.refreshToken = undefined;
-            this.tokenExpiry = undefined;
-        } catch (err) {
-            // do nothing
-        }
-    }
+  public async getResource(resourceId: UUIDv4String): Promise<ApiResource> {
+    resourceId = encodeURIComponent(resourceId) as UUIDv4String;
 
-    public async getUserMetadataKeys (userId: string, privateKey: PrivateKey): Promise<Map<string, PrivateKey>> {
-        const keyMap = new Map<string, PrivateKey>();
+    const
+      searchParams = { 'contain[secret]': 1 };
+    const res = await this.api.get(`resources/${resourceId}.json`, { searchParams }).json<ResourceResponse>();
 
-        try {
-            const
-                { origin } = new URL(defaults.baseUrl),
-                keys = await ok(indexMetadataKeys({ filterDeleted: 0, filterExpired: 0, containMetadataPrivateKeys: 1 }));
+    return res.body;
+  }
 
-            keys.body.forEach(({ metadata_private_keys }) => {
-                (metadata_private_keys ?? []).forEach(async ({ metadata_key_id, user_id, data }) => {
-                    if (user_id === userId) {
-                        const { domain, armored_key } = await decodeMessage(data, privateKey) as GpgMetadataPrivateKey;
+  public async getResources(folderId: UUIDv4String): Promise<Array<ApiResource>> {
+    const
+      searchParams = { 'contain[secret]': 1, 'filter[has-parent]': folderId };
+    const res = await this.api.get('resources.json', { searchParams }).json<ResourcesResponse>();
 
-                        if (domain === origin) {
-                            keyMap.set(metadata_key_id, await getPrivateKey(armored_key));
-                        }
-                    }
-                });
-            });
-            return keyMap;
-        } catch (err) {
-            return keyMap;
-        } finally {
-            keyMap.clear();
-        }
-    }
+    return res.body;
+  }
 
-    public async getResource (resourceId: UUIDv4String): Promise<Resource> {
-        const { body } = await ok(viewResource(resourceId, { containSecret: 1 }));
+  public async getFolders(): Promise<Array<ApiFolder>> {
+    const res = await this.api.get('folders.json').json<FoldersResponse>();
 
-        return body;
-    }
+    return res.body;
+  }
 
-    public async getResources (folderId: UUIDv4String): Promise<Resource[]> {
-        const { body } = await ok(indexResources({ containSecret: 1, filterHasParent: folderId }));
+  public isResourceV5IndexAndView(resource: any): resource is ResourceV5IndexAndView {
+    const { metadata, metadata_key_id: keyId, metadata_key_type: keyType } = resource as ResourceV5IndexAndView;
 
-        return body;
-    }
+    return !!(metadata && keyId && keyType);
+  }
 
-    public isResourceV5IndexAndView (resource: any): resource is ResourceV5IndexAndView {
-        const { metadata, metadata_key_id, metadata_key_type } = resource as ResourceV5IndexAndView;
+  public isFolderV5IndexAndView(folder: any): folder is FolderV5IndexAndView {
+    const { metadata, metadata_key_id: keyId, metadata_key_type: keyType } = folder as FolderV5IndexAndView;
 
-        return metadata !== undefined && metadata_key_id !== undefined && metadata_key_type !== undefined;
-    }
+    return !!(metadata && keyId && keyType);
+  }
 
-    public isFolderV5IndexAndView (folder: any): folder is FolderV5IndexAndView {
-        const { metadata, metadata_key_id, metadata_key_type } = folder as FolderV5IndexAndView;
+  public async decodeMetadata(metadata: string, metakey: PrivateKey): Promise<GpgMetadata> {
+    return await decodeMessage(metadata, metakey) as GpgMetadata;
+  }
 
-        return !!(metadata && metadata_key_id && metadata_key_type);
-    }
-
-    public async decodeMetadata (metadata: string, metakey: PrivateKey): Promise<GpgMetadata> {
-        return await decodeMessage(metadata, metakey) as GpgMetadata;
-    }
-
-    public async decodeSecret (secret: string, privateKey: PrivateKey): Promise<GpgSecret> {
-        return await decodeMessage(secret, privateKey) as GpgSecret;
-    }
-
-    public async getFolders (): Promise<(FolderV4IndexAndView | FolderV5IndexAndView)[]> {
-        const { body } = await ok(indexFolders());
-
-        return body;
-    }
+  public async decodeSecret(secret: string, privateKey: PrivateKey): Promise<GpgSecret> {
+    return await decodeMessage(secret, privateKey) as GpgSecret;
+  }
 }

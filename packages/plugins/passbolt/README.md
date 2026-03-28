@@ -37,7 +37,7 @@ After registering the plugin, you must initialize it with the `@initPassbolt` ro
 
 ### Basic Setup
 
-You will need to provide your privateKey with passphrase, userId and the url to your passbolt instance:
+You will need to provide your Passbolt account kit and its passphrase:
 
 ```env-spec
 # @plugin(@varlock/passbolt-plugin)
@@ -183,14 +183,14 @@ Fetch all secrets from a Passbolt folder.
 
 ---
 
-#### `passboltFolder()`
+#### `passboltCustomFields()`
 
 Fetch all secrets from a Passbolt resource with custom fields.
 
 **Signatures:**
 
 - `passboltCustomFields(resourceId)` - Fetch by resource UUID from default instance
-- `passboltFolder(instanceId, resourceId)` - Fetch from a specific instance
+- `passboltCustomFields(instanceId, resourceId)` - Fetch from a specific instance
 
 **Resource ID Format:**
 

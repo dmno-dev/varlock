@@ -45,12 +45,12 @@
     "varlock": "workspace:^"
   },
   "dependencies": {
-    "@oazapfts/runtime": "1.2.0",
     "openpgp": "6.3.0"
   },
   "devDependencies": {
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
+    "ky": "catalog:",
     "tsup": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"
