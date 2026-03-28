@@ -79,9 +79,7 @@ For headless environments, provide service device keys:
 # @initDashlane(serviceDeviceKeys=$DASHLANE_SERVICE_DEVICE_KEYS)
 ```
 
-The `DASHLANE_SERVICE_DEVICE_KEYS` value is a `dls_*` credential string output by `dcli devices register "device-name"`. Store it in your `.env.local` or CI secrets.
-
-To register a device:
+The `$DASHLANE_SERVICE_DEVICE_KEYS` reference is resolved from the environment at runtime (e.g., from `.env.local` or a CI environment variable). The value itself is a `dls_*` credential string output by device registration:
 
 ```bash
 dcli devices register "my-ci-server"
