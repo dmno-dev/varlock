@@ -7,14 +7,18 @@ import {
 } from 'node:path';
 
 const FRAMEWORK_TESTS_DIR = resolve(import.meta.dirname, '..');
-import { describe, test, beforeAll } from 'vitest';
+import {
+  describe, test, beforeAll, expect,
+} from 'vitest';
 import { runCommand } from './command-runner.js';
+import { runDevServer as runDevServerProcess } from './dev-server.js';
 import { packPackages, getPackedDeps } from './pack.js';
 import {
   assertBuildResult, assertOutput, assertFiles,
 } from './assertions.js';
 import type {
-  TestFixtureConfig, TestScenario, BuildResult, TemplateFileMap, TemplateFileSource,
+  TestFixtureConfig, TestScenario, DevServerScenario, DevServerResult,
+  BuildResult, TemplateFileMap, TemplateFileSource,
 } from './types.js';
 
 /** Add `export const runtime = 'edge'` after directives to all .ts/.tsx template files */
@@ -63,6 +67,14 @@ function withSkipOrOnly<T extends { only: any; skip: any }>(
   if (opts.only) return fn.only;
   if (opts.skip) return fn.skip;
   return fn;
+}
+
+/** Get the exec prefix for running binaries from node_modules/.bin */
+function execPrefix(pm: string): string {
+  if (pm === 'bun') return 'bunx';
+  if (pm === 'yarn') return 'yarn exec';
+  if (pm === 'npm') return 'npx';
+  return `${pm} exec`;
 }
 
 export class FrameworkTestEnv {
@@ -175,12 +187,9 @@ export class FrameworkTestEnv {
   }
 
   /**
-   * Run a test scenario: write files, build, return result.
+   * Apply template files and inline files to the test project directory.
    */
-  async runScenario(scenario: TestScenario): Promise<BuildResult> {
-    // Clean previous build artifacts
-    this.cleanBuildArtifacts();
-
+  private applyFiles(scenario: Pick<TestScenario, 'templateFiles' | 'files'>): void {
     // Copy template files: fixture defaults merged with scenario overrides
     const templateFiles = {
       ...this.config.templateFiles,
@@ -222,10 +231,20 @@ export class FrameworkTestEnv {
         writeFileSync(destPath, file.content);
       }
     }
+  }
+
+  /**
+   * Run a test scenario: write files, build, return result.
+   */
+  async runScenario(scenario: TestScenario): Promise<BuildResult> {
+    // Clean previous build artifacts
+    this.cleanBuildArtifacts();
+
+    this.applyFiles(scenario);
 
     // Run command, auto-prefixed with package manager exec
     const pm = this.config.packageManager ?? 'pnpm';
-    const buildCmd = `${pm} exec ${scenario.command}`;
+    const buildCmd = `${execPrefix(pm)} ${scenario.command}`;
 
     return runCommand(this.dir, buildCmd, {
       env: scenario.env,
@@ -293,10 +312,68 @@ export class FrameworkTestEnv {
   }
 
   /**
+   * Run a dev server scenario: write files, start server, make requests, return result.
+   */
+  async runDevServer(scenario: DevServerScenario): Promise<DevServerResult> {
+    this.cleanBuildArtifacts();
+    this.applyFiles(scenario);
+
+    const pm = this.config.packageManager ?? 'pnpm';
+    const command = `${execPrefix(pm)} ${scenario.command}`;
+
+    return runDevServerProcess(this.dir, command, scenario);
+  }
+
+  /**
+   * Create a describe block that starts a dev server once and runs each assertion as a separate test.
+   */
+  describeDevScenario(name: string, scenario: DevServerScenario): void {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const env = this;
+    withSkipOrOnly(describe, scenario)(name, () => {
+      const ctx: { result?: DevServerResult } = {};
+      beforeAll(async () => {
+        ctx.result = await env.runDevServer(scenario);
+      }, scenario.timeout ?? 60_000);
+
+      test('dev server starts successfully', () => {
+        expect(ctx.result!.success, [
+          'Dev server failed to start',
+          ctx.result!.error ? `\nError: ${ctx.result!.error}` : '',
+          ctx.result!.stderr ? `\nSTDERR:\n${ctx.result!.stderr.slice(0, 2000)}` : '',
+        ].filter(Boolean).join('')).toBe(true);
+      });
+
+      for (let i = 0; i < scenario.requests.length; i++) {
+        const req = scenario.requests[i];
+        test(`GET ${req.path} returns expected response`, () => {
+          const resp = ctx.result!.responses[i];
+          expect(resp, `No response for request ${i} (GET ${req.path})`).toBeDefined();
+          const expectedStatus = req.expectedStatus ?? 200;
+          expect(resp.status, `Expected status ${expectedStatus} for GET ${req.path}, got ${resp.status}`).toBe(expectedStatus);
+          for (const str of req.bodyAssertions?.shouldContain ?? []) {
+            expect(resp.body, `Response body should contain "${str}"`).toContain(str);
+          }
+          for (const str of req.bodyAssertions?.shouldNotContain ?? []) {
+            expect(resp.body, `Response body should NOT contain "${str}"`).not.toContain(str);
+          }
+        });
+      }
+
+      for (const assertion of scenario.outputAssertions ?? []) {
+        const testName = assertion.description ?? 'output assertions pass';
+        withSkipOrOnly(test, assertion)(testName, () => {
+          assertOutput(ctx.result!, assertion);
+        });
+      }
+    });
+  }
+
+  /**
    * Clean build artifacts between scenarios.
    */
   cleanBuildArtifacts(): void {
-    const artifactDirs = ['.next', 'out', 'dist', '.turbo'];
+    const artifactDirs = ['.next', 'out', 'dist', '.turbo', '.wrangler'];
     for (const dir of artifactDirs) {
       const fullPath = join(this.dir, dir);
       if (existsSync(fullPath)) {

@@ -74,7 +74,7 @@ function createServingTempFile(prefix: string) {
   const filePath = tmpPath(prefix);
 
   if (!isWindows) {
-    execSync(`mkfifo "${filePath}"`);
+    execSync(`mkfifo -m 0600 "${filePath}"`);
   }
 
   function cleanup() {
@@ -96,7 +96,6 @@ function createServingTempFile(prefix: string) {
     if (isWindows) {
       writeFileSync(filePath, getContent());
       return {
-        refresh() { writeFileSync(filePath, getContent()); },
         update(content: string) { writeFileSync(filePath, content); },
         stop() {
           /* noop on Windows */
@@ -126,10 +125,6 @@ function createServingTempFile(prefix: string) {
     fifoServer.stdin!.end();
 
     return {
-      /** Update content — not needed on Unix (FIFO reads getContent() each time via dev watcher) */
-      refresh() {
-        /* noop — FIFO serves fresh content from getContent() */
-      },
       /** Kill and respawn the FIFO server with new content */
       update(content: string) {
         fifoServer.kill();
@@ -300,7 +295,8 @@ async function handleDeploy(args: Array<string>) {
   });
 
   const varCount = varFlags.length / 2; // each var is two entries: --var, KEY:VALUE
-  const secretCount = Object.keys(secretsObj).length - 1; // subtract __VARLOCK_ENV
+  // count only user secrets (exclude __VARLOCK_ENV and chunk keys)
+  const secretCount = Object.keys(secretsObj).filter((k) => !k.startsWith('__VARLOCK_ENV')).length;
   console.log(`\x1b[36m✨ Deploying with varlock: ${varCount} var${varCount !== 1 ? 's' : ''}, ${secretCount} secret${secretCount !== 1 ? 's' : ''} 🧙🔒\x1b[0m`);
 
   let exitCode = 0;
@@ -438,7 +434,7 @@ async function handleDev(args: Array<string>) {
     // outer loop: (re)spawn wrangler each time it exits
     // on env file changes, the watcher kills wrangler, which causes it to respawn
     // with the fresh data (FIFO serves fresh content, Windows file is refreshed)
-    while (handle) {
+    while (true) {
       debug('dev: spawning wrangler');
       wranglerChild = spawn('wrangler', [...args, '--env-file', tmp.filePath], {
         stdio: ['inherit', 'pipe', 'pipe'],

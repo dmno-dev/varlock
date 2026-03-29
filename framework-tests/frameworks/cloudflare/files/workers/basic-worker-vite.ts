@@ -1,0 +1,19 @@
+import { ENV } from 'varlock/env';
+
+export default {
+  async fetch(_request: Request, env: Record<string, string>): Promise<Response> {
+    // this should be redacted in console output
+    console.log('secret-log-test::', ENV.SECRET_KEY);
+
+    return new Response([
+      // varlock ENV proxy - non-sensitive vars
+      `public_var::${ENV.PUBLIC_VAR}`,
+      `api_url::${ENV.API_URL}`,
+      // varlock ENV proxy - sensitive var (check accessible without leaking value)
+      `has_sensitive::${ENV.SECRET_KEY ? 'yes' : 'no'}`,
+      // cloudflare native env access
+      `native_public_var::${env.PUBLIC_VAR}`,
+      `native_has_secret::${env.SECRET_KEY ? 'yes' : 'no'}`,
+    ].join('\n'));
+  },
+};

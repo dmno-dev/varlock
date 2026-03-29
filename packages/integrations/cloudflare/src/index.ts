@@ -1,4 +1,4 @@
-import { varlockVitePlugin, resolvedEnvVars } from '@varlock/vite-integration';
+import { varlockVitePlugin } from '@varlock/vite-integration';
 import { execSyncVarlock } from 'varlock/exec-sync-varlock';
 import { cloudflare } from '@cloudflare/vite-plugin';
 import type { Plugin } from 'vite';
@@ -52,10 +52,17 @@ export function varlockCloudflareVitePlugin(
     // only inject vars in dev — production gets them via varlock-wrangler deploy
     if (!isDevMode) return userResult;
 
-    // inject resolved vars into miniflare bindings
-    const vars = resolvedEnvVars();
-    // also inject __VARLOCK_ENV so initVarlockEnv() can load the full graph
+    // single CLI call to get the full graph, then extract individual vars from it
     const serializedGraph = execSyncVarlock('load --format json-full --compact');
+    const graph = JSON.parse(serializedGraph) as {
+      config: Record<string, { value: unknown }>,
+    };
+    const vars: Record<string, string> = {};
+    for (const key in graph.config) {
+      const { value } = graph.config[key];
+      if (value === undefined) continue;
+      vars[key] = typeof value === 'string' ? value : JSON.stringify(value);
+    }
     return {
       ...userResult,
       vars: {
@@ -71,21 +78,23 @@ export function varlockCloudflareVitePlugin(
       // read the resolved env from Cloudflare's secret bindings at runtime
       // the __VARLOCK_ENV secret is uploaded via `varlock-wrangler deploy`
       // it may be a single binding or split into chunks if >5KB
-      "import { env as __cfEnv } from 'cloudflare:workers';",
-      '{',
-      '  let __varlockEnvJson;',
-      '  if (__cfEnv?.__VARLOCK_ENV) {',
-      '    __varlockEnvJson = __cfEnv.__VARLOCK_ENV;',
-      '  } else if (__cfEnv?.__VARLOCK_ENV_CHUNKS) {',
-      '    const n = parseInt(__cfEnv.__VARLOCK_ENV_CHUNKS, 10);',
-      '    const parts = [];',
-      '    for (let i = 0; i < n; i++) parts.push(__cfEnv["__VARLOCK_ENV_" + i]);',
-      '    __varlockEnvJson = parts.join("");',
-      '  }',
-      '  if (__varlockEnvJson) {',
-      '    globalThis.__varlockLoadedEnv = JSON.parse(__varlockEnvJson);',
-      '  }',
-      '}',
+      `
+import { env as __cfEnv } from 'cloudflare:workers';
+{
+  let __varlockEnvJson;
+  if (__cfEnv?.__VARLOCK_ENV) {
+    __varlockEnvJson = __cfEnv.__VARLOCK_ENV;
+  } else if (__cfEnv?.__VARLOCK_ENV_CHUNKS) {
+    const n = parseInt(__cfEnv.__VARLOCK_ENV_CHUNKS, 10);
+    const parts = [];
+    for (let i = 0; i < n; i++) parts.push(__cfEnv["__VARLOCK_ENV_" + i]);
+    __varlockEnvJson = parts.join("");
+  }
+  if (__varlockEnvJson) {
+    globalThis.__varlockLoadedEnv = JSON.parse(__varlockEnvJson);
+  }
+}
+`,
     ],
   });
 

@@ -81,30 +81,11 @@ function reloadConfig() {
 // we run this right away so the globals get injected into the vite.config file
 reloadConfig();
 
-/**
- * Returns all resolved env vars as a flat string record, doing a fresh resolve each time.
- * Uses the original (pre-varlock) process.env to avoid inheriting stale injected vars.
- *
- * Useful for injecting vars into platform-specific dev tools (e.g., miniflare bindings).
- */
-export function resolvedEnvVars(): Record<string, string> {
-  const result = execSyncVarlock('load --format json', { env: originalProcessEnv });
-  const resolved = JSON.parse(result) as Record<string, unknown>;
-  const vars: Record<string, string> = {};
-  for (const key in resolved) {
-    const value = resolved[key];
-    if (value === undefined) continue;
-    vars[key] = typeof value === 'string' ? value : JSON.stringify(value);
-  }
-  return vars;
-}
 
 export interface VarlockVitePluginOptions {
   /** controls if/how varlock init code is injected into the built SSR application code */
   ssrInjectMode?: 'auto-load' | 'init-only' | 'resolved-env',
-  /** override ssrInjectMode during dev (e.g., use 'resolved-env' in dev when build uses custom entry code) */
-  ssrInjectModeDev?: 'auto-load' | 'init-only' | 'resolved-env',
-  /** extra code lines to inject at the SSR entry point, before varlock init calls (build only, skipped in dev) */
+  /** extra code lines to inject at the SSR entry point, before varlock init calls */
   ssrEntryCode?: Array<string>,
   /** set to true for edge runtimes that don't have node:http (skips patchGlobalServerResponse) */
   ssrEdgeRuntime?: boolean,
@@ -237,11 +218,7 @@ See https://varlock.dev/integrations/vite/ for more details.
         // and code to load our env, or the already resolved env
         // TODO: keep an eye on environments API, as single ssr flag may be phased out
         if (options?.ssr) {
-          // allow overriding inject mode during dev (e.g., use resolved-env in dev
-          // when build uses platform-specific entry code like cloudflare:workers)
-          const ssrInjectMode = isDevEnv
-            ? (vitePluginOptions?.ssrInjectModeDev ?? vitePluginOptions?.ssrInjectMode ?? 'init-only')
-            : (vitePluginOptions?.ssrInjectMode ?? 'init-only');
+          const ssrInjectMode = vitePluginOptions?.ssrInjectMode ?? 'init-only';
           const isEdgeRuntime = vitePluginOptions?.ssrEdgeRuntime ?? false;
 
           debug('ssrInjectMode =', ssrInjectMode, 'isDev =', isDevEnv);
@@ -254,8 +231,8 @@ See https://varlock.dev/integrations/vite/ for more details.
               injectCode.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
             }
 
-            // inject custom entry code from integrations (build only, skipped in dev)
-            if (!isDevEnv && vitePluginOptions?.ssrEntryCode?.length) {
+            // inject custom entry code from integrations
+            if (vitePluginOptions?.ssrEntryCode?.length) {
               injectCode.push(...vitePluginOptions.ssrEntryCode);
             }
 

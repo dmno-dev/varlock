@@ -77,11 +77,9 @@
       "bin": {
         "varlock-wrangler": "./bin/varlock-wrangler.js",
       },
-      "dependencies": {
-        "@varlock/vite-integration": "workspace:^",
-      },
       "devDependencies": {
         "@types/node": "catalog:",
+        "@varlock/vite-integration": "workspace:^",
         "tsup": "catalog:",
         "varlock": "workspace:^",
         "vite": "^7.1.0",
