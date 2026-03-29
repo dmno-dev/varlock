@@ -65,5 +65,7 @@ describe('Vanilla Node.js (dotenv drop-in)', () => {
 
     // Error diagnostic messages must NOT appear on stdout (they should be on stderr only)
     expect(result.stdout).not.toContain('🚨');
+    // And the error must actually appear on stderr
+    expect(result.stderr).toContain('🚨');
   });
 });
