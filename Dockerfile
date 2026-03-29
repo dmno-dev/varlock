@@ -29,8 +29,9 @@ RUN if [ -n "$VARLOCK_ARCH" ]; then ARCH="$VARLOCK_ARCH"; \
 # Final stage - minimal image with just the binary
 FROM alpine:3.19
 
-# Install runtime dependencies if needed
-RUN apk add --no-cache ca-certificates
+# Install runtime dependencies
+# libstdc++ and libgcc are required by the bun-compiled varlock binary
+RUN apk add --no-cache ca-certificates libstdc++
 
 # Copy the varlock binary from builder stage
 COPY --from=builder /varlock /usr/local/bin/varlock
