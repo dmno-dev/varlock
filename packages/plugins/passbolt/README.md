@@ -87,7 +87,7 @@ Use `passboltFolder()` with `@setValuesBulk` to load all secrets from a folder a
 ```env-spec title=".env.schema"
 # @plugin(@varlock/passbolt-plugin)
 # @initPassbolt(accountKit=$PB_ACCOUNT_KIT, passphrase=$PB_PASSPHRASE)
-# @setValuesBulk(passboltFolder("CI\/CD/DEV"))
+# @setValuesBulk(passboltFolder("Database/Dev"))
 # ---
 # @type=passboltAccountKit @sensitive
 PB_ACCOUNT_KIT=
