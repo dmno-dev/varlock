@@ -279,6 +279,57 @@ describe('@import', () => {
       expectNotInSchema: ['IMPORT2_ITEM'],
     }));
 
+    test('import with enabled reads value from .env file (not schema default)', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import1, enabled=eq($AUTH_MODE, "azure"))
+          # @import(./.env.import2, enabled=eq($AUTH_MODE, "none"))
+          # ---
+          # @type=enum(none, azure)
+          AUTH_MODE=none
+        `,
+        '.env': outdent`
+          AUTH_MODE=azure
+        `,
+        '.env.import1': outdent`
+          IMPORT1_ITEM=azure-value
+        `,
+        '.env.import2': outdent`
+          IMPORT2_ITEM=none-value
+        `,
+      },
+      expectValues: {
+        AUTH_MODE: 'azure',
+        IMPORT1_ITEM: 'azure-value',
+      },
+      expectNotInSchema: ['IMPORT2_ITEM'],
+    }));
+
+    test('import with enabled reads value from .env.local file (not schema default)', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import1, enabled=eq($AUTH_MODE, "azure"))
+          # @import(./.env.import2, enabled=eq($AUTH_MODE, "none"))
+          # ---
+          AUTH_MODE=none
+        `,
+        '.env.local': outdent`
+          AUTH_MODE=azure
+        `,
+        '.env.import1': outdent`
+          IMPORT1_ITEM=azure-value
+        `,
+        '.env.import2': outdent`
+          IMPORT2_ITEM=none-value
+        `,
+      },
+      expectValues: {
+        AUTH_MODE: 'azure',
+        IMPORT1_ITEM: 'azure-value',
+      },
+      expectNotInSchema: ['IMPORT2_ITEM'],
+    }));
+
     test('import with enabled can import specific keys', envFilesTest({
       files: {
         '.env.schema': outdent`
