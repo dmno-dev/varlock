@@ -35,17 +35,25 @@ export class DashlaneManager {
       throw new SchemaError(`Instance with id "${id}" already initialized`);
     }
 
-    if (objArgs?.skipSync && !objArgs.skipSync.isStatic) {
-      throw new SchemaError('Expected skipSync to be static');
+    if (objArgs?.autoSync && !objArgs.autoSync.isStatic) {
+      throw new SchemaError('Expected autoSync to be static');
     }
-    const skipSync = objArgs?.skipSync?.staticValue === true
-      || objArgs?.skipSync?.staticValue === 'true';
+    const autoSync = objArgs?.autoSync?.staticValue === true
+      || objArgs?.autoSync?.staticValue === 'true';
+
+    if (objArgs?.lockOnExit && !objArgs.lockOnExit.isStatic) {
+      throw new SchemaError('Expected lockOnExit to be static');
+    }
+    const lockOnExit = objArgs?.lockOnExit
+      ? (objArgs.lockOnExit.staticValue === true || objArgs.lockOnExit.staticValue === 'true')
+      : undefined;
 
     this.instances[id] = new DashlanePluginInstance(id, this.errors.ResolutionError);
 
     return {
       id,
-      skipSync,
+      autoSync,
+      lockOnExit,
       serviceDeviceKeysResolver: objArgs?.serviceDeviceKeys,
     };
   }
@@ -54,9 +62,10 @@ export class DashlaneManager {
    * Execute phase of @initDashlane -- resolves dynamic args, configures instance.
    * Called at resolution time.
    */
-  async executeInit({ id, skipSync, serviceDeviceKeysResolver }: {
+  async executeInit({ id, autoSync, lockOnExit, serviceDeviceKeysResolver }: {
     id: string;
-    skipSync?: boolean;
+    autoSync?: boolean;
+    lockOnExit?: boolean;
     serviceDeviceKeysResolver?: ArgValue;
   }) {
     const serviceDeviceKeys = serviceDeviceKeysResolver
@@ -67,8 +76,16 @@ export class DashlaneManager {
       serviceDeviceKeys && typeof serviceDeviceKeys === 'string'
         ? serviceDeviceKeys
         : undefined,
-      skipSync,
+      { autoSync, lockOnExit },
     );
+  }
+
+  private exitHandlerRegistered = false;
+
+  registerExitHandler(): void {
+    if (this.exitHandlerRegistered) return;
+    this.exitHandlerRegistered = true;
+    process.on('exit', () => this.lockAllSync());
   }
 
   lockAllSync(): void {

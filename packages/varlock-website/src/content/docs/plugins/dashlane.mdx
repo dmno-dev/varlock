@@ -18,8 +18,8 @@ It shells out to the official Dashlane CLI (`dcli`) to resolve secret references
 
 - **Secret references via `dl://` URIs** (e.g. `dl://<id>/password`)
 - **Headless CI/CD support** via service device keys for non-interactive authentication
-- **Automatic vault sync** before reads (opt out with `skipSync`)
-- **Automatic vault locking** after resolution on process exit
+- **Optional vault sync** before reads with `autoSync`
+- **Automatic vault locking** on process exit in headless mode (configurable via `lockOnExit`)
 - **In-session caching** per resolution run
 - **Multiple instances** for accessing different Dashlane accounts
 - **Helpful error messages** with resolution tips
@@ -58,26 +58,26 @@ The plugin supports two authentication modes:
 # @initDashlane(serviceDeviceKeys=$DASHLANE_SERVICE_DEVICE_KEYS)
 # ---
 
-# @type(dashlaneDeviceKeys) @sensitive
+# @type(dashlaneDeviceKeys)
 DASHLANE_SERVICE_DEVICE_KEYS=
 ```
 
-The plugin automatically locks the vault when the process exits. This is best-effort and may not run in all exit scenarios (e.g. `SIGKILL`).
+In headless mode (when `serviceDeviceKeys` is provided), the plugin automatically locks the vault when the process exits. This is best-effort and may not run in all exit scenarios (e.g. `SIGKILL`). You can control this behavior with the `lockOnExit` param.
 
 :::caution[Lock your vault]
-Always verify your vault is locked after use by running `dcli lock`. While the plugin attempts to lock automatically on exit, you should not rely solely on this for security.
+In interactive mode, the vault is **not** locked automatically on exit (to avoid requiring master password re-entry during live-reload). Always run `dcli lock` when you are done working. You can override this by setting `lockOnExit=true`.
 :::
 
 ### Vault sync
 
-The plugin runs `dcli sync` once before the first secret read to ensure your vault is up to date. Sync failures are non-blocking -- if the sync fails (e.g. network issues), the plugin still reads from the existing local vault.
-
-To disable automatic sync (e.g. for performance in environments where the vault is already fresh), set `skipSync=true`:
+The plugin does not sync the vault by default. To run `dcli sync` once before the first secret read, set `autoSync=true`:
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/dashlane-plugin)
-# @initDashlane(serviceDeviceKeys=$DASHLANE_SERVICE_DEVICE_KEYS, skipSync=true)
+# @initDashlane(serviceDeviceKeys=$DASHLANE_SERVICE_DEVICE_KEYS, autoSync=true)
 ```
+
+Sync failures are non-blocking -- if the sync fails (e.g. network issues), the plugin still reads from the existing local vault.
 
 ### Multiple instances
 
@@ -130,14 +130,15 @@ Initialize a Dashlane plugin instance for `dashlane()` resolver.
 
 - `id` (optional): instance identifier for multiple instances
 - `serviceDeviceKeys` (optional): service device keys for headless authentication
-- `skipSync` (optional): if `true`, disables the automatic `dcli sync` before the first read
+- `autoSync` (optional): if `true`, runs `dcli sync` once before the first read
+- `lockOnExit` (optional): lock the vault on process exit. Defaults to `true` in headless mode, `false` in interactive mode.
 
 ```env-spec "@initDashlane"
 # Interactive (local dev)
 # @initDashlane()
 
-# Headless (CI/prod) with sync
-# @initDashlane(serviceDeviceKeys=$DASHLANE_SERVICE_DEVICE_KEYS)
+# Headless (CI/prod) with auto-sync
+# @initDashlane(serviceDeviceKeys=$DASHLANE_SERVICE_DEVICE_KEYS, autoSync=true)
 
 # Named instance
 # @initDashlane(id=prod, serviceDeviceKeys=$DASHLANE_SERVICE_DEVICE_KEYS)
@@ -197,7 +198,7 @@ DB_PASSWORD=dashlane(prod, "dl://abc123/password")
 
 ### Vault locked or not synced
 - Run `dcli sync` to sync your vault
-- The plugin syncs automatically unless `skipSync=true` is set
+- Set `autoSync=true` in `@initDashlane` to sync automatically before reads
 
 ## Resources
 

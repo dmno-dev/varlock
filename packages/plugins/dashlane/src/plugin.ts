@@ -18,7 +18,6 @@ plugin.standardVars = {
 };
 
 const manager = new DashlaneManager({ SchemaError, ResolutionError });
-let exitHandlerRegistered = false;
 
 plugin.registerRootDecorator({
   name: 'initDashlane',
@@ -29,11 +28,6 @@ plugin.registerRootDecorator({
   },
   async execute(processResult) {
     await manager.executeInit(processResult);
-    if (!exitHandlerRegistered) {
-      exitHandlerRegistered = true;
-      // Lock vaults synchronously on process exit -- guaranteed to run
-      process.on('exit', () => manager.lockAllSync());
-    }
   },
 });
 
@@ -67,6 +61,7 @@ plugin.registerResolverFunction({
     return { instanceId, refResolver };
   },
   async resolve({ instanceId, refResolver }) {
+    manager.registerExitHandler();
     const instance = manager.getInstance(instanceId);
     if (!refResolver) {
       throw new SchemaError('Expected a dl:// reference argument');

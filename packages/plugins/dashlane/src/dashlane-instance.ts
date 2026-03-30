@@ -14,7 +14,7 @@ export class DashlanePluginInstance {
   private cache = new Map<string, string>();
   private dcliChecked = false;
   private dcliCheckPromise?: Promise<void>;
-  private skipSync = false;
+  private autoSync = false;
   private syncPromise?: Promise<void>;
   private synced = false;
   private lockAfter = false;
@@ -24,10 +24,10 @@ export class DashlanePluginInstance {
     private ResolutionError: ErrorCtor,
   ) {}
 
-  configure(serviceDeviceKeys?: string, skipSync?: boolean) {
+  configure(serviceDeviceKeys?: string, opts?: { autoSync?: boolean; lockOnExit?: boolean }) {
     this.serviceDeviceKeys = serviceDeviceKeys;
-    if (skipSync !== undefined) this.skipSync = skipSync;
-    this.lockAfter = true;
+    if (opts?.autoSync !== undefined) this.autoSync = opts.autoSync;
+    this.lockAfter = opts?.lockOnExit ?? !!serviceDeviceKeys;
   }
 
   private get spawnEnv(): Record<string, string> | undefined {
@@ -66,7 +66,7 @@ export class DashlanePluginInstance {
   }
 
   private async syncOnce(): Promise<void> {
-    if (this.skipSync || this.synced) return;
+    if (!this.autoSync || this.synced) return;
     if (!this.syncPromise) {
       this.syncPromise = this.doSync().catch((err) => {
         this.syncPromise = undefined;
@@ -109,9 +109,9 @@ export class DashlanePluginInstance {
    * and dl://<title>/field (slower, requires full vault sync).
    */
   async readReference(dlUri: string): Promise<string> {
-    if (!dlUri.startsWith('dl://')) {
+    if (!dlUri.startsWith('dl://') || dlUri === 'dl://') {
       throw new this.ResolutionError(`Invalid Dashlane reference: "${dlUri}"`, {
-        tip: 'References must start with dl:// — e.g. dashlane("dl://<id>/password")',
+        tip: 'References must start with dl:// and include a path — e.g. dashlane("dl://<id>/password")',
       });
     }
 
@@ -124,7 +124,7 @@ export class DashlanePluginInstance {
 
     try {
       const result = await spawnAsync('dcli', ['read', dlUri], this.spawnOpts);
-      const value = result.trimEnd();
+      const value = result.replace(/\n$/, '');
       this.cache.set(dlUri, value);
       return value;
     } catch (err) {
@@ -159,7 +159,7 @@ export class DashlanePluginInstance {
         throw new this.ResolutionError('Dashlane vault appears locked or not synced', {
           tip: [
             'Run `dcli sync` to sync your vault.',
-            'The plugin syncs automatically unless skipSync=true is set.',
+            'Or set autoSync=true in @initDashlane to sync automatically.',
           ].join('\n'),
         });
       }

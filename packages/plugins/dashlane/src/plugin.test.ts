@@ -61,7 +61,7 @@ describe('DashlanePluginInstance', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     instance = new DashlanePluginInstance('test', ResolutionError);
-    instance.configure(undefined, true); // skipSync for most tests
+    instance.configure(); // autoSync off by default
   });
 
   describe('constructor', () => {
@@ -72,7 +72,7 @@ describe('DashlanePluginInstance', () => {
 
   describe('configure + spawnEnv behavior', () => {
     it('does not pass env to dcli when no service device keys are set', async () => {
-      instance.configure(undefined, true);
+      instance.configure();
       mockSpawnAsync.mockResolvedValueOnce('6.2453.0');
       mockSpawnAsync.mockResolvedValueOnce('secret\n');
       await instance.readReference('dl://abc/password');
@@ -80,7 +80,7 @@ describe('DashlanePluginInstance', () => {
     });
 
     it('passes DASHLANE_SERVICE_DEVICE_KEYS env to dcli when keys are set', async () => {
-      instance.configure('dls_key_data', true);
+      instance.configure('dls_key_data');
       mockSpawnAsync.mockResolvedValueOnce('6.2453.0');
       mockSpawnAsync.mockResolvedValueOnce('secret\n');
       await instance.readReference('dl://abc/password');
@@ -96,7 +96,7 @@ describe('DashlanePluginInstance', () => {
     });
 
     it('inherits process.env when keys are set', async () => {
-      instance.configure('dls_key_data', true);
+      instance.configure('dls_key_data');
       mockSpawnAsync.mockResolvedValueOnce('6.2453.0');
       mockSpawnAsync.mockResolvedValueOnce('secret\n');
       await instance.readReference('dl://abc/password');
@@ -165,11 +165,11 @@ describe('DashlanePluginInstance', () => {
       expect(result).toBe('my-secret-value');
     });
 
-    it('trims trailing whitespace but preserves leading whitespace', async () => {
+    it('strips trailing newline but preserves other whitespace', async () => {
       mockSpawnAsync.mockResolvedValueOnce('6.2453.0');
       mockSpawnAsync.mockResolvedValueOnce('  secret  \n');
       const result = await instance.readReference('dl://abc123/password');
-      expect(result).toBe('  secret');
+      expect(result).toBe('  secret  ');
     });
 
     it('caches repeated lookups for the same reference', async () => {
@@ -225,7 +225,17 @@ describe('DashlanePluginInstance', () => {
       } catch (e: any) {
         expect(e).toBeInstanceOf(ResolutionError);
         expect(e.tip).toMatch(/dcli sync/);
-        expect(e.tip).toMatch(/skipSync/);
+        expect(e.tip).toMatch(/autoSync/);
+      }
+    });
+
+    it('rejects bare dl:// with no path', async () => {
+      try {
+        await instance.readReference('dl://');
+        expect.fail('should have thrown');
+      } catch (e: any) {
+        expect(e).toBeInstanceOf(ResolutionError);
+        expect(e.message).toMatch(/invalid/i);
       }
     });
 
@@ -242,7 +252,7 @@ describe('DashlanePluginInstance', () => {
 
     it('passes spawnEnv when service device keys are set', async () => {
       const inst2 = new DashlanePluginInstance('test2', ResolutionError);
-      inst2.configure('dls_key_data', true);
+      inst2.configure('dls_key_data');
       mockSpawnAsync.mockResolvedValueOnce('6.2453.0');
       mockSpawnAsync.mockResolvedValueOnce('secret\n');
       await inst2.readReference('dl://abc/password');
@@ -259,8 +269,8 @@ describe('DashlanePluginInstance', () => {
   });
 
   describe('syncOnce', () => {
-    it('calls dcli sync before first read by default', async () => {
-      instance.configure(undefined, false);
+    it('calls dcli sync before first read when autoSync is true', async () => {
+      instance.configure(undefined, { autoSync: true });
       mockSpawnAsync.mockResolvedValueOnce('6.2453.0'); // --version
       mockSpawnAsync.mockResolvedValueOnce(''); // sync
       mockSpawnAsync.mockResolvedValueOnce('secret\n'); // read
@@ -268,8 +278,8 @@ describe('DashlanePluginInstance', () => {
       expect(mockSpawnAsync).toHaveBeenCalledWith('dcli', ['sync'], undefined);
     });
 
-    it('does not call dcli sync when skipSync is true', async () => {
-      instance.configure(undefined, true);
+    it('does not call dcli sync by default', async () => {
+      instance.configure();
       mockSpawnAsync.mockResolvedValueOnce('6.2453.0');
       mockSpawnAsync.mockResolvedValueOnce('secret\n');
       await instance.readReference('dl://abc/password');
@@ -278,7 +288,7 @@ describe('DashlanePluginInstance', () => {
     });
 
     it('only syncs once across multiple reads', async () => {
-      instance.configure(undefined, false);
+      instance.configure(undefined, { autoSync: true });
       mockSpawnAsync.mockResolvedValueOnce('6.2453.0'); // --version
       mockSpawnAsync.mockResolvedValueOnce(''); // sync
       mockSpawnAsync.mockResolvedValueOnce('val1\n'); // read 1
@@ -290,7 +300,7 @@ describe('DashlanePluginInstance', () => {
     });
 
     it('deduplicates concurrent sync calls into a single spawn', async () => {
-      instance.configure(undefined, false);
+      instance.configure(undefined, { autoSync: true });
       mockSpawnAsync.mockResolvedValueOnce('6.2453.0'); // --version
       mockSpawnAsync.mockResolvedValueOnce(''); // sync
       mockSpawnAsync.mockResolvedValueOnce('val1\n'); // read 1
@@ -304,7 +314,7 @@ describe('DashlanePluginInstance', () => {
     });
 
     it('does not block reads when sync fails', async () => {
-      instance.configure(undefined, false);
+      instance.configure(undefined, { autoSync: true });
       mockSpawnAsync.mockResolvedValueOnce('6.2453.0'); // --version
       mockSpawnAsync.mockRejectedValueOnce(new Error('network error')); // sync fails
       mockSpawnAsync.mockResolvedValueOnce('secret\n'); // read still works
@@ -322,8 +332,8 @@ describe('DashlanePluginInstance', () => {
       expect(mockSpawnSync).not.toHaveBeenCalled();
     });
 
-    it('calls spawnSync dcli lock when configured', () => {
-      instance.configure('dls_key_data', true);
+    it('locks by default in headless mode', () => {
+      instance.configure('dls_key_data');
       instance.lockVaultSync();
       expect(mockSpawnSync).toHaveBeenCalledWith(
         'dcli',
@@ -338,8 +348,14 @@ describe('DashlanePluginInstance', () => {
       );
     });
 
-    it('calls spawnSync dcli lock in interactive mode', () => {
-      instance.configure(undefined, true);
+    it('does not lock by default in interactive mode', () => {
+      instance.configure();
+      instance.lockVaultSync();
+      expect(mockSpawnSync).not.toHaveBeenCalled();
+    });
+
+    it('locks in interactive mode when lockOnExit is explicitly true', () => {
+      instance.configure(undefined, { lockOnExit: true });
       instance.lockVaultSync();
       expect(mockSpawnSync).toHaveBeenCalledWith(
         'dcli',
@@ -348,9 +364,15 @@ describe('DashlanePluginInstance', () => {
       );
     });
 
+    it('does not lock in headless mode when lockOnExit is explicitly false', () => {
+      instance.configure('dls_key_data', { lockOnExit: false });
+      instance.lockVaultSync();
+      expect(mockSpawnSync).not.toHaveBeenCalled();
+    });
+
     it('does not throw when lock fails', () => {
       mockSpawnSync.mockImplementation(() => { throw new Error('lock failed'); });
-      instance.configure('dls_key_data', true);
+      instance.configure('dls_key_data');
       expect(() => instance.lockVaultSync()).not.toThrow();
     });
   });
@@ -396,19 +418,35 @@ describe('DashlaneManager', () => {
       expect(result.serviceDeviceKeysResolver).toBe(keysArg);
     });
 
-    it('extracts skipSync from args', () => {
-      const result = manager.processInit({ skipSync: mockArg(true) });
-      expect(result.skipSync).toBe(true);
+    it('extracts autoSync from args', () => {
+      const result = manager.processInit({ autoSync: mockArg(true) });
+      expect(result.autoSync).toBe(true);
     });
 
-    it('defaults skipSync to false', () => {
+    it('defaults autoSync to false', () => {
       const result = manager.processInit();
-      expect(result.skipSync).toBe(false);
+      expect(result.autoSync).toBe(false);
     });
 
-    it('rejects non-static skipSync', () => {
+    it('rejects non-static autoSync', () => {
       expect(() => {
-        manager.processInit({ skipSync: mockArg(true, false) });
+        manager.processInit({ autoSync: mockArg(true, false) });
+      }).toThrow(SchemaError);
+    });
+
+    it('extracts lockOnExit from args', () => {
+      const result = manager.processInit({ lockOnExit: mockArg(true) });
+      expect(result.lockOnExit).toBe(true);
+    });
+
+    it('defaults lockOnExit to undefined (instance decides)', () => {
+      const result = manager.processInit();
+      expect(result.lockOnExit).toBeUndefined();
+    });
+
+    it('rejects non-static lockOnExit', () => {
+      expect(() => {
+        manager.processInit({ lockOnExit: mockArg(false, false) });
       }).toThrow(SchemaError);
     });
   });
@@ -417,7 +455,6 @@ describe('DashlaneManager', () => {
     it('configures instance with resolved service device keys', async () => {
       const processResult = manager.processInit({
         serviceDeviceKeys: mockArg('dls_key_value'),
-        skipSync: mockArg(true),
       });
       await manager.executeInit(processResult);
 
@@ -430,9 +467,7 @@ describe('DashlaneManager', () => {
     });
 
     it('configures instance without keys for interactive mode', async () => {
-      const processResult = manager.processInit({
-        skipSync: mockArg(true),
-      });
+      const processResult = manager.processInit();
       await manager.executeInit(processResult);
 
       const instance = manager.instances._default;
@@ -442,24 +477,24 @@ describe('DashlaneManager', () => {
       expect(mockSpawnAsync).toHaveBeenCalledWith('dcli', ['read', 'dl://abc/password'], undefined);
     });
 
-    it('passes skipSync to configure', async () => {
+    it('passes autoSync to configure', async () => {
       const processResult = manager.processInit({
-        skipSync: mockArg(true),
+        autoSync: mockArg(true),
       });
       await manager.executeInit(processResult);
 
       const inst = manager.instances._default;
       mockSpawnAsync.mockResolvedValueOnce('6.2453.0'); // --version
-      mockSpawnAsync.mockResolvedValueOnce('secret\n'); // read (no sync)
+      mockSpawnAsync.mockResolvedValueOnce(''); // sync
+      mockSpawnAsync.mockResolvedValueOnce('secret\n'); // read
       await inst.readReference('dl://abc/password');
       const syncCall = mockSpawnAsync.mock.calls.find((c) => c[1]?.[0] === 'sync');
-      expect(syncCall).toBeUndefined();
+      expect(syncCall).toBeDefined();
     });
 
     it('ignores non-string resolved values', async () => {
       const processResult = manager.processInit({
         serviceDeviceKeys: mockArg(undefined),
-        skipSync: mockArg(true),
       });
       await manager.executeInit(processResult);
 
@@ -497,28 +532,32 @@ describe('DashlaneManager', () => {
       );
     });
 
-    it('lockAllSync locks all instances', async () => {
+    it('lockAllSync calls lockVaultSync on all instances', async () => {
       manager.processInit({
         id: mockArg('a'),
         serviceDeviceKeys: mockArg('dls_key_a'),
       });
       await manager.executeInit({
         id: 'a',
-        skipSync: true,
         serviceDeviceKeysResolver: mockArg('dls_key_a'),
       });
       manager.processInit({ id: mockArg('b') });
-      await manager.executeInit({
-        id: 'b',
-        skipSync: true,
-      });
+      await manager.executeInit({ id: 'b' });
 
-      // lockVaultSync is tested separately; here we just verify all instances are called
       const lockSpy = vi.spyOn(manager.instances.a, 'lockVaultSync');
       const lockSpy2 = vi.spyOn(manager.instances.b, 'lockVaultSync');
       manager.lockAllSync();
       expect(lockSpy).toHaveBeenCalled();
       expect(lockSpy2).toHaveBeenCalled();
+    });
+
+    it('registerExitHandler only registers once', () => {
+      const onSpy = vi.spyOn(process, 'on');
+      manager.registerExitHandler();
+      manager.registerExitHandler();
+      const exitCalls = onSpy.mock.calls.filter((c) => c[0] === 'exit');
+      expect(exitCalls).toHaveLength(1);
+      onSpy.mockRestore();
     });
 
     it('gives helpful tip when default instance not found but others exist', () => {

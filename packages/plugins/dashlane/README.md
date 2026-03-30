@@ -174,6 +174,8 @@ Initialize a Dashlane plugin instance.
 **Parameters:**
 - `serviceDeviceKeys?: string` - Service device keys (`dls_*` credential) for headless authentication
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
+- `autoSync?: boolean` - If `true`, runs `dcli sync` once before the first read (default `false`)
+- `lockOnExit?: boolean` - Lock the vault on process exit. Defaults to `true` in headless mode, `false` in interactive mode.
 
 ### Resolver functions
 

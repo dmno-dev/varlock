@@ -1,5 +1,5 @@
 /** Validates a Dashlane service device keys string (dls_*) */
-export function validateDeviceKeys(val: string): string | undefined {
+export function validateDeviceKeys(val: unknown): string | undefined {
   if (typeof val !== 'string') {
     return 'Service device keys must be a string';
   }
