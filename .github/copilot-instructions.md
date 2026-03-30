@@ -1,3 +1,22 @@
+# Copilot PR code review (security)
+
+**Scope:** Focus on **code** security. Copilot does not review dependency manifests or lockfiles; rely on Dependabot, CodeQL, and the dependency-review workflow for supply chain.
+
+## Security checklist (changed lines)
+
+1. **Secrets:** No hardcoded API keys, tokens, passwords, or private URLs. Preserve redaction and leak prevention for sensitive env values.
+2. **Injection / parsing:** Safe handling of user-controlled strings in @env-spec parsing and loaders; avoid `eval` / `new Function` on untrusted input.
+3. **Process execution:** `exec` / `spawn` / shell (secret plugins, integrations): avoid shell injection; validate arguments; no untrusted paths.
+4. **Filesystem:** No path traversal or arbitrary read/write from external input.
+5. **Trust boundaries:** Document what untrusted config can do; avoid unsafe defaults.
+6. **Risky APIs:** Flag unsafe `child_process`, `vm`, or deserialization from untrusted data.
+7. **Crypto:** Prefer standard libraries; avoid ad-hoc cryptography.
+8. **AI safety:** No prompt injection or other unsafe patterns that might allow exfiltration of secrets. 
+
+**Varlock:** Loaders, CLI, `packages/plugins`, and MCP integrations are high impact.
+
+---
+
 # Copilot Instructions for Varlock
 
 🚨 MANDATORY WORKFLOW STEPS - See [COPILOT_RULES.md](COPILOT_RULES.md) for important checklist of tasks to complete before committing any work.
@@ -136,6 +155,7 @@ The project uses Turborepo with the following task configurations:
 - **release-preview.yaml**: Preview release workflow
 - **binary-release.yaml**: Binary release workflow
 - **pr-labeler.yaml**: Auto-labels PRs
+- **request-copilot-review.yml**: Requests Copilot code review for **fork** PRs only (external contributors)
 
 ### CI Steps
 1. ESLint check

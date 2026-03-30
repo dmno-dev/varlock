@@ -1,0 +1,28 @@
+# Request GitHub Copilot code review only for PRs from forks (typical external contributors).
+# Same-repo branch PRs are skipped. Uses pull_request_target so GITHUB_TOKEN can edit reviewers
+# on fork PRs (regular pull_request workflows only get a read-only token for forks).
+# Does not checkout the PR branch — only uses the event payload (safe for pull_request_target).
+
+name: Request Copilot review (fork PRs)
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+jobs:
+  request-copilot:
+    if: github.event.pull_request.head.repo.fork == true && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Request Copilot code review
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr edit "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --add-reviewer "@copilot"
+        continue-on-error: true
