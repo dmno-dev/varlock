@@ -283,3 +283,78 @@ describe('early resolve order - @disable with values from local files', () => {
     expectNotInSchema: ['AZURE_CLIENT_ID'],
   }));
 });
+
+describe('early resolve order - error when later file redefines early-resolved item', () => {
+  test('error when env-specific file redefines the @currentEnv item', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # ---
+        APP_ENV=dev
+        ITEM1=val-from-schema
+      `,
+      '.env.dev': outdent`
+        APP_ENV=staging
+      `,
+    },
+    earlyError: true,
+  }));
+
+  test('error when imported file redefines item used in @import enabled condition', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./.env.azure, enabled=eq($AUTH_MODE, "azure"))
+        # ---
+        AUTH_MODE=none
+      `,
+      '.env.local': outdent`
+        AUTH_MODE=azure
+      `,
+      '.env.azure': outdent`
+        AUTH_MODE=none
+        AZURE_CLIENT_ID=some-client-id
+      `,
+    },
+    earlyError: true,
+  }));
+
+  test('error when imported file redefines item used in @disable condition', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./.env.azure)
+        # ---
+        AUTH_MODE=none
+      `,
+      '.env.local': outdent`
+        AUTH_MODE=azure
+      `,
+      '.env.azure': outdent`
+        # @disable=not(eq($AUTH_MODE, "azure"))
+        # ---
+        AUTH_MODE=none
+        AZURE_CLIENT_ID=some-client-id
+      `,
+    },
+    earlyError: true,
+  }));
+
+  test('no error when imported file defines a different item (not the early-resolved one)', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./.env.azure, enabled=eq($AUTH_MODE, "azure"))
+        # ---
+        AUTH_MODE=none
+      `,
+      '.env.local': outdent`
+        AUTH_MODE=azure
+      `,
+      '.env.azure': outdent`
+        AZURE_CLIENT_ID=some-client-id
+      `,
+    },
+    expectValues: {
+      AUTH_MODE: 'azure',
+      AZURE_CLIENT_ID: 'some-client-id',
+    },
+  }));
+});

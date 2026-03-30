@@ -204,6 +204,18 @@ export abstract class EnvGraphDataSource {
     for (const itemKey of this.importKeys || _.keys(this.configItemDefs)) {
       const itemDef = this.configItemDefs[itemKey];
       if (!itemDef) continue;
+
+      // check if this item was already early-resolved (used by @currentEnv, @import enabled, or @disable)
+      // if so, a later file redefining it would silently contradict the decision already made
+      const existingItem = this.graph.configSchema[itemKey];
+      if (existingItem?.isResolved) {
+        this._schemaErrors.push(new SchemaError(
+          `"${itemKey}" was already resolved during early initialization (used by @currentEnv, @import, or @disable) `
+          + `and cannot be redefined by ${this.label}`,
+        ));
+        continue;
+      }
+
       // register the existence of the item in the graph
       this.graph.configSchema[itemKey] ??= new ConfigItem(this.graph, itemKey);
     }
