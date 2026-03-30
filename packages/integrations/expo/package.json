@@ -60,7 +60,7 @@
     "@babel/core": ">=7"
   },
   "devDependencies": {
-    "@babel/core": "^7.0.0",
+    "@babel/core": "^7.29.0",
     "@types/node": "catalog:",
     "tsup": "catalog:",
     "varlock": "workspace:^",

@@ -1,5 +1,3 @@
-/* eslint-disable no-console */
-
 import { execSyncVarlock } from 'varlock/exec-sync-varlock';
 import { initVarlockEnv } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
@@ -109,12 +107,11 @@ export default function varlockExpoBabelPlugin(api: BabelAPI) {
   api.cache(false);
 
   if (!configIsValid || !varlockLoadedEnv) {
-    console.warn([
-      '⚠️  @varlock/expo-integration: Failed to load varlock config.',
-      'ENV.xxx replacements will be skipped.',
-      'Check your terminal for more details.',
-    ].join('\n'));
-    return { visitor: {} };
+    throw new Error(
+      '@varlock/expo-integration: Failed to load varlock config.\n'
+      + 'Your .env.schema may have syntax errors or failing validation.\n'
+      + 'Check the terminal output above for details.',
+    );
   }
 
   const { config } = varlockLoadedEnv;
@@ -155,6 +152,7 @@ export default function varlockExpoBabelPlugin(api: BabelAPI) {
 
             if (!isServerFile(state.filename) && !warnedSensitiveKeys.has(key)) {
               warnedSensitiveKeys.add(key);
+              // eslint-disable-next-line no-console
               console.warn([
                 `⚠️  @varlock/expo-integration: ENV.${key} is marked @sensitive and was not inlined.`,
                 `  → ${state.filename ?? '<unknown file>'}`,

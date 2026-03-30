@@ -69,6 +69,21 @@
         "varlock": "workspace:^",
       },
     },
+    "packages/integrations/expo": {
+      "name": "@varlock/expo-integration",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@babel/core": "^7.29.0",
+        "@types/node": "catalog:",
+        "tsup": "catalog:",
+        "varlock": "workspace:^",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "@babel/core": ">=7",
+        "varlock": "workspace:^",
+      },
+    },
     "packages/integrations/nextjs": {
       "name": "@varlock/nextjs-integration",
       "version": "0.3.1",
@@ -80,21 +95,6 @@
       },
       "peerDependencies": {
         "next": ">=14",
-        "varlock": "workspace:^",
-      },
-    },
-    "packages/integrations/expo": {
-      "name": "@varlock/expo-integration",
-      "version": "0.0.1",
-      "devDependencies": {
-        "@babel/core": "^7.0.0",
-        "@types/node": "catalog:",
-        "tsup": "catalog:",
-        "varlock": "workspace:^",
-        "vitest": "catalog:",
-      },
-      "peerDependencies": {
-        "@babel/core": ">=7",
         "varlock": "workspace:^",
       },
     },
@@ -199,7 +199,7 @@
     },
     "packages/plugins/hashicorp-vault": {
       "name": "@varlock/hashicorp-vault-plugin",
-      "version": "0.0.2",
+      "version": "0.0.3",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -243,7 +243,7 @@
     },
     "packages/plugins/proton-pass": {
       "name": "@varlock/proton-pass-plugin",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -269,7 +269,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "0.6.3",
+      "version": "0.6.4",
       "bin": {
         "varlock": "./bin/cli.js",
       },
@@ -1188,6 +1188,8 @@
     "@varlock/changeset-changelog": ["@varlock/changeset-changelog@workspace:packages/changeset-changelog"],
 
     "@varlock/ci-env-info": ["@varlock/ci-env-info@workspace:packages/ci-env-info"],
+
+    "@varlock/expo-integration": ["@varlock/expo-integration@workspace:packages/integrations/expo"],
 
     "@varlock/google-secret-manager-plugin": ["@varlock/google-secret-manager-plugin@workspace:packages/plugins/google-secret-manager"],
 
@@ -3023,7 +3025,7 @@
 
     "y18n": ["y18n@5.0.8", "", {}, "sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA=="],
 
-    "yallist": ["yallist@4.0.0", "", {}, "sha512-3wdGidZyq5PB084XLES5TpOSRA3wjXAlIWMhum2kRcv/41Sn2emQ0dycQW4uZXLejwKvg6EsvbdlVL+FYEct7A=="],
+    "yallist": ["yallist@3.1.1", "", {}, "sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g=="],
 
     "yargs": ["yargs@18.0.0", "", { "dependencies": { "cliui": "^9.0.1", "escalade": "^3.1.1", "get-caller-file": "^2.0.5", "string-width": "^7.2.0", "y18n": "^5.0.5", "yargs-parser": "^22.0.0" } }, "sha512-4UEqdc2RYGHZc7Doyqkrqiln3p9X2DZVxaGbwhn2pi7MrRagKaOcIKe8L3OxYcbhXLgLFUS3zAYuQjKBQgmuNg=="],
 
@@ -3403,8 +3405,6 @@
 
     "@aws-crypto/util/@smithy/util-utf8/@smithy/util-buffer-from": ["@smithy/util-buffer-from@2.2.0", "", { "dependencies": { "@smithy/is-array-buffer": "^2.2.0", "tslib": "^2.6.2" } }, "sha512-IJdWBbTcMQ6DA0gdNhh/BwrLkDR+ADW5Kr1aZmd4k3DIF6ezMV4R2NIAmT08wQJ3yUK82thHWmC/TnK/wpMMIA=="],
 
-    "@babel/helper-compilation-targets/lru-cache/yallist": ["yallist@3.1.1", "", {}, "sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g=="],
-
     "@expressive-code/core/postcss/nanoid": ["nanoid@3.3.11", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w=="],
 
     "@expressive-code/plugin-shiki/shiki/@shikijs/core": ["@shikijs/core@3.23.0", "", { "dependencies": { "@shikijs/types": "3.23.0", "@shikijs/vscode-textmate": "^10.0.2", "@types/hast": "^3.0.4", "hast-util-to-html": "^9.0.5" } }, "sha512-NSWQz0riNb67xthdm5br6lAkvpDJRTgB36fxlo37ZzM2yq0PQFFzbd8psqC2XMPgCzo1fW6cVi18+ArJ44wqgA=="],
@@ -3520,6 +3520,8 @@
     "csso/css-tree/mdn-data": ["mdn-data@2.0.28", "", {}, "sha512-aylIc7Z9y4yzHYAJNuESG3hfhC+0Ibp/MAMiaOZgNv4pmEdFyfZhhhny4MNiAfWdBQ1RQ2mfDWmM1x8SvGyp8g=="],
 
     "express/mime-types/mime-db": ["mime-db@1.54.0", "", {}, "sha512-aU5EJuIN2WDemCcAp2vFBfp/m4EAhWJnUNSSw0ixs7/kXbd6Pg64EmwJkNdFhB8aWt1sH2CTXrLxo/iAGV3oPQ=="],
+
+    "hosted-git-info/lru-cache/yallist": ["yallist@4.0.0", "", {}, "sha512-3wdGidZyq5PB084XLES5TpOSRA3wjXAlIWMhum2kRcv/41Sn2emQ0dycQW4uZXLejwKvg6EsvbdlVL+FYEct7A=="],
 
     "node-sarif-builder/fs-extra/jsonfile": ["jsonfile@6.2.0", "", { "dependencies": { "universalify": "^2.0.0" }, "optionalDependencies": { "graceful-fs": "^4.1.6" } }, "sha512-FGuPw30AdOIUTRMC2OMRtQV+jkVj2cfPqSeWXv1NEAJ1qZ5zb1X6z1mFhbfOB/iy3ssJCD+3KuZ8r8C3uVFlAg=="],
 

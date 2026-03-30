@@ -1,5 +1,4 @@
-/* eslint-disable no-console */
-
+import { resolve, dirname } from 'node:path';
 import { execSyncVarlock } from 'varlock/exec-sync-varlock';
 import { initVarlockEnv } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
@@ -66,9 +65,8 @@ export function withVarlockMetroConfig<T extends Record<string, any>>(config: T)
   // resolved files (required when varlock is linked via symlink/local deps).
   const envPath = resolvedVarlockPaths['varlock/env'];
   if (envPath) {
-    const path = require('path');
-    const varlockPkgDir = path.resolve(path.dirname(envPath), '..', '..');
-    const watchFolders: string[] = c.watchFolders ?? [];
+    const varlockPkgDir = resolve(dirname(envPath), '..', '..');
+    const watchFolders: Array<string> = c.watchFolders ?? [];
     if (!watchFolders.some((f: string) => varlockPkgDir.startsWith(f) || f.startsWith(varlockPkgDir))) {
       watchFolders.push(varlockPkgDir);
     }
@@ -89,9 +87,10 @@ export function withVarlockMetroConfig<T extends Record<string, any>>(config: T)
     initVarlockEnv();
     patchGlobalConsole();
   } catch (err) {
-    console.error(
-      '⚠️  @varlock/expo-integration: Failed to initialize varlock in Metro config.',
-      (err as Error).message,
+    throw new Error(
+      '@varlock/expo-integration: Failed to initialize varlock in Metro config.\n'
+      + 'Your .env.schema may have syntax errors or failing validation.\n'
+      + `Details: ${(err as Error).message}`,
     );
   }
 

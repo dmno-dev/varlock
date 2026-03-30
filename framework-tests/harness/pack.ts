@@ -14,6 +14,7 @@ const PACKAGE_DIRS: Record<string, string> = {
   '@varlock/nextjs-integration': 'packages/integrations/nextjs',
   '@varlock/astro-integration': 'packages/integrations/astro',
   '@varlock/vite-integration': 'packages/integrations/vite',
+  '@varlock/expo-integration': 'packages/integrations/expo',
 };
 
 /**
