@@ -14,11 +14,16 @@ import { join } from 'node:path';
 
 // Map integration test directory names to their package names in changesets.
 // Add new integrations here as they are created.
+// Changes to `varlock` (core) trigger all integration tests.
 const INTEGRATION_PACKAGES: Record<string, Array<string>> = {
   nextjs: ['@varlock/nextjs-integration'],
+  cloudflare: ['@varlock/cloudflare-integration', '@varlock/vite-integration'],
+  expo: ['@varlock/expo-integration'],
   // astro: ['@varlock/astro-integration'],
-  // vite: ['@varlock/vite-integration'],
 };
+
+const ALL_INTEGRATIONS = Object.keys(INTEGRATION_PACKAGES);
+const forceAll = process.argv.includes('--all');
 
 function writeGithubOutputs(outputs: Record<string, string>) {
   if (!process.env.GITHUB_OUTPUT) return;
@@ -31,13 +36,21 @@ const REPO_ROOT = join(import.meta.dirname, '..');
 const STATUS_FILE = 'changesets-summary.json';
 const statusFilePath = join(REPO_ROOT, STATUS_FILE);
 
-function writeNoChanges() {
-  console.log('No changesets found');
+function writeResults(integrations: Array<string>) {
+  const anyChanged = integrations.length > 0;
   writeGithubOutputs({
-    'any-changed': 'false',
-    integrations: '[]',
-    ...Object.fromEntries(Object.keys(INTEGRATION_PACKAGES).map((name) => [name, 'false'])),
+    'any-changed': String(anyChanged),
+    integrations: JSON.stringify(integrations),
   });
+  if (!process.env.GITHUB_OUTPUT) {
+    console.log('Integrations to test:', integrations);
+  }
+}
+
+// --all flag: test everything
+if (forceAll) {
+  writeResults(ALL_INTEGRATIONS);
+  process.exit(0);
 }
 
 // Use changeset CLI to get the list of changed packages (same pattern as release-preview.ts)
@@ -51,7 +64,8 @@ try {
 }
 
 if (!existsSync(statusFilePath)) {
-  writeNoChanges();
+  console.log('No changesets found');
+  writeResults([]);
   process.exit(0);
 }
 
@@ -69,25 +83,18 @@ const changedPackages = new Set<string>(
     .map((r: { name: string }) => r.name) ?? [],
 );
 
-// Build output: which integrations have framework tests that should run
-const result: Record<string, boolean> = {};
-for (const [integration, packages] of Object.entries(INTEGRATION_PACKAGES)) {
-  result[integration] = packages.some((pkg) => changedPackages.has(pkg));
+// Changes to core varlock package trigger all integration tests
+if (changedPackages.has('varlock')) {
+  writeResults(ALL_INTEGRATIONS);
+  process.exit(0);
 }
 
-const anyChanged = Object.values(result).some(Boolean);
-const integrationsList = Object.entries(result)
-  .filter(([, changed]) => changed)
+// Otherwise, only test integrations whose packages changed
+const integrationsList = Object.entries(INTEGRATION_PACKAGES)
+  .filter(([, packages]) => packages.some((pkg) => changedPackages.has(pkg)))
   .map(([name]) => name);
-
-writeGithubOutputs({
-  'any-changed': String(anyChanged),
-  integrations: JSON.stringify(integrationsList),
-  ...Object.fromEntries(Object.entries(result).map(([name, changed]) => [name, String(changed)])),
-});
 
 if (!process.env.GITHUB_OUTPUT) {
   console.log('Changed packages:', [...changedPackages]);
-  console.log('Integration results:', result);
-  console.log('Integrations to test:', integrationsList);
 }
+writeResults(integrationsList);

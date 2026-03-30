@@ -21,8 +21,6 @@ jobs:
     outputs:
       any-changed: ${{ steps.detect.outputs.any-changed }}
       integrations: ${{ steps.detect.outputs.integrations }}
-      # Per-integration flags — add new ones here as integrations are added
-      nextjs: ${{ steps.detect.outputs.nextjs }}
     steps:
       - uses: actions/checkout@v6
 
@@ -33,10 +31,7 @@ jobs:
         id: detect
         run: |
           if [[ "${{ github.event.inputs.force-all }}" == "true" ]] || [[ "${{ contains(github.event.pull_request.labels.*.name, 'framework-tests') }}" == "true" ]]; then
-            # Force all integrations
-            echo "any-changed=true" >> "$GITHUB_OUTPUT"
-            echo 'integrations=["nextjs"]' >> "$GITHUB_OUTPUT"
-            echo "nextjs=true" >> "$GITHUB_OUTPUT"
+            bun run scripts/detect-changed-integrations.ts --all
           else
             bun run scripts/detect-changed-integrations.ts
           fi
@@ -83,19 +78,15 @@ jobs:
             packages/integrations/*/dist/
           retention-days: 1
 
-  # ──────────────────────────────────────────────────────
-  # Next.js framework tests
-  # To add a new integration, copy this job block and update:
-  #   1. Job name and if-condition to reference the new integration flag
-  #   2. The vitest filter pattern to match the new test directory
-  #   3. Add the integration flag output in detect-integrations job
-  #   4. Add the package mapping in scripts/detect-changed-integrations.ts
-  # ──────────────────────────────────────────────────────
-  test-nextjs:
-    name: Framework Tests (Next.js)
+  test:
+    name: Framework Tests (${{ matrix.integration }})
     needs: [detect-integrations, build]
-    if: needs.detect-integrations.outputs.nextjs == 'true'
+    if: needs.detect-integrations.outputs.any-changed == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        integration: ${{ fromJson(needs.detect-integrations.outputs.integrations) }}
     steps:
       - uses: actions/checkout@v6
 
@@ -128,6 +119,6 @@ jobs:
         with:
           name: built-repo
 
-      - name: Run Next.js framework tests
-        run: cd framework-tests && bun run vitest run --reporter=verbose frameworks/nextjs/
+      - name: Run ${{ matrix.integration }} framework tests
+        run: cd framework-tests && bun run vitest run --reporter=verbose frameworks/${{ matrix.integration }}/
         timeout-minutes: 15

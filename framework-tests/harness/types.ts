@@ -118,3 +118,78 @@ export interface BuildResult {
   stderr: string;
   success: boolean;
 }
+
+// --- Dev server types ---
+
+/** A request to make against the running dev server */
+export interface DevServerRequest {
+  /** URL path, e.g. "/" or "/api/health" */
+  path: string;
+  /** Expected HTTP status (default: 200) */
+  expectedStatus?: number;
+  /** Assertions on the response body */
+  bodyAssertions?: {
+    shouldContain?: Array<string>;
+    shouldNotContain?: Array<string>;
+  };
+  /**
+   * Files to write before this request (triggers env reload / server restart).
+   * Keys are paths relative to project root, values are file content.
+   * After writing, waits for the server's readyPattern to appear again before making the request.
+   */
+  fileEdits?: Record<string, string>;
+}
+
+/** Result of a single HTTP request to the dev server */
+export interface DevServerRequestResult {
+  status: number;
+  body: string;
+}
+
+/** Configuration for a dev server scenario */
+export interface DevServerScenario {
+  /** Files to copy from the framework's files/ directory */
+  templateFiles?: TemplateFileMap;
+  /** Inline files to write */
+  files?: Array<ProjectFile>;
+  /** Extra env vars for the dev server process */
+  env?: Record<string, string>;
+  /** Command to run (auto-prefixed with `{pm} exec`) */
+  command: string;
+  /** Pattern in stdout/stderr indicating server is ready */
+  readyPattern: string | RegExp;
+  /** Timeout waiting for server to be ready in ms (default: 30_000) */
+  readyTimeout?: number;
+  /** HTTP requests to make once the server is ready */
+  requests: Array<DevServerRequest>;
+  /** Assertions on combined stdout/stderr of the dev server process */
+  outputAssertions?: Array<{
+    description?: string;
+    skip?: boolean;
+    only?: boolean;
+    shouldContain?: Array<string>;
+    shouldNotContain?: Array<string>;
+  }>;
+  /** Overall timeout for the entire scenario in ms (default: 60_000) */
+  timeout?: number;
+  /** Skip this scenario */
+  skip?: boolean;
+  /** Run only this scenario */
+  only?: boolean;
+}
+
+/** Result returned by runDevServer */
+export interface DevServerResult {
+  /** Whether the server started and all requests completed */
+  success: boolean;
+  /** Combined stdout */
+  stdout: string;
+  /** Combined stderr */
+  stderr: string;
+  /** Results of each HTTP request */
+  responses: Array<DevServerRequestResult>;
+  /** The base URL the server was listening on */
+  serverUrl?: string;
+  /** Error message if the server failed to start */
+  error?: string;
+}

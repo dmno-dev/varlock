@@ -17,7 +17,7 @@ import { createReplacerTransformFn, SUPPORTED_FILES } from './transform';
 // enables throwing when user accesses a bad key on ENV
 (globalThis as any).__varlockThrowOnMissingKeys = true;
 
-// need to track original process.env, since we will be modifying it
+// snapshot process.env before varlock modifies it via initVarlockEnv()
 const originalProcessEnv = { ...process.env };
 
 const debug = createDebug('varlock:vite-integration');
@@ -32,11 +32,6 @@ export let varlockLoadedEnv: SerializedEnvGraph;
 let staticReplacements: Record<string, any> = {};
 let replacerFn: ReturnType<typeof createReplacerTransformFn>;
 
-const DETECT_PRESETS_USING_PLUGINS = {
-  'vite-plugin-cloudflare': 'cloudflare-workers',
-} as const;
-
-let detectedPreset: typeof DETECT_PRESETS_USING_PLUGINS[keyof typeof DETECT_PRESETS_USING_PLUGINS] | null = null;
 
 function resetStaticReplacements() {
   staticReplacements = {};
@@ -86,12 +81,26 @@ function reloadConfig() {
 // we run this right away so the globals get injected into the vite.config file
 reloadConfig();
 
+
+export interface VarlockVitePluginOptions {
+  /** controls if/how varlock init code is injected into the built SSR application code */
+  ssrInjectMode?: 'auto-load' | 'init-only' | 'resolved-env',
+  /** extra code lines to inject at the SSR entry point, before varlock init calls */
+  ssrEntryCode?: Array<string>,
+  /** set to true for edge runtimes that don't have node:http (skips patchGlobalServerResponse) */
+  ssrEdgeRuntime?: boolean,
+  /** additional virtual module IDs to treat as entry points (e.g., '\0virtual:cloudflare/worker-entry') */
+  ssrEntryModuleIds?: Array<string>,
+}
+
+// Return type is `any` instead of `Plugin` to avoid symlink type conflicts.
+// When this package is symlinked for local dev, TypeScript resolves `vite`'s
+// Plugin type from this package's node_modules — a different copy than the
+// consumer's — causing spurious type errors. Since Vite's `plugins` config
+// is loosely typed, this is functionally equivalent.
 export function varlockVitePlugin(
-  vitePluginOptions?: {
-    /** controls if/how varlock init code is injected into the built SSR application code */
-    ssrInjectMode?: 'auto-load' | 'init-only' | 'resolved-env',
-  }, // TODO: add options? like allow injecting sensitive config?
-): Plugin {
+  vitePluginOptions?: VarlockVitePluginOptions,
+): any {
   return {
     name: 'inject-varlock-config',
     enforce: 'post',
@@ -126,13 +135,6 @@ See https://varlock.dev/integrations/vite/ for more details.
       } else if (isDevCommand) {
         reloadConfig();
       }
-
-      const allPlugins = config.plugins?.flatMap((p) => p);
-      allPlugins?.forEach((p) => {
-        if (p && 'name' in p && p.name in DETECT_PRESETS_USING_PLUGINS) {
-          detectedPreset = DETECT_PRESETS_USING_PLUGINS[p.name as keyof typeof DETECT_PRESETS_USING_PLUGINS];
-        }
-      });
 
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
 
@@ -193,7 +195,8 @@ See https://varlock.dev/integrations/vite/ for more details.
         if (moduleIds[0] === id) isEntry = true;
       }
 
-      if (id === '\0virtual:cloudflare/worker-entry') isEntry = true;
+      // allow integrations to register additional virtual module IDs as entry points
+      if (vitePluginOptions?.ssrEntryModuleIds?.includes(id)) isEntry = true;
 
       if (isEntry) {
         debug(`detected entry: ${id}`);
@@ -220,17 +223,10 @@ See https://varlock.dev/integrations/vite/ for more details.
         // and code to load our env, or the already resolved env
         // TODO: keep an eye on environments API, as single ssr flag may be phased out
         if (options?.ssr) {
-          let ssrInjectMode = vitePluginOptions?.ssrInjectMode;
+          const ssrInjectMode = vitePluginOptions?.ssrInjectMode ?? 'init-only';
+          const isEdgeRuntime = vitePluginOptions?.ssrEdgeRuntime ?? false;
 
-          // This will likely end up having more cases to detect
-          if (detectedPreset === 'cloudflare-workers') {
-            ssrInjectMode ??= 'resolved-env';
-          }
-
-          // default to injecting varlock init code only
-          ssrInjectMode ??= 'init-only';
-
-          debug('ssrInjectMode =', ssrInjectMode);
+          debug('ssrInjectMode =', ssrInjectMode, 'isDev =', isDevEnv);
           if (ssrInjectMode === 'auto-load') {
             injectCode.push(
               "import 'varlock/auto-load';",
@@ -239,17 +235,32 @@ See https://varlock.dev/integrations/vite/ for more details.
             if (ssrInjectMode === 'resolved-env') {
               injectCode.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
             }
+
+            // inject custom entry code from integrations
+            if (vitePluginOptions?.ssrEntryCode?.length) {
+              injectCode.push(...vitePluginOptions.ssrEntryCode);
+            }
+
             // TODO: we may want to move this to a single module we import
             injectCode.push(
               "import { initVarlockEnv } from 'varlock/env';",
               "import { patchGlobalConsole } from 'varlock/patch-console';",
-              "import { patchGlobalServerResponse } from 'varlock/patch-server-response';",
               "import { patchGlobalResponse } from 'varlock/patch-response';",
+            );
+            // edge runtimes don't have node:http ServerResponse
+            if (!isEdgeRuntime) {
+              injectCode.push(
+                "import { patchGlobalServerResponse } from 'varlock/patch-server-response';",
+              );
+            }
+            injectCode.push(
               'initVarlockEnv();',
               'patchGlobalConsole();',
-              'patchGlobalServerResponse();',
-              'patchGlobalResponse();',
             );
+            if (!isEdgeRuntime) {
+              injectCode.push('patchGlobalServerResponse();');
+            }
+            injectCode.push('patchGlobalResponse();');
           }
 
         // this build is for the client
@@ -329,5 +340,5 @@ See https://varlock.dev/integrations/vite/ for more details.
 
       return replacedHtml;
     },
-  };
+  } satisfies Plugin;
 }

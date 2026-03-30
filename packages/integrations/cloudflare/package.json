@@ -1,0 +1,69 @@
+{
+  "name": "@varlock/cloudflare-integration",
+  "description": "Cloudflare Workers integration for varlock - deploy secrets via wrangler and auto-configure Vite",
+  "version": "0.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/integrations/cloudflare"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./init": "./dist/init.js"
+  },
+  "bin": {
+    "varlock-wrangler": "./bin/varlock-wrangler.js"
+  },
+  "files": [
+    "/bin",
+    "/dist"
+  ],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup"
+  },
+  "keywords": [
+    "varlock",
+    "cloudflare",
+    "cloudflare-workers",
+    "wrangler",
+    "env",
+    ".env",
+    "environment variables",
+    "secrets",
+    "varlock-integration"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^",
+    "vite": ">=5",
+    "wrangler": ">=3",
+    "@cloudflare/vite-plugin": ">=1"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    },
+    "wrangler": {
+      "optional": true
+    },
+    "@cloudflare/vite-plugin": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@varlock/vite-integration": "workspace:^",
+    "tsup": "catalog:",
+    "varlock": "workspace:^",
+    "vite": "^7.1.0",
+    "vitest": "catalog:"
+  }
+}
