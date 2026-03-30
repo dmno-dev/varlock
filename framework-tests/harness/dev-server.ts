@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import type { DevServerScenario, DevServerResult, DevServerRequestResult } from './types.js';
 
 const URL_PATTERN = /https?:\/\/(?:localhost|127\.0\.0\.1):\d+/;
@@ -99,7 +101,56 @@ function waitForReady(
 }
 
 /**
+ * Wait for the ready pattern to appear in NEW output (after a given chunk offset).
+ * Used after file edits to detect that the dev server has restarted.
+ */
+function waitForNewReady(
+  child: ChildProcess,
+  stdoutChunks: Array<string>,
+  stderrChunks: Array<string>,
+  stdoutOffset: number,
+  stderrOffset: number,
+  pattern: string | RegExp,
+  timeout: number,
+): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const regex = typeof pattern === 'string' ? new RegExp(pattern) : pattern;
+    let resolved = false;
+    function done(url: string | undefined) {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer); // eslint-disable-line no-use-before-define
+      child.stdout?.removeListener('data', onData); // eslint-disable-line no-use-before-define
+      child.stderr?.removeListener('data', onData); // eslint-disable-line no-use-before-define
+      child.removeListener('close', onClose); // eslint-disable-line no-use-before-define
+      resolve(url);
+    }
+
+    function checkNewOutput() {
+      // only look at output produced after the edit
+      const newOut = stdoutChunks.slice(stdoutOffset).join('')
+        + stderrChunks.slice(stderrOffset).join('');
+      if (regex.test(newOut)) {
+        const urlMatch = newOut.match(URL_PATTERN);
+        done(urlMatch ? urlMatch[0] : undefined);
+      }
+    }
+
+    const onData = () => checkNewOutput();
+    const onClose = () => done(undefined);
+
+    child.stdout?.on('data', onData);
+    child.stderr?.on('data', onData);
+    child.on('close', onClose);
+
+    const timer = setTimeout(() => done(undefined), timeout);
+  });
+}
+
+/**
  * Spawn a dev server, wait for it to be ready, run HTTP requests, then shut it down.
+ * Supports mid-run file edits: if a request has `fileEdits`, files are written and
+ * the runner waits for the server's readyPattern to reappear before making the request.
  */
 export async function runDevServer(
   cwd: string,
@@ -160,6 +211,38 @@ export async function runDevServer(
 
     const responses: Array<DevServerRequestResult> = [];
     for (const req of scenario.requests) {
+      // if this request has file edits, apply them and wait for the server to restart
+      if (req.fileEdits) {
+        const stdoutOffsetBefore = stdoutChunks.length;
+        const stderrOffsetBefore = stderrChunks.length;
+
+        for (const [filePath, content] of Object.entries(req.fileEdits)) {
+          const fullPath = join(cwd, filePath);
+          mkdirSync(dirname(fullPath), { recursive: true });
+          writeFileSync(fullPath, content);
+        }
+
+        // wait for the server to become ready again after the file change
+        const newUrl = await waitForNewReady(
+          child,
+          stdoutChunks,
+          stderrChunks,
+          stdoutOffsetBefore,
+          stderrOffsetBefore,
+          scenario.readyPattern,
+          readyTimeout,
+        );
+        if (!newUrl) {
+          return {
+            success: false,
+            stdout: getStdout(),
+            stderr: getStderr(),
+            responses,
+            error: 'Server did not become ready again after file edit',
+          };
+        }
+      }
+
       const url = `${serverUrl}${req.path}`;
       const result = await fetchWithRetry(url);
       responses.push(result);

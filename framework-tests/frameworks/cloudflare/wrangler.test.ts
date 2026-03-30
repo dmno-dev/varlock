@@ -34,7 +34,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
     readyPattern: /Ready on/,
     readyTimeout: 30_000,
     templateFiles: {
-      'src/index.ts': 'workers/basic-worker.ts',
+      'src/index.ts': { path: 'workers/basic-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
       'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
       'tsconfig.json': '_base-wrangler/tsconfig.json',
     },
@@ -74,7 +74,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
     readyPattern: /Ready on/,
     readyTimeout: 30_000,
     templateFiles: {
-      'src/index.ts': 'workers/leaky-worker.ts',
+      'src/index.ts': { path: 'workers/leaky-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
       'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
       'tsconfig.json': '_base-wrangler/tsconfig.json',
     },
@@ -100,7 +100,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
     readyPattern: /Ready on/,
     readyTimeout: 30_000,
     templateFiles: {
-      'src/index.ts': 'workers/large-env-worker.ts',
+      'src/index.ts': { path: 'workers/large-env-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
       'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
       'tsconfig.json': '_base-wrangler/tsconfig.json',
       '.env.schema': 'schemas/.env.schema.large',
@@ -121,10 +121,54 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
     ],
   });
 
+  wranglerEnv.describeDevScenario('env reload on file change', {
+    command: 'varlock-wrangler dev --port 18790',
+    readyPattern: /Ready on/,
+    readyTimeout: 30_000,
+    templateFiles: {
+      'src/index.ts': { path: 'workers/basic-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
+      'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
+      'tsconfig.json': '_base-wrangler/tsconfig.json',
+    },
+    requests: [
+      // first request — original value
+      {
+        path: '/',
+        bodyAssertions: {
+          shouldContain: ['public_var::public-test-value'],
+        },
+      },
+      // second request — after editing .env.schema to change PUBLIC_VAR
+      {
+        path: '/',
+        fileEdits: {
+          '.env.schema': [
+            '# @defaultSensitive=false @defaultRequired=infer',
+            '# @currentEnv=$APP_ENV',
+            '# ---',
+            '',
+            '# @type=enum(dev, prod)',
+            'APP_ENV=dev',
+            '',
+            'PUBLIC_VAR=updated-test-value',
+            'API_URL=https://api.example.com',
+            '',
+            '# @sensitive',
+            'SECRET_KEY=super-secret-value',
+          ].join('\n'),
+        },
+        bodyAssertions: {
+          shouldContain: ['public_var::updated-test-value'],
+          shouldNotContain: ['public_var::public-test-value'],
+        },
+      },
+    ],
+  });
+
   wranglerEnv.describeScenario('types generation', {
     command: 'varlock-wrangler types',
     templateFiles: {
-      'src/index.ts': 'workers/basic-worker.ts',
+      'src/index.ts': { path: 'workers/basic-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
       'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
       'tsconfig.json': '_base-wrangler/tsconfig.json',
     },

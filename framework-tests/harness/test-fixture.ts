@@ -346,7 +346,10 @@ export class FrameworkTestEnv {
 
       for (let i = 0; i < scenario.requests.length; i++) {
         const req = scenario.requests[i];
-        test(`GET ${req.path} returns expected response`, () => {
+        const testLabel = req.fileEdits
+          ? `GET ${req.path} returns expected response (after file edit)`
+          : `GET ${req.path} returns expected response`;
+        test(testLabel, () => {
           const resp = ctx.result!.responses[i];
           expect(resp, `No response for request ${i} (GET ${req.path})`).toBeDefined();
           const expectedStatus = req.expectedStatus ?? 200;

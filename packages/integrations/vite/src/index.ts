@@ -93,9 +93,14 @@ export interface VarlockVitePluginOptions {
   ssrEntryModuleIds?: Array<string>,
 }
 
+// Return type is `any` instead of `Plugin` to avoid symlink type conflicts.
+// When this package is symlinked for local dev, TypeScript resolves `vite`'s
+// Plugin type from this package's node_modules — a different copy than the
+// consumer's — causing spurious type errors. Since Vite's `plugins` config
+// is loosely typed, this is functionally equivalent.
 export function varlockVitePlugin(
   vitePluginOptions?: VarlockVitePluginOptions,
-): Plugin {
+): any {
   return {
     name: 'inject-varlock-config',
     enforce: 'post',
@@ -335,5 +340,5 @@ See https://varlock.dev/integrations/vite/ for more details.
 
       return replacedHtml;
     },
-  };
+  } satisfies Plugin;
 }

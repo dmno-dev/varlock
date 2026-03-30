@@ -1,7 +1,6 @@
 import { varlockVitePlugin } from '@varlock/vite-integration';
 import { execSyncVarlock } from 'varlock/exec-sync-varlock';
-import { cloudflare } from '@cloudflare/vite-plugin';
-import type { Plugin } from 'vite';
+import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
 
 /**
  * Varlock Cloudflare Vite plugin — wraps the Cloudflare Workers Vite plugin
@@ -20,17 +19,21 @@ import type { Plugin } from 'vite';
  */
 export function varlockCloudflareVitePlugin(
   /**
-   * all options from original cloudflare vite plugin are supported
+   * All options from the original Cloudflare Vite plugin are supported.
    * @see https://developers.cloudflare.com/workers/vite-plugin/reference/api/
-   *
-  */
-  cloudflareOptions?: Record<string, any>,
-): Array<Plugin | Array<Plugin>> {
+   */
+  cloudflareOptions?: PluginConfig,
+  // Return Array<any> instead of Array<Plugin> to avoid symlink type conflicts.
+  // When this package is symlinked for local dev, TypeScript resolves `vite`'s
+  // Plugin type from this package's node_modules — a different copy than the
+  // consumer's — causing spurious type errors. Since Vite's `plugins` config
+  // is loosely typed, Array<any> is functionally equivalent.
+): Array<any> {
   // detect dev vs build — set by a pre-enforce plugin before the cloudflare
   // plugin evaluates its config callback
   let isDevMode = false;
 
-  const modeDetector: Plugin = {
+  const modeDetector: import('vite').Plugin = {
     name: 'varlock-cloudflare-mode',
     enforce: 'pre',
     config(_config, env) {
@@ -40,11 +43,11 @@ export function varlockCloudflareVitePlugin(
 
   // merge our config callback with any user-provided config
   const userConfig = cloudflareOptions?.config;
-  const mergedConfig = (cfg: any) => {
+  const mergedConfig = (cfg: WorkerConfig) => {
     // apply user's config first (static object or function)
-    let userResult: any;
+    let userResult: Partial<WorkerConfig> | undefined;
     if (typeof userConfig === 'function') {
-      userResult = userConfig(cfg);
+      userResult = userConfig(cfg) || undefined;
     } else if (userConfig) {
       userResult = userConfig;
     }

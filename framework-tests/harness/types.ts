@@ -132,6 +132,12 @@ export interface DevServerRequest {
     shouldContain?: Array<string>;
     shouldNotContain?: Array<string>;
   };
+  /**
+   * Files to write before this request (triggers env reload / server restart).
+   * Keys are paths relative to project root, values are file content.
+   * After writing, waits for the server's readyPattern to appear again before making the request.
+   */
+  fileEdits?: Record<string, string>;
 }
 
 /** Result of a single HTTP request to the dev server */

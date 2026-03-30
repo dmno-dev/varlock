@@ -31,7 +31,7 @@ describe('Cloudflare Workers w/ vite plugin', () => {
     readyPattern: /Local:\s+http/,
     readyTimeout: 30_000,
     templateFiles: {
-      'src/index.ts': 'workers/basic-worker-vite.ts',
+      'src/index.ts': 'workers/basic-worker.ts',
       'vite.config.ts': 'vite-configs/vite.config.ts',
       'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
       'tsconfig.json': '_base-wrangler/tsconfig.json',
@@ -68,7 +68,7 @@ describe('Cloudflare Workers w/ vite plugin', () => {
     readyPattern: /Local:\s+http/,
     readyTimeout: 30_000,
     templateFiles: {
-      'src/index.ts': 'workers/leaky-worker-vite.ts',
+      'src/index.ts': 'workers/leaky-worker.ts',
       'vite.config.ts': 'vite-configs/vite.config.ts',
       'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
       'tsconfig.json': '_base-wrangler/tsconfig.json',
@@ -95,7 +95,7 @@ describe('Cloudflare Workers w/ vite plugin', () => {
     readyPattern: /Local:\s+http/,
     readyTimeout: 30_000,
     templateFiles: {
-      'src/index.ts': 'workers/large-env-worker-vite.ts',
+      'src/index.ts': 'workers/large-env-worker.ts',
       'vite.config.ts': 'vite-configs/vite.config.ts',
       'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
       'tsconfig.json': '_base-wrangler/tsconfig.json',

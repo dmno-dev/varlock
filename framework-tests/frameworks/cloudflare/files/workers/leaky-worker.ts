@@ -1,4 +1,3 @@
-import '@varlock/cloudflare-integration/init';
 import { ENV } from 'varlock/env';
 
 export default {
