@@ -81,14 +81,19 @@ export abstract class EnvGraphDataSource {
     }
   }
 
-  /** adds a child data source and sets up the correct references in both directions */
-  async addChild(child: EnvGraphDataSource, importMeta?: EnvGraphDataSource['importMeta']) {
+  /** shared child-setup logic: wire up parent/graph refs, finishInit (but no import processing) */
+  protected async _initChild(child: EnvGraphDataSource, importMeta?: EnvGraphDataSource['importMeta']) {
     if (!this.graph) throw new Error('expected graph to be set');
     this.children.unshift(child);
     child.parent = this;
     child.graph = this.graph;
     if (importMeta) child.importMeta = importMeta;
     await child.finishInit();
+  }
+
+  /** adds a child data source, running both finishInit and import processing */
+  async addChild(child: EnvGraphDataSource, importMeta?: EnvGraphDataSource['importMeta']) {
+    await this._initChild(child, importMeta);
     await child._processImports();
   }
 
@@ -763,11 +768,7 @@ export class DirectoryDataSource extends EnvGraphDataSource {
 
   /** like addChild but skips import processing — used so all files can be loaded before imports run */
   private async _addChildWithoutImports(child: EnvGraphDataSource) {
-    if (!this.graph) throw new Error('expected graph to be set');
-    this.children.unshift(child);
-    child.parent = this;
-    child.graph = this.graph;
-    await child.finishInit();
+    await this._initChild(child);
   }
 
   /** resolve currentEnv from schema's envFlagKey or parent chain */
@@ -800,8 +801,12 @@ export class DirectoryDataSource extends EnvGraphDataSource {
 
   /** load env-specific files (.env.ENV and .env.ENV.local) for the given environment */
   private async _loadEnvSpecificFiles(currentEnv: string) {
-    await this.addAutoLoadedFile(`.env.${currentEnv}`);
-    await this.addAutoLoadedFile(`.env.${currentEnv}.local`);
+    const sources: Array<DotEnvFileDataSource> = [];
+    const s1 = await this.addAutoLoadedFile(`.env.${currentEnv}`);
+    if (s1) sources.push(s1);
+    const s2 = await this.addAutoLoadedFile(`.env.${currentEnv}.local`);
+    if (s2) sources.push(s2);
+    return sources;
   }
 
   async _finishInit() {
@@ -835,12 +840,15 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     }
 
     // An import may have set @currentEnv (e.g. an imported file with @currentEnv=$VAR).
-    // If we didn't load env-specific files above, check again now.
+    // If we didn't load env-specific files above, check again now and process their imports too.
     if (!currentEnv) {
       currentEnv = await this._resolveCurrentEnv();
       if (this._loadingError) return;
       if (currentEnv) {
-        await this._loadEnvSpecificFiles(currentEnv);
+        const envSources = await this._loadEnvSpecificFiles(currentEnv);
+        for (const source of envSources) {
+          await source._processImports();
+        }
       }
     }
   }
