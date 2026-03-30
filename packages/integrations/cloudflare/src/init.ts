@@ -23,14 +23,25 @@ if (__cfEnv?.__VARLOCK_ENV) {
   __varlockEnvJson = __cfEnv.__VARLOCK_ENV as string;
 } else if (__cfEnv?.__VARLOCK_ENV_CHUNKS) {
   const chunkCount = parseInt(__cfEnv.__VARLOCK_ENV_CHUNKS as string, 10);
+  if (!Number.isFinite(chunkCount) || chunkCount < 1 || chunkCount > 1000) {
+    throw new Error(`[varlock] invalid __VARLOCK_ENV_CHUNKS value: ${__cfEnv.__VARLOCK_ENV_CHUNKS}`);
+  }
   const parts: Array<string> = [];
   for (let i = 0; i < chunkCount; i++) {
-    parts.push((__cfEnv as any)[`__VARLOCK_ENV_${i}`] as string);
+    const chunk = (__cfEnv as any)[`__VARLOCK_ENV_${i}`] as string | undefined;
+    if (chunk === undefined || chunk === null) {
+      throw new Error(`[varlock] missing chunk __VARLOCK_ENV_${i} (expected ${chunkCount} chunks)`);
+    }
+    parts.push(chunk);
   }
   __varlockEnvJson = parts.join('');
 }
 if (__varlockEnvJson) {
-  (globalThis as any).__varlockLoadedEnv = JSON.parse(__varlockEnvJson);
+  try {
+    (globalThis as any).__varlockLoadedEnv = JSON.parse(__varlockEnvJson);
+  } catch (err) {
+    throw new Error(`[varlock] failed to parse __VARLOCK_ENV: ${(err as Error).message}`);
+  }
 }
 
 (globalThis as any).__varlockThrowOnMissingKeys = true;

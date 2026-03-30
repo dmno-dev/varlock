@@ -37,7 +37,7 @@ function spawnWrangler(args: Array<string>): Promise<number> {
     child.on('error', (err) => {
       if ((err as any).code === 'ENOENT') {
         console.error('Error: wrangler not found. Install it with your package manager:');
-        console.error('  npm install wrangler');
+        console.error('  Install it with your package manager, e.g.: npm install wrangler');
       }
       reject(err);
     });
@@ -148,6 +148,28 @@ function createServingTempFile(prefix: string) {
 // __VARLOCK_ENV can exceed this, so we split it into chunks.
 const CF_SECRET_MAX_BYTES = 5120;
 
+/**
+ * Split a string into chunks where each chunk's UTF-8 byte length ≤ maxBytes.
+ * Unlike slicing a Buffer, this never splits a multi-byte character.
+ */
+function chunkString(str: string, maxBytes: number): Array<string> {
+  const chunks: Array<string> = [];
+  let current = '';
+  let currentBytes = 0;
+  for (const char of str) {
+    const charBytes = Buffer.byteLength(char);
+    if (currentBytes + charBytes > maxBytes && current) {
+      chunks.push(current);
+      current = '';
+      currentBytes = 0;
+    }
+    current += char;
+    currentBytes += charBytes;
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
 function formatEnvLine(key: string, value: string): string {
   if (!value.includes("'")) {
     // single quotes — literal, no escaping needed
@@ -168,16 +190,12 @@ function addVarlockEnvToRecord(record: Record<string, string>, json: string) {
     record.__VARLOCK_ENV = json;
     return;
   }
-  const buf = Buffer.from(json);
-  const chunks: Array<string> = [];
-  for (let i = 0; i < buf.length; i += CF_SECRET_MAX_BYTES) {
-    chunks.push(buf.subarray(i, i + CF_SECRET_MAX_BYTES).toString());
-  }
+  const chunks = chunkString(json, CF_SECRET_MAX_BYTES);
   record.__VARLOCK_ENV_CHUNKS = String(chunks.length);
   for (let i = 0; i < chunks.length; i++) {
     record[`__VARLOCK_ENV_${i}`] = chunks[i];
   }
-  debug(`__VARLOCK_ENV split into ${chunks.length} chunks (${buf.length} bytes)`);
+  debug(`__VARLOCK_ENV split into ${chunks.length} chunks (${Buffer.byteLength(json)} bytes)`);
 }
 
 /**
@@ -188,16 +206,12 @@ function addVarlockEnvToLines(lines: Array<string>, json: string) {
     lines.push(formatEnvLine('__VARLOCK_ENV', json));
     return;
   }
-  const buf = Buffer.from(json);
-  const chunks: Array<string> = [];
-  for (let i = 0; i < buf.length; i += CF_SECRET_MAX_BYTES) {
-    chunks.push(buf.subarray(i, i + CF_SECRET_MAX_BYTES).toString());
-  }
+  const chunks = chunkString(json, CF_SECRET_MAX_BYTES);
   lines.push(formatEnvLine('__VARLOCK_ENV_CHUNKS', String(chunks.length)));
   for (let i = 0; i < chunks.length; i++) {
     lines.push(formatEnvLine(`__VARLOCK_ENV_${i}`, chunks[i]));
   }
-  debug(`__VARLOCK_ENV split into ${chunks.length} chunks (${buf.length} bytes)`);
+  debug(`__VARLOCK_ENV split into ${chunks.length} chunks (${Buffer.byteLength(json)} bytes)`);
 }
 
 function formatEnvFileContent(graph: ReturnType<typeof loadSerializedGraph>) {
@@ -481,7 +495,7 @@ async function handleDev(args: Array<string>) {
         child.on('error', (err) => {
           if ((err as any).code === 'ENOENT') {
             console.error('Error: wrangler not found. Install it with your package manager:');
-            console.error('  npm install wrangler');
+            console.error('  Install it with your package manager, e.g.: npm install wrangler');
           }
           resolve(1);
         });
@@ -534,4 +548,7 @@ async function main() {
   }
 }
 
-main();
+main().catch((err) => {
+  console.error('varlock-wrangler: unexpected error:', err);
+  process.exitCode = 1;
+});

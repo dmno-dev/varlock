@@ -54,9 +54,12 @@ export function varlockCloudflareVitePlugin(
 
     // single CLI call to get the full graph, then extract individual vars from it
     const serializedGraph = execSyncVarlock('load --format json-full --compact');
-    const graph = JSON.parse(serializedGraph) as {
-      config: Record<string, { value: unknown }>,
-    };
+    let graph: { config: Record<string, { value: unknown }> };
+    try {
+      graph = JSON.parse(serializedGraph);
+    } catch (err) {
+      throw new Error(`[varlock] failed to parse config graph: ${(err as Error).message}`);
+    }
     const vars: Record<string, string> = {};
     for (const key in graph.config) {
       const { value } = graph.config[key];
@@ -86,12 +89,23 @@ import { env as __cfEnv } from 'cloudflare:workers';
     __varlockEnvJson = __cfEnv.__VARLOCK_ENV;
   } else if (__cfEnv?.__VARLOCK_ENV_CHUNKS) {
     const n = parseInt(__cfEnv.__VARLOCK_ENV_CHUNKS, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 1000) {
+      throw new Error("[varlock] invalid __VARLOCK_ENV_CHUNKS: " + __cfEnv.__VARLOCK_ENV_CHUNKS);
+    }
     const parts = [];
-    for (let i = 0; i < n; i++) parts.push(__cfEnv["__VARLOCK_ENV_" + i]);
+    for (let i = 0; i < n; i++) {
+      const chunk = __cfEnv["__VARLOCK_ENV_" + i];
+      if (chunk == null) throw new Error("[varlock] missing chunk __VARLOCK_ENV_" + i);
+      parts.push(chunk);
+    }
     __varlockEnvJson = parts.join("");
   }
   if (__varlockEnvJson) {
-    globalThis.__varlockLoadedEnv = JSON.parse(__varlockEnvJson);
+    try {
+      globalThis.__varlockLoadedEnv = JSON.parse(__varlockEnvJson);
+    } catch (e) {
+      throw new Error("[varlock] failed to parse __VARLOCK_ENV: " + e.message);
+    }
   }
 }
 `,

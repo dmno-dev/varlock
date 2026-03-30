@@ -71,25 +71,28 @@ function waitForReady(
       if (resolved) return;
       resolved = true;
       clearTimeout(timer); // eslint-disable-line no-use-before-define
+      // clean up listeners to avoid accumulation across scenarios
+      child.stdout?.removeListener('data', onStdout); // eslint-disable-line no-use-before-define
+      child.stderr?.removeListener('data', onStderr); // eslint-disable-line no-use-before-define
+      child.removeListener('close', onClose); // eslint-disable-line no-use-before-define
       resolve(url);
     }
 
-    child.stdout?.on('data', () => {
+    function checkReady() {
       const combined = [...stdoutChunks, ...stderrChunks].join('');
       if (regex.test(combined)) {
         const urlMatch = combined.match(URL_PATTERN);
         done(urlMatch ? urlMatch[0] : undefined);
       }
-    });
-    child.stderr?.on('data', () => {
-      const combined = [...stdoutChunks, ...stderrChunks].join('');
-      if (regex.test(combined)) {
-        const urlMatch = combined.match(URL_PATTERN);
-        done(urlMatch ? urlMatch[0] : undefined);
-      }
-    });
+    }
 
-    child.on('close', () => done(undefined));
+    const onStdout = () => checkReady();
+    const onStderr = () => checkReady();
+    const onClose = () => done(undefined);
+
+    child.stdout?.on('data', onStdout);
+    child.stderr?.on('data', onStderr);
+    child.on('close', onClose);
 
     const timer = setTimeout(() => done(undefined), timeout);
   });
