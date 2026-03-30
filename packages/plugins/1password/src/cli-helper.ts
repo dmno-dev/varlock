@@ -30,17 +30,20 @@ let lockCliToOpAccount: string | undefined;
 
 // use a singleton within the module to track op cli auth state as a mutex / deferred promise
 let opAuthDeferred: DeferredPromise<boolean> | undefined;
-async function checkOpCliAuth() {
+
+/** Called after each `op` invocation so parallel waiters can proceed; no-op when this caller only waited on the mutex. */
+type OpAuthCompletedFn = (success: boolean) => void;
+
+async function checkOpCliAuth(): Promise<OpAuthCompletedFn> {
   if (opAuthDeferred) {
-    // if the deferred promise already exists, we'll just wait for it to complete
+    // Wait for the in-flight first `op` call to finish (or an earlier batch to settle the mutex).
     await opAuthDeferred.promise;
-  } else {
-    // otherwise it means this is the first call of this function, so we create a new deferred promise
-    // and return the resolve fn to be called after the first CLI method actually completes
-    // except for one further trick, which is to first check if we are already logged in, and resolve right away
-    opAuthDeferred = createDeferredPromise();
-    return opAuthDeferred.resolve;
+    // Mutex is already resolved — still return a callable so callers can always invoke authCompletedFn(success).
+    return (_success: boolean) => undefined;
   }
+  // First caller creates the mutex and must call the returned fn when its `op` run completes.
+  opAuthDeferred = createDeferredPromise<boolean>();
+  return opAuthDeferred.resolve;
 }
 
 
