@@ -207,7 +207,9 @@ describe('Binary plugin loading', () => {
       'azure-key-vault',
       'bitwarden',
       'pass',
+      'proton-pass',
       '1password',
+      'hashicorp-vault',
     ];
 
     let cwd: string;

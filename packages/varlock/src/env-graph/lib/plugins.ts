@@ -5,8 +5,6 @@ import fs from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-
-
 import crypto from 'node:crypto';
 import https from 'node:https';
 import ansis from 'ansis';
@@ -81,10 +79,10 @@ const varlockPluginLibExports = __VARLOCK_SEA_BUILD__ ? {
  * Loads and executes a CJS plugin module.
  *
  * Plugins are built as CJS. We use `new Function` to create a CJS module scope
- * (exports, require, module, __filename, __dirname, plugin) — this runs in the
- * main Node.js/Bun context so all built-in globals (DOMException, fetch, etc.)
- * work correctly. `plugin` is injected as a named parameter so plugin code can
- * reference it directly without relying on globalThis.
+ * (exports, require, module, __filename, __dirname) — this runs in the main
+ * Node.js/Bun context so all built-in globals (DOMException, fetch, etc.) work
+ * correctly. `require('varlock/plugin-lib')` is intercepted to return the
+ * plugin context, so plugin code accesses it via a standard require call.
  *
  * We intentionally avoid vm.createContext with a Proxy sandbox because Node.js
  * C++ lazy property initializers (e.g. for DOMException) assert IsolateData
@@ -113,7 +111,6 @@ function loadPluginModuleCJS(filePath: string): void {
 /**
  * Loads and executes an ESM or TypeScript plugin module via dynamic import().
  *
- * In SEA builds, `import { plugin } from 'varlock/plugin-lib'` is intercepted
  * In SEA builds, `import { plugin } from 'varlock/plugin-lib'` is replaced
  * at load time with a globalThis accessor (varlock isn't in the user's
  * node_modules). Single-file plugins are restricted from other imports so
@@ -318,8 +315,9 @@ export class VarlockPlugin {
       }
     } catch (err) {
       this.loadingError = err as Error;
+    } finally {
+      deactivatePlugin();
     }
-    deactivatePlugin();
   }
 }
 

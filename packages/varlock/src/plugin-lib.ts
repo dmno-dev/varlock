@@ -7,7 +7,9 @@ export { createDebug, type Debugger } from './lib/debug';
 // Error classes exported directly so plugin authors can import them without
 // going through plugin.ERRORS. ESM module caching guarantees the same class
 // instance as what varlock uses internally, so instanceof checks work correctly.
-export { ValidationError, CoercionError, SchemaError, ResolutionError } from './env-graph/lib/errors';
+export {
+  ValidationError, CoercionError, SchemaError, ResolutionError,
+} from './env-graph/lib/errors';
 
 /**
  * The current plugin instance, available as a module import rather than a global.

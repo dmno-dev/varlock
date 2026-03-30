@@ -8,6 +8,7 @@
 "@varlock/hashicorp-vault-plugin": patch
 "@varlock/infisical-plugin": patch
 "@varlock/pass-plugin": patch
+"@varlock/proton-pass-plugin": patch
 ---
 
 Add support for single-file ESM and TypeScript plugins, and improve the plugin authoring API.

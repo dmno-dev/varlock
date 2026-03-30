@@ -10,7 +10,7 @@
  * is currently active.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 const ctx: { active: any } = { active: undefined };
 
 export function activatePlugin(p: unknown): void {
@@ -27,7 +27,7 @@ export function deactivatePlugin(): void {
  *
  * Valid only between activatePlugin() and deactivatePlugin() calls.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 export const pluginProxy: any = new Proxy({} as any, {
   get(_, key) {
     if (!ctx.active) throw new Error('[varlock] No active plugin context — are you importing plugin-lib outside of a plugin module?');
