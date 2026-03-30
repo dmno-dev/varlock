@@ -116,6 +116,58 @@ describe('early resolve order - @import enabled with values from local files', (
   }));
 });
 
+describe('early resolve order - import in env-specific file with values from local files', () => {
+  test('import in .env.ENV can be enabled by a value in .env.ENV.local', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # ---
+        APP_ENV=dev
+        AUTH_MODE=none
+      `,
+      '.env.dev': outdent`
+        # @import(./.env.azure, enabled=eq($AUTH_MODE, "azure"))
+        # ---
+      `,
+      '.env.dev.local': outdent`
+        AUTH_MODE=azure
+      `,
+      '.env.azure': outdent`
+        AZURE_CLIENT_ID=some-client-id
+      `,
+    },
+    expectValues: {
+      AUTH_MODE: 'azure',
+      AZURE_CLIENT_ID: 'some-client-id',
+    },
+  }));
+
+  test('import in .env.ENV stays disabled when .env.ENV.local does not set the enabling value', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # ---
+        APP_ENV=dev
+        AUTH_MODE=none
+      `,
+      '.env.dev': outdent`
+        # @import(./.env.azure, enabled=eq($AUTH_MODE, "azure"))
+        # ---
+      `,
+      '.env.dev.local': outdent`
+        AUTH_MODE=none
+      `,
+      '.env.azure': outdent`
+        AZURE_CLIENT_ID=some-client-id
+      `,
+    },
+    expectValues: {
+      AUTH_MODE: 'none',
+    },
+    expectNotInSchema: ['AZURE_CLIENT_ID'],
+  }));
+});
+
 describe('early resolve order - @disable with values from local files', () => {
   test('@disable condition resolves var set in .env.local', envFilesTest({
     files: {
