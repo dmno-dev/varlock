@@ -357,4 +357,65 @@ describe('early resolve order - error when later file redefines early-resolved i
       AZURE_CLIENT_ID: 'some-client-id',
     },
   }));
+
+  test('no error when imported file sets the same value as early-resolved', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./.env.azure, enabled=eq($AUTH_MODE, "azure"))
+        # ---
+        AUTH_MODE=none
+      `,
+      '.env.local': outdent`
+        AUTH_MODE=azure
+      `,
+      '.env.azure': outdent`
+        AUTH_MODE=azure
+        AZURE_CLIENT_ID=some-client-id
+      `,
+    },
+    expectValues: {
+      AUTH_MODE: 'azure',
+      AZURE_CLIENT_ID: 'some-client-id',
+    },
+  }));
+
+  test('no error when env-specific file sets the same value as early-resolved @currentEnv item', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # ---
+        APP_ENV=dev
+        ITEM1=val-from-schema
+      `,
+      '.env.dev': outdent`
+        ITEM1=val-from-dev
+        APP_ENV=dev
+      `,
+    },
+    expectValues: {
+      ITEM1: 'val-from-dev',
+      APP_ENV: 'dev',
+    },
+  }));
+
+  test('no error when later file only adds decorators to early-resolved item (no value)', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # ---
+        APP_ENV=dev
+        ITEM1=val-from-schema
+      `,
+      '.env.dev': outdent`
+        # ---
+        # @required
+        APP_ENV=
+        ITEM1=val-from-dev
+      `,
+    },
+    expectValues: {
+      ITEM1: 'val-from-dev',
+      APP_ENV: 'dev',
+    },
+  }));
 });

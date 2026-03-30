@@ -5,7 +5,7 @@ import _ from '@env-spec/utils/my-dash';
 import { tryCatch } from '@env-spec/utils/try-catch';
 import {
   ParsedEnvSpecDecorator, ParsedEnvSpecDecoratorComment, ParsedEnvSpecFile,
-  ParsedEnvSpecFunctionCall, parseEnvSpecDotEnvFile,
+  ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
 } from '@env-spec/parser';
 
 import { ConfigItem, type ConfigItemDef } from './config-item';
@@ -206,14 +206,20 @@ export abstract class EnvGraphDataSource {
       if (!itemDef) continue;
 
       // check if this item was already early-resolved (used by @currentEnv, @import enabled, or @disable)
-      // if so, a later file redefining it would silently contradict the decision already made
+      // a later file setting a conflicting value would silently contradict the decision already made
       const existingItem = this.graph.configSchema[itemKey];
-      if (existingItem?.isResolved) {
-        this._schemaErrors.push(new SchemaError(
-          `"${itemKey}" was already resolved during early initialization (used by @currentEnv, @import, or @disable) `
-          + `and cannot be redefined by ${this.label}`,
-        ));
-        continue;
+      if (existingItem?.isResolved && itemDef.parsedValue !== undefined) {
+        // no value (just decorators or empty assignment) is fine — it won't override
+        // a static value matching the early-resolved value is also fine
+        const isMatchingStatic = itemDef.parsedValue instanceof ParsedEnvSpecStaticValue
+          && itemDef.parsedValue.unescapedValue === existingItem.resolvedValue;
+        if (!isMatchingStatic) {
+          this._schemaErrors.push(new SchemaError(
+            `"${itemKey}" was already resolved during early initialization (used by @currentEnv, @import, or @disable) `
+            + `and cannot be redefined by ${this.label}`,
+          ));
+          continue;
+        }
       }
 
       // register the existence of the item in the graph
