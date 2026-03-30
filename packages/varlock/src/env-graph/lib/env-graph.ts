@@ -215,6 +215,9 @@ export class EnvGraph {
     this.rootDataSource = source;
     source.graph = this;
     await source.finishInit();
+    // For standalone files (not DirectoryDataSource), process imports now.
+    // DirectoryDataSource handles this internally in _finishInit() after all files are loaded.
+    await source._processImports();
   }
 
   async finishLoad() {
