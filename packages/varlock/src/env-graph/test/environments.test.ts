@@ -289,6 +289,31 @@ describe('@currentEnv and .env.* file loading logic', () => {
       ITEM1: 'dev-value',
     },
   }));
+  test('currentEnv set from an imported file - env-specific files can have their own imports', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./.env.imported)
+        # ---
+      `,
+      '.env.imported': outdent`
+        # @currentEnv=$IMPORTED_APP_ENV
+        # ---
+        IMPORTED_APP_ENV=dev
+      `,
+      '.env.dev': outdent`
+        # @import(./.env.dev-extras)
+        # ---
+        ITEM1=dev-value
+      `,
+      '.env.dev-extras': outdent`
+        ITEM2=dev-extras-value
+      `,
+    },
+    expectValues: {
+      ITEM1: 'dev-value',
+      ITEM2: 'dev-extras-value',
+    },
+  }));
   test('currentEnv in an imported file will be ignored if parent already has it set', envFilesTest({
     files: {
       '.env.schema': outdent`

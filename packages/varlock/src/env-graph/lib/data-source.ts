@@ -5,7 +5,7 @@ import _ from '@env-spec/utils/my-dash';
 import { tryCatch } from '@env-spec/utils/try-catch';
 import {
   ParsedEnvSpecDecorator, ParsedEnvSpecDecoratorComment, ParsedEnvSpecFile,
-  ParsedEnvSpecFunctionCall, parseEnvSpecDotEnvFile,
+  ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
 } from '@env-spec/parser';
 
 import { ConfigItem, type ConfigItemDef } from './config-item';
@@ -81,14 +81,20 @@ export abstract class EnvGraphDataSource {
     }
   }
 
-  /** adds a child data source and sets up the correct references in both directions */
-  async addChild(child: EnvGraphDataSource, importMeta?: EnvGraphDataSource['importMeta']) {
+  /** shared child-setup logic: wire up parent/graph refs, finishInit (but no import processing) */
+  protected async _initChild(child: EnvGraphDataSource, importMeta?: EnvGraphDataSource['importMeta']) {
     if (!this.graph) throw new Error('expected graph to be set');
     this.children.unshift(child);
     child.parent = this;
     child.graph = this.graph;
     if (importMeta) child.importMeta = importMeta;
     await child.finishInit();
+  }
+
+  /** adds a child data source, running both finishInit and import processing */
+  async addChild(child: EnvGraphDataSource, importMeta?: EnvGraphDataSource['importMeta']) {
+    await this._initChild(child, importMeta);
+    await child._processImports();
   }
 
   /**
@@ -175,6 +181,15 @@ export abstract class EnvGraphDataSource {
     // note that when using `forEnv` it will rely on the what has been set so far, not anything from _this_ source
     const disabledDec = this.getRootDec('disable');
     if (disabledDec) {
+      // early resolve any dependencies needed by @disable condition (e.g. $AUTH_MODE in `not(eq($AUTH_MODE, "azure"))`)
+      await disabledDec.process();
+      if (disabledDec.decValueResolver) {
+        for (const depKey of disabledDec.decValueResolver.deps) {
+          const depItem = this.graph.configSchema[depKey];
+          if (depItem) await depItem.earlyResolve();
+        }
+      }
+
       const disabledVal = await disabledDec.resolve();
       if (!_.isBoolean(disabledVal)) {
         this._loadingError = new Error('expected @disable to be boolean value');
@@ -194,6 +209,24 @@ export abstract class EnvGraphDataSource {
     for (const itemKey of this.importKeys || _.keys(this.configItemDefs)) {
       const itemDef = this.configItemDefs[itemKey];
       if (!itemDef) continue;
+
+      // check if this item was already early-resolved (used by @currentEnv, @import enabled, or @disable)
+      // a later file setting a conflicting value would silently contradict the decision already made
+      const existingItem = this.graph.configSchema[itemKey];
+      if (existingItem?.isResolved && itemDef.parsedValue !== undefined) {
+        // no value (just decorators or empty assignment) is fine — it won't override
+        // a static value matching the early-resolved value is also fine
+        const isMatchingStatic = itemDef.parsedValue instanceof ParsedEnvSpecStaticValue
+          && itemDef.parsedValue.unescapedValue === existingItem.resolvedValue;
+        if (!isMatchingStatic) {
+          this._schemaErrors.push(new SchemaError(
+            `"${itemKey}" was already resolved during early initialization (used by @currentEnv, @import, or @disable) `
+            + `and cannot be redefined by ${this.label}`,
+          ));
+          continue;
+        }
+      }
+
       // register the existence of the item in the graph
       this.graph.configSchema[itemKey] ??= new ConfigItem(this.graph, itemKey);
     }
@@ -270,10 +303,18 @@ export abstract class EnvGraphDataSource {
     await defaultRequiredDec?.process();
 
     await processPluginInstallDecorators(this);
-    if (!this.isValid) return;
+  }
 
-    // handle imports before we process config items
-    // because the imported defs will be overridden by anything within this source
+  /**
+   * Process @import decorators for this data source.
+   * Separated from finishInit() so that DirectoryDataSource can load all
+   * auto-loaded files first, then process imports once values from
+   * .env, .env.local, etc. are available for import conditions.
+   */
+  async _processImports() {
+    if (!this.graph) throw new Error('expected graph to be set');
+    if (!this.isValid || this.disabled) return;
+
     const importDecs = this.getRootDecFns('import');
     if (importDecs.length) {
       for (const importDec of importDecs) {
@@ -705,6 +746,7 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     super();
   }
 
+  /** load a file as a child, running finishInit but NOT processing imports yet */
   private async addAutoLoadedFile(fileName: string) {
     if (!this.graph) throw new Error('expected graph to be set');
     const filePath = path.join(this.basePath, fileName);
@@ -712,7 +754,7 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     if (this.graph.virtualImports) {
       if (this.graph.virtualImports[filePath]) {
         const source = new DotEnvFileDataSource(filePath, { overrideContents: this.graph.virtualImports[filePath] });
-        await this.addChild(source);
+        await this._addChildWithoutImports(source);
         return source;
       }
       return;
@@ -720,27 +762,21 @@ export class DirectoryDataSource extends EnvGraphDataSource {
 
     if (!await pathExists(filePath)) return;
     const source = new DotEnvFileDataSource(filePath);
-    await this.addChild(source);
+    await this._addChildWithoutImports(source);
     return source;
   }
 
-  async _finishInit() {
+  /** like addChild but skips import processing — used so all files can be loaded before imports run */
+  private async _addChildWithoutImports(child: EnvGraphDataSource) {
+    await this._initChild(child);
+  }
+
+  /** resolve currentEnv from schema's envFlagKey or parent chain */
+  private async _resolveCurrentEnv(): Promise<string | undefined> {
     if (!this.graph) throw new Error('expected graph to be set');
 
-    await this.addAutoLoadedFile('.env.schema');
-    await this.addAutoLoadedFile('.env');
-
-    // .env.schema is usually the "schema data source" but this allows for a single .env file being the main source
-    if (this.children.length) {
-      this.schemaDataSource = this.children[this.children.length - 1] as DotEnvFileDataSource;
-    }
-
-    await this.addAutoLoadedFile('.env.local');
-
-    // and finally load the env-specific files
     // First check if our schema has its own envFlagKey (for partial imports with their own currentEnv)
     // since for partial imports the schema's envFlag doesn't propagate to this directory
-    let currentEnv: string | undefined;
     if (this.schemaDataSource?._envFlagKey) {
       const envFlagKey = this.schemaDataSource._envFlagKey;
       // Check if this is a partial import that forgot to include the env flag key
@@ -751,20 +787,69 @@ export class DirectoryDataSource extends EnvGraphDataSource {
           + `but "${envFlagKey}" is not included in the import list. `
           + `Add "${envFlagKey}" to the @import() arguments.`,
         );
-        return;
+        return undefined;
       }
       const envFlagItem = this.graph.configSchema[envFlagKey];
       if (envFlagItem) {
         if (!envFlagItem.resolvedValue) await envFlagItem.earlyResolve();
-        currentEnv = envFlagItem.resolvedValue?.toString();
+        return envFlagItem.resolvedValue?.toString();
       }
     }
     // Fall back to parent chain or fallback value
-    currentEnv ||= (await this.resolveCurrentEnv())?.toString() || this.envFlagValue?.toString();
+    return (await this.resolveCurrentEnv())?.toString() || this.envFlagValue?.toString();
+  }
+
+  /** load env-specific files (.env.ENV and .env.ENV.local) for the given environment */
+  private async _loadEnvSpecificFiles(currentEnv: string) {
+    const sources: Array<DotEnvFileDataSource> = [];
+    const s1 = await this.addAutoLoadedFile(`.env.${currentEnv}`);
+    if (s1) sources.push(s1);
+    const s2 = await this.addAutoLoadedFile(`.env.${currentEnv}.local`);
+    if (s2) sources.push(s2);
+    return sources;
+  }
+
+  async _finishInit() {
+    if (!this.graph) throw new Error('expected graph to be set');
+
+    // Load all auto-loaded files WITHOUT processing imports yet.
+    // This ensures values from .env, .env.local, etc. are registered before
+    // import conditions (enabled=...) and imported file @disable are evaluated.
+    await this.addAutoLoadedFile('.env.schema');
+    await this.addAutoLoadedFile('.env');
+
+    // .env.schema is usually the "schema data source" but this allows for a single .env file being the main source
+    if (this.children.length) {
+      this.schemaDataSource = this.children[this.children.length - 1] as DotEnvFileDataSource;
+    }
+
+    await this.addAutoLoadedFile('.env.local');
+
+    // Resolve currentEnv from schema's own @currentEnv (set during finishInit, not during imports)
+    let currentEnv = await this._resolveCurrentEnv();
+    if (this._loadingError) return;
 
     if (currentEnv) {
-      await this.addAutoLoadedFile(`.env.${currentEnv}`);
-      await this.addAutoLoadedFile(`.env.${currentEnv}.local`);
+      await this._loadEnvSpecificFiles(currentEnv);
+    }
+
+    // Now that all auto-loaded files are registered, process imports.
+    // Reverse order = oldest child first (add order), so earlier files' imports run first.
+    for (const child of [...this.children].reverse()) {
+      await child._processImports();
+    }
+
+    // An import may have set @currentEnv (e.g. an imported file with @currentEnv=$VAR).
+    // If we didn't load env-specific files above, check again now and process their imports too.
+    if (!currentEnv) {
+      currentEnv = await this._resolveCurrentEnv();
+      if (this._loadingError) return;
+      if (currentEnv) {
+        const envSources = await this._loadEnvSpecificFiles(currentEnv);
+        for (const source of envSources) {
+          await source._processImports();
+        }
+      }
     }
   }
 }
