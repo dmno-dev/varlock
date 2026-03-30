@@ -18,6 +18,7 @@ import { join } from 'node:path';
 const INTEGRATION_PACKAGES: Record<string, Array<string>> = {
   nextjs: ['@varlock/nextjs-integration'],
   cloudflare: ['@varlock/cloudflare-integration', '@varlock/vite-integration'],
+  expo: ['@varlock/expo-integration'],
   // astro: ['@varlock/astro-integration'],
 };
 
