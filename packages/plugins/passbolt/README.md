@@ -8,7 +8,8 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 
 - **Zero-config authentication** - Just provide your accountKit and passphrase
 - **UUID-based secret access** - Fetch secrets by their unique identifiers
-- **Bulk-load environments** with `passboltFolder()` or `passboltCustomFields()` via `@setValuesBulk` 
+- **Bulk-load environments** with `passboltFolder()` or `passboltCustomFields()` via `@setValuesBulk`
+- **JSON key extraction** from resources using `#` syntax or named `field` parameter
 - **Self-hosted Passbolt support** - Configure custom API URL
 - **Multiple instances** - Connect to different organizations or self-hosted instances
 - **Comprehensive error handling** with helpful tips
@@ -71,9 +72,17 @@ PB_ACCOUNT_KIT=
 # @type=string @sensitive
 PB_PASSPHRASE=
 
-# Fetch secrets by UUID
+# Fetch secrets by resource UUID
 DATABASE_URL=passbolt("01234567-0123-4567-890a-bcdef0123456")
 API_KEY=passbolt("76543210-3210-4321-a098-ba9876543210")
+
+# Reffering to a single field in a resource
+LOGIN_URI=passbolt("01234567-0123-4567-890a-bcdef0123456#uri")
+LOGIN_USERNAME=passbolt("01234567-0123-4567-890a-bcdef0123456#username")
+LOGIN_PASSWORD=passbolt("01234567-0123-4567-890a-bcdef0123456")
+
+# Or use named "field" parameter
+LOGIN_USERNAME=passbolt("01234567-0123-4567-890a-bcdef0123456", field="username")
 
 # If using multiple instances
 PROD_SECRET=passbolt(prod, "11111111-1111-4111-a111-111111111111")
@@ -158,11 +167,23 @@ Fetch a secret from a Passbolt resource.
 **Signatures:**
 
 - `passbolt(resourceId)` - Fetch by resource UUID from default instance
+- `passbolt(resourceId, field="username")` - Fetch and extract field 
 - `passbolt(instanceId, resourceId)` - Fetch from a specific instance
 
 **Resource ID Format:**
 
 - Must be a valid UUID v4: `"12345678-1234-4567-abcd-123456789abc"`
+- With a field: `"12345678-1234-4567-abcd-123456789abc#username"` (shorthand for field extraction)
+
+**Allowed fields:**
+
+- "password": Extracts password from the resource (default when no field is given) 
+- "username": Extracts username from the resource
+- "uri": Extracts uri from the resource
+- "totp.secret": Extracts the TOTP secret from the resource
+- "totp.code": Extracts the TOTP settings from the resource and generates the TOTP code
+- "custom": Auto-infers the custom field name from variable name (uses name as-is)
+- "custom.EXAMPLE": Extracts the custom field named EXAMPLE from the resource
 
 ---
 
@@ -173,6 +194,7 @@ Fetch all secrets from a Passbolt folder.
 **Signatures:**
 
 - `passboltFolder(folder)` - Fetch by folder from default instance
+- `passboltFolder(folder, field="username")` - Fetch and extract field
 - `passboltFolder(instanceId, folder)` - Fetch from a specific instance
 
 **Folder Format:**
@@ -180,6 +202,14 @@ Fetch all secrets from a Passbolt folder.
 - Must be an existing folder e.g.: `"production"`
 - Subfolder can be accessed with / delimiter e.g.: `"production/database"`
 - If a folder contains / in its name the / needs to be escaped e.g.: `"CI\/CD/DEV"`
+
+**Allowed fields:**
+
+- "password": Extracts password from the resource (default when no field is given) 
+- "username": Extracts username from the resource
+- "uri": Extracts uri from the resource
+- "totp.secret": Extracts the TOTP secret from the resource
+- "totp.code": Extracts the TOTP settings from the resource and generates the TOTP code
 
 ---
 

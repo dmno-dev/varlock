@@ -105,10 +105,19 @@ export type Folder = {
 };
 
 export type Resource = {
+  id: string
   name: string
-  password: string | undefined
-  totp: string | undefined
-  customFields: Record<string, string> | undefined
+  username: string
+  uri?: string
+  password?: string
+  totp?: {
+    secretKey: string
+    period: number
+    digits: number
+    algorithm: string
+    code?: string
+  }
+  customFields?: Record<string, string>
 };
 
 type CustomField = { id: string, type: string };

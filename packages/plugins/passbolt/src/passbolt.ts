@@ -9,11 +9,13 @@ import type {
   GpgAccountKit,
   SecretIndex,
   ApiFolder,
+  GpgSecret,
 } from './types';
 import {
   getPrivateKey, PrivateKey, getMessage, getPublicKey,
 } from './openpgp';
 import { ApiClient } from './apiClient';
+import { webcrypto } from 'node:crypto';
 
 export type { ClientOptions, UUIDv4String } from './types';
 
@@ -82,6 +84,55 @@ export class PassboltClient {
     return [userId, domain, userPublicArmoredKey, userPrivateArmoredKey, serverPublicArmoredKey].every(Boolean);
   }
 
+  private base32ToBuffer(str: string) {
+    str = str.toUpperCase().replace(/=+$/, '');
+
+    if (!/^[A-Z234567]+$/.test(str)) {
+      return;
+    }
+
+    const buffer = Buffer.alloc((str.length * 5) / 8);
+
+    for (let i = 0, val = 0, bits = 0, idx = 0, chr = str.charCodeAt(0); i < str.length; chr = str.charCodeAt(++i)) {
+      val = (val << 5) | (chr - (chr >= 65 ? 65 : 24)); // eslint-disable-line no-bitwise
+      bits += 5;
+
+      if (bits >= 8) {
+        buffer[idx++] = (val >>> (bits -= 8)) & 255; // eslint-disable-line no-bitwise
+      }
+    }
+
+    return buffer;
+  }
+
+  private async generateTotpCode(secret: GpgSecret) {
+    if (!secret.totp) {
+      return;
+    }
+
+    const
+      algorithmMap : Record<string, string> = { SHA1: 'SHA-1', SHA256: 'SHA-256', SHA512: 'SHA-512' };
+    const totp = secret.totp;
+    const keyBuffer = this.base32ToBuffer(totp.secret_key);
+
+    if (!keyBuffer) {
+      return;
+    }
+
+    const
+      epochSeconds = Math.floor(Date.now() / 1000);
+    const timeHex = Math.floor(epochSeconds / totp.period).toString(16).padStart(16, '0');
+    const crypto = webcrypto.subtle;
+    const algorithm = { name: 'HMAC', hash: { name: algorithmMap[totp.algorithm] ?? 'SHA-1' } };
+    const hmacKey = await crypto.importKey('raw', keyBuffer, algorithm, false, ['sign']);
+    const signature = await crypto.sign('HMAC', hmacKey, Buffer.from(timeHex, 'hex'));
+    const signatureHex = Buffer.from(signature).toString('hex');
+    const offset = Number(`0x${signatureHex.slice(-1)}`) * 2;
+    const masked = Number(`0x${signatureHex.slice(offset, offset + 8)}`) & 0x7fffffff; // eslint-disable-line no-bitwise
+
+    return masked.toString().slice(-totp.digits);
+  }
+
   private parseCustomFields(customKeys?: Array<CustomFieldKey>, customValues?: Array<CustomFieldValue>) {
     if (!customKeys || !customValues) {
       return;
@@ -108,11 +159,22 @@ export class PassboltClient {
       [secret] = resource.secrets as unknown as Array<SecretIndex>;
     const decSecret = await this.apiClient.decodeSecret(secret.data, this.privateKey!);
     const password = decSecret?.password;
-    const totp = decSecret?.totp?.secret_key;
+    const totp = decSecret?.totp ? {
+      secretKey: decSecret.totp.secret_key,
+      period: decSecret.totp.period,
+      digits: decSecret.totp.digits,
+      algorithm: decSecret.totp.algorithm,
+      code: await this.generateTotpCode(decSecret),
+    } : undefined;
 
     if (!this.apiClient.isResourceV5IndexAndView(resource)) {
       return {
-        name: resource.name, totp, password, customFields: undefined,
+        id: resource.id,
+        name: resource.name,
+        uri: resource.uri,
+        username: resource.username,
+        totp,
+        password,
       };
     }
 
@@ -126,7 +188,13 @@ export class PassboltClient {
       const customFields = this.parseCustomFields(decodedMetadata.custom_fields, decSecret.custom_fields);
 
       return {
-        name: decodedMetadata.name, totp, password, customFields,
+        id: resource.id,
+        name: decodedMetadata.name,
+        uri: decodedMetadata.uris[0],
+        username: decodedMetadata.username,
+        totp,
+        password,
+        customFields,
       };
     }
   }
