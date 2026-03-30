@@ -1,6 +1,6 @@
 import type { Resolver } from 'varlock/plugin-lib';
 import { DashlaneManager } from './dashlane-manager';
-import { validateDeviceKeys, validateSecretRef } from './validators';
+import { validateDeviceKeys } from './validators';
 
 const { SchemaError, ResolutionError, ValidationError } = plugin.ERRORS;
 
@@ -18,6 +18,7 @@ plugin.standardVars = {
 };
 
 const manager = new DashlaneManager({ SchemaError, ResolutionError });
+let exitHandlerRegistered = false;
 
 plugin.registerRootDecorator({
   name: 'initDashlane',
@@ -28,6 +29,11 @@ plugin.registerRootDecorator({
   },
   async execute(processResult) {
     await manager.executeInit(processResult);
+    if (!exitHandlerRegistered) {
+      exitHandlerRegistered = true;
+      // Lock vaults synchronously on process exit -- guaranteed to run
+      process.on('exit', () => manager.lockAllSync());
+    }
   },
 });
 
@@ -86,23 +92,6 @@ plugin.registerDataType({
   ],
   async validate(val) {
     const error = validateDeviceKeys(val);
-    if (error) throw new ValidationError(error);
-  },
-});
-
-plugin.registerDataType({
-  name: 'dashlaneSecretRef',
-  sensitive: false,
-  typeDescription: 'Dashlane secret reference URI (dl://...)',
-  icon: DASHLANE_ICON,
-  docs: [
-    {
-      description: 'Dashlane CLI read secrets',
-      url: 'https://cli.dashlane.com/personal/secrets/read',
-    },
-  ],
-  async validate(val) {
-    const error = validateSecretRef(val);
     if (error) throw new ValidationError(error);
   },
 });

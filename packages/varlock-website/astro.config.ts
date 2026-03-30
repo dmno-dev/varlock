@@ -184,6 +184,7 @@ export default defineConfig({
             { label: 'AWS SSM/SM', slug: 'plugins/aws-secrets' },
             { label: 'Azure Key Vault', slug: 'plugins/azure-key-vault' },
             { label: 'Bitwarden', slug: 'plugins/bitwarden' },
+            { label: 'Dashlane', slug: 'plugins/dashlane' },
             { label: 'GCP Secret Manager', slug: 'plugins/google-secret-manager' },
             { label: 'HashiCorp Vault', slug: 'plugins/hashicorp-vault' },
             { label: 'Infisical', slug: 'plugins/infisical' },

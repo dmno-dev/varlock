@@ -1,27 +1,33 @@
+import { spawnSync } from 'node:child_process';
 import { spawnAsync, ExecError } from '@env-spec/utils/exec-helpers';
 
 type ErrorCtor = new (msg: string, opts?: { tip?: string }) => Error;
 
 const FIX_INSTALL_TIP = [
   'The `dcli` command was not found on your system.',
-  'Install it using your package manager:',
-  '  macOS:  brew install dashlane/tap/dcli',
-  '  npm:    npm install -g @dashlane/cli',
-  'See https://cli.dashlane.com/installation for more info.',
+  'Install it following the instructions at:',
+  '  https://cli.dashlane.com/installation',
 ].join('\n');
 
 export class DashlanePluginInstance {
   private serviceDeviceKeys?: string;
   private cache = new Map<string, string>();
   private dcliChecked = false;
+  private dcliCheckPromise?: Promise<void>;
+  private skipSync = false;
+  private syncPromise?: Promise<void>;
+  private synced = false;
+  private lockAfter = false;
 
   constructor(
     readonly id: string,
     private ResolutionError: ErrorCtor,
   ) {}
 
-  configure(serviceDeviceKeys?: string) {
+  configure(serviceDeviceKeys?: string, skipSync?: boolean) {
     this.serviceDeviceKeys = serviceDeviceKeys;
+    if (skipSync !== undefined) this.skipSync = skipSync;
+    this.lockAfter = true;
   }
 
   private get spawnEnv(): Record<string, string> | undefined {
@@ -39,15 +45,61 @@ export class DashlanePluginInstance {
 
   async ensureDcliInstalled(): Promise<void> {
     if (this.dcliChecked) return;
+    if (!this.dcliCheckPromise) {
+      this.dcliCheckPromise = this.doDcliCheck();
+    }
+    await this.dcliCheckPromise;
+  }
+
+  private async doDcliCheck(): Promise<void> {
     try {
       await spawnAsync('dcli', ['--version'], this.spawnOpts);
       this.dcliChecked = true;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        this.dcliCheckPromise = undefined; // allow retry
         throw new this.ResolutionError('`dcli` command not found', { tip: FIX_INSTALL_TIP });
       }
       // dcli --version might fail for other reasons but if the binary exists, that's fine
       this.dcliChecked = true;
+    }
+  }
+
+  private async syncOnce(): Promise<void> {
+    if (this.skipSync || this.synced) return;
+    if (!this.syncPromise) {
+      this.syncPromise = this.doSync().catch((err) => {
+        this.syncPromise = undefined;
+        throw err;
+      });
+    }
+    await this.syncPromise;
+  }
+
+  private async doSync(): Promise<void> {
+    await this.ensureDcliInstalled();
+    try {
+      await spawnAsync('dcli', ['sync'], this.spawnOpts);
+    } catch {
+      // Sync failure should not block reads - vault may still have recent data
+    }
+    this.synced = true;
+  }
+
+  /**
+   * Synchronously lock the vault. Uses spawnSync so it is safe to call
+   * from process 'exit' handlers where async work cannot run.
+   */
+  lockVaultSync(): void {
+    if (!this.lockAfter) return;
+    try {
+      spawnSync('dcli', ['lock'], {
+        env: this.spawnEnv ?? process.env as Record<string, string>,
+        timeout: 5000,
+        stdio: 'ignore',
+      });
+    } catch {
+      // Best-effort - don't fail if lock fails
     }
   }
 
@@ -64,6 +116,7 @@ export class DashlanePluginInstance {
     }
 
     await this.ensureDcliInstalled();
+    await this.syncOnce();
 
     if (this.cache.has(dlUri)) {
       return this.cache.get(dlUri)!;
@@ -104,7 +157,10 @@ export class DashlanePluginInstance {
 
       if (msg.match(/locked/i) || msg.match(/sync/i)) {
         throw new this.ResolutionError('Dashlane vault appears locked or not synced', {
-          tip: 'Run `dcli sync` to sync your vault.',
+          tip: [
+            'Run `dcli sync` to sync your vault.',
+            'The plugin syncs automatically unless skipSync=true is set.',
+          ].join('\n'),
         });
       }
 

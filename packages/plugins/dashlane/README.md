@@ -2,6 +2,8 @@
 
 This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading secrets from [Dashlane](https://www.dashlane.com/) into your configuration. It wraps the [Dashlane CLI (`dcli`)](https://github.com/Dashlane/dashlane-cli) to resolve secrets via `dl://` references.
 
+> **Requires `dcli` installed and available in your `PATH`.** See [installation docs](https://cli.dashlane.com/installation).
+
 ## Features
 
 - **Fast lookups by ID** - Uses `dcli read` which fetches individual secrets without decrypting the full vault
@@ -24,22 +26,14 @@ And then register the plugin without any version number:
 
 Otherwise just set the explicit version number when you register it:
 ```env-spec title=".env.schema"
-# @plugin(@varlock/dashlane-plugin@0.0.1)
+# @plugin(@varlock/dashlane-plugin@0.0.0)
 ```
 
 See the [Plugin Guide](https://varlock.dev/guides/plugins/#installation) for more details.
 
 ## Prerequisites
 
-You must have the Dashlane CLI (`dcli`) installed on your system:
-
-```bash
-# macOS (Homebrew)
-brew install dashlane/tap/dcli
-
-# npm (any platform)
-npm install -g @dashlane/cli
-```
+You must have the Dashlane CLI (`dcli`) installed on your system. See the [installation docs](https://cli.dashlane.com/installation) for setup instructions.
 
 After installing, authenticate and sync your vault:
 
@@ -68,7 +62,7 @@ For interactive use (local development), no configuration is needed:
 # @initDashlane()
 ```
 
-This relies on an existing `dcli sync` session for authentication.
+This relies on an existing `dcli sync` session for authentication. Remember to run `dcli lock` when you are done to lock your vault.
 
 ### Headless setup (CI/CD)
 
@@ -199,16 +193,9 @@ Fetch a secret from Dashlane via a `dl://` reference.
 
 Validates the `dls_*` format for Dashlane service device keys. Marked as sensitive.
 
-#### `dashlaneSecretRef`
-
-Validates the `dl://` URI format for Dashlane secret references.
-
 ```env-spec title=".env.schema"
-@type(dashlaneDeviceKeys)
+# @type(dashlaneDeviceKeys)
 DASHLANE_SERVICE_DEVICE_KEYS=
-
-@type(dashlaneSecretRef)
-MY_SECRET_REF=
 ```
 
 ---
@@ -235,14 +222,7 @@ For most use cases the auto-sync is sufficient. If freshness is critical, run `d
 
 ### `dcli` command not found
 
-Install the Dashlane CLI:
-```bash
-# macOS
-brew install dashlane/tap/dcli
-# npm
-npm install -g @dashlane/cli
-```
-Ensure `dcli` is in your `PATH`.
+Install the Dashlane CLI following the [installation docs](https://cli.dashlane.com/installation) and ensure `dcli` is in your `PATH`.
 
 ### Authentication failed
 

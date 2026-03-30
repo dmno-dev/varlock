@@ -1,0 +1,206 @@
+---
+title: Dashlane Plugin
+description: Using Dashlane with Varlock
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/dashlane-plugin" />
+</div>
+
+Our [Dashlane](https://www.dashlane.com/) plugin enables secure loading of secrets from Dashlane using declarative instructions within your `.env` files.
+
+It shells out to the official Dashlane CLI (`dcli`) to resolve secret references in the `dl://` format.
+
+## Features
+
+- **Secret references via `dl://` URIs** (e.g. `dl://<id>/password`)
+- **Headless CI/CD support** via service device keys for non-interactive authentication
+- **Automatic vault sync** before reads (opt out with `skipSync`)
+- **Automatic vault locking** after resolution on process exit
+- **In-session caching** per resolution run
+- **Multiple instances** for accessing different Dashlane accounts
+- **Helpful error messages** with resolution tips
+
+## Installation and setup
+
+In a JS/TS project, you may install the `@varlock/dashlane-plugin` package as a normal dependency.
+Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+
+See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
+
+### Prerequisites
+
+You must have `dcli` (Dashlane CLI) installed and available in your `PATH`.
+See the [Dashlane CLI installation docs](https://cli.dashlane.com/installation) for setup instructions.
+
+:::note
+The plugin does **not** fail at load time if `dcli` is not installed. It only fails when you actually try to access a secret, making it safe to include in shared configs where some developers may not have dcli set up.
+:::
+
+### Authentication
+
+The plugin supports two authentication modes:
+
+**Interactive (local dev):** If you are already logged into `dcli`, just initialize without credentials:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/dashlane-plugin)
+# @initDashlane()
+```
+
+**Headless (CI/prod):** Use [service device keys](https://cli.dashlane.com/personal/devices) for non-interactive authentication:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/dashlane-plugin)
+# @initDashlane(serviceDeviceKeys=$DASHLANE_SERVICE_DEVICE_KEYS)
+# ---
+
+# @type(dashlaneDeviceKeys) @sensitive
+DASHLANE_SERVICE_DEVICE_KEYS=
+```
+
+The plugin automatically locks the vault when the process exits. This is best-effort and may not run in all exit scenarios (e.g. `SIGKILL`).
+
+:::caution[Lock your vault]
+Always verify your vault is locked after use by running `dcli lock`. While the plugin attempts to lock automatically on exit, you should not rely solely on this for security.
+:::
+
+### Vault sync
+
+The plugin runs `dcli sync` once before the first secret read to ensure your vault is up to date. Sync failures are non-blocking -- if the sync fails (e.g. network issues), the plugin still reads from the existing local vault.
+
+To disable automatic sync (e.g. for performance in environments where the vault is already fresh), set `skipSync=true`:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/dashlane-plugin)
+# @initDashlane(serviceDeviceKeys=$DASHLANE_SERVICE_DEVICE_KEYS, skipSync=true)
+```
+
+### Multiple instances
+
+Access multiple Dashlane accounts by providing an `id`:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/dashlane-plugin)
+# @initDashlane(id=personal)
+# @initDashlane(id=team, serviceDeviceKeys=$TEAM_DASHLANE_KEYS)
+# ---
+
+MY_TOKEN=dashlane(personal, "dl://abc123/password")
+SHARED_KEY=dashlane(team, "dl://def456/password")
+```
+
+## Loading secrets
+
+Use the `dashlane()` resolver function to fetch a secret by its `dl://` reference:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/dashlane-plugin)
+# @initDashlane()
+# ---
+
+DB_PASSWORD=dashlane("dl://abc123/password")
+API_KEY=dashlane("dl://def456/password")
+```
+
+:::tip
+Use ID-based references (`dl://<id>/field`) for fast, reliable lookups. Title-based references require full vault decryption and are slower.
+:::
+
+When you have multiple plugin instances, pass the instance id as the first argument:
+
+```env-spec title=".env.schema"
+DB_PASSWORD=dashlane(prod, "dl://abc123/password")
+```
+
+## Reference
+
+### Root decorators
+
+<div class="reference-docs">
+<div>
+#### `@initDashlane()`
+
+Initialize a Dashlane plugin instance for `dashlane()` resolver.
+
+**Key/value args:**
+
+- `id` (optional): instance identifier for multiple instances
+- `serviceDeviceKeys` (optional): service device keys for headless authentication
+- `skipSync` (optional): if `true`, disables the automatic `dcli sync` before the first read
+
+```env-spec "@initDashlane"
+# Interactive (local dev)
+# @initDashlane()
+
+# Headless (CI/prod) with sync
+# @initDashlane(serviceDeviceKeys=$DASHLANE_SERVICE_DEVICE_KEYS)
+
+# Named instance
+# @initDashlane(id=prod, serviceDeviceKeys=$DASHLANE_SERVICE_DEVICE_KEYS)
+```
+</div>
+</div>
+
+### Data types
+
+<div class="reference-docs">
+<div>
+#### `dashlaneDeviceKeys`
+
+Service device keys for non-interactive Dashlane CLI authentication. Must start with `dls_`.
+
+See: [Dashlane CLI device registration](https://cli.dashlane.com/personal/devices)
+</div>
+</div>
+
+### Resolver functions
+
+<div class="reference-docs">
+<div>
+#### `dashlane()`
+
+Fetch a secret from Dashlane by `dl://` reference.
+
+**Array args:**
+
+- `instanceId` (optional, if 2 args): instance identifier
+- `dlReference` (required): `dl://` secret reference URI
+
+```env-spec /dashlane\\(.*\\)/
+# Default instance
+DB_PASSWORD=dashlane("dl://abc123/password")
+
+# With explicit instance
+DB_PASSWORD=dashlane(prod, "dl://abc123/password")
+```
+</div>
+</div>
+
+## Troubleshooting
+
+### `dcli` command not found
+- Install dcli following the [installation docs](https://cli.dashlane.com/installation)
+- Ensure `dcli` is in your `PATH`
+
+### Authentication failed
+- Verify you are logged in: `dcli sync`
+- For headless auth, check that `DASHLANE_SERVICE_DEVICE_KEYS` is set correctly
+- See [Dashlane CLI authentication](https://cli.dashlane.com/personal/authentication) for details
+
+### Entry not found
+- Verify the entry exists: `dcli password -o json | jq '.[].title'`
+- Use the entry ID for reliable lookups: `dashlane("dl://<id>/password")`
+
+### Vault locked or not synced
+- Run `dcli sync` to sync your vault
+- The plugin syncs automatically unless `skipSync=true` is set
+
+## Resources
+
+- [Dashlane CLI documentation](https://cli.dashlane.com/)
+- [Dashlane CLI device registration](https://cli.dashlane.com/personal/devices)
+- [Dashlane CLI secret references](https://cli.dashlane.com/personal/secrets/read)

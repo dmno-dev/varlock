@@ -35,10 +35,17 @@ export class DashlaneManager {
       throw new SchemaError(`Instance with id "${id}" already initialized`);
     }
 
+    if (objArgs?.skipSync && !objArgs.skipSync.isStatic) {
+      throw new SchemaError('Expected skipSync to be static');
+    }
+    const skipSync = objArgs?.skipSync?.staticValue === true
+      || objArgs?.skipSync?.staticValue === 'true';
+
     this.instances[id] = new DashlanePluginInstance(id, this.errors.ResolutionError);
 
     return {
       id,
+      skipSync,
       serviceDeviceKeysResolver: objArgs?.serviceDeviceKeys,
     };
   }
@@ -47,8 +54,9 @@ export class DashlaneManager {
    * Execute phase of @initDashlane -- resolves dynamic args, configures instance.
    * Called at resolution time.
    */
-  async executeInit({ id, serviceDeviceKeysResolver }: {
+  async executeInit({ id, skipSync, serviceDeviceKeysResolver }: {
     id: string;
+    skipSync?: boolean;
     serviceDeviceKeysResolver?: ArgValue;
   }) {
     const serviceDeviceKeys = serviceDeviceKeysResolver
@@ -59,7 +67,14 @@ export class DashlaneManager {
       serviceDeviceKeys && typeof serviceDeviceKeys === 'string'
         ? serviceDeviceKeys
         : undefined,
+      skipSync,
     );
+  }
+
+  lockAllSync(): void {
+    for (const instance of Object.values(this.instances)) {
+      instance.lockVaultSync();
+    }
   }
 
   /** Get instance by id, throwing helpful errors if not found */
