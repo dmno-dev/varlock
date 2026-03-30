@@ -66,7 +66,7 @@ This integration does a few things:
     ```
 
     :::tip[What does this do?]
-    - Enables Metro's `unstable_enablePackageExports` resolver so that `import { ENV } from 'varlock/env'` works (Metro doesn't support `package.json` `"exports"` subpaths by default).
+    - Installs a custom resolver so that `import { ENV } from 'varlock/env'` works (Metro doesn't support `package.json` `"exports"` subpaths by default).
     - Initializes the varlock `ENV` proxy in the main Metro process. Metro forks worker processes for Babel transforms, but `+api` server routes are evaluated in the main process — this wrapper ensures sensitive values are available there.
     :::
 

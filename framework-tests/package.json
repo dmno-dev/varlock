@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "repack": "bun run harness/repack.ts",
+    "test:watch": "vitest",
+    "test:expo": "vitest run frameworks/expo",
+    "test:nextjs": "vitest run frameworks/nextjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

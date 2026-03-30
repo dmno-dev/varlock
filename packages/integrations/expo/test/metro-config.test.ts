@@ -98,18 +98,12 @@ describe('withVarlockMetroConfig', () => {
     expect(typeof input.resolver.resolveRequest).toBe('function');
   });
 
-  it('logs a warning and still returns config on error', () => {
+  it('throws when varlock config fails to load', () => {
     mockExecSyncVarlock.mockImplementation(() => {
       throw new Error('varlock CLI not found');
     });
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const input = { resolver: {} };
-    const result = withVarlockMetroConfig(input);
-    expect(result).toBe(input);
-    expect(errorSpy).toHaveBeenCalledOnce();
-    const msg = errorSpy.mock.calls[0][0] as string;
-    expect(msg).toContain('Failed to initialize varlock');
-    errorSpy.mockRestore();
+    expect(() => withVarlockMetroConfig(input)).toThrow('Failed to initialize varlock');
   });
 
   describe('custom resolver', () => {

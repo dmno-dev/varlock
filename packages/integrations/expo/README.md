@@ -58,7 +58,7 @@ module.exports = withVarlockMetroConfig(config);
 
 This wrapper automatically:
 
-- Enables Metro's `unstable_enablePackageExports` resolver so that `import { ENV } from 'varlock/env'` works (Metro doesn't support `package.json` `"exports"` subpaths by default).
+- Installs a custom resolver so that `import { ENV } from 'varlock/env'` works (Metro doesn't support `package.json` `"exports"` subpaths by default).
 - Initializes the varlock `ENV` proxy in the main Metro process so that sensitive values are available at runtime in [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/) (`+api` files).
 
 > **Why is this needed?** Metro forks worker processes for Babel transforms. The Babel plugin runs in those workers, but server routes are evaluated in the main Metro process. The Metro config wrapper ensures the environment is initialized in the correct process.

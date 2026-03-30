@@ -109,12 +109,11 @@ export default function varlockExpoBabelPlugin(api: BabelAPI) {
   api.cache(false);
 
   if (!configIsValid || !varlockLoadedEnv) {
-    console.warn([
-      '⚠️  @varlock/expo-integration: Failed to load varlock config.',
-      'ENV.xxx replacements will be skipped.',
-      'Check your terminal for more details.',
-    ].join('\n'));
-    return { visitor: {} };
+    throw new Error(
+      '@varlock/expo-integration: Failed to load varlock config.\n'
+      + 'Your .env.schema may have syntax errors or failing validation.\n'
+      + 'Check the terminal output above for details.',
+    );
   }
 
   const { config } = varlockLoadedEnv;
