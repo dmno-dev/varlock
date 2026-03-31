@@ -147,9 +147,38 @@ if (changedPackages.has('varlock')) {
   }
 }
 
+// Detect integrations whose test files themselves changed (git diff against base)
+const changedTestIntegrations = new Set<string>();
+try {
+  execSync('git fetch origin main --depth=1', { stdio: 'pipe' });
+  const diffOutput = execSync('git diff origin/main --name-only -- framework-tests/', {
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  for (const filePath of diffOutput.split('\n').filter(Boolean)) {
+    // Match paths like framework-tests/frameworks/<name>/... or shared test files
+    const match = filePath.match(/^framework-tests\/frameworks\/([^/]+)\//);
+    if (match && ALL_INTEGRATIONS.includes(match[1])) {
+      changedTestIntegrations.add(match[1]);
+    } else if (filePath.startsWith('framework-tests/') && !filePath.startsWith('framework-tests/frameworks/')) {
+      // Shared test infrastructure changed — trigger all
+      console.log(`Shared framework test file changed (${filePath}) — running all integration tests`);
+      writeResults(ALL_INTEGRATIONS);
+      process.exit(0);
+    }
+  }
+  if (changedTestIntegrations.size > 0) {
+    console.log('Integrations with changed test files:', [...changedTestIntegrations]);
+  }
+} catch {
+  // If git diff fails (e.g. shallow clone), we just skip this detection
+}
+
 // Match changed packages to integration test suites
 const integrationsList = Object.entries(INTEGRATION_PACKAGES)
-  .filter(([, packages]) => {
+  .filter(([name, packages]) => {
+    // triggered if the test files themselves changed
+    if (changedTestIntegrations.has(name)) return true;
     // suites with no integration packages are triggered by core varlock changes
     if (packages.length === 0) return changedPackages.has('varlock');
     return packages.some((pkg) => changedPackages.has(pkg));

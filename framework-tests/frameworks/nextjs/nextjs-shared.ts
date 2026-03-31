@@ -3,21 +3,27 @@ import {
 } from 'vitest';
 import { FrameworkTestEnv } from '../../harness/index';
 
-// add these at the top, so easier to comment/uncomment
 const BUNDLERS = [
   'webpack',
   'turbopack',
 ];
-const NEXT_VERSIONS = [
-  14,
-  15,
-  16,
-];
 
-NEXT_VERSIONS.forEach((nextVersion) => {
+const EXPORT_CONFIG = {
+  path: '_base/next.config.mjs' as const,
+  replacements: { '// OUTPUT-MODE': "output: 'export'," },
+};
+
+function getBuildToolFlag(nextVersion: number, bundler: string): string {
+  if (nextVersion === 14) return bundler === 'turbopack' ? '--turbo' : '';
+  if (nextVersion === 15) return bundler === 'turbopack' ? '--turbopack' : '';
+  if (nextVersion === 16) return bundler === 'turbopack' ? '' : '--webpack';
+  throw new Error(`Unsupported Next.js version: ${nextVersion}`);
+}
+
+export function defineNextjsTests(nextVersion: number, testDir: string) {
   describe(`Next.js v${nextVersion}`, () => {
     const nextEnv = new FrameworkTestEnv({
-      testDir: import.meta.dirname,
+      testDir,
       framework: `next-v${nextVersion}`,
       packageManager: 'pnpm',
       dependencies: {
@@ -45,16 +51,7 @@ NEXT_VERSIONS.forEach((nextVersion) => {
     afterAll(() => nextEnv.teardown());
 
     BUNDLERS.forEach((webpackOrTurbo) => {
-      let buildToolFlag = webpackOrTurbo === 'turbopack' ? '--turbopack' : '--webpack';
-      if (nextVersion === 14) {
-        buildToolFlag = webpackOrTurbo === 'turbopack' ? '--turbo' : '';
-      } else if (nextVersion === 15) {
-        buildToolFlag = webpackOrTurbo === 'turbopack' ? '--turbopack' : '';
-      } else if (nextVersion === 16) {
-        buildToolFlag = webpackOrTurbo === 'turbopack' ? '' : '--webpack';
-      } else {
-        throw new Error(`Unsupported Next.js version: ${nextVersion}`);
-      }
+      const buildToolFlag = getBuildToolFlag(nextVersion, webpackOrTurbo);
 
       // next 14 only supports --turbo for dev command, which we are not testing yet
       // TODO: smarter skipping once we add dev tests
@@ -70,10 +67,7 @@ NEXT_VERSIONS.forEach((nextVersion) => {
             command: buildCommand,
             templateFiles: {
               'app/page.tsx': 'pages/basic-page.tsx',
-              'next.config.mjs': {
-                path: '_base/next.config.mjs',
-                replacements: { '// OUTPUT-MODE': "output: 'export'," },
-              },
+              'next.config.mjs': EXPORT_CONFIG,
             },
             fileAssertions: [
               {
@@ -104,10 +98,7 @@ NEXT_VERSIONS.forEach((nextVersion) => {
             command: buildCommand,
             templateFiles: {
               'app/page.tsx': 'pages/leaky-page.tsx',
-              'next.config.mjs': {
-                path: '_base/next.config.mjs',
-                replacements: { '// OUTPUT-MODE': "output: 'export'," },
-              },
+              'next.config.mjs': EXPORT_CONFIG,
             },
             expectSuccess: false,
             outputAssertions: [
@@ -125,10 +116,7 @@ NEXT_VERSIONS.forEach((nextVersion) => {
                 path: 'pages/basic-page.tsx',
                 prepend: "'use client';",
               },
-              'next.config.mjs': {
-                path: '_base/next.config.mjs',
-                replacements: { '// OUTPUT-MODE': "output: 'export'," },
-              },
+              'next.config.mjs': EXPORT_CONFIG,
             },
             fileAssertions: [
               {
@@ -151,10 +139,7 @@ NEXT_VERSIONS.forEach((nextVersion) => {
                 path: 'pages/leaky-page.tsx',
                 prepend: "'use client';",
               },
-              'next.config.mjs': {
-                path: '_base/next.config.mjs',
-                replacements: { '// OUTPUT-MODE': "output: 'export'," },
-              },
+              'next.config.mjs': EXPORT_CONFIG,
             },
             expectSuccess: false,
             outputAssertions: [
@@ -276,4 +261,4 @@ NEXT_VERSIONS.forEach((nextVersion) => {
       });
     });
   });
-});
+}
