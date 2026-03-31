@@ -1,5 +1,11 @@
 # @varlock/1password-plugin
 
+## 0.3.2
+
+### Patch Changes
+
+- [#522](https://github.com/dmno-dev/varlock/pull/522) [`6bdf398`](https://github.com/dmno-dev/varlock/commit/6bdf3989d90a27579623f4e185090acdc08c5e16) - remove unnecessary import causing imcompatibility error
+
 ## 0.3.1
 
 ### Patch Changes
