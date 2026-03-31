@@ -210,8 +210,8 @@ describe('Binary plugin loading', () => {
 
     test('load reports helpful migration error', () => {
       const result = runBinary(['load', '--format', 'json'], { cwd });
-      expect(result.output).toContain('implicit `plugin` global has been removed');
-      expect(result.output).toContain("require('varlock/plugin-lib')");
+      expect(result.output).toContain('incompatible with this version of varlock');
+      expect(result.output).toContain('upgrade the plugin');
     });
   });
 

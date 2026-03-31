@@ -306,10 +306,8 @@ export class VarlockPlugin {
     // confusing "Cannot set properties of undefined" TypeError.
     const hadGlobalPlugin = 'plugin' in globalThis;
     const prevGlobalPlugin = (globalThis as any).plugin;
-    const pluginGlobalRemovedMsg = '[varlock] The implicit `plugin` global has been removed.'
-      + ' Update your plugin to import it explicitly:\n'
-      + "  const { plugin } = require('varlock/plugin-lib');   // CJS\n"
-      + "  import { plugin } from 'varlock/plugin-lib';        // ESM";
+    const pluginGlobalRemovedMsg = `[varlock] Plugin "${this.name}" is incompatible with this version of varlock.`
+      + ' Please upgrade the plugin to the latest version.';
     Object.defineProperty(globalThis, 'plugin', {
       get() { throw new Error(pluginGlobalRemovedMsg); },
       set() { throw new Error(pluginGlobalRemovedMsg); },
