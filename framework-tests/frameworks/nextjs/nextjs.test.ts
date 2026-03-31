@@ -124,7 +124,10 @@ NEXT_VERSIONS.forEach((nextVersion) => {
           nextEnv.describeScenario('client component page', {
             command: buildCommand,
             templateFiles: {
-              'app/page.tsx': 'pages/client-page.tsx',
+              'app/page.tsx': {
+                path: 'pages/basic-page.tsx',
+                prepend: "'use client';",
+              },
               'next.config.mjs': {
                 path: '_base/next.config.mjs',
                 replacements: { '// OUTPUT-MODE': "output: 'export'," },
@@ -147,7 +150,10 @@ NEXT_VERSIONS.forEach((nextVersion) => {
           nextEnv.describeScenario('leaky client page', {
             command: buildCommand,
             templateFiles: {
-              'app/page.tsx': 'pages/leaky-client-page.tsx',
+              'app/page.tsx': {
+                path: 'pages/leaky-page.tsx',
+                prepend: "'use client';",
+              },
               'next.config.mjs': {
                 path: '_base/next.config.mjs',
                 replacements: { '// OUTPUT-MODE': "output: 'export'," },
@@ -217,7 +223,10 @@ NEXT_VERSIONS.forEach((nextVersion) => {
           nextEnv.describeScenario('client component page', {
             command: buildCommand,
             templateFiles: {
-              'app/page.tsx': 'pages/client-page.tsx',
+              'app/page.tsx': {
+                path: 'pages/basic-page.tsx',
+                prepend: "'use client';",
+              },
             },
             fileAssertions: [
               {
@@ -236,7 +245,10 @@ NEXT_VERSIONS.forEach((nextVersion) => {
           nextEnv.describeScenario('leaky client page', {
             command: buildCommand,
             templateFiles: {
-              'app/page.tsx': 'pages/leaky-client-page.tsx',
+              'app/page.tsx': {
+                path: 'pages/leaky-page.tsx',
+                prepend: "'use client';",
+              },
             },
             expectSuccess: false,
             outputAssertions: [
