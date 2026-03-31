@@ -64,7 +64,11 @@ export interface TestFixtureConfig {
   dependencies: Record<string, string>;
   /** Dev dependencies to install */
   devDependencies?: Record<string, string>;
-  /** Extra fields to merge into package.json (scripts, overrides, etc.) */
+  /** Scripts to add to package.json */
+  scripts?: Record<string, string>;
+  /** Package overrides (npm/bun top-level overrides) */
+  overrides?: Record<string, string>;
+  /** Extra fields to merge into package.json */
   packageJsonMerge?: Record<string, any>;
   /** Default template files applied to every scenario (scenarios can override individual keys) */
   templateFiles?: TemplateFileMap;

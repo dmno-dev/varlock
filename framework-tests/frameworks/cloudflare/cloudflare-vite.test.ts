@@ -22,6 +22,9 @@ describe('Cloudflare Workers w/ vite plugin', () => {
       '.env.schema': 'schemas/.env.schema',
       '.env.dev': 'schemas/.env.dev',
     },
+    overrides: {
+      punycode: 'npm:punycode@^2.3.1',
+    },
   });
   beforeAll(() => cloudflareViteEnv.setup(), 180_000);
   afterAll(() => cloudflareViteEnv.teardown());

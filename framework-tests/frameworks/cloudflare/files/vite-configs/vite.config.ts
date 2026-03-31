@@ -4,7 +4,7 @@ import { varlockCloudflareVitePlugin } from '@varlock/cloudflare-integration';
 export default defineConfig({
   plugins: [
     varlockCloudflareVitePlugin({
-      inspectorPort: 9339,
+      inspectorPort: false,
     }),
   ],
 });

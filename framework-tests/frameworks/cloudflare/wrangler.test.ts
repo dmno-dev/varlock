@@ -20,10 +20,11 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
       '.env.schema': 'schemas/.env.schema',
       '.env.dev': 'schemas/.env.dev',
     },
-    packageJsonMerge: {
-      scripts: {
-        dev: 'varlock-wrangler dev',
-      },
+    scripts: {
+      dev: 'varlock-wrangler dev',
+    },
+    overrides: {
+      punycode: 'npm:punycode@^2.3.1',
     },
   });
   beforeAll(() => wranglerEnv.setup(), 180_000);
