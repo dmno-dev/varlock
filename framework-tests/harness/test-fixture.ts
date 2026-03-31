@@ -401,7 +401,9 @@ export class FrameworkTestEnv {
             break;
           } catch (err) {
             if (attempt < 2) {
-              await new Promise<void>((r) => { setTimeout(r, 500); });
+              await new Promise<void>((r) => {
+                setTimeout(r, 500);
+              });
             } else {
               console.warn(`[${this.label}] Failed to clean up ${this.dir}: ${(err as Error).message}`);
             }

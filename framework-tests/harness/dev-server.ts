@@ -258,7 +258,9 @@ export async function runDevServer(
 
     // allow time for any async output (e.g. worker console.log piped through
     // varlock-wrangler's rewriteOutput) to flush before we kill the process
-    await new Promise<void>((r) => { setTimeout(r, 500); });
+    await new Promise<void>((r) => {
+      setTimeout(r, 500);
+    });
 
     return {
       success: true,

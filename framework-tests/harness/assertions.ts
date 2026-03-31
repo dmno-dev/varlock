@@ -41,7 +41,7 @@ export function assertBuildResult(result: BuildResult, scenario: TestScenario): 
  * Assert a single output assertion against build stdout/stderr.
  */
 export function assertOutput(
-  result: BuildResult,
+  result: Pick<BuildResult, 'stdout' | 'stderr'>,
   assertion: { shouldContain?: Array<string>; shouldNotContain?: Array<string> },
 ): void {
   const output = `${result.stdout}\n${result.stderr}`;

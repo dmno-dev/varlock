@@ -26,6 +26,7 @@ const INTEGRATION_PACKAGES: Record<string, Array<string>> = {
   nextjs: ['@varlock/nextjs-integration'],
   cloudflare: ['@varlock/cloudflare-integration', '@varlock/vite-integration'],
   expo: ['@varlock/expo-integration'],
+  'vanilla-node': [], // no integration package — triggered only by core varlock changes
   // astro: ['@varlock/astro-integration', '@varlock/vite-integration'],
 };
 
@@ -134,21 +135,25 @@ if (isReleasePR) {
   }
 }
 
-// Changes to core varlock package trigger all integration tests,
-// but only on release PRs (core changes are frequent, framework tests are slow)
+// Changes to core varlock package trigger all integration tests on release PRs.
+// On normal PRs, only core-only suites (those with no integration packages) are triggered.
 if (changedPackages.has('varlock')) {
   if (isReleasePR) {
     console.log('Core varlock package changed on release PR — running all integration tests');
     writeResults(ALL_INTEGRATIONS);
     process.exit(0);
   } else {
-    console.log('Core varlock package changed but not a release PR — skipping core-triggered tests');
+    console.log('Core varlock package changed — triggering core-only test suites');
   }
 }
 
 // Match changed packages to integration test suites
 const integrationsList = Object.entries(INTEGRATION_PACKAGES)
-  .filter(([, packages]) => packages.some((pkg) => changedPackages.has(pkg)))
+  .filter(([, packages]) => {
+    // suites with no integration packages are triggered by core varlock changes
+    if (packages.length === 0) return changedPackages.has('varlock');
+    return packages.some((pkg) => changedPackages.has(pkg));
+  })
   .map(([name]) => name);
 
 writeResults(integrationsList);
