@@ -1,4 +1,4 @@
-/// <reference path="../../../../plugin-lib.ts" />
+const { plugin } = require('varlock/plugin-lib');
 
 plugin.registerResolverFunction({
   name: 'noop',

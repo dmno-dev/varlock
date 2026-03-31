@@ -65,14 +65,18 @@ const isBunRuntime = !!process.versions.bun || __VARLOCK_SEA_BUILD__;
 // the `varlock/plugin-lib` import with a globalThis accessor. Single-file
 // plugins are restricted from having other imports, so this is the only
 // substitution needed.
-const varlockPluginLibExports = __VARLOCK_SEA_BUILD__ ? {
+// In SEA builds, varlock isn't in node_modules so we must always provide these.
+// In non-SEA CJS, we still intercept require('varlock/plugin-lib') to guarantee
+// the same module instance (dist/plugin-lib.js would be a separate copy from the
+// source modules loaded by vitest/ts-node, causing the plugin proxy to diverge).
+const varlockPluginLibExports = {
   plugin: pluginProxy,
   ValidationError,
   CoercionError,
   SchemaError,
   ResolutionError,
   createDebug,
-} : undefined;
+};
 
 
 /**
@@ -96,7 +100,7 @@ function loadPluginModuleCJS(filePath: string): void {
   const moduleObj = { exports: {} as any };
   const baseRequire = createRequire(filePath);
   const requireFn = (id: string) => {
-    if (id === 'varlock/plugin-lib') return varlockPluginLibExports ?? baseRequire(id);
+    if (id === 'varlock/plugin-lib') return varlockPluginLibExports;
     return baseRequire(id);
   };
   requireFn.resolve = baseRequire.resolve.bind(baseRequire);
