@@ -393,7 +393,20 @@ export class FrameworkTestEnv {
       if (process.env.KEEP_TEST_DIRS) {
         console.log(`[${this.label}] Preserving test dir: ${this.dir}`);
       } else {
-        rmSync(this.dir, { recursive: true, force: true });
+        // retry removal — on CI, child processes (e.g. wrangler) may still be
+        // releasing file handles when teardown runs, causing ENOTEMPTY
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            rmSync(this.dir, { recursive: true, force: true });
+            break;
+          } catch (err) {
+            if (attempt < 2) {
+              await new Promise<void>((r) => { setTimeout(r, 500); });
+            } else {
+              console.warn(`[${this.label}] Failed to clean up ${this.dir}: ${(err as Error).message}`);
+            }
+          }
+        }
         console.log(`[${this.label}] Cleaned up ${this.dir}`);
       }
     }
