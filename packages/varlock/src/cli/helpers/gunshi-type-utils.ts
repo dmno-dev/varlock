@@ -1,6 +1,6 @@
-import { type Command, type CommandRunner } from 'gunshi';
+import { type Args, type CommandRunner } from 'gunshi';
 
-type ExtractArgs<C> = C extends Command<infer Args> ? Args : never;
+type ExtractGunshiParams<C> = C extends { args?: infer A extends Args } ? { args: A } : never;
 
-export type TypedGunshiCommandFn<T> = CommandRunner<ExtractArgs<T>>;
+export type TypedGunshiCommandFn<T> = CommandRunner<ExtractGunshiParams<T>>;
 

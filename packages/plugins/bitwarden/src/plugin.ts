@@ -1,4 +1,4 @@
-import { Resolver, plugin } from 'varlock/plugin-lib';
+import { type Resolver, plugin } from 'varlock/plugin-lib';
 import ky from 'ky';
 import { Buffer } from 'node:buffer';
 import { webcrypto } from 'node:crypto';

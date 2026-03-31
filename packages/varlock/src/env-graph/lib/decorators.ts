@@ -1,3 +1,4 @@
+/// <reference path="../../globals.d.ts" />
 import _ from '@env-spec/utils/my-dash';
 import {
   ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue,

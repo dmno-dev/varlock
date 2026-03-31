@@ -1,4 +1,4 @@
-import { Resolver, plugin } from 'varlock/plugin-lib';
+import { type Resolver, plugin } from 'varlock/plugin-lib';
 import { ExecError, spawnAsync } from '@env-spec/utils/exec-helpers';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;

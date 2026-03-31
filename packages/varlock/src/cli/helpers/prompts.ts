@@ -291,8 +291,8 @@ export const multiselect = <Value>(opts: MultiSelectOptions<Value>) => {
     initialValues: opts.initialValues,
     required: opts.required ?? true,
     cursorAt: opts.cursorAt,
-    validate(selected: Array<Value>) {
-      if (this.required && selected.length === 0) {
+    validate(selected: Array<Value> | undefined) {
+      if (this.required && (!selected || selected.length === 0)) {
         return `Please select at least one option.\n${color.reset(
           color.dim(
             `Press ${color.gray(color.bgWhite(color.inverse(' space ')))} to select, ${color.gray(
@@ -307,7 +307,7 @@ export const multiselect = <Value>(opts: MultiSelectOptions<Value>) => {
       if (opts.details) title += `${color.gray(S_BAR)} ${opts.details}\n`;
 
       const styleOption = (option: Option<Value>, active: boolean) => {
-        const selected = this.value.includes(option.value);
+        const selected = this.value?.includes(option.value);
         if (active && selected) {
           return opt(option, 'active-selected');
         }
@@ -321,14 +321,14 @@ export const multiselect = <Value>(opts: MultiSelectOptions<Value>) => {
         case 'submit': {
           return `${title}${color.gray(S_BAR)}  ${
             this.options
-              .filter(({ value }) => this.value.includes(value))
+              .filter(({ value }) => this.value?.includes(value))
               .map((option) => opt(option, 'submitted'))
               .join(color.dim(', ')) || color.dim('none')
           }`;
         }
         case 'cancel': {
           const label = this.options
-            .filter(({ value }) => this.value.includes(value))
+            .filter(({ value }) => this.value?.includes(value))
             .map((option) => opt(option, 'cancelled'))
             .join(color.dim(', '));
           return `${title}${color.gray(S_BAR)}  ${

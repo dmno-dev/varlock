@@ -4,7 +4,7 @@
   for now we'll just give info about known decorators
 */
 import {
-  ExtensionContext, Hover, languages, MarkdownString,
+  type ExtensionContext, Hover, languages, MarkdownString,
 } from 'vscode';
 import { LANG_ID } from './constants';
 import { deindent } from './utils/deindent';

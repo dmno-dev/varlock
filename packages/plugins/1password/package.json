@@ -20,7 +20,8 @@
     "dev": "bun run copy-wasm && tsup --watch",
     "build": "tsup && bun run copy-wasm",
     "copy-wasm": "mkdir -p dist || true && cp node_modules/@1password/sdk-core/nodejs/core_bg.wasm ./dist",
-    "test": "vitest"
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "varlock",

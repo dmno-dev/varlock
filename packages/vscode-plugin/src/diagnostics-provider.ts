@@ -2,11 +2,11 @@ import {
   Diagnostic,
   DiagnosticSeverity,
   Disposable,
-  ExtensionContext,
+  type ExtensionContext,
   languages,
   Position,
   Range,
-  TextDocument,
+  type TextDocument,
   Uri,
   workspace,
 } from 'vscode';

@@ -14,6 +14,7 @@
         "@varlock/changeset-changelog": "workspace:*",
         "@varlock/cloudflare-integration": "workspace:*",
         "@varlock/keepass-plugin": "workspace:*",
+        "@varlock/tsconfig": "workspace:*",
         "eslint": "^10.0.2",
         "eslint-plugin-es-x": "^9.5.0",
         "eslint-plugin-fix-disabled-rules": "^0.0.2",
@@ -320,6 +321,10 @@
       "peerDependencies": {
         "varlock": "workspace:^",
       },
+    },
+    "packages/tsconfig": {
+      "name": "@varlock/tsconfig",
+      "version": "0.0.0",
     },
     "packages/utils": {
       "name": "@env-spec/utils",
@@ -1301,6 +1306,8 @@
     "@varlock/passbolt-plugin": ["@varlock/passbolt-plugin@workspace:packages/plugins/passbolt"],
 
     "@varlock/proton-pass-plugin": ["@varlock/proton-pass-plugin@workspace:packages/plugins/proton-pass"],
+
+    "@varlock/tsconfig": ["@varlock/tsconfig@workspace:packages/tsconfig"],
 
     "@varlock/vite-integration": ["@varlock/vite-integration@workspace:packages/integrations/vite"],
 

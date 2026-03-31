@@ -2,13 +2,13 @@ import {
   CompletionItem,
   CompletionItemKind,
   CompletionItemTag,
-  ExtensionContext,
+  type ExtensionContext,
   languages,
   MarkdownString,
   Position,
   Range,
   SnippetString,
-  TextDocument,
+  type TextDocument,
 } from 'vscode';
 
 import {

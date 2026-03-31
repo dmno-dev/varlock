@@ -57,7 +57,7 @@ describe('diagnostics-core', () => {
       name: 'enum',
       args: ['prod', 'dev'],
       options: {},
-    } as const;
+    };
 
     expect(validateStaticValue(typeInfo, 'prod')).toBeUndefined();
     expect(validateStaticValue(typeInfo, 'staging')).toBe('Value must be one of: prod, dev.');

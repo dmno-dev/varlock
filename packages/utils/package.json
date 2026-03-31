@@ -12,7 +12,8 @@
   },
   "scripts": {
     "test": "vitest",
-    "test:ci": "vitest --run"
+    "test:ci": "vitest --run",
+    "typecheck": "tsc --noEmit"
   },
   "author": "dmno-dev",
   "license": "MIT",

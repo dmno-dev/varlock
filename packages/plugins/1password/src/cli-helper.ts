@@ -1,5 +1,5 @@
 import { ExecError, spawnAsync } from '@env-spec/utils/exec-helpers';
-import { createDeferredPromise, DeferredPromise } from '@env-spec/utils/defer';
+import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import { plugin } from 'varlock/plugin-lib';
 
 const { debug } = plugin;

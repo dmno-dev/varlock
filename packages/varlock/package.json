@@ -21,7 +21,8 @@
     "test": "vitest",
     "test:ci": "vitest --run",
     "lint": "eslint .",
-    "lint:fix": "bun run lint --fix"
+    "lint:fix": "bun run lint --fix",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "varlock",

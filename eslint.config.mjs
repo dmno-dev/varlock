@@ -195,6 +195,16 @@ export default tseslint.config(
       '@typescript-eslint/triple-slash-reference': 0,
     },
   },
+  {
+    // these files use build-time globals declared in globals.d.ts
+    files: [
+      'packages/varlock/src/env-graph/lib/decorators.ts',
+      'packages/varlock/src/env-graph/lib/plugins.ts',
+    ],
+    rules: {
+      '@typescript-eslint/triple-slash-reference': 0,
+    },
+  },
 
   // set up lint rules for json files
   // note - the simpler methods were not working properly, so we list the rules here instead

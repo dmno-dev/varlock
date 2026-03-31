@@ -26,6 +26,10 @@
       "dependsOn": ["^test:ci"],
       "inputs": ["package.json", "tsconfig.json", "tsconfig.*.json", "tsup.config.ts", "src/**", "test/**"]
     },
+    "typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": ["package.json", "tsconfig.json", "tsconfig.*.json", "src/**"]
+    },
     "dev": {
       "cache": false,
       "persistent": true

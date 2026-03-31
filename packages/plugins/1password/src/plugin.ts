@@ -1,6 +1,6 @@
-import { Resolver, plugin } from 'varlock/plugin-lib';
+import { type Resolver, plugin } from 'varlock/plugin-lib';
 
-import { createDeferredPromise, DeferredPromise } from '@env-spec/utils/defer';
+import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import { Client, createClient } from '@1password/sdk';
 import { opCliRead, opCliEnvironmentRead } from './cli-helper';
 

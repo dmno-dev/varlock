@@ -12,6 +12,7 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "ts-src": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
@@ -21,7 +22,8 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest",
-    "test:ci": "vitest --run"
+    "test:ci": "vitest --run",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "ci",
