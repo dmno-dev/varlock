@@ -42,9 +42,7 @@ describe('Astro Integration', () => {
             'env-specific-var--dev',
             'sensitive-var-available',
           ],
-          shouldNotContain: [
-            'super-secret-value',
-          ],
+          shouldNotContain: ['super-secret-value'],
         },
       ],
       outputAssertions: [
