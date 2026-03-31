@@ -4,7 +4,7 @@ import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
-
+import { pathToFileURL } from 'node:url';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import ansis from 'ansis';
@@ -27,6 +27,7 @@ import { createEnvGraphDataType } from './data-types';
 
 import { createDebug, type Debugger } from '../../lib/debug';
 import { getWorkspaceInfo } from '../../lib/workspace-utils';
+import { activatePlugin, deactivatePlugin, pluginProxy } from '../../plugin-context';
 import type { EnvGraph } from './env-graph';
 
 // module caching means the file will not be executed multiple times
@@ -54,30 +55,96 @@ function applyBunCryptoShim() {
   }
 }
 
+const isBunRuntime = !!process.versions.bun || __VARLOCK_SEA_BUILD__;
+
+// In SEA (compiled binary) builds, `varlock` does not exist in the user's
+// node_modules so `import { plugin } from 'varlock/plugin-lib'` inside an
+// external plugin file would fail with MODULE_NOT_FOUND.
+//
+// We handle this by transforming the plugin source at load time — replacing
+// the `varlock/plugin-lib` import with a globalThis accessor. Single-file
+// plugins are restricted from having other imports, so this is the only
+// substitution needed.
+// In SEA builds, varlock isn't in node_modules so we must always provide these.
+// In non-SEA CJS, we still intercept require('varlock/plugin-lib') to guarantee
+// the same module instance (dist/plugin-lib.js would be a separate copy from the
+// source modules loaded by vitest/ts-node, causing the plugin proxy to diverge).
+const varlockPluginLibExports = {
+  plugin: pluginProxy,
+  ValidationError,
+  CoercionError,
+  SchemaError,
+  ResolutionError,
+  createDebug,
+};
+
+
 /**
  * Loads and executes a CJS plugin module.
  *
  * Plugins are built as CJS. We use `new Function` to create a CJS module scope
  * (exports, require, module, __filename, __dirname) — this runs in the main
  * Node.js/Bun context so all built-in globals (DOMException, fetch, etc.) work
- * correctly. Top-level var/let/const declarations are scoped to the function and
- * do not leak between plugins.
+ * correctly. `require('varlock/plugin-lib')` is intercepted to return the
+ * plugin context, so plugin code accesses it via a standard require call.
  *
  * We intentionally avoid vm.createContext with a Proxy sandbox because Node.js
  * C++ lazy property initializers (e.g. for DOMException) assert IsolateData
  * exists on the context, which is not set up for Proxy-based vm contexts.
  */
-function loadPluginModule(filePath: string): void {
+function loadPluginModuleCJS(filePath: string): void {
   applyBunCryptoShim();
 
   const code = fsSync.readFileSync(filePath, 'utf-8');
   const pluginDir = path.dirname(filePath);
   const moduleObj = { exports: {} as any };
-  const requireFn = createRequire(filePath);
+  const baseRequire = createRequire(filePath);
+  const requireFn = (id: string) => {
+    if (id === 'varlock/plugin-lib') return varlockPluginLibExports;
+    return baseRequire(id);
+  };
+  requireFn.resolve = baseRequire.resolve.bind(baseRequire);
+  requireFn.main = baseRequire.main;
+  requireFn.cache = baseRequire.cache;
 
   // eslint-disable-next-line no-new-func
   const moduleFn = new Function('exports', 'require', 'module', '__filename', '__dirname', code);
   moduleFn(moduleObj.exports, requireFn, moduleObj, filePath, pluginDir);
+}
+
+/**
+ * Loads and executes an ESM or TypeScript plugin module via dynamic import().
+ *
+ * In SEA builds, `import { plugin } from 'varlock/plugin-lib'` is replaced
+ * at load time with a globalThis accessor (varlock isn't in the user's
+ * node_modules). Single-file plugins are restricted from other imports so
+ * this substitution is sufficient. In non-SEA environments varlock resolves
+ * naturally via node_modules.
+ *
+ * TypeScript (.ts) files are supported natively under Bun's runtime.
+ *
+ * A cache-busting query param (non-SEA) or unique temp filename (SEA) ensures
+ * the module re-executes on each load, which matters for test fixtures.
+ */
+async function loadPluginModuleESM(filePath: string): Promise<void> {
+  if (__VARLOCK_SEA_BUILD__) {
+    (globalThis as any).__varlockPluginLib = varlockPluginLibExports;
+
+    let source = (await fs.readFile(filePath, 'utf-8')).replace(
+      /import\s*\{([^}]+)\}\s*from\s*['"]varlock\/plugin-lib['"]/g,
+      (_match: string, imports: string) => `const {${imports}} = globalThis.__varlockPluginLib;`,
+    );
+
+    if (path.extname(filePath) === '.ts') {
+      // @ts-ignore - Bun global only available in Bun runtime
+      source = new Bun.Transpiler({ loader: 'ts' }).transformSync(source);
+    }
+
+    await import(`data:text/javascript,${encodeURIComponent(source)}`);
+  } else {
+    const fileUrl = pathToFileURL(filePath).href;
+    await import(`${fileUrl}?t=${Date.now()}`);
+  }
 }
 
 
@@ -236,8 +303,20 @@ export class VarlockPlugin {
   }
 
   async executePluginModule() {
-    // temporarily attach plugin to globalThis so dynamically imported module can access it
-    (globalThis as any).plugin = this;
+    activatePlugin(this);
+
+    // Install a trap on globalThis.plugin so that old plugins which relied on
+    // the implicit `plugin` global get a clear migration error instead of a
+    // confusing "Cannot set properties of undefined" TypeError.
+    const hadGlobalPlugin = 'plugin' in globalThis;
+    const prevGlobalPlugin = (globalThis as any).plugin;
+    const pluginGlobalRemovedMsg = `[varlock] Plugin "${this.name}" is incompatible with this version of varlock.`
+      + ' Please upgrade the plugin to the latest version.';
+    Object.defineProperty(globalThis, 'plugin', {
+      get() { throw new Error(pluginGlobalRemovedMsg); },
+      set() { throw new Error(pluginGlobalRemovedMsg); },
+      configurable: true,
+    });
 
     try {
       // slightly nicer error than the default MODULE_NOT_FOUND
@@ -245,14 +324,28 @@ export class VarlockPlugin {
 
       importedPluginModulePaths.add(this.pluginFilePath);
 
-      // note - we don't export anything
-      // instead we inject the plugin, and then modify it
-
-      loadPluginModule(this.pluginFilePath);
+      const ext = path.extname(this.pluginFilePath).toLowerCase();
+      if (ext === '.mjs' || ext === '.ts') {
+        await loadPluginModuleESM(this.pluginFilePath);
+      } else {
+        loadPluginModuleCJS(this.pluginFilePath);
+      }
     } catch (err) {
       this.loadingError = err as Error;
+    } finally {
+      // Restore globalThis.plugin to its previous state
+      if (hadGlobalPlugin) {
+        Object.defineProperty(globalThis, 'plugin', {
+          value: prevGlobalPlugin,
+          writable: true,
+          configurable: true,
+          enumerable: true,
+        });
+      } else {
+        delete (globalThis as any).plugin;
+      }
+      deactivatePlugin();
     }
-    delete (globalThis as any).plugin;
   }
 }
 
@@ -264,8 +357,11 @@ async function initPluginFromLocalPath(localPath: string) {
   // If it's a file, load the plugin directly
   if (stats.isFile()) {
     const ext = path.extname(localPath).toLowerCase();
-    if (['.js', '.cjs', '.mjs'].includes(ext) === false) {
-      throw new SchemaError(`Single-file plugin must be a .js, .cjs, or .mjs file: ${localPath}`);
+    if (ext === '.ts' && !isBunRuntime) {
+      throw new SchemaError(`TypeScript plugins (.ts) require Bun — try renaming to .mjs or compiling to .js first: ${localPath}`);
+    }
+    if (!['.js', '.cjs', '.mjs', '.ts'].includes(ext)) {
+      throw new SchemaError(`Single-file plugin must be a .js, .cjs, .mjs, or .ts file: ${localPath}`);
     }
 
     return new VarlockPlugin({

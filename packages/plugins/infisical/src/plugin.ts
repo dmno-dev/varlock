@@ -1,4 +1,4 @@
-import { Resolver } from 'varlock/plugin-lib';
+import { Resolver, plugin } from 'varlock/plugin-lib';
 import { InfisicalSDK } from '@infisical/sdk';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;

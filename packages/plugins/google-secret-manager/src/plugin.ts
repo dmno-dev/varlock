@@ -1,4 +1,4 @@
-import { Resolver } from 'varlock/plugin-lib';
+import { Resolver, plugin } from 'varlock/plugin-lib';
 
 import { GoogleAuth } from 'google-auth-library';
 

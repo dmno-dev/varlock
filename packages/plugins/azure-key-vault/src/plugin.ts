@@ -1,4 +1,4 @@
-import { Resolver } from 'varlock/plugin-lib';
+import { Resolver, plugin } from 'varlock/plugin-lib';
 import ky from 'ky';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';

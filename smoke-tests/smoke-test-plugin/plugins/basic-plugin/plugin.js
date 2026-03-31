@@ -1,5 +1,6 @@
-/// <reference path="../../../../packages/varlock/src/plugin-lib.ts" />
 // Minimal plugin - no imports, just registers a test() resolver
+const { plugin } = require('varlock/plugin-lib');
+
 plugin.registerResolverFunction({
   name: 'test',
   argsSchema: {

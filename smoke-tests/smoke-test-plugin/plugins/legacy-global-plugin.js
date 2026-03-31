@@ -1,7 +1,7 @@
-const { plugin } = require('varlock/plugin-lib');
-
+// Legacy plugin that uses the old implicit `plugin` global (no require).
+// Used to verify the migration error message is shown.
 plugin.registerResolverFunction({
-  name: 'test',
+  name: 'legacyTest',
   argsSchema: {
     type: 'array',
     arrayExactLength: 1,
@@ -13,5 +13,3 @@ plugin.registerResolverFunction({
     return val;
   },
 });
-
-

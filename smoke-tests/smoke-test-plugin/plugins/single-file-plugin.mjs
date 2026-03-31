@@ -1,9 +1,11 @@
-// Single-file plugin (no package.json) — tests the .js file plugin path
-const { plugin } = require('varlock/plugin-lib');
-const path = require('path');
+// Single-file ESM plugin — tests that .mjs files load via import() in all environments
+import { plugin } from 'varlock/plugin-lib';
+import path from 'node:path';
+
+plugin.name = 'esm-mjs-test';
 
 plugin.registerResolverFunction({
-  name: 'singleFileTest',
+  name: 'esmMjsTest',
   argsSchema: {
     type: 'array',
     arrayExactLength: 1,

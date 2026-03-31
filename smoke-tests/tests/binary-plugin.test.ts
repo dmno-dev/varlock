@@ -151,6 +151,70 @@ describe('Binary plugin loading', () => {
     });
   });
 
+  describe('single-file ESM plugin (.mjs)', () => {
+    let cwd: string;
+
+    beforeAll(() => {
+      cwd = createPluginTestProject('single-file-mjs', [
+        '# @plugin(./plugins/single-file-plugin.mjs)',
+        '# @defaultSensitive=false',
+        '# ---',
+        'RESULT=esmMjsTest("works")',
+      ].join('\n'));
+    });
+
+    test('load resolves .mjs single-file plugin values', () => {
+      const result = runBinary(['load', '--format', 'json'], { cwd });
+      expect(result.exitCode, result.output).toBe(0);
+
+      const env = JSON.parse(result.stdout);
+      expect(env.RESULT).toContain('works');
+      expect(env.RESULT).toContain('sep=');
+    });
+  });
+
+  describe('single-file TypeScript plugin (.ts)', () => {
+    let cwd: string;
+
+    beforeAll(() => {
+      cwd = createPluginTestProject('single-file-ts', [
+        '# @plugin(./plugins/single-file-plugin.ts)',
+        '# @defaultSensitive=false',
+        '# ---',
+        'RESULT=tsNativeTest("works")',
+      ].join('\n'));
+    });
+
+    test('load resolves .ts single-file plugin values', () => {
+      const result = runBinary(['load', '--format', 'json'], { cwd });
+      expect(result.exitCode, result.output).toBe(0);
+
+      const env = JSON.parse(result.stdout);
+      expect(env.RESULT).toContain('works');
+      expect(env.RESULT).toContain('marker=ts-ok');
+      expect(env.RESULT).toContain('sep=');
+    });
+  });
+
+  describe('legacy plugin using implicit global shows migration error', () => {
+    let cwd: string;
+
+    beforeAll(() => {
+      cwd = createPluginTestProject('legacy-global', [
+        '# @plugin(./plugins/legacy-global-plugin.js)',
+        '# @defaultSensitive=false',
+        '# ---',
+        'RESULT=legacyTest("works")',
+      ].join('\n'));
+    });
+
+    test('load reports helpful migration error', () => {
+      const result = runBinary(['load', '--format', 'json'], { cwd });
+      expect(result.output).toContain('incompatible with this version of varlock');
+      expect(result.output).toContain('upgrade the plugin');
+    });
+  });
+
   describe('real monorepo plugins load without parse errors', () => {
     // Temp projects sit at smoke-tests/smoke-test-plugin/tmp-<name>/
     // so 3 levels up reaches the monorepo root → packages/plugins/<name>
@@ -162,7 +226,9 @@ describe('Binary plugin loading', () => {
       'azure-key-vault',
       'bitwarden',
       'pass',
+      'proton-pass',
       '1password',
+      'hashicorp-vault',
     ];
 
     let cwd: string;

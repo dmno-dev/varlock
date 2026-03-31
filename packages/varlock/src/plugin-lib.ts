@@ -1,10 +1,23 @@
 import type { VarlockPlugin } from './env-graph/lib/plugins';
+import { pluginProxy } from './plugin-context';
+
 export type { Resolver } from './env-graph/lib/resolver';
 export { createDebug, type Debugger } from './lib/debug';
 
-// we must inject our varlock code via the global scope
-// because of how we dynamically import the plugin code
-// otherwise we'd end up with duplicates and instanceof checks will fail
-declare global {
-  const plugin: VarlockPlugin;
-}
+// Error classes exported directly so plugin authors can import them without
+// going through plugin.ERRORS. ESM module caching guarantees the same class
+// instance as what varlock uses internally, so instanceof checks work correctly.
+export {
+  ValidationError, CoercionError, SchemaError, ResolutionError,
+} from './env-graph/lib/errors';
+
+/**
+ * The current plugin instance, available as a module import rather than a global.
+ * Valid during plugin module execution; throws if accessed outside that window.
+ *
+ * Usage in a plugin:
+ *   import { plugin } from 'varlock/plugin-lib';
+ *   plugin.name = 'my-plugin';
+ *   plugin.registerResolverFunction({ ... });
+ */
+export const plugin: VarlockPlugin = pluginProxy;
