@@ -196,6 +196,25 @@ describe('Binary plugin loading', () => {
     });
   });
 
+  describe('legacy plugin using implicit global shows migration error', () => {
+    let cwd: string;
+
+    beforeAll(() => {
+      cwd = createPluginTestProject('legacy-global', [
+        '# @plugin(./plugins/legacy-global-plugin.js)',
+        '# @defaultSensitive=false',
+        '# ---',
+        'RESULT=legacyTest("works")',
+      ].join('\n'));
+    });
+
+    test('load reports helpful migration error', () => {
+      const result = runBinary(['load', '--format', 'json'], { cwd });
+      expect(result.output).toContain('implicit `plugin` global has been removed');
+      expect(result.output).toContain("require('varlock/plugin-lib')");
+    });
+  });
+
   describe('real monorepo plugins load without parse errors', () => {
     // Temp projects sit at smoke-tests/smoke-test-plugin/tmp-<name>/
     // so 3 levels up reaches the monorepo root → packages/plugins/<name>
