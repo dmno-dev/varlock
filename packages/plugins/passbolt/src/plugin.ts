@@ -1,4 +1,4 @@
-import { Resolver, plugin } from 'varlock/plugin-lib';
+import { type Resolver, plugin } from 'varlock/plugin-lib';
 import { PassboltClient, type UUIDv4String } from './passbolt';
 import type { Resource } from './types';
 
@@ -22,9 +22,7 @@ class PassboltPluginInstance {
   private accountKit?: string;
   private passphrase?: string;
 
-  constructor(readonly id: string) {
-
-  }
+  constructor(readonly id: string) {}
 
   setAuth(accountKit?: any, passphrase?: any) {
     this.accountKit = accountKit?.toString?.() ?? undefined;
@@ -56,7 +54,7 @@ class PassboltPluginInstance {
         return client;
       }
 
-      throw new SchemaError('Failed to initialize Passbolt client:', {
+      throw new SchemaError('Failed to initialize Passbolt client', {
         tip: 'Verify accountKit and passphrase are correct',
       });
     })();
@@ -64,27 +62,8 @@ class PassboltPluginInstance {
     return this.passboltClientPromise;
   }
 
-  isValidField(field: string, inferred?: string) {
-    return [
-      ['username', 'password', 'uri', 'totp.secret', 'totp.code'].includes(field),
-      field === 'custom' && typeof inferred === 'string',
-      field.startsWith('custom.') && field.length > 7,
-    ].some(Boolean);
-  }
-
-  private returnResourceField(resource: Resource, field?: string, inferred?: string) {
-    let value: string | undefined;
-
+  private returnResourceField(resource: Resource, field?: string) {
     field ??= 'password';
-
-    if (!this.isValidField(field, inferred)) {
-      throw new SchemaError(`Invalid field "${field}"`, {
-        tip: [
-          'Valid fields are \'username\', \'password\', \'uri\', \'totp.secret\', \'totp.code\', \'custom\' and',
-          'fields starting with custom.',
-        ].join('\n'),
-      });
-    }
 
     switch (field) {
       case 'username':
@@ -93,42 +72,31 @@ class PassboltPluginInstance {
         if (!resource[field]) {
           throw new ResolutionError(`Resource ${resource.id} has no ${field}`);
         }
-        value = resource[field];
-        break;
+        return resource[field];
       case 'totp.secret':
       case 'totp.code':
         if (!resource.totp) {
           throw new ResolutionError(`Resource ${resource.id} has no totp`);
         }
-        value = field === 'totp.secret' ? resource.totp.secretKey : resource.totp.code;
-        break;
+        return field === 'totp.secret' ? resource.totp.secretKey : resource.totp.code;
       default:
+        if (field.startsWith('totp.')) {
+          throw new SchemaError(`Invalid totp field "${field}"`, {
+            tip: 'Valid totp fields are "totp.secret" and "totp.code"',
+          });
+        }
+        // any other unrecognized field name is treated as a custom field
         if (!resource.customFields) {
           throw new ResolutionError(`Resource ${resource.id} has no custom fields`);
         }
-
-        if (field === 'custom') {
-          if (!inferred) {
-            throw new SchemaError('Could not infer custom field name');
-          } else if (!resource.customFields[inferred]) {
-            throw new ResolutionError(`Resource ${resource.id} has no custom field ${inferred}`);
-          }
-          value = resource.customFields[inferred];
-        } else {
-          const customField = field.slice(7);
-
-          if (!resource.customFields[customField]) {
-            throw new ResolutionError(`Resource ${resource.id} has no custom field ${customField}`);
-          }
-
-          value = resource.customFields[customField];
+        if (!resource.customFields[field]) {
+          throw new ResolutionError(`Resource ${resource.id} has no custom field "${field}"`);
         }
+        return resource.customFields[field];
     }
-
-    return value;
   }
 
-  async getResource(resourceId: UUIDv4String, field?: string, inferred?: string): Promise<string | undefined> {
+  async getResource(resourceId: UUIDv4String, field?: string): Promise<string | undefined> {
     const client = await this.initClient();
     const resource = await client.getResource(resourceId);
 
@@ -136,51 +104,34 @@ class PassboltPluginInstance {
       throw new ResolutionError(`No resource with id ${resourceId} found`);
     }
 
-    return this.returnResourceField(resource, field, inferred);
+    return this.returnResourceField(resource, field);
   }
 
-  async getBulkResources(folder: string, field?: string): Promise<string> {
+  async getBulkResources(folderPath: string): Promise<string> {
     const client = await this.initClient();
-    const folderId = await client.findFolder(folder);
+    const folderId = await client.findFolder(folderPath);
 
     if (!folderId) {
-      throw new ResolutionError(`Folder ${folder} does not exist or user has no access`);
+      throw new ResolutionError(`Folder "${folderPath}" does not exist or user has no access`);
     }
 
     const resources = await client.getResources(folderId);
 
     if (resources.length === 0) {
-      throw new ResolutionError(`No resources found in Folder ${folder} or user has no access`);
-    }
-
-    field ??= 'password';
-
-    if (!['username', 'password', 'uri', 'totp.secret', 'totp.code'].includes(field)) {
-      throw new SchemaError(`Field "${field}" is invalid for passboltFolder`, {
-        tip: 'Valid fields are \'username\', \'password\', \'uri\', \'totp.secret\' and \'totp.code\'',
-      });
+      throw new ResolutionError(`No resources found in folder "${folderPath}" or user has no access`);
     }
 
     const result: Record<string, string> = {};
-
     for (const resource of resources) {
-      let value: string | undefined;
-
-      if (field === 'totp.secret' || field === 'totp.code') {
-        value = field === 'totp.secret' ? resource.totp?.secretKey : resource.totp?.code;
-      } else {
-        value = resource[field as 'username' | 'uri' | 'password'];
-      }
-
-      if (value) {
-        result[resource.name] = value;
+      if (resource.password) {
+        result[resource.name] = resource.password;
       }
     }
 
     return JSON.stringify(result);
   }
 
-  async getBulkResource(resourceId: UUIDv4String): Promise<string> {
+  async getCustomFieldObj(resourceId: UUIDv4String): Promise<string> {
     const client = await this.initClient();
     const result = await client.getResource(resourceId);
 
@@ -197,7 +148,6 @@ const pluginInstances: Record<string, PassboltPluginInstance> = {};
 function processResolver(scope: any, text: string) {
   let instanceId = '_default';
   let resolver: Resolver;
-  const inferredParamName: string | undefined = (scope as any).parent?.key;
 
   const { field: fieldResolver } = scope.objArgs ?? {};
 
@@ -214,7 +164,7 @@ function processResolver(scope: any, text: string) {
   }
 
   // Validate instance exists
-  if (!Object.values(pluginInstances).length) {
+  if (Object.keys(pluginInstances).length === 0) {
     throw new SchemaError('No Passbolt plugin instances found', {
       tip: 'Initialize at least one Passbolt plugin instance using @initPassbolt() decorator',
     });
@@ -239,7 +189,7 @@ function processResolver(scope: any, text: string) {
   }
 
   return {
-    instanceId, resolver, fieldResolver, inferredParamName,
+    instanceId, resolver, fieldResolver,
   };
 }
 
@@ -261,17 +211,6 @@ async function resolveResourceId(resolver: Resolver): Promise<{ resourceId: UUID
   return { resourceId: resourceId as UUIDv4String, field };
 }
 
-async function resolveFolder(resolver: Resolver): Promise<{ folder: string, field?: string }> {
-  const resolvedValue = await resolver.resolve();
-
-  if (typeof resolvedValue !== 'string') {
-    throw new SchemaError('Expected folder to resolve to a string');
-  }
-
-  const [folder, field] = resolvedValue.split('#');
-
-  return { folder, field };
-}
 
 plugin.registerRootDecorator({
   name: 'initPassbolt',
@@ -339,49 +278,64 @@ plugin.registerResolverFunction({
     arrayMaxLength: 2,
   },
   process() {
-    const {
-      instanceId, resolver, fieldResolver, inferredParamName,
-    } = processResolver(this, 'passbolt(id, resourceId)');
+    const { instanceId, resolver, fieldResolver } = processResolver(this, 'passbolt(id, resourceId)');
 
-    return {
-      instanceId, resourceIdResolver: resolver, fieldResolver, inferredParamName,
-    };
+    return { instanceId, resourceIdResolver: resolver, fieldResolver };
   },
-  async resolve({
-    instanceId, resourceIdResolver, fieldResolver, inferredParamName,
-  }) {
+  async resolve({ instanceId, resourceIdResolver, fieldResolver }) {
     const selectedInstance = pluginInstances[instanceId];
     const { resourceId, field } = await resolveResourceId(resourceIdResolver);
 
-    return await selectedInstance.getResource(resourceId, field ?? await fieldResolver?.resolve(), inferredParamName);
+    return await selectedInstance.getResource(resourceId, field ?? await fieldResolver?.resolve());
   },
 });
 
 plugin.registerResolverFunction({
-  name: 'passboltFolder',
-  label: 'Load all secrets from an Passbolt folder',
+  name: 'passboltBulk',
+  label: 'Load all secrets from a Passbolt folder',
   icon: PASSBOLT_ICON,
   argsSchema: {
     type: 'mixed',
-    arrayMinLength: 1,
-    arrayMaxLength: 2,
+    arrayMinLength: 0,
+    arrayMaxLength: 1,
   },
   process() {
-    const { instanceId, resolver, fieldResolver } = processResolver(this, 'passboltFolder(id, folder)');
+    let instanceId = '_default';
+    const { folderPath: folderPathResolver } = this.objArgs ?? {};
 
-    return { instanceId, folderResolver: resolver, fieldResolver };
+    if (this.arrArgs?.length === 1) {
+      if (!this.arrArgs[0].isStatic) {
+        throw new SchemaError('Expected instance id to be a static value');
+      }
+      instanceId = String(this.arrArgs[0].staticValue);
+    }
+
+    if (!folderPathResolver) {
+      throw new SchemaError('folderPath is required', {
+        tip: 'Usage: passboltBulk(folderPath="MyFolder/SubFolder")',
+      });
+    }
+
+    if (!pluginInstances[instanceId]) {
+      throw new SchemaError(`Passbolt plugin instance "${instanceId}" not found`);
+    }
+
+    return { instanceId, folderPathResolver };
   },
-  async resolve({ instanceId, folderResolver, fieldResolver }) {
+  async resolve({ instanceId, folderPathResolver }) {
     const selectedInstance = pluginInstances[instanceId];
-    const { folder } = await resolveFolder(folderResolver);
+    const folderPath = await folderPathResolver.resolve();
+    if (typeof folderPath !== 'string') {
+      throw new SchemaError('Expected folderPath to resolve to a string');
+    }
 
-    return await selectedInstance.getBulkResources(folder, await fieldResolver?.resolve());
+    return await selectedInstance.getBulkResources(folderPath);
   },
 });
 
 plugin.registerResolverFunction({
-  name: 'passboltCustomFields',
-  label: 'Load all secrets from a Passbolt resource with custom fields',
+  name: 'passboltCustomFieldsObj',
+  label: 'Load custom fields from a Passbolt resource as a JSON object',
   icon: PASSBOLT_ICON,
   argsSchema: {
     type: 'array',
@@ -389,7 +343,7 @@ plugin.registerResolverFunction({
     arrayMaxLength: 2,
   },
   process() {
-    const { instanceId, resolver } = processResolver(this, 'passboltCustomFields(id, resourceId)');
+    const { instanceId, resolver } = processResolver(this, 'passboltCustomFieldsObj(id, resourceId)');
 
     return { instanceId, resourceIdResolver: resolver };
   },
@@ -397,6 +351,6 @@ plugin.registerResolverFunction({
     const selectedInstance = pluginInstances[instanceId];
     const { resourceId } = await resolveResourceId(resourceIdResolver);
 
-    return await selectedInstance.getBulkResource(resourceId);
+    return await selectedInstance.getCustomFieldObj(resourceId);
   },
 });

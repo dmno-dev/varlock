@@ -64,10 +64,10 @@ export class PassboltClient {
           });
         }
       }
-    } catch (err) {
-      // do nothing
+    } catch {
+      // fall through to throw
     }
-    return new PassboltClient({} as ClientOptions);
+    throw new Error('Invalid or malformed Passbolt account kit');
   }
 
   public static isAccountKit(data: any): data is GpgAccountKit {
@@ -226,20 +226,15 @@ export class PassboltClient {
     }
   }
 
+  // TODO: add logout() call once plugin hooks support a teardown/cleanup phase
+
   public async getResource(resourceId: UUIDv4String): Promise<Resource | void> {
     if (!this.isInitialized) {
       await this.init();
     }
 
-    try {
-      const resource = await this.apiClient.getResource(resourceId);
-
-      return await this.decodeResource(resource);
-    } catch (err) {
-      return;
-    } finally {
-      this.apiClient.logout().catch(() => { /* do nothing */ });
-    }
+    const resource = await this.apiClient.getResource(resourceId);
+    return await this.decodeResource(resource);
   }
 
   public async getResources(folderId: UUIDv4String): Promise<Array<Resource>> {
@@ -247,16 +242,10 @@ export class PassboltClient {
       await this.init();
     }
 
-    try {
-      const resources = await this.apiClient.getResources(folderId);
-      const decodedResources = await Promise.all(resources.map(this.decodeResource.bind(this)));
+    const resources = await this.apiClient.getResources(folderId);
+    const decodedResources = await Promise.all(resources.map(this.decodeResource.bind(this)));
 
-      return decodedResources.filter((res) => res !== undefined) as Array<Resource>;
-    } catch (err) {
-      return [];
-    } finally {
-      this.apiClient.logout().catch(() => { /* do nothing */ });
-    }
+    return decodedResources.filter((res) => res !== undefined) as Array<Resource>;
   }
 
   public async findFolder(
@@ -270,35 +259,28 @@ export class PassboltClient {
 
     parent ??= null;
 
-    try {
-      if (!folders) {
-        const rawFolders = await this.apiClient.getFolders();
-        const decoded = await Promise.all(rawFolders.map(this.convertToFolder.bind(this)));
+    if (!folders) {
+      const rawFolders = await this.apiClient.getFolders();
+      const decoded = await Promise.all(rawFolders.map(this.convertToFolder.bind(this)));
 
-        folders = decoded.filter((item) => item !== undefined) as Array<Folder>;
-      }
-
-      if (!folders) {
-        return;
-      }
-
-      const parts = search.split(/(?<!\\)\//).map((e) => e.replaceAll(/\\\//g, '/'));
-      const part = parts.shift();
-      const found = folders.find((folder) => folder.name === part && folder.parent === parent);
-
-      if (!found) {
-        return;
-      }
-
-      if (parts.length) {
-        return this.findFolder(parts.join('/'), folders, found.id);
-      } else {
-        return found.id as UUIDv4String;
-      }
-    } catch (err) {
-      return;
-    } finally {
-      this.apiClient.logout().catch(() => { /* do nothing */ });
+      folders = decoded.filter((item) => item !== undefined) as Array<Folder>;
     }
+
+    if (!folders) {
+      return;
+    }
+
+    const parts = search.split(/(?<!\\)\//).map((e) => e.replaceAll(/\\\//g, '/'));
+    const part = parts.shift();
+    const found = folders.find((folder) => folder.name === part && folder.parent === parent);
+
+    if (!found) {
+      return;
+    }
+
+    if (parts.length) {
+      return this.findFolder(parts.join('/'), folders, found.id);
+    }
+    return found.id as UUIDv4String;
   }
 }

@@ -81,6 +81,7 @@ export class ApiClient {
       this.accessToken = undefined;
       this.refreshToken = undefined;
       this.tokenExpiry = undefined;
+      throw err;
     } finally {
       if (this.isAuthorized) {
         this.api = this.api.extend({ headers: { Authorization: `Bearer ${this.accessToken}` } });
@@ -111,8 +112,8 @@ export class ApiClient {
       const searchParams = { 'filter[deleted]': 0, 'filter[expired]': 0, 'contain[metadata_private_keys]': 1 };
       const { body } = await this.api.get('metadata/keys.json', { searchParams }).json<MetadataKeyResponse>();
 
-      for await (const { metadata_private_keys: metadataPrivateKeys } of body) {
-        for await (const { metadata_key_id: metadataKeyId, user_id: _userId, data } of metadataPrivateKeys ?? []) {
+      for (const { metadata_private_keys: metadataPrivateKeys } of body) {
+        for (const { metadata_key_id: metadataKeyId, user_id: _userId, data } of metadataPrivateKeys ?? []) {
           if (_userId === userId) {
             const { domain, armored_key: armoredKey } = await decodeMessage(data, privateKey) as GpgMetadataPrivateKey;
 

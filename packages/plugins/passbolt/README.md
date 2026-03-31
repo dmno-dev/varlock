@@ -8,8 +8,8 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 
 - **Zero-config authentication** - Just provide your accountKit and passphrase
 - **UUID-based secret access** - Fetch secrets by their unique identifiers
-- **Bulk-load environments** with `passboltFolder()` or `passboltCustomFields()` via `@setValuesBulk`
-- **JSON key extraction** from resources using `#` syntax or named `field` parameter
+- **Bulk-load environments** with `passboltBulk()` or `passboltCustomFieldsObj()` via `@setValuesBulk`
+- **Field extraction** from resources using `#` syntax or named `field` parameter (including custom fields)
 - **Self-hosted Passbolt support** - Configure custom API URL
 - **Multiple instances** - Connect to different organizations or self-hosted instances
 - **Comprehensive error handling** with helpful tips
@@ -72,17 +72,21 @@ PB_ACCOUNT_KIT=
 # @type=string @sensitive
 PB_PASSPHRASE=
 
-# Fetch secrets by resource UUID
+# Fetch password (default field) by resource UUID
 DATABASE_URL=passbolt("01234567-0123-4567-890a-bcdef0123456")
 API_KEY=passbolt("76543210-3210-4321-a098-ba9876543210")
 
-# Reffering to a single field in a resource
+# Fetch a specific field using # syntax
 LOGIN_URI=passbolt("01234567-0123-4567-890a-bcdef0123456#uri")
 LOGIN_USERNAME=passbolt("01234567-0123-4567-890a-bcdef0123456#username")
 LOGIN_PASSWORD=passbolt("01234567-0123-4567-890a-bcdef0123456")
 
 # Or use named "field" parameter
-LOGIN_USERNAME=passbolt("01234567-0123-4567-890a-bcdef0123456", field="username")
+LOGIN_URI=passbolt("01234567-0123-4567-890a-bcdef0123456", field="uri")
+
+# Access custom fields by name (any unrecognized field name is treated as a custom field)
+MY_CUSTOM=passbolt("01234567-0123-4567-890a-bcdef0123456#MyCustomField")
+OTHER_FIELD=passbolt("01234567-0123-4567-890a-bcdef0123456", field="AnotherField")
 
 # If using multiple instances
 PROD_SECRET=passbolt(prod, "11111111-1111-4111-a111-111111111111")
@@ -91,36 +95,36 @@ DEV_SECRET=passbolt(dev, "22222222-2222-4222-b222-222222222222")
 
 ## Bulk Loading Secrets
 
-Use `passboltFolder()` with `@setValuesBulk` to load all secrets from a folder at once:
+Use `passboltBulk()` with `@setValuesBulk` to load all secrets (passwords) from a folder at once:
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/passbolt-plugin)
 # @initPassbolt(accountKit=$PB_ACCOUNT_KIT, passphrase=$PB_PASSPHRASE)
-# @setValuesBulk(passboltFolder("Database/Dev"))
+# @setValuesBulk(passboltBulk(folderPath="Database/Dev"))
 # ---
 # @type=passboltAccountKit @sensitive
 PB_ACCOUNT_KIT=
 # @type=string @sensitive
 PB_PASSPHRASE=
 
-# These will be populated from Passbolt
+# These will be populated from Passbolt (matched by resource name)
 API_KEY=
 DB_PASSWORD=
 ```
 
-Or use `passboltCustomFields()` with `@setValuesBulk` to load all custom fields of a resource at once:
+Or use `passboltCustomFieldsObj()` with `@setValuesBulk` to load all custom fields of a resource at once:
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/passbolt-plugin)
 # @initPassbolt(accountKit=$PB_ACCOUNT_KIT, passphrase=$PB_PASSPHRASE)
-# @setValuesBulk(passboltCustomFields("01234567-0123-4567-890a-bcdef0123456"))
+# @setValuesBulk(passboltCustomFieldsObj("01234567-0123-4567-890a-bcdef0123456"))
 # ---
 # @type=passboltAccountKit @sensitive
 PB_ACCOUNT_KIT=
 # @type=string @sensitive
 PB_PASSPHRASE=
 
-# These will be populated from Passbolt
+# These will be populated from Passbolt (matched by custom field name)
 API_KEY=
 DB_PASSWORD=
 ```
@@ -166,8 +170,8 @@ Fetch a secret from a Passbolt resource.
 
 **Signatures:**
 
-- `passbolt(resourceId)` - Fetch by resource UUID from default instance
-- `passbolt(resourceId, field="username")` - Fetch and extract field 
+- `passbolt(resourceId)` - Fetch password (default) by resource UUID from default instance
+- `passbolt(resourceId, field="username")` - Fetch a specific field
 - `passbolt(instanceId, resourceId)` - Fetch from a specific instance
 
 **Resource ID Format:**
@@ -175,52 +179,43 @@ Fetch a secret from a Passbolt resource.
 - Must be a valid UUID v4: `"12345678-1234-4567-abcd-123456789abc"`
 - With a field: `"12345678-1234-4567-abcd-123456789abc#username"` (shorthand for field extraction)
 
-**Allowed fields:**
+**Built-in fields:**
 
-- "password": Extracts password from the resource (default when no field is given) 
-- "username": Extracts username from the resource
-- "uri": Extracts uri from the resource
-- "totp.secret": Extracts the TOTP secret from the resource
-- "totp.code": Extracts the TOTP settings from the resource and generates the TOTP code
-- "custom": Auto-infers the custom field name from variable name (uses name as-is)
-- "custom.EXAMPLE": Extracts the custom field named EXAMPLE from the resource
+- `"password"`: Extracts password from the resource (default when no field is given) 
+- `"username"`: Extracts username from the resource
+- `"uri"`: Extracts URI from the resource
+- `"totp.secret"`: Extracts the TOTP secret from the resource
+- `"totp.code"`: Generates the current TOTP code from the resource
+
+Any other field name is treated as a **custom field** name and looked up in the resource's custom fields.
 
 ---
 
-#### `passboltFolder()`
+#### `passboltBulk()`
 
-Fetch all secrets from a Passbolt folder.
+Bulk-load all passwords from a Passbolt folder. Returns a JSON object keyed by resource name. Designed for use with `@setValuesBulk`.
 
 **Signatures:**
 
-- `passboltFolder(folder)` - Fetch by folder from default instance
-- `passboltFolder(folder, field="username")` - Fetch and extract field
-- `passboltFolder(instanceId, folder)` - Fetch from a specific instance
+- `passboltBulk(folderPath="path")` - Load from default instance
+- `passboltBulk(instanceId, folderPath="path")` - Load from a specific instance
 
-**Folder Format:**
+**Folder path format:**
 
 - Must be an existing folder e.g.: `"production"`
-- Subfolder can be accessed with / delimiter e.g.: `"production/database"`
-- If a folder contains / in its name the / needs to be escaped e.g.: `"CI\/CD/DEV"`
-
-**Allowed fields:**
-
-- "password": Extracts password from the resource (default when no field is given) 
-- "username": Extracts username from the resource
-- "uri": Extracts uri from the resource
-- "totp.secret": Extracts the TOTP secret from the resource
-- "totp.code": Extracts the TOTP settings from the resource and generates the TOTP code
+- Subfolders accessed with `/` delimiter e.g.: `"production/database"`
+- Escape `/` in folder names with `\` e.g.: `"CI\/CD/DEV"`
 
 ---
 
-#### `passboltCustomFields()`
+#### `passboltCustomFieldsObj()`
 
-Fetch all secrets from a Passbolt resource with custom fields.
+Fetch all custom fields from a Passbolt resource as a JSON object. Designed for use with `@setValuesBulk`.
 
 **Signatures:**
 
-- `passboltCustomFields(resourceId)` - Fetch by resource UUID from default instance
-- `passboltCustomFields(instanceId, resourceId)` - Fetch from a specific instance
+- `passboltCustomFieldsObj(resourceId)` - Fetch from default instance
+- `passboltCustomFieldsObj(instanceId, resourceId)` - Fetch from a specific instance
 
 **Resource ID Format:**
 

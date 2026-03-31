@@ -24,7 +24,9 @@ const TEST_SERVER_URL = 'https://passbolt.test';
 // resource UUIDs (valid v4)
 const RES_SIMPLE = '01234567-0123-4567-890a-bcdef0123456';
 const RES_WITH_FIELDS = '11111111-1111-4111-a111-111111111111';
+const RES_V5_CUSTOM = '33333333-3333-4333-b333-333333333333';
 const FOLDER_ID = '22222222-2222-4222-b222-222222222222';
+const METADATA_KEY_ID = '44444444-4444-4444-a444-444444444444';
 
 // will be populated in beforeAll
 let userPrivateKeyArmored: string;
@@ -32,11 +34,17 @@ let userPublicKeyArmored: string;
 let serverPrivateKeyArmored: string;
 let serverPublicKeyArmored: string;
 let accountKitBase64: string;
+let metadataPrivateKeyArmored: string;
+let metadataPublicKeyArmored: string;
 
-async function encryptForUser(data: Record<string, any>): Promise<string> {
-  const pub = await readKey({ armoredKey: userPublicKeyArmored });
+async function encryptForKey(data: Record<string, any>, publicKeyArmored: string): Promise<string> {
+  const pub = await readKey({ armoredKey: publicKeyArmored });
   const message = await createMessage({ text: JSON.stringify(data) });
   return await encrypt({ message, encryptionKeys: pub }) as string;
+}
+
+async function encryptForUser(data: Record<string, any>): Promise<string> {
+  return encryptForKey(data, userPublicKeyArmored);
 }
 
 beforeAll(async () => {
@@ -45,7 +53,7 @@ beforeAll(async () => {
   // generate user keypair (with passphrase — matches real Passbolt flow)
   const userKey = await generateKey({
     type: 'ecc',
-    curve: 'curve25519',
+    curve: 'curve25519Legacy',
     userIDs: [{ name: 'Test User', email: 'test@passbolt.test' }],
     passphrase: TEST_PASSPHRASE,
     format: 'armored',
@@ -56,7 +64,7 @@ beforeAll(async () => {
   // generate server keypair (no passphrase)
   const serverKey = await generateKey({
     type: 'ecc',
-    curve: 'curve25519',
+    curve: 'curve25519Legacy',
     userIDs: [{ name: 'Passbolt Server', email: 'server@passbolt.test' }],
     format: 'armored',
   });
@@ -88,22 +96,125 @@ beforeAll(async () => {
   });
 
   accountKitBase64 = Buffer.from(signedMessage as string).toString('base64');
+
+  // generate metadata keypair (no passphrase) for V5 resources
+  const metadataKey = await generateKey({
+    type: 'ecc',
+    curve: 'curve25519Legacy',
+    userIDs: [{ name: 'Metadata Key', email: 'metadata@passbolt.test' }],
+    format: 'armored',
+  });
+  metadataPrivateKeyArmored = metadataKey.privateKey;
+  metadataPublicKeyArmored = metadataKey.publicKey;
 });
 
 
 // ── MSW Server ───────────────────────────────────────────────────────
 
-// Test resources (V4 format - plaintext metadata, encrypted secret)
-const TEST_RESOURCES: Record<string, { name: string; username: string; uri: string; password: string }> = {
+type TestResource = {
+  name: string;
+  username: string;
+  uri: string;
+  password: string;
+  v5?: boolean; // if true, use V5 format with encrypted metadata
+  customFields?: Record<string, string>; // custom field name → value
+};
+
+const TEST_RESOURCES: Record<string, TestResource> = {
   [RES_SIMPLE]: {
     name: 'Simple Secret', username: 'admin', uri: 'https://example.com', password: 'super-secret-pw',
   },
   [RES_WITH_FIELDS]: {
     name: 'DB Connection', username: 'dbuser', uri: 'postgres://localhost/mydb', password: 'db-password',
   },
+  [RES_V5_CUSTOM]: {
+    name: 'Custom Resource',
+    username: 'customuser',
+    uri: 'https://custom.example.com',
+    password: 'custom-pw',
+    v5: true,
+    customFields: { API_KEY: 'key-123', DB_HOST: 'db.internal' },
+  },
 };
 
 const FOLDER_RESOURCES = [RES_SIMPLE, RES_WITH_FIELDS];
+
+async function buildApiResource(id: string, res: TestResource) {
+  // build encrypted secret
+  const secret: Record<string, any> = { password: res.password };
+  if (res.customFields) {
+    // V5 custom fields: values go in the secret, keyed by id
+    secret.custom_fields = Object.entries(res.customFields).map(([_name, value], i) => ({
+      id: `cf-${i}`,
+      type: 'text',
+      secret_value: value,
+    }));
+  }
+  const encryptedSecret = await encryptForUser(secret);
+
+  const secretEntry = {
+    id: randomUUID(),
+    user_id: TEST_USER_ID,
+    resource_id: id,
+    data: encryptedSecret,
+    created: '2024-01-01T00:00:00Z',
+    modified: '2024-01-01T00:00:00Z',
+  };
+
+  if (res.v5) {
+    // V5 format: metadata is encrypted with metadata key
+    const metadata: Record<string, any> = {
+      object_type: 'PASSBOLT_RESOURCE_METADATA',
+      resource_type_id: 'test-type',
+      name: res.name,
+      username: res.username,
+      uris: [res.uri],
+    };
+    if (res.customFields) {
+      // custom field keys go in metadata, matched by id
+      metadata.custom_fields = Object.keys(res.customFields).map((name, i) => ({
+        id: `cf-${i}`,
+        type: 'text',
+        metadata_key: name,
+      }));
+    }
+    const encryptedMetadata = await encryptForKey(metadata, metadataPublicKeyArmored);
+
+    return {
+      id,
+      metadata: encryptedMetadata,
+      metadata_key_id: METADATA_KEY_ID,
+      metadata_key_type: 'shared_key',
+      created: '2024-01-01T00:00:00Z',
+      modified: '2024-01-01T00:00:00Z',
+      created_by: TEST_USER_ID,
+      modified_by: TEST_USER_ID,
+      personal: false,
+      folder_parent_id: FOLDER_ID,
+      resource_type_id: 'test-type',
+      expired: '',
+      secrets: [secretEntry],
+    };
+  }
+
+  // V4 format: plaintext metadata
+  return {
+    id,
+    name: res.name,
+    username: res.username,
+    uri: res.uri,
+    description: '',
+    deleted: false,
+    created: '2024-01-01T00:00:00Z',
+    created_by: TEST_USER_ID,
+    modified_by: TEST_USER_ID,
+    resource_type_id: 'test-type',
+    expired: '',
+    folder_parent_id: FOLDER_ID,
+    personal: false,
+    secrets: [secretEntry],
+  };
+}
 
 const server = setupServer(
   // GET /auth/verify.json - return server public key
@@ -150,9 +261,30 @@ const server = setupServer(
     return HttpResponse.json({ body: null });
   }),
 
-  // GET /metadata/keys.json - no v5 metadata keys for our tests
-  http.get(`${TEST_SERVER_URL}/metadata/keys.json`, () => {
-    return HttpResponse.json({ body: [] });
+  // GET /metadata/keys.json - return metadata key encrypted for user
+  http.get(`${TEST_SERVER_URL}/metadata/keys.json`, async () => {
+    const { origin } = new URL(TEST_SERVER_URL);
+    const encryptedMetadataKey = await encryptForUser({
+      object_type: 'PASSBOLT_METADATA_PRIVATE_KEY',
+      domain: origin,
+      fingerprint: 'META1234',
+      armored_key: metadataPrivateKeyArmored,
+      passphrase: '',
+    });
+
+    return HttpResponse.json({
+      body: [
+        {
+          metadata_private_keys: [
+            {
+              user_id: TEST_USER_ID,
+              metadata_key_id: METADATA_KEY_ID,
+              data: encryptedMetadataKey,
+            },
+          ],
+        },
+      ],
+    });
   }),
 
   // GET /resources/:id.json - single resource
@@ -163,76 +295,16 @@ const server = setupServer(
       return HttpResponse.json({ header: { message: 'Not found' } }, { status: 404 });
     }
 
-    const secret: Record<string, any> = { password: res.password };
-    const encryptedSecret = await encryptForUser(secret);
-
-    return HttpResponse.json({
-      body: {
-        id,
-        name: res.name,
-        username: res.username,
-        uri: res.uri,
-        description: '',
-        deleted: false,
-        created: '2024-01-01T00:00:00Z',
-        created_by: TEST_USER_ID,
-        modified_by: TEST_USER_ID,
-        resource_type_id: 'test-type',
-        expired: '',
-        folder_parent_id: FOLDER_ID,
-        personal: false,
-        secrets: [
-          {
-            id: randomUUID(),
-            user_id: TEST_USER_ID,
-            resource_id: id,
-            data: encryptedSecret,
-            created: '2024-01-01T00:00:00Z',
-            modified: '2024-01-01T00:00:00Z',
-          },
-        ],
-      },
-    });
+    return HttpResponse.json({ body: await buildApiResource(id, res) });
   }),
 
   // GET /resources.json - resources in folder
-  http.get(`${TEST_SERVER_URL}/resources.json`, async ({ request }) => {
-    const url = new URL(request.url);
-    const parentId = url.searchParams.get('filter[has-parent]');
-
+  http.get(`${TEST_SERVER_URL}/resources.json`, async () => {
     const resources = [];
     for (const resId of FOLDER_RESOURCES) {
       const res = TEST_RESOURCES[resId];
       if (!res) continue;
-
-      const secret: Record<string, any> = { password: res.password };
-      const encryptedSecret = await encryptForUser(secret);
-
-      resources.push({
-        id: resId,
-        name: res.name,
-        username: res.username,
-        uri: res.uri,
-        description: '',
-        deleted: false,
-        created: '2024-01-01T00:00:00Z',
-        created_by: TEST_USER_ID,
-        modified_by: TEST_USER_ID,
-        resource_type_id: 'test-type',
-        expired: '',
-        folder_parent_id: parentId,
-        personal: false,
-        secrets: [
-          {
-            id: randomUUID(),
-            user_id: TEST_USER_ID,
-            resource_id: resId,
-            data: encryptedSecret,
-            created: '2024-01-01T00:00:00Z',
-            modified: '2024-01-01T00:00:00Z',
-          },
-        ],
-      });
+      resources.push(await buildApiResource(resId, res));
     }
 
     return HttpResponse.json({ body: resources });
@@ -322,9 +394,9 @@ describe('passbolt plugin', () => {
     }));
   });
 
-  describe('passboltFolder() resolver', () => {
-    test('bulk load folder by name', pbTest({
-      schema: 'ALL=passboltFolder("TestFolder")',
+  describe('passboltBulk() resolver', () => {
+    test('bulk load folder by path', pbTest({
+      schema: 'ALL=passboltBulk(folderPath="TestFolder")',
       expectValues: {
         ALL: JSON.stringify({
           'Simple Secret': 'super-secret-pw',
@@ -332,15 +404,31 @@ describe('passbolt plugin', () => {
         }),
       },
     }));
+  });
 
-    test('bulk load folder with field=username', pbTest({
-      schema: 'ALL=passboltFolder("TestFolder", field="username")',
+  describe('passbolt() with custom fields', () => {
+    test('fetch custom field by name via hash syntax', pbTest({
+      schema: `SECRET=passbolt("${RES_V5_CUSTOM}#API_KEY")`,
+      expectValues: { SECRET: 'key-123' },
+    }));
+
+    test('fetch custom field via named parameter', pbTest({
+      schema: `SECRET=passbolt("${RES_V5_CUSTOM}", field="DB_HOST")`,
+      expectValues: { SECRET: 'db.internal' },
+    }));
+  });
+
+  describe('passboltCustomFieldsObj() resolver', () => {
+    test('fetch all custom fields as JSON object', pbTest({
+      schema: `ALL=passboltCustomFieldsObj("${RES_V5_CUSTOM}")`,
       expectValues: {
-        ALL: JSON.stringify({
-          'Simple Secret': 'admin',
-          'DB Connection': 'dbuser',
-        }),
+        ALL: JSON.stringify({ API_KEY: 'key-123', DB_HOST: 'db.internal' }),
       },
+    }));
+
+    test('resource without custom fields returns error', pbTest({
+      schema: `ALL=passboltCustomFieldsObj("${RES_SIMPLE}")`,
+      expectValues: { ALL: Error },
     }));
   });
 
@@ -374,6 +462,11 @@ describe('passbolt plugin', () => {
 
     test('resource not found returns error', pbTest({
       schema: 'SECRET=passbolt("99999999-9999-4999-a999-999999999999")',
+      expectValues: { SECRET: Error },
+    }));
+
+    test('invalid totp field returns error', pbTest({
+      schema: `SECRET=passbolt("${RES_SIMPLE}#totp.xyz")`,
       expectValues: { SECRET: Error },
     }));
   });
