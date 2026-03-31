@@ -1,0 +1,18 @@
+---
+import { ENV } from 'varlock/env';
+
+const publicVar = ENV.PUBLIC_VAR;
+---
+
+<html>
+  <head>
+    <title>Leaky Client Script</title>
+  </head>
+  <body>
+    <h1>Leaky Client Script</h1>
+    <p>Public var: {publicVar}</p>
+    <script define:vars={{ leaked: ENV.SENSITIVE_VAR }}>
+      console.log('leaked secret:', leaked);
+    </script>
+  </body>
+</html>

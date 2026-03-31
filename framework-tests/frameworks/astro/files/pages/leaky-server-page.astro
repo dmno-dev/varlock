@@ -1,0 +1,13 @@
+---
+import { ENV } from 'varlock/env';
+---
+
+<html>
+  <head>
+    <title>Leaky SSR Page</title>
+  </head>
+  <body>
+    <h1>Leaky SSR Page</h1>
+    <p>Sensitive: {ENV.SENSITIVE_VAR}</p>
+  </body>
+</html>

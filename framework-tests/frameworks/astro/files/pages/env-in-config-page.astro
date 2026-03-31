@@ -1,0 +1,20 @@
+---
+import { ENV } from 'varlock/env';
+
+// The astro config used ENV.PUBLIC_VAR to set the site URL
+// If we get here, the build succeeded → env vars were accessible in config
+const siteUrl = Astro.site?.href;
+const configEnvOk = siteUrl?.includes('public-var-value');
+---
+
+<html>
+  <head>
+    <title>Config Env Check</title>
+  </head>
+  <body>
+    <h1>Config Env Check</h1>
+    <p>Site URL: {siteUrl}</p>
+    <p>Config env: {configEnvOk ? 'config-env-ok' : 'config-env-fail'}</p>
+    <p>Public var: {ENV.PUBLIC_VAR}</p>
+  </body>
+</html>

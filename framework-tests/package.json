@@ -7,6 +7,7 @@
     "test": "vitest run",
     "repack": "bun run harness/repack.ts",
     "test:watch": "vitest",
+    "test:astro": "vitest run frameworks/astro",
     "test:cloudflare": "vitest run frameworks/cloudflare",
     "test:expo": "vitest run frameworks/expo",
     "test:nextjs": "vitest run frameworks/nextjs",

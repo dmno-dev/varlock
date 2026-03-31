@@ -77,9 +77,7 @@ jobs:
           mkdir -p packed-packages
           cd packages/varlock
           bun pm pack --destination ../../packed-packages
-          cd ../integrations/astro
-          bun pm pack --destination ../../../packed-packages
-          cd ../nextjs
+          cd ../integrations/nextjs
           bun pm pack --destination ../../../packed-packages
 
       - name: Upload packed packages

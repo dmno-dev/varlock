@@ -67,14 +67,12 @@ bun run smoke-test
 **Note on TTY detection**: When redaction is enabled, stdout/stderr are piped through the redaction filter. This means child processes won't see them as TTYs. Some interactive tools (like `psql`, `claude`, etc.) check TTY status and may require `--no-redact-stdout` to work properly. The stdin test verifies that stdin properties remain accessible even when stdout/stderr are piped.
 
 ### 5. Framework Integration Tests
-- **Astro Integration**: Builds a minimal Astro site with `@varlock/astro-integration` and verifies:
-  - Build completes successfully
-  - Public env vars (e.g., `PUBLIC_API_URL`) are injected into the build output
-  - Site renders correctly with varlock configuration
 - **Next.js Integration**: Builds a minimal Next.js site with `@varlock/nextjs-integration` and verifies:
   - Static export build completes successfully
   - Public env vars (e.g., `NEXT_PUBLIC_API_URL`) are injected into the build output
   - Site renders correctly with varlock configuration
+
+> **Note:** Astro integration tests have been moved to the `framework-tests/` directory for more comprehensive coverage (see `framework-tests/frameworks/astro/`).
 
 ### 6. Runtime Compatibility Tests
 - **Node.js**: Verifies varlock works with Node.js, including log redaction
