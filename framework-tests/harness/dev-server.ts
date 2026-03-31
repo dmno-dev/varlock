@@ -20,6 +20,12 @@ function killProcess(child: ChildProcess): Promise<void> {
     }
 
     const forceKillTimer = setTimeout(() => {
+      // SIGKILL the process group to ensure grandchildren (spawned via shell) are killed
+      if (child.pid) {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch { /* already dead */ }
+      }
       child.kill('SIGKILL');
     }, 3_000);
 
@@ -28,7 +34,14 @@ function killProcess(child: ChildProcess): Promise<void> {
       resolve();
     });
 
-    child.kill('SIGTERM');
+    // Kill the process group (negative pid) so shell-spawned children also get the signal
+    if (child.pid) {
+      try {
+        process.kill(-child.pid, 'SIGTERM');
+      } catch { /* already dead */ }
+    } else {
+      child.kill('SIGTERM');
+    }
   });
 }
 
@@ -178,6 +191,7 @@ export async function runDevServer(
     child = spawn(command, {
       cwd,
       shell: true,
+      detached: true,
       env: {
         ...process.env,
         COREPACK_ENABLE_STRICT: '0',
