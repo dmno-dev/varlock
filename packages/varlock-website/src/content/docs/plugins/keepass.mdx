@@ -1,0 +1,389 @@
+---
+title: KeePass Plugin
+description: Using KeePass / KeePassXC databases with Varlock
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/keepass-plugin" />
+</div>
+
+Our [KeePass](https://keepass.info/) plugin enables loading secrets from KDBX 4.0 database files using declarative instructions within your `.env` files.
+
+It supports two modes of operation: **file mode** (default) reads `.kdbx` files directly using a pure WASM implementation, and **CLI mode** uses `keepassxc-cli` for development workflows with system-level key management (YubiKey, Windows Hello, etc.).
+
+## Features
+
+- **KDBX 4.0 support** — reads KeePass database files directly via [kdbxweb](https://github.com/keeweb/kdbxweb) with pure WASM argon2
+- **KeePassXC CLI integration** — use `keepassxc-cli` for development workflows
+- **Key file support** — authenticate with password + optional key file
+- **`#attribute` syntax** — read any entry field (Password, UserName, URL, Notes, or custom fields)
+- **Auto-infer entry paths** from variable names for convenience
+- **Custom attributes object** — load all custom fields from a single entry for `@setValuesBulk`
+- **Bulk loading** with `kpBulk()` via `@setValuesBulk` to load all entries in a group
+- **Multiple instances** for accessing different databases
+
+## Installation and setup
+
+In a JS/TS project, you may install the `@varlock/keepass-plugin` package as a normal dependency.
+Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
+
+```env-spec title=".env.schema"
+# 1. Load the plugin
+# @plugin(@varlock/keepass-plugin)
+#
+# 2. Initialize with your database path and password
+# @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD)
+```
+
+### With key file
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/keepass-plugin)
+# @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD, keyFile="./secrets.keyx")
+```
+
+### CLI mode
+
+When `useCli=true`, the plugin uses `keepassxc-cli` to read entries instead of reading the file directly. This is useful during development when you want to leverage KeePassXC's system integration.
+
+The `useCli` option can be dynamic — for example, `useCli=forEnv(dev)` to only use the CLI in development:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/keepass-plugin)
+# @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD, useCli=forEnv(dev))
+```
+
+You must have KeePassXC installed, which includes `keepassxc-cli`:
+
+```bash
+# macOS
+brew install --cask keepassxc
+
+# Ubuntu/Debian
+sudo apt install keepassxc
+
+# Fedora/RHEL
+sudo dnf install keepassxc
+
+# Arch
+pacman -S keepassxc
+```
+
+See [KeePassXC downloads](https://keepassxc.org/download/) for more options.
+
+### Multiple databases
+
+Access secrets from multiple databases using the `id` parameter:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/keepass-plugin)
+# @initKeePass(id=prod, dbPath="./prod.kdbx", password=$KP_PROD_PASSWORD)
+# @initKeePass(id=dev, dbPath="./dev.kdbx", password=$KP_DEV_PASSWORD)
+# ---
+
+PROD_SECRET=kp(prod, "Database/production")
+DEV_SECRET=kp(dev, "Database/development")
+```
+
+:::note
+The plugin does **not** fail at load time if the database credentials are invalid. It only fails when you actually try to read a secret, making it safe to include in shared configs.
+:::
+
+## Loading secrets
+
+Once the plugin is installed and initialized, you can start adding config items that load values using the `kp()` resolver function.
+
+### Basic usage
+
+Fetch secrets using entry paths with `#attribute` syntax:
+
+```env-spec title=".env.schema"
+# Fetch password (default attribute) from an entry
+DB_PASSWORD=kp("Database/production")
+
+# Fetch a different attribute using #attribute syntax
+DB_USER=kp("Database/production#UserName")
+DB_URL=kp("Database/production#URL")
+
+# Read a custom string field
+API_KEY=kp("Services/stripe#SecretKey")
+```
+
+### Inferring entry name from key
+
+When the env var key matches a KeePass entry title, you can omit the entry path:
+
+```env-spec title=".env.schema"
+# Looks up entry titled "DB_PASSWORD", reads the Password field
+DB_PASSWORD=kp()
+
+# Looks up entry titled "DB_USER", reads the UserName field
+DB_USER=kp("#UserName")
+```
+
+### Entry paths
+
+Entry paths use forward slashes to separate groups from the entry title:
+
+```
+Group/SubGroup/EntryTitle
+```
+
+For example, if your KeePass database has:
+- Root
+  - Database
+    - production (entry with Password, UserName fields)
+  - Services
+    - stripe (entry with a custom "SecretKey" field)
+
+You would reference them as `"Database/production"` and `"Services/stripe"`.
+
+### Custom attributes object
+
+Use `customAttributesObj=true` to load all custom (non-standard) fields from a single entry as a JSON object. This is useful with `@setValuesBulk` to expand custom fields into env vars:
+
+```env-spec title=".env.schema"
+# Given an entry "Database/production" with custom fields: HOST, PORT, DB_NAME
+# @setValuesBulk(kp("Database/production", customAttributesObj=true), createMissing=true)
+# ---
+HOST=
+PORT=
+DB_NAME=
+```
+
+Standard fields (Title, Password, UserName, URL, Notes) are excluded — only custom fields are included.
+
+### Bulk loading secrets
+
+Use `kpBulk()` with `@setValuesBulk` to fetch the Password field from all entries under a group:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/keepass-plugin)
+# @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD)
+# @setValuesBulk(kpBulk(Production), createMissing=true)
+# ---
+
+# These will be populated from entries under the "Production" group
+DB_PASSWORD=
+API_KEY=
+```
+
+You can customize the scope:
+
+```env-spec title=".env.schema"
+# Load all entries from the database root
+# @setValuesBulk(kpBulk())
+
+# Load from a specific group
+# @setValuesBulk(kpBulk("Services/APIs"))
+
+# With a named instance
+# @setValuesBulk(kpBulk(prod, Production))
+```
+
+Entry paths in the JSON output are sanitized to valid env var names (uppercased, non-alphanumeric characters replaced with underscores).
+
+---
+
+## Reference
+
+### Root decorators
+<div class="reference-docs">
+<div>
+#### `@initKeePass()`
+
+Initialize a KeePass plugin instance for accessing secrets from a KDBX database.
+
+**Key/value args:**
+- `dbPath` **(required)**: Path to the `.kdbx` database file
+- `password` **(required)**: Master password (typically from an env var like `$KP_PASSWORD`)
+- `keyFile` (optional): Path to a key file for additional authentication
+- `useCli` (optional): Use `keepassxc-cli` instead of reading the file directly (default: `false`). Can be dynamic, e.g. `useCli=forEnv(dev)`
+- `id` (optional): Instance identifier for multiple databases
+
+```env-spec "@initKeePass"
+# Basic setup
+# @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD)
+
+# With key file and CLI mode
+# @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD, keyFile="./key.keyx", useCli=true)
+
+# Multiple instances
+# @initKeePass(id=prod, dbPath="./prod.kdbx", password=$KP_PROD_PW)
+```
+</div>
+</div>
+
+### Data types
+<div class="reference-docs">
+<div>
+#### `kdbxPassword`
+
+A sensitive string type for KeePass database master passwords. Validates that the value is a non-empty string and is automatically marked as sensitive.
+
+```env-spec "kdbxPassword"
+# @type=kdbxPassword @sensitive
+KP_PASSWORD=
+```
+</div>
+</div>
+
+### Resolver functions
+<div class="reference-docs">
+<div>
+#### `kp()`
+
+Fetch a single entry field from a KeePass database. Returns the Password field by default.
+
+**Array args:**
+- `instanceId` (optional): instance identifier when multiple plugin instances are initialized
+- `entryPath` (optional): path to the entry (uses `#attribute` for non-Password fields). If omitted, uses the variable name.
+
+**Key/value args:**
+- `attribute` (optional): alternative to `#attribute` syntax for specifying the field to read
+- `customAttributesObj` (optional): if `true`, returns all custom fields as a JSON object (for use with `@setValuesBulk`)
+
+```env-spec /kp\\(.*\\)/
+# Default password field
+DB_PASSWORD=kp("Database/production")
+
+# Specific attribute via #attribute
+DB_USER=kp("Database/production#UserName")
+
+# Infer entry name from variable key
+DB_PASSWORD=kp()
+
+# Infer entry name + specify attribute
+DB_USER=kp("#UserName")
+
+# Custom fields as JSON object
+# @setValuesBulk(kp("Database/production", customAttributesObj=true))
+
+# With instance ID
+SECRET=kp(prod, "Database/production")
+```
+</div>
+
+<div>
+#### `kpBulk()`
+
+Fetch the Password field from all entries under a group as a JSON map. Intended for use with `@setValuesBulk`.
+
+Entry paths are sanitized to valid env var names (uppercased, non-alphanumeric replaced with underscores).
+
+**Array args:**
+- `instanceId` (optional): instance identifier when multiple plugin instances are initialized
+- `groupPath` (optional): group path to load entries from (loads all entries if omitted)
+
+```env-spec /kpBulk\\(.*\\)/
+# Load all entries from the database root
+# @setValuesBulk(kpBulk())
+
+# Load entries under a specific group
+# @setValuesBulk(kpBulk(Production))
+
+# With instance ID
+# @setValuesBulk(kpBulk(prod, Production))
+```
+</div>
+</div>
+
+---
+
+## Example configurations
+
+### Simple setup with password from env
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/keepass-plugin)
+# @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD)
+# ---
+
+# @type=kdbxPassword @sensitive
+KP_PASSWORD=
+
+DB_PASSWORD=kp("Database/production")
+API_KEY=kp("Services/stripe#SecretKey")
+SMTP_USER=kp("Email/smtp#UserName")
+```
+
+### Bulk loading a group
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/keepass-plugin)
+# @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD)
+# @setValuesBulk(kpBulk(Production), createMissing=true)
+# ---
+
+# @type=kdbxPassword @sensitive
+KP_PASSWORD=
+
+# These are auto-populated from entries in the "Production" group
+DB_PASSWORD=
+API_KEY=
+REDIS_URL=
+```
+
+### Custom fields from a single entry
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/keepass-plugin)
+# @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD)
+# @setValuesBulk(kp("Database/production", customAttributesObj=true), createMissing=true)
+# ---
+
+# @type=kdbxPassword @sensitive
+KP_PASSWORD=
+
+# Custom fields from the "Database/production" entry
+HOST=
+PORT=
+DB_NAME=
+```
+
+### Dev CLI / prod file mode
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/keepass-plugin)
+# @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD, useCli=forEnv(dev))
+# ---
+
+# @type=kdbxPassword @sensitive
+KP_PASSWORD=
+
+# In dev: reads via keepassxc-cli (YubiKey, etc.)
+# In prod: reads the .kdbx file directly
+DB_PASSWORD=kp("Database/production")
+```
+
+---
+
+## Troubleshooting
+
+### Invalid credentials
+- Check that the database password is correct
+- If using a key file, verify the path is correct and the file matches the database
+
+### Entry not found
+- Entry paths are case-sensitive
+- Use forward slashes to separate groups: `"Group/SubGroup/Entry"`
+- In CLI mode, list entries with: `keepassxc-cli ls <database.kdbx>`
+
+### `keepassxc-cli` not found (CLI mode only)
+- Install KeePassXC which includes the CLI (see [CLI mode](#cli-mode))
+- Ensure `keepassxc-cli` is in your `PATH`
+
+### Database file not found
+- Check the `dbPath` value — it's resolved relative to the working directory
+- Use an absolute path if needed
+
+## Resources
+
+- [KeePassXC](https://keepassxc.org/) — cross-platform KeePass-compatible password manager
+- [KeePass](https://keepass.info/) — original KeePass Password Safe
+- [KDBX format](https://keepass.info/help/kb/kdbx.html) — KeePass database format specification
+- [kdbxweb](https://github.com/keeweb/kdbxweb) — JavaScript KDBX reader library

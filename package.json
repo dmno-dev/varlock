@@ -37,6 +37,7 @@
     "@typescript-eslint/parser": "^8.56.1",
     "@varlock/changeset-changelog": "workspace:*",
     "@varlock/cloudflare-integration": "workspace:*",
+    "@varlock/keepass-plugin": "workspace:*",
     "eslint": "^10.0.2",
     "eslint-plugin-es-x": "^9.5.0",
     "eslint-plugin-fix-disabled-rules": "^0.0.2",

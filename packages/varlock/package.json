@@ -113,6 +113,10 @@
       "ts-src": "./src/plugin-lib.ts",
       "types": "./dist/plugin-lib.d.ts",
       "default": "./dist/plugin-lib.js"
+    },
+    "./test-helpers": {
+      "ts-src": "./src/test-helpers/plugin-test.ts",
+      "default": "./src/test-helpers/plugin-test.ts"
     }
   },
   "devDependencies": {

@@ -1,0 +1,57 @@
+{
+  "name": "@varlock/keepass-plugin",
+  "description": "Varlock plugin to load secrets from KeePass databases (KDBX 4.0) and KeePassXC desktop app",
+  "version": "0.0.1",
+  "type": "module",
+  "homepage": "https://varlock.dev/plugins/keepass/",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/plugins/keepass"
+  },
+  "exports": {
+    "./plugin": "./dist/plugin.cjs"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "test": "vitest"
+  },
+  "keywords": [
+    "varlock",
+    "plugin",
+    "varlock-plugin",
+    "keepass",
+    "keepassxc",
+    "kdbx",
+    "password-manager",
+    "secrets",
+    "secret-management",
+    "env",
+    ".env",
+    "dotenv",
+    "environment variables",
+    "env vars",
+    "config"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^"
+  },
+  "devDependencies": {
+    "@env-spec/utils": "workspace:^",
+    "@types/node": "catalog:",
+    "hash-wasm": "^4.12.0",
+    "kdbxweb": "^2.1.1",
+    "outdent": "catalog:",
+    "tsup": "catalog:",
+    "varlock": "workspace:^",
+    "vitest": "catalog:"
+  }
+}
