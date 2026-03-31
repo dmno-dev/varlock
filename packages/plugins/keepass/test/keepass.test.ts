@@ -94,6 +94,15 @@ afterAll(() => {
   fs.rmSync(FIXTURES_DIR, { recursive: true, force: true });
 });
 
+// shared test entries used across most kp() tests
+const STANDARD_ENTRIES: TestDbEntries = {
+  MY_SECRET: { Password: 'secret-pw', UserName: 'admin', URL: 'https://example.com' },
+  'Svc/API_KEY': { Password: 'api-123' },
+  DB_CONN: {
+    Password: 'db-pw', ConnectionString: 'postgres://localhost/mydb', HOST: 'db.example.com', PORT: '5432', DB_NAME: 'mydb',
+  },
+};
+
 describe('keepass plugin', () => {
   describe('data types', () => {
     test('kdbxPassword type marks value as sensitive', kpTest({
@@ -107,62 +116,61 @@ describe('keepass plugin', () => {
   });
 
   describe('kp() resolver', () => {
-    test('kp(entryName) - entry name w/ default attribute', kpTest({
-      entries: { MY_SECRET: { Password: 'secret-val' } },
+    test('kp(entryName) - default Password attribute', kpTest({
+      entries: STANDARD_ENTRIES,
       schema: 'V1=kp(MY_SECRET)',
-      expectValues: { V1: 'secret-val' },
+      expectValues: { V1: 'secret-pw' },
     }));
 
     test('kp("Group/Entry") - nested entry path', kpTest({
-      entries: { 'Svc/API_KEY': { Password: 'api-123' } },
+      entries: STANDARD_ENTRIES,
       schema: 'V1=kp("Svc/API_KEY")',
       expectValues: { V1: 'api-123' },
     }));
 
-    test('kp("entry#Attr") - entry with attribute (hash syntax)', kpTest({
-      entries: { MY_SECRET: { Password: 'pw', UserName: 'admin' } },
+    test('kp("entry#Attr") - hash syntax attribute', kpTest({
+      entries: STANDARD_ENTRIES,
       schema: 'V1=kp("MY_SECRET#UserName")',
       expectValues: { V1: 'admin' },
     }));
 
-    test('kp(entry, attribute=X) - entry with attribute (named param)', kpTest({
-      entries: { MY_SECRET: { Password: 'pw', URL: 'https://example.com' } },
+    test('kp(entry, attribute=X) - named attribute param', kpTest({
+      entries: STANDARD_ENTRIES,
       schema: 'V1=kp(MY_SECRET, attribute=URL)',
       expectValues: { V1: 'https://example.com' },
     }));
 
     test('kp() - infer entry name from key', kpTest({
-      entries: { MY_SECRET: { Password: 'secret-val' } },
+      entries: STANDARD_ENTRIES,
       schema: 'MY_SECRET=kp()',
-      expectValues: { MY_SECRET: 'secret-val' },
+      expectValues: { MY_SECRET: 'secret-pw' },
     }));
 
-    test('kp("#Attr") - infer entry name + attribute via hash', kpTest({
-      entries: { MY_SECRET: { Password: 'pw', UserName: 'admin' } },
-      schema: 'MY_SECRET=kp("#UserName")',
-      expectValues: { MY_SECRET: 'admin' },
-    }));
-    test('kp(attribute=x) - infer entry name + attribute via named param', kpTest({
-      entries: { MY_SECRET: { Password: 'pw', UserName: 'admin' } },
+    test('kp("#Attr") - infer entry name + hash syntax attribute', kpTest({
+      entries: STANDARD_ENTRIES,
       schema: 'MY_SECRET=kp("#UserName")',
       expectValues: { MY_SECRET: 'admin' },
     }));
 
-    test('kp with custom field', kpTest({
-      entries: { DB_CONN: { Password: 'pw', ConnectionString: 'postgres://localhost/mydb' } },
+    test('kp(attribute=X) - infer entry name + named attribute param', kpTest({
+      entries: STANDARD_ENTRIES,
+      schema: 'MY_SECRET=kp(attribute=UserName)',
+      expectValues: { MY_SECRET: 'admin' },
+    }));
+
+    test('kp with custom field via hash syntax', kpTest({
+      entries: STANDARD_ENTRIES,
       schema: 'V1=kp("DB_CONN#ConnectionString")',
       expectValues: { V1: 'postgres://localhost/mydb' },
     }));
 
     test('kp(customAttributesObj=true) - all custom fields as JSON', kpTest({
-      entries: {
-        DB_CONN: {
-          Password: 'pw', UserName: 'admin', HOST: 'db.example.com', PORT: '5432', DB_NAME: 'mydb',
-        },
-      },
+      entries: STANDARD_ENTRIES,
       schema: 'V1=kp(DB_CONN, customAttributesObj=true)',
       expectValues: {
-        V1: JSON.stringify({ HOST: 'db.example.com', PORT: '5432', DB_NAME: 'mydb' }),
+        V1: JSON.stringify({
+          ConnectionString: 'postgres://localhost/mydb', HOST: 'db.example.com', PORT: '5432', DB_NAME: 'mydb',
+        }),
       },
     }));
   });

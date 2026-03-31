@@ -1,7 +1,7 @@
 import { Resolver, plugin } from 'varlock/plugin-lib';
 
 import { KdbxReader, sanitizeEnvKey } from './kdbx-reader';
-import { configureCliAuth, kpCliRead, kpCliList } from './cli-helper';
+import { KpCliReader } from './cli-helper';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
@@ -12,104 +12,84 @@ const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = KP_ICON;
 
+/** Shared interface for both file-mode and CLI-mode readers */
+interface KpReader {
+  readEntry(entryPath: string, attribute?: string): Promise<string>;
+  listEntries(groupPath?: string): Promise<Array<string>>;
+}
+
 class KeePassPluginInstance {
-  private dbPath?: string;
-  private password?: string;
-  private keyFile?: string;
-  private useCli?: boolean;
-  private kdbxReader?: KdbxReader;
+  private reader?: KpReader;
+  private readerMode?: 'file' | 'cli';
 
   constructor(
     readonly id: string,
   ) {}
 
   configure(dbPath: string, password: string, keyFile?: string, useCli?: boolean) {
-    this.dbPath = dbPath;
-    this.password = password;
-    this.keyFile = keyFile;
-    this.useCli = useCli;
-    debug('keepass instance', this.id, 'configured - dbPath:', this.dbPath, 'useCli:', !!this.useCli);
+    debug('keepass instance', this.id, 'configured - dbPath:', dbPath, 'useCli:', !!useCli);
 
-    if (this.useCli) {
-      configureCliAuth(dbPath, password, keyFile);
+    if (useCli) {
+      this.reader = new KpCliReader(dbPath, password, keyFile);
+      this.readerMode = 'cli';
     } else {
-      this.kdbxReader = new KdbxReader(dbPath, password, keyFile);
+      this.reader = new KdbxReader(dbPath, password, keyFile);
+      this.readerMode = 'file';
     }
   }
 
   async readEntry(entryPath: string, attribute: string = 'Password'): Promise<string> {
-    if (!this.dbPath || !this.password) {
-      throw new ResolutionError('KeePass plugin instance not configured', {
-        tip: `Plugin instance (${this.id}) must have dbPath and password set via @initKeePass`,
-      });
-    }
-
-    if (this.useCli) {
-      return await kpCliRead(entryPath, attribute);
-    } else if (this.kdbxReader) {
-      return await this.kdbxReader.readEntry(entryPath, attribute);
-    } else {
-      throw new SchemaError('KeePass plugin instance not properly initialized');
-    }
+    return await this.reader!.readEntry(entryPath, attribute);
   }
 
   async readCustomAttributes(entryPath: string): Promise<string> {
-    if (!this.dbPath || !this.password) {
-      throw new ResolutionError('KeePass plugin instance not configured', {
-        tip: `Plugin instance (${this.id}) must have dbPath and password set via @initKeePass`,
-      });
-    }
-
-    if (this.useCli) {
-      // CLI mode: read all attributes via `show` and filter out standard ones
-      // For now, only file mode supports custom attributes
+    if (this.readerMode === 'cli') {
       throw new ResolutionError('customAttributesObj is not supported in CLI mode (useCli=true)');
-    } else if (this.kdbxReader) {
-      return await this.kdbxReader.readCustomAttributes(entryPath);
-    } else {
-      throw new SchemaError('KeePass plugin instance not properly initialized');
     }
-  }
-
-  async listEntries(groupPath?: string): Promise<Array<string>> {
-    if (!this.dbPath || !this.password) {
-      throw new ResolutionError('KeePass plugin instance not configured');
-    }
-
-    if (this.useCli) {
-      return await kpCliList(groupPath);
-    } else if (this.kdbxReader) {
-      return await this.kdbxReader.listEntries(groupPath);
-    } else {
-      throw new SchemaError('KeePass plugin instance not properly initialized');
-    }
+    return await (this.reader as KdbxReader).readCustomAttributes(entryPath);
   }
 
   async readAllEntries(groupPath?: string): Promise<string> {
-    if (!this.dbPath || !this.password) {
-      throw new ResolutionError('KeePass plugin instance not configured');
-    }
-
-    if (this.useCli) {
-      const entries = await kpCliList(groupPath);
-      const result: Record<string, string> = {};
-      await Promise.all(entries.map(async (path) => {
-        try {
-          result[sanitizeEnvKey(path)] = await kpCliRead(path);
-        } catch {
-          // Skip entries that don't have the requested attribute
-        }
-      }));
-      return JSON.stringify(result);
-    } else if (this.kdbxReader) {
-      return await this.kdbxReader.readAllEntries(groupPath);
-    } else {
-      throw new SchemaError('KeePass plugin instance not properly initialized');
-    }
+    const entryPaths = await this.reader!.listEntries(groupPath);
+    const result: Record<string, string> = {};
+    await Promise.all(entryPaths.map(async (entryPath) => {
+      try {
+        result[sanitizeEnvKey(entryPath)] = await this.reader!.readEntry(entryPath);
+      } catch {
+        // Skip entries that don't have the Password attribute
+      }
+    }));
+    return JSON.stringify(result);
   }
 }
 
 const pluginInstances: Record<string, KeePassPluginInstance> = {};
+
+function getPluginInstance(instanceId: string, resolverName: string): KeePassPluginInstance {
+  if (!Object.keys(pluginInstances).length) {
+    throw new SchemaError('No KeePass plugin instances found', {
+      tip: 'Initialize at least one KeePass plugin instance using the @initKeePass() root decorator',
+    });
+  }
+
+  const instance = pluginInstances[instanceId];
+  if (!instance) {
+    if (instanceId === '_default') {
+      throw new SchemaError('KeePass plugin instance (without id) not found', {
+        tip: [
+          'Either remove the `id` param from your @initKeePass call',
+          `or use \`${resolverName}(id, ...)\` to select an instance by id`,
+          `Available ids: ${Object.keys(pluginInstances).join(', ')}`,
+        ].join('\n'),
+      });
+    } else {
+      throw new SchemaError(`KeePass plugin instance id "${instanceId}" not found`, {
+        tip: `Available ids: ${Object.keys(pluginInstances).join(', ')}`,
+      });
+    }
+  }
+  return instance;
+}
 
 
 // --- Root Decorator: @initKeePass ---
@@ -248,28 +228,7 @@ plugin.registerResolverFunction({
       throw new SchemaError('Expected 0, 1, or 2 arguments');
     }
 
-    if (!Object.values(pluginInstances).length) {
-      throw new SchemaError('No KeePass plugin instances found', {
-        tip: 'Initialize at least one KeePass plugin instance using the @initKeePass() root decorator',
-      });
-    }
-
-    const selectedInstance = pluginInstances[instanceId];
-    if (!selectedInstance) {
-      if (instanceId === '_default') {
-        throw new SchemaError('KeePass plugin instance (without id) not found', {
-          tip: [
-            'Either remove the `id` param from your @initKeePass call',
-            'or use `kp(id, entryPath)` to select an instance by id',
-            `Available ids: ${Object.keys(pluginInstances).join(', ')}`,
-          ].join('\n'),
-        });
-      } else {
-        throw new SchemaError(`KeePass plugin instance id "${instanceId}" not found`, {
-          tip: `Available ids: ${Object.keys(pluginInstances).join(', ')}`,
-        });
-      }
-    }
+    getPluginInstance(instanceId, 'kp');
 
     return {
       instanceId, entryPathResolver, inferredEntryPath, attributeResolver, customAttributesObjResolver,
@@ -365,28 +324,7 @@ plugin.registerResolverFunction({
       throw new SchemaError('Expected 0, 1, or 2 arguments');
     }
 
-    if (!Object.values(pluginInstances).length) {
-      throw new SchemaError('No KeePass plugin instances found', {
-        tip: 'Initialize at least one KeePass plugin instance using the @initKeePass() root decorator',
-      });
-    }
-
-    const selectedInstance = pluginInstances[instanceId];
-    if (!selectedInstance) {
-      if (instanceId === '_default') {
-        throw new SchemaError('KeePass plugin instance (without id) not found', {
-          tip: [
-            'Either remove the `id` param from your @initKeePass call',
-            'or use `kpBulk(id, groupPath)` to select an instance by id',
-            `Available ids: ${Object.keys(pluginInstances).join(', ')}`,
-          ].join('\n'),
-        });
-      } else {
-        throw new SchemaError(`KeePass plugin instance id "${instanceId}" not found`, {
-          tip: `Available ids: ${Object.keys(pluginInstances).join(', ')}`,
-        });
-      }
-    }
+    getPluginInstance(instanceId, 'kpBulk');
 
     return { instanceId, groupPathResolver };
   },

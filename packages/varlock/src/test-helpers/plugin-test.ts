@@ -1,8 +1,6 @@
 import { expect, vi } from 'vitest';
 import path from 'node:path';
-import {
-  EnvGraph, DotEnvFileDataSource, SchemaError, ResolutionError,
-} from '../env-graph/index';
+import { EnvGraph, DotEnvFileDataSource } from '../env-graph/index';
 import type { Constructor } from '@env-spec/utils/type-utils';
 
 type ErrorClass = Constructor<Error>;

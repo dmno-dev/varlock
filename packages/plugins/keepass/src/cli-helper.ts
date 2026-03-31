@@ -14,16 +14,6 @@ const FIX_INSTALL_TIP = [
   'See https://keepassxc.org/download/ for more info.',
 ].join('\n');
 
-let kdbxPasswordForCli: string | undefined;
-let kdbxPathForCli: string | undefined;
-let kdbxKeyFileForCli: string | undefined;
-
-export function configureCliAuth(dbPath: string, password: string, keyFile?: string) {
-  kdbxPathForCli = dbPath;
-  kdbxPasswordForCli = password;
-  kdbxKeyFileForCli = keyFile;
-}
-
 function processCliError(err: Error | any): Error {
   if (err instanceof ExecError) {
     const errMessage = err.data;
@@ -93,49 +83,42 @@ async function execKeePassCliCommand(args: Array<string>, stdinInput?: string): 
 }
 
 /**
- * Read a single attribute from a KeePass entry via keepassxc-cli.
+ * Per-instance CLI reader that stores its own auth credentials.
  */
-export async function kpCliRead(
-  entryPath: string,
-  attribute: string = 'Password',
-): Promise<string> {
-  if (!kdbxPathForCli || !kdbxPasswordForCli) {
-    throw new ResolutionError('KeePassXC CLI not configured', {
-      tip: 'Ensure @initKeePass has been called with a valid database path and password.',
-    });
-  }
-  const args = [
-    'show',
-    ...(kdbxKeyFileForCli ? ['--key-file', kdbxKeyFileForCli] : []),
-    '--attributes',
-    attribute,
-    '--quiet',
-    kdbxPathForCli,
-    entryPath,
-  ];
-  const result = await execKeePassCliCommand(args, kdbxPasswordForCli);
-  return result.trimEnd();
-}
+export class KpCliReader {
+  constructor(
+    private dbPath: string,
+    private password: string,
+    private keyFile?: string,
+  ) {}
 
-/**
- * List all entries in a group (folder) of the database.
- */
-export async function kpCliList(groupPath?: string): Promise<Array<string>> {
-  if (!kdbxPathForCli || !kdbxPasswordForCli) {
-    throw new ResolutionError('KeePassXC CLI not configured');
+  async readEntry(entryPath: string, attribute: string = 'Password'): Promise<string> {
+    const args = [
+      'show',
+      ...(this.keyFile ? ['--key-file', this.keyFile] : []),
+      '--attributes',
+      attribute,
+      '--quiet',
+      this.dbPath,
+      entryPath,
+    ];
+    const result = await execKeePassCliCommand(args, this.password);
+    return result.trimEnd();
   }
 
-  const args = [
-    'ls',
-    ...(kdbxKeyFileForCli ? ['--key-file', kdbxKeyFileForCli] : []),
-    '--recursive',
-    '--flatten',
-    kdbxPathForCli,
-    ...(groupPath ? [groupPath] : []),
-  ];
-  const result = await execKeePassCliCommand(args, kdbxPasswordForCli);
-  return result
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line && !line.endsWith('/'));
+  async listEntries(groupPath?: string): Promise<Array<string>> {
+    const args = [
+      'ls',
+      ...(this.keyFile ? ['--key-file', this.keyFile] : []),
+      '--recursive',
+      '--flatten',
+      this.dbPath,
+      ...(groupPath ? [groupPath] : []),
+    ];
+    const result = await execKeePassCliCommand(args, this.password);
+    return result
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.endsWith('/'));
+  }
 }

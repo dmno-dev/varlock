@@ -10,8 +10,6 @@
     "url": "https://github.com/dmno-dev/varlock.git",
     "directory": "packages/plugins/keepass"
   },
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
   "exports": {
     "./plugin": "./dist/plugin.cjs"
   },

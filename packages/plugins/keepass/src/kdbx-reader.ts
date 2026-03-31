@@ -239,22 +239,4 @@ export class KdbxReader {
     collectEntries(startGroup, startPath);
     return entries;
   }
-
-  /**
-   * Read all entries under a group, returning a flat {entryPath: password} map as JSON.
-   */
-  async readAllEntries(groupPath?: string): Promise<string> {
-    const entryPaths = await this.listEntries(groupPath);
-    const result: Record<string, string> = {};
-
-    await Promise.all(entryPaths.map(async (entryPath) => {
-      try {
-        result[sanitizeEnvKey(entryPath)] = await this.readEntry(entryPath);
-      } catch {
-        // Skip entries that don't have the Password attribute
-      }
-    }));
-
-    return JSON.stringify(result);
-  }
 }
