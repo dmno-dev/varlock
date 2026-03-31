@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       force-all:
-        description: 'Run all framework tests regardless of changesets'
+        description: 'Run all framework tests regardless of changes'
         type: boolean
         default: false
 
@@ -27,14 +27,16 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
-      - name: Detect changed integrations from changesets
+      - name: Detect changed integrations
         id: detect
         run: |
+          ARGS=""
           if [[ "${{ github.event.inputs.force-all }}" == "true" ]] || [[ "${{ contains(github.event.pull_request.labels.*.name, 'framework-tests') }}" == "true" ]]; then
-            bun run scripts/detect-changed-integrations.ts --all
-          else
-            bun run scripts/detect-changed-integrations.ts
+            ARGS="--all"
+          elif [[ "${{ github.head_ref }}" == "changeset-release/main" ]]; then
+            ARGS="--release-pr"
           fi
+          bun run scripts/detect-changed-integrations.ts $ARGS
 
   build:
     name: Build Libraries
