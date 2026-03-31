@@ -161,6 +161,7 @@ export default tseslint.config(
   {
     files: [
       'scripts/**',
+      'ignore/**',
       'examples/**',
       'packages/*.ignore/**',
       'packages/varlock/src/cli/**',

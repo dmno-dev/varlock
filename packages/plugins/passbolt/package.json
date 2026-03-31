@@ -51,6 +51,8 @@
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
     "ky": "catalog:",
+    "msw": "catalog:",
+    "outdent": "catalog:",
     "tsup": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"
