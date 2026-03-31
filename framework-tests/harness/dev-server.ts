@@ -172,6 +172,7 @@ export async function runDevServer(
         COREPACK_ENABLE_STRICT: '0',
         COREPACK_ENABLE_PROJECT_SPEC: '0',
         WRANGLER_SEND_METRICS: 'false',
+        VARLOCK_DEBUG: '1',
         ...scenario.env,
       },
     });
@@ -200,10 +201,16 @@ export async function runDevServer(
   try {
     const serverUrl = await waitForReady(child, stdoutChunks, stderrChunks, scenario.readyPattern, readyTimeout);
     if (!serverUrl) {
+      const stdout = getStdout();
+      const stderr = getStderr();
+      console.error(`[dev-server] Timeout waiting for ready pattern. Command: ${command}`);
+      if (stdout) console.error(`[dev-server] STDOUT:\n${stdout.slice(-2000)}`);
+      if (stderr) console.error(`[dev-server] STDERR:\n${stderr.slice(-2000)}`);
+      if (!stdout && !stderr) console.error('[dev-server] No output received from process');
       return {
         success: false,
-        stdout: getStdout(),
-        stderr: getStderr(),
+        stdout,
+        stderr,
         responses: [],
         error: `Server did not become ready within ${readyTimeout}ms`,
       };

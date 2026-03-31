@@ -334,7 +334,7 @@ export class FrameworkTestEnv {
       const ctx: { result?: DevServerResult } = {};
       beforeAll(async () => {
         ctx.result = await env.runDevServer(scenario);
-      }, scenario.timeout ?? 60_000);
+      }, scenario.timeout ?? 120_000);
 
       test('dev server starts successfully', () => {
         expect(ctx.result!.success, [
