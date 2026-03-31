@@ -28,7 +28,8 @@
     "build": "bun run build:grammar && bun run build:lib",
     "test": "run-p \"build:grammar -w\" _test:watch",
     "_test:watch": "vitest",
-    "test:ci": "bun run build:grammar && vitest --run"
+    "test:ci": "bun run build:grammar && vitest --run",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "env-spec",

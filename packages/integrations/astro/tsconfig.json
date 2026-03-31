@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
-    "target": "es2021",
+    "target": "ES2022",
     "moduleResolution": "bundler",
     "strict": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
-    "skipLibCheck": false,
+    "skipLibCheck": true,
     "customConditions": ["ts-src"],
     "lib": ["ES2022"],
     "module": "esnext"

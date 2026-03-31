@@ -9,8 +9,8 @@
     "lint:fix": "bun run lint --fix",
     "start": "wrangler dev",
     "cf-typegen": "wrangler types",
-    "type-check": "tsc --noEmit",
-    "inspector": "bunx @modelcontextprotocol/inspector@latest"
+    "inspector": "bunx @modelcontextprotocol/inspector@latest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.23.0",

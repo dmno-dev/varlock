@@ -1,3 +1,4 @@
+/// <reference path="../../globals.d.ts" />
 import path from 'node:path';
 import { exec as execCb } from 'node:child_process';
 import fsSync from 'node:fs';
