@@ -120,6 +120,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: built-repo
+          path: packages/
 
       - name: Run ${{ matrix.integration }} framework tests
         run: cd framework-tests && bun install && bun run test -- --reporter=verbose frameworks/${{ matrix.integration }}/
