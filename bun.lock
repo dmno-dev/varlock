@@ -305,7 +305,7 @@
     },
     "packages/plugins/passbolt": {
       "name": "@varlock/passbolt-plugin",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "openpgp": "6.3.0",
       },
