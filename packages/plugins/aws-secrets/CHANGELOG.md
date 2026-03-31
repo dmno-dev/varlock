@@ -1,5 +1,34 @@
 # @varlock/aws-secrets-plugin
 
+## 0.0.6
+
+### Patch Changes
+
+- [#483](https://github.com/dmno-dev/varlock/pull/483) [`ba61adb`](https://github.com/dmno-dev/varlock/commit/ba61adb19bd5516f0b48827b386fd7170afe66b5) - Add support for single-file ESM and TypeScript plugins, and improve the plugin authoring API.
+
+  **New: ESM and TypeScript single-file plugins**
+
+  Single-file plugins can now be written as `.mjs` or `.ts` files in addition to `.js`/`.cjs`. TypeScript plugins require Bun.
+
+  **Improved: explicit `plugin` import instead of injected global**
+
+  Plugin authors should now import `plugin` explicitly from `varlock/plugin-lib` rather than relying on the injected global:
+
+  ```js
+  // CJS plugin (.js / .cjs)
+  const { plugin } = require("varlock/plugin-lib");
+
+  // ESM plugin (.mjs / .ts)
+  import { plugin } from "varlock/plugin-lib";
+  ```
+
+  This works in both regular installs and SEA binary builds. Error classes (`ValidationError`, `CoercionError`, etc.) are also now directly importable from `varlock/plugin-lib`.
+
+  **Breaking change:** the implicit `plugin` global is no longer injected into CJS plugin modules. Existing plugins must add `const { plugin } = require('varlock/plugin-lib')`.
+
+- Updated dependencies [[`ba61adb`](https://github.com/dmno-dev/varlock/commit/ba61adb19bd5516f0b48827b386fd7170afe66b5), [`6fe325d`](https://github.com/dmno-dev/varlock/commit/6fe325da965c956d1c01c78535c5a5e65524d7a8), [`76c17f8`](https://github.com/dmno-dev/varlock/commit/76c17f8506fb0bd53b5b8d1a87dae25ab517a1ee), [`7f32751`](https://github.com/dmno-dev/varlock/commit/7f327511f8be6a1a3d11e0327adc5d95e2805ad3)]:
+  - varlock@0.7.0
+
 ## 0.0.5
 
 ### Patch Changes

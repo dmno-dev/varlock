@@ -1,7 +1,7 @@
 {
   "name": "@varlock/proton-pass-plugin",
   "description": "Varlock plugin to load secrets from Proton Pass using the Proton Pass CLI",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/proton-pass/",
   "bugs": "https://github.com/dmno-dev/varlock/issues",
