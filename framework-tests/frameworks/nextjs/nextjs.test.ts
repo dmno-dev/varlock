@@ -33,16 +33,12 @@ NEXT_VERSIONS.forEach((nextVersion) => {
         '.env.dev': 'schemas/.env.dev',
         '.env.prod': 'schemas/.env.prod',
       },
-      packageJsonMerge: {
-        scripts: {
-          dev: 'COREPACK_ENABLE_PROJECT_SPEC=0 next dev',
-          build: 'COREPACK_ENABLE_PROJECT_SPEC=0 next build',
-        },
-        pnpm: {
-          overrides: {
-            '@next/env': '<packed:@varlock/nextjs-integration>',
-          },
-        },
+      scripts: {
+        dev: 'next dev',
+        build: 'next build',
+      },
+      overrides: {
+        '@next/env': '<packed:@varlock/nextjs-integration>',
       },
     });
     beforeAll(() => nextEnv.setup(), 180_000);

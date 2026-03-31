@@ -125,3 +125,5 @@ jobs:
       - name: Run ${{ matrix.integration }} framework tests
         run: cd framework-tests && bun install && bun run test -- --reporter=verbose frameworks/${{ matrix.integration }}/
         timeout-minutes: 15
+        # env:
+        #   FRAMEWORK_TEST_VERBOSE: '1'

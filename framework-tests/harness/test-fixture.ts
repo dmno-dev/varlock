@@ -121,6 +121,8 @@ export class FrameworkTestEnv {
       ? JSON.parse(readFileSync(templatePkgPath, 'utf-8'))
       : {};
 
+    const pm = this.config.packageManager ?? 'pnpm';
+
     const pkg = {
       name: 'framework-test-project',
       version: '0.0.0',
@@ -138,7 +140,19 @@ export class FrameworkTestEnv {
           ...this.config.devDependencies,
         },
       } : {}),
+      ...(this.config.scripts ? {
+        scripts: { ...templatePkg.scripts, ...this.config.scripts },
+      } : {}),
     };
+
+    // Apply overrides — pnpm nests them under `pnpm.overrides`
+    if (this.config.overrides) {
+      if (pm === 'pnpm') {
+        pkg.pnpm = { ...templatePkg.pnpm, overrides: { ...templatePkg.pnpm?.overrides, ...this.config.overrides } };
+      } else {
+        pkg.overrides = { ...templatePkg.overrides, ...this.config.overrides };
+      }
+    }
 
     // Apply packageJsonMerge (deep merge one level)
     if (this.config.packageJsonMerge) {
@@ -172,7 +186,6 @@ export class FrameworkTestEnv {
     writeFileSync(templatePkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
 
     // Install dependencies
-    const pm = this.config.packageManager ?? 'pnpm';
     const installCmd = pm === 'yarn' ? 'yarn install' : `${pm} install`;
     console.log(`[${this.label}] Installing dependencies with ${pm}...`);
     const installResult = await runCommand(this.dir, installCmd, {
@@ -393,7 +406,22 @@ export class FrameworkTestEnv {
       if (process.env.KEEP_TEST_DIRS) {
         console.log(`[${this.label}] Preserving test dir: ${this.dir}`);
       } else {
-        rmSync(this.dir, { recursive: true, force: true });
+        // retry removal — on CI, child processes (e.g. wrangler) may still be
+        // releasing file handles when teardown runs, causing ENOTEMPTY
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            rmSync(this.dir, { recursive: true, force: true });
+            break;
+          } catch (err) {
+            if (attempt < 2) {
+              await new Promise<void>((r) => {
+                setTimeout(r, 500);
+              });
+            } else {
+              console.warn(`[${this.label}] Failed to clean up ${this.dir}: ${(err as Error).message}`);
+            }
+          }
+        }
         console.log(`[${this.label}] Cleaned up ${this.dir}`);
       }
     }

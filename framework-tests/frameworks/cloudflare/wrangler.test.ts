@@ -20,10 +20,11 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
       '.env.schema': 'schemas/.env.schema',
       '.env.dev': 'schemas/.env.dev',
     },
-    packageJsonMerge: {
-      scripts: {
-        dev: 'varlock-wrangler dev',
-      },
+    scripts: {
+      dev: 'varlock-wrangler dev',
+    },
+    overrides: {
+      punycode: 'npm:punycode@^2.3.1',
     },
   });
   beforeAll(() => wranglerEnv.setup(), 180_000);
@@ -31,7 +32,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
 
   wranglerEnv.describeDevScenario('basic worker', {
     command: 'varlock-wrangler dev --port 18787',
-    readyPattern: /Ready on/,
+    readyPattern: /Ready on|ready in/i,
     readyTimeout: 30_000,
     templateFiles: {
       'src/index.ts': { path: 'workers/basic-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
@@ -71,7 +72,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
 
   wranglerEnv.describeDevScenario('leaky worker', {
     command: 'varlock-wrangler dev --port 18788',
-    readyPattern: /Ready on/,
+    readyPattern: /Ready on|ready in/i,
     readyTimeout: 30_000,
     templateFiles: {
       'src/index.ts': { path: 'workers/leaky-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
@@ -97,7 +98,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
 
   wranglerEnv.describeDevScenario('large env (chunking)', {
     command: 'varlock-wrangler dev --port 18789',
-    readyPattern: /Ready on/,
+    readyPattern: /Ready on|ready in/i,
     readyTimeout: 30_000,
     templateFiles: {
       'src/index.ts': { path: 'workers/large-env-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
@@ -123,7 +124,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
 
   wranglerEnv.describeDevScenario('env reload on file change', {
     command: 'varlock-wrangler dev --port 18790',
-    readyPattern: /Ready on/,
+    readyPattern: /Ready on|ready in/i,
     readyTimeout: 30_000,
     templateFiles: {
       'src/index.ts': { path: 'workers/basic-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
