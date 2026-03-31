@@ -23,7 +23,6 @@
         "turbo": "^2.8.12",
         "typescript": "catalog:",
         "typescript-eslint": "^8.56.1",
-        "varlock": "workspace:*",
       },
     },
     "packages/changeset-changelog": {
