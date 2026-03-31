@@ -1,4 +1,4 @@
-import { Resolver, plugin } from 'varlock/plugin-lib';
+import { type Resolver, plugin } from 'varlock/plugin-lib';
 
 import {
   SecretsManagerClient,

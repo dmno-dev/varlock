@@ -1,5 +1,5 @@
 /* eslint-disable no-console */
-import { ExtensionContext } from 'vscode';
+import type { ExtensionContext } from 'vscode';
 
 import { addCompletionProvider } from './completion-provider';
 import { addDiagnosticsProvider } from './diagnostics-provider';

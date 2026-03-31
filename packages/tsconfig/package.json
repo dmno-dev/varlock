@@ -1,0 +1,6 @@
+{
+  "name": "@varlock/tsconfig",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Shared TypeScript configuration for the varlock monorepo"
+}

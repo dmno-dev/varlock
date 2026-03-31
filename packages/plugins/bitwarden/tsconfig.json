@@ -1,15 +1,5 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "resolveJsonModule": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "lib": ["ES2023"],
-    "customConditions": ["ts-src"]
-  },
+  "extends": "@varlock/tsconfig/plugin.tsconfig.json",
   "include": ["**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -1,26 +1,9 @@
 {
-  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@varlock/tsconfig/base.tsconfig.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    // "moduleResolution": "Node",
-    "resolveJsonModule": true,
-    "forceConsistentCasingInFileNames": true,
-    "declaration": true,
-    "declarationMap": true,
-    "lib": ["ES2023"],
-    "strict": true,
-    "skipLibCheck": true,
-    "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
-    "verbatimModuleSyntax": true,
-    "customConditions": ["ts-src"],
+    "resolveJsonModule": true
   },
-  "include": [
-    "src/**/*.ts",
-    "**/*.ts",
-  ],
+  "include": ["**/*.ts"],
   "exclude": [
     // this file declares a global `plugin` which the plugins depend on
     // but we dont want it declared everywhere

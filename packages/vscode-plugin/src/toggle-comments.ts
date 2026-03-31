@@ -1,5 +1,5 @@
 import {
-  window, commands, ExtensionContext,
+  window, commands, type ExtensionContext,
 } from 'vscode';
 
 function canUncomment(lineStr: string) {

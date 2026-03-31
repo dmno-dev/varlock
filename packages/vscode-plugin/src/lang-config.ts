@@ -3,7 +3,7 @@
   which makes the editing experience much nicer
 */
 
-import { ExtensionContext, IndentAction, languages } from 'vscode';
+import { type ExtensionContext, IndentAction, languages } from 'vscode';
 import { LANG_ID } from './constants';
 
 export function addLanguageConfig(context: ExtensionContext) {
