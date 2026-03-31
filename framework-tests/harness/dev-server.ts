@@ -4,6 +4,9 @@ import { join, dirname } from 'node:path';
 import type { DevServerScenario, DevServerResult, DevServerRequestResult } from './types.js';
 
 const URL_PATTERN = /https?:\/\/(?:localhost|127\.0\.0\.1):\d+/;
+// Strips all ANSI escape sequences: SGR (colors), CSI (cursor/erase), OSC (titles), etc.
+// eslint-disable-next-line no-control-regex
+const ANSI_PATTERN = /[\x1b\x9b][[(]?[0-9;?]*(?:[0-9A-ORZcf-nqry=><~]|#[0-9])/g;
 
 /**
  * Gracefully kill a child process: SIGTERM first, SIGKILL after 3s.
@@ -81,7 +84,8 @@ function waitForReady(
     }
 
     function checkReady() {
-      const combined = [...stdoutChunks, ...stderrChunks].join('');
+      // strip ANSI codes so ready patterns aren't broken by color sequences
+      const combined = [...stdoutChunks, ...stderrChunks].join('').replace(ANSI_PATTERN, '');
       if (regex.test(combined)) {
         const urlMatch = combined.match(URL_PATTERN);
         done(urlMatch ? urlMatch[0] : undefined);
@@ -127,9 +131,9 @@ function waitForNewReady(
     }
 
     function checkNewOutput() {
-      // only look at output produced after the edit
-      const newOut = stdoutChunks.slice(stdoutOffset).join('')
-        + stderrChunks.slice(stderrOffset).join('');
+      // only look at output produced after the edit, stripping ANSI codes
+      const newOut = (stdoutChunks.slice(stdoutOffset).join('')
+        + stderrChunks.slice(stderrOffset).join('')).replace(ANSI_PATTERN, '');
       if (regex.test(newOut)) {
         const urlMatch = newOut.match(URL_PATTERN);
         done(urlMatch ? urlMatch[0] : undefined);
