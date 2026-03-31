@@ -28,7 +28,7 @@ describe('Cloudflare Workers w/ vite plugin', () => {
 
   cloudflareViteEnv.describeDevScenario('basic worker', {
     command: 'vite dev --port 15173',
-    readyPattern: /Local:\s+http/,
+    readyPattern: /Local:.*http/,
     readyTimeout: 30_000,
     templateFiles: {
       'src/index.ts': 'workers/basic-worker.ts',
@@ -65,7 +65,7 @@ describe('Cloudflare Workers w/ vite plugin', () => {
 
   cloudflareViteEnv.describeDevScenario('leaky worker', {
     command: 'vite dev --port 15174',
-    readyPattern: /Local:\s+http/,
+    readyPattern: /Local:.*http/,
     readyTimeout: 30_000,
     templateFiles: {
       'src/index.ts': 'workers/leaky-worker.ts',
@@ -92,7 +92,7 @@ describe('Cloudflare Workers w/ vite plugin', () => {
 
   cloudflareViteEnv.describeDevScenario('large env (chunking)', {
     command: 'vite dev --port 15175',
-    readyPattern: /Local:\s+http/,
+    readyPattern: /Local:.*http/,
     readyTimeout: 30_000,
     templateFiles: {
       'src/index.ts': 'workers/large-env-worker.ts',
