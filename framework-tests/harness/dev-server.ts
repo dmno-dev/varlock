@@ -3,6 +3,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import type { DevServerScenario, DevServerResult, DevServerRequestResult } from './types.js';
 
+const VERBOSE = !!process.env.FRAMEWORK_TEST_VERBOSE;
 const URL_PATTERN = /https?:\/\/(?:localhost|127\.0\.0\.1):\d+/;
 // Strips all ANSI escape sequences: SGR (colors), CSI (cursor/erase), OSC (titles), etc.
 // eslint-disable-next-line no-control-regex
@@ -38,10 +39,11 @@ async function fetchWithRetry(
   url: string,
   retries = 3,
   delayMs = 500,
+  timeoutMs = 15_000,
 ): Promise<DevServerRequestResult> {
   for (let i = 0; i < retries; i++) {
     try {
-      const resp = await fetch(url);
+      const resp = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
       const body = await resp.text();
       return { status: resp.status, body };
     } catch {
@@ -53,7 +55,7 @@ async function fetchWithRetry(
     }
   }
   // final attempt — let it throw
-  const resp = await fetch(url);
+  const resp = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
   const body = await resp.text();
   return { status: resp.status, body };
 }
@@ -162,10 +164,15 @@ export async function runDevServer(
   scenario: DevServerScenario,
 ): Promise<DevServerResult> {
   const readyTimeout = scenario.readyTimeout ?? 30_000;
+  const log = (msg: string) => {
+    if (VERBOSE) console.error(`[dev-server] ${msg}`);
+  };
+  const logError = (msg: string) => console.error(`[dev-server] ${msg}`);
 
   const stdoutChunks: Array<string> = [];
   const stderrChunks: Array<string> = [];
 
+  log(`Spawning: ${command}`);
   let child: ChildProcess;
   try {
     child = spawn(command, {
@@ -181,6 +188,7 @@ export async function runDevServer(
       },
     });
   } catch (err) {
+    logError(`Failed to spawn: ${(err as Error).message}`);
     return {
       success: false,
       stdout: '',
@@ -190,11 +198,24 @@ export async function runDevServer(
     };
   }
 
+  log(`Spawned pid=${child.pid}`);
+
   child.stdout?.on('data', (data) => stdoutChunks.push(data.toString()));
   child.stderr?.on('data', (data) => stderrChunks.push(data.toString()));
+  child.on('close', (code, signal) => {
+    log(`Process closed: code=${code}, signal=${signal}`);
+  });
 
   const getStdout = () => stdoutChunks.join('');
   const getStderr = () => stderrChunks.join('');
+  const dumpOutput = () => {
+    const stdout = getStdout();
+    const stderr = getStderr();
+    logError(`Process status: exitCode=${child.exitCode}, killed=${child.killed}`);
+    if (stdout) logError(`STDOUT:\n${stdout.slice(-2000)}`);
+    if (stderr) logError(`STDERR:\n${stderr.slice(-2000)}`);
+    if (!stdout && !stderr) logError('No output received from process at all');
+  };
 
   // safety net: kill child on process exit
   const exitHandler = () => {
@@ -203,26 +224,26 @@ export async function runDevServer(
   process.on('exit', exitHandler);
 
   try {
+    log(`Waiting for ready pattern (timeout=${readyTimeout}ms)...`);
     const serverUrl = await waitForReady(child, stdoutChunks, stderrChunks, scenario.readyPattern, readyTimeout);
     if (!serverUrl) {
-      const stdout = getStdout();
-      const stderr = getStderr();
-      console.error(`[dev-server] Timeout waiting for ready pattern after ${readyTimeout}ms. Command: ${command}`);
-      console.error(`[dev-server] Process status: exitCode=${child.exitCode}, killed=${child.killed}, pid=${child.pid}`);
-      if (stdout) console.error(`[dev-server] STDOUT:\n${stdout.slice(-2000)}`);
-      if (stderr) console.error(`[dev-server] STDERR:\n${stderr.slice(-2000)}`);
-      if (!stdout && !stderr) console.error('[dev-server] No output received from process at all');
+      logError(`Timeout waiting for ready pattern. Command: ${command}`);
+      dumpOutput();
       return {
         success: false,
-        stdout,
-        stderr,
+        stdout: getStdout(),
+        stderr: getStderr(),
         responses: [],
         error: `Server did not become ready within ${readyTimeout}ms`,
       };
     }
 
+    log(`Server ready at ${serverUrl}`);
+
     const responses: Array<DevServerRequestResult> = [];
-    for (const req of scenario.requests) {
+    for (let i = 0; i < scenario.requests.length; i++) {
+      const req = scenario.requests[i];
+
       // if this request has file edits, apply them and wait for the server to restart
       if (req.fileEdits) {
         const stdoutOffsetBefore = stdoutChunks.length;
@@ -234,7 +255,7 @@ export async function runDevServer(
           writeFileSync(fullPath, content);
         }
 
-        // wait for the server to become ready again after the file change
+        log('File edits applied, waiting for server restart...');
         const newUrl = await waitForNewReady(
           child,
           stdoutChunks,
@@ -245,6 +266,8 @@ export async function runDevServer(
           readyTimeout,
         );
         if (!newUrl) {
+          logError('Server did not restart after file edit');
+          dumpOutput();
           return {
             success: false,
             stdout: getStdout(),
@@ -253,11 +276,20 @@ export async function runDevServer(
             error: 'Server did not become ready again after file edit',
           };
         }
+        log(`Server restarted at ${newUrl}`);
       }
 
       const url = `${serverUrl}${req.path}`;
-      const result = await fetchWithRetry(url);
-      responses.push(result);
+      log(`Request ${i + 1}/${scenario.requests.length}: GET ${url}`);
+      try {
+        const result = await fetchWithRetry(url);
+        log(`Response: status=${result.status}, body=${result.body.length} bytes`);
+        responses.push(result);
+      } catch (err) {
+        logError(`Request failed: ${(err as Error).message}`);
+        dumpOutput();
+        throw err;
+      }
     }
 
     // allow time for any async output (e.g. worker console.log piped through
@@ -266,6 +298,7 @@ export async function runDevServer(
       setTimeout(r, 500);
     });
 
+    log('All requests completed successfully');
     return {
       success: true,
       stdout: getStdout(),
@@ -274,6 +307,7 @@ export async function runDevServer(
       serverUrl,
     };
   } catch (err) {
+    logError(`Error: ${(err as Error).message}`);
     return {
       success: false,
       stdout: getStdout(),
@@ -282,7 +316,9 @@ export async function runDevServer(
       error: (err as Error).message,
     };
   } finally {
+    log('Killing dev server...');
     process.removeListener('exit', exitHandler);
     await killProcess(child);
+    log('Dev server killed');
   }
 }
