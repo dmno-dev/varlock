@@ -122,5 +122,5 @@ jobs:
           name: built-repo
 
       - name: Run ${{ matrix.integration }} framework tests
-        run: cd framework-tests && bunx vitest run --reporter=verbose frameworks/${{ matrix.integration }}/
+        run: cd framework-tests && bun vitest run --reporter=verbose frameworks/${{ matrix.integration }}/
         timeout-minutes: 15
