@@ -148,7 +148,7 @@
     },
     "packages/plugins/1password": {
       "name": "@varlock/1password-plugin",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "devDependencies": {
         "@1password/sdk": "0.4.1-beta.1",
         "@1password/sdk-core": "0.4.1-beta.1",
@@ -204,6 +204,21 @@
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
         "ky": "catalog:",
+        "tsup": "catalog:",
+        "varlock": "workspace:^",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "varlock": "workspace:^",
+      },
+    },
+    "packages/plugins/dashlane": {
+      "name": "@varlock/dashlane-plugin",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@env-spec/utils": "workspace:^",
+        "@types/node": "catalog:",
+        "outdent": "catalog:",
         "tsup": "catalog:",
         "varlock": "workspace:^",
         "vitest": "catalog:",
@@ -290,7 +305,7 @@
     },
     "packages/plugins/passbolt": {
       "name": "@varlock/passbolt-plugin",
-      "version": "0.0.1",
+      "version": "0.0.0",
       "dependencies": {
         "openpgp": "6.3.0",
       },
@@ -1288,6 +1303,8 @@
     "@varlock/ci-env-info": ["@varlock/ci-env-info@workspace:packages/ci-env-info"],
 
     "@varlock/cloudflare-integration": ["@varlock/cloudflare-integration@workspace:packages/integrations/cloudflare"],
+
+    "@varlock/dashlane-plugin": ["@varlock/dashlane-plugin@workspace:packages/plugins/dashlane"],
 
     "@varlock/expo-integration": ["@varlock/expo-integration@workspace:packages/integrations/expo"],
 
