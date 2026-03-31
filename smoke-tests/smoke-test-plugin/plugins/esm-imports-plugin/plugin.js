@@ -1,7 +1,7 @@
-/// <reference path="../../../../packages/varlock/src/plugin-lib.ts" />
 // Plugin with CJS requires of Node builtins — mimics the pattern used by
 // real plugins like @varlock/pass-plugin and @varlock/bitwarden-plugin
 /* eslint-disable @typescript-eslint/no-unused-vars */
+const { plugin } = require('varlock/plugin-lib');
 const { execSync, spawn } = require('child_process');
 const { readFileSync, existsSync } = require('fs');
 const path = require('path');

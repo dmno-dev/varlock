@@ -1,7 +1,7 @@
-/// <reference path="../../../../packages/varlock/src/plugin-lib.ts" />
 // Plugin using __dirname — mimics the pattern used by @varlock/1password-plugin
 // where plugins need to locate co-located .wasm and native addon files.
 /* eslint-disable @typescript-eslint/no-unused-vars */
+const { plugin } = require('varlock/plugin-lib');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
 
