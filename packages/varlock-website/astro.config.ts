@@ -189,6 +189,7 @@ export default defineConfig({
             { label: 'Infisical', slug: 'plugins/infisical' },
             { label: 'KeePass', slug: 'plugins/keepass' },
             { label: 'Pass', slug: 'plugins/pass' },
+            { label: 'Passbolt', slug: 'plugins/passbolt' },
             { label: 'Proton Pass', slug: 'plugins/proton-pass' },
           ],
         },
