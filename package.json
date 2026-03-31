@@ -45,7 +45,6 @@
     "eslint-plugin-n": "^17.24.0",
     "eslint-stylistic-airbnb": "^2.0.1",
     "globals": "^17.3.0",
-    "hash-wasm": "^4.12.0",
     "turbo": "^2.8.12",
     "typescript": "catalog:",
     "typescript-eslint": "^8.56.1"

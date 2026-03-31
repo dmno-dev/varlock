@@ -1,5 +1,5 @@
 ---
-"@varlock/keepass-plugin": minor
+"@varlock/keepass-plugin": patch
 ---
 
 Add KeePass plugin for loading secrets from KDBX 4.0 databases.
