@@ -6,14 +6,13 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 
 ## Features
 
-- **KDBX 4.0 support** - Reads KeePass database files directly via [kdbxweb](https://github.com/nicolo-ribaudo/nicolo-ribaudo/keeweb/kdbxweb)
-- **KeePassXC CLI integration** - Use `keepassxc-cli` for development workflows
-- **Key file support** - Authenticate with password + optional key file
-- **Custom attributes** - Read any entry field (Password, UserName, URL, Notes, or custom)
+- **KDBX 4.0 support** — reads KeePass database files directly via [kdbxweb](https://github.com/keeweb/kdbxweb) with pure WASM argon2
+- **KeePassXC CLI integration** — use `keepassxc-cli` for development workflows
+- **Key file support** — authenticate with password + optional key file
+- **Custom attributes** — read any entry field via `#attribute` syntax
 - **Bulk loading** with `kpBulk()` via `@setValuesBulk` to load all entries in a group
+- **Custom attributes object** — load all custom fields from a single entry via `customAttributesObj=true`
 - **Multiple instances** for accessing different databases
-- **Batched CLI reads** - Concurrent CLI calls are parallelized within a time window
-- **Helpful error messages** with resolution tips
 
 ## Installation
 
@@ -37,9 +36,9 @@ See our [Plugin Guide](https://varlock.dev/guides/plugins/#installation) for mor
 
 ## Modes of operation
 
-### File mode (production)
+### File mode (default)
 
-In file mode (the default), the plugin opens and reads `.kdbx` files directly using the [kdbxweb](https://github.com/nicolo-ribaudo/nicolo-ribaudo/keeweb/kdbxweb) library. No external CLI is needed.
+In file mode, the plugin opens and reads `.kdbx` files directly using [kdbxweb](https://github.com/keeweb/kdbxweb). No external CLI is needed.
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/keepass-plugin)
@@ -47,13 +46,13 @@ In file mode (the default), the plugin opens and reads `.kdbx` files directly us
 # ---
 ```
 
-### CLI mode (development)
+### CLI mode
 
-When `useDesktopApp=true`, the plugin uses `keepassxc-cli` to read entries. This is useful during development when you want to leverage KeePassXC's system integration (e.g., YubiKey, Windows Hello).
+When `useCli=true`, the plugin uses `keepassxc-cli` to read entries. This is useful during development when you want to leverage KeePassXC's system integration (e.g., YubiKey, Windows Hello). The `useCli` option can be dynamic — for example, `useCli=forEnv(dev)` to only use the CLI in development.
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/keepass-plugin)
-# @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD, useDesktopApp=true)
+# @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD, useCli=true)
 # ---
 ```
 
@@ -114,24 +113,40 @@ DEV_DB_PASS=kp(dev, "Database/development")
 
 ## Loading secrets
 
-Once initialized, use the `kp()` resolver function to fetch secrets.
+Once initialized, use the `kp()` resolver to fetch secrets.
 
 ### Basic usage
 
 ```env-spec title=".env.schema"
-# @plugin(@varlock/keepass-plugin)
-# @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD)
-# ---
-
-# Fetch password from entry at "Database/production"
+# Fetch password (default attribute) from an entry
 DB_PASSWORD=kp("Database/production")
 
-# Fetch a different attribute (default is "Password")
-DB_USER=kp("Database/production", attribute="UserName")
-DB_URL=kp("Database/production", attribute="URL")
+# Fetch a different attribute using #attribute syntax
+DB_USER=kp("Database/production#UserName")
+DB_URL=kp("Database/production#URL")
 
 # Read a custom string field
-API_KEY=kp("Services/stripe", attribute="SecretKey")
+API_KEY=kp("Services/stripe#SecretKey")
+```
+
+### Inferring entry name from key
+
+When the env var key matches a KeePass entry title, you can omit the entry path:
+
+```env-spec title=".env.schema"
+# Looks up entry titled "DB_PASSWORD", reads the Password field
+DB_PASSWORD=kp()
+
+# Looks up entry titled "DB_USER", reads the UserName field
+DB_USER=kp("#UserName")
+```
+
+### Named attribute param
+
+You can also use the `attribute` named param as an alternative to `#attribute`:
+
+```env-spec title=".env.schema"
+DB_USER=kp("Database/production", attribute=UserName)
 ```
 
 ### Entry paths
@@ -151,14 +166,29 @@ For example, if your KeePass database has:
 
 You would reference them as `"Database/production"` and `"Services/stripe"`.
 
+### Custom attributes object
+
+Use `customAttributesObj=true` to load all custom (non-standard) fields from a single entry as a JSON object. This is useful with `@setValuesBulk` to expand custom fields into env vars:
+
+```env-spec title=".env.schema"
+# Given an entry "Database/production" with custom fields: HOST, PORT, DB_NAME
+# @setValuesBulk(kp("Database/production", customAttributesObj=true), createMissing=true)
+# ---
+HOST=
+PORT=
+DB_NAME=
+```
+
+Standard fields (Title, Password, UserName, URL, Notes) are excluded — only custom fields are included.
+
 ### Bulk loading secrets
 
-Use `kpBulk()` with `@setValuesBulk` to fetch all entries under a group:
+Use `kpBulk()` with `@setValuesBulk` to fetch the Password field from all entries under a group:
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/keepass-plugin)
 # @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD)
-# @setValuesBulk(kpBulk("Production"))
+# @setValuesBulk(kpBulk(Production), createMissing=true)
 # ---
 
 # These will be populated from entries under the "Production" group
@@ -174,11 +204,10 @@ API_KEY=
 # @setValuesBulk(kpBulk("Services/APIs"))
 
 # With a named instance
-# @setValuesBulk(kpBulk(prod, "Production"))
-
-# Fetch a non-password attribute for all entries
-# @setValuesBulk(kpBulk("Users", attribute="UserName"))
+# @setValuesBulk(kpBulk(prod, Production))
 ```
+
+Entry paths in the JSON output are sanitized to valid env var names (uppercased, non-alphanumeric characters replaced with underscores).
 
 ---
 
@@ -190,12 +219,13 @@ API_KEY=
 
 Initialize a KeePass plugin instance.
 
-**Parameters:**
-- `dbPath: string` - **(required)** Path to the `.kdbx` database file
-- `password: string` - **(required)** Master password for the database (typically from an env var like `$KP_PASSWORD`)
-- `keyFile?: string` - Path to a key file for additional authentication
-- `useDesktopApp?: boolean` - When `true`, uses `keepassxc-cli` instead of reading the file directly (default: `false`)
-- `id?: string` - Instance identifier for multiple databases (defaults to `_default`)
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `dbPath` | string | yes | Path to the `.kdbx` database file |
+| `password` | string | yes | Master password (typically from an env var like `$KP_PASSWORD`) |
+| `keyFile` | string | no | Path to a key file for additional authentication |
+| `useCli` | boolean | no | Use `keepassxc-cli` instead of reading the file directly (default: `false`). Can be dynamic, e.g. `useCli=forEnv(dev)` |
+| `id` | string | no | Instance identifier for multiple databases (defaults to `_default`) |
 
 ### Data types
 
@@ -210,47 +240,28 @@ A sensitive string type for KeePass database master passwords. Validates that th
 Fetch a single entry field from a KeePass database.
 
 **Signatures:**
-- `kp(entryPath)` - Fetch the Password field from an entry
-- `kp(entryPath, attribute="UserName")` - Fetch a specific attribute
-- `kp(instanceId, entryPath)` - Fetch from a specific database instance
+- `kp()` — infer entry name from key, read Password field
+- `kp(entryPath)` — read Password field
+- `kp("entryPath#Attribute")` — read a specific attribute
+- `kp("#Attribute")` — infer entry name from key, read a specific attribute
+- `kp(entryPath, attribute=X)` — read a specific attribute (named param)
+- `kp(instanceId, entryPath)` — read from a named database instance
+- `kp(entryPath, customAttributesObj=true)` — return all custom fields as a JSON object
 
-**Returns:** The value of the requested field as a string.
+**Returns:** The field value as a string, or a JSON object string when `customAttributesObj=true`.
 
 #### `kpBulk()`
 
-Fetch all entries under a group as a JSON map. Intended for use with `@setValuesBulk`.
+Fetch the Password field from all entries under a group as a JSON map. Intended for use with `@setValuesBulk`.
 
 **Signatures:**
-- `kpBulk()` - Load all entries from the database root
-- `kpBulk(groupPath)` - Load entries under a specific group
-- `kpBulk(instanceId, groupPath)` - Load from a named instance
-- `kpBulk(groupPath, attribute="UserName")` - Load a specific attribute for all entries
+- `kpBulk()` — load all entries from the database root
+- `kpBulk(groupPath)` — load entries under a specific group
+- `kpBulk(instanceId, groupPath)` — load from a named instance
 
-**Returns:** JSON string of `{ "entryPath": "fieldValue", ... }` pairs.
+**Returns:** JSON string of `{ "ENTRY_NAME": "password", ... }` pairs. Entry paths are sanitized to valid env var names.
 
 ---
-
-## How it works
-
-### File mode
-
-The plugin uses [kdbxweb](https://github.com/nicolo-ribaudo/nicolo-ribaudo/keeweb/kdbxweb) to parse KDBX 4.0 files directly in-process:
-
-1. Reads the `.kdbx` file from disk
-2. Decrypts using the master password (and optional key file)
-3. Navigates the group/entry tree to find the requested entry
-4. Returns the requested field (Password, UserName, etc.)
-
-The database is opened once and cached for the duration of a resolution session.
-
-### CLI mode
-
-When `useDesktopApp=true`, the plugin shells out to `keepassxc-cli`:
-
-1. Concurrent reads within a 50ms window are collected into a batch
-2. Each entry is fetched via `keepassxc-cli show --attributes <attr> --quiet <db> <entry>`
-3. The database password is passed via stdin
-4. All reads in a batch execute in parallel for performance
 
 ## Troubleshooting
 
@@ -273,7 +284,7 @@ When `useDesktopApp=true`, the plugin shells out to `keepassxc-cli`:
 
 ## Resources
 
-- [KeePassXC](https://keepassxc.org/) - Cross-platform KeePass-compatible password manager
-- [KeePass](https://keepass.info/) - Original KeePass Password Safe
-- [KDBX format](https://keepass.info/help/kb/kdbx.html) - KeePass database format specification
-- [kdbxweb](https://github.com/nicolo-ribaudo/nicolo-ribaudo/keeweb/kdbxweb) - JavaScript KDBX reader library
+- [KeePassXC](https://keepassxc.org/) — cross-platform KeePass-compatible password manager
+- [KeePass](https://keepass.info/) — original KeePass Password Safe
+- [KDBX format](https://keepass.info/help/kb/kdbx.html) — KeePass database format specification
+- [kdbxweb](https://github.com/keeweb/kdbxweb) — JavaScript KDBX reader library

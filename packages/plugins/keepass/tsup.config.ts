@@ -2,24 +2,13 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig({
   entry: ['src/plugin.ts'],
-  dts: true,
+  dts: false,
   sourcemap: true,
   treeshake: true,
   clean: false,
   outDir: 'dist',
-  format: ['esm'],
+  format: ['cjs'],
   splitting: false,
   target: 'esnext',
-  external: ['varlock', 'argon2'],
-  banner: ({ format }) => {
-    if (format === 'esm') {
-      return ({
-        js: [
-          'import { createRequire } from \'module\';',
-          'const require = createRequire(import.meta.url);',
-        ].join('\n'),
-      });
-    }
-    return {};
-  },
+  external: ['varlock'],
 });

@@ -1,11 +1,8 @@
+import { plugin } from 'varlock/plugin-lib';
 import { ExecError, spawnAsync } from '@env-spec/utils/exec-helpers';
-import { createDeferredPromise, DeferredPromise } from '@env-spec/utils/defer';
 
 const { debug } = plugin;
 const { ResolutionError } = plugin.ERRORS;
-
-const ENABLE_BATCHING = true;
-const BATCH_READ_TIMEOUT = 50;
 
 const FIX_INSTALL_TIP = [
   'The `keepassxc-cli` command was not found on your system.',
@@ -95,100 +92,29 @@ async function execKeePassCliCommand(args: Array<string>, stdinInput?: string): 
   }
 }
 
-
-let readBatch: Record<string, {
-  attribute: string;
-  deferredPromises: Array<DeferredPromise<string>>;
-}> | undefined;
-
-async function executeReadBatch(batchToExecute: NonNullable<typeof readBatch>) {
-  if (!kdbxPathForCli || !kdbxPasswordForCli) {
-    const err = new ResolutionError('KeePassXC CLI not configured', {
-      tip: 'Ensure @initKeePass has been called with a valid database path and password.',
-    });
-    for (const key in batchToExecute) {
-      batchToExecute[key].deferredPromises.forEach((p) => p.reject(err));
-    }
-    return;
-  }
-
-  // keepassxc-cli doesn't have a built-in batch mode, so we run individual `show` commands
-  // but we parallelise them within a batch window to minimize perceived latency
-  const entries = Object.entries(batchToExecute);
-  debug('execute keepass read batch', entries.length, 'items');
-
-  await Promise.all(entries.map(async ([key, { attribute, deferredPromises }]) => {
-    const [entryPath] = key.split('\0');
-    try {
-      const args = [
-        'show',
-        ...(kdbxKeyFileForCli ? ['--key-file', kdbxKeyFileForCli] : []),
-        '--attributes',
-        attribute,
-        '--quiet',
-        kdbxPathForCli!,
-        entryPath,
-      ];
-      const result = await execKeePassCliCommand(args, kdbxPasswordForCli);
-      const value = result.trimEnd();
-      deferredPromises.forEach((p) => p.resolve(value));
-    } catch (err) {
-      deferredPromises.forEach((p) => p.reject(err));
-    }
-  }));
-}
-
 /**
  * Read a single attribute from a KeePass entry via keepassxc-cli.
- * Internally batches requests using a short timeout window.
  */
 export async function kpCliRead(
   entryPath: string,
   attribute: string = 'Password',
 ): Promise<string> {
-  // batch key includes both entry path and attribute for deduplication
-  const batchKey = `${entryPath}\0${attribute}`;
-
-  if (ENABLE_BATCHING) {
-    let shouldExecuteBatch = false;
-    if (!readBatch) {
-      readBatch = {};
-      shouldExecuteBatch = true;
-    }
-
-    readBatch[batchKey] ||= {
-      attribute,
-      deferredPromises: [],
-    };
-
-    const deferred = createDeferredPromise<string>();
-    readBatch[batchKey].deferredPromises.push(deferred);
-
-    if (shouldExecuteBatch) {
-      setTimeout(async () => {
-        if (!readBatch) throw Error('expected to find keepass read batch!');
-        const batchToExecute = readBatch;
-        readBatch = undefined;
-        await executeReadBatch(batchToExecute);
-      }, BATCH_READ_TIMEOUT);
-    }
-    return deferred.promise;
-  } else {
-    if (!kdbxPathForCli || !kdbxPasswordForCli) {
-      throw new ResolutionError('KeePassXC CLI not configured');
-    }
-    const args = [
-      'show',
-      ...(kdbxKeyFileForCli ? ['--key-file', kdbxKeyFileForCli] : []),
-      '--attributes',
-      attribute,
-      '--quiet',
-      kdbxPathForCli,
-      entryPath,
-    ];
-    const result = await execKeePassCliCommand(args, kdbxPasswordForCli);
-    return result.trimEnd();
+  if (!kdbxPathForCli || !kdbxPasswordForCli) {
+    throw new ResolutionError('KeePassXC CLI not configured', {
+      tip: 'Ensure @initKeePass has been called with a valid database path and password.',
+    });
   }
+  const args = [
+    'show',
+    ...(kdbxKeyFileForCli ? ['--key-file', kdbxKeyFileForCli] : []),
+    '--attributes',
+    attribute,
+    '--quiet',
+    kdbxPathForCli,
+    entryPath,
+  ];
+  const result = await execKeePassCliCommand(args, kdbxPasswordForCli);
+  return result.trimEnd();
 }
 
 /**
@@ -211,5 +137,5 @@ export async function kpCliList(groupPath?: string): Promise<Array<string>> {
   return result
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => line && !line.endsWith('/')); // filter out groups (directories)
+    .filter((line) => line && !line.endsWith('/'));
 }

@@ -1,4 +1,4 @@
-import { Resolver } from 'varlock/plugin-lib';
+import { Resolver, plugin } from 'varlock/plugin-lib';
 
 import { KdbxReader, sanitizeEnvKey } from './kdbx-reader';
 import { configureCliAuth, kpCliRead, kpCliList } from './cli-helper';
@@ -12,36 +12,25 @@ const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = KP_ICON;
 
-/**
- * A KeePass plugin instance handles reading secrets from a KDBX database.
- *
- * Two modes of operation:
- * - **File mode (production)**: Opens and reads KDBX 4.0 files directly using kdbxweb.
- *   Requires `dbPath` and `password` (and optionally `keyFile`).
- * - **CLI mode (development)**: Uses `keepassxc-cli` to read entries from a database.
- *   Requires `dbPath`, `password`, and optionally `keyFile`.
- *   When `useDesktopApp=true`, uses the CLI to interact with the database,
- *   which allows leveraging system-level key management (YubiKey, etc.).
- */
 class KeePassPluginInstance {
   private dbPath?: string;
   private password?: string;
   private keyFile?: string;
-  private useDesktopApp?: boolean;
+  private useCli?: boolean;
   private kdbxReader?: KdbxReader;
 
   constructor(
     readonly id: string,
   ) {}
 
-  configure(dbPath: string, password: string, keyFile?: string, useDesktopApp?: boolean) {
+  configure(dbPath: string, password: string, keyFile?: string, useCli?: boolean) {
     this.dbPath = dbPath;
     this.password = password;
     this.keyFile = keyFile;
-    this.useDesktopApp = useDesktopApp;
-    debug('keepass instance', this.id, 'configured - dbPath:', this.dbPath, 'useDesktopApp:', !!this.useDesktopApp);
+    this.useCli = useCli;
+    debug('keepass instance', this.id, 'configured - dbPath:', this.dbPath, 'useCli:', !!this.useCli);
 
-    if (this.useDesktopApp) {
+    if (this.useCli) {
       configureCliAuth(dbPath, password, keyFile);
     } else {
       this.kdbxReader = new KdbxReader(dbPath, password, keyFile);
@@ -55,10 +44,28 @@ class KeePassPluginInstance {
       });
     }
 
-    if (this.useDesktopApp) {
+    if (this.useCli) {
       return await kpCliRead(entryPath, attribute);
     } else if (this.kdbxReader) {
       return await this.kdbxReader.readEntry(entryPath, attribute);
+    } else {
+      throw new SchemaError('KeePass plugin instance not properly initialized');
+    }
+  }
+
+  async readCustomAttributes(entryPath: string): Promise<string> {
+    if (!this.dbPath || !this.password) {
+      throw new ResolutionError('KeePass plugin instance not configured', {
+        tip: `Plugin instance (${this.id}) must have dbPath and password set via @initKeePass`,
+      });
+    }
+
+    if (this.useCli) {
+      // CLI mode: read all attributes via `show` and filter out standard ones
+      // For now, only file mode supports custom attributes
+      throw new ResolutionError('customAttributesObj is not supported in CLI mode (useCli=true)');
+    } else if (this.kdbxReader) {
+      return await this.kdbxReader.readCustomAttributes(entryPath);
     } else {
       throw new SchemaError('KeePass plugin instance not properly initialized');
     }
@@ -69,7 +76,7 @@ class KeePassPluginInstance {
       throw new ResolutionError('KeePass plugin instance not configured');
     }
 
-    if (this.useDesktopApp) {
+    if (this.useCli) {
       return await kpCliList(groupPath);
     } else if (this.kdbxReader) {
       return await this.kdbxReader.listEntries(groupPath);
@@ -78,25 +85,24 @@ class KeePassPluginInstance {
     }
   }
 
-  async readAllEntries(groupPath?: string, attribute: string = 'Password'): Promise<string> {
+  async readAllEntries(groupPath?: string): Promise<string> {
     if (!this.dbPath || !this.password) {
       throw new ResolutionError('KeePass plugin instance not configured');
     }
 
-    if (this.useDesktopApp) {
-      // CLI mode: list entries then read each one
+    if (this.useCli) {
       const entries = await kpCliList(groupPath);
       const result: Record<string, string> = {};
       await Promise.all(entries.map(async (path) => {
         try {
-          result[sanitizeEnvKey(path, attribute)] = await kpCliRead(path, attribute);
+          result[sanitizeEnvKey(path)] = await kpCliRead(path);
         } catch {
           // Skip entries that don't have the requested attribute
         }
       }));
       return JSON.stringify(result);
     } else if (this.kdbxReader) {
-      return await this.kdbxReader.readAllEntries(groupPath, attribute);
+      return await this.kdbxReader.readAllEntries(groupPath);
     } else {
       throw new SchemaError('KeePass plugin instance not properly initialized');
     }
@@ -145,23 +151,16 @@ plugin.registerRootDecorator({
       throw new SchemaError('Expected keyFile to be a static value');
     }
 
-    // useDesktopApp (optional, static) - when true, uses keepassxc-cli instead of reading the file directly
-    if (objArgs.useDesktopApp && !objArgs.useDesktopApp.isStatic) {
-      throw new SchemaError('Expected useDesktopApp to be static');
-    }
-    const useDesktopApp = objArgs.useDesktopApp?.staticValue === true
-      || objArgs.useDesktopApp?.staticValue === 'true';
-
     return {
       id,
       dbPathResolver: objArgs.dbPath,
       passwordResolver: objArgs.password,
       keyFile: objArgs?.keyFile ? String(objArgs.keyFile.staticValue) : undefined,
-      useDesktopApp,
+      useCliResolver: objArgs.useCli,
     };
   },
   async execute({
-    id, dbPathResolver, passwordResolver, keyFile, useDesktopApp,
+    id, dbPathResolver, passwordResolver, keyFile, useCliResolver,
   }) {
     const dbPath = await dbPathResolver.resolve();
     const password = await passwordResolver.resolve();
@@ -171,7 +170,15 @@ plugin.registerRootDecorator({
     if (typeof password !== 'string') {
       throw new SchemaError('Expected password to resolve to a string');
     }
-    pluginInstances[id].configure(dbPath, password, keyFile, useDesktopApp);
+
+    // useCli can be dynamic (e.g., forEnv(dev)) so we resolve it at runtime
+    let useCli = false;
+    if (useCliResolver) {
+      const resolved = await useCliResolver.resolve();
+      useCli = resolved === true || resolved === 'true';
+    }
+
+    pluginInstances[id].configure(dbPath, password, keyFile, useCli);
   },
 });
 
@@ -211,30 +218,27 @@ plugin.registerResolverFunction({
   process() {
     let instanceId: string;
     let entryPathResolver: Resolver | undefined;
-    let inferredEntryPath: string | undefined;
 
-    // Named parameter: attribute (defaults to "Password")
     const attributeResolver = this.objArgs?.attribute;
+    const customAttributesObjResolver = this.objArgs?.customAttributesObj;
+
+    // always capture the parent item key for inferring entry path
+    const parent = (this as any).parent;
+    const inferredEntryPath: string | undefined = parent?.key || undefined;
 
     const argCount = this.arrArgs?.length ?? 0;
 
     if (argCount === 0) {
-      // kp() - auto-infer entry path from parent config item key
       instanceId = '_default';
-      const parent = (this as any).parent;
-      const itemKey = parent?.key || '';
-      if (!itemKey) {
+      if (!inferredEntryPath) {
         throw new SchemaError('Could not infer entry path - no parent config item key found', {
           tip: 'Either provide an entry path argument, or ensure this is used within a config item',
         });
       }
-      inferredEntryPath = itemKey;
     } else if (argCount === 1) {
-      // kp("Group/Entry")
       instanceId = '_default';
       entryPathResolver = this.arrArgs![0];
     } else if (argCount === 2) {
-      // kp(instanceId, "Group/Entry")
       if (!this.arrArgs![0].isStatic) {
         throw new SchemaError('Expected instance id (first argument) to be a static value');
       }
@@ -268,33 +272,62 @@ plugin.registerResolverFunction({
     }
 
     return {
-      instanceId, entryPathResolver, inferredEntryPath, attributeResolver,
+      instanceId, entryPathResolver, inferredEntryPath, attributeResolver, customAttributesObjResolver,
     };
   },
   async resolve({
-    instanceId, entryPathResolver, inferredEntryPath, attributeResolver,
+    instanceId, entryPathResolver, inferredEntryPath, attributeResolver, customAttributesObjResolver,
   }) {
     const selectedInstance = pluginInstances[instanceId];
 
-    let entryPath: string;
+    let rawPath: string;
     if (entryPathResolver) {
       const resolved = await entryPathResolver.resolve();
       if (typeof resolved !== 'string') {
         throw new SchemaError('Expected entry path to resolve to a string');
       }
-      entryPath = resolved;
+      rawPath = resolved;
     } else if (inferredEntryPath) {
-      entryPath = inferredEntryPath;
+      rawPath = inferredEntryPath;
     } else {
       throw new SchemaError('No entry path provided or inferred');
     }
 
+    // parse #attribute from the path (e.g., "Entry#UserName" or "#UserName")
+    // named param `attribute=` takes precedence if both are provided
     let attribute = 'Password';
+    let entryPath = rawPath;
+    const hashIdx = rawPath.indexOf('#');
+    if (hashIdx !== -1) {
+      attribute = rawPath.slice(hashIdx + 1);
+      entryPath = rawPath.slice(0, hashIdx);
+    }
     if (attributeResolver) {
       const resolved = await attributeResolver.resolve();
       if (typeof resolved === 'string') {
         attribute = resolved;
       }
+    }
+
+    // if entry path is empty after parsing #attribute, infer from item key
+    if (!entryPath) {
+      if (inferredEntryPath) {
+        entryPath = inferredEntryPath;
+      } else {
+        throw new SchemaError('No entry path provided or inferred', {
+          tip: 'Use kp("Entry#Attribute") or kp("#Attribute") within a config item to infer the entry name',
+        });
+      }
+    }
+
+    // if customAttributesObj=true, return all custom fields as a JSON object
+    let customAttributesObj = false;
+    if (customAttributesObjResolver) {
+      const resolved = await customAttributesObjResolver.resolve();
+      customAttributesObj = resolved === true || resolved === 'true';
+    }
+    if (customAttributesObj) {
+      return await selectedInstance.readCustomAttributes(entryPath);
     }
 
     return await selectedInstance.readEntry(entryPath, attribute);
@@ -316,18 +349,13 @@ plugin.registerResolverFunction({
     let instanceId = '_default';
     let groupPathResolver: Resolver | undefined;
 
-    // Named parameter: attribute (defaults to "Password")
-    const attributeResolver = this.objArgs?.attribute;
-
     const argCount = this.arrArgs?.length ?? 0;
 
     if (argCount === 0) {
       // kpBulk() - load all entries from root
     } else if (argCount === 1) {
-      // kpBulk("Group/SubGroup")
       groupPathResolver = this.arrArgs![0];
     } else if (argCount === 2) {
-      // kpBulk(instanceId, "Group/SubGroup")
       if (!this.arrArgs![0].isStatic) {
         throw new SchemaError('Expected instance id (first argument) to be a static value');
       }
@@ -360,9 +388,9 @@ plugin.registerResolverFunction({
       }
     }
 
-    return { instanceId, groupPathResolver, attributeResolver };
+    return { instanceId, groupPathResolver };
   },
-  async resolve({ instanceId, groupPathResolver, attributeResolver }) {
+  async resolve({ instanceId, groupPathResolver }) {
     const selectedInstance = pluginInstances[instanceId];
 
     let groupPath: string | undefined;
@@ -374,14 +402,6 @@ plugin.registerResolverFunction({
       groupPath = resolved;
     }
 
-    let attribute = 'Password';
-    if (attributeResolver) {
-      const resolved = await attributeResolver.resolve();
-      if (typeof resolved === 'string') {
-        attribute = resolved;
-      }
-    }
-
-    return await selectedInstance.readAllEntries(groupPath, attribute);
+    return await selectedInstance.readAllEntries(groupPath);
   },
 });

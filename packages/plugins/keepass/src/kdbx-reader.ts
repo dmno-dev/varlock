@@ -1,9 +1,12 @@
+import { plugin } from 'varlock/plugin-lib';
 import * as kdbxweb from 'kdbxweb';
-import argon2 from 'argon2';
+import { argon2d, argon2id } from 'hash-wasm';
 import fs from 'node:fs';
 
 const { debug } = plugin;
 const { ResolutionError } = plugin.ERRORS;
+
+const STANDARD_FIELDS = new Set(['Title', 'Password', 'UserName', 'URL', 'Notes']);
 
 /** Sanitize a KeePass entry path into a valid env var name, optionally suffixing non-default attributes */
 export function sanitizeEnvKey(path: string, attribute?: string): string {
@@ -20,16 +23,17 @@ export function sanitizeEnvKey(path: string, attribute?: string): string {
 
 // Register Argon2 implementation for KDBX 4.0 support.
 // kdbxweb doesn't bundle one — it must be provided externally.
+// hash-wasm embeds WASM as base64, so it bundles fully into the CJS output.
 kdbxweb.CryptoEngine.setArgon2Impl(async (password, salt, memory, iterations, length, parallelism, type, _version) => {
-  const hashType = type === 0 ? argon2.argon2d : argon2.argon2id;
-  const result = await argon2.hash(Buffer.from(password), {
-    type: hashType,
-    salt: Buffer.from(salt),
-    memoryCost: memory,
-    timeCost: iterations,
+  const hashFn = type === 0 ? argon2d : argon2id;
+  const result = await hashFn({
+    password: new Uint8Array(password),
+    salt: new Uint8Array(salt),
+    memorySize: memory,
+    iterations,
     hashLength: length,
     parallelism,
-    raw: true,
+    outputType: 'binary',
   });
   return result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength) as ArrayBuffer;
 });
@@ -170,6 +174,35 @@ export class KdbxReader {
   }
 
   /**
+   * Read all custom (non-standard) fields from an entry, returned as a JSON object.
+   */
+  async readCustomAttributes(entryPath: string): Promise<string> {
+    const db = await this.openDatabase();
+    const entry = this.findEntry(db, entryPath);
+
+    if (!entry) {
+      throw new ResolutionError(`KeePass entry "${entryPath}" not found`, {
+        code: 'ENTRY_NOT_FOUND',
+        tip: [
+          'Double-check the entry path in your KeePass database.',
+          'Entry paths use forward slashes to separate groups, e.g., "MyGroup/MyEntry".',
+        ],
+      });
+    }
+
+    const result: Record<string, string> = {};
+    for (const [key, value] of entry.fields) {
+      if (STANDARD_FIELDS.has(key)) continue;
+      if (value instanceof kdbxweb.ProtectedValue) {
+        result[key] = value.getText();
+      } else if (value !== undefined && value !== null) {
+        result[key] = String(value);
+      }
+    }
+    return JSON.stringify(result);
+  }
+
+  /**
    * List all entry paths under a given group prefix.
    */
   async listEntries(groupPath?: string): Promise<Array<string>> {
@@ -210,15 +243,15 @@ export class KdbxReader {
   /**
    * Read all entries under a group, returning a flat {entryPath: password} map as JSON.
    */
-  async readAllEntries(groupPath?: string, attribute: string = 'Password'): Promise<string> {
+  async readAllEntries(groupPath?: string): Promise<string> {
     const entryPaths = await this.listEntries(groupPath);
     const result: Record<string, string> = {};
 
-    await Promise.all(entryPaths.map(async (path) => {
+    await Promise.all(entryPaths.map(async (entryPath) => {
       try {
-        result[sanitizeEnvKey(path, attribute)] = await this.readEntry(path, attribute);
+        result[sanitizeEnvKey(entryPath)] = await this.readEntry(entryPath);
       } catch {
-        // Skip entries that don't have the requested attribute
+        // Skip entries that don't have the Password attribute
       }
     }));
 

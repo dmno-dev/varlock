@@ -13,7 +13,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    "./plugin": "./dist/plugin.js"
+    "./plugin": "./dist/plugin.cjs"
   },
   "files": ["dist"],
   "scripts": {
@@ -46,13 +46,12 @@
   "peerDependencies": {
     "varlock": "workspace:^"
   },
-  "dependencies": {
-    "argon2": "^0.44.0"
-  },
   "devDependencies": {
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
+    "hash-wasm": "^4.12.0",
     "kdbxweb": "^2.1.1",
+    "outdent": "catalog:",
     "tsup": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"
