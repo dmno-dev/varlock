@@ -10,7 +10,7 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 - **UUID-based secret access** - Fetch secrets by their unique identifiers
 - **Bulk-load environments** with `passboltBulk()` or `passboltCustomFieldsObj()` via `@setValuesBulk`
 - **Field extraction** from resources using `#` syntax or named `field` parameter (including custom fields)
-- **Self-hosted Passbolt support** - Configure custom API URL
+- **Self-hosted Passbolt support** - API URL is read from your account kit
 - **Multiple instances** - Connect to different organizations or self-hosted instances
 - **Comprehensive error handling** with helpful tips
 
@@ -79,10 +79,13 @@ API_KEY=passbolt("76543210-3210-4321-a098-ba9876543210")
 # Fetch a specific field using # syntax
 LOGIN_URI=passbolt("01234567-0123-4567-890a-bcdef0123456#uri")
 LOGIN_USERNAME=passbolt("01234567-0123-4567-890a-bcdef0123456#username")
-LOGIN_PASSWORD=passbolt("01234567-0123-4567-890a-bcdef0123456")
 
-# Or use named "field" parameter
-LOGIN_URI=passbolt("01234567-0123-4567-890a-bcdef0123456", field="uri")
+# TOTP support
+TOTP_SECRET=passbolt("01234567-0123-4567-890a-bcdef0123456#totp.secret")
+TOTP_CODE=passbolt("01234567-0123-4567-890a-bcdef0123456#totp.code")
+
+# Or use the named "field" parameter instead of # syntax
+LOGIN_PASSWORD=passbolt("01234567-0123-4567-890a-bcdef0123456", field="password")
 
 # Access custom fields by name (any unrecognized field name is treated as a custom field)
 MY_CUSTOM=passbolt("01234567-0123-4567-890a-bcdef0123456#MyCustomField")
