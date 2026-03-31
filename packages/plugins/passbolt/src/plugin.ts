@@ -1,4 +1,4 @@
-import { Resolver } from 'varlock/plugin-lib';
+import { Resolver, plugin } from 'varlock/plugin-lib';
 import { PassboltClient, type UUIDv4String } from './passbolt';
 import { Resource } from './types';
 
