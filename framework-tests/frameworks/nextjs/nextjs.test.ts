@@ -120,6 +120,53 @@ NEXT_VERSIONS.forEach((nextVersion) => {
               },
             ],
           });
+
+          nextEnv.describeScenario('client component page', {
+            command: buildCommand,
+            templateFiles: {
+              'app/page.tsx': {
+                path: 'pages/basic-page.tsx',
+                prepend: "'use client';",
+              },
+              'next.config.mjs': {
+                path: '_base/next.config.mjs',
+                replacements: { '// OUTPUT-MODE': "output: 'export'," },
+              },
+            },
+            fileAssertions: [
+              {
+                description: 'public env vars are inlined into client output',
+                fileGlob: 'out/**/*.html',
+                shouldContain: [
+                  'next-prefixed-public-var',
+                  'unprefixed-public-var',
+                  'env-specific-var--dev',
+                ],
+                shouldNotContain: ['super-secret-value'],
+              },
+            ],
+          });
+
+          nextEnv.describeScenario('leaky client page', {
+            command: buildCommand,
+            templateFiles: {
+              'app/page.tsx': {
+                path: 'pages/leaky-page.tsx',
+                prepend: "'use client';",
+              },
+              'next.config.mjs': {
+                path: '_base/next.config.mjs',
+                replacements: { '// OUTPUT-MODE': "output: 'export'," },
+              },
+            },
+            expectSuccess: false,
+            outputAssertions: [
+              {
+                description: 'output contains leak detection message',
+                shouldContain: ['DETECTED LEAKED SENSITIVE CONFIG'],
+              },
+            ],
+          });
         });
 
         describe('default output mode', () => {
@@ -163,6 +210,45 @@ NEXT_VERSIONS.forEach((nextVersion) => {
             command: buildCommand,
             templateFiles: {
               'app/page.tsx': 'pages/leaky-page.tsx',
+            },
+            expectSuccess: false,
+            outputAssertions: [
+              {
+                description: 'output contains leak detection message',
+                shouldContain: ['DETECTED LEAKED SENSITIVE CONFIG'],
+              },
+            ],
+          });
+
+          nextEnv.describeScenario('client component page', {
+            command: buildCommand,
+            templateFiles: {
+              'app/page.tsx': {
+                path: 'pages/basic-page.tsx',
+                prepend: "'use client';",
+              },
+            },
+            fileAssertions: [
+              {
+                description: 'public env vars are inlined into client output',
+                fileGlob: '.next/**/*.html',
+                shouldContain: [
+                  'next-prefixed-public-var',
+                  'unprefixed-public-var',
+                  'env-specific-var--dev',
+                ],
+                shouldNotContain: ['super-secret-value'],
+              },
+            ],
+          });
+
+          nextEnv.describeScenario('leaky client page', {
+            command: buildCommand,
+            templateFiles: {
+              'app/page.tsx': {
+                path: 'pages/leaky-page.tsx',
+                prepend: "'use client';",
+              },
             },
             expectSuccess: false,
             outputAssertions: [

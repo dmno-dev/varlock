@@ -13,6 +13,15 @@ type LoaderContext = {
   getOptions?(): { bundler?: 'webpack' | 'turbopack'; isEdge?: boolean };
 };
 
+function isTurbopackWorker() {
+  return !!(
+    process.env.TURBOPACK
+    || process.env.TURBOPACK_DEV
+    || process.env.TURBOPACK_BUILD
+    || process.env.npm_config_turbopack
+  );
+}
+
 function escapeRegExp(str: string) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -59,12 +68,8 @@ function webpackLoader(this: LoaderContext, source: string) {
 
   debug('processing:', relPath);
 
-  // skip client components — patches use node builtins (zlib, http) that don't work in browser
   const isClientComponent = USE_CLIENT_RE.test(source);
-  if (isClientComponent) {
-    debug('skipping client component:', relPath);
-    return source;
-  }
+  if (isClientComponent) debug('client component:', relPath);
 
   const rawEnv = process.env.__VARLOCK_ENV;
   if (!rawEnv) {
@@ -79,36 +84,38 @@ function webpackLoader(this: LoaderContext, source: string) {
     return source;
   }
 
-  let result = source;
-
-  // Inject a tiny guarded init snippet into every server file.
-  // Pre-rendering workers receive compiled code via IPC (not from disk), so runtime
-  // file injection doesn't help them. This ensures initVarlockEnv() and
-  // patchGlobalConsole() run once per process — the globalThis guard makes it
-  // idempotent, and turbopack deduplicates the require() targets.
   const loaderOptions = this.getOptions?.() ?? {};
 
   const isWebpack = loaderOptions.bundler === 'webpack';
-  const isTurbopack = loaderOptions.bundler === 'turbopack';
+  const isTurbopack = loaderOptions.bundler === 'turbopack' || isTurbopackWorker();
   const isEdge = loaderOptions.isEdge ?? false;
 
-  let initGuard: string;
-  if (isEdge) {
-    // Edge compilation: can't use require(), so use globalThis.__varlockPatchConsole
-    // which the init-edge bundle exposes. The init guard is skipped since edge init
-    // is handled by the runtime file injection (processAssets hook).
-    initGuard = 'if(globalThis.__varlockPatchConsole)globalThis.__varlockPatchConsole();';
-  } else {
-    initGuard = 'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;require(\'varlock/env\').initVarlockEnv();require(\'varlock/patch-console\').patchGlobalConsole();}';
-    // When used from webpack, React wraps console for RSC dev replay AFTER our initial
-    // patch in the runtime file. Re-patching outside the once-guard ensures our redaction
-    // wraps React's wrapper so secrets are redacted before React captures them.
-    // patchGlobalConsole() no-ops if console.log still has _varlockPatchedFn.
-    if (isWebpack) {
-      initGuard += 'require(\'varlock/patch-console\').patchGlobalConsole();';
+  let result = source;
+
+  if (!isClientComponent) {
+    // Inject a tiny guarded init snippet into every server file.
+    // Pre-rendering workers receive compiled code via IPC (not from disk), so runtime
+    // file injection doesn't help them. This ensures initVarlockEnv() and
+    // patchGlobalConsole() run once per process — the globalThis guard makes it
+    // idempotent, and turbopack deduplicates the require() targets.
+    let initGuard: string;
+    if (isEdge) {
+      // Edge compilation: can't use require(), so use globalThis.__varlockPatchConsole
+      // which the init-edge bundle exposes. The init guard is skipped since edge init
+      // is handled by the runtime file injection (processAssets hook).
+      initGuard = 'if(globalThis.__varlockPatchConsole)globalThis.__varlockPatchConsole();';
+    } else {
+      initGuard = 'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;require(\'varlock/env\').initVarlockEnv();require(\'varlock/patch-console\').patchGlobalConsole();}';
+      // When used from webpack, React wraps console for RSC dev replay AFTER our initial
+      // patch in the runtime file. Re-patching outside the once-guard ensures our redaction
+      // wraps React's wrapper so secrets are redacted before React captures them.
+      // patchGlobalConsole() no-ops if console.log still has _varlockPatchedFn.
+      if (isWebpack) {
+        initGuard += 'require(\'varlock/patch-console\').patchGlobalConsole();';
+      }
     }
+    result = prependAfterDirectives(result, initGuard);
   }
-  result = prependAfterDirectives(result, initGuard);
 
   // static replacements for non-sensitive env vars
   // webpack uses DefinePlugin for this, so only needed for turbopack
