@@ -203,10 +203,11 @@ export async function runDevServer(
     if (!serverUrl) {
       const stdout = getStdout();
       const stderr = getStderr();
-      console.error(`[dev-server] Timeout waiting for ready pattern. Command: ${command}`);
+      console.error(`[dev-server] Timeout waiting for ready pattern after ${readyTimeout}ms. Command: ${command}`);
+      console.error(`[dev-server] Process status: exitCode=${child.exitCode}, killed=${child.killed}, pid=${child.pid}`);
       if (stdout) console.error(`[dev-server] STDOUT:\n${stdout.slice(-2000)}`);
       if (stderr) console.error(`[dev-server] STDERR:\n${stderr.slice(-2000)}`);
-      if (!stdout && !stderr) console.error('[dev-server] No output received from process');
+      if (!stdout && !stderr) console.error('[dev-server] No output received from process at all');
       return {
         success: false,
         stdout,
