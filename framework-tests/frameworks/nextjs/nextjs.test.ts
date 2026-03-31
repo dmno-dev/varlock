@@ -24,6 +24,7 @@ NEXT_VERSIONS.forEach((nextVersion) => {
         next: `^${nextVersion}`,
         react: '^19',
         'react-dom': '^19',
+        '@types/react': '^19',
         varlock: 'will-be-replaced',
         '@varlock/nextjs-integration': 'will-be-replaced',
       },
