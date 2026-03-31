@@ -301,6 +301,21 @@ export class VarlockPlugin {
   async executePluginModule() {
     activatePlugin(this);
 
+    // Install a trap on globalThis.plugin so that old plugins which relied on
+    // the implicit `plugin` global get a clear migration error instead of a
+    // confusing "Cannot set properties of undefined" TypeError.
+    const hadGlobalPlugin = 'plugin' in globalThis;
+    const prevGlobalPlugin = (globalThis as any).plugin;
+    const pluginGlobalRemovedMsg = '[varlock] The implicit `plugin` global has been removed.'
+      + ' Update your plugin to import it explicitly:\n'
+      + "  const { plugin } = require('varlock/plugin-lib');   // CJS\n"
+      + "  import { plugin } from 'varlock/plugin-lib';        // ESM";
+    Object.defineProperty(globalThis, 'plugin', {
+      get() { throw new Error(pluginGlobalRemovedMsg); },
+      set() { throw new Error(pluginGlobalRemovedMsg); },
+      configurable: true,
+    });
+
     try {
       // slightly nicer error than the default MODULE_NOT_FOUND
       if (!await pathExists(this.pluginFilePath)) throw new Error(`Plugin file not found: ${this.pluginFilePath}`);
@@ -316,6 +331,17 @@ export class VarlockPlugin {
     } catch (err) {
       this.loadingError = err as Error;
     } finally {
+      // Restore globalThis.plugin to its previous state
+      if (hadGlobalPlugin) {
+        Object.defineProperty(globalThis, 'plugin', {
+          value: prevGlobalPlugin,
+          writable: true,
+          configurable: true,
+          enumerable: true,
+        });
+      } else {
+        delete (globalThis as any).plugin;
+      }
       deactivatePlugin();
     }
   }
