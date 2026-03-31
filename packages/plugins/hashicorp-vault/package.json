@@ -1,7 +1,7 @@
 {
   "name": "@varlock/hashicorp-vault-plugin",
   "description": "Varlock plugin to load secrets from HashiCorp Vault (KV v2 secrets engine) / OpenBao",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/hashicorp-vault/",
   "bugs": "https://github.com/dmno-dev/varlock/issues",

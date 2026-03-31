@@ -1,5 +1,45 @@
 # varlock
 
+## 0.7.0
+
+### Minor Changes
+
+- [#483](https://github.com/dmno-dev/varlock/pull/483) [`ba61adb`](https://github.com/dmno-dev/varlock/commit/ba61adb19bd5516f0b48827b386fd7170afe66b5) - Add support for single-file ESM and TypeScript plugins, and improve the plugin authoring API.
+
+  **New: ESM and TypeScript single-file plugins**
+
+  Single-file plugins can now be written as `.mjs` or `.ts` files in addition to `.js`/`.cjs`. TypeScript plugins require Bun.
+
+  **Improved: explicit `plugin` import instead of injected global**
+
+  Plugin authors should now import `plugin` explicitly from `varlock/plugin-lib` rather than relying on the injected global:
+
+  ```js
+  // CJS plugin (.js / .cjs)
+  const { plugin } = require("varlock/plugin-lib");
+
+  // ESM plugin (.mjs / .ts)
+  import { plugin } from "varlock/plugin-lib";
+  ```
+
+  This works in both regular installs and SEA binary builds. Error classes (`ValidationError`, `CoercionError`, etc.) are also now directly importable from `varlock/plugin-lib`.
+
+  **Breaking change:** the implicit `plugin` global is no longer injected into CJS plugin modules. Existing plugins must add `const { plugin } = require('varlock/plugin-lib')`.
+
+### Patch Changes
+
+- [#503](https://github.com/dmno-dev/varlock/pull/503) [`6fe325d`](https://github.com/dmno-dev/varlock/commit/6fe325da965c956d1c01c78535c5a5e65524d7a8) - Fix Docker image failing to run due to missing `libstdc++` and `libgcc_s` shared libraries on Alpine Linux. The bun-compiled binary dynamically links against these C++ runtime libraries, which are now installed in the Docker image via `apk add libstdc++`.
+
+- [#507](https://github.com/dmno-dev/varlock/pull/507) [`76c17f8`](https://github.com/dmno-dev/varlock/commit/76c17f8506fb0bd53b5b8d1a87dae25ab517a1ee) - Fix @import(enabled=...) and @disable conditions not seeing values from .env, .env.local, and env-specific files
+
+  Previously, import conditions and imported file @disable decorators were evaluated during .env.schema's initialization, before other files (.env, .env.local, .env.ENV, .env.ENV.local) were loaded. This meant that variables set in those files were not available when resolving conditions like `enabled=eq($AUTH_MODE, "azure")` or `@disable=not(eq($AUTH_MODE, "azure"))`.
+
+  Now, DirectoryDataSource loads all auto-loaded files first (registering their config items), then processes imports in a separate pass. This ensures all file values are available when import/disable conditions are evaluated.
+
+- [#495](https://github.com/dmno-dev/varlock/pull/495) [`7f32751`](https://github.com/dmno-dev/varlock/commit/7f327511f8be6a1a3d11e0327adc5d95e2805ad3) - Fix: error messages in `varlock load` now go to stderr instead of stdout.
+
+  Previously, error output from `checkForSchemaErrors` and `checkForConfigErrors` was written to stdout via `console.log`, which polluted the JSON output when using `--format json-full`. This caused `import 'varlock/config'` to fail with a JSON parse error when a plugin (e.g. AWS secrets) encountered an error. Error messages are now written to stderr, keeping stdout clean for JSON output.
+
 ## 0.6.4
 
 ### Patch Changes
