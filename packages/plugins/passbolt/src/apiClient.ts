@@ -56,8 +56,7 @@ export class ApiClient {
   public async login(userId: string, privateKey: PrivateKey, duration: number): Promise<void> {
     try {
       if (!this.isAuthorized) {
-        const
-          { body: publicKey } = await this.api.get('auth/verify.json').json<VerifyResponse>();
+        const { body: publicKey } = await this.api.get('auth/verify.json').json<VerifyResponse>();
         const pub = await getPublicKey(publicKey.keydata);
         const authChallenge = this.createAuthChallenge(duration);
         const challenge = await encodeMessage(authChallenge, pub, privateKey);
@@ -72,8 +71,7 @@ export class ApiClient {
           this.tokenExpiry = authChallenge.verify_token_expiry * 1000;
         }
       } else {
-        const
-          request = { user_id: userId, refresh_token: this.refreshToken! };
+        const request = { user_id: userId, refresh_token: this.refreshToken! };
         const { body } = await this.api.post('auth/jwt/refresh.json', { json: request }).json<RefreshResponse>();
 
         this.accessToken = body.access_token;
@@ -109,8 +107,7 @@ export class ApiClient {
     const keyMap = new Map<string, PrivateKey>();
 
     try {
-      const
-        { origin } = new URL(this.baseUrl);
+      const { origin } = new URL(this.baseUrl);
       const searchParams = { 'filter[deleted]': 0, 'filter[expired]': 0, 'contain[metadata_private_keys]': 1 };
       const { body } = await this.api.get('metadata/keys.json', { searchParams }).json<MetadataKeyResponse>();
 
@@ -134,16 +131,14 @@ export class ApiClient {
   public async getResource(resourceId: UUIDv4String): Promise<ApiResource> {
     resourceId = encodeURIComponent(resourceId) as UUIDv4String;
 
-    const
-      searchParams = { 'contain[secret]': 1 };
+    const searchParams = { 'contain[secret]': 1 };
     const res = await this.api.get(`resources/${resourceId}.json`, { searchParams }).json<ResourceResponse>();
 
     return res.body;
   }
 
   public async getResources(folderId: UUIDv4String): Promise<Array<ApiResource>> {
-    const
-      searchParams = { 'contain[secret]': 1, 'filter[has-parent]': folderId };
+    const searchParams = { 'contain[secret]': 1, 'filter[has-parent]': folderId };
     const res = await this.api.get('resources.json', { searchParams }).json<ResourcesResponse>();
 
     return res.body;

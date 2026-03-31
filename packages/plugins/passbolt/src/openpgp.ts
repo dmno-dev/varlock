@@ -22,24 +22,21 @@ export const encodeMessage = async (message: string | Record<string, any>, pubKe
 };
 
 export const decodeMessage = async (message: string, privateKey: PrivateKey) => {
-  const
-    msg = await readMessage({ armoredMessage: message });
+  const msg = await readMessage({ armoredMessage: message });
   const { data } = await decrypt({ message: msg, decryptionKeys: privateKey });
 
   return JSON.parse(data);
 };
 
 export const getPublicKey = async (key: string): Promise<PublicKey> => {
-  const
-    isArmored = key.startsWith('-----BEGIN PGP PUBLIC KEY BLOCK-----');
+  const isArmored = key.startsWith('-----BEGIN PGP PUBLIC KEY BLOCK-----');
   const armoredKey = isArmored ? key : await readFile(key, 'utf8');
 
   return await readKey({ armoredKey });
 };
 
 export const getPrivateKey = async (key: string, passphrase?: string): Promise<PrivateKey> => {
-  const
-    isArmored = key.startsWith('-----BEGIN PGP PRIVATE KEY BLOCK-----');
+  const isArmored = key.startsWith('-----BEGIN PGP PRIVATE KEY BLOCK-----');
   const armoredKey = isArmored ? key : await readFile(key, 'utf8');
   const privateKey = await readPrivateKey({ armoredKey });
 

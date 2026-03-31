@@ -48,13 +48,11 @@ export class PassboltClient {
 
   public static async instantiateWithAccountKit(accountKit: string, passphrase: string): Promise<PassboltClient> {
     try {
-      const
-        message = await getMessage(accountKit);
+      const message = await getMessage(accountKit);
       const data = JSON.parse(message.getText());
 
       if (PassboltClient.isAccountKit(data)) {
-        const
-          privateKey = data.user_private_armored_key;
+        const privateKey = data.user_private_armored_key;
         const userId = data.user_id;
         const serverUrl = data.domain;
         const publicKey = await getPublicKey(data.user_public_armored_key);
@@ -110,8 +108,7 @@ export class PassboltClient {
       return;
     }
 
-    const
-      algorithmMap : Record<string, string> = { SHA1: 'SHA-1', SHA256: 'SHA-256', SHA512: 'SHA-512' };
+    const algorithmMap: Record<string, string> = { SHA1: 'SHA-1', SHA256: 'SHA-256', SHA512: 'SHA-512' };
     const totp = secret.totp;
     const keyBuffer = this.base32ToBuffer(totp.secret_key);
 
@@ -119,8 +116,7 @@ export class PassboltClient {
       return;
     }
 
-    const
-      epochSeconds = Math.floor(Date.now() / 1000);
+    const epochSeconds = Math.floor(Date.now() / 1000);
     const timeHex = Math.floor(epochSeconds / totp.period).toString(16).padStart(16, '0');
     const crypto = webcrypto.subtle;
     const algorithm = { name: 'HMAC', hash: { name: algorithmMap[totp.algorithm] ?? 'SHA-1' } };
@@ -138,11 +134,10 @@ export class PassboltClient {
       return;
     }
 
-    const
-      keys = customKeys.reduce<Record<string, string>>((p, c) => {
-        p[c.id] = c.metadata_key;
-        return p;
-      }, {});
+    const keys = customKeys.reduce<Record<string, string>>((p, c) => {
+      p[c.id] = c.metadata_key;
+      return p;
+    }, {});
     const values = customValues.reduce<Record<string, string>>((p, c) => {
       p[c.id] = c.secret_value;
       return p;
@@ -155,8 +150,7 @@ export class PassboltClient {
   }
 
   private async decodeResource(resource: ApiResource): Promise<Resource | void> {
-    const
-      [secret] = resource.secrets as unknown as Array<SecretIndex>;
+    const [secret] = resource.secrets as unknown as Array<SecretIndex>;
     const decSecret = await this.apiClient.decodeSecret(secret.data, this.privateKey!);
     const password = decSecret?.password;
     const totp = decSecret?.totp ? {
@@ -178,13 +172,11 @@ export class PassboltClient {
       };
     }
 
-    const
-      { metadata, metadata_key_id: metadataKeyId } = resource;
+    const { metadata, metadata_key_id: metadataKeyId } = resource;
     const metakey = this.metadataKeys.get(metadataKeyId);
 
     if (metakey) {
-      const
-        decodedMetadata = await this.apiClient.decodeMetadata(metadata, metakey);
+      const decodedMetadata = await this.apiClient.decodeMetadata(metadata, metakey);
       const customFields = this.parseCustomFields(decodedMetadata.custom_fields, decSecret.custom_fields);
 
       return {
@@ -204,8 +196,7 @@ export class PassboltClient {
       return { id: folder.id, name: folder.name, parent: folder.folder_parent_id };
     }
 
-    const
-      { metadata, metadata_key_id: metadataKeyId } = folder;
+    const { metadata, metadata_key_id: metadataKeyId } = folder;
     const metakey = this.metadataKeys.get(metadataKeyId);
 
     if (metakey) {
@@ -257,8 +248,7 @@ export class PassboltClient {
     }
 
     try {
-      const
-        resources = await this.apiClient.getResources(folderId);
+      const resources = await this.apiClient.getResources(folderId);
       const decodedResources = await Promise.all(resources.map(this.decodeResource.bind(this)));
 
       return decodedResources.filter((res) => res !== undefined) as Array<Resource>;
@@ -269,7 +259,11 @@ export class PassboltClient {
     }
   }
 
-  public async findFolder(search: string, folders?: Array<Folder>, parent?: string | null) {
+  public async findFolder(
+    search: string,
+    folders?: Array<Folder>,
+    parent?: string | null,
+  ): Promise<UUIDv4String | undefined> {
     if (!this.isInitialized) {
       await this.init();
     }
@@ -278,8 +272,7 @@ export class PassboltClient {
 
     try {
       if (!folders) {
-        const
-          rawFolders = await this.apiClient.getFolders();
+        const rawFolders = await this.apiClient.getFolders();
         const decoded = await Promise.all(rawFolders.map(this.convertToFolder.bind(this)));
 
         folders = decoded.filter((item) => item !== undefined) as Array<Folder>;
@@ -289,8 +282,7 @@ export class PassboltClient {
         return;
       }
 
-      const
-        parts = search.split(/(?<!\\)\//).map((e) => e.replaceAll(/\\\//g, '/'));
+      const parts = search.split(/(?<!\\)\//).map((e) => e.replaceAll(/\\\//g, '/'));
       const part = parts.shift();
       const found = folders.find((folder) => folder.name === part && folder.parent === parent);
 

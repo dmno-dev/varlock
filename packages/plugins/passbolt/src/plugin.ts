@@ -1,6 +1,6 @@
 import { Resolver, plugin } from 'varlock/plugin-lib';
 import { PassboltClient, type UUIDv4String } from './passbolt';
-import { Resource } from './types';
+import type { Resource } from './types';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
@@ -350,7 +350,7 @@ plugin.registerResolverFunction({
   async resolve({
     instanceId, resourceIdResolver, fieldResolver, inferredParamName,
   }) {
-    const selectedInstance = await pluginInstances[instanceId];
+    const selectedInstance = pluginInstances[instanceId];
     const { resourceId, field } = await resolveResourceId(resourceIdResolver);
 
     return await selectedInstance.getResource(resourceId, field ?? await fieldResolver?.resolve(), inferredParamName);
@@ -372,7 +372,7 @@ plugin.registerResolverFunction({
     return { instanceId, folderResolver: resolver, fieldResolver };
   },
   async resolve({ instanceId, folderResolver, fieldResolver }) {
-    const selectedInstance = await pluginInstances[instanceId];
+    const selectedInstance = pluginInstances[instanceId];
     const { folder } = await resolveFolder(folderResolver);
 
     return await selectedInstance.getBulkResources(folder, await fieldResolver?.resolve());
@@ -394,7 +394,7 @@ plugin.registerResolverFunction({
     return { instanceId, resourceIdResolver: resolver };
   },
   async resolve({ instanceId, resourceIdResolver }) {
-    const selectedInstance = await pluginInstances[instanceId];
+    const selectedInstance = pluginInstances[instanceId];
     const { resourceId } = await resolveResourceId(resourceIdResolver);
 
     return await selectedInstance.getBulkResource(resourceId);
