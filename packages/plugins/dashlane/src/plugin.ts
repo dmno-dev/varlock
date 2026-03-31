@@ -1,4 +1,4 @@
-import type { Resolver } from 'varlock/plugin-lib';
+import { type Resolver, plugin } from 'varlock/plugin-lib';
 import { DashlaneManager } from './dashlane-manager';
 import { validateDeviceKeys } from './validators';
 

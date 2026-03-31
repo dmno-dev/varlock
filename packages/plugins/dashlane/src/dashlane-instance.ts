@@ -45,9 +45,7 @@ export class DashlanePluginInstance {
 
   async ensureDcliInstalled(): Promise<void> {
     if (this.dcliChecked) return;
-    if (!this.dcliCheckPromise) {
-      this.dcliCheckPromise = this.doDcliCheck();
-    }
+    this.dcliCheckPromise ||= this.doDcliCheck();
     await this.dcliCheckPromise;
   }
 
@@ -67,12 +65,10 @@ export class DashlanePluginInstance {
 
   private async syncOnce(): Promise<void> {
     if (!this.autoSync || this.synced) return;
-    if (!this.syncPromise) {
-      this.syncPromise = this.doSync().catch((err) => {
-        this.syncPromise = undefined;
-        throw err;
-      });
-    }
+    this.syncPromise ||= this.doSync().catch((err) => {
+      this.syncPromise = undefined;
+      throw err;
+    });
     await this.syncPromise;
   }
 

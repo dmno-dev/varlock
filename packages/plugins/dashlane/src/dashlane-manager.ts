@@ -62,7 +62,9 @@ export class DashlaneManager {
    * Execute phase of @initDashlane -- resolves dynamic args, configures instance.
    * Called at resolution time.
    */
-  async executeInit({ id, autoSync, lockOnExit, serviceDeviceKeysResolver }: {
+  async executeInit({
+    id, autoSync, lockOnExit, serviceDeviceKeysResolver,
+  }: {
     id: string;
     autoSync?: boolean;
     lockOnExit?: boolean;
