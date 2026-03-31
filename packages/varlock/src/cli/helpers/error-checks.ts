@@ -14,9 +14,9 @@ function showErrorLocationDetails(err: Error) {
     `${ansis.gray('-'.repeat(errLoc.colNumber - 1))}${ansis.red('^')}`,
   ].join('\n');
 
-  console.log('');
-  console.log(`📂 ${errLoc.id}:${errLoc.lineNumber}:${errLoc.colNumber}`);
-  console.log(errPreview);
+  console.error('');
+  console.error(`📂 ${errLoc.id}:${errLoc.lineNumber}:${errLoc.colNumber}`);
+  console.error(errPreview);
 }
 
 export function checkForNoEnvFiles(envGraph: EnvGraph) {
@@ -41,26 +41,26 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
     // if (source.disabled) continue;
 
     if (source.loadingError) {
-      console.log(`🚨 Error encountered while loading ${source.label}\n`);
+      console.error(`🚨 Error encountered while loading ${source.label}\n`);
 
-      console.log(source.loadingError.message);
+      console.error(source.loadingError.message);
       showErrorLocationDetails(source.loadingError);
 
       // For plugin loading errors, show the full stack trace since it's usually
       // a runtime error from executing the plugin code
       if (source.loadingError.stack && !(source.loadingError instanceof VarlockError)) {
-        console.log(`\n${ansis.dim('Stack trace:')}`);
-        console.log(ansis.dim(source.loadingError.stack));
+        console.error(`\n${ansis.dim('Stack trace:')}`);
+        console.error(ansis.dim(source.loadingError.stack));
       }
 
       return gracefulExit(1);
     }
     // TODO: unify this with the above!
     if (source.schemaErrors.length) {
-      console.log(`🚨 Error(s) encountered in ${source.label}`);
+      console.error(`🚨 Error(s) encountered in ${source.label}`);
 
       for (const schemaErr of source.schemaErrors) {
-        console.log(`- ${schemaErr.message}`);
+        console.error(`- ${schemaErr.message}`);
         showErrorLocationDetails(schemaErr);
       }
       return gracefulExit(1);
@@ -81,10 +81,10 @@ export function showPluginWarnings(envGraph: EnvGraph) {
   for (const plugin of envGraph.plugins) {
     if (!plugin.warnings.length) continue;
     for (const warning of plugin.warnings) {
-      console.log(ansis.yellow(`[WARNING] ${warning.message}`));
+      console.error(ansis.yellow(`[WARNING] ${warning.message}`));
       if (warning.tip) {
         for (const line of warning.tip.split('\n')) {
-          console.log(`  ${line}`);
+          console.error(`  ${line}`);
         }
       }
     }
@@ -106,13 +106,13 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
   // check for root decorator "execution"
   for (const source of envGraph.sortedDataSources) {
     if (source.resolutionErrors.length) {
-      console.log(`🚨 Root decorator error(s) in ${source.label}`);
+      console.error(`🚨 Root decorator error(s) in ${source.label}`);
 
       for (const err of source.resolutionErrors) {
-        console.log(`- ${err.message}`);
+        console.error(`- ${err.message}`);
         if (err instanceof VarlockError && err.tip) {
           for (const line of err.tip.split('\n')) {
-            console.log(`  ${line}`);
+            console.error(`  ${line}`);
           }
         }
         showErrorLocationDetails(err);
