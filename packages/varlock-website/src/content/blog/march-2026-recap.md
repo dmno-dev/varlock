@@ -53,6 +53,7 @@ The Varlock ecosystem grew this month with new integrations and plugins, plus ma
 - **[`@varlock/dashlane-plugin`](/plugins/dashlane/)** - New Dashlane plugin for resolving secrets via the Dashlane CLI. Thanks [@LucasPicoli](https://github.com/LucasPicoli).
 - **[`@varlock/keepass-plugin`](/plugins/keepass/)** - Added KeePass support with flexible resolver options for KDBX-based workflows. Thanks [@qades](https://github.com/qades).
 - **[`@varlock/pass-plugin`](/plugins/pass/)** - Added Pass (`pass`) plugin for the standard Unix password manager.
+- **[`@varlock/passbolt-plugin`](/plugins/passbolt/)** - Added Passbolt plugin for loading secrets from Passbolt Secrets Manager. Thanks [@PaddeK](https://github.com/PaddeK).
 - **[`@varlock/proton-pass-plugin`](/plugins/proton-pass/)** - Added Proton Pass plugin via the Proton Pass CLI.
 - **[`@varlock/hashicorp-vault-plugin`](/plugins/hashicorp-vault/)** - Added HashiCorp Vault plugin for KV v2 / OpenBao.
 - **[`dmno-dev/varlock-action`](/integrations/github-action/)** - GitHub Action for validating and loading env vars with Varlock in CI.
@@ -62,7 +63,7 @@ The Varlock ecosystem grew this month with new integrations and plugins, plus ma
 
 We loved seeing strong community engagement this month:
 
-- Varlock was featured on [Syntax](https://www.youtube.com/watch?v=M5IkBp0AEN8), and we saw a wave of new users and stars.
+- Varlock was featured on [Syntax](https://www.youtube.com/watch?v=M5IkdUunf8g&lc=Ugznwks9INwmxhM2LDl4AaABAg.AU88xBuPsSOAU8TnIfyjmS), and we saw a wave of new users and stars.
 - Better Stack published a video on why Varlock is better than `.env`: [Watch here](https://www.youtube.com/watch?v=nxH-BrsCPTo).
 - We were featured in [One Tip a Week](https://one-tip-a-week.beehiiv.com/p/one-tip-a-week-stop-shipping-broken-env-config?utm_source=one-tip-a-week.beehiiv.com&utm_medium=newsletter&utm_campaign=one-tip-a-week-stop-shipping-broken-env-config&_bhlid=e2ca113a026a3b23657be4e01e69ef51035f5bba), a newsletter we really enjoy by [Nick Taylor](https://x.com/nickytonline).
 - Schalk Neethling published [Stop Storing Secrets on Disk - Replace Your .env With Varlock and 1Password](https://schalkneethling.com/posts/stop-storing-secrets-on-disk-replace-your-env-with-varlock-and-1password/), a great walkthrough of moving secrets out of local `.env` files.
