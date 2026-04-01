@@ -64,7 +64,9 @@ class DopplerPluginInstance {
 
     this.secretsCache = this._fetchAllSecrets();
     // Clear cache on failure so retries can try again
-    this.secretsCache.catch(() => { this.secretsCache = undefined; });
+    this.secretsCache.catch(() => {
+      this.secretsCache = undefined;
+    });
     return this.secretsCache;
   }
 
