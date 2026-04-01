@@ -14,7 +14,7 @@ _Be like Scott!_
 
 ## 🔧 Core Improvements
 
-March included a large set of core changes across features, reliability, and DX (all available in [`varlock@0.7.0`](https://github.com/dmno-dev/varlock/releases/tag/varlock%400.7.0)).
+March included a large set of core changes across features, reliability, and DX (including improvements in [`varlock@0.7.0`](/reference/cli-commands/)).
 
 ### Features
 
@@ -47,12 +47,15 @@ March included a large set of core changes across features, reliability, and DX 
 
 The Varlock ecosystem grew this month with new integrations and plugins:
 
-- **[`@varlock/cloudflare-integration@0.0.1`](https://github.com/dmno-dev/varlock/releases/tag/%40varlock%2Fcloudflare-integration%400.0.1)** - New Cloudflare Workers integration, including a Vite plugin and `varlock-wrangler` workflow for safer secret handling in deploys and local dev.
-- **[`@varlock/expo-integration@0.0.1`](https://github.com/dmno-dev/varlock/releases/tag/%40varlock%2Fexpo-integration%400.0.1)** - First Expo integration release. Thanks [@andychallis](https://github.com/andychallis).
-- **[`@varlock/dashlane-plugin@0.0.1`](https://github.com/dmno-dev/varlock/pull/501)** - New Dashlane plugin for resolving secrets via the Dashlane CLI. Thanks [@LucasPicoli](https://github.com/LucasPicoli).
-- **[`@varlock/keepass-plugin@0.0.2`](https://github.com/dmno-dev/varlock/releases/tag/%40varlock%2Fkeepass-plugin%400.0.2)** - Added KeePass support with flexible resolver options for KDBX-based workflows. Thanks [@qades](https://github.com/qades).
-- **[`dmno-dev/varlock-action@v1.0.1`](https://github.com/dmno-dev/varlock-action/releases/tag/v1.0.1)** - Latest GitHub Action release for validating and loading env vars with Varlock in CI.
-- **[`env-spec-language@0.1.0`](https://github.com/dmno-dev/varlock/releases/tag/env-spec-language%400.1.0)** - New language tooling release with IntelliSense and inline diagnostics support for editor workflows. Thanks [@voiys](https://github.com/voiys).
+- **[`@varlock/cloudflare-integration@0.0.1`](/integrations/cloudflare/)** - New Cloudflare Workers integration, including a Vite plugin and `varlock-wrangler` workflow for safer secret handling in deploys and local dev.
+- **[`@varlock/expo-integration@0.0.1`](/integrations/expo/)** - First Expo integration release. Thanks [@andychallis](https://github.com/andychallis).
+- **[`@varlock/dashlane-plugin@0.0.1`](/plugins/dashlane/)** - New Dashlane plugin for resolving secrets via the Dashlane CLI. Thanks [@LucasPicoli](https://github.com/LucasPicoli).
+- **[`@varlock/keepass-plugin@0.0.2`](/plugins/keepass/)** - Added KeePass support with flexible resolver options for KDBX-based workflows. Thanks [@qades](https://github.com/qades).
+- **[`@varlock/pass-plugin@0.0.6`](/plugins/pass/)** - Added Pass (`pass`) plugin for the standard Unix password manager.
+- **[`@varlock/proton-pass-plugin@0.0.3`](/plugins/proton-pass/)** - Added Proton Pass plugin via the Proton Pass CLI.
+- **[`@varlock/hashicorp-vault-plugin@0.0.4`](/plugins/hashicorp-vault/)** - Added HashiCorp Vault plugin for KV v2 / OpenBao.
+- **[`dmno-dev/varlock-action@v1.0.1`](/integrations/github-action/)** - GitHub Action for validating and loading env vars with Varlock in CI.
+- **[`env-spec-language@0.1.0`](/env-spec/vs-code-ext/)** - New language tooling release with IntelliSense and inline diagnostics support for editor workflows. Thanks [@voiys](https://github.com/voiys).
 
 ## 🌐 Content Highlights
 
