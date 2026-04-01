@@ -2,6 +2,8 @@
 import { ENV } from 'varlock/env';
 
 const publicVar = ENV.PUBLIC_VAR;
+const unprefixedPublic = ENV.UNPREFIXED_PUBLIC;
+const envSpecific = ENV.ENV_SPECIFIC_VAR;
 const hasSensitive = !!ENV.SENSITIVE_VAR;
 
 // This should be redacted in console output
@@ -14,7 +16,9 @@ console.log('secret-log-test:', ENV.SENSITIVE_VAR);
   </head>
   <body>
     <h1>Varlock SSR Test - Astro</h1>
-    <p>Public var: {publicVar}</p>
+    <p>public-var:{publicVar}</p>
+    <p>unprefixed-public:{unprefixedPublic}</p>
+    <p>env-specific:{envSpecific}</p>
     <p>Has sensitive: {hasSensitive ? 'sensitive-var-available' : 'X - not available'}</p>
   </body>
 </html>

@@ -1,0 +1,16 @@
+---
+import { ENV } from 'varlock/env';
+
+// Accessing a var that does not exist in the schema - should cause an error
+const badVar = (ENV as any).THIS_VAR_DOES_NOT_EXIST;
+---
+
+<html>
+  <head>
+    <title>Varlock Bad Var Test - Astro</title>
+  </head>
+  <body>
+    <h1>Bad Var Test</h1>
+    <p>bad-var:{badVar}</p>
+  </body>
+</html>

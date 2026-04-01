@@ -84,6 +84,42 @@ describe('Astro Integration', () => {
       ],
     });
 
+    astroEnv.describeScenario('empty optional sensitive var', {
+      command: 'astro build',
+      templateFiles: {
+        'src/pages/index.astro': 'pages/empty-secret-page.astro',
+        'astro.config.mts': 'configs/astro.config.static.mts',
+        '.env.schema': 'schemas/.env.schema.empty-secret',
+      },
+      fileAssertions: [
+        {
+          description: 'public var is still injected',
+          fileGlob: 'dist/**/*.html',
+          shouldContain: ['public-var-value'],
+        },
+        {
+          description: 'empty secret is handled correctly',
+          fileGlob: 'dist/**/*.html',
+          shouldContain: ['empty-is-undefined:true'],
+        },
+      ],
+    });
+
+    astroEnv.describeScenario('non-existent var access fails build', {
+      command: 'astro build',
+      templateFiles: {
+        'src/pages/index.astro': 'pages/bad-var-page.astro',
+        'astro.config.mts': 'configs/astro.config.static.mts',
+      },
+      expectSuccess: false,
+      outputAssertions: [
+        {
+          description: 'error mentions non-existent var',
+          shouldContain: ['THIS_VAR_DOES_NOT_EXIST'],
+        },
+      ],
+    });
+
     astroEnv.describeScenario('env vars accessible in astro config', {
       command: 'astro build',
       templateFiles: {
@@ -117,6 +153,8 @@ describe('Astro Integration', () => {
           bodyAssertions: {
             shouldContain: [
               'public-var-value',
+              'unprefixed-public-var',
+              'env-specific-var--dev',
               'sensitive-var-available',
             ],
             shouldNotContain: ['super-secret-value'],
@@ -202,6 +240,77 @@ describe('Astro Integration', () => {
         {
           description: 'leak detection message appears',
           shouldContain: ['DETECTED LEAKED SENSITIVE CONFIG'],
+        },
+      ],
+    });
+
+    astroEnv.describeDevScenario('non-existent var access in API endpoint', {
+      command: 'astro dev --port 14325',
+      readyPattern: /http:\/\/localhost/,
+      readyTimeout: 30_000,
+      templateFiles: {
+        'src/pages/index.astro': 'pages/basic-page.astro',
+        'src/pages/api/bad.ts': 'pages/bad-var-api-endpoint.ts',
+        'astro.config.mts': 'configs/astro.config.server.mts',
+      },
+      requests: [
+        {
+          path: '/api/bad',
+          expectedStatus: 500,
+          bodyAssertions: {
+            shouldNotContain: ['THIS_VAR_DOES_NOT_EXIST'],
+          },
+        },
+      ],
+      outputAssertions: [
+        {
+          description: 'error mentions non-existent var',
+          shouldContain: ['THIS_VAR_DOES_NOT_EXIST'],
+        },
+      ],
+    });
+
+    astroEnv.describeDevScenario('env reload on file change', {
+      command: 'astro dev --port 14326',
+      readyPattern: /http:\/\/localhost/,
+      readyTimeout: 30_000,
+      templateFiles: {
+        'src/pages/index.astro': 'pages/server-basic-page.astro',
+        'astro.config.mts': 'configs/astro.config.server.mts',
+      },
+      requests: [
+        // first request — original value
+        {
+          path: '/',
+          bodyAssertions: {
+            shouldContain: ['public-var:public-var-value'],
+          },
+        },
+        // second request — after editing .env.schema to change PUBLIC_VAR
+        {
+          path: '/',
+          fileEdits: {
+            '.env.schema': [
+              '# @defaultSensitive=false @defaultRequired=infer',
+              '# @generateTypes(lang="ts", path="env.d.ts")',
+              '# @currentEnv=$APP_ENV',
+              '# ---',
+              '',
+              '# @type=enum(dev, preview, prod, test)',
+              'APP_ENV=dev',
+              '',
+              'PUBLIC_VAR=updated-public-value',
+              'UNPREFIXED_PUBLIC=unprefixed-public-var',
+              'ENV_SPECIFIC_VAR=env-specific-var--default',
+              '',
+              '# @sensitive',
+              'SENSITIVE_VAR=super-secret-value',
+            ].join('\n'),
+          },
+          bodyAssertions: {
+            shouldContain: ['public-var:updated-public-value'],
+            shouldNotContain: ['public-var:public-var-value'],
+          },
         },
       ],
     });
