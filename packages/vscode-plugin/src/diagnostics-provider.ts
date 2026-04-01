@@ -12,6 +12,7 @@ import {
 } from 'vscode';
 
 import { LANG_ID } from './constants';
+import { getCommentScope } from './completion-core';
 import {
   createDecoratorDiagnostics,
   getDecoratorOccurrences,
@@ -33,14 +34,30 @@ function toRange(diagnostic: CoreDiagnostic) {
   );
 }
 
-function validateDocument(document: TextDocument) {
+type DiagnosticsDocument = Pick<TextDocument, 'languageId' | 'lineCount' | 'lineAt'>;
+
+export function validateDocument(document: DiagnosticsDocument) {
   if (document.languageId !== LANG_ID) return [];
 
   const diagnostics: Array<Diagnostic> = [];
   const lineDocument = createLineDocument(
     Array.from({ length: document.lineCount }, (_, index) => document.lineAt(index).text),
   );
+  let headerDecoratorBlock = [] as ReturnType<typeof getDecoratorOccurrences>;
   let decoratorBlock = [] as ReturnType<typeof getDecoratorOccurrences>;
+  let hasSeenConfigItem = false;
+
+  const flushHeaderDecoratorBlock = () => {
+    if (!headerDecoratorBlock.length) return;
+    diagnostics.push(
+      ...createDecoratorDiagnostics(headerDecoratorBlock).map((diagnostic) => new Diagnostic(
+        toRange(diagnostic),
+        diagnostic.message,
+        DiagnosticSeverity.Error,
+      )),
+    );
+    headerDecoratorBlock = [];
+  };
 
   const flushDecoratorBlock = () => {
     if (!decoratorBlock.length) return;
@@ -59,13 +76,21 @@ function validateDocument(document: TextDocument) {
     const trimmed = lineText.trim();
 
     if (trimmed.startsWith('#')) {
-      decoratorBlock.push(...getDecoratorOccurrences(lineText, lineNumber));
+      if (!hasSeenConfigItem && getCommentScope(lineDocument, lineNumber) === 'header') {
+        headerDecoratorBlock.push(...getDecoratorOccurrences(lineText, lineNumber));
+      } else {
+        decoratorBlock.push(...getDecoratorOccurrences(lineText, lineNumber));
+      }
+    } else if (trimmed === '' && !hasSeenConfigItem) {
+      continue;
     } else {
+      flushHeaderDecoratorBlock();
       flushDecoratorBlock();
     }
 
     const match = lineText.match(ENV_ASSIGNMENT_PATTERN);
     if (!match) continue;
+    hasSeenConfigItem = true;
 
     const rawValue = stripInlineComment(match[2]);
     if (!rawValue) continue;
@@ -88,6 +113,7 @@ function validateDocument(document: TextDocument) {
     ));
   }
 
+  flushHeaderDecoratorBlock();
   flushDecoratorBlock();
   return diagnostics;
 }
