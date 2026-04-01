@@ -65,8 +65,9 @@ lines
 ### Item comments
 Comments are used to attach additional documentation and metadata to config items using [item decorators](/reference/item-decorators). This additional metadata is used by varlock to perform validation, coercion, and generate types / documentation.
 
-Multiple comment lines _directly_ preceeding an item will be attached to that item. A blank line or a divider (`# ---`) break a comment block, and detach it from the following config item.
-Comment lines can either contain regular comments or [item decorators](/reference/item-decorators). Note that if a line does not start with a decorator, it will be treated as a regular comment.
+Multiple comment lines _directly_ preceding an item will be attached to that item. A blank line or a divider breaks a comment block and detaches it from the following config item.
+Any comment block before the first item is still part of the document header until it is ended by a blank line, a divider, or the end of the file.
+Comment lines can either contain regular comments or [item decorators](/reference/item-decorators). Standalone comments only count as decorator comments when the comment content starts with `@`.
 
 ```env-spec
 # description of item can be multiple lines
@@ -132,7 +133,6 @@ NEVER_REQUIRED=
 # @required=forEnv(prod) # resolves to true/false depending on the current environment
 REQUIRED_FOR_PROD=
 ```
-
 
 
 
