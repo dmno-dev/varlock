@@ -157,11 +157,23 @@ export function getPrecedingCommentBlock(document: LineDocument, lineNumber: num
   return lines;
 }
 
+function getDecoratorCommentText(lineText: string) {
+  const match = lineText.match(/^\s*#\s*(@.*)$/);
+  if (!match) return undefined;
+
+  const commentText = match[1];
+
+  return stripInlineComment(commentText);
+}
+
 export function getTypeInfoFromPrecedingComments(document: LineDocument, lineNumber: number) {
   const commentBlock = getPrecedingCommentBlock(document, lineNumber);
 
   for (let index = commentBlock.length - 1; index >= 0; index -= 1) {
-    const match = commentBlock[index].match(/@type=([A-Za-z][\w-]*)(?:\((.*)\))?/);
+    const decoratorComment = getDecoratorCommentText(commentBlock[index]);
+    if (!decoratorComment) continue;
+
+    const match = decoratorComment.match(/@type=([A-Za-z][\w-]*)(?:\((.*)\))?/);
     if (!match) continue;
 
     if (match[1] === 'enum') {
@@ -184,10 +196,13 @@ export function getTypeInfoFromPrecedingComments(document: LineDocument, lineNum
 
 export function getDecoratorOccurrences(lineText: string, lineNumber: number) {
   const occurrences: Array<DecoratorOccurrence> = [];
+  const decoratorComment = getDecoratorCommentText(lineText);
+  if (!decoratorComment) return occurrences;
+  const decoratorCommentStart = lineText.indexOf(decoratorComment);
 
-  for (const match of lineText.matchAll(DECORATOR_PATTERN)) {
+  for (const match of decoratorComment.matchAll(DECORATOR_PATTERN)) {
     const name = match[1];
-    const start = match.index ?? 0;
+    const start = decoratorCommentStart + (match.index ?? 0);
     const suffix = match[0].slice(name.length + 1);
     occurrences.push({
       name,

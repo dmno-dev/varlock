@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   filterAvailableDecorators,
+  getDecoratorCommentPrefix,
   getEnumValuesFromPrecedingComments,
   getExistingDecoratorNames,
   getTypeOptionDataType,
@@ -126,6 +127,29 @@ describe('completion-core', () => {
 
     expect(isInHeader(dottedDocument, 2)).toBe(false);
     expect(isInHeader(hyphenDocument, 2)).toBe(false);
+  });
+
+  it('ignores decorator-like text in regular comments', () => {
+    expect(getDecoratorCommentPrefix('# this @required is docs only')).toBeUndefined();
+  });
+
+  it('matches parser behavior for leading @word comments', () => {
+    expect(getDecoratorCommentPrefix('# @todo: follow up later')).toBe('@todo: follow up later');
+    expect(getDecoratorCommentPrefix('# @see docs for more info')).toBe('@see docs for more info');
+  });
+
+  it('ignores decorator-like text in post-comments', () => {
+    expect(getDecoratorCommentPrefix('# @required # @optional')).toBe('@required');
+    expect(
+      getExistingDecoratorNames(
+        createLineDocument([
+          '# @required # @optional',
+          '# @',
+        ]),
+        1,
+        ' @',
+      ),
+    ).toEqual(new Set(['required']));
   });
 
   it('filters duplicate and incompatible decorators but keeps repeatable ones', () => {
