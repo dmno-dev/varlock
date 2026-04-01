@@ -214,7 +214,7 @@
     },
     "packages/plugins/dashlane": {
       "name": "@varlock/dashlane-plugin",
-      "version": "0.0.0",
+      "version": "0.0.1",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -305,7 +305,7 @@
     },
     "packages/plugins/passbolt": {
       "name": "@varlock/passbolt-plugin",
-      "version": "0.0.0",
+      "version": "0.0.1",
       "dependencies": {
         "openpgp": "6.3.0",
       },
