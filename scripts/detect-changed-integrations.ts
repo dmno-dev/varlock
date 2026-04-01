@@ -115,24 +115,24 @@ if (isReleasePR) {
 
   if (!existsSync(statusFilePath)) {
     console.log('No changesets found');
-    writeResults([]);
-    process.exit(0);
-  }
+    // Don't exit — test files themselves may have changed (detected below)
+    changedPackages = new Set<string>();
+  } else {
+    let status: any;
+    try {
+      status = JSON.parse(readFileSync(statusFilePath, 'utf-8'));
+    } finally {
+      unlinkSync(statusFilePath);
+    }
 
-  let status: any;
-  try {
-    status = JSON.parse(readFileSync(statusFilePath, 'utf-8'));
-  } finally {
-    unlinkSync(statusFilePath);
-  }
-
-  changedPackages = new Set<string>(
-    status.releases
-      ?.filter((r: { type: string }) => r.type !== 'none')
-      .map((r: { name: string }) => r.name) ?? [],
-  );
-  if (!process.env.GITHUB_OUTPUT) {
-    console.log('Changed packages (from changesets):', [...changedPackages]);
+    changedPackages = new Set<string>(
+      status.releases
+        ?.filter((r: { type: string }) => r.type !== 'none')
+        .map((r: { name: string }) => r.name) ?? [],
+    );
+    if (!process.env.GITHUB_OUTPUT) {
+      console.log('Changed packages (from changesets):', [...changedPackages]);
+    }
   }
 }
 
