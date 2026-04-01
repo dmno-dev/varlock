@@ -1,6 +1,6 @@
 ---
 title: "March 2026 Recap"
-description: "varlock@0.7.0 adds better plugin authoring with ESM/TypeScript single-file plugins, we launch Cloudflare and Expo integrations, and the community discussion keeps growing."
+description: "varlock@0.7.0 adds better plugin authoring with ESM/TypeScript single-file plugins, the Next.js integration gains full Turbopack support, we launch Cloudflare and Expo integrations, and the community keeps growing."
 date: 2026-04-01
 image: ../../assets/blog/march-recap.jpeg
 authors:
@@ -45,8 +45,9 @@ March included a large set of core changes across features, reliability, and DX 
 
 ## 🚀 New Integrations and Plugins
 
-The Varlock ecosystem grew this month with new integrations and plugins:
+The Varlock ecosystem grew this month with new integrations and plugins, plus major updates to existing ones:
 
+- **[`@varlock/nextjs-integration`](/integrations/nextjs/)** - Major updates: the integration now **fully supports Turbopack** for Next.js 15 and 16 (alongside webpack).
 - **[`@varlock/cloudflare-integration`](/integrations/cloudflare/)** - New Cloudflare Workers integration, including a Vite plugin and `varlock-wrangler` workflow for safer secret handling in deploys and local dev.
 - **[`@varlock/expo-integration`](/integrations/expo/)** - First Expo integration release. Thanks [@andychallis](https://github.com/andychallis).
 - **[`@varlock/dashlane-plugin`](/plugins/dashlane/)** - New Dashlane plugin for resolving secrets via the Dashlane CLI. Thanks [@LucasPicoli](https://github.com/LucasPicoli).
