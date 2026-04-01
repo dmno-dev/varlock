@@ -3,6 +3,8 @@ Tests varlock + vite integration (plain Vite SPA and SSR builds).
 Covers static builds, HTML constant replacement, leak detection,
 log redaction, sourcemap scrubbing, SSR init injection, and dev server.
 */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   describe, beforeAll, afterAll,
 } from 'vitest';
@@ -60,7 +62,7 @@ describe('Vite', () => {
       ],
     });
 
-    viteEnv.describeScenario('env-specific vars use correct environment', {
+    viteEnv.describeScenario('env-specific vars use correct environment (dev)', {
       command: 'vite build',
       templateFiles: {
         'vite.config.ts': 'vite-configs/vite.config.ts',
@@ -73,6 +75,24 @@ describe('Vite', () => {
           fileGlob: 'dist/assets/*.js',
           shouldContain: ['env-specific-dev'],
           shouldNotContain: ['env-specific-prod', 'env-specific-default'],
+        },
+      ],
+    });
+
+    viteEnv.describeScenario('env-specific vars use prod environment', {
+      command: 'vite build',
+      env: { APP_ENV: 'prod' },
+      templateFiles: {
+        'vite.config.ts': 'vite-configs/vite.config.ts',
+        'index.html': 'html/basic.html',
+        'src/main.ts': 'pages/basic-page.ts',
+      },
+      fileAssertions: [
+        {
+          description: 'prod-specific value is present (APP_ENV=prod)',
+          fileGlob: 'dist/assets/*.js',
+          shouldContain: ['env-specific-prod'],
+          shouldNotContain: ['env-specific-dev', 'env-specific-default'],
         },
       ],
     });
@@ -309,6 +329,171 @@ describe('Vite', () => {
           description: 'sensitive value is redacted in dev server output',
           shouldContain: ['secret-log-test:'],
           shouldNotContain: ['super-secret-value'],
+        },
+      ],
+    });
+
+    viteEnv.describeDevScenario('source code hot-reload', {
+      command: 'vite dev --port 15183',
+      readyPattern: /Local:.*http/,
+      readyTimeout: 30_000,
+      templateFiles: {
+        'vite.config.ts': 'vite-configs/vite.config.ts',
+        'index.html': 'html/basic.html',
+        'src/main.ts': 'pages/basic-page.ts',
+      },
+      requests: [
+        {
+          path: '/src/main.ts',
+          bodyAssertions: {
+            shouldContain: ['public-test-value'],
+            shouldNotContain: ['hot-reload-success'],
+          },
+        },
+        {
+          path: '/src/main.ts',
+          fileEdits: {
+            'src/main.ts': readFileSync(join(import.meta.dirname, 'files/pages/updated-basic-page.ts'), 'utf-8'),
+          },
+          bodyAssertions: {
+            shouldContain: ['public-test-value', 'hot-reload-success'],
+          },
+        },
+      ],
+    });
+  });
+
+  // ---- Leak detection ----
+
+  describe('leak detection', () => {
+    viteEnv.describeDevScenario('safe endpoint serves public values', {
+      command: 'vite dev --port 15184',
+      readyPattern: /Local:.*http/,
+      readyTimeout: 30_000,
+      templateFiles: {
+        'vite.config.ts': 'vite-configs/vite.config.leaky-middleware.ts',
+        'index.html': 'html/basic.html',
+        'src/main.ts': 'pages/minimal-page.ts',
+      },
+      requests: [
+        {
+          path: '/api/safe',
+          bodyAssertions: {
+            shouldContain: ['public: public-test-value'],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+    });
+
+    viteEnv.describeDevScenario('leaky endpoint triggers leak detection', {
+      command: 'vite dev --port 15185',
+      readyPattern: /Local:.*http/,
+      readyTimeout: 30_000,
+      templateFiles: {
+        'vite.config.ts': 'vite-configs/vite.config.leaky-middleware.ts',
+        'index.html': 'html/basic.html',
+        'src/main.ts': 'pages/minimal-page.ts',
+      },
+      requests: [
+        {
+          path: '/api/leak',
+          expectedStatus: 500,
+          bodyAssertions: {
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+      outputAssertions: [
+        {
+          description: 'leak detection message appears',
+          shouldContain: ['DETECTED LEAKED SENSITIVE CONFIG'],
+        },
+      ],
+    });
+  });
+
+  // ---- Non-existent config keys ----
+
+  describe('non-existent config keys', () => {
+    viteEnv.describeScenario('non-existent key is not replaced in build output', {
+      command: 'vite build',
+      templateFiles: {
+        'vite.config.ts': 'vite-configs/vite.config.ts',
+        'index.html': 'html/basic.html',
+        'src/main.ts': 'pages/nonexistent-key-page.ts',
+      },
+      fileAssertions: [
+        {
+          description: 'public var is still replaced',
+          fileGlob: 'dist/assets/*.js',
+          shouldContain: ['public-test-value'],
+        },
+        {
+          description: 'non-existent key reference is not replaced with a real value',
+          fileGlob: 'dist/assets/*.js',
+          shouldNotContain: ['DOES_NOT_EXIST_VALUE'],
+        },
+      ],
+    });
+
+    viteEnv.describeDevScenario('non-existent key is not replaced in dev server output', {
+      command: 'vite dev --port 15186',
+      readyPattern: /Local:.*http/,
+      readyTimeout: 30_000,
+      templateFiles: {
+        'vite.config.ts': 'vite-configs/vite.config.ts',
+        'index.html': 'html/basic.html',
+        'src/main.ts': 'pages/nonexistent-key-page.ts',
+      },
+      requests: [
+        {
+          path: '/src/main.ts',
+          bodyAssertions: {
+            shouldContain: ['public-test-value', 'DOES_NOT_EXIST'],
+            shouldNotContain: ['DOES_NOT_EXIST_VALUE'],
+          },
+        },
+      ],
+    });
+  });
+
+  // ---- Invalid config handling ----
+
+  describe('invalid config', () => {
+    viteEnv.describeScenario('invalid schema causes build failure', {
+      command: 'vite build',
+      expectSuccess: false,
+      templateFiles: {
+        'vite.config.ts': 'vite-configs/vite.config.ts',
+        'index.html': 'html/basic.html',
+        'src/main.ts': 'pages/minimal-page.ts',
+        '.env.schema': 'schemas/.env.schema.invalid',
+      },
+      outputAssertions: [
+        {
+          description: 'build output indicates config validation failure',
+          shouldContain: ['config validation failed'],
+        },
+      ],
+    });
+
+    viteEnv.describeDevScenario('invalid schema shows error in dev mode', {
+      command: 'vite dev --port 15187',
+      readyPattern: /Local:.*http/,
+      readyTimeout: 30_000,
+      templateFiles: {
+        'vite.config.ts': 'vite-configs/vite.config.ts',
+        'index.html': 'html/basic.html',
+        'src/main.ts': 'pages/minimal-page.ts',
+        '.env.schema': 'schemas/.env.schema.invalid',
+      },
+      requests: [
+        {
+          path: '/',
+          bodyAssertions: {
+            shouldContain: ['invalid'],
+          },
         },
       ],
     });

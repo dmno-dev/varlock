@@ -24,6 +24,7 @@ import { join } from 'node:path';
 // tests run when vite-integration changes because cloudflare depends on it.
 const INTEGRATION_PACKAGES: Record<string, Array<string>> = {
   nextjs: ['@varlock/nextjs-integration'],
+  vite: ['@varlock/vite-integration'],
   cloudflare: ['@varlock/cloudflare-integration', '@varlock/vite-integration'],
   expo: ['@varlock/expo-integration'],
   'vanilla-node': [], // no integration package — triggered only by core varlock changes
