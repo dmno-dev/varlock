@@ -252,9 +252,7 @@ describe('Vite', () => {
         {
           path: '/src/main.ts',
           bodyAssertions: {
-            shouldContain: [
-              'public-test-value',
-            ],
+            shouldContain: ['public-test-value'],
             shouldNotContain: ['super-secret-value'],
           },
         },
