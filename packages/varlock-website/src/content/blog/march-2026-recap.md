@@ -47,15 +47,15 @@ March included a large set of core changes across features, reliability, and DX 
 
 The Varlock ecosystem grew this month with new integrations and plugins:
 
-- **[`@varlock/cloudflare-integration@0.0.1`](/integrations/cloudflare/)** - New Cloudflare Workers integration, including a Vite plugin and `varlock-wrangler` workflow for safer secret handling in deploys and local dev.
-- **[`@varlock/expo-integration@0.0.1`](/integrations/expo/)** - First Expo integration release. Thanks [@andychallis](https://github.com/andychallis).
-- **[`@varlock/dashlane-plugin@0.0.1`](/plugins/dashlane/)** - New Dashlane plugin for resolving secrets via the Dashlane CLI. Thanks [@LucasPicoli](https://github.com/LucasPicoli).
-- **[`@varlock/keepass-plugin@0.0.2`](/plugins/keepass/)** - Added KeePass support with flexible resolver options for KDBX-based workflows. Thanks [@qades](https://github.com/qades).
-- **[`@varlock/pass-plugin@0.0.6`](/plugins/pass/)** - Added Pass (`pass`) plugin for the standard Unix password manager.
-- **[`@varlock/proton-pass-plugin@0.0.3`](/plugins/proton-pass/)** - Added Proton Pass plugin via the Proton Pass CLI.
-- **[`@varlock/hashicorp-vault-plugin@0.0.4`](/plugins/hashicorp-vault/)** - Added HashiCorp Vault plugin for KV v2 / OpenBao.
-- **[`dmno-dev/varlock-action@v1.0.1`](/integrations/github-action/)** - GitHub Action for validating and loading env vars with Varlock in CI.
-- **[`env-spec-language@0.1.0`](/env-spec/vs-code-ext/)** - New language tooling release with IntelliSense and inline diagnostics support for editor workflows. Thanks [@voiys](https://github.com/voiys).
+- **[`@varlock/cloudflare-integration`](/integrations/cloudflare/)** - New Cloudflare Workers integration, including a Vite plugin and `varlock-wrangler` workflow for safer secret handling in deploys and local dev.
+- **[`@varlock/expo-integration`](/integrations/expo/)** - First Expo integration release. Thanks [@andychallis](https://github.com/andychallis).
+- **[`@varlock/dashlane-plugin`](/plugins/dashlane/)** - New Dashlane plugin for resolving secrets via the Dashlane CLI. Thanks [@LucasPicoli](https://github.com/LucasPicoli).
+- **[`@varlock/keepass-plugin`](/plugins/keepass/)** - Added KeePass support with flexible resolver options for KDBX-based workflows. Thanks [@qades](https://github.com/qades).
+- **[`@varlock/pass-plugin`](/plugins/pass/)** - Added Pass (`pass`) plugin for the standard Unix password manager.
+- **[`@varlock/proton-pass-plugin`](/plugins/proton-pass/)** - Added Proton Pass plugin via the Proton Pass CLI.
+- **[`@varlock/hashicorp-vault-plugin`](/plugins/hashicorp-vault/)** - Added HashiCorp Vault plugin for KV v2 / OpenBao.
+- **[`dmno-dev/varlock-action`](/integrations/github-action/)** - GitHub Action for validating and loading env vars with Varlock in CI.
+- **[`env-spec-language`](/env-spec/vs-code-ext/)** - New language tooling release with IntelliSense and inline diagnostics support for editor workflows. Thanks [@voiys](https://github.com/voiys).
 
 ## 🌐 Content Highlights
 
