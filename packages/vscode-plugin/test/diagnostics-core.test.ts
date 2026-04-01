@@ -40,6 +40,43 @@ describe('diagnostics-core', () => {
     );
   });
 
+  it('ignores decorator-like text inside regular comments', () => {
+    const diagnostics = createDecoratorDiagnostics(
+      getDecoratorOccurrences('# this @required mention is just documentation', 0),
+    );
+
+    expect(diagnostics).toEqual([]);
+  });
+
+  it('ignores decorator-like text inside post-comments on decorator lines', () => {
+    const diagnostics = createDecoratorDiagnostics(
+      getDecoratorOccurrences('# @required # this @optional is commented', 0),
+    );
+
+    expect(diagnostics).toEqual([]);
+  });
+
+  it('matches parser behavior for leading @word comments', () => {
+    expect(getDecoratorOccurrences('# @todo: revisit this later', 0)).toEqual([
+      {
+        name: 'todo',
+        line: 0,
+        start: 2,
+        end: 7,
+        isFunctionCall: false,
+      },
+    ]);
+    expect(getDecoratorOccurrences('# @see docs for details', 0)).toEqual([
+      {
+        name: 'see',
+        line: 0,
+        start: 2,
+        end: 6,
+        isFunctionCall: false,
+      },
+    ]);
+  });
+
   it('reads type info from the comment block above an item', () => {
     const document = createLineDocument([
       '# @required @type=url(prependHttps=true, allowedDomains="example.com,api.example.com")',
@@ -54,6 +91,24 @@ describe('diagnostics-core', () => {
         allowedDomains: 'example.com,api.example.com',
       },
     });
+  });
+
+  it('ignores type info inside regular comments above an item', () => {
+    const document = createLineDocument([
+      '# mention @type=url(prependHttps=true) in docs only',
+      'API_URL=example.com',
+    ]);
+
+    expect(getTypeInfoFromPrecedingComments(document, 1)).toBeUndefined();
+  });
+
+  it('ignores type info inside post-comments on decorator lines', () => {
+    const document = createLineDocument([
+      '# @required # @type=url(prependHttps=true)',
+      'API_URL=example.com',
+    ]);
+
+    expect(getTypeInfoFromPrecedingComments(document, 1)).toBeUndefined();
   });
 
   it('validates enum values against the decorator list', () => {

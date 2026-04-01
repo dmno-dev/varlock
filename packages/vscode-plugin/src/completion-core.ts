@@ -15,6 +15,38 @@ const INCOMPATIBLE_DECORATORS = new Map<string, Set<string>>([
   ['public', new Set(['sensitive'])],
 ]);
 
+function stripInlineComment(value: string) {
+  let quote: '"' | '\'' | '' = '';
+
+  for (let i = 0; i < value.length; i += 1) {
+    const char = value[i];
+    if (quote) {
+      if (char === quote) quote = '';
+      continue;
+    }
+
+    if (char === '"' || char === '\'') {
+      quote = char;
+      continue;
+    }
+
+    if (char === '#' && (i === 0 || /\s/.test(value[i - 1]))) {
+      return value.slice(0, i).trimEnd();
+    }
+  }
+
+  return value.trim();
+}
+
+export function getDecoratorCommentPrefix(lineText: string) {
+  const match = lineText.match(/^\s*#\s*(@.*)$/);
+  if (!match) return undefined;
+
+  const commentText = match[1];
+
+  return stripInlineComment(commentText);
+}
+
 function splitArgs(input: string) {
   const parts: Array<string> = [];
   let current = '';
@@ -94,7 +126,10 @@ export function getExistingDecoratorNames(
       if (CONFIG_ITEM_PATTERN.test(text)) break;
       if (!text.startsWith('#')) continue;
 
-      for (const match of text.matchAll(DECORATOR_PATTERN)) {
+      const decoratorCommentPrefix = getDecoratorCommentPrefix(text);
+      if (!decoratorCommentPrefix) continue;
+
+      for (const match of decoratorCommentPrefix.matchAll(DECORATOR_PATTERN)) {
         names.add(match[1]);
       }
     }
@@ -103,7 +138,10 @@ export function getExistingDecoratorNames(
       const text = document.lineAt(line).text.trim();
       if (!text.startsWith('#')) break;
 
-      for (const match of text.matchAll(DECORATOR_PATTERN)) {
+      const decoratorCommentPrefix = getDecoratorCommentPrefix(text);
+      if (!decoratorCommentPrefix) continue;
+
+      for (const match of decoratorCommentPrefix.matchAll(DECORATOR_PATTERN)) {
         names.add(match[1]);
       }
     }
@@ -139,7 +177,10 @@ export function getEnumValuesFromPrecedingComments(document: LineDocument, lineN
     const text = document.lineAt(line).text.trim();
     if (!text.startsWith('#')) break;
 
-    const match = text.match(/@type=enum\((.*)\)/);
+    const decoratorCommentPrefix = getDecoratorCommentPrefix(text);
+    if (!decoratorCommentPrefix) continue;
+
+    const match = decoratorCommentPrefix.match(/@type=enum\((.*)\)/);
     if (match) return splitEnumArgs(match[1]);
   }
 
