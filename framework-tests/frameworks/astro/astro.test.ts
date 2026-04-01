@@ -314,5 +314,58 @@ describe('Astro Integration', () => {
         },
       ],
     });
+
+    astroEnv.describeDevScenario('recovery from invalid config', {
+      command: 'astro dev --port 14327',
+      readyPattern: /http:\/\/localhost/,
+      readyTimeout: 30_000,
+      templateFiles: {
+        'src/pages/index.astro': 'pages/server-basic-page.astro',
+        'astro.config.mts': 'configs/astro.config.server.mts',
+        '.env.schema': 'schemas/.env.schema.invalid',
+      },
+      requests: [
+        // first request — config is invalid (MISSING_REQUIRED_VAR has no value)
+        {
+          path: '/',
+          expectedStatus: 500,
+        },
+        // second request — after fixing the schema to remove the missing required var
+        {
+          path: '/',
+          fileEdits: {
+            '.env.schema': [
+              '# @defaultSensitive=false @defaultRequired=infer',
+              '# @generateTypes(lang="ts", path="env.d.ts")',
+              '# @currentEnv=$APP_ENV',
+              '# ---',
+              '',
+              '# @type=enum(dev, preview, prod, test)',
+              'APP_ENV=dev',
+              '',
+              'PUBLIC_VAR=public-var-value',
+              'UNPREFIXED_PUBLIC=unprefixed-public-var',
+              'ENV_SPECIFIC_VAR=env-specific-var--default',
+              '',
+              '# @sensitive',
+              'SENSITIVE_VAR=super-secret-value',
+            ].join('\n'),
+          },
+          bodyAssertions: {
+            shouldContain: [
+              'public-var:public-var-value',
+              'sensitive-var-available',
+            ],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+      outputAssertions: [
+        {
+          description: 'output shows config was initially invalid',
+          shouldContain: ['invalid', 'MISSING_REQUIRED_VAR'],
+        },
+      ],
+    });
   });
 });
