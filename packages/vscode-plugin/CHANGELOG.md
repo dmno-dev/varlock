@@ -1,5 +1,13 @@
 # env-spec-language
 
+## 0.1.1
+
+### Patch Changes
+
+- [#467](https://github.com/dmno-dev/varlock/pull/467) [`72f1ef0`](https://github.com/dmno-dev/varlock/commit/72f1ef00167eaf0a2ac61ca443beb6ba2f24c4c3) Thanks [@voiys](https://github.com/voiys)! - Fix VS Code diagnostics and completions so decorator parsing ignores prose mentions and post-comments while still matching parser behavior for leading `@word` comment lines.
+
+- [#468](https://github.com/dmno-dev/varlock/pull/468) [`6313f82`](https://github.com/dmno-dev/varlock/commit/6313f827d80df996c41491ccffc1b9fc90efcc4c) Thanks [@voiys](https://github.com/voiys)! - Fix duplicate decorator diagnostics so repeated function-style decorators stay valid and split header root decorators still share one header scope.
+
 ## 0.1.0
 
 ### Minor Changes
