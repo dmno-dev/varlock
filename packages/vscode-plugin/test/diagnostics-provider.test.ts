@@ -34,7 +34,7 @@ vi.mock('vscode', () => ({
 let validateDocument: typeof import('../src/diagnostics-provider').validateDocument;
 
 beforeAll(async () => {
-  ({ validateDocument } = await import('../src/diagnostics-provider'));
+  ({ validateDocument } = await import('../src/diagnostics-provider.js'));
 });
 
 function createTestDocument(lines: Array<string>) {
@@ -44,7 +44,7 @@ function createTestDocument(lines: Array<string>) {
     lineAt(line: number) {
       return { text: lines[line] };
     },
-  };
+  } as Parameters<typeof validateDocument>[0];
 }
 
 describe('diagnostics-provider', () => {
