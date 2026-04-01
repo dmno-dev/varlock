@@ -1,0 +1,318 @@
+---
+title: Doppler Plugin
+description: Using Doppler with Varlock
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/doppler-plugin" />
+</div>
+
+Our [Doppler](https://www.doppler.com/) plugin enables secure loading of secrets from Doppler using declarative instructions within your `.env` files.
+
+The plugin uses service tokens for programmatic access to your Doppler secrets, making it suitable for both local development and production environments.
+
+## Features
+
+- **Fetch secrets** from Doppler projects and configs
+- **Bulk-load secrets** with `dopplerBulk()` via `@setValuesBulk`
+- **Service token authentication** for secure, scoped API access
+- **Efficient caching** — a single API call is shared across all secret lookups in the same config
+- **Multiple plugin instances** for different projects/configs
+- **Auto-infer secret names** from variable names for convenience
+- **Helpful error messages** with resolution tips
+
+## Installation and setup
+
+In a JS/TS project, you may install the `@varlock/doppler-plugin` package as a normal dependency.
+Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
+
+```env-spec title=".env.schema"
+# 1. Load the plugin
+# @plugin(@varlock/doppler-plugin)
+#
+# 2. Initialize the plugin - see below for more details on options
+# @initDoppler(
+#   project=my-project,
+#   config=dev,
+#   serviceToken=$DOPPLER_TOKEN
+# )
+# ---
+
+# 3. Add your service token
+# @type=dopplerServiceToken @sensitive
+DOPPLER_TOKEN=
+```
+
+### Service token setup
+
+<Steps>
+1. **Navigate to your Doppler project config**
+
+    Go to the [Doppler dashboard](https://dashboard.doppler.com), select your project, and open the config (e.g., `dev`, `stg`, `prd`) you want to access.
+
+2. **Generate a service token**
+
+    Click on **Access** → **Service Tokens** → **Generate Service Token**. Give it a descriptive name.
+
+3. **Save the token** (displayed only once!)
+
+    Copy the service token immediately — it will only be displayed once.
+
+    :::caution[Save token securely]
+    Store the service token securely. You won't be able to see it again after this step!
+    :::
+
+4. **Wire up the token in your config**
+
+    ```env-spec title=".env.schema"
+    # @plugin(@varlock/doppler-plugin)
+    # @initDoppler(
+    #   project=my-project,
+    #   config=dev,
+    #   serviceToken=$DOPPLER_TOKEN
+    # )
+    # ---
+
+    # @type=dopplerServiceToken @sensitive
+    DOPPLER_TOKEN=
+    ```
+
+5. **Set the token in your environment**
+
+    Use your CI/CD system or platform's env var management to securely inject the `DOPPLER_TOKEN` value.
+</Steps>
+
+For detailed instructions, see [Doppler Service Tokens documentation](https://docs.doppler.com/docs/service-tokens).
+
+### Multiple instances
+
+If you need to connect to multiple projects or configs, register multiple named instances:
+
+```env-spec title=".env.schema"
+# @initDoppler(id=dev, project=my-app, config=dev, serviceToken=$DEV_DOPPLER_TOKEN)
+# @initDoppler(id=prod, project=my-app, config=prd, serviceToken=$PROD_DOPPLER_TOKEN)
+# ---
+
+DEV_DATABASE=doppler(dev, "DATABASE_URL")
+PROD_DATABASE=doppler(prod, "DATABASE_URL")
+```
+
+## Loading secrets
+
+Once the plugin is installed and initialized, you can start adding config items that load values using the `doppler()` resolver function.
+
+### Basic usage
+
+Fetch secrets from Doppler:
+
+```env-spec title=".env.schema"
+# Secret name defaults to the config item key
+DATABASE_URL=doppler()
+API_KEY=doppler()
+
+# Or explicitly specify the secret name
+STRIPE_SECRET=doppler("STRIPE_SECRET_KEY")
+```
+
+When called without arguments, `doppler()` automatically uses the config item key as the secret name in Doppler. This provides a convenient convention-over-configuration approach.
+
+### Using a named instance
+
+```env-spec title=".env.schema"
+# @initDoppler(id=backend, project=backend-app, config=dev, serviceToken=$BACKEND_TOKEN)
+# ---
+
+DB_HOST=doppler(backend, "DB_HOST")
+DB_PASSWORD=doppler(backend, "DB_PASSWORD")
+```
+
+### Bulk loading secrets
+
+Use `dopplerBulk()` with `@setValuesBulk` to load all secrets from a Doppler config at once, instead of wiring up each secret individually:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/doppler-plugin)
+# @initDoppler(project=my-project, config=dev, serviceToken=$DOPPLER_TOKEN)
+# @setValuesBulk(dopplerBulk())
+# ---
+# @type=dopplerServiceToken @sensitive
+DOPPLER_TOKEN=
+
+API_KEY=
+DB_PASSWORD=
+REDIS_URL=
+```
+
+With a named instance:
+
+```env-spec title=".env.schema"
+# @setValuesBulk(dopplerBulk(prod))
+```
+
+---
+
+## Reference
+
+### Root decorators
+<div class="reference-docs">
+<div>
+#### `@initDoppler()`
+
+Initialize a Doppler plugin instance for accessing secrets.
+
+**Key/value args:**
+- `project` (required): Doppler project name
+- `config` (required): Config name (e.g., `dev`, `stg`, `prd`, or a branch config)
+- `serviceToken` (required): Doppler service token. Should be a reference to a config item of type `dopplerServiceToken`.
+- `id` (optional): Instance identifier for multiple instances
+
+```env-spec "@initDoppler"
+# @initDoppler(
+#   project=my-project,
+#   config=dev,
+#   serviceToken=$DOPPLER_TOKEN
+# )
+# ---
+# @type=dopplerServiceToken @sensitive
+DOPPLER_TOKEN=
+```
+</div>
+</div>
+
+### Data types
+<div class="reference-docs">
+<div>
+#### `dopplerServiceToken`
+
+Represents a Doppler service token. This type is marked as `@sensitive`.
+
+```env-spec "dopplerServiceToken"
+# @type=dopplerServiceToken @sensitive
+DOPPLER_TOKEN=
+```
+</div>
+</div>
+
+### Resolver functions
+<div class="reference-docs">
+<div>
+#### `doppler()`
+
+Fetch a secret from Doppler.
+
+**Array args:**
+- `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
+- `secretName` (optional): secret name in Doppler. If omitted, uses the variable name.
+
+```env-spec /doppler\\(.*\\)/
+# Auto-infer secret name from variable
+DATABASE_URL=doppler()
+
+# Explicit secret name
+STRIPE_KEY=doppler("STRIPE_SECRET_KEY")
+
+# With instance ID
+DEV_SECRET=doppler(dev, "DATABASE_URL")
+```
+</div>
+
+<div>
+#### `dopplerBulk()`
+
+Bulk-load all secrets from a Doppler config. Intended for use with `@setValuesBulk`.
+
+**Array args:**
+- `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
+
+```env-spec /dopplerBulk\\(.*\\)/
+# Load all secrets from default instance
+# @setValuesBulk(dopplerBulk())
+
+# With instance ID
+# @setValuesBulk(dopplerBulk(prod))
+```
+</div>
+</div>
+
+---
+
+## Example Configurations
+
+### Development setup with auto-named secrets
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/doppler-plugin)
+# @initDoppler(project=my-app, config=dev, serviceToken=$DOPPLER_TOKEN)
+# ---
+# @type=dopplerServiceToken @sensitive
+DOPPLER_TOKEN=
+
+# Secret names automatically match config keys
+DATABASE_URL=doppler()
+REDIS_URL=doppler()
+STRIPE_KEY=doppler()
+```
+
+### Multi-environment setup
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/doppler-plugin)
+# @initDoppler(id=dev, project=my-app, config=dev, serviceToken=$DEV_DOPPLER_TOKEN)
+# @initDoppler(id=staging, project=my-app, config=stg, serviceToken=$STG_DOPPLER_TOKEN)
+# @initDoppler(id=prod, project=my-app, config=prd, serviceToken=$PROD_DOPPLER_TOKEN)
+# ---
+
+DEV_DATABASE=doppler(dev, "DATABASE_URL")
+STAGING_DATABASE=doppler(staging, "DATABASE_URL")
+PROD_DATABASE=doppler(prod, "DATABASE_URL")
+```
+
+### Bulk loading for simple setups
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/doppler-plugin)
+# @initDoppler(project=my-app, config=dev, serviceToken=$DOPPLER_TOKEN)
+# @setValuesBulk(dopplerBulk())
+# ---
+# @type=dopplerServiceToken @sensitive
+DOPPLER_TOKEN=
+
+# These will be populated from Doppler secrets with matching names
+DATABASE_URL=
+API_KEY=
+STRIPE_SECRET_KEY=
+SENDGRID_API_KEY=
+```
+
+---
+
+## Troubleshooting
+
+### Secret not found
+- Verify the secret exists in your Doppler project config
+- Check the secret name matches exactly (case-sensitive)
+- Ensure you're looking at the correct config (dev vs stg vs prd)
+
+### Authentication failed
+- Verify the service token is correct and not expired
+- Generate a new service token from the Doppler dashboard
+- Check that the service token has access to the requested project/config
+
+### Access denied
+- Service tokens are scoped to a specific config — ensure you're using the right one
+- Verify the token hasn't been revoked
+
+### Wrong config
+- Double-check the `config` parameter matches the Doppler config where your secrets are stored
+- Remember Doppler configs are hierarchical (root → development/staging/production → branch configs)
+
+## Resources
+
+- [Doppler Documentation](https://docs.doppler.com)
+- [Service Tokens](https://docs.doppler.com/docs/service-tokens)
+- [Doppler API Reference](https://docs.doppler.com/reference)
+- [Projects and Configs](https://docs.doppler.com/docs/enclave-project-setup)
