@@ -258,7 +258,7 @@ export async function runDevServer(
     for (let i = 0; i < scenario.requests.length; i++) {
       const req = scenario.requests[i];
 
-      // if this request has file edits, apply them and wait for the server to restart
+      // if this request has file edits, apply them and wait for the server to process them
       if (req.fileEdits) {
         const stdoutOffsetBefore = stdoutChunks.length;
         const stderrOffsetBefore = stderrChunks.length;
@@ -269,28 +269,36 @@ export async function runDevServer(
           writeFileSync(fullPath, content);
         }
 
-        log('File edits applied, waiting for server restart...');
-        const newUrl = await waitForNewReady(
-          child,
-          stdoutChunks,
-          stderrChunks,
-          stdoutOffsetBefore,
-          stderrOffsetBefore,
-          scenario.readyPattern,
-          readyTimeout,
-        );
-        if (!newUrl) {
-          logError('Server did not restart after file edit');
-          dumpOutput();
-          return {
-            success: false,
-            stdout: getStdout(),
-            stderr: getStderr(),
-            responses,
-            error: 'Server did not become ready again after file edit',
-          };
+        if (req.fileEditDelay) {
+          // Fixed delay — used for in-place reloads / HMR where the server doesn't restart
+          log(`File edits applied, waiting ${req.fileEditDelay}ms for reload...`);
+          await new Promise<void>((r) => {
+            setTimeout(r, req.fileEditDelay);
+          });
+        } else {
+          log('File edits applied, waiting for server restart...');
+          const newUrl = await waitForNewReady(
+            child,
+            stdoutChunks,
+            stderrChunks,
+            stdoutOffsetBefore,
+            stderrOffsetBefore,
+            scenario.readyPattern,
+            readyTimeout,
+          );
+          if (!newUrl) {
+            logError('Server did not restart after file edit');
+            dumpOutput();
+            return {
+              success: false,
+              stdout: getStdout(),
+              stderr: getStderr(),
+              responses,
+              error: 'Server did not become ready again after file edit',
+            };
+          }
+          log(`Server restarted at ${newUrl}`);
         }
-        log(`Server restarted at ${newUrl}`);
       }
 
       const url = `${serverUrl}${req.path}`;

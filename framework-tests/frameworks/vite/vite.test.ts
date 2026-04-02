@@ -300,6 +300,9 @@ describe('Vite', () => {
           fileEdits: {
             '.env.dev': 'ENV_SPECIFIC_VAR=env-specific-changed\n',
           },
+          // Vite reloads config in-place without restarting the server,
+          // so the readyPattern never re-appears — use a fixed delay instead
+          fileEditDelay: 3_000,
           bodyAssertions: {
             shouldContain: ['env-specific-changed'],
           },
@@ -355,6 +358,8 @@ describe('Vite', () => {
           fileEdits: {
             'src/main.ts': readFileSync(join(import.meta.dirname, 'files/pages/updated-basic-page.ts'), 'utf-8'),
           },
+          // HMR doesn't restart the server — use a fixed delay
+          fileEditDelay: 2_000,
           bodyAssertions: {
             shouldContain: ['public-test-value', 'hot-reload-success'],
           },
@@ -473,19 +478,19 @@ describe('Vite', () => {
       outputAssertions: [
         {
           description: 'build output indicates config validation failure',
-          shouldContain: ['config validation failed'],
+          shouldContain: ['Varlock config validation failed', 'MISSING_REQUIRED_VAR'],
         },
       ],
     });
 
-    viteEnv.describeDevScenario('invalid schema shows error in dev mode', {
+    viteEnv.describeDevScenario('invalid schema shows error page then recovers on fix', {
       command: 'vite dev --port 15187',
       readyPattern: /Local:.*http/,
       readyTimeout: 30_000,
       templateFiles: {
         'vite.config.ts': 'vite-configs/vite.config.ts',
-        'index.html': 'html/basic.html',
-        'src/main.ts': 'pages/minimal-page.ts',
+        'index.html': 'html/html-replacement.html',
+        'src/main.ts': 'pages/basic-page.ts',
         '.env.schema': 'schemas/.env.schema.invalid',
       },
       requests: [
@@ -493,6 +498,19 @@ describe('Vite', () => {
           path: '/',
           bodyAssertions: {
             shouldContain: ['invalid'],
+            shouldNotContain: ['public-test-value'],
+          },
+        },
+        {
+          path: '/',
+          fileEdits: {
+            '.env.schema': readFileSync(join(import.meta.dirname, 'files/schemas/.env.schema'), 'utf-8'),
+          },
+          // Config reload after fixing .env.schema — Vite doesn't restart
+          fileEditDelay: 3_000,
+          bodyAssertions: {
+            shouldContain: ['public-test-value'],
+            shouldNotContain: ['invalid'],
           },
         },
       ],

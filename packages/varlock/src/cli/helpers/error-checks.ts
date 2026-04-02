@@ -101,7 +101,9 @@ export class InvalidEnvError extends Error {
 }
 
 export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
-  showAll?: boolean
+  showAll?: boolean;
+  /** Log errors to stderr but don't throw — used when the caller will handle errors itself (e.g. json-full output) */
+  noThrow?: boolean;
 }) {
   // check for root decorator "execution"
   for (const source of envGraph.sortedDataSources) {
@@ -151,6 +153,8 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
     }
 
     showPluginWarnings(envGraph);
-    throw new InvalidEnvError();
+    if (!opts?.noThrow) {
+      throw new InvalidEnvError();
+    }
   }
 }

@@ -161,7 +161,7 @@ try {
     const match = filePath.match(/^framework-tests\/frameworks\/([^/]+)\//);
     if (match && ALL_INTEGRATIONS.includes(match[1])) {
       changedTestIntegrations.add(match[1]);
-    } else if (filePath.startsWith('framework-tests/') && !filePath.startsWith('framework-tests/frameworks/')) {
+    } else if (filePath.startsWith('framework-tests/harness/') || filePath === 'framework-tests/vitest.config.ts') {
       // Shared test infrastructure changed — trigger all
       console.log(`Shared framework test file changed (${filePath}) — running all integration tests`);
       writeResults(ALL_INTEGRATIONS);

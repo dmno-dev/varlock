@@ -68,8 +68,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     currentEnvFallback: ctx.values.env,
     entryFilePath: ctx.values.path,
   });
-  checkForSchemaErrors(envGraph);
-  checkForNoEnvFiles(envGraph);
+
+  // For json-full, always output the serialized graph — it includes `errors` and
+  // `configErrors` fields so consumers can handle failures gracefully.
+  // For all other formats, exit on errors as before.
+  if (format !== 'json-full') {
+    checkForSchemaErrors(envGraph);
+    checkForNoEnvFiles(envGraph);
+  }
 
   if (!envGraph.rootDataSource) throw new Error('expected root data source to be set');
 
@@ -77,7 +83,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   await envGraph.generateTypesIfNeeded();
 
   await envGraph.resolveEnvValues();
-  checkForConfigErrors(envGraph, { showAll });
+
+  if (format === 'json-full') {
+    checkForConfigErrors(envGraph, { showAll, noThrow: true });
+  } else {
+    checkForConfigErrors(envGraph, { showAll });
+  }
 
   if (format === 'pretty') {
     showPluginWarnings(envGraph);

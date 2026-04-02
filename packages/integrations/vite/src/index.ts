@@ -57,23 +57,30 @@ let loadCount = 0;
 function reloadConfig() {
   debug('loading config - count =', ++loadCount);
   try {
-    const execResult = execSyncVarlock('load --format json-full', {
+    const execResult = execSyncVarlock('load --format json-full --compact', {
       env: originalProcessEnv,
       showLogsOnError: true,
     });
     process.env.__VARLOCK_ENV = execResult;
     varlockLoadedEnv = JSON.parse(process.env.__VARLOCK_ENV) as SerializedEnvGraph;
-    configIsValid = true;
   } catch (err) {
+    // Hard failure (e.g. schema parse error, CLI not found) — no JSON at all
     configIsValid = false;
+    resetStaticReplacements();
+    return;
   }
 
-  // initialize varlock and patch globals as necessary
-  initVarlockEnv();
-  // these will be no-ops if these are disabled by settings
-  patchGlobalConsole();
-  patchGlobalServerResponse();
-  patchGlobalResponse();
+  // The CLI now returns JSON even when validation fails — check for errors
+  configIsValid = !varlockLoadedEnv.errors;
+
+  if (configIsValid) {
+    // initialize varlock and patch globals as necessary
+    initVarlockEnv();
+    // these will be no-ops if these are disabled by settings
+    patchGlobalConsole();
+    patchGlobalServerResponse();
+    patchGlobalResponse();
+  }
 
   resetStaticReplacements();
 }
@@ -144,6 +151,16 @@ See https://varlock.dev/integrations/vite/ for more details.
           config.clearScreen = false;
         } else {
           console.log('💥 Varlock config validation failed 💥');
+          if (varlockLoadedEnv?.errors?.root) {
+            for (const msg of varlockLoadedEnv.errors.root) {
+              console.log(`  - ${msg}`);
+            }
+          }
+          if (varlockLoadedEnv?.errors?.configItems) {
+            for (const [key, msg] of Object.entries(varlockLoadedEnv.errors.configItems)) {
+              console.log(`  - ${key}: ${msg}`);
+            }
+          }
           // throwing an error spits out a big useless stack trace... so better to just exit?
           process.exit(1);
         }
@@ -152,6 +169,7 @@ See https://varlock.dev/integrations/vite/ for more details.
     // hook to observe/modify config after it is resolved
     configResolved(config) {
       debug('vite plugin - configResolved fn called');
+      if (!varlockLoadedEnv) return;
       // inject all .env files that varlock loaded into `configFileDependencies`
       // so that vite will watch them and reload if they change
       for (const varlockSource of varlockLoadedEnv.sources) {

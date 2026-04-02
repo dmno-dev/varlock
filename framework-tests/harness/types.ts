@@ -140,8 +140,15 @@ export interface DevServerRequest {
    * Files to write before this request (triggers env reload / server restart).
    * Keys are paths relative to project root, values are file content.
    * After writing, waits for the server's readyPattern to appear again before making the request.
+   * If `fileEditDelay` is also set, uses a fixed delay instead of waiting for readyPattern.
    */
   fileEdits?: Record<string, string>;
+  /**
+   * When set alongside `fileEdits`, wait this many milliseconds instead of waiting
+   * for the readyPattern to re-appear. Useful for in-place config reloads (e.g. Vite
+   * config file dependency changes) or HMR updates where the server doesn't restart.
+   */
+  fileEditDelay?: number;
 }
 
 /** Result of a single HTTP request to the dev server */
