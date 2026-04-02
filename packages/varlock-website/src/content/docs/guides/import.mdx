@@ -11,12 +11,12 @@ The [`@import()` root decorator](/reference/root-decorators/#import) allows you 
 # @import(./env-dir/)                   # import directory
 # @import(./.env.partial, KEY1, KEY2)   # import specific keys
 # @import(~/.env.shared)                # import from home directory
+# @import(public-schemas:platforms/vercel)  # import public schema
 ```
 
 ## Import source types
 
 The first argument to `@import()` specifies where to look for file(s) to import.
-Currently only local file imports are supported, but we plan to support importing over http in a style similar to Deno's http imports.
 
 For now, all imported files must be `.env` files (and may contain @env-spec decorators), but in the future, we may also support other formats (e.g., JSON, YAML, etc.) or even JS/TS files.
 
@@ -67,6 +67,53 @@ A registry (npm, jsr, etc.), package name, version, and path can be used to impo
 # @import(npm:@varlock/vercel-integration@1.2.3/.env)
 ```
  */}
+
+### Public schemas
+
+Varlock maintains a collection of pre-built schemas for popular platforms and services. Import them using the `public-schemas:` protocol.
+
+- Schema is fetched from GitHub and cached locally (in `~/.config/varlock/schemas-cache/`)
+- Cache is refreshed automatically after 24 hours
+- Use `varlock cache clear schemas` to force a refresh
+
+**Available platform schemas:**
+
+| Schema | Protocol path | Description |
+|--------|--------------|-------------|
+| Vercel | `public-schemas:platforms/vercel` | Vercel system environment variables |
+| Netlify | `public-schemas:platforms/netlify` | Netlify build environment variables |
+| Cloudflare Pages | `public-schemas:platforms/cloudflare-pages` | Cloudflare Pages build variables |
+| Cloudflare Wrangler | `public-schemas:platforms/cloudflare-wrangler` | Cloudflare Wrangler system variables |
+
+```env-spec
+# @import(public-schemas:platforms/vercel)
+```
+
+:::tip[Partial imports]
+You can import only specific variables from a public schema:
+
+```env-spec
+# @import(public-schemas:platforms/vercel, VERCEL_ENV, VERCEL_URL)
+```
+:::
+
+### Plugin schemas
+
+If you have a Varlock plugin installed that provides a schema, you can import it using the `plugin-schema:` protocol.
+
+- Looks for an `env-schema` field in the plugin's `package.json`, or falls back to a `.env.schema` file in the package root
+- The plugin must be installed in your project's `node_modules`
+
+```env-spec
+# @import(plugin-schema:@varlock/1password-plugin)
+```
+
+:::caution[Security]
+Remotely imported schemas (via `public-schemas:` or `plugin-schema:`) have security restrictions:
+- They **cannot** install plugins (`@plugin` is not allowed)
+- They **cannot** import local files (`./`, `../`, `~/`, or absolute paths)
+- They can only define schema information (types, descriptions, validation rules)
+:::
 
 ## Partial imports
 

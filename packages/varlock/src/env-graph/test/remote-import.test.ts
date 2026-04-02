@@ -1,8 +1,10 @@
-import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import {
+  describe, test, expect, vi, beforeEach, afterEach,
+} from 'vitest';
 import outdent from 'outdent';
 import path from 'node:path';
 import {
-  EnvGraph, DirectoryDataSource, DotEnvFileDataSource,
+  EnvGraph, DirectoryDataSource,
 } from '../../index';
 
 // Helper similar to envFilesTest but for testing graph loading

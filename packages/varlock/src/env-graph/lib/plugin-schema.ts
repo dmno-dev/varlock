@@ -7,6 +7,40 @@ import { getWorkspaceInfo } from '../../lib/workspace-utils';
 import type { FileBasedDataSource, EnvGraphDataSource } from './data-source';
 
 /**
+ * Finds the schema file in a plugin package.
+ *
+ * Checks:
+ * 1. "env-schema" field in package.json (points to a file relative to package root)
+ * 2. .env.schema file in the package root
+ */
+async function findPluginSchemaFile(packageDir: string): Promise<string | undefined> {
+  const pkgJsonPath = path.join(packageDir, 'package.json');
+
+  try {
+    const pkgJsonContent = await fs.readFile(pkgJsonPath, 'utf-8');
+    const pkgJson = JSON.parse(pkgJsonContent);
+
+    // Check for explicit "env-schema" field
+    if (pkgJson['env-schema']) {
+      const schemaFilePath = path.resolve(packageDir, pkgJson['env-schema']);
+      if (await pathExists(schemaFilePath)) {
+        return schemaFilePath;
+      }
+    }
+  } catch {
+    // No package.json or couldn't read it
+  }
+
+  // Fallback: look for .env.schema in the package root
+  const defaultSchemaPath = path.join(packageDir, '.env.schema');
+  if (await pathExists(defaultSchemaPath)) {
+    return defaultSchemaPath;
+  }
+
+  return undefined;
+}
+
+/**
  * Resolves a schema file (.env.schema) from an installed plugin package.
  *
  * Looks for a schema file exported via the "env-schema" field in the plugin's package.json,
@@ -55,38 +89,4 @@ export async function resolvePluginSchema(
   }
 
   throw new Error(`Plugin package "${pluginName}" not found in node_modules`);
-}
-
-/**
- * Finds the schema file in a plugin package.
- *
- * Checks:
- * 1. "env-schema" field in package.json (points to a file relative to package root)
- * 2. .env.schema file in the package root
- */
-async function findPluginSchemaFile(packageDir: string): Promise<string | undefined> {
-  const pkgJsonPath = path.join(packageDir, 'package.json');
-
-  try {
-    const pkgJsonContent = await fs.readFile(pkgJsonPath, 'utf-8');
-    const pkgJson = JSON.parse(pkgJsonContent);
-
-    // Check for explicit "env-schema" field
-    if (pkgJson['env-schema']) {
-      const schemaFilePath = path.resolve(packageDir, pkgJson['env-schema']);
-      if (await pathExists(schemaFilePath)) {
-        return schemaFilePath;
-      }
-    }
-  } catch {
-    // No package.json or couldn't read it
-  }
-
-  // Fallback: look for .env.schema in the package root
-  const defaultSchemaPath = path.join(packageDir, '.env.schema');
-  if (await pathExists(defaultSchemaPath)) {
-    return defaultSchemaPath;
-  }
-
-  return undefined;
 }

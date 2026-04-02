@@ -63,7 +63,9 @@ function fetchUrl(url: string): Promise<string> {
         return;
       }
       let data = '';
-      res.on('data', (chunk) => { data += chunk; });
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
       res.on('end', () => resolve(data));
       res.on('error', reject);
     }).on('error', reject);
@@ -101,7 +103,6 @@ export async function fetchPublicSchema(schemaPath: string): Promise<string> {
   }
 
   // Fetch from GitHub
-  const url = `${PUBLIC_SCHEMAS_GITHUB_BASE}/${schemaPath.replace(/^\//, '')}`;
   // The actual file on disk is named .env.<name>, so we need to construct the URL properly
   // schemaPath is like "platforms/vercel" -> fetch "platforms/.env.vercel"
   const parts = schemaPath.split('/');

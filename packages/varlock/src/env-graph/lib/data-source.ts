@@ -506,7 +506,8 @@ export abstract class EnvGraphDataSource {
             }
             try {
               // eslint-disable-next-line no-use-before-define
-              const schemaSource = await resolvePluginSchema(pluginName, this instanceof FileBasedDataSource ? this : undefined);
+              const fileSource = this instanceof FileBasedDataSource ? this : undefined;
+              const schemaSource = await resolvePluginSchema(pluginName, fileSource);
               if (!schemaSource) {
                 if (allowMissing) continue;
                 this._loadingError = new Error(`Plugin "${pluginName}" does not expose a schema file`);
