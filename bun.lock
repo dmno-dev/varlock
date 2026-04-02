@@ -289,6 +289,22 @@
         "varlock": "workspace:^",
       },
     },
+    "packages/plugins/keeper": {
+      "name": "@varlock/keeper-plugin",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@env-spec/utils": "workspace:^",
+        "@keeper-security/secrets-manager-core": "17.4.0",
+        "@types/node": "catalog:",
+        "outdent": "catalog:",
+        "tsup": "catalog:",
+        "varlock": "workspace:^",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "varlock": "workspace:^",
+      },
+    },
     "packages/plugins/pass": {
       "name": "@varlock/pass-plugin",
       "version": "0.0.6",
@@ -905,6 +921,8 @@
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
     "@jsdevtools/ono": ["@jsdevtools/ono@7.1.3", "", {}, "sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg=="],
+
+    "@keeper-security/secrets-manager-core": ["@keeper-security/secrets-manager-core@17.4.0", "", {}, "sha512-KjJKPlQiHK00ft2lhirLSyZHv1qLui4oD0AkMTFXXC4BpNlQFwR/CLTtJc4dLTJ3tKoA5aGs8A8l4sNqcNPUxQ=="],
 
     "@manypkg/find-root": ["@manypkg/find-root@1.1.0", "", { "dependencies": { "@babel/runtime": "^7.5.5", "@types/node": "^12.7.1", "find-up": "^4.1.0", "fs-extra": "^8.1.0" } }, "sha512-mki5uBvhHzO8kYYix/WRy2WX8S3B5wdVSc9D6KcU5lQNglP2yt58/VfLuAK49glRXChosY8ap2oJ1qgma3GUVA=="],
 
