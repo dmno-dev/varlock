@@ -159,6 +159,10 @@ describe('Expo Integration', () => {
           description: 'error mentions failed config load',
           shouldContain: ['Failed to load varlock config'],
         },
+        {
+          description: 'validation error details are shown',
+          shouldContain: ['MISSING_REQUIRED_VAR'],
+        },
       ],
     });
   });

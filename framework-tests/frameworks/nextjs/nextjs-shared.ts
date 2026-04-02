@@ -50,6 +50,23 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
     beforeAll(() => nextEnv.setup(), 180_000);
     afterAll(() => nextEnv.teardown());
 
+    describe('invalid config', () => {
+      nextEnv.describeScenario('invalid schema causes build failure', {
+        command: 'next build',
+        expectSuccess: false,
+        templateFiles: {
+          'app/page.tsx': 'pages/basic-page.tsx',
+          '.env.schema': 'schemas/.env.schema.invalid',
+        },
+        outputAssertions: [
+          {
+            description: 'validation error details are shown',
+            shouldContain: ['MISSING_REQUIRED_VAR'],
+          },
+        ],
+      });
+    });
+
     BUNDLERS.forEach((webpackOrTurbo) => {
       const buildToolFlag = getBuildToolFlag(nextVersion, webpackOrTurbo);
 

@@ -1,4 +1,5 @@
 import { define } from 'gunshi';
+import { gracefulExit } from 'exit-hook';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { getItemSummary } from '../../lib/formatting';
@@ -100,7 +101,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     console.log(JSON.stringify(envGraph.getResolvedEnvObject(), null, 2));
   } else if (format === 'json-full') {
     const indent = compact ? 0 : 2;
-    console.log(JSON.stringify(envGraph.getSerializedGraph(), null, indent));
+    const serialized = envGraph.getSerializedGraph();
+    console.log(JSON.stringify(serialized, null, indent));
+    // Output JSON to stdout even on failure (so consumers can parse err.stdout),
+    // but still exit non-zero so execSync callers know something is wrong
+    if (serialized.errors) {
+      gracefulExit(1);
+    }
   } else if (format === 'env' || format === 'shell') {
     const resolvedEnv = envGraph.getResolvedEnvObject();
     const skipUndefined = compact === true;

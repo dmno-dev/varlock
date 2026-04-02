@@ -514,6 +514,12 @@ describe('Vite', () => {
           },
         },
       ],
+      outputAssertions: [
+        {
+          description: 'validation error details are shown in terminal',
+          shouldContain: ['MISSING_REQUIRED_VAR'],
+        },
+      ],
     });
   });
 });

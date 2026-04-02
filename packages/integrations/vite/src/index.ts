@@ -59,28 +59,33 @@ function reloadConfig() {
   try {
     const execResult = execSyncVarlock('load --format json-full --compact', {
       env: originalProcessEnv,
-      showLogsOnError: true,
     });
     process.env.__VARLOCK_ENV = execResult;
     varlockLoadedEnv = JSON.parse(process.env.__VARLOCK_ENV) as SerializedEnvGraph;
+    configIsValid = true;
   } catch (err) {
-    // Hard failure (e.g. schema parse error, CLI not found) — no JSON at all
+    // CLI exits non-zero on validation failure but still outputs JSON to stdout.
+    // Try to parse it so we have sources (for file watching) and error details.
+    const errAny = err as any;
+    const stdout = errAny?.stdout?.toString();
+    if (stdout) {
+      try {
+        varlockLoadedEnv = JSON.parse(stdout) as SerializedEnvGraph;
+      } catch { /* not parseable — hard failure */ }
+    }
+    // Show the human-readable error output from the CLI
+    if (errAny?.stderr) console.error(errAny.stderr.toString());
     configIsValid = false;
     resetStaticReplacements();
     return;
   }
 
-  // The CLI now returns JSON even when validation fails — check for errors
-  configIsValid = !varlockLoadedEnv.errors;
-
-  if (configIsValid) {
-    // initialize varlock and patch globals as necessary
-    initVarlockEnv();
-    // these will be no-ops if these are disabled by settings
-    patchGlobalConsole();
-    patchGlobalServerResponse();
-    patchGlobalResponse();
-  }
+  // initialize varlock and patch globals as necessary
+  initVarlockEnv();
+  // these will be no-ops if these are disabled by settings
+  patchGlobalConsole();
+  patchGlobalServerResponse();
+  patchGlobalResponse();
 
   resetStaticReplacements();
 }
