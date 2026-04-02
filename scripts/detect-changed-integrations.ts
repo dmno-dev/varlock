@@ -28,7 +28,7 @@ const INTEGRATION_PACKAGES: Record<string, Array<string>> = {
   cloudflare: ['@varlock/cloudflare-integration', '@varlock/vite-integration'],
   expo: ['@varlock/expo-integration'],
   'vanilla-node': [], // no integration package — triggered only by core varlock changes
-  // astro: ['@varlock/astro-integration', '@varlock/vite-integration'],
+  astro: ['@varlock/astro-integration', '@varlock/vite-integration'],
 };
 
 const ALL_INTEGRATIONS = Object.keys(INTEGRATION_PACKAGES);

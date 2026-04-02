@@ -11,6 +11,7 @@ From this directory (`framework-tests/`):
 bun run test
 
 # Run tests for a specific framework
+bun run test:astro
 bun run test:expo
 bun run test:nextjs
 
@@ -69,5 +70,6 @@ Each scenario uses `describeScenario()` which:
 
 ## Current frameworks
 
+- **Astro** — tests static builds and SSR dev server, verifying env injection, leak detection in static output / client scripts / server pages / API endpoints, log redaction, and env vars in astro config
 - **Next.js** — tests multiple versions (14, 15, 16) and bundlers (webpack, turbopack), verifying env injection, leak detection, log redaction, and sourcemap scrubbing
 - **Expo** — tests the babel plugin transform pipeline, verifying static replacement of public vars, protection of sensitive vars, and correct handling of server (+api) routes

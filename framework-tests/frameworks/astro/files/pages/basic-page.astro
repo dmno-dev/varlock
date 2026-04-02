@@ -1,0 +1,24 @@
+---
+import { ENV } from 'varlock/env';
+
+const publicVar = ENV.PUBLIC_VAR;
+const unprefixedPublic = ENV.UNPREFIXED_PUBLIC;
+const envSpecific = ENV.ENV_SPECIFIC_VAR;
+const hasSensitive = !!ENV.SENSITIVE_VAR;
+
+// This should be redacted in build output
+console.log('secret-log-test:', ENV.SENSITIVE_VAR);
+---
+
+<html>
+  <head>
+    <title>Varlock Framework Test - Astro</title>
+  </head>
+  <body>
+    <h1>Varlock Framework Test - Astro</h1>
+    <p>Public var: {publicVar}</p>
+    <p>Unprefixed public: {unprefixedPublic}</p>
+    <p>Env specific var: {envSpecific}</p>
+    <p>Has sensitive: {hasSensitive ? 'sensitive-var-available' : 'X - not available'}</p>
+  </body>
+</html>

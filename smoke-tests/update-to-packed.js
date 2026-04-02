@@ -8,7 +8,6 @@ if (process.env.PACK_PACKAGES) {
   const rootDir = join(import.meta.dirname, '../');
   execSync('mkdir -p packed-packages', { cwd: rootDir });
   execSync('cd packages/integrations/nextjs && bun pm pack --destination ../../../packed-packages', { cwd: rootDir });
-  execSync('cd packages/integrations/astro && bun pm pack --destination ../../../packed-packages', { cwd: rootDir });
   execSync('cd packages/varlock && bun pm pack --destination ../../packed-packages', { cwd: rootDir });
 }
 
@@ -16,12 +15,11 @@ if (process.env.PACK_PACKAGES) {
 const packedDir = join(import.meta.dirname, '../packed-packages');
 const tgzFiles = readdirSync(packedDir).filter((f) => f.endsWith('.tgz'));
 
-const varlockTgz = tgzFiles.find((f) => f.startsWith('varlock-') && !f.includes('astro') && !f.includes('nextjs'));
-const astroTgz = tgzFiles.find((f) => f.includes('astro-integration'));
+const varlockTgz = tgzFiles.find((f) => f.startsWith('varlock-') && !f.includes('nextjs'));
 const nextjsTgz = tgzFiles.find((f) => f.includes('nextjs-integration'));
 
-if (!varlockTgz || !astroTgz || !nextjsTgz) {
-  console.error('Missing packed packages:', { varlockTgz, astroTgz, nextjsTgz });
+if (!varlockTgz || !nextjsTgz) {
+  console.error('Missing packed packages:', { varlockTgz, nextjsTgz });
   process.exit(1);
 }
 
@@ -31,13 +29,6 @@ const rootPkg = JSON.parse(readFileSync(rootPkgPath, 'utf-8'));
 rootPkg.devDependencies.varlock = `file:../packed-packages/${varlockTgz}`;
 rootPkg.pnpm.overrides['@next/env'] = `file:../packed-packages/${nextjsTgz}`;
 writeFileSync(rootPkgPath, `${JSON.stringify(rootPkg, null, 2)}\n`);
-
-// Update Astro package.json
-const astroPkgPath = join(import.meta.dirname, 'smoke-test-astro/package.json');
-const astroPkg = JSON.parse(readFileSync(astroPkgPath, 'utf-8'));
-astroPkg.dependencies['@varlock/astro-integration'] = `file:../../packed-packages/${astroTgz}`;
-astroPkg.dependencies.varlock = `file:../../packed-packages/${varlockTgz}`;
-writeFileSync(astroPkgPath, `${JSON.stringify(astroPkg, null, 2)}\n`);
 
 // Update Next.js package.json
 const nextPkgPath = join(import.meta.dirname, 'smoke-test-nextjs/package.json');
