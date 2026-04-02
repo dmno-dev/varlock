@@ -44,7 +44,7 @@ export function execSyncVarlock(
     // if varlock was not found, it either means it is not installed
     // or we must find the path to node_modules/.bin ourselves
     // so we'll walk up the directory tree looking for it
-    let currentDir = (opts?.cwd ?? process.cwd()).toString();
+    let currentDir = (opts?.cwd as string | undefined) ?? process.cwd();
     while (currentDir) {
       const possibleBinPath = path.join(currentDir, 'node_modules', '.bin');
       if (fs.existsSync(possibleBinPath)) {

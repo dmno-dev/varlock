@@ -147,7 +147,7 @@ See https://varlock.dev/integrations/vite/ for more details.
       // where process.cwd() points. We need to reload varlock from the
       // correct directory so it can find .env.schema and .env files.
       const projectRoot = config.root ? path.resolve(config.root) : undefined;
-      const rootDiffersFromCwd = projectRoot && projectRoot !== process.cwd();
+      const rootDiffersFromCwd = !!(projectRoot && path.relative(projectRoot, process.cwd()) !== '');
 
       // this gets re-triggered after .env file updates
       // TODO: be smarter about only reloading if the env files changed?
