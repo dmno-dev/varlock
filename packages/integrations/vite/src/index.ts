@@ -54,11 +54,12 @@ function resetStaticReplacements() {
 
 
 let loadCount = 0;
-function reloadConfig() {
-  debug('loading config - count =', ++loadCount);
+function reloadConfig(cwd?: string) {
+  debug('loading config - count =', ++loadCount, cwd ? `(cwd: ${cwd})` : '');
   try {
     const execResult = execSyncVarlock('load --format json-full --compact', {
       env: originalProcessEnv,
+      ...(cwd && { cwd }),
     });
     process.env.__VARLOCK_ENV = execResult;
     varlockLoadedEnv = JSON.parse(process.env.__VARLOCK_ENV) as SerializedEnvGraph;
@@ -140,12 +141,25 @@ See https://varlock.dev/integrations/vite/ for more details.
 
       isDevCommand = env.command === 'serve';
 
+      // Determine the project root for the current Vite/Vitest project.
+      // In monorepo setups with Vitest workspace projects, config.root
+      // points to the child package directory rather than the monorepo root
+      // where process.cwd() points. We need to reload varlock from the
+      // correct directory so it can find .env.schema and .env files.
+      const projectRoot = config.root ? path.resolve(config.root) : undefined;
+      const rootDiffersFromCwd = projectRoot && projectRoot !== process.cwd();
+
       // this gets re-triggered after .env file updates
       // TODO: be smarter about only reloading if the env files changed?
       if (isFirstLoad) {
         isFirstLoad = false;
+        // If the project root differs from cwd (monorepo scenario), or
+        // the initial module-level load failed, reload with the correct root
+        if (rootDiffersFromCwd || !configIsValid) {
+          reloadConfig(rootDiffersFromCwd ? projectRoot : undefined);
+        }
       } else if (isDevCommand) {
-        reloadConfig();
+        reloadConfig(rootDiffersFromCwd ? projectRoot : undefined);
       }
 
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
