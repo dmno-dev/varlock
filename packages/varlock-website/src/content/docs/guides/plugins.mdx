@@ -22,12 +22,6 @@ This unlocks use cases like:
 
 Plugins are authored in TypeScript and can be loaded via local files, or from package registries like npm. Varlock will handle downloading and caching plugins automatically.
 
-:::caution[Plugin authoring SDKs coming soon]
-Plugin authoring SDKs are still in development. For now, only official Varlock plugins are available for use.
-
-Please reach out on [Discord](https://chat.dmno.dev) if you are interested in developing your own plugins.
-:::
-
 
 ## Plugin installation ||installation||
 
@@ -55,8 +49,8 @@ When using the standalone binary (no `package.json` present), you must specify a
 # @plugin(@varlock/a-plugin@1.2.3) # downloads and caches v1.2.3 from npm
 ```
 
-:::caution[Only `@varlock/*` plugins supported for now]
-For now, only official Varlock plugins under the `@varlock` npm scope are supported. We plan to support third-party plugins in the future, along with additional plugin source types (e.g., jsr, git, http, etc.).
+:::caution[Third-party plugin confirmation]
+When downloading a third-party (non-`@varlock/*`) plugin for the first time, Varlock will prompt you to confirm before downloading. Once confirmed and cached, subsequent runs will not re-prompt. You can also install the plugin via your `package.json` to skip the prompt entirely.
 :::
 
 {/*

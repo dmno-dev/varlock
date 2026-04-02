@@ -10,9 +10,11 @@ import crypto from 'node:crypto';
 import https from 'node:https';
 import ansis from 'ansis';
 import semver from 'semver';
+import { isCancel } from '@clack/prompts';
 import _ from '@env-spec/utils/my-dash';
 import { pathExists } from '@env-spec/utils/fs-utils';
 import { getUserVarlockDir } from '../../lib/user-config-dir';
+import { confirm } from '../../cli/helpers/prompts';
 
 
 import { FileBasedDataSource, type EnvGraphDataSource } from './data-source';
@@ -449,6 +451,22 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
   }
 }
 
+async function isPluginCached(url: string): Promise<boolean> {
+  const cacheDir = path.join(getUserVarlockDir(), 'plugins-cache');
+  const indexPath = path.join(cacheDir, 'index.json');
+  try {
+    const indexRaw = await fs.readFile(indexPath, 'utf-8');
+    const index = JSON.parse(indexRaw) as Record<string, string>;
+    if (index[url]) {
+      const pluginDir = path.join(cacheDir, index[url]);
+      return fs.stat(pluginDir).then(() => true, () => false);
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 async function downloadPlugin(url: string) {
   const exec = promisify(execCb);
   const cacheDir = path.join(getUserVarlockDir(), 'plugins-cache');
@@ -572,10 +590,6 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
             versionDescriptor = pluginSourceDescriptor.slice(atLocation + 1);
           }
 
-          if (!moduleName.startsWith('@varlock/')) {
-            throw new SchemaError(`Plugin "${moduleName}" blocked - only official @varlock/* plugins are supported for now, third-party plugins will be supported in future releases`);
-          }
-
           const semverRange = semver.validRange(versionDescriptor);
           if (versionDescriptor && !semverRange) {
             throw new SchemaError(`Bad @plugin version descriptor: ${versionDescriptor}`);
@@ -648,6 +662,37 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
             const tarballUrl = npmInfo?.dist?.tarball;
             if (!tarballUrl) {
               throw new Error(`Failed to find tarball URL for plugin "${moduleName}@${versionDescriptor}" from npm`);
+            }
+
+            // Third-party plugins (non-@varlock) require user confirmation before downloading.
+            // Official @varlock plugins are always trusted. If already cached (previously confirmed),
+            // skip the prompt — the user has already blessed this specific version.
+            if (!moduleName.startsWith('@varlock/') && !(await isPluginCached(tarballUrl))) {
+              if (!process.stdout.isTTY || !process.stdin.isTTY) {
+                throw new SchemaError(
+                  `Third-party plugin "${moduleName}@${versionDescriptor}" must be confirmed before downloading, `
+                  + 'but no interactive terminal (TTY) is available. '
+                  + 'Run varlock interactively to confirm the download, or install the plugin via your package.json.',
+                );
+              }
+
+              process.stdout.write(
+                `\n${ansis.yellow('⚠')}  Third-party plugin download requested\n`
+                + `   Package: ${ansis.bold(`${moduleName}@${versionDescriptor}`)}\n`
+                + '   Source:  npm registry (https://registry.npmjs.org)\n\n'
+                + `   ${ansis.italic('Only install plugins from sources you trust.')}\n\n`,
+              );
+
+              const confirmed = await confirm({
+                message: `Allow downloading "${moduleName}@${versionDescriptor}" from npm?`,
+                active: 'Yes, download it',
+                inactive: 'No, cancel',
+                initialValue: false,
+              });
+
+              if (isCancel(confirmed) || !confirmed) {
+                throw new SchemaError(`Third-party plugin "${moduleName}" download cancelled`);
+              }
             }
 
             // downloads into local cache folder (user varlock config dir / plugins-cache/)
