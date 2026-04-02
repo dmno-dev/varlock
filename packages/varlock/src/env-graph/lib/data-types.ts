@@ -184,7 +184,7 @@ const StringDataType = createEnvGraphDataType(
         errors.push(new ValidationError(`Value must start with "${settings.startsWith}"`));
       }
       if (settings?.endsWith && !val.endsWith(settings.endsWith)) {
-        errors.push(new ValidationError(`Value must start with "${settings.endsWith}"`));
+        errors.push(new ValidationError(`Value must end with "${settings.endsWith}"`));
       }
 
       if (settings?.matches) {
