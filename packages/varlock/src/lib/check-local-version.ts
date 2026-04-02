@@ -13,7 +13,7 @@ import fs from 'node:fs';
 export function checkLocalVersionMismatch(currentVersion: string): string | undefined {
   // Walk up from cwd looking for node_modules/varlock/package.json
   let currentDir = process.cwd();
-  while (currentDir) {
+  while (true) {
     const localPkgJsonPath = path.join(currentDir, 'node_modules', 'varlock', 'package.json');
     if (fs.existsSync(localPkgJsonPath)) {
       try {

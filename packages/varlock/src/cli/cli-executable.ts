@@ -80,16 +80,19 @@ subCommands.set('typegen', buildLazyCommand(typegenCommandSpec, async () => awai
         console.log(versionId);
         gracefulExit();
       }
-
-      // warn if local node_modules has a different version of varlock
-      const versionMismatchWarning = checkLocalVersionMismatch(packageJson.version);
-      if (versionMismatchWarning) {
-        console.warn(`\n⚠️  ${versionMismatchWarning}\n`);
-      }
     }
 
     if (args[0] === '--version') {
       await trackCommand('version');
+    }
+
+    // warn if standalone binary version differs from local node_modules install
+    // skip for --version/--help since those are quick informational commands
+    if (__VARLOCK_SEA_BUILD__ && args[0] !== '--version' && args[0] !== '--help') {
+      const versionMismatchWarning = checkLocalVersionMismatch(packageJson.version);
+      if (versionMismatchWarning) {
+        console.warn(`\n⚠️  ${versionMismatchWarning}\n`);
+      }
     }
 
     await cli(args, {
