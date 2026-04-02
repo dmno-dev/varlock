@@ -173,7 +173,7 @@ class OpPluginInstance {
 
     // Search by title
     const vaults = await this.connectRequest<Array<ConnectVault>>(
-      `/vaults?filter=${encodeURIComponent(`name eq "${vaultQuery}"`)}`,
+      `/vaults?filter=${encodeURIComponent(`name eq "${vaultQuery.replace(/"/g, '\\"')}"`)}`,
     );
     if (!vaults.length) {
       throw new ResolutionError(`1Password Connect: vault "${vaultQuery}" not found`, {
@@ -202,7 +202,7 @@ class OpPluginInstance {
 
     // Search by title
     const items = await this.connectRequest<Array<{ id: string; title?: string }>>(
-      `/vaults/${vaultId}/items?filter=${encodeURIComponent(`title eq "${itemQuery}"`)}`,
+      `/vaults/${vaultId}/items?filter=${encodeURIComponent(`title eq "${itemQuery.replace(/"/g, '\\"')}"`)}`,
     );
     if (!items.length) {
       throw new ResolutionError(`1Password Connect: item "${itemQuery}" not found in vault`, {
