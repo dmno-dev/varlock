@@ -1,0 +1,4 @@
+---
+---
+
+add vite framework tests
