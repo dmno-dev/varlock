@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 
 // weird tsup issue using `typeof execSync` from node:child_process
 // see https://github.com/egoist/tsup/issues/1367
@@ -49,7 +49,7 @@ export function execSyncVarlock(
       if (fs.existsSync(possibleBinPath)) {
         const possibleVarlockPath = path.join(possibleBinPath, 'varlock');
         if (fs.existsSync(possibleVarlockPath)) {
-          const result = execSync(`${possibleVarlockPath} ${command}`, {
+          const result = execFileSync(possibleVarlockPath, command.split(' '), {
             ...opts,
             stdio: 'pipe',
           });
