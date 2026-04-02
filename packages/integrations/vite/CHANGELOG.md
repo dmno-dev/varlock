@@ -1,5 +1,18 @@
 # @varlock/vite-integration
 
+## 0.2.9
+
+### Patch Changes
+
+- [#527](https://github.com/dmno-dev/varlock/pull/527) [`e67ee2f`](https://github.com/dmno-dev/varlock/commit/e67ee2f5c6b09b91564eba3925de560c12ca80c3) - Improve invalid config handling in CLI and Vite integration
+
+  - `varlock load --format json-full` now outputs partial JSON (with `errors` field) even when validation fails, enabling consumers to access sources and valid config items
+  - Vite plugin gracefully handles invalid config in dev mode: shows error page and automatically recovers when the config is fixed
+  - Vite build output now includes specific error details when config validation fails
+
+- Updated dependencies [[`0d25aa5`](https://github.com/dmno-dev/varlock/commit/0d25aa5e6973e9fc0cf5054e444c0ded28a186f0), [`004e181`](https://github.com/dmno-dev/varlock/commit/004e181ec44251a75be45efafc85846bb3874467), [`e67ee2f`](https://github.com/dmno-dev/varlock/commit/e67ee2f5c6b09b91564eba3925de560c12ca80c3)]:
+  - varlock@0.7.1
+
 ## 0.2.8
 
 ### Patch Changes
