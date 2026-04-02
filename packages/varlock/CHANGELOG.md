@@ -1,5 +1,21 @@
 # varlock
 
+## 0.7.1
+
+### Patch Changes
+
+- [#540](https://github.com/dmno-dev/varlock/pull/540) [`0d25aa5`](https://github.com/dmno-dev/varlock/commit/0d25aa5e6973e9fc0cf5054e444c0ded28a186f0) - Fix incorrect validation error message for `endsWith` string constraint - it was saying "Value must start with" instead of "Value must end with"
+
+- [#543](https://github.com/dmno-dev/varlock/pull/543) [`004e181`](https://github.com/dmno-dev/varlock/commit/004e181ec44251a75be45efafc85846bb3874467) - Fix execSyncVarlock breaking when project path contains spaces
+
+  Use `execFileSync` instead of `execSync` for the fallback varlock path resolution to avoid shell interpretation of spaces in directory paths.
+
+- [#527](https://github.com/dmno-dev/varlock/pull/527) [`e67ee2f`](https://github.com/dmno-dev/varlock/commit/e67ee2f5c6b09b91564eba3925de560c12ca80c3) - Improve invalid config handling in CLI and Vite integration
+
+  - `varlock load --format json-full` now outputs partial JSON (with `errors` field) even when validation fails, enabling consumers to access sources and valid config items
+  - Vite plugin gracefully handles invalid config in dev mode: shows error page and automatically recovers when the config is fixed
+  - Vite build output now includes specific error details when config validation fails
+
 ## 0.7.0
 
 ### Minor Changes
