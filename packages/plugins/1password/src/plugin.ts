@@ -156,16 +156,16 @@ class OpPluginInstance {
     return res.json() as Promise<T>;
   }
 
-  /** Cache vault name → ID lookups within a session */
-  private vaultIdCache = new Map<string, string>();
+  /** Cache vault name → ID lookups within a session (Connect only) */
+  private connectVaultIdCache = new Map<string, string>();
 
-  private async resolveVaultId(vaultQuery: string): Promise<string> {
-    if (this.vaultIdCache.has(vaultQuery)) return this.vaultIdCache.get(vaultQuery)!;
+  private async connectResolveVaultId(vaultQuery: string): Promise<string> {
+    if (this.connectVaultIdCache.has(vaultQuery)) return this.connectVaultIdCache.get(vaultQuery)!;
 
     // Try direct ID lookup first
     try {
       const vault = await this.connectRequest<ConnectVault>(`/vaults/${encodeURIComponent(vaultQuery)}`);
-      this.vaultIdCache.set(vaultQuery, vault.id);
+      this.connectVaultIdCache.set(vaultQuery, vault.id);
       return vault.id;
     } catch {
       // fall through to title search
@@ -181,21 +181,21 @@ class OpPluginInstance {
         tip: 'Check the vault name or ID in your op:// reference',
       });
     }
-    this.vaultIdCache.set(vaultQuery, vaults[0].id);
+    this.connectVaultIdCache.set(vaultQuery, vaults[0].id);
     return vaults[0].id;
   }
 
-  /** Cache item title → ID lookups within a session */
-  private itemIdCache = new Map<string, string>();
+  /** Cache item title → ID lookups within a session (Connect only) */
+  private connectItemIdCache = new Map<string, string>();
 
-  private async resolveItemId(vaultId: string, itemQuery: string): Promise<string> {
+  private async connectResolveItemId(vaultId: string, itemQuery: string): Promise<string> {
     const cacheKey = `${vaultId}/${itemQuery}`;
-    if (this.itemIdCache.has(cacheKey)) return this.itemIdCache.get(cacheKey)!;
+    if (this.connectItemIdCache.has(cacheKey)) return this.connectItemIdCache.get(cacheKey)!;
 
     // Try direct ID lookup first
     try {
       const item = await this.connectRequest<ConnectItem>(`/vaults/${vaultId}/items/${encodeURIComponent(itemQuery)}`);
-      this.itemIdCache.set(cacheKey, item.id);
+      this.connectItemIdCache.set(cacheKey, item.id);
       return item.id;
     } catch {
       // fall through to title search
@@ -211,11 +211,11 @@ class OpPluginInstance {
         tip: 'Check the item name or ID in your op:// reference',
       });
     }
-    this.itemIdCache.set(cacheKey, items[0].id);
+    this.connectItemIdCache.set(cacheKey, items[0].id);
     return items[0].id;
   }
 
-  private extractField(item: ConnectItem, sectionQuery: string | undefined, fieldQuery: string): string {
+  private connectExtractField(item: ConnectItem, sectionQuery: string | undefined, fieldQuery: string): string {
     const fields = item.fields || [];
     const sections = item.sections || [];
 
@@ -254,10 +254,10 @@ class OpPluginInstance {
 
   private async readItemViaConnect(opReference: string): Promise<string> {
     const parsed = parseOpReference(opReference);
-    const vaultId = await this.resolveVaultId(parsed.vault);
-    const itemId = await this.resolveItemId(vaultId, parsed.item);
+    const vaultId = await this.connectResolveVaultId(parsed.vault);
+    const itemId = await this.connectResolveItemId(vaultId, parsed.item);
     const fullItem = await this.connectRequest<ConnectItem>(`/vaults/${vaultId}/items/${itemId}`);
-    return this.extractField(fullItem, parsed.section, parsed.field);
+    return this.connectExtractField(fullItem, parsed.section, parsed.field);
   }
 
   // ── Core read methods ─────────────────────────────────────
