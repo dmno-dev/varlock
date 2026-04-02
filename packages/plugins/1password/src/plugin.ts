@@ -16,9 +16,57 @@ plugin.icon = OP_ICON;
 plugin.standardVars = {
   initDecorator: '@initOp',
   params: {
-    token: { key: 'OP_SERVICE_ACCOUNT_TOKEN' },
+    token: { key: ['OP_SERVICE_ACCOUNT_TOKEN', 'OP_CONNECT_TOKEN'] },
   },
 };
+
+// ──────────────────────────────────────────────────────────────
+// 1Password Connect Server helpers (direct REST API via fetch)
+// ──────────────────────────────────────────────────────────────
+
+interface ConnectField {
+  id: string;
+  label?: string;
+  value?: string;
+  type?: string;
+  purpose?: string;
+  section?: { id: string };
+}
+
+interface ConnectSection {
+  id: string;
+  label?: string;
+}
+
+interface ConnectItem {
+  id: string;
+  title?: string;
+  fields?: Array<ConnectField>;
+  sections?: Array<ConnectSection>;
+}
+
+interface ConnectVault {
+  id: string;
+  name?: string;
+}
+
+/** Parse an `op://vault/item/[section/]field` reference into its parts */
+function parseOpReference(ref: string): {
+  vault: string; item: string; section?: string; field: string;
+} {
+  const stripped = ref.replace(/^op:\/\//, '');
+  const parts = stripped.split('/');
+  if (parts.length === 3) {
+    return { vault: parts[0], item: parts[1], field: parts[2] };
+  } else if (parts.length === 4) {
+    return {
+      vault: parts[0], item: parts[1], section: parts[2], field: parts[3],
+    };
+  }
+  throw new ResolutionError(`Invalid op:// reference format: "${ref}"`, {
+    tip: 'Expected format: op://vault/item/field or op://vault/item/section/field',
+  });
+}
 
 /** Parse env format output from `op environment read` into a flat {name: value} JSON string */
 function parseOpEnvOutput(raw: string): string {
@@ -43,18 +91,33 @@ class OpPluginInstance {
    * (will not be set to true if a token is provided)
    * */
   private allowAppAuth?: boolean;
+  /** URL of a 1Password Connect server */
+  private connectHost?: string;
+  /** API token for authenticating with the Connect server */
+  private connectToken?: string;
 
   constructor(
     readonly id: string,
   ) {
   }
 
-  setAuth(token: any, allowAppAuth: boolean, account?: string) {
+  setAuth(
+    token: any,
+    allowAppAuth: boolean,
+    account?: string,
+    connectHost?: string,
+    connectToken?: string,
+  ) {
     if (token && typeof token === 'string') this.token = token;
     this.allowAppAuth = allowAppAuth;
     this.account = account;
-    debug('op instance', this.id, ' set auth - ', token, allowAppAuth, account);
+    if (connectHost && typeof connectHost === 'string') this.connectHost = connectHost.replace(/\/+$/, '');
+    if (connectToken && typeof connectToken === 'string') this.connectToken = connectToken;
+    debug('op instance', this.id, ' set auth - ', token, allowAppAuth, account, 'connect:', !!connectHost);
   }
+
+  /** Whether this instance is configured for Connect server */
+  get isConnect() { return !!(this.connectHost && this.connectToken); }
 
   opClientPromise: Promise<Client> | undefined;
   async initSdkClient() {
@@ -69,10 +132,140 @@ class OpPluginInstance {
     });
   }
 
+  // ── Connect REST API helpers ──────────────────────────────
+
+  private async connectRequest<T>(path: string): Promise<T> {
+    const url = `${this.connectHost}/v1${path}`;
+    debug('connect request:', url);
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${this.connectToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new ResolutionError(`1Password Connect API error (${res.status}): ${body || res.statusText}`, {
+        tip: [
+          `Request: GET ${path}`,
+          'Verify your Connect server URL and token are correct',
+          'Check that the Connect server is running and reachable',
+        ],
+      });
+    }
+    return res.json() as Promise<T>;
+  }
+
+  /** Cache vault name → ID lookups within a session */
+  private vaultIdCache = new Map<string, string>();
+
+  private async resolveVaultId(vaultQuery: string): Promise<string> {
+    if (this.vaultIdCache.has(vaultQuery)) return this.vaultIdCache.get(vaultQuery)!;
+
+    // Try direct ID lookup first
+    try {
+      const vault = await this.connectRequest<ConnectVault>(`/vaults/${encodeURIComponent(vaultQuery)}`);
+      this.vaultIdCache.set(vaultQuery, vault.id);
+      return vault.id;
+    } catch {
+      // fall through to title search
+    }
+
+    // Search by title
+    const vaults = await this.connectRequest<Array<ConnectVault>>(
+      `/vaults?filter=${encodeURIComponent(`name eq "${vaultQuery}"`)}`,
+    );
+    if (!vaults.length) {
+      throw new ResolutionError(`1Password Connect: vault "${vaultQuery}" not found`, {
+        tip: 'Check the vault name or ID in your op:// reference',
+      });
+    }
+    this.vaultIdCache.set(vaultQuery, vaults[0].id);
+    return vaults[0].id;
+  }
+
+  /** Cache item title → ID lookups within a session */
+  private itemIdCache = new Map<string, string>();
+
+  private async resolveItemId(vaultId: string, itemQuery: string): Promise<string> {
+    const cacheKey = `${vaultId}/${itemQuery}`;
+    if (this.itemIdCache.has(cacheKey)) return this.itemIdCache.get(cacheKey)!;
+
+    // Try direct ID lookup first
+    try {
+      const item = await this.connectRequest<ConnectItem>(`/vaults/${vaultId}/items/${encodeURIComponent(itemQuery)}`);
+      this.itemIdCache.set(cacheKey, item.id);
+      return item.id;
+    } catch {
+      // fall through to title search
+    }
+
+    // Search by title
+    const items = await this.connectRequest<Array<{ id: string; title?: string }>>(
+      `/vaults/${vaultId}/items?filter=${encodeURIComponent(`title eq "${itemQuery}"`)}`,
+    );
+    if (!items.length) {
+      throw new ResolutionError(`1Password Connect: item "${itemQuery}" not found in vault`, {
+        tip: 'Check the item name or ID in your op:// reference',
+      });
+    }
+    this.itemIdCache.set(cacheKey, items[0].id);
+    return items[0].id;
+  }
+
+  private extractField(item: ConnectItem, sectionQuery: string | undefined, fieldQuery: string): string {
+    const fields = item.fields || [];
+    const sections = item.sections || [];
+
+    let sectionId: string | undefined;
+    if (sectionQuery) {
+      const section = sections.find(
+        (s) => s.id === sectionQuery || s.label?.toLowerCase() === sectionQuery.toLowerCase(),
+      );
+      if (!section) {
+        throw new ResolutionError(
+          `1Password Connect: section "${sectionQuery}" not found in item "${item.title || item.id}"`,
+          { tip: `Available sections: ${sections.map((s) => s.label || s.id).join(', ') || '(none)'}` },
+        );
+      }
+      sectionId = section.id;
+    }
+
+    const candidates = sectionId
+      ? fields.filter((f) => f.section?.id === sectionId)
+      : fields;
+
+    const field = candidates.find(
+      (f) => f.id === fieldQuery
+        || f.label?.toLowerCase() === fieldQuery.toLowerCase(),
+    );
+
+    if (!field) {
+      throw new ResolutionError(
+        `1Password Connect: field "${fieldQuery}" not found in item "${item.title || item.id}"`,
+        { tip: `Available fields: ${candidates.map((f) => f.label || f.id).join(', ') || '(none)'}` },
+      );
+    }
+
+    return field.value ?? '';
+  }
+
+  private async readItemViaConnect(opReference: string): Promise<string> {
+    const parsed = parseOpReference(opReference);
+    const vaultId = await this.resolveVaultId(parsed.vault);
+    const itemId = await this.resolveItemId(vaultId, parsed.item);
+    const fullItem = await this.connectRequest<ConnectItem>(`/vaults/${vaultId}/items/${itemId}`);
+    return this.extractField(fullItem, parsed.section, parsed.field);
+  }
+
+  // ── Core read methods ─────────────────────────────────────
+
   readBatch?: Record<string, { defers: Array<DeferredPromise<string>> }> | undefined;
 
   async readItem(opReference: string) {
-    if (this.token) {
+    if (this.isConnect) {
+      return await this.readItemViaConnect(opReference);
+    } else if (this.token) {
       // using JS SDK client using service account token
       await this.initSdkClient();
       if (this.opClientPromise) {
@@ -97,13 +290,20 @@ class OpPluginInstance {
       return await opCliRead(opReference, this.account);
     } else {
       throw new SchemaError('Unable to authenticate with 1Password', {
-        tip: `Plugin instance (${this.id}) must be provided either a service account token or have app auth enabled (allowAppAuth=true)`,
+        tip: `Plugin instance (${this.id}) must be provided a service account token, a Connect server, or have app auth enabled (allowAppAuth=true)`,
       });
     }
   }
 
   async readEnvironment(environmentId: string): Promise<string> {
-    if (this.token) {
+    if (this.isConnect) {
+      throw new ResolutionError('1Password Environments are not supported with Connect server', {
+        tip: [
+          'The 1Password Connect server API does not support the Environments feature.',
+          'Use a service account token or desktop app auth instead, or use op() to read individual items.',
+        ],
+      });
+    } else if (this.token) {
       // Use SDK - supports environments since v0.4.1-beta.1
       await this.initSdkClient();
       const opClient = await this.opClientPromise;
@@ -122,7 +322,7 @@ class OpPluginInstance {
       return parseOpEnvOutput(cliResult);
     } else {
       throw new SchemaError('Unable to authenticate with 1Password', {
-        tip: `Plugin instance (${this.id}) must be provided either a service account token or have app auth enabled (allowAppAuth=true)`,
+        tip: `Plugin instance (${this.id}) must be provided a service account token, a Connect server, or have app auth enabled (allowAppAuth=true)`,
       });
     }
   }
@@ -197,33 +397,56 @@ plugin.registerRootDecorator({
     }
     const account = objArgs?.account ? String(objArgs?.account?.staticValue) : undefined;
 
-    // user should either be setting token, allowAppAuth, or both
-    // we will check again later with resovled values
-    if (!objArgs.token && !objArgs.allowAppAuth) {
-      throw new SchemaError('Either token or allowAppAuth must be set', {
+    // connectHost must be static (it's a server URL)
+    if (objArgs.connectHost && !objArgs.connectHost.isStatic) {
+      throw new SchemaError('Expected connectHost to be a static value');
+    }
+    const connectHost = objArgs?.connectHost ? String(objArgs?.connectHost?.staticValue) : undefined;
+
+    // user should set one of: token, allowAppAuth, or connectHost+connectToken
+    // we will check again later with resolved values
+    if (!objArgs.token && !objArgs.allowAppAuth && !(connectHost && objArgs.connectToken)) {
+      throw new SchemaError('Either token, allowAppAuth, or connectHost+connectToken must be set', {
         tip: [
           'Options:',
           '  1. Use a service account token: @initOp(token=$OP_SERVICE_ACCOUNT_TOKEN)',
           '  2. Use 1Password desktop app auth: @initOp(allowAppAuth=true)',
+          '  3. Use a Connect server: @initOp(connectHost="http://connect:8080", connectToken=$OP_CONNECT_TOKEN)',
         ].join('\n'),
+      });
+    }
+
+    // if connectHost is set, connectToken is required
+    if (connectHost && !objArgs.connectToken) {
+      throw new SchemaError('connectToken is required when connectHost is set', {
+        tip: 'Add connectToken=$OP_CONNECT_TOKEN to your @initOp() call',
       });
     }
 
     return {
       id,
       account,
+      connectHost,
       tokenResolver: objArgs.token,
       allowAppAuthResolver: objArgs.allowAppAuth,
+      connectTokenResolver: objArgs.connectToken,
     };
   },
   async execute({
-    id, account, tokenResolver, allowAppAuthResolver,
+    id, account, connectHost, tokenResolver, allowAppAuthResolver, connectTokenResolver,
   }) {
     // even if these are empty, we can't throw errors yet
     // in case the instance is never actually used
     const token = await tokenResolver?.resolve();
     const enableAppAuth = await allowAppAuthResolver?.resolve();
-    pluginInstances[id].setAuth(token, !!enableAppAuth, account);
+    const connectToken = await connectTokenResolver?.resolve();
+    pluginInstances[id].setAuth(
+      token,
+      !!enableAppAuth,
+      account,
+      connectHost,
+      connectToken as string | undefined,
+    );
   },
 });
 
@@ -245,6 +468,19 @@ plugin.registerDataType({
       throw new ValidationError('Service account tokens must start with ops_');
     }
   },
+});
+
+plugin.registerDataType({
+  name: 'opConnectToken',
+  sensitive: true,
+  typeDescription: 'API token used to authenticate with a self-hosted [1Password Connect server](https://developer.1password.com/docs/connect/)',
+  icon: OP_ICON,
+  docs: [
+    {
+      description: '1Password Connect',
+      url: 'https://developer.1password.com/docs/connect/',
+    },
+  ],
 });
 
 plugin.registerResolverFunction({

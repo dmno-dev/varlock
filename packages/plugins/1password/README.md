@@ -8,6 +8,7 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 
 - **Service account authentication** for CI/CD and production environments
 - **Desktop app authentication** for local development (with biometric unlock support)
+- **Connect server authentication** for self-hosted 1Password infrastructure
 - **Secret references** using 1Password's standard `op://` format
 - **Bulk-load environments** with `opLoadEnvironment()` via `@setValuesBulk`
 - **Multiple vault support** for different environments and access levels
@@ -87,6 +88,31 @@ When enabled, if the service account token is empty, the plugin will use the des
 
 :::note
 Keep in mind that this method connects as _YOU_ who likely has more access than a tightly scoped service account. Consider only enabling this for non-production secrets.
+:::
+
+### Connect server setup (self-hosted)
+
+If you are running a self-hosted [1Password Connect server](https://developer.1password.com/docs/connect/), you can authenticate using a Connect server URL and token:
+
+```env-spec
+# @plugin(@varlock/1password-plugin)
+# @initOp(connectHost="http://connect-server:8080", connectToken=$OP_CONNECT_TOKEN)
+# ---
+
+# @type=opConnectToken @sensitive
+OP_CONNECT_TOKEN=
+```
+
+**Setup requirements:**
+
+1. Deploy a [1Password Connect server](https://developer.1password.com/docs/connect/get-started/)
+2. Create a Connect token with access to the required vault(s)
+3. Set the `OP_CONNECT_TOKEN` environment variable
+
+This method uses the Connect server REST API directly — no `op` CLI or 1Password SDK is required.
+
+:::note
+The `opLoadEnvironment()` function is not supported with Connect server auth. Use `op()` to read individual items instead.
 :::
 
 ### Multiple instances
@@ -173,6 +199,8 @@ Initialize a 1Password plugin instance - setting up options and authentication. 
 - `token?: string` - Service account token. Should be a reference to a config item of type `opServiceAccountToken`.
 - `allowAppAuth?: boolean` - Enable authenticating using the local desktop app (defaults to `false`)
 - `account?: string` - Limits the `op` CLI to connect to specific 1Password account (shorthand, sign-in address, account ID, or user ID)
+- `connectHost?: string` - URL of a self-hosted 1Password Connect server (e.g., `http://connect-server:8080`)
+- `connectToken?: string` - API token for the Connect server. Should be a reference to a config item of type `opConnectToken`. Required when `connectHost` is set.
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### Functions
@@ -203,6 +231,7 @@ Load all variables from a 1Password environment. Intended for use with `@setValu
 ### Data Types
 
 - `opServiceAccountToken` - 1Password service account token (sensitive, validated format)
+- `opConnectToken` - API token for a self-hosted 1Password Connect server (sensitive)
 
 ---
 
@@ -262,6 +291,12 @@ Note that [rate limits](https://developer.1password.com/docs/service-accounts/ra
 - Check that you specified the correct account (run `op account list`)
 - Try running `op whoami` to debug CLI connection
 
+### Connect server errors
+- Verify the Connect server URL is correct and the server is running
+- Check that the Connect token has access to the required vault(s)
+- Ensure the Connect server version supports the vaults and items you're accessing
+- Try accessing `<connectHost>/v1/vaults` directly to verify connectivity
+
 ### Rate limiting
 - Check your account type's rate limits
 - Consider implementing caching or reducing request frequency
@@ -271,6 +306,7 @@ Note that [rate limits](https://developer.1password.com/docs/service-accounts/ra
 
 - [1Password](https://1password.com/)
 - [Service Accounts](https://developer.1password.com/docs/service-accounts/)
+- [1Password Connect](https://developer.1password.com/docs/connect/)
 - [1Password CLI](https://developer.1password.com/docs/cli/)
 - [Secret References](https://developer.1password.com/docs/cli/secret-references/)
 - [Full documentation](https://varlock.dev/plugins/1password/)
