@@ -55,6 +55,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   } catch (error) {
     console.error('Failed to clear cache:', error);
-    throw new CliExitError('Failed to clear cache', { forceExit: true });
+    throw new CliExitError(`Failed to clear ${cacheTarget} cache`, { forceExit: true });
   }
 };

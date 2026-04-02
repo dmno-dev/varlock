@@ -485,8 +485,9 @@ export abstract class EnvGraphDataSource {
             }
             try {
               const contents = await fetchPublicSchema(schemaPath);
-              // Use a synthetic path for the data source
-              const syntheticPath = `.env.public-schema-${schemaPath.replace(/\//g, '-')}`;
+              // Sanitize the schema path for use as a synthetic filename
+              const safeName = schemaPath.replace(/[^a-zA-Z0-9_-]/g, '-');
+              const syntheticPath = `.env.public-schema-${safeName}`;
               // eslint-disable-next-line no-use-before-define
               const source = new DotEnvFileDataSource(syntheticPath, { overrideContents: contents });
               await this.addChild(source, {

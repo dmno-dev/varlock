@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { getUserVarlockDir } from '../../lib/user-config-dir';
 
 // GitHub raw content base URL for the varlock repo public-schemas
+// Uses the `main` branch — schemas are versioned alongside the varlock release
 const PUBLIC_SCHEMAS_GITHUB_BASE = 'https://raw.githubusercontent.com/dmno-dev/varlock/main/public-schemas';
 
 // Default TTL for cached schemas (24 hours in milliseconds)
@@ -73,6 +74,7 @@ function fetchUrl(url: string): Promise<string> {
 }
 
 function hashContent(content: string): string {
+  // Truncate to 16 hex chars — sufficient for cache invalidation while keeping filenames short
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
 }
 
