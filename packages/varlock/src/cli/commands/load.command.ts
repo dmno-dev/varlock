@@ -1,4 +1,5 @@
 import { define } from 'gunshi';
+import { gracefulExit } from 'exit-hook';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { getItemSummary } from '../../lib/formatting';
@@ -68,8 +69,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     currentEnvFallback: ctx.values.env,
     entryFilePath: ctx.values.path,
   });
-  checkForSchemaErrors(envGraph);
-  checkForNoEnvFiles(envGraph);
+
+  // For json-full, always output the serialized graph — it includes `errors` and
+  // `configErrors` fields so consumers can handle failures gracefully.
+  // For all other formats, exit on errors as before.
+  if (format !== 'json-full') {
+    checkForSchemaErrors(envGraph);
+    checkForNoEnvFiles(envGraph);
+  }
 
   if (!envGraph.rootDataSource) throw new Error('expected root data source to be set');
 
@@ -77,7 +84,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   await envGraph.generateTypesIfNeeded();
 
   await envGraph.resolveEnvValues();
-  checkForConfigErrors(envGraph, { showAll });
+
+  if (format === 'json-full') {
+    checkForConfigErrors(envGraph, { showAll, noThrow: true });
+  } else {
+    checkForConfigErrors(envGraph, { showAll });
+  }
 
   if (format === 'pretty') {
     showPluginWarnings(envGraph);
@@ -89,7 +101,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     console.log(JSON.stringify(envGraph.getResolvedEnvObject(), null, 2));
   } else if (format === 'json-full') {
     const indent = compact ? 0 : 2;
-    console.log(JSON.stringify(envGraph.getSerializedGraph(), null, indent));
+    const serialized = envGraph.getSerializedGraph();
+    console.log(JSON.stringify(serialized, null, indent));
+    // Output JSON to stdout even on failure (so consumers can parse err.stdout),
+    // but still exit non-zero so execSync callers know something is wrong
+    if (serialized.errors) {
+      gracefulExit(1);
+    }
   } else if (format === 'env' || format === 'shell') {
     const resolvedEnv = envGraph.getResolvedEnvObject();
     const skipUndefined = compact === true;

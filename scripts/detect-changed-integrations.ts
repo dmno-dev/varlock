@@ -24,6 +24,7 @@ import { join } from 'node:path';
 // tests run when vite-integration changes because cloudflare depends on it.
 const INTEGRATION_PACKAGES: Record<string, Array<string>> = {
   nextjs: ['@varlock/nextjs-integration'],
+  vite: ['@varlock/vite-integration'],
   cloudflare: ['@varlock/cloudflare-integration', '@varlock/vite-integration'],
   expo: ['@varlock/expo-integration'],
   'vanilla-node': [], // no integration package — triggered only by core varlock changes
@@ -114,24 +115,24 @@ if (isReleasePR) {
 
   if (!existsSync(statusFilePath)) {
     console.log('No changesets found');
-    writeResults([]);
-    process.exit(0);
-  }
+    // Don't exit — test files themselves may have changed (detected below)
+    changedPackages = new Set<string>();
+  } else {
+    let status: any;
+    try {
+      status = JSON.parse(readFileSync(statusFilePath, 'utf-8'));
+    } finally {
+      unlinkSync(statusFilePath);
+    }
 
-  let status: any;
-  try {
-    status = JSON.parse(readFileSync(statusFilePath, 'utf-8'));
-  } finally {
-    unlinkSync(statusFilePath);
-  }
-
-  changedPackages = new Set<string>(
-    status.releases
-      ?.filter((r: { type: string }) => r.type !== 'none')
-      .map((r: { name: string }) => r.name) ?? [],
-  );
-  if (!process.env.GITHUB_OUTPUT) {
-    console.log('Changed packages (from changesets):', [...changedPackages]);
+    changedPackages = new Set<string>(
+      status.releases
+        ?.filter((r: { type: string }) => r.type !== 'none')
+        .map((r: { name: string }) => r.name) ?? [],
+    );
+    if (!process.env.GITHUB_OUTPUT) {
+      console.log('Changed packages (from changesets):', [...changedPackages]);
+    }
   }
 }
 
@@ -160,7 +161,7 @@ try {
     const match = filePath.match(/^framework-tests\/frameworks\/([^/]+)\//);
     if (match && ALL_INTEGRATIONS.includes(match[1])) {
       changedTestIntegrations.add(match[1]);
-    } else if (filePath.startsWith('framework-tests/') && !filePath.startsWith('framework-tests/frameworks/')) {
+    } else if (filePath.startsWith('framework-tests/harness/') || filePath === 'framework-tests/vitest.config.ts') {
       // Shared test infrastructure changed — trigger all
       console.log(`Shared framework test file changed (${filePath}) — running all integration tests`);
       writeResults(ALL_INTEGRATIONS);

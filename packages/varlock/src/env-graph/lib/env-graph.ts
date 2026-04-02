@@ -20,6 +20,13 @@ import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
 
+export type SerializedEnvGraphErrors = {
+  /** Per-item validation errors, keyed by config item key */
+  configItems?: Record<string, string>;
+  /** Root-level errors not tied to a specific config item (loading errors, schema errors, plugin errors, etc.) */
+  root?: Array<string>;
+};
+
 export type SerializedEnvGraph = {
   basePath?: string;
   sources: Array<{
@@ -35,6 +42,8 @@ export type SerializedEnvGraph = {
     value: any;
     isSensitive: boolean;
   }>;
+  /** Present only when config has errors — consumers can check `if (data.errors)` */
+  errors?: SerializedEnvGraphErrors;
 };
 
 /** container of the overall graph and current resolution attempt / values */
@@ -446,6 +455,43 @@ export class EnvGraph {
     // expose a few root level settings
     serializedGraph.settings.redactLogs = this.getRootDec('redactLogs')?.resolvedValue ?? true;
     serializedGraph.settings.preventLeaks = this.getRootDec('preventLeaks')?.resolvedValue ?? true;
+
+    // collect all errors into a single nested object
+    const errors: SerializedEnvGraphErrors = {};
+
+    // root-level errors (loading, schema, resolution errors from data sources)
+    const rootErrors: Array<string> = [];
+    for (const source of this.sortedDataSources) {
+      if (source.loadingError) {
+        rootErrors.push(`${source.label}: ${source.loadingError.message}`);
+      }
+      for (const err of source.schemaErrors) {
+        rootErrors.push(`${source.label}: ${err.message}`);
+      }
+      for (const err of source.resolutionErrors) {
+        rootErrors.push(`${source.label}: ${err.message}`);
+      }
+    }
+    if (rootErrors.length > 0) {
+      errors.root = rootErrors;
+    }
+
+    // per-item validation errors keyed by item key
+    const configItemErrors: Record<string, string> = {};
+    for (const itemKey of this.sortedConfigKeys) {
+      const item = this.configSchema[itemKey];
+      if (item.validationState === 'error') {
+        configItemErrors[itemKey] = item.errors.map((e) => e.message).join('; ');
+      }
+    }
+    if (Object.keys(configItemErrors).length > 0) {
+      errors.configItems = configItemErrors;
+    }
+
+    // only include errors key if there are any
+    if (errors.root || errors.configItems) {
+      serializedGraph.errors = errors;
+    }
 
     return serializedGraph;
   }

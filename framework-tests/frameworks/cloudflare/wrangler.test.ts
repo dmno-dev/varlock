@@ -166,6 +166,25 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
     ],
   });
 
+  describe('invalid config', () => {
+    wranglerEnv.describeScenario('invalid schema causes dev failure', {
+      command: 'varlock-wrangler dev --port 18791',
+      expectSuccess: false,
+      templateFiles: {
+        'src/index.ts': { path: 'workers/basic-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
+        'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+        '.env.schema': 'schemas/.env.schema.invalid',
+      },
+      outputAssertions: [
+        {
+          description: 'validation error details are shown',
+          shouldContain: ['MISSING_REQUIRED_VAR'],
+        },
+      ],
+    });
+  });
+
   wranglerEnv.describeScenario('types generation', {
     command: 'varlock-wrangler types',
     templateFiles: {
