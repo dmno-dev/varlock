@@ -171,9 +171,10 @@ class OpPluginInstance {
       // fall through to title search
     }
 
-    // Search by title
+    // Search by title (escape backslashes then quotes for the filter expression)
+    const escapedVault = vaultQuery.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const vaults = await this.connectRequest<Array<ConnectVault>>(
-      `/vaults?filter=${encodeURIComponent(`name eq "${vaultQuery.replace(/"/g, '\\"')}"`)}`,
+      `/vaults?filter=${encodeURIComponent(`name eq "${escapedVault}"`)}`,
     );
     if (!vaults.length) {
       throw new ResolutionError(`1Password Connect: vault "${vaultQuery}" not found`, {
@@ -200,9 +201,10 @@ class OpPluginInstance {
       // fall through to title search
     }
 
-    // Search by title
+    // Search by title (escape backslashes then quotes for the filter expression)
+    const escapedItem = itemQuery.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const items = await this.connectRequest<Array<{ id: string; title?: string }>>(
-      `/vaults/${vaultId}/items?filter=${encodeURIComponent(`title eq "${itemQuery.replace(/"/g, '\\"')}"`)}`,
+      `/vaults/${vaultId}/items?filter=${encodeURIComponent(`title eq "${escapedItem}"`)}`,
     );
     if (!items.length) {
       throw new ResolutionError(`1Password Connect: item "${itemQuery}" not found in vault`, {
