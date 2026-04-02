@@ -1,5 +1,5 @@
 ---
-"@varlock/1password-plugin": minor
+"@varlock/1password-plugin": patch
 ---
 
 Add support for 1Password Connect server (self-hosted)
