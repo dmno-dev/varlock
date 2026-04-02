@@ -17,6 +17,7 @@ describe('Astro Integration', () => {
     templateFiles: {
       '.env.schema': 'schemas/.env.schema',
       '.env.dev': 'schemas/.env.dev',
+      '.env.prod': 'schemas/.env.prod',
     },
   });
 
@@ -50,6 +51,23 @@ describe('Astro Integration', () => {
           description: 'secret is redacted from stdout',
           shouldContain: ['secret-log-test:'],
           shouldNotContain: ['super-secret-value'],
+        },
+      ],
+    });
+
+    astroEnv.describeScenario('env-specific vars use prod environment', {
+      command: 'astro build',
+      env: { APP_ENV: 'prod' },
+      templateFiles: {
+        'src/pages/index.astro': 'pages/basic-page.astro',
+        'astro.config.mts': 'configs/astro.config.static.mts',
+      },
+      fileAssertions: [
+        {
+          description: 'prod-specific value is present (APP_ENV=prod)',
+          fileGlob: 'dist/**/*.html',
+          shouldContain: ['env-specific-var--prod'],
+          shouldNotContain: ['env-specific-var--dev', 'env-specific-var--default'],
         },
       ],
     });
@@ -131,6 +149,22 @@ describe('Astro Integration', () => {
           description: 'config env var is verified',
           fileGlob: 'dist/**/*.html',
           shouldContain: ['config-env-ok'],
+        },
+      ],
+    });
+
+    astroEnv.describeScenario('invalid schema causes build failure', {
+      command: 'astro build',
+      expectSuccess: false,
+      templateFiles: {
+        'src/pages/index.astro': 'pages/basic-page.astro',
+        'astro.config.mts': 'configs/astro.config.static.mts',
+        '.env.schema': 'schemas/.env.schema.invalid',
+      },
+      outputAssertions: [
+        {
+          description: 'build output indicates config validation failure',
+          shouldContain: ['MISSING_REQUIRED_VAR'],
         },
       ],
     });
@@ -307,6 +341,9 @@ describe('Astro Integration', () => {
               'SENSITIVE_VAR=super-secret-value',
             ].join('\n'),
           },
+          // Astro reloads config in-place without restarting the server,
+          // so the readyPattern never re-appears — use a fixed delay instead
+          fileEditDelay: 3_000,
           bodyAssertions: {
             shouldContain: ['public-var:updated-public-value'],
             shouldNotContain: ['public-var:public-var-value'],
@@ -315,57 +352,9 @@ describe('Astro Integration', () => {
       ],
     });
 
-    astroEnv.describeDevScenario('recovery from invalid config', {
-      command: 'astro dev --port 14327',
-      readyPattern: /http:\/\/localhost/,
-      readyTimeout: 30_000,
-      templateFiles: {
-        'src/pages/index.astro': 'pages/server-basic-page.astro',
-        'astro.config.mts': 'configs/astro.config.server.mts',
-        '.env.schema': 'schemas/.env.schema.invalid',
-      },
-      requests: [
-        // first request — config is invalid (MISSING_REQUIRED_VAR has no value)
-        {
-          path: '/',
-          expectedStatus: 500,
-        },
-        // second request — after fixing the schema to remove the missing required var
-        {
-          path: '/',
-          fileEdits: {
-            '.env.schema': [
-              '# @defaultSensitive=false @defaultRequired=infer',
-              '# @generateTypes(lang="ts", path="env.d.ts")',
-              '# @currentEnv=$APP_ENV',
-              '# ---',
-              '',
-              '# @type=enum(dev, preview, prod, test)',
-              'APP_ENV=dev',
-              '',
-              'PUBLIC_VAR=public-var-value',
-              'UNPREFIXED_PUBLIC=unprefixed-public-var',
-              'ENV_SPECIFIC_VAR=env-specific-var--default',
-              '',
-              '# @sensitive',
-              'SENSITIVE_VAR=super-secret-value',
-            ].join('\n'),
-          },
-          bodyAssertions: {
-            shouldContain: [
-              'public-var:public-var-value',
-              'sensitive-var-available',
-            ],
-            shouldNotContain: ['super-secret-value'],
-          },
-        },
-      ],
-      outputAssertions: [
-        {
-          description: 'output shows config was initially invalid',
-          shouldContain: ['invalid', 'MISSING_REQUIRED_VAR'],
-        },
-      ],
-    });
+    // Note: unlike Vite, Astro's dev server exits entirely when config is
+    // invalid (initVarlockEnv fails during config loading), so we cannot test
+    // dev server recovery from invalid config. The static build failure case
+    // is covered above in "invalid schema causes build failure".
   });
 });
