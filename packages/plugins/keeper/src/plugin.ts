@@ -9,7 +9,7 @@ import {
 
 const { SchemaError, ResolutionError, ValidationError } = plugin.ERRORS;
 
-const KEEPER_ICON = 'simple-icons:keepersecurity';
+const KEEPER_ICON = 'simple-icons:keeper';
 
 // ════ PLUGIN CONFIGURATION ═══════════════════════════════════════════════════
 
