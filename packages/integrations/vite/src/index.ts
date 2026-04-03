@@ -149,17 +149,21 @@ See https://varlock.dev/integrations/vite/ for more details.
       const projectRoot = config.root ? path.resolve(config.root) : undefined;
       const rootDiffersFromCwd = !!(projectRoot && path.relative(projectRoot, process.cwd()) !== '');
 
-      // this gets re-triggered after .env file updates
-      // TODO: be smarter about only reloading if the env files changed?
-      if (isFirstLoad) {
+      if (rootDiffersFromCwd) {
+        // Always reload with the correct project root when it differs from
+        // cwd. This handles monorepo Vitest workspace setups where each child
+        // project has its own env files — even if the monorepo root also has
+        // env files (which would cause the initial module-level load to
+        // succeed with the wrong project's config).
+        reloadConfig(projectRoot);
+      } else if (isFirstLoad) {
         isFirstLoad = false;
-        // If the project root differs from cwd (monorepo scenario), or
-        // the initial module-level load failed, reload with the correct root
-        if (rootDiffersFromCwd || !configIsValid) {
-          reloadConfig(rootDiffersFromCwd ? projectRoot : undefined);
-        }
+        // Roots match — the module-level reloadConfig() already loaded from
+        // the correct directory, no need to reload.
       } else if (isDevCommand) {
-        reloadConfig(rootDiffersFromCwd ? projectRoot : undefined);
+        // Dev mode re-trigger (e.g., after .env file updates)
+        // TODO: be smarter about only reloading if the env files changed?
+        reloadConfig();
       }
 
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
