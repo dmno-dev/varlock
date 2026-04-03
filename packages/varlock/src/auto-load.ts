@@ -14,6 +14,10 @@ import { patchGlobalResponse } from './runtime/patch-response';
 const execResult = execSyncVarlock('load --format json-full --compact', {
   exitOnError: true,
   showLogsOnError: true,
+  // Pass the directory of this module so that in monorepos the binary search
+  // starts from inside the varlock package (e.g. apps/web/node_modules/varlock)
+  // rather than from process.cwd(), which may be an unrelated workspace root.
+  callerDir: import.meta.dirname,
 });
 process.env.__VARLOCK_ENV = execResult;
 
