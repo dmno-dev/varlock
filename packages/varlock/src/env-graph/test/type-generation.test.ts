@@ -196,6 +196,33 @@ describe('type generation', () => {
       expect(extrasSource).toBeDefined();
       expect(extrasSource!.isEnvSpecific).toBe(false);
     });
+
+    test('root entry file with env-like name (e.g. .env.infra.schema) is NOT isEnvSpecific', async () => {
+      // Regression test for: @generateTypes doesn't create variables when using
+      // a custom path with `varlock typegen --path .env.infra.schema`
+      // The filename `.env.infra.schema` was being parsed such that applyForEnv='infra',
+      // causing isEnvSpecific=true and all items being excluded from type generation.
+      const g = new EnvGraph();
+      await g.setRootDataSource(new DotEnvFileDataSource('.env.infra.schema', {
+        overrideContents: outdent`
+          # @defaultSensitive=false
+          # ---
+          TEST_A_B="1"
+          TEST_A_C="1"
+        `,
+      }));
+      await g.finishLoad();
+
+      // The root source should NOT be marked as env-specific
+      const rootSource = g.rootDataSource!;
+      expect(rootSource.isEnvSpecific).toBe(false);
+
+      // Items should be included in defsForTypeGeneration
+      expect(g.configSchema.TEST_A_B).toBeDefined();
+      expect(g.configSchema.TEST_A_B.defsForTypeGeneration.length).toBeGreaterThan(0);
+      expect(g.configSchema.TEST_A_C).toBeDefined();
+      expect(g.configSchema.TEST_A_C.defsForTypeGeneration.length).toBeGreaterThan(0);
+    });
   });
 
   describe('getTypeGenInfo - basic schema properties', () => {
