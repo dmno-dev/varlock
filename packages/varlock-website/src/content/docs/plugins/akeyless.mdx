@@ -1,0 +1,279 @@
+---
+title: Akeyless Plugin
+description: Using Akeyless Platform secrets with Varlock
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/akeyless-plugin" />
+</div>
+
+Our Akeyless plugin enables secure loading of secrets from [Akeyless Platform](https://www.akeyless.io/) using declarative instructions within your `.env` files.
+
+The plugin uses Akeyless's REST API with API Key authentication (Access ID + Access Key) and supports static, dynamic, and rotated secret types.
+
+## Features
+
+- **API Key authentication** - Simple Access ID + Access Key authentication
+- **Static secrets** - Fetch key/value secrets
+- **Dynamic secrets** - Fetch on-demand generated credentials (database, cloud, etc.)
+- **Rotated secrets** - Fetch auto-rotated credentials
+- **Gateway support** - Use a self-hosted [Akeyless Gateway](https://docs.akeyless.io/docs/api-gateway) via custom API URL
+- **Auto-infer secret name** from environment variable names
+- Support for multiple Akeyless instances
+- Automatic token caching and renewal
+- Lightweight implementation using REST API (no SDK dependencies)
+
+## Installation and setup
+
+In a JS/TS project, you may install the `@varlock/akeyless-plugin` package as a normal dependency.
+Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
+
+```env-spec title=".env.schema"
+# 1. Load the plugin
+# @plugin(@varlock/akeyless-plugin)
+#
+# 2. Initialize the plugin - see below for more details on options
+# @initAkeyless(accessId=$AKEYLESS_ACCESS_ID, accessKey=$AKEYLESS_ACCESS_KEY)
+```
+
+### API Key authentication
+
+The plugin authenticates using an API Key consisting of an Access ID and Access Key:
+
+<Steps>
+1. **Create an API Key in Akeyless** (see Akeyless Setup section below)
+
+2. **Wire up the credentials in your config**. Add config items for the Access ID and Access Key, and reference them when initializing the plugin.
+
+    ```env-spec title=".env.schema"
+    # @plugin(@varlock/akeyless-plugin)
+    # @initAkeyless(accessId=$AKEYLESS_ACCESS_ID, accessKey=$AKEYLESS_ACCESS_KEY)
+    # ---
+
+    # @type=akeylessAccessId
+    AKEYLESS_ACCESS_ID=
+    # @type=akeylessAccessKey @sensitive
+    AKEYLESS_ACCESS_KEY=
+    ```
+
+3. **Set your credentials in deployed environments**. Use your platform's env var management UI to securely inject these values.
+</Steps>
+
+### Using an Akeyless Gateway
+
+If you are running a self-hosted [Akeyless Gateway](https://docs.akeyless.io/docs/api-gateway), provide the gateway URL via the `apiUrl` parameter:
+
+```env-spec title=".env.schema"
+# @initAkeyless(
+#   accessId=$AKEYLESS_ACCESS_ID,
+#   accessKey=$AKEYLESS_ACCESS_KEY,
+#   apiUrl="https://gateway.example.com:8080"
+# )
+```
+
+### Multiple instances
+
+If you need to connect to multiple Akeyless instances, register named instances:
+
+```env-spec title=".env.schema"
+# @initAkeyless(id=prod, accessId=$PROD_ACCESS_ID, accessKey=$PROD_ACCESS_KEY)
+# @initAkeyless(id=dev, accessId=$DEV_ACCESS_ID, accessKey=$DEV_ACCESS_KEY)
+# ---
+
+PROD_SECRET=akeyless(prod, "/MyApp/Secret")
+DEV_SECRET=akeyless(dev, "/MyApp/Secret")
+```
+
+## Loading secrets
+
+Once the plugin is installed and initialized, you can start adding config items that load values using the `akeyless()` resolver function.
+
+### Static secrets
+
+Static secrets are simple key/value pairs. This is the default secret type.
+
+```env-spec title=".env.schema"
+# Fetch a static secret by its full path
+DB_PASSWORD=akeyless("/MyApp/DB_PASSWORD")
+
+# Auto-infer secret name from the variable name
+API_KEY=akeyless()
+
+# If using multiple instances
+PROD_SECRET=akeyless(prod, "/MyApp/Secret")
+DEV_SECRET=akeyless(dev, "/MyApp/Secret")
+```
+
+### Dynamic secrets
+
+Dynamic secrets generate on-demand credentials (e.g., temporary database credentials, cloud access tokens). Use the `type=dynamic` parameter:
+
+```env-spec title=".env.schema"
+# Fetch a dynamic secret (returns JSON with generated credentials)
+DB_CREDENTIALS=akeyless("/MyApp/DynamicDBSecret", type=dynamic)
+```
+
+### Rotated secrets
+
+Rotated secrets are auto-rotated credentials managed by Akeyless. Use the `type=rotated` parameter:
+
+```env-spec title=".env.schema"
+# Fetch a rotated secret (returns JSON with current credential values)
+DB_ROTATED_CREDS=akeyless("/MyApp/RotatedDBPassword", type=rotated)
+```
+
+---
+
+## Akeyless Setup
+
+### Create an API Key
+
+<Steps>
+1. **Log in** to the [Akeyless Console](https://console.akeyless.io)
+
+2. **Create an Auth Method**: Go to **Auth Methods** → **New** → **API Key**
+
+3. **Save the credentials**: Copy the generated **Access ID** (starts with `p-`) and **Access Key**
+</Steps>
+
+### Create a static secret
+
+You can create secrets via the Akeyless CLI or Console:
+
+```bash
+# Using the Akeyless CLI
+akeyless create-secret --name "/MyApp/DB_PASSWORD" --value "supersecret"
+```
+
+Or in the Console: **Secrets & Keys** → **New** → **Static Secret**
+
+### Set up access permissions
+
+<Steps>
+1. Go to **Access Roles** in the Akeyless Console
+
+2. Create or edit a role and add rules to grant **read** access to the secrets your application needs
+
+3. Associate the role with your API Key auth method
+</Steps>
+
+:::tip[Least privilege principle]
+Only grant access to the specific secret paths your application needs. Avoid granting broad access to all secrets.
+:::
+
+---
+
+## Reference
+
+### Root decorators
+<div class="reference-docs">
+<div>
+#### `@initAkeyless()`
+
+Initialize an Akeyless plugin instance.
+
+**Key/value args:**
+- `accessId` (required): Akeyless Access ID (starts with `p-` for API Key auth)
+- `accessKey` (required): Akeyless Access Key
+- `apiUrl` (optional): Akeyless API URL (defaults to `https://api.akeyless.io`). Use this for self-hosted Akeyless Gateway.
+- `id` (optional): Instance identifier for multiple instances
+
+```env-spec "@initAkeyless"
+# @initAkeyless(accessId=$AKEYLESS_ACCESS_ID, accessKey=$AKEYLESS_ACCESS_KEY)
+```
+</div>
+</div>
+
+### Data types
+<div class="reference-docs">
+<div>
+#### `akeylessAccessId`
+
+Represents an Akeyless Access ID for API Key authentication. Validates that the value starts with `p-`.
+
+```env-spec "akeylessAccessId"
+# @type=akeylessAccessId
+AKEYLESS_ACCESS_ID=
+```
+</div>
+<div>
+#### `akeylessAccessKey`
+
+Represents an Akeyless Access Key for API Key authentication. This type is marked as `@sensitive`.
+
+```env-spec "akeylessAccessKey"
+# @type=akeylessAccessKey
+AKEYLESS_ACCESS_KEY=
+```
+</div>
+</div>
+
+### Resolver functions
+<div class="reference-docs">
+<div>
+#### `akeyless()`
+
+Fetch a secret from Akeyless Platform.
+
+**Array args:**
+- `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
+- `secretName` (optional): full path to the secret (e.g., `"/MyApp/DB_PASSWORD"`). If omitted, uses the item key (variable name) as the secret name.
+
+**Named args:**
+- `type` (optional): secret type — `static` (default), `dynamic`, or `rotated`
+
+**Secret types:**
+- `static` — Simple key/value secrets (default)
+- `dynamic` — On-demand generated credentials (database, cloud, etc.). Returns JSON.
+- `rotated` — Auto-rotated credentials managed by Akeyless. Returns JSON.
+
+```env-spec /akeyless\\(.*\\)/
+# Uses item key as secret name (static)
+DATABASE_URL=akeyless()
+
+# Explicit secret path (static)
+DB_PASSWORD=akeyless("/MyApp/DB_PASSWORD")
+
+# Dynamic secret
+DB_CREDS=akeyless("/MyApp/DynamicDB", type=dynamic)
+
+# Rotated secret
+API_KEY=akeyless("/MyApp/RotatedKey", type=rotated)
+
+# With instance ID
+PROD_SECRET=akeyless(prod, "/MyApp/Secret")
+```
+</div>
+</div>
+
+---
+
+## Troubleshooting
+
+### Secret not found
+- Verify the secret exists in the Akeyless Console
+- Check the full secret path (e.g., `/MyFolder/MySecret`)
+- Ensure the path starts with `/`
+
+### Permission denied
+- Check the Access Role associated with your API Key auth method
+- Ensure the role includes read permission for the secret path
+- Verify the role is associated with the correct auth method
+
+### Authentication failed
+- Verify the Access ID starts with `p-` (API Key auth)
+- Ensure the Access Key matches the Access ID
+- If using a Gateway, verify the `apiUrl` is correct and reachable
+- Check if the auth method is active in the Akeyless Console
+
+## Resources
+
+- [Akeyless Platform](https://www.akeyless.io/)
+- [Akeyless Documentation](https://docs.akeyless.io/)
+- [Akeyless API Key Authentication](https://docs.akeyless.io/docs/api-key)
+- [Akeyless REST API Reference](https://docs.akeyless.io/reference)
+- [Akeyless Gateway](https://docs.akeyless.io/docs/api-gateway)
