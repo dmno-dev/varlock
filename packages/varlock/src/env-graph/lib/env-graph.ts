@@ -73,7 +73,18 @@ export class EnvGraph {
    * Used to prevent diamond-dependency re-imports (same schema imported via multiple paths),
    * which would otherwise cause plugin init decorators to run multiple times.
    */
-  _loadedImportPaths = new Set<string>();
+  private _loadedImportPaths = new Set<string>();
+
+  /**
+   * Checks whether an import path has already been loaded, and records it if not.
+   * Returns true if the path was already loaded (caller should skip the import),
+   * false if it's new (caller should proceed with loading).
+   */
+  checkAndRecordImportPath(importPath: string): boolean {
+    if (this._loadedImportPaths.has(importPath)) return true;
+    this._loadedImportPaths.add(importPath);
+    return false;
+  }
 
   /** virtual imports for testing */
   virtualImports?: Record<string, string>;
