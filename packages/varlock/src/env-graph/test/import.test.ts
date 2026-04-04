@@ -446,4 +446,76 @@ describe('@import', () => {
       loadingError: true,
     }));
   });
+
+  describe('diamond dependency (same schema imported via multiple paths)', () => {
+    test('directory imported twice via different paths does not error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./root/, ROOT_VAR)
+          # @import(./shared/)
+          # ---
+        `,
+        'root/.env.schema': outdent`
+          ROOT_VAR=root-value
+          OTHER_VAR=other-value
+        `,
+        'shared/.env.schema': outdent`
+          # @import(../root/, ROOT_VAR)
+          # ---
+          SHARED_VAR=shared-value
+        `,
+      },
+      expectValues: {
+        ROOT_VAR: 'root-value',
+        SHARED_VAR: 'shared-value',
+      },
+    }));
+
+    test('directory with plugin @init imported twice via different paths does not error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./root/, ROOT_VAR)
+          # @import(./shared/)
+          # ---
+        `,
+        'root/.env.schema': outdent`
+          # @plugin(../plugins/test-plugin-with-init/)
+          # @initTestPlugin()
+          # ---
+          ROOT_VAR=root-value
+        `,
+        'shared/.env.schema': outdent`
+          # @import(../root/, ROOT_VAR)
+          # ---
+          SHARED_VAR=shared-value
+        `,
+      },
+      expectValues: {
+        ROOT_VAR: 'root-value',
+        SHARED_VAR: 'shared-value',
+      },
+    }));
+
+    test('file imported twice via different paths does not error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.common)
+          # @import(./.env.layer)
+          # ---
+        `,
+        '.env.common': outdent`
+          COMMON_VAR=common-value
+        `,
+        '.env.layer': outdent`
+          # @import(./.env.common)
+          # ---
+          LAYER_VAR=layer-value
+        `,
+      },
+      expectValues: {
+        COMMON_VAR: 'common-value',
+        LAYER_VAR: 'layer-value',
+      },
+    }));
+  });
 });

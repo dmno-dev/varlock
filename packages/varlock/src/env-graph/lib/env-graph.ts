@@ -68,6 +68,13 @@ export class EnvGraph {
   configSchema: Record<string, ConfigItem> = {};
 
 
+  /**
+   * Tracks directory/file paths that have already been loaded as imports.
+   * Used to prevent diamond-dependency re-imports (same schema imported via multiple paths),
+   * which would otherwise cause plugin init decorators to run multiple times.
+   */
+  _loadedImportPaths = new Set<string>();
+
   /** virtual imports for testing */
   virtualImports?: Record<string, string>;
   setVirtualImports(basePath: string, files: Record<string, string>) {

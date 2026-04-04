@@ -392,6 +392,9 @@ export abstract class EnvGraphDataSource {
                   this._loadingError = new Error(`Virtual directory import ${fullImportPath} not found`);
                   return;
                 }
+                // Skip if already loaded (diamond dependency deduplication)
+                if (this.graph._loadedImportPaths.has(fullImportPath)) continue;
+                this.graph._loadedImportPaths.add(fullImportPath);
                 // eslint-disable-next-line no-use-before-define
                 await this.addChild(new DirectoryDataSource(fullImportPath), {
                   isImport: true, importKeys, isConditionallyEnabled,
@@ -403,6 +406,9 @@ export abstract class EnvGraphDataSource {
                   this._loadingError = new Error(`Virtual import ${fullImportPath} not found`);
                   return;
                 }
+                // Skip if already loaded (diamond dependency deduplication)
+                if (this.graph._loadedImportPaths.has(fullImportPath)) continue;
+                this.graph._loadedImportPaths.add(fullImportPath);
                 // eslint-disable-next-line no-use-before-define
                 const source = new DotEnvFileDataSource(fullImportPath, {
                   overrideContents: this.graph.virtualImports[fullImportPath],
@@ -423,6 +429,9 @@ export abstract class EnvGraphDataSource {
               // directory import -- must end with a "/" to make the intent clearer
               if (importPath.endsWith('/')) {
                 if (fsStat.isDirectory()) {
+                  // Skip if already loaded (diamond dependency deduplication)
+                  if (this.graph._loadedImportPaths.has(fullImportPath)) continue;
+                  this.graph._loadedImportPaths.add(fullImportPath);
                   // eslint-disable-next-line no-use-before-define
                   await this.addChild(new DirectoryDataSource(fullImportPath), {
                     isImport: true, importKeys, isConditionallyEnabled,
@@ -440,6 +449,9 @@ export abstract class EnvGraphDataSource {
                   this._loadingError = new Error('imported file must be a .env.* file');
                   return;
                 }
+                // Skip if already loaded (diamond dependency deduplication)
+                if (this.graph._loadedImportPaths.has(fullImportPath)) continue;
+                this.graph._loadedImportPaths.add(fullImportPath);
                 // TODO: once we have more file types, here we would detect the type and import it correctly
                 // eslint-disable-next-line no-use-before-define
                 await this.addChild(new DotEnvFileDataSource(fullImportPath), {
