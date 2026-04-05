@@ -109,9 +109,11 @@ export abstract class EnvGraphDataSource {
    * Note: `applyForEnv` from filename parsing is only relevant for auto-loaded files.
    * Explicitly imported files (via `@import`) are controlled by the import mechanism,
    * not the auto-load-by-env logic, so their `applyForEnv` is ignored here.
+   * Similarly, a file that is the explicit root entry point (no parent) is never
+   * treated as env-specific even if its filename contains an env qualifier.
    */
   get isEnvSpecific(): boolean {
-    if (this.applyForEnv && !this.isImport) return true;
+    if (this.applyForEnv && !this.isImport && this.parent) return true;
     if (this.type === 'overrides') return true;
     if (this._hasConditionalDisable) return true;
     if (this.importMeta?.isConditionallyEnabled) return true;
