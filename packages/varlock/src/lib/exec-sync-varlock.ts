@@ -20,7 +20,7 @@ function findVarlockBin(startDir: string): string | null {
   while (currentDir) {
     const possibleBinPath = path.join(currentDir, 'node_modules', '.bin');
     if (fs.existsSync(possibleBinPath)) {
-      const possibleVarlockPath = path.join(possibleBinPath, 'varlock');
+      const possibleVarlockPath = path.join(possibleBinPath, isWindows ? 'varlock.exe' : 'varlock');
       if (fs.existsSync(possibleVarlockPath)) {
         return possibleVarlockPath;
       }
