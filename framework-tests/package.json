@@ -17,7 +17,7 @@
     "test:vite": "vitest run frameworks/vite"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^24.0.0",
     "vitest": "^3.2.4",
     "typescript": "^5.9.3"
   }
