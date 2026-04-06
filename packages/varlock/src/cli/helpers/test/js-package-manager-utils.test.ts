@@ -134,14 +134,19 @@ describe('detectWorkspaceInfo', () => {
     expect(result?.rootPath).toBe(tempDir);
   });
 
-  test('stops at .git boundary when no lockfile is found above', () => {
-    // Simulates a git repo without any lockfile — should return undefined
-    const subDir = path.join(tempDir, 'src');
+  test('stops at .git boundary and does not traverse above it to find lockfiles', () => {
+    // Structure: grandparent/bun.lock + parent/.git + parent/src/ (CWD)
+    // The .git boundary should prevent finding bun.lock in grandparent
+    const grandparentDir = tempDir;
+    const parentDir = path.join(tempDir, 'parent');
+    const subDir = path.join(parentDir, 'src');
     fs.mkdirSync(subDir, { recursive: true });
-    fs.mkdirSync(path.join(tempDir, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(parentDir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(grandparentDir, 'bun.lock'), '');
 
     const result = detectWorkspaceInfo({ cwd: subDir });
-    // No lockfile found, no npm_config_user_agent, so result is undefined
-    expect(result).toBeUndefined();
+    // The boundary should prevent finding bun.lock in grandparentDir.
+    // rootPath should never be grandparentDir regardless of npm_config_user_agent fallback.
+    expect(result?.rootPath).not.toBe(grandparentDir);
   });
 });
