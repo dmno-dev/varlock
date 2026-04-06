@@ -1,5 +1,6 @@
 ---
 "varlock": patch
+"@varlock/nextjs-integration": patch
 ---
 
-Fix "Instance with id '_default' already initialized" error when the same schema directory is imported via multiple paths (diamond dependency pattern). Previously, if schema A imported schema C and schema B imported schema A and C, loading schema A would cause C's plugin init decorators to run twice. The fix deduplicates imports by path, so each directory or file is only loaded once per graph.
+Fix diamond dependency handling when the same schema is imported via multiple paths. Previously, duplicate imports caused plugin init decorators to run twice ("Instance already initialized" error). Now, duplicate imports create lightweight `ImportAliasSource` nodes that appear at the correct precedence position without re-initializing the source. This correctly handles different importKeys subsets across import sites and preserves override semantics matching non-deduplicated behavior. Also adds `type` field to serialized source entries for easier filtering.

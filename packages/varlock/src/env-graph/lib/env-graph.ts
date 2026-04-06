@@ -1,7 +1,7 @@
 import _ from '@env-spec/utils/my-dash';
 import path from 'node:path';
 import { ConfigItem } from './config-item';
-import { EnvGraphDataSource, FileBasedDataSource } from './data-source';
+import { EnvGraphDataSource, FileBasedDataSource, ImportAliasSource } from './data-source';
 
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
@@ -27,9 +27,18 @@ export type SerializedEnvGraphErrors = {
   root?: Array<string>;
 };
 
+/** Entry in the sorted definition sources list — pairs a data source with the importKeys
+ * filter that applies at that specific position in the precedence chain */
+export type DefinitionSourceEntry = {
+  source: EnvGraphDataSource;
+  /** importKeys filter for this position (undefined = all keys visible) */
+  importKeys?: Array<string>;
+};
+
 export type SerializedEnvGraph = {
   basePath?: string;
   sources: Array<{
+    type: string;
     label: string;
     enabled: boolean;
     path?: string;
@@ -70,20 +79,59 @@ export class EnvGraph {
 
   /**
    * Tracks directory/file paths that have already been loaded as imports.
+   * Maps each import path to the data source that was created for it.
    * Used to prevent diamond-dependency re-imports (same schema imported via multiple paths),
    * which would otherwise cause plugin init decorators to run multiple times.
    */
-  private _loadedImportPaths = new Set<string>();
+  private _loadedImportPaths = new Map<string, EnvGraphDataSource>();
+
+  /** Returns the existing source for a path if already loaded, or undefined */
+  getLoadedImportSource(importPath: string): EnvGraphDataSource | undefined {
+    return this._loadedImportPaths.get(importPath);
+  }
+
+  /** Records the data source that was created for an import path */
+  recordLoadedImportPath(importPath: string, dataSource: EnvGraphDataSource) {
+    this._loadedImportPaths.set(importPath, dataSource);
+  }
 
   /**
-   * Checks whether an import path has already been loaded, and records it if not.
-   * Returns true if the path was already loaded (caller should skip the import),
-   * false if it's new (caller should proceed with loading).
+   * Register ConfigItems for keys visible through an import
+   * that may not have been registered during the original source's finishInit.
    */
-  checkAndRecordImportPath(importPath: string): boolean {
-    if (this._loadedImportPaths.has(importPath)) return true;
-    this._loadedImportPaths.add(importPath);
-    return false;
+  registerItemsForImport(
+    source: EnvGraphDataSource,
+    importSite: EnvGraphDataSource,
+    importKeys?: Array<string>,
+  ) {
+    // Compute effective importKeys: intersection of import filter and importSite's parent chain
+    const siteKeys = importSite.importKeys;
+    let effectiveKeys: Array<string> | undefined;
+    const hasFilter = importKeys && importKeys.length > 0;
+    if (hasFilter && siteKeys?.length) {
+      effectiveKeys = importKeys.filter((k) => siteKeys.includes(k));
+    } else if (hasFilter) {
+      effectiveKeys = importKeys;
+    } else {
+      effectiveKeys = siteKeys;
+    }
+
+    for (const s of this._getDescendants(source)) {
+      const keys = effectiveKeys || _.keys(s.configItemDefs);
+      for (const itemKey of keys) {
+        if (!s.configItemDefs[itemKey]) continue;
+        this.configSchema[itemKey] ??= new ConfigItem(this, itemKey);
+      }
+    }
+  }
+
+  /** Get a data source and all its descendants (DFS) */
+  private _getDescendants(source: EnvGraphDataSource): Array<EnvGraphDataSource> {
+    const result: Array<EnvGraphDataSource> = [source];
+    for (const child of source.children) {
+      result.push(...this._getDescendants(child));
+    }
+    return result;
   }
 
   /** virtual imports for testing */
@@ -101,6 +149,36 @@ export class EnvGraph {
       return [s, ...s.children ? s.children.flatMap(getSourceAndChildren) : []];
     }
     return this.rootDataSource ? getSourceAndChildren(this.rootDataSource) : [];
+  }
+
+  /**
+   * Precedence-ordered list of definition sources, used by ConfigItem.defs.
+   *
+   * Unlike `sortedDataSources` (which contains each real source exactly once),
+   * this list can contain the same source multiple times at different positions
+   * when it's imported from multiple locations (diamond dependency). Each entry
+   * carries its own `importKeys` filter for that specific import context.
+   *
+   * Built from `sortedDataSources` by expanding `ImportAliasSource` nodes into
+   * the original source's full subtree at the alias's precedence position.
+   */
+  get sortedDefinitionSources(): Array<DefinitionSourceEntry> {
+    const result: Array<DefinitionSourceEntry> = [];
+
+    for (const source of this.sortedDataSources) {
+      if (source instanceof ImportAliasSource) {
+        // Alias: expand to the original source's subtree at this position,
+        // using the alias's importKeys (derived from its own parent chain)
+        const importKeys = source.importKeys;
+        for (const descendant of this._getDescendants(source.original)) {
+          result.push({ source: descendant, importKeys });
+        }
+      } else {
+        result.push({ source, importKeys: source.importKeys });
+      }
+    }
+
+    return result;
   }
 
   registeredResolverFunctions: Record<string, ResolverChildClass> = {};
@@ -457,6 +535,7 @@ export class EnvGraph {
     };
     for (const source of this.sortedDataSources) {
       serializedGraph.sources.push({
+        type: source.type,
         label: source.label,
         enabled: !source.disabled,
         path: source instanceof FileBasedDataSource ? path.relative(this.basePath ?? '', source.fullPath) : undefined,

@@ -45,7 +45,7 @@ export class ConfigItem {
   }
 
   /**
-   * fetch ordered list of definitions for this item, by following up sorted data sources list
+   * fetch ordered list of definitions for this item, by following the sorted definition sources list
    * internal defs (builtins) are appended last (lowest priority)
    */
   get defs() {
@@ -53,12 +53,11 @@ export class ConfigItem {
     // we may want to cache the definition list at some point when loading is complete
     // although we need it to be dynamic during the loading process when doing any early resolution of the envFlag
     const defs: Array<ConfigItemDefAndSource> = [];
-    for (const source of this.envGraph.sortedDataSources) {
+    for (const { source, importKeys } of this.envGraph.sortedDefinitionSources) {
       if (!source.configItemDefs[this.key]) continue;
       if (source.disabled) continue;
-      if (source.importKeys && !source.importKeys.includes(this.key)) continue;
-      const itemDef = source.configItemDefs[this.key];
-      if (itemDef) defs.push({ itemDef, source });
+      if (importKeys && !importKeys.includes(this.key)) continue;
+      defs.push({ itemDef: source.configItemDefs[this.key], source });
     }
     defs.push(...this._internalDefs);
     return defs;

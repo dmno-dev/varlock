@@ -384,6 +384,18 @@ export abstract class EnvGraphDataSource {
             const fileName = path.basename(fullImportPath);
 
             // TODO: might be nice to move this logic somewhere else
+            // Check for diamond dependency: if this path was already loaded,
+            // add an alias instead of re-loading (prevents double plugin init)
+            const existingSource = this.graph.getLoadedImportSource(fullImportPath);
+            if (existingSource) {
+              // eslint-disable-next-line no-use-before-define
+              await this.addChild(new ImportAliasSource(existingSource), {
+                isImport: true, importKeys, isConditionallyEnabled,
+              });
+              this.graph.registerItemsForImport(existingSource, this, importKeys);
+              continue;
+            }
+
             if (this.graph.virtualImports) {
               if (importPath.endsWith('/')) {
                 const dirExists = Object.keys(this.graph.virtualImports).some((p) => p.startsWith(fullImportPath));
@@ -392,12 +404,12 @@ export abstract class EnvGraphDataSource {
                   this._loadingError = new Error(`Virtual directory import ${fullImportPath} not found`);
                   return;
                 }
-                // Skip if already loaded (diamond dependency deduplication)
-                if (this.graph.checkAndRecordImportPath(fullImportPath)) continue;
                 // eslint-disable-next-line no-use-before-define
-                await this.addChild(new DirectoryDataSource(fullImportPath), {
+                const dirChild = new DirectoryDataSource(fullImportPath);
+                await this.addChild(dirChild, {
                   isImport: true, importKeys, isConditionallyEnabled,
                 });
+                this.graph.recordLoadedImportPath(fullImportPath, dirChild);
               } else {
                 const fileExists = this.graph.virtualImports[fullImportPath];
                 if (!fileExists && allowMissing) continue;
@@ -405,13 +417,12 @@ export abstract class EnvGraphDataSource {
                   this._loadingError = new Error(`Virtual import ${fullImportPath} not found`);
                   return;
                 }
-                // Skip if already loaded (diamond dependency deduplication)
-                if (this.graph.checkAndRecordImportPath(fullImportPath)) continue;
                 // eslint-disable-next-line no-use-before-define
-                const source = new DotEnvFileDataSource(fullImportPath, {
+                const fileChild = new DotEnvFileDataSource(fullImportPath, {
                   overrideContents: this.graph.virtualImports[fullImportPath],
                 });
-                await this.addChild(source, { isImport: true, importKeys, isConditionallyEnabled });
+                await this.addChild(fileChild, { isImport: true, importKeys, isConditionallyEnabled });
+                this.graph.recordLoadedImportPath(fullImportPath, fileChild);
               }
             } else {
               const fsStat = await tryCatch(async () => fs.stat(fullImportPath), (_err) => {
@@ -427,12 +438,12 @@ export abstract class EnvGraphDataSource {
               // directory import -- must end with a "/" to make the intent clearer
               if (importPath.endsWith('/')) {
                 if (fsStat.isDirectory()) {
-                  // Skip if already loaded (diamond dependency deduplication)
-                  if (this.graph.checkAndRecordImportPath(fullImportPath)) continue;
                   // eslint-disable-next-line no-use-before-define
-                  await this.addChild(new DirectoryDataSource(fullImportPath), {
+                  const dirChild = new DirectoryDataSource(fullImportPath);
+                  await this.addChild(dirChild, {
                     isImport: true, importKeys, isConditionallyEnabled,
                   });
+                  this.graph.recordLoadedImportPath(fullImportPath, dirChild);
                 } else {
                   this._loadingError = new Error(`Imported path ending with "/" is not a directory: ${fullImportPath}`);
                   return;
@@ -446,13 +457,13 @@ export abstract class EnvGraphDataSource {
                   this._loadingError = new Error('imported file must be a .env.* file');
                   return;
                 }
-                // Skip if already loaded (diamond dependency deduplication)
-                if (this.graph.checkAndRecordImportPath(fullImportPath)) continue;
                 // TODO: once we have more file types, here we would detect the type and import it correctly
                 // eslint-disable-next-line no-use-before-define
-                await this.addChild(new DotEnvFileDataSource(fullImportPath), {
+                const fileChild = new DotEnvFileDataSource(fullImportPath);
+                await this.addChild(fileChild, {
                   isImport: true, importKeys, isConditionallyEnabled,
                 });
+                this.graph.recordLoadedImportPath(fullImportPath, fileChild);
               }
             }
           } else if (importPath.startsWith('http://') || importPath.startsWith('https://')) {
@@ -550,6 +561,32 @@ export abstract class EnvGraphDataSource {
   getRootDecFns(decName: string) {
     return this.rootDecorators.filter((d) => d.name === decName && d.isFunctionCall);
   }
+}
+
+/**
+ * Lightweight alias created when the same path is imported from multiple locations.
+ * Lives in the tree like any other child (has its own importMeta/parent) but delegates
+ * definitions to the original source. Has no rootDecorators or configItemDefs of its own,
+ * so sortedDataSources consumers (plugin init, error collection, etc.) naturally skip it.
+ */
+export class ImportAliasSource extends EnvGraphDataSource {
+  type = 'import-alias' as const;
+  typeLabel = 'import-alias';
+
+  constructor(
+    /** the real data source this alias points to */
+    readonly original: EnvGraphDataSource,
+  ) {
+    super();
+  }
+
+  get label() { return `re-import of ${this.original.label}`; }
+
+  // no-op — the original was already fully initialized
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  async _finishInit() {}
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  async _processImports() {}
 }
 
 export abstract class FileBasedDataSource extends EnvGraphDataSource {
