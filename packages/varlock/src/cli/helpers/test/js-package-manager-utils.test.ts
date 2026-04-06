@@ -121,4 +121,27 @@ describe('detectWorkspaceInfo', () => {
     expect(result?.packageManager.name).toBe('bun');
     expect(result?.rootPath).toBe(tempDir);
   });
+
+  test('finds lockfile when .git and lockfile are in the same directory (standard monorepo layout)', () => {
+    // Simulates: monorepo-root/.git + monorepo-root/bun.lock, CWD = monorepo-root/packages/my-app
+    const subDir = path.join(tempDir, 'packages', 'my-app');
+    fs.mkdirSync(subDir, { recursive: true });
+    fs.mkdirSync(path.join(tempDir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(tempDir, 'bun.lock'), '');
+
+    const result = detectWorkspaceInfo({ cwd: subDir });
+    expect(result?.packageManager.name).toBe('bun');
+    expect(result?.rootPath).toBe(tempDir);
+  });
+
+  test('stops at .git boundary when no lockfile is found above', () => {
+    // Simulates a git repo without any lockfile — should return undefined
+    const subDir = path.join(tempDir, 'src');
+    fs.mkdirSync(subDir, { recursive: true });
+    fs.mkdirSync(path.join(tempDir, '.git'), { recursive: true });
+
+    const result = detectWorkspaceInfo({ cwd: subDir });
+    // No lockfile found, no npm_config_user_agent, so result is undefined
+    expect(result).toBeUndefined();
+  });
 });
