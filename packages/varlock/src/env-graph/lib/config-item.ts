@@ -114,9 +114,35 @@ export class ConfigItem {
     return links;
   }
 
+  /** Whether the resolved value came from a process.env override rather than file definitions */
+  get isOverridden() {
+    return this.key in this.envGraph.overrideValues;
+  }
+
+  /**
+   * Returns the definition+source that would provide the value resolver
+   * (i.e. the "winning" definition), or undefined if no definition has a resolver.
+   * This is useful for explaining where a value comes from regardless of overrides.
+   */
+  get activeValueDef(): ConfigItemDefAndSource | undefined {
+    const hasInternalResolver = this._internalDefs.some((d) => d.itemDef.resolver);
+    for (const def of this.defs) {
+      if (def.itemDef.resolver) {
+        if (
+          hasInternalResolver
+          && def.itemDef.resolver instanceof StaticValueResolver
+          && !def.itemDef.resolver.staticValue
+        ) {
+          continue;
+        }
+        return def;
+      }
+    }
+  }
+
   get valueResolver() {
     // special case for process.env overrides - always return the static value
-    if (this.key in this.envGraph.overrideValues) {
+    if (this.isOverridden) {
       return new StaticValueResolver(this.envGraph.overrideValues[this.key]);
     }
 
