@@ -540,6 +540,32 @@ async function downloadPlugin(url: string) {
   return finalDir;
 }
 
+/**
+ * Fetches plugin metadata from npm and downloads the tarball into the local cache.
+ * The caller is responsible for any user confirmation — this function downloads unconditionally.
+ *
+ * @param moduleName  e.g. `@varlock/1password-plugin` or `my-plugin`
+ * @param versionDescriptor  must be a fixed semver version e.g. `1.2.3`
+ * @returns the local cache directory the plugin was extracted into
+ */
+export async function downloadPluginToCache(moduleName: string, versionDescriptor: string): Promise<string> {
+  if (!semver.valid(versionDescriptor)) {
+    throw new Error(`"${versionDescriptor}" is not a fixed version — use an exact version like 1.2.3`);
+  }
+
+  const npmInfoUrl = `https://registry.npmjs.org/${moduleName}/${versionDescriptor}`;
+  const npmInfoReq = await fetch(npmInfoUrl);
+  if (!npmInfoReq.ok) {
+    throw new Error(`Failed to fetch plugin "${moduleName}@${versionDescriptor}" from npm: ${npmInfoReq.status} ${npmInfoReq.statusText}`);
+  }
+  const npmInfo = await npmInfoReq.json() as { dist?: { tarball?: string } };
+  const tarballUrl = npmInfo?.dist?.tarball;
+  if (!tarballUrl) {
+    throw new Error(`Failed to find tarball URL for plugin "${moduleName}@${versionDescriptor}" from npm`);
+  }
+
+  return downloadPlugin(tarballUrl);
+}
 
 
 export async function processPluginInstallDecorators(dataSource: EnvGraphDataSource) {
@@ -658,7 +684,7 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
               // TODO: new error type? check for 404 vs others and give better message
               throw new Error(`Failed to fetch plugin "${moduleName}@${versionDescriptor}" from npm: ${npmInfoReq.status} ${npmInfoReq.statusText}`);
             }
-            const npmInfo = await npmInfoReq.json() as any;
+            const npmInfo = await npmInfoReq.json() as { dist?: { tarball?: string } };
             const tarballUrl = npmInfo?.dist?.tarball;
             if (!tarballUrl) {
               throw new Error(`Failed to find tarball URL for plugin "${moduleName}@${versionDescriptor}" from npm`);
@@ -672,7 +698,7 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
                 throw new SchemaError(
                   `Third-party plugin "${moduleName}@${versionDescriptor}" must be confirmed before downloading, `
                   + 'but no interactive terminal (TTY) is available. '
-                  + 'Run varlock interactively to confirm the download, or install the plugin via your package.json.',
+                  + 'Run `varlock install-plugin` to pre-cache the plugin, or install it via your package.json.',
                 );
               }
 

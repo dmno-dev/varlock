@@ -20,6 +20,7 @@ import { commandSpec as helpCommandSpec } from './commands/help.command';
 import { commandSpec as telemetryCommandSpec } from './commands/telemetry.command';
 import { commandSpec as scanCommandSpec } from './commands/scan.command';
 import { commandSpec as typegenCommandSpec } from './commands/typegen.command';
+import { commandSpec as installPluginCommandSpec } from './commands/install-plugin.command';
 // import { commandSpec as loginCommandSpec } from './commands/login.command';
 // import { commandSpec as pluginCommandSpec } from './commands/plugin.command';
 
@@ -55,6 +56,7 @@ subCommands.set('help', buildLazyCommand(helpCommandSpec, async () => await impo
 subCommands.set('telemetry', buildLazyCommand(telemetryCommandSpec, async () => await import('./commands/telemetry.command')));
 subCommands.set('scan', buildLazyCommand(scanCommandSpec, async () => await import('./commands/scan.command')));
 subCommands.set('typegen', buildLazyCommand(typegenCommandSpec, async () => await import('./commands/typegen.command')));
+subCommands.set('install-plugin', buildLazyCommand(installPluginCommandSpec, async () => await import('./commands/install-plugin.command')));
 // subCommands.set('login', buildLazyCommand(loginCommandSpec, async () => await import('./commands/login.command')));
 // subCommands.set('plugin', buildLazyCommand(pluginCommandSpec, async () => await import('./commands/plugin.command')));
 
