@@ -16,6 +16,8 @@ import { pathExists } from '@env-spec/utils/fs-utils';
 import { processPluginInstallDecorators } from './plugins';
 import { RootDecoratorInstance } from './decorators';
 import { isBuiltinVar } from './builtin-vars';
+import { fetchPublicSchema } from '../../lib/schema-cache';
+import { resolvePluginSchema } from './plugin-schema';
 
 const DATA_SOURCE_TYPES = Object.freeze({
   schema: {
@@ -56,9 +58,15 @@ export abstract class EnvGraphDataSource {
     importKeys?: Array<string>,
     /** true when the @import had a non-static `enabled` parameter (e.g. `enabled=forEnv("dev")`) */
     isConditionallyEnabled?: boolean,
+    /** true when the source was imported from a remote protocol (public-schemas:, plugin-schema:) */
+    isRemoteImport?: boolean,
   };
   get isImport(): boolean {
     return !!this.importMeta?.isImport || !!this.parent?.isImport;
+  }
+  /** true if this data source (or any ancestor) was imported from a remote protocol */
+  get isRemoteImport(): boolean {
+    return !!this.importMeta?.isRemoteImport || !!this.parent?.isRemoteImport;
   }
   get isPartialImport() {
     return (this.importKeys || []).length > 0;
@@ -304,7 +312,16 @@ export abstract class EnvGraphDataSource {
     const defaultRequiredDec = this.getRootDec('defaultRequired');
     await defaultRequiredDec?.process();
 
-    await processPluginInstallDecorators(this);
+    // Security: remotely imported files cannot install plugins
+    if (this.isRemoteImport) {
+      const pluginDecs = this.getRootDecFns('plugin');
+      if (pluginDecs.length) {
+        this._loadingError = new Error('Remotely imported schemas cannot install plugins (@plugin is not allowed)');
+        return;
+      }
+    } else {
+      await processPluginInstallDecorators(this);
+    }
   }
 
   /**
@@ -349,15 +366,27 @@ export abstract class EnvGraphDataSource {
           // determine the full import path based on path type
           let fullImportPath: string | undefined;
           if (importPath.startsWith('./') || importPath.startsWith('../')) {
+            // Security: remote imports cannot access local files
+            if (this.isRemoteImport) {
+              throw new Error('Remotely imported schemas cannot use local file imports');
+            }
             // eslint-disable-next-line no-use-before-define
             if (!(this instanceof FileBasedDataSource)) {
               throw new Error('@import of files can only be used from a file-based data source');
             }
             fullImportPath = path.resolve(this.fullPath, '..', importPath);
           } else if (importPath.startsWith('~/') || importPath === '~') {
+            // Security: remote imports cannot access local files
+            if (this.isRemoteImport) {
+              throw new Error('Remotely imported schemas cannot use local file imports');
+            }
             // expand ~ to home directory (treat like absolute path)
             fullImportPath = path.join(os.homedir(), importPath.slice(1));
           } else if (importPath.startsWith('/')) {
+            // Security: remote imports cannot access local files
+            if (this.isRemoteImport) {
+              throw new Error('Remotely imported schemas cannot use local file imports');
+            }
             // absolute path
             fullImportPath = importPath;
           }
@@ -448,6 +477,54 @@ export abstract class EnvGraphDataSource {
                   isImport: true, importKeys, isConditionallyEnabled,
                 });
               }
+            }
+          } else if (importPath.startsWith('public-schemas:')) {
+            // Remote import from official varlock public schemas
+            const schemaPath = importPath.slice('public-schemas:'.length);
+            if (!schemaPath || schemaPath.includes('..')) {
+              this._loadingError = new Error(`Invalid public schema path: ${schemaPath}`);
+              return;
+            }
+            try {
+              const contents = await fetchPublicSchema(schemaPath);
+              // Sanitize the schema path for use as a synthetic filename
+              const safeName = schemaPath.replace(/[^a-zA-Z0-9_-]/g, '-');
+              const syntheticPath = `.env.public-schema-${safeName}`;
+              // eslint-disable-next-line no-use-before-define
+              const source = new DotEnvFileDataSource(syntheticPath, { overrideContents: contents });
+              await this.addChild(source, {
+                isImport: true, importKeys, isConditionallyEnabled, isRemoteImport: true,
+              });
+            } catch (fetchErr) {
+              if (allowMissing) continue;
+              this._loadingError = new Error(`Failed to fetch public schema "${schemaPath}": ${(fetchErr as Error).message}`);
+              return;
+            }
+          } else if (importPath.startsWith('plugin-schema:')) {
+            // Import schema from an installed plugin package
+            // Supports: plugin-schema:@scope/name (defaults to .env.schema)
+            //           plugin-schema:@scope/name/.env.custom (specific file)
+            const pluginDescriptor = importPath.slice('plugin-schema:'.length);
+            if (!pluginDescriptor) {
+              this._loadingError = new Error('plugin-schema: import must specify a plugin name');
+              return;
+            }
+            try {
+              // eslint-disable-next-line no-use-before-define
+              const fileSource = this instanceof FileBasedDataSource ? this : undefined;
+              const schemaSource = await resolvePluginSchema(pluginDescriptor, fileSource);
+              if (!schemaSource) {
+                if (allowMissing) continue;
+                this._loadingError = new Error(`Plugin "${pluginDescriptor}" does not expose the requested schema file`);
+                return;
+              }
+              await this.addChild(schemaSource, {
+                isImport: true, importKeys, isConditionallyEnabled, isRemoteImport: true,
+              });
+            } catch (pluginErr) {
+              if (allowMissing) continue;
+              this._loadingError = new Error(`Failed to resolve plugin schema "${pluginDescriptor}": ${(pluginErr as Error).message}`);
+              return;
             }
           } else if (importPath.startsWith('http://') || importPath.startsWith('https://')) {
             this._loadingError = new Error('http imports not supported yet');
