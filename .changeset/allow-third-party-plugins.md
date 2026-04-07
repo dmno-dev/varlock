@@ -1,5 +1,5 @@
 ---
-"varlock": minor
+"varlock": patch
 ---
 
 feat: allow 3rd party plugins
