@@ -4,6 +4,8 @@ import semver from 'semver';
 
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
+import { isBundledSEA } from '../helpers/install-detection';
+import { fmt } from '../helpers/pretty-format';
 import { downloadPluginToCache } from '../../env-graph/lib/plugins';
 
 export const commandSpec = define({
@@ -29,6 +31,13 @@ Examples:
 });
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
+  if (!isBundledSEA()) {
+    throw new CliExitError('This command is only available when using the standalone varlock binary', {
+      suggestion: 'In a JS project, install plugins as regular dependencies using your package manager.\n'
+        + `For example: ${fmt.command('add my-plugin', { jsPackageManager: true })}`,
+    });
+  }
+
   const pluginDescriptor = ctx.values.plugin as string | undefined;
 
   if (!pluginDescriptor) {
