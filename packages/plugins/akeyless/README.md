@@ -10,10 +10,13 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 - **Static secrets** - Fetch static (key/value) secrets
 - **Dynamic secrets** - Fetch on-demand generated credentials (database, cloud, etc.)
 - **Rotated secrets** - Fetch auto-rotated credentials
+- **JSON key extraction** from secrets using `#` syntax or named `key` parameter
+- **Path prefixing** with `pathPrefix` option for organized secret management
 - **Gateway support** - Use a self-hosted Akeyless Gateway via custom `apiUrl`
 - **Auto-infer secret name** from environment variable names
 - Support for multiple Akeyless instances
 - Automatic token caching and renewal
+- Response caching for deduplicating concurrent fetches
 - Lightweight implementation using REST API (no heavy SDK dependencies)
 
 ## Installation
@@ -92,12 +95,30 @@ Static secrets are simple key/value pairs. This is the default secret type.
 # Fetch a static secret by its full path
 DB_PASSWORD=akeyless("/MyApp/DB_PASSWORD")
 
-# Auto-infer secret name from variable name
-API_KEY=akeyless()
+# Extract a JSON key from a static secret
+DB_HOST=akeyless("/MyApp/DBConfig#host")
+
+# Or use named key parameter
+DB_PORT=akeyless("/MyApp/DBConfig", key="port")
 
 # If using multiple instances
 PROD_SECRET=akeyless(prod, "/MyApp/Secret")
 DEV_SECRET=akeyless(dev, "/MyApp/Secret")
+```
+
+### Path prefixing
+
+Use `pathPrefix` to automatically prefix all secret paths:
+
+```env-spec
+# @initAkeyless(accessId=$AKEYLESS_ACCESS_ID, accessKey=$AKEYLESS_ACCESS_KEY, pathPrefix="/MyApp")
+# ---
+
+# Fetches from "/MyApp/DB_PASSWORD"
+DB_PASSWORD=akeyless("DB_PASSWORD")
+
+# Auto-infer also uses the prefix: fetches from "/MyApp/API_KEY"
+API_KEY=akeyless()
 ```
 
 ### Dynamic secrets
@@ -105,17 +126,27 @@ DEV_SECRET=akeyless(dev, "/MyApp/Secret")
 Dynamic secrets generate on-demand credentials (e.g., temporary database credentials, cloud access tokens). Use the `type=dynamic` parameter:
 
 ```env-spec
-# Fetch a dynamic secret (returns JSON with generated credentials)
+# Fetch entire dynamic secret as JSON
 DB_CREDENTIALS=akeyless("/MyApp/DynamicDBSecret", type=dynamic)
+
+# Extract specific keys from the dynamic secret response
+DB_USER=akeyless("/MyApp/DynamicDBSecret#user", type=dynamic)
+DB_PASS=akeyless("/MyApp/DynamicDBSecret#password", type=dynamic)
 ```
+
+Multiple items referencing the same secret path are cached — only one API call is made.
 
 ### Rotated secrets
 
 Rotated secrets are auto-rotated credentials. Use the `type=rotated` parameter:
 
 ```env-spec
-# Fetch a rotated secret (returns JSON with current credential values)
+# Fetch entire rotated secret as JSON
 DB_ROTATED_CREDS=akeyless("/MyApp/RotatedDBPassword", type=rotated)
+
+# Extract individual keys
+DB_USER=akeyless("/MyApp/RotatedDBPassword#user", type=rotated)
+DB_PASS=akeyless("/MyApp/RotatedDBPassword#password", type=rotated)
 ```
 
 ---
@@ -133,6 +164,7 @@ Initialize an Akeyless plugin instance.
 - `accessId: string` (required) - Akeyless Access ID (starts with `p-` for API Key auth)
 - `accessKey: string` (required) - Akeyless Access Key
 - `apiUrl?: string` - Akeyless API URL (defaults to `https://api.akeyless.io`). Use this for self-hosted Akeyless Gateway.
+- `pathPrefix?: string` - Prefix automatically prepended to all secret paths
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### Functions
@@ -146,14 +178,18 @@ Fetch a secret from Akeyless.
 - `akeyless()` - Uses the item key (variable name) as the secret name
 - `akeyless(secretName)` - Fetch by explicit secret path
 - `akeyless(instanceId, secretName)` - Fetch from a specific instance
+- `akeyless("path#key")` - Extract a JSON key using `#` syntax
+- `akeyless(secretName, key="field")` - Extract a JSON key using named parameter
 - `akeyless(secretName, type=dynamic)` - Fetch a dynamic secret
 - `akeyless(secretName, type=rotated)` - Fetch a rotated secret
 
 **Secret types:**
 
-- `static` (default) - Simple key/value secrets
-- `dynamic` - On-demand generated credentials (database, cloud, etc.)
-- `rotated` - Auto-rotated credentials
+- `static` (default) - Simple key/value secrets. If the value is JSON, use `#KEY` or `key=` to extract individual keys.
+- `dynamic` - On-demand generated credentials. Returns JSON by default, or extract a specific key.
+- `rotated` - Auto-rotated credentials. Returns JSON by default, or extract a specific key.
+
+**Caching:** Multiple items referencing the same secret path and type share a single API call.
 
 ### Data Types
 
@@ -192,6 +228,12 @@ akeyless create-secret --name "/MyApp/DB_PASSWORD" --value "supersecret"
 - Verify the secret exists in the Akeyless Console
 - Check the full secret path (e.g., `/MyFolder/MySecret`)
 - Ensure the path starts with `/`
+- If using `pathPrefix`, check the combined path is correct
+
+### JSON key not found
+- Verify the key exists in the secret value
+- Key names are case-sensitive
+- For static secrets, ensure the value is valid JSON when using `#KEY` or `key=`
 
 ### Permission denied
 - Check the Access Role associated with your API Key auth method

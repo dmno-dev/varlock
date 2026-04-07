@@ -3,12 +3,9 @@ import ky from 'ky';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;
 
-const AKEYLESS_ICON = 'simple-icons:akeyless';
-
 plugin.name = 'akeyless';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
-plugin.icon = AKEYLESS_ICON;
 plugin.standardVars = {
   initDecorator: '@initAkeyless',
   params: {
@@ -35,7 +32,9 @@ class AkeylessPluginInstance {
   private accessId?: string;
   private accessKey?: string;
   private apiUrl: string = DEFAULT_API_URL;
+  private pathPrefix?: string;
   private cachedToken?: CachedToken;
+  private secretCache = new Map<string, Promise<any>>();
 
   constructor(
     readonly id: string,
@@ -45,10 +44,12 @@ class AkeylessPluginInstance {
     accessId?: any,
     accessKey?: any,
     apiUrl?: any,
+    pathPrefix?: any,
   ) {
     this.accessId = accessId ? String(accessId) : undefined;
     this.accessKey = accessKey ? String(accessKey) : undefined;
     if (apiUrl) this.apiUrl = String(apiUrl).replace(/\/+$/, '');
+    this.pathPrefix = pathPrefix ? String(pathPrefix) : undefined;
     debug(
       'akeyless instance',
       this.id,
@@ -58,7 +59,18 @@ class AkeylessPluginInstance {
       !!this.accessId,
       'hasAccessKey:',
       !!this.accessKey,
+      'pathPrefix:',
+      this.pathPrefix,
     );
+  }
+
+  applyPathPrefix(name: string): string {
+    if (this.pathPrefix) {
+      const prefix = this.pathPrefix.replace(/\/+$/, '');
+      const path = name.replace(/^\/+/, '');
+      return `${prefix}/${path}`;
+    }
+    return name;
   }
 
   private async authenticate(): Promise<string> {
@@ -131,7 +143,21 @@ class AkeylessPluginInstance {
     }
   }
 
-  async getStaticSecret(secretName: string): Promise<string> {
+  private fetchStaticSecret(secretName: string): Promise<string> {
+    const cacheKey = `static:${secretName}`;
+    const cached = this.secretCache.get(cacheKey);
+    if (cached) {
+      debug(`Using cached fetch for static secret: ${secretName}`);
+      return cached;
+    }
+
+    const promise = this._fetchStaticSecret(secretName);
+    this.secretCache.set(cacheKey, promise);
+    promise.catch(() => this.secretCache.delete(cacheKey));
+    return promise;
+  }
+
+  private async _fetchStaticSecret(secretName: string): Promise<string> {
     const token = await this.authenticate();
 
     try {
@@ -208,7 +234,44 @@ class AkeylessPluginInstance {
     }
   }
 
-  async getDynamicSecret(secretName: string): Promise<string> {
+  async getStaticSecret(secretName: string, jsonKey?: string): Promise<string> {
+    const value = await this.fetchStaticSecret(secretName);
+
+    if (jsonKey) {
+      try {
+        const parsed = JSON.parse(value);
+        if (!(jsonKey in parsed)) {
+          throw new ResolutionError(`Key "${jsonKey}" not found in secret JSON`, {
+            tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
+          });
+        }
+        return String(parsed[jsonKey]);
+      } catch (err) {
+        if (err instanceof ResolutionError) throw err;
+        throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
+          tip: 'Ensure the secret value is valid JSON when extracting a specific key',
+        });
+      }
+    }
+
+    return value;
+  }
+
+  private fetchDynamicSecret(secretName: string): Promise<Record<string, any>> {
+    const cacheKey = `dynamic:${secretName}`;
+    const cached = this.secretCache.get(cacheKey);
+    if (cached) {
+      debug(`Using cached fetch for dynamic secret: ${secretName}`);
+      return cached;
+    }
+
+    const promise = this._fetchDynamicSecret(secretName);
+    this.secretCache.set(cacheKey, promise);
+    promise.catch(() => this.secretCache.delete(cacheKey));
+    return promise;
+  }
+
+  private async _fetchDynamicSecret(secretName: string): Promise<Record<string, any>> {
     const token = await this.authenticate();
 
     try {
@@ -221,8 +284,7 @@ class AkeylessPluginInstance {
         },
       }).json<Record<string, any>>();
 
-      // Dynamic secrets return structured data; return as JSON string
-      return JSON.stringify(response);
+      return response;
     } catch (err: any) {
       if (err instanceof ResolutionError) throw err;
 
@@ -260,7 +322,36 @@ class AkeylessPluginInstance {
     }
   }
 
-  async getRotatedSecret(secretName: string): Promise<string> {
+  async getDynamicSecret(secretName: string, jsonKey?: string): Promise<string> {
+    const response = await this.fetchDynamicSecret(secretName);
+
+    if (jsonKey) {
+      if (!(jsonKey in response)) {
+        throw new ResolutionError(`Key "${jsonKey}" not found in dynamic secret response`, {
+          tip: `Available keys: ${Object.keys(response).join(', ')}`,
+        });
+      }
+      return String(response[jsonKey]);
+    }
+
+    return JSON.stringify(response);
+  }
+
+  private fetchRotatedSecret(secretName: string): Promise<Record<string, any>> {
+    const cacheKey = `rotated:${secretName}`;
+    const cached = this.secretCache.get(cacheKey);
+    if (cached) {
+      debug(`Using cached fetch for rotated secret: ${secretName}`);
+      return cached;
+    }
+
+    const promise = this._fetchRotatedSecret(secretName);
+    this.secretCache.set(cacheKey, promise);
+    promise.catch(() => this.secretCache.delete(cacheKey));
+    return promise;
+  }
+
+  private async _fetchRotatedSecret(secretName: string): Promise<Record<string, any>> {
     const token = await this.authenticate();
 
     try {
@@ -278,8 +369,7 @@ class AkeylessPluginInstance {
         throw new ResolutionError(`Rotated secret "${secretName}" returned no value`);
       }
 
-      // Rotated secrets return structured data; return as JSON string
-      return JSON.stringify(value);
+      return value;
     } catch (err: any) {
       if (err instanceof ResolutionError) throw err;
 
@@ -315,6 +405,21 @@ class AkeylessPluginInstance {
 
       throw new ResolutionError(errorMessage, { tip: errorTip });
     }
+  }
+
+  async getRotatedSecret(secretName: string, jsonKey?: string): Promise<string> {
+    const value = await this.fetchRotatedSecret(secretName);
+
+    if (jsonKey) {
+      if (!(jsonKey in value)) {
+        throw new ResolutionError(`Key "${jsonKey}" not found in rotated secret response`, {
+          tip: `Available keys: ${Object.keys(value).join(', ')}`,
+        });
+      }
+      return String(value[jsonKey]);
+    }
+
+    return JSON.stringify(value);
   }
 }
 
@@ -357,15 +462,17 @@ plugin.registerRootDecorator({
       accessIdResolver: objArgs.accessId,
       accessKeyResolver: objArgs.accessKey,
       apiUrlResolver: objArgs.apiUrl,
+      pathPrefixResolver: objArgs.pathPrefix,
     };
   },
   async execute({
-    id, accessIdResolver, accessKeyResolver, apiUrlResolver,
+    id, accessIdResolver, accessKeyResolver, apiUrlResolver, pathPrefixResolver,
   }) {
     const accessId = await accessIdResolver.resolve();
     const accessKey = await accessKeyResolver.resolve();
     const apiUrl = await apiUrlResolver?.resolve();
-    pluginInstances[id].setAuth(accessId, accessKey, apiUrl);
+    const pathPrefix = await pathPrefixResolver?.resolve();
+    pluginInstances[id].setAuth(accessId, accessKey, apiUrl, pathPrefix);
   },
 });
 
@@ -373,7 +480,6 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'akeylessAccessId',
   typeDescription: 'Akeyless Access ID for API Key authentication',
-  icon: AKEYLESS_ICON,
   docs: [
     {
       description: 'Akeyless API Key Authentication',
@@ -397,7 +503,6 @@ plugin.registerDataType({
   name: 'akeylessAccessKey',
   sensitive: true,
   typeDescription: 'Akeyless Access Key for API Key authentication',
-  icon: AKEYLESS_ICON,
   docs: [
     {
       description: 'Akeyless API Key Authentication',
@@ -410,7 +515,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'akeyless',
   label: 'Fetch secret from Akeyless',
-  icon: AKEYLESS_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -420,6 +524,7 @@ plugin.registerResolverFunction({
     let instanceId: string;
     let secretNameResolver: Resolver | undefined;
     let itemKey: string | undefined;
+    let keyResolver: Resolver | undefined;
     let secretType: 'static' | 'dynamic' | 'rotated' = 'static';
 
     // Check for named 'type' parameter to select secret type
@@ -435,6 +540,11 @@ plugin.registerResolverFunction({
           tip: 'Valid types are: static, dynamic, rotated',
         });
       }
+    }
+
+    // Check for named 'key' parameter to extract a JSON key
+    if (this.objArgs?.key) {
+      keyResolver = this.objArgs.key;
     }
 
     if (!this.arrArgs || this.arrArgs.length === 0) {
@@ -486,34 +596,58 @@ plugin.registerResolverFunction({
     }
 
     return {
-      instanceId, secretNameResolver, itemKey, secretType,
+      instanceId, secretNameResolver, itemKey, keyResolver, secretType,
     };
   },
   async resolve({
-    instanceId, secretNameResolver, itemKey, secretType,
+    instanceId, secretNameResolver, itemKey, keyResolver, secretType,
   }) {
     const selectedInstance = pluginInstances[instanceId];
 
     // Resolve secret name
-    let secretName: string;
+    let secretNameWithKey: string;
     if (secretNameResolver) {
       const resolved = await secretNameResolver.resolve();
       if (typeof resolved !== 'string') {
         throw new SchemaError('Expected secret name to resolve to a string');
       }
-      secretName = resolved;
+      secretNameWithKey = resolved;
     } else if (itemKey) {
-      secretName = itemKey;
+      secretNameWithKey = itemKey;
     } else {
       throw new SchemaError('No secret name provided');
     }
 
+    // Parse for explicit JSON key using # syntax
+    // e.g., "/MyApp/Secret#username" -> secretName="/MyApp/Secret", jsonKey="username"
+    let secretName: string;
+    let jsonKey: string | undefined;
+    const hashIndex = secretNameWithKey.indexOf('#');
+    if (hashIndex !== -1) {
+      secretName = secretNameWithKey.substring(0, hashIndex);
+      jsonKey = secretNameWithKey.substring(hashIndex + 1);
+    } else {
+      secretName = secretNameWithKey;
+    }
+
+    // Named 'key' parameter takes precedence over # syntax
+    if (keyResolver) {
+      const keyValue = await keyResolver.resolve();
+      if (typeof keyValue !== 'string') {
+        throw new SchemaError('Expected key parameter to resolve to a string');
+      }
+      jsonKey = keyValue;
+    }
+
+    // Apply pathPrefix
+    const finalSecretName = selectedInstance.applyPathPrefix(secretName);
+
     if (secretType === 'dynamic') {
-      return await selectedInstance.getDynamicSecret(secretName);
+      return await selectedInstance.getDynamicSecret(finalSecretName, jsonKey);
     }
     if (secretType === 'rotated') {
-      return await selectedInstance.getRotatedSecret(secretName);
+      return await selectedInstance.getRotatedSecret(finalSecretName, jsonKey);
     }
-    return await selectedInstance.getStaticSecret(secretName);
+    return await selectedInstance.getStaticSecret(finalSecretName, jsonKey);
   },
 });
