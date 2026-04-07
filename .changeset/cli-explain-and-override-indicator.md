@@ -1,5 +1,5 @@
 ---
-"varlock": minor
+"varlock": patch
 ---
 
 Add `varlock explain ITEM_KEY` command and override indicators in `varlock load` output.
