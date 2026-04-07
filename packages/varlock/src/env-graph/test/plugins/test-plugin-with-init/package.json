@@ -1,0 +1,10 @@
+{
+  "name": "@varlock/test-plugin-with-init",
+  "private": true,
+  "description": "plugin used in automated tests - has init decorator",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./plugin": "./plugin.js"
+  }
+}

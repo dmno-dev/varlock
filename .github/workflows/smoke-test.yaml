@@ -20,8 +20,12 @@ jobs:
       is-release-pr: ${{ steps.check.outputs.is-release-pr }}
     steps:
       - id: check
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'smoke-tests') }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [[ "${{ github.event.pull_request.title }}" == *"[Changesets]"* ]] || [[ "${{ contains(github.event.pull_request.labels.*.name, 'smoke-tests') }}" == "true" ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || [[ "${{ github.event_name }}" == "push" ]]; then
+          if [[ "$PR_TITLE" == *"[Changesets]"* ]] || [[ "$HAS_LABEL" == "true" ]] || [[ "$EVENT_NAME" == "workflow_dispatch" ]] || [[ "$EVENT_NAME" == "push" ]]; then
             echo "is-release-pr=true" >> $GITHUB_OUTPUT
           else
             echo "is-release-pr=false" >> $GITHUB_OUTPUT

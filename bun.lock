@@ -59,7 +59,7 @@
     },
     "packages/integrations/astro": {
       "name": "@varlock/astro-integration",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "devDependencies": {
         "@types/node": "catalog:",
         "@varlock/vite-integration": "workspace:*",
@@ -130,7 +130,7 @@
     },
     "packages/integrations/vite": {
       "name": "@varlock/vite-integration",
-      "version": "0.2.8",
+      "version": "0.2.9",
       "devDependencies": {
         "@types/node": "catalog:",
         "ast-matcher": "^1.2.0",
@@ -355,7 +355,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "bin": {
         "varlock": "./bin/cli.js",
       },
@@ -425,7 +425,7 @@
     },
     "packages/vscode-plugin": {
       "name": "env-spec-language",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@types/node": "catalog:",
         "@types/vscode": "^1.99.0",

@@ -35,9 +35,7 @@ let rootDir: string | undefined;
 // a list of filenames loaded, for example: `Environments: .env, .env.development`
 function getVarlockSourcesAsLoadedEnvFiles(): LoadedEnvFiles {
   const envFilesLabels = varlockLoadedEnv.sources
-    // TODO expose more info so we can filter out disabled sources
-    // and maybe show relative paths
-    .filter((s) => s.enabled && !s.label.startsWith('directory -'))
+    .filter((s) => s.enabled && s.type !== 'container' && s.type !== 'import-alias')
     .map((s) => s.label);
   if (envFilesLabels.length) {
     // this adds an additional line, below the list of files
