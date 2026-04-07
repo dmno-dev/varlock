@@ -184,10 +184,16 @@ class AkeylessPluginInstance {
 
       if (status === 404) {
         errorMessage = `${secretType} secret "${secretName}" not found`;
-        errorTip = `Verify the ${secretType} secret exists in the Akeyless Console`;
+        errorTip = [
+          `Verify the ${secretType} secret exists in the Akeyless Console`,
+          'Ensure the path is correct (e.g., "/MyFolder/MySecret")',
+        ].join('\n');
       } else if (status === 403) {
         errorMessage = `Permission denied for ${secretType} secret "${secretName}"`;
-        errorTip = `Ensure your access credentials have read permission for this ${secretType} secret`;
+        errorTip = [
+          `Ensure your access credentials have read permission for this ${secretType} secret.`,
+          'Check your Access Role configuration in the Akeyless Console.',
+        ].join('\n');
       } else if (status === 401) {
         this.cachedToken = undefined;
         errorMessage = 'Akeyless authentication token expired or invalid';
