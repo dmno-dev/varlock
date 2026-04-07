@@ -62,6 +62,7 @@ export function execSyncVarlock(
     try {
       const result = execSync(`varlock ${command}`, {
         ...opts?.env && { env: opts.env },
+        ...opts?.cwd && { cwd: opts.cwd },
         stdio: 'pipe',
       });
       return result.toString();
@@ -73,11 +74,13 @@ export function execSyncVarlock(
 
     // if varlock was not found, it either means it is not installed
     // or we must find the path to node_modules/.bin ourselves.
-    // Search from callerDir first (if provided), then from process.cwd().
+    // Search from cwd (if provided), callerDir, then process.cwd().
     // This handles monorepo setups where cwd may be an unrelated workspace
     // root while varlock is only installed in a sub-package - the callerDir
     // supplied by auto-load.ts points inside that sub-package's node_modules.
+    const cwdStr = opts?.cwd ? String(opts.cwd) : undefined;
     const searchDirs = [
+      ...(cwdStr ? [cwdStr] : []),
       ...(opts?.callerDir ? [opts.callerDir] : []),
       process.cwd(),
     ];

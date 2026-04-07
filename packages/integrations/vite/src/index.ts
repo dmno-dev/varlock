@@ -54,11 +54,12 @@ function resetStaticReplacements() {
 
 
 let loadCount = 0;
-function reloadConfig() {
-  debug('loading config - count =', ++loadCount);
+function reloadConfig(cwd?: string) {
+  debug('loading config - count =', ++loadCount, cwd ? `(cwd: ${cwd})` : '');
   try {
     const execResult = execSyncVarlock('load --format json-full --compact', {
       env: originalProcessEnv,
+      ...(cwd && { cwd }),
     });
     process.env.__VARLOCK_ENV = execResult;
     varlockLoadedEnv = JSON.parse(process.env.__VARLOCK_ENV) as SerializedEnvGraph;
@@ -140,11 +141,28 @@ See https://varlock.dev/integrations/vite/ for more details.
 
       isDevCommand = env.command === 'serve';
 
-      // this gets re-triggered after .env file updates
-      // TODO: be smarter about only reloading if the env files changed?
-      if (isFirstLoad) {
+      // Determine the project root for the current Vite/Vitest project.
+      // In monorepo setups with Vitest workspace projects, config.root
+      // points to the child package directory rather than the monorepo root
+      // where process.cwd() points. We need to reload varlock from the
+      // correct directory so it can find .env.schema and .env files.
+      const projectRoot = config.root ? path.resolve(config.root) : undefined;
+      const rootDiffersFromCwd = !!(projectRoot && path.relative(projectRoot, process.cwd()) !== '');
+
+      if (rootDiffersFromCwd) {
+        // Always reload with the correct project root when it differs from
+        // cwd. This handles monorepo Vitest workspace setups where each child
+        // project has its own env files — even if the monorepo root also has
+        // env files (which would cause the initial module-level load to
+        // succeed with the wrong project's config).
+        reloadConfig(projectRoot);
+      } else if (isFirstLoad) {
         isFirstLoad = false;
+        // Roots match — the module-level reloadConfig() already loaded from
+        // the correct directory, no need to reload.
       } else if (isDevCommand) {
+        // Dev mode re-trigger (e.g., after .env file updates)
+        // TODO: be smarter about only reloading if the env files changed?
         reloadConfig();
       }
 
