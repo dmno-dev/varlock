@@ -1,4 +1,5 @@
 import { type Resolver, plugin } from 'varlock/plugin-lib';
+import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import {
   getSecrets,
   getValue,
@@ -25,6 +26,24 @@ plugin.standardVars = {
 };
 
 // ════ PLUGIN INSTANCE CLASS ═══════════════════════════════════════════════════
+
+// Keeper record UIDs are base64url strings (16-30 chars, no spaces)
+const KEEPER_UID_RE = /^[A-Za-z0-9_-]{16,30}$/;
+
+/** Extract the record UID from any supported reference format, or return null
+ *  if the reference looks like a human-readable title. */
+function extractUidFromRef(ref: string): string | null {
+  // Strip #field suffix
+  let uid = ref;
+  const hashIndex = uid.indexOf('#');
+  if (hashIndex !== -1) uid = uid.substring(0, hashIndex);
+
+  // Strip /field/type notation suffix
+  const slashIndex = uid.indexOf('/');
+  if (slashIndex !== -1) uid = uid.substring(0, slashIndex);
+
+  return KEEPER_UID_RE.test(uid) ? uid : null;
+}
 
 class KeeperPluginInstance {
   private configToken?: string;
@@ -68,23 +87,67 @@ class KeeperPluginInstance {
     return this.sdkOptionsPromise;
   }
 
-  private secretsCache: Promise<KeeperSecrets> | undefined;
-  private fetchSecrets(recordsFilter?: Array<string>): Promise<KeeperSecrets> {
-    // Cache secrets globally (no filter) to avoid redundant fetches
-    if (!recordsFilter) {
-      if (!this.secretsCache) {
-        this.secretsCache = this._fetchSecrets();
-        // Clear cache on failure so retries can try again
-        this.secretsCache.catch(() => {
-          this.secretsCache = undefined;
-        });
-      }
-      return this.secretsCache;
+  /** Active batch being assembled before the next setImmediate tick */
+  private pendingBatch?: {
+    uids: Set<string>;
+    needsAll: boolean;
+    defers: Array<DeferredPromise<KeeperSecrets>>;
+  };
+
+  /**
+   * Request secrets, optionally scoped to a specific record UID.
+   *
+   * All concurrent calls (within the same event-loop tick) are coalesced into a
+   * single SDK request via `setImmediate` batching, analogous to the 1password
+   * plugin. When every caller provides a UID, the SDK call is filtered to only
+   * those records; if any caller needs all records (title-based or dynamic ref)
+   * the filter is omitted.
+   */
+  private fetchSecrets(uid?: string): Promise<KeeperSecrets> {
+    let triggerBatch = false;
+    if (!this.pendingBatch) {
+      this.pendingBatch = { uids: new Set(), needsAll: false, defers: [] };
+      triggerBatch = true;
     }
-    return this._fetchSecrets(recordsFilter);
+
+    if (uid) {
+      this.pendingBatch.uids.add(uid);
+    } else {
+      this.pendingBatch.needsAll = true;
+    }
+
+    const deferred = createDeferredPromise<KeeperSecrets>();
+    this.pendingBatch.defers.push(deferred);
+
+    if (triggerBatch) {
+      setImmediate(() => this._executeBatch());
+    }
+
+    return deferred.promise as Promise<KeeperSecrets>;
   }
 
-  private async _fetchSecrets(recordsFilter?: Array<string>): Promise<KeeperSecrets> {
+  private async _executeBatch() {
+    const batch = this.pendingBatch!;
+    this.pendingBatch = undefined;
+
+    // Only apply a UID filter when every caller specified a known UID
+    const recordsFilter = !batch.needsAll && batch.uids.size > 0
+      ? [...batch.uids]
+      : undefined;
+
+    try {
+      const secrets = await this._doFetchSecrets(recordsFilter);
+      for (const deferred of batch.defers) {
+        deferred.resolve(secrets);
+      }
+    } catch (err) {
+      for (const deferred of batch.defers) {
+        deferred.reject(err);
+      }
+    }
+  }
+
+  private async _doFetchSecrets(recordsFilter?: Array<string>): Promise<KeeperSecrets> {
     const options = await this.initSdkOptions();
     try {
       debug('Fetching secrets', recordsFilter ? `(filter: ${recordsFilter.join(', ')})` : '(all)');
@@ -116,7 +179,9 @@ class KeeperPluginInstance {
   }
 
   async getSecretByNotation(notation: string): Promise<string> {
-    const secrets = await this.fetchSecrets();
+    // Extract UID for a targeted fetch; fall back to all records for title-based refs
+    const uid = extractUidFromRef(notation) || undefined;
+    const secrets = await this.fetchSecrets(uid);
 
     try {
       const value = getValue(secrets, notation);
@@ -147,7 +212,9 @@ class KeeperPluginInstance {
   }
 
   async getSecretField(recordRef: string, fieldType?: string): Promise<string> {
-    const secrets = await this.fetchSecrets();
+    // When recordRef is a UID, fetch only that record; fall back to all for title-based refs
+    const uid = KEEPER_UID_RE.test(recordRef) ? recordRef : undefined;
+    const secrets = await this.fetchSecrets(uid);
 
     // Find the record by UID or title
     const record = secrets.records.find(
