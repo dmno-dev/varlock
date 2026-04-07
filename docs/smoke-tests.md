@@ -19,7 +19,7 @@ The full cross-platform smoke test suite runs automatically on **release PRs onl
 - Windows Latest
 
 **Runtimes tested:**
-- Node.js 22.x
+- Node.js 24.x
 - Bun (latest)
 
 ### Local Testing

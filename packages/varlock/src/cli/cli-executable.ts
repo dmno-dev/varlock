@@ -7,6 +7,7 @@ import { fmt } from './helpers/pretty-format';
 import { trackCommand, trackInstall } from './helpers/telemetry';
 import { InvalidEnvError } from './helpers/error-checks';
 import { checkBunVersion } from '../lib/check-bun-version';
+import { checkLocalVersionMismatch } from '../lib/check-local-version';
 import packageJson from '../../package.json';
 
 // we'll import just the spec from each, so the implementations can be lazy loaded
@@ -83,6 +84,15 @@ subCommands.set('typegen', buildLazyCommand(typegenCommandSpec, async () => awai
 
     if (args[0] === '--version') {
       await trackCommand('version');
+    }
+
+    // warn if standalone binary version differs from local node_modules install
+    // skip for --version/--help since those are quick informational commands
+    if (__VARLOCK_SEA_BUILD__ && args[0] !== '--version' && args[0] !== '--help') {
+      const versionMismatchWarning = checkLocalVersionMismatch(packageJson.version);
+      if (versionMismatchWarning) {
+        console.warn(`\n⚠️  ${versionMismatchWarning}\n`);
+      }
     }
 
     await cli(args, {

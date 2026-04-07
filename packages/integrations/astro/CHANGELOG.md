@@ -1,5 +1,14 @@
 # @varlock/astro-integration
 
+## 0.2.7
+
+### Patch Changes
+
+- [#526](https://github.com/dmno-dev/varlock/pull/526) [`17f665e`](https://github.com/dmno-dev/varlock/commit/17f665e105da9ea0afd1dced5532af5c437df2ef) - Add post-build leak detection for static HTML output via astro:build:done hook. Move Astro tests from smoke-tests to framework-tests with comprehensive coverage for both Astro v5 and v6.
+
+- Updated dependencies [[`0d25aa5`](https://github.com/dmno-dev/varlock/commit/0d25aa5e6973e9fc0cf5054e444c0ded28a186f0), [`004e181`](https://github.com/dmno-dev/varlock/commit/004e181ec44251a75be45efafc85846bb3874467), [`e67ee2f`](https://github.com/dmno-dev/varlock/commit/e67ee2f5c6b09b91564eba3925de560c12ca80c3)]:
+  - varlock@0.7.1
+
 ## 0.2.6
 
 ### Patch Changes
