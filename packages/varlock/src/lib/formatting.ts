@@ -118,13 +118,9 @@ export function getItemSummary(item: ConfigItem) {
     ),
   ]));
 
-  // if (item.overrides?.length) {
-  //   const activeOverride = item.overrides[0];
-  //   let overrideNote = ansis.gray.italic('value set via override: ');
-  //   overrideNote += ansis.gray(activeOverride.sourceType);
-  //   if (activeOverride.sourceLabel) overrideNote += ansis.gray(` - ${activeOverride.sourceLabel}`);
-  //   summary.push(`      ${overrideNote}`);
-  // }
+  if (item.isOverridden) {
+    summary.push(`   🟡 ${ansis.yellow.italic('set via process.env override')}`);
+  }
 
   itemErrors?.forEach((err) => {
     summary.push(ansis[err.isWarning ? 'yellow' : 'red'](`   - ${err.isWarning ? '[WARNING] ' : ''}${err.message}`));
