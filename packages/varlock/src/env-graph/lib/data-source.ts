@@ -35,6 +35,8 @@ const DATA_SOURCE_TYPES = Object.freeze({
   },
   container: {
   },
+  'import-alias': {
+  },
 });
 type DataSourceType = keyof typeof DATA_SOURCE_TYPES;
 
