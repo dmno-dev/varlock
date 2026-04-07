@@ -121,4 +121,32 @@ describe('detectWorkspaceInfo', () => {
     expect(result?.packageManager.name).toBe('bun');
     expect(result?.rootPath).toBe(tempDir);
   });
+
+  test('finds lockfile when .git and lockfile are in the same directory (standard monorepo layout)', () => {
+    // Simulates: monorepo-root/.git + monorepo-root/bun.lock, CWD = monorepo-root/packages/my-app
+    const subDir = path.join(tempDir, 'packages', 'my-app');
+    fs.mkdirSync(subDir, { recursive: true });
+    fs.mkdirSync(path.join(tempDir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(tempDir, 'bun.lock'), '');
+
+    const result = detectWorkspaceInfo({ cwd: subDir });
+    expect(result?.packageManager.name).toBe('bun');
+    expect(result?.rootPath).toBe(tempDir);
+  });
+
+  test('stops at .git boundary and does not traverse above it to find lockfiles', () => {
+    // Structure: grandparent/bun.lock + parent/.git + parent/src/ (CWD)
+    // The .git boundary should prevent finding bun.lock in grandparent
+    const grandparentDir = tempDir;
+    const parentDir = path.join(tempDir, 'parent');
+    const subDir = path.join(parentDir, 'src');
+    fs.mkdirSync(subDir, { recursive: true });
+    fs.mkdirSync(path.join(parentDir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(grandparentDir, 'bun.lock'), '');
+
+    const result = detectWorkspaceInfo({ cwd: subDir });
+    // The boundary should prevent finding bun.lock in grandparentDir.
+    // rootPath should never be grandparentDir regardless of npm_config_user_agent fallback.
+    expect(result?.rootPath).not.toBe(grandparentDir);
+  });
 });

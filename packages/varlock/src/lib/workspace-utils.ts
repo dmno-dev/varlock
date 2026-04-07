@@ -112,13 +112,15 @@ export function detectWorkspaceInfo(opts?: {
     }
     if (multipleLockfilesDetected) break;
 
+    // stop at git root as a fallback boundary after scanning the current directory
+    // NOTE: check before moving to parent so the directory containing .git is always scanned
+    // (the standard monorepo layout has .git and the lockfile in the same root directory)
+    if (pathExistsSync(path.join(cwd, '.git'))) break;
+
     // will break when we reach the filesystem root
     const parentDir = path.dirname(cwd);
     if (parentDir === cwd) break;
     cwd = parentDir;
-
-    // stop at git root as a fallback boundary when no lockfile has been found yet
-    if (pathExistsSync(path.join(cwd, '.git'))) break;
   } while (cwd);
 
   // if we did not find a lockfile, check env vars for hints (rootPath will be cwd in this case)
