@@ -1,5 +1,50 @@
 # varlock
 
+## 0.7.2
+
+### Patch Changes
+
+- [#538](https://github.com/dmno-dev/varlock/pull/538) [`2022ef7`](https://github.com/dmno-dev/varlock/commit/2022ef7c8b2070f40c0cd787f0cc75a595a679e4) - feat: allow 3rd party plugins
+
+  Third-party (non-`@varlock/*`) plugins are now supported:
+
+  - **JavaScript projects**: Any plugin installed in `node_modules` via `package.json` is automatically trusted and can be used without restriction.
+  - **Standalone binary**: When downloading a third-party plugin from npm for the first time, Varlock will prompt for interactive confirmation. Once confirmed and cached, subsequent runs skip the prompt. Non-interactive environments (CI/piped) will receive a clear error message instructing the user to confirm interactively or install via `package.json`.
+
+- [#534](https://github.com/dmno-dev/varlock/pull/534) [`74752a3`](https://github.com/dmno-dev/varlock/commit/74752a3db9459538b8ef7d984737f5bb55de17ae) - Add version mismatch detection between standalone binary and local node_modules install
+
+  When running the standalone binary (installed via homebrew/curl), varlock now checks if a different version is installed in the project's node_modules. If a version mismatch is detected, a warning is displayed suggesting users update the binary or use the locally installed version instead. This helps prevent confusing errors caused by running mismatched versions.
+
+- [#560](https://github.com/dmno-dev/varlock/pull/560) [`0ea6641`](https://github.com/dmno-dev/varlock/commit/0ea66411604966f744e311fdf59df71d5a3da127) - Add `varlock explain ITEM_KEY` command and override indicators in `varlock load` output.
+
+  **Override indicators**: When a config item's value comes from a `process.env` override rather than its file-based definitions, `varlock load` now shows a yellow indicator on that item. This helps users understand why their resolver functions (e.g. `op()`) are not being called.
+
+  **`varlock explain` command**: Shows detailed information about how a single config item is resolved, including all definitions and sources in priority order, which source is active, whether a process.env override is in effect (and what would be used without it), decorators, type info, and documentation links.
+
+- [#553](https://github.com/dmno-dev/varlock/pull/553) [`6ab2d31`](https://github.com/dmno-dev/varlock/commit/6ab2d31903b80ab4d8ec0eb826a18789e73e8f11) - Fix diamond dependency handling when the same schema is imported via multiple paths. Previously, duplicate imports caused plugin init decorators to run twice ("Instance already initialized" error). Now, duplicate imports create lightweight `ImportAliasSource` nodes that appear at the correct precedence position without re-initializing the source. This correctly handles different importKeys subsets across import sites and preserves override semantics matching non-deduplicated behavior. Also adds `type` field to serialized source entries for easier filtering.
+
+- [#558](https://github.com/dmno-dev/varlock/pull/558) [`01c9a6a`](https://github.com/dmno-dev/varlock/commit/01c9a6a5398d31d3818953dd757d3263e0cf3a36) - Fix plugin resolution failure in monorepo workspaces where `.git` and the lockfile coexist in the same directory.
+
+  `detectWorkspaceInfo()` was checking for a `.git` directory **after** moving to the parent, so in the standard monorepo layout (`monorepo-root/.git` + `monorepo-root/bun.lock`) the root was never scanned and the lockfile was never found. Moving the `.git` boundary check to **before** moving up ensures the git-root directory is always scanned first.
+
+- [#547](https://github.com/dmno-dev/varlock/pull/547) [`1a4b0cf`](https://github.com/dmno-dev/varlock/commit/1a4b0cf4185c4152be4b39c70755316f1a8be25d) - Fix binary resolution in monorepos when `cwd` differs from the package root.
+
+  When importing `varlock/auto-load` (e.g. from a `playwright.config.ts` in a monorepo sub-package), VS Code and similar tools may set `process.cwd()` to the workspace root rather than the sub-package directory. This caused `execSyncVarlock` to search for the `varlock` binary starting at the workspace root and fail to find it when it was only installed in a sub-package's `node_modules/.bin`.
+
+  Two fixes are applied:
+
+  1. `execSyncVarlock` now accepts a `callerDir` option. When provided, the binary search walks up from `callerDir` before falling back to `process.cwd()`. `auto-load.ts` passes `import.meta.dirname` so the search always starts from inside the varlock package itself, which is already in the correct sub-package's `node_modules`.
+
+  2. The walk-up logic no longer throws immediately when it finds a `node_modules/.bin` directory that does not contain varlock. It now continues walking up, allowing the search to find varlock installed at a higher or lower level of a monorepo.
+
+- [#542](https://github.com/dmno-dev/varlock/pull/542) [`02e82d0`](https://github.com/dmno-dev/varlock/commit/02e82d07b4b9d810dba8d1925a27d9fd2c0abab3) - Fix Vitest workspace projects in monorepos: when running Vitest from the monorepo root using the `projects` config, varlock now correctly resolves `.env.schema` and `.env` files from each child package's directory instead of only looking in the monorepo root.
+
+- [#550](https://github.com/dmno-dev/varlock/pull/550) [`0c27ed1`](https://github.com/dmno-dev/varlock/commit/0c27ed10b3b77571848974a3703d77e1eabb8abd) - Fix `@generateTypes` not creating variables when using a custom path with `varlock typegen --path <file>`
+
+  When a schema file with an environment-qualifier-like name (e.g. `.env.infra.schema`) was passed as the explicit entry point via `--path`, its variables were being excluded from type generation. The filename was parsed such that `infra` was treated as an environment name (`applyForEnv='infra'`), causing the data source to be marked as environment-specific and all its variables to be filtered out.
+
+  The fix ensures that a file loaded as the root entry point (no parent data source) is never treated as environment-specific, even if its filename contains an environment qualifier.
+
 ## 0.7.1
 
 ### Patch Changes
