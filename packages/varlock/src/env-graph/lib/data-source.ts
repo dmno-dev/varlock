@@ -500,18 +500,20 @@ export abstract class EnvGraphDataSource {
             }
           } else if (importPath.startsWith('plugin-schema:')) {
             // Import schema from an installed plugin package
-            const pluginName = importPath.slice('plugin-schema:'.length);
-            if (!pluginName) {
+            // Supports: plugin-schema:@scope/name (defaults to .env.schema)
+            //           plugin-schema:@scope/name/.env.custom (specific file)
+            const pluginDescriptor = importPath.slice('plugin-schema:'.length);
+            if (!pluginDescriptor) {
               this._loadingError = new Error('plugin-schema: import must specify a plugin name');
               return;
             }
             try {
               // eslint-disable-next-line no-use-before-define
               const fileSource = this instanceof FileBasedDataSource ? this : undefined;
-              const schemaSource = await resolvePluginSchema(pluginName, fileSource);
+              const schemaSource = await resolvePluginSchema(pluginDescriptor, fileSource);
               if (!schemaSource) {
                 if (allowMissing) continue;
-                this._loadingError = new Error(`Plugin "${pluginName}" does not expose a schema file`);
+                this._loadingError = new Error(`Plugin "${pluginDescriptor}" does not expose the requested schema file`);
                 return;
               }
               await this.addChild(schemaSource, {
@@ -519,7 +521,7 @@ export abstract class EnvGraphDataSource {
               });
             } catch (pluginErr) {
               if (allowMissing) continue;
-              this._loadingError = new Error(`Failed to resolve plugin schema "${pluginName}": ${(pluginErr as Error).message}`);
+              this._loadingError = new Error(`Failed to resolve plugin schema "${pluginDescriptor}": ${(pluginErr as Error).message}`);
               return;
             }
           } else if (importPath.startsWith('http://') || importPath.startsWith('https://')) {

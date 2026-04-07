@@ -101,11 +101,13 @@ You can import only specific variables from a public schema:
 
 If you have a Varlock plugin installed that provides a schema, you can import it using the `plugin-schema:` protocol.
 
-- Looks for an `env-schema` field in the plugin's `package.json`, or falls back to a `.env.schema` file in the package root
+- Looks for a `.env.schema` export in the plugin's `package.json` exports map, or falls back to a `.env.schema` file in the package root
 - The plugin must be installed in your project's `node_modules`
+- You can specify a different file path if the plugin exposes multiple schema files
 
 ```env-spec
 # @import(plugin-schema:@varlock/1password-plugin)
+# @import(plugin-schema:@varlock/1password-plugin/.env.connect)
 ```
 
 :::caution[Security]
