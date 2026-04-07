@@ -1,5 +1,14 @@
 # @varlock/nextjs-integration
 
+## 0.3.3
+
+### Patch Changes
+
+- [#553](https://github.com/dmno-dev/varlock/pull/553) [`6ab2d31`](https://github.com/dmno-dev/varlock/commit/6ab2d31903b80ab4d8ec0eb826a18789e73e8f11) - Fix diamond dependency handling when the same schema is imported via multiple paths. Previously, duplicate imports caused plugin init decorators to run twice ("Instance already initialized" error). Now, duplicate imports create lightweight `ImportAliasSource` nodes that appear at the correct precedence position without re-initializing the source. This correctly handles different importKeys subsets across import sites and preserves override semantics matching non-deduplicated behavior. Also adds `type` field to serialized source entries for easier filtering.
+
+- Updated dependencies [[`2022ef7`](https://github.com/dmno-dev/varlock/commit/2022ef7c8b2070f40c0cd787f0cc75a595a679e4), [`74752a3`](https://github.com/dmno-dev/varlock/commit/74752a3db9459538b8ef7d984737f5bb55de17ae), [`0ea6641`](https://github.com/dmno-dev/varlock/commit/0ea66411604966f744e311fdf59df71d5a3da127), [`6ab2d31`](https://github.com/dmno-dev/varlock/commit/6ab2d31903b80ab4d8ec0eb826a18789e73e8f11), [`01c9a6a`](https://github.com/dmno-dev/varlock/commit/01c9a6a5398d31d3818953dd757d3263e0cf3a36), [`1a4b0cf`](https://github.com/dmno-dev/varlock/commit/1a4b0cf4185c4152be4b39c70755316f1a8be25d), [`02e82d0`](https://github.com/dmno-dev/varlock/commit/02e82d07b4b9d810dba8d1925a27d9fd2c0abab3), [`0c27ed1`](https://github.com/dmno-dev/varlock/commit/0c27ed10b3b77571848974a3703d77e1eabb8abd)]:
+  - varlock@0.7.2
+
 ## 0.3.2
 
 ### Patch Changes

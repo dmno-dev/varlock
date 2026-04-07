@@ -1,5 +1,22 @@
 # @varlock/1password-plugin
 
+## 0.3.3
+
+### Patch Changes
+
+- [#533](https://github.com/dmno-dev/varlock/pull/533) [`0b6b2c0`](https://github.com/dmno-dev/varlock/commit/0b6b2c03ea5170f2ad1fbfa536b1b94ccf1de500) - Add support for 1Password Connect server (self-hosted)
+
+  - New auth mode: `connectHost` + `connectToken` parameters in `@initOp()` for connecting to self-hosted 1Password Connect servers
+  - Direct REST API integration — no `op` CLI or 1Password SDK required for Connect server usage
+  - New `opConnectToken` data type for Connect server API tokens
+  - Parses standard `op://vault/item/[section/]field` references and resolves them via the Connect API
+  - Caches vault and item ID lookups within a session for efficiency
+  - Clear error when `opLoadEnvironment()` is used with Connect (not supported by the Connect API)
+  - Updated error messages and tips to include Connect server as an auth option
+
+- Updated dependencies [[`2022ef7`](https://github.com/dmno-dev/varlock/commit/2022ef7c8b2070f40c0cd787f0cc75a595a679e4), [`74752a3`](https://github.com/dmno-dev/varlock/commit/74752a3db9459538b8ef7d984737f5bb55de17ae), [`0ea6641`](https://github.com/dmno-dev/varlock/commit/0ea66411604966f744e311fdf59df71d5a3da127), [`6ab2d31`](https://github.com/dmno-dev/varlock/commit/6ab2d31903b80ab4d8ec0eb826a18789e73e8f11), [`01c9a6a`](https://github.com/dmno-dev/varlock/commit/01c9a6a5398d31d3818953dd757d3263e0cf3a36), [`1a4b0cf`](https://github.com/dmno-dev/varlock/commit/1a4b0cf4185c4152be4b39c70755316f1a8be25d), [`02e82d0`](https://github.com/dmno-dev/varlock/commit/02e82d07b4b9d810dba8d1925a27d9fd2c0abab3), [`0c27ed1`](https://github.com/dmno-dev/varlock/commit/0c27ed10b3b77571848974a3703d77e1eabb8abd)]:
+  - varlock@0.7.2
+
 ## 0.3.2
 
 ### Patch Changes
