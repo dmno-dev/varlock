@@ -28,6 +28,23 @@ interface CachedToken {
   expiresAt: number;
 }
 
+/** Extract a key from a JSON object, or return full JSON string if no key specified */
+function extractJsonKey(
+  data: Record<string, any>,
+  jsonKey: string | undefined,
+  label: string,
+): string {
+  if (jsonKey) {
+    if (!(jsonKey in data)) {
+      throw new ResolutionError(`Key "${jsonKey}" not found in ${label}`, {
+        tip: `Available keys: ${Object.keys(data).join(', ')}`,
+      });
+    }
+    return String(data[jsonKey]);
+  }
+  return JSON.stringify(data);
+}
+
 class AkeylessPluginInstance {
   private accessId?: string;
   private accessKey?: string;
@@ -143,109 +160,83 @@ class AkeylessPluginInstance {
     }
   }
 
-  private fetchStaticSecret(secretName: string): Promise<string> {
-    const cacheKey = `static:${secretName}`;
+  /** Deduplicate concurrent fetches for the same cache key */
+  private cachedFetch<T>(cacheKey: string, fetchFn: () => Promise<T>): Promise<T> {
     const cached = this.secretCache.get(cacheKey);
     if (cached) {
-      debug(`Using cached fetch for static secret: ${secretName}`);
+      debug(`Using cached fetch for: ${cacheKey}`);
       return cached;
     }
-
-    const promise = this._fetchStaticSecret(secretName);
+    const promise = fetchFn();
     this.secretCache.set(cacheKey, promise);
+    // Clear cache entry on failure so retries can try again
     promise.catch(() => this.secretCache.delete(cacheKey));
     return promise;
   }
 
-  private async _fetchStaticSecret(secretName: string): Promise<string> {
-    const token = await this.authenticate();
+  /** Handle common API error responses and convert to ResolutionError */
+  private handleApiError(err: any, secretType: string, secretName: string): never {
+    let errorMessage = `Failed to fetch ${secretType} secret from Akeyless`;
+    let errorTip: string | undefined;
 
-    try {
-      debug(`Fetching static secret: ${secretName}`);
+    if (err.response) {
+      const status = err.response.status;
 
-      const response = await ky.post(`${this.apiUrl}/get-secret-value`, {
-        json: {
-          names: [secretName],
-          token,
-        },
-      }).json<Record<string, string>>();
-
-      // The response is a map of { "/path/to/secret": "value" }
-      const value = response[secretName];
-      if (value === undefined || value === null) {
-        throw new ResolutionError(`Secret "${secretName}" not found in response`, {
-          tip: [
-            'Verify the secret exists in Akeyless:',
-            `  Secret name: ${secretName}`,
-            '',
-            'Common issues:',
-            '  - The secret name must include the full path (e.g., "/MyFolder/MySecret")',
-            '  - The secret may have been deleted or moved',
-          ].join('\n'),
-        });
+      if (status === 404) {
+        errorMessage = `${secretType} secret "${secretName}" not found`;
+        errorTip = `Verify the ${secretType} secret exists in the Akeyless Console`;
+      } else if (status === 403) {
+        errorMessage = `Permission denied for ${secretType} secret "${secretName}"`;
+        errorTip = `Ensure your access credentials have read permission for this ${secretType} secret`;
+      } else if (status === 401) {
+        this.cachedToken = undefined;
+        errorMessage = 'Akeyless authentication token expired or invalid';
+        errorTip = FIX_AUTH_TIP;
+      } else {
+        errorMessage = `Akeyless error (HTTP ${status})`;
       }
-
-      return value;
-    } catch (err: any) {
-      if (err instanceof ResolutionError) throw err;
-
-      let errorMessage = 'Failed to fetch secret from Akeyless';
-      let errorTip: string | undefined;
-
-      if (err.response) {
-        const status = err.response.status;
-
-        if (status === 404) {
-          errorMessage = `Secret "${secretName}" not found`;
-          errorTip = [
-            'Verify the secret exists in the Akeyless Console',
-            `  Secret name: ${secretName}`,
-            '',
-            'Ensure you are using the full path (e.g., "/MyFolder/MySecret")',
-          ].join('\n');
-        } else if (status === 403) {
-          errorMessage = `Permission denied for secret "${secretName}"`;
-          errorTip = [
-            'Ensure your access credentials have read permission for this secret.',
-            'Check your Access Role configuration in the Akeyless Console.',
-          ].join('\n');
-        } else if (status === 401) {
-          errorMessage = 'Akeyless authentication token expired or invalid';
-          // Clear cached token so next call re-authenticates
-          this.cachedToken = undefined;
-          errorTip = FIX_AUTH_TIP;
-        } else {
-          try {
-            const errorBody = await err.response.json();
-            const msg = errorBody.message || errorBody.error || '';
-            errorMessage = `Akeyless error (HTTP ${status}): ${msg}`;
-          } catch {
-            errorMessage = `Akeyless error (HTTP ${status})`;
-          }
-        }
-      } else if (err.message) {
-        errorMessage = `Network error: ${err.message}`;
-        errorTip = 'Verify the Akeyless API URL is correct and the service is reachable';
-      }
-
-      throw new ResolutionError(errorMessage, {
-        tip: errorTip,
-      });
+    } else if (err.message) {
+      errorMessage = `Network error: ${err.message}`;
+      errorTip = 'Verify the Akeyless API URL is correct and the service is reachable';
     }
+
+    throw new ResolutionError(errorMessage, { tip: errorTip });
   }
 
   async getStaticSecret(secretName: string, jsonKey?: string): Promise<string> {
-    const value = await this.fetchStaticSecret(secretName);
+    const value = await this.cachedFetch(`static:${secretName}`, async () => {
+      const token = await this.authenticate();
+      try {
+        debug(`Fetching static secret: ${secretName}`);
+        const response = await ky.post(`${this.apiUrl}/get-secret-value`, {
+          json: { names: [secretName], token },
+        }).json<Record<string, string>>();
 
+        const val = response[secretName];
+        if (val === undefined || val === null) {
+          throw new ResolutionError(`Secret "${secretName}" not found in response`, {
+            tip: [
+              'Verify the secret exists in Akeyless:',
+              `  Secret name: ${secretName}`,
+              '',
+              'Common issues:',
+              '  - The secret name must include the full path (e.g., "/MyFolder/MySecret")',
+              '  - The secret may have been deleted or moved',
+            ].join('\n'),
+          });
+        }
+        return val;
+      } catch (err: any) {
+        if (err instanceof ResolutionError) throw err;
+        this.handleApiError(err, 'static', secretName);
+      }
+    });
+
+    // For static secrets, JSON key extraction requires parsing the string value
     if (jsonKey) {
       try {
         const parsed = JSON.parse(value);
-        if (!(jsonKey in parsed)) {
-          throw new ResolutionError(`Key "${jsonKey}" not found in secret JSON`, {
-            tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
-          });
-        }
-        return String(parsed[jsonKey]);
+        return extractJsonKey(parsed, jsonKey, 'secret JSON');
       } catch (err) {
         if (err instanceof ResolutionError) throw err;
         throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
@@ -253,173 +244,46 @@ class AkeylessPluginInstance {
         });
       }
     }
-
     return value;
   }
 
-  private fetchDynamicSecret(secretName: string): Promise<Record<string, any>> {
-    const cacheKey = `dynamic:${secretName}`;
-    const cached = this.secretCache.get(cacheKey);
-    if (cached) {
-      debug(`Using cached fetch for dynamic secret: ${secretName}`);
-      return cached;
-    }
-
-    const promise = this._fetchDynamicSecret(secretName);
-    this.secretCache.set(cacheKey, promise);
-    promise.catch(() => this.secretCache.delete(cacheKey));
-    return promise;
-  }
-
-  private async _fetchDynamicSecret(secretName: string): Promise<Record<string, any>> {
-    const token = await this.authenticate();
-
-    try {
-      debug(`Fetching dynamic secret: ${secretName}`);
-
-      const response = await ky.post(`${this.apiUrl}/get-dynamic-secret-value`, {
-        json: {
-          name: secretName,
-          token,
-        },
-      }).json<Record<string, any>>();
-
-      return response;
-    } catch (err: any) {
-      if (err instanceof ResolutionError) throw err;
-
-      let errorMessage = 'Failed to fetch dynamic secret from Akeyless';
-      let errorTip: string | undefined;
-
-      if (err.response) {
-        const status = err.response.status;
-
-        if (status === 404) {
-          errorMessage = `Dynamic secret "${secretName}" not found`;
-          errorTip = 'Verify the dynamic secret exists in the Akeyless Console';
-        } else if (status === 403) {
-          errorMessage = `Permission denied for dynamic secret "${secretName}"`;
-          errorTip = 'Ensure your access credentials have permission for this dynamic secret';
-        } else if (status === 401) {
-          this.cachedToken = undefined;
-          errorMessage = 'Akeyless authentication token expired or invalid';
-          errorTip = FIX_AUTH_TIP;
-        } else {
-          try {
-            const errorBody = await err.response.json();
-            const msg = errorBody.message || errorBody.error || '';
-            errorMessage = `Akeyless error (HTTP ${status}): ${msg}`;
-          } catch {
-            errorMessage = `Akeyless error (HTTP ${status})`;
-          }
-        }
-      } else if (err.message) {
-        errorMessage = `Network error: ${err.message}`;
-        errorTip = 'Verify the Akeyless API URL is correct and the service is reachable';
-      }
-
-      throw new ResolutionError(errorMessage, { tip: errorTip });
-    }
-  }
-
   async getDynamicSecret(secretName: string, jsonKey?: string): Promise<string> {
-    const response = await this.fetchDynamicSecret(secretName);
-
-    if (jsonKey) {
-      if (!(jsonKey in response)) {
-        throw new ResolutionError(`Key "${jsonKey}" not found in dynamic secret response`, {
-          tip: `Available keys: ${Object.keys(response).join(', ')}`,
-        });
+    const response = await this.cachedFetch(`dynamic:${secretName}`, async () => {
+      const token = await this.authenticate();
+      try {
+        debug(`Fetching dynamic secret: ${secretName}`);
+        return await ky.post(`${this.apiUrl}/get-dynamic-secret-value`, {
+          json: { name: secretName, token },
+        }).json<Record<string, any>>();
+      } catch (err: any) {
+        if (err instanceof ResolutionError) throw err;
+        this.handleApiError(err, 'dynamic', secretName);
       }
-      return String(response[jsonKey]);
-    }
+    });
 
-    return JSON.stringify(response);
-  }
-
-  private fetchRotatedSecret(secretName: string): Promise<Record<string, any>> {
-    const cacheKey = `rotated:${secretName}`;
-    const cached = this.secretCache.get(cacheKey);
-    if (cached) {
-      debug(`Using cached fetch for rotated secret: ${secretName}`);
-      return cached;
-    }
-
-    const promise = this._fetchRotatedSecret(secretName);
-    this.secretCache.set(cacheKey, promise);
-    promise.catch(() => this.secretCache.delete(cacheKey));
-    return promise;
-  }
-
-  private async _fetchRotatedSecret(secretName: string): Promise<Record<string, any>> {
-    const token = await this.authenticate();
-
-    try {
-      debug(`Fetching rotated secret: ${secretName}`);
-
-      const response = await ky.post(`${this.apiUrl}/get-rotated-secret-value`, {
-        json: {
-          names: secretName,
-          token,
-        },
-      }).json<{ value: Record<string, any> }>();
-
-      const value = response.value;
-      if (!value) {
-        throw new ResolutionError(`Rotated secret "${secretName}" returned no value`);
-      }
-
-      return value;
-    } catch (err: any) {
-      if (err instanceof ResolutionError) throw err;
-
-      let errorMessage = 'Failed to fetch rotated secret from Akeyless';
-      let errorTip: string | undefined;
-
-      if (err.response) {
-        const status = err.response.status;
-
-        if (status === 404) {
-          errorMessage = `Rotated secret "${secretName}" not found`;
-          errorTip = 'Verify the rotated secret exists in the Akeyless Console';
-        } else if (status === 403) {
-          errorMessage = `Permission denied for rotated secret "${secretName}"`;
-          errorTip = 'Ensure your access credentials have permission for this rotated secret';
-        } else if (status === 401) {
-          this.cachedToken = undefined;
-          errorMessage = 'Akeyless authentication token expired or invalid';
-          errorTip = FIX_AUTH_TIP;
-        } else {
-          try {
-            const errorBody = await err.response.json();
-            const msg = errorBody.message || errorBody.error || '';
-            errorMessage = `Akeyless error (HTTP ${status}): ${msg}`;
-          } catch {
-            errorMessage = `Akeyless error (HTTP ${status})`;
-          }
-        }
-      } else if (err.message) {
-        errorMessage = `Network error: ${err.message}`;
-        errorTip = 'Verify the Akeyless API URL is correct and the service is reachable';
-      }
-
-      throw new ResolutionError(errorMessage, { tip: errorTip });
-    }
+    return extractJsonKey(response, jsonKey, 'dynamic secret response');
   }
 
   async getRotatedSecret(secretName: string, jsonKey?: string): Promise<string> {
-    const value = await this.fetchRotatedSecret(secretName);
+    const value = await this.cachedFetch(`rotated:${secretName}`, async () => {
+      const token = await this.authenticate();
+      try {
+        debug(`Fetching rotated secret: ${secretName}`);
+        const response = await ky.post(`${this.apiUrl}/get-rotated-secret-value`, {
+          json: { names: secretName, token },
+        }).json<{ value: Record<string, any> }>();
 
-    if (jsonKey) {
-      if (!(jsonKey in value)) {
-        throw new ResolutionError(`Key "${jsonKey}" not found in rotated secret response`, {
-          tip: `Available keys: ${Object.keys(value).join(', ')}`,
-        });
+        if (!response.value) {
+          throw new ResolutionError(`Rotated secret "${secretName}" returned no value`);
+        }
+        return response.value;
+      } catch (err: any) {
+        if (err instanceof ResolutionError) throw err;
+        this.handleApiError(err, 'rotated', secretName);
       }
-      return String(value[jsonKey]);
-    }
+    });
 
-    return JSON.stringify(value);
+    return extractJsonKey(value, jsonKey, 'rotated secret response');
   }
 }
 
