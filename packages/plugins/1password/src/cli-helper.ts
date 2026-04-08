@@ -202,11 +202,12 @@ async function executeReadBatch(batchToExecute: NonNullable<typeof opReadBatch>)
   // because otherwise we'll have trouble dealing with values that contain newlines
   await spawnAsync('op', `run --no-masking ${lockCliToOpAccount ? `--account ${lockCliToOpAccount} ` : ''}-- env -0`.split(' '), {
     env: {
-      // have to pass through at least path so it can find `op`
-      // and in some scenarios we need USER/HOME (homebrew on multi-user system)
+      // have to pass a few things through at least path so it can find `op` and related config files
+      // (encountered some errors on a homebrew multi-user system)
       PATH: process.env.PATH!,
-      USER: process.env.USER,
-      HOME: process.env.HOME,
+      ...process.env.USER && { USER: process.env.USER },
+      ...process.env.HOME && { HOME: process.env.HOME },
+      ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
       ...envMap,
     },
   })
