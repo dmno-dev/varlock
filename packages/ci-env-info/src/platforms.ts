@@ -45,7 +45,7 @@ export const PLATFORMS: Array<PlatformDefinition> = [
     isPR: (env) => env.GITHUB_EVENT_NAME === 'pull_request',
     prNumber: (env) => parsePrNumber(env.GITHUB_EVENT_NUMBER),
     repo: (env) => parseRepoSlug(env.GITHUB_REPOSITORY),
-    branch: (env) => refToBranch(env.GITHUB_REF),
+    branch: (env) => env.GITHUB_HEAD_REF || refToBranch(env.GITHUB_REF),
     commitSha: 'GITHUB_SHA',
     runId: 'GITHUB_RUN_ID',
     buildUrl: (env) => {

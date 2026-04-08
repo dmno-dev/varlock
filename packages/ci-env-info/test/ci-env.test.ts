@@ -96,6 +96,29 @@ describe('getCiEnv', () => {
     );
   });
 
+  it('detects GitHub Actions PR and uses GITHUB_HEAD_REF as branch name', () => {
+    expectCiEnv(
+      {
+        CI: 'true',
+        GITHUB_ACTIONS: 'true',
+        GITHUB_REPOSITORY: 'owner/repo',
+        GITHUB_REF: 'refs/pull/42/merge',
+        GITHUB_HEAD_REF: 'feat-init-infra',
+        GITHUB_SHA: 'abc123',
+        GITHUB_EVENT_NAME: 'pull_request',
+        GITHUB_EVENT_NUMBER: '42',
+      },
+      {
+        isCI: true,
+        name: 'GitHub Actions',
+        isPR: true,
+        prNumber: 42,
+        branch: 'feat-init-infra',
+        fullRepoName: 'owner/repo',
+      },
+    );
+  });
+
   it('detects Vercel and extracts environment and buildUrl', () => {
     expectCiEnv(
       {
