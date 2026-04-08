@@ -1,19 +1,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const DEFAULT_IGNORED_DIRS = [
+export const DEFAULT_IGNORED_DIRS = [
   '.git',
   'node_modules',
   'dist',
   'build',
   '.next',
-  '.nuxt',
-  '.turbo',
-  '.venv',
-  'venv',
-  '__pycache__',
-  'coverage',
   'vendor',
+  '.venv',
 ] as const;
 
 const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
@@ -78,6 +73,7 @@ export interface ScanCodeEnvVarsOptions {
   cwd?: string;
   concurrency?: number;
   maxFileSizeBytes?: number;
+  // legacy option, treated as additional excludes
   ignoredDirs?: Array<string>;
 }
 
@@ -613,13 +609,20 @@ async function scanFilesWithLimit<T, R>(
   return results;
 }
 
-export async function scanCodeForEnvVars(options: ScanCodeEnvVarsOptions = {}): Promise<ScanCodeEnvVarsResult> {
+export async function scanCodeForEnvVars(
+  options: ScanCodeEnvVarsOptions = {},
+  additionalExcludeDirs: Array<string> = [],
+): Promise<ScanCodeEnvVarsResult> {
   const cwd = options.cwd || process.cwd();
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
   const maxFileSizeBytes = options.maxFileSizeBytes ?? DEFAULT_MAX_FILE_SIZE_BYTES;
-  const ignoredDirs = new Set(options.ignoredDirs ?? DEFAULT_IGNORED_DIRS);
+  const excludeDirs = new Set([
+    ...DEFAULT_IGNORED_DIRS,
+    ...(options.ignoredDirs ?? []),
+    ...additionalExcludeDirs,
+  ]);
 
-  const filePaths = await discoverSourceFiles(cwd, ignoredDirs);
+  const filePaths = await discoverSourceFiles(cwd, excludeDirs);
   const references = await scanFilesWithLimit(filePaths, concurrency, async (filePath) => {
     return scanFileForEnvVarReferences(filePath, maxFileSizeBytes);
   });

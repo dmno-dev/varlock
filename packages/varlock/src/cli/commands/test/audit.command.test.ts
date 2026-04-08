@@ -63,7 +63,11 @@ describe('audit command', () => {
     fsStatMock.mockRejectedValue(new Error('missing'));
 
     loadVarlockEnvGraphMock.mockResolvedValue({
-      configSchema: { API_KEY: {}, DATABASE_URL: {} },
+      configSchema: {
+        API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
+        DATABASE_URL: { getDec: vi.fn().mockReturnValue(undefined) },
+      },
+      getRootDecFns: vi.fn().mockReturnValue([]),
       rootDataSource: undefined,
       basePath: '/repo',
     });
@@ -115,9 +119,12 @@ describe('audit command', () => {
 
     await commandFn({ values: { path: './backend/.env.schema' } } as any);
 
-    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith({
-      cwd: path.resolve('./backend'),
-    });
+    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
+      {
+        cwd: path.resolve('./backend'),
+      },
+      [],
+    );
   });
 
   test('scans from directory path when --path points to dir without trailing slash', async () => {
@@ -130,9 +137,12 @@ describe('audit command', () => {
 
     await commandFn({ values: { path: './config' } } as any);
 
-    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith({
-      cwd: path.resolve('./config'),
-    });
+    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
+      {
+        cwd: path.resolve('./config'),
+      },
+      [],
+    );
   });
 
   test('scans from directory path when --path ends with slash', async () => {
@@ -144,8 +154,70 @@ describe('audit command', () => {
 
     await commandFn({ values: { path: './config/' } } as any);
 
-    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith({
-      cwd: path.resolve('./config/'),
+    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
+      {
+        cwd: path.resolve('./config/'),
+      },
+      [],
+    );
+  });
+
+  test('treats # @auditIgnore as suppressed and # @auditIgnore=false as unsuppressed', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {
+        API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
+        IGNORED_UNUSED: { getDec: vi.fn().mockReturnValue(true) }, // # @auditIgnore
+        EXPLICIT_FALSE_UNUSED: { getDec: vi.fn().mockReturnValue(false) }, // # @auditIgnore=false
+      },
+      getRootDecFns: vi.fn().mockReturnValue([]),
+      rootDataSource: undefined,
+      basePath: '/repo',
     });
+
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      keys: ['API_KEY'],
+      references: [],
+      scannedFilesCount: 1,
+    });
+
+    await commandFn({ values: {} } as any);
+
+    expect(gracefulExitMock).toHaveBeenCalledWith(1);
+    const errorOutput = consoleErrorSpy.mock.calls.flat().join('\n');
+    expect(errorOutput).toContain('EXPLICIT_FALSE_UNUSED');
+    expect(errorOutput).not.toContain('IGNORED_UNUSED');
+    expect(errorOutput).toContain('(Hint: If this is used by an external tool, add # @auditIgnore to the item)');
+  });
+
+  test('flattens multiple # @auditIgnorePaths(...) calls and forwards merged excludes to scanner', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {
+        API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
+      },
+      getRootDecFns: vi.fn().mockReturnValue([
+        {
+          resolve: vi.fn().mockResolvedValue({ arr: ['e2e', './scripts/'], obj: { unused: 'x' } }),
+        },
+        {
+          resolve: vi.fn().mockResolvedValue({ arr: [['mocks']], obj: {} }),
+        },
+      ]),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      keys: ['API_KEY'],
+      references: [],
+      scannedFilesCount: 1,
+    });
+
+    await commandFn({ values: {} } as any);
+
+    expect(consoleLogSpy).toHaveBeenCalledWith('ℹ️ Skipping custom ignored paths: e2e, scripts, mocks');
+    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
+      { cwd: '/repo' },
+      ['e2e', 'scripts', 'mocks'],
+    );
   });
 });
