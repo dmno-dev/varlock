@@ -7,7 +7,10 @@ import { FileBasedDataSource } from '../../env-graph';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
-import { scanCodeForEnvVars, type EnvVarReference } from '../helpers/env-var-scanner';
+import {
+  scanCodeForEnvVars,
+  type EnvVarReference,
+} from '../helpers/env-var-scanner';
 import { gracefulExit } from 'exit-hook';
 import { diffSchemaAndCodeKeys } from '../helpers/audit-diff';
 
@@ -51,6 +54,32 @@ async function getScanRootFromEntryPath(providedEntryPath: string): Promise<stri
   return path.dirname(resolved);
 }
 
+function collectStringArgs(input: unknown, out: Array<string>) {
+  if (Array.isArray(input)) {
+    for (const entry of input) collectStringArgs(entry, out);
+    return;
+  }
+  if (typeof input !== 'string') return;
+
+  const normalized = input.trim().replace(/^\.\//, '').replace(/[/\\]+$/, '');
+  if (!normalized) return;
+  out.push(normalized);
+}
+
+async function getCustomAuditIgnorePaths(envGraph: any): Promise<Array<string>> {
+  const rootDecFns = typeof envGraph?.getRootDecFns === 'function'
+    ? envGraph.getRootDecFns('auditIgnorePaths')
+    : [];
+
+  const mergedPaths: Array<string> = [];
+  for (const dec of rootDecFns || []) {
+    const resolved = await dec.resolve();
+    collectStringArgs(resolved?.arr, mergedPaths);
+  }
+
+  return [...new Set(mergedPaths)];
+}
+
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const providedEntryPath = ctx.values.path as string | undefined;
   const envGraph = await loadVarlockEnvGraph({
@@ -76,12 +105,29 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     ? await getScanRootFromEntryPath(providedEntryPath)
     : (schemaScanRoot ?? process.cwd());
 
-  const scanResult = await scanCodeForEnvVars({ cwd: finalScanRoot });
+  const customIgnoredPaths = await getCustomAuditIgnorePaths(envGraph);
+  if (customIgnoredPaths.length > 0) {
+    console.log(`ℹ️ Skipping custom ignored paths: ${customIgnoredPaths.join(', ')}`);
+  }
+
+  const scanResult = await scanCodeForEnvVars(
+    { cwd: finalScanRoot },
+    customIgnoredPaths,
+  );
   const schemaKeys = Object.keys(envGraph.configSchema);
 
   const diff = diffSchemaAndCodeKeys(schemaKeys, scanResult.keys);
+  const unusedInSchema: Array<string> = [];
+  for (const key of diff.unusedInSchema) {
+    const item = envGraph.configSchema[key];
+    const itemDecorators = (item as any)?.decorators as Record<string, unknown> | undefined;
+    const isIgnored = (typeof item?.getDec === 'function' && (item.getDec('auditIgnore') as unknown) === true)
+      || (itemDecorators?.auditIgnore === true);
+    if (isIgnored) continue;
+    unusedInSchema.push(key);
+  }
 
-  if (diff.missingInSchema.length === 0 && diff.unusedInSchema.length === 0) {
+  if (diff.missingInSchema.length === 0 && unusedInSchema.length === 0) {
     console.log(ansis.green(`✅ Schema and code references are in sync. (scanned ${scanResult.scannedFilesCount} file${scanResult.scannedFilesCount === 1 ? '' : 's'})`));
     gracefulExit(0);
     return;
@@ -99,11 +145,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     console.error('');
   }
 
-  if (diff.unusedInSchema.length > 0) {
-    console.error(ansis.yellow(`Unused in schema (${diff.unusedInSchema.length}):`));
-    for (const key of diff.unusedInSchema) {
+  if (unusedInSchema.length > 0) {
+    console.error(ansis.yellow(`Unused in schema (${unusedInSchema.length}):`));
+    for (const key of unusedInSchema) {
       console.error(`  - ${ansis.bold(key)}`);
     }
+    console.error(ansis.dim('(Hint: If this is used by an external tool, add # @auditIgnore to the item)'));
     console.error('');
   }
 

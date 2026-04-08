@@ -103,4 +103,19 @@ describe('scanCodeForEnvVars', () => {
     expect(result.keys).toContain('VISIBLE_KEY');
     expect(result.keys).not.toContain('IGNORED_MOD');
   });
+
+  test('keeps default ignores while adding additional excluded directories', async () => {
+    fs.mkdirSync(path.join(tempDir, 'node_modules'), { recursive: true });
+    fs.mkdirSync(path.join(tempDir, 'e2e'), { recursive: true });
+
+    fs.writeFileSync(path.join(tempDir, 'node_modules', 'dep.js'), 'process.env.DEFAULT_IGNORED');
+    fs.writeFileSync(path.join(tempDir, 'e2e', 'spec.ts'), 'process.env.CUSTOM_IGNORED');
+    fs.writeFileSync(path.join(tempDir, 'app.ts'), 'process.env.VISIBLE_KEY');
+
+    const result = await scanCodeForEnvVars({ cwd: tempDir }, ['e2e']);
+
+    expect(result.keys).toContain('VISIBLE_KEY');
+    expect(result.keys).not.toContain('DEFAULT_IGNORED');
+    expect(result.keys).not.toContain('CUSTOM_IGNORED');
+  });
 });
