@@ -165,7 +165,7 @@ describe('MultiplePathsContainerDataSource', () => {
       },
     });
 
-    const loadingErrors = g.sortedDataSources.filter((s) => s.loadingError);
-    expect(loadingErrors).toHaveLength(0);
+    const sourcesWithLoadingErrors = g.sortedDataSources.filter((s) => s.loadingError);
+    expect(sourcesWithLoadingErrors).toHaveLength(0);
   });
 });

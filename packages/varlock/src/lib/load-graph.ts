@@ -42,19 +42,20 @@ export function loadVarlockEnvGraph(opts?: {
   }
 
   if (pkgLoadPaths) {
-    if (pkgLoadPaths.length === 1) {
-      debug('using path from package.json varlock.loadPath: %s', path.resolve(pkgLoadPaths[0]));
+    const resolvedLoadPaths = pkgLoadPaths.map((p) => path.resolve(p));
+
+    if (resolvedLoadPaths.length === 1) {
+      debug('using path from package.json varlock.loadPath: %s', resolvedLoadPaths[0]);
     } else {
       debug(
         'using %d paths from package.json varlock.loadPath: %s',
-        pkgLoadPaths.length,
-        pkgLoadPaths.map((p) => path.resolve(p)).join(', '),
+        resolvedLoadPaths.length,
+        resolvedLoadPaths.join(', '),
       );
     }
 
     // Validate that all paths exist
-    for (const p of pkgLoadPaths) {
-      const resolvedPath = path.resolve(p);
+    for (const resolvedPath of resolvedLoadPaths) {
       if (!fs.existsSync(resolvedPath)) {
         throw new CliExitError(
           `A path in \`varlock.loadPath\` configured in package.json does not exist: ${resolvedPath}`,
@@ -66,9 +67,9 @@ export function loadVarlockEnvGraph(opts?: {
     return runWithWorkspaceInfo(() => loadEnvGraph({
       ...opts,
       // For a single path, use the existing entryFilePath option for backward compatibility
-      entryFilePath: pkgLoadPaths.length === 1 ? pkgLoadPaths[0] : undefined,
+      entryFilePath: resolvedLoadPaths.length === 1 ? resolvedLoadPaths[0] : undefined,
       // For multiple paths, use entryFilePaths to trigger the multi-path container
-      entryFilePaths: pkgLoadPaths.length > 1 ? pkgLoadPaths : undefined,
+      entryFilePaths: resolvedLoadPaths.length > 1 ? resolvedLoadPaths : undefined,
       afterInit: async (_g) => {
         // TODO: register varlock resolver
       },

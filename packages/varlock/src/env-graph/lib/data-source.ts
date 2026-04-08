@@ -934,8 +934,9 @@ export class MultiplePathsContainerDataSource extends EnvGraphDataSource {
     if (!this.graph) throw new Error('expected graph to be set');
 
     for (const entryPath of this.paths) {
+      const stat = await fs.stat(entryPath).catch(() => undefined);
       const isDirectory = entryPath.endsWith('/') || entryPath.endsWith(path.sep)
-        || (await pathExists(entryPath) && (await fs.stat(entryPath)).isDirectory());
+        || (stat?.isDirectory() ?? false);
 
       const child: EnvGraphDataSource = isDirectory
         ? new DirectoryDataSource(entryPath)
