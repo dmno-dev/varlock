@@ -12,8 +12,6 @@
         "@typescript-eslint/eslint-plugin": "^8.56.1",
         "@typescript-eslint/parser": "^8.56.1",
         "@varlock/changeset-changelog": "workspace:*",
-        "@varlock/cloudflare-integration": "workspace:*",
-        "@varlock/keepass-plugin": "workspace:*",
         "@varlock/tsconfig": "workspace:*",
         "eslint": "^10.0.2",
         "eslint-plugin-es-x": "^9.5.0",
@@ -25,6 +23,7 @@
         "turbo": "^2.8.12",
         "typescript": "catalog:",
         "typescript-eslint": "^8.56.1",
+        "varlock": "workspace:*",
       },
     },
     "packages/changeset-changelog": {
@@ -42,6 +41,14 @@
         "tsup": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
+      },
+    },
+    "packages/encryption-binary-swift": {
+      "name": "@varlock/encryption-binary-swift",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@varlock/1password-plugin": "workspace:*",
+        "varlock": "workspace:*",
       },
     },
     "packages/env-spec-parser": {
@@ -116,7 +123,7 @@
     },
     "packages/integrations/nextjs": {
       "name": "@varlock/nextjs-integration",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "devDependencies": {
         "@types/node": "catalog:",
         "tsup": "catalog:",
@@ -130,7 +137,7 @@
     },
     "packages/integrations/vite": {
       "name": "@varlock/vite-integration",
-      "version": "0.2.9",
+      "version": "0.2.10",
       "devDependencies": {
         "@types/node": "catalog:",
         "ast-matcher": "^1.2.0",
@@ -148,7 +155,7 @@
     },
     "packages/plugins/1password": {
       "name": "@varlock/1password-plugin",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "devDependencies": {
         "@1password/sdk": "0.4.1-beta.1",
         "@1password/sdk-core": "0.4.1-beta.1",
@@ -337,6 +344,20 @@
         "varlock": "workspace:^",
       },
     },
+    "packages/plugins/secure-enclave": {
+      "name": "@varlock/secure-enclave-plugin",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@env-spec/utils": "workspace:^",
+        "@types/node": "catalog:",
+        "tsup": "catalog:",
+        "varlock": "workspace:^",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "varlock": "workspace:^",
+      },
+    },
     "packages/tsconfig": {
       "name": "@varlock/tsconfig",
       "version": "0.0.0",
@@ -355,7 +376,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "0.7.1",
+      "version": "0.7.2",
       "bin": {
         "varlock": "./bin/cli.js",
       },
@@ -1306,6 +1327,8 @@
 
     "@varlock/dashlane-plugin": ["@varlock/dashlane-plugin@workspace:packages/plugins/dashlane"],
 
+    "@varlock/encryption-binary-swift": ["@varlock/encryption-binary-swift@workspace:packages/encryption-binary-swift"],
+
     "@varlock/expo-integration": ["@varlock/expo-integration@workspace:packages/integrations/expo"],
 
     "@varlock/google-secret-manager-plugin": ["@varlock/google-secret-manager-plugin@workspace:packages/plugins/google-secret-manager"],
@@ -1323,6 +1346,8 @@
     "@varlock/passbolt-plugin": ["@varlock/passbolt-plugin@workspace:packages/plugins/passbolt"],
 
     "@varlock/proton-pass-plugin": ["@varlock/proton-pass-plugin@workspace:packages/plugins/proton-pass"],
+
+    "@varlock/secure-enclave-plugin": ["@varlock/secure-enclave-plugin@workspace:packages/plugins/secure-enclave"],
 
     "@varlock/tsconfig": ["@varlock/tsconfig@workspace:packages/tsconfig"],
 

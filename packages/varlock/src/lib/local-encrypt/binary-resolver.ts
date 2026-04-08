@@ -1,0 +1,140 @@
+/**
+ * Resolves the path to the platform-specific native helper binary.
+ *
+ * Resolution order:
+ * 1. SEA sibling: same directory as the running varlock binary (install.sh, homebrew)
+ * 2. Bundled in npm package: native-bins/<platform>[-<arch>]/ within the varlock package
+ * 3. Dev fallback: walk up from __dirname to find build output
+ *
+ * Returns undefined if no binary is found (file-based fallback will be used instead).
+ */
+
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const BINARY_NAME = 'varlock-local-encrypt';
+const MACOS_APP_BUNDLE = 'VarlockEnclave.app';
+
+/** Get the binary name for the current platform */
+function getPlatformBinaryName(): string {
+  return process.platform === 'win32' ? `${BINARY_NAME}.exe` : BINARY_NAME;
+}
+
+/** Get the subdirectory name within native-bins/ for the current platform */
+function getNativeBinSubdir(): string {
+  if (process.platform === 'darwin') return 'darwin';
+  if (process.platform === 'win32') return `win32-${process.arch}`;
+  return `${process.platform}-${process.arch}`;
+}
+
+/**
+ * Resolve the macOS .app bundle binary path, or fall back to bare binary.
+ */
+function resolveMacOSBinary(dir: string): string | undefined {
+  // Try .app bundle first (needed for custom Touch ID icon)
+  const appBundlePath = path.join(dir, MACOS_APP_BUNDLE, 'Contents', 'MacOS', BINARY_NAME);
+  if (fs.existsSync(appBundlePath)) return appBundlePath;
+
+  // Fall back to bare binary
+  const barePath = path.join(dir, BINARY_NAME);
+  if (fs.existsSync(barePath)) return barePath;
+
+  return undefined;
+}
+
+/**
+ * Resolve the binary path for Linux/Windows.
+ */
+function resolveStandardBinary(dir: string): string | undefined {
+  const binaryPath = path.join(dir, getPlatformBinaryName());
+  if (fs.existsSync(binaryPath)) return binaryPath;
+  return undefined;
+}
+
+/**
+ * Resolve binary from a directory, handling macOS .app bundle vs standard binary.
+ */
+function resolveBinaryFromDir(dir: string): string | undefined {
+  if (process.platform === 'darwin') return resolveMacOSBinary(dir);
+  return resolveStandardBinary(dir);
+}
+
+/**
+ * Strategy 1: Look for the binary next to the running varlock binary.
+ * This is the primary path for binary/SEA distribution (install.sh, homebrew).
+ */
+function resolveSeaSibling(): string | undefined {
+  const execDir = path.dirname(process.execPath);
+  return resolveBinaryFromDir(execDir);
+}
+
+/**
+ * Strategy 2: Look for the binary bundled in the varlock npm package.
+ * native-bins/<platform-subdir>/
+ */
+function resolveNpmBundled(): string | undefined {
+  // __dirname points to the compiled dist/ or src/ directory within the varlock package
+  // native-bins/ is a sibling to dist/ and src/
+  const nativeBinsDir = path.resolve(__dirname, '..', '..', '..', 'native-bins', getNativeBinSubdir());
+  if (fs.existsSync(nativeBinsDir)) return resolveBinaryFromDir(nativeBinsDir);
+
+  // Also check one level up (when running from dist/)
+  const altDir = path.resolve(__dirname, '..', 'native-bins', getNativeBinSubdir());
+  if (fs.existsSync(altDir)) return resolveBinaryFromDir(altDir);
+
+  return undefined;
+}
+
+/**
+ * Strategy 3: Development fallback — look for build output in the monorepo.
+ * Walks up from __dirname looking for native binary build output
+ */
+function resolveDevFallback(): string | undefined {
+  let dir = __dirname;
+  for (let i = 0; i < 10; i++) {
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+
+    // Check for Swift build output (macOS)
+    if (process.platform === 'darwin') {
+      const swiftBuild = path.join(dir, 'packages', 'encryption-binary-swift', 'swift', '.build', 'release', 'VarlockEnclave');
+      if (fs.existsSync(swiftBuild)) return swiftBuild;
+    }
+
+    // Check for Rust build output (Linux/Windows)
+    const rustBuild = path.join(dir, 'packages', 'local-encrypt', 'rust', 'target', 'release', getPlatformBinaryName());
+    if (fs.existsSync(rustBuild)) return rustBuild;
+  }
+
+  return undefined;
+}
+
+/**
+ * Ensure the binary at the given path is executable.
+ * GitHub Actions artifact upload/download strips execute permissions,
+ * and some extraction tools may do the same.
+ */
+function ensureExecutable(binaryPath: string): string {
+  try {
+    fs.accessSync(binaryPath, fs.constants.X_OK);
+  } catch {
+    // Not executable — try to fix it
+    if (process.platform !== 'win32') {
+      fs.chmodSync(binaryPath, 0o755);
+    }
+  }
+  return binaryPath;
+}
+
+/**
+ * Resolve the native helper binary path.
+ * Returns undefined if no binary is found — caller should fall back to pure JS.
+ */
+export function resolveNativeBinary(): string | undefined {
+  const resolved = resolveSeaSibling() ?? resolveNpmBundled() ?? resolveDevFallback();
+  return resolved ? ensureExecutable(resolved) : undefined;
+}

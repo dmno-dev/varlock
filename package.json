@@ -38,8 +38,6 @@
     "@typescript-eslint/parser": "^8.56.1",
     "@varlock/changeset-changelog": "workspace:*",
     "@varlock/tsconfig": "workspace:*",
-    "@varlock/cloudflare-integration": "workspace:*",
-    "@varlock/keepass-plugin": "workspace:*",
     "eslint": "^10.0.2",
     "eslint-plugin-es-x": "^9.5.0",
     "eslint-plugin-fix-disabled-rules": "^0.0.2",
@@ -49,7 +47,8 @@
     "globals": "^17.3.0",
     "turbo": "^2.8.12",
     "typescript": "catalog:",
-    "typescript-eslint": "^8.56.1"
+    "typescript-eslint": "^8.56.1",
+    "varlock": "workspace:*"
   },
   "packageManager": "bun@1.3.11",
   "engines": {

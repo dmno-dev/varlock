@@ -44,7 +44,8 @@
   ],
   "files": [
     "/bin",
-    "/dist"
+    "/dist",
+    "/native-bins"
   ],
   "bin": {
     "varlock": "./bin/cli.js"
