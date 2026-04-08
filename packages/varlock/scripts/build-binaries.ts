@@ -1,10 +1,12 @@
 import { execSync } from 'node:child_process';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PKG_DIR = path.resolve(__dirname, '..');
 const DIST_DIR = 'dist-sea';
+const NATIVE_BINS_DIR = path.join(PKG_DIR, 'native-bins');
 const ENTRY = 'src/cli/cli-executable.ts';
 
 const ALL_TARGETS = [
@@ -66,6 +68,19 @@ if (devMode) {
       `--outfile ${targetDir}/${binName}`,
       ENTRY,
     ].join(' '));
+
+    // Bundle platform-specific native binaries alongside the CLI binary
+    const isMac = archiveName.startsWith('macos-');
+    if (isMac) {
+      const appBundleSrc = path.join(NATIVE_BINS_DIR, 'darwin', 'VarlockEnclave.app');
+      if (fs.existsSync(appBundleSrc)) {
+        console.log('  Bundling macOS native binary (VarlockEnclave.app)');
+        exec(`cp -R "${appBundleSrc}" "${targetDir}/VarlockEnclave.app"`);
+      } else {
+        console.log(`  Warning: macOS native binary not found at ${appBundleSrc}, skipping`);
+      }
+    }
+    // TODO: bundle native binaries for linux/windows when rust builds exist
 
     // Archive
     let archive: string;

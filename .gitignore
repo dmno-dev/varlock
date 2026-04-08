@@ -16,4 +16,5 @@ smoke-tests/pnpm-lock.yaml
 framework-tests/.packed
 framework-tests/.test-projects
 .magent
+.claude/worktrees/
 eslint-output.txt
