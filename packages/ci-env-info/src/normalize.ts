@@ -18,13 +18,14 @@ export interface RepoParts {
 /**
  * Parse a git ref (e.g. GITHUB_REF) into a short branch name.
  * - refs/heads/feat/foo → feat/foo
- * - refs/pull/123/merge → (PR context; returns undefined or branch from HEAD)
+ * - refs/pull/123/merge → undefined (PR merge ref; not a branch name)
  */
 export function refToBranch(ref: string | undefined): string | undefined {
   if (!ref || typeof ref !== 'string') return undefined;
   const s = ref.trim();
   if (s.startsWith('refs/heads/')) return s.slice('refs/heads/'.length);
   if (s.startsWith('refs/head/')) return s.slice('refs/head/'.length);
+  if (s.startsWith('refs/pull/')) return undefined;
   return s;
 }
 

@@ -152,6 +152,20 @@ describe('VARLOCK_* builtin variables', () => {
       expectValues: { VARLOCK_BRANCH: 'feature-branch' },
     }));
 
+    test('VARLOCK_BRANCH returns PR head branch name in GitHub Actions PR context', envFilesTest({
+      envFile: 'MY_VAR=$VARLOCK_BRANCH',
+      processEnv: {
+        CI: 'true',
+        GITHUB_ACTIONS: 'true',
+        GITHUB_REF: 'refs/pull/123/merge',
+        GITHUB_HEAD_REF: 'feat-init-infra',
+        GITHUB_EVENT_NAME: 'pull_request',
+        GITHUB_EVENT_NUMBER: '123',
+        GITHUB_REPOSITORY: 'owner/repo',
+      },
+      expectValues: { VARLOCK_BRANCH: 'feat-init-infra' },
+    }));
+
     test('VARLOCK_COMMIT_SHA and VARLOCK_COMMIT_SHA_SHORT', envFilesTest({
       envFile: 'SHA=$VARLOCK_COMMIT_SHA\nSHA_SHORT=$VARLOCK_COMMIT_SHA_SHORT',
       processEnv: {
