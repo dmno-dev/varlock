@@ -45,8 +45,7 @@ const LANGUAGE_BY_EXTENSION: Record<string, ScannerLanguage> = {
 
 type ScannerLanguage = 'js-like' | 'python' | 'go' | 'ruby' | 'php' | 'rust' | 'java' | 'csharp';
 
-export type EnvVarSyntax =
-  | 'process.env.member'
+export type EnvVarSyntax = 'process.env.member'
   | 'process.env.bracket'
   | 'process.env.destructure'
   | 'import.meta.env.member'
