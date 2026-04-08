@@ -58,11 +58,17 @@ describe('scanCodeForEnvVars', () => {
     const result = await scanCodeForEnvVars({ cwd: tempDir });
 
     expect(result.keys).toEqual(expect.arrayContaining([
-      'PY_TOKEN', 'PY_URL',
-      'GO_KEY', 'GO_OPT',
-      'RB_SECRET', 'RB_URL',
-      'PHP_DB', 'PHP_TOKEN', 'PHP_MODE',
-      'RS_KEY', 'RS_OPT',
+      'PY_TOKEN',
+      'PY_URL',
+      'GO_KEY',
+      'GO_OPT',
+      'RB_SECRET',
+      'RB_URL',
+      'PHP_DB',
+      'PHP_TOKEN',
+      'PHP_MODE',
+      'RS_KEY',
+      'RS_OPT',
       'JAVA_KEY',
       'CS_KEY',
     ]));
