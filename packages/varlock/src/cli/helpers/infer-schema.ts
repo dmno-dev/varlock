@@ -40,7 +40,7 @@ const EMAIL_REGEX = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))
 const VALID_NUMBER_REGEX = /^(0|([1-9][0-9]*))?(\.[0-9]+)?$/;
 
 
-function inferItemDecorators(file: ParsedEnvSpecFile, itemKey: string, valueStr: string) {
+export function inferItemDecorators(file: ParsedEnvSpecFile, itemKey: string, valueStr = '') {
   // infer @sensitive
   let itemIsPublic = false;
   if (PUBLIC_PREFIXES.some((prefix) => itemKey.startsWith(prefix))) itemIsPublic = true;
