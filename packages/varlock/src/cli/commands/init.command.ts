@@ -15,11 +15,13 @@ import prompts from '../helpers/prompts';
 import { fmt, logLines } from '../helpers/pretty-format';
 import {
   detectRedundantValues, ensureAllItemsExist, inferSchemaUpdates, type DetectedEnvFile,
+  inferItemDecorators,
 } from '../helpers/infer-schema';
 import { detectJsPackageManager, installJsDependency } from '../helpers/js-package-manager-utils';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { findEnvFiles } from '../helpers/find-env-files';
 import { tryCatch } from '@env-spec/utils/try-catch';
+import { scanCodeForEnvVars } from '../helpers/env-var-scanner';
 
 export const commandSpec = define({
   name: 'init',
@@ -104,6 +106,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       exampleFileToConvert = selectedExample;
     }
 
+    let scannedCodeEnvKeys: Array<string> = [];
+    if (!exampleFileToConvert) {
+      const scanResult = await scanCodeForEnvVars();
+      scannedCodeEnvKeys = scanResult.keys;
+    }
+
     // update the schema
     const parsedEnvSchemaFile = exampleFileToConvert?.parsedFile || parseEnvSpecDotEnvFile('');
     if (!parsedEnvSchemaFile) throw new Error('expected parsed .env example file');
@@ -131,6 +139,27 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // add items we find in other env files, but are missing in the schema/example
     ensureAllItemsExist(parsedEnvSchemaFile, Object.values(parsedEnvFiles));
 
+    const scannedCodeKeysToAdd = !exampleFileToConvert
+      ? scannedCodeEnvKeys.filter((key) => !parsedEnvSchemaFile.configItems.find((i) => i.key === key))
+      : [];
+
+    // add items we detect in source code if no sample/example file was provided
+    if (scannedCodeKeysToAdd.length > 0) {
+      envSpecUpdater.injectFromStr(parsedEnvSchemaFile, [
+        '',
+        '# items added to schema by `varlock init`',
+        '# detected by scanning your source code for env var references',
+        '# PLEASE REVIEW THESE!',
+        '# ---',
+        '',
+      ].join('\n'), { location: 'end' });
+
+      for (const key of scannedCodeKeysToAdd) {
+        envSpecUpdater.injectFromStr(parsedEnvSchemaFile, `${key}=`);
+        inferItemDecorators(parsedEnvSchemaFile, key, '');
+      }
+    }
+
     // write new updated schema file
     const schemaFilePath = path.join(process.cwd(), '.env.schema');
     await fs.writeFile(schemaFilePath, parsedEnvSchemaFile.toString());
@@ -141,6 +170,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         '',
         `Your ${fmt.fileName(exampleFileToConvert.fileName)} has been used to generate your new ${fmt.fileName('.env.schema')}:`,
         fmt.filePath(schemaFilePath),
+      ]);
+    } else if (scannedCodeKeysToAdd.length > 0) {
+      logLines([
+        '',
+        `Your new ${fmt.fileName('.env.schema')} file has been created from scanned source code references:`,
+        fmt.filePath(schemaFilePath),
+        ansis.dim(`Detected ${scannedCodeEnvKeys.length} env var key${scannedCodeEnvKeys.length === 1 ? '' : 's'} in your codebase.`),
       ]);
     } else {
       logLines([
