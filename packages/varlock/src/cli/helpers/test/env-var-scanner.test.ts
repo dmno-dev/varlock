@@ -94,6 +94,22 @@ describe('scanCodeForEnvVars', () => {
     expect(result.keys).not.toContain('IN_TEMPLATE');
   });
 
+  test('ignores go raw-string references while keeping real calls', async () => {
+    fs.writeFileSync(path.join(tempDir, 'main.go'), [
+      'package main',
+      'import "os"',
+      'func main() {',
+      '  _ = `os.Getenv("IN_RAW_STRING")`',
+      '  _ = os.Getenv("REAL_GO_KEY")',
+      '}',
+    ].join('\n'));
+
+    const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+    expect(result.keys).toContain('REAL_GO_KEY');
+    expect(result.keys).not.toContain('IN_RAW_STRING');
+  });
+
   test('respects ignored directories', async () => {
     fs.mkdirSync(path.join(tempDir, 'node_modules'), { recursive: true });
     fs.writeFileSync(path.join(tempDir, 'node_modules', 'dep.js'), 'process.env.IGNORED_MOD');

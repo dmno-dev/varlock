@@ -444,7 +444,7 @@ function skipAndMaskTemplateLiteral(chars: Array<string>, startIndex: number): n
 }
 
 function maskCommentsPreserveLayout(content: string, language: ScannerLanguage): string {
-  const chars = [...content];
+  const chars = content.split('');
 
   const supportsHashComments = language === 'python' || language === 'ruby' || language === 'php';
   const supportsSlashComments = language !== 'python' && language !== 'ruby';
@@ -509,7 +509,7 @@ function maskCommentsPreserveLayout(content: string, language: ScannerLanguage):
       i = skipAndMaskQuotedString(chars, i, '"');
       continue;
     }
-    if (ch === '`' && language === 'js-like') {
+    if (ch === '`' && (language === 'js-like' || language === 'go')) {
       i = skipAndMaskTemplateLiteral(chars, i);
       continue;
     }
