@@ -2,7 +2,7 @@ export { loadEnvGraph } from './lib/loader';
 
 export { EnvGraph, type SerializedEnvGraph } from './lib/env-graph';
 export {
-  FileBasedDataSource, DotEnvFileDataSource, DirectoryDataSource,
+  FileBasedDataSource, DotEnvFileDataSource, DirectoryDataSource, MultiplePathsContainerDataSource,
 } from './lib/data-source';
 export { Resolver, StaticValueResolver } from './lib/resolver';
 export { ConfigItem, type TypeGenItemInfo } from './lib/config-item';

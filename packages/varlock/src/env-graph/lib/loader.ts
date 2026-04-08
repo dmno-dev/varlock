@@ -2,11 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import _ from '@env-spec/utils/my-dash';
 import { EnvGraph } from './env-graph';
-import { DirectoryDataSource, DotEnvFileDataSource } from './data-source';
+import { DirectoryDataSource, DotEnvFileDataSource, MultiplePathsContainerDataSource } from './data-source';
 
 export async function loadEnvGraph(opts?: {
   basePath?: string,
   entryFilePath?: string,
+  /** Multiple entry file paths — when provided, creates a virtual root container for all paths */
+  entryFilePaths?: Array<string>,
   relativePaths?: Array<string>,
   checkGitIgnored?: boolean,
   excludeDirs?: Array<string>,
@@ -15,7 +17,13 @@ export async function loadEnvGraph(opts?: {
 }) {
   const graph = new EnvGraph();
 
-  if (opts?.entryFilePath) {
+  if (opts?.entryFilePaths && opts.entryFilePaths.length > 0) {
+    graph.basePath = opts?.basePath ?? process.cwd();
+    if (opts?.afterInit) await opts.afterInit(graph);
+    if (opts?.currentEnvFallback) graph.envFlagFallback = opts.currentEnvFallback;
+    const resolvedPaths = opts.entryFilePaths.map((p) => path.resolve(p));
+    await graph.setRootDataSource(new MultiplePathsContainerDataSource(resolvedPaths));
+  } else if (opts?.entryFilePath) {
     const resolvedPath = path.resolve(opts.entryFilePath);
     const isDirectory = opts.entryFilePath.endsWith('/') || opts.entryFilePath.endsWith(path.sep)
       || (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isDirectory());

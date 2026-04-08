@@ -80,6 +80,20 @@ This works for all varlock commands and integrations, not just Vite. The `loadPa
 Point `loadPath` to a **directory** if you want varlock to automatically load all relevant files (`.env.schema`, `.env`, `.env.local`, etc.). Pointing to a specific file will only load that file and anything it explicitly imports via `@import`.
 :::
 
+### Loading from multiple directories
+
+You can also provide an array of paths to combine env vars from multiple locations — useful in monorepos where different packages each have their own `.env` files:
+
+```json title="package.json"
+{
+  "varlock": {
+    "loadPath": ["./apps/my-package/envs/", "./apps/other-package/envs/"]
+  }
+}
+```
+
+Each path in the array is loaded independently. Paths listed **later** in the array take higher precedence when the same variable is defined in multiple locations.
+
 :::caution[Vite's `envDir` option is not supported]
 If you are using Vite's `envDir` option to load `.env` files from a custom directory, note that **varlock ignores this option**. Use `varlock.loadPath` in your `package.json` instead, as shown above. Varlock will show a warning if it detects `envDir` is set.
 :::

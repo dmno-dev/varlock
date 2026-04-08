@@ -2,8 +2,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 
 export type VarlockPackageJsonConfig = {
-  /** Path to a specific .env file or directory to use as the entry point for loading */
-  loadPath?: string;
+  /** Path (or array of paths) to a specific .env file or directory to use as the entry point for loading */
+  loadPath?: string | Array<string>;
 };
 
 /**
