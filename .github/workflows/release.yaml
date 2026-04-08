@@ -5,11 +5,34 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
+  # Build and sign the macOS native binary (cache hit if already built in CI)
+  build-native-macos:
+    uses: ./.github/workflows/build-native-macos.yaml
+    with:
+      mode: release
+      artifact-name: native-bin-macos-signed
+    secrets:
+      OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
+  # Notarize for production npm distribution
+  notarize-native-macos:
+    needs: build-native-macos
+    uses: ./.github/workflows/notarize-native-macos.yaml
+    with:
+      source-artifact-name: native-bin-macos-signed
+      artifact-name: native-bin-macos-npm
+    secrets:
+      OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
   release:
     name: Release
+    needs: notarize-native-macos
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # Required for OIDC
@@ -45,6 +68,15 @@ jobs:
       # Ensure npm 11.5.1 or later is installed (for trusted publishing)
       - name: Update npm
         run: npm install -g npm@latest
+
+      # Download signed macOS native binary so it's included in the npm package
+      - name: Download macOS native binary
+        uses: actions/download-artifact@v8
+        with:
+          name: native-bin-macos-npm
+          path: packages/varlock/native-bins/darwin/VarlockEnclave.app
+      - name: Restore native binary execute permission
+        run: chmod +x packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
 
       # ------------------------------------------------------------
       - name: Build libraries

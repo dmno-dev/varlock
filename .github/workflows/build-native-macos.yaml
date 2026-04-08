@@ -1,0 +1,142 @@
+name: Build macOS native binary
+
+# Reusable workflow that compiles, bundles, and Developer ID signs the
+# VarlockEnclave Swift binary on a macOS runner.
+#
+# The Swift .build directory is cached by source hash, so the compile
+# step (~minutes) is near-instant on cache hit. The .app bundle wrapping
+# (plist, icon, signing) always runs since it varies by mode/version.
+#
+# Notarization is intentionally NOT included here — it's a separate
+# workflow for production releases.
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: 'Build mode: dev, preview, or release (affects bundle metadata)'
+        type: string
+        default: 'preview'
+      version:
+        description: 'Bundle version string (e.g. 1.2.3)'
+        type: string
+        default: '0.0.0-preview'
+      artifact-name:
+        description: 'Name for the uploaded artifact'
+        type: string
+        default: 'native-bin-macos'
+    secrets:
+      OP_CI_TOKEN:
+        required: true
+
+jobs:
+  build-swift-binary:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      
+      # skip bun dep caching since less likely to hit
+
+      - name: Install node deps
+        run: bun install
+
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@v2.3.11
+
+      # Cache the Swift .build directory so compilation is fast on unchanged source
+      - name: Compute Swift source hash
+        id: swift-hash
+        run: |
+          HASH=$(find packages/encryption-binary-swift/swift -type f | sort | xargs shasum -a 256 | shasum -a 256 | cut -d' ' -f1)
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+          echo "Swift source hash: $HASH"
+
+      - name: Cache Swift build artifacts
+        uses: actions/cache@v5
+        with:
+          path: packages/encryption-binary-swift/swift/.build
+          key: varlock-swift-build-${{ steps.swift-hash.outputs.hash }}
+
+      # Build varlock JS so we can use it to resolve secrets from 1Password
+      - name: Build varlock libs
+        run: bun run build:libs
+
+      # Load secrets from 1Password via varlock (scoped to the Swift package)
+      - name: Load signing secrets
+        uses: dmno-dev/varlock-action@v1.0.1
+        with:
+          working-directory: packages/encryption-binary-swift
+        env:
+          OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
+      # Import signing certificate into a temporary keychain
+      - name: Import signing certificate
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/certificate.p12
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import $RUNNER_TEMP/certificate.p12 \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+          echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> $GITHUB_ENV
+
+      # Compile (cached), bundle with mode-specific metadata, and sign
+      - name: Build, bundle, and sign
+        run: |
+          bun run --filter @varlock/encryption-binary-swift build:swift \
+            -- --mode ${{ inputs.mode }} --version ${{ inputs.version }} --sign "$APPLE_SIGNING_IDENTITY"
+
+      - name: Verify binary
+        run: |
+          APP_PATH="packages/varlock/native-bins/darwin/VarlockEnclave.app"
+          echo "=== App bundle contents ==="
+          ls -la "$APP_PATH/Contents/MacOS/"
+          echo "=== Binary architectures ==="
+          lipo -info "$APP_PATH/Contents/MacOS/varlock-local-encrypt"
+          echo "=== Code signature ==="
+          codesign -dvv "$APP_PATH" 2>&1 || true
+          echo "=== Info.plist ==="
+          cat "$APP_PATH/Contents/Info.plist"
+
+      - name: Upload native binary artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: packages/varlock/native-bins/darwin/VarlockEnclave.app
+          retention-days: 7
+
+      # Cache the signed .app so other jobs (e.g. release-preview) can restore
+      # it on a Linux runner without needing a macOS build
+      - name: Cache signed .app bundle
+        uses: actions/cache/save@v5
+        with:
+          path: packages/varlock/native-bins/darwin/VarlockEnclave.app
+          key: native-bin-macos-signed-${{ hashFiles('packages/encryption-binary-swift/swift/**') }}
+
+      - name: Cleanup signing keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          if [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
+          rm -f $RUNNER_TEMP/certificate.p12

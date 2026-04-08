@@ -1,10 +1,23 @@
 import { execSync, execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { listWorkspaces } from './list-workspaces';
 
 const __filename = fileURLToPath(import.meta.url);
 const MONOREPO_ROOT = path.resolve(path.dirname(__filename), '..');
+
+// Accept package paths from RELEASE_PACKAGES env var (set by check-release-packages step)
+const releasePackagesEnv = process.env.RELEASE_PACKAGES;
+if (!releasePackagesEnv) {
+  console.error('RELEASE_PACKAGES env var not set — run check-release-packages.ts first');
+  process.exit(1);
+}
+
+const releasePackagePaths: Array<string> = JSON.parse(releasePackagesEnv);
+
+if (!releasePackagePaths.length) {
+  console.log('No packages to release!');
+  process.exit(0);
+}
 
 let err: unknown;
 try {
@@ -92,5 +105,6 @@ try {
   if (_err.message) console.error(_err.message);
   if (_err.stderr?.toString().trim()) console.error(_err.stderr.toString());
 }
+
 
 process.exit(err ? 1 : 0);
