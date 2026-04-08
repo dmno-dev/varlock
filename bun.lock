@@ -9,6 +9,7 @@
         "@cloudflare/vite-plugin": "^1.30.1",
         "@eslint/js": "^10.0.1",
         "@stylistic/eslint-plugin": "^5.9.0",
+        "@types/node": "catalog:",
         "@typescript-eslint/eslint-plugin": "^8.56.1",
         "@typescript-eslint/parser": "^8.56.1",
         "@varlock/changeset-changelog": "workspace:*",
@@ -333,20 +334,6 @@
     "packages/plugins/proton-pass": {
       "name": "@varlock/proton-pass-plugin",
       "version": "0.0.3",
-      "devDependencies": {
-        "@env-spec/utils": "workspace:^",
-        "@types/node": "catalog:",
-        "tsup": "catalog:",
-        "varlock": "workspace:^",
-        "vitest": "catalog:",
-      },
-      "peerDependencies": {
-        "varlock": "workspace:^",
-      },
-    },
-    "packages/plugins/secure-enclave": {
-      "name": "@varlock/secure-enclave-plugin",
-      "version": "0.0.1",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -1346,8 +1333,6 @@
     "@varlock/passbolt-plugin": ["@varlock/passbolt-plugin@workspace:packages/plugins/passbolt"],
 
     "@varlock/proton-pass-plugin": ["@varlock/proton-pass-plugin@workspace:packages/plugins/proton-pass"],
-
-    "@varlock/secure-enclave-plugin": ["@varlock/secure-enclave-plugin@workspace:packages/plugins/secure-enclave"],
 
     "@varlock/tsconfig": ["@varlock/tsconfig@workspace:packages/tsconfig"],
 

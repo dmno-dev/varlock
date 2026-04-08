@@ -1,63 +1,26 @@
 import { execSync, execFileSync } from 'node:child_process';
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { listWorkspaces } from './list-workspaces';
 
 const __filename = fileURLToPath(import.meta.url);
 const MONOREPO_ROOT = path.resolve(path.dirname(__filename), '..');
 
+// Accept package paths from RELEASE_PACKAGES env var (set by check-release-packages step)
+const releasePackagesEnv = process.env.RELEASE_PACKAGES;
+if (!releasePackagesEnv) {
+  console.error('RELEASE_PACKAGES env var not set — run check-release-packages.ts first');
+  process.exit(1);
+}
+
+const releasePackagePaths: Array<string> = JSON.parse(releasePackagesEnv);
+
+if (!releasePackagePaths.length) {
+  console.log('No packages to release!');
+  process.exit(0);
+}
+
 let err: unknown;
 try {
-  const workspacePackagesInfo = await listWorkspaces(MONOREPO_ROOT);
-
-  // Check if we're on changeset-release/main branch
-  const currentBranch = process.env.GITHUB_HEAD_REF || execSync('git branch --show-current').toString().trim();
-  let releasePackagePaths: Array<string>;
-
-  console.log('current branch = ', currentBranch);
-
-  if (currentBranch === 'changeset-release/main') {
-    // On changeset-release/main branch, find modified package.json files
-    console.log('Running on changeset-release/main branch, finding modified package.json files...');
-    const gitDiff = execSync('git diff origin/main --name-only').toString();
-    const modifiedPackageJsons = gitDiff
-      .split('\n')
-      .filter((filePath) => filePath !== 'package.json') // skip root package.json
-      .filter((filePath) => filePath.endsWith('package.json'));
-
-    if (!modifiedPackageJsons.length) {
-      console.log('No modified package.json files found!');
-      process.exit(0);
-    }
-
-    // Get the workspace paths for modified packages
-    releasePackagePaths = modifiedPackageJsons
-      .map((filePath) => `${MONOREPO_ROOT}/${filePath.replace('/package.json', '')}`)
-      .filter((filePath) => workspacePackagesInfo.some((p) => p.path === filePath));
-  } else {
-    console.log('Running on normal PR, using changesets to determine packages to release...');
-    // Regular changeset-based logic
-    // generate summary of changed (publishable) modules according to changesets
-    execSync('bunx changeset status --output=changesets-summary.json');
-
-    const changeSetsSummaryRaw = fs.readFileSync('./changesets-summary.json', 'utf8');
-    const changeSetsSummary = JSON.parse(changeSetsSummaryRaw);
-
-    releasePackagePaths = changeSetsSummary.releases
-      .filter((r: any) => r.newVersion !== r.oldVersion)
-      .map((r: any) => workspacePackagesInfo.find((p) => p.name === r.name))
-      .map((p: any) => p.path);
-  }
-
-  // filter out vscode extension which is not released via npm
-  releasePackagePaths = releasePackagePaths.filter((p: string) => !p.endsWith('packages/vscode-plugin'));
-
-  if (!releasePackagePaths.length) {
-    console.log('No packages to release!');
-    process.exit(0);
-  }
-
   console.log('Updated packages to release:', releasePackagePaths);
 
   // Resolve workspace: and catalog: protocols in package.json files before publishing
@@ -72,10 +35,5 @@ try {
   err = _err;
   console.error('preview release failed');
   console.error(_err);
-}
-
-// Only clean up changesets-summary.json if it exists (only created in changeset case)
-if (fs.existsSync('./changesets-summary.json')) {
-  fs.unlinkSync('./changesets-summary.json');
 }
 process.exit(err ? 1 : 0);

@@ -2,19 +2,25 @@ name: CI test suite
 on:
   pull_request:
   push:
+    branches: [main]
 
+permissions:
+  contents: read
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
-
+    outputs:
+      swift-changed: ${{ steps.check-swift.outputs.changed }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+      
       # this caching step is kind of a wash
-      # downloading the cache adds a few seconds
-      # and then installing is a bit faster
+      # downloading the cache adds a few seconds and then installing is a bit faster
       - name: Cache bun dependencies
         uses: actions/cache@v5
         with:
@@ -28,22 +34,10 @@ jobs:
           node-version: "24.x"
       - name: Install js deps (w/ bun)
         run: bun install
-      - name: Dogfood varlock-action
-        id: varlock
-        uses: dmno-dev/varlock-action@v1.0.1
-        with:
-          working-directory: smoke-tests/smoke-test-basic
-          show-summary: 'false'
-          fail-on-error: 'true'
-          output-format: 'json'
-      - name: Verify varlock-action output
-        run: |
-          test -n "${{ steps.varlock.outputs.json-env }}"
-          echo "Varlock action output is present"
       - name: Enable turborepo build cache
         uses: rharkor/caching-for-turbo@v2.3.11
 
-      # ------------------------------------------------------------
+      # lint, build, tests  ---------------------------------
       - name: ESLint
         run: bun run lint
       - name: TypeScript type check
@@ -52,3 +46,91 @@ jobs:
         run: bun run build:libs
       - name: Run tests
         run: bun run test:ci
+
+      # Check if Swift source changed (used to gate macOS native build)
+      - name: Check for Swift source changes
+        id: check-swift
+        run: |
+          if git diff --name-only origin/main...HEAD | grep -q '^packages/encryption-binary-swift/'; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Build + sign the macOS native binary if Swift source changed (warms the cache)
+  # this must be done on a mac-os runner
+  build-native-macos:
+    needs: build-and-test
+    if: needs.build-and-test.outputs.swift-changed == 'true'
+    uses: ./.github/workflows/build-native-macos.yaml
+    with:
+      artifact-name: native-bin-macos-ci
+    secrets:
+      OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
+  # Publish preview packages via pkg-pr-new
+  release-preview-packages:
+    needs: [build-and-test, build-native-macos]
+    # Run even if build-native-macos was skipped, but not if anything failed. Skip on main.
+    if: always() && !failure() && !cancelled() && github.ref_name != 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Cache bun dependencies
+        uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.x"
+      - name: Install node deps
+        run: bun install
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@v2.3.11
+
+      # Determine which packages will be preview-released
+      - name: Check release packages
+        id: check-release
+        run: bun run scripts/check-release-packages.ts
+
+      # Get signed macOS .app if varlock is being released
+      # If the macOS build ran this run (swift changed), download the artifact directly
+      # Otherwise, restore from cross-run cache
+      - name: Download macOS native binary (from this run)
+        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-and-test.outputs.swift-changed == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: native-bin-macos-ci
+          path: packages/varlock/native-bins/darwin/VarlockEnclave.app
+      - name: Restore cached macOS native binary (from prior run)
+        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-and-test.outputs.swift-changed != 'true'
+        uses: actions/cache/restore@v5
+        with:
+          path: packages/varlock/native-bins/darwin/VarlockEnclave.app
+          key: native-bin-macos-signed-${{ hashFiles('packages/encryption-binary-swift/swift/**') }}
+      - name: Verify and fix native binary permissions
+        if: steps.check-release.outputs.includes-varlock == 'true'
+        run: |
+          BINARY=packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
+          if [ ! -f "$BINARY" ]; then
+            echo "::error::macOS native binary not found — cannot publish varlock preview without it"
+            exit 1
+          fi
+          chmod +x "$BINARY"
+
+      - name: Build publishable npm packages
+        run: bun run build:libs
+        env:
+          BUILD_TYPE: preview
+      - name: Release preview packages
+        run: bun run scripts/release-preview.ts
+        env:
+          RELEASE_PACKAGES: ${{ steps.check-release.outputs.packages }}
