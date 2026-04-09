@@ -203,11 +203,13 @@ async function executeReadBatch(batchToExecute: NonNullable<typeof opReadBatch>)
   await spawnAsync('op', `run --no-masking ${lockCliToOpAccount ? `--account ${lockCliToOpAccount} ` : ''}-- env -0`.split(' '), {
     env: {
       // have to pass a few things through at least path so it can find `op` and related config files
-      // (encountered some errors on a homebrew multi-user system)
       PATH: process.env.PATH!,
       ...process.env.USER && { USER: process.env.USER },
       ...process.env.HOME && { HOME: process.env.HOME },
       ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
+      // this setting actually just enables the CLI + Desktop App integration
+      // which in some cases op has a hard time detecting via app setting
+      OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
       ...envMap,
     },
   })
