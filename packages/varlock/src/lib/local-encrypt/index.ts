@@ -30,7 +30,7 @@ function debug(msg: string) {
 
 // ── Native binary one-shot commands ────────────────────────────────────
 
-function runNativeBinary(args: Array<string>): string {
+function runNativeBinary(args: Array<string>, opts?: { timeout?: number }): string {
   const binaryPath = resolveNativeBinary();
   if (!binaryPath) {
     debug('runNativeBinary: no binary found');
@@ -39,14 +39,14 @@ function runNativeBinary(args: Array<string>): string {
   debug(`runNativeBinary: ${binaryPath} ${args.join(' ')}`);
   const output = execFileSync(binaryPath, args, {
     encoding: 'utf-8',
-    timeout: 30_000,
+    timeout: opts?.timeout ?? 30_000,
   }).trim();
   debug(`runNativeBinary result: ${output.slice(0, 200)}`);
   return output;
 }
 
-function runNativeBinaryJson<T = Record<string, unknown>>(args: Array<string>): T {
-  const output = runNativeBinary(args);
+function runNativeBinaryJson<T = Record<string, unknown>>(args: Array<string>, opts?: { timeout?: number }): T {
+  const output = runNativeBinary(args, opts);
   const parsed = JSON.parse(output);
   if (parsed.error) {
     throw new Error(parsed.error);
@@ -57,6 +57,8 @@ function runNativeBinaryJson<T = Record<string, unknown>>(args: Array<string>): 
 // ── Backend detection ──────────────────────────────────────────────────
 
 let cachedBackendInfo: BackendInfo | undefined;
+/** Keys reported by the status command — avoids a separate key-exists .exe spawn on WSL2 */
+let cachedStatusKeys: Array<string> | undefined;
 
 function detectBackendType(): { type: BackendType; isFileFallback: boolean } {
   const binaryPath = resolveNativeBinary();
@@ -89,7 +91,8 @@ export function getBackendInfo(): BackendInfo {
     // Query the native binary for its actual capabilities
     try {
       const status = runNativeBinaryJson<NativeStatusResult>(['status']);
-      debug(`getBackendInfo: status result: hardwareBacked=${status.hardwareBacked}, biometricAvailable=${status.biometricAvailable}, backend=${status.backend}`);
+      debug(`getBackendInfo: status result: hardwareBacked=${status.hardwareBacked}, biometricAvailable=${status.biometricAvailable}, backend=${status.backend}, keys=${status.keys?.join(',')}`);
+      cachedStatusKeys = status.keys;
       cachedBackendInfo = {
         type,
         platform: process.platform,
@@ -145,6 +148,11 @@ export function keyExists(keyId: string = DEFAULT_KEY_ID): boolean {
   const backend = getBackendInfo();
   if (backend.type === 'file') {
     return fileBackend.keyExists(keyId);
+  }
+  // Use cached keys from status command to avoid an extra .exe spawn (significant on WSL2)
+  if (cachedStatusKeys) {
+    debug(`keyExists: using cached status keys for ${keyId}`);
+    return cachedStatusKeys.includes(keyId);
   }
   const result = runNativeBinaryJson<{ exists: boolean }>(['key-exists', '--key-id', keyId]);
   return result.exists;
@@ -204,7 +212,11 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
   if (backend.biometricAvailable) {
     if (isWSL()) {
       debug('decryptValue: WSL2 biometric decrypt via --via-daemon');
-      const result = runNativeBinaryJson<{ plaintext: string }>(['decrypt', '--key-id', keyId, '--data', ciphertext, '--via-daemon']);
+      // Longer timeout: includes daemon spawn + Windows Hello biometric prompt
+      const result = runNativeBinaryJson<{ plaintext: string }>(
+        ['decrypt', '--key-id', keyId, '--data', ciphertext, '--via-daemon'],
+        { timeout: 60_000 },
+      );
       return result.plaintext;
     }
     debug('decryptValue: biometric decrypt via daemon client');

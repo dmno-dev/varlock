@@ -145,29 +145,37 @@ function ensureExecutable(binaryPath: string): string {
  * Resolve the native helper binary path.
  * Returns undefined if no binary is found — caller should fall back to pure JS.
  */
+let _cachedBinaryPath: string | undefined | null = null; // null = not yet resolved
+
 export function resolveNativeBinary(): string | undefined {
+  if (_cachedBinaryPath !== null) return _cachedBinaryPath;
+
   debug(`resolving: platform=${process.platform}, isWSL=${isWSL()}, binaryName=${getPlatformBinaryName()}, subdir=${getNativeBinSubdir()}`);
 
   const seaSibling = resolveSeaSibling();
   if (seaSibling) {
     debug(`resolved via SEA sibling: ${seaSibling}`);
-    return ensureExecutable(seaSibling);
+    _cachedBinaryPath = ensureExecutable(seaSibling);
+    return _cachedBinaryPath;
   }
 
   const npmBundled = resolveNpmBundled();
   if (npmBundled) {
     debug(`resolved via npm bundled: ${npmBundled}`);
-    return ensureExecutable(npmBundled);
+    _cachedBinaryPath = ensureExecutable(npmBundled);
+    return _cachedBinaryPath;
   }
 
   const devFallback = resolveDevFallback();
   if (devFallback) {
     debug(`resolved via dev fallback: ${devFallback}`);
-    return ensureExecutable(devFallback);
+    _cachedBinaryPath = ensureExecutable(devFallback);
+    return _cachedBinaryPath;
   }
 
   debug('NOT FOUND: no binary resolved from any strategy');
   debug(`  SEA sibling dir: ${path.dirname(process.execPath)}`);
   debug(`  npm bundled dir: ${path.resolve(__dirname, '..', '..', '..', 'native-bins', getNativeBinSubdir())}`);
+  _cachedBinaryPath = undefined;
   return undefined;
 }
