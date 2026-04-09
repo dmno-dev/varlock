@@ -10,7 +10,8 @@
  *   4. File-based (pure JS) — universal fallback, no native binary needed
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import { resolveNativeBinary } from './binary-resolver';
 import { DaemonClient } from './daemon-client';
 import * as fileBackend from './file-backend';
@@ -26,6 +27,26 @@ function debug(msg: string) {
   if (process.env.VARLOCK_DEBUG) {
     process.stderr.write(`[varlock:local-encrypt] ${msg}\n`);
   }
+}
+
+/**
+ * Get a TTY identifier for session scoping.
+ * Reads the controlling terminal from /proc/self/fd/0 or falls back to PID.
+ */
+let _cachedTtyId: string | undefined;
+function getSelfTtyId(): string {
+  if (_cachedTtyId) return _cachedTtyId;
+  try {
+    const ttyPath = fs.readlinkSync('/proc/self/fd/0');
+    if (ttyPath && ttyPath.startsWith('/dev/')) {
+      _cachedTtyId = ttyPath;
+      return ttyPath;
+    }
+  } catch {
+    // Not available
+  }
+  _cachedTtyId = `pid:${process.pid}`;
+  return _cachedTtyId;
 }
 
 // ── Native binary one-shot commands ────────────────────────────────────
@@ -212,11 +233,32 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
   if (backend.biometricAvailable) {
     if (isWSL()) {
       debug('decryptValue: WSL2 biometric decrypt via --via-daemon');
-      // Longer timeout: includes daemon spawn + Windows Hello biometric prompt
-      const result = runNativeBinaryJson<{ plaintext: string }>(
-        ['decrypt', '--key-id', keyId, '--data', ciphertext, '--via-daemon'],
-        { timeout: 60_000 },
-      );
+      const binaryPath = resolveNativeBinary();
+      if (!binaryPath) throw new Error('Native binary not found');
+      // Use spawnSync with stdin to avoid exposing ciphertext or session
+      // identity in process listings (visible via tasklist/procfs).
+      // Stdin JSON includes both the data and the TTY ID for session scoping.
+      const stdinPayload = JSON.stringify({
+        data: ciphertext,
+        ttyId: getSelfTtyId(),
+      });
+      const proc = spawnSync(binaryPath, ['decrypt', '--key-id', keyId, '--data-stdin', '--via-daemon'], {
+        input: stdinPayload,
+        encoding: 'utf-8',
+        timeout: 60_000,
+      });
+      if (proc.error) throw proc.error;
+      if (proc.status !== 0) {
+        const output = (proc.stdout || proc.stderr || '').trim();
+        try {
+          const parsed = JSON.parse(output);
+          if (parsed.error) throw new Error(parsed.error);
+        } catch { /* not JSON */ }
+        throw new Error(`Decrypt failed (exit ${proc.status}): ${output}`);
+      }
+      const result = JSON.parse(proc.stdout.trim());
+      if (result.error) throw new Error(result.error);
+      debug(`decryptValue: WSL2 result: ${proc.stdout.trim().slice(0, 100)}`);
       return result.plaintext;
     }
     debug('decryptValue: biometric decrypt via daemon client');

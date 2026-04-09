@@ -139,6 +139,11 @@ impl IpcServer {
 
         let pipe_name = HSTRING::from(&self.socket_path);
 
+        // Build a security descriptor that restricts pipe access to the current user only.
+        // This prevents other users/processes from connecting to the daemon pipe.
+        let sa = create_current_user_security_attributes()
+            .map_err(|e| format!("Failed to create pipe security attributes: {e}"))?;
+
         while self.running.load(Ordering::SeqCst) {
             // Create a new named pipe instance for each client
             let pipe_handle = unsafe {
@@ -150,7 +155,7 @@ impl IpcServer {
                     65536,       // out buffer
                     65536,       // in buffer
                     0,           // default timeout
-                    None,        // default security
+                    Some(&sa),   // restrict to current user
                 )
             };
 
@@ -355,6 +360,99 @@ fn get_peer_tty_id(_stream: &UnixStream) -> Option<String> {
     None
 }
 
+// ── Windows pipe security ───────────────────────────────────────
+
+/// Create a SECURITY_ATTRIBUTES that restricts access to the current user only.
+/// This prevents other users from connecting to the daemon's named pipe.
+#[cfg(windows)]
+fn create_current_user_security_attributes() -> Result<windows::Win32::Security::SECURITY_ATTRIBUTES, String> {
+    use windows::Win32::Security::{
+        SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR,
+        InitializeSecurityDescriptor, SetSecurityDescriptorDacl,
+        SECURITY_DESCRIPTOR_REVISION,
+    };
+    use windows::Win32::Security::Authorization::{
+        SetEntriesInAclW, EXPLICIT_ACCESS_W, SET_ACCESS,
+        TRUSTEE_W, TRUSTEE_IS_SID, TRUSTEE_TYPE,
+        NO_INHERITANCE, TRUSTEE_FORM,
+    };
+    use windows::Win32::Security::{
+        GetTokenInformation, TokenUser, TOKEN_USER, TOKEN_QUERY,
+    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    use windows::Win32::Foundation::GENERIC_ALL;
+
+    unsafe {
+        // Get current process token
+        let mut token = windows::Win32::Foundation::HANDLE::default();
+        OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token)
+            .map_err(|e| format!("OpenProcessToken failed: {e}"))?;
+
+        // Get token user (contains the SID)
+        let mut token_info_len = 0u32;
+        let _ = GetTokenInformation(token, TokenUser, None, 0, &mut token_info_len);
+        let mut token_info = vec![0u8; token_info_len as usize];
+        GetTokenInformation(
+            token,
+            TokenUser,
+            Some(token_info.as_mut_ptr() as *mut _),
+            token_info_len,
+            &mut token_info_len,
+        ).map_err(|e| format!("GetTokenInformation failed: {e}"))?;
+
+        let token_user = &*(token_info.as_ptr() as *const TOKEN_USER);
+        let user_sid = token_user.User.Sid;
+
+        // Build an ACL with a single entry: GENERIC_ALL for the current user
+        let mut ea = EXPLICIT_ACCESS_W {
+            grfAccessPermissions: GENERIC_ALL.0,
+            grfAccessMode: SET_ACCESS,
+            grfInheritance: NO_INHERITANCE,
+            Trustee: TRUSTEE_W {
+                TrusteeForm: TRUSTEE_IS_SID,
+                TrusteeType: TRUSTEE_TYPE(0), // TRUSTEE_IS_UNKNOWN
+                ptstrName: windows::core::PWSTR(user_sid.0 as *mut u16),
+                pMultipleTrustee: std::ptr::null_mut(),
+                MultipleTrusteeOperation: TRUSTEE_FORM(0),
+            },
+        };
+
+        let mut acl = std::ptr::null_mut();
+        let err = SetEntriesInAclW(Some(&[ea]), None, &mut acl);
+        if err.0 != 0 {
+            return Err(format!("SetEntriesInAclW failed: error {}", err.0));
+        }
+
+        // Create a security descriptor with this DACL
+        let sd_layout = std::alloc::Layout::new::<SECURITY_DESCRIPTOR>();
+        let sd_ptr = std::alloc::alloc_zeroed(sd_layout) as *mut SECURITY_DESCRIPTOR;
+        if sd_ptr.is_null() {
+            return Err("Failed to allocate security descriptor".into());
+        }
+
+        InitializeSecurityDescriptor(
+            sd_ptr as *mut _,
+            SECURITY_DESCRIPTOR_REVISION,
+        ).map_err(|e| format!("InitializeSecurityDescriptor failed: {e}"))?;
+
+        SetSecurityDescriptorDacl(
+            sd_ptr as *mut _,
+            true,
+            Some(acl as *const _),
+            false,
+        ).map_err(|e| format!("SetSecurityDescriptorDacl failed: {e}"))?;
+
+        // Note: sd_ptr and acl are intentionally leaked — they must live for the
+        // lifetime of the pipe server. The OS frees them on process exit.
+
+        Ok(SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: sd_ptr as *mut _,
+            bInheritHandle: false.into(),
+        })
+    }
+}
+
 // ── Windows named pipe client handling ───────────────────────────
 
 #[cfg(windows)]
@@ -417,8 +515,13 @@ fn handle_windows_client(
 
         let id = message.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
+        // On Windows, use client-reported ttyId from the message (set by --via-daemon callers)
+        let effective_tty_id = tty_id.clone().or_else(|| {
+            message.get("ttyId").and_then(|v| v.as_str()).map(|s| s.to_string())
+        });
+
         let response = if let Some(ref handler) = handler {
-            handler(message, tty_id.clone())
+            handler(message, effective_tty_id)
         } else {
             serde_json::json!({"error": "No handler"})
         };

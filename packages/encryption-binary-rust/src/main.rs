@@ -137,15 +137,36 @@ fn cmd_encrypt(args: &[String]) {
 fn cmd_decrypt(args: &[String]) {
     let key_id = get_key_id(args);
 
-    let data_b64 = match get_arg(args, "--data") {
-        Some(d) => d,
-        None => json_error("Missing --data argument (base64-encoded ciphertext)"),
+    // --data-stdin reads a JSON payload from stdin: {"data":"...","ttyId":"..."}
+    // This prevents ciphertext and session identity from being visible in process listings.
+    let (data_b64, stdin_tty_id) = if args.contains(&"--data-stdin".to_string()) {
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)
+            .unwrap_or_else(|e| json_error(&format!("Failed to read stdin: {e}")));
+        let input = input.trim();
+        // Try parsing as JSON (new format), fall back to plain string (backwards compat)
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(input) {
+            let data = parsed.get("data").and_then(|v| v.as_str())
+                .unwrap_or_else(|| json_error("Missing 'data' field in stdin JSON"))
+                .to_string();
+            let tty_id = parsed.get("ttyId").and_then(|v| v.as_str()).map(|s| s.to_string());
+            (data, tty_id)
+        } else {
+            (input.to_string(), None)
+        }
+    } else {
+        let data = match get_arg(args, "--data") {
+            Some(d) => d,
+            None => json_error("Missing --data or --data-stdin argument"),
+        };
+        (data, None)
     };
 
     // --via-daemon: route through the daemon for biometric + session caching.
     // Used by WSL2 where the TS side can't connect to Windows named pipes directly.
     if args.contains(&"--via-daemon".to_string()) {
-        match daemon_client::decrypt_via_daemon(&data_b64, &key_id) {
+        let tty_id = stdin_tty_id.as_deref();
+        match daemon_client::decrypt_via_daemon(&data_b64, &key_id, tty_id) {
             Ok(plaintext) => json_success(json!({"plaintext": plaintext})),
             Err(e) => json_error(&e),
         }
@@ -235,13 +256,15 @@ COMMANDS:
   list-keys                       List all Varlock encryption keys
   key-exists [--key-id <id>]      Check if a key exists
   encrypt --data <base64> [--key-id <id>]   Encrypt data (one-shot)
-  decrypt --data <base64> [--key-id <id>] [--via-daemon]   Decrypt data
+  decrypt --data <base64> [--key-id <id>] [--via-daemon]         Decrypt data
+  decrypt --data-stdin [--key-id <id>] [--via-daemon]           Decrypt (data from stdin)
   status                          Check platform capabilities
   daemon --socket-path <path> [--pid-path <path>]   Start IPC daemon
 
 OPTIONS:
   --key-id <id>       Key identifier (default: varlock-default)
   --data <base64>     Base64-encoded data
+  --data-stdin        Read data from stdin as JSON: {"data":"...","ttyId":"..."}
   --socket-path <path>  Unix socket path for daemon mode
   --pid-path <path>   PID file path for daemon mode
   --via-daemon        Route decrypt through daemon for biometric + session caching
