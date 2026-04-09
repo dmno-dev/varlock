@@ -145,6 +145,7 @@ fn try_daemon_decrypt(ciphertext: &str, key_id: &str) -> Result<String, String> 
 /// Spawn a daemon process and wait for it to be ready.
 #[cfg(target_os = "windows")]
 fn spawn_daemon() -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
 
     let exe_path = std::env::current_exe()
