@@ -17,6 +17,7 @@ import { commandSpec as runCommandSpec } from './commands/run.command';
 import { commandSpec as printenvCommandSpec } from './commands/printenv.command';
 import { commandSpec as encryptCommandSpec } from './commands/encrypt.command';
 import { commandSpec as lockCommandSpec } from './commands/lock.command';
+import { commandSpec as revealCommandSpec } from './commands/reveal.command';
 // import { commandSpec as doctorCommandSpec } from './commands/doctor.command';
 import { commandSpec as helpCommandSpec } from './commands/help.command';
 import { commandSpec as telemetryCommandSpec } from './commands/telemetry.command';
@@ -55,6 +56,7 @@ subCommands.set('run', buildLazyCommand(runCommandSpec, async () => await import
 subCommands.set('printenv', buildLazyCommand(printenvCommandSpec, async () => await import('./commands/printenv.command')));
 subCommands.set('encrypt', buildLazyCommand(encryptCommandSpec, async () => await import('./commands/encrypt.command')));
 subCommands.set('lock', buildLazyCommand(lockCommandSpec, async () => await import('./commands/lock.command')));
+subCommands.set('reveal', buildLazyCommand(revealCommandSpec, async () => await import('./commands/reveal.command')));
 // subCommands.set('doctor', buildLazyCommand(doctorCommandSpec, async () => await import('./commands/doctor.command')));
 subCommands.set('explain', buildLazyCommand(explainCommandSpec, async () => await import('./commands/explain.command')));
 subCommands.set('help', buildLazyCommand(helpCommandSpec, async () => await import('./commands/help.command')));
