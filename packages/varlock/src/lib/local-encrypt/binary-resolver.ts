@@ -106,7 +106,7 @@ function resolveDevFallback(): string | undefined {
     }
 
     // Check for Rust build output (Linux/Windows)
-    const rustBuild = path.join(dir, 'packages', 'local-encrypt', 'rust', 'target', 'release', getPlatformBinaryName());
+    const rustBuild = path.join(dir, 'packages', 'encryption-binary-rust', 'target', 'release', getPlatformBinaryName());
     if (fs.existsSync(rustBuild)) return rustBuild;
   }
 

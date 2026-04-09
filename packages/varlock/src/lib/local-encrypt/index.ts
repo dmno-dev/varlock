@@ -14,46 +14,11 @@ import { execFileSync } from 'node:child_process';
 import { resolveNativeBinary } from './binary-resolver';
 import { DaemonClient } from './daemon-client';
 import * as fileBackend from './file-backend';
-import type { BackendInfo, BackendType } from './types';
+import type { BackendInfo, BackendType, NativeStatusResult } from './types';
 
 export type { BackendInfo, BackendType } from './types';
 
 const DEFAULT_KEY_ID = 'varlock-default';
-
-// ── Backend detection ──────────────────────────────────────────────────
-
-let cachedBackendInfo: BackendInfo | undefined;
-
-function detectBackendType(): BackendType {
-  const binaryPath = resolveNativeBinary();
-  if (!binaryPath) return 'file';
-
-  switch (process.platform) {
-    case 'darwin': return 'secure-enclave';
-    // TODO: Windows TPM and Linux TPM2 native backends not yet implemented
-    // case 'win32': return 'windows-tpm';
-    // case 'linux': return 'linux-tpm';
-    default: return 'file';
-  }
-}
-
-/** Get information about the active encryption backend. */
-export function getBackendInfo(): BackendInfo {
-  if (cachedBackendInfo) return cachedBackendInfo;
-
-  const type = detectBackendType();
-  const binaryPath = type !== 'file' ? resolveNativeBinary() : undefined;
-
-  cachedBackendInfo = {
-    type,
-    platform: process.platform,
-    hardwareBacked: type !== 'file',
-    biometricAvailable: type === 'secure-enclave' || type === 'windows-tpm',
-    binaryPath,
-  };
-
-  return cachedBackendInfo;
-}
 
 // ── Native binary one-shot commands ────────────────────────────────────
 
@@ -75,6 +40,63 @@ function runNativeBinaryJson<T = Record<string, unknown>>(args: Array<string>): 
     throw new Error(parsed.error);
   }
   return parsed as T;
+}
+
+// ── Backend detection ──────────────────────────────────────────────────
+
+let cachedBackendInfo: BackendInfo | undefined;
+
+function detectBackendType(): BackendType {
+  const binaryPath = resolveNativeBinary();
+  if (!binaryPath) return 'file';
+
+  switch (process.platform) {
+    case 'darwin': return 'secure-enclave';
+    case 'win32': return 'windows-tpm';
+    case 'linux': return 'linux-tpm';
+    default: return 'file';
+  }
+}
+
+/** Get information about the active encryption backend. */
+export function getBackendInfo(): BackendInfo {
+  if (cachedBackendInfo) return cachedBackendInfo;
+
+  const type = detectBackendType();
+  const binaryPath = type !== 'file' ? resolveNativeBinary() : undefined;
+
+  if (type !== 'file' && binaryPath) {
+    // Query the native binary for its actual capabilities
+    try {
+      const status = runNativeBinaryJson<NativeStatusResult>(['status']);
+      cachedBackendInfo = {
+        type,
+        platform: process.platform,
+        hardwareBacked: status.hardwareBacked,
+        biometricAvailable: status.biometricAvailable,
+        binaryPath,
+      };
+    } catch {
+      // Binary failed — fall back to reasonable defaults
+      cachedBackendInfo = {
+        type,
+        platform: process.platform,
+        hardwareBacked: type === 'secure-enclave',
+        biometricAvailable: type === 'secure-enclave',
+        binaryPath,
+      };
+    }
+  } else {
+    cachedBackendInfo = {
+      type,
+      platform: process.platform,
+      hardwareBacked: false,
+      biometricAvailable: false,
+      binaryPath: undefined,
+    };
+  }
+
+  return cachedBackendInfo;
 }
 
 // ── Daemon client (singleton for biometric-enabled backends) ───────────

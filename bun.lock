@@ -44,6 +44,10 @@
         "vitest": "catalog:",
       },
     },
+    "packages/encryption-binary-rust": {
+      "name": "@varlock/encryption-binary-rust",
+      "version": "0.0.0",
+    },
     "packages/encryption-binary-swift": {
       "name": "@varlock/encryption-binary-swift",
       "version": "0.0.1",
@@ -1313,6 +1317,8 @@
     "@varlock/cloudflare-integration": ["@varlock/cloudflare-integration@workspace:packages/integrations/cloudflare"],
 
     "@varlock/dashlane-plugin": ["@varlock/dashlane-plugin@workspace:packages/plugins/dashlane"],
+
+    "@varlock/encryption-binary-rust": ["@varlock/encryption-binary-rust@workspace:packages/encryption-binary-rust"],
 
     "@varlock/encryption-binary-swift": ["@varlock/encryption-binary-swift@workspace:packages/encryption-binary-swift"],
 

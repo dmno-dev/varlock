@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       swift-changed: ${{ steps.check-swift.outputs.changed }}
+      rust-changed: ${{ steps.check-rust.outputs.changed }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -47,11 +48,19 @@ jobs:
       - name: Run tests
         run: bun run test:ci
 
-      # Check if Swift source changed (used to gate macOS native build)
+      # Check if native binary source changed (used to gate native builds)
       - name: Check for Swift source changes
         id: check-swift
         run: |
           if git diff --name-only origin/main...HEAD | grep -q '^packages/encryption-binary-swift/'; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Check for Rust source changes
+        id: check-rust
+        run: |
+          if git diff --name-only origin/main...HEAD | grep -q '^packages/encryption-binary-rust/'; then
             echo "changed=true" >> $GITHUB_OUTPUT
           else
             echo "changed=false" >> $GITHUB_OUTPUT
@@ -68,10 +77,18 @@ jobs:
     secrets:
       OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
 
+  # Build Rust native binaries if source changed (warms the cache)
+  build-native-rust:
+    needs: build-and-test
+    if: needs.build-and-test.outputs.rust-changed == 'true'
+    uses: ./.github/workflows/build-native-rust.yaml
+    with:
+      artifact-name: native-bin-rust-ci
+
   # Publish preview packages via pkg-pr-new
   release-preview-packages:
-    needs: [build-and-test, build-native-macos]
-    # Run even if build-native-macos was skipped, but not if anything failed. Skip on main.
+    needs: [build-and-test, build-native-macos, build-native-rust]
+    # Run even if native builds were skipped (source unchanged), but not if anything failed. Skip on main.
     if: always() && !failure() && !cancelled() && github.ref_name != 'main'
     runs-on: ubuntu-latest
     steps:
@@ -125,6 +142,55 @@ jobs:
             exit 1
           fi
           chmod +x "$BINARY"
+
+      # Get Rust native binaries if varlock is being released
+      # If the Rust build ran this run, download the artifacts; otherwise restore from cache
+      - name: Download Rust binaries (from this run)
+        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-and-test.outputs.rust-changed == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: native-bin-rust-ci-*
+          path: packages/varlock/native-bins/
+          merge-multiple: false
+      # Flatten: download-artifact creates subdirs per artifact name, but we need linux-x64/ etc.
+      - name: Flatten Rust artifact directories (from this run)
+        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-and-test.outputs.rust-changed == 'true'
+        run: |
+          cd packages/varlock/native-bins
+          for dir in native-bin-rust-ci-*/; do
+            subdir=$(echo "$dir" | sed 's/native-bin-rust-ci-//' | sed 's/\///')
+            mv "$dir" "$subdir" 2>/dev/null || true
+          done
+
+      - name: Restore cached Rust binaries (from prior run)
+        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-and-test.outputs.rust-changed != 'true'
+        run: |
+          CACHE_KEY_SUFFIX="${{ hashFiles('packages/encryption-binary-rust/Cargo.lock', 'packages/encryption-binary-rust/src/**') }}"
+          for SUBDIR in linux-x64 linux-arm64 win32-x64; do
+            echo "Restoring native-bin-rust-$SUBDIR..."
+          done
+      - uses: actions/cache/restore@v5
+        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-and-test.outputs.rust-changed != 'true'
+        with:
+          path: packages/varlock/native-bins/linux-x64/
+          key: native-bin-rust-linux-x64-${{ hashFiles('packages/encryption-binary-rust/Cargo.lock', 'packages/encryption-binary-rust/src/**') }}
+      - uses: actions/cache/restore@v5
+        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-and-test.outputs.rust-changed != 'true'
+        with:
+          path: packages/varlock/native-bins/linux-arm64/
+          key: native-bin-rust-linux-arm64-${{ hashFiles('packages/encryption-binary-rust/Cargo.lock', 'packages/encryption-binary-rust/src/**') }}
+      - uses: actions/cache/restore@v5
+        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-and-test.outputs.rust-changed != 'true'
+        with:
+          path: packages/varlock/native-bins/win32-x64/
+          key: native-bin-rust-win32-x64-${{ hashFiles('packages/encryption-binary-rust/Cargo.lock', 'packages/encryption-binary-rust/src/**') }}
+
+      - name: Fix Rust binary permissions
+        if: steps.check-release.outputs.includes-varlock == 'true'
+        run: |
+          for BIN in packages/varlock/native-bins/linux-*/varlock-local-encrypt; do
+            [ -f "$BIN" ] && chmod +x "$BIN" && echo "Fixed: $BIN"
+          done
 
       - name: Build publishable npm packages
         run: bun run build:libs

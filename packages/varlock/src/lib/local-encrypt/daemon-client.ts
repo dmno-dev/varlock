@@ -25,8 +25,8 @@ function getSocketDir(): string {
 
 function getSocketPath(): string {
   if (process.platform === 'win32') {
-    // Windows named pipe
-    return `\\\\.\\pipe\\varlock-local-encrypt-${process.pid}`;
+    // Windows named pipe — fixed name shared by all varlock processes
+    return '\\\\.\\pipe\\varlock-local-encrypt';
   }
   return path.join(getSocketDir(), 'daemon.sock');
 }
@@ -234,8 +234,13 @@ export class DaemonClient {
 
     const socketPath = getSocketPath();
     const pidPath = getPidPath();
+    const isWindows = process.platform === 'win32';
 
-    fs.mkdirSync(path.dirname(socketPath), { recursive: true });
+    // Ensure PID directory exists (don't mkdir for Windows pipe paths)
+    if (!isWindows) {
+      fs.mkdirSync(path.dirname(socketPath), { recursive: true });
+    }
+    fs.mkdirSync(path.dirname(pidPath), { recursive: true });
 
     // Check for existing daemon via PID
     if (fs.existsSync(pidPath)) {
@@ -252,16 +257,23 @@ export class DaemonClient {
       }
     }
 
-    // Clean up stale socket and PID files before spawning
-    for (const file of [socketPath, pidPath]) {
-      if (fs.existsSync(file)) {
-        fs.unlinkSync(file);
+    // Clean up stale files before spawning
+    // On Windows, named pipes don't leave files — only clean PID and Unix sockets
+    if (!isWindows) {
+      for (const file of [socketPath, pidPath]) {
+        if (fs.existsSync(file)) {
+          fs.unlinkSync(file);
+        }
       }
-    }
-
-    // Verify socket file is actually gone — if not, something is very wrong
-    if (fs.existsSync(socketPath)) {
-      throw new Error(`Failed to clean up stale socket file: ${socketPath}`);
+      // Verify socket file is actually gone
+      if (fs.existsSync(socketPath)) {
+        throw new Error(`Failed to clean up stale socket file: ${socketPath}`);
+      }
+    } else {
+      // Clean PID file only on Windows
+      if (fs.existsSync(pidPath)) {
+        fs.unlinkSync(pidPath);
+      }
     }
 
     return new Promise((resolve, reject) => {

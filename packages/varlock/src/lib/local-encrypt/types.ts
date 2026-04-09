@@ -5,8 +5,8 @@
 /** Which encryption backend is active */
 export type BackendType = (
   | 'secure-enclave' // macOS Secure Enclave (Swift binary)
-  | 'windows-tpm' // Windows TPM via NCrypt (Rust binary)
-  | 'linux-tpm' // Linux TPM2 (Rust binary)
+  | 'windows-tpm' // Windows native (Rust binary) — DPAPI now, TPM/Hello planned
+  | 'linux-tpm' // Linux native (Rust binary) — kernel keyring now, TPM planned
   | 'file' // Pure JS file-based (universal fallback)
 );
 
