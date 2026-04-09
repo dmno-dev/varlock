@@ -1,0 +1,12 @@
+{
+  "name": "@varlock/encryption-binary-rust",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build:current": "bun run scripts/build-rust.ts",
+    "build:linux-x64": "bun run scripts/build-rust.ts --target x86_64-unknown-linux-gnu",
+    "build:linux-arm64": "bun run scripts/build-rust.ts --target aarch64-unknown-linux-gnu",
+    "build:windows-x64": "bun run scripts/build-rust.ts --target x86_64-pc-windows-msvc",
+    "build:windows-arm64": "bun run scripts/build-rust.ts --target aarch64-pc-windows-msvc"
+  }
+}

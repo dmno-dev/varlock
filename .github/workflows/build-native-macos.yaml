@@ -117,6 +117,83 @@ jobs:
           echo "=== Info.plist ==="
           cat "$APP_PATH/Contents/Info.plist"
 
+      # Test the binary (using --no-auth since CI has no biometric)
+      # Keys are still Secure Enclave-backed, just without user presence requirement
+      - name: Test binary - status
+        run: |
+          BIN="packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt"
+          echo "=== status ==="
+          $BIN status
+          $BIN status | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['ok'], 'status not ok'"
+
+      - name: Test binary - SE key lifecycle + encrypt/decrypt roundtrip
+        run: |
+          BIN="packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt"
+
+          echo "=== generate-key (--no-auth for CI) ==="
+          $BIN generate-key --key-id ci-test --no-auth
+
+          echo "=== key-exists ==="
+          $BIN key-exists --key-id ci-test | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['exists']"
+
+          echo "=== encrypt ==="
+          PLAINTEXT=$(printf 'hello from macOS CI' | base64)
+          CIPHERTEXT=$($BIN encrypt --key-id ci-test --data "$PLAINTEXT" | python3 -c "import sys,json; print(json.load(sys.stdin)['ciphertext'])")
+          echo "Ciphertext: ${CIPHERTEXT:0:40}..."
+
+          echo "=== decrypt (one-shot, no auth needed) ==="
+          DECRYPTED=$($BIN decrypt --key-id ci-test --data "$CIPHERTEXT" | python3 -c "import sys,json; print(json.load(sys.stdin)['plaintext'])")
+          echo "Decrypted: $DECRYPTED"
+
+          if [ "$DECRYPTED" != "hello from macOS CI" ]; then
+            echo "::error::Roundtrip failed! Expected 'hello from macOS CI', got '$DECRYPTED'"
+            exit 1
+          fi
+
+          echo "=== delete-key ==="
+          $BIN delete-key --key-id ci-test
+
+          echo "All macOS binary tests passed"
+
+      - name: Test JS→Swift interop
+        run: |
+          BIN="packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt"
+
+          # Generate SE key (no auth for CI)
+          $BIN generate-key --key-id interop-test --no-auth
+
+          # Get the public key from the SE binary
+          PUBLIC_KEY=$($BIN generate-key --key-id interop-tmp --no-auth > /dev/null 2>&1; echo "skip")
+          # Actually, get public key by generating and reading the output
+          GEN_OUTPUT=$($BIN key-exists --key-id interop-test)
+
+          # Use the SE binary's encrypt to get the public key indirectly:
+          # generate-key already printed it — let's re-generate to capture it
+          $BIN delete-key --key-id interop-test > /dev/null
+          PUBLIC_KEY=$($BIN generate-key --key-id interop-test --no-auth | python3 -c "import sys,json; print(json.load(sys.stdin)['publicKey'])")
+          echo "SE Public Key: ${PUBLIC_KEY:0:20}..."
+
+          # Encrypt with JS using the SE public key
+          CIPHERTEXT=$(bun -e "
+            const { encrypt } = await import('./packages/varlock/src/lib/local-encrypt/crypto.ts');
+            const result = await encrypt('$PUBLIC_KEY', 'javascript to secure enclave');
+            process.stdout.write(result);
+          ")
+          echo "JS Ciphertext: ${CIPHERTEXT:0:40}..."
+
+          # Decrypt with Swift SE binary (proves JS wire format is SE-compatible)
+          DECRYPTED=$($BIN decrypt --key-id interop-test --data "$CIPHERTEXT" | python3 -c "import sys,json; print(json.load(sys.stdin)['plaintext'])")
+
+          if [ "$DECRYPTED" != "javascript to secure enclave" ]; then
+            echo "::error::JS→Swift interop failed! Got: $DECRYPTED"
+            exit 1
+          fi
+          echo "✓ JS→Swift SE: '$DECRYPTED'"
+
+          # Cleanup
+          $BIN delete-key --key-id interop-test
+          echo "All macOS interop tests passed"
+
       - name: Upload native binary artifact
         uses: actions/upload-artifact@v7
         with:

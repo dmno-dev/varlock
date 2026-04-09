@@ -54,6 +54,7 @@ export default tseslint.config(
       '**/out',
       '**/next-env.d.ts',
       '.magent',
+      '.claude',
       'framework-tests/.test-projects',
       'framework-tests/.packed',
     ],
@@ -170,6 +171,7 @@ export default tseslint.config(
       'smoke-tests/**',
       'framework-tests/**',
       'packages/encryption-binary-swift/scripts/**',
+      'packages/encryption-binary-rust/scripts/**',
     ],
     rules: {
       'no-console': 0,

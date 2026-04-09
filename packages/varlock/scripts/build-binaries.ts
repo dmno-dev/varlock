@@ -80,7 +80,27 @@ if (devMode) {
         console.log(`  Warning: macOS native binary not found at ${appBundleSrc}, skipping`);
       }
     }
-    // TODO: bundle native binaries for linux/windows when rust builds exist
+
+    // Bundle Rust native binary for Linux/Windows
+    let nativeBinSubdir: string | null = null;
+    if (isWin) {
+      nativeBinSubdir = 'win32-x64';
+    } else if (archiveName.startsWith('linux-musl-')) {
+      nativeBinSubdir = `linux-${archiveName.replace('linux-musl-', '')}`;
+    } else if (archiveName.startsWith('linux-')) {
+      nativeBinSubdir = `linux-${archiveName.replace('linux-', '')}`;
+    }
+
+    if (nativeBinSubdir && !isMac) {
+      const rustBinaryName = isWin ? 'varlock-local-encrypt.exe' : 'varlock-local-encrypt';
+      const rustBinarySrc = path.join(NATIVE_BINS_DIR, nativeBinSubdir, rustBinaryName);
+      if (fs.existsSync(rustBinarySrc)) {
+        console.log(`  Bundling Rust native binary (${nativeBinSubdir}/${rustBinaryName})`);
+        exec(`cp "${rustBinarySrc}" "${targetDir}/${rustBinaryName}"`);
+      } else {
+        console.log(`  Warning: Rust native binary not found at ${rustBinarySrc}, skipping`);
+      }
+    }
 
     // Archive
     let archive: string;

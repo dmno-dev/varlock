@@ -29,16 +29,21 @@ final class SecureEnclaveManager {
 
     // MARK: - Key Management
 
-    /// Create a new Secure Enclave P-256 key with user-presence access control.
-    /// Accepts Touch ID, Apple Watch, or device password as authentication.
+    /// Create a new Secure Enclave P-256 key.
+    ///
+    /// By default, requires user presence (Touch ID, Apple Watch, or device password).
+    /// Pass `requireAuth: false` for CI/testing — key is still SE-backed but no biometric.
     /// Saves the key data representation to disk and returns the public key.
-    static func generateKey(keyId: String, context: LAContext? = nil) throws -> Data {
-        // Create access control requiring user presence (biometric or password)
+    static func generateKey(keyId: String, context: LAContext? = nil, requireAuth: Bool = true) throws -> Data {
+        // Create access control — with or without user presence requirement
         var accessError: Unmanaged<CFError>?
+        let flags: SecAccessControlCreateFlags = requireAuth
+            ? [.privateKeyUsage, .userPresence]
+            : [.privateKeyUsage]
         guard let accessControl = SecAccessControlCreateWithFlags(
             kCFAllocatorDefault,
             kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            [.privateKeyUsage, .userPresence],
+            flags,
             &accessError
         ) else {
             let err = accessError?.takeRetainedValue()

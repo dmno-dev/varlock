@@ -1,0 +1,55 @@
+[package]
+name = "varlock-local-encrypt"
+version = "0.1.0"
+edition = "2021"
+description = "Cross-platform local encryption binary for Varlock (Windows/Linux)"
+
+[[bin]]
+name = "varlock-local-encrypt"
+path = "src/main.rs"
+
+[dependencies]
+# ECIES crypto (pure Rust, no OpenSSL)
+p256 = { version = "0.13", default-features = false, features = ["ecdh", "pkcs8", "std"] }
+elliptic-curve = { version = "0.13", features = ["sec1", "pkcs8"] }
+hkdf = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+aes-gcm = "0.10"
+rand = "0.8"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+
+# Signal handling (Unix)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Platform — Linux (nix for peer credentials in IPC)
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = { version = "0.29", features = ["process", "socket", "user", "fs"] }
+
+# Platform — Windows
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    # DPAPI
+    "Win32_Security_Cryptography",
+    "Win32_Security_Credentials",
+    # Named pipes
+    "Win32_System_Pipes",
+    "Win32_Storage_FileSystem",
+    "Win32_Foundation",
+    "Win32_System_IO",
+    # Windows Hello (UserConsentVerifier)
+    "Security_Credentials_UI",
+    "Foundation",
+] }
+
+[profile.release]
+strip = true
+lto = true
+opt-level = "z"   # optimize for size
+codegen-units = 1
+panic = "abort"

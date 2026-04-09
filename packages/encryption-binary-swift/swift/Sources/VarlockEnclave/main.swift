@@ -33,6 +33,7 @@ func getArg(_ flag: String) -> String? {
 }
 
 let defaultKeyId = "varlock-default"
+let noAuth = args.contains("--no-auth") // CI mode: skip biometric requirement
 
 switch command {
 
@@ -42,7 +43,7 @@ case "generate-key":
     let keyId = getArg("--key-id") ?? defaultKeyId
 
     do {
-        let pubKeyData = try SecureEnclaveManager.generateKey(keyId: keyId)
+        let pubKeyData = try SecureEnclaveManager.generateKey(keyId: keyId, requireAuth: !noAuth)
         jsonSuccess([
             "keyId": keyId,
             "publicKey": pubKeyData.base64EncodedString(),
