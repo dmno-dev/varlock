@@ -160,6 +160,18 @@ export class CacheStore {
   }
 
   /**
+   * List all non-expired entries with their metadata (for interactive browsing).
+   * Values are NOT decrypted — only keys and timestamps are returned.
+   */
+  listEntries(): Array<{ key: string; cachedAt: number; expiresAt: number }> {
+    const data = this.loadFile();
+    const now = Date.now();
+    return Object.entries(data)
+      .filter(([, entry]) => now <= entry.e)
+      .map(([key, entry]) => ({ key, cachedAt: entry.c, expiresAt: entry.e }));
+  }
+
+  /**
    * Get the file path for this cache store (for display purposes).
    */
   getFilePath(): string {
