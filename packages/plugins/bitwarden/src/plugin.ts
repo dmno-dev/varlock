@@ -1,4 +1,6 @@
-import { type Resolver, type PluginCacheAccessor, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 import ky from 'ky';
 import { Buffer } from 'node:buffer';
 import { webcrypto } from 'node:crypto';
@@ -368,11 +370,8 @@ plugin.registerRootDecorator({
       identityUrl,
     );
 
-    // cacheTtl is resolved at runtime so it can be dynamic (e.g., cacheTtl=if(forEnv(dev), "1h"))
-    const cacheTtl = await cacheTtlResolver?.resolve();
-    if (cacheTtl !== undefined && cacheTtl !== false && cacheTtl !== ''
-      && (typeof cacheTtl === 'string' || typeof cacheTtl === 'number')
-    ) {
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
       pluginInstances[id].cacheTtl = cacheTtl;
     }
   },

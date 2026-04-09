@@ -1,4 +1,6 @@
-import { type Resolver, type PluginCacheAccessor, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 
 import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import { Client, createClient } from '@1password/sdk';
@@ -461,11 +463,8 @@ plugin.registerRootDecorator({
       connectHost,
       connectToken as string | undefined,
     );
-    // cacheTtl is resolved at runtime so it can be dynamic (e.g., cacheTtl=if(forEnv(dev), "1h"))
-    const cacheTtl = await cacheTtlResolver?.resolve();
-    if (cacheTtl !== undefined && cacheTtl !== false && cacheTtl !== ''
-      && (typeof cacheTtl === 'string' || typeof cacheTtl === 'number')
-    ) {
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
       pluginInstances[id].cacheTtl = cacheTtl;
     }
   },
@@ -482,7 +481,6 @@ plugin.registerDataType({
       description: '1Password service accounts',
       url: 'https://developer.1password.com/docs/service-accounts/',
     },
-    'https://example.com',
   ],
   async validate(val) {
     if (!val.startsWith('ops_')) {

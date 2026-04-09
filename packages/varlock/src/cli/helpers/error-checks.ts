@@ -65,6 +65,17 @@ export function checkForSchemaErrors(envGraph: EnvGraph) {
       }
       return gracefulExit(1);
     }
+
+    // check for errors from decorator execute() (e.g., invalid plugin options like cacheTtl)
+    if (source.resolutionErrors.length) {
+      console.error(`🚨 Error(s) during initialization of ${source.label}`);
+
+      for (const resErr of source.resolutionErrors) {
+        console.error(`- ${resErr.message}`);
+        showErrorLocationDetails(resErr);
+      }
+      return gracefulExit(1);
+    }
   }
 
   // now we check for any schema errors - where something about how things are wired up is invalid

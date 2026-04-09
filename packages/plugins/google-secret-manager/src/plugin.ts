@@ -1,4 +1,6 @@
-import { type Resolver, type PluginCacheAccessor, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 
 import { GoogleAuth } from 'google-auth-library';
 
@@ -208,11 +210,8 @@ plugin.registerRootDecorator({
     const projectId = await projectIdResolver?.resolve();
     const credentials = await credentialsResolver?.resolve();
     pluginInstances[id].setAuth(projectId, credentials);
-    // cacheTtl is resolved at runtime so it can be dynamic (e.g., cacheTtl=if(forEnv(dev), "1h"))
-    const cacheTtl = await cacheTtlResolver?.resolve();
-    if (cacheTtl !== undefined && cacheTtl !== false && cacheTtl !== ''
-      && (typeof cacheTtl === 'string' || typeof cacheTtl === 'number')
-    ) {
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
       pluginInstances[id].cacheTtl = cacheTtl;
     }
   },

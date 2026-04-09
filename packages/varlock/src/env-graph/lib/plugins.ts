@@ -16,6 +16,8 @@ import { pathExists } from '@env-spec/utils/fs-utils';
 import { getUserVarlockDir } from '../../lib/user-config-dir';
 import { PluginCacheAccessor } from '../../lib/cache/plugin-cache-accessor';
 import type { CacheStore } from '../../lib/cache/cache-store';
+import { parseTtl } from '../../lib/cache/ttl-parser';
+import { resolveCacheTtl } from '../../lib/cache/resolve-cache-ttl';
 import { confirm } from '../../cli/helpers/prompts';
 
 
@@ -81,6 +83,8 @@ const varlockPluginLibExports = {
   SchemaError,
   ResolutionError,
   createDebug,
+  parseTtl,
+  resolveCacheTtl,
 };
 
 
