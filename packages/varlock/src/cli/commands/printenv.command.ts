@@ -16,6 +16,14 @@ export const commandSpec = define({
       multiple: true,
       description: 'Path to a specific .env file or directory (with trailing slash) to use as the entry point (can be specified multiple times)',
     },
+    'clear-cache': {
+      type: 'boolean',
+      description: 'Clear cache and re-resolve all values',
+    },
+    'skip-cache': {
+      type: 'boolean',
+      description: 'Skip cache entirely for this invocation',
+    },
   },
   examples: `
 Prints the resolved value of a single environment variable.
@@ -48,6 +56,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   const envGraph = await loadVarlockEnvGraph({
     entryFilePaths: ctx.values.path,
+    clearCache: ctx.values['clear-cache'],
+    skipCache: ctx.values['skip-cache'],
   });
   checkForSchemaErrors(envGraph);
 

@@ -22,6 +22,8 @@ function loadFromPaths(
     errorPrefix: string,
     errorSuggestion: string,
     currentEnvFallback?: string,
+    clearCache?: boolean,
+    skipCache?: boolean,
   },
 ) {
   const resolvedPaths = rawPaths.map((p) => path.resolve(p));
@@ -43,6 +45,8 @@ function loadFromPaths(
   return runWithWorkspaceInfo(() => loadEnvGraph({
     currentEnvFallback: config.currentEnvFallback,
     entryFilePaths: resolvedPaths,
+    clearCache: config.clearCache,
+    skipCache: config.skipCache,
     afterInit: async (g) => {
       g.registerResolver(VarlockResolver);
       g.registerResolver(KeychainResolver);
@@ -54,6 +58,10 @@ export function loadVarlockEnvGraph(opts?: {
   currentEnvFallback?: string,
   /** Explicit entry file paths from --path flag(s) - overrides package.json config */
   entryFilePaths?: Array<string>,
+  /** Clear cache and re-resolve all values */
+  clearCache?: boolean,
+  /** Skip cache entirely for this invocation */
+  skipCache?: boolean,
 }) {
   const cliPaths = opts?.entryFilePaths?.filter(Boolean);
 
@@ -65,6 +73,8 @@ export function loadVarlockEnvGraph(opts?: {
       errorPrefix: 'The --path value does not exist',
       errorSuggestion: 'Use `--path` to specify a valid file or directory.',
       currentEnvFallback: opts?.currentEnvFallback,
+      clearCache: opts?.clearCache,
+      skipCache: opts?.skipCache,
     });
   }
 
@@ -78,6 +88,8 @@ export function loadVarlockEnvGraph(opts?: {
       errorPrefix: 'A path in `varlock.loadPath` configured in package.json does not exist',
       errorSuggestion: 'Update `varlock.loadPath` in your package.json to point to valid files or directories.',
       currentEnvFallback: opts?.currentEnvFallback,
+      clearCache: opts?.clearCache,
+      skipCache: opts?.skipCache,
     });
   }
 
@@ -85,6 +97,8 @@ export function loadVarlockEnvGraph(opts?: {
 
   return runWithWorkspaceInfo(() => loadEnvGraph({
     currentEnvFallback: opts?.currentEnvFallback,
+    clearCache: opts?.clearCache,
+    skipCache: opts?.skipCache,
     afterInit: async (g) => {
       g.registerResolver(VarlockResolver);
       g.registerResolver(KeychainResolver);

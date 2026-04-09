@@ -94,6 +94,8 @@ varlock load [options]
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@currentEnv` in `.env.schema`
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point (overrides `varlock.loadPath` in `package.json`). Can be specified multiple times to load from multiple paths — later paths take higher precedence.
+- `--clear-cache`: Clear the cache and re-resolve all values (writes new values back to cache)
+- `--skip-cache`: Skip cache entirely for this invocation (no reads or writes)
 
 **Examples:**
 ```bash
@@ -150,6 +152,8 @@ varlock run -- <command>
 - `--no-redact-stdout`: Disable stdout/stderr redaction to preserve TTY detection for interactive tools
 - `--no-inject-graph`: Disable injection of `__VARLOCK_ENV` serialized config graph into the child process environment
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
+- `--clear-cache`: Clear the cache and re-resolve all values
+- `--skip-cache`: Skip cache entirely for this invocation
 
 **Examples:**
 ```bash
@@ -461,6 +465,32 @@ When `--path` points to a directory, code scanning is scoped to that directory t
 - Use [`@auditIgnore`](/reference/item-decorators/#auditignore) on individual schema items that are only consumed by external tools and won't appear in your application code.
 - Use [`@auditIgnorePaths()`](/reference/root-decorators/#auditignorepaths) to exclude directories (e.g., vendored code, generated files) from the code scan.
 :::
+
+</div>
+
+<div>
+### `varlock cache` ||cache||
+
+Manage the encrypted value cache used by [`cache()`](/reference/functions/#cache) and plugin authors. Shows cache status by default, or clears cached entries.
+
+```bash
+varlock cache [clear] [options]
+```
+
+**Options:**
+- `--plugin <name>`: When clearing, only remove entries for a specific plugin
+
+**Examples:**
+```bash
+# Show cache status (entry counts, file size, location)
+varlock cache
+
+# Clear all cache entries
+varlock cache clear
+
+# Clear cache for a specific plugin only
+varlock cache clear --plugin 1password
+```
 
 </div>
 
