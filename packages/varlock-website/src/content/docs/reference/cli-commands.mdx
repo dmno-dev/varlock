@@ -42,6 +42,10 @@ You can configure varlock's default behavior by adding a `varlock` key to your `
 | `loadPath` | Path (or array of paths) to a directory or specific `.env` file to use as the default entry point. Defaults to the current working directory if not set. Use a **directory path** (with trailing `/`) to automatically load all relevant files (`.env.schema`, `.env`, `.env.local`, etc.); a file path only loads that file and its explicit imports. When an array is provided, all paths are loaded and combined — later entries take higher precedence. Can be overridden by the `--path` CLI flag. Varlock looks for this config in the `package.json` in the current working directory only. |
 
 
+:::note[Plugins]
+While plugins cannot add additional CLI commands, they can extend varlock with additional [resolver functions](/reference/functions/), [data types](/reference/data-types/), and [decorators](/reference/item-decorators/). See the [Plugins guide](/guides/plugins/) for more information.
+:::
+
 ## Commands reference
 
 <div class="reference-docs">
@@ -271,6 +275,95 @@ This will detect if you are using a hook manager (like husky or lefthook) and pr
 If varlock is installed as a project dependency, the hook command will be automatically prefixed with your package manager (e.g., `npx varlock scan`).
 
 You can also set it up manually -- see the [Secrets guide](/guides/secrets/#scanning-for-leaked-secrets) for more details.
+:::
+
+</div>
+
+<div>
+### `varlock encrypt` ||encrypt||
+
+Encrypts sensitive values using device-local encryption. Encrypted values are stored in `.env` files using the `varlock()` resolver function and are automatically decrypted at load time.
+
+On macOS, encryption is hardware-backed via the Secure Enclave (with Touch ID / biometric authentication). On Windows and Linux, platform-specific secure storage is used. A pure-JavaScript file-based fallback is available on all platforms.
+
+```bash
+varlock encrypt [options]
+```
+
+**Options:**
+- `--file`:    Path to a `.env` file — encrypts all sensitive plaintext values in-place
+
+**Examples:**
+```bash
+# Interactive mode: encrypt a single value
+varlock encrypt
+
+# Encrypt all sensitive plaintext values in a .env file
+varlock encrypt --file .env.local
+```
+
+In interactive mode, you'll be prompted to enter a value, and the encrypted output will be printed for you to copy into your `.env.local` file:
+```
+SOME_SENSITIVE_KEY=varlock("local:<encrypted>")
+```
+
+In file mode, varlock loads the env graph, identifies `@sensitive` items with plaintext values, and lets you select which to encrypt in-place.
+
+:::tip
+Use `varlock encrypt --file .env.local` after adding new secrets to quickly encrypt them all at once.
+:::
+
+:::note[Alternative: prompt mode]
+Instead of encrypting values ahead of time, you can use `varlock(prompt)` as a placeholder in your `.env` files. On first load, varlock will prompt you to enter the secret and automatically replace the placeholder with the encrypted value. See the [`varlock()` function reference](/reference/functions/#varlock) for details.
+:::
+
+</div>
+
+<div>
+### `varlock reveal` ||reveal||
+
+Securely view or copy the decrypted values of `@sensitive` environment variables. Values are displayed in an alternate terminal screen buffer so they don't persist in your scrollback history.
+
+```bash
+varlock reveal [VAR_NAME] [options]
+```
+
+**Options:**
+- `--copy`:        Copy the value to clipboard instead of displaying (auto-clears after 10s)
+- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
+- `--env`:         Set the environment (e.g., production, development, etc)
+
+**Examples:**
+```bash
+# Interactive picker to browse and reveal sensitive values
+varlock reveal
+
+# Reveal a specific variable
+varlock reveal MY_SECRET
+
+# Copy a value to clipboard (auto-clears after 10s)
+varlock reveal MY_SECRET --copy
+```
+
+:::note
+Non-sensitive values are not shown by `varlock reveal`. Use [`varlock printenv`](#printenv) for non-sensitive values, or to inject a sensitive value into a command.
+:::
+
+</div>
+
+<div>
+### `varlock lock` ||lock||
+
+Locks the encryption daemon, requiring biometric authentication (e.g., Touch ID) for the next decrypt operation. This invalidates the current biometric session cache.
+
+```bash
+varlock lock
+```
+
+This command only has an effect when using a biometric-enabled encryption backend (macOS Secure Enclave or Windows Hello). On other backends, it will display a message and exit.
+
+:::tip
+Use `varlock lock` when stepping away from your machine to ensure the next person to decrypt a secret must authenticate biometrically.
 :::
 
 </div>

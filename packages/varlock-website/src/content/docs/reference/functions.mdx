@@ -22,12 +22,10 @@ CONFIG=exec(`aws ssm get-parameter --name "/config/${APP_ENV}" --with-decryption
 ```
 
 
-Currently, there are built-in utility functions, and soon there will be functions to handle values encrypted using varlock provided tools.
-
-Plugins may also register additional resolvers - which can be used to generate and transform values, or fetch data from external providers.
-
+There are built-in utility functions, a built-in `varlock()` function for device-local encryption, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
 
 <div class="reference-docs">
+
 <div>
 ### `ref()`
 
@@ -257,5 +255,35 @@ HAS_API_KEY=not(isEmpty($API_KEY))
 API_URL=if(isEmpty($CUSTOM_API_URL), "https://api.default.com", $CUSTOM_API_URL)
 ```
 </div>
+
+
+<div>
+### `varlock()`
+
+Decrypts a locally encrypted value, or prompts for a new secret to encrypt. This is the built-in resolver for varlock's [device-local encryption](/guides/secrets/#local-encryption) feature.
+
+**Decrypt mode** — pass an encrypted payload to decrypt at load time:
+```env-spec "varlock"
+# @sensitive
+API_KEY=varlock("local:<encrypted-payload>")
+```
+
+**Prompt mode** — prompts the user to enter a secret, encrypts it, and writes the encrypted value back to the source file:
+```env-spec "varlock"
+# @sensitive
+API_KEY=varlock(prompt)
+# also valid as a key=value param:
+API_KEY=varlock(prompt=1)
+```
+
+On first run with `prompt` mode, you'll be asked to enter the secret value. Once entered, the file is automatically updated with the encrypted payload. On macOS with Secure Enclave, a native dialog with biometric authentication is used.
+
+Values are encrypted using the best available backend on your platform — see the [secrets guide](/guides/secrets/#local-encryption) for details.
+
+:::tip
+You don't need to write `varlock()` calls by hand. Use [`varlock encrypt`](/reference/cli-commands/#encrypt) to encrypt values interactively or in bulk.
+:::
+</div>
+
 
 </div>
