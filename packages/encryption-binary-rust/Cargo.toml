@@ -23,6 +23,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
 
+# Memory safety
+zeroize = "1"
+
 # Signal handling (Unix)
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -42,9 +45,11 @@ windows = { version = "0.58", features = [
     "Win32_Storage_FileSystem",
     "Win32_Foundation",
     "Win32_System_IO",
-    # Pipe ACL (restrict to current user)
+    # Pipe ACL (restrict to current user) + process verification
     "Win32_Security",
     "Win32_Security_Authorization",
+    "Win32_System_Threading",
+    "Win32_System_Memory",
     # Windows Hello (UserConsentVerifier)
     "Security_Credentials_UI",
     "Foundation",

@@ -10,6 +10,7 @@ mod daemon;
 mod daemon_client;
 mod ipc;
 mod key_store;
+mod secure_mem;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde_json::json;
@@ -173,12 +174,14 @@ fn cmd_decrypt(args: &[String]) {
     }
 
     // Direct decrypt (no biometric verification)
+    // Private key is held in locked, zeroize-on-drop memory
     let (private_key_der, public_key_b64) = match key_store::load_key(&key_id) {
         Ok(k) => k,
         Err(e) => json_error(&e),
     };
 
-    let private_key_b64 = BASE64.encode(&private_key_der);
+    let secure_key = secure_mem::SecureBytes::new(private_key_der);
+    let private_key_b64 = BASE64.encode(secure_key.as_slice());
 
     match crypto::decrypt(&private_key_b64, &public_key_b64, &data_b64) {
         Ok(plaintext_bytes) => {

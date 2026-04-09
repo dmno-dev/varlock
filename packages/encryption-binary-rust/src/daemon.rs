@@ -204,15 +204,16 @@ fn handle_decrypt(
         }
     }
 
-    // Load key and decrypt
+    // Load key and decrypt — private key is held in locked, zeroize-on-drop memory
     match key_store::load_key(key_id) {
         Ok((private_key_der, public_key_b64)) => {
+            let secure_key = crate::secure_mem::SecureBytes::new(private_key_der);
             let private_key_b64 = base64::Engine::encode(
                 &base64::engine::general_purpose::STANDARD,
-                &private_key_der,
+                secure_key.as_slice(),
             );
 
-            match crypto::decrypt(&private_key_b64, &public_key_b64, ciphertext_b64) {
+            let result = match crypto::decrypt(&private_key_b64, &public_key_b64, ciphertext_b64) {
                 Ok(plaintext_bytes) => {
                     match String::from_utf8(plaintext_bytes) {
                         Ok(plaintext) => {
@@ -226,7 +227,9 @@ fn handle_decrypt(
                     }
                 }
                 Err(e) => json!({"error": e}),
-            }
+            };
+            drop(secure_key); // explicit drop zeroizes + unlocks
+            result
         }
         Err(e) => json!({"error": e}),
     }
