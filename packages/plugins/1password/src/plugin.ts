@@ -1,4 +1,4 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import { type Resolver, type PluginCacheAccessor, plugin } from 'varlock/plugin-lib';
 
 import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import { spawnAsync } from '@env-spec/utils/exec-helpers';
@@ -178,6 +178,15 @@ async function appAuthCliRead(opReference: string, account?: string): Promise<st
 
 plugin.name = '1pass';
 debug('init - version =', plugin.version);
+
+// capture cache accessor while the plugin proxy context is active
+// (the `plugin` proxy is only valid during module initialization, not during resolve())
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache not available (e.g., no encryption key)
+}
 plugin.icon = OP_ICON;
 plugin.standardVars = {
   initDecorator: '@initOp',
@@ -268,6 +277,8 @@ class OpPluginInstance {
   private connectToken?: string;
   /** If true, missing items/fields/vaults return undefined instead of throwing */
   allowMissing?: boolean;
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   /** Per-instance auth mutex for the service-account CLI path (each token is an independent auth context). */
   private cliAuthDeferred?: DeferredPromise<boolean>;
@@ -787,6 +798,7 @@ plugin.registerRootDecorator({
       account,
       connectHost,
       allowMissingResolver: objArgs.allowMissing,
+      cacheTtlResolver: objArgs.cacheTtl,
       tokenResolver: objArgs.token,
       allowAppAuthResolver: objArgs.allowAppAuth,
       connectTokenResolver: objArgs.connectToken,
@@ -794,7 +806,7 @@ plugin.registerRootDecorator({
     };
   },
   async execute({
-    id, account, connectHost, allowMissingResolver, tokenResolver,
+    id, account, connectHost, allowMissingResolver, cacheTtlResolver, tokenResolver,
     allowAppAuthResolver, connectTokenResolver, useCliWithServiceAccountResolver,
   }) {
     // even if these are empty, we can't throw errors yet
@@ -813,6 +825,13 @@ plugin.registerRootDecorator({
       allowMissing as boolean | undefined,
       !!useCliWithServiceAccount,
     );
+    // cacheTtl is resolved at runtime so it can be dynamic (e.g., cacheTtl=if(forEnv(dev), "1h"))
+    const cacheTtl = await cacheTtlResolver?.resolve();
+    if (cacheTtl !== undefined && cacheTtl !== false && cacheTtl !== ''
+      && (typeof cacheTtl === 'string' || typeof cacheTtl === 'number')
+    ) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -910,6 +929,27 @@ plugin.registerResolverFunction({
     }
     const allowMissing = allowMissingResolver ? !!(await allowMissingResolver.resolve()) : undefined;
     const shouldAllowMissing = allowMissing ?? selectedInstance.allowMissing;
+
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `op:${instanceId}:${opReference}`;
+      const cached = await pluginCache.get(cacheKey);
+      if (cached !== undefined) {
+        debug('cache hit for %s', cacheKey);
+        return cached;
+      }
+      try {
+        const opValue = await selectedInstance.readItem(opReference);
+        await pluginCache.set(cacheKey, opValue, selectedInstance.cacheTtl);
+        return opValue;
+      } catch (err) {
+        if (shouldAllowMissing && isNotFoundError(err)) {
+          return undefined;
+        }
+        throw err;
+      }
+    }
+
     try {
       const opValue = await selectedInstance.readItem(opReference);
       return opValue;
@@ -978,6 +1018,20 @@ plugin.registerResolverFunction({
     if (typeof environmentId !== 'string') {
       throw new SchemaError('expected environment ID to resolve to a string');
     }
+
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `opEnv:${instanceId}:${environmentId}`;
+      const cached = await pluginCache.get(cacheKey);
+      if (cached !== undefined) {
+        debug('cache hit for %s', cacheKey);
+        return cached;
+      }
+      const result = await selectedInstance.readEnvironment(environmentId);
+      await pluginCache.set(cacheKey, result, selectedInstance.cacheTtl);
+      return result;
+    }
+
     return await selectedInstance.readEnvironment(environmentId);
   },
 });
