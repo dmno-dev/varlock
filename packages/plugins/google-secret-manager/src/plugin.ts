@@ -1,4 +1,4 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import { type Resolver, type PluginCacheAccessor, plugin } from 'varlock/plugin-lib';
 
 import { GoogleAuth } from 'google-auth-library';
 import { getOidcToken } from '@env-spec/utils/oidc-tokens';
@@ -10,6 +10,14 @@ const GSM_ICON = 'devicon:googlecloud';
 plugin.name = 'gsm';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
+// capture cache accessor while the plugin proxy context is active
+// (the `plugin` proxy is only valid during module initialization, not during resolve())
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache not available (e.g., no encryption key)
+}
 plugin.icon = GSM_ICON;
 plugin.standardVars = {
   initDecorator: '@initGsm',
@@ -25,6 +33,8 @@ class GsmPluginInstance {
   private workloadIdentityProvider?: string;
   private serviceAccountEmail?: string;
   private oidcToken?: string;
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   constructor(
     readonly id: string,
@@ -258,6 +268,7 @@ plugin.registerRootDecorator({
 
     return {
       id,
+      cacheTtlResolver: objArgs.cacheTtl,
       projectIdResolver: objArgs.projectId,
       credentialsResolver: objArgs.credentials,
       workloadIdentityProviderResolver: objArgs.workloadIdentityProvider,
@@ -266,7 +277,7 @@ plugin.registerRootDecorator({
     };
   },
   async execute({
-    id, projectIdResolver, credentialsResolver,
+    id, cacheTtlResolver, projectIdResolver, credentialsResolver,
     workloadIdentityProviderResolver, serviceAccountEmailResolver, oidcTokenResolver,
   }) {
     const projectId = await projectIdResolver?.resolve();
@@ -275,6 +286,13 @@ plugin.registerRootDecorator({
     const serviceAccountEmail = await serviceAccountEmailResolver?.resolve();
     const oidcToken = await oidcTokenResolver?.resolve();
     pluginInstances[id].setAuth(projectId, credentials, workloadIdentityProvider, serviceAccountEmail, oidcToken);
+    // cacheTtl is resolved at runtime so it can be dynamic (e.g., cacheTtl=if(forEnv(dev), "1h"))
+    const cacheTtl = await cacheTtlResolver?.resolve();
+    if (cacheTtl !== undefined && cacheTtl !== false && cacheTtl !== ''
+      && (typeof cacheTtl === 'string' || typeof cacheTtl === 'number')
+    ) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -411,7 +429,19 @@ plugin.registerResolverFunction({
       throw new SchemaError('No secret reference provided');
     }
 
-    const secretValue = await selectedInstance.readSecret(secretRef);
-    return secretValue;
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `gsm:${instanceId}:${secretRef}`;
+      const cached = await pluginCache.get(cacheKey);
+      if (cached !== undefined) {
+        debug('cache hit for %s', cacheKey);
+        return cached;
+      }
+      const secretValue = await selectedInstance.readSecret(secretRef);
+      await pluginCache.set(cacheKey, secretValue, selectedInstance.cacheTtl);
+      return secretValue;
+    }
+
+    return await selectedInstance.readSecret(secretRef);
   },
 });
