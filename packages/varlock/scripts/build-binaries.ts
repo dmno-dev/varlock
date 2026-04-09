@@ -100,6 +100,15 @@ if (devMode) {
       } else {
         console.log(`  Warning: Rust native binary not found at ${rustBinarySrc}, skipping`);
       }
+
+      // Linux builds also bundle the Windows .exe for WSL2 support
+      if (archiveName.startsWith('linux')) {
+        const winExeSrc = path.join(NATIVE_BINS_DIR, 'win32-x64', 'varlock-local-encrypt.exe');
+        if (fs.existsSync(winExeSrc)) {
+          console.log('  Bundling Windows .exe for WSL2 support');
+          exec(`cp "${winExeSrc}" "${targetDir}/varlock-local-encrypt.exe"`);
+        }
+      }
     }
 
     // Archive
