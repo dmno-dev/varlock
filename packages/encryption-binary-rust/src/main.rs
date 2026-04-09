@@ -149,7 +149,6 @@ fn cmd_decrypt(args: &[String]) {
             Ok(plaintext) => json_success(json!({"plaintext": plaintext})),
             Err(e) => json_error(&e),
         }
-        return;
     }
 
     // Direct decrypt (no biometric verification)
