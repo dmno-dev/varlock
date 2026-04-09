@@ -7,6 +7,9 @@ import { parseTtl } from './ttl-parser';
  * All keys are automatically prefixed with `plugin:{pluginName}:` so plugins
  * cannot collide with each other's cache entries.
  *
+ * Cache hits are automatically recorded on the current resolution context
+ * (if any) so they show up in `varlock load` and `varlock explain` output.
+ *
  * Usage in a plugin:
  * ```ts
  * const cached = await plugin.cache.get('vault/MyVault/item/DBCreds');
@@ -27,7 +30,18 @@ export class PluginCacheAccessor {
   }
 
   async get(key: string): Promise<any | undefined> {
-    const result = await this.cacheStore.get(this.buildKey(key));
+    const cacheKey = this.buildKey(key);
+    const result = await this.cacheStore.get(cacheKey);
+    if (result) {
+      // automatically record cache hit on the resolution context (if active)
+      try {
+        const { getResolutionContext } = await import('../../env-graph/lib/resolution-context');
+        const ctx = getResolutionContext();
+        ctx?.cacheHits.push({ cacheKey, cachedAt: result.cachedAt });
+      } catch {
+        // resolution context not available — that's fine
+      }
+    }
     return result?.value;
   }
 
