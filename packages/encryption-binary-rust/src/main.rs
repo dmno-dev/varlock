@@ -7,6 +7,7 @@
 
 mod crypto;
 mod daemon;
+mod daemon_client;
 mod ipc;
 mod key_store;
 
@@ -141,7 +142,17 @@ fn cmd_decrypt(args: &[String]) {
         None => json_error("Missing --data argument (base64-encoded ciphertext)"),
     };
 
-    // Load the full key pair (private key needed)
+    // --via-daemon: route through the daemon for biometric + session caching.
+    // Used by WSL2 where the TS side can't connect to Windows named pipes directly.
+    if args.contains(&"--via-daemon".to_string()) {
+        match daemon_client::decrypt_via_daemon(&data_b64, &key_id) {
+            Ok(plaintext) => json_success(json!({"plaintext": plaintext})),
+            Err(e) => json_error(&e),
+        }
+        return;
+    }
+
+    // Direct decrypt (no biometric verification)
     let (private_key_der, public_key_b64) = match key_store::load_key(&key_id) {
         Ok(k) => k,
         Err(e) => json_error(&e),
@@ -225,7 +236,7 @@ COMMANDS:
   list-keys                       List all Varlock encryption keys
   key-exists [--key-id <id>]      Check if a key exists
   encrypt --data <base64> [--key-id <id>]   Encrypt data (one-shot)
-  decrypt --data <base64> [--key-id <id>]   Decrypt data (one-shot)
+  decrypt --data <base64> [--key-id <id>] [--via-daemon]   Decrypt data
   status                          Check platform capabilities
   daemon --socket-path <path> [--pid-path <path>]   Start IPC daemon
 
@@ -234,6 +245,7 @@ OPTIONS:
   --data <base64>     Base64-encoded data
   --socket-path <path>  Unix socket path for daemon mode
   --pid-path <path>   PID file path for daemon mode
+  --via-daemon        Route decrypt through daemon for biometric + session caching
 
 PLATFORM PROTECTION:
   Windows: DPAPI (user-session-scoped encryption)

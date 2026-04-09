@@ -12,6 +12,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { isWSL } from './wsl-detect';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -20,13 +21,16 @@ const MACOS_APP_BUNDLE = 'VarlockEnclave.app';
 
 /** Get the binary name for the current platform */
 function getPlatformBinaryName(): string {
-  return process.platform === 'win32' ? `${BINARY_NAME}.exe` : BINARY_NAME;
+  if (process.platform === 'win32' || isWSL()) return `${BINARY_NAME}.exe`;
+  return BINARY_NAME;
 }
 
 /** Get the subdirectory name within native-bins/ for the current platform */
 function getNativeBinSubdir(): string {
   if (process.platform === 'darwin') return 'darwin';
   if (process.platform === 'win32') return `win32-${process.arch}`;
+  // WSL2: use the Windows binary for DPAPI + Windows Hello support
+  if (isWSL()) return 'win32-x64';
   return `${process.platform}-${process.arch}`;
 }
 

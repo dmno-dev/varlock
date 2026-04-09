@@ -81,7 +81,7 @@ pub struct PlatformInfo {
 
 // ── Path helpers ──────────────────────────────────────────────────
 
-fn get_config_dir() -> PathBuf {
+pub fn get_config_dir() -> PathBuf {
     if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
         return PathBuf::from(xdg).join("varlock");
     }
