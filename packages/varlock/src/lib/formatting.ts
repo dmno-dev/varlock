@@ -88,6 +88,20 @@ const VALIDATION_STATE_COLORS = {
   valid: 'cyan',
 } as const;
 
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d`;
+  const w = Math.floor(d / 7);
+  return `${w}w`;
+}
+
 export function formatTimeAgo(timestamp: number): string {
   const diffMs = Date.now() - timestamp;
   const diffS = Math.floor(diffMs / 1000);

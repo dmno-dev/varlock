@@ -38,7 +38,7 @@ export class CacheStore {
    * Load and return a cached value, or undefined on miss/expired/error.
    * The value is JSON-parsed after decryption to preserve its original type (number, boolean, object, etc.).
    */
-  async get(cacheKey: string): Promise<{ value: any; cachedAt: number } | undefined> {
+  async get(cacheKey: string): Promise<{ value: any; cachedAt: number; expiresAt: number } | undefined> {
     const data = this.loadFile();
     const entry = data[cacheKey];
     if (!entry) return undefined;
@@ -53,7 +53,7 @@ export class CacheStore {
 
     try {
       const plaintext = await localEncrypt.decryptValue(entry.v, this.keyId);
-      return { value: JSON.parse(plaintext), cachedAt: entry.c };
+      return { value: JSON.parse(plaintext), cachedAt: entry.c, expiresAt: entry.e };
     } catch (err) {
       debug('cache decrypt failed for %s: %O', cacheKey, err);
       // corrupt or key mismatch — treat as cache miss
