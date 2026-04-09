@@ -116,16 +116,18 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // When piping for redaction, preserve color support by injecting FORCE_COLOR if the
     // parent stdout is a TTY and colors are not explicitly disabled. This allows tools
     // that respect FORCE_COLOR (chalk, kleur, etc.) to still output colors even when piped.
-    let redactEnv = fullInjectedEnv;
+    // We read terminal env vars (NO_COLOR, FORCE_COLOR, COLORTERM, TERM) from process.env
+    // since these are set by the parent shell/terminal, not by varlock config.
+    let redactEnv: NodeJS.ProcessEnv = fullInjectedEnv;
     if (
       process.stdout.isTTY
-      && fullInjectedEnv.NO_COLOR === undefined
-      && fullInjectedEnv.FORCE_COLOR === undefined
+      && process.env.NO_COLOR === undefined
+      && process.env.FORCE_COLOR === undefined
     ) {
       let forceColorLevel = '1';
-      if (fullInjectedEnv.COLORTERM === 'truecolor' || fullInjectedEnv.COLORTERM === '24bit') {
+      if (process.env.COLORTERM === 'truecolor' || process.env.COLORTERM === '24bit') {
         forceColorLevel = '3';
-      } else if (fullInjectedEnv.TERM?.includes('256color') || fullInjectedEnv.TERM_PROGRAM === 'iTerm.app') {
+      } else if (process.env.TERM?.includes('256color') || process.env.TERM_PROGRAM === 'iTerm.app') {
         forceColorLevel = '2';
       }
       redactEnv = { ...fullInjectedEnv, FORCE_COLOR: forceColorLevel };
