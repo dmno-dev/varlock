@@ -121,6 +121,16 @@ export function getItemSummary(item: ConfigItem) {
     valAsStr = redactString(item.resolvedValue)!;
   }
 
+  // build inline indicators to append after the value
+  const indicators: Array<string> = [];
+  if (item.isCacheHit) {
+    const oldest = Math.min(...item._cacheHits.map((h) => h.cachedAt));
+    indicators.push(ansis.gray(`📦 ${formatTimeAgo(oldest)}`));
+  }
+  if (item.isOverridden) {
+    indicators.push(ansis.yellow('🟡 process.env'));
+  }
+
   summary.push(joinAndCompact([
     ansis.gray('   └'),
     valAsStr,
@@ -128,17 +138,8 @@ export function getItemSummary(item: ConfigItem) {
       ansis.gray.italic('< coerced from ')
       + (isSensitive ? formattedValue(item.resolvedRawValue) : formattedValue(item.resolvedRawValue, false))
     ),
+    indicators.length > 0 && ansis.gray(' ') + indicators.join(' '),
   ]));
-
-  if (item.isCacheHit) {
-    const oldest = Math.min(...item._cacheHits.map((h) => h.cachedAt));
-    const timeAgo = formatTimeAgo(oldest);
-    summary.push(`   📦 ${ansis.blue.italic(`cached ${timeAgo}`)}`);
-  }
-
-  if (item.isOverridden) {
-    summary.push(`   🟡 ${ansis.yellow.italic('set via process.env override')}`);
-  }
 
   itemErrors?.forEach((err) => {
     summary.push(ansis[err.isWarning ? 'yellow' : 'red'](`   - ${err.isWarning ? '[WARNING] ' : ''}${err.message}`));
