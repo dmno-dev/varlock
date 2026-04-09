@@ -19,10 +19,11 @@ const MAX_SPAWN_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Send a decrypt request through the daemon, auto-spawning if needed.
 /// Returns the decrypted plaintext.
+/// `tty_id` is forwarded to the daemon for per-terminal session scoping.
 #[cfg(target_os = "windows")]
-pub fn decrypt_via_daemon(ciphertext: &str, key_id: &str) -> Result<String, String> {
+pub fn decrypt_via_daemon(ciphertext: &str, key_id: &str, tty_id: Option<&str>) -> Result<String, String> {
     // Try connecting to existing daemon first
-    match try_daemon_decrypt(ciphertext, key_id) {
+    match try_daemon_decrypt(ciphertext, key_id, tty_id) {
         Ok(result) => return Ok(result),
         Err(_) => {
             // Daemon not running, spawn one
@@ -32,12 +33,12 @@ pub fn decrypt_via_daemon(ciphertext: &str, key_id: &str) -> Result<String, Stri
     spawn_daemon()?;
 
     // Retry after spawn
-    try_daemon_decrypt(ciphertext, key_id)
+    try_daemon_decrypt(ciphertext, key_id, tty_id)
 }
 
 /// Try to connect to the daemon and send a decrypt request.
 #[cfg(target_os = "windows")]
-fn try_daemon_decrypt(ciphertext: &str, key_id: &str) -> Result<String, String> {
+fn try_daemon_decrypt(ciphertext: &str, key_id: &str, tty_id: Option<&str>) -> Result<String, String> {
     use windows::Win32::Storage::FileSystem::{
         CreateFileW, ReadFile, WriteFile, FlushFileBuffers,
         FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
@@ -64,8 +65,8 @@ fn try_daemon_decrypt(ciphertext: &str, key_id: &str) -> Result<String, String> 
         return Err("Failed to open daemon pipe".into());
     }
 
-    // Build request
-    let request = json!({
+    // Build request — include ttyId for per-terminal session scoping
+    let mut request = json!({
         "id": "via-daemon-1",
         "action": "decrypt",
         "payload": {
@@ -73,6 +74,9 @@ fn try_daemon_decrypt(ciphertext: &str, key_id: &str) -> Result<String, String> 
             "keyId": key_id,
         },
     });
+    if let Some(tty) = tty_id {
+        request.as_object_mut().unwrap().insert("ttyId".to_string(), json!(tty));
+    }
 
     let request_bytes = serde_json::to_vec(&request)
         .map_err(|e| format!("Serialization failed: {e}"))?;
@@ -228,6 +232,6 @@ fn pipe_exists() -> bool {
 // ── Stub for non-Windows platforms ──────────────────────────────
 
 #[cfg(not(target_os = "windows"))]
-pub fn decrypt_via_daemon(_ciphertext: &str, _key_id: &str) -> Result<String, String> {
+pub fn decrypt_via_daemon(_ciphertext: &str, _key_id: &str, _tty_id: Option<&str>) -> Result<String, String> {
     Err("--via-daemon is only supported on Windows".into())
 }
