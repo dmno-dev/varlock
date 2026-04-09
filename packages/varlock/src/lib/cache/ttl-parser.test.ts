@@ -27,6 +27,25 @@ describe('parseTtl', () => {
     it('handles fractional values', () => {
       expect(parseTtl('1.5h')).toBe(5_400_000);
     });
+    it('parses "hr" shorthand', () => {
+      expect(parseTtl('1hr')).toBe(3_600_000);
+    });
+    it('parses "hrs" shorthand', () => {
+      expect(parseTtl('2hrs')).toBe(7_200_000);
+    });
+    it('parses "min" shorthand', () => {
+      expect(parseTtl('5min')).toBe(300_000);
+    });
+    it('parses "mins" shorthand', () => {
+      expect(parseTtl('10mins')).toBe(600_000);
+    });
+    it('parses full words', () => {
+      expect(parseTtl('1hour')).toBe(3_600_000);
+      expect(parseTtl('2days')).toBe(172_800_000);
+      expect(parseTtl('1week')).toBe(604_800_000);
+      expect(parseTtl('30seconds')).toBe(30_000);
+      expect(parseTtl('5minutes')).toBe(300_000);
+    });
   });
 
   describe('bare numbers', () => {
