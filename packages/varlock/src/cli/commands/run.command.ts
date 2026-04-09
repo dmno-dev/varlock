@@ -18,7 +18,7 @@ export const commandSpec = define({
     // },
     'no-redact-stdout': {
       type: 'boolean',
-      description: 'Disable stdout/stderr redaction to preserve TTY detection for interactive tools',
+      description: 'Disable stdout/stderr redaction and use stdio inherit for full TTY pass-through (use for interactive tools that require raw TTY)',
     },
     path: {
       type: 'string',
@@ -41,7 +41,7 @@ Examples:
 📍 Important: Use -- to separate varlock options from your command
 
 💡 Tip: For shell expansion of env vars, use: sh -c 'your command here'
-💡 Tip: Use --no-redact-stdout for interactive tools (psql, claude, etc.)
+💡 Tip: Use --no-redact-stdout for interactive tools that require raw TTY (e.g., psql, claude)
   `.trim(),
 });
 
@@ -113,6 +113,24 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       env: fullInjectedEnv,
     });
   } else {
+    // When piping for redaction, preserve color support by injecting FORCE_COLOR if the
+    // parent stdout is a TTY and colors are not explicitly disabled. This allows tools
+    // that respect FORCE_COLOR (chalk, kleur, etc.) to still output colors even when piped.
+    let redactEnv = fullInjectedEnv;
+    if (
+      process.stdout.isTTY
+      && fullInjectedEnv.NO_COLOR === undefined
+      && fullInjectedEnv.FORCE_COLOR === undefined
+    ) {
+      let forceColorLevel = '1';
+      if (fullInjectedEnv.COLORTERM === 'truecolor' || fullInjectedEnv.COLORTERM === '24bit') {
+        forceColorLevel = '3';
+      } else if (fullInjectedEnv.TERM?.includes('256color') || fullInjectedEnv.TERM_PROGRAM === 'iTerm.app') {
+        forceColorLevel = '2';
+      }
+      redactEnv = { ...fullInjectedEnv, FORCE_COLOR: forceColorLevel };
+    }
+
     // Helper to redact and write output
     const writeRedacted = (stream: NodeJS.WriteStream, chunk: Buffer | string) => {
       const str = chunk.toString();
@@ -123,7 +141,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       stdin: 'inherit',
       stdout: 'pipe',
       stderr: 'pipe',
-      env: fullInjectedEnv,
+      env: redactEnv,
     });
 
     // Pipe stdout and stderr through redaction

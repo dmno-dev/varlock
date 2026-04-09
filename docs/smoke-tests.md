@@ -64,7 +64,7 @@ bun run smoke-test
   - Tools that check stdin properties can still run
 - **Cross-runtime redaction**: Verifies redaction works with both Node.js and Bun
 
-**Note on TTY detection**: When redaction is enabled, stdout/stderr are piped through the redaction filter. This means child processes won't see them as TTYs. Some interactive tools (like `psql`, `claude`, etc.) check TTY status and may require `--no-redact-stdout` to work properly. The stdin test verifies that stdin properties remain accessible even when stdout/stderr are piped.
+**Note on TTY detection**: When redaction is enabled, stdout/stderr are piped through the redaction filter. Varlock automatically injects `FORCE_COLOR` into the child process environment when the parent terminal is a TTY, so most color libraries (chalk, kleur, etc.) still produce colored output. Tools that require a fully connected TTY (like `psql` or `claude`) may still need `--no-redact-stdout` for raw terminal features. The stdin test verifies that stdin properties remain accessible even when stdout/stderr are piped.
 
 ### 5. Framework Integration Tests
 - **Next.js Integration**: Builds a minimal Next.js site with `@varlock/nextjs-integration` and verifies:
