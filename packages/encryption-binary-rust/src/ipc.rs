@@ -196,6 +196,17 @@ impl IpcServer {
             std::thread::spawn(move || {
                 use windows::Win32::Foundation::HANDLE;
                 let pipe = HANDLE(raw_handle as *mut _);
+
+                // Verify the connecting process is a trusted varlock binary
+                if !verify_client_process(pipe) {
+                    eprintln!("Rejected connection from untrusted process");
+                    unsafe {
+                        let _ = DisconnectNamedPipe(pipe);
+                        let _ = CloseHandle(pipe);
+                    }
+                    return;
+                }
+
                 handle_windows_client(pipe, handler, on_activity, running, tty_id);
                 unsafe {
                     let _ = DisconnectNamedPipe(pipe);
@@ -451,6 +462,74 @@ fn create_current_user_security_attributes() -> Result<windows::Win32::Security:
             bInheritHandle: false.into(),
         })
     }
+}
+
+// ── Windows client process verification ─────────────────────────
+
+/// Verify that the connecting client process is a trusted varlock binary.
+/// Uses GetNamedPipeClientProcessId to get the client PID, then checks
+/// that the process executable matches our own binary name.
+#[cfg(windows)]
+fn verify_client_process(pipe: windows::Win32::Foundation::HANDLE) -> bool {
+    use windows::Win32::System::Pipes::GetNamedPipeClientProcessId;
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+        PROCESS_NAME_WIN32,
+    };
+    use windows::Win32::Foundation::CloseHandle;
+
+    // Get the client's PID
+    let mut client_pid = 0u32;
+    let ok = unsafe { GetNamedPipeClientProcessId(pipe, &mut client_pid) };
+    if ok.is_err() || client_pid == 0 {
+        return false;
+    }
+
+    // Open the client process to query its image name
+    let process = unsafe {
+        OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, client_pid)
+    };
+    let process = match process {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+
+    // Query the full executable path
+    let mut buf = [0u16; 1024];
+    let mut len = buf.len() as u32;
+    let ok = unsafe {
+        QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, windows::core::PWSTR(buf.as_mut_ptr()), &mut len)
+    };
+    unsafe { let _ = CloseHandle(process); }
+
+    if ok.is_err() || len == 0 {
+        return false;
+    }
+
+    let client_path = String::from_utf16_lossy(&buf[..len as usize]);
+
+    // Extract the filename from the full path
+    let client_filename = client_path
+        .rsplit('\\')
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+
+    // Allow connections from varlock binaries and Node.js (for native Windows daemon client)
+    let allowed = [
+        "varlock-local-encrypt.exe",
+        "varlock.exe",
+        "node.exe",   // Node.js daemon client on native Windows
+        "bun.exe",    // Bun runtime on native Windows
+    ];
+
+    let is_trusted = allowed.iter().any(|name| client_filename == *name);
+    if !is_trusted {
+        eprintln!(
+            "Untrusted client process: PID={client_pid}, path={client_path}"
+        );
+    }
+    is_trusted
 }
 
 // ── Windows named pipe client handling ───────────────────────────
