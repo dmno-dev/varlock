@@ -16,6 +16,13 @@ import { isWSL } from './wsl-detect';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/** Debug logger — prints to stderr when VARLOCK_DEBUG is set */
+function debug(msg: string) {
+  if (process.env.VARLOCK_DEBUG) {
+    process.stderr.write(`[varlock:binary-resolver] ${msg}\n`);
+  }
+}
+
 const BINARY_NAME = 'varlock-local-encrypt';
 const MACOS_APP_BUNDLE = 'VarlockEnclave.app';
 
@@ -139,6 +146,28 @@ function ensureExecutable(binaryPath: string): string {
  * Returns undefined if no binary is found — caller should fall back to pure JS.
  */
 export function resolveNativeBinary(): string | undefined {
-  const resolved = resolveSeaSibling() ?? resolveNpmBundled() ?? resolveDevFallback();
-  return resolved ? ensureExecutable(resolved) : undefined;
+  debug(`resolving: platform=${process.platform}, isWSL=${isWSL()}, binaryName=${getPlatformBinaryName()}, subdir=${getNativeBinSubdir()}`);
+
+  const seaSibling = resolveSeaSibling();
+  if (seaSibling) {
+    debug(`resolved via SEA sibling: ${seaSibling}`);
+    return ensureExecutable(seaSibling);
+  }
+
+  const npmBundled = resolveNpmBundled();
+  if (npmBundled) {
+    debug(`resolved via npm bundled: ${npmBundled}`);
+    return ensureExecutable(npmBundled);
+  }
+
+  const devFallback = resolveDevFallback();
+  if (devFallback) {
+    debug(`resolved via dev fallback: ${devFallback}`);
+    return ensureExecutable(devFallback);
+  }
+
+  debug('NOT FOUND: no binary resolved from any strategy');
+  debug(`  SEA sibling dir: ${path.dirname(process.execPath)}`);
+  debug(`  npm bundled dir: ${path.resolve(__dirname, '..', '..', '..', 'native-bins', getNativeBinSubdir())}`);
+  return undefined;
 }

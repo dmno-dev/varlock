@@ -17,6 +17,8 @@ export interface BackendInfo {
   hardwareBacked: boolean;
   biometricAvailable: boolean;
   binaryPath?: string;
+  /** True when the file backend is being used as a fallback because the native binary was not found */
+  isFileFallback?: boolean;
 }
 
 /** IPC daemon message format (length-prefixed JSON over Unix socket or named pipe) */

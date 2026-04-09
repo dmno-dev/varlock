@@ -21,17 +21,28 @@ export type { BackendInfo, BackendType } from './types';
 
 const DEFAULT_KEY_ID = 'varlock-default';
 
+/** Debug logger — prints to stderr when VARLOCK_DEBUG is set */
+function debug(msg: string) {
+  if (process.env.VARLOCK_DEBUG) {
+    process.stderr.write(`[varlock:local-encrypt] ${msg}\n`);
+  }
+}
+
 // ── Native binary one-shot commands ────────────────────────────────────
 
 function runNativeBinary(args: Array<string>): string {
   const binaryPath = resolveNativeBinary();
   if (!binaryPath) {
+    debug('runNativeBinary: no binary found');
     throw new Error('Native binary not found');
   }
-  return execFileSync(binaryPath, args, {
+  debug(`runNativeBinary: ${binaryPath} ${args.join(' ')}`);
+  const output = execFileSync(binaryPath, args, {
     encoding: 'utf-8',
     timeout: 30_000,
   }).trim();
+  debug(`runNativeBinary result: ${output.slice(0, 200)}`);
+  return output;
 }
 
 function runNativeBinaryJson<T = Record<string, unknown>>(args: Array<string>): T {
@@ -47,18 +58,23 @@ function runNativeBinaryJson<T = Record<string, unknown>>(args: Array<string>): 
 
 let cachedBackendInfo: BackendInfo | undefined;
 
-function detectBackendType(): BackendType {
+function detectBackendType(): { type: BackendType; isFileFallback: boolean } {
   const binaryPath = resolveNativeBinary();
-  if (!binaryPath) return 'file';
+  debug(`detectBackendType: binaryPath=${binaryPath ?? 'NOT FOUND'}, isWSL=${isWSL()}, platform=${process.platform}`);
+  if (!binaryPath) {
+    // All supported platforms (macOS, Windows, Linux, WSL2) should have a native binary
+    const isFileFallback = ['darwin', 'win32', 'linux'].includes(process.platform);
+    return { type: 'file', isFileFallback };
+  }
 
   // WSL2 uses the Windows binary for DPAPI + Windows Hello
-  if (isWSL()) return 'windows-tpm';
+  if (isWSL()) return { type: 'windows-tpm', isFileFallback: false };
 
   switch (process.platform) {
-    case 'darwin': return 'secure-enclave';
-    case 'win32': return 'windows-tpm';
-    case 'linux': return 'linux-tpm';
-    default: return 'file';
+    case 'darwin': return { type: 'secure-enclave', isFileFallback: false };
+    case 'win32': return { type: 'windows-tpm', isFileFallback: false };
+    case 'linux': return { type: 'linux-tpm', isFileFallback: false };
+    default: return { type: 'file', isFileFallback: false };
   }
 }
 
@@ -66,13 +82,14 @@ function detectBackendType(): BackendType {
 export function getBackendInfo(): BackendInfo {
   if (cachedBackendInfo) return cachedBackendInfo;
 
-  const type = detectBackendType();
+  const { type, isFileFallback } = detectBackendType();
   const binaryPath = type !== 'file' ? resolveNativeBinary() : undefined;
 
   if (type !== 'file' && binaryPath) {
     // Query the native binary for its actual capabilities
     try {
       const status = runNativeBinaryJson<NativeStatusResult>(['status']);
+      debug(`getBackendInfo: status result: hardwareBacked=${status.hardwareBacked}, biometricAvailable=${status.biometricAvailable}, backend=${status.backend}`);
       cachedBackendInfo = {
         type,
         platform: process.platform,
@@ -80,8 +97,9 @@ export function getBackendInfo(): BackendInfo {
         biometricAvailable: status.biometricAvailable,
         binaryPath,
       };
-    } catch {
+    } catch (err) {
       // Binary failed — fall back to reasonable defaults
+      debug(`getBackendInfo: status command failed: ${err instanceof Error ? err.message : err}`);
       cachedBackendInfo = {
         type,
         platform: process.platform,
@@ -91,16 +109,24 @@ export function getBackendInfo(): BackendInfo {
       };
     }
   } else {
+    debug(`getBackendInfo: using file backend (type=${type}, binaryPath=${binaryPath ?? 'none'}, isFileFallback=${isFileFallback})`);
+    if (isFileFallback) {
+      process.stderr.write(
+        '[varlock] Warning: native encryption binary not found, falling back to file-based encryption (not hardware-backed)\n',
+      );
+    }
     cachedBackendInfo = {
       type,
       platform: process.platform,
       hardwareBacked: false,
       biometricAvailable: false,
       binaryPath: undefined,
+      isFileFallback,
     };
   }
 
-  return cachedBackendInfo;
+  debug(`getBackendInfo: final result: type=${cachedBackendInfo!.type}, biometric=${cachedBackendInfo!.biometricAvailable}, hwBacked=${cachedBackendInfo!.hardwareBacked}`);
+  return cachedBackendInfo!;
 }
 
 // ── Daemon client (singleton for biometric-enabled backends) ───────────
@@ -169,6 +195,7 @@ export async function encryptValue(plaintext: string, keyId: string = DEFAULT_KE
 export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_KEY_ID): Promise<string> {
   const backend = getBackendInfo();
   if (backend.type === 'file') {
+    debug('decryptValue: using file backend');
     return fileBackend.decryptValue(ciphertext, keyId);
   }
 
@@ -176,14 +203,17 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
   // In WSL2, the .exe handles daemon management internally via --via-daemon
   if (backend.biometricAvailable) {
     if (isWSL()) {
+      debug('decryptValue: WSL2 biometric decrypt via --via-daemon');
       const result = runNativeBinaryJson<{ plaintext: string }>(['decrypt', '--key-id', keyId, '--data', ciphertext, '--via-daemon']);
       return result.plaintext;
     }
+    debug('decryptValue: biometric decrypt via daemon client');
     const client = getDaemonClient();
     return client.decrypt(ciphertext, keyId);
   }
 
   // Non-biometric native backend (e.g., Linux TPM without polkit) — one-shot
+  debug('decryptValue: non-biometric one-shot decrypt');
   const result = runNativeBinaryJson<{ plaintext: string }>(['decrypt', '--key-id', keyId, '--data', ciphertext]);
   return result.plaintext;
 }
