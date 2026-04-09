@@ -26,12 +26,12 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-musl
             native-bin-subdir: linux-x64
             binary-name: varlock-local-encrypt
             test-interop: true  # only need interop on one platform — crypto is identical
           - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
+            target: aarch64-unknown-linux-musl
             native-bin-subdir: linux-arm64
             binary-name: varlock-local-encrypt
             test-interop: false
@@ -65,6 +65,10 @@ jobs:
             rust-${{ matrix.target }}-${{ hashFiles('packages/encryption-binary-rust/Cargo.lock') }}-
             rust-${{ matrix.target }}-
 
+      - name: Install musl toolchain
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
       - name: Install UPX
         shell: bash
         run: |
@@ -88,7 +92,7 @@ jobs:
           ls -la "$ARTIFACT_DIR/${{ matrix.binary-name }}"
           file "$ARTIFACT_DIR/${{ matrix.binary-name }}" || true
           echo "=== UPX compress ==="
-          upx --best "$ARTIFACT_DIR/${{ matrix.binary-name }}"
+          upx --best "$ARTIFACT_DIR/${{ matrix.binary-name }}" || echo "UPX compression failed, continuing with uncompressed binary"
           echo "=== Binary info (after UPX) ==="
           ls -la "$ARTIFACT_DIR/${{ matrix.binary-name }}"
 

@@ -5,7 +5,7 @@
  *
  * Usage:
  *   bun run scripts/build-rust.ts                         # build for current platform
- *   bun run scripts/build-rust.ts --target x86_64-unknown-linux-gnu
+ *   bun run scripts/build-rust.ts --target x86_64-unknown-linux-musl
  *   bun run scripts/build-rust.ts --target x86_64-pc-windows-msvc
  *
  * The binary is placed in packages/varlock/native-bins/<platform>[-<arch>]/
