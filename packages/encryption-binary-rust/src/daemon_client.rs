@@ -180,16 +180,8 @@ fn spawn_daemon() -> Result<(), String> {
     // Wait for daemon to become ready (poll pipe availability)
     let start = std::time::Instant::now();
     while start.elapsed() < MAX_SPAWN_WAIT {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
-        // Try to connect — if it works, daemon is ready
-        if try_daemon_decrypt("", "").is_err() {
-            // Could be "pipe not found" (not ready) or "decrypt failed" (ready but bad request)
-            // Check if the pipe exists by trying to open it
-            if pipe_exists() {
-                return Ok(());
-            }
-        } else {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        if pipe_exists() {
             return Ok(());
         }
     }
