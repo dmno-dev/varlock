@@ -88,6 +88,18 @@ const VALIDATION_STATE_COLORS = {
   valid: 'cyan',
 } as const;
 
+export function formatTimeAgo(timestamp: number): string {
+  const diffMs = Date.now() - timestamp;
+  const diffS = Math.floor(diffMs / 1000);
+  if (diffS < 60) return `${diffS}s ago`;
+  const diffM = Math.floor(diffS / 60);
+  if (diffM < 60) return `${diffM}m ago`;
+  const diffH = Math.floor(diffM / 60);
+  if (diffH < 24) return `${diffH}h ago`;
+  const diffD = Math.floor(diffH / 24);
+  return `${diffD}d ago`;
+}
+
 export function getItemSummary(item: ConfigItem) {
   const summary: Array<string> = [];
   const itemErrors = item.errors;
@@ -117,6 +129,12 @@ export function getItemSummary(item: ConfigItem) {
       + (isSensitive ? formattedValue(item.resolvedRawValue) : formattedValue(item.resolvedRawValue, false))
     ),
   ]));
+
+  if (item.isCacheHit) {
+    const oldest = Math.min(...item._cacheHits.map((h) => h.cachedAt));
+    const timeAgo = formatTimeAgo(oldest);
+    summary.push(`   📦 ${ansis.blue.italic(`cached ${timeAgo}`)}`);
+  }
 
   if (item.isOverridden) {
     summary.push(`   🟡 ${ansis.yellow.italic('set via process.env override')}`);

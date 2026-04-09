@@ -77,6 +77,8 @@ varlock load [options]
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@currentEnv` in `.env.schema`
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point (overrides `varlock.loadPath` in `package.json`)
+- `--clear-cache`: Clear the cache and re-resolve all values (writes new values back to cache)
+- `--skip-cache`: Skip cache entirely for this invocation (no reads or writes)
 
 **Examples:**
 ```bash
@@ -120,6 +122,8 @@ varlock run -- <command>
 **Options:**
 - `--no-redact-stdout`: Disable stdout/stderr redaction to preserve TTY detection for interactive tools
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
+- `--clear-cache`: Clear the cache and re-resolve all values
+- `--skip-cache`: Skip cache entirely for this invocation
 
 **Examples:**
 ```bash
@@ -328,6 +332,32 @@ This command only has an effect when using a biometric-enabled encryption backen
 :::tip
 Use `varlock lock` when stepping away from your machine to ensure the next person to decrypt a secret must authenticate biometrically.
 :::
+
+</div>
+
+<div>
+### `varlock cache` ||cache||
+
+Manage the encrypted value cache used by [`cache()`](/reference/functions/#cache) and plugin authors. Shows cache status by default, or clears cached entries.
+
+```bash
+varlock cache [clear] [options]
+```
+
+**Options:**
+- `--plugin <name>`: When clearing, only remove entries for a specific plugin
+
+**Examples:**
+```bash
+# Show cache status (entry counts, file size, location)
+varlock cache
+
+# Clear all cache entries
+varlock cache clear
+
+# Clear cache for a specific plugin only
+varlock cache clear --plugin 1password
+```
 
 </div>
 

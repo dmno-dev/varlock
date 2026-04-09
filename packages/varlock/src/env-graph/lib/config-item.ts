@@ -9,10 +9,11 @@ import {
   CoercionError, EmptyRequiredValueError, ResolutionError, SchemaError,
   ValidationError,
 } from './errors';
+import type { CacheHitInfo } from './resolution-context';
 
 import { EnvGraphDataSource } from './data-source';
 import {
-  convertParsedValueToResolvers, type ResolvedValue, type Resolver, StaticValueResolver,
+  convertParsedValueToResolvers, type ResolvedValue, Resolver, StaticValueResolver,
 } from './resolver';
 import { ItemDecoratorInstance } from './decorators';
 
@@ -34,6 +35,35 @@ export type ConfigItemDefAndSource = {
 export class ConfigItem {
   /** Whether this is a builtin VARLOCK_* variable */
   isBuiltin?: boolean;
+
+  /** Cache hits recorded during resolution (rolled up from potentially multiple cache() resolvers) */
+  _cacheHits: Array<CacheHitInfo> = [];
+
+  /** Whether any value was served from cache */
+  get isCacheHit() { return this._cacheHits.length > 0; }
+
+  /** Whether this item uses cache(). */
+  get isCached(): boolean {
+    return this._findCacheResolver(this.valueResolver) !== undefined;
+  }
+
+  /** TTL string from the cache() resolver (for display in explain command). undefined = forever. */
+  get cacheTtl(): string | number | undefined {
+    const cacheResolver = this._findCacheResolver(this.valueResolver);
+    if (!cacheResolver) return undefined;
+    const ttlResolver = cacheResolver.objArgs?.ttl;
+    return ttlResolver?.staticValue as string | number | undefined;
+  }
+
+  private _findCacheResolver(resolver?: Resolver): Resolver | undefined {
+    if (!resolver) return undefined;
+    if (resolver.fnName === 'cache') return resolver;
+    for (const child of resolver.arrArgs ?? []) {
+      const found = this._findCacheResolver(child);
+      if (found) return found;
+    }
+    return undefined;
+  }
 
   /** Programmatic definitions not tied to a data source (e.g. builtin vars) */
   _internalDefs: Array<ConfigItemDefAndSource> = [];

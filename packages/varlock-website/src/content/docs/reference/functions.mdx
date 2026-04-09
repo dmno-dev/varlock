@@ -22,7 +22,7 @@ CONFIG=exec(`aws ssm get-parameter --name "/config/${APP_ENV}" --with-decryption
 ```
 
 
-There are built-in utility functions, a built-in `varlock()` function for device-local encryption, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
+There are built-in utility functions, [random value generators](#random-value-generators), a [`cache()`](#cache) function for persisting values across runs, a built-in `varlock()` function for device-local encryption, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
 
 <div class="reference-docs">
 
@@ -217,6 +217,129 @@ HAS_API_KEY=not(isEmpty($API_KEY))
 # Use with conditional logic
 API_URL=if(isEmpty($CUSTOM_API_URL), "https://api.default.com", $CUSTOM_API_URL)
 ```
+</div>
+
+## Random value generators
+
+These functions generate random values using cryptographically secure randomness (`node:crypto`). They are typically used with [`cache()`](#cache) to generate a value once and persist it across runs.
+
+<div>
+### `randomInt()`
+
+Generates a random integer. By default generates between `0` and `2,147,483,647` (int32 max).
+
+- With 1 arg: generates between `0` and `max` (inclusive)
+- With 2 args: generates between `min` and `max` (inclusive)
+
+```env-spec "randomInt"
+# Random port between 3000 and 4000
+DEV_PORT=cache(randomInt(3000, 4000))
+
+# Random integer up to 1000
+SEED=cache(randomInt(1000))
+
+# Random integer with default range
+BIG_NUMBER=cache(randomInt())
+```
+</div>
+
+<div>
+### `randomFloat()`
+
+Generates a random floating-point number. By default generates between `0` and `1` with 2 decimal places.
+
+- With 1 arg: generates between `0` and `max`
+- With 2 args: generates between `min` and `max`
+- `precision=N` option controls decimal places (default: 2)
+
+```env-spec "randomFloat"
+# Random float between 0 and 1 (default)
+RATE=cache(randomFloat())
+
+# Random float between 10 and 20 with 4 decimal places
+THRESHOLD=cache(randomFloat(10, 20, precision=4))
+```
+</div>
+
+<div>
+### `randomUuid()`
+
+Generates a random UUID v4.
+
+```env-spec "randomUuid"
+# Unique identifier for this environment
+INSTANCE_ID=cache(randomUuid())
+```
+</div>
+
+<div>
+### `randomHex()`
+
+Generates a random hexadecimal string. Argument is the byte length (each byte = 2 hex characters). Default is `16` bytes (32 hex chars).
+
+```env-spec "randomHex"
+# 64-character hex string (32 bytes)
+ENCRYPTION_KEY=cache(randomHex(32))
+  @sensitive
+
+# 32-character hex string (default 16 bytes)
+SESSION_SECRET=cache(randomHex())
+  @sensitive
+```
+</div>
+
+<div>
+### `randomString()`
+
+Generates a random alphanumeric string. Default length is `16` characters using `A-Za-z0-9`.
+
+- First arg: character length (default: 16)
+- `charset=S` option: custom character set to draw from
+
+```env-spec "randomString"
+# 32-character alphanumeric string
+API_SECRET=cache(randomString(32))
+  @sensitive
+
+# 8-character string from custom charset
+PIN_CODE=cache(randomString(8, charset="0123456789"))
+```
+</div>
+
+## Caching
+
+<div>
+### `cache()`
+
+Wraps any resolver to cache its result across invocations. Cached values are encrypted at rest using varlock's [device-local encryption](/guides/secrets/#local-encryption).
+
+- First arg: the resolver to cache
+- `ttl=D` option: how long to cache (default: forever). Supports `s`, `m`, `h`, `d`, `w` suffixes, or `0` for forever.
+- `key=S` option: use an explicit cache key instead of the auto-generated one. Useful when the same cached value should be shared across files or when you want a stable key that doesn't change with resolver edits.
+
+The cache automatically invalidates when you change the wrapped resolver expression (unless using a custom `key`).
+
+```env-spec "cache"
+# Cache a random UUID forever (until manually cleared)
+INSTANCE_ID=cache(randomUuid())
+
+# Cache an API token for 1 hour
+AUTH_TOKEN=cache(exec(`get-token.sh`), ttl="1h")
+
+# Cache for 30 minutes
+TEMP_KEY=cache(randomHex(32), ttl="30m")
+
+# Use an explicit cache key (shared across files/projects)
+SHARED_TOKEN=cache(exec(`fetch-org-token.sh`), ttl="1d", key="org-auth-token")
+```
+
+Use the [`varlock cache`](/reference/cli-commands/#cache) CLI command to view cache status or clear cached values.
+
+Use `--clear-cache` or `--skip-cache` flags on `varlock load` / `varlock run` to control caching behavior for a single invocation.
+
+:::tip
+Plugin authors can also use the cache API via `plugin.cache.get()` / `plugin.cache.set()` to cache expensive API calls. See the [Plugins guide](/guides/plugins/) for more information.
+:::
 </div>
 
 

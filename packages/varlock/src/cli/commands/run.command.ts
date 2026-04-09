@@ -25,6 +25,14 @@ export const commandSpec = define({
       short: 'p',
       description: 'Path to a specific .env file or directory to use as the entry point',
     },
+    'clear-cache': {
+      type: 'boolean',
+      description: 'Clear cache and re-resolve all values',
+    },
+    'skip-cache': {
+      type: 'boolean',
+      description: 'Skip cache entirely for this invocation',
+    },
   },
   examples: `
 Executes a command in a child process, injecting your resolved and validated environment
@@ -73,6 +81,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   const envGraph = await loadVarlockEnvGraph({
     entryFilePath: ctx.values.path,
+    clearCache: ctx.values['clear-cache'],
+    skipCache: ctx.values['skip-cache'],
   });
   checkForSchemaErrors(envGraph);
   checkForNoEnvFiles(envGraph);

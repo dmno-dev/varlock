@@ -14,6 +14,8 @@ import { isCancel } from '@clack/prompts';
 import _ from '@env-spec/utils/my-dash';
 import { pathExists } from '@env-spec/utils/fs-utils';
 import { getUserVarlockDir } from '../../lib/user-config-dir';
+import { PluginCacheAccessor } from '../../lib/cache/plugin-cache-accessor';
+import type { CacheStore } from '../../lib/cache/cache-store';
 import { confirm } from '../../cli/helpers/prompts';
 
 
@@ -208,6 +210,23 @@ export class VarlockPlugin {
     };
   }
 
+
+  // -- Cache API for plugin authors --
+  private _cacheAccessor?: PluginCacheAccessor;
+  /** @internal set by EnvGraph when plugins are loaded */
+  _cacheStore?: CacheStore;
+
+  /**
+   * Scoped cache accessor for this plugin.
+   * Keys are automatically namespaced to prevent collisions between plugins.
+   */
+  get cache(): PluginCacheAccessor {
+    if (!this._cacheAccessor) {
+      if (!this._cacheStore) throw new Error('Cache not available — plugin accessed cache too early');
+      this._cacheAccessor = new PluginCacheAccessor(this.name, this._cacheStore);
+    }
+    return this._cacheAccessor;
+  }
 
   readonly dataTypes?: Array<Parameters<typeof createEnvGraphDataType>[0]> = [];
   registerDataType(dataTypeDef: Parameters<typeof createEnvGraphDataType>[0]) {
@@ -426,6 +445,11 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
 
   plugin.installDecoratorInstances.push(pluginDecorator);
   graph.plugins.push(plugin);
+
+  // propagate cache store so plugin.cache is available during module execution
+  if (graph._cacheStore) {
+    plugin._cacheStore = graph._cacheStore;
+  }
 
   // this finally executes the plugin code
   await plugin.executePluginModule();
