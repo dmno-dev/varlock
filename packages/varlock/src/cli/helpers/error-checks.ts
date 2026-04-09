@@ -97,6 +97,17 @@ export function checkForSchemaErrors(envGraph: EnvGraph, opts?: { noThrow?: bool
       hasErrors = true;
       if (!opts?.noThrow) throw new CliExitError('Schema error', { silent: true });
     }
+
+    // check for errors from decorator execute() (e.g., invalid plugin options like cacheTtl)
+    if (source.resolutionErrors.length) {
+      console.error(`🚨 Error(s) during initialization of ${source.label}`);
+
+      for (const resErr of source.resolutionErrors) {
+        console.error(`- ${resErr.message}`);
+        showErrorLocationDetails(resErr);
+      }
+      return gracefulExit(1);
+    }
   }
   return { hasErrors, hasOutput };
 }
