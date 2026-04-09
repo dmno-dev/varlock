@@ -116,6 +116,12 @@ jobs:
           codesign -dvv "$APP_PATH" 2>&1 || true
           echo "=== Info.plist ==="
           cat "$APP_PATH/Contents/Info.plist"
+          echo ""
+          echo "=== Size summary ==="
+          BIN_SIZE=$(stat -f%z "$APP_PATH/Contents/MacOS/varlock-local-encrypt")
+          BUNDLE_SIZE=$(du -sk "$APP_PATH" | cut -f1)
+          echo "Binary: $(( BIN_SIZE / 1024 )) KB ($BIN_SIZE bytes)"
+          echo "📦 darwin/VarlockEnclave.app: ${BUNDLE_SIZE} KB (full bundle)"
 
       # Test the binary (using --no-auth since CI has no biometric)
       # Keys are still Secure Enclave-backed, just without user presence requirement

@@ -89,12 +89,20 @@ jobs:
           mkdir -p "$ARTIFACT_DIR"
           cp "packages/encryption-binary-rust/target/${{ matrix.target }}/release/${{ matrix.binary-name }}" "$ARTIFACT_DIR/"
           echo "=== Binary info (before UPX) ==="
-          ls -la "$ARTIFACT_DIR/${{ matrix.binary-name }}"
+          RAW_SIZE=$(stat --format=%s "$ARTIFACT_DIR/${{ matrix.binary-name }}" 2>/dev/null || stat -f%z "$ARTIFACT_DIR/${{ matrix.binary-name }}")
+          echo "Size: $(( RAW_SIZE / 1024 )) KB ($RAW_SIZE bytes)"
           file "$ARTIFACT_DIR/${{ matrix.binary-name }}" || true
           echo "=== UPX compress ==="
           upx --best "$ARTIFACT_DIR/${{ matrix.binary-name }}" || echo "UPX compression failed, continuing with uncompressed binary"
+          FINAL_SIZE=$(stat --format=%s "$ARTIFACT_DIR/${{ matrix.binary-name }}" 2>/dev/null || stat -f%z "$ARTIFACT_DIR/${{ matrix.binary-name }}")
           echo "=== Binary info (after UPX) ==="
-          ls -la "$ARTIFACT_DIR/${{ matrix.binary-name }}"
+          echo "Size: $(( FINAL_SIZE / 1024 )) KB ($FINAL_SIZE bytes)"
+          if [ "$RAW_SIZE" != "$FINAL_SIZE" ]; then
+            RATIO=$(( FINAL_SIZE * 100 / RAW_SIZE ))
+            echo "Compression: ${RATIO}% of original"
+          fi
+          echo ""
+          echo "📦 ${{ matrix.native-bin-subdir }}/${{ matrix.binary-name }}: $(( FINAL_SIZE / 1024 )) KB"
 
       # Run Rust unit tests
       - name: Run unit tests

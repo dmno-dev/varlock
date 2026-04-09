@@ -117,4 +117,21 @@ if (devMode) {
       cwd: path.join(PKG_DIR, DIST_DIR),
     });
   }
+
+  // Print size summary for all archives
+  console.log('\n=== Release archive size summary ===');
+  let totalBytes = 0;
+  for (const { archiveName } of ALL_TARGETS) {
+    const isWin = archiveName.startsWith('win-');
+    const ext = isWin ? 'zip' : 'tar.gz';
+    const archivePath = path.join(PKG_DIR, DIST_DIR, `varlock-${archiveName}.${ext}`);
+    if (fs.existsSync(archivePath)) {
+      const size = fs.statSync(archivePath).size;
+      totalBytes += size;
+      const sizeMB = (size / 1024 / 1024).toFixed(1);
+      console.log(`  varlock-${archiveName}.${ext}: ${sizeMB} MB`);
+    }
+  }
+  const totalMB = (totalBytes / 1024 / 1024).toFixed(1);
+  console.log(`\n  Total: ${totalMB} MB`);
 }

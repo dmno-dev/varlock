@@ -14,6 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { resolveNativeBinary } from './binary-resolver';
 import { DaemonClient } from './daemon-client';
 import * as fileBackend from './file-backend';
+import { isWSL } from './wsl-detect';
 import type { BackendInfo, BackendType, NativeStatusResult } from './types';
 
 export type { BackendInfo, BackendType } from './types';
@@ -49,6 +50,9 @@ let cachedBackendInfo: BackendInfo | undefined;
 function detectBackendType(): BackendType {
   const binaryPath = resolveNativeBinary();
   if (!binaryPath) return 'file';
+
+  // WSL2 uses the Windows binary for DPAPI + Windows Hello
+  if (isWSL()) return 'windows-tpm';
 
   switch (process.platform) {
     case 'darwin': return 'secure-enclave';
@@ -169,7 +173,12 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
   }
 
   // Use daemon client for biometric backends (session caching)
+  // In WSL2, the .exe handles daemon management internally via --via-daemon
   if (backend.biometricAvailable) {
+    if (isWSL()) {
+      const result = runNativeBinaryJson<{ plaintext: string }>(['decrypt', '--key-id', keyId, '--data', ciphertext, '--via-daemon']);
+      return result.plaintext;
+    }
     const client = getDaemonClient();
     return client.decrypt(ciphertext, keyId);
   }
