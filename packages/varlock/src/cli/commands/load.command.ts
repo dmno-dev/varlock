@@ -52,6 +52,14 @@ export const commandSpec = define({
       type: 'string',
       description: 'Also write the pretty (redacted) summary to a file path (useful for CI, e.g. $GITHUB_STEP_SUMMARY)',
     },
+    'clear-cache': {
+      type: 'boolean',
+      description: 'Clear cache and re-resolve all values',
+    },
+    'skip-cache': {
+      type: 'boolean',
+      description: 'Skip cache entirely for this invocation',
+    },
   },
   examples: `
 Loads and validates environment variables according to your .env files, and prints the results.
@@ -96,6 +104,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
     entryFilePaths: ctx.values.path,
+    clearCache: ctx.values['clear-cache'],
+    skipCache: ctx.values['skip-cache'],
   });
 
   // For json-full, still run the checks so their pretty output goes to stderr,

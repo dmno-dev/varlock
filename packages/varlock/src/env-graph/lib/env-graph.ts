@@ -14,6 +14,7 @@ import {
 } from './decorators';
 import { getErrorLocation } from './error-location';
 import type { VarlockPlugin } from './plugins';
+import { runWithResolutionContext, getResolutionContext } from './resolution-context';
 import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
 import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
 import { buildOverrideProvenanceMetadata, type OverrideProvenanceMetadata } from '../../lib/injected-env-provenance';
@@ -67,6 +68,14 @@ export class EnvGraph {
   // (which would mean it's always through the lens of the current directory/package)
 
   basePath?: string;
+
+  // -- Cache --
+  /** @internal cache store instance, initialized during loading */
+  _cacheStore?: import('../../lib/cache/cache-store').CacheStore;
+  /** @internal --clear-cache flag: clear cache then resolve + rewrite */
+  _clearCacheMode = false;
+  /** @internal --skip-cache flag: skip cache entirely */
+  _skipCacheMode = false;
 
   /** root data source (.env.schema) */
   rootDataSource?: EnvGraphDataSource;
@@ -492,7 +501,19 @@ export class EnvGraph {
 
         // mark item as beginning to actually resolve
         itemsToResolveStatus[itemKey] = true; // true means in progress
-        await item.resolve();
+        await runWithResolutionContext({
+          cacheStore: this._cacheStore,
+          skipCache: this._skipCacheMode,
+          clearCache: this._clearCacheMode,
+          cacheHits: [],
+          currentItem: item,
+        }, async () => {
+          await item.resolve();
+          const ctx = getResolutionContext();
+          if (ctx?.cacheHits.length) {
+            item._cacheHits = ctx.cacheHits;
+          }
+        });
         markItemCompleted(itemKey);
       };
 
