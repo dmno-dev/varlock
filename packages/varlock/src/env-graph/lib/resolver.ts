@@ -881,7 +881,7 @@ export const CacheResolver: typeof Resolver = createResolver({
       if (!ctx?.clearCache) {
         const cached = await cacheStore.get(cacheKey);
         if (cached) {
-          ctx?.cacheHits.push({ cacheKey, cachedAt: cached.cachedAt });
+          ctx?.cacheHits.push({ cacheKey, cachedAt: cached.cachedAt, expiresAt: cached.expiresAt });
           return cached.value;
         }
       }

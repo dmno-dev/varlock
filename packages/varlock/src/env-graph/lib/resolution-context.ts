@@ -5,6 +5,7 @@ import type { ConfigItem } from './config-item';
 export type CacheHitInfo = {
   cacheKey: string;
   cachedAt: number;
+  expiresAt: number;
 };
 
 export type ResolutionContextData = {

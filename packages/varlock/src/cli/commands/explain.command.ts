@@ -3,7 +3,7 @@ import { define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
-import { formattedValue, formatTimeAgo } from '../../lib/formatting';
+import { formattedValue, formatTimeAgo, formatDuration } from '../../lib/formatting';
 import { redactString } from '../../runtime/lib/redaction';
 import {
   checkForSchemaErrors, checkForNoEnvFiles,
@@ -150,15 +150,21 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   // Cache info
   if (item.isCached || item.isCacheHit) {
-    const cacheTtl = item.cacheTtl;
-    const ttlDisplay = cacheTtl !== undefined ? String(cacheTtl) : 'forever';
     console.log('');
     console.log(ansis.bold('  Cache'));
-    console.log(`    ${ansis.gray('TTL:')} ${ttlDisplay}`);
+
     if (item.isCacheHit) {
-      const oldest = Math.min(...item._cacheHits.map((h) => h.cachedAt));
-      console.log(`    ${ansis.blue('Status:')} hit (cached ${formatTimeAgo(oldest)})`);
+      const hit = item._cacheHits[0];
+      const ttlMs = hit.expiresAt - hit.cachedAt;
+      // ~100 years is our sentinel for "forever"
+      const ttlDisplay = ttlMs > 50 * 365.25 * 86_400_000 ? 'forever' : formatDuration(ttlMs);
+      console.log(`    ${ansis.gray('TTL:')} ${ttlDisplay}`);
+      console.log(`    ${ansis.blue('Status:')} hit (cached ${formatTimeAgo(hit.cachedAt)})`);
     } else {
+      // cache miss — show TTL from the cache() resolver if available
+      const cacheTtl = item.cacheTtl;
+      const ttlDisplay = cacheTtl !== undefined ? String(cacheTtl) : 'forever';
+      console.log(`    ${ansis.gray('TTL:')} ${ttlDisplay}`);
       console.log(`    ${ansis.gray('Status:')} miss (freshly resolved)`);
     }
   }

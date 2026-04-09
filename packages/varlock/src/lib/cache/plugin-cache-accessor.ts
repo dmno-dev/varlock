@@ -37,7 +37,7 @@ export class PluginCacheAccessor {
       try {
         const { getResolutionContext } = await import('../../env-graph/lib/resolution-context');
         const ctx = getResolutionContext();
-        ctx?.cacheHits.push({ cacheKey, cachedAt: result.cachedAt });
+        ctx?.cacheHits.push({ cacheKey, cachedAt: result.cachedAt, expiresAt: result.expiresAt });
       } catch {
         // resolution context not available — that's fine
       }
