@@ -151,10 +151,10 @@ Use `allowMissing=true` on `op()` to return `undefined` when an item doesn't exi
 SOME_API_KEY=fallback(op(op://my-vault/some-item/DOES_NOT_EXIST, allowMissing=true), "local-dev-key")
 ```
 
-You can also set `allowMissing=true` on `@initOp()` to apply it to all `op()` calls for that instance:
+You can also set `allowMissing` on `@initOp()` to apply it to all `op()` calls for that instance. It can be a dynamic value, e.g. `forEnv(dev)` to only allow missing items in dev:
 
 ```env-spec
-# @initOp(token=$OP_TOKEN, allowMissing=true)
+# @initOp(token=$OP_TOKEN, allowMissing=forEnv(dev))
 # ---
 
 SOME_API_KEY=fallback(op(op://my-vault/some-item/field), "local-dev-key")
@@ -221,7 +221,7 @@ Initialize a 1Password plugin instance - setting up options and authentication. 
 - `connectHost?: string` - URL of a self-hosted 1Password Connect server (e.g., `http://connect-server:8080`)
 - `connectToken?: string` - API token for the Connect server. Should be a reference to a config item of type `opConnectToken`. Required when `connectHost` is set.
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
-- `allowMissing?: boolean` - When `true`, all `op()` calls for this instance will return `undefined` instead of throwing when the referenced item/field is not found. Other errors (auth failures, bad format, etc.) still throw.
+- `allowMissing?: boolean` - When `true`, all `op()` calls for this instance will return `undefined` instead of throwing when the referenced item/field is not found. Can be a dynamic value (e.g., `allowMissing=forEnv(dev)` to only allow missing in dev). Other errors (auth failures, bad format, etc.) still throw.
 
 ### Functions
 
@@ -238,7 +238,7 @@ Fetch an individual field using a 1Password secret reference.
 
 **Named parameters:**
 
-- `allowMissing?: boolean` - When `true`, returns `undefined` instead of throwing if the referenced item/field is not found. Useful when combined with `fallback()` to provide a default value. Other errors (auth failures, invalid format, etc.) still throw.
+- `allowMissing?: boolean` - When `true`, returns `undefined` instead of throwing if the referenced item/field is not found. Can be a dynamic value (e.g., `allowMissing=forEnv(dev)`). Useful when combined with `fallback()` to provide a default value. Other errors (auth failures, invalid format, etc.) still throw.
 
 **Secret Reference Format:**
 

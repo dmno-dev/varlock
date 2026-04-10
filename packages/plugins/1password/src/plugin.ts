@@ -424,12 +424,6 @@ plugin.registerRootDecorator({
     }
     const connectHost = objArgs?.connectHost ? String(objArgs?.connectHost?.staticValue) : undefined;
 
-    // allowMissing must be static
-    if (objArgs.allowMissing && !objArgs.allowMissing.isStatic) {
-      throw new SchemaError('Expected allowMissing to be a static value');
-    }
-    const allowMissing = objArgs?.allowMissing ? !!objArgs.allowMissing.staticValue : undefined;
-
     // user should set one of: token, allowAppAuth, or connectHost+connectToken
     // we will check again later with resolved values
     if (!objArgs.token && !objArgs.allowAppAuth && !(connectHost && objArgs.connectToken)) {
@@ -454,27 +448,28 @@ plugin.registerRootDecorator({
       id,
       account,
       connectHost,
-      allowMissing,
+      allowMissingResolver: objArgs.allowMissing,
       tokenResolver: objArgs.token,
       allowAppAuthResolver: objArgs.allowAppAuth,
       connectTokenResolver: objArgs.connectToken,
     };
   },
   async execute({
-    id, account, connectHost, allowMissing, tokenResolver, allowAppAuthResolver, connectTokenResolver,
+    id, account, connectHost, allowMissingResolver, tokenResolver, allowAppAuthResolver, connectTokenResolver,
   }) {
     // even if these are empty, we can't throw errors yet
     // in case the instance is never actually used
     const token = await tokenResolver?.resolve();
     const enableAppAuth = await allowAppAuthResolver?.resolve();
     const connectToken = await connectTokenResolver?.resolve();
+    const allowMissing = await allowMissingResolver?.resolve();
     pluginInstances[id].setAuth(
       token,
       !!enableAppAuth,
       account,
       connectHost,
       connectToken as string | undefined,
-      allowMissing,
+      allowMissing as boolean | undefined,
     );
   },
 });
@@ -538,10 +533,6 @@ plugin.registerResolverFunction({
 
     // extract allowMissing named arg if provided
     const allowMissingResolver = this.objArgs?.allowMissing;
-    if (allowMissingResolver && !allowMissingResolver.isStatic) {
-      throw new SchemaError('expected allowMissing to be a static value');
-    }
-    const allowMissing = allowMissingResolver ? !!allowMissingResolver.staticValue : undefined;
 
     if (!Object.values(pluginInstances).length) {
       throw new SchemaError('No 1Password plugin instances found', {
@@ -567,14 +558,15 @@ plugin.registerResolverFunction({
       }
     }
 
-    return { instanceId, itemLocationResolver, allowMissing };
+    return { instanceId, itemLocationResolver, allowMissingResolver };
   },
-  async resolve({ instanceId, itemLocationResolver, allowMissing }) {
+  async resolve({ instanceId, itemLocationResolver, allowMissingResolver }) {
     const selectedInstance = pluginInstances[instanceId];
     const opReference = await itemLocationResolver.resolve();
     if (typeof opReference !== 'string') {
       throw new SchemaError('expected op item location to resolve to a string');
     }
+    const allowMissing = allowMissingResolver ? !!(await allowMissingResolver.resolve()) : undefined;
     const shouldAllowMissing = allowMissing ?? selectedInstance.allowMissing;
     try {
       const opValue = await selectedInstance.readItem(opReference);
