@@ -157,7 +157,7 @@ export function getBackendInfo(): BackendInfo {
 
 let daemonClient: DaemonClient | undefined;
 
-function getDaemonClient(): DaemonClient {
+export function getDaemonClient(): DaemonClient {
   daemonClient ||= new DaemonClient();
   return daemonClient;
 }
