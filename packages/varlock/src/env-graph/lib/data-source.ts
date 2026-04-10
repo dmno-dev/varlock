@@ -100,6 +100,15 @@ export abstract class EnvGraphDataSource {
   }
 
   /**
+   * When true, direct children of this data source are treated as top-level entry points:
+   * they inherit the "no parent" semantics and are never classified as env-specific
+   * solely because of their filename (e.g. `.env.production` used as an explicit entry
+   * point would not be env-specific, but one auto-loaded inside a directory would be).
+   * Only `MultiplePathsContainerDataSource` sets this to true.
+   */
+  childrenAreRoots?: boolean;
+
+  /**
    * Whether this data source is environment-specific.
    * A source is env-specific if:
    * - it was auto-loaded for a specific env (e.g., `.env.production` loaded by a DirectoryDataSource)
@@ -111,11 +120,12 @@ export abstract class EnvGraphDataSource {
    * Note: `applyForEnv` from filename parsing is only relevant for auto-loaded files.
    * Explicitly imported files (via `@import`) are controlled by the import mechanism,
    * not the auto-load-by-env logic, so their `applyForEnv` is ignored here.
-   * Similarly, a file that is the explicit root entry point (no parent) is never
-   * treated as env-specific even if its filename contains an env qualifier.
+   * Similarly, a file that is the explicit root entry point (no parent, or whose parent
+   * has `childrenAreRoots` set) is never treated as env-specific even if its filename
+   * contains an env qualifier.
    */
   get isEnvSpecific(): boolean {
-    if (this.applyForEnv && !this.isImport && this.parent) return true;
+    if (this.applyForEnv && !this.isImport && this.parent && !this.parent?.childrenAreRoots) return true;
     if (this.type === 'overrides') return true;
     if (this._hasConditionalDisable) return true;
     if (this.importMeta?.isConditionallyEnabled) return true;
@@ -899,6 +909,57 @@ export class DirectoryDataSource extends EnvGraphDataSource {
           await source._processImports();
         }
       }
+    }
+  }
+}
+
+/**
+ * A virtual root container that holds multiple top-level data sources.
+ * Used when `loadPath` in package.json is set to an array of paths.
+ * Each path is loaded as an independent DirectoryDataSource or DotEnvFileDataSource,
+ * combined in the order they are specified (later paths have higher precedence).
+ */
+export class MultiplePathsContainerDataSource extends EnvGraphDataSource {
+  type = 'container' as const;
+  typeLabel = 'multi-path-container';
+  get label() { return `multi-path container (${this.paths.length} paths)`; }
+
+  /**
+   * Direct children of this container are treated as top-level entry points,
+   * inheriting root semantics (never classified as env-specific due to filename).
+   */
+  childrenAreRoots = true;
+
+  constructor(
+    /** Pre-resolved absolute paths (directories ending with path.sep, or file paths) */
+    readonly paths: Array<string>,
+  ) {
+    super();
+  }
+
+  async _finishInit() {
+    if (!this.graph) throw new Error('expected graph to be set');
+
+    for (const entryPath of this.paths) {
+      const isDirectory = entryPath.endsWith('/') || entryPath.endsWith(path.sep)
+        || (!this.graph.virtualImports && await fs.stat(entryPath).then((s) => s.isDirectory()).catch(() => false));
+
+      let child: EnvGraphDataSource;
+      if (isDirectory) {
+        child = new DirectoryDataSource(entryPath);
+      } else {
+        // For file sources, pass through virtual contents when available
+        const virtualContents = this.graph.virtualImports?.[entryPath];
+        child = new DotEnvFileDataSource(
+          entryPath,
+          virtualContents ? { overrideContents: virtualContents } : undefined,
+        );
+      }
+
+      await this._initChild(child);
+      // For DirectoryDataSource, imports are handled internally in its own _finishInit.
+      // For DotEnvFileDataSource, we must process imports explicitly here.
+      await child._processImports();
     }
   }
 }

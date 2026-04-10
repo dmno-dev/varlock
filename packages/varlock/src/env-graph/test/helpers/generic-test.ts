@@ -1,7 +1,7 @@
 import { expect, vi } from 'vitest';
 import path from 'node:path';
 import {
-  EnvGraph, SchemaError, DirectoryDataSource, DotEnvFileDataSource,
+  EnvGraph, SchemaError, DirectoryDataSource, DotEnvFileDataSource, MultiplePathsContainerDataSource,
 } from '../../index';
 import type { Constructor } from '@env-spec/utils/type-utils';
 
@@ -12,6 +12,15 @@ import type { Constructor } from '@env-spec/utils/type-utils';
 export function envFilesTest(spec: {
   envFile?: string;
   files?: Record<string, string>;
+  /**
+   * When provided, overrides the default single-directory loading.
+   * Can be a single relative path string or an array of relative paths.
+   * Each path is resolved relative to the current test file's directory.
+   * Use a trailing `/` (or `path.sep`) to indicate a directory.
+   * The `files` map should contain entries whose keys start with the
+   * corresponding path prefix (e.g. `'path1/.env.schema'`).
+   */
+  loadPaths?: string | Array<string>;
   fallbackEnv?: string,
   overrideValues?: Record<string, string>;
   /** Override process.env for builtin var detection (avoids modifying real process.env) */
@@ -43,8 +52,28 @@ export function envFilesTest(spec: {
     if (spec.processEnv) g.processEnvOverride = spec.processEnv;
     if (spec.files) {
       g.setVirtualImports(currentDir, spec.files);
-      const source = new DirectoryDataSource(currentDir);
-      await g.setRootDataSource(source);
+
+      if (spec.loadPaths) {
+        // Multi-path or explicit single-path loading
+        const rawPaths = Array.isArray(spec.loadPaths) ? spec.loadPaths : [spec.loadPaths];
+        // Preserve trailing slash (path.resolve strips it, but it's used to detect directories)
+        const resolvedPaths = rawPaths.map((p) => {
+          const hasTrailingSlash = p.endsWith('/') || p.endsWith(path.sep);
+          const resolved = path.resolve(currentDir, p);
+          return hasTrailingSlash ? `${resolved}${path.sep}` : resolved;
+        });
+        if (resolvedPaths.length === 1) {
+          const rp = resolvedPaths[0];
+          const isDir = rp.endsWith('/') || rp.endsWith(path.sep);
+          const source = isDir ? new DirectoryDataSource(rp) : new DotEnvFileDataSource(rp);
+          await g.setRootDataSource(source);
+        } else {
+          await g.setRootDataSource(new MultiplePathsContainerDataSource(resolvedPaths));
+        }
+      } else {
+        const source = new DirectoryDataSource(currentDir);
+        await g.setRootDataSource(source);
+      }
     } else if (spec.envFile) {
       const source = new DotEnvFileDataSource('.env.schema', { overrideContents: spec.envFile });
       await g.setRootDataSource(source);
