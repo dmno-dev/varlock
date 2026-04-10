@@ -72,4 +72,16 @@ describe('checkIsFileGitIgnored', () => {
       }
     }
   });
+
+  test('should return undefined when git is not installed (ENOENT)', async () => {
+    // Simulate git not being installed by removing it from PATH
+    const originalPath = process.env.PATH;
+    process.env.PATH = '/nonexistent';
+    try {
+      const result = await checkIsFileGitIgnored(testFile);
+      expect(result).toBeUndefined();
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
 });
