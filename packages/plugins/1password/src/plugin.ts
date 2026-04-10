@@ -95,7 +95,7 @@ class OpPluginInstance {
   private connectHost?: string;
   /** API token for authenticating with the Connect server */
   private connectToken?: string;
-  /** if true, missing items return undefined instead of throwing */
+  /** If true, missing items/fields/vaults return undefined instead of throwing */
   allowMissing?: boolean;
 
   constructor(
@@ -356,7 +356,7 @@ class OpPluginInstance {
             const errMsg = itemResponse.error.message || itemResponse.error.type || '';
             const isNotFound = /not.?found|does.?not.?exist|no.?such/i.test(errMsg);
             dp.reject(new ResolutionError(`1Password error - ${errMsg}`, {
-              ...isNotFound && { code: 'NOT_FOUND' },
+              ...(isNotFound ? { code: 'NOT_FOUND' } : {}),
             }));
           } else if (itemResponse.content) {
             dp.resolve(itemResponse.content.secret);
