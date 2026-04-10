@@ -208,12 +208,14 @@ fn handle_decrypt(
     match key_store::load_key(key_id) {
         Ok((private_key_der, public_key_b64)) => {
             let secure_key = crate::secure_mem::SecureBytes::new(private_key_der);
-            let private_key_b64 = base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                secure_key.as_slice(),
+            let private_key_b64 = crate::secure_mem::SecureString::new(
+                base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    secure_key.as_slice(),
+                ),
             );
 
-            let result = match crypto::decrypt(&private_key_b64, &public_key_b64, ciphertext_b64) {
+            let result = match crypto::decrypt(private_key_b64.as_str(), &public_key_b64, ciphertext_b64) {
                 Ok(plaintext_bytes) => {
                     match String::from_utf8(plaintext_bytes) {
                         Ok(plaintext) => {

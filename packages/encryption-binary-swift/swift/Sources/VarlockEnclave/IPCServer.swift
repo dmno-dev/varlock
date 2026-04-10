@@ -9,6 +9,7 @@ import Foundation
 final class IPCServer {
     private let socketPath: String
     private var socketFD: Int32 = -1
+    private var lockFD: Int32 = -1
     private var clientHandlers: [Int32: DispatchWorkItem] = [:]
     private let queue = DispatchQueue(label: "dev.varlock.ipc", attributes: .concurrent)
     private let handlersQueue = DispatchQueue(label: "dev.varlock.ipc.handlers")
@@ -27,12 +28,27 @@ final class IPCServer {
     // MARK: - Server Lifecycle
 
     func start() throws {
-        // Clean up any stale socket file
-        unlink(socketPath)
-
-        // Ensure parent directory exists
+        // Ensure parent directory exists with owner-only access
         let dir = (socketPath as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        chmod(dir, 0o700)
+
+        // Acquire an exclusive lock to prevent race conditions during socket setup.
+        // Without this, a malicious process could create a fake socket at our path
+        // between unlink() and bind(), intercepting client connections.
+        let lockPath = socketPath + ".lock"
+        lockFD = open(lockPath, O_CREAT | O_RDWR, 0o600)
+        guard lockFD >= 0 else {
+            throw IPCError.socketCreationFailed("Failed to create lock file: \(String(cString: strerror(errno)))")
+        }
+        guard flock(lockFD, LOCK_EX | LOCK_NB) == 0 else {
+            close(lockFD)
+            lockFD = -1
+            throw IPCError.socketCreationFailed("Another daemon instance holds the lock")
+        }
+
+        // Clean up any stale socket file (safe now — we hold the lock)
+        unlink(socketPath)
 
         // Create socket
         socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -85,6 +101,14 @@ final class IPCServer {
         }
         unlink(socketPath)
 
+        // Release the startup lock
+        if lockFD >= 0 {
+            flock(lockFD, LOCK_UN)
+            close(lockFD)
+            lockFD = -1
+        }
+        unlink(socketPath + ".lock")
+
         // Cancel all client handlers
         handlersQueue.sync {
             for (fd, work) in clientHandlers {
@@ -132,6 +156,16 @@ final class IPCServer {
             close(fd)
             handlersQueue.sync {
                 _ = clientHandlers.removeValue(forKey: fd)
+            }
+        }
+
+        // Verify the connecting process is an allowed client
+        if let peerPid = getPeerPid(fd: fd) {
+            guard verifyPeerProcess(pid: peerPid) != nil else {
+                let path = getProcessPath(pid: peerPid) ?? "unknown"
+                fputs("varlock: rejected IPC connection from unauthorized process (pid=\(peerPid), path=\(path))\n", stderr)
+                sendResponse(fd: fd, response: ["error": "Unauthorized client process"])
+                return
             }
         }
 
@@ -187,15 +221,26 @@ final class IPCServer {
             return
         }
 
+        // Copy into a mutable buffer so we can zero it after sending.
+        // JSONSerialization returns immutable Data backed by an internal buffer
+        // that we can't scrub, so we work with our own copy.
+        var mutableBuf = [UInt8](jsonData)
+        defer {
+            // Zero the buffer to avoid leaving plaintext in the heap
+            _ = mutableBuf.withUnsafeMutableBufferPointer { ptr in
+                memset_s(ptr.baseAddress!, ptr.count, 0, ptr.count)
+            }
+        }
+
         // Write length prefix (4 bytes, little-endian)
-        var length = UInt32(jsonData.count).littleEndian
+        var length = UInt32(mutableBuf.count).littleEndian
         _ = withUnsafeBytes(of: &length) { ptr in
             send(fd, ptr.baseAddress!, 4, 0)
         }
 
         // Write message body
-        jsonData.withUnsafeBytes { ptr in
-            _ = send(fd, ptr.baseAddress!, jsonData.count, 0)
+        mutableBuf.withUnsafeBufferPointer { ptr in
+            _ = send(fd, ptr.baseAddress!, ptr.count, 0)
         }
     }
 }

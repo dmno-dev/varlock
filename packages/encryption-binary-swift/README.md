@@ -20,13 +20,13 @@ Rust is planned for Windows (TPM / Windows Hello) and Linux (TPM2), where the pl
 
 ```bash
 # Local dev (current arch, dev mode)
-bun run build:swift:dev
+bun run build:current
 
 # Universal binary (arm64 + x86_64, for CI)
-bun run build:swift
+bun run build:universal
 
 # With signing and release metadata
-bun run build:swift -- --mode release --version 1.2.3 --sign "Developer ID Application: ..."
+bun run build:universal -- --mode release --version 1.2.3 --sign "Developer ID Application: ..."
 ```
 
 Output: `packages/varlock/native-bins/darwin/VarlockEnclave.app`

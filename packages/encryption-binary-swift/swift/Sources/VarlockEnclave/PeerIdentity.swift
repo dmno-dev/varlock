@@ -4,6 +4,12 @@ import Darwin
 // LOCAL_PEERPID may not be exported by Swift's Darwin module
 private let LOCAL_PEERPID: Int32 = 0x002
 
+// proc_pidpath is in libproc.h which isn't auto-bridged to Swift
+@_silgen_name("proc_pidpath")
+private func proc_pidpath(_ pid: Int32, _ buffer: UnsafeMutablePointer<CChar>, _ buffersize: UInt32) -> Int32
+
+private let PROC_PIDPATHINFO_MAXSIZE: UInt32 = 4096
+
 /// Get the PID of the peer connected to a Unix domain socket.
 func getPeerPid(fd: Int32) -> pid_t? {
     var pid: pid_t = 0
@@ -61,4 +67,37 @@ func getTtyIdentifier(forPid pid: pid_t) -> String? {
     }
 
     return "\(ttyName):\(startTimestamp)"
+}
+
+// MARK: - Process Verification
+
+/// Binary names allowed to connect to the daemon IPC socket.
+/// This is a defense-in-depth check — it can be bypassed by renaming a binary,
+/// but it raises the bar against opportunistic attacks (rogue npm packages, etc).
+private let allowedBinaryNames: Set<String> = [
+    "VarlockEnclave",        // The daemon itself (self-connections via .app bundle)
+    "varlock-local-encrypt", // Rust binary (not used on macOS, but for completeness)
+    "varlock",               // SEA CLI binary
+    "node",                  // Node.js (varlock TS client)
+    "bun",                   // Bun runtime (varlock TS client)
+]
+
+/// Get the file path of the executable for a given PID.
+func getProcessPath(pid: pid_t) -> String? {
+    let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: Int(PROC_PIDPATHINFO_MAXSIZE))
+    defer { buffer.deallocate() }
+    let result = proc_pidpath(pid, buffer, PROC_PIDPATHINFO_MAXSIZE)
+    guard result > 0 else { return nil }
+    return String(cString: buffer)
+}
+
+/// Verify that a peer process is an allowed Varlock client.
+///
+/// Checks the binary name of the connecting process against an allowlist.
+/// Returns the binary name on success, nil on rejection.
+func verifyPeerProcess(pid: pid_t) -> String? {
+    guard let processPath = getProcessPath(pid: pid) else { return nil }
+    let binaryName = (processPath as NSString).lastPathComponent
+    guard allowedBinaryNames.contains(binaryName) else { return nil }
+    return binaryName
 }

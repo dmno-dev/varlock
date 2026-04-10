@@ -56,14 +56,41 @@ impl IpcServer {
     /// Start the IPC server. This blocks the calling thread.
     #[cfg(unix)]
     pub fn start(&self) -> Result<(), String> {
-        // Clean up stale socket
-        let _ = std::fs::remove_file(&self.socket_path);
-
-        // Ensure parent directory exists
+        // Ensure parent directory exists with restricted permissions
         if let Some(parent) = std::path::Path::new(&self.socket_path).parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create socket directory: {e}"))?;
+            // Restrict directory to owner only (0700) — prevents other users
+            // from listing socket files or key filenames
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(
+                parent,
+                std::fs::Permissions::from_mode(0o700),
+            );
         }
+
+        // Acquire exclusive lock before touching the socket file.
+        // Prevents a TOCTOU race where a malicious process could create a fake
+        // socket between our unlink() and bind(), intercepting client connections.
+        let lock_path = format!("{}.lock", self.socket_path);
+        let lock_fd = {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .mode(0o600)
+                .open(&lock_path)
+                .map_err(|e| format!("Failed to create lock file: {e}"))?
+        };
+        use std::os::unix::io::AsRawFd;
+        let lock_result = unsafe { libc::flock(lock_fd.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if lock_result != 0 {
+            return Err("Another daemon instance holds the lock".into());
+        }
+
+        // Safe to remove stale socket now — we hold the lock
+        let _ = std::fs::remove_file(&self.socket_path);
 
         let listener = UnixListener::bind(&self.socket_path)
             .map_err(|e| format!("Socket bind failed: {e}"))?;
@@ -96,6 +123,12 @@ impl IpcServer {
                     let on_activity = self.on_activity.clone();
                     let running = self.running.clone();
 
+                    // Verify the connecting process is a trusted varlock binary
+                    if !verify_unix_client(&stream) {
+                        eprintln!("Rejected connection from untrusted process");
+                        continue;
+                    }
+
                     // Get peer TTY identity
                     let tty_id = get_peer_tty_id(&stream);
 
@@ -116,8 +149,9 @@ impl IpcServer {
             }
         }
 
-        // Cleanup
+        // Cleanup socket and lock
         let _ = std::fs::remove_file(&self.socket_path);
+        let _ = std::fs::remove_file(format!("{}.lock", self.socket_path));
         Ok(())
     }
 
@@ -227,6 +261,7 @@ impl Drop for IpcServer {
     fn drop(&mut self) {
         self.stop();
         let _ = std::fs::remove_file(&self.socket_path);
+        let _ = std::fs::remove_file(format!("{}.lock", self.socket_path));
     }
 }
 
@@ -307,6 +342,60 @@ fn send_response(stream: &mut impl Write, id: Option<&str>, response: &Value) ->
     stream.flush().map_err(|e| format!("Flush failed: {e}"))?;
 
     Ok(())
+}
+
+// ── Unix client process verification ─────────────────────────────
+
+/// Verify that the connecting client process is a trusted varlock binary.
+/// Uses peer credentials to get the client PID, then reads /proc/<pid>/exe.
+#[cfg(target_os = "linux")]
+fn verify_unix_client(stream: &UnixStream) -> bool {
+    use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
+    use std::os::fd::AsFd;
+
+    let creds = match getsockopt(&stream.as_fd(), PeerCredentials) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    let pid = creds.pid();
+    if pid <= 0 {
+        return false;
+    }
+
+    // Read the executable path via /proc/<pid>/exe symlink
+    let exe_path = match std::fs::read_link(format!("/proc/{pid}/exe")) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+
+    let exe_name = exe_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+
+    let allowed = [
+        "varlock-local-encrypt",
+        "varlock",
+        "node",
+        "bun",
+    ];
+
+    let is_trusted = allowed.iter().any(|name| exe_name == *name);
+    if !is_trusted {
+        eprintln!(
+            "Untrusted client process: PID={pid}, exe={}",
+            exe_path.display()
+        );
+    }
+    is_trusted
+}
+
+/// macOS: no /proc filesystem, skip process verification for now.
+/// The Unix socket 0600 permissions still restrict to the owning user.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn verify_unix_client(_stream: &UnixStream) -> bool {
+    true
 }
 
 // ── Peer TTY identity (Linux) ────────────────────────────────────

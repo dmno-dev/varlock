@@ -72,6 +72,13 @@ final class SecureEnclaveManager {
         let filePath = keyFilePath(for: keyId)
         let dir = (filePath as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+
+        // Restrict directory to owner-only (prevents listing key filenames)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: dir
+        )
+
         try dataRepresentation.write(to: URL(fileURLWithPath: filePath))
 
         // Set file permissions to owner-only

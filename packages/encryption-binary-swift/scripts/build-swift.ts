@@ -167,12 +167,14 @@ console.log(`Built app bundle: ${appDir}`);
 
 // ── Codesign ────────────────────────────────────────────────────
 
+const entitlementsPath = path.resolve(import.meta.dir, '..', 'VarlockEnclave.entitlements');
+
 if (signingIdentity) {
-  run(`codesign --force --deep --options runtime --sign "${signingIdentity}" "${appDir}"`);
+  run(`codesign --force --deep --options runtime --entitlements "${entitlementsPath}" --sign "${signingIdentity}" "${appDir}"`);
   run(`codesign --verify --verbose "${appDir}"`);
   console.log('App bundle signed successfully');
 } else {
-  run(`codesign --force --deep --sign - "${appDir}"`);
+  run(`codesign --force --deep --entitlements "${entitlementsPath}" --sign - "${appDir}"`);
   console.log('App bundle ad-hoc signed (use --sign for proper signing)');
 }
 

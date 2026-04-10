@@ -268,9 +268,19 @@ pub fn generate_key(key_id: &str) -> Result<String, String> {
         created_at: now_iso8601(),
     };
 
-    // Write to disk
+    // Write to disk — restrict directory permissions to owner only
     let dir = get_key_store_dir();
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create key store: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Set key store directory to 0700 — prevents other users from listing key files
+        let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
+        // Also restrict parent directories
+        if let Some(parent) = dir.parent() {
+            let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
+        }
+    }
 
     let path = get_key_file_path(key_id);
     let json = serde_json::to_string_pretty(&stored)
