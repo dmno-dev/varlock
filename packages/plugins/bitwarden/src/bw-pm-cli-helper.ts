@@ -18,28 +18,6 @@ export interface BwItem {
   fields?: Array<{ name: string; value: string; type: number; linkedId?: string | null }>;
 }
 
-/**
- * Execute a Bitwarden CLI command using the provided session token.
- * The session token is passed via the BW_SESSION environment variable so it
- * never appears in the process argument list.
- */
-export async function execBwCliCommand(args: Array<string>, sessionToken: string): Promise<string> {
-  const startAt = Date.now();
-  try {
-    debug('bw cli args', args);
-    const result = await spawnAsync('bw', args, {
-      env: {
-        ...process.env,
-        BW_SESSION: sessionToken,
-      },
-    });
-    debug(`> took ${Date.now() - startAt}ms`);
-    return result.trim();
-  } catch (err) {
-    throw processBwCliError(err, args);
-  }
-}
-
 function processBwCliError(err: unknown, args?: Array<string>): Error {
   // CLI binary not found
   if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -91,4 +69,26 @@ function processBwCliError(err: unknown, args?: Array<string>): Error {
   return new ResolutionError(
     `Failed to run Bitwarden CLI: ${(err as Error)?.message || String(err)}`,
   );
+}
+
+/**
+ * Execute a Bitwarden CLI command using the provided session token.
+ * The session token is passed via the BW_SESSION environment variable so it
+ * never appears in the process argument list.
+ */
+export async function execBwCliCommand(args: Array<string>, sessionToken: string): Promise<string> {
+  const startAt = Date.now();
+  try {
+    debug('bw cli args', args);
+    const result = await spawnAsync('bw', args, {
+      env: {
+        ...process.env,
+        BW_SESSION: sessionToken,
+      },
+    });
+    debug(`> took ${Date.now() - startAt}ms`);
+    return result.trim();
+  } catch (err) {
+    throw processBwCliError(err, args);
+  }
 }
