@@ -1,5 +1,5 @@
 ---
-"varlock": minor
+"varlock": patch
 ---
 
 Support multiple `loadPath` entries in `package.json` configuration.
