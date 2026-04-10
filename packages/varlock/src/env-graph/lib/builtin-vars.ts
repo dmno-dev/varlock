@@ -5,7 +5,7 @@ export type BuiltinVarDef = {
   description: string;
   /** Data type name for this builtin var (defaults to 'string') */
   type?: string;
-  resolver: (ciEnv: CiEnvInfo, processEnv: Record<string, string | undefined>) => string | undefined;
+  resolver: (ciEnv: CiEnvInfo, processEnv: Record<string, string | undefined>) => string | boolean | undefined;
 };
 
 /**
@@ -68,7 +68,7 @@ export const BUILTIN_VARS: Record<string, BuiltinVarDef> = {
     name: 'VARLOCK_IS_CI',
     description: 'Whether running in a CI environment',
     type: 'boolean',
-    resolver: (ciEnv) => (ciEnv.isCI ? 'true' : 'false'),
+    resolver: (ciEnv) => ciEnv.isCI,
   },
   VARLOCK_BRANCH: {
     name: 'VARLOCK_BRANCH',
