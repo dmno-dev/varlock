@@ -14,7 +14,7 @@ describe('VARLOCK_* builtin variables', () => {
       processEnv: {},
       expectValues: {
         VARLOCK_ENV: 'development',
-        VARLOCK_IS_CI: 'false',
+        VARLOCK_IS_CI: false,
       },
       expectSensitive: {
         VARLOCK_ENV: false,
@@ -123,20 +123,20 @@ describe('VARLOCK_* builtin variables', () => {
   });
 
   describe('VARLOCK_IS_CI', () => {
-    test('returns "false" when not in CI', envFilesTest({
+    test('returns false when not in CI', envFilesTest({
       envFile: 'MY_VAR=$VARLOCK_IS_CI',
       processEnv: {},
-      expectValues: { VARLOCK_IS_CI: 'false' },
+      expectValues: { VARLOCK_IS_CI: false },
     }));
 
-    test('returns "true" when in CI', envFilesTest({
+    test('returns true when in CI', envFilesTest({
       envFile: 'MY_VAR=$VARLOCK_IS_CI',
       processEnv: {
         CI: 'true',
         GITHUB_ACTIONS: 'true',
         GITHUB_REPOSITORY: 'owner/repo',
       },
-      expectValues: { VARLOCK_IS_CI: 'true' },
+      expectValues: { VARLOCK_IS_CI: true },
     }));
   });
 
