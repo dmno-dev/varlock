@@ -1,5 +1,33 @@
 # varlock
 
+## 0.7.3
+
+### Patch Changes
+
+- [#583](https://github.com/dmno-dev/varlock/pull/583) [`f640d08`](https://github.com/dmno-dev/varlock/commit/f640d081088feaa88fd9e855b3cc815cc271b08b) - Builtin vars now have proper types: `VARLOCK_IS_CI` is now a `boolean` (was a string `"true"`/`"false"`), and `VARLOCK_BUILD_URL` is now a `url` type. String builtin vars remain unchanged.
+
+- [#581](https://github.com/dmno-dev/varlock/pull/581) [`8337445`](https://github.com/dmno-dev/varlock/commit/83374450753a1c1093120ed591f0c1d4c2bf71cf) - Fix `varlock init` crashing on Linux when git is not installed.
+
+  When `git` is not found in PATH, Node.js `spawn` fires an `error` event with a native ENOENT error that has no `.data` property. The `checkIsFileGitIgnored` utility was trying to call `.includes()` on the undefined `.data` value before reaching the ENOENT check, causing a `TypeError` that crashed the `init` command.
+
+  The fix reorders the error checks to handle the ENOENT case first, and uses optional chaining on the `errorOutput` value throughout for additional safety.
+
+- [#575](https://github.com/dmno-dev/varlock/pull/575) [`349d517`](https://github.com/dmno-dev/varlock/commit/349d517ee9bd84e12c4e7715e23b7fa2074a6f28) - Fix terminal colors when running commands with redaction enabled. When `varlock run` pipes stdout/stderr for redaction, it now automatically injects `FORCE_COLOR` into the child process environment when the parent terminal is a TTY. This preserves color output for tools using color libraries (chalk, kleur, etc.) while keeping redaction active.
+
+- [#571](https://github.com/dmno-dev/varlock/pull/571) [`f582766`](https://github.com/dmno-dev/varlock/commit/f58276693e26d384397c737946cb8111a64877e5) - Support multiple `loadPath` entries in `package.json` configuration.
+
+  The `varlock.loadPath` option in `package.json` now accepts an array of paths in addition to a single string. When an array is provided, all paths are loaded and their environment variables are combined. Later entries in the array take higher precedence when the same variable is defined in multiple locations.
+
+  ```json title="package.json"
+  {
+    "varlock": {
+      "loadPath": ["./apps/my-package/envs/", "./apps/other-package/envs/"]
+    }
+  }
+  ```
+
+  This is particularly useful in monorepos where different packages each have their own `.env` files.
+
 ## 0.7.2
 
 ### Patch Changes
