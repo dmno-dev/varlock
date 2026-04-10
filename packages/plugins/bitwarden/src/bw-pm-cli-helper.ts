@@ -52,7 +52,7 @@ function processBwCliError(err: unknown, args?: Array<string>): Error {
     }
 
     if (errMsg.includes('Not found') || errMsg.includes('not found')) {
-      const itemArg = args ? args[args.length - 1] : 'unknown';
+      const itemArg = args ? args.filter((a) => !a.startsWith('--')).pop() ?? 'unknown' : 'unknown';
       return new ResolutionError(`Bitwarden item "${itemArg}" not found`, {
         tip: [
           'Verify the item name or UUID is correct',
