@@ -79,7 +79,7 @@ This is the same pattern recommended for any environment flag — see the [envir
 
 ### `VARLOCK_IS_CI`
 
-**Type:** `string` — `"true"` or `"false"`
+**Type:** `boolean`
 
 Whether the current process is running in a CI environment.
 
@@ -121,7 +121,7 @@ The name of the detected CI/deploy platform (e.g., `"GitHub Actions"`, `"Vercel"
 
 ### `VARLOCK_BUILD_URL`
 
-**Type:** `string | undefined`
+**Type:** `url | undefined`
 
 A URL linking to the current build or deploy in the CI platform's UI.
 

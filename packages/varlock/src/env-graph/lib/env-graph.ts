@@ -277,10 +277,10 @@ export class EnvGraph {
     const graph = this;
 
     // Create the resolver for this builtin var
+    const builtinType = builtinDef.type || 'string';
     const BuiltinVarResolver = createResolver({
       name: `\0builtin:${key}`,
       description: builtinDef.description,
-      inferredType: 'string',
       async resolve() {
         return builtinDef.resolver(graph.ciEnvInfo, graph.processEnvForBuiltins);
       },
@@ -297,7 +297,8 @@ export class EnvGraph {
       // Set dataType directly since registerBuiltinVar is called synchronously
       // during resolver processing, and the item may not get a process() call
       // from the finishLoad loop (for...in doesn't reliably visit new keys).
-      item.dataType = this.dataTypesRegistry.string();
+      const dataTypeFactory = this.dataTypesRegistry[builtinType] ?? this.dataTypesRegistry.string;
+      item.dataType = dataTypeFactory();
       this.configSchema[key] = item;
     }
 

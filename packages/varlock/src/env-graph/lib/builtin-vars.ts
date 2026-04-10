@@ -3,7 +3,9 @@ import { type CiEnvInfo, type DeploymentEnvironment } from '@varlock/ci-env-info
 export type BuiltinVarDef = {
   name: string;
   description: string;
-  resolver: (ciEnv: CiEnvInfo, processEnv: Record<string, string | undefined>) => string | undefined;
+  /** Data type name for this builtin var (defaults to 'string') */
+  type?: string;
+  resolver: (ciEnv: CiEnvInfo, processEnv: Record<string, string | undefined>) => string | boolean | undefined;
 };
 
 /**
@@ -64,8 +66,9 @@ export const BUILTIN_VARS: Record<string, BuiltinVarDef> = {
   },
   VARLOCK_IS_CI: {
     name: 'VARLOCK_IS_CI',
-    description: 'Whether running in a CI environment ("true" or "false")',
-    resolver: (ciEnv) => (ciEnv.isCI ? 'true' : 'false'),
+    description: 'Whether running in a CI environment',
+    type: 'boolean',
+    resolver: (ciEnv) => ciEnv.isCI,
   },
   VARLOCK_BRANCH: {
     name: 'VARLOCK_BRANCH',
@@ -95,6 +98,7 @@ export const BUILTIN_VARS: Record<string, BuiltinVarDef> = {
   VARLOCK_BUILD_URL: {
     name: 'VARLOCK_BUILD_URL',
     description: 'Link to the CI build/deploy',
+    type: 'url',
     resolver: (ciEnv) => ciEnv.buildUrl,
   },
   VARLOCK_REPO: {
