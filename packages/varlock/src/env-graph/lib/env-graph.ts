@@ -281,7 +281,6 @@ export class EnvGraph {
     const BuiltinVarResolver = createResolver({
       name: `\0builtin:${key}`,
       description: builtinDef.description,
-      inferredType: builtinType,
       async resolve() {
         return builtinDef.resolver(graph.ciEnvInfo, graph.processEnvForBuiltins);
       },
