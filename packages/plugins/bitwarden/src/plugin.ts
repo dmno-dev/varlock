@@ -539,7 +539,7 @@ class BitwardenPasswordManagerInstance {
 
   constructor(readonly id: string) {}
 
-  setAuth(sessionToken: any) {
+  setAuth(sessionToken: unknown) {
     if (sessionToken && typeof sessionToken === 'string') this.sessionToken = sessionToken;
     debug('bwp instance', this.id, 'set auth');
   }
@@ -643,16 +643,17 @@ plugin.registerResolverFunction({
     let itemQueryResolver: Resolver | undefined;
     const fieldResolver = this.objArgs?.field;
 
-    const argCount = this.arrArgs?.length ?? 0;
+    const arrArgs = this.arrArgs ?? [];
+    const argCount = arrArgs.length;
 
     if (argCount === 1) {
-      itemQueryResolver = this.arrArgs![0];
+      itemQueryResolver = arrArgs[0];
     } else if (argCount === 2) {
-      if (!this.arrArgs![0].isStatic) {
+      if (!arrArgs[0].isStatic) {
         throw new SchemaError('Expected instance id (first argument) to be a static value');
       }
-      instanceId = String(this.arrArgs![0].staticValue);
-      itemQueryResolver = this.arrArgs![1];
+      instanceId = String(arrArgs[0].staticValue);
+      itemQueryResolver = arrArgs[1];
     } else {
       throw new SchemaError('Expected 1 or 2 positional arguments: bwp("item") or bwp(instanceId, "item")');
     }
