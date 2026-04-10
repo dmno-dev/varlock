@@ -113,9 +113,16 @@ fn cmd_key_exists(args: &[String]) {
 fn cmd_encrypt(args: &[String]) {
     let key_id = get_key_id(args);
 
-    let data_b64 = match get_arg(args, "--data") {
-        Some(d) => d,
-        None => json_error("Missing --data argument (base64-encoded plaintext)"),
+    let data_b64 = if args.contains(&"--data-stdin".to_string()) {
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)
+            .unwrap_or_else(|e| json_error(&format!("Failed to read stdin: {e}")));
+        input.trim().to_string()
+    } else {
+        match get_arg(args, "--data") {
+            Some(d) => d,
+            None => json_error("Missing --data argument (base64-encoded plaintext)"),
+        }
     };
 
     let plaintext = match BASE64.decode(&data_b64) {
@@ -259,6 +266,7 @@ COMMANDS:
   list-keys                       List all Varlock encryption keys
   key-exists [--key-id <id>]      Check if a key exists
   encrypt --data <base64> [--key-id <id>]   Encrypt data (one-shot)
+  encrypt --data-stdin [--key-id <id>]     Encrypt (data from stdin)
   decrypt --data <base64> [--key-id <id>] [--via-daemon]         Decrypt data
   decrypt --data-stdin [--key-id <id>] [--via-daemon]           Decrypt (data from stdin)
   status                          Check platform capabilities

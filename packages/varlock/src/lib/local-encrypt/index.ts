@@ -210,6 +210,20 @@ export async function encryptValue(plaintext: string, keyId: string = DEFAULT_KE
   }
   // Native binary encrypt (one-shot, no biometric needed for encrypt)
   const b64Input = Buffer.from(plaintext, 'utf-8').toString('base64');
+  if (isWSL()) {
+    // On WSL2, pass data via stdin to avoid arg mangling across the WSL/Windows boundary
+    const binaryPath = resolveNativeBinary();
+    if (!binaryPath) throw new Error('Native binary not found');
+    const proc = spawnSync(binaryPath, ['encrypt', '--key-id', keyId, '--data-stdin'], {
+      input: b64Input,
+      encoding: 'utf-8',
+      timeout: 30_000,
+    });
+    if (proc.error) throw proc.error;
+    const result = JSON.parse(proc.stdout.trim());
+    if (result.error) throw new Error(result.error);
+    return result.ciphertext;
+  }
   const result = runNativeBinaryJson<{ ciphertext: string }>(['encrypt', '--key-id', keyId, '--data', b64Input]);
   return result.ciphertext;
 }
