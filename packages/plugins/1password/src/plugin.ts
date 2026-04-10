@@ -95,6 +95,8 @@ class OpPluginInstance {
   private connectHost?: string;
   /** API token for authenticating with the Connect server */
   private connectToken?: string;
+  /** if true, missing items return undefined instead of throwing */
+  allowMissing?: boolean;
 
   constructor(
     readonly id: string,
@@ -107,12 +109,14 @@ class OpPluginInstance {
     account?: string,
     connectHost?: string,
     connectToken?: string,
+    allowMissing?: boolean,
   ) {
     if (token && typeof token === 'string') this.token = token;
     this.allowAppAuth = allowAppAuth;
     this.account = account;
     if (connectHost && typeof connectHost === 'string') this.connectHost = connectHost.replace(/\/+$/, '');
     if (connectToken && typeof connectToken === 'string') this.connectToken = connectToken;
+    if (allowMissing !== undefined) this.allowMissing = allowMissing;
     debug('op instance', this.id, ' set auth - ', token, allowAppAuth, account, 'connect:', !!connectHost);
   }
 
@@ -178,6 +182,7 @@ class OpPluginInstance {
     );
     if (!vaults.length) {
       throw new ResolutionError(`1Password Connect: vault "${vaultQuery}" not found`, {
+        code: 'NOT_FOUND',
         tip: 'Check the vault name or ID in your op:// reference',
       });
     }
@@ -208,6 +213,7 @@ class OpPluginInstance {
     );
     if (!items.length) {
       throw new ResolutionError(`1Password Connect: item "${itemQuery}" not found in vault`, {
+        code: 'NOT_FOUND',
         tip: 'Check the item name or ID in your op:// reference',
       });
     }
@@ -227,7 +233,7 @@ class OpPluginInstance {
       if (!section) {
         throw new ResolutionError(
           `1Password Connect: section "${sectionQuery}" not found in item "${item.title || item.id}"`,
-          { tip: `Available sections: ${sections.map((s) => s.label || s.id).join(', ') || '(none)'}` },
+          { code: 'NOT_FOUND', tip: `Available sections: ${sections.map((s) => s.label || s.id).join(', ') || '(none)'}` },
         );
       }
       sectionId = section.id;
@@ -245,7 +251,7 @@ class OpPluginInstance {
     if (!field) {
       throw new ResolutionError(
         `1Password Connect: field "${fieldQuery}" not found in item "${item.title || item.id}"`,
-        { tip: `Available fields: ${candidates.map((f) => f.label || f.id).join(', ') || '(none)'}` },
+        { code: 'NOT_FOUND', tip: `Available fields: ${candidates.map((f) => f.label || f.id).join(', ') || '(none)'}` },
       );
     }
 
@@ -347,7 +353,11 @@ class OpPluginInstance {
         for (const dp of batch[ref].defers) {
           const itemResponse = result.individualResponses[ref];
           if (itemResponse.error) {
-            dp.reject(new ResolutionError(`1Password error - ${itemResponse.error.message || itemResponse.error.type}`));
+            const errMsg = itemResponse.error.message || itemResponse.error.type || '';
+            const isNotFound = /not.?found|does.?not.?exist|no.?such/i.test(errMsg);
+            dp.reject(new ResolutionError(`1Password error - ${errMsg}`, {
+              ...isNotFound && { code: 'NOT_FOUND' },
+            }));
           } else if (itemResponse.content) {
             dp.resolve(itemResponse.content.secret);
           } else {
@@ -375,6 +385,15 @@ class OpPluginInstance {
   }
 }
 const pluginInstances: Record<string, OpPluginInstance> = {};
+
+/** Returns true if the error represents a missing 1Password item/field/vault */
+function isNotFoundError(err: any): boolean {
+  const code = err?.code;
+  return code === 'NOT_FOUND'
+    || code === 'BAD_ITEM_REFERENCE'
+    || code === 'BAD_FIELD_REFERENCE'
+    || code === 'BAD_VAULT_REFERENCE';
+}
 
 plugin.registerRootDecorator({
   name: 'initOp',
@@ -405,6 +424,12 @@ plugin.registerRootDecorator({
     }
     const connectHost = objArgs?.connectHost ? String(objArgs?.connectHost?.staticValue) : undefined;
 
+    // allowMissing must be static
+    if (objArgs.allowMissing && !objArgs.allowMissing.isStatic) {
+      throw new SchemaError('Expected allowMissing to be a static value');
+    }
+    const allowMissing = objArgs?.allowMissing ? !!objArgs.allowMissing.staticValue : undefined;
+
     // user should set one of: token, allowAppAuth, or connectHost+connectToken
     // we will check again later with resolved values
     if (!objArgs.token && !objArgs.allowAppAuth && !(connectHost && objArgs.connectToken)) {
@@ -429,13 +454,14 @@ plugin.registerRootDecorator({
       id,
       account,
       connectHost,
+      allowMissing,
       tokenResolver: objArgs.token,
       allowAppAuthResolver: objArgs.allowAppAuth,
       connectTokenResolver: objArgs.connectToken,
     };
   },
   async execute({
-    id, account, connectHost, tokenResolver, allowAppAuthResolver, connectTokenResolver,
+    id, account, connectHost, allowMissing, tokenResolver, allowAppAuthResolver, connectTokenResolver,
   }) {
     // even if these are empty, we can't throw errors yet
     // in case the instance is never actually used
@@ -448,6 +474,7 @@ plugin.registerRootDecorator({
       account,
       connectHost,
       connectToken as string | undefined,
+      allowMissing,
     );
   },
 });
@@ -490,7 +517,7 @@ plugin.registerResolverFunction({
   label: 'Fetch single field value from 1Password',
   icon: OP_ICON,
   argsSchema: {
-    type: 'array',
+    type: 'mixed',
     arrayMinLength: 1,
   },
   process() {
@@ -508,6 +535,13 @@ plugin.registerResolverFunction({
     } else {
       throw new SchemaError('Expected 1 or 2 args');
     }
+
+    // extract allowMissing named arg if provided
+    const allowMissingResolver = this.objArgs?.allowMissing;
+    if (allowMissingResolver && !allowMissingResolver.isStatic) {
+      throw new SchemaError('expected allowMissing to be a static value');
+    }
+    const allowMissing = allowMissingResolver ? !!allowMissingResolver.staticValue : undefined;
 
     if (!Object.values(pluginInstances).length) {
       throw new SchemaError('No 1Password plugin instances found', {
@@ -533,16 +567,24 @@ plugin.registerResolverFunction({
       }
     }
 
-    return { instanceId, itemLocationResolver };
+    return { instanceId, itemLocationResolver, allowMissing };
   },
-  async resolve({ instanceId, itemLocationResolver }) {
+  async resolve({ instanceId, itemLocationResolver, allowMissing }) {
     const selectedInstance = pluginInstances[instanceId];
     const opReference = await itemLocationResolver.resolve();
     if (typeof opReference !== 'string') {
       throw new SchemaError('expected op item location to resolve to a string');
     }
-    const opValue = await selectedInstance.readItem(opReference);
-    return opValue;
+    const shouldAllowMissing = allowMissing ?? selectedInstance.allowMissing;
+    try {
+      const opValue = await selectedInstance.readItem(opReference);
+      return opValue;
+    } catch (err) {
+      if (shouldAllowMissing && isNotFoundError(err)) {
+        return undefined;
+      }
+      throw err;
+    }
   },
 });
 

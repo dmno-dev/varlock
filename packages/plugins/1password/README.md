@@ -141,6 +141,25 @@ DB_PASS=op(op://my-vault/database-password/password)
 API_KEY=op(op://api-vault/stripe/api-key)
 ```
 
+### Optional secrets with fallback
+
+Use `allowMissing=true` on `op()` to return `undefined` when an item doesn't exist in 1Password, then combine with `fallback()` to provide a default value:
+
+```env-spec
+# If the item exists in 1Password, its value is used.
+# If not found, falls back to the default "local-dev-key".
+SOME_API_KEY=fallback(op(op://my-vault/some-item/DOES_NOT_EXIST, allowMissing=true), "local-dev-key")
+```
+
+You can also set `allowMissing=true` on `@initOp()` to apply it to all `op()` calls for that instance:
+
+```env-spec
+# @initOp(token=$OP_TOKEN, allowMissing=true)
+# ---
+
+SOME_API_KEY=fallback(op(op://my-vault/some-item/field), "local-dev-key")
+```
+
 **How to find a secret reference:**
 
 In 1Password, click on the down arrow icon on any field and select `Copy Secret Reference`.
@@ -202,6 +221,7 @@ Initialize a 1Password plugin instance - setting up options and authentication. 
 - `connectHost?: string` - URL of a self-hosted 1Password Connect server (e.g., `http://connect-server:8080`)
 - `connectToken?: string` - API token for the Connect server. Should be a reference to a config item of type `opConnectToken`. Required when `connectHost` is set.
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
+- `allowMissing?: boolean` - When `true`, all `op()` calls for this instance will return `undefined` instead of throwing when the referenced item/field is not found. Other errors (auth failures, bad format, etc.) still throw.
 
 ### Functions
 
@@ -213,6 +233,12 @@ Fetch an individual field using a 1Password secret reference.
 
 - `op(secretReference)` - Fetch from default instance
 - `op(instanceId, secretReference)` - Fetch from a specific instance
+- `op(secretReference, allowMissing=true)` - Return `undefined` if the item is not found
+- `op(instanceId, secretReference, allowMissing=true)` - Same, with a specific instance
+
+**Named parameters:**
+
+- `allowMissing?: boolean` - When `true`, returns `undefined` instead of throwing if the referenced item/field is not found. Useful when combined with `fallback()` to provide a default value. Other errors (auth failures, invalid format, etc.) still throw.
 
 **Secret Reference Format:**
 
