@@ -467,14 +467,13 @@ fn get_peer_tty_id(_stream: &UnixStream) -> Option<String> {
 #[cfg(windows)]
 fn create_current_user_security_attributes() -> Result<windows::Win32::Security::SECURITY_ATTRIBUTES, String> {
     use windows::Win32::Security::{
-        SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR,
+        SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR, PSECURITY_DESCRIPTOR,
         InitializeSecurityDescriptor, SetSecurityDescriptorDacl,
-        SECURITY_DESCRIPTOR_REVISION,
     };
     use windows::Win32::Security::Authorization::{
         SetEntriesInAclW, EXPLICIT_ACCESS_W, SET_ACCESS,
         TRUSTEE_W, TRUSTEE_IS_SID, TRUSTEE_TYPE,
-        NO_INHERITANCE, TRUSTEE_FORM,
+        MULTIPLE_TRUSTEE_OPERATION,
     };
     use windows::Win32::Security::{
         GetTokenInformation, TokenUser, TOKEN_USER, TOKEN_QUERY,
@@ -507,13 +506,13 @@ fn create_current_user_security_attributes() -> Result<windows::Win32::Security:
         let mut ea = EXPLICIT_ACCESS_W {
             grfAccessPermissions: GENERIC_ALL.0,
             grfAccessMode: SET_ACCESS,
-            grfInheritance: NO_INHERITANCE,
+            grfInheritance: 0, // NO_INHERITANCE
             Trustee: TRUSTEE_W {
                 TrusteeForm: TRUSTEE_IS_SID,
                 TrusteeType: TRUSTEE_TYPE(0), // TRUSTEE_IS_UNKNOWN
                 ptstrName: windows::core::PWSTR(user_sid.0 as *mut u16),
                 pMultipleTrustee: std::ptr::null_mut(),
-                MultipleTrusteeOperation: TRUSTEE_FORM(0),
+                MultipleTrusteeOperation: MULTIPLE_TRUSTEE_OPERATION(0),
             },
         };
 
@@ -531,12 +530,12 @@ fn create_current_user_security_attributes() -> Result<windows::Win32::Security:
         }
 
         InitializeSecurityDescriptor(
-            sd_ptr as *mut _,
-            SECURITY_DESCRIPTOR_REVISION,
+            PSECURITY_DESCRIPTOR(sd_ptr as *mut _),
+            1, // SECURITY_DESCRIPTOR_REVISION
         ).map_err(|e| format!("InitializeSecurityDescriptor failed: {e}"))?;
 
         SetSecurityDescriptorDacl(
-            sd_ptr as *mut _,
+            PSECURITY_DESCRIPTOR(sd_ptr as *mut _),
             true,
             Some(acl as *const _),
             false,
