@@ -506,7 +506,7 @@ fn create_current_user_security_attributes() -> Result<windows::Win32::Security:
         let mut ea = EXPLICIT_ACCESS_W {
             grfAccessPermissions: GENERIC_ALL.0,
             grfAccessMode: SET_ACCESS,
-            grfInheritance: 0, // NO_INHERITANCE
+            grfInheritance: windows::Win32::Security::ACE_FLAGS(0), // NO_INHERITANCE
             Trustee: TRUSTEE_W {
                 TrusteeForm: TRUSTEE_IS_SID,
                 TrusteeType: TRUSTEE_TYPE(0), // TRUSTEE_IS_UNKNOWN
