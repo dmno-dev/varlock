@@ -100,12 +100,13 @@ export abstract class EnvGraphDataSource {
   }
 
   /**
-   * Marks a data source as an explicitly specified top-level entry point (e.g. specified
-   * via `loadPath` in package.json or `--path` CLI flag). When true, the source is not
-   * treated as env-specific based on its filename even if it has a parent (e.g. when wrapped
-   * in a MultiplePathsContainerDataSource as part of a multi-path setup).
+   * When true, direct children of this data source are treated as top-level entry points:
+   * they inherit the "no parent" semantics and are never classified as env-specific
+   * solely because of their filename (e.g. `.env.production` used as an explicit entry
+   * point would not be env-specific, but one auto-loaded inside a directory would be).
+   * Only `MultiplePathsContainerDataSource` sets this to true.
    */
-  isExplicitRoot?: boolean;
+  childrenAreRoots?: boolean;
 
   /**
    * Whether this data source is environment-specific.
@@ -119,12 +120,12 @@ export abstract class EnvGraphDataSource {
    * Note: `applyForEnv` from filename parsing is only relevant for auto-loaded files.
    * Explicitly imported files (via `@import`) are controlled by the import mechanism,
    * not the auto-load-by-env logic, so their `applyForEnv` is ignored here.
-   * Similarly, a file that is the explicit root entry point (no parent, or marked with
-   * `isExplicitRoot`) is never treated as env-specific even if its filename contains
-   * an env qualifier.
+   * Similarly, a file that is the explicit root entry point (no parent, or whose parent
+   * has `childrenAreRoots` set) is never treated as env-specific even if its filename
+   * contains an env qualifier.
    */
   get isEnvSpecific(): boolean {
-    if (this.applyForEnv && !this.isImport && this.parent && !this.isExplicitRoot) return true;
+    if (this.applyForEnv && !this.isImport && this.parent && !this.parent?.childrenAreRoots) return true;
     if (this.type === 'overrides') return true;
     if (this._hasConditionalDisable) return true;
     if (this.importMeta?.isConditionallyEnabled) return true;
@@ -923,6 +924,12 @@ export class MultiplePathsContainerDataSource extends EnvGraphDataSource {
   typeLabel = 'multi-path-container';
   get label() { return `multi-path container (${this.paths.length} paths)`; }
 
+  /**
+   * Direct children of this container are treated as top-level entry points,
+   * inheriting root semantics (never classified as env-specific due to filename).
+   */
+  childrenAreRoots = true;
+
   constructor(
     /** Pre-resolved absolute paths (directories ending with path.sep, or file paths) */
     readonly paths: Array<string>,
@@ -934,16 +941,18 @@ export class MultiplePathsContainerDataSource extends EnvGraphDataSource {
     if (!this.graph) throw new Error('expected graph to be set');
 
     for (const entryPath of this.paths) {
-      const stat = await fs.stat(entryPath).catch(() => undefined);
       const isDirectory = entryPath.endsWith('/') || entryPath.endsWith(path.sep)
-        || (stat?.isDirectory() ?? false);
+        || (!this.graph.virtualImports && await fs.stat(entryPath).then((s) => s.isDirectory()).catch(() => false));
 
-      const child: EnvGraphDataSource = isDirectory
-        ? new DirectoryDataSource(entryPath)
-        : new DotEnvFileDataSource(entryPath);
-
-      // Mark as an explicit root entry point so `isEnvSpecific` behaves as if it had no parent
-      child.isExplicitRoot = true;
+      let child: EnvGraphDataSource;
+      if (isDirectory) {
+        child = new DirectoryDataSource(entryPath);
+      } else {
+        // For file sources, pass through virtual contents when available
+        const virtualContents = this.graph.virtualImports?.[entryPath];
+        const overrideOpts = virtualContents ? { overrideContents: virtualContents } : undefined;
+        child = new DotEnvFileDataSource(entryPath, overrideOpts);
+      }
 
       await this._initChild(child);
       // For DirectoryDataSource, imports are handled internally in its own _finishInit.

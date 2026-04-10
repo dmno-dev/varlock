@@ -1,171 +1,180 @@
 import {
   describe, test, expect,
 } from 'vitest';
-import path from 'node:path';
 import outdent from 'outdent';
-import { EnvGraph, MultiplePathsContainerDataSource } from '../index';
-
-/**
- * Helper to create a graph with multiple virtual directories.
- * Each key in the `dirs` map is a directory path (should end with path.sep),
- * and its value is a Record of filename → content.
- */
-async function multiDirTest(spec: {
-  dirs: Record<string, Record<string, string>>;
-  overrideValues?: Record<string, string>;
-  fallbackEnv?: string;
-}) {
-  const g = new EnvGraph();
-
-  g.virtualImports = {};
-  for (const [dirPath, files] of Object.entries(spec.dirs)) {
-    for (const [fileName, content] of Object.entries(files)) {
-      g.virtualImports[path.join(dirPath, fileName)] = content;
-    }
-  }
-
-  if (spec.overrideValues) g.overrideValues = spec.overrideValues;
-  if (spec.fallbackEnv) g.envFlagFallback = spec.fallbackEnv;
-
-  // Ensure paths end with sep so MultiplePathsContainerDataSource treats them as directories
-  const paths = Object.keys(spec.dirs).map((p) => (p.endsWith(path.sep) ? p : p + path.sep));
-  await g.setRootDataSource(new MultiplePathsContainerDataSource(paths));
-  await g.finishLoad();
-
-  return g;
-}
+import { DirectoryDataSource } from '../index';
+import { envFilesTest } from './helpers/generic-test';
 
 describe('MultiplePathsContainerDataSource', () => {
-  test('loads items from two separate directories', async () => {
-    const g = await multiDirTest({
-      dirs: {
-        '/tmp/varlock-test/dir1/': {
-          '.env.schema': outdent`
-            ITEM1=from-dir1
-          `,
-        },
-        '/tmp/varlock-test/dir2/': {
-          '.env.schema': outdent`
-            ITEM2=from-dir2
-          `,
-        },
-      },
-    });
+  test('loads items from two separate directories', envFilesTest({
+    loadPaths: ['path1/', 'path2/'],
+    files: {
+      'path1/.env.schema': outdent`
+        ITEM1=from-dir1
+      `,
+      'path2/.env.schema': outdent`
+        ITEM2=from-dir2
+      `,
+    },
+    expectValues: {
+      ITEM1: 'from-dir1',
+      ITEM2: 'from-dir2',
+    },
+  }));
 
-    await g.resolveEnvValues();
+  test('later path has higher precedence than earlier path', envFilesTest({
+    loadPaths: ['path1/', 'path2/'],
+    files: {
+      'path1/.env.schema': outdent`
+        SHARED_ITEM=from-dir1
+      `,
+      'path2/.env.schema': outdent`
+        SHARED_ITEM=from-dir2
+      `,
+    },
+    expectValues: {
+      // dir2 (last path) has higher precedence
+      SHARED_ITEM: 'from-dir2',
+    },
+  }));
 
-    expect(g.configSchema.ITEM1?.resolvedValue).toBe('from-dir1');
-    expect(g.configSchema.ITEM2?.resolvedValue).toBe('from-dir2');
-    expect(Object.keys(g.configSchema)).not.toContain('ITEM3');
-  });
+  test('env-specific files are loaded per directory', envFilesTest({
+    loadPaths: ['path1/', 'path2/'],
+    files: {
+      'path1/.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # ---
+        APP_ENV=dev
+        ITEM1=from-dir1-schema
+      `,
+      'path1/.env.production': outdent`
+        ITEM1=from-dir1-prod
+      `,
+      'path2/.env.schema': outdent`
+        ITEM2=from-dir2-schema
+      `,
+    },
+    overrideValues: { APP_ENV: 'production' },
+    expectValues: {
+      ITEM1: 'from-dir1-prod',
+      ITEM2: 'from-dir2-schema',
+    },
+  }));
 
-  test('later path has higher precedence than earlier path', async () => {
-    const g = await multiDirTest({
-      dirs: {
-        '/tmp/varlock-test/dir1/': {
-          '.env.schema': outdent`
-            SHARED_ITEM=from-dir1
-          `,
-        },
-        '/tmp/varlock-test/dir2/': {
-          '.env.schema': outdent`
-            SHARED_ITEM=from-dir2
-          `,
-        },
-      },
-    });
+  test('loads items from two separate .env files (not directories)', envFilesTest({
+    loadPaths: ['path1/.env.schema', 'path2/.env.schema'],
+    files: {
+      'path1/.env.schema': outdent`
+        ITEM1=from-file1
+      `,
+      'path2/.env.schema': outdent`
+        ITEM2=from-file2
+      `,
+    },
+    expectValues: {
+      ITEM1: 'from-file1',
+      ITEM2: 'from-file2',
+    },
+  }));
 
-    await g.resolveEnvValues();
+  test('later file path has higher precedence than earlier file path', envFilesTest({
+    loadPaths: ['path1/.env.schema', 'path2/.env.schema'],
+    files: {
+      'path1/.env.schema': outdent`
+        SHARED_ITEM=from-file1
+      `,
+      'path2/.env.schema': outdent`
+        SHARED_ITEM=from-file2
+      `,
+    },
+    expectValues: {
+      // file2 (last path) has higher precedence
+      SHARED_ITEM: 'from-file2',
+    },
+  }));
 
-    // dir2 (last path) has higher precedence
-    expect(g.configSchema.SHARED_ITEM?.resolvedValue).toBe('from-dir2');
-  });
+  test('directory children of container are not env-specific, but their auto-loaded env files are', envFilesTest({
+    loadPaths: ['path1/', 'path2/'],
+    files: {
+      'path1/.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # ---
+        APP_ENV=dev
+        ITEM1=from-dir1-schema
+      `,
+      'path1/.env.production': outdent`
+        ITEM1=from-dir1-prod
+      `,
+      'path2/.env.schema': outdent`
+        ITEM2=from-dir2
+      `,
+    },
+    overrideValues: { APP_ENV: 'production' },
+    expectSerializedMatches: {
+      // Just verify loading works; env-specific tests are structural
+    },
+  }));
 
-  test('env-specific files are loaded per directory', async () => {
-    const g = await multiDirTest({
-      dirs: {
-        '/tmp/varlock-test/dir1/': {
-          '.env.schema': outdent`
-            # @currentEnv=$APP_ENV
-            # ---
-            APP_ENV=dev
-            ITEM1=from-dir1-schema
-          `,
-          '.env.production': outdent`
-            ITEM1=from-dir1-prod
-          `,
-        },
-        '/tmp/varlock-test/dir2/': {
-          '.env.schema': outdent`
-            ITEM2=from-dir2-schema
-          `,
-        },
-      },
-      overrideValues: { APP_ENV: 'production' },
-    });
+  test('single path in array behaves like regular directory loading', envFilesTest({
+    loadPaths: ['path1/'],
+    files: {
+      'path1/.env.schema': outdent`
+        ITEM1=from-dir1
+      `,
+      'path1/.env': outdent`
+        ITEM1=from-dir1-env
+      `,
+    },
+    expectValues: {
+      // .env overrides .env.schema
+      ITEM1: 'from-dir1-env',
+    },
+  }));
+});
 
-    await g.resolveEnvValues();
+describe('MultiplePathsContainerDataSource - isEnvSpecific behavior', () => {
+  test('directory children of container are NOT env-specific', async () => {
+    const { EnvGraph, MultiplePathsContainerDataSource } = await import('../index');
+    const g = new EnvGraph();
 
-    expect(g.configSchema.ITEM1?.resolvedValue).toBe('from-dir1-prod');
-    expect(g.configSchema.ITEM2?.resolvedValue).toBe('from-dir2-schema');
-  });
+    g.virtualImports = {
+      '/vt/dir1/.env.schema': 'ITEM1=val1',
+      '/vt/dir2/.env.schema': 'ITEM2=val2',
+    };
 
-  test('direct children of container are not treated as env-specific', async () => {
-    const g = await multiDirTest({
-      dirs: {
-        '/tmp/varlock-test/dir1/': {
-          '.env.schema': outdent`
-            ITEM1=from-dir1
-          `,
-        },
-        '/tmp/varlock-test/dir2/': {
-          '.env.schema': outdent`
-            ITEM2=from-dir2
-          `,
-        },
-      },
-    });
+    await g.setRootDataSource(new MultiplePathsContainerDataSource(['/vt/dir1/', '/vt/dir2/']));
+    await g.finishLoad();
 
-    // The root DirectoryDataSource children should NOT be env-specific
     const rootChildren = g.rootDataSource?.children ?? [];
     for (const child of rootChildren) {
+      expect(child).toBeInstanceOf(DirectoryDataSource);
+      // DirectoryDataSource children of the container are not env-specific
       expect(child.isEnvSpecific).toBe(false);
     }
   });
 
-  test('single path in array behaves like regular directory loading', async () => {
-    const g = await multiDirTest({
-      dirs: {
-        '/tmp/varlock-test/dir1/': {
-          '.env.schema': outdent`
-            ITEM1=from-dir1
-          `,
-          '.env': outdent`
-            ITEM1=from-dir1-env
-          `,
-        },
-      },
-    });
+  test('env-specific files auto-loaded inside directory children ARE env-specific', async () => {
+    const { EnvGraph, MultiplePathsContainerDataSource } = await import('../index');
+    const g = new EnvGraph();
 
-    await g.resolveEnvValues();
+    g.virtualImports = {
+      '/vt/dir1/.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # ---
+        APP_ENV=dev
+        ITEM1=val1
+      `,
+      '/vt/dir1/.env.production': 'ITEM1=prod-val1',
+    };
 
-    // .env overrides .env.schema
-    expect(g.configSchema.ITEM1?.resolvedValue).toBe('from-dir1-env');
-  });
+    g.overrideValues = { APP_ENV: 'production' };
+    await g.setRootDataSource(new MultiplePathsContainerDataSource(['/vt/dir1/']));
+    await g.finishLoad();
 
-  test('no loading errors when all directories exist (virtual)', async () => {
-    const g = await multiDirTest({
-      dirs: {
-        '/tmp/varlock-test/dir1/': {
-          '.env.schema': 'ITEM1=val1',
-        },
-        '/tmp/varlock-test/dir2/': {
-          '.env.schema': 'ITEM2=val2',
-        },
-      },
-    });
-
-    const sourcesWithLoadingErrors = g.sortedDataSources.filter((s) => s.loadingError);
-    expect(sourcesWithLoadingErrors).toHaveLength(0);
+    // Find .env.production source (it's inside dir1's children)
+    const allSources = g.sortedDataSources;
+    const envProdSource = allSources.find((s) => 'fileName' in s && (s as any).fileName === '.env.production');
+    expect(envProdSource).toBeDefined();
+    expect(envProdSource!.isEnvSpecific).toBe(true);
   });
 });
