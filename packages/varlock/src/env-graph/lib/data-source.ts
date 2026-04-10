@@ -950,7 +950,10 @@ export class MultiplePathsContainerDataSource extends EnvGraphDataSource {
       } else {
         // For file sources, pass through virtual contents when available
         const virtualContents = this.graph.virtualImports?.[entryPath];
-        child = new DotEnvFileDataSource(entryPath, virtualContents ? { overrideContents: virtualContents } : undefined);
+        child = new DotEnvFileDataSource(
+          entryPath,
+          virtualContents ? { overrideContents: virtualContents } : undefined,
+        );
       }
 
       await this._initChild(child);
