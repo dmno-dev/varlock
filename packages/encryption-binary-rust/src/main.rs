@@ -181,9 +181,9 @@ fn cmd_decrypt(args: &[String]) {
     };
 
     let secure_key = secure_mem::SecureBytes::new(private_key_der);
-    let private_key_b64 = BASE64.encode(secure_key.as_slice());
+    let private_key_b64 = secure_mem::SecureString::new(BASE64.encode(secure_key.as_slice()));
 
-    match crypto::decrypt(&private_key_b64, &public_key_b64, &data_b64) {
+    match crypto::decrypt(private_key_b64.as_str(), &public_key_b64, &data_b64) {
         Ok(plaintext_bytes) => {
             let plaintext = match String::from_utf8(plaintext_bytes) {
                 Ok(s) => s,

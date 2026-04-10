@@ -102,7 +102,7 @@ jobs:
       # Compile (cached), bundle with mode-specific metadata, and sign
       - name: Build, bundle, and sign
         run: |
-          bun run --filter @varlock/encryption-binary-swift build:swift \
+          bun run --filter @varlock/encryption-binary-swift build:universal \
             -- --mode ${{ inputs.mode }} --version ${{ inputs.version }} --sign "$APPLE_SIGNING_IDENTITY"
 
       - name: Verify binary

@@ -15,7 +15,7 @@ impl SecureBytes {
     /// Create a SecureBytes from existing data. Locks the memory region.
     pub fn new(data: Vec<u8>) -> Self {
         if !data.is_empty() {
-            lock_memory(data.as_ptr(), data.len());
+            lock_memory(data.as_ptr(), data.capacity());
         }
         Self { inner: data }
     }
@@ -27,15 +27,39 @@ impl SecureBytes {
 
 impl Drop for SecureBytes {
     fn drop(&mut self) {
-        let ptr = self.inner.as_ptr();
-        let len = self.inner.len();
-
-        // Zeroize the contents
+        // Zeroize first while memory is still valid and locked
+        let cap = self.inner.capacity();
         self.inner.zeroize();
 
-        // Unlock the memory region
-        if len > 0 {
-            unlock_memory(ptr, len);
+        // Unlock after zeroizing — pointer is still valid (Vec keeps allocation until drop)
+        if cap > 0 {
+            unlock_memory(self.inner.as_ptr(), cap);
+        }
+    }
+}
+
+/// A String wrapper that zeroizes on drop. For derived representations
+/// of key material (e.g., base64-encoded private keys).
+pub struct SecureString {
+    inner: String,
+}
+
+impl SecureString {
+    pub fn new(s: String) -> Self {
+        Self { inner: s }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.inner
+    }
+}
+
+impl Drop for SecureString {
+    fn drop(&mut self) {
+        // Safety: zeroize the underlying bytes
+        unsafe {
+            let bytes = self.inner.as_bytes_mut();
+            bytes.zeroize();
         }
     }
 }

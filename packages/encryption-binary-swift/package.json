@@ -5,8 +5,8 @@
   "private": true,
   "scripts": {
     "kill-daemon": "bun run scripts/kill-daemon.ts",
-    "build:swift": "bun run kill-daemon && bun run scripts/build-swift.ts --universal",
-    "build:swift:dev": "bun run kill-daemon && bun run scripts/build-swift.ts",
+    "build:universal": "bun run kill-daemon && bun run scripts/build-swift.ts --universal",
+    "build:current": "bun run kill-daemon && bun run scripts/build-swift.ts",
     "clean": "rm -rf swift/.build"
   },
   "devDependencies": {

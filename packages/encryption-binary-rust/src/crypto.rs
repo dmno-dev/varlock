@@ -22,6 +22,7 @@ use p256::{
     PublicKey, SecretKey,
 };
 use sha2::Sha256;
+use zeroize::Zeroize;
 
 const PAYLOAD_VERSION: u8 = 0x01;
 const HKDF_SALT: &[u8] = b"varlock-ecies-v1";
@@ -107,7 +108,11 @@ pub fn encrypt(public_key_base64: &str, plaintext: &[u8]) -> Result<String, Stri
 
     // AES-256-GCM encrypt
     let cipher = Aes256Gcm::new_from_slice(&aes_key)
-        .map_err(|e| format!("AES key init failed: {e}"))?;
+        .map_err(|e| {
+            aes_key.zeroize();
+            format!("AES key init failed: {e}")
+        })?;
+    aes_key.zeroize(); // Cipher has its own copy
 
     let mut nonce_bytes = [0u8; NONCE_LENGTH];
     rand::RngCore::fill_bytes(&mut OsRng, &mut nonce_bytes);
@@ -166,11 +171,15 @@ pub fn decrypt(
     }
 
     // Import private key from PKCS8 DER
-    let private_key_der = BASE64
+    let mut private_key_der = BASE64
         .decode(private_key_base64)
         .map_err(|e| format!("Invalid private key base64: {e}"))?;
     let secret_key = SecretKey::from_pkcs8_der(&private_key_der)
-        .map_err(|e| format!("Invalid PKCS8 private key: {e}"))?;
+        .map_err(|e| {
+            private_key_der.zeroize();
+            format!("Invalid PKCS8 private key: {e}")
+        })?;
+    private_key_der.zeroize(); // No longer needed — SecretKey has its own copy
 
     // Import ephemeral public key
     let ephemeral_point = p256::EncodedPoint::from_bytes(ephemeral_pub_raw)
@@ -204,7 +213,12 @@ pub fn decrypt(
     // AES-256-GCM decrypt
     // aes-gcm expects ciphertext || tag concatenated (same as wire format after header)
     let cipher = Aes256Gcm::new_from_slice(&aes_key)
-        .map_err(|e| format!("AES key init failed: {e}"))?;
+        .map_err(|e| {
+            aes_key.zeroize();
+            format!("AES key init failed: {e}")
+        })?;
+    aes_key.zeroize(); // Cipher has its own copy — zeroize ours
+
     let nonce = Nonce::from_slice(nonce_bytes);
 
     let plaintext = cipher

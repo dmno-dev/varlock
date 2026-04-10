@@ -18,9 +18,6 @@ final class SessionManager {
     /// How long the daemon stays alive with no connections at all
     static let daemonInactivityTimeout: TimeInterval = 1800 // 30 minutes
 
-    /// Fallback key for processes without a controlling terminal
-    static let noTtyFallback = "__no_tty__"
-
     /// Per-TTY cached LAContext (macOS owns the timeout via reuse duration)
     private var contexts: [String: LAContext] = [:]
     private let queue = DispatchQueue(label: "dev.varlock.session")
@@ -44,18 +41,19 @@ final class SessionManager {
     /// Get or create an authenticated LAContext for the given TTY.
     /// On first call per TTY, triggers Touch ID. Subsequent calls within the
     /// reuse duration return the cached context without re-prompting.
+    ///
+    /// Processes without a controlling TTY (detached, background, etc.) always
+    /// require fresh authentication — they never share or cache sessions, since
+    /// there's no stable identity to scope the session to.
     func getAuthenticatedContext(ttyId: String?) throws -> LAContext {
-        let key = ttyId ?? SessionManager.noTtyFallback
-
         return try queue.sync {
-            // Return cached context if available — macOS handles expiry
-            // via touchIDAuthenticationAllowableReuseDuration
-            if let context = contexts[key] {
+            // For processes with a TTY, check for cached context
+            if let key = ttyId, let context = contexts[key] {
                 resetDaemonTimer()
                 return context
             }
 
-            // Need fresh auth for this TTY
+            // Need fresh auth (always for no-TTY, or first time for this TTY)
             let context = LAContext()
             context.touchIDAuthenticationAllowableReuseDuration = SessionManager.sessionTimeout
 
@@ -88,8 +86,12 @@ final class SessionManager {
                 throw EnclaveError.biometricFailed(error.localizedDescription)
             }
 
-            // Cache the authenticated context for this TTY
-            contexts[key] = context
+            // Only cache if the process has a TTY identity to scope the session to.
+            // No-TTY callers get a fresh context every time — there's no stable
+            // identity to prevent session sharing across unrelated processes.
+            if let key = ttyId {
+                contexts[key] = context
+            }
             resetDaemonTimer()
 
             return context
@@ -115,9 +117,10 @@ final class SessionManager {
     }
 
     /// Whether the given TTY has a cached session.
+    /// Always returns false for no-TTY callers (they never cache).
     /// Note: the session may still re-prompt if macOS's reuse duration has expired.
     func isSessionWarm(ttyId: String?) -> Bool {
-        let key = ttyId ?? SessionManager.noTtyFallback
+        guard let key = ttyId else { return false }
         return queue.sync {
             return contexts[key] != nil
         }
