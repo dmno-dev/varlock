@@ -1,5 +1,16 @@
 # @varlock/1password-plugin
 
+## 0.3.4
+
+### Patch Changes
+
+- [#564](https://github.com/dmno-dev/varlock/pull/564) [`2870d0a`](https://github.com/dmno-dev/varlock/commit/2870d0a15b3bfb4b11e4e9e9a59993c8fbec7e66) - pass through USER and HOME to op cli calls
+
+- [#586](https://github.com/dmno-dev/varlock/pull/586) [`c2a98ee`](https://github.com/dmno-dev/varlock/commit/c2a98ee9125b10b61d6f813b07c863387c65383a) - Add `allowMissing` flag to `op()` and `@initOp()` - when set, missing items return `undefined` instead of throwing, enabling use with `fallback()` to supply default values
+
+- Updated dependencies [[`f640d08`](https://github.com/dmno-dev/varlock/commit/f640d081088feaa88fd9e855b3cc815cc271b08b), [`8337445`](https://github.com/dmno-dev/varlock/commit/83374450753a1c1093120ed591f0c1d4c2bf71cf), [`349d517`](https://github.com/dmno-dev/varlock/commit/349d517ee9bd84e12c4e7715e23b7fa2074a6f28), [`f582766`](https://github.com/dmno-dev/varlock/commit/f58276693e26d384397c737946cb8111a64877e5)]:
+  - varlock@0.7.3
+
 ## 0.3.3
 
 ### Patch Changes
