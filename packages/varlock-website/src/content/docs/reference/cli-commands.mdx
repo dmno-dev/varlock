@@ -138,15 +138,15 @@ varlock run -- sh -c 'echo $MY_VAR' # ✅ will work
 :::
 
 :::note[Interactive tools and TTY detection]
-By default, `varlock run` pipes stdout/stderr through a redaction filter, which causes child processes to detect `!process.stdout.isTTY` and enter non-interactive mode. This can break interactive tools like `claude` or `psql` that require TTY detection.
+By default, `varlock run` pipes stdout/stderr through a redaction filter. To preserve color output, varlock automatically injects `FORCE_COLOR` into the child process environment when the parent terminal is a TTY. This means most CLI tools that use color libraries (chalk, kleur, etc.) will still display colors while redaction remains active.
 
-Use `--no-redact-stdout` to disable stdout/stderr redaction and preserve TTY detection:
+For tools that require a fully connected TTY (e.g., interactive tools like `psql` or `claude` that use raw terminal features), use `--no-redact-stdout` to bypass piping entirely:
 ```bash
 varlock run --no-redact-stdout -- claude --env development
 varlock run --no-redact-stdout -- bash -c 'psql $DATABASE_URL'
 ```
 
-Note: This flag only disables stdout/stderr redaction. Other redaction mechanisms (like console patching) may still apply if enabled in your configuration.
+Note: `--no-redact-stdout` disables stdout/stderr redaction entirely. Use it only when a tool needs true TTY pass-through.
 :::
 
 </div>
