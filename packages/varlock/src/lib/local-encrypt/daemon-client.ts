@@ -84,7 +84,15 @@ export class DaemonClient {
       // Daemon not running, spawn it
     }
 
-    await this.spawnDaemon();
+    try {
+      await this.spawnDaemon();
+    } catch {
+      // Another process may have won the race to spawn the daemon.
+      // Wait briefly for it to be ready, then try connecting.
+      await new Promise<void>((r) => {
+        setTimeout(r, 1000);
+      });
+    }
     await this.connectToSocket(socketPath);
   }
 

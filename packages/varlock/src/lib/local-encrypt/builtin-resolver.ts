@@ -29,7 +29,7 @@ type VarlockResolverState = {
 function writeBackEncryptedValue(itemKey: string, ciphertext: string, sourceFilePath: string | undefined) {
   if (!sourceFilePath) return;
   const currentContents = fs.readFileSync(sourceFilePath, 'utf-8');
-  const pattern = new RegExp(`^(${escapeRegExp(itemKey)}\\s*=\\s*)varlock\\(prompt(?:=\\S*)?\\)`, 'm');
+  const pattern = new RegExp(`^(${escapeRegExp(itemKey)}\\s*=\\s*)varlock\\([^)]*\\)`, 'm');
   const prefixedCiphertext = `${LOCAL_PREFIX}${ciphertext}`;
   const updatedContents = currentContents.replace(pattern, `$1varlock("${prefixedCiphertext}")`);
   if (updatedContents !== currentContents) {
@@ -105,8 +105,7 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
 
     // Use daemon's native dialog on macOS Secure Enclave
     if (backend.type === 'secure-enclave' && backend.biometricAvailable) {
-      const { DaemonClient } = await import('./daemon-client');
-      const client = new DaemonClient();
+      const client = localEncrypt.getDaemonClient();
       const ciphertext = await client.promptSecret({
         itemKey,
         message: `Enter the secret value for ${itemKey}:`,
