@@ -24,7 +24,8 @@ export interface BackendInfo {
 /** IPC daemon message format (length-prefixed JSON over Unix socket or named pipe) */
 export interface DaemonMessage {
   id: string;
-  action: 'decrypt' | 'encrypt' | 'prompt-secret' | 'ping' | 'invalidate-session';
+  action: 'decrypt' | 'encrypt' | 'prompt-secret' | 'ping' | 'invalidate-session'
+    | 'keychain-get' | 'keychain-search' | 'keychain-pick';
   payload?: Record<string, unknown>;
 }
 
@@ -33,6 +34,23 @@ export interface DaemonResponse {
   id: string;
   result?: unknown;
   error?: string;
+}
+
+/** Metadata about a keychain item (no secret values) */
+export interface KeychainItemMeta {
+  service: string;
+  account: string;
+  label?: string;
+  kind: 'generic' | 'internet';
+  keychain?: string;
+}
+
+/** Reference to a specific keychain item for lookup */
+export interface KeychainItemRef {
+  service: string;
+  account?: string;
+  keychain?: string;
+  label?: string;
 }
 
 /** Result from the status command of a native binary */

@@ -278,6 +278,74 @@ case "daemon":
             statusBarMenu?.refresh()
             return ["result": "all sessions invalidated"]
 
+        // MARK: Keychain actions
+
+        case "keychain-get":
+            guard let payload = message["payload"] as? [String: Any] else {
+                return ["error": "Missing payload"]
+            }
+
+            let service = payload["service"] as? String
+            let account = payload["account"] as? String
+            let keychainName = payload["keychain"] as? String
+            let field = payload["field"] as? String
+
+            guard service != nil || account != nil else {
+                return ["error": "At least one of service or account is required"]
+            }
+
+            // Metadata fields (account, label, etc.) don't need biometric gating
+            // since they're not secret values
+            if let field = field {
+                do {
+                    let value = try KeychainManager.getItemField(
+                        service: service,
+                        account: account,
+                        keychainName: keychainName,
+                        field: field
+                    )
+                    return ["result": value]
+                } catch {
+                    return ["error": error.localizedDescription]
+                }
+            }
+
+            // Password reads require biometric gate
+            do {
+                _ = try sessionManager.getAuthenticatedContext(ttyId: ttyId)
+            } catch {
+                return ["error": error.localizedDescription]
+            }
+
+            do {
+                let value = try KeychainManager.getItem(
+                    service: service,
+                    account: account,
+                    keychainName: keychainName
+                )
+                statusBarMenu?.refresh()
+                return ["result": value]
+            } catch {
+                return ["error": error.localizedDescription]
+            }
+
+        case "keychain-search":
+            let payload = message["payload"] as? [String: Any]
+            let query = payload?["query"] as? String
+            let keychainName = payload?["keychain"] as? String
+
+            let items = KeychainManager.searchItems(query: query, keychainName: keychainName)
+            let itemDicts = items.map { $0.toDictionary() }
+            return ["result": itemDicts]
+
+        case "keychain-pick":
+            let pickPayload = message["payload"] as? [String: Any]
+            let pickItemKey = pickPayload?["itemKey"] as? String
+            guard let selected = KeychainPickerDialog.pick(itemKey: pickItemKey) else {
+                return ["error": "cancelled"]
+            }
+            return ["result": selected]
+
         default:
             return ["error": "Unknown action: \(action)"]
         }

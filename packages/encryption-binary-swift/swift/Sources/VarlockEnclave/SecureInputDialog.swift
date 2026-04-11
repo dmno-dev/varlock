@@ -52,8 +52,8 @@ final class SecureInputDialog {
 
     /// Create a minimal Edit menu so standard keyboard shortcuts work.
     /// Safe to call multiple times — only creates the menu once.
-    private static var editMenuInstalled = false
-    private static func ensureEditMenu() {
+    static var editMenuInstalled = false
+    static func ensureEditMenu() {
         guard !editMenuInstalled else { return }
         editMenuInstalled = true
 
