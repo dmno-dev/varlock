@@ -16,13 +16,19 @@ const isWindows = platform.match(/^win/i);
  * Returns the full path to the binary if found, or null if not found.
  */
 function findVarlockBin(startDir: string): string | null {
+  // On Windows, npm creates varlock.exe while pnpm only creates varlock.cmd
+  // (and a shell script). Check .exe first, then fall back to .cmd.
+  const binNames = isWindows ? ['varlock.exe', 'varlock.cmd'] : ['varlock'];
+
   let currentDir = startDir;
   while (currentDir) {
     const possibleBinPath = path.join(currentDir, 'node_modules', '.bin');
     if (fs.existsSync(possibleBinPath)) {
-      const possibleVarlockPath = path.join(possibleBinPath, isWindows ? 'varlock.exe' : 'varlock');
-      if (fs.existsSync(possibleVarlockPath)) {
-        return possibleVarlockPath;
+      for (const binName of binNames) {
+        const possibleVarlockPath = path.join(possibleBinPath, binName);
+        if (fs.existsSync(possibleVarlockPath)) {
+          return possibleVarlockPath;
+        }
       }
       // Found a .bin directory but varlock is not in it - keep walking up.
       // In a monorepo the root node_modules/.bin may exist without varlock,
@@ -88,9 +94,12 @@ export function execSyncVarlock(
     for (const startDir of searchDirs) {
       const varlockPath = findVarlockBin(startDir);
       if (varlockPath) {
+        // .cmd files are batch scripts that must be run through cmd.exe
+        const needsShell = varlockPath.endsWith('.cmd');
         const result = execFileSync(varlockPath, command.split(' '), {
           ...opts,
           stdio: 'pipe',
+          ...(needsShell && { shell: true }),
         });
         return result.toString();
       }
