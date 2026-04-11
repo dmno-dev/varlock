@@ -22,6 +22,8 @@ import { execSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 
+import 'varlock/auto-load';
+
 // ── CLI args ────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
@@ -169,13 +171,16 @@ console.log(`Built app bundle: ${appDir}`);
 
 const entitlementsPath = path.resolve(import.meta.dir, '..', 'VarlockEnclave.entitlements');
 
-if (signingIdentity) {
-  run(`codesign --force --deep --options runtime --entitlements "${entitlementsPath}" --sign "${signingIdentity}" "${appDir}"`);
+// Resolve signing identity: explicit flag > APPLE_SIGNING_IDENTITY env var > ad-hoc
+const resolvedIdentity = signingIdentity ?? process.env.APPLE_SIGNING_IDENTITY;
+
+if (resolvedIdentity) {
+  run(`codesign --force --deep --options runtime --entitlements "${entitlementsPath}" --sign "${resolvedIdentity}" "${appDir}"`);
   run(`codesign --verify --verbose "${appDir}"`);
   console.log('App bundle signed successfully');
 } else {
   run(`codesign --force --deep --entitlements "${entitlementsPath}" --sign - "${appDir}"`);
-  console.log('App bundle ad-hoc signed (use --sign for proper signing)');
+  console.log('App bundle ad-hoc signed (set APPLE_SIGNING_IDENTITY for stable signing)');
 }
 
 console.log('Done!');

@@ -18,6 +18,7 @@ import { spawn } from 'node:child_process';
 
 import { getUserVarlockDir } from '../user-config-dir';
 import { resolveNativeBinary } from './binary-resolver';
+import type { KeychainItemMeta, KeychainItemRef } from './types';
 
 function getSocketDir(): string {
   return path.join(getUserVarlockDir(), 'local-encrypt');
@@ -137,6 +138,45 @@ export class DaemonClient {
   async invalidateSession(): Promise<void> {
     await this.ensureConnected();
     await this.sendMessage({ action: 'invalidate-session' });
+  }
+
+  async keychainGet(opts: { service?: string; account?: string; keychain?: string; field?: string }): Promise<string> {
+    await this.ensureConnected();
+    const result = await this.sendMessage({
+      action: 'keychain-get',
+      payload: opts,
+    });
+    if (typeof result === 'string') return result;
+    if (result && typeof result === 'object' && 'error' in result) {
+      throw new Error(String(result.error));
+    }
+    return String(result);
+  }
+
+  async keychainSearch(opts?: { query?: string; keychain?: string }): Promise<Array<KeychainItemMeta>> {
+    await this.ensureConnected();
+    const result = await this.sendMessage({
+      action: 'keychain-search',
+      payload: opts ?? {},
+    });
+    return (result ?? []) as Array<KeychainItemMeta>;
+  }
+
+  async keychainPick(opts?: { itemKey?: string }): Promise<KeychainItemRef | undefined> {
+    await this.ensureConnected();
+    try {
+      const result = await this.sendMessage({
+        action: 'keychain-pick',
+        payload: { itemKey: opts?.itemKey },
+      });
+      if (result && typeof result === 'object' && 'service' in result) {
+        return result as KeychainItemRef;
+      }
+      return undefined;
+    } catch (err) {
+      if (err instanceof Error && err.message === 'cancelled') return undefined;
+      throw err;
+    }
   }
 
   cleanup(): void {
