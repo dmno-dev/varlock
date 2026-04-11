@@ -284,7 +284,7 @@ class OpPluginInstance {
           triggerBatch = true;
         }
         // add item to batch, with deferred promise
-        this.readBatch[opReference] = { defers: [] };
+        this.readBatch[opReference] ||= { defers: [] };
         const deferred = createDeferredPromise();
         this.readBatch[opReference].defers.push(deferred);
         if (triggerBatch) {
@@ -350,9 +350,11 @@ class OpPluginInstance {
       const result = await opClient.secrets.resolveAll(opReferences);
 
       for (const ref in batch) {
+        const itemResponse = result.individualResponses[ref];
         for (const dp of batch[ref].defers) {
-          const itemResponse = result.individualResponses[ref];
-          if (itemResponse.error) {
+          if (!itemResponse) {
+            dp.reject(new ResolutionError(`1Password error - no response returned for reference: ${ref}`));
+          } else if (itemResponse.error) {
             const errMsg = itemResponse.error.message || itemResponse.error.type || '';
             const isNotFound = /not.?found|does.?not.?exist|no.?such/i.test(errMsg);
             dp.reject(new ResolutionError(`1Password error - ${errMsg}`, {
@@ -376,9 +378,9 @@ class OpPluginInstance {
 
       for (const ref in batch) {
         for (const dp of batch[ref].defers) {
-          const wrappedErr = new Error(`1Password error - ${commonErr.message}`);
+          const wrappedErr = new ResolutionError(`1Password error - ${commonErr.message}`);
           (wrappedErr as any).cause = commonErr;
-          dp.reject(err);
+          dp.reject(wrappedErr);
         }
       }
     }
