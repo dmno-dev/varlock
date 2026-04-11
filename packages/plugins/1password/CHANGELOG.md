@@ -1,5 +1,11 @@
 # @varlock/1password-plugin
 
+## 0.3.5
+
+### Patch Changes
+
+- [#587](https://github.com/dmno-dev/varlock/pull/587) [`f88c280`](https://github.com/dmno-dev/varlock/commit/f88c280fb8a01a6067aa7cbcd4eceb31140d06a6) - Fix duplicate 1Password references silently failing when using SDK (service account token) - batch entries were being overwritten instead of deduplicated, and improve error handling in batch resolution
+
 ## 0.3.4
 
 ### Patch Changes
