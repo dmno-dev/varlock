@@ -23,7 +23,8 @@ export const commandSpec = define({
     path: {
       type: 'string',
       short: 'p',
-      description: 'Path to a specific .env file or directory to use as the entry point',
+      multiple: true,
+      description: 'Path to a specific .env file or directory to use as the entry point (can be specified multiple times)',
     },
   },
   examples: `
@@ -37,6 +38,7 @@ Examples:
   varlock run --no-redact-stdout -- psql        # Preserve TTY for interactive tools
   varlock run --path .env.prod -- node app.js   # Use a specific .env file
   varlock run --path ./config/ -- node app.js   # Use a specific directory
+  varlock run -p ./envs -p ./overrides -- node app.js  # Use multiple directories
 
 📍 Important: Use -- to separate varlock options from your command
 
@@ -72,7 +74,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
 
   const envGraph = await loadVarlockEnvGraph({
-    entryFilePath: ctx.values.path,
+    entryFilePaths: ctx.values.path,
   });
   checkForSchemaErrors(envGraph);
   checkForNoEnvFiles(envGraph);

@@ -87,7 +87,8 @@ export const commandSpec = define({
     path: {
       type: 'string',
       short: 'p',
-      description: 'Path to a specific .env file (e.g. .env.prod) or directory ending with "/" to use as the schema entry point (default: current directory)',
+      multiple: true,
+      description: 'Path to a specific .env file (e.g. .env.prod) or directory ending with "/" to use as the schema entry point (can be specified multiple times)',
     },
   },
   examples: `
@@ -99,6 +100,7 @@ Examples:
   varlock scan --staged           # Only scan staged git files
   varlock scan --include-ignored  # Scan all files, including git-ignored ones
   varlock scan --path .env.prod   # Use a specific .env file as the schema entry point
+  varlock scan -p ./envs -p ./overrides  # Use multiple schema entry points
   varlock scan --install-hook     # Set up as a git pre-commit hook
   `.trim(),
 });
@@ -372,7 +374,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   // Load the varlock env graph to get the actual sensitive values
   const envGraph = await loadVarlockEnvGraph({
-    entryFilePath: ctx.values.path,
+    entryFilePaths: ctx.values.path,
   });
 
   // Check for loading/schema errors

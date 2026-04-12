@@ -13,7 +13,8 @@ export const commandSpec = define({
     path: {
       type: 'string',
       short: 'p',
-      description: 'Path to a specific .env file or directory (with trailing slash) to use as the entry point',
+      multiple: true,
+      description: 'Path to a specific .env file or directory (with trailing slash) to use as the entry point (can be specified multiple times)',
     },
   },
   examples: `
@@ -24,6 +25,7 @@ Examples:
   varlock printenv MY_VAR                    # Print the value of MY_VAR
   varlock printenv --path .env.prod MY_VAR   # Use a specific .env file
   varlock printenv --path ./config/ MY_VAR   # Use a specific directory
+  varlock printenv -p ./envs -p ./overrides MY_VAR  # Use multiple directories
 
 📍 Note: Use sh -c to embed this in shell commands, e.g.:
        sh -c 'do-something --token $(varlock printenv MY_TOKEN)'
@@ -45,7 +47,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const varName = positionals[0];
 
   const envGraph = await loadVarlockEnvGraph({
-    entryFilePath: ctx.values.path,
+    entryFilePaths: ctx.values.path,
   });
   checkForSchemaErrors(envGraph);
 
