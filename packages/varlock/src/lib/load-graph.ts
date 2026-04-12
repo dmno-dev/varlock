@@ -10,78 +10,81 @@ const debug = createDebug('varlock:load');
 
 export function loadVarlockEnvGraph(opts?: {
   currentEnvFallback?: string,
-  /** Explicit entry file path - overrides package.json config */
-  entryFilePath?: string,
+  /** Explicit entry file paths from --path flag(s) - overrides package.json config */
+  entryFilePaths?: Array<string>,
 }) {
+  const cliPaths = opts?.entryFilePaths?.filter(Boolean);
+
+  // If --path flag(s) provided, they take precedence over package.json config
+  if (cliPaths && cliPaths.length > 0) {
+    // Return early and ignore pkgLoadPaths
+    return loadFromPaths(cliPaths, {
+      source: '--path flag',
+      errorPrefix: 'The --path value does not exist',
+      errorSuggestion: 'Use `--path` to specify a valid file or directory.',
+      currentEnvFallback: opts?.currentEnvFallback,
+    });
+  }
+
+  // Fall back to package.json varlock.loadPath
   const pkgLoadPath = readVarlockPackageJsonConfig()?.loadPath;
-
-  // If --path flag is provided, it takes precedence over package.json config
-  if (opts?.entryFilePath) {
-    debug('using path from --path flag: %s', path.resolve(opts.entryFilePath));
-
-    const resolvedPath = path.resolve(opts.entryFilePath);
-    if (!fs.existsSync(resolvedPath)) {
-      throw new CliExitError(`The --path value does not exist: ${resolvedPath}`, {
-        suggestion: 'Use `--path` to specify a valid file or directory.',
-      });
-    }
-
-    return runWithWorkspaceInfo(() => loadEnvGraph({
-      ...opts,
-      entryFilePath: opts.entryFilePath,
-      afterInit: async (_g) => {
-        // TODO: register varlock resolver
-      },
-    }));
-  }
-
-  // Normalize package.json loadPath to an array (or undefined)
-  let pkgLoadPaths: Array<string> | undefined;
-  if (pkgLoadPath) {
-    pkgLoadPaths = Array.isArray(pkgLoadPath) ? pkgLoadPath : [pkgLoadPath];
-  }
+  const pkgLoadPaths = pkgLoadPath ? normalizePkgLoadPath(pkgLoadPath) : undefined;
 
   if (pkgLoadPaths) {
-    const resolvedLoadPaths = pkgLoadPaths.map((p) => path.resolve(p));
-
-    if (resolvedLoadPaths.length === 1) {
-      debug('using path from package.json varlock.loadPath: %s', resolvedLoadPaths[0]);
-    } else {
-      debug(
-        'using %d paths from package.json varlock.loadPath: %s',
-        resolvedLoadPaths.length,
-        resolvedLoadPaths.join(', '),
-      );
-    }
-
-    // Validate that all paths exist
-    for (const resolvedPath of resolvedLoadPaths) {
-      if (!fs.existsSync(resolvedPath)) {
-        throw new CliExitError(
-          `A path in \`varlock.loadPath\` configured in package.json does not exist: ${resolvedPath}`,
-          { suggestion: 'Update `varlock.loadPath` in your package.json to point to valid files or directories.' },
-        );
-      }
-    }
-
-    return runWithWorkspaceInfo(() => loadEnvGraph({
-      ...opts,
-      // For a single path, use the existing entryFilePath option for backward compatibility
-      entryFilePath: resolvedLoadPaths.length === 1 ? resolvedLoadPaths[0] : undefined,
-      // For multiple paths, use entryFilePaths to trigger the multi-path container
-      entryFilePaths: resolvedLoadPaths.length > 1 ? resolvedLoadPaths : undefined,
-      afterInit: async (_g) => {
-        // TODO: register varlock resolver
-      },
-    }));
+    return loadFromPaths(pkgLoadPaths, {
+      source: 'package.json varlock.loadPath',
+      errorPrefix: 'A path in `varlock.loadPath` configured in package.json does not exist',
+      errorSuggestion: 'Update `varlock.loadPath` in your package.json to point to valid files or directories.',
+      currentEnvFallback: opts?.currentEnvFallback,
+    });
   }
 
   debug('no path configured, using cwd: %s', process.cwd());
 
   return runWithWorkspaceInfo(() => loadEnvGraph({
-    ...opts,
+    currentEnvFallback: opts?.currentEnvFallback,
     afterInit: async (_g) => {
       // TODO: register varlock resolver
     },
   }));
+}
+
+function loadFromPaths(
+  rawPaths: Array<string>,
+  config: {
+    source: string,
+    errorPrefix: string,
+    errorSuggestion: string,
+    currentEnvFallback?: string,
+  },
+) {
+  const resolvedPaths = rawPaths.map((p) => path.resolve(p));
+
+  if (resolvedPaths.length === 1) {
+    debug('using path from %s: %s', config.source, resolvedPaths[0]);
+  } else {
+    debug('using %d paths from %s: %s', resolvedPaths.length, config.source, resolvedPaths.join(', '));
+  }
+
+  for (const resolvedPath of resolvedPaths) {
+    if (!fs.existsSync(resolvedPath)) {
+      throw new CliExitError(`${config.errorPrefix}: ${resolvedPath}`, {
+        suggestion: config.errorSuggestion,
+      });
+    }
+  }
+
+  return runWithWorkspaceInfo(() => loadEnvGraph({
+    currentEnvFallback: config.currentEnvFallback,
+    entryFilePath: resolvedPaths.length === 1 ? resolvedPaths[0] : undefined,
+    entryFilePaths: resolvedPaths.length > 1 ? resolvedPaths : undefined,
+    afterInit: async (_g) => {
+      // TODO: register varlock resolver
+    },
+  }));
+}
+
+function normalizePkgLoadPath(pkgLoadPath: string | Array<string>): Array<string> {
+  if (Array.isArray(pkgLoadPath)) return pkgLoadPath;
+  return [pkgLoadPath];
 }
