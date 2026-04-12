@@ -1,5 +1,11 @@
 # varlock
 
+## 0.7.4
+
+### Patch Changes
+
+- [#590](https://github.com/dmno-dev/varlock/pull/590) [`e9b3935`](https://github.com/dmno-dev/varlock/commit/e9b3935884ef0bec037c0baab66ce8af56696a2c) - Fix varlock binary detection on Windows with pnpm - now also checks for varlock.cmd in addition to varlock.exe, since pnpm does not create .exe shims
+
 ## 0.7.3
 
 ### Patch Changes
