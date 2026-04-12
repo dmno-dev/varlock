@@ -72,7 +72,7 @@ varlock load [options]
 - `--format`:     Format of output [pretty|json|env|shell]
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@currentEnv` in `.env.schema`
-- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point (overrides `varlock.loadPath` in `package.json`)
+- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point (overrides `varlock.loadPath` in `package.json`). Can be specified multiple times to load from multiple paths — later paths take higher precedence.
 
 **Examples:**
 ```bash
@@ -96,6 +96,9 @@ varlock load --path .env.prod
 
 # Load from a specific directory
 varlock load --path ./config/
+
+# Load from multiple directories (later paths take higher precedence)
+varlock load -p ./envs -p ./overrides
 ```
 
 :::caution
@@ -115,7 +118,7 @@ varlock run -- <command>
 
 **Options:**
 - `--no-redact-stdout`: Disable stdout/stderr redaction to preserve TTY detection for interactive tools
-- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
+- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
 
 **Examples:**
 ```bash
@@ -127,6 +130,9 @@ varlock run --path .env.prod -- node app.js
 
 # Use a specific directory as entry point
 varlock run --path ./config/ -- node app.js
+
+# Use multiple directories as entry points
+varlock run -p ./envs -p ./overrides -- node app.js
 ```
 
 :::note[Shell expansion of env vars in commands]
@@ -163,7 +169,7 @@ varlock printenv <VAR_NAME> [options]
 ```
 
 **Options:**
-- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
+- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
 
 **Examples:**
 ```bash
@@ -172,6 +178,9 @@ varlock printenv MY_VAR
 
 # Use a specific .env file as entry point
 varlock printenv --path .env.prod MY_VAR
+
+# Use multiple directories as entry points
+varlock printenv -p ./envs -p ./overrides MY_VAR
 
 # Embed in a shell command using subshell expansion
 sh -c 'some-tool --token $(varlock printenv MY_TOKEN)'
@@ -204,7 +213,7 @@ varlock scan [options]
 - `--staged`:           Only scan staged git files
 - `--include-ignored`:  Include git-ignored files in the scan (by default, gitignored files are skipped)
 - `--install-hook`:     Set up `varlock scan` as a git pre-commit hook
-- `--path` / `-p`:      Path to a specific `.env` file or directory to use as the schema entry point
+- `--path` / `-p`:      Path to a specific `.env` file or directory to use as the schema entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
 
 **Examples:**
 ```bash
@@ -219,6 +228,9 @@ varlock scan --include-ignored
 
 # Use a specific .env file as the schema entry point
 varlock scan --path .env.prod
+
+# Use multiple schema entry points
+varlock scan -p ./envs -p ./overrides
 
 # Set up as a git pre-commit hook
 varlock scan --install-hook
@@ -250,7 +262,7 @@ varlock typegen [options]
 ```
 
 **Options:**
-- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
+- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
 
 **Examples:**
 ```bash
@@ -259,6 +271,9 @@ varlock typegen
 
 # Generate types from a specific .env file
 varlock typegen --path .env.prod
+
+# Generate types from multiple directories
+varlock typegen -p ./envs -p ./overrides
 ```
 
 </div>
