@@ -621,8 +621,8 @@ describe('type generation', () => {
       expect(src).toContain('PublicTypedEnvSchema');
       expect(src).toContain('EnvSchemaAsStrings');
 
-      // verify sensitive items are excluded from public schema
-      expect(src).toContain("Pick<CoercedEnvSchema, 'DB_HOST' | 'DB_PORT' | 'DEBUG' | 'APP_ENV'>");
+      // verify sensitive items are excluded from public schema (uses unique alias, not bare CoercedEnvSchema)
+      expect(src).toMatch(/Pick<_CoercedEnvSchema_[0-9a-f]+, 'DB_HOST' \| 'DB_PORT' \| 'DEBUG' \| 'APP_ENV'>/);
     });
 
     test('type gen output is the same regardless of current environment', async () => {
