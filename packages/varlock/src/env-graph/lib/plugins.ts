@@ -11,6 +11,10 @@ import https from 'node:https';
 import ansis from 'ansis';
 import semver from 'semver';
 import { isCancel } from '@clack/prompts';
+import {
+  ParsedEnvSpecFunctionArgs, ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair,
+  ParsedEnvSpecStaticValue,
+} from '@env-spec/parser';
 import _ from '@env-spec/utils/my-dash';
 import { pathExists } from '@env-spec/utils/fs-utils';
 import { getUserVarlockDir } from '../../lib/user-config-dir';
@@ -151,6 +155,33 @@ async function loadPluginModuleESM(filePath: string): Promise<void> {
 }
 
 
+/** Recursively collect variable names referenced via $VAR (expanded to ref(VAR)) in a parsed value tree */
+function collectVarRefsFromParsedValue(node: any): Set<string> {
+  const refs = new Set<string>();
+  if (!node) return refs;
+
+  if (node instanceof ParsedEnvSpecFunctionCall) {
+    if (node.name === 'ref') {
+      const firstArg = node.data.args.values[0];
+      if (firstArg instanceof ParsedEnvSpecStaticValue && typeof firstArg.value === 'string') {
+        refs.add(firstArg.value);
+      }
+    }
+    for (const v of node.data.args.values) {
+      for (const r of collectVarRefsFromParsedValue(v)) refs.add(r);
+    }
+  } else if (node instanceof ParsedEnvSpecFunctionArgs) {
+    for (const v of node.values) {
+      for (const r of collectVarRefsFromParsedValue(v)) refs.add(r);
+    }
+  } else if (node instanceof ParsedEnvSpecKeyValuePair) {
+    for (const r of collectVarRefsFromParsedValue(node.value)) refs.add(r);
+  }
+
+  return refs;
+}
+
+
 export class VarlockPlugin {
   // helper so end user code can get same error classes
   readonly ERRORS = {
@@ -247,7 +278,15 @@ export class VarlockPlugin {
   };
 
   /** called by the loading infrastructure — checks declared standardVars against the graph */
-  _checkStandardVars(graph: { overrideValues: Record<string, string | undefined>, configSchema: Record<string, any> }) {
+  _checkStandardVars(graph: {
+    overrideValues: Record<string, string | undefined>,
+    configSchema: Record<string, any>,
+    sortedDataSources: Iterable<{
+      rootDecorators: Array<{
+        name: string, isFunctionCall: boolean, parsedDecorator: { value?: any },
+      }>,
+    }>,
+  }) {
     if (!this.standardVars) return;
     const { initDecorator, params } = this.standardVars;
 
@@ -260,7 +299,20 @@ export class VarlockPlugin {
       };
     });
 
-    const detected = resolved.filter((v) => v.matchedKey);
+    // collect variable names already wired via init decorator instances (e.g. @initOp(token=$VAR))
+    const initDecName = initDecorator.replace(/^@/, '');
+    const wiredVarNames = new Set<string>();
+    for (const source of graph.sortedDataSources) {
+      for (const rootDec of source.rootDecorators) {
+        if (rootDec.name === initDecName && rootDec.isFunctionCall) {
+          const refs = collectVarRefsFromParsedValue(rootDec.parsedDecorator.value);
+          for (const r of refs) wiredVarNames.add(r);
+        }
+      }
+    }
+
+    // filter: only warn about vars detected in environment but NOT wired to the init decorator
+    const detected = resolved.filter((v) => v.matchedKey && !wiredVarNames.has(v.matchedKey));
     if (detected.length === 0) return;
 
     const detectedKeys = detected.map((v) => v.matchedKey!);
