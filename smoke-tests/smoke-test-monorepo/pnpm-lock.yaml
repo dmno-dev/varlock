@@ -1,0 +1,15 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  packages/pkg-a: {}
+
+  packages/pkg-b:
+    dependencies:
+      '@smoke/pkg-a':
+        specifier: workspace:*
+        version: link:../pkg-a
