@@ -155,8 +155,14 @@ async function loadPluginModuleESM(filePath: string): Promise<void> {
 }
 
 
+type ParsedEnvSpecNode = | ParsedEnvSpecStaticValue
+  | ParsedEnvSpecFunctionCall
+  | ParsedEnvSpecFunctionArgs
+  | ParsedEnvSpecKeyValuePair
+  | undefined;
+
 /** Recursively collect variable names referenced via $VAR (expanded to ref(VAR)) in a parsed value tree */
-function collectVarRefsFromParsedValue(node: any): Set<string> {
+function collectVarRefsFromParsedValue(node: ParsedEnvSpecNode): Set<string> {
   const refs = new Set<string>();
   if (!node) return refs;
 
