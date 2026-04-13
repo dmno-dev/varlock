@@ -10,12 +10,12 @@ const MONOREPO_DIR = join(import.meta.dirname, '..', 'smoke-test-monorepo');
 const PKG_A_DIR = join(MONOREPO_DIR, 'packages', 'pkg-a');
 const PKG_B_DIR = join(MONOREPO_DIR, 'packages', 'pkg-b');
 
-const TSC_BIN = join(import.meta.dirname, '..', 'node_modules', 'typescript', 'bin', 'tsc');
+const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
 
 function tsc(cwd: string) {
   try {
-    const output = execSync(`node "${TSC_BIN}" --noEmit`, {
-      cwd,
+    const output = execSync(`pnpm exec tsc --noEmit --project "${cwd}"`, {
+      cwd: SMOKE_TESTS_DIR,
       encoding: 'utf-8',
       stdio: 'pipe',
     });
