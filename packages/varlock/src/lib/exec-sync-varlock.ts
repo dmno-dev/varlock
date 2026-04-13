@@ -74,7 +74,8 @@ export function execSyncVarlock(
       return result.toString();
     } catch (err) {
       // code 127 means not found (on linux only)
-      if (!isWindows && (err as any).status !== 127) throw err;
+      // ENOENT from execSync means that a shell was not found
+      if (!isWindows && (err as any).status !== 127 && (err as any).code !== 'ENOENT') throw err;
       // on windows, we'll just do the extra checks anyway
     }
 
