@@ -247,7 +247,15 @@ export class VarlockPlugin {
   };
 
   /** called by the loading infrastructure — checks declared standardVars against the graph */
-  _checkStandardVars(graph: { overrideValues: Record<string, string | undefined>, configSchema: Record<string, any> }) {
+  _checkStandardVars(graph: {
+    overrideValues: Record<string, string | undefined>,
+    configSchema: Record<string, any>,
+    sortedDataSources: Iterable<{
+      rootDecorators: Array<{
+        name: string, isFunctionCall: boolean, decValueResolver?: { deps: Array<string> },
+      }>,
+    }>,
+  }) {
     if (!this.standardVars) return;
     const { initDecorator, params } = this.standardVars;
 
@@ -260,7 +268,19 @@ export class VarlockPlugin {
       };
     });
 
-    const detected = resolved.filter((v) => v.matchedKey);
+    // collect config item keys already wired via init decorator instances
+    const initDecName = initDecorator.replace(/^@/, '');
+    const wiredVarNames = new Set<string>();
+    for (const source of graph.sortedDataSources) {
+      for (const rootDec of source.rootDecorators) {
+        if (rootDec.name === initDecName && rootDec.isFunctionCall && rootDec.decValueResolver) {
+          for (const dep of rootDec.decValueResolver.deps) wiredVarNames.add(dep);
+        }
+      }
+    }
+
+    // filter: only warn about vars detected in environment but NOT wired to the init decorator
+    const detected = resolved.filter((v) => v.matchedKey && !wiredVarNames.has(v.matchedKey));
     if (detected.length === 0) return;
 
     const detectedKeys = detected.map((v) => v.matchedKey!);
