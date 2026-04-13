@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "paths": {
+      "@smoke/pkg-a": ["./packages/pkg-a/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/pkg-a/src",
+    "packages/pkg-a/env.d.ts",
+    "packages/pkg-b/src",
+    "packages/pkg-b/env.d.ts"
+  ]
+}

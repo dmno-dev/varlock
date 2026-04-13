@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import _ from '@env-spec/utils/my-dash';
 import type { EnvGraph } from './env-graph';
@@ -72,6 +73,24 @@ async function fetchIconSvg(
 }
 
 
+/** Compute the TS type string for an item (extracted for reuse in augmentation blocks) */
+function getItemTsType(info: TypeGenItemInfo): string {
+  const dataType = info.dataType;
+  const dataTypeName = dataType?.name;
+
+  if (dataType) {
+    if (dataTypeName === 'number' || dataTypeName === 'port') return 'number';
+    if (dataTypeName === 'boolean') return 'boolean';
+    if (dataTypeName === 'simple-object') return 'Record<string, any>';
+    if (dataTypeName === 'enum') {
+      const rawEnumOptions = (dataType._rawDef as any)._rawEnumOptions;
+      if (!rawEnumOptions?.length) return 'never';
+      return _.map(rawEnumOptions, JSON.stringify).join(' | ');
+    }
+  }
+  return 'string';
+}
+
 export async function getTsDefinitionForItem(info: TypeGenItemInfo, indentLevel = 0) {
   const i = _.times(indentLevel, () => '  ').join('');
   const itemSrc = [];
@@ -120,37 +139,7 @@ export async function getTsDefinitionForItem(info: TypeGenItemInfo, indentLevel 
     ]);
   }
 
-  // TODO: logic should probably be within the Item class(es) and we still need to figure out how to identify these types...
-  const dataType = info.dataType;
-  const dataTypeName = dataType?.name;
-
-  let itemTsType = 'string';
-  if (dataType) {
-    if (dataTypeName === 'number' || dataTypeName === 'port') {
-      itemTsType = 'number';
-    } else if (dataTypeName === 'boolean') {
-      itemTsType = 'boolean';
-    } else if (dataTypeName === 'simple-object') {
-      itemTsType = 'Record<string, any>';
-    } else if (dataTypeName === 'enum') {
-      // enums have several different formats we need to handle
-      const rawEnumOptions = (dataType._rawDef as any)._rawEnumOptions;
-      let enumOptions = [] as Array<any>;
-      enumOptions = rawEnumOptions;
-
-      // TODO: we'll likely add other formats later where enum options can have attached descriptions
-
-      if (!enumOptions.length) {
-        itemTsType = 'never'; // should it be any instead?
-      } else {
-        // we could spit out descriptions in comments here, although currently it does nothing
-        // see https://github.com/microsoft/TypeScript/issues/38106
-        itemTsType = _.map(enumOptions, JSON.stringify).join(' | ');
-      }
-    }
-    // TODO: eventually handle objects, arrays, dictionaries
-  }
-
+  const itemTsType = getItemTsType(info);
   const isRequired = info.isRequired && !info.isRequiredDynamic;
   itemSrc.push(`${info.key}${isRequired ? '' : '?'}: ${itemTsType};`);
   itemSrc.push('');
@@ -168,23 +157,35 @@ export async function generateTsTypesSrc(items: Array<TypeGenItemInfo>) {
     'export type CoercedEnvSchema = {',
   ];
 
-  const exposedKeys: Array<string> = [];
-  const exposedNonSensitiveKeys: Array<string> = [];
   for (const info of items) {
     // generate the TS type for the item in the full schema
     tsSrc.push(...await getTsDefinitionForItem(info, 1));
-
-    // TODO: we will want the ability to keep some items internal and not exposed in the schema
-    exposedKeys.push(info.key);
-    if (!info.isSensitive) exposedNonSensitiveKeys.push(info.key);
   }
 
   tsSrc.push('};\n');
 
+  // Generate a unique type alias so that `declare module` and `declare global` blocks
+  // reference a file-scoped name that won't collide across packages in a monorepo.
+  // Without this, multiple env.d.ts files exporting the same `CoercedEnvSchema` /
+  // `EnvSchemaAsStrings` names can confuse TS when both are in the same compilation.
+  const schemaHash = crypto.createHash('md5')
+    .update(items.map((i) => i.key).sort().join(','))
+    .digest('hex')
+    .slice(0, 8);
+  const schemaAlias = `_CoercedEnvSchema_${schemaHash}`;
+  const stringsAlias = `_EnvSchemaAsStrings_${schemaHash}`;
+
+  tsSrc.push(`type ${schemaAlias} = CoercedEnvSchema;`);
+
+  const exposedNonSensitiveKeys: Array<string> = [];
+  for (const info of items) {
+    if (!info.isSensitive) exposedNonSensitiveKeys.push(info.key);
+  }
+
   tsSrc.push(`
 declare module 'varlock/env' {
-  export interface TypedEnvSchema extends Readonly<CoercedEnvSchema> {}
-  export interface PublicTypedEnvSchema extends Readonly<Pick<CoercedEnvSchema, '${exposedNonSensitiveKeys.join("' | '")}'>> {}
+  export interface TypedEnvSchema extends Readonly<${schemaAlias}> {}
+  export interface PublicTypedEnvSchema extends Readonly<Pick<${schemaAlias}, '${exposedNonSensitiveKeys.join("' | '")}'>> {}
 }
 `);
 
@@ -201,6 +202,8 @@ export type EnvSchemaAsStrings = {
 };
 `);
 
+  tsSrc.push(`type ${stringsAlias} = EnvSchemaAsStrings;`);
+
   // TODO: allow user to pass in options to control this?
   // although because we add the @generateTypes decorator an init time
   // we may need our integrations to specify what settings they prefer
@@ -209,14 +212,14 @@ export type EnvSchemaAsStrings = {
 
   const IMPORT_META_AUGMENTATION = `
   // add types for global import.meta.env
-  interface ImportMetaEnv extends EnvSchemaAsStrings {}
+  interface ImportMetaEnv extends ${stringsAlias} {}
   interface ImportMeta {
     readonly env: ImportMetaEnv;
   }`;
   const PROCESS_ENV_AUGMENTATION = `
   // add types for global process.env
   namespace NodeJS {
-    interface ProcessEnv extends EnvSchemaAsStrings {}
+    interface ProcessEnv extends ${stringsAlias} {}
   }`;
 
   // TODO: should add an option to enable/disable
