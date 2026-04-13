@@ -228,6 +228,38 @@ describe('diagnostics-core', () => {
     ).toBe('Value must match `regex("^[A-Z]+$")`.');
   });
 
+  it('validates matches url option using /regex/ literal syntax', () => {
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { matches: '/^https:\\/\\/api\\./' } },
+        'https://api.example.com',
+      ),
+    ).toBeUndefined();
+
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { matches: '/^https:\\/\\/api\\./' } },
+        'https://example.com',
+      ),
+    ).toBe('URL must match `/^https:\\/\\/api\\./`.');
+  });
+
+  it('validates matches string option using /regex/ literal syntax', () => {
+    expect(
+      validateStaticValue(
+        { name: 'string', args: [], options: { matches: '/^[A-Z]+$/' } },
+        'HELLO',
+      ),
+    ).toBeUndefined();
+
+    expect(
+      validateStaticValue(
+        { name: 'string', args: [], options: { matches: '/^[A-Z]+$/' } },
+        'hello',
+      ),
+    ).toBe('Value must match `/^[A-Z]+$/`.');
+  });
+
   it('validates boolean, ip version, and port values', () => {
     expect(
       validateStaticValue(
