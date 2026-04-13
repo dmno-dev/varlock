@@ -35,18 +35,13 @@ pub fn decrypt_via_daemon(ciphertext: &str, key_id: &str, tty_id: Option<&str>) 
     // UserConsentVerifier (Windows Hello) prompt never renders, hanging
     // forever. Detect that case via env vars inherited from the WSL parent
     // and return a clear error instead of attempting the doomed spawn.
+    // WSL2 path: a direct CreateProcess from this .exe lands the daemon in
+    // WSL's interop session (no interactive desktop access → Hello hangs).
+    // Use Windows Task Scheduler instead — `schtasks /run` launches the task
+    // in the user's interactive desktop session, escaping the interop scope.
     if is_invoked_from_wsl() {
-        let exe_path = std::env::current_exe()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "<varlock-local-encrypt.exe>".to_string());
-        return Err(format!(
-            "Windows Hello daemon is not running, and it cannot be started from inside WSL2 \
-             (no access to the interactive Windows desktop session).\n\n\
-             To start the daemon, open a native Windows PowerShell and run:\n\n  \
-             Start-Process -WindowStyle Hidden \"{exe_path}\" start-daemon\n\n\
-             Then retry from WSL2. The daemon stays alive for 24h of inactivity, so this \
-             is a one-time step per session."
-        ));
+        spawn_daemon_via_schtasks()?;
+        return try_daemon_decrypt(ciphertext, key_id, tty_id);
     }
 
     spawn_daemon()?;
@@ -307,6 +302,126 @@ fn pid_is_our_daemon(pid: u32) -> bool {
     let path = String::from_utf16_lossy(&buf[..len as usize]);
     let filename = path.rsplit('\\').next().unwrap_or("").to_lowercase();
     filename == "varlock-local-encrypt.exe"
+}
+
+/// Spawn the daemon via Windows Task Scheduler.
+///
+/// Used from the WSL2 path. `schtasks /run` executes the task in the user's
+/// interactive desktop session, which is what Windows Hello needs.
+/// A direct CreateProcess (or `cmd /c start`) from a WSL-interop .exe inherits
+/// the interop session and produces a daemon whose Hello prompt never renders.
+///
+/// The task is registered on first use (idempotent via /F) with a never-firing
+/// trigger — we only ever invoke it via /Run.
+#[cfg(target_os = "windows")]
+fn spawn_daemon_via_schtasks() -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+
+    const TASK_NAME: &str = "varlock-local-encrypt-daemon";
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    // Clean up any stale daemon (same logic as spawn_daemon)
+    let pid_path = crate::key_store::get_config_dir()
+        .join("local-encrypt")
+        .join("daemon.pid");
+    if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
+        if let Ok(pid) = pid_str.trim().parse::<u32>() {
+            if pid_is_our_daemon(pid) {
+                let _ = Command::new("taskkill")
+                    .args(["/F", "/PID", &pid.to_string()])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .status();
+            }
+        }
+        let _ = std::fs::remove_file(&pid_path);
+    }
+
+    let exe_path = std::env::current_exe()
+        .map_err(|e| format!("Failed to get current exe path: {e}"))?;
+
+    if let Some(parent) = pid_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    // Build the task action: <exe> daemon --socket-path <pipe> --pid-path <pid>
+    // schtasks /TR takes a single string; quote each path defensively.
+    let tr = format!(
+        "\"{}\" daemon --socket-path {} --pid-path \"{}\"",
+        exe_path.to_string_lossy(),
+        PIPE_NAME,
+        pid_path.to_string_lossy(),
+    );
+
+    // Create (or replace) the task. `/SC ONCE /ST 23:59` gives it a trigger
+    // we never expect to fire — we only invoke it via /Run. /F overwrites
+    // any existing definition (handles upgrades to a new exe path).
+    let create_status = Command::new("schtasks")
+        .args([
+            "/Create", "/F",
+            "/TN", TASK_NAME,
+            "/TR", &tr,
+            "/SC", "ONCE",
+            "/ST", "23:59",
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .status()
+        .map_err(|e| format!("Failed to invoke schtasks /Create: {e}"))?;
+
+    if !create_status.success() {
+        return Err(format!(
+            "schtasks /Create failed (exit {:?}). {}",
+            create_status.code(),
+            wsl_manual_fallback_message(&exe_path),
+        ));
+    }
+
+    // Trigger the task — this launches the daemon in the interactive session.
+    let run_status = Command::new("schtasks")
+        .args(["/Run", "/TN", TASK_NAME])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .status()
+        .map_err(|e| format!("Failed to invoke schtasks /Run: {e}"))?;
+
+    if !run_status.success() {
+        return Err(format!(
+            "schtasks /Run failed (exit {:?}). {}",
+            run_status.code(),
+            wsl_manual_fallback_message(&exe_path),
+        ));
+    }
+
+    // Poll for the daemon's pipe to come up.
+    let start = std::time::Instant::now();
+    while start.elapsed() < MAX_SPAWN_WAIT {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if pipe_exists() {
+            return Ok(());
+        }
+    }
+
+    Err(format!(
+        "Daemon did not become ready within timeout. {}",
+        wsl_manual_fallback_message(&exe_path),
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn wsl_manual_fallback_message(exe_path: &std::path::Path) -> String {
+    format!(
+        "As a fallback, run this once in a native Windows PowerShell:\n  \
+         Start-Process -WindowStyle Hidden \"{}\" start-daemon",
+        exe_path.to_string_lossy(),
+    )
 }
 
 /// Check if the daemon's named pipe exists (daemon is listening).
