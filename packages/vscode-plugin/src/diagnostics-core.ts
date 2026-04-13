@@ -348,8 +348,22 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
     if (allowedDomains.length > 0 && !allowedDomains.includes(url.host.toLowerCase())) {
       return `URL host must be one of: ${allowedDomains.join(', ')}.`;
     }
+
+    if (parseBooleanOption(options.noTrailingSlash) && url.pathname.endsWith('/') && url.pathname !== '/') {
+      return 'URL must not have a trailing slash.';
+    }
   } catch {
     return 'Value must be a valid URL.';
+  }
+
+  if (typeof options.matches === 'string' && options.matches.length > 0) {
+    if (options.matches.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
+    try {
+      const regex = new RegExp(options.matches);
+      if (!regex.test(value)) return `URL must match \`${options.matches}\`.`;
+    } catch {
+      return undefined;
+    }
   }
 
   return undefined;

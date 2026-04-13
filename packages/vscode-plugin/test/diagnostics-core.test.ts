@@ -157,6 +157,45 @@ describe('diagnostics-core', () => {
     ).toBe('URL must include a protocol unless prependHttps=true.');
   });
 
+  it('validates noTrailingSlash url option', () => {
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { noTrailingSlash: 'true' } },
+        'https://example.com/api/',
+      ),
+    ).toBe('URL must not have a trailing slash.');
+
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { noTrailingSlash: 'true' } },
+        'https://example.com/api',
+      ),
+    ).toBeUndefined();
+
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { noTrailingSlash: 'true' } },
+        'https://example.com',
+      ),
+    ).toBeUndefined();
+  });
+
+  it('validates matches (regex) url option', () => {
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { matches: '^https://api\\.' } },
+        'https://api.example.com',
+      ),
+    ).toBeUndefined();
+
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { matches: '^https://api\\.' } },
+        'https://example.com',
+      ),
+    ).toBe('URL must match `^https://api\\.`.');
+  });
+
   it('validates boolean, ip version, and port values', () => {
     expect(
       validateStaticValue(
