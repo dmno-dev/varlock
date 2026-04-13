@@ -131,6 +131,7 @@ export class ParsedEnvSpecFunctionArgs {
           obj[val.key] = val.value.value;
         } else if (val.value instanceof ParsedEnvSpecStaticValue) {
           obj[val.key] = val.value.value;
+        // eslint-disable-next-line no-use-before-define
         } else if (val.value instanceof ParsedEnvSpecFunctionCall && val.value.name === 'regex') {
           // Convert regex("pattern") to a RegExp instance (deprecated, prefer /pattern/ literals)
           const args = val.value.simplifiedArgs as Array<any>;
