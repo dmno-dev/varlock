@@ -34,6 +34,47 @@ describe('CLI Commands', () => {
     });
   });
 
+  describe('multiple --path flags', () => {
+    test('varlock load with multiple paths loads vars from all paths', () => {
+      const result = varlockLoad({
+        cwd: 'smoke-test-multi-path',
+        format: 'json',
+        paths: ['./base/', './overrides/'],
+      });
+      expect(result.exitCode).toBe(0);
+      const vars = JSON.parse(result.stdout);
+      expect(vars.BASE_VAR).toBe('from-base');
+      expect(vars.OVERRIDE_VAR).toBe('from-overrides');
+    });
+
+    test('later paths take higher precedence for shared vars', () => {
+      const result = varlockPrintenv('SHARED_VAR', {
+        cwd: 'smoke-test-multi-path',
+        paths: ['./base/', './overrides/'],
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe('from-overrides');
+    });
+
+    test('single --path still works', () => {
+      const result = varlockPrintenv('BASE_VAR', {
+        cwd: 'smoke-test-multi-path',
+        paths: ['./base/'],
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe('from-base');
+    });
+
+    test('--path flag overrides package.json loadPath', () => {
+      const result = varlockPrintenv('BASE_VAR', {
+        cwd: 'smoke-test-pkg-json-config',
+        paths: ['../smoke-test-multi-path/base/'],
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe('from-base');
+    });
+  });
+
   test('varlock load --format json should output valid JSON', () => {
     const result = varlockLoad({ cwd: 'smoke-test-basic', format: 'json' });
     expect(result.exitCode).toBe(0);

@@ -8,6 +8,46 @@ import { createDebug } from './debug';
 
 const debug = createDebug('varlock:load');
 
+function normalizePkgLoadPath(pkgLoadPath: string | Array<string>): Array<string> {
+  if (Array.isArray(pkgLoadPath)) return pkgLoadPath;
+  return [pkgLoadPath];
+}
+
+function loadFromPaths(
+  rawPaths: Array<string>,
+  config: {
+    source: string,
+    errorPrefix: string,
+    errorSuggestion: string,
+    currentEnvFallback?: string,
+  },
+) {
+  const resolvedPaths = rawPaths.map((p) => path.resolve(p));
+
+  if (resolvedPaths.length === 1) {
+    debug('using path from %s: %s', config.source, resolvedPaths[0]);
+  } else {
+    debug('using %d paths from %s: %s', resolvedPaths.length, config.source, resolvedPaths.join(', '));
+  }
+
+  for (const resolvedPath of resolvedPaths) {
+    if (!fs.existsSync(resolvedPath)) {
+      throw new CliExitError(`${config.errorPrefix}: ${resolvedPath}`, {
+        suggestion: config.errorSuggestion,
+      });
+    }
+  }
+
+  return runWithWorkspaceInfo(() => loadEnvGraph({
+    currentEnvFallback: config.currentEnvFallback,
+    entryFilePath: resolvedPaths.length === 1 ? resolvedPaths[0] : undefined,
+    entryFilePaths: resolvedPaths.length > 1 ? resolvedPaths : undefined,
+    afterInit: async (_g) => {
+      // TODO: register varlock resolver
+    },
+  }));
+}
+
 export function loadVarlockEnvGraph(opts?: {
   currentEnvFallback?: string,
   /** Explicit entry file paths from --path flag(s) - overrides package.json config */
@@ -47,44 +87,4 @@ export function loadVarlockEnvGraph(opts?: {
       // TODO: register varlock resolver
     },
   }));
-}
-
-function loadFromPaths(
-  rawPaths: Array<string>,
-  config: {
-    source: string,
-    errorPrefix: string,
-    errorSuggestion: string,
-    currentEnvFallback?: string,
-  },
-) {
-  const resolvedPaths = rawPaths.map((p) => path.resolve(p));
-
-  if (resolvedPaths.length === 1) {
-    debug('using path from %s: %s', config.source, resolvedPaths[0]);
-  } else {
-    debug('using %d paths from %s: %s', resolvedPaths.length, config.source, resolvedPaths.join(', '));
-  }
-
-  for (const resolvedPath of resolvedPaths) {
-    if (!fs.existsSync(resolvedPath)) {
-      throw new CliExitError(`${config.errorPrefix}: ${resolvedPath}`, {
-        suggestion: config.errorSuggestion,
-      });
-    }
-  }
-
-  return runWithWorkspaceInfo(() => loadEnvGraph({
-    currentEnvFallback: config.currentEnvFallback,
-    entryFilePath: resolvedPaths.length === 1 ? resolvedPaths[0] : undefined,
-    entryFilePaths: resolvedPaths.length > 1 ? resolvedPaths : undefined,
-    afterInit: async (_g) => {
-      // TODO: register varlock resolver
-    },
-  }));
-}
-
-function normalizePkgLoadPath(pkgLoadPath: string | Array<string>): Array<string> {
-  if (Array.isArray(pkgLoadPath)) return pkgLoadPath;
-  return [pkgLoadPath];
 }
