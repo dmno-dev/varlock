@@ -53,6 +53,16 @@ pub enum HelloStatus {
 /// Shows the Windows Hello dialog with the given message.
 /// Returns Ok(true) if verified, Ok(false) if cancelled, Err on failure.
 pub fn verify_user(message: &str) -> Result<bool, String> {
+    // The daemon is windowless, so the Hello prompt would normally be blocked
+    // from coming to the foreground (Windows focus-stealing prevention) and
+    // would only appear as a flashing taskbar item. Granting ASFW_ANY lets
+    // the prompt window foreground itself.
+    unsafe {
+        use windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
+        const ASFW_ANY: u32 = 0xFFFFFFFF;
+        let _ = AllowSetForegroundWindow(ASFW_ANY);
+    }
+
     let message = windows::core::HSTRING::from(message);
 
     let op = UserConsentVerifier::RequestVerificationAsync(&message)

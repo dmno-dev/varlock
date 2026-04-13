@@ -31,6 +31,7 @@ fn main() {
         "status" => cmd_status(),
         "setup" => cmd_setup(&args),
         "daemon" => cmd_daemon(&args),
+        "start-daemon" => cmd_start_daemon(),
         "help" | "--help" | "-h" => cmd_help(),
         _ => json_error(&format!("Unknown command: {command}. Run with --help for usage.")),
     }
@@ -293,6 +294,23 @@ fn cmd_setup(args: &[String]) {
     }
 }
 
+/// One-shot: spawn the daemon detached and exit.
+/// Intended for users to run from a native Windows terminal to seed a daemon
+/// that WSL2-side varlock invocations can talk to.
+fn cmd_start_daemon() {
+    #[cfg(target_os = "windows")]
+    {
+        match daemon_client::ensure_daemon_running() {
+            Ok(()) => json_success(json!({"started": true})),
+            Err(e) => json_error(&e),
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        json_error("start-daemon is only supported on Windows");
+    }
+}
+
 fn cmd_daemon(args: &[String]) {
     let socket_path = match get_arg(args, "--socket-path") {
         Some(sp) => sp,
@@ -319,6 +337,9 @@ COMMANDS:
   decrypt --data <base64> [--key-id <id>] [--via-daemon]         Decrypt data
   decrypt --data-stdin [--key-id <id>] [--via-daemon]           Decrypt (data from stdin)
   status                          Check platform capabilities
+  start-daemon                    Spawn the daemon detached and exit
+                                  (Windows-only; use from native Windows
+                                  to seed a daemon for WSL2 callers)
   setup --linux-biometrics [--uninstall]
                                   Install/remove the polkit policy that
                                   enables fingerprint/face/password prompts

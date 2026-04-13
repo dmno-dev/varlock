@@ -17,6 +17,12 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const DEFAULT_KEY_ID: &str = "varlock-default";
+// On Windows the daemon can't be re-spawned from a WSL2-invoked .exe (no access
+// to the interactive desktop session), so a short timeout would force the user
+// back to a native Windows terminal. Keep it alive for a full day there.
+#[cfg(target_os = "windows")]
+const DAEMON_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60); // 24 hours
+#[cfg(not(target_os = "windows"))]
 const DAEMON_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(30 * 60); // 30 minutes
 const SESSION_TIMEOUT: Duration = Duration::from_secs(5 * 60); // 5 minutes per session
 
