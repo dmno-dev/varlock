@@ -103,6 +103,12 @@ export class ParsedEnvSpecFunctionArgs {
       vals.forEach((val) => {
         if (val.value instanceof ParsedEnvSpecStaticValue) {
           obj[val.key] = val.value.value;
+        } else if (val.value instanceof ParsedEnvSpecFunctionCall && val.value.name === 'regex') {
+          // Convert regex("pattern") to a RegExp instance
+          const args = val.value.simplifiedArgs as Array<any>;
+          if (typeof args[0] === 'string') {
+            obj[val.key] = new RegExp(args[0]);
+          }
         }
       });
       return obj;

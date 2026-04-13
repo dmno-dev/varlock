@@ -10,6 +10,14 @@ const INCOMPATIBLE_DECORATOR_PAIRS = [
   ['sensitive', 'public'],
 ] as const;
 
+/** Extract a regex pattern string from either a plain pattern or a `regex("pattern")` wrapper. */
+function extractRegexPattern(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const wrapped = value.match(/^regex\("(.*)"\)$/s);
+  if (wrapped) return wrapped[1];
+  return value;
+}
+
 export type TypeInfo = {
   name: string;
   args: Array<string>;
@@ -284,10 +292,11 @@ function validateStringValue(value: string, options: TypeInfo['options']) {
   }
 
   if (typeof options.matches === 'string') {
-    if (options.matches.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
+    const pattern = extractRegexPattern(options.matches);
+    if (!pattern || pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
 
     try {
-      const regex = new RegExp(options.matches);
+      const regex = new RegExp(pattern);
       if (!regex.test(value)) return `Value must match \`${options.matches}\`.`;
     } catch {
       return undefined;
@@ -357,9 +366,10 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
   }
 
   if (typeof options.matches === 'string' && options.matches.length > 0) {
-    if (options.matches.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
+    const pattern = extractRegexPattern(options.matches);
+    if (!pattern || pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
     try {
-      const regex = new RegExp(options.matches);
+      const regex = new RegExp(pattern);
       if (!regex.test(value)) return `URL must match \`${options.matches}\`.`;
     } catch {
       return undefined;
