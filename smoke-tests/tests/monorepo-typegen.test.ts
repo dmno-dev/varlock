@@ -35,11 +35,11 @@ describe('monorepo type generation', () => {
     if (existsSync(envDtsB)) rmSync(envDtsB);
 
     const resultA = varlockLoad({ cwd: 'smoke-test-monorepo/packages/pkg-a' });
-    expect(resultA.exitCode).toBe(0);
+    expect(resultA.exitCode, `varlock load pkg-a failed (exit ${resultA.exitCode}):\n${resultA.output}`).toBe(0);
     expect(existsSync(envDtsA)).toBe(true);
 
     const resultB = varlockLoad({ cwd: 'smoke-test-monorepo/packages/pkg-b' });
-    expect(resultB.exitCode).toBe(0);
+    expect(resultB.exitCode, `varlock load pkg-b failed (exit ${resultB.exitCode}):\n${resultB.output}`).toBe(0);
     expect(existsSync(envDtsB)).toBe(true);
   });
 

@@ -1,2 +1,3 @@
 packages:
   - smoke-test-*
+  - smoke-test-monorepo/packages/*
