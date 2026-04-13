@@ -29,6 +29,7 @@ fn main() {
         "encrypt" => cmd_encrypt(&args),
         "decrypt" => cmd_decrypt(&args),
         "status" => cmd_status(),
+        "setup" => cmd_setup(&args),
         "daemon" => cmd_daemon(&args),
         "help" | "--help" | "-h" => cmd_help(),
         _ => json_error(&format!("Unknown command: {command}. Run with --help for usage.")),
@@ -217,13 +218,27 @@ fn cmd_status() {
         "keys": keys,
     });
 
-    // Include setup hints for optional features
+    // Include setup hints for optional features.
+    // On Linux we only nag about TPM2 when the user isn't already getting
+    // meaningful protection from the keyring — otherwise it's just noise.
     #[cfg(target_os = "linux")]
     {
-        if !info.hardware_backed {
+        let using_keyring = matches!(
+            info.protection,
+            key_store::Protection::SecretService | key_store::Protection::SecretServiceTpm2
+        );
+        if !info.hardware_backed && !using_keyring {
             if let Some(hint) = key_store::get_tpm2_setup_hint() {
                 result.as_object_mut().unwrap().insert(
                     "setupHint".to_string(),
+                    serde_json::Value::String(hint),
+                );
+            }
+        }
+        if !info.biometric_available {
+            if let Some(hint) = key_store::polkit::get_setup_hint() {
+                result.as_object_mut().unwrap().insert(
+                    "biometricSetupHint".to_string(),
                     serde_json::Value::String(hint),
                 );
             }
@@ -242,6 +257,40 @@ fn cmd_status() {
     }
 
     json_success(result);
+}
+
+fn cmd_setup(args: &[String]) {
+    // Currently only --linux-biometrics (with optional --uninstall).
+    // Structured as a generic `setup` verb so additional guided setup
+    // operations can be added as new flags.
+    #[cfg(target_os = "linux")]
+    {
+        if args.contains(&"--linux-biometrics".to_string()) {
+            let uninstall = args.contains(&"--uninstall".to_string());
+            let result = if uninstall {
+                key_store::polkit::uninstall_policy()
+            } else {
+                key_store::polkit::install_policy()
+            };
+            match result {
+                Ok(()) => json_success(json!({
+                    "action": if uninstall { "uninstalled" } else { "installed" },
+                    "policyPath": key_store::polkit::POLKIT_POLICY_PATH,
+                })),
+                Err(e) => json_error(&format!(
+                    "{e}\nHint: re-run with sudo (e.g. `sudo varlock-local-encrypt setup --linux-biometrics`)"
+                )),
+            }
+        } else {
+            json_error("Missing setup flag. Try: --linux-biometrics [--uninstall]");
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = args;
+        json_error("setup subcommand is only available on Linux");
+    }
 }
 
 fn cmd_daemon(args: &[String]) {
@@ -270,6 +319,10 @@ COMMANDS:
   decrypt --data <base64> [--key-id <id>] [--via-daemon]         Decrypt data
   decrypt --data-stdin [--key-id <id>] [--via-daemon]           Decrypt (data from stdin)
   status                          Check platform capabilities
+  setup --linux-biometrics [--uninstall]
+                                  Install/remove the polkit policy that
+                                  enables fingerprint/face/password prompts
+                                  on decrypt. Must be run with sudo.
   daemon --socket-path <path> [--pid-path <path>]   Start IPC daemon
 
 OPTIONS:
@@ -282,7 +335,8 @@ OPTIONS:
 
 PLATFORM PROTECTION:
   Windows: DPAPI (user-session-scoped encryption)
-  Linux:   Kernel keyring (key held in kernel memory)
+  Linux:   Secret Service (GNOME Keyring / KWallet), layered with TPM2 when
+           available; falls back to TPM2-only or plaintext if neither is present
 
 All output is JSON. Errors return {"error": "message"}.
 "#;

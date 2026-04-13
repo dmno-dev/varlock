@@ -2,7 +2,10 @@
 //!
 //! Each platform backend stores the P-256 private key in a protected manner:
 //!   - Windows: DPAPI (CryptProtectData) — encrypted to the current user session
-//!   - Linux: TPM2 seal/unseal via tpm2-tools — key sealed to hardware TPM chip
+//!   - Linux (preferred): Secret Service (libsecret / GNOME Keyring / KWallet),
+//!     optionally layered with TPM2 sealing for defense-in-depth on hardware
+//!     that supports it
+//!   - Linux (fallback): TPM2 alone (for headless hosts with a TPM) or plaintext
 //!
 //! All backends store the public key as plaintext (it's not secret) and the
 //! private key in a platform-specific protected format. The key file format is:
@@ -11,10 +14,14 @@
 //!   {
 //!     "keyId": "varlock-default",
 //!     "publicKey": "<base64 uncompressed SEC1>",
-//!     "protectedPrivateKey": "<base64 platform-encrypted PKCS8>",
-//!     "protection": "dpapi" | "tpm2" | "none",
+//!     "protectedPrivateKey": "<base64 platform-encrypted PKCS8 or empty>",
+//!     "protection": "dpapi" | "tpm2" | "secret-service" | "secret-service-tpm2" | "none",
 //!     "createdAt": "2024-01-01T00:00:00Z"
 //!   }
+//!
+//! For "secret-service" and "secret-service-tpm2", `protectedPrivateKey` is
+//! empty in the JSON file — the (possibly TPM-sealed) private key bytes live
+//! in the user's keyring, looked up by keyId.
 //!
 //! The "none" protection level stores the private key as plaintext base64 —
 //! equivalent to the JS file-based backend. Used as an absolute fallback.
@@ -26,6 +33,10 @@ use std::path::PathBuf;
 
 #[cfg(target_os = "linux")]
 pub(crate) mod linux;
+#[cfg(target_os = "linux")]
+pub(crate) mod polkit;
+#[cfg(target_os = "linux")]
+pub(crate) mod secret_service;
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "windows")]
@@ -33,12 +44,16 @@ pub(crate) mod windows_hello;
 
 /// Which protection mechanism is used for the private key.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "kebab-case")]
 pub enum Protection {
     /// Windows DPAPI — encrypted to current user session
     Dpapi,
-    /// Linux TPM2 — sealed to hardware TPM chip
+    /// Linux TPM2 — sealed to hardware TPM chip (stored on disk)
     Tpm2,
+    /// Linux Secret Service (libsecret / GNOME Keyring / KWallet)
+    SecretService,
+    /// Linux Secret Service with an additional TPM2 seal layer
+    SecretServiceTpm2,
     /// No protection — plaintext on disk (fallback)
     None,
 }
@@ -48,6 +63,8 @@ impl std::fmt::Display for Protection {
         match self {
             Protection::Dpapi => write!(f, "dpapi"),
             Protection::Tpm2 => write!(f, "tpm2"),
+            Protection::SecretService => write!(f, "secret-service"),
+            Protection::SecretServiceTpm2 => write!(f, "secret-service-tpm2"),
             Protection::None => write!(f, "none"),
         }
     }
@@ -124,10 +141,14 @@ fn get_key_file_path(key_id: &str) -> PathBuf {
 // ── Platform-specific key protection ─────────────────────────────
 
 /// Protect a private key using the best available platform mechanism.
-/// Returns (protected_bytes_base64, protection_type).
-fn protect_private_key(private_key_der: &[u8]) -> (String, Protection) {
+/// Returns (protected_bytes_base64_for_disk, protection_type).
+///
+/// For SecretService-based protections, the actual secret is stored in the
+/// keyring as a side-effect and the returned on-disk string is empty.
+fn protect_private_key(key_id: &str, private_key_der: &[u8]) -> (String, Protection) {
     #[cfg(target_os = "windows")]
     {
+        let _ = key_id;
         match windows::dpapi_protect(private_key_der) {
             Ok(protected) => (BASE64.encode(&protected), Protection::Dpapi),
             Err(e) => {
@@ -139,47 +160,100 @@ fn protect_private_key(private_key_der: &[u8]) -> (String, Protection) {
 
     #[cfg(target_os = "linux")]
     {
-        if linux::is_tpm2_available() {
+        let ss_available = secret_service::is_available();
+        let tpm2_available = linux::is_tpm2_available();
+
+        // Tier 1: Secret Service + TPM2 layer (best available)
+        if ss_available && tpm2_available {
             match linux::tpm2_protect(private_key_der) {
-                Ok(protected) => (BASE64.encode(&protected), Protection::Tpm2),
+                Ok(sealed) => match secret_service::store(key_id, &sealed) {
+                    Ok(()) => return (String::new(), Protection::SecretServiceTpm2),
+                    Err(e) => {
+                        eprintln!("Warning: keyring store failed ({e}), trying TPM2-only");
+                    }
+                },
                 Err(e) => {
-                    eprintln!("Warning: TPM2 protection failed ({e}), falling back to plaintext");
-                    (BASE64.encode(private_key_der), Protection::None)
+                    eprintln!("Warning: TPM2 seal failed ({e}), trying keyring-only");
+                    if let Ok(()) = secret_service::store(key_id, private_key_der) {
+                        return (String::new(), Protection::SecretService);
+                    }
                 }
             }
-        } else {
-            // TPM2 not available — plaintext fallback
-            if let Some(hint) = linux::get_tpm2_setup_hint() {
-                eprintln!("Note: {hint}");
-            }
-            (BASE64.encode(private_key_der), Protection::None)
         }
+
+        // Tier 2: Secret Service alone
+        if ss_available {
+            match secret_service::store(key_id, private_key_der) {
+                Ok(()) => return (String::new(), Protection::SecretService),
+                Err(e) => eprintln!("Warning: keyring store failed ({e})"),
+            }
+        }
+
+        // Tier 3: TPM2 alone (headless hosts with a TPM)
+        if tpm2_available {
+            if let Ok(sealed) = linux::tpm2_protect(private_key_der) {
+                return (BASE64.encode(&sealed), Protection::Tpm2);
+            }
+        }
+
+        // Tier 4: plaintext — emit actionable hints
+        if !ss_available {
+            eprintln!("Note: no Secret Service (GNOME Keyring / KWallet) detected.");
+        }
+        if let Some(hint) = linux::get_tpm2_setup_hint() {
+            eprintln!("Note: {hint}");
+        }
+        (BASE64.encode(private_key_der), Protection::None)
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        // Unsupported platform — plaintext fallback
+        let _ = key_id;
         (BASE64.encode(private_key_der), Protection::None)
     }
 }
 
 /// Unprotect a private key, returning the raw PKCS8 DER bytes.
-fn unprotect_private_key(protected_base64: &str, protection: &Protection) -> Result<Vec<u8>, String> {
-    let protected_bytes = BASE64
-        .decode(protected_base64)
-        .map_err(|e| format!("Invalid base64: {e}"))?;
-
+#[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
+fn unprotect_private_key(
+    key_id: &str,
+    protected_base64: &str,
+    protection: &Protection,
+) -> Result<Vec<u8>, String> {
     match protection {
-        Protection::None => Ok(protected_bytes),
+        Protection::None => BASE64
+            .decode(protected_base64)
+            .map_err(|e| format!("Invalid base64: {e}")),
 
         #[cfg(target_os = "windows")]
-        Protection::Dpapi => windows::dpapi_unprotect(&protected_bytes),
+        Protection::Dpapi => {
+            let bytes = BASE64
+                .decode(protected_base64)
+                .map_err(|e| format!("Invalid base64: {e}"))?;
+            windows::dpapi_unprotect(&bytes)
+        }
 
         #[cfg(target_os = "linux")]
-        Protection::Tpm2 => linux::tpm2_unprotect(&protected_bytes),
+        Protection::Tpm2 => {
+            let bytes = BASE64
+                .decode(protected_base64)
+                .map_err(|e| format!("Invalid base64: {e}"))?;
+            linux::tpm2_unprotect(&bytes)
+        }
+
+        #[cfg(target_os = "linux")]
+        Protection::SecretService => secret_service::retrieve(key_id),
+
+        #[cfg(target_os = "linux")]
+        Protection::SecretServiceTpm2 => {
+            let sealed = secret_service::retrieve(key_id)?;
+            linux::tpm2_unprotect(&sealed)
+        }
 
         #[allow(unreachable_patterns)]
-        _ => Err(format!("Protection type '{protection}' not supported on this platform")),
+        _ => Err(format!(
+            "Protection type '{protection}' not supported on this platform"
+        )),
     }
 }
 
@@ -200,12 +274,19 @@ pub fn get_platform_info() -> PlatformInfo {
 
     #[cfg(target_os = "linux")]
     {
+        let ss_available = secret_service::is_available();
         let tpm2_available = linux::is_tpm2_available();
+        let (backend, protection) = match (ss_available, tpm2_available) {
+            (true, true) => ("linux-secret-service+tpm2", Protection::SecretServiceTpm2),
+            (true, false) => ("linux-secret-service", Protection::SecretService),
+            (false, true) => ("linux-tpm2", Protection::Tpm2),
+            (false, false) => ("linux-file", Protection::None),
+        };
         PlatformInfo {
-            backend: if tpm2_available { "linux-tpm2" } else { "linux-file" }.into(),
+            backend: backend.into(),
             hardware_backed: tpm2_available,
-            biometric_available: false, // fprintd integration is TODO
-            protection: if tpm2_available { Protection::Tpm2 } else { Protection::None },
+            biometric_available: polkit::is_available(),
+            protection,
         }
     }
 
@@ -258,7 +339,7 @@ pub fn generate_key(key_id: &str) -> Result<String, String> {
         .decode(&key_pair.private_key)
         .map_err(|e| format!("Failed to decode private key: {e}"))?;
 
-    let (protected, protection) = protect_private_key(&private_key_der);
+    let (protected, protection) = protect_private_key(key_id, &private_key_der);
 
     let stored = StoredKey {
         key_id: key_id.to_string(),
@@ -305,9 +386,26 @@ pub fn generate_key(key_id: &str) -> Result<String, String> {
     Ok(key_pair.public_key)
 }
 
-/// Delete a key.
+/// Delete a key. Also removes any associated keyring entry on Linux.
 pub fn delete_key(key_id: &str) -> bool {
     let path = get_key_file_path(key_id);
+
+    // Best-effort: if the on-disk record says the secret lives in the keyring,
+    // remove it too. We don't fail the whole delete if keyring cleanup fails.
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(data) = fs::read_to_string(&path) {
+            if let Ok(stored) = serde_json::from_str::<StoredKey>(&data) {
+                if matches!(
+                    stored.protection,
+                    Protection::SecretService | Protection::SecretServiceTpm2
+                ) {
+                    let _ = secret_service::delete(key_id);
+                }
+            }
+        }
+    }
+
     fs::remove_file(path).is_ok()
 }
 
@@ -318,7 +416,8 @@ pub fn load_key(key_id: &str) -> Result<(Vec<u8>, String), String> {
     let stored: StoredKey =
         serde_json::from_str(&data).map_err(|e| format!("Corrupted key file: {e}"))?;
 
-    let private_key_der = unprotect_private_key(&stored.protected_private_key, &stored.protection)?;
+    let private_key_der =
+        unprotect_private_key(key_id, &stored.protected_private_key, &stored.protection)?;
     Ok((private_key_der, stored.public_key))
 }
 
