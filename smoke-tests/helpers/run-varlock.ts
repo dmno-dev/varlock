@@ -52,10 +52,15 @@ export function runVarlock(args: Array<string>, options?: {
   }
 }
 
-export function varlockLoad(options?: { cwd?: string; format?: string }) {
+export function varlockLoad(options?: { cwd?: string; format?: string; paths?: Array<string> }) {
   const args = ['load'];
   if (options?.format) {
     args.push('--format', options.format);
+  }
+  if (options?.paths) {
+    for (const p of options.paths) {
+      args.push('--path', p);
+    }
   }
   return runVarlock(args, { cwd: options?.cwd });
 }
@@ -74,9 +79,14 @@ export function varlockRun(command: Array<string>, options?: {
 export function varlockPrintenv(varName: string, options?: {
   cwd?: string;
   path?: string;
+  paths?: Array<string>;
 }) {
   const args = ['printenv'];
-  if (options?.path) {
+  if (options?.paths) {
+    for (const p of options.paths) {
+      args.push('--path', p);
+    }
+  } else if (options?.path) {
     args.push('--path', options.path);
   }
   args.push(varName);

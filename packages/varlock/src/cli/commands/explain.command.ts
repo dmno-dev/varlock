@@ -24,7 +24,8 @@ export const commandSpec = define({
     path: {
       type: 'string',
       short: 'p',
-      description: 'Path to a specific .env file or directory to use as the entry point',
+      multiple: true,
+      description: 'Path to a specific .env file or directory to use as the entry point (can be specified multiple times)',
     },
   },
   examples: `
@@ -60,7 +61,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
-    entryFilePath: ctx.values.path,
+    entryFilePaths: ctx.values.path,
   });
 
   checkForSchemaErrors(envGraph);

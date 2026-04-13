@@ -6,9 +6,8 @@ import { DirectoryDataSource, DotEnvFileDataSource, MultiplePathsContainerDataSo
 
 export async function loadEnvGraph(opts?: {
   basePath?: string,
-  entryFilePath?: string,
-  /** Multiple entry file paths — when provided, creates a virtual root container for all paths */
-  entryFilePaths?: Array<string>,
+  /** Entry file path(s) — accepts a single path or array of paths */
+  entryFilePaths?: string | Array<string>,
   relativePaths?: Array<string>,
   checkGitIgnored?: boolean,
   excludeDirs?: Array<string>,
@@ -17,15 +16,21 @@ export async function loadEnvGraph(opts?: {
 }) {
   const graph = new EnvGraph();
 
-  if (opts?.entryFilePaths && opts.entryFilePaths.length > 0) {
+  let rawPaths: Array<string> | undefined;
+  if (opts?.entryFilePaths) {
+    rawPaths = Array.isArray(opts.entryFilePaths) ? opts.entryFilePaths : [opts.entryFilePaths];
+  }
+
+  if (rawPaths && rawPaths.length > 1) {
     graph.basePath = opts?.basePath ?? process.cwd();
     if (opts?.afterInit) await opts.afterInit(graph);
     if (opts?.currentEnvFallback) graph.envFlagFallback = opts.currentEnvFallback;
-    const resolvedPaths = opts.entryFilePaths.map((p) => path.resolve(p));
+    const resolvedPaths = rawPaths.map((p) => path.resolve(p));
     await graph.setRootDataSource(new MultiplePathsContainerDataSource(resolvedPaths));
-  } else if (opts?.entryFilePath) {
-    const resolvedPath = path.resolve(opts.entryFilePath);
-    const isDirectory = opts.entryFilePath.endsWith('/') || opts.entryFilePath.endsWith(path.sep)
+  } else if (rawPaths?.length === 1) {
+    const entryFilePath = rawPaths[0];
+    const resolvedPath = path.resolve(entryFilePath);
+    const isDirectory = entryFilePath.endsWith('/') || entryFilePath.endsWith(path.sep)
       || (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isDirectory());
     if (isDirectory) {
       graph.basePath = resolvedPath;

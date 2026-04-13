@@ -34,7 +34,8 @@ export const commandSpec = define({
     path: {
       type: 'string',
       short: 'p',
-      description: 'Path to a specific .env file or directory to use as the entry point',
+      multiple: true,
+      description: 'Path to a specific .env file or directory to use as the entry point (can be specified multiple times)',
     },
   },
   examples: `
@@ -47,6 +48,7 @@ Examples:
   eval "$(varlock load --format shell)"  # Load vars into current shell (useful with direnv)
   varlock load --show-all         # Show all items when validation fails
   varlock load --path .env.prod   # Load from a specific .env file
+  varlock load -p ./envs -p ./overrides  # Load from multiple directories
   varlock load --compact          # Use compact format - skips undefined values, no indentation for json-full
   varlock load --env production   # Load for a specific environment (⚠️ ignored if using @currentEnv!)
 `.trim(),
@@ -67,7 +69,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
-    entryFilePath: ctx.values.path,
+    entryFilePaths: ctx.values.path,
   });
 
   // For json-full, always output the serialized graph — it includes `errors` and
