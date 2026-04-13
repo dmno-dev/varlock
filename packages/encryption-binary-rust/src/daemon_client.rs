@@ -164,20 +164,59 @@ fn spawn_daemon() -> Result<(), String> {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    // Spawn self in daemon mode, detached
-    let _child = Command::new(&exe_path)
+    // Kill any stale/unresponsive daemon before spawning a new one.
+    //
+    // We only reach spawn_daemon() after try_daemon_decrypt() failed to talk
+    // to the pipe, so any process referenced by the pid file is unresponsive
+    // (e.g. a previous WSL2-context daemon hung inside the Hello prompt).
+    // Before killing, verify the PID actually points to varlock-local-encrypt.exe
+    // — Windows may have recycled the PID for an unrelated process.
+    if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
+        if let Ok(pid) = pid_str.trim().parse::<u32>() {
+            if pid_is_our_daemon(pid) {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/PID", &pid.to_string()])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                    .status();
+            }
+        }
+        let _ = std::fs::remove_file(&pid_path);
+    }
+
+    // Spawn the daemon via `cmd.exe /c start` rather than CreateProcess directly.
+    //
+    // Why: when this .exe is launched by WSL2 interop, it runs in WSL's interop
+    // session, which lacks the interactive window-station access that
+    // UserConsentVerifier (Windows Hello) needs. A direct CreateProcess child
+    // inherits that broken session and the Hello prompt hangs forever.
+    // Routing through `cmd /c start` re-dispatches the launch through the shell,
+    // which lands the child in the user's interactive desktop session.
+    //
+    // `start "" /B`: empty title (required positional), /B = no new console window.
+    // CREATE_NO_WINDOW on the cmd.exe shim itself keeps it invisible.
+    let exe_str = exe_path.to_string_lossy().to_string();
+    let pid_str = pid_path.to_string_lossy().to_string();
+    let _child = Command::new("cmd.exe")
         .args([
+            "/c",
+            "start",
+            "",
+            "/B",
+            &exe_str,
             "daemon",
             "--socket-path",
             PIPE_NAME,
             "--pid-path",
-            &pid_path.to_string_lossy(),
+            &pid_str,
         ])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        // CREATE_NEW_PROCESS_GROUP detaches the child on Windows
-        .creation_flags(0x00000200) // CREATE_NEW_PROCESS_GROUP
+        // CREATE_NO_WINDOW (0x08000000) | DETACHED_PROCESS (0x00000008)
+        .creation_flags(0x08000008)
         .spawn()
         .map_err(|e| format!("Failed to spawn daemon: {e}"))?;
 
@@ -191,6 +230,42 @@ fn spawn_daemon() -> Result<(), String> {
     }
 
     Err("Daemon failed to start within timeout".into())
+}
+
+/// Verify the given PID is a running varlock-local-encrypt.exe process,
+/// not an unrelated process that happened to inherit a recycled PID.
+#[cfg(target_os = "windows")]
+fn pid_is_our_daemon(pid: u32) -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    let process = match unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) } {
+        Ok(h) => h,
+        Err(_) => return false, // process gone, or no permission — don't kill
+    };
+
+    let mut buf = [0u16; 1024];
+    let mut len = buf.len() as u32;
+    let ok = unsafe {
+        QueryFullProcessImageNameW(
+            process,
+            PROCESS_NAME_WIN32,
+            windows::core::PWSTR(buf.as_mut_ptr()),
+            &mut len,
+        )
+    };
+    unsafe { let _ = CloseHandle(process); }
+
+    if ok.is_err() || len == 0 {
+        return false;
+    }
+
+    let path = String::from_utf16_lossy(&buf[..len as usize]);
+    let filename = path.rsplit('\\').next().unwrap_or("").to_lowercase();
+    filename == "varlock-local-encrypt.exe"
 }
 
 /// Check if the daemon's named pipe exists (daemon is listening).
