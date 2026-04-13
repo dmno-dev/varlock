@@ -134,7 +134,7 @@
     "browser-or-node": "^3.0.0",
     "ci-info": "^4.3.1",
     "exit-hook": "^5.1.0",
-    "gunshi": "^0.28.0",
+    "gunshi": "^0.29.4",
     "is-docker": "^4.0.0",
     "is-unicode-supported": "^2.1.0",
     "is-wsl": "^3.1.0",
