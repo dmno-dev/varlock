@@ -115,6 +115,14 @@ subCommands.set('install-plugin', buildLazyCommand(installPluginCommandSpec, asy
         return VARLOCK_BANNER_COLOR;
       },
     });
+    // Short delay before exit to work around a libuv bug on Windows where
+    // uv_async_send is called after uv_close during shutdown, causing a crash.
+    // See: https://github.com/nodejs/node/issues/56645
+    if (process.platform === 'win32') {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 100);
+      });
+    }
     gracefulExit();
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('Command not found: ')) {
@@ -132,6 +140,12 @@ subCommands.set('install-plugin', buildLazyCommand(installPluginCommandSpec, asy
       throw error;
     }
 
+    // Same Windows libuv workaround as the success path above
+    if (process.platform === 'win32') {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 100);
+      });
+    }
     gracefulExit(1);
   }
 }());
