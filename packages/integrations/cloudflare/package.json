@@ -64,7 +64,7 @@
     "@varlock/vite-integration": "workspace:^",
     "tsup": "catalog:",
     "varlock": "workspace:^",
-    "vite": "^7.1.0",
+    "vite": "^8.0.8",
     "vitest": "catalog:"
   }
 }
