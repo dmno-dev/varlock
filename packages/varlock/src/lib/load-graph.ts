@@ -40,8 +40,7 @@ function loadFromPaths(
 
   return runWithWorkspaceInfo(() => loadEnvGraph({
     currentEnvFallback: config.currentEnvFallback,
-    entryFilePath: resolvedPaths.length === 1 ? resolvedPaths[0] : undefined,
-    entryFilePaths: resolvedPaths.length > 1 ? resolvedPaths : undefined,
+    entryFilePaths: resolvedPaths,
     afterInit: async (_g) => {
       // TODO: register varlock resolver
     },
