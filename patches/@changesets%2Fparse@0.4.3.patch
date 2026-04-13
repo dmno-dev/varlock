@@ -1,0 +1,52 @@
+diff --git a/dist/changesets-parse.cjs.js b/dist/changesets-parse.cjs.js
+index 336185245c3f809adcda1fb1c3e038730bf4232b..e144c3065cc1852f6e1d5bf14fffbf446e1b4944 100644
+--- a/dist/changesets-parse.cjs.js
++++ b/dist/changesets-parse.cjs.js
+@@ -10,7 +10,7 @@ var yaml__default = /*#__PURE__*/_interopDefault(yaml);
+ 
+ const mdRegex = /\s*---([^]*?)\n\s*---(\s*(?:\n|$)[^]*)/;
+ const EXAMPLE_FORMAT = `---\n"package-name": patch\n---`;
+-const validVersionTypes = ["major", "minor", "patch", "none"];
++const validVersionTypes = ["major", "minor", "minor-isolated", "patch", "patch-isolated", "none"];
+ function truncate(s, max = 200) {
+   return s.length > max ? s.slice(0, max) + "..." : s;
+ }
+@@ -23,7 +23,11 @@ function validateReleases(releases, contents) {
+       throw new Error(`could not parse changeset - invalid release type for package "${release.name}".\n` + `Expected a string for release type, but got: ${typeof release.type}\n` + `Changeset contents:\n${truncate(contents)}`);
+     }
+     if (!validVersionTypes.includes(release.type)) {
+-      throw new Error(`could not parse changeset - invalid version type ${JSON.stringify(release.type)} for package "${release.name}".\n` + `Valid version types are: ${validVersionTypes.join(", ")}\n` + `Changeset contents:\n${truncate(contents)}`);
++      const errorPrefix = `could not parse changeset - invalid version type ${JSON.stringify(release.type)} for package "${release.name}".`;
++      if (release.type === "major-isolated") {
++        throw new Error(`${errorPrefix}\n` + `"major-isolated" is not supported because a major bump would leave dependents with incompatible semver ranges.\n` + `Use "major" instead, which will correctly update dependent packages.\n` + `Changeset contents:\n${truncate(contents)}`);
++      }
++      throw new Error(`${errorPrefix}\n` + `Valid version types are: ${validVersionTypes.join(", ")}\n` + `Changeset contents:\n${truncate(contents)}`);
+     }
+   }
+ }
+diff --git a/dist/changesets-parse.esm.js b/dist/changesets-parse.esm.js
+index f7f055bc695e92dd68078371e645ade914195c59..f87c423cab45c1840bfb0c013fdbdcd99201392d 100644
+--- a/dist/changesets-parse.esm.js
++++ b/dist/changesets-parse.esm.js
+@@ -2,7 +2,7 @@ import yaml from 'js-yaml';
+ 
+ const mdRegex = /\s*---([^]*?)\n\s*---(\s*(?:\n|$)[^]*)/;
+ const EXAMPLE_FORMAT = `---\n"package-name": patch\n---`;
+-const validVersionTypes = ["major", "minor", "patch", "none"];
++const validVersionTypes = ["major", "minor", "minor-isolated", "patch", "patch-isolated", "none"];
+ function truncate(s, max = 200) {
+   return s.length > max ? s.slice(0, max) + "..." : s;
+ }
+@@ -15,7 +15,11 @@ function validateReleases(releases, contents) {
+       throw new Error(`could not parse changeset - invalid release type for package "${release.name}".\n` + `Expected a string for release type, but got: ${typeof release.type}\n` + `Changeset contents:\n${truncate(contents)}`);
+     }
+     if (!validVersionTypes.includes(release.type)) {
+-      throw new Error(`could not parse changeset - invalid version type ${JSON.stringify(release.type)} for package "${release.name}".\n` + `Valid version types are: ${validVersionTypes.join(", ")}\n` + `Changeset contents:\n${truncate(contents)}`);
++      const errorPrefix = `could not parse changeset - invalid version type ${JSON.stringify(release.type)} for package "${release.name}".`;
++      if (release.type === "major-isolated") {
++        throw new Error(`${errorPrefix}\n` + `"major-isolated" is not supported because a major bump would leave dependents with incompatible semver ranges.\n` + `Use "major" instead, which will correctly update dependent packages.\n` + `Changeset contents:\n${truncate(contents)}`);
++      }
++      throw new Error(`${errorPrefix}\n` + `Valid version types are: ${validVersionTypes.join(", ")}\n` + `Changeset contents:\n${truncate(contents)}`);
+     }
+   }
+ }
