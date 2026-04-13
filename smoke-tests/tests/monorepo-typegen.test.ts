@@ -12,7 +12,7 @@ const PKG_B_DIR = join(MONOREPO_DIR, 'packages', 'pkg-b');
 
 function tsc(cwd: string) {
   try {
-    const output = execSync('npx tsc --noEmit', {
+    const output = execSync('pnpm exec tsc --noEmit', {
       cwd,
       encoding: 'utf-8',
       stdio: 'pipe',
