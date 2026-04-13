@@ -10,9 +10,13 @@ const INCOMPATIBLE_DECORATOR_PAIRS = [
   ['sensitive', 'public'],
 ] as const;
 
-/** Extract a regex pattern string from either a plain pattern or a `regex("pattern")` wrapper. */
+/** Extract a regex pattern string from a plain pattern, `regex("pattern")` wrapper, or `/pattern/flags` literal. */
 function extractRegexPattern(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
+  // regex literal syntax: /pattern/flags
+  const regexLiteral = value.match(/^\/(.*)\/([gimsuy]*)$/s);
+  if (regexLiteral) return regexLiteral[1].replaceAll('\\/', '/');
+  // legacy regex() wrapper: regex("pattern")
   const wrapped = value.match(/^regex\("(.*)"\)$/s);
   if (wrapped) return wrapped[1];
   return value;
@@ -74,7 +78,7 @@ export function unquote(value: string) {
 }
 
 export function isDynamicValue(value: string) {
-  return /\$[A-Za-z_]/.test(value) || /^[A-Za-z][\w-]*\(/.test(value);
+  return /\$[A-Za-z_]/.test(value) || /^[A-Za-z][\w-]*\(/.test(value) || /^\/.*\/[gimsuy]*$/.test(value);
 }
 
 export function splitCommaSeparatedArgs(input: string) {

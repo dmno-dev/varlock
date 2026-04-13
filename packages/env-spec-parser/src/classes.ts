@@ -65,10 +65,33 @@ export class ParsedEnvSpecStaticValue {
   }
 }
 
+export class ParsedEnvSpecRegexLiteral {
+  pattern: string;
+  flags: string;
+
+  constructor(public data: {
+    rawValue: string;
+    pattern: string;
+    flags: string;
+    _location?: any;
+  }) {
+    this.pattern = data.pattern;
+    this.flags = data.flags;
+  }
+
+  get value(): RegExp {
+    return new RegExp(this.pattern, this.flags);
+  }
+
+  toString() {
+    return this.data.rawValue;
+  }
+}
+
 export class ParsedEnvSpecKeyValuePair {
   constructor(public data: {
     key: string;
-    val: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall,
+    val: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecRegexLiteral,
   }) {}
 
   get key() {
@@ -85,7 +108,10 @@ export class ParsedEnvSpecKeyValuePair {
 }
 export class ParsedEnvSpecFunctionArgs {
   constructor(public data: {
-    values: Array<ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecKeyValuePair>;
+    values: Array<
+      ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
+      | ParsedEnvSpecKeyValuePair | ParsedEnvSpecRegexLiteral
+    >;
     _location?: any;
   }) {}
 
@@ -96,15 +122,17 @@ export class ParsedEnvSpecFunctionArgs {
   get simplifiedValues(): Array<any> | Record<string, any> {
     if (this.data.values.length === 0) return [];
     const vals = this.data.values;
-    if (vals.every((i) => i instanceof ParsedEnvSpecStaticValue)) {
+    if (vals.every((i) => i instanceof ParsedEnvSpecStaticValue || i instanceof ParsedEnvSpecRegexLiteral)) {
       return vals.map((val) => val.value);
     } else if (vals.every((i) => i instanceof ParsedEnvSpecKeyValuePair)) {
       const obj = {} as Record<string, any>;
       vals.forEach((val) => {
-        if (val.value instanceof ParsedEnvSpecStaticValue) {
+        if (val.value instanceof ParsedEnvSpecRegexLiteral) {
+          obj[val.key] = val.value.value;
+        } else if (val.value instanceof ParsedEnvSpecStaticValue) {
           obj[val.key] = val.value.value;
         } else if (val.value instanceof ParsedEnvSpecFunctionCall && val.value.name === 'regex') {
-          // Convert regex("pattern") to a RegExp instance
+          // Convert regex("pattern") to a RegExp instance (deprecated, prefer /pattern/ literals)
           const args = val.value.simplifiedArgs as Array<any>;
           if (typeof args[0] === 'string') {
             obj[val.key] = new RegExp(args[0]);
@@ -147,11 +175,13 @@ export class ParsedEnvSpecFunctionCall {
 
 
 export class ParsedEnvSpecDecorator {
-  value?: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs;
+  value?: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
+    | ParsedEnvSpecFunctionArgs | ParsedEnvSpecRegexLiteral;
 
   constructor(public data: {
     name: string;
-    value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs | undefined;
+    value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
+      | ParsedEnvSpecFunctionArgs | ParsedEnvSpecRegexLiteral | undefined;
     isBareFnCall?: boolean; // true if decorator is a bare fn call (eg: @import(...))
     _location?: any;
   }) {
@@ -159,6 +189,9 @@ export class ParsedEnvSpecDecorator {
     // `@required` === `@required=true`
     if (!this.data.value) {
       this.value = new ParsedEnvSpecStaticValue({ rawValue: true, isImplicit: true });
+    } else if (this.data.value instanceof ParsedEnvSpecRegexLiteral) {
+      // regex literals don't need expansion
+      this.value = this.data.value;
     } else {
       // process expansion -- triggers $ expansion (eg: "${VAR}" => `ref(VAR)`)/
       const expanded = expand(this.data.value);
@@ -306,23 +339,28 @@ export class ParsedEnvSpecBlankLine {
 
 
 export class ParsedEnvSpecConfigItem {
-  value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+  value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecRegexLiteral | undefined;
 
   constructor(public data: {
     key: string;
-    value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+    value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecRegexLiteral | undefined;
     preComments: Array<ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment>;
     postComment: ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment | undefined;
     _location?: any;
   }) {
     if (this.data.value) {
-      const expanded = expand(this.data.value!);
-      if (expanded instanceof ParsedEnvSpecKeyValuePair) {
-        throw new Error('Nested key-value pair found in config item');
-      } else if (expanded instanceof ParsedEnvSpecFunctionArgs) {
-        throw new Error('Top-level config item cannot be a bare function args');
+      // regex literals don't need expansion
+      if (this.data.value instanceof ParsedEnvSpecRegexLiteral) {
+        this.value = this.data.value;
+      } else {
+        const expanded = expand(this.data.value!);
+        if (expanded instanceof ParsedEnvSpecKeyValuePair) {
+          throw new Error('Nested key-value pair found in config item');
+        } else if (expanded instanceof ParsedEnvSpecFunctionArgs) {
+          throw new Error('Top-level config item cannot be a bare function args');
+        }
+        this.value = expanded;
       }
-      this.value = expanded;
     }
   }
 

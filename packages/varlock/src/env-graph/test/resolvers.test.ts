@@ -220,6 +220,10 @@ describe('regex()', functionValueTests({
     input: 'ITEM=regex(.*)',
     expected: { ITEM: ResolutionError },
   },
+  'error - regex literal used as value': {
+    input: 'ITEM=/^foo.*/',
+    expected: { ITEM: ResolutionError },
+  },
   'error - invalid regex': {
     input: outdent`
       OTHER=other
@@ -256,6 +260,20 @@ describe('remap()', functionValueTests({
     input: outdent`
       REMAP_ME=foo
       ITEM=remap($REMAP_ME, buz, biz, regex(fo+), bar)
+    `,
+    expected: { ITEM: 'bar' },
+  },
+  'remaps regex literal match': {
+    input: outdent`
+      REMAP_ME=foo
+      ITEM=remap($REMAP_ME, buz, biz, /fo+/, bar)
+    `,
+    expected: { ITEM: 'bar' },
+  },
+  'remaps regex literal with flags': {
+    input: outdent`
+      REMAP_ME=FOO
+      ITEM=remap($REMAP_ME, buz, biz, /foo/i, bar)
     `,
     expected: { ITEM: 'bar' },
   },

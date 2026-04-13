@@ -328,8 +328,8 @@ export const RESOLVERS: Array<ResolverInfo> = [
   },
   {
     name: 'regex',
-    summary: 'Creates a regular expression for use inside other functions.',
-    documentation: 'Intended for use in other resolvers like `remap()`.',
+    summary: '*(deprecated)* Creates a regular expression for use inside other functions.',
+    documentation: 'Deprecated — use regex literal syntax instead: `/pattern/flags`. For example: `remap($VAR, /^dev.*/, result)`.',
     insertText: 'regex(${1:"^dev.*"})',
   },
   {
