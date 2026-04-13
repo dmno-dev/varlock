@@ -40,7 +40,7 @@ function inferFromBranch(branch: string): DeploymentEnvironment {
  */
 function getGitBranch(): string | undefined {
   try {
-    const branch = execSync('git branch --show-current', { stdio: ['pipe', 'pipe', 'pipe'] })
+    const branch = execSync('git branch --show-current', { stdio: ['pipe', 'pipe', 'pipe'], timeout: 3000 })
       .toString()
       .trim();
     return branch || undefined;
