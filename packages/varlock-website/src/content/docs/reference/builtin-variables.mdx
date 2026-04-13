@@ -88,7 +88,7 @@ Whether the current process is running in a CI environment.
 
 **Type:** `string | undefined`
 
-The current git branch name, as reported by the CI platform. Undefined when not in CI or when the platform doesn't expose branch info.
+The current git branch name. In CI environments, sourced from the platform's environment variables. When running locally (non-CI), auto-detected via `git branch --show-current`. Undefined if the branch cannot be determined (e.g., detached HEAD state, no git repo, or platform doesn't expose branch info).
 
 
 ### `VARLOCK_PR_NUMBER`

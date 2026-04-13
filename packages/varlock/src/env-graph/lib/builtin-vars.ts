@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { type CiEnvInfo, type DeploymentEnvironment } from '@varlock/ci-env-info';
 
 export type BuiltinVarDef = {
@@ -31,6 +32,21 @@ function inferFromBranch(branch: string): DeploymentEnvironment {
   if (['staging', 'stage', 'develop', 'dev'].includes(lower)) return 'staging';
   if (['qa', 'test'].includes(lower)) return 'test';
   return 'preview';
+}
+
+/**
+ * Attempt to get the current git branch via `git branch --show-current`.
+ * Returns undefined if git is unavailable, not in a git repo, or in a detached HEAD state.
+ */
+function getGitBranch(): string | undefined {
+  try {
+    const branch = execSync('git branch --show-current', { stdio: ['pipe', 'pipe', 'pipe'] })
+      .toString()
+      .trim();
+    return branch || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -72,8 +88,8 @@ export const BUILTIN_VARS: Record<string, BuiltinVarDef> = {
   },
   VARLOCK_BRANCH: {
     name: 'VARLOCK_BRANCH',
-    description: 'Current git branch name',
-    resolver: (ciEnv) => ciEnv.branch,
+    description: 'Current git branch name. In CI, sourced from platform environment variables. Locally (non-CI), auto-detected via `git branch --show-current`.',
+    resolver: (ciEnv) => ciEnv.branch ?? (!ciEnv.isCI ? getGitBranch() : undefined),
   },
   VARLOCK_PR_NUMBER: {
     name: 'VARLOCK_PR_NUMBER',

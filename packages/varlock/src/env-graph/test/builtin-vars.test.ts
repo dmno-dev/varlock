@@ -1,4 +1,5 @@
 import { describe, test } from 'vitest';
+import { execSync } from 'node:child_process';
 import { envFilesTest } from './helpers/generic-test';
 
 describe('VARLOCK_* builtin variables', () => {
@@ -151,6 +152,24 @@ describe('VARLOCK_* builtin variables', () => {
       },
       expectValues: { VARLOCK_BRANCH: 'feature-branch' },
     }));
+
+    test('VARLOCK_BRANCH falls back to git branch in non-CI env', async () => {
+      let gitBranch: string | undefined;
+      try {
+        const out = execSync('git branch --show-current', { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+        gitBranch = out || undefined;
+      } catch {
+        gitBranch = undefined;
+      }
+
+      if (!gitBranch) return; // skip if not in a git repo or in detached HEAD state
+
+      await envFilesTest({
+        envFile: 'MY_VAR=$VARLOCK_BRANCH',
+        processEnv: {},
+        expectValues: { VARLOCK_BRANCH: gitBranch },
+      })();
+    });
 
     test('VARLOCK_BRANCH returns PR head branch name in GitHub Actions PR context', envFilesTest({
       envFile: 'MY_VAR=$VARLOCK_BRANCH',
