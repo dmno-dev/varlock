@@ -30,10 +30,38 @@ pub fn decrypt_via_daemon(ciphertext: &str, key_id: &str, tty_id: Option<&str>) 
         }
     }
 
+    // When this .exe is invoked via WSL2 interop, we cannot spawn a working
+    // daemon: the child inherits WSL's interop session and the resulting
+    // UserConsentVerifier (Windows Hello) prompt never renders, hanging
+    // forever. Detect that case via env vars inherited from the WSL parent
+    // and return a clear error instead of attempting the doomed spawn.
+    if is_invoked_from_wsl() {
+        let exe_path = std::env::current_exe()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "<varlock-local-encrypt.exe>".to_string());
+        return Err(format!(
+            "Windows Hello daemon is not running, and it cannot be started from inside WSL2 \
+             (no access to the interactive Windows desktop session).\n\n\
+             To start the daemon, open a native Windows PowerShell and run:\n\n  \
+             Start-Process -WindowStyle Hidden \"{exe_path}\" start-daemon\n\n\
+             Then retry from WSL2. The daemon stays alive for 24h of inactivity, so this \
+             is a one-time step per session."
+        ));
+    }
+
     spawn_daemon()?;
 
     // Retry after spawn
     try_daemon_decrypt(ciphertext, key_id, tty_id)
+}
+
+/// Detect whether this .exe was launched via WSL2 interop.
+/// WSL forwards env vars like WSL_DISTRO_NAME and WSL_INTEROP into Windows
+/// children it spawns through interop.
+#[cfg(target_os = "windows")]
+fn is_invoked_from_wsl() -> bool {
+    std::env::var_os("WSL_DISTRO_NAME").is_some()
+        || std::env::var_os("WSL_INTEROP").is_some()
 }
 
 /// Try to connect to the daemon and send a decrypt request.
@@ -144,6 +172,16 @@ fn try_daemon_decrypt(ciphertext: &str, key_id: &str, tty_id: Option<&str>) -> R
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| "Unexpected daemon response format".to_string())
+}
+
+/// Public entry point for the `start-daemon` subcommand.
+/// Returns Ok if a daemon is already running OR if we successfully spawn one.
+#[cfg(target_os = "windows")]
+pub fn ensure_daemon_running() -> Result<(), String> {
+    if pipe_exists() {
+        return Ok(());
+    }
+    spawn_daemon()
 }
 
 /// Spawn a daemon process and wait for it to be ready.

@@ -54,6 +54,8 @@ windows = { version = "0.58", features = [
     # Windows Hello (UserConsentVerifier)
     "Security_Credentials_UI",
     "Foundation",
+    # AllowSetForegroundWindow — let Hello prompt come to front from windowless daemon
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [profile.release]
