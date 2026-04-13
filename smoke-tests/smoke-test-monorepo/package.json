@@ -1,0 +1,8 @@
+{
+  "name": "smoke-test-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
