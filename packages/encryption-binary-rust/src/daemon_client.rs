@@ -215,8 +215,11 @@ fn spawn_daemon() -> Result<(), String> {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        // CREATE_NO_WINDOW (0x08000000) | DETACHED_PROCESS (0x00000008)
-        .creation_flags(0x08000008)
+        // CREATE_NO_WINDOW only — gives cmd.exe a hidden console that
+        // `start /B` can inherit, keeping the daemon invisible.
+        // Do NOT add DETACHED_PROCESS: with no console at all, `start /B`
+        // falls back to allocating a visible console for the child.
+        .creation_flags(0x08000000)
         .spawn()
         .map_err(|e| format!("Failed to spawn daemon: {e}"))?;
 
