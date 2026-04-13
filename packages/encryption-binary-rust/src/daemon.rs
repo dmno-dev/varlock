@@ -294,9 +294,15 @@ fn verify_user_presence() -> Result<bool, String> {
         crate::key_store::windows_hello::verify_user("Varlock needs to decrypt your secrets")
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
-        // No biometric on Linux — sessions are always warm
+        // polkit delegates to PAM — fingerprint / face / YubiKey / password
+        // depending on the user's configured factors.
+        crate::key_store::polkit::check_authorization()
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
         Ok(true)
     }
 }
