@@ -44,10 +44,7 @@ async function fetchIconSvg(
     iconInMemoryCache[iconPath] = svgSrc;
   } else {
     try {
-      const iconSvg = await fetch(`https://api.iconify.design/${iconifyName.replace(':', '/')}.svg?height=${ICON_SIZE}`, {
-        // On Windows, lingering keep-alive connections cause a libuv assertion crash on process exit
-        keepalive: process.platform !== 'win32',
-      });
+      const iconSvg = await fetch(`https://api.iconify.design/${iconifyName.replace(':', '/')}.svg?height=${ICON_SIZE}`);
       svgSrc = await iconSvg.text();
     } catch (err) {
       return;
