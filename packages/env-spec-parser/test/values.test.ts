@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import ansis from 'ansis';
-import { ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile } from '../src';
+import {
+  ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair, ParsedEnvSpecRegexLiteral,
+  ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
+} from '../src';
 import { expectInstanceOf } from './test-utils';
 
 
@@ -143,3 +146,63 @@ describe('post-comment handling', basicValueTests([
   ['123 # @dec', 123],
   ['foo(fn#arg) #post-comment', { fnName: 'foo', fnArgs: ['fn#arg'] }],
 ]));
+
+describe('regex literals', () => {
+  function regexTests(tests: Array<[string, { pattern: string; flags: string } | Error]>) {
+    return () => {
+      tests.forEach(([input, expected]) => {
+        const inputString = `VAL=${input}`;
+        it(inputString, () => {
+          if (expected instanceof Error) {
+            expect(() => parseEnvSpecDotEnvFile(inputString)).toThrow();
+          } else {
+            const result = parseEnvSpecDotEnvFile(inputString);
+            const valNode = result.configItems[0].value;
+            expectInstanceOf(valNode, ParsedEnvSpecRegexLiteral);
+            expect(valNode.pattern).toEqual(expected.pattern);
+            expect(valNode.flags).toEqual(expected.flags);
+            expect(valNode.value).toEqual(new RegExp(expected.pattern, expected.flags));
+          }
+        });
+      });
+    };
+  }
+
+  describe('as config item values', regexTests([
+    ['/foo/', { pattern: 'foo', flags: '' }],
+    ['/^dev.*/', { pattern: '^dev.*', flags: '' }],
+    ['/pattern/i', { pattern: 'pattern', flags: 'i' }],
+    ['/^https:\\/\\/.*$/gi', { pattern: '^https://.*$', flags: 'gi' }],
+    ['/foo|bar/', { pattern: 'foo|bar', flags: '' }],
+    ['/[a-z]+/ms', { pattern: '[a-z]+', flags: 'ms' }],
+  ]));
+
+  it('regex literal inside function args', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=foo(/^dev.*/, bar)');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecFunctionCall);
+    expect(valNode.name).toEqual('foo');
+    const args = valNode.data.args.values;
+    expectInstanceOf(args[0], ParsedEnvSpecRegexLiteral);
+    expect(args[0].pattern).toEqual('^dev.*');
+    expect(args[0].flags).toEqual('');
+  });
+
+  it('regex literal in key=value function arg', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=foo(matches=/^https:\\/\\//)');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecFunctionCall);
+    const args = valNode.data.args.values;
+    expectInstanceOf(args[0], ParsedEnvSpecKeyValuePair);
+    expectInstanceOf(args[0].value, ParsedEnvSpecRegexLiteral);
+    expect(args[0].value.pattern).toEqual('^https://');
+  });
+
+  it('regex literal toString roundtrip', () => {
+    const input = '/^dev.*/i';
+    const result = parseEnvSpecDotEnvFile(`VAL=${input}`);
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecRegexLiteral);
+    expect(valNode.toString()).toEqual(input);
+  });
+});

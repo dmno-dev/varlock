@@ -3,7 +3,8 @@ import { promisify } from 'node:util';
 
 import _ from '@env-spec/utils/my-dash';
 import {
-  ParsedEnvSpecFunctionArgs, ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair, ParsedEnvSpecStaticValue,
+  ParsedEnvSpecFunctionArgs, ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair,
+  ParsedEnvSpecRegexLiteral, ParsedEnvSpecStaticValue,
 } from '@env-spec/parser';
 
 import { ConfigItem } from './config-item';
@@ -47,7 +48,8 @@ export class Resolver {
 
   inferredType?: string;
   /** reference to the parsed node that created this resolver, used for error location tracking */
-  _parsedNode?: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs;
+  _parsedNode?: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
+    | ParsedEnvSpecFunctionArgs | ParsedEnvSpecRegexLiteral;
   _schemaErrors: Array<SchemaError> = [];
   private _depsObj: Record<string, boolean> = {};
 
@@ -244,7 +246,7 @@ export class StaticValueResolver extends Resolver {
   get staticValue() { return this._staticValue; }
   constructor(readonly _staticValue: ResolvedValue) {
     super([]);
-    if (_staticValue !== undefined) {
+    if (_staticValue !== undefined && !(_staticValue instanceof RegExp)) {
       this.inferredType = typeof _staticValue;
     }
   }
@@ -673,12 +675,15 @@ export const BaseResolvers: Array<ResolverChildClass> = [
 /// /
 
 export function convertParsedValueToResolvers(
-  value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs | undefined,
+  value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
+    | ParsedEnvSpecFunctionArgs | ParsedEnvSpecRegexLiteral | undefined,
   dataSource: EnvGraphDataSource | undefined,
   registeredResolvers: Record<string, ResolverChildClass>,
 ): Resolver | undefined {
   if (value === undefined) {
     return undefined;
+  } else if (value instanceof ParsedEnvSpecRegexLiteral) {
+    return new StaticValueResolver(value.value);
   } else if (value instanceof ParsedEnvSpecStaticValue) {
     return new StaticValueResolver(value.unescapedValue);
   } else if (
@@ -687,7 +692,10 @@ export function convertParsedValueToResolvers(
     || value instanceof ParsedEnvSpecFunctionArgs
   ) {
     let ResolverFnClass: ResolverChildClass | undefined;
-    let argsFromParser: Array<ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecKeyValuePair>;
+    let argsFromParser: Array<
+      ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
+      | ParsedEnvSpecKeyValuePair | ParsedEnvSpecRegexLiteral
+    >;
     if (value instanceof ParsedEnvSpecFunctionCall) {
       // we look up the resolver by function name
       ResolverFnClass = registeredResolvers[value.name];

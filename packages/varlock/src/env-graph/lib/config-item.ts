@@ -1,6 +1,6 @@
 import _ from '@env-spec/utils/my-dash';
 import {
-  ParsedEnvSpecDecorator, ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue,
+  ParsedEnvSpecDecorator, ParsedEnvSpecFunctionCall, ParsedEnvSpecRegexLiteral, ParsedEnvSpecStaticValue,
 } from '@env-spec/parser';
 
 import { EnvGraphDataType } from './data-types';
@@ -20,7 +20,7 @@ export type ConfigItemDef = {
   description?: string;
   // TODO: translate parser decorator class into our own generic version
   parsedDecorators?: Array<ParsedEnvSpecDecorator>;
-  parsedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+  parsedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecRegexLiteral | undefined;
 
   resolver?: Resolver;
   decorators?: Array<ItemDecoratorInstance>;
@@ -517,7 +517,7 @@ export class ConfigItem {
     }
 
     if (this.resolvedRawValue instanceof RegExp) {
-      this.resolutionError = new ResolutionError('regex() is meant to be used within function args, not as a final resolved value');
+      this.resolutionError = new ResolutionError('Regex values are meant to be used within function args (e.g., remap()), not as a final resolved value');
     }
 
     // bail if we have an resolution error

@@ -296,6 +296,10 @@ const UrlDataType = createEnvGraphDataType(
   (settings?: {
     prependHttps?: boolean
     allowedDomains?: Array<string>
+    /** Disallow a trailing slash on the URL path. */
+    noTrailingSlash?: boolean
+    /** A regular expression or string pattern that the full URL must match. */
+    matches?: RegExp | string
   }) => ({
     name: 'url',
     icon: 'carbon:url',
@@ -311,12 +315,22 @@ const UrlDataType = createEnvGraphDataType(
       } catch (err) {
         throw new ValidationError('Invalid URL');
       }
+      const errors = [] as Array<ValidationError>;
       if (
         settings?.allowedDomains && !settings.allowedDomains.includes(url.host.toLowerCase())
       ) {
-        return new ValidationError(`Domain (${url.host}) is not in allowed list: ${settings.allowedDomains.join(',')}`);
+        errors.push(new ValidationError(`Domain (${url.host}) is not in allowed list: ${settings.allowedDomains.join(',')}`));
       }
-      return true;
+      if (settings?.noTrailingSlash && url.pathname.endsWith('/') && url.pathname !== '/') {
+        errors.push(new ValidationError('URL must not have a trailing slash'));
+      }
+      if (settings?.matches) {
+        const regex = _.isString(settings.matches) ? new RegExp(settings.matches) : settings.matches;
+        if (!regex.test(val)) {
+          errors.push(new ValidationError(`URL must match regex "${settings.matches}"`));
+        }
+      }
+      return errors.length ? errors : true;
     },
   }),
 );

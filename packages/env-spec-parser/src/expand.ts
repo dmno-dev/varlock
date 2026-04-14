@@ -1,5 +1,6 @@
 import {
-  ParsedEnvSpecFunctionArgs, ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair, ParsedEnvSpecStaticValue,
+  ParsedEnvSpecFunctionArgs, ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair,
+  ParsedEnvSpecRegexLiteral, ParsedEnvSpecStaticValue,
 } from './classes';
 
 // const EXPAND_VAR_REGEX_WITH_SIMPLE = /\$({([a-zA-Z_][a-zA-Z0-9_.]*)}|([a-zA-Z_][a-zA-Z0-9_]*))/g;
@@ -122,7 +123,8 @@ function expandRefs(staticVal: ParsedEnvSpecStaticValue, mode: 'simple' | 'brack
 
 
 type ParsedEnvSpecValueNode = ParsedEnvSpecStaticValue
-| ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs | ParsedEnvSpecKeyValuePair;
+| ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs | ParsedEnvSpecKeyValuePair
+| ParsedEnvSpecRegexLiteral;
 
 /**
  * helper used by expansion to recursively expand values
@@ -173,6 +175,9 @@ function expandHelper(
       key: val.key,
       val: expandedVal as any,
     });
+  } else if (val instanceof ParsedEnvSpecRegexLiteral) {
+    // regex literals are never expanded
+    return val;
   } else if (val instanceof ParsedEnvSpecStaticValue) {
     // here we actually do the expansion on string values
 

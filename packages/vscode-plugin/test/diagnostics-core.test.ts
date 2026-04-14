@@ -157,6 +157,109 @@ describe('diagnostics-core', () => {
     ).toBe('URL must include a protocol unless prependHttps=true.');
   });
 
+  it('validates noTrailingSlash url option', () => {
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { noTrailingSlash: 'true' } },
+        'https://example.com/api/',
+      ),
+    ).toBe('URL must not have a trailing slash.');
+
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { noTrailingSlash: 'true' } },
+        'https://example.com/api',
+      ),
+    ).toBeUndefined();
+
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { noTrailingSlash: 'true' } },
+        'https://example.com',
+      ),
+    ).toBeUndefined();
+  });
+
+  it('validates matches (regex) url option', () => {
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { matches: '^https://api\\.' } },
+        'https://api.example.com',
+      ),
+    ).toBeUndefined();
+
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { matches: '^https://api\\.' } },
+        'https://example.com',
+      ),
+    ).toBe('URL must match `^https://api\\.`.');
+  });
+
+  it('validates matches url option using regex() wrapper syntax', () => {
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { matches: 'regex("^https://api\\.")' } },
+        'https://api.example.com',
+      ),
+    ).toBeUndefined();
+
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { matches: 'regex("^https://api\\.")' } },
+        'https://example.com',
+      ),
+    ).toBe('URL must match `regex("^https://api\\.")`.');
+  });
+
+  it('validates matches string option using regex() wrapper syntax', () => {
+    expect(
+      validateStaticValue(
+        { name: 'string', args: [], options: { matches: 'regex("^[A-Z]+$")' } },
+        'HELLO',
+      ),
+    ).toBeUndefined();
+
+    expect(
+      validateStaticValue(
+        { name: 'string', args: [], options: { matches: 'regex("^[A-Z]+$")' } },
+        'hello',
+      ),
+    ).toBe('Value must match `regex("^[A-Z]+$")`.');
+  });
+
+  it('validates matches url option using /regex/ literal syntax', () => {
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { matches: '/^https:\\/\\/api\\./' } },
+        'https://api.example.com',
+      ),
+    ).toBeUndefined();
+
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { matches: '/^https:\\/\\/api\\./' } },
+        'https://example.com',
+      ),
+    ).toBe('URL must match `/^https:\\/\\/api\\./`.');
+  });
+
+  it('validates matches string option using /regex/ literal syntax', () => {
+    expect(
+      validateStaticValue(
+        { name: 'string', args: [], options: { matches: '/^[A-Z]+$/' } },
+        'HELLO',
+      ),
+    ).toBeUndefined();
+
+    expect(
+      validateStaticValue(
+        { name: 'string', args: [], options: { matches: '/^[A-Z]+$/' } },
+        'hello',
+      ),
+    ).toBe('Value must match `/^[A-Z]+$/`.');
+  });
+
   it('validates boolean, ip version, and port values', () => {
     expect(
       validateStaticValue(

@@ -10,6 +10,18 @@ const INCOMPATIBLE_DECORATOR_PAIRS = [
   ['sensitive', 'public'],
 ] as const;
 
+/** Extract a regex pattern string from a plain pattern, `regex("pattern")` wrapper, or `/pattern/flags` literal. */
+function extractRegexPattern(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  // regex literal syntax: /pattern/flags
+  const regexLiteral = value.match(/^\/(.*)\/([gimsuy]*)$/s);
+  if (regexLiteral) return regexLiteral[1].replaceAll('\\/', '/');
+  // legacy regex() wrapper: regex("pattern")
+  const wrapped = value.match(/^regex\("(.*)"\)$/s);
+  if (wrapped) return wrapped[1];
+  return value;
+}
+
 export type TypeInfo = {
   name: string;
   args: Array<string>;
@@ -66,7 +78,7 @@ export function unquote(value: string) {
 }
 
 export function isDynamicValue(value: string) {
-  return /\$[A-Za-z_]/.test(value) || /^[A-Za-z][\w-]*\(/.test(value);
+  return /\$[A-Za-z_]/.test(value) || /^[A-Za-z][\w-]*\(/.test(value) || /^\/.*\/[gimsuy]*$/.test(value);
 }
 
 export function splitCommaSeparatedArgs(input: string) {
@@ -284,10 +296,11 @@ function validateStringValue(value: string, options: TypeInfo['options']) {
   }
 
   if (typeof options.matches === 'string') {
-    if (options.matches.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
+    const pattern = extractRegexPattern(options.matches);
+    if (!pattern || pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
 
     try {
-      const regex = new RegExp(options.matches);
+      const regex = new RegExp(pattern);
       if (!regex.test(value)) return `Value must match \`${options.matches}\`.`;
     } catch {
       return undefined;
@@ -348,8 +361,23 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
     if (allowedDomains.length > 0 && !allowedDomains.includes(url.host.toLowerCase())) {
       return `URL host must be one of: ${allowedDomains.join(', ')}.`;
     }
+
+    if (parseBooleanOption(options.noTrailingSlash) && url.pathname.endsWith('/') && url.pathname !== '/') {
+      return 'URL must not have a trailing slash.';
+    }
   } catch {
     return 'Value must be a valid URL.';
+  }
+
+  if (typeof options.matches === 'string' && options.matches.length > 0) {
+    const pattern = extractRegexPattern(options.matches);
+    if (!pattern || pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
+    try {
+      const regex = new RegExp(pattern);
+      if (!regex.test(value)) return `URL must match \`${options.matches}\`.`;
+    } catch {
+      return undefined;
+    }
   }
 
   return undefined;
