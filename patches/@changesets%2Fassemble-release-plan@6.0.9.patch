@@ -2,7 +2,7 @@ diff --git a/node_modules/@changesets/assemble-release-plan/.bun-tag-7a691b1c012
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/dist/changesets-assemble-release-plan.cjs.js b/dist/changesets-assemble-release-plan.cjs.js
-index e07ba6e793021b6cfdec898afca517e293386ddb..036463cd3da0e89c9a5566b92b431288cbc190b4 100644
+index e07ba6e793021b6cfdec898afca517e293386ddb..1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b 100644
 --- a/dist/changesets-assemble-release-plan.cjs.js
 +++ b/dist/changesets-assemble-release-plan.cjs.js
 @@ -74,9 +74,13 @@ function getHighestReleaseType(releases) {
@@ -78,8 +78,18 @@ index e07ba6e793021b6cfdec898afca517e293386ddb..036463cd3da0e89c9a5566b92b431288
            release.type = type;
          }
          // Check whether the bumpType will change
+@@ -545,7 +566,9 @@ function assembleReleasePlan(changesets, packages, config,
+   return {
+     changesets: relevantChangesets,
+     releases: [...releases.values()].map(incompleteRelease => {
++      const normalizedType = incompleteRelease.type === "minor-isolated" ? "minor" : incompleteRelease.type === "patch-isolated" ? "patch" : incompleteRelease.type;
+       return _objectSpread2(_objectSpread2({}, incompleteRelease), {}, {
++        type: normalizedType,
+         newVersion: snapshotSuffix ? getSnapshotVersion(incompleteRelease, preInfo, refinedConfig.snapshot.useCalculatedVersion, snapshotSuffix) : getNewVersion(incompleteRelease, preInfo)
+       });
+     }),
 diff --git a/dist/changesets-assemble-release-plan.esm.js b/dist/changesets-assemble-release-plan.esm.js
-index ea2be567403c4ef94a65f3218ccb683cf5cb4bc1..417273c7b4faab122e32db0cd8c38bdd906909be 100644
+index ea2be567403c4ef94a65f3218ccb683cf5cb4bc1..517273c7b4faab122e32db0cd8c38bdd906909be 100644
 --- a/dist/changesets-assemble-release-plan.esm.js
 +++ b/dist/changesets-assemble-release-plan.esm.js
 @@ -63,9 +63,13 @@ function getHighestReleaseType(releases) {
@@ -155,6 +165,16 @@ index ea2be567403c4ef94a65f3218ccb683cf5cb4bc1..417273c7b4faab122e32db0cd8c38bdd
            release.type = type;
          }
          // Check whether the bumpType will change
+@@ -534,7 +555,9 @@ function assembleReleasePlan(changesets, packages, config,
+   return {
+     changesets: relevantChangesets,
+     releases: [...releases.values()].map(incompleteRelease => {
++      const normalizedType = incompleteRelease.type === "minor-isolated" ? "minor" : incompleteRelease.type === "patch-isolated" ? "patch" : incompleteRelease.type;
+       return _objectSpread2(_objectSpread2({}, incompleteRelease), {}, {
++        type: normalizedType,
+         newVersion: snapshotSuffix ? getSnapshotVersion(incompleteRelease, preInfo, refinedConfig.snapshot.useCalculatedVersion, snapshotSuffix) : getNewVersion(incompleteRelease, preInfo)
+       });
+     }),
 diff --git a/src/determine-dependents.ts b/src/determine-dependents.ts
 index 47e32b6f09310d3ed03ab46b2d342d032f9014df..4edccca93152b1c8df59391b35e5f72de7ab8c05 100644
 --- a/src/determine-dependents.ts
