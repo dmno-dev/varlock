@@ -1,5 +1,11 @@
 # varlock
 
+## 0.8.1
+
+### Patch Changes
+
+- [#610](https://github.com/dmno-dev/varlock/pull/610) [`753086e`](https://github.com/dmno-dev/varlock/commit/753086ef927fa5895dabad190d35401fd6647e6a) - fix: `noTrailingSlash` url type option now correctly rejects URLs like `https://example.com/`
+
 ## 0.8.0
 
 ### Minor Changes
