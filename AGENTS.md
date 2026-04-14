@@ -28,6 +28,17 @@
 - Smoke tests live in `smoke-tests/` and test the CLI end-to-end
 - Binary-specific tests in `smoke-tests/tests/binary.test.ts` require the SEA binary to be built first
 
+## Changesets & versioning
+
+- This monorepo uses **changesets** for version management
+- Changeset files live in `.changeset/` and are created with `bunx changeset add`
+- Standard bump types: `major`, `minor`, `patch`, `none`
+- **Custom isolated bump types**: `minor-isolated` and `patch-isolated` are supported via patched `@changesets/*` packages
+  - These suppress dependency propagation — the package itself gets bumped but dependents are **not** automatically bumped
+  - Use **`minor-isolated`** for minor bumps that don't affect the library API consumed by dependents (e.g., CLI-only features in `varlock` that plugins/integrations don't depend on). This is the most common use case — because all packages are still on `0.x`, `^0.y.z` ranges treat minor bumps as out-of-range, which would otherwise cascade bumps to all dependents.
+  - `patch-isolated` exists but is rarely needed — patch bumps on `0.x` stay within `^` ranges and don't cascade
+  - `major-isolated` is intentionally **not** supported (major bumps must propagate to keep semver ranges valid)
+
 ## Linting
 
 - Run **`bun run lint:fix`** from the repo root after completing a significant chunk of work (new feature, refactor, bug fix, etc.)

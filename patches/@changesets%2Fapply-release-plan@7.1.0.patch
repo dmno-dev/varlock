@@ -1,0 +1,72 @@
+diff --git a/dist/changesets-apply-release-plan.cjs.js b/dist/changesets-apply-release-plan.cjs.js
+index 2e57ca5e53b45a05c637766852336ad1353bbe9f..7cd68d3310c1aa9d32d484b2d43a34557b3e9515 100644
+--- a/dist/changesets-apply-release-plan.cjs.js
++++ b/dist/changesets-apply-release-plan.cjs.js
+@@ -100,15 +100,15 @@ function _objectSpread2(e) {
+ /**
+  * Shared utility functions and business logic
+  */
+-const bumpTypes = ["none", "patch", "minor", "major"];
+-
+ /* Converts a bump type into a numeric level to indicate order */
+ function getBumpLevel(type) {
+-  const level = bumpTypes.indexOf(type);
+-  if (level < 0) {
+-    throw new Error(`Unrecognised bump type ${type}`);
++  switch (type) {
++    case "major": return 3;
++    case "minor": case "minor-isolated": return 2;
++    case "patch": case "patch-isolated": return 1;
++    case "none": return 0;
++    default: throw new Error(`Unrecognised bump type ${type}`);
+   }
+-  return level;
+ }
+ function shouldUpdateDependencyBasedOnConfig(release, {
+   depVersionRange,
+@@ -156,7 +156,8 @@ async function getChangelogEntry(release, releases, changesets, changelogFuncs,
+   changesets.forEach(cs => {
+     const rls = cs.releases.find(r => r.name === release.name);
+     if (rls && rls.type !== "none") {
+-      changelogLines[rls.type].push(changelogFuncs.getReleaseLine(cs, rls.type, changelogOpts));
++      const changelogType = rls.type === "minor-isolated" ? "minor" : rls.type === "patch-isolated" ? "patch" : rls.type;
++      changelogLines[changelogType].push(changelogFuncs.getReleaseLine(cs, rls.type, changelogOpts));
+     }
+   });
+   let dependentReleases = releases.filter(rel => {
+diff --git a/dist/changesets-apply-release-plan.esm.js b/dist/changesets-apply-release-plan.esm.js
+index f010f14fd5770c2e2f0af613beda3f817036aab4..c99fff927b5beedd395aac19a9b432114958905a 100644
+--- a/dist/changesets-apply-release-plan.esm.js
++++ b/dist/changesets-apply-release-plan.esm.js
+@@ -63,15 +63,15 @@ function _objectSpread2(e) {
+ /**
+  * Shared utility functions and business logic
+  */
+-const bumpTypes = ["none", "patch", "minor", "major"];
+-
+ /* Converts a bump type into a numeric level to indicate order */
+ function getBumpLevel(type) {
+-  const level = bumpTypes.indexOf(type);
+-  if (level < 0) {
+-    throw new Error(`Unrecognised bump type ${type}`);
++  switch (type) {
++    case "major": return 3;
++    case "minor": case "minor-isolated": return 2;
++    case "patch": case "patch-isolated": return 1;
++    case "none": return 0;
++    default: throw new Error(`Unrecognised bump type ${type}`);
+   }
+-  return level;
+ }
+ function shouldUpdateDependencyBasedOnConfig(release, {
+   depVersionRange,
+@@ -119,7 +119,8 @@ async function getChangelogEntry(release, releases, changesets, changelogFuncs,
+   changesets.forEach(cs => {
+     const rls = cs.releases.find(r => r.name === release.name);
+     if (rls && rls.type !== "none") {
+-      changelogLines[rls.type].push(changelogFuncs.getReleaseLine(cs, rls.type, changelogOpts));
++      const changelogType = rls.type === "minor-isolated" ? "minor" : rls.type === "patch-isolated" ? "patch" : rls.type;
++      changelogLines[changelogType].push(changelogFuncs.getReleaseLine(cs, rls.type, changelogOpts));
+     }
+   });
+   let dependentReleases = releases.filter(rel => {
