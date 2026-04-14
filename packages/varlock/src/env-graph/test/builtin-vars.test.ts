@@ -1,6 +1,19 @@
-import { describe, test } from 'vitest';
-import { execSync } from 'node:child_process';
+import { describe, test, vi, expect, beforeEach, afterEach } from 'vitest';
 import { envFilesTest } from './helpers/generic-test';
+
+// We need to mock the child_process module used by builtin-vars.ts
+// to verify git is/isn't called
+const execMock = vi.fn();
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    exec: (...args: any[]) => {
+      execMock(...args);
+      return actual.exec(...(args as Parameters<typeof actual.exec>));
+    },
+  };
+});
 
 describe('VARLOCK_* builtin variables', () => {
   describe('lazy registration', () => {
@@ -154,21 +167,39 @@ describe('VARLOCK_* builtin variables', () => {
     }));
 
     test('VARLOCK_BRANCH falls back to git branch in non-CI env', async () => {
-      let gitBranch: string | undefined;
-      try {
-        const out = execSync('git branch --show-current', { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
-        gitBranch = out || undefined;
-      } catch {
-        gitBranch = undefined;
-      }
-
-      if (!gitBranch) return; // skip if not in a git repo or in detached HEAD state
+      execMock.mockClear();
 
       await envFilesTest({
         envFile: 'MY_VAR=$VARLOCK_BRANCH',
         processEnv: {},
-        expectValues: { VARLOCK_BRANCH: gitBranch },
       })();
+
+      // verify exec was called with git branch command
+      const gitCalls = execMock.mock.calls.filter(
+        (call: any[]) => typeof call[0] === 'string' && call[0].includes('git branch'),
+      );
+      expect(gitCalls).toHaveLength(1);
+    });
+
+    test('VARLOCK_BRANCH does not shell out to git when branch is detected via CI env vars', async () => {
+      execMock.mockClear();
+
+      await envFilesTest({
+        envFile: 'MY_VAR=$VARLOCK_BRANCH',
+        processEnv: {
+          CI: 'true',
+          GITHUB_ACTIONS: 'true',
+          GITHUB_REF: 'refs/heads/feature-branch',
+          GITHUB_REPOSITORY: 'owner/repo',
+        },
+        expectValues: { VARLOCK_BRANCH: 'feature-branch' },
+      })();
+
+      // exec should NOT have been called with the git branch command
+      const gitCalls = execMock.mock.calls.filter(
+        (call: any[]) => typeof call[0] === 'string' && call[0].includes('git branch'),
+      );
+      expect(gitCalls).toHaveLength(0);
     });
 
     test('VARLOCK_BRANCH returns PR head branch name in GitHub Actions PR context', envFilesTest({

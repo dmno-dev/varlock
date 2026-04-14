@@ -1,12 +1,15 @@
-import { execSync } from 'node:child_process';
+import { exec as execCb } from 'node:child_process';
+import { promisify } from 'node:util';
 import { type CiEnvInfo, type DeploymentEnvironment } from '@varlock/ci-env-info';
+
+const exec = promisify(execCb);
 
 export type BuiltinVarDef = {
   name: string;
   description: string;
   /** Data type name for this builtin var (defaults to 'string') */
   type?: string;
-  resolver: (ciEnv: CiEnvInfo, processEnv: Record<string, string | undefined>) => string | boolean | undefined;
+  resolver: (ciEnv: CiEnvInfo, processEnv: Record<string, string | undefined>) => string | boolean | undefined | Promise<string | undefined>;
 };
 
 /**
@@ -38,11 +41,10 @@ function inferFromBranch(branch: string): DeploymentEnvironment {
  * Attempt to get the current git branch via `git branch --show-current`.
  * Returns undefined if git is unavailable, not in a git repo, or in a detached HEAD state.
  */
-function getGitBranch(): string | undefined {
+async function getGitBranch(): Promise<string | undefined> {
   try {
-    const branch = execSync('git branch --show-current', { stdio: ['pipe', 'pipe', 'pipe'], timeout: 3000 })
-      .toString()
-      .trim();
+    const { stdout } = await exec('git branch --show-current', { timeout: 3000 });
+    const branch = stdout.trim();
     return branch || undefined;
   } catch {
     return undefined;
