@@ -20,6 +20,10 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'Disable stdout/stderr redaction and use stdio inherit for full TTY pass-through (use for interactive tools that require raw TTY)',
     },
+    'no-inject-graph': {
+      type: 'boolean',
+      description: 'Disable injection of __VARLOCK_ENV serialized config graph into the child process environment (prevents sensitive value exposure via env inspection)',
+    },
     path: {
       type: 'string',
       short: 'p',
@@ -36,6 +40,7 @@ Examples:
   varlock run -- python script.py               # Run a Python script
   varlock run -- sh -c 'echo $MY_VAR'           # Use shell expansion for env vars
   varlock run --no-redact-stdout -- psql        # Preserve TTY for interactive tools
+  varlock run --no-inject-graph -- sh           # Omit serialized config graph from env
   varlock run --path .env.prod -- node app.js   # Use a specific .env file
   varlock run --path ./config/ -- node app.js   # Use a specific directory
   varlock run -p ./envs -p ./overrides -- node app.js  # Use multiple directories
@@ -44,6 +49,7 @@ Examples:
 
 💡 Tip: For shell expansion of env vars, use: sh -c 'your command here'
 💡 Tip: Use --no-redact-stdout for interactive tools that require raw TTY (e.g., psql, claude)
+💡 Tip: Use --no-inject-graph to prevent __VARLOCK_ENV from being visible in child process environment (e.g., interactive shells, long-lived processes)
   `.trim(),
 });
 
@@ -91,12 +97,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const serializedGraph = envGraph.getSerializedGraph();
   // console.log(resolvedEnv);
 
+  const noInjectGraph = ctx.values['no-inject-graph'] ?? false;
+
   // needs more thought here
-  const fullInjectedEnv = {
+  const fullInjectedEnv: NodeJS.ProcessEnv = {
     ...process.env,
     ...resolvedEnv,
     __VARLOCK_RUN: '1', // flag for a child process to detect it is runnign via `varlock run`
-    __VARLOCK_ENV: JSON.stringify(serializedGraph),
+    ...(!noInjectGraph ? { __VARLOCK_ENV: JSON.stringify(serializedGraph) } : {}),
   };
 
   const redactLogs = serializedGraph.settings?.redactLogs ?? true;
