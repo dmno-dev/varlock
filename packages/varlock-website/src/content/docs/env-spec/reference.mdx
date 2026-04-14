@@ -171,6 +171,20 @@ Values are interpreted similarly for config item values, decorator values, and v
   - only available for config item values, not decorators or within function args
 
 
+### Regex literals
+
+Regex literals use JavaScript-style `/pattern/flags` syntax and can be used anywhere a value is expected — for example, as function arguments or decorator option values.
+
+- The pattern is delimited by `/` characters
+- Forward slashes within the pattern must be escaped as `\/`
+- Optional flags (`g`, `i`, `m`, `s`, `u`, `y`) may follow the closing `/`
+
+```env-spec
+ITEM=fn(/^dev.*/i, dev, "production", prod)
+# @type=string(matches=/^sk-[a-zA-Z0-9]+$/)
+API_KEY=
+```
+
 ### Function calls
 
 Function calls may be used for item values `ITEM=fn()`, decorator values `# @dec=fn()`, and bare decorator functions `# @func()`.
