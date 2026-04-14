@@ -1,8 +1,5 @@
-import { exec as execCb } from 'node:child_process';
-import { promisify } from 'node:util';
+import { asyncExec } from '@env-spec/utils/exec-helpers';
 import { type CiEnvInfo, type DeploymentEnvironment } from '@varlock/ci-env-info';
-
-const exec = promisify(execCb);
 
 export type BuiltinVarDef = {
   name: string;
@@ -45,7 +42,7 @@ function inferFromBranch(branch: string): DeploymentEnvironment {
  */
 async function getGitBranch(): Promise<string | undefined> {
   try {
-    const { stdout } = await exec('git branch --show-current', { timeout: 3000 });
+    const { stdout } = await asyncExec('git branch --show-current', { timeout: 3000 });
     const branch = stdout.trim();
     return branch || undefined;
   } catch {
