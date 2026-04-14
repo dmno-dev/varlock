@@ -102,6 +102,9 @@ bun run changeset:publish # Build and publish packages
 ```
 **🚨 CRITICAL**: Always add a changeset for package changes that affect users!
 
+#### Isolated bump types
+This repo supports custom `minor-isolated` and `patch-isolated` bump types via patched `@changesets/*` packages. These suppress dependency propagation — the package gets bumped but dependents are not automatically bumped. Use **`minor-isolated`** for minor bumps that don't affect the library API consumed by dependents (e.g., CLI-only features in `varlock`). This is the most common use case — because all packages are still on `0.x`, `^0.y.z` ranges treat minor bumps as out-of-range, which would otherwise cascade bumps to all dependents. `patch-isolated` exists but is rarely needed since patch bumps stay within `^` ranges on `0.x`. `major-isolated` is not supported — major bumps must propagate to keep semver ranges valid.
+
 ## Coding Standards
 
 ### 🚨 MANDATORY PRE-COMPLETION CHECKLIST
