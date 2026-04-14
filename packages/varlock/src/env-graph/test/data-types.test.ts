@@ -63,7 +63,15 @@ describe('url data type', () => {
       expect(g.configSchema.MY_URL.isValid).toBe(false);
     });
 
-    it('allows root path (just /)', async () => {
+    it('rejects bare domain with trailing slash', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(noTrailingSlash=true)
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('accepts bare domain without trailing slash', async () => {
       const g = await loadAndResolve(outdent`
         # @type=url(noTrailingSlash=true)
         MY_URL=https://example.com
