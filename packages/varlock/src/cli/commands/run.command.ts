@@ -103,7 +103,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const fullInjectedEnv: NodeJS.ProcessEnv = {
     ...process.env,
     ...resolvedEnv,
-    __VARLOCK_RUN: '1', // flag for a child process to detect it is runnign via `varlock run`
+    __VARLOCK_RUN: '1', // flag for a child process to detect it is running via `varlock run`
     ...(!noInjectGraph ? { __VARLOCK_ENV: JSON.stringify(serializedGraph) } : {}),
   };
 
