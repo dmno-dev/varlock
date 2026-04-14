@@ -321,7 +321,7 @@ const UrlDataType = createEnvGraphDataType(
       ) {
         errors.push(new ValidationError(`Domain (${url.host}) is not in allowed list: ${settings.allowedDomains.join(',')}`));
       }
-      if (settings?.noTrailingSlash && url.pathname.endsWith('/') && url.pathname !== '/') {
+      if (settings?.noTrailingSlash && val.endsWith('/')) {
         errors.push(new ValidationError('URL must not have a trailing slash'));
       }
       if (settings?.matches) {

@@ -266,7 +266,7 @@ WORKERS_CI_BRANCH=
 # @type=enum(development, preview, production, test)
 APP_ENV=remap($WORKERS_CI_BRANCH,
   "main", production,
-  regex(.*), preview,
+  /.*/, preview,
   development
 )
 ```
