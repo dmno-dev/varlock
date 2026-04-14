@@ -1,5 +1,5 @@
 ---
-"varlock": minor
+"varlock": minor-isolated
 "env-spec-language": patch
 "@env-spec/parser": minor
 ---
