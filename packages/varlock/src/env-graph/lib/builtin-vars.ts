@@ -9,7 +9,9 @@ export type BuiltinVarDef = {
   description: string;
   /** Data type name for this builtin var (defaults to 'string') */
   type?: string;
-  resolver: (ciEnv: CiEnvInfo, processEnv: Record<string, string | undefined>) => string | boolean | undefined | Promise<string | undefined>;
+  resolver: (
+    ciEnv: CiEnvInfo, processEnv: Record<string, string | undefined>,
+  ) => string | boolean | undefined | Promise<string | undefined>;
 };
 
 /**

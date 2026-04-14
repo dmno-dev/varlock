@@ -1,4 +1,6 @@
-import { describe, test, vi, expect, beforeEach, afterEach } from 'vitest';
+import {
+  describe, test, vi, expect,
+} from 'vitest';
 import { envFilesTest } from './helpers/generic-test';
 
 // We need to mock the child_process module used by builtin-vars.ts
@@ -8,7 +10,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
   return {
     ...actual,
-    exec: (...args: any[]) => {
+    exec: (...args: Array<any>) => {
       execMock(...args);
       return actual.exec(...(args as Parameters<typeof actual.exec>));
     },
@@ -176,7 +178,7 @@ describe('VARLOCK_* builtin variables', () => {
 
       // verify exec was called with git branch command
       const gitCalls = execMock.mock.calls.filter(
-        (call: any[]) => typeof call[0] === 'string' && call[0].includes('git branch'),
+        (call: Array<any>) => typeof call[0] === 'string' && call[0].includes('git branch'),
       );
       expect(gitCalls).toHaveLength(1);
     });
@@ -197,7 +199,7 @@ describe('VARLOCK_* builtin variables', () => {
 
       // exec should NOT have been called with the git branch command
       const gitCalls = execMock.mock.calls.filter(
-        (call: any[]) => typeof call[0] === 'string' && call[0].includes('git branch'),
+        (call: Array<any>) => typeof call[0] === 'string' && call[0].includes('git branch'),
       );
       expect(gitCalls).toHaveLength(0);
     });
