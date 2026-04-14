@@ -1,5 +1,11 @@
 # env-spec-language
 
+## 0.1.2
+
+### Patch Changes
+
+- [#599](https://github.com/dmno-dev/varlock/pull/599) [`c498964`](https://github.com/dmno-dev/varlock/commit/c498964d09cb11c51be5f24ff7aca985c8014542) - Add `noTrailingSlash` and `matches` (regex) options to the `url` data type. Add regex literal syntax (`/pattern/flags`) as a new language feature, deprecating the `regex()` function wrapper.
+
 ## 0.1.1
 
 ### Patch Changes
