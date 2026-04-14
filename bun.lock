@@ -46,7 +46,7 @@
     },
     "packages/env-spec-parser": {
       "name": "@env-spec/parser",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "devDependencies": {
         "@types/node": "catalog:",
         "ansis": "catalog:",
@@ -355,7 +355,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "0.7.4",
+      "version": "0.8.0",
       "bin": {
         "varlock": "./bin/cli.js",
       },
@@ -425,7 +425,7 @@
     },
     "packages/vscode-plugin": {
       "name": "env-spec-language",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "devDependencies": {
         "@types/node": "catalog:",
         "@types/vscode": "^1.99.0",

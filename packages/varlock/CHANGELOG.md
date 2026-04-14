@@ -1,5 +1,23 @@
 # varlock
 
+## 0.8.0
+
+### Minor Changes
+
+- [#593](https://github.com/dmno-dev/varlock/pull/593) [`2abe62a`](https://github.com/dmno-dev/varlock/commit/2abe62a5b6f7871512559b526a519edea920daf6) Thanks [@kjs3](https://github.com/kjs3)! - Added support for specifying multiple `--path` / `-p` flags from the CLI (e.g. `varlock load -p ./envs -p ./overrides`). Later paths take higher precedence. This brings the CLI to parity with the existing `package.json` `varlock.loadPath` array support.
+
+- [#599](https://github.com/dmno-dev/varlock/pull/599) [`c498964`](https://github.com/dmno-dev/varlock/commit/c498964d09cb11c51be5f24ff7aca985c8014542) - Add `noTrailingSlash` and `matches` (regex) options to the `url` data type. Add regex literal syntax (`/pattern/flags`) as a new language feature, deprecating the `regex()` function wrapper.
+
+- [#602](https://github.com/dmno-dev/varlock/pull/602) [`5841609`](https://github.com/dmno-dev/varlock/commit/58416095932529080543ddffe0208e5deadf6ac3) - In non-CI environments, `VARLOCK_BRANCH` now auto-detects the current git branch via `git branch --show-current`. Previously it was only populated in CI environments from platform environment variables.
+
+### Patch Changes
+
+- [#592](https://github.com/dmno-dev/varlock/pull/592) [`6031678`](https://github.com/dmno-dev/varlock/commit/603167834c11c0c989f1c4ccfb2e38b6d7dbb27b) Thanks [@TeaSeaLancs](https://github.com/TeaSeaLancs)! - Fix execSyncVarlock not working in a shell-less environment
+
+- [#594](https://github.com/dmno-dev/varlock/pull/594) [`baee30d`](https://github.com/dmno-dev/varlock/commit/baee30dd23d005435ba58b01ff8c597eeb199768) - Fix `declare module 'varlock/env'` type augmentation breaking in monorepo setups where multiple packages each have their own `.env.schema` and generated `env.d.ts`. Use unique type aliases per schema so that `CoercedEnvSchema` and `EnvSchemaAsStrings` names don't collide when multiple `env.d.ts` files are in the same TypeScript compilation.
+
+- [#596](https://github.com/dmno-dev/varlock/pull/596) [`3170205`](https://github.com/dmno-dev/varlock/commit/31702054208cb81bc4d7c5ad89bf32a718984397) - Fix false warning 'found in environment but not connected to plugin' when standard vars are already wired via init decorator (e.g. `@initOp(token=$OP_SERVICE_ACCOUNT_TOKEN)`)
+
 ## 0.7.4
 
 ### Patch Changes
