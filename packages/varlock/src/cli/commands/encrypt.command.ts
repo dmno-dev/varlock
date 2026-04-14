@@ -147,11 +147,25 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     return;
   }
 
-  // Interactive single-value mode
+  // Single-value mode — read from stdin if piped, otherwise prompt interactively.
+  // Avoids putting secrets in shell history (e.g. `echo $SECRET | varlock encrypt`).
   console.log('');
 
-  const rawValue = await password({ message: 'Enter the value you want to encrypt' });
-  if (isCancel(rawValue)) return gracefulExit();
+  let rawValue: string;
+  if (!process.stdin.isTTY) {
+    const chunks: Array<Buffer> = [];
+    for await (const chunk of process.stdin) {
+      chunks.push(chunk as Buffer);
+    }
+    rawValue = Buffer.concat(chunks).toString('utf-8').replace(/\r?\n$/, '');
+    if (!rawValue) {
+      throw new CliExitError('No value received on stdin');
+    }
+  } else {
+    const prompted = await password({ message: 'Enter the value you want to encrypt' });
+    if (isCancel(prompted)) return gracefulExit();
+    rawValue = prompted;
+  }
 
   try {
     const ciphertext = await localEncrypt.encryptValue(rawValue, keyId);

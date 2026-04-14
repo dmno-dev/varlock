@@ -295,17 +295,25 @@ varlock encrypt [options]
 
 **Examples:**
 ```bash
-# Interactive mode: encrypt a single value
+# Interactive mode: encrypt a single value (prompts with hidden input)
 varlock encrypt
+
+# Pipe a value via stdin (keeps secrets out of shell history)
+printf '%s' "$SECRET" | varlock encrypt
+varlock encrypt < secret.txt
 
 # Encrypt all sensitive plaintext values in a .env file
 varlock encrypt --file .env.local
 ```
 
-In interactive mode, you'll be prompted to enter a value, and the encrypted output will be printed for you to copy into your `.env.local` file:
+In single-value mode, you'll either be prompted to enter a value (hidden input) or the value will be read from stdin when piped. The encrypted output is printed for you to copy into your `.env.local` file:
 ```
 SOME_SENSITIVE_KEY=varlock("local:<encrypted>")
 ```
+
+:::tip
+Piping via stdin avoids exposing secrets in your shell history. Prefer `printf '%s'` over `echo` to avoid a trailing newline (varlock strips a single trailing newline either way).
+:::
 
 In file mode, varlock loads the env graph, identifies `@sensitive` items with plaintext values, and lets you select which to encrypt in-place.
 
