@@ -94,7 +94,7 @@ Maps a value to a new value based on a set of lookup pairs. This is useful for t
 - The first argument is the value to remap (often a `ref()` to another variable).
 - All following arguments are pairs of `(matchValue, resultValue)`.
 - An optional trailing default value can be added as the last argument (when the total number of remaining args is odd).
-- Match values can be a string, `undefined`, or a `regex()` call.
+- Match values can be a string, `undefined`, or a [regex literal](/reference/functions#regex-literals) (`/pattern/`).
 - If no match is found and there is no default, the original value is returned.
 
 ```env-spec "remap"
@@ -102,14 +102,14 @@ Maps a value to a new value based on a set of lookup pairs. This is useful for t
 CI_BRANCH=
 
 # @type=enum(development, preview, production)
-APP_ENV=remap($CI_BRANCH, "main", production, regex(.*), preview, undefined, development)
+APP_ENV=remap($CI_BRANCH, "main", production, /.*/, preview, undefined, development)
 ```
 
 :::note[Deprecated syntax]
 The old key=value syntax (`result=match`) is still supported but deprecated. Use positional pairs instead.
 ```env-spec
 # deprecated - key is the result, value is what to match (backwards and limited by key naming)
-APP_ENV=remap($CI_BRANCH, production="main", preview=regex(.*), development=undefined)
+APP_ENV=remap($CI_BRANCH, production="main", preview=/.*/, development=undefined)
 ```
 :::
 </div>
@@ -136,17 +136,27 @@ API_URL=ifs(
 </div>
 
 <div>
-### `regex()`
+### Regex literals
 
-Creates a regular expression for use in other functions, such as `remap()`.
+You can use regex literal syntax (`/pattern/flags`) anywhere a regular expression is needed — for example, in `remap()` match values or in the `matches` option of `string` and `url` types. This follows JavaScript regex syntax, including optional flags like `i` (case-insensitive).
 
-- Takes a single string argument, which is the regex pattern (using JavaScript regex syntax)
-- **This cannot be used as a standalone value. It must be used only as a function argument.**
+```env-spec
+# regex literal in remap
+ENV_TYPE=remap($APP_ENV, /^dev.*/i, dev, "production", prod)
 
-```env-spec "regex"
-# Example usage within remap
+# regex literal in type options
+# @type=string(matches=/^sk-[a-zA-Z0-9]+$/)
+API_KEY=
+```
+
+:::note[`regex()` function]
+The older `regex("pattern")` function wrapper is still supported but the `/pattern/` literal syntax is preferred — it's more concise and supports flags.
+
+```env-spec
+# older style - still works
 ENV_TYPE=remap($APP_ENV, regex("^dev.*"), dev, "production", prod)
 ```
+:::
 </div>
 
 <div>

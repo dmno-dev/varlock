@@ -119,11 +119,16 @@ MY_BOOL=true
 ### `url`
 **Options:**
 - `prependHttps` (boolean): Automatically prepend "https://" if no protocol is specified
-{/* - `allowedDomains` (string[]): List of allowed domains */}
+- `allowedDomains` (string[]): List of allowed domains
+- `noTrailingSlash` (boolean): Disallow a trailing slash on the URL path (except root `/`)
+- `matches` (string|RegExp): Regular expression pattern the full URL must match
 
 ```env-spec
 # @type=url(prependHttps=true)
 MY_URL=example.com/foobar
+
+# @type=url(noTrailingSlash=true, matches=/^https:\/\/api\./)
+API_URL=https://api.example.com/v1
 ```
 </div>
 
