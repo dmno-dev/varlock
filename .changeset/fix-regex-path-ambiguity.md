@@ -1,6 +1,7 @@
 ---
 "@env-spec/parser": patch
 "varlock": patch-isolated
+"env-spec-language": patch
 ---
 
 Fix regex literal parsing ambiguity with file paths
