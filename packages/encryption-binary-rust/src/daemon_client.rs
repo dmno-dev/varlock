@@ -179,6 +179,11 @@ pub fn ensure_daemon_running() -> Result<(), String> {
     spawn_daemon()
 }
 
+#[cfg(target_os = "windows")]
+pub fn daemon_is_ready() -> bool {
+    pipe_exists()
+}
+
 /// Spawn a daemon process and wait for it to be ready.
 #[cfg(target_os = "windows")]
 fn spawn_daemon() -> Result<(), String> {
@@ -465,4 +470,9 @@ fn pipe_exists() -> bool {
 #[cfg(not(target_os = "windows"))]
 pub fn decrypt_via_daemon(_ciphertext: &str, _key_id: &str, _tty_id: Option<&str>) -> Result<String, String> {
     Err("--via-daemon is only supported on Windows".into())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn daemon_is_ready() -> bool {
+    false
 }

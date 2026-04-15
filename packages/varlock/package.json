@@ -17,6 +17,8 @@
     "build": "tsup",
     "build:binary": "bun run scripts/build-binaries.ts --dev",
     "build:binaries": "bun run scripts/build-binaries.ts",
+    "pack:local": "bun run scripts/pack-local-package.ts",
+    "test:binary:local": "bun run scripts/test-local-binary.ts",
     "dev": "tsup",
     "test": "vitest",
     "test:ci": "vitest --run",
