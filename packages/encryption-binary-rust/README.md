@@ -61,7 +61,11 @@ The build script automatically applies UPX compression (except on macOS). Pass `
 
 ## WSL2 Support
 
-When running from WSL2, the TypeScript side calls this Windows `.exe` directly (WSL2 can execute Windows binaries via binfmt_misc). The `--via-daemon` flag on the `decrypt` command routes the request through a Windows named pipe daemon for biometric session caching, so the binary manages its own daemon lifecycle internally.
+When running from WSL2, the TypeScript side calls this Windows `.exe` directly (WSL2 can execute Windows binaries via binfmt_misc).
+
+- `decrypt --via-daemon` routes requests through a Windows named-pipe daemon for biometric session caching.
+- The WSL caller prestarts the daemon from native PowerShell and then polls readiness via `ping-daemon` before the first decrypt. This avoids first-invocation startup timeouts.
+- `start-daemon` remains available for manual troubleshooting from native Windows terminals.
 
 ## CI
 

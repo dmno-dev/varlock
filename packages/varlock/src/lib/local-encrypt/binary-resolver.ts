@@ -26,6 +26,31 @@ function debug(msg: string) {
 const BINARY_NAME = 'varlock-local-encrypt';
 const MACOS_APP_BUNDLE = 'VarlockEnclave.app';
 
+/**
+ * Resolve the varlock package root by walking up from this module until we
+ * find package.json with name=varlock. This is robust across src/dist layouts.
+ */
+function resolvePackageRoot(): string {
+  let dir = __dirname;
+  for (let i = 0; i < 10; i++) {
+    const pkgJsonPath = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgJsonPath)) {
+      try {
+        const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8')) as { name?: string };
+        if (pkgJson.name === 'varlock') return dir;
+      } catch {
+        // Ignore invalid/unreadable package.json and continue walking upward
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  // Last-resort fallback for unexpected layouts.
+  return path.resolve(__dirname, '..', '..', '..');
+}
+
 /** Get the binary name for the current platform */
 function getPlatformBinaryName(): string {
   if (process.platform === 'win32' || isWSL()) return `${BINARY_NAME}.exe`;
@@ -87,14 +112,13 @@ function resolveSeaSibling(): string | undefined {
  * native-bins/<platform-subdir>/
  */
 function resolveNpmBundled(): string | undefined {
-  // __dirname points to the compiled dist/ or src/ directory within the varlock package
-  // native-bins/ is a sibling to dist/ and src/
-  const nativeBinsDir = path.resolve(__dirname, '..', '..', '..', 'native-bins', getNativeBinSubdir());
+  const packageRoot = resolvePackageRoot();
+  const nativeBinsDir = path.join(packageRoot, 'native-bins', getNativeBinSubdir());
   if (fs.existsSync(nativeBinsDir)) return resolveBinaryFromDir(nativeBinsDir);
 
-  // Also check one level up (when running from dist/)
-  const altDir = path.resolve(__dirname, '..', 'native-bins', getNativeBinSubdir());
-  if (fs.existsSync(altDir)) return resolveBinaryFromDir(altDir);
+  // Legacy/alternate layout: native-bins as a sibling of the package root.
+  const adjacentNativeBinsDir = path.join(path.dirname(packageRoot), 'native-bins', getNativeBinSubdir());
+  if (fs.existsSync(adjacentNativeBinsDir)) return resolveBinaryFromDir(adjacentNativeBinsDir);
 
   return undefined;
 }
@@ -175,7 +199,8 @@ export function resolveNativeBinary(): string | undefined {
 
   debug('NOT FOUND: no binary resolved from any strategy');
   debug(`  SEA sibling dir: ${path.dirname(process.execPath)}`);
-  debug(`  npm bundled dir: ${path.resolve(__dirname, '..', '..', '..', 'native-bins', getNativeBinSubdir())}`);
+  const packageRoot = resolvePackageRoot();
+  debug(`  npm bundled dir: ${path.join(packageRoot, 'native-bins', getNativeBinSubdir())}`);
   _cachedBinaryPath = undefined;
   return undefined;
 }

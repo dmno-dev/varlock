@@ -32,6 +32,7 @@ fn main() {
         "setup" => cmd_setup(&args),
         "daemon" => cmd_daemon(&args),
         "start-daemon" => cmd_start_daemon(),
+        "ping-daemon" => cmd_ping_daemon(),
         "help" | "--help" | "-h" => cmd_help(),
         _ => json_error(&format!("Unknown command: {command}. Run with --help for usage.")),
     }
@@ -311,6 +312,21 @@ fn cmd_start_daemon() {
     }
 }
 
+fn cmd_ping_daemon() {
+    #[cfg(target_os = "windows")]
+    {
+        if daemon_client::daemon_is_ready() {
+            json_success(json!({"ready": true}))
+        } else {
+            json_error("No encryption daemon is running")
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        json_error("ping-daemon is only supported on Windows");
+    }
+}
+
 fn cmd_daemon(args: &[String]) {
     let socket_path = match get_arg(args, "--socket-path") {
         Some(sp) => sp,
@@ -340,6 +356,7 @@ COMMANDS:
   start-daemon                    Spawn the daemon detached and exit
                                   (Windows-only; use from native Windows
                                   to seed a daemon for WSL2 callers)
+    ping-daemon                     Check whether the daemon is already running
   setup --linux-biometrics [--uninstall]
                                   Install/remove the polkit policy that
                                   enables fingerprint/face/password prompts

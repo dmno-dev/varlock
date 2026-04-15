@@ -49,6 +49,96 @@ function getSelfTtyId(): string {
   return _cachedTtyId;
 }
 
+let _wslDaemonPrestartAttempted = false;
+
+function toWindowsPathFromWsl(pathInWsl: string): string | undefined {
+  if (!isWSL()) return undefined;
+  try {
+    return execFileSync('wslpath', ['-w', pathInWsl], {
+      encoding: 'utf-8',
+      timeout: 10_000,
+    }).trim();
+  } catch (err) {
+    debug(`toWindowsPathFromWsl failed: ${err instanceof Error ? err.message : err}`);
+    return undefined;
+  }
+}
+
+function tryPrestartWindowsDaemonFromWsl(binaryPath: string): boolean {
+  if (_wslDaemonPrestartAttempted) {
+    return true;
+  }
+
+  const windowsPath = toWindowsPathFromWsl(binaryPath);
+  if (!windowsPath) {
+    return false;
+  }
+
+  // Ask native PowerShell to seed the daemon in the interactive desktop
+  // session. This returns quickly; the follow-up decrypt call has a longer
+  // timeout and the helper's own daemon retry path to absorb startup latency.
+  const escapedPath = windowsPath.replaceAll("'", "''");
+  const psScript = `Start-Process -WindowStyle Hidden -FilePath '${escapedPath}' -ArgumentList 'start-daemon'`;
+  const proc = spawnSync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    psScript,
+  ], {
+    encoding: 'utf-8',
+    timeout: 20_000,
+  });
+
+  if (proc.error) {
+    debug(`tryPrestartWindowsDaemonFromWsl: powershell error: ${proc.error.message}`);
+    return false;
+  }
+  if (proc.status !== 0) {
+    debug(`tryPrestartWindowsDaemonFromWsl: powershell exit ${proc.status}: ${(proc.stderr || proc.stdout || '').trim()}`);
+    return false;
+  }
+
+  debug('tryPrestartWindowsDaemonFromWsl: start-daemon invoked via PowerShell');
+  _wslDaemonPrestartAttempted = true;
+  return true;
+}
+
+function pingWindowsDaemonFromWsl(binaryPath: string, timeoutMs: number = 2_000): boolean {
+  const proc = spawnSync(binaryPath, ['ping-daemon'], {
+    encoding: 'utf-8',
+    timeout: timeoutMs,
+  });
+
+  if (proc.error || proc.status !== 0) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse((proc.stdout || '').trim()) as { ready?: boolean };
+    return parsed.ready === true;
+  } catch {
+    return false;
+  }
+}
+
+function waitForWindowsDaemonFromWsl(binaryPath: string, timeoutMs: number = 12_000): boolean {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (pingWindowsDaemonFromWsl(binaryPath)) {
+      debug('waitForWindowsDaemonFromWsl: daemon is ready');
+      return true;
+    }
+
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
+  }
+
+  debug('waitForWindowsDaemonFromWsl: timed out waiting for daemon readiness');
+  return false;
+}
+
 // ── Native binary one-shot commands ────────────────────────────────────
 
 function runNativeBinary(args: Array<string>, opts?: { timeout?: number }): string {
@@ -249,6 +339,11 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
       debug('decryptValue: WSL2 biometric decrypt via --via-daemon');
       const binaryPath = resolveNativeBinary();
       if (!binaryPath) throw new Error('Native binary not found');
+      const daemonAlreadyReady = pingWindowsDaemonFromWsl(binaryPath, 1_500);
+      const daemonPrestarted = daemonAlreadyReady || tryPrestartWindowsDaemonFromWsl(binaryPath);
+      if (!daemonAlreadyReady && daemonPrestarted) {
+        waitForWindowsDaemonFromWsl(binaryPath);
+      }
       // Use spawnSync with stdin to avoid exposing ciphertext or session
       // identity in process listings (visible via tasklist/procfs).
       // Stdin JSON includes both the data and the TTY ID for session scoping.
@@ -256,20 +351,43 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
         data: ciphertext,
         ttyId: getSelfTtyId(),
       });
-      const proc = spawnSync(binaryPath, ['decrypt', '--key-id', keyId, '--data-stdin', '--via-daemon'], {
+      const runViaDaemon = (timeout: number) => spawnSync(binaryPath, ['decrypt', '--key-id', keyId, '--data-stdin', '--via-daemon'], {
         input: stdinPayload,
         encoding: 'utf-8',
-        timeout: 60_000,
+        timeout,
       });
+
+      let proc = runViaDaemon(daemonPrestarted ? 120_000 : 60_000);
+
+      const output = (proc.stdout || proc.stderr || '').trim();
+      const timedOut = proc.error && (proc.error as NodeJS.ErrnoException).code === 'ETIMEDOUT';
+      const needsRetry = Boolean(proc.error) || proc.status !== 0;
+      const likelyDaemonStartupIssue = timedOut
+        || /daemon is not running|daemon did not become ready within timeout|schtasks|windows hello daemon/i.test(output);
+
+      if (needsRetry && likelyDaemonStartupIssue) {
+        debug(`decryptValue: via-daemon startup issue detected; attempting native start-daemon bridge. output=${output.slice(0, 180)}`);
+        if (tryPrestartWindowsDaemonFromWsl(binaryPath)) {
+          // Give the daemon a little more room on first auth after bridge start.
+          proc = runViaDaemon(120_000);
+        }
+      }
+
       if (proc.error) throw proc.error;
       if (proc.status !== 0) {
-        const output = (proc.stdout || proc.stderr || '').trim();
+        const finalOutput = (proc.stdout || proc.stderr || '').trim();
         try {
-          const parsed = JSON.parse(output);
+          const parsed = JSON.parse(finalOutput);
           if (parsed.error) throw new Error(parsed.error);
         } catch { /* not JSON */ }
-        throw new Error(`Decrypt failed (exit ${proc.status}): ${output}`);
+
+        const windowsPath = toWindowsPathFromWsl(binaryPath);
+        const setupHint = windowsPath
+          ? `\nHint: In native Windows PowerShell run:\n  Start-Process -WindowStyle Hidden "${windowsPath}" start-daemon`
+          : '';
+        throw new Error(`Decrypt failed (exit ${proc.status}): ${finalOutput}${setupHint}`);
       }
+
       const result = JSON.parse(proc.stdout.trim());
       if (result.error) throw new Error(result.error);
       debug(`decryptValue: WSL2 result: ${proc.stdout.trim().slice(0, 100)}`);

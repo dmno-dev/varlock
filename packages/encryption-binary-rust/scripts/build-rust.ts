@@ -11,7 +11,7 @@
  * The binary is placed in packages/varlock/native-bins/<platform>[-<arch>]/
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -60,9 +60,9 @@ function getOutputSubdir(rustTarget?: string): string {
   return `${os}-${nodeArch}`;
 }
 
-function run(cmd: string, opts?: { cwd?: string }) {
-  console.log(`> ${cmd}`);
-  execSync(cmd, { stdio: 'inherit', cwd: opts?.cwd ?? rustDir });
+function run(command: string, commandArgs: Array<string>, opts?: { cwd?: string }) {
+  console.log(`> ${command} ${commandArgs.join(' ')}`);
+  execFileSync(command, commandArgs, { stdio: 'inherit', cwd: opts?.cwd ?? rustDir });
 }
 
 // ── Build ───────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ if (target) {
   buildArgs.push('--target', target);
 }
 
-run(buildArgs.join(' '));
+run(buildArgs[0]!, buildArgs.slice(1));
 
 // ── Copy to native-bins ─────────────────────────────────────────
 
