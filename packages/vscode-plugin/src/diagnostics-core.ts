@@ -78,7 +78,7 @@ export function unquote(value: string) {
 }
 
 export function isDynamicValue(value: string) {
-  return /\$[A-Za-z_]/.test(value) || /^[A-Za-z][\w-]*\(/.test(value) || /^\/.*\/[gimsuy]*$/.test(value);
+  return /\$[A-Za-z_]/.test(value) || /^[A-Za-z][\w-]*\(/.test(value);
 }
 
 export function splitCommaSeparatedArgs(input: string) {
