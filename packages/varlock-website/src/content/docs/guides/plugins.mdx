@@ -120,13 +120,14 @@ If you're building a first-party or third-party plugin, these are the patterns w
 
 - Import from `varlock/plugin-lib` and register everything at module load time.
 - Set core metadata early (`plugin.name`, `plugin.icon`, and `plugin.standardVars` when relevant).
+  - Use a consistent icon identifier format (first-party plugins typically use `simple-icons:<name>`).
 - Use plugin-lib error classes (`ValidationError`, `SchemaError`, `CoercionError`, `ResolutionError`) for clear and consistent error handling.
 
 ### Design for safe, predictable schemas
 
 - Keep initialization explicit via root decorators (for example, `@initYourPlugin(...)`).
 - Support multiple named instances (`id=`) when users may need separate auth/scope boundaries.
-- Accept secrets through schema references (for example, `token=$MY_TOKEN`) so users can mark and manage sensitive values in one place.
+- Accept secrets through schema references (for example, `token=$MY_TOKEN`) so users can mark and manage sensitive values in one place, enabling proper redaction and leak-prevention behavior.
 - Use clear names for decorators/data types/functions to avoid global naming collisions.
 
 ### Package for compatibility
