@@ -174,8 +174,15 @@ export function exec(
   // Find command in PATH if it's not an absolute path
   const resolvedCommand = findCommand(command);
 
-  // Check if we need shell on Windows for .cmd/.bat files
-  const needsShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolvedCommand);
+  // Detect whether findCommand actually resolved the command to something different
+  const isAbsoluteOrRelative = isAbsolute(command) || command.includes('/') || command.includes('\\');
+  const commandWasResolved = resolvedCommand !== command || isAbsoluteOrRelative;
+
+  // On Windows, .cmd/.bat files must go through cmd.exe.
+  // Also fall back to cmd.exe when the command wasn't resolved in PATH, so that
+  // cmd.exe can handle PATHEXT lookups (e.g. tsx → tsx.cmd, pnpm → pnpm.cmd).
+  const needsShell = process.platform === 'win32'
+    && (/\.(cmd|bat)$/i.test(resolvedCommand) || !commandWasResolved);
 
   let spawnCommand = resolvedCommand;
   let spawnArgs = args;
@@ -184,9 +191,20 @@ export function exec(
     shell: false,
   };
 
-  // On Windows, wrap .cmd/.bat in cmd.exe
+  // On Windows, wrap .cmd/.bat (or unresolved commands) in cmd.exe
   if (needsShell) {
-    spawnArgs = ['/d', '/s', '/c', `"${resolvedCommand}" ${args.map((a) => `"${a}"`).join(' ')}`];
+    // If the command wasn't resolved, let cmd.exe handle PATHEXT lookup by using
+    // the original command name; otherwise use the fully resolved path.
+    const cmdToUse = commandWasResolved ? resolvedCommand : command;
+    // Quote the command path only if it contains spaces (inner quotes survive /s stripping)
+    const quotedCmd = cmdToUse.includes(' ') ? `"${cmdToUse}"` : cmdToUse;
+    // Quote each arg only if it contains spaces
+    const escapedArgs = args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
+    // Build the inner string, then wrap the whole thing in one outer pair of quotes.
+    // cmd.exe /s /c strips the first and last " from the command string, so the outer
+    // quotes are consumed and the inner content is processed correctly by cmd.exe.
+    const cmdStr = escapedArgs ? `${quotedCmd} ${escapedArgs}` : quotedCmd;
+    spawnArgs = ['/d', '/s', '/c', `"${cmdStr}"`];
     spawnCommand = process.env.comspec || 'cmd.exe';
     spawnOptions.windowsVerbatimArguments = true;
   }
