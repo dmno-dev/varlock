@@ -204,17 +204,7 @@ export default defineConfig({
             { label: '> @type data types', slug: 'reference/data-types' },
             { label: 'Value functions', slug: 'reference/functions' },
             { label: 'Builtin variables', slug: 'reference/builtin-variables', badge: 'new' },
-          ],
-        },
-        {
-          label: 'Plugin API',
-          collapsed: true,
-          items: [
-            { label: 'Overview', slug: 'reference/plugin-api/overview' },
-            { label: 'registerRootDecorator()', slug: 'reference/plugin-api/register-root-decorator' },
-            { label: 'registerItemDecorator()', slug: 'reference/plugin-api/register-item-decorator' },
-            { label: 'registerDataType()', slug: 'reference/plugin-api/register-data-type' },
-            { label: 'registerResolverFunction()', slug: 'reference/plugin-api/register-resolver-function' },
+            { label: 'Plugin API', slug: 'reference/plugin-api' },
           ],
         },
         {
