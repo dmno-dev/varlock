@@ -143,6 +143,33 @@ describe('url data type', () => {
   });
 });
 
+describe('url data type - path values', () => {
+  it('accepts url with path segments', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=url
+      MY_URL=https://example.com/foo/bar/baz
+    `);
+    expect(g.configSchema.MY_URL.isValid).toBe(true);
+    expect(g.configSchema.MY_URL.resolvedValue).toBe('https://example.com/foo/bar/baz');
+  });
+
+  it('accepts url with path and regex-like matches pattern', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=url(matches=/^https:\\/\\/example\\.com\\/api\\//)
+      MY_URL=https://example.com/api/v1
+    `);
+    expect(g.configSchema.MY_URL.isValid).toBe(true);
+  });
+
+  it('rejects url not matching path-based regex pattern', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=url(matches=/^https:\\/\\/example\\.com\\/api\\//)
+      MY_URL=https://other.com/api/v1
+    `);
+    expect(g.configSchema.MY_URL.isValid).toBe(false);
+  });
+});
+
 describe('string data type - matches option', () => {
   it('accepts string matching regex literal', async () => {
     const g = await loadAndResolve(outdent`

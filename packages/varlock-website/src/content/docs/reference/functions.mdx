@@ -94,7 +94,7 @@ Maps a value to a new value based on a set of lookup pairs. This is useful for t
 - The first argument is the value to remap (often a `ref()` to another variable).
 - All following arguments are pairs of `(matchValue, resultValue)`.
 - An optional trailing default value can be added as the last argument (when the total number of remaining args is odd).
-- Match values can be a string, `undefined`, or a [regex literal](/reference/functions#regex-literals) (`/pattern/`).
+- Match values can be a string, `undefined`, or a [regex-like string](/reference/functions#regex-like-strings) (`/pattern/`).
 - If no match is found and there is no default, the original value is returned.
 
 ```env-spec "remap"
@@ -104,6 +104,14 @@ CI_BRANCH=
 # @type=enum(development, preview, production)
 APP_ENV=remap($CI_BRANCH, "main", production, /.*/, preview, undefined, development)
 ```
+
+:::caution[Quoting path-like values]
+An unquoted match value that looks like a valid regex (i.e., `/something/` with optional flags) will be treated as a regex pattern. If you need to match a literal string containing slashes (like a file path), wrap it in quotes.
+```env-spec
+# /usr/local/ looks like a valid regex — use quotes to match it literally
+ITEM=remap($PATH_VAR, "/usr/local/", found, default)
+```
+:::
 
 :::note[Deprecated syntax]
 The old key=value syntax (`result=match`) is still supported but deprecated. Use positional pairs instead.
@@ -136,18 +144,37 @@ API_URL=ifs(
 </div>
 
 <div>
-### Regex literals
+### Regex-like strings
 
-You can use regex literal syntax (`/pattern/flags`) anywhere a regular expression is needed — for example, in `remap()` match values or in the `matches` option of `string` and `url` types. This follows JavaScript regex syntax, including optional flags like `i` (case-insensitive).
+Certain functions like `remap()` and type options like `matches` support regex pattern matching. You can use JavaScript-style regex syntax (`/pattern/flags`) as an unquoted value — these will be automatically detected and treated as regular expressions.
+
+A string is treated as a regex when it:
+- Starts and ends with `/` (with optional flags like `i`, `g`, `m`, `s`, `u`, `y` after the closing `/`)
+- Is **not** wrapped in quotes
 
 ```env-spec
-# regex literal in remap
+# regex pattern in remap — matches case-insensitively
 ENV_TYPE=remap($APP_ENV, /^dev.*/i, dev, "production", prod)
 
-# regex literal in type options
+# regex pattern in type options
 # @type=string(matches=/^sk-[a-zA-Z0-9]+$/)
 API_KEY=
+
+# @type=url(matches=/^https:\/\/api\./)
+API_URL=
 ```
+
+:::caution[Paths vs regex ambiguity]
+Since `/something/` looks like a valid regex, values like `/usr/lib/` will be treated as regex patterns in contexts that support them (like `remap()` match values). To use a literal string containing slashes, wrap it in quotes:
+```env-spec
+# unquoted — treated as regex pattern matching "usr/lib"
+ITEM=remap($VAR, /usr/lib/, matched)
+
+# quoted — treated as the literal string "/usr/lib/"
+ITEM=remap($VAR, "/usr/lib/", matched)
+```
+Note that as a top-level config value (e.g., `MY_PATH=/usr/local/bin`), slash-containing strings are always treated as plain strings.
+:::
 
 :::note[`regex()` function]
 The older `regex("pattern")` function wrapper is still supported but the `/pattern/` literal syntax is preferred — it's more concise and supports flags.

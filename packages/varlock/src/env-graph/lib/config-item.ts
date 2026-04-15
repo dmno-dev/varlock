@@ -1,6 +1,6 @@
 import _ from '@env-spec/utils/my-dash';
 import {
-  ParsedEnvSpecDecorator, ParsedEnvSpecFunctionCall, ParsedEnvSpecRegexLiteral, ParsedEnvSpecStaticValue,
+  ParsedEnvSpecDecorator, ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue,
 } from '@env-spec/parser';
 
 import { EnvGraphDataType } from './data-types';
@@ -20,7 +20,7 @@ export type ConfigItemDef = {
   description?: string;
   // TODO: translate parser decorator class into our own generic version
   parsedDecorators?: Array<ParsedEnvSpecDecorator>;
-  parsedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecRegexLiteral | undefined;
+  parsedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
 
   resolver?: Resolver;
   decorators?: Array<ItemDecoratorInstance>;

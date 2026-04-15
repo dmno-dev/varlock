@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 import _ from '@env-spec/utils/my-dash';
 import {
   ParsedEnvSpecFunctionArgs, ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair,
-  ParsedEnvSpecRegexLiteral, ParsedEnvSpecStaticValue,
+  ParsedEnvSpecStaticValue,
 } from '@env-spec/parser';
 
 import { ConfigItem } from './config-item';
@@ -16,6 +16,19 @@ import { getErrorLocation } from './error-location';
 import { isBuiltinVar } from './builtin-vars';
 
 const execAsync = promisify(exec);
+
+const REGEX_LIKE_STRING = /^\/(.+)\/([gimsuy]*)$/;
+/** Try to parse an unquoted string like `/pattern/flags` into a RegExp. Returns null if not regex-like. */
+export function parseRegexLikeString(str: string): RegExp | null {
+  if (typeof str !== 'string') return null;
+  const match = str.match(REGEX_LIKE_STRING);
+  if (!match) return null;
+  try {
+    return new RegExp(match[1], match[2]);
+  } catch {
+    return null;
+  }
+}
 
 export type ResolvedValue = undefined
   | string | number | boolean
@@ -49,7 +62,7 @@ export class Resolver {
   inferredType?: string;
   /** reference to the parsed node that created this resolver, used for error location tracking */
   _parsedNode?: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
-    | ParsedEnvSpecFunctionArgs | ParsedEnvSpecRegexLiteral;
+    | ParsedEnvSpecFunctionArgs;
   _schemaErrors: Array<SchemaError> = [];
   private _depsObj: Record<string, boolean> = {};
 
@@ -468,11 +481,19 @@ export const RemapResolver: typeof Resolver = createResolver({
       // legacy key=value mode: key is the result, value is what to match against
       for (const [remappedVal, matchValResolver] of Object.entries(this.objArgs!)) {
         const matchVal = await matchValResolver.resolve();
-        if (matchVal instanceof RegExp && originalValue !== undefined) {
-          if (matchVal.test(String(originalValue))) return remappedVal;
-        } else {
-          if (matchVal === originalValue) return remappedVal;
+        // support regex-like unquoted strings (e.g., /pattern/flags) and regex() fn
+        if (matchVal instanceof RegExp) {
+          if (originalValue !== undefined && matchVal.test(String(originalValue))) return remappedVal;
+          continue;
         }
+        if (typeof matchVal === 'string') {
+          const regex = parseRegexLikeString(matchVal);
+          if (regex) {
+            if (originalValue !== undefined && regex.test(String(originalValue))) return remappedVal;
+            continue;
+          }
+        }
+        if (matchVal === originalValue) return remappedVal;
       }
       return originalValue;
     }
@@ -482,11 +503,19 @@ export const RemapResolver: typeof Resolver = createResolver({
     // process only complete pairs, leaving a potential trailing default unprocessed
     for (let i = 0; i + 1 < remainingArgs.length; i += 2) {
       const matchVal = await remainingArgs[i].resolve();
-      if (matchVal instanceof RegExp && originalValue !== undefined) {
-        if (matchVal.test(String(originalValue))) return remainingArgs[i + 1].resolve();
-      } else {
-        if (matchVal === originalValue) return remainingArgs[i + 1].resolve();
+      // support regex-like unquoted strings (e.g., /pattern/flags) and regex() fn
+      if (matchVal instanceof RegExp) {
+        if (originalValue !== undefined && matchVal.test(String(originalValue))) return remainingArgs[i + 1].resolve();
+        continue;
       }
+      if (typeof matchVal === 'string') {
+        const regex = parseRegexLikeString(matchVal);
+        if (regex) {
+          if (originalValue !== undefined && regex.test(String(originalValue))) return remainingArgs[i + 1].resolve();
+          continue;
+        }
+      }
+      if (matchVal === originalValue) return remainingArgs[i + 1].resolve();
     }
     // if odd number of remaining args, the last arg is a default value
     if (remainingArgs.length % 2 === 1) {
@@ -676,14 +705,12 @@ export const BaseResolvers: Array<ResolverChildClass> = [
 
 export function convertParsedValueToResolvers(
   value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
-    | ParsedEnvSpecFunctionArgs | ParsedEnvSpecRegexLiteral | undefined,
+    | ParsedEnvSpecFunctionArgs | undefined,
   dataSource: EnvGraphDataSource | undefined,
   registeredResolvers: Record<string, ResolverChildClass>,
 ): Resolver | undefined {
   if (value === undefined) {
     return undefined;
-  } else if (value instanceof ParsedEnvSpecRegexLiteral) {
-    return new StaticValueResolver(value.value);
   } else if (value instanceof ParsedEnvSpecStaticValue) {
     return new StaticValueResolver(value.unescapedValue);
   } else if (
@@ -694,7 +721,7 @@ export function convertParsedValueToResolvers(
     let ResolverFnClass: ResolverChildClass | undefined;
     let argsFromParser: Array<
       ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
-      | ParsedEnvSpecKeyValuePair | ParsedEnvSpecRegexLiteral
+      | ParsedEnvSpecKeyValuePair
     >;
     if (value instanceof ParsedEnvSpecFunctionCall) {
       // we look up the resolver by function name

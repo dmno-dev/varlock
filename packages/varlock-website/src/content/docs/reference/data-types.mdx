@@ -68,7 +68,7 @@ These are the built-in data types. [Plugins](/guides/plugins/) may register addi
 - `isLength` (number): Exact length required
 - `startsWith` (string): Required starting substring
 - `endsWith` (string): Required ending substring
-- `matches` (string|RegExp): Regular expression pattern to match
+- `matches` (string|RegExp): Regular expression pattern to match — use `/pattern/flags` syntax or a quoted string pattern (see [regex-like strings](/reference/functions#regex-like-strings))
 - `toUpperCase` (boolean): Convert to uppercase
 - `toLowerCase` (boolean): Convert to lowercase
 - `allowEmpty` (boolean): Allow empty string (default: false)
@@ -121,7 +121,7 @@ MY_BOOL=true
 - `prependHttps` (boolean): Automatically prepend "https://" if no protocol is specified
 - `allowedDomains` (string[]): List of allowed domains
 - `noTrailingSlash` (boolean): Disallow a trailing slash on the URL path (except root `/`)
-- `matches` (string|RegExp): Regular expression pattern the full URL must match
+- `matches` (string|RegExp): Regular expression pattern the full URL must match — use `/pattern/flags` syntax or a quoted string pattern (see [regex-like strings](/reference/functions#regex-like-strings))
 
 ```env-spec
 # @type=url(prependHttps=true)

@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process';
 import {
   ParsedEnvSpecFile, ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair,
-  ParsedEnvSpecRegexLiteral, ParsedEnvSpecStaticValue,
+  ParsedEnvSpecStaticValue,
 } from './classes.js';
 
 /**
@@ -18,9 +18,8 @@ export function simpleResolver(
   const resolved = {} as Record<string, any>;
 
   function valueResolver(
-    valOrFn: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecRegexLiteral,
+    valOrFn: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall,
   ): string | undefined {
-    if (valOrFn instanceof ParsedEnvSpecRegexLiteral) return valOrFn.data.rawValue;
     if (valOrFn instanceof ParsedEnvSpecStaticValue) return valOrFn.unescapedValue;
     if (valOrFn instanceof ParsedEnvSpecFunctionCall) {
       if (valOrFn.name === 'ref') {
