@@ -81,34 +81,34 @@ describe('url data type', () => {
   });
 
   describe('matches', () => {
-    it('accepts url matching regex literal', async () => {
+    it('accepts url matching quoted regex pattern', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=url(matches=/^https:\\/\\/api\\./)
+        # @type=url(matches="^https://api\\.")
         MY_URL=https://api.example.com
       `);
       expect(g.configSchema.MY_URL.isValid).toBe(true);
     });
 
-    it('rejects url not matching regex literal', async () => {
+    it('rejects url not matching quoted regex pattern', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=url(matches=/^https:\\/\\/api\\./)
+        # @type=url(matches="^https://api\\.")
         MY_URL=https://example.com
       `);
       expect(g.configSchema.MY_URL.isValid).toBe(false);
     });
 
-    it('accepts url matching string pattern', async () => {
+    it('accepts url matching unquoted regex-like pattern', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=url(matches="^https://")
-        MY_URL=https://example.com
+        # @type=url(matches=/^https://api\\./)
+        MY_URL=https://api.example.com
       `);
       expect(g.configSchema.MY_URL.isValid).toBe(true);
     });
 
-    it('rejects url not matching string pattern', async () => {
+    it('rejects url not matching unquoted regex-like pattern', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=url(matches="^https://")
-        MY_URL=http://example.com
+        # @type=url(matches=/^https://api\\./)
+        MY_URL=https://example.com
       `);
       expect(g.configSchema.MY_URL.isValid).toBe(false);
     });
@@ -129,11 +129,11 @@ describe('url data type', () => {
 
     it('applies noTrailingSlash and matches together', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=url(noTrailingSlash=true, matches=/^https:\\/\\/api\\./)
+        # @type=url(noTrailingSlash=true, matches="^https://api\\.")
         GOOD_URL=https://api.example.com/v1
-        # @type=url(noTrailingSlash=true, matches=/^https:\\/\\/api\\./)
+        # @type=url(noTrailingSlash=true, matches="^https://api\\.")
         BAD_SLASH=https://api.example.com/v1/
-        # @type=url(noTrailingSlash=true, matches=/^https:\\/\\/api\\./)
+        # @type=url(noTrailingSlash=true, matches="^https://api\\.")
         BAD_DOMAIN=https://example.com/v1
       `);
       expect(g.configSchema.GOOD_URL.isValid).toBe(true);
@@ -153,17 +153,17 @@ describe('url data type - path values', () => {
     expect(g.configSchema.MY_URL.resolvedValue).toBe('https://example.com/foo/bar/baz');
   });
 
-  it('accepts url with path and regex-like matches pattern', async () => {
+  it('accepts url with path and quoted regex pattern', async () => {
     const g = await loadAndResolve(outdent`
-      # @type=url(matches=/^https:\\/\\/example\\.com\\/api\\//)
+      # @type=url(matches="^https://example\\.com/api/")
       MY_URL=https://example.com/api/v1
     `);
     expect(g.configSchema.MY_URL.isValid).toBe(true);
   });
 
-  it('rejects url not matching path-based regex pattern', async () => {
+  it('rejects url not matching path-based quoted regex pattern', async () => {
     const g = await loadAndResolve(outdent`
-      # @type=url(matches=/^https:\\/\\/example\\.com\\/api\\//)
+      # @type=url(matches="^https://example\\.com/api/")
       MY_URL=https://other.com/api/v1
     `);
     expect(g.configSchema.MY_URL.isValid).toBe(false);
