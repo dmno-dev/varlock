@@ -111,3 +111,48 @@ Once installed, all decorators, data types, and resolver functions provided by t
 Some decorators or resolver functions may require the plugin to be initialized and will throw an error if not set up properly.
 
 Please refer to the specific plugin's documentation for details on usage.
+
+## Plugin authoring best practices
+
+If you're building a first-party or third-party plugin, these are the patterns we recommend (and follow in existing plugins):
+
+### Build on `varlock/plugin-lib`
+
+- Import from `varlock/plugin-lib` and register everything at module load time.
+- Set core metadata early (`plugin.name`, `plugin.icon`, and `plugin.standardVars` when relevant).
+- Use plugin-lib error classes (`ValidationError`, `SchemaError`, `CoercionError`, `ResolutionError`) for clear and consistent error handling.
+
+### Design for safe, predictable schemas
+
+- Keep initialization explicit via root decorators (for example, `@initYourPlugin(...)`).
+- Support multiple named instances (`id=`) when users may need separate auth/scope boundaries.
+- Accept secrets through schema references (for example, `token=$MY_TOKEN`) so users can mark and manage sensitive values in one place.
+- Use clear names for decorators/data types/functions to avoid global naming collisions.
+
+### Package for compatibility
+
+- Publish a dedicated plugin entry point via `exports`:
+
+```json title="package.json"
+{
+  "exports": {
+    "./plugin": "./dist/plugin.cjs"
+  }
+}
+```
+
+- Keep `varlock` as a peer dependency.
+- Build the plugin entry as CJS (`dist/plugin.cjs`) for runtime loading compatibility.
+- Prefer bundling SDK/client libraries into the plugin build when possible, keeping runtime requirements minimal.
+
+### Test like first-party plugins
+
+- Add focused tests for initialization, reference parsing, and resolver edge cases.
+- Include a `vitest.config.ts` with `resolve.conditions = ['ts-src']`.
+- Define `__VARLOCK_BUILD_TYPE__` and `__VARLOCK_SEA_BUILD__` in tests to match plugin runtime assumptions used by first-party plugins.
+
+### Document plugin usage clearly
+
+- Document installation and initialization requirements.
+- Include authentication modes and expected schema examples.
+- Call out unsupported features and behavior differences early (for example, missing bulk-load support in a specific provider mode).
