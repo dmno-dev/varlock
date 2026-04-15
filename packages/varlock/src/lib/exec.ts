@@ -155,6 +155,13 @@ function findCommand(command: string): string {
   return command;
 }
 
+/**
+ * Escape a string for use inside a double-quoted cmd.exe argument.
+ * cmd.exe convention: a literal " is represented as "".
+ */
+function escapeCmdExeArg(str: string): string {
+  return str.replace(/"/g, '""');
+}
 
 
 /**
@@ -202,12 +209,12 @@ export function exec(
     const cmdToUse = isCommandFound ? resolvedCommand : command;
     // Always quote the command path to handle spaces and special characters.
     // Escape any embedded double-quotes as "" (cmd.exe convention).
-    const quotedCmd = `"${cmdToUse.replace(/"/g, '""')}"`;
+    const quotedCmd = `"${escapeCmdExeArg(cmdToUse)}"`;
     // Build the inner string: quote every argument and escape embedded double-quotes,
     // then join with the command. Wrap the whole thing in one outer pair of quotes.
     // cmd.exe /s /c strips the first and last " from the command string, so the outer
     // quotes are consumed and the quoted inner content is processed correctly.
-    const cmdStr = [quotedCmd, ...args.map((a) => `"${a.replace(/"/g, '""')}"`)]
+    const cmdStr = [quotedCmd, ...args.map((a) => `"${escapeCmdExeArg(a)}"`)]
       .join(' ');
     spawnArgs = ['/d', '/s', '/c', `"${cmdStr}"`];
     spawnCommand = process.env.comspec || 'cmd.exe';
