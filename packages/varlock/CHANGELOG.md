@@ -1,5 +1,21 @@
 # varlock
 
+## 0.8.2
+
+### Patch Changes
+
+- [#620](https://github.com/dmno-dev/varlock/pull/620) [`0f3ca3b`](https://github.com/dmno-dev/varlock/commit/0f3ca3be2231cae9e6f12ee8a6fdebb180a76baf) - Fix regex literal parsing ambiguity with file paths
+
+  Removed grammar-level regex literal (`/pattern/`) parsing which caused paths like `/folder/foo/bar` to be incorrectly parsed as regex patterns. Regex-like strings are now detected at runtime by specific consumers (`remap()` match values, `matches` type option) instead of at the grammar level. Unquoted strings that look like `/pattern/flags` are treated as regex in those contexts; wrap in quotes to force literal string matching.
+
+- [#618](https://github.com/dmno-dev/varlock/pull/618) [`0db7d1d`](https://github.com/dmno-dev/varlock/commit/0db7d1dcd3999578f45f81c90ba39bff6daf4cae) - Fix `varlock run` on Windows: correctly build the cmd.exe command string when spawning `.cmd`/`.bat` files
+
+  Previously, individual arguments were double-quoted separately (e.g. `"tsx.cmd" "watch" "src/index.ts"`). Because cmd.exe's `/s /c` strips only the **first and last** quote from the entire command string, this left a stray `"` after the command name, causing errors like "The system cannot find the path specified."
+
+  The fix wraps the entire inner command string in a single pair of outer quotes (e.g. `"tsx.cmd watch src/index.ts"`), which is what cmd.exe expects. Paths or arguments that contain spaces are individually quoted inside those outer quotes.
+
+  Additionally, when `findCommand` cannot resolve a bare command name to a `.cmd`/`.bat` path, varlock now falls back to routing through cmd.exe so that Windows PATHEXT lookups (e.g. `tsx` → `tsx.cmd`, `pnpm` → `pnpm.cmd`) are handled automatically.
+
 ## 0.8.1
 
 ### Patch Changes
