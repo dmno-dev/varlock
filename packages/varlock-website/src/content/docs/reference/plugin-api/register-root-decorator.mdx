@@ -1,0 +1,122 @@
+---
+title: plugin.registerRootDecorator()
+description: Register a root decorator that users can place in the header section of a .env file — typically used for plugin initialization
+---
+
+Root decorators appear in the _header_ section of a `.env` file (before the first config item). Plugins register them primarily for initialization — wiring up authentication, setting instance IDs, and so on.
+
+```ts
+plugin.registerRootDecorator(def);
+```
+
+## Type definition
+
+```ts
+type RootDecoratorDef<Processed = any> = {
+  /** Name used in .env files as @name or @name(...) */
+  name: string;
+  /** Human-readable description shown in tooling */
+  description?: string;
+  /** true → decorator must be used as a function call: @name(...) */
+  isFunction?: boolean;
+  /** true or message → decorator is deprecated */
+  deprecated?: boolean | string;
+  /** Names of other decorators that cannot appear in the same file */
+  incompatibleWith?: Array<string>;
+  /**
+   * Phase 1 — runs during schema parsing.
+   * Validate static arguments, create instance records, and return resolvers
+   * for dynamic arguments (those that reference schema items).
+   */
+  process?: (decoratorValue: Resolver) => Processed | Promise<Processed>;
+  /**
+   * Phase 2 — runs during value resolution.
+   * Receives the object returned by process; awaits dynamic resolvers and
+   * performs auth / connection setup.
+   */
+  execute?: (state: Processed) => void | Promise<void>;
+};
+```
+
+## Two-phase execution
+
+Root decorator processing is split across two phases to handle the fact that decorator arguments may reference other schema items whose values are not yet known at parse time.
+
+**`process(decoratorValue)`** is called during schema building. `decoratorValue` is a `Resolver` for the decorator's value. For function-call decorators (`isFunction: true`) you will usually read `decoratorValue.objArgs` (key-value args) or `decoratorValue.arrArgs` (positional args). Use this phase to:
+
+- Validate that static arguments have the expected shape
+- Create and reserve instance slots in a module-level map
+- Return an object containing any `Resolver` references that need to be awaited later
+
+**`execute(state)`** is called once all schema items have resolved. `state` is whatever `process` returned. Use this phase to:
+
+- Await dynamic resolvers (e.g. `await state.tokenResolver.resolve()`)
+- Perform SDK/client initialisation
+
+## The `Resolver` argument
+
+Inside `process`, `decoratorValue.objArgs` is a `Record<string, Resolver>` for keyword arguments. Each `Resolver` has:
+
+| Property | Type | Description |
+|---|---|---|
+| `isStatic` | `boolean` | `true` if the argument is a literal value |
+| `staticValue` | `ResolvedValue` | The literal value when `isStatic` is true |
+| `resolve()` | `() => Promise<ResolvedValue>` | Awaitable at `execute` time |
+
+## Example
+
+```ts title="src/plugin.ts"
+interface PluginInstance {
+  token?: string;
+  url?: string;
+}
+const instances: Record<string, PluginInstance> = {};
+
+plugin.registerRootDecorator({
+  name: 'initMyPlugin',
+  description: 'Initialise a connection to MyService',
+  isFunction: true,
+
+  async process(argsVal) {
+    const { objArgs } = argsVal;
+    if (!objArgs) throw new SchemaError('@initMyPlugin requires arguments');
+
+    // id must be resolvable at parse time — it keys the instance map
+    if (objArgs.id && !objArgs.id.isStatic) {
+      throw new SchemaError('id must be a static string value');
+    }
+    const id = String(objArgs.id?.staticValue ?? '_default');
+
+    if (instances[id]) {
+      throw new SchemaError(`Instance "${id}" is already initialised`);
+    }
+    instances[id] = {};
+
+    return { id, tokenResolver: objArgs.token, urlResolver: objArgs.url };
+  },
+
+  async execute({ id, tokenResolver, urlResolver }) {
+    instances[id].token = tokenResolver ? String(await tokenResolver.resolve()) : undefined;
+    instances[id].url   = urlResolver   ? String(await urlResolver.resolve())   : undefined;
+  },
+});
+```
+
+Usage in a `.env.schema` file:
+
+```env-spec title=".env.schema" "@initMyPlugin"
+# @plugin(my-plugin)
+# @initMyPlugin(token=$MY_SERVICE_TOKEN, url=https://api.example.com)
+# ---
+# @sensitive
+MY_SERVICE_TOKEN=
+```
+
+## Multiple instances
+
+Support multiple named instances by checking `objArgs.id` and keying your instance map. Resolver functions can then accept an `id` argument to select a specific instance.
+
+```env-spec title=".env.schema" "@initMyPlugin" /id=[a-z]+/
+# @initMyPlugin(id=dev,  token=$TOKEN_DEV)
+# @initMyPlugin(id=prod, token=$TOKEN_PROD)
+```

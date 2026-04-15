@@ -207,6 +207,17 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Plugin API',
+          collapsed: true,
+          items: [
+            { label: 'Overview', slug: 'reference/plugin-api/overview' },
+            { label: 'registerRootDecorator()', slug: 'reference/plugin-api/register-root-decorator' },
+            { label: 'registerItemDecorator()', slug: 'reference/plugin-api/register-item-decorator' },
+            { label: 'registerDataType()', slug: 'reference/plugin-api/register-data-type' },
+            { label: 'registerResolverFunction()', slug: 'reference/plugin-api/register-resolver-function' },
+          ],
+        },
+        {
           label: '@env-spec',
           collapsed: true,
           items: [

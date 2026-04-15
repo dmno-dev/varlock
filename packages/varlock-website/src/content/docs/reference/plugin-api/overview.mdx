@@ -1,0 +1,152 @@
+---
+title: Plugin API overview
+description: Reference for the varlock/plugin-lib module — metadata properties, error classes, and the debug helper available to plugin authors
+---
+
+Plugins are TypeScript modules that import from `varlock/plugin-lib` and register their behaviour at module load time.
+
+```ts
+import { type Resolver, plugin } from 'varlock/plugin-lib';
+```
+
+The `plugin` object is a proxy that points to the currently-loading plugin instance. It is only valid during module execution — accessing it outside of plugin code will throw.
+
+## Metadata properties
+
+Set these early in your plugin file, before any registration calls.
+
+### `plugin.name`
+**Type:** `string`
+
+A short internal identifier for the plugin, used in log output and error messages. Convention is lowercase with hyphens (e.g. `'my-service'`).
+
+```ts
+plugin.name = 'my-service';
+```
+
+---
+
+### `plugin.version`
+
+**Type:** `string` (read-only)
+
+The version string read from the plugin package's `package.json`. Set automatically — do not assign.
+
+```ts
+const { debug } = plugin;
+debug('loaded version', plugin.version);
+```
+
+---
+
+### `plugin.icon`
+
+**Type:** `string`
+
+An icon identifier used in the Varlock VS Code extension and website UI. First-party plugins use [Simple Icons](https://simpleicons.org) identifiers (e.g. `simple-icons:vault`). Any [Iconify](https://icones.js.org) identifier is accepted.
+
+```ts
+plugin.icon = 'simple-icons:yourservice';
+```
+
+---
+
+### `plugin.standardVars`
+
+**Type:**
+```ts
+{
+  initDecorator: string;
+  params: Record<string, {
+    key: string | Array<string>;
+    dataType?: string;
+  }>;
+}
+```
+
+Declares well-known environment variable names that your plugin reads (e.g. `VAULT_TOKEN`). Varlock will emit a warning if those variables are detected in the process environment but are _not_ wired up to the init decorator in the schema.
+
+- `initDecorator` — the name of your init root decorator, including the `@` prefix (e.g. `'@initMyPlugin'`).
+- `params` — a map of parameter name to the env var key(s) it corresponds to. If multiple keys are given, the first one found in the environment is used.
+- `dataType` — optional; a custom data type name to suggest in the warning message.
+
+```ts
+plugin.standardVars = {
+  initDecorator: '@initMyPlugin',
+  params: {
+    token: { key: 'MY_SERVICE_TOKEN', dataType: 'myServiceToken' },
+    url:   { key: ['MY_SERVICE_URL', 'MY_SVC_URL'] },
+  },
+};
+```
+
+---
+
+## The `debug` helper
+
+### `plugin.debug`
+
+**Type:** `(...args: any[]) => void`
+
+A scoped debug logger. Messages are only printed when the `VARLOCK_DEBUG` environment variable is set. The logger is namespaced to `varlock:plugin:<name>`.
+
+```ts
+const { debug } = plugin;
+debug('init - version =', plugin.version);
+debug('resolving reference', ref);
+```
+
+Destructure `debug` before use — calling `plugin.debug(...)` directly also works but destructuring keeps code cleaner.
+
+---
+
+## Error classes
+
+### `plugin.ERRORS`
+
+**Type:**
+```ts
+{
+  ValidationError: typeof ValidationError;
+  CoercionError:   typeof CoercionError;
+  SchemaError:     typeof SchemaError;
+  ResolutionError: typeof ResolutionError;
+}
+```
+
+Always use these error classes instead of plain `Error`. They carry structured metadata (see below) and are handled specially by the Varlock runtime.
+
+```ts
+const { ValidationError, SchemaError, CoercionError, ResolutionError } = plugin.ERRORS;
+```
+
+All four classes extend a common base and accept the same constructor signature:
+
+```ts
+throw new SchemaError('message', {
+  tip: 'How to fix this',  // shown to the user below the error
+  code: 'OPTIONAL_CODE',  // machine-readable code
+});
+```
+
+`tip` may be a single string or an array of strings (joined with newlines).
+
+| Class | When to use |
+|---|---|
+| `SchemaError` | Problems caught at parse / schema-build time — bad arguments, missing required config, duplicate instance IDs |
+| `ResolutionError` | Problems at value-fetch time — secret not found, network error, auth failure |
+| `ValidationError` | A value fails a `@type` constraint registered via `registerDataType` |
+| `CoercionError` | A value cannot be converted to the expected type |
+
+---
+
+## Registration methods
+
+Each method below registers one piece of functionality that plugins expose to `.env` files. See the individual reference pages for full API details.
+
+| Method | What it registers | Used in `.env` as |
+|---|---|---|
+| [`registerRootDecorator()`](/reference/plugin-api/register-root-decorator/) | Root decorator | `# @decoratorName(...)` in file header |
+| [`registerItemDecorator()`](/reference/plugin-api/register-item-decorator/) | Item decorator | `# @decoratorName` on an item |
+| [`registerDataType()`](/reference/plugin-api/register-data-type/) | Data type | `# @type=typeName` on an item |
+| [`registerResolverFunction()`](/reference/plugin-api/register-resolver-function/) | Resolver function | `ITEM=fnName(arg)` as a value |

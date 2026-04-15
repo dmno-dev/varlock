@@ -1,0 +1,175 @@
+---
+title: plugin.registerResolverFunction()
+description: Register a resolver function that users can use as a config item value to fetch or compute values at resolution time
+---
+
+Resolver functions appear as values in `.env` files: `MY_SECRET=myPlugin(arg)`. Varlock calls them at resolution time to produce the final config value. The most common use case is fetching a secret from an external provider.
+
+```ts
+plugin.registerResolverFunction(def);
+```
+
+## Type definition
+
+```ts
+type ResolverDef<Processed = any> = {
+  /** Name used in .env files as fnName(...) */
+  name: string;
+  /** Short human-readable description */
+  description?: string;
+  /** Label shown in tooling */
+  label?: string;
+  /** Iconify icon identifier */
+  icon?: string;
+  /**
+   * Argument shape constraints validated at parse time.
+   * type 'array'  → only positional args allowed
+   * type 'object' → only key-value args allowed
+   * type 'mixed'  → both positional and key-value args allowed
+   */
+  argsSchema?: {
+    type: 'array' | 'object' | 'mixed';
+    arrayExactLength?: number;
+    arrayMinLength?: number;
+    arrayMaxLength?: number;
+    objKeyMinLength?: number;
+  };
+  /**
+   * Phase 1 — called at parse / schema-build time.
+   * `this` is the Resolver instance. Validate argument shapes and return
+   * whatever state the resolve phase needs.
+   */
+  process?: (this: Resolver) => Processed;
+  /**
+   * Phase 2 — called at value-resolution time.
+   * `this` is the Resolver instance. Receives state from process.
+   * Return the final resolved value as a string (or number / boolean, which
+   * Varlock will coerce to a string).
+   */
+  resolve: (this: Resolver, state: Processed) => ResolvedValue | Promise<ResolvedValue>;
+};
+```
+
+## Two-phase execution
+
+Like root decorators, resolver functions run in two phases.
+
+**`process`** runs at schema-build time. `this` is the `Resolver` instance. Access arguments via:
+
+| Property | Type | Description |
+|---|---|---|
+| `this.arrArgs` | `Array<Resolver> \| undefined` | Positional arguments |
+| `this.objArgs` | `Record<string, Resolver> \| undefined` | Keyword arguments |
+
+Validate argument shapes here and return a plain object with any `Resolver` references you need to await later. Do not `await` resolvers in `process` — they depend on config items that may not be resolved yet.
+
+**`resolve`** runs when Varlock fetches the actual value. Receives `state` from `process`. Await resolvers here, call your SDK/API, and return the value.
+
+## The `Resolver` argument type
+
+Each argument is itself a `Resolver`:
+
+| Property | Type | Description |
+|---|---|---|
+| `isStatic` | `boolean` | `true` when the argument is a literal value |
+| `staticValue` | `ResolvedValue` | Literal value when `isStatic` is true (use at process time) |
+| `resolve()` | `() => Promise<ResolvedValue>` | Awaitable value at resolve time |
+
+## Example — fetching from an external provider
+
+```ts title="src/plugin.ts"
+plugin.registerResolverFunction({
+  name: 'myPlugin',
+  label: 'Fetch secret from MyService',
+  icon: 'simple-icons:yourservice',
+  argsSchema: {
+    type: 'array',
+    arrayMinLength: 1,
+    arrayMaxLength: 2, // myPlugin(ref) or myPlugin(instanceId, ref)
+  },
+
+  process() {
+    let instanceId = '_default';
+    let refResolver: Resolver;
+
+    if (this.arrArgs!.length === 1) {
+      refResolver = this.arrArgs![0];
+    } else {
+      // first positional arg is a static instance id
+      if (!this.arrArgs![0].isStatic) {
+        throw new SchemaError('Instance id must be a static value');
+      }
+      instanceId = String(this.arrArgs![0].staticValue);
+      refResolver = this.arrArgs![1];
+    }
+
+    if (!instances[instanceId]) {
+      throw new SchemaError(
+        `No MyPlugin instance "${instanceId}" found`,
+        { tip: 'Add @initMyPlugin() to your .env.schema file' },
+      );
+    }
+
+    return { instanceId, refResolver };
+  },
+
+  async resolve({ instanceId, refResolver }) {
+    const ref = await refResolver.resolve();
+    if (typeof ref !== 'string') {
+      throw new SchemaError('Expected a string reference');
+    }
+    const instance = instances[instanceId];
+    // Call your SDK / API here:
+    return await instance.fetchSecret(ref);
+  },
+});
+```
+
+Usage in a `.env` file:
+
+```env-spec title=".env.schema" /myPlugin\\(.*\\)/
+# @sensitive
+DB_PASSWORD=myPlugin(services/prod/db#password)
+# Use a named instance:
+API_KEY=myPlugin(prod, services/prod/api#key)
+```
+
+## `argsSchema` reference
+
+Use `argsSchema` to let Varlock enforce argument counts before `process` even runs, so your validation code can assume the right number of args.
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | `'array' \| 'object' \| 'mixed'` | Which argument style is permitted |
+| `arrayExactLength` | `number` | Exactly this many positional args |
+| `arrayMinLength` | `number` | At least this many positional args |
+| `arrayMaxLength` | `number` | At most this many positional args |
+| `objKeyMinLength` | `number` | At least this many key-value args |
+
+## Keyword-args example
+
+```ts title="src/plugin.ts"
+plugin.registerResolverFunction({
+  name: 'myPluginKv',
+  argsSchema: { type: 'object', objKeyMinLength: 1 },
+
+  process() {
+    const pathResolver = this.objArgs?.path;
+    const keyResolver  = this.objArgs?.key;
+    if (!pathResolver) throw new SchemaError('path= argument is required');
+    return { pathResolver, keyResolver };
+  },
+
+  async resolve({ pathResolver, keyResolver }) {
+    const path = String(await pathResolver.resolve());
+    const key  = keyResolver ? String(await keyResolver.resolve()) : undefined;
+    return await instances['_default'].fetchSecret(path, key);
+  },
+});
+```
+
+Usage:
+
+```env-spec title=".env.schema" /myPluginKv\\(.*\\)/
+DB_PASSWORD=myPluginKv(path=services/prod/db, key=password)
+```
