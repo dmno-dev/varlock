@@ -1,6 +1,7 @@
 import _ from '@env-spec/utils/my-dash';
 import { type FallbackIfUnknown } from '@env-spec/utils/type-utils';
 import { CoercionError, ValidationError } from './errors';
+import { parseRegexLikeString } from './resolver';
 
 type MaybePromise<T> = T | Promise<T>;
 
@@ -188,7 +189,12 @@ const StringDataType = createEnvGraphDataType(
       }
 
       if (settings?.matches) {
-        const regex = _.isString(settings.matches) ? new RegExp(settings.matches) : settings.matches;
+        let regex: RegExp;
+        if (_.isString(settings.matches)) {
+          regex = parseRegexLikeString(settings.matches) ?? new RegExp(settings.matches);
+        } else {
+          regex = settings.matches;
+        }
         const matches = val.match(regex);
         if (!matches) {
           errors.push(new ValidationError(`Value must match regex "${settings.matches}"`));
@@ -325,7 +331,12 @@ const UrlDataType = createEnvGraphDataType(
         errors.push(new ValidationError('URL must not have a trailing slash'));
       }
       if (settings?.matches) {
-        const regex = _.isString(settings.matches) ? new RegExp(settings.matches) : settings.matches;
+        let regex: RegExp;
+        if (_.isString(settings.matches)) {
+          regex = parseRegexLikeString(settings.matches) ?? new RegExp(settings.matches);
+        } else {
+          regex = settings.matches;
+        }
         if (!regex.test(val)) {
           errors.push(new ValidationError(`URL must match regex "${settings.matches}"`));
         }

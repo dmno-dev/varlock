@@ -220,9 +220,17 @@ describe('regex()', functionValueTests({
     input: 'ITEM=regex(.*)',
     expected: { ITEM: ResolutionError },
   },
-  'error - regex literal used as value': {
+  'regex-like string used as value is just a string': {
     input: 'ITEM=/^foo.*/',
-    expected: { ITEM: ResolutionError },
+    expected: { ITEM: '/^foo.*/' },
+  },
+  'path with slashes used as value is just a string': {
+    input: 'ITEM=/folder/foo/bar',
+    expected: { ITEM: '/folder/foo/bar' },
+  },
+  'quoted path with slashes used as value': {
+    input: 'ITEM="/usr/local/bin/"',
+    expected: { ITEM: '/usr/local/bin/' },
   },
   'error - invalid regex': {
     input: outdent`
@@ -276,6 +284,20 @@ describe('remap()', functionValueTests({
       ITEM=remap($REMAP_ME, buz, biz, /foo/i, bar)
     `,
     expected: { ITEM: 'bar' },
+  },
+  'path-like string in remap is exact match not regex': {
+    input: outdent`
+      REMAP_ME=/usr/local
+      ITEM=remap($REMAP_ME, /usr/local, found, default)
+    `,
+    expected: { ITEM: 'found' },
+  },
+  'quoted path in remap is exact match': {
+    input: outdent`
+      REMAP_ME=/some/path
+      ITEM=remap($REMAP_ME, "/some/path", found, default)
+    `,
+    expected: { ITEM: 'found' },
   },
   'remaps undefined match': {
     input: outdent`

@@ -9,7 +9,6 @@ import {
   ParsedEnvSpecDivider, ParsedEnvSpecDecoratorComment, ParsedEnvSpecComment,
   ParsedEnvSpecDecorator, ParsedEnvSpecStaticValue, ParsedEnvSpecFunctionCall,
   ParsedEnvSpecBlankLine, ParsedEnvSpecFunctionArgs, ParsedEnvSpecKeyValuePair,
-  ParsedEnvSpecRegexLiteral,
 } from './classes';
 }}
 
@@ -43,7 +42,7 @@ ConfigItem =
 
 ConfigItemKey = $([a-zA-Z_] [a-zA-Z0-9_.-]*)
 
-ConfigItemValue = FunctionCall / RegexLiteral / multiLineString / quotedString / unquotedString
+ConfigItemValue = FunctionCall / multiLineString / quotedString / unquotedString
 
 CommentBlock =
   // not sure if we want to treat these as decorators if within comment block?
@@ -115,7 +114,7 @@ Decorator =
 // we allow an ending ":", because we don't want to choke on pre-existing comments
 // but we will treat the entire line as a normal comment if we do see that
 DecoratorName = $([a-zA-Z] [a-zA-Z0-9_]*)
-DecoratorValue = DecoratorFunctionCall / RegexLiteral / quotedString / unquotedStringWithoutSpaces
+DecoratorValue = DecoratorFunctionCall / quotedString / unquotedStringWithoutSpaces
 
 // Decorator-specific function call (supports multi-line with # continuation)
 DecoratorFunctionCall =
@@ -149,7 +148,6 @@ DecoratorFunctionArgs =
 
 DecoratorFunctionArgValue =
   DecoratorFunctionCall
-  / RegexLiteral
   / quotedString
   / $([^ \n,)]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
 
@@ -193,7 +191,6 @@ FunctionArgs =
 FunctionArgKeyName = $([a-zA-Z] [a-zA-Z0-9_]*)
 FunctionArgValue =
   FunctionCall
-  / RegexLiteral
   / quotedString
   // slightly different here - can contain "#", cannot contain ")" or "," or newline
   / $([^ \n,)]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
@@ -207,18 +204,6 @@ Divider =
     return new ParsedEnvSpecDivider({
       contents,
       leadingSpace,
-      _location: location(),
-    });
-  }
-
-
-RegexLiteral =
-  "/" pattern:$("\\/" / [^/\n])* "/" flags:$[gimsuy]*
-  {
-    return new ParsedEnvSpecRegexLiteral({
-      rawValue: text(),
-      pattern: pattern.replaceAll('\\/', '/'),
-      flags,
       _location: location(),
     });
   }

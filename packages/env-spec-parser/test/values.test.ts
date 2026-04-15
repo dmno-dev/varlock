@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import ansis from 'ansis';
 import {
-  ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair, ParsedEnvSpecRegexLiteral,
+  ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair,
   ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
 } from '../src';
 import { expectInstanceOf } from './test-utils';
@@ -147,62 +147,81 @@ describe('post-comment handling', basicValueTests([
   ['foo(fn#arg) #post-comment', { fnName: 'foo', fnArgs: ['fn#arg'] }],
 ]));
 
-describe('regex literals', () => {
-  function regexTests(tests: Array<[string, { pattern: string; flags: string } | Error]>) {
-    return () => {
-      tests.forEach(([input, expected]) => {
-        const inputString = `VAL=${input}`;
-        it(inputString, () => {
-          if (expected instanceof Error) {
-            expect(() => parseEnvSpecDotEnvFile(inputString)).toThrow();
-          } else {
-            const result = parseEnvSpecDotEnvFile(inputString);
-            const valNode = result.configItems[0].value;
-            expectInstanceOf(valNode, ParsedEnvSpecRegexLiteral);
-            expect(valNode.pattern).toEqual(expected.pattern);
-            expect(valNode.flags).toEqual(expected.flags);
-            expect(valNode.value).toEqual(new RegExp(expected.pattern, expected.flags));
-          }
-        });
-      });
-    };
-  }
+describe('regex-like strings and paths with slashes', () => {
+  it('regex-like strings are parsed as plain strings in config values', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=/foo/');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecStaticValue);
+    expect(valNode.value).toEqual('/foo/');
+  });
 
-  describe('as config item values', regexTests([
-    ['/foo/', { pattern: 'foo', flags: '' }],
-    ['/^dev.*/', { pattern: '^dev.*', flags: '' }],
-    ['/pattern/i', { pattern: 'pattern', flags: 'i' }],
-    ['/^https:\\/\\/.*$/gi', { pattern: '^https://.*$', flags: 'gi' }],
-    ['/foo|bar/', { pattern: 'foo|bar', flags: '' }],
-    ['/[a-z]+/ms', { pattern: '[a-z]+', flags: 'ms' }],
-  ]));
+  it('unquoted path with multiple slashes is parsed correctly', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=/folder/foo/bar');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecStaticValue);
+    expect(valNode.value).toEqual('/folder/foo/bar');
+  });
 
-  it('regex literal inside function args', () => {
+  it('unquoted absolute path with trailing slash is parsed correctly', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=/usr/local/bin/');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecStaticValue);
+    expect(valNode.value).toEqual('/usr/local/bin/');
+  });
+
+  it('quoted path with slashes is parsed correctly', () => {
+    const result = parseEnvSpecDotEnvFile('VAL="/folder/foo/bar"');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecStaticValue);
+    expect(valNode.value).toEqual('/folder/foo/bar');
+  });
+
+  it('single-quoted path with slashes is parsed correctly', () => {
+    const result = parseEnvSpecDotEnvFile("VAL='/folder/foo/bar'");
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecStaticValue);
+    expect(valNode.value).toEqual('/folder/foo/bar');
+  });
+
+  it('path in function arg is parsed as plain string', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=foo(/some/path, bar)');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecFunctionCall);
+    const args = valNode.data.args.values;
+    expectInstanceOf(args[0], ParsedEnvSpecStaticValue);
+    expect(args[0].value).toEqual('/some/path');
+  });
+
+  it('path in key=value function arg is parsed as plain string', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=foo(path=/some/dir/file.txt)');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecFunctionCall);
+    const args = valNode.data.args.values;
+    expectInstanceOf(args[0], ParsedEnvSpecKeyValuePair);
+    expectInstanceOf(args[0].value, ParsedEnvSpecStaticValue);
+    expect(args[0].value.value).toEqual('/some/dir/file.txt');
+  });
+
+  it('regex-like strings inside function args are parsed as plain strings', () => {
     const result = parseEnvSpecDotEnvFile('VAL=foo(/^dev.*/, bar)');
     const valNode = result.configItems[0].value;
     expectInstanceOf(valNode, ParsedEnvSpecFunctionCall);
     expect(valNode.name).toEqual('foo');
     const args = valNode.data.args.values;
-    expectInstanceOf(args[0], ParsedEnvSpecRegexLiteral);
-    expect(args[0].pattern).toEqual('^dev.*');
-    expect(args[0].flags).toEqual('');
+    expectInstanceOf(args[0], ParsedEnvSpecStaticValue);
+    expect(args[0].value).toEqual('/^dev.*/');
   });
 
-  it('regex literal in key=value function arg', () => {
+  it('regex-like strings in key=value function args are parsed as plain strings', () => {
+    // /^https:\/\// in env file content — now parsed as unquoted string, not regex literal
     const result = parseEnvSpecDotEnvFile('VAL=foo(matches=/^https:\\/\\//)');
     const valNode = result.configItems[0].value;
     expectInstanceOf(valNode, ParsedEnvSpecFunctionCall);
     const args = valNode.data.args.values;
     expectInstanceOf(args[0], ParsedEnvSpecKeyValuePair);
-    expectInstanceOf(args[0].value, ParsedEnvSpecRegexLiteral);
-    expect(args[0].value.pattern).toEqual('^https://');
-  });
-
-  it('regex literal toString roundtrip', () => {
-    const input = '/^dev.*/i';
-    const result = parseEnvSpecDotEnvFile(`VAL=${input}`);
-    const valNode = result.configItems[0].value;
-    expectInstanceOf(valNode, ParsedEnvSpecRegexLiteral);
-    expect(valNode.toString()).toEqual(input);
+    expectInstanceOf(args[0].value, ParsedEnvSpecStaticValue);
+    // The value includes the full unquoted string up to the closing )
+    // In the env file: /^https:\/\// (the trailing / that was previously the regex closing delimiter is now part of the string)
+    expect(args[0].value.value).toEqual('/^https:\\/\\//');
   });
 });
