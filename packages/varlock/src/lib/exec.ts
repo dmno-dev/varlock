@@ -174,15 +174,19 @@ export function exec(
   // Find command in PATH if it's not an absolute path
   const resolvedCommand = findCommand(command);
 
-  // Detect whether findCommand actually resolved the command to something different
-  const isAbsoluteOrRelative = isAbsolute(command) || command.includes('/') || command.includes('\\');
-  const commandWasResolved = resolvedCommand !== command || isAbsoluteOrRelative;
+  // Detect whether findCommand found a different path for the command.
+  // Absolute/relative paths (containing a path separator) are always used as-is
+  // (findCommand returns them unchanged), so we treat those as "found" too.
+  const isCommandFound = resolvedCommand !== command
+    || isAbsolute(command)
+    || command.includes('/')
+    || command.includes('\\');
 
   // On Windows, .cmd/.bat files must go through cmd.exe.
-  // Also fall back to cmd.exe when the command wasn't resolved in PATH, so that
+  // Also fall back to cmd.exe when the command wasn't found in PATH, so that
   // cmd.exe can handle PATHEXT lookups (e.g. tsx → tsx.cmd, pnpm → pnpm.cmd).
   const needsShell = process.platform === 'win32'
-    && (/\.(cmd|bat)$/i.test(resolvedCommand) || !commandWasResolved);
+    && (/\.(cmd|bat)$/i.test(resolvedCommand) || !isCommandFound);
 
   let spawnCommand = resolvedCommand;
   let spawnArgs = args;
@@ -193,17 +197,18 @@ export function exec(
 
   // On Windows, wrap .cmd/.bat (or unresolved commands) in cmd.exe
   if (needsShell) {
-    // If the command wasn't resolved, let cmd.exe handle PATHEXT lookup by using
-    // the original command name; otherwise use the fully resolved path.
-    const cmdToUse = commandWasResolved ? resolvedCommand : command;
-    // Quote the command path only if it contains spaces (inner quotes survive /s stripping)
-    const quotedCmd = cmdToUse.includes(' ') ? `"${cmdToUse}"` : cmdToUse;
-    // Quote each arg only if it contains spaces
-    const escapedArgs = args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
-    // Build the inner string, then wrap the whole thing in one outer pair of quotes.
+    // Use the resolved path when available; otherwise let cmd.exe handle the
+    // PATHEXT lookup by passing the original bare command name.
+    const cmdToUse = isCommandFound ? resolvedCommand : command;
+    // Always quote the command path to handle spaces and special characters.
+    // Escape any embedded double-quotes as "" (cmd.exe convention).
+    const quotedCmd = `"${cmdToUse.replace(/"/g, '""')}"`;
+    // Build the inner string: quote every argument and escape embedded double-quotes,
+    // then join with the command. Wrap the whole thing in one outer pair of quotes.
     // cmd.exe /s /c strips the first and last " from the command string, so the outer
-    // quotes are consumed and the inner content is processed correctly by cmd.exe.
-    const cmdStr = escapedArgs ? `${quotedCmd} ${escapedArgs}` : quotedCmd;
+    // quotes are consumed and the quoted inner content is processed correctly.
+    const cmdStr = [quotedCmd, ...args.map((a) => `"${a.replace(/"/g, '""')}"`)]
+      .join(' ');
     spawnArgs = ['/d', '/s', '/c', `"${cmdStr}"`];
     spawnCommand = process.env.comspec || 'cmd.exe';
     spawnOptions.windowsVerbatimArguments = true;
