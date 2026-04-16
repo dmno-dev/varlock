@@ -39,6 +39,7 @@ class AzurePluginInstance {
   private clientId?: string;
   private clientSecret?: string;
   private cachedToken?: CachedToken;
+  private secretCache = new Map<string, Promise<string>>();
 
   constructor(
     readonly id: string,
@@ -309,7 +310,21 @@ class AzurePluginInstance {
     }
   }
 
-  async getSecret(secretRef: string, jsonKey?: string): Promise<string> {
+  private fetchSecretValue(secretRef: string): Promise<string> {
+    // Deduplicate concurrent fetches for the same ref
+    const cached = this.secretCache.get(secretRef);
+    if (cached) {
+      debug(`Using cached fetch for: ${secretRef}`);
+      return cached;
+    }
+    const promise = this._fetchSecretValue(secretRef);
+    this.secretCache.set(secretRef, promise);
+    // Clear cache entry on failure so retries can try again
+    promise.catch(() => this.secretCache.delete(secretRef));
+    return promise;
+  }
+
+  private async _fetchSecretValue(secretRef: string): Promise<string> {
     if (!this.vaultUrl) {
       throw new SchemaError('vaultUrl is required');
     }
@@ -338,24 +353,6 @@ class AzurePluginInstance {
       }
 
       debug(`Successfully fetched secret: ${secretName}`);
-
-      if (jsonKey) {
-        try {
-          const parsed = JSON.parse(response.value);
-          if (!(jsonKey in parsed)) {
-            throw new ResolutionError(`Key "${jsonKey}" not found in secret JSON`, {
-              tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
-            });
-          }
-          return String(parsed[jsonKey]);
-        } catch (err) {
-          if (err instanceof ResolutionError) throw err;
-          throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
-            tip: 'Ensure the secret value is valid JSON when extracting a specific key',
-          });
-        }
-      }
-
       return response.value;
     } catch (err: any) {
       // Re-throw ResolutionError as-is
@@ -407,6 +404,29 @@ class AzurePluginInstance {
         tip: errorTip,
       });
     }
+  }
+
+  async getSecret(secretRef: string, jsonKey?: string): Promise<string> {
+    const rawValue = await this.fetchSecretValue(secretRef);
+
+    if (jsonKey) {
+      try {
+        const parsed = JSON.parse(rawValue);
+        if (!(jsonKey in parsed)) {
+          throw new ResolutionError(`Key "${jsonKey}" not found in secret JSON`, {
+            tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
+          });
+        }
+        return String(parsed[jsonKey]);
+      } catch (err) {
+        if (err instanceof ResolutionError) throw err;
+        throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
+          tip: 'Ensure the secret value is valid JSON when extracting a specific key',
+        });
+      }
+    }
+
+    return rawValue;
   }
 }
 
