@@ -6,11 +6,17 @@
 // reads whichever form is present and stashes the parsed JSON on
 // `globalThis.__varlockLoadedEnv` for `initVarlockEnv()` to pick up.
 //
-// Two flavors are exported — see each const's docstring.
-
-// Reads `__cfEnv` (the `cloudflare:workers` `env` object) and sets
-// `globalThis.__varlockLoadedEnv`.
-const LOAD_BODY = `
+// The `cloudflare:workers` load is guarded behind a
+// `navigator.userAgent === 'Cloudflare-Workers'` runtime check and wrapped in
+// a dynamic `await import(...)`. This makes the injection safe for SSR entry
+// modules that may also be evaluated by Node during a framework's postbuild
+// (e.g. SvelteKit prerender/fallback) — Rollup preserves the dynamic import
+// but Node never resolves it. Inside Workers the check passes and the load
+// runs normally. Overhead vs a static import is one `navigator` check + TLA
+// on cold start, which is negligible.
+export const CLOUDFLARE_SSR_ENTRY_CODE = `
+if (typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers') {
+  const { env: __cfEnv } = await import('cloudflare:workers');
   let __varlockEnvJson;
   if (__cfEnv?.__VARLOCK_ENV) {
     __varlockEnvJson = __cfEnv.__VARLOCK_ENV;
@@ -34,38 +40,5 @@ const LOAD_BODY = `
       throw new Error("[varlock] failed to parse __VARLOCK_ENV: " + e.message);
     }
   }
-`;
-
-/**
- * Loader for the `@cloudflare/vite-plugin` Workers entry.
- *
- * The entry module (`\0virtual:cloudflare/worker-entry`) is only ever loaded
- * inside the Workers runtime, so a static import of `cloudflare:workers` is
- * safe. Synchronous — no top-level await.
- */
-export const CLOUDFLARE_WORKERS_SSR_ENTRY_CODE = `
-import { env as __cfEnv } from 'cloudflare:workers';
-{
-${LOAD_BODY}
-}
-`;
-
-/**
- * Loader for the SvelteKit + adapter-cloudflare SSR entry
- * (`@sveltejs/kit/.../runtime/server/index.js`).
- *
- * Unlike the Workers-only virtual entry, this module is also dynamically
- * imported by SvelteKit's postbuild prerender/fallback steps in Node — where
- * `import 'cloudflare:workers'` would fail Node's ESM scheme check. So the
- * load is guarded behind a `navigator.userAgent === 'Cloudflare-Workers'`
- * runtime check and wrapped in a dynamic import so Rollup preserves it but
- * Node never resolves it. In Node, `initVarlockEnv()` falls back to
- * `process.env.__VARLOCK_ENV` which the varlock vite plugin sets at config
- * time.
- */
-export const SVELTEKIT_CLOUDFLARE_SSR_ENTRY_CODE = `
-if (typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers') {
-  const { env: __cfEnv } = await import('cloudflare:workers');
-${LOAD_BODY}
 }
 `;

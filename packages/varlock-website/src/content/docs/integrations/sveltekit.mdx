@@ -10,7 +10,7 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
 [SvelteKit](https://svelte.dev/docs/kit) is built on [Vite](https://vite.dev), so there's no dedicated SvelteKit package — which integration you use depends on where you deploy.
 
 - **Node / Vercel / Netlify / self-hosted / most adapters** — use the [Vite integration](/integrations/vite/). See [setup below](#setup).
-- **Cloudflare Workers (via `@sveltejs/adapter-cloudflare`)** — use the `varlockSvelteKitCloudflarePlugin` from `@varlock/cloudflare-integration`. See [setup below](#sveltekit-on-cloudflare-workers).
+- **Cloudflare Workers (via `@sveltejs/adapter-cloudflare`)** — use `varlockCloudflareVitePlugin` from `@varlock/cloudflare-integration`. It auto-detects SvelteKit and applies the right injection strategy. See [setup below](#sveltekit-on-cloudflare-workers).
 
 ---
 
@@ -58,7 +58,11 @@ See the [Vite integration page](/integrations/vite/) for more details on configu
   <Badge npmPackage="@varlock/cloudflare-integration" />
 </div>
 
-For SvelteKit projects deploying to Cloudflare Workers via [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare), use `varlockSvelteKitCloudflarePlugin`. It does **not** wrap `@cloudflare/vite-plugin` — SvelteKit doesn't currently work with that plugin ([cloudflare/workers-sdk#8922](https://github.com/cloudflare/workers-sdk/issues/8922)). Instead, it injects varlock's runtime env-loader directly into SvelteKit's SSR entry so the resolved env is available at runtime inside the worker.
+For SvelteKit projects deploying to Cloudflare Workers via [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare), use `varlockCloudflareVitePlugin`. It auto-detects SvelteKit and adjusts its behavior so it works correctly with the adapter: it skips injecting `@cloudflare/vite-plugin` (which doesn't currently support SvelteKit — see [cloudflare/workers-sdk#8922](https://github.com/cloudflare/workers-sdk/issues/8922)) and injects the runtime env-loader into SvelteKit's SSR entry instead, so the resolved env is available inside the worker.
+
+:::note[Static-only SvelteKit sites]
+If your SvelteKit app is fully static (no SSR — typically using `@sveltejs/adapter-static` and deployed to Cloudflare Pages or any CDN), you don't need this section at all. Use the generic [Vite integration](#setup) above — there's no server bundle for us to inject into.
+:::
 
 ### Setup
 
@@ -76,11 +80,11 @@ For SvelteKit projects deploying to Cloudflare Workers via [`@sveltejs/adapter-c
     ```diff lang="ts" title="vite.config.ts"
     import { sveltekit } from '@sveltejs/kit/vite';
     import { defineConfig } from 'vite';
-    +import { varlockSvelteKitCloudflarePlugin } from '@varlock/cloudflare-integration/sveltekit';
+    +import { varlockCloudflareVitePlugin } from '@varlock/cloudflare-integration';
 
     export default defineConfig({
       plugins: [
-    +    varlockSvelteKitCloudflarePlugin(),
+    +    varlockCloudflareVitePlugin(),
         sveltekit(),
       ],
     });
@@ -128,7 +132,7 @@ Varlock replaces all four with a single `ENV` object from `varlock/env`. The sam
 | `$env/static/public` | `ENV.FOO` where `@sensitive=false` — non-sensitive values are inlined at build time on both client and server |
 | `$env/static/private` | `ENV.FOO` where `@sensitive=true`, referenced from SSR/server code — inlined into the server bundle, build errors if referenced from client code |
 | `$env/dynamic/public` | **Not yet supported** — non-sensitive values are currently always inlined at build time (equivalent to `$env/static/public`). Runtime-resolved public values are on the roadmap. |
-| `$env/dynamic/private` | `ENV.FOO` — in server contexts it's read from the live runtime env (e.g. Cloudflare bindings via `varlockSvelteKitCloudflarePlugin`, or Node's `process.env` elsewhere) rather than baked into the bundle |
+| `$env/dynamic/private` | `ENV.FOO` — in server contexts it's read from the live runtime env (e.g. Cloudflare bindings via `varlockCloudflareVitePlugin`, or Node's `process.env` elsewhere) rather than baked into the bundle |
 | `PUBLIC_` prefix requirement | Per-item [`@sensitive`](/reference/item-decorators/#sensitive) decorator, or a schema-wide [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) rule |
 
 ### Migrating imports

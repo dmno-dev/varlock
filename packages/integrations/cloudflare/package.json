@@ -12,8 +12,7 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./init": "./dist/init.js",
-    "./sveltekit": "./dist/sveltekit.js"
+    "./init": "./dist/init.js"
   },
   "bin": {
     "varlock-wrangler": "./bin/varlock-wrangler.js"

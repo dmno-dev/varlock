@@ -4,7 +4,6 @@ export default defineConfig({
   entry: [
     'src/index.ts',
     'src/init.ts',
-    'src/sveltekit.ts',
     'src/varlock-wrangler.ts',
   ],
 
