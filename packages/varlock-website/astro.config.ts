@@ -181,6 +181,7 @@ export default defineConfig({
           items: [
             { label: 'Overview', slug: 'plugins/overview' },
             { label: '1Password', slug: 'plugins/1password' },
+            { label: 'Akeyless', slug: 'plugins/akeyless' },
             { label: 'AWS SSM/SM', slug: 'plugins/aws-secrets' },
             { label: 'Azure Key Vault', slug: 'plugins/azure-key-vault' },
             { label: 'Bitwarden', slug: 'plugins/bitwarden' },
