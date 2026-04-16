@@ -680,6 +680,31 @@ describe('type generation', () => {
     });
   });
 
+  describe('JSDoc comment safety', () => {
+    test('description containing "*/" does not prematurely close JSDoc comment', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultSensitive=false
+          # ---
+          # use a glob like foo/*/bar to match paths
+          GLOB_ITEM=val   # @public @required
+        `,
+      });
+
+      const items: Array<TypeGenItemInfo> = [];
+      for (const key of g.sortedConfigKeys) {
+        items.push(await g.configSchema[key].getTypeGenInfo());
+      }
+      const src = await generateTsTypesSrc(items);
+
+      // The item declaration must still be present (comment not prematurely closed)
+      expect(src).toContain('GLOB_ITEM: string;');
+      // The "* /" (escaped) form must appear instead of the raw "*/"
+      expect(src).toContain('foo/* /bar');
+      expect(src).not.toContain('foo/*/bar');
+    });
+  });
+
   describe('runs before value resolution', () => {
     test('getTypeGenInfo works without resolving env values', async () => {
       const g = await loadGraph({
