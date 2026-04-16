@@ -20,6 +20,10 @@ Both approaches below use `varlock-wrangler` — a thin wrapper around `wrangler
 1. **Using `varlock-wrangler`** - A thin wrapper for `wrangler` that injects env vars correctly, along with a one-line init import in your worker
 2. **With the Vite plugin** - If you're already using the [Cloudflare Workers Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/), you can add the varlock Cloudflare Vite plugin to automatically inject env vars and init code
 
+:::note[SvelteKit on Cloudflare]
+Deploying SvelteKit via `@sveltejs/adapter-cloudflare`? See the [SvelteKit guide](/integrations/sveltekit/#sveltekit-on-cloudflare-workers) — it uses a dedicated `varlockSvelteKitCloudflarePlugin` instead of the approaches below.
+:::
+
 ## Approach 1: Using `varlock-wrangler`
 
 Replace your `wrangler` commands with `varlock-wrangler` and initialize varlock in your worker code with a single import. It's a thin wrapper that wires up your env vars correctly, and passes everything else through unchanged.
@@ -232,3 +236,29 @@ APP_ENV=remap($WORKERS_CI_BRANCH, "main", production, /.*/, preview, undefined, 
 ```
 
 For more information, see the [environments guide](/guides/environments).
+
+----
+
+## Cloudflare Workers Builds (CI/CD)
+
+If you deploy via [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/), two pieces of setup are required in the dashboard — neither can be configured from a file in the repo:
+
+<Steps>
+
+1. **Override the Deploy command**
+
+    Under **Settings → Build → Deploy command**, replace the default `npx wrangler deploy` with:
+
+    ```sh
+    npx varlock-wrangler deploy
+    ```
+
+    Without this override, Cloudflare runs stock `wrangler deploy`, which skips varlock's env resolution and leaves your worker without its resolved vars/secrets at runtime.
+
+1. **Set any _secret-zero_ vars under Build variables**
+
+    Any env vars that varlock itself needs _during load_ — for example a 1Password service account token, a GCP key — must be set under **Settings → Build → Variables and Secrets**. These are made available to the build step, where `varlock-wrangler deploy` resolves your full env graph and uploads the result to the worker runtime as regular vars/secrets.
+
+    Vars that only your worker needs at runtime (not varlock itself) don't need to be set here — they'll be resolved by varlock and set  automatically by `varlock-wrangler deploy`.
+
+</Steps>

@@ -5,6 +5,7 @@ This package helps you integrate [varlock](https://varlock.dev) into a [Cloudfla
 It provides:
 
 - a Vite plugin (`varlockCloudflareVitePlugin`) that wraps `@cloudflare/vite-plugin` with automatic env var injection into miniflare bindings and Cloudflare's secret bindings at runtime
+- a SvelteKit-specific Vite plugin (`varlockSvelteKitCloudflarePlugin` at `@varlock/cloudflare-integration/sveltekit`) for projects deploying via `@sveltejs/adapter-cloudflare`
 - a `varlock-wrangler` CLI binary — a drop-in replacement for `wrangler` that injects env via named pipe in dev, uploads vars/secrets on deploy, and generates correct types
 - a standalone init module (`@varlock/cloudflare-integration/init`) for non-Vite workers
 - validation of your env vars against your `.env.schema`

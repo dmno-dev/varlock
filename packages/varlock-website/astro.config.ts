@@ -163,10 +163,11 @@ export default defineConfig({
           items: [
             { label: 'Overview', slug: 'integrations/overview' },
             { label: 'JavaScript / Node.js', slug: 'integrations/javascript' },
-            { label: 'Bun', slug: 'integrations/bun', badge: 'new' },
+            { label: 'Bun', slug: 'integrations/bun' },
             { label: 'Next.js', slug: 'integrations/nextjs' },
             { label: 'Vite-based', slug: 'integrations/vite' },
             { label: 'Astro', slug: 'integrations/astro' },
+            { label: 'SvelteKit', slug: 'integrations/sveltekit', badge: 'new' },
             { label: 'Expo / React Native', slug: 'integrations/expo', badge: 'new' },
             { label: 'Other languages', slug: 'integrations/other-languages' },
             { label: 'Cloudflare Workers', slug: 'integrations/cloudflare', badge: 'new' },

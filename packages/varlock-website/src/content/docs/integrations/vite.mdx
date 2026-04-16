@@ -24,9 +24,17 @@ This plugin does a few things:
 For [Astro](https://astro.build) - which is also powered by Vite - you should use our [Astro integration](/integrations/astro/).
 ::::
 
+:::note[SvelteKit users]
+For [SvelteKit](https://svelte.dev/docs/kit), the plain Vite integration below works for most adapters. If you're deploying to Cloudflare Workers via `@sveltejs/adapter-cloudflare`, see our [SvelteKit guide](/integrations/sveltekit/) — it points you at the Cloudflare-specific plugin.
+::::
+
+:::caution[Deploying a non-static site to Cloudflare Workers?]
+If your project has an SSR/server component that runs on Cloudflare Workers, the plain Vite integration won't wire up runtime secrets correctly — secrets would end up bundled into the worker instead of being stored as Cloudflare secrets. Use the [Cloudflare integration](/integrations/cloudflare/) (or the [SvelteKit guide](/integrations/sveltekit/) for SvelteKit) instead. This page is fine for **static-only** Vite sites.
+:::
+
 ## Frameworks that use Vite ||frameworks||
 
-If you're using [Qwik](https://qwik.dev/) or [React Router](https://reactrouter.com/)/[Remix](https://remix.run/), you can follow the Vite instructions below. If you're using [Cloudflare Workers](https://developers.cloudflare.com/workers/) with the [Cloudflare Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/) then these instructions also apply. For anything framework-specific on Cloudflare Workers (like Next.js) follow the [integration](/integrations/overview) docs for that framework.
+If you're using [Qwik](https://qwik.dev/) or [React Router](https://reactrouter.com/)/[Remix](https://remix.run/), you can follow the Vite instructions below. If you're using [Cloudflare Workers](https://developers.cloudflare.com/workers/) with the [Cloudflare Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/), use the [Cloudflare integration](/integrations/cloudflare/) instead of this page. For anything framework-specific on Cloudflare Workers (like Next.js) follow the [integration](/integrations/overview) docs for that framework.
 
 ## Setup
 

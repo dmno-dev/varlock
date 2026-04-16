@@ -1,0 +1,78 @@
+---
+title: SvelteKit
+description: How to integrate varlock with SvelteKit for secure, type-safe environment management
+---
+import { Steps } from "@astrojs/starlight/components";
+import Badge from '@/components/Badge.astro';
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
+
+[SvelteKit](https://svelte.dev/docs/kit) is built on [Vite](https://vite.dev), so there's no dedicated SvelteKit package — which integration you use depends on where you deploy.
+
+- **Node / Vercel / Netlify / self-hosted / most adapters** — use the [Vite integration](/integrations/vite/) as-is. Add `varlockVitePlugin()` before `sveltekit()` in your `vite.config.ts` and you're done.
+- **Cloudflare Workers (via `@sveltejs/adapter-cloudflare`)** — use the `varlockSvelteKitCloudflarePlugin` from `@varlock/cloudflare-integration`. See [setup below](#sveltekit-on-cloudflare-workers).
+
+---
+
+## SvelteKit on Cloudflare Workers
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/cloudflare-integration" />
+</div>
+
+For SvelteKit projects deploying to Cloudflare Workers via [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare), use `varlockSvelteKitCloudflarePlugin`. It does **not** wrap `@cloudflare/vite-plugin` — SvelteKit doesn't currently work with that plugin ([cloudflare/workers-sdk#8922](https://github.com/cloudflare/workers-sdk/issues/8922)). Instead, it injects varlock's runtime env-loader directly into SvelteKit's SSR entry so the resolved env is available at runtime inside the worker.
+
+### Setup
+
+<Steps>
+
+1. **Install packages**
+    <InstallJsDepsWidget packages="@varlock/cloudflare-integration varlock" />
+
+1. **Run `varlock init` to set up your `.env.schema` file**
+
+    <ExecCommandWidget command="varlock init" showBinary={false} />
+
+1. **Add the plugin to your Vite config**
+
+    ```diff lang="ts" title="vite.config.ts"
+    import { sveltekit } from '@sveltejs/kit/vite';
+    import { defineConfig } from 'vite';
+    +import { varlockSvelteKitCloudflarePlugin } from '@varlock/cloudflare-integration/sveltekit';
+
+    export default defineConfig({
+      plugins: [
+    +    varlockSvelteKitCloudflarePlugin(),
+        sveltekit(),
+      ],
+    });
+    ```
+
+1. **Update your deploy script to use `varlock-wrangler`**
+
+    ```diff lang="json" title="package.json" add="varlock-"
+    {
+      "scripts": {
+        "dev": "vite dev",
+        "build": "vite build",
+        "deploy": "npm run build && varlock-wrangler deploy"
+      }
+    }
+    ```
+
+</Steps>
+
+### How it works
+
+- **In dev**: `vite dev` runs SvelteKit's dev server; varlock resolves env via its normal flow and makes it available on `ENV.*`.
+- **In production**: The SvelteKit SSR bundle has a `cloudflare:workers` runtime loader injected at the top of its server entry. At worker boot, it reads the `__VARLOCK_ENV` binding and hydrates varlock's runtime. The loader is guarded by a `navigator.userAgent === 'Cloudflare-Workers'` check so SvelteKit's Node-side postbuild steps (prerender, fallback) don't try to resolve `cloudflare:workers`.
+- `varlock-wrangler deploy` uploads non-sensitive values as Cloudflare vars and sensitive values as secrets.
+
+### Deploying via Cloudflare Workers Builds
+
+If you deploy through [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/), two pieces of configuration must be set in the dashboard — neither can be committed to the repo:
+
+- **Override the Deploy command** — Under **Settings → Build → Deploy command**, replace the default `npx wrangler deploy` with `npx varlock-wrangler deploy`. Without this, Cloudflare runs stock `wrangler deploy`, which skips varlock resolution and leaves your worker without its resolved vars/secrets.
+- **Set any _secret-zero_ vars under Build variables** — Any env vars varlock itself needs _during load_ (e.g. a 1Password service account token, a GCP key) must be set under **Settings → Build → Variables and Secrets** so they're available at build time. `varlock-wrangler deploy` then resolves your full env graph and uploads the result to the worker runtime as regular vars/secrets.
+
+See the [Cloudflare integration page](/integrations/cloudflare/) for more detail on `varlock-wrangler`, multi-environment setup, and [Workers Builds configuration](/integrations/cloudflare/#cloudflare-workers-builds-cicd).
