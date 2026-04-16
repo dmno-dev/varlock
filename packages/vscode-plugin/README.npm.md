@@ -11,7 +11,7 @@
 
 This extension adds [**@env-spec**](https://varlock.dev/env-spec) language support for your `.env` files, including syntax highlighting, hover info for decorators, and smart comment toggling.
 
-This package is published to npm only for version tracking via [changesets](https://github.com/changesets/changesets). You do not need to install it.
+This package is published to npm only for version tracking via [bumpy](https://github.com/dmno-dev/bumpy). You do not need to install it.
 
 ## Learn more
 

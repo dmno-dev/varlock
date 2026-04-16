@@ -3,8 +3,8 @@
  * Detects which integration packages have changes, then outputs GitHub Actions
  * flags for which framework tests should run.
  *
- * On normal PRs: uses `changeset status` to detect pending changesets.
- * On release PRs (changeset-release/main): uses `git diff origin/main` to find
+ * On normal PRs: uses `bumpy status` to detect pending changesets.
+ * On release PRs (bumpy/version-packages): uses `git diff origin/main` to find
  * modified package.json files — same approach as release-preview.ts.
  *
  * When the core `varlock` package changes, all integration tests are triggered
@@ -15,7 +15,7 @@
  */
 import { execSync } from 'node:child_process';
 import {
-  appendFileSync, existsSync, readFileSync, unlinkSync,
+  appendFileSync, existsSync, readFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 
@@ -43,8 +43,6 @@ function writeGithubOutputs(outputs: Record<string, string>) {
 }
 
 const REPO_ROOT = join(import.meta.dirname, '..');
-const STATUS_FILE = 'changesets-summary.json';
-const statusFilePath = join(REPO_ROOT, STATUS_FILE);
 
 function writeResults(integrations: Array<string>) {
   const anyChanged = integrations.length > 0;
@@ -67,7 +65,7 @@ if (forceAll) {
 let changedPackages: Set<string>;
 
 if (isReleasePR) {
-  // On changeset-release/main, changesets has already bumped versions in package.json
+  // On bumpy/version-packages, bumpy has already bumped versions in package.json
   // files. Detect which packages changed by diffing package.json files vs origin/main,
   // same approach as release-preview.ts.
   console.log('Release PR detected — finding modified package.json files vs origin/main...');
@@ -103,35 +101,30 @@ if (isReleasePR) {
   }
   console.log('Changed packages (from modified package.json):', [...changedPackages]);
 } else {
-  // Normal PR: use changeset CLI to get pending changesets
+  // Normal PR: use bumpy status to get pending changesets
+  let bumpyStatus: any;
   try {
-    execSync(`bunx changeset status --output=${STATUS_FILE}`, {
+    const statusOutput = execSync('bunx @varlock/bumpy status --json', {
       cwd: REPO_ROOT,
-      stdio: 'pipe',
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
+    bumpyStatus = JSON.parse(statusOutput);
   } catch {
-    // changeset status can fail when there are no changesets or no base branch
+    // bumpy status exits non-zero when there are no changesets
   }
 
-  if (!existsSync(statusFilePath)) {
+  if (!bumpyStatus) {
     console.log('No changesets found');
     // Don't exit — test files themselves may have changed (detected below)
     changedPackages = new Set<string>();
   } else {
-    let status: any;
-    try {
-      status = JSON.parse(readFileSync(statusFilePath, 'utf-8'));
-    } finally {
-      unlinkSync(statusFilePath);
-    }
-
     changedPackages = new Set<string>(
-      status.releases
-        ?.filter((r: { type: string }) => r.type !== 'none')
-        .map((r: { name: string }) => r.name) ?? [],
+      bumpyStatus.releases
+        ?.map((r: { name: string }) => r.name) ?? [],
     );
     if (!process.env.GITHUB_OUTPUT) {
-      console.log('Changed packages (from changesets):', [...changedPackages]);
+      console.log('Changed packages (from bumpy):', [...changedPackages]);
     }
   }
 }

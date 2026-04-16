@@ -1,9 +1,0 @@
-{
-  "name": "@varlock/changeset-changelog",
-  "version": "0.0.0",
-  "private": true,
-  "main": "index.cjs",
-  "dependencies": {
-    "@changesets/get-github-info": "^0.7.0"
-  }
-}

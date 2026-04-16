@@ -14,7 +14,7 @@ const INCOMPATIBLE_DECORATOR_PAIRS = [
 function extractRegexPattern(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   // regex literal syntax: /pattern/flags
-  const regexLiteral = value.match(/^\/(.*)\/([gimsuy]*)$/s);
+  const regexLiteral = value.match(/^\/((?:[^/\\]|\\.)*)\/([gimsuy]*)$/);
   if (regexLiteral) return regexLiteral[1].replaceAll('\\/', '/');
   // legacy regex() wrapper: regex("pattern")
   const wrapped = value.match(/^regex\("(.*)"\)$/s);

@@ -1,5 +1,4 @@
 import { execSync, execFileSync } from 'node:child_process';
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listWorkspaces } from './list-workspaces';
@@ -11,15 +10,15 @@ let err: unknown;
 try {
   const workspacePackagesInfo = await listWorkspaces(MONOREPO_ROOT);
 
-  // Check if we're on changeset-release/main branch
+  // Check if we're on bumpy version branch
   const currentBranch = process.env.GITHUB_HEAD_REF || execSync('git branch --show-current').toString().trim();
   let releasePackagePaths: Array<string>;
 
   console.log('current branch = ', currentBranch);
 
-  if (currentBranch === 'changeset-release/main') {
-    // On changeset-release/main branch, find modified package.json files
-    console.log('Running on changeset-release/main branch, finding modified package.json files...');
+  if (currentBranch === 'bumpy/version-packages') {
+    // On bumpy version branch, find modified package.json files
+    console.log('Running on bumpy/version-packages branch, finding modified package.json files...');
     const gitDiff = execSync('git diff origin/main --name-only').toString();
     const modifiedPackageJsons = gitDiff
       .split('\n')
@@ -36,17 +35,14 @@ try {
       .map((filePath) => `${MONOREPO_ROOT}/${filePath.replace('/package.json', '')}`)
       .filter((filePath) => workspacePackagesInfo.some((p) => p.path === filePath));
   } else {
-    console.log('Running on normal PR, using changesets to determine packages to release...');
-    // Regular changeset-based logic
-    // generate summary of changed (publishable) modules according to changesets
-    execSync('bunx changeset status --output=changesets-summary.json');
+    console.log('Running on normal PR, using bumpy to determine packages to release...');
+    // Use bumpy status to determine which packages would be released
+    const bumpyStatusRaw = execSync('bunx @varlock/bumpy status --json 2>/dev/null').toString();
+    const bumpyStatus = JSON.parse(bumpyStatusRaw);
 
-    const changeSetsSummaryRaw = fs.readFileSync('./changesets-summary.json', 'utf8');
-    const changeSetsSummary = JSON.parse(changeSetsSummaryRaw);
-
-    releasePackagePaths = changeSetsSummary.releases
-      .filter((r: any) => r.newVersion !== r.oldVersion)
+    releasePackagePaths = bumpyStatus.releases
       .map((r: any) => workspacePackagesInfo.find((p) => p.name === r.name))
+      .filter(Boolean)
       .map((p: any) => p.path);
   }
 
@@ -74,8 +70,4 @@ try {
   console.error(_err);
 }
 
-// Only clean up changesets-summary.json if it exists (only created in changeset case)
-if (fs.existsSync('./changesets-summary.json')) {
-  fs.unlinkSync('./changesets-summary.json');
-}
 process.exit(err ? 1 : 0);

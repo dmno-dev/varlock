@@ -1,7 +1,7 @@
 name: Release VSCode extension
 
 # Manual fallback for re-publishing the extension without a full npm release
-# Normal releases are handled automatically by the publish lifecycle script in changeset:publish
+# Normal releases are handled automatically by the bumpy publish pipeline
 on:
   workflow_dispatch:
 
