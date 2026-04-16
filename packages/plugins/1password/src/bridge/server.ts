@@ -2,6 +2,7 @@
 import * as net from 'node:net';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import {
   BRIDGE_PROTOCOL_VERSION,
@@ -18,12 +19,11 @@ interface ServeOptions {
   allowedEnvPassthrough?: Array<string>;
 }
 
-// Constant-time string compare; falls back to byte length mismatch → false.
 function safeEq(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
+  const ab = Buffer.from(a, 'utf8');
+  const bb = Buffer.from(b, 'utf8');
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
 }
 
 const DEFAULT_ALLOWED_ENV = [

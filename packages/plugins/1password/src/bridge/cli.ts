@@ -188,7 +188,9 @@ async function cmdEnsure(argv: Array<string>) {
     // Wait for the port/socket to free up
     for (let i = 0; i < 20; i++) {
       if (!(await pingBridge(addr, 200))) break;
-      await new Promise<void>((r) => { setTimeout(r, 100); });
+      await new Promise<void>((r) => {
+        setTimeout(r, 100);
+      });
     }
   }
 
