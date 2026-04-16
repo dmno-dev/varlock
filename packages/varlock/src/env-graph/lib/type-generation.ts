@@ -134,7 +134,8 @@ export async function getTsDefinitionForItem(info: TypeGenItemInfo, indentLevel 
     itemSrc.push(...[
       '/**',
       // extra 2 trailing spaces are needed to make line breaks visible
-      ..._.flatMap(jsDocLines, (line) => [` * ${line}  `]),
+      // escape `*/` sequences to prevent premature comment closure
+      ..._.flatMap(jsDocLines, (line) => [` * ${line.replace(/\*\//g, '* /')}  `]),
       ' */',
     ]);
   }
