@@ -1,0 +1,12 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: eslint
+      glob: "*.{js,jsx,ts,tsx,mjs,cjs,json,jsonc}"
+      run: bunx eslint --fix --no-warn-ignored {staged_files}
+      stage_fixed: true
+
+pre-push:
+  jobs:
+    - name: typecheck
+      run: bun run typecheck
