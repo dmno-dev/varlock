@@ -118,6 +118,7 @@ varlock run -- <command>
 
 **Options:**
 - `--no-redact-stdout`: Disable stdout/stderr redaction to preserve TTY detection for interactive tools
+- `--no-inject-graph`: Disable injection of `__VARLOCK_ENV` serialized config graph into the child process environment
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
 
 **Examples:**
@@ -153,6 +154,18 @@ varlock run --no-redact-stdout -- bash -c 'psql $DATABASE_URL'
 ```
 
 Note: `--no-redact-stdout` disables stdout/stderr redaction entirely. Use it only when a tool needs true TTY pass-through.
+:::
+
+:::note[Preventing sensitive value exposure via env inspection]
+By default, `varlock run` injects a `__VARLOCK_ENV` variable containing the full serialized config graph (including resolved sensitive values) into the child process environment. This is used by framework integrations to obtain sensitivity metadata without re-invoking the CLI.
+
+For long-lived processes, interactive shells, or any workflow where subprocesses may inspect their environment (e.g., `env`, `printenv`, or an LLM-driven agent), use `--no-inject-graph` to omit this variable:
+```bash
+varlock run --no-inject-graph -- bash
+varlock run --no-inject-graph -- claude
+```
+
+Note: When `--no-inject-graph` is set, framework integrations that rely on `__VARLOCK_ENV` will need to fall back to re-invoking the CLI. `__VARLOCK_RUN=1` is always set regardless of this flag.
 :::
 
 </div>
