@@ -27,7 +27,8 @@
     "changeset:empty": "changeset add --empty",
     "changeset:version": "changeset version && bun install && bun run lint:fix",
     "changeset:publish": "bun run build:libs && bun run scripts/resolve-workspace-versions.ts && changeset publish",
-    "release:create-missing-tags": "node scripts/create-missing-release-tags.js"
+    "release:create-missing-tags": "node scripts/create-missing-release-tags.js",
+    "prepare": "lefthook install"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.8",
@@ -37,9 +38,9 @@
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",
     "@varlock/changeset-changelog": "workspace:*",
-    "@varlock/tsconfig": "workspace:*",
     "@varlock/cloudflare-integration": "workspace:*",
     "@varlock/keepass-plugin": "workspace:*",
+    "@varlock/tsconfig": "workspace:*",
     "eslint": "^10.0.2",
     "eslint-plugin-es-x": "^9.5.0",
     "eslint-plugin-fix-disabled-rules": "^0.0.2",
@@ -47,6 +48,7 @@
     "eslint-plugin-n": "^17.24.0",
     "eslint-stylistic-airbnb": "^2.0.1",
     "globals": "^17.3.0",
+    "lefthook": "^2.1.6",
     "turbo": "^2.8.12",
     "typescript": "catalog:",
     "typescript-eslint": "^8.56.1"
