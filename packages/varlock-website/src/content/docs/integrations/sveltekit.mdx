@@ -125,7 +125,9 @@ See the [Cloudflare integration page](/integrations/cloudflare/) for more detail
 
 SvelteKit ships [four built-in env modules](https://svelte.dev/docs/kit/$env-static-private) — `$env/static/private`, `$env/static/public`, `$env/dynamic/private`, `$env/dynamic/public` — which split env vars along two axes: _static vs dynamic_ (inlined at build vs looked up at runtime) and _private vs public_ (server-only vs bundled for the browser, gated by the `PUBLIC_` prefix).
 
-Varlock replaces all four with a single `ENV` object from `varlock/env`. The same two axes still exist, but they're controlled differently:
+The key conceptual shift is that SvelteKit's system is **access-driven**: the same underlying variable behaves differently depending on which module you import it from, and public/private is inferred from the variable's name. Varlock is **schema-driven**: each item is declared once in `.env.schema` with decorators that determine its behavior — sensitivity, type, validation, whether it's inlined or resolved at runtime — and every access site uses the same `ENV` object. You describe the variable once, and that description is authoritative everywhere it's used.
+
+Varlock replaces all four `$env/*` modules with a single `ENV` object from `varlock/env`. The same two axes still exist, but they're controlled by the schema rather than the import path:
 
 | SvelteKit concept | Varlock equivalent |
 | :---------------- | :----------------- |
