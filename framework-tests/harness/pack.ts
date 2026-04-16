@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import {
   existsSync, mkdirSync, readdirSync, rmSync, statSync,
 } from 'node:fs';
@@ -120,7 +120,11 @@ export function packPackages(
       // Pack the package
       const fullPackageDir = join(REPO_ROOT, packageDir);
       console.log(`[pack] Packing ${name}...`);
-      execSync(`bun pm pack --destination ${PACKED_DIR}`, {
+      // execFileSync (not execSync) so the path is passed as an argv entry
+      // rather than interpolated into a shell string — avoids breakage if
+      // the repo is checked out somewhere with spaces/special chars, and
+      // quiets CodeQL (js/shell-command-injection-from-environment).
+      execFileSync('bun', ['pm', 'pack', '--destination', PACKED_DIR], {
         cwd: fullPackageDir,
         stdio: 'pipe',
       });
