@@ -1,6 +1,7 @@
 import { varlockVitePlugin } from '@varlock/vite-integration';
 import { execSyncVarlock } from 'varlock/exec-sync-varlock';
 import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
+import { CLOUDFLARE_WORKERS_SSR_ENTRY_CODE } from './shared-ssr-entry-code';
 
 /**
  * Varlock Cloudflare Vite plugin — wraps the Cloudflare Workers Vite plugin
@@ -80,39 +81,7 @@ export function varlockCloudflareVitePlugin(
   const varlockPlugin = varlockVitePlugin({
     ssrEdgeRuntime: true,
     ssrEntryModuleIds: ['\0virtual:cloudflare/worker-entry'],
-    ssrEntryCode: [
-      // read the resolved env from Cloudflare's secret bindings at runtime
-      // the __VARLOCK_ENV secret is uploaded via `varlock-wrangler deploy`
-      // it may be a single binding or split into chunks if >5KB
-      `
-import { env as __cfEnv } from 'cloudflare:workers';
-{
-  let __varlockEnvJson;
-  if (__cfEnv?.__VARLOCK_ENV) {
-    __varlockEnvJson = __cfEnv.__VARLOCK_ENV;
-  } else if (__cfEnv?.__VARLOCK_ENV_CHUNKS) {
-    const n = parseInt(__cfEnv.__VARLOCK_ENV_CHUNKS, 10);
-    if (!Number.isFinite(n) || n < 1 || n > 1000) {
-      throw new Error("[varlock] invalid __VARLOCK_ENV_CHUNKS: " + __cfEnv.__VARLOCK_ENV_CHUNKS);
-    }
-    const parts = [];
-    for (let i = 0; i < n; i++) {
-      const chunk = __cfEnv["__VARLOCK_ENV_" + i];
-      if (chunk == null) throw new Error("[varlock] missing chunk __VARLOCK_ENV_" + i);
-      parts.push(chunk);
-    }
-    __varlockEnvJson = parts.join("");
-  }
-  if (__varlockEnvJson) {
-    try {
-      globalThis.__varlockLoadedEnv = JSON.parse(__varlockEnvJson);
-    } catch (e) {
-      throw new Error("[varlock] failed to parse __VARLOCK_ENV: " + e.message);
-    }
-  }
-}
-`,
-    ],
+    ssrEntryCode: [CLOUDFLARE_WORKERS_SSR_ENTRY_CODE],
   });
 
   const cloudflarePlugin = cloudflare({
