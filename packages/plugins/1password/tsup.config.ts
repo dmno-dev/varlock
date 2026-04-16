@@ -1,22 +1,27 @@
 import { defineConfig } from 'tsup';
 
-export default defineConfig({
-  entry: [ // Entry point(s)
-    'src/plugin.ts',
-  ],
-
-  dts: true,
-
-  // minify: true, // Minify output
-  sourcemap: true, // Generate sourcemaps
-  treeshake: true, // Remove unused code
-
-  clean: false, // Clean output directory before building
-  outDir: 'dist', // Output directory
-
-  format: ['cjs'], // Output format(s)
-  splitting: false,
-
-  target: 'esnext',
-  external: ['varlock'],
-});
+export default defineConfig([
+  {
+    entry: ['src/plugin.ts'],
+    dts: true,
+    sourcemap: true,
+    treeshake: true,
+    clean: false,
+    outDir: 'dist',
+    format: ['cjs'],
+    splitting: false,
+    target: 'esnext',
+    external: ['varlock'],
+  },
+  {
+    entry: { 'bridge-cli': 'src/bridge/cli.ts' },
+    sourcemap: true,
+    treeshake: true,
+    clean: false,
+    outDir: 'dist',
+    format: ['cjs'],
+    splitting: false,
+    target: 'esnext',
+    banner: { js: '#!/usr/bin/env node' },
+  },
+]);

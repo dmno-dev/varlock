@@ -15,6 +15,9 @@
   "exports": {
     "./plugin": "./dist/plugin.cjs"
   },
+  "bin": {
+    "varlock-op-bridge": "./dist/bridge-cli.cjs"
+  },
   "files": ["dist"],
   "scripts": {
     "dev": "bun run copy-wasm && tsup --watch",
