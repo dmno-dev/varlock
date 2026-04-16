@@ -1,0 +1,58 @@
+{
+  "name": "@varlock/keeper-plugin",
+  "description": "Varlock plugin to load secrets from Keeper Security vaults via the Secrets Manager SDK",
+  "version": "0.0.1",
+  "type": "module",
+  "homepage": "https://varlock.dev/plugins/keeper/",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/plugins/keeper"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    "./plugin": "./dist/plugin.cjs"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "varlock",
+    "plugin",
+    "varlock-plugin",
+    "keeper",
+    "keeper-security",
+    "secrets-manager",
+    "password-manager",
+    "secrets",
+    "env",
+    ".env",
+    "dotenv",
+    "environment variables",
+    "env vars",
+    "config"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^"
+  },
+  "devDependencies": {
+    "@keeper-security/secrets-manager-core": "17.4.0",
+    "@env-spec/utils": "workspace:^",
+    "@types/node": "catalog:",
+    "outdent": "catalog:",
+    "tsup": "catalog:",
+    "varlock": "workspace:^",
+    "vitest": "catalog:"
+  }
+}

@@ -1,0 +1,281 @@
+---
+title: Keeper Plugin
+description: Using Keeper Security Secrets Manager with Varlock
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/keeper-plugin" />
+</div>
+
+Our [Keeper Security](https://keepersecurity.com/) plugin enables secure loading of secrets from Keeper vaults via the [Keeper Secrets Manager](https://docs.keeper.io/secrets-manager/) SDK.
+
+The plugin uses base64-encoded configuration tokens for programmatic access to your Keeper secrets, making it suitable for both CI/CD and production environments.
+
+## Features
+
+- **SDK-based authentication** - Secure access via base64-encoded Secrets Manager config tokens
+- **Flexible secret access** - Fetch by record UID, title, `#field` selector, or [Keeper notation](https://docs.keeper.io/secrets-manager/secrets-manager/developer-sdk-library/javascript-sdk#notation)
+- **Standard and custom fields** - Access any field type including password, login, URL, notes, and custom fields
+- **Multiple instances** - Connect to different Keeper applications or vaults simultaneously
+- **Built-in secret caching** - Avoids redundant API calls within a single resolution pass
+- **Comprehensive error handling** with helpful tips
+
+## Installation and setup
+
+In a JS/TS project, you may install the `@varlock/keeper-plugin` package as a normal dependency.
+Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
+
+```env-spec title=".env.schema"
+# 1. Load the plugin
+# @plugin(@varlock/keeper-plugin)
+#
+# 2. Initialize the plugin - see below for more details on options
+# @initKeeper(token=$KSM_CONFIG)
+# ---
+
+# 3. Add a config item for the Secrets Manager config token
+# @type=keeperSmToken @sensitive
+KSM_CONFIG=
+```
+
+### Secrets Manager application setup
+
+<Steps>
+1. **Create a Secrets Manager Application** in the Keeper Admin Console
+
+    Navigate to **Secrets Manager** → **Applications** → Click **Create Application**. Give it a descriptive name (e.g., "varlock-prod").
+
+2. **Share a folder** with the application
+
+    In your Keeper vault, right-click the folder containing your secrets, select **Share Folder**, and share it with your Secrets Manager application.
+
+3. **Generate a one-time access token**
+
+    In the application settings, click **Add Device** and copy the one-time access token.
+
+4. **Initialize and export the config**
+
+    Use the [KSM CLI](https://docs.keeper.io/secrets-manager/secrets-manager/secrets-manager-command-line-interface) to create a config:
+
+    ```bash
+    pip install keeper-secrets-manager-cli
+    ksm profile init <one-time-token>
+    ksm profile export --format json | base64
+    ```
+
+    :::caution[Save the config securely]
+    Store the base64-encoded config token securely. The one-time access token can only be used once to initialize a device.
+    :::
+
+5. **Wire up the token in your config**
+
+    ```env-spec title=".env.schema"
+    # @plugin(@varlock/keeper-plugin)
+    # @initKeeper(token=$KSM_CONFIG)
+    # ---
+
+    # @type=keeperSmToken @sensitive
+    KSM_CONFIG=
+    ```
+
+6. **Set your config token in environments**
+
+    Use your CI/CD system or platform's env var management to securely inject the `KSM_CONFIG` value.
+</Steps>
+
+### Multiple instances
+
+If you need to connect to different Keeper applications or vaults, register multiple named instances:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/keeper-plugin)
+# @initKeeper(token=$KSM_PROD, id=prod)
+# @initKeeper(token=$KSM_DEV, id=dev)
+# ---
+
+# @type=keeperSmToken @sensitive
+KSM_PROD=
+# @type=keeperSmToken @sensitive
+KSM_DEV=
+
+PROD_SECRET=keeper(prod, "XXXXXXXXXXXXXXXXXXXX")
+DEV_SECRET=keeper(dev, "XXXXXXXXXXXXXXXXXXXX")
+```
+
+## Loading secrets
+
+Once the plugin is installed and initialized, you can start adding config items that load values using the `keeper()` resolver function.
+
+### By record UID
+
+Fetch secrets by record UID. By default, the `password` field is returned:
+
+```env-spec title=".env.schema"
+# Fetches the "password" field from the record
+DB_PASSWORD=keeper("XXXXXXXXXXXXXXXXXXXX")
+```
+
+### With a field selector
+
+Use the `#` syntax to access a specific field:
+
+```env-spec title=".env.schema"
+# Standard fields
+DB_USER=keeper("XXXXXXXXXXXXXXXXXXXX#login")
+SITE_URL=keeper("XXXXXXXXXXXXXXXXXXXX#url")
+
+# Custom fields by label
+API_KEY=keeper("XXXXXXXXXXXXXXXXXXXX#API_KEY")
+```
+
+Or use the named `field` parameter:
+
+```env-spec title=".env.schema"
+DB_HOST=keeper("XXXXXXXXXXXXXXXXXXXX", field="host")
+```
+
+### Using Keeper notation
+
+The plugin supports [Keeper's notation syntax](https://docs.keeper.io/secrets-manager/secrets-manager/developer-sdk-library/javascript-sdk#notation) for advanced access patterns:
+
+```env-spec title=".env.schema"
+# Standard field by type
+DB_PASS=keeper("XXXX/field/password")
+
+# Login field
+DB_USER=keeper("XXXX/field/login")
+
+# Custom field by label
+MY_SECRET=keeper("XXXX/custom_field/MySecretLabel")
+
+# By record title instead of UID
+API_KEY=keeper("My API Keys/field/password")
+```
+
+### With named instances
+
+When using multiple instances, specify which one to use as the first argument:
+
+```env-spec title=".env.schema"
+PROD_SECRET=keeper(prod, "XXXX/field/password")
+DEV_SECRET=keeper(dev, "YYYY#password")
+```
+
+:::tip[Record UIDs vs titles]
+You can reference records by either their UID or their title. UIDs are more reliable since titles can be changed, but titles are more readable. UIDs are case-sensitive.
+:::
+
+---
+
+## Reference
+
+### Root decorators
+<div class="reference-docs">
+<div>
+#### `@initKeeper()`
+
+Initialize a Keeper Secrets Manager plugin instance for accessing secrets.
+
+**Key/value args:**
+- `token` (required): Base64-encoded Secrets Manager config token. Should be a reference to a config item of type `keeperSmToken`.
+- `id` (optional): Instance identifier for multiple instances
+
+```env-spec "@initKeeper"
+# @initKeeper(token=$KSM_CONFIG)
+# ---
+# @type=keeperSmToken @sensitive
+KSM_CONFIG=
+```
+</div>
+</div>
+
+### Data types
+<div class="reference-docs">
+<div>
+#### `keeperSmToken`
+
+Represents a base64-encoded configuration token for the Keeper Secrets Manager SDK. Validation ensures the value is a valid base64-encoded JSON string.
+Note that the type itself is marked as `@sensitive`, so adding an explicit `@sensitive` decorator is optional.
+
+```env-spec "keeperSmToken"
+# @type=keeperSmToken
+KSM_CONFIG=
+```
+</div>
+</div>
+
+### Resolver functions
+<div class="reference-docs">
+<div>
+#### `keeper()`
+
+Fetch a secret field from Keeper Secrets Manager.
+
+**Array args:**
+- `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
+- `reference` (required): record UID, title, UID with `#field` selector, or Keeper notation string
+
+**Key/value args:**
+- `field` (optional): explicit field type or label to extract from the record
+
+```env-spec /keeper\\(.*\\)/
+# By record UID (defaults to password field)
+DB_PASSWORD=keeper("XXXXXXXXXXXXXXXXXXXX")
+
+# With field selector
+DB_USER=keeper("XXXXXXXXXXXXXXXXXXXX#login")
+
+# With named field parameter
+DB_HOST=keeper("XXXXXXXXXXXXXXXXXXXX", field="host")
+
+# Using Keeper notation
+API_KEY=keeper("XXXX/field/password")
+CUSTOM=keeper("XXXX/custom_field/API_KEY")
+
+# With instance ID
+PROD_SECRET=keeper(prod, "XXXXXXXXXXXXXXXXXXXX")
+```
+</div>
+</div>
+
+---
+
+## Troubleshooting
+
+### Failed to parse config token
+- The `KSM_CONFIG` value must be a valid base64-encoded JSON string
+- Regenerate it using the KSM CLI:
+  ```bash
+  ksm profile export --format json | base64
+  ```
+
+### Access denied
+- Verify the Secrets Manager application has not been revoked
+- Check that the shared folder permissions are still active
+- The one-time token may have expired before being used — generate a new one
+
+### Record not found
+- Verify the record UID or title is correct
+- Ensure the record is in a folder shared with the Secrets Manager application
+- Record UIDs are case-sensitive
+
+### Field not found in record
+- Check available field types: `login`, `password`, `url`, `oneTimeCode`, `note`
+- Custom fields use the label: `keeper("uid/custom_field/My Label")`
+- Use the `#` syntax for quick field access: `keeper("uid#login")`
+
+### Config token issues
+- One-time access tokens can only be used once to initialize a device
+- If you need a new config, create a new device in the application settings
+- Config tokens contain encrypted keys — do not modify them manually
+
+## Resources
+
+- [Keeper Security](https://keepersecurity.com/)
+- [Keeper Secrets Manager](https://docs.keeper.io/secrets-manager/)
+- [JavaScript SDK Documentation](https://docs.keeper.io/secrets-manager/secrets-manager/developer-sdk-library/javascript-sdk)
+- [KSM CLI Documentation](https://docs.keeper.io/secrets-manager/secrets-manager/secrets-manager-command-line-interface)

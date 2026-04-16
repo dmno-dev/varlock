@@ -191,6 +191,7 @@ export default defineConfig({
             { label: 'HashiCorp Vault', slug: 'plugins/hashicorp-vault' },
             { label: 'Infisical', slug: 'plugins/infisical' },
             { label: 'KeePass', slug: 'plugins/keepass' },
+            { label: 'Keeper', slug: 'plugins/keeper' },
             { label: 'Pass', slug: 'plugins/pass' },
             { label: 'Passbolt', slug: 'plugins/passbolt' },
             { label: 'Proton Pass', slug: 'plugins/proton-pass' },
