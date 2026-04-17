@@ -1,7 +1,7 @@
 {
   "name": "@varlock/keeper-plugin",
   "description": "Varlock plugin to load secrets from Keeper Security vaults via the Secrets Manager SDK",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/keeper/",
   "bugs": "https://github.com/dmno-dev/varlock/issues",
