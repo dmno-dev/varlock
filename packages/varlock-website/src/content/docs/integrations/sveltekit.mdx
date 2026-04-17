@@ -10,7 +10,7 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
 [SvelteKit](https://svelte.dev/docs/kit) is built on [Vite](https://vite.dev), so there's no dedicated SvelteKit package — which integration you use depends on where you deploy.
 
 - **Node / Vercel / Netlify / self-hosted / most adapters** — use the [Vite integration](/integrations/vite/). See [setup below](#setup).
-- **Cloudflare Workers (via `@sveltejs/adapter-cloudflare`)** — use `varlockCloudflareVitePlugin` from `@varlock/cloudflare-integration`. It auto-detects SvelteKit and applies the right injection strategy. See [setup below](#sveltekit-on-cloudflare-workers).
+- **Cloudflare Workers (via `@sveltejs/adapter-cloudflare`)** — use `varlockSvelteKitCloudflarePlugin` from `@varlock/cloudflare-integration/sveltekit`. See [setup below](#sveltekit-on-cloudflare-workers).
 
 ---
 
@@ -58,7 +58,7 @@ See the [Vite integration page](/integrations/vite/) for more details on configu
   <Badge npmPackage="@varlock/cloudflare-integration" />
 </div>
 
-For SvelteKit projects deploying to Cloudflare Workers via [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare), use `varlockCloudflareVitePlugin`. It auto-detects SvelteKit and adjusts its behavior so it works correctly with the adapter: it skips injecting `@cloudflare/vite-plugin` (which doesn't currently support SvelteKit — see [cloudflare/workers-sdk#8922](https://github.com/cloudflare/workers-sdk/issues/8922)) and injects the runtime env-loader into SvelteKit's SSR entry instead, so the resolved env is available inside the worker.
+For SvelteKit projects deploying to Cloudflare Workers via [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare), use `varlockSvelteKitCloudflarePlugin` from `@varlock/cloudflare-integration/sveltekit`. This is a separate entry point from the standard `varlockCloudflareVitePlugin` because `@cloudflare/vite-plugin` doesn't currently support SvelteKit (see [cloudflare/workers-sdk#8922](https://github.com/cloudflare/workers-sdk/issues/8922)). The SvelteKit plugin skips that dependency entirely and injects the runtime env-loader into SvelteKit's SSR entry instead, so the resolved env is available inside the worker.
 
 :::note[Static-only SvelteKit sites]
 If your SvelteKit app is fully static (no SSR — typically using `@sveltejs/adapter-static` and deployed to Cloudflare Pages or any CDN), you don't need this section at all. Use the generic [Vite integration](#setup) above — there's no server bundle for us to inject into.
@@ -80,11 +80,11 @@ If your SvelteKit app is fully static (no SSR — typically using `@sveltejs/ada
     ```diff lang="ts" title="vite.config.ts"
     import { sveltekit } from '@sveltejs/kit/vite';
     import { defineConfig } from 'vite';
-    +import { varlockCloudflareVitePlugin } from '@varlock/cloudflare-integration';
+    +import { varlockSvelteKitCloudflarePlugin } from '@varlock/cloudflare-integration/sveltekit';
 
     export default defineConfig({
       plugins: [
-    +    varlockCloudflareVitePlugin(),
+    +    varlockSvelteKitCloudflarePlugin(),
         sveltekit(),
       ],
     });

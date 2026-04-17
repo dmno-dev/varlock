@@ -12,6 +12,7 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./sveltekit": "./dist/sveltekit.js",
     "./init": "./dist/init.js"
   },
   "bin": {

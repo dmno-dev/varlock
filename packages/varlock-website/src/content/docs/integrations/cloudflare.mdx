@@ -31,7 +31,7 @@ Varlock relies on a handful of `node:*` built-ins at runtime, so your worker mus
 2. **With the Vite plugin** - If you're already using the [Cloudflare Workers Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/), you can add the varlock Cloudflare Vite plugin to automatically inject env vars and init code
 
 :::note[SvelteKit on Cloudflare]
-Deploying SvelteKit via `@sveltejs/adapter-cloudflare`? Follow [Approach 2](#approach-2-with-the-vite-plugin) below — `varlockCloudflareVitePlugin` auto-detects SvelteKit and adjusts its behavior (it skips injecting `@cloudflare/vite-plugin`, which SvelteKit isn't compatible with, and uses an SSR-entry-based env loader instead). The [SvelteKit guide](/integrations/sveltekit/#sveltekit-on-cloudflare-workers) walks through the same setup end-to-end.
+Deploying SvelteKit via `@sveltejs/adapter-cloudflare`? Use `varlockSvelteKitCloudflarePlugin` from `@varlock/cloudflare-integration/sveltekit` — a separate entry point that skips `@cloudflare/vite-plugin` (which isn't SvelteKit-compatible) and uses an SSR-entry-based env loader instead. The [SvelteKit guide](/integrations/sveltekit/#sveltekit-on-cloudflare-workers) walks through the setup end-to-end.
 :::
 
 ## Approach 1: Using `varlock-wrangler`
@@ -94,7 +94,7 @@ Replace your `wrangler` commands with `varlock-wrangler` and initialize varlock 
 
 If you're building with Vite, `varlockCloudflareVitePlugin` wraps the [Cloudflare Workers Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/) and adds env var + varlock init injection — no extra init import needed, and both `ENV.MY_VAR` and native `env.MY_VAR` work in dev and production.
 
-The plugin also auto-detects SvelteKit (via `@sveltejs/kit` in `package.json`) and adjusts for it: it skips wrapping `@cloudflare/vite-plugin` (which isn't SvelteKit-compatible) and injects the runtime env loader into SvelteKit's SSR entry instead. You can override this with the `varlock.injectCloudflareVitePlugin` option if you need to.
+For SvelteKit on Cloudflare, use the dedicated [`varlockSvelteKitCloudflarePlugin`](/integrations/sveltekit/#sveltekit-on-cloudflare-workers) from `@varlock/cloudflare-integration/sveltekit` instead.
 
 ### Setup
 
@@ -127,7 +127,7 @@ The plugin also auto-detects SvelteKit (via `@sveltejs/kit` in `package.json`) a
     });
     ```
 
-    Any options you were passing to `cloudflare()` can be passed directly to `varlockCloudflareVitePlugin()` at the top level. Varlock-specific flags live under a `varlock` key — see [Advanced options](#advanced-the-varlock-options-key) at the bottom of this page for the full list (you generally don't need to set any of them by hand, they're all auto-detected from your project).
+    Any options you were passing to `cloudflare()` can be passed directly to `varlockCloudflareVitePlugin()` at the top level.
 
 1. **Update your deploy script to use `varlock-wrangler`**
 
@@ -270,28 +270,3 @@ If you deploy via [Cloudflare Workers Builds](https://developers.cloudflare.com/
 
 </Steps>
 
-----
-
-## Advanced vite plugin config options
-
-Every flag under `varlockCloudflareVitePlugin({ varlock: { ... } })` has a sensible auto-detected default, so you generally don't need to set any of them by hand. You'd reach for these in unusual setups — for example, a non-SvelteKit framework that's also incompatible with `@cloudflare/vite-plugin`.
-
-<div class="reference-docs">
-<div>
-### `injectCloudflareVitePlugin`
-**Value type:** `boolean`
-
-Whether to automatically add `@cloudflare/vite-plugin` to your Vite plugin graph.
-
-**Default:** `true`, or `false` if `@sveltejs/kit` is detected ([which isn't compatible with the Cloudflare Vite plugin](https://github.com/cloudflare/workers-sdk/issues/8922)).
-</div>
-
-<div>
-### `ssrEntryModuleIds`
-**Value type:** `Array<string>`
-
-Extra virtual module IDs that should also receive the env loader, on top of what the plugin auto-targets. Forwarded to [`@varlock/vite-integration`](/integrations/vite/).
-
-**Default:** `[]`
-</div>
-</div>

@@ -3,6 +3,7 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: [
     'src/index.ts',
+    'src/sveltekit.ts',
     'src/init.ts',
     'src/varlock-wrangler.ts',
   ],
