@@ -367,11 +367,24 @@ export interface PasswordOptions extends CommonOptions {
   mask?: string;
 }
 
-let passwordPromptChain: Promise<void> = Promise.resolve();
+function getPasswordPromptChain() {
+  const globalKey = '__varlockPasswordPromptChain__';
+  const globalState = globalThis as typeof globalThis & {
+    [globalKey]?: Promise<void>;
+  };
+  globalState[globalKey] ??= Promise.resolve();
+  return {
+    get: () => globalState[globalKey]!,
+    set: (nextChain: Promise<void>) => {
+      globalState[globalKey] = nextChain;
+    },
+  };
+}
 
 function enqueuePasswordPrompt<T>(task: () => Promise<T>): Promise<T> {
-  const run = passwordPromptChain.then(task, task);
-  passwordPromptChain = run.then(() => undefined, () => undefined);
+  const promptChain = getPasswordPromptChain();
+  const run = promptChain.get().then(task, task);
+  promptChain.set(run.then(() => undefined, () => undefined));
   return run;
 }
 
