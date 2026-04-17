@@ -39,14 +39,15 @@ For any deployment target _other than_ Cloudflare Workers, use `varlockVitePlugi
 
     ```diff lang="ts" title="app.config.ts"
     import { defineConfig } from '@tanstack/react-start/config';
-    import tsConfigPaths from 'vite-tsconfig-paths';
+    import { tanstackStart } from '@tanstack/react-start/plugin/vite'
     +import { varlockVitePlugin } from '@varlock/vite-integration';
 
     export default defineConfig({
       vite: {
         plugins: [
     +      varlockVitePlugin(),
-          tsConfigPaths({ root: '../../' }),
+          tanstackStart(),
+          
         ],
       },
     });
@@ -84,12 +85,15 @@ If you're deploying your TanStack Start app to Cloudflare Workers, use `varlockC
 
     ```diff lang="ts" title="app.config.ts"
     import { defineConfig } from '@tanstack/react-start/config';
+    import { tanstackStart } from '@tanstack/react-start/plugin/vite'
     +import { varlockCloudflareVitePlugin } from '@varlock/cloudflare-integration';
 
     export default defineConfig({
       vite: {
         plugins: [
     +      varlockCloudflareVitePlugin(),
+          tanstackStart(),
+          // ...
         ],
       },
     });
