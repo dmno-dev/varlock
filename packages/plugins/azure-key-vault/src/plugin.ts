@@ -39,6 +39,7 @@ class AzurePluginInstance {
   private clientId?: string;
   private clientSecret?: string;
   private cachedToken?: CachedToken;
+  private secretCache = new Map<string, Promise<string>>();
 
   constructor(
     readonly id: string,
@@ -309,7 +310,21 @@ class AzurePluginInstance {
     }
   }
 
-  async getSecret(secretRef: string): Promise<string> {
+  private fetchSecretValue(secretRef: string): Promise<string> {
+    // Deduplicate concurrent fetches for the same ref
+    const cached = this.secretCache.get(secretRef);
+    if (cached) {
+      debug(`Using cached fetch for: ${secretRef}`);
+      return cached;
+    }
+    const promise = this._fetchSecretValue(secretRef);
+    this.secretCache.set(secretRef, promise);
+    // Clear cache entry on failure so retries can try again
+    promise.catch(() => this.secretCache.delete(secretRef));
+    return promise;
+  }
+
+  private async _fetchSecretValue(secretRef: string): Promise<string> {
     if (!this.vaultUrl) {
       throw new SchemaError('vaultUrl is required');
     }
@@ -389,6 +404,29 @@ class AzurePluginInstance {
         tip: errorTip,
       });
     }
+  }
+
+  async getSecret(secretRef: string, jsonKey?: string): Promise<string> {
+    const rawValue = await this.fetchSecretValue(secretRef);
+
+    if (jsonKey) {
+      try {
+        const parsed = JSON.parse(rawValue);
+        if (!(jsonKey in parsed)) {
+          throw new ResolutionError(`Key "${jsonKey}" not found in secret JSON`, {
+            tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
+          });
+        }
+        return String(parsed[jsonKey]);
+      } catch (err) {
+        if (err instanceof ResolutionError) throw err;
+        throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
+          tip: 'Ensure the secret value is valid JSON when extracting a specific key',
+        });
+      }
+    }
+
+    return rawValue;
   }
 }
 
@@ -507,8 +545,9 @@ plugin.registerResolverFunction({
     let secretRefResolver: Resolver | undefined;
     let inferredSecretName: string | undefined;
 
-    // Named modifier: version=
+    // Named modifiers: version=, key=
     const versionResolver = this.objArgs?.version;
+    const keyResolver = this.objArgs?.key;
 
     if (!this.arrArgs || this.arrArgs.length === 0) {
       // No arguments - infer secret name from item name
@@ -560,11 +599,11 @@ plugin.registerResolverFunction({
     }
 
     return {
-      instanceId, secretRefResolver, inferredSecretName, versionResolver,
+      instanceId, secretRefResolver, inferredSecretName, versionResolver, keyResolver,
     };
   },
   async resolve({
-    instanceId, secretRefResolver, inferredSecretName, versionResolver,
+    instanceId, secretRefResolver, inferredSecretName, versionResolver, keyResolver,
   }) {
     const selectedInstance = pluginInstances[instanceId];
 
@@ -581,6 +620,21 @@ plugin.registerResolverFunction({
       throw new SchemaError('Expected either a secret name argument or an item key to infer from');
     }
 
+    // Parse #key suffix for JSON key extraction (e.g., "my-secret#password")
+    let jsonKey: string | undefined;
+    const hashIndex = secretRef.indexOf('#');
+    if (hashIndex !== -1) {
+      jsonKey = secretRef.substring(hashIndex + 1);
+      secretRef = secretRef.substring(0, hashIndex);
+    }
+
+    // Named key= param takes precedence over #key suffix in the ref string
+    if (keyResolver) {
+      const keyValue = await keyResolver.resolve();
+      if (typeof keyValue !== 'string') throw new SchemaError('Expected key to resolve to a string');
+      jsonKey = keyValue;
+    }
+
     // Named version= param takes precedence over @version suffix in the ref string
     if (versionResolver) {
       const version = await versionResolver.resolve();
@@ -589,7 +643,7 @@ plugin.registerResolverFunction({
       secretRef = `${secretRef.split('@')[0]}@${version}`;
     }
 
-    const secretValue = await selectedInstance.getSecret(secretRef);
+    const secretValue = await selectedInstance.getSecret(secretRef, jsonKey);
     return secretValue;
   },
 });

@@ -12,6 +12,7 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 - **Auto-infer secret names** from environment variable names (e.g., `DATABASE_URL` → `database-url`)
 - Support for service principal credentials (for non-Azure environments)
 - Support for versioned secrets
+- Extract individual values from JSON-encoded secrets
 - Automatic token caching and renewal
 - Lightweight implementation using REST API (47 KB bundle, no heavy Azure SDK dependencies)
 
@@ -118,6 +119,11 @@ CUSTOM_SECRET=azureSecret("my-custom-secret-name")
 API_KEY_V1=azureSecret("api-key@abc123def456")
 API_KEY_V2=azureSecret("api-key", version=abc123def456)
 
+# Extract a value from a JSON-encoded secret - using # suffix or named key= param
+# (e.g. the secret "db-creds" holds `{"username":"admin","password":"..."}`)
+DB_PASSWORD=azureSecret("db-creds#password")
+DB_USERNAME=azureSecret("db-creds", key=username)
+
 # If using multiple named vault instances
 PROD_SECRET=azureSecret(prod, "database-url")
 DEV_SECRET=azureSecret(dev, "database-url")
@@ -152,15 +158,19 @@ Fetch a secret from Azure Key Vault.
 - `azureSecret(secretName)` - Fetch by explicit secret name
 - `azureSecret(instanceId, secretName)` - Fetch from a specific vault instance
 - `azureSecret(secretName, version=versionId)` - Fetch a specific version
+- `azureSecret(secretName, key=jsonKey)` - Extract a value from a JSON-encoded secret
 
 **Named parameters:**
 
 - `version=` - Secret version (alternative to `@version` suffix in the secret name)
+- `key=` - Key to extract from a JSON-encoded secret value (alternative to `#key` suffix in the secret name)
 
 **Secret Name Formats:**
 
 - Latest version: `"my-secret"`
 - Specific version: `"my-secret@abc123def456"` or `azureSecret("my-secret", version=abc123def456)`
+- JSON key extraction: `"my-secret#password"` or `azureSecret("my-secret", key=password)`
+- Combined: `"my-secret@abc123def456#password"`
 
 ### Data Types
 
