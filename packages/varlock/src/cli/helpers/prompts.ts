@@ -367,38 +367,48 @@ export interface PasswordOptions extends CommonOptions {
   mask?: string;
 }
 
+let passwordPromptChain: Promise<void> = Promise.resolve();
+
+function enqueuePasswordPrompt<T>(task: () => Promise<T>): Promise<T> {
+  const run = passwordPromptChain.then(task, task);
+  passwordPromptChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 export const password = async (opts: PasswordOptions) => {
-  const mask = opts.mask ?? S_PASSWORD_MASK;
+  return enqueuePasswordPrompt(async () => {
+    const mask = opts.mask ?? S_PASSWORD_MASK;
 
-  // Native cmd.exe can mishandle repeated @clack/core password prompts in a
-  // single process; use upstream clack's Windows handling for reliability.
-  if (process.platform === 'win32') {
-    const { password: clackPassword, isCancel } = await import('@clack/prompts');
-    const result = await clackPassword({ message: opts.message, mask });
-    return isCancel(result) ? Symbol('cancel') : result;
-  }
+    // Native cmd.exe can mishandle repeated @clack/core password prompts in a
+    // single process; use upstream clack's Windows handling for reliability.
+    if (process.platform === 'win32') {
+      const { password: clackPassword, isCancel } = await import('@clack/prompts');
+      const result = await clackPassword({ message: opts.message, mask });
+      return isCancel(result) ? Symbol('cancel') : result;
+    }
 
-  return new PasswordPrompt({
-    mask,
-    input: opts.input,
-    output: opts.output,
-    render() {
-      const title = `${color.gray(S_BAR)}\n${symbol(this.state)}  ${opts.message}\n`;
-      const value = this.value ? String(this.value) : '';
-      const masked = value ? mask.repeat(value.length) : '';
+    return new PasswordPrompt({
+      mask,
+      input: opts.input,
+      output: opts.output,
+      render() {
+        const title = `${color.gray(S_BAR)}\n${symbol(this.state)}  ${opts.message}\n`;
+        const value = this.value ? String(this.value) : '';
+        const masked = value ? mask.repeat(value.length) : '';
 
-      switch (this.state) {
-        case 'submit':
-          return `${title}${color.gray(S_BAR)}  ${color.dim(masked)}`;
-        case 'cancel':
-          return `${title}${color.gray(S_BAR)}  ${color.strikethrough(color.dim(masked))}\n${color.gray(S_BAR)}`;
-        case 'error':
-          return `${title}${color.yellow(S_BAR)}  ${masked}\n${color.yellow(S_BAR_END)}  ${color.yellow(this.error)}`;
-        default:
-          return `${title}${color.cyan(S_BAR)}  ${masked}\n${color.cyan(S_BAR_END)}\n`;
-      }
-    },
-  }).prompt() as Promise<string | symbol>;
+        switch (this.state) {
+          case 'submit':
+            return `${title}${color.gray(S_BAR)}  ${color.dim(masked)}`;
+          case 'cancel':
+            return `${title}${color.gray(S_BAR)}  ${color.strikethrough(color.dim(masked))}\n${color.gray(S_BAR)}`;
+          case 'error':
+            return `${title}${color.yellow(S_BAR)}  ${masked}\n${color.yellow(S_BAR_END)}  ${color.yellow(this.error)}`;
+          default:
+            return `${title}${color.cyan(S_BAR)}  ${masked}\n${color.cyan(S_BAR_END)}\n`;
+        }
+      },
+    }).prompt() as Promise<string | symbol>;
+  });
 };
 
 
