@@ -198,7 +198,7 @@
     },
     "packages/plugins/azure-key-vault": {
       "name": "@varlock/azure-key-vault-plugin",
-      "version": "0.0.6",
+      "version": "0.1.0",
       "devDependencies": {
         "@azure/identity": "^4.13.0",
         "@azure/keyvault-secrets": "^4.10.0",
