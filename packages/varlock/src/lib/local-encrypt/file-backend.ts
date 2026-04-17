@@ -18,6 +18,8 @@ interface StoredKeyPair {
   keyId: string;
   publicKey: string;
   privateKey: string;
+  protectedPrivateKey?: string;
+  protection?: 'none' | string;
   createdAt: string;
 }
 
@@ -83,7 +85,26 @@ function loadKeyPair(keyId: string): StoredKeyPair {
     throw new Error(`Key not found: ${keyId}`);
   }
   const data = fs.readFileSync(filePath, 'utf-8');
-  return JSON.parse(data) as StoredKeyPair;
+  const parsed = JSON.parse(data) as Partial<StoredKeyPair>;
+
+  // Back-compat: older key files store private material under
+  // `protectedPrivateKey` with `protection: "none"`.
+  const privateKey = parsed.privateKey
+    ?? (parsed.protection === 'none' ? parsed.protectedPrivateKey : undefined)
+    ?? parsed.protectedPrivateKey;
+
+  if (!parsed.publicKey || !privateKey) {
+    throw new Error(`Invalid key file format for key: ${keyId}`);
+  }
+
+  return {
+    keyId: parsed.keyId || keyId,
+    publicKey: parsed.publicKey,
+    privateKey,
+    createdAt: parsed.createdAt || new Date().toISOString(),
+    protection: parsed.protection,
+    protectedPrivateKey: parsed.protectedPrivateKey,
+  };
 }
 
 function getPublicKey(keyId: string): string {

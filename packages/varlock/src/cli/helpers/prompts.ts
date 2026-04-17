@@ -6,7 +6,7 @@
 import type { Readable, Writable } from 'node:stream';
 import { WriteStream } from 'node:tty';
 import {
-  ConfirmPrompt, SelectPrompt, MultiSelectPrompt, type State,
+  ConfirmPrompt, SelectPrompt, MultiSelectPrompt, PasswordPrompt, type State,
 } from '@clack/core';
 import color from 'ansis';
 import isUnicodeSupported from 'is-unicode-supported';
@@ -362,6 +362,37 @@ export const multiselect = <Value>(opts: MultiSelectOptions<Value>) => {
   }).prompt() as Promise<Array<Value> | symbol>;
 };
 
+export interface PasswordOptions extends CommonOptions {
+  message: string;
+  mask?: string;
+}
+
+export const password = (opts: PasswordOptions) => {
+  const mask = opts.mask ?? S_PASSWORD_MASK;
+
+  return new PasswordPrompt({
+    mask,
+    input: opts.input,
+    output: opts.output,
+    render() {
+      const title = `${color.gray(S_BAR)}\n${symbol(this.state)}  ${opts.message}\n`;
+      const value = this.value ? String(this.value) : '';
+      const masked = value ? mask.repeat(value.length) : '';
+
+      switch (this.state) {
+        case 'submit':
+          return `${title}${color.gray(S_BAR)}  ${color.dim(masked)}`;
+        case 'cancel':
+          return `${title}${color.gray(S_BAR)}  ${color.strikethrough(color.dim(masked))}\n${color.gray(S_BAR)}`;
+        case 'error':
+          return `${title}${color.yellow(S_BAR)}  ${masked}\n${color.yellow(S_BAR_END)}  ${color.yellow(this.error)}`;
+        default:
+          return `${title}${color.cyan(S_BAR)}  ${masked}\n${color.cyan(S_BAR_END)}\n`;
+      }
+    },
+  }).prompt() as Promise<string | symbol>;
+};
+
 
 
 /// ////
@@ -370,6 +401,7 @@ const prompts = {
   confirm,
   select,
   multiselect,
+  password,
 };
 
 export default prompts;
