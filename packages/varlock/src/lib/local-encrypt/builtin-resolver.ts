@@ -14,7 +14,17 @@ import * as localEncrypt from './index';
 
 const LOCAL_PREFIX = 'local:';
 const PLUGIN_ICON = 'mdi:fingerprint';
-const promptResolutionQueue = new SimpleQueue();
+
+function getPromptResolutionQueue() {
+  const globalKey = '__varlockPromptResolutionQueue__';
+  const globalState = globalThis as typeof globalThis & {
+    [globalKey]?: SimpleQueue;
+  };
+  globalState[globalKey] ??= new SimpleQueue();
+  return globalState[globalKey];
+}
+
+const promptResolutionQueue = getPromptResolutionQueue();
 
 function escapeRegExp(str: string) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
