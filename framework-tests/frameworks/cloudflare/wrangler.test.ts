@@ -96,6 +96,32 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
     ],
   });
 
+  wranglerEnv.describeDevScenario('leaky worker (Uint8Array body)', {
+    command: 'varlock-wrangler dev --port 18790',
+    readyPattern: /Ready on|ready in/i,
+    readyTimeout: 30_000,
+    templateFiles: {
+      'src/index.ts': { path: 'workers/leaky-uint8array-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
+      'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
+      'tsconfig.json': '_base-wrangler/tsconfig.json',
+    },
+    requests: [
+      {
+        path: '/',
+        expectedStatus: 500,
+        bodyAssertions: {
+          shouldNotContain: ['super-secret-value'],
+        },
+      },
+    ],
+    outputAssertions: [
+      {
+        description: 'leak detection message appears for Uint8Array body',
+        shouldContain: ['DETECTED LEAKED SENSITIVE CONFIG'],
+      },
+    ],
+  });
+
   wranglerEnv.describeDevScenario('large env (chunking)', {
     command: 'varlock-wrangler dev --port 18789',
     readyPattern: /Ready on|ready in/i,

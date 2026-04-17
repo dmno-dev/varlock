@@ -93,6 +93,33 @@ describe('Cloudflare Workers w/ vite plugin', () => {
     ],
   });
 
+  cloudflareViteEnv.describeDevScenario('leaky worker (Uint8Array body)', {
+    command: 'vite dev --port 15176',
+    readyPattern: /Local:.*http/,
+    readyTimeout: 30_000,
+    templateFiles: {
+      'src/index.ts': 'workers/leaky-uint8array-worker.ts',
+      'vite.config.ts': 'vite-configs/vite.config.ts',
+      'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
+      'tsconfig.json': '_base-wrangler/tsconfig.json',
+    },
+    requests: [
+      {
+        path: '/',
+        expectedStatus: 500,
+        bodyAssertions: {
+          shouldNotContain: ['super-secret-value'],
+        },
+      },
+    ],
+    outputAssertions: [
+      {
+        description: 'leak detection message appears for Uint8Array body',
+        shouldContain: ['DETECTED LEAKED SENSITIVE CONFIG'],
+      },
+    ],
+  });
+
   cloudflareViteEnv.describeDevScenario('large env (chunking)', {
     command: 'vite dev --port 15175',
     readyPattern: /Local:.*http/,
