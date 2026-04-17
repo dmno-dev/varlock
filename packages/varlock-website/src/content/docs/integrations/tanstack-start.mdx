@@ -1,0 +1,136 @@
+---
+title: TanStack Start
+description: How to integrate varlock with TanStack Start for secure, type-safe environment management
+---
+import { Steps } from "@astrojs/starlight/components";
+import Badge from '@/components/Badge.astro';
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
+
+[TanStack Start](https://tanstack.com/start) is a full-stack React framework built on [Vite](https://vite.dev), so there's no dedicated TanStack Start package — which integration you use depends on where you deploy.
+
+- **Node / Vercel / Netlify / self-hosted** — use the [**Vite integration**](/integrations/vite/). See [setup below](#setup).
+- **Cloudflare Workers** — use the [**Cloudflare integration**](/integrations/cloudflare/). See [Cloudflare setup below](#deploying-to-cloudflare-workers).
+
+Check out the [TanStack Start example project](https://github.com/dmno-dev/varlock-examples/tree/main/examples/tanstack-start) for a working reference.
+
+---
+
+## Setup (vite integration)
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/vite-integration" />
+</div>
+
+For any deployment target _other than_ Cloudflare Workers, use `varlockVitePlugin` from the [Vite integration](/integrations/vite/).
+
+<Steps>
+
+1. **Install packages**
+    <InstallJsDepsWidget packages="@varlock/vite-integration varlock" />
+
+1. **Run `varlock init` to set up your `.env.schema`**
+
+    This will guide you through setting up your `.env.schema` file, based on your existing `.env` file(s). Make sure to review it carefully.
+
+    <ExecCommandWidget command="varlock init" showBinary={false} />
+
+1. **Add the plugin to your Vite config**
+
+    ```diff lang="ts" title="app.config.ts"
+    import { defineConfig } from '@tanstack/react-start/config';
+    import tsConfigPaths from 'vite-tsconfig-paths';
+    +import { varlockVitePlugin } from '@varlock/vite-integration';
+
+    export default defineConfig({
+      vite: {
+        plugins: [
+    +      varlockVitePlugin(),
+          tsConfigPaths({ root: '../../' }),
+        ],
+      },
+    });
+    ```
+
+</Steps>
+
+:::tip[Next steps]
+See the [**Vite integration page**](/integrations/vite/) for configuration options, SSR injection modes, accessing env vars, managing environments, sensitive values, and more.
+:::
+
+---
+
+## Setup for Cloudflare Workers
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/cloudflare-integration" />
+</div>
+
+If you're deploying your TanStack Start app to Cloudflare Workers, use `varlockCloudflareVitePlugin` from the [Cloudflare integration](/integrations/cloudflare/) instead.
+
+<Steps>
+
+1. **Install packages**
+
+    You must also install `@cloudflare/vite-plugin` as a peer dependency.
+
+    <InstallJsDepsWidget packages="@varlock/cloudflare-integration @cloudflare/vite-plugin varlock" />
+
+1. **Run `varlock init` to set up your `.env.schema`**
+
+    <ExecCommandWidget command="varlock init" showBinary={false} />
+
+1. **Add the Cloudflare Vite plugin**
+
+    ```diff lang="ts" title="app.config.ts"
+    import { defineConfig } from '@tanstack/react-start/config';
+    +import { varlockCloudflareVitePlugin } from '@varlock/cloudflare-integration';
+
+    export default defineConfig({
+      vite: {
+        plugins: [
+    +      varlockCloudflareVitePlugin(),
+        ],
+      },
+    });
+    ```
+
+1. **Deploy with `varlock-wrangler`**
+
+    Use `varlock-wrangler deploy` instead of `wrangler deploy` in your deploy script:
+
+    ```diff lang="json" title="package.json" add="varlock-"
+    {
+      "scripts": {
+        "deploy": "varlock-wrangler deploy"
+      }
+    }
+    ```
+
+    If you deploy via [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) instead of a local/CI script, override the deploy command in your Cloudflare dashboard under **Settings → Build → Deploy command** — see [Workers Builds](#deploying-via-cloudflare-workers-builds) below.
+
+</Steps>
+
+:::tip[Next steps]
+See the [**Cloudflare integration page**](/integrations/cloudflare/) for more on `varlock-wrangler`, multi-environment setup, and deploying secrets.
+:::
+
+### Deploying via Cloudflare Workers Builds
+
+If you deploy through [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/), two pieces of configuration must be set in the dashboard — neither can be committed to the repo:
+
+- **Override the Deploy command** — Under **Settings → Build → Deploy command**, replace the default `npx wrangler deploy` with `npx varlock-wrangler deploy`. Without this, Cloudflare runs stock `wrangler deploy`, which skips varlock resolution and leaves your worker without its resolved vars/secrets.
+- **Set any _secret-zero_ vars under Build variables** — Any env vars varlock itself needs _during load_ (e.g. a 1Password service account token, a GCP key) must be set under **Settings → Build → Variables and Secrets** so they're available at build time. `varlock-wrangler deploy` then resolves your full env graph and uploads the result to the worker runtime as regular vars/secrets.
+
+See the [Cloudflare integration page](/integrations/cloudflare/) for more detail on `varlock-wrangler` and [Workers Builds configuration](/integrations/cloudflare/#cloudflare-workers-builds-cicd).
+
+---
+
+## Compared to TanStack Start's built-in env var handling
+
+TanStack Start inherits [Vite's env var approach](https://tanstack.com/start/v0/docs/framework/react/guide/environment-variables): `process.env` on the server and `import.meta.env` on the client, with only `VITE_`-prefixed vars exposed client-side. Their docs recommend maintaining a manual `src/env.d.ts` for TypeScript support and separate Zod schemas for runtime validation.
+
+With varlock, your `.env.schema` is the single source of truth — it handles validation, type coercion, TypeScript generation, sensitivity controls, and more, replacing the need for separate type declarations, Zod schemas, and the `VITE_` prefix convention. You also get leak detection (sensitive values are automatically scrubbed from outgoing HTTP responses) and clear error messages when env vars are missing or invalid — no more silent `undefined` values at runtime. See the [Vite integration page](/integrations/vite/) for the full details.
+
+
+

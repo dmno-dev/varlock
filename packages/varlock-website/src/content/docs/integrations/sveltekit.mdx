@@ -12,9 +12,11 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
 - **Node / Vercel / Netlify / self-hosted / most adapters** — use the [Vite integration](/integrations/vite/). See [setup below](#setup).
 - **Cloudflare Workers (via `@sveltejs/adapter-cloudflare`)** — use `varlockSvelteKitCloudflarePlugin` from `@varlock/cloudflare-integration/sveltekit`. See [setup below](#sveltekit-on-cloudflare-workers).
 
+Check out the [SvelteKit example project](https://github.com/dmno-dev/varlock-examples/tree/main/examples/sveltekit) for a working reference.
+
 ---
 
-## Setup
+## Setup (Vite integration)
 
 <div class="page-badges">
   <Badge npmPackage="@varlock/vite-integration" />
@@ -48,11 +50,13 @@ For any SvelteKit deployment target _other than_ Cloudflare Workers, use `varloc
 
 </Steps>
 
-See the [Vite integration page](/integrations/vite/) for more details on configuration options, SSR injection modes, and `loadPath`.
+:::tip[Next steps]
+See the [**Vite integration page**](/integrations/vite/) for configuration options, SSR injection modes, accessing env vars, managing environments, sensitive values, and more.
+:::
 
 ---
 
-## SvelteKit on Cloudflare Workers
+## Setup for Cloudflare Workers
 
 <div class="page-badges">
   <Badge npmPackage="@varlock/cloudflare-integration" />
@@ -90,7 +94,9 @@ If your SvelteKit app is fully static (no SSR — typically using `@sveltejs/ada
     });
     ```
 
-1. **Update your deploy script to use `varlock-wrangler`**
+1. **Deploy with `varlock-wrangler`**
+
+    Use `varlock-wrangler deploy` instead of `wrangler deploy` in your deploy script:
 
     ```diff lang="json" title="package.json" add="varlock-"
     {
@@ -101,6 +107,8 @@ If your SvelteKit app is fully static (no SSR — typically using `@sveltejs/ada
       }
     }
     ```
+
+    If you deploy via [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) instead of a local/CI script, override the deploy command in your Cloudflare dashboard under **Settings → Build → Deploy command** — see [Workers Builds](#deploying-via-cloudflare-workers-builds) below.
 
 </Steps>
 
@@ -117,7 +125,9 @@ If you deploy through [Cloudflare Workers Builds](https://developers.cloudflare.
 - **Override the Deploy command** — Under **Settings → Build → Deploy command**, replace the default `npx wrangler deploy` with `npx varlock-wrangler deploy`. Without this, Cloudflare runs stock `wrangler deploy`, which skips varlock resolution and leaves your worker without its resolved vars/secrets.
 - **Set any _secret-zero_ vars under Build variables** — Any env vars varlock itself needs _during load_ (e.g. a 1Password service account token, a GCP key) must be set under **Settings → Build → Variables and Secrets** so they're available at build time. `varlock-wrangler deploy` then resolves your full env graph and uploads the result to the worker runtime as regular vars/secrets.
 
-See the [Cloudflare integration page](/integrations/cloudflare/) for more detail on `varlock-wrangler`, multi-environment setup, and [Workers Builds configuration](/integrations/cloudflare/#cloudflare-workers-builds-cicd).
+:::tip[Next steps]
+See the [**Cloudflare integration page**](/integrations/cloudflare/) for more on `varlock-wrangler`, multi-environment setup, and [Workers Builds configuration](/integrations/cloudflare/#cloudflare-workers-builds-cicd).
+:::
 
 ---
 
@@ -183,3 +193,6 @@ PUBLIC_API_URL=         # non-sensitive (has PUBLIC_ prefix)
 :::caution[Bundling behavior]
 All non-sensitive items are replaced at build time wherever `ENV.FOO` appears. Sensitive items are only available in server contexts — build-time checks block them from client bundles, and runtime log redaction / response leak detection catch any that slip past the build layer.
 :::
+
+
+

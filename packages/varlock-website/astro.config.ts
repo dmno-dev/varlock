@@ -168,6 +168,7 @@ export default defineConfig({
             { label: 'Vite-based', slug: 'integrations/vite' },
             { label: 'Astro', slug: 'integrations/astro' },
             { label: 'SvelteKit', slug: 'integrations/sveltekit', badge: 'new' },
+            { label: 'TanStack Start', slug: 'integrations/tanstack-start', badge: 'new' },
             { label: 'Expo / React Native', slug: 'integrations/expo', badge: 'new' },
             { label: 'Other languages', slug: 'integrations/other-languages' },
             { label: 'Cloudflare Workers', slug: 'integrations/cloudflare', badge: 'new' },

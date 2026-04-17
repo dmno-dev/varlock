@@ -71,6 +71,8 @@ Replace your `wrangler` commands with `varlock-wrangler` and initialize varlock 
 
 1. **Update your package.json scripts to use `varlock-wrangler`**
 
+    Use `varlock-wrangler` as a drop-in replacement for `wrangler`:
+
     ```diff lang="json" title="package.json" add="varlock-"
     {
       "scripts": {
@@ -80,6 +82,8 @@ Replace your `wrangler` commands with `varlock-wrangler` and initialize varlock 
       }
     }
     ```
+
+    If you deploy via [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) instead of a local/CI script, override the deploy command in your Cloudflare dashboard under **Settings → Build → Deploy command** — see [Workers Builds](#cloudflare-workers-builds-cicd) below.
 
 </Steps>
 
@@ -129,7 +133,9 @@ For SvelteKit on Cloudflare, use the dedicated [`varlockSvelteKitCloudflarePlugi
 
     Any options you were passing to `cloudflare()` can be passed directly to `varlockCloudflareVitePlugin()` at the top level.
 
-1. **Update your deploy script to use `varlock-wrangler`**
+1. **Deploy with `varlock-wrangler`**
+
+    Use `varlock-wrangler deploy` instead of `wrangler deploy` in your deploy script:
 
     ```diff lang="json" title="package.json" add="varlock-"
     {
@@ -140,6 +146,8 @@ For SvelteKit on Cloudflare, use the dedicated [`varlockSvelteKitCloudflarePlugi
       }
     }
     ```
+
+    If you deploy via [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) instead of a local/CI script, override the deploy command in your Cloudflare dashboard under **Settings → Build → Deploy command** — see [Workers Builds](#cloudflare-workers-builds-cicd) below.
 
 </Steps>
 
@@ -270,3 +278,17 @@ If you deploy via [Cloudflare Workers Builds](https://developers.cloudflare.com/
 
 </Steps>
 
+
+
+
+## Varlock vs Cloudflare's built-in env management
+
+Cloudflare Workers have built-in support for [vars](https://developers.cloudflare.com/workers/configuration/environment-variables/) and [secrets](https://developers.cloudflare.com/workers/configuration/secrets/), but managing them across environments quickly becomes painful. Here's what Varlock adds:
+
+- **Single source of truth** — Instead of scattering config across the Cloudflare dashboard, `wrangler.toml`, `.dev.vars`, and your code, everything is defined in one `.env.schema` file that works across local dev, preview, and production.
+- **Validation before deploy** — Cloudflare only has basic required var validation. Varlock catches missing vars, wrong types, and invalid values _before_ your worker starts — not when it crashes at runtime.
+- **Pull secrets from vaults** — Instead of manually running `wrangler secret put` or copy-pasting values in the dashboard, pull secrets directly from [1Password](/plugins/1password/), [AWS Secrets Manager](/plugins/aws-secrets/), [HashiCorp Vault](/plugins/hashicorp-vault/), and [more](/plugins/overview/).
+- **Log redaction & leak prevention** — Cloudflare doesn't prevent you from accidentally `console.log`-ing a secret or including one in a response body. Varlock automatically redacts sensitive values in logs and scans outgoing responses for leaked secrets.
+- **Simpler multi-environment setup** — Wrangler's `[env.staging]` / `[env.production]` blocks duplicate config and don't support `.env` file overrides. Varlock uses familiar `.env.production` / `.env.preview` files with a single schema, and auto-detects the current environment in CI.
+- **Local dev that matches production** — `.dev.vars` is completely disconnected from your production secrets. With Varlock, local dev resolves from the same schema and same secret sources, so there's no drift between environments.
+- **AI-safe by design** — Your `.env.schema` gives AI coding tools full context on your config (names, types, descriptions) without ever exposing secret values.
