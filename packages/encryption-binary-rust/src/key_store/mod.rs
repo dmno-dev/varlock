@@ -27,6 +27,10 @@
 //! equivalent to the JS file-based backend. Used as an absolute fallback.
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+#[cfg(target_os = "linux")]
+use p256::SecretKey as P256SecretKey;
+#[cfg(target_os = "linux")]
+use elliptic_curve::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -165,7 +169,11 @@ fn protect_private_key(key_id: &str, private_key_der: &[u8]) -> (String, Protect
 
         // Tier 1: Secret Service + TPM2 layer (best available)
         if ss_available && tpm2_available {
-            match linux::tpm2_protect(private_key_der) {
+            // TPM2 can only seal up to 128 bytes; PKCS8 may be larger due to embedded public key.
+            // Seal only the raw 32-byte P-256 scalar — it's the actual secret.
+            let tpm_payload = pkcs8_to_raw_scalar(private_key_der)
+                .unwrap_or_else(|| private_key_der.to_vec());
+            match linux::tpm2_protect(&tpm_payload) {
                 Ok(sealed) => match secret_service::store(key_id, &sealed) {
                     Ok(()) => return (String::new(), Protection::SecretServiceTpm2),
                     Err(e) => {
@@ -191,7 +199,9 @@ fn protect_private_key(key_id: &str, private_key_der: &[u8]) -> (String, Protect
 
         // Tier 3: TPM2 alone (headless hosts with a TPM)
         if tpm2_available {
-            if let Ok(sealed) = linux::tpm2_protect(private_key_der) {
+            let tpm_payload = pkcs8_to_raw_scalar(private_key_der)
+                .unwrap_or_else(|| private_key_der.to_vec());
+            if let Ok(sealed) = linux::tpm2_protect(&tpm_payload) {
                 return (BASE64.encode(&sealed), Protection::Tpm2);
             }
         }
@@ -238,7 +248,8 @@ fn unprotect_private_key(
             let bytes = BASE64
                 .decode(protected_base64)
                 .map_err(|e| format!("Invalid base64: {e}"))?;
-            linux::tpm2_unprotect(&bytes)
+            let raw = linux::tpm2_unprotect(&bytes)?;
+            raw_scalar_to_pkcs8(&raw)
         }
 
         #[cfg(target_os = "linux")]
@@ -247,7 +258,8 @@ fn unprotect_private_key(
         #[cfg(target_os = "linux")]
         Protection::SecretServiceTpm2 => {
             let sealed = secret_service::retrieve(key_id)?;
-            linux::tpm2_unprotect(&sealed)
+            let raw = linux::tpm2_unprotect(&sealed)?;
+            raw_scalar_to_pkcs8(&raw)
         }
 
         #[allow(unreachable_patterns)]
@@ -255,6 +267,32 @@ fn unprotect_private_key(
             "Protection type '{protection}' not supported on this platform"
         )),
     }
+}
+
+// ── TPM key format helpers ─────────────────────────────────────
+
+/// Extract the raw 32-byte P-256 private key scalar from PKCS8 DER.
+/// Returns None if parsing fails (caller should fall back to full DER).
+#[cfg(target_os = "linux")]
+fn pkcs8_to_raw_scalar(pkcs8_der: &[u8]) -> Option<Vec<u8>> {
+    let sk = P256SecretKey::from_pkcs8_der(pkcs8_der).ok()?;
+    Some(sk.to_bytes().to_vec())
+}
+
+/// Reconstruct PKCS8 DER from a raw 32-byte P-256 scalar.
+/// If input is not 32 bytes, return it unchanged (backward compat).
+#[cfg(target_os = "linux")]
+fn raw_scalar_to_pkcs8(raw: &[u8]) -> Result<Vec<u8>, String> {
+    if raw.len() != 32 {
+        // Not a raw scalar — return as-is (may already be PKCS8)
+        return Ok(raw.to_vec());
+    }
+    let scalar = elliptic_curve::ScalarPrimitive::<p256::NistP256>::from_slice(raw)
+        .map_err(|e| format!("Invalid P-256 scalar: {e}"))?;
+    let sk = P256SecretKey::new(scalar);
+    sk.to_pkcs8_der()
+        .map(|d| d.as_bytes().to_vec())
+        .map_err(|e| format!("Failed to encode PKCS8: {e}"))
 }
 
 // ── Public API ───────────────────────────────────────────────────
