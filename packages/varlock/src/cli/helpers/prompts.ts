@@ -367,8 +367,16 @@ export interface PasswordOptions extends CommonOptions {
   mask?: string;
 }
 
-export const password = (opts: PasswordOptions) => {
+export const password = async (opts: PasswordOptions) => {
   const mask = opts.mask ?? S_PASSWORD_MASK;
+
+  // Native cmd.exe can mishandle repeated @clack/core password prompts in a
+  // single process; use upstream clack's Windows handling for reliability.
+  if (process.platform === 'win32') {
+    const { password: clackPassword, isCancel } = await import('@clack/prompts');
+    const result = await clackPassword({ message: opts.message, mask });
+    return isCancel(result) ? Symbol('cancel') : result;
+  }
 
   return new PasswordPrompt({
     mask,
