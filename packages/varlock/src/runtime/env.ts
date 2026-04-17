@@ -193,7 +193,7 @@ export function scanForLeaks(
   // scan a Uint8Array / ArrayBufferView / ArrayBuffer (common in Cloudflare Workers)
   } else if (ArrayBuffer.isView(toScan) || toScan instanceof ArrayBuffer) {
     const decoder = new TextDecoder();
-    scanStrForLeaks(decoder.decode(toScan));
+    scanStrForLeaks(decoder.decode(toScan as any));
     return toScan;
   // scan a ReadableStream by piping it through a scanner
   } else if (toScan instanceof ReadableStream) {
