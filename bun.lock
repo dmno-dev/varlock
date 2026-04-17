@@ -76,7 +76,7 @@
     },
     "packages/integrations/cloudflare": {
       "name": "@varlock/cloudflare-integration",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "bin": {
         "varlock-wrangler": "./bin/varlock-wrangler.js",
       },
@@ -166,7 +166,7 @@
     },
     "packages/plugins/akeyless": {
       "name": "@varlock/akeyless-plugin",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -245,7 +245,7 @@
     },
     "packages/plugins/doppler": {
       "name": "@varlock/doppler-plugin",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -322,7 +322,7 @@
     },
     "packages/plugins/keeper": {
       "name": "@varlock/keeper-plugin",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@keeper-security/secrets-manager-core": "17.4.0",
@@ -402,7 +402,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "0.8.2",
+      "version": "0.9.0",
       "bin": {
         "varlock": "./bin/cli.js",
       },

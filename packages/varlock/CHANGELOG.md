@@ -1,5 +1,19 @@
 # varlock
 
+## 0.9.0
+
+### Minor Changes
+
+- [#615](https://github.com/dmno-dev/varlock/pull/615) [`9c38e3a`](https://github.com/dmno-dev/varlock/commit/9c38e3a06977263a43a35aafdd07c8ba4253a6e0) - Add `--no-inject-graph` CLI flag to `varlock run` to opt out of injecting the `__VARLOCK_ENV` serialized config graph into the child process environment. This prevents sensitive values from being exposed via environment inspection (e.g., `env`, `printenv`) in interactive shells, long-lived processes, or LLM-driven agents.
+
+### Patch Changes
+
+- [#627](https://github.com/dmno-dev/varlock/pull/627) [`f93c23f`](https://github.com/dmno-dev/varlock/commit/f93c23f15d1cb98f64c2d78de1184fb4edbe5582) - Fix: escape `*/` sequences in item descriptions to prevent premature JSDoc comment closure in generated TypeScript types
+
+- [#622](https://github.com/dmno-dev/varlock/pull/622) [`6f90d87`](https://github.com/dmno-dev/varlock/commit/6f90d87bbeb2d82207917ea6b9d809c0d7f8f617) - Fix leak detection for Uint8Array/ArrayBuffer response bodies
+
+  `scanForLeaks` now detects secrets in `Uint8Array`, `ArrayBufferView`, and `ArrayBuffer` values. Previously these fell through unscanned, so secrets returned as binary-encoded response bodies (common in Cloudflare Workers) were not caught.
+
 ## 0.8.2
 
 ### Patch Changes
