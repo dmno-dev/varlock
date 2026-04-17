@@ -17,8 +17,7 @@
 //!
 //! Fallback: If TPM2 is not available, falls back to file-based (plaintext) storage.
 
-use std::io::Write;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 /// Detailed result of TPM2 availability check.
 pub enum Tpm2Status {
@@ -39,6 +38,9 @@ pub fn check_tpm2_status() -> Tpm2Status {
     // Check if tpm2_createprimary is in PATH
     if Command::new("which")
         .arg("tpm2_createprimary")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .output()
         .map(|o| !o.status.success())
         .unwrap_or(true)
@@ -60,6 +62,10 @@ pub fn check_tpm2_status() -> Tpm2Status {
             let result = Command::new("tpm2_createprimary")
                 .args(["-C", "o", "-g", "sha256", "-G", "ecc256", "-c"])
                 .arg(&tmp)
+                .env("TPM2TOOLS_TCTI", "device:/dev/tpmrm0")
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
                 .output();
 
             let _ = std::fs::remove_file(&tmp);
@@ -100,24 +106,9 @@ pub fn tpm2_protect(private_key_der: &[u8]) -> Result<Vec<u8>, String> {
     let srk_ctx = tmp_dir.join("srk.ctx");
     let sealed_pub = tmp_dir.join("sealed.pub");
     let sealed_priv = tmp_dir.join("sealed.priv");
-    let input_file = tmp_dir.join("input.dat");
 
     // Clean up on exit
     let _cleanup = CleanupDir(tmp_dir.clone());
-
-    // Write private key to temp file (restricted permissions)
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&input_file)
-            .map_err(|e| format!("Failed to write temp file: {e}"))?;
-        f.write_all(private_key_der)
-            .map_err(|e| format!("Failed to write temp file: {e}"))?;
-    }
 
     // Step 1: Create SRK (Storage Root Key) — deterministic
     run_tpm2_command(
@@ -126,15 +117,12 @@ pub fn tpm2_protect(private_key_der: &[u8]) -> Result<Vec<u8>, String> {
         Some(&srk_ctx),
     )?;
 
-    // Step 2: Seal the private key under the SRK
-    run_tpm2_command_with_args(
-        "tpm2_create",
-        &[
-            "-C", srk_ctx.to_str().unwrap(),
-            "-i", input_file.to_str().unwrap(),
-            "-u", sealed_pub.to_str().unwrap(),
-            "-r", sealed_priv.to_str().unwrap(),
-        ],
+    // Step 2: Seal the private key under the SRK via stdin (avoid temp file issues)
+    run_tpm2_create_with_stdin(
+        srk_ctx.to_str().unwrap(),
+        sealed_pub.to_str().unwrap(),
+        sealed_priv.to_str().unwrap(),
+        private_key_der,
     )?;
 
     // Step 3: Read the sealed blobs
@@ -204,6 +192,8 @@ pub fn tpm2_unprotect(sealed_blob: &[u8]) -> Result<Vec<u8>, String> {
     // Step 3: Unseal
     let output = Command::new("tpm2_unseal")
         .args(["-c", sealed_ctx.to_str().unwrap()])
+        .env("TPM2TOOLS_TCTI", "device:/dev/tpmrm0")
+        .stdin(Stdio::null())
         .output()
         .map_err(|e| format!("Failed to run tpm2_unseal: {e}"))?;
 
@@ -217,12 +207,71 @@ pub fn tpm2_unprotect(sealed_blob: &[u8]) -> Result<Vec<u8>, String> {
 
 // ── Helpers ──────────────────────────────────────────────────────
 
+/// Run tpm2_create with sealing data via stdin (avoids temp file issues)
+fn run_tpm2_create_with_stdin(
+    srk_ctx_path: &str,
+    pub_out_path: &str,
+    priv_out_path: &str,
+    data: &[u8],
+) -> Result<(), String> {
+    use std::process::Stdio;
+    use std::io::Write;
+    
+    // Write data to a temp file
+    let tmp_input = std::env::temp_dir().join(format!("varlock-tpm-input-{}", std::process::id()));
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp_input)
+            .map_err(|e| format!("Failed to create temp file: {e}"))?;
+        f.write_all(data)
+            .map_err(|e| format!("Failed to write temp file: {e}"))?;
+        f.flush()
+            .map_err(|e| format!("Failed to flush temp file: {e}"))?;
+        drop(f);
+    }
+
+    let output = Command::new("tpm2_create")
+        .args([
+            "-C", srk_ctx_path,
+            "-i", tmp_input.to_str().unwrap(),
+            "-u", pub_out_path,
+            "-r", priv_out_path,
+        ])
+        // Explicitly use device TCTI to access /dev/tpmrm0 directly
+        .env("TPM2TOOLS_TCTI", "device:/dev/tpmrm0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("Failed to run tpm2_create: {e}"))?;
+
+    let _ = std::fs::remove_file(&tmp_input);
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("tpm2_create failed: {stderr}"));
+    }
+
+    Ok(())
+}
+
 fn run_tpm2_command(cmd: &str, args: &[&str], ctx_path: Option<&std::path::Path>) -> Result<(), String> {
     let mut command = Command::new(cmd);
     command.args(args);
     if let Some(ctx) = ctx_path {
         command.arg(ctx);
     }
+    // Explicitly use device TCTI to access /dev/tpmrm0 directly
+    command.env("TPM2TOOLS_TCTI", "device:/dev/tpmrm0");
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     let output = command
         .output()
@@ -239,6 +288,10 @@ fn run_tpm2_command(cmd: &str, args: &[&str], ctx_path: Option<&std::path::Path>
 fn run_tpm2_command_with_args(cmd: &str, args: &[&str]) -> Result<(), String> {
     let output = Command::new(cmd)
         .args(args)
+        .env("TPM2TOOLS_TCTI", "device:/dev/tpmrm0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .output()
         .map_err(|e| format!("Failed to run {cmd}: {e}"))?;
 
