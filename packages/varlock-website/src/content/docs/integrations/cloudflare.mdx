@@ -15,10 +15,24 @@ Varlock provides a robust solution for managing environment variables in Cloudfl
 
 Both approaches below use `varlock-wrangler` — a thin wrapper around `wrangler` that automatically resolves and uploads your env vars as Cloudflare secrets and vars during deployment, and injects them into miniflare during local dev.
 
+:::caution[Requires `nodejs_compat`]
+Varlock relies on a handful of `node:*` built-ins at runtime, so your worker must opt into Cloudflare's Node.js compatibility layer. Add `nodejs_compat` to your `compatibility_flags` in `wrangler.toml` / `wrangler.json` — without it, the worker will fail to start with "Cannot resolve 'node:...'" errors.
+
+```json title="wrangler.json"
+{
+  "compatibility_flags": ["nodejs_compat"]
+}
+```
+:::
+
 ## Two approaches
 
 1. **Using `varlock-wrangler`** - A thin wrapper for `wrangler` that injects env vars correctly, along with a one-line init import in your worker
 2. **With the Vite plugin** - If you're already using the [Cloudflare Workers Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/), you can add the varlock Cloudflare Vite plugin to automatically inject env vars and init code
+
+:::note[SvelteKit on Cloudflare]
+Deploying SvelteKit via `@sveltejs/adapter-cloudflare`? Use `varlockSvelteKitCloudflarePlugin` from `@varlock/cloudflare-integration/sveltekit` — a separate entry point that skips `@cloudflare/vite-plugin` (which isn't SvelteKit-compatible) and uses an SSR-entry-based env loader instead. The [SvelteKit guide](/integrations/sveltekit/#sveltekit-on-cloudflare-workers) walks through the setup end-to-end.
+:::
 
 ## Approach 1: Using `varlock-wrangler`
 
@@ -57,6 +71,8 @@ Replace your `wrangler` commands with `varlock-wrangler` and initialize varlock 
 
 1. **Update your package.json scripts to use `varlock-wrangler`**
 
+    Use `varlock-wrangler` as a drop-in replacement for `wrangler`:
+
     ```diff lang="json" title="package.json" add="varlock-"
     {
       "scripts": {
@@ -66,6 +82,8 @@ Replace your `wrangler` commands with `varlock-wrangler` and initialize varlock 
       }
     }
     ```
+
+    If you deploy via [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) instead of a local/CI script, override the deploy command in your Cloudflare dashboard under **Settings → Build → Deploy command** — see [Workers Builds](#cloudflare-workers-builds-cicd) below.
 
 </Steps>
 
@@ -78,7 +96,9 @@ Replace your `wrangler` commands with `varlock-wrangler` and initialize varlock 
 
 ## Approach 2: With the Vite plugin
 
-If you're already using the [Cloudflare Workers Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/), `varlockCloudflareVitePlugin` is a thin wrapper that adds env var and varlock init code injection — no additional init import needed, and both `ENV.MY_VAR` and native `env.MY_VAR` work in dev and production.
+If you're building with Vite, `varlockCloudflareVitePlugin` wraps the [Cloudflare Workers Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/) and adds env var + varlock init injection — no extra init import needed, and both `ENV.MY_VAR` and native `env.MY_VAR` work in dev and production.
+
+For SvelteKit on Cloudflare, use the dedicated [`varlockSvelteKitCloudflarePlugin`](/integrations/sveltekit/#sveltekit-on-cloudflare-workers) from `@varlock/cloudflare-integration/sveltekit` instead.
 
 ### Setup
 
@@ -86,6 +106,8 @@ If you're already using the [Cloudflare Workers Vite plugin](https://developers.
 
 1. **Install packages**
     <InstallJsDepsWidget packages="@varlock/cloudflare-integration @cloudflare/vite-plugin varlock" />
+
+    `@cloudflare/vite-plugin` is an (optional) peer dependency — this plugin wraps it, so you need it installed in the same project. SvelteKit users should omit it (see the [SvelteKit callout](#two-approaches) at the top of this page).
 
 1. **Run `varlock init` to set up your `.env.schema` file**
 
@@ -109,16 +131,11 @@ If you're already using the [Cloudflare Workers Vite plugin](https://developers.
     });
     ```
 
-    Any options you were passing to `cloudflare()` can be passed directly to `varlockCloudflareVitePlugin()`:
+    Any options you were passing to `cloudflare()` can be passed directly to `varlockCloudflareVitePlugin()` at the top level.
 
-    ```ts
-    varlockCloudflareVitePlugin({
-      persistState: true,
-      inspectorPort: 9229,
-    })
-    ```
+1. **Deploy with `varlock-wrangler`**
 
-1. **Update your deploy script to use `varlock-wrangler`**
+    Use `varlock-wrangler deploy` instead of `wrangler deploy` in your deploy script:
 
     ```diff lang="json" title="package.json" add="varlock-"
     {
@@ -129,6 +146,8 @@ If you're already using the [Cloudflare Workers Vite plugin](https://developers.
       }
     }
     ```
+
+    If you deploy via [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) instead of a local/CI script, override the deploy command in your Cloudflare dashboard under **Settings → Build → Deploy command** — see [Workers Builds](#cloudflare-workers-builds-cicd) below.
 
 </Steps>
 
@@ -165,42 +184,35 @@ Your secrets will no longer be bundled into the JS artifact — they'll be store
 
 ## `varlock-wrangler` CLI
 
-`varlock-wrangler` is a thin wrapper around `wrangler`. It enhances the following commands:
+`varlock-wrangler` is a thin wrapper around `wrangler`. It enhances the commands below; everything else (`tail`, `secret list`, etc.) is passed through unchanged, so you can use `varlock-wrangler` everywhere or just for these commands.
 
+<div class="reference-docs">
+<div>
 ### `varlock-wrangler dev`
 
-Wraps `wrangler dev` with automatic env injection:
+Wraps `wrangler dev` with automatic env injection. Resolves your environment variables, injects them into miniflare, and watches your `.env` files to restart wrangler when they change.
+</div>
 
-1. Resolves your environment variables
-2. Injects them into miniflare
-3. Watches your `.env` files and restarts wrangler automatically when they change
-
+<div>
 ### `varlock-wrangler deploy` / `versions upload`
 
-1. Resolves your environment variables using your `.env.schema` and `.env` files
-2. Uploads **non-sensitive** values as Cloudflare vars (`--var` flags)
-3. Uploads **sensitive** values as Cloudflare secrets (`--secrets-file`)
-4. Includes a `__VARLOCK_ENV` secret containing the full resolved env graph for the varlock runtime
+Resolves your environment variables from `.env.schema` + `.env` files, then uploads non-sensitive values as Cloudflare vars (`--var`), sensitive values as Cloudflare secrets (`--secrets-file`), and includes a `__VARLOCK_ENV` secret containing the full resolved env graph for the varlock runtime.
 
 :::note[Secure secret handling]
 On Unix, secrets are passed to wrangler commands via a named pipe (FIFO) and never written to disk. On Windows, a temporary file is used and immediately deleted after the deploy completes.
 :::
 
 :::caution[Varlock owns your env vars]
-`varlock-wrangler deploy` replaces **all** Cloudflare vars and secrets with the ones defined in your `.env.schema`. Any vars or secrets set manually via the Cloudflare dashboard or `wrangler secret put` that are not in your schema will be removed on the next deploy. If you need additional bindings (KV, D1, etc.), configure them in your `wrangler.toml` as usual — only plain vars/secrets are affected.
+`varlock-wrangler deploy` replaces **all** Cloudflare vars and secrets with the ones defined in your `.env.schema`. Any vars or secrets set manually via the Cloudflare dashboard or `wrangler secret put` that aren't in your schema will be removed on the next deploy. If you need additional bindings (KV, D1, etc.), configure them in your `wrangler.toml` as usual — only plain vars/secrets are affected.
 :::
+</div>
 
+<div>
 ### `varlock-wrangler types`
 
-Generates Cloudflare Worker types (the `Env` interface) including all varlock-managed environment variables. This ensures your `env.MY_VAR` access is properly typed alongside other Cloudflare bindings (KV, D1, etc.).
-
-```bash
-varlock-wrangler types
-```
-
-### Other commands
-
-All other wrangler commands (e.g., `tail`, `secret list`) are passed through to `wrangler` unchanged. You can use `varlock-wrangler` all the time, or just continue to use `wrangler` except for the commands listed above.
+Generates Cloudflare Worker types (the `Env` interface) including all varlock-managed environment variables, so your `env.MY_VAR` access is properly typed alongside other Cloudflare bindings (KV, D1, etc.).
+</div>
+</div>
 
 ----
 
@@ -221,7 +233,14 @@ For more details, see the [root decorators reference](/reference/root-decorators
 
 Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv).
 
-If you are using Cloudflare's CI, you can use the current branch name (`WORKERS_CI_BRANCH`) to determine the environment:
+The simplest approach is to use the built-in [`VARLOCK_ENV`](/reference/builtin-variables/#varlock_env) variable, which auto-detects the deployment environment on most CI platforms — including [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) (via `WORKERS_CI_BRANCH`), Vercel, Netlify, and others. Locally it resolves to `development`, and during tests to `test`.
+
+```env-spec title=".env.schema"
+# @currentEnv=$VARLOCK_ENV
+# ---
+```
+
+If you need more control — for example mapping specific branches to specific environments — you can define your own env-selection var instead:
 
 ```env-spec title=".env.schema"
 # @currentEnv=$APP_ENV
@@ -232,3 +251,44 @@ APP_ENV=remap($WORKERS_CI_BRANCH, "main", production, /.*/, preview, undefined, 
 ```
 
 For more information, see the [environments guide](/guides/environments).
+
+----
+
+## Cloudflare Workers Builds (CI/CD)
+
+If you deploy via [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/), two pieces of setup are required in the dashboard — neither can be configured from a file in the repo:
+
+<Steps>
+
+1. **Override the Deploy command**
+
+    Under **Settings → Build → Deploy command**, replace the default `npx wrangler deploy` with:
+
+    ```sh
+    npx varlock-wrangler deploy
+    ```
+
+    Without this override, Cloudflare runs stock `wrangler deploy`, which skips varlock's env resolution and leaves your worker without its resolved vars/secrets at runtime.
+
+1. **Set any _secret-zero_ vars under Build variables**
+
+    Any env vars that varlock itself needs _during load_ — for example a 1Password service account token, a GCP key — must be set under **Settings → Build → Variables and Secrets**. These are made available to the build step, where `varlock-wrangler deploy` resolves your full env graph and uploads the result to the worker runtime as regular vars/secrets.
+
+    Vars that only your worker needs at runtime (not varlock itself) don't need to be set here — they'll be resolved by varlock and set  automatically by `varlock-wrangler deploy`.
+
+</Steps>
+
+
+
+
+## Varlock vs Cloudflare's built-in env management
+
+Cloudflare Workers have built-in support for [vars](https://developers.cloudflare.com/workers/configuration/environment-variables/) and [secrets](https://developers.cloudflare.com/workers/configuration/secrets/), but managing them across environments quickly becomes painful. Here's what Varlock adds:
+
+- **Single source of truth** — Instead of scattering config across the Cloudflare dashboard, `wrangler.toml`, `.dev.vars`, and your code, everything is defined in one `.env.schema` file that works across local dev, preview, and production.
+- **Validation before deploy** — Cloudflare only has basic required var validation. Varlock catches missing vars, wrong types, and invalid values _before_ your worker starts — not when it crashes at runtime.
+- **Pull secrets from vaults** — Instead of manually running `wrangler secret put` or copy-pasting values in the dashboard, pull secrets directly from [1Password](/plugins/1password/), [AWS Secrets Manager](/plugins/aws-secrets/), [HashiCorp Vault](/plugins/hashicorp-vault/), and [more](/plugins/overview/).
+- **Log redaction & leak prevention** — Cloudflare doesn't prevent you from accidentally `console.log`-ing a secret or including one in a response body. Varlock automatically redacts sensitive values in logs and scans outgoing responses for leaked secrets.
+- **Simpler multi-environment setup** — Wrangler's `[env.staging]` / `[env.production]` blocks duplicate config and don't support `.env` file overrides. Varlock uses familiar `.env.production` / `.env.preview` files with a single schema, and auto-detects the current environment in CI.
+- **Local dev that matches production** — `.dev.vars` is completely disconnected from your production secrets. With Varlock, local dev resolves from the same schema and same secret sources, so there's no drift between environments.
+- **AI-safe by design** — Your `.env.schema` gives AI coding tools full context on your config (names, types, descriptions) without ever exposing secret values.

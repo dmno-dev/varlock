@@ -150,9 +150,6 @@
     "packages/plugins/1password": {
       "name": "@varlock/1password-plugin",
       "version": "0.3.5",
-      "bin": {
-        "varlock-op-bridge": "./dist/bridge-cli.cjs",
-      },
       "devDependencies": {
         "@1password/sdk": "0.4.1-beta.1",
         "@1password/sdk-core": "0.4.1-beta.1",
@@ -1374,6 +1371,8 @@
     "@varlock/infisical-plugin": ["@varlock/infisical-plugin@workspace:packages/plugins/infisical"],
 
     "@varlock/keepass-plugin": ["@varlock/keepass-plugin@workspace:packages/plugins/keepass"],
+
+    "@varlock/keeper-plugin": ["@varlock/keeper-plugin@workspace:packages/plugins/keeper"],
 
     "@varlock/nextjs-integration": ["@varlock/nextjs-integration@workspace:packages/integrations/nextjs"],
 
@@ -3268,6 +3267,8 @@
     "y18n": ["y18n@5.0.8", "", {}, "sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA=="],
 
     "yallist": ["yallist@3.1.1", "", {}, "sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g=="],
+
+    "yaml": ["yaml@2.8.3", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-AvbaCLOO2Otw/lW5bmh9d/WEdcDFdQp2Z2ZUH3pX9U2ihyUY0nvLv7J6TrWowklRGPYbB/IuIMfYgxaCPg5Bpg=="],
 
     "yargs": ["yargs@17.7.2", "", { "dependencies": { "cliui": "^8.0.1", "escalade": "^3.1.1", "get-caller-file": "^2.0.5", "require-directory": "^2.1.1", "string-width": "^4.2.3", "y18n": "^5.0.5", "yargs-parser": "^21.1.1" } }, "sha512-7dSzzRQ++CKnNI/krKnYRV7JKKPUXMEh61soaHKg9mrWEhzFWhFnxPxGl+69cD1Ou63C13NUPCnmIcrvqCuM6w=="],
 

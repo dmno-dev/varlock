@@ -1,8 +1,51 @@
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import {
-  existsSync, mkdirSync, readdirSync, rmSync,
+  existsSync, mkdirSync, readdirSync, rmSync, statSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
+
+/**
+ * Acquire an exclusive file-based lock by atomic `mkdir`. Blocks with polling
+ * until acquired. Returns a release function. Used to serialize `bun pm pack`
+ * calls across parallel Vitest worker processes so they don't race on the
+ * same output tarball path (which produces a corrupted archive).
+ */
+function withFileLock<T>(lockPath: string, fn: () => T): T {
+  const start = Date.now();
+  const LOCK_TIMEOUT_MS = 120_000;
+  const STALE_LOCK_MS = 300_000;
+
+
+  while (true) {
+    try {
+      mkdirSync(lockPath);
+      break;
+    } catch (err: any) {
+      if (err.code !== 'EEXIST') throw err;
+      // If the lock dir is very old, assume it was left behind by a
+      // crashed process and reclaim it.
+      try {
+        const { mtimeMs } = statSync(lockPath);
+        if (Date.now() - mtimeMs > STALE_LOCK_MS) {
+          rmSync(lockPath, { recursive: true, force: true });
+          continue;
+        }
+      } catch { /* ignore */ }
+      if (Date.now() - start > LOCK_TIMEOUT_MS) {
+        throw new Error(`Timed out acquiring pack lock at ${lockPath}`);
+      }
+      // busy-wait briefly (sync, since callers expect sync behavior)
+      execSync('sleep 0.1');
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      rmSync(lockPath, { recursive: true, force: true });
+    } catch { /* ignore */ }
+  }
+}
 
 const FRAMEWORK_TESTS_DIR = resolve(import.meta.dirname, '..');
 const REPO_ROOT = resolve(FRAMEWORK_TESTS_DIR, '..');
@@ -56,34 +99,42 @@ export function packPackages(
       throw new Error(`Unknown package "${name}". Known packages: ${Object.keys(PACKAGE_DIRS).join(', ')}`);
     }
 
-    // Check if already packed (skip if forcing repack)
-    if (!forceRepack) {
-      const existing = findPackedFile(name);
-      if (existing) {
-        result[name] = existing;
-        continue;
+    // Serialize per-package across parallel Vitest workers. Without this,
+    // two processes can simultaneously write the same .tgz path and
+    // produce a corrupted tarball.
+    const lockPath = join(PACKED_DIR, `.lock-${name.replace(/[@/]/g, '_')}`);
+    result[name] = withFileLock(lockPath, () => {
+      // Check if already packed (skip if forcing repack) — re-check inside
+      // the lock so we pick up a tarball written by another worker.
+      if (!forceRepack) {
+        const existing = findPackedFile(name);
+        if (existing) return existing;
       }
-    }
 
-    // Remove old tarball if it exists (version may not have changed)
-    const oldPacked = findPackedFile(name);
-    if (oldPacked) {
-      rmSync(oldPacked);
-    }
+      // Remove old tarball if it exists (version may not have changed)
+      const oldPacked = findPackedFile(name);
+      if (oldPacked) {
+        rmSync(oldPacked);
+      }
 
-    // Pack the package
-    const fullPackageDir = join(REPO_ROOT, packageDir);
-    console.log(`[pack] Packing ${name}...`);
-    execSync(`bun pm pack --destination ${PACKED_DIR}`, {
-      cwd: fullPackageDir,
-      stdio: 'pipe',
+      // Pack the package
+      const fullPackageDir = join(REPO_ROOT, packageDir);
+      console.log(`[pack] Packing ${name}...`);
+      // execFileSync (not execSync) so the path is passed as an argv entry
+      // rather than interpolated into a shell string — avoids breakage if
+      // the repo is checked out somewhere with spaces/special chars, and
+      // quiets CodeQL (js/shell-command-injection-from-environment).
+      execFileSync('bun', ['pm', 'pack', '--destination', PACKED_DIR], {
+        cwd: fullPackageDir,
+        stdio: 'pipe',
+      });
+
+      const packed = findPackedFile(name);
+      if (!packed) {
+        throw new Error(`Failed to find packed file for "${name}" after packing`);
+      }
+      return packed;
     });
-
-    const packed = findPackedFile(name);
-    if (!packed) {
-      throw new Error(`Failed to find packed file for "${name}" after packing`);
-    }
-    result[name] = packed;
   }
 
   return result;

@@ -1,0 +1,198 @@
+---
+title: SvelteKit
+description: How to integrate varlock with SvelteKit for secure, type-safe environment management
+---
+import { Steps } from "@astrojs/starlight/components";
+import Badge from '@/components/Badge.astro';
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
+
+[SvelteKit](https://svelte.dev/docs/kit) is built on [Vite](https://vite.dev), so there's no dedicated SvelteKit package — which integration you use depends on where you deploy.
+
+- **Node / Vercel / Netlify / self-hosted / most adapters** — use the [Vite integration](/integrations/vite/). See [setup below](#setup).
+- **Cloudflare Workers (via `@sveltejs/adapter-cloudflare`)** — use `varlockSvelteKitCloudflarePlugin` from `@varlock/cloudflare-integration/sveltekit`. See [setup below](#sveltekit-on-cloudflare-workers).
+
+Check out the [SvelteKit example project](https://github.com/dmno-dev/varlock-examples/tree/main/examples/sveltekit) for a working reference.
+
+---
+
+## Setup (Vite integration)
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/vite-integration" />
+</div>
+
+For any SvelteKit deployment target _other than_ Cloudflare Workers, use `varlockVitePlugin` exactly as you would in any Vite project.
+
+<Steps>
+
+1. **Install packages**
+    <InstallJsDepsWidget packages="@varlock/vite-integration varlock" />
+
+1. **Run `varlock init` to set up your `.env.schema`**
+
+    <ExecCommandWidget command="varlock init" showBinary={false} />
+
+1. **Add the plugin to your Vite config** — it should come **before** `sveltekit()`:
+
+    ```diff lang="ts" title="vite.config.ts"
+    import { sveltekit } from '@sveltejs/kit/vite';
+    import { defineConfig } from 'vite';
+    +import { varlockVitePlugin } from '@varlock/vite-integration';
+
+    export default defineConfig({
+      plugins: [
+    +    varlockVitePlugin(),
+        sveltekit(),
+      ],
+    });
+    ```
+
+</Steps>
+
+:::tip[Next steps]
+See the [**Vite integration page**](/integrations/vite/) for configuration options, SSR injection modes, accessing env vars, managing environments, sensitive values, and more.
+:::
+
+---
+
+## Setup for Cloudflare Workers
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/cloudflare-integration" />
+</div>
+
+For SvelteKit projects deploying to Cloudflare Workers via [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare), use `varlockSvelteKitCloudflarePlugin` from `@varlock/cloudflare-integration/sveltekit`. This is a separate entry point from the standard `varlockCloudflareVitePlugin` because `@cloudflare/vite-plugin` doesn't currently support SvelteKit (see [cloudflare/workers-sdk#8922](https://github.com/cloudflare/workers-sdk/issues/8922)). The SvelteKit plugin skips that dependency entirely and injects the runtime env-loader into SvelteKit's SSR entry instead, so the resolved env is available inside the worker.
+
+:::note[Static-only SvelteKit sites]
+If your SvelteKit app is fully static (no SSR — typically using `@sveltejs/adapter-static` and deployed to Cloudflare Pages or any CDN), you don't need this section at all. Use the generic [Vite integration](#setup) above — there's no server bundle for us to inject into.
+:::
+
+### Setup
+
+<Steps>
+
+1. **Install packages**
+    <InstallJsDepsWidget packages="@varlock/cloudflare-integration varlock" />
+
+1. **Run `varlock init` to set up your `.env.schema`**
+
+    <ExecCommandWidget command="varlock init" showBinary={false} />
+
+1. **Add the plugin to your Vite config**
+
+    ```diff lang="ts" title="vite.config.ts"
+    import { sveltekit } from '@sveltejs/kit/vite';
+    import { defineConfig } from 'vite';
+    +import { varlockSvelteKitCloudflarePlugin } from '@varlock/cloudflare-integration/sveltekit';
+
+    export default defineConfig({
+      plugins: [
+    +    varlockSvelteKitCloudflarePlugin(),
+        sveltekit(),
+      ],
+    });
+    ```
+
+1. **Deploy with `varlock-wrangler`**
+
+    Use `varlock-wrangler deploy` instead of `wrangler deploy` in your deploy script:
+
+    ```diff lang="json" title="package.json" add="varlock-"
+    {
+      "scripts": {
+        "dev": "vite dev",
+        "build": "vite build",
+        "deploy": "npm run build && varlock-wrangler deploy"
+      }
+    }
+    ```
+
+    If you deploy via [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) instead of a local/CI script, override the deploy command in your Cloudflare dashboard under **Settings → Build → Deploy command** — see [Workers Builds](#deploying-via-cloudflare-workers-builds) below.
+
+</Steps>
+
+### How it works
+
+- **In dev**: `vite dev` runs SvelteKit's dev server; varlock resolves env via its normal flow and makes it available on `ENV.*`.
+- **In production**: The SvelteKit SSR bundle has a `cloudflare:workers` runtime loader injected at the top of its server entry. At worker boot, it reads the `__VARLOCK_ENV` binding and hydrates varlock's runtime. The loader is guarded by a `navigator.userAgent === 'Cloudflare-Workers'` check so SvelteKit's Node-side postbuild steps (prerender, fallback) don't try to resolve `cloudflare:workers`.
+- `varlock-wrangler deploy` uploads non-sensitive values as Cloudflare vars and sensitive values as secrets.
+
+### Deploying via Cloudflare Workers Builds
+
+If you deploy through [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/), two pieces of configuration must be set in the dashboard — neither can be committed to the repo:
+
+- **Override the Deploy command** — Under **Settings → Build → Deploy command**, replace the default `npx wrangler deploy` with `npx varlock-wrangler deploy`. Without this, Cloudflare runs stock `wrangler deploy`, which skips varlock resolution and leaves your worker without its resolved vars/secrets.
+- **Set any _secret-zero_ vars under Build variables** — Any env vars varlock itself needs _during load_ (e.g. a 1Password service account token, a GCP key) must be set under **Settings → Build → Variables and Secrets** so they're available at build time. `varlock-wrangler deploy` then resolves your full env graph and uploads the result to the worker runtime as regular vars/secrets.
+
+:::tip[Next steps]
+See the [**Cloudflare integration page**](/integrations/cloudflare/) for more on `varlock-wrangler`, multi-environment setup, and [Workers Builds configuration](/integrations/cloudflare/#cloudflare-workers-builds-cicd).
+:::
+
+---
+
+## Migrating from SvelteKit's `$env/*`
+
+SvelteKit ships [four built-in env modules](https://svelte.dev/docs/kit/$env-static-private) — `$env/static/private`, `$env/static/public`, `$env/dynamic/private`, `$env/dynamic/public` — which split env vars along two axes: _static vs dynamic_ (inlined at build vs looked up at runtime) and _private vs public_ (server-only vs bundled for the browser, gated by the `PUBLIC_` prefix).
+
+The key conceptual shift is that SvelteKit's system is **access-driven**: the same underlying variable behaves differently depending on which module you import it from, and public/private is inferred from the variable's name. Varlock is **schema-driven**: each item is declared once in `.env.schema` with decorators that determine its behavior — sensitivity, type, validation, whether it's inlined or resolved at runtime — and every access site uses the same `ENV` object. You describe the variable once, and that description is authoritative everywhere it's used.
+
+Varlock replaces all four `$env/*` modules with a single `ENV` object from `varlock/env`. The same two axes still exist, but they're controlled by the schema rather than the import path:
+
+| SvelteKit concept | Varlock equivalent |
+| :---------------- | :----------------- |
+| `$env/static/public` | `ENV.FOO` where `@sensitive=false` — non-sensitive values are inlined at build time on both client and server |
+| `$env/static/private` | `ENV.FOO` where `@sensitive=true`, referenced from SSR/server code — inlined into the server bundle, build errors if referenced from client code |
+| `$env/dynamic/public` | **Not yet supported** — non-sensitive values are currently always inlined at build time (equivalent to `$env/static/public`). Runtime-resolved public values are on the roadmap. |
+| `$env/dynamic/private` | `ENV.FOO` — in server contexts it's read from the live runtime env (e.g. Cloudflare bindings via `varlockCloudflareVitePlugin`, or Node's `process.env` elsewhere) rather than baked into the bundle |
+| `PUBLIC_` prefix requirement | Per-item [`@sensitive`](/reference/item-decorators/#sensitive) decorator, or a schema-wide [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) rule |
+
+### Migrating imports
+
+Everywhere you currently import from `$env/*`, switch to `varlock/env`:
+
+```diff lang="ts" title="src/routes/+page.server.ts"
+-import { API_KEY } from '$env/static/private';
+-import { PUBLIC_API_URL } from '$env/static/public';
++import { ENV } from 'varlock/env';
+
+ export const load = async () => {
+-  const res = await fetch(`${PUBLIC_API_URL}/data`, {
+-    headers: { Authorization: `Bearer ${API_KEY}` },
++  const res = await fetch(`${ENV.PUBLIC_API_URL}/data`, {
++    headers: { Authorization: `Bearer ${ENV.API_KEY}` },
+   });
+ };
+```
+
+`ENV` works from both `+page.svelte` (client) and `+page.server.ts`/`+server.ts` (server) — there's no need to import from different paths depending on context. Varlock enforces the public/private boundary with both **build-time** checks (sensitive values are never included in the client bundle, and referencing one from client-reachable code surfaces as a build error) and **runtime** checks (log redaction and leak detection in server responses) so a mistake in either layer is caught rather than silently exposing a secret.
+
+### Managing sensitive values
+
+SvelteKit uses the `PUBLIC_` prefix to determine which vars are safe to bundle for the browser. Varlock uses decorators — either per-item, or schema-wide via [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive).
+
+The simplest setup is to mark items explicitly:
+
+```diff lang="env-spec" title=".env.schema"
++# @defaultSensitive=true
+# ---
+API_KEY=                # sensitive by default
+# @sensitive=false
+PUBLIC_API_URL=         # explicitly non-sensitive (bundled for browser)
+```
+
+If you'd rather keep SvelteKit's `PUBLIC_`-prefix convention, you can infer sensitivity from the name:
+
+```diff lang="env-spec" title=".env.schema"
++# @defaultSensitive=inferFromPrefix('PUBLIC_')
+# ---
+API_KEY=                # sensitive (no prefix)
+PUBLIC_API_URL=         # non-sensitive (has PUBLIC_ prefix)
+```
+
+:::caution[Bundling behavior]
+All non-sensitive items are replaced at build time wherever `ENV.FOO` appears. Sensitive items are only available in server contexts — build-time checks block them from client bundles, and runtime log redaction / response leak detection catch any that slip past the build layer.
+:::
+
+
+
