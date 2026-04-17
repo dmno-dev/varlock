@@ -1,5 +1,11 @@
 # @varlock/azure-key-vault-plugin
 
+## 0.1.0
+
+### Minor Changes
+
+- [`47722d2`](https://github.com/dmno-dev/varlock/commit/47722d27f87c5f1837c40ed57de165025def684d) Thanks [@bram209](https://github.com/bram209)! - Add JSON key extraction and per-run secret caching to azureSecret()
+
 ## 0.0.6
 
 ### Patch Changes
