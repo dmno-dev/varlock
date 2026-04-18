@@ -4,7 +4,7 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { scanFileForValues, walkDirectory } from '../scan.command';
+import { scanFileForValues, walkDirectory, walkDirectoryAll, resolveTargetPaths } from '../scan.command';
 
 describe('scanFileForValues', () => {
   let tempDir: string;
@@ -153,5 +153,101 @@ describe('walkDirectory', () => {
     const files = await walkDirectory(tempDir);
     expect(files).toHaveLength(1);
     expect(files[0]).toContain('script.ts');
+  });
+});
+
+describe('walkDirectoryAll', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-walkall-test-'));
+  });
+
+  afterEach(() => {
+    if (tempDir && fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('finds files in nested directories including build-output dirs', async () => {
+    fs.writeFileSync(path.join(tempDir, 'index.ts'), 'content');
+    fs.mkdirSync(path.join(tempDir, 'dist'));
+    fs.writeFileSync(path.join(tempDir, 'dist', 'bundle.js'), 'build output');
+    fs.mkdirSync(path.join(tempDir, 'node_modules'));
+    fs.writeFileSync(path.join(tempDir, 'node_modules', 'dep.js'), 'dep');
+    const files = await walkDirectoryAll(tempDir);
+    // Should include files inside dist AND node_modules (no directory is skipped)
+    expect(files).toHaveLength(3);
+    const names = files.map((f) => path.basename(f)).sort();
+    expect(names).toEqual(['bundle.js', 'dep.js', 'index.ts'].sort());
+  });
+
+  test('still skips binary file extensions', async () => {
+    fs.writeFileSync(path.join(tempDir, 'image.png'), 'fake png content');
+    fs.writeFileSync(path.join(tempDir, 'script.ts'), 'real content');
+    const files = await walkDirectoryAll(tempDir);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toContain('script.ts');
+  });
+});
+
+describe('resolveTargetPaths', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-resolve-test-'));
+  });
+
+  afterEach(() => {
+    if (tempDir && fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('resolves an explicit directory', async () => {
+    fs.writeFileSync(path.join(tempDir, 'a.ts'), 'content');
+    fs.writeFileSync(path.join(tempDir, 'b.ts'), 'content');
+    const files = await resolveTargetPaths([tempDir], tempDir);
+    expect(files).toHaveLength(2);
+  });
+
+  test('resolves an explicit file', async () => {
+    const filePath = path.join(tempDir, 'a.ts');
+    fs.writeFileSync(filePath, 'content');
+    const files = await resolveTargetPaths([filePath], tempDir);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toBe(filePath);
+  });
+
+  test('skips non-existent paths silently', async () => {
+    const files = await resolveTargetPaths([path.join(tempDir, 'does-not-exist')], tempDir);
+    expect(files).toHaveLength(0);
+  });
+
+  test('deduplicates files when a file appears via multiple targets', async () => {
+    const filePath = path.join(tempDir, 'a.ts');
+    fs.writeFileSync(filePath, 'content');
+    // Pass both the directory and the file explicitly — should still yield one result
+    const files = await resolveTargetPaths([tempDir, filePath], tempDir);
+    expect(files).toHaveLength(1);
+  });
+
+  test('resolves glob patterns', async () => {
+    fs.writeFileSync(path.join(tempDir, 'a.ts'), 'content');
+    fs.writeFileSync(path.join(tempDir, 'b.ts'), 'content');
+    fs.writeFileSync(path.join(tempDir, 'c.md'), 'content');
+    const files = await resolveTargetPaths(['*.ts'], tempDir);
+    expect(files).toHaveLength(2);
+    for (const f of files) expect(f.endsWith('.ts')).toBe(true);
+  });
+
+  test('resolves a build-output directory (not skipped by SKIP_DIRS)', async () => {
+    // Simulate a dist folder which would normally be skipped by walkDirectory
+    const distDir = path.join(tempDir, 'dist');
+    fs.mkdirSync(distDir);
+    fs.writeFileSync(path.join(distDir, 'bundle.js'), 'build output');
+    const files = await resolveTargetPaths([distDir], tempDir);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toContain('bundle.js');
   });
 });

@@ -102,6 +102,9 @@ Examples:
   varlock scan --path .env.prod   # Use a specific .env file as the schema entry point
   varlock scan -p ./envs -p ./overrides  # Use multiple schema entry points
   varlock scan --install-hook     # Set up as a git pre-commit hook
+  varlock scan ./dist             # Scan a specific directory (e.g. a build output folder)
+  varlock scan ./dist ./public    # Scan multiple directories
+  varlock scan './dist/**/*.js'   # Scan files matching a glob pattern
   `.trim(),
 });
 
@@ -157,6 +160,85 @@ export async function walkDirectory(dir: string): Promise<Array<string>> {
       files.push(fullPath);
     }
   }
+  return files;
+}
+
+/**
+ * Like walkDirectory but does NOT skip entries in SKIP_DIRS.
+ * Used when users explicitly pass a target directory to scan
+ * (e.g. a build output folder like `dist` or `.next`).
+ */
+export async function walkDirectoryAll(dir: string): Promise<Array<string>> {
+  const files: Array<string> = [];
+  let entries;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return files;
+  }
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await walkDirectoryAll(fullPath));
+    } else if (entry.isFile()) {
+      const ext = path.extname(entry.name).toLowerCase();
+      if (BINARY_EXTENSIONS.has(ext)) continue;
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
+const GLOB_CHARS = /[*?{}[\]]/;
+
+/**
+ * Resolves an array of path/glob strings (as provided by the user on the CLI)
+ * into a deduplicated list of absolute file paths to scan.
+ *
+ * - Glob patterns (containing `*`, `?`, `{`, `[`) are expanded with `fs.glob`.
+ * - Explicit directories are walked (without skipping build-output dirs).
+ * - Explicit files are included directly (if not a binary extension).
+ */
+export async function resolveTargetPaths(targets: Array<string>, cwd: string): Promise<Array<string>> {
+  const seen = new Set<string>();
+  const files: Array<string> = [];
+
+  async function addFile(absPath: string) {
+    if (seen.has(absPath)) return;
+    seen.add(absPath);
+    files.push(absPath);
+  }
+
+  async function addPath(absPath: string) {
+    let stat;
+    try {
+      stat = await fs.stat(absPath);
+    } catch {
+      return; // path doesn't exist — silently skip
+    }
+    if (stat.isDirectory()) {
+      for (const f of await walkDirectoryAll(absPath)) {
+        await addFile(f);
+      }
+    } else if (stat.isFile()) {
+      const ext = path.extname(absPath).toLowerCase();
+      if (!BINARY_EXTENSIONS.has(ext)) {
+        await addFile(absPath);
+      }
+    }
+  }
+
+  for (const target of targets) {
+    if (GLOB_CHARS.test(target)) {
+      // Expand glob pattern; paths returned by fsGlob are relative to cwd
+      for await (const match of fs.glob(target, { cwd })) {
+        await addPath(path.resolve(cwd, match));
+      }
+    } else {
+      await addPath(path.resolve(cwd, target));
+    }
+  }
+
   return files;
 }
 
@@ -372,6 +454,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const onlyStaged = ctx.values.staged ?? false;
   const includeIgnored = ctx.values['include-ignored'] ?? false;
 
+  // Positional arguments are treated as explicit paths/globs to scan
+  const scanTargets = (ctx.positionals ?? []).slice(ctx.commandPath?.length ?? 0);
+
   // Load the varlock env graph to get the actual sensitive values
   const envGraph = await loadVarlockEnvGraph({
     entryFilePaths: ctx.values.path,
@@ -405,7 +490,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const cwd = process.cwd();
   let files: Array<string>;
 
-  if (includeIgnored) {
+  if (scanTargets.length > 0) {
+    // Explicit paths/globs provided — scan only those targets.
+    // We skip git-aware filtering so the user gets exactly what they asked for,
+    // and we do NOT apply SKIP_DIRS (e.g. `dist`, `.next`) since the whole point
+    // is often to scan a build output directory.
+    files = await resolveTargetPaths(scanTargets, cwd);
+  } else if (includeIgnored) {
     // Walk the full directory tree, no git filtering
     files = await walkDirectory(cwd);
   } else {
@@ -425,7 +516,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   if (files.length === 0) {
-    if (onlyStaged) {
+    if (scanTargets.length > 0) {
+      console.log(ansis.green('✅ No files found at the specified path(s).'));
+    } else if (onlyStaged) {
       console.log('No staged files to scan.');
     } else {
       console.log(ansis.green('✅ No files found to scan.'));
