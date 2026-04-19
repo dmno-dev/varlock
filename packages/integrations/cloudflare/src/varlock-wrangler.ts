@@ -413,12 +413,19 @@ async function handleDev(args: Array<string>) {
 
   // watch env source files for changes and restart wrangler with fresh data
   let restartTimeout: ReturnType<typeof setTimeout> | undefined;
+  let cachedGraphJson = loaded.json;
   function scheduleRestart() {
     // debounce — multiple files may change at once
     if (restartTimeout) clearTimeout(restartTimeout);
     restartTimeout = setTimeout(() => {
       try {
         const freshLoaded = loadSerializedGraph();
+        if (freshLoaded.json === cachedGraphJson) {
+          restartTimeout = undefined;
+          return;
+        }
+        cachedGraphJson = freshLoaded.json;
+        loaded = freshLoaded;
         cachedContent = formatEnvFileContent(freshLoaded);
         handle.update(cachedContent);
         console.log('[varlock-wrangler] env changed, restarting wrangler...');
