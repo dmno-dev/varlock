@@ -192,6 +192,58 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
     ],
   });
 
+  wranglerEnv.describeDevScenario('no restart on unchanged env content', {
+    command: 'varlock-wrangler dev --port 18792',
+    readyPattern: /Ready on|ready in/i,
+    readyTimeout: 30_000,
+    templateFiles: {
+      'src/index.ts': { path: 'workers/basic-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
+      'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
+      'tsconfig.json': '_base-wrangler/tsconfig.json',
+    },
+    requests: [
+      // first request — baseline
+      {
+        path: '/',
+        bodyAssertions: {
+          shouldContain: ['public_var::public-test-value'],
+        },
+      },
+      // second request — write the same .env.schema content (simulates macOS spurious watch events)
+      // use fileEditDelay so we wait without expecting a restart
+      {
+        path: '/',
+        fileEdits: {
+          '.env.schema': [
+            '# @defaultSensitive=false @defaultRequired=infer',
+            '# @currentEnv=$APP_ENV',
+            '# ---',
+            '',
+            '# @type=enum(dev, prod)',
+            'APP_ENV=dev',
+            '',
+            'PUBLIC_VAR=public-test-value',
+            'API_URL=https://api.example.com',
+            '',
+            '# @sensitive',
+            'SECRET_KEY=super-secret-value',
+          ].join('\n'),
+        },
+        // wait longer than the 300ms debounce to confirm no restart occurred
+        fileEditDelay: 1500,
+        bodyAssertions: {
+          shouldContain: ['public_var::public-test-value'],
+        },
+      },
+    ],
+    outputAssertions: [
+      {
+        description: 'wrangler is not restarted when env content is unchanged',
+        shouldNotContain: ['env changed, restarting wrangler'],
+      },
+    ],
+  });
+
   describe('invalid config', () => {
     wranglerEnv.describeScenario('invalid schema causes dev failure', {
       command: 'varlock-wrangler dev --port 18791',
