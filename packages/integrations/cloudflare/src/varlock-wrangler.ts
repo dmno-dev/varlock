@@ -418,19 +418,19 @@ async function handleDev(args: Array<string>) {
   const FORCE_RESTART_IDLE_MS = 5000;
   let restartTimeout: ReturnType<typeof setTimeout> | undefined;
   let cachedGraphJson = loaded.json;
-  let lastRestartAt = 0;
+  let lastRestartAt = Date.now();
   function scheduleRestart() {
     // debounce — multiple files may change at once (e.g. editor saves multiple files,
     // or macOS fs.watch() emits extra events for unchanged files)
     if (restartTimeout) clearTimeout(restartTimeout);
     restartTimeout = setTimeout(() => {
-      restartTimeout = undefined;
       try {
         const freshLoaded = loadSerializedGraph();
         const now = Date.now();
         const idleSinceLastRestart = now - lastRestartAt > FORCE_RESTART_IDLE_MS;
         // skip restart only when env is unchanged AND a restart happened recently
         if (freshLoaded.json === cachedGraphJson && !idleSinceLastRestart) {
+          restartTimeout = undefined;
           return;
         }
         cachedGraphJson = freshLoaded.json;
@@ -440,7 +440,9 @@ async function handleDev(args: Array<string>) {
         handle.update(cachedContent);
         console.log('[varlock-wrangler] env changed, restarting wrangler...');
         wranglerChild?.kill();
+        // NOTE: restartTimeout stays truthy so the exit handler knows this was a restart-kill
       } catch (err) {
+        restartTimeout = undefined;
         console.error('[varlock-wrangler] failed to re-resolve env:', (err as Error).message);
       }
     }, DEBOUNCE_MS);
