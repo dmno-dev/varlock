@@ -9,6 +9,7 @@ Load secrets from [Infisical](https://infisical.com/) into your Varlock configur
 - ✅ Fetch secrets from Infisical projects and environments
 - ✅ Bulk-load secrets with `infisicalBulk()` via `@setValuesBulk`
 - ✅ Universal Auth with Client ID and Client Secret
+- ✅ OIDC authentication for Vercel, GitHub Actions, and other platforms
 - ✅ Support for custom Infisical instances (self-hosted)
 - ✅ Secret paths and hierarchical organization
 - ✅ Filter secrets by tag
@@ -64,12 +65,31 @@ INFISICAL_CLIENT_ID=
 INFISICAL_CLIENT_SECRET=
 ```
 
+### OIDC Authentication (For Vercel, GitHub Actions, etc.)
+
+If you're deploying on a platform that supports OIDC, you can authenticate without client credentials:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/infisical-plugin)
+# @initInfisical(
+#   projectId=your-project-id,
+#   environment=production,
+#   identityId=your-machine-identity-id
+# )
+```
+
+Create a Machine Identity in Infisical with an OIDC auth method configured for your platform's issuer. The plugin auto-detects the OIDC token from your platform.
+
+See the [OIDC Workload Identity guide](https://varlock.dev/guides/oidc/) for full setup instructions.
+
 #### Configuration Parameters
 
 - **`projectId`** (required): Your Infisical project ID
 - **`environment`** (required): Environment name (e.g., `dev`, `staging`, `production`)
-- **`clientId`** (required): Universal Auth Client ID
-- **`clientSecret`** (required): Universal Auth Client Secret
+- **`clientId`**: Universal Auth Client ID (required if not using OIDC)
+- **`clientSecret`**: Universal Auth Client Secret (required if not using OIDC)
+- **`identityId`** (optional): Machine Identity ID for OIDC authentication (alternative to clientId/clientSecret)
+- **`oidcToken`** (optional): Explicit OIDC JWT token (auto-detected from platform if not provided)
 - **`siteUrl`** (optional): Custom Infisical instance URL (defaults to `https://app.infisical.com`)
 - **`secretPath`** (optional): Default secret path for all secrets (defaults to `/`)
 - **`id`** (optional): Instance identifier for using multiple instances

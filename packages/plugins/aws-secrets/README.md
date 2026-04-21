@@ -12,6 +12,7 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 - **Auto-infer secret/parameter names** from environment variable names (uses name as-is)
 - **JSON key extraction** from secrets/parameters using `#` syntax or named `key` parameter
 - **Name prefixing** with `namePrefix` option for organized secret management
+- **OIDC workload identity** - Authenticate from Vercel, GitHub Actions, and other platforms without long-lived credentials
 - Support for named AWS profiles
 - Support for explicit credentials (access key/secret key)
 - Support for temporary credentials (with session tokens)
@@ -77,12 +78,26 @@ AWS_SECRET_ACCESS_KEY=
 
 You would then need to inject these env vars using your CI/CD system.
 
+### OIDC workload identity (For Vercel, GitHub Actions, etc.)
+
+If you're deploying on a platform that supports OIDC, you can authenticate without any long-lived credentials:
+
+```env-spec
+# @plugin(@varlock/aws-secrets-plugin)
+# @initAws(region=us-east-1, oidcRoleArn="arn:aws:iam::123456789012:role/varlock-oidc-role")
+```
+
+The plugin auto-detects the OIDC token from your platform and exchanges it for temporary AWS credentials via STS. You just need to create an IAM role with a trust policy for your platform's OIDC provider.
+
+See the [OIDC Workload Identity guide](https://varlock.dev/guides/oidc/) for full setup instructions.
+
 ### Authentication Priority
 
 The plugin tries authentication methods in this order:
 1. **Explicit credentials** - If `accessKeyId` and `secretAccessKey` are provided
-2. **Named profile** - If `profile` is specified, uses credentials from `~/.aws/credentials`
-3. **Default AWS credential chain** - Environment variables → `~/.aws/credentials` → IAM roles
+2. **OIDC** - If `oidcRoleArn` is provided, exchanges a platform OIDC token for temporary AWS credentials
+3. **Named profile** - If `profile` is specified, uses credentials from `~/.aws/credentials`
+4. **Default AWS credential chain** - Environment variables → `~/.aws/credentials` → IAM roles
 
 ### Using Named Profiles
 
@@ -185,6 +200,9 @@ Initialize an AWS plugin instance.
 - `secretAccessKey?: string` - AWS secret access key for explicit authentication
 - `sessionToken?: string` - AWS session token for temporary credentials
 - `profile?: string` - Named profile from `~/.aws/credentials`
+- `oidcRoleArn?: string` - ARN of IAM role to assume via OIDC (enables workload identity federation)
+- `oidcSessionName?: string` - Session name for the OIDC assumed role (defaults to `varlock-session`)
+- `oidcToken?: string` - Explicit OIDC JWT token (auto-detected from platform if not provided)
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### Functions

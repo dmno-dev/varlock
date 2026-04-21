@@ -10,6 +10,7 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 - **Managed Identity support** - No credentials needed for Azure-hosted apps (App Service, Container Instances, VMs, Functions, AKS)
 - **Azure CLI authentication** - Works seamlessly with `az login` for local development
 - **Auto-infer secret names** from environment variable names (e.g., `DATABASE_URL` → `database-url`)
+- **OIDC workload identity** - Authenticate from Vercel, GitHub Actions, and other platforms using federated credentials
 - Support for service principal credentials (for non-Azure environments)
 - Support for versioned secrets
 - Extract individual values from JSON-encoded secrets
@@ -79,12 +80,37 @@ AZURE_CLIENT_SECRET=
 
 You would then need to inject these env vars using your CI/CD system.
 
+### OIDC workload identity (For Vercel, GitHub Actions, etc.)
+
+If you're deploying on a platform that supports OIDC, you can authenticate without a client secret:
+
+```env-spec
+# @plugin(@varlock/azure-key-vault-plugin)
+# @initAzure(
+#   vaultUrl="https://my-vault.vault.azure.net/",
+#   tenantId=$AZURE_TENANT_ID,
+#   clientId=$AZURE_CLIENT_ID
+# )
+# ---
+
+# @type=azureTenantId
+AZURE_TENANT_ID=
+
+# @type=azureClientId
+AZURE_CLIENT_ID=
+```
+
+When `tenantId` and `clientId` are provided without `clientSecret`, the plugin automatically uses the platform's OIDC token as a federated credential. You need to configure a federated credential on your Azure App Registration.
+
+See the [OIDC Workload Identity guide](https://varlock.dev/guides/oidc/) for full setup instructions.
+
 ### Authentication Priority
 
 The plugin tries authentication methods in this order:
 1. **Service Principal** - If all three credentials (`tenantId`, `clientId`, `clientSecret`) are provided and non-empty
-2. **Managed Identity** - Automatically used when running on Azure infrastructure
-3. **Azure CLI** - Falls back to `az login` for local development
+2. **OIDC Federated Credential** - If `tenantId` and `clientId` are provided without `clientSecret`, and an OIDC token is available
+3. **Managed Identity** - Automatically used when running on Azure infrastructure
+4. **Azure CLI** - Falls back to `az login` for local development
 
 ### Multiple vaults
 If you need to connect to multiple vaults, but never at the same time, you can alter the vault URL using a function:
@@ -145,6 +171,7 @@ Initialize an Azure Key Vault plugin instance.
 - `tenantId?: string` - Azure AD tenant ID (directory ID)
 - `clientId?: string` - Service principal application (client) ID
 - `clientSecret?: string` - Service principal client secret (password)
+- `oidcToken?: string` - Explicit OIDC JWT token (auto-detected from platform if not provided)
 - `id?: string` - Instance identifier for multiple vaults (defaults to `_default`)
 
 ### Functions

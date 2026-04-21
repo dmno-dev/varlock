@@ -149,6 +149,7 @@ export default defineConfig({
             { label: 'Schema', slug: 'guides/schema' },
             { label: 'Secrets', slug: 'guides/secrets' },
             { label: 'Local encryption', slug: 'guides/local-encryption' },
+            { label: 'OIDC Workload Identity', slug: 'guides/oidc', badge: 'new' },
             { label: 'Environments', slug: 'guides/environments' },
             { label: 'Imports', slug: 'guides/import' },
             { label: 'Plugins', slug: 'guides/plugins' },
