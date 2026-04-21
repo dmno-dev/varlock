@@ -216,15 +216,18 @@ sh -c 'echo $(varlock printenv MY_VAR)'  # ✅ embed in a larger command
 
 Scans your project files for sensitive config values that should not appear in plaintext. Loads your varlock config, resolves all `@sensitive` values, then checks files for any occurrences of those values.
 
-This is especially useful as a **pre-commit git hook** to prevent accidentally committing secrets into version control.
+This is especially useful as a **pre-commit git hook** to prevent accidentally committing secrets into version control, and for **scanning build output** to ensure no secrets leaked into files that will be published or deployed.
 
 ```bash
-varlock scan [options]
+varlock scan [paths...] [options]
 ```
 
+**Positional arguments:**
+- `[paths...]`: Optional list of file paths, directories, or glob patterns to scan. When provided, only these targets are scanned — git filtering (`--staged`, `--include-ignored`) is bypassed and build-output directories that are normally skipped (such as `dist`, `.next`, `build`) are included.
+
 **Options:**
-- `--staged`:           Only scan staged git files
-- `--include-ignored`:  Include git-ignored files in the scan (by default, gitignored files are skipped)
+- `--staged`:           Only scan staged git files (ignored when explicit paths are provided)
+- `--include-ignored`:  Include git-ignored files in the scan (ignored when explicit paths are provided)
 - `--install-hook`:     Set up `varlock scan` as a git pre-commit hook
 - `--path` / `-p`:      Path to a specific `.env` file or directory to use as the schema entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
 
@@ -238,6 +241,15 @@ varlock scan --staged
 
 # Scan all files, including gitignored ones
 varlock scan --include-ignored
+
+# Scan a specific build output directory (e.g. to check for leaked secrets before publishing)
+varlock scan ./dist
+
+# Scan multiple directories
+varlock scan ./dist ./public
+
+# Scan files matching a glob pattern
+varlock scan './dist/**/*.js'
 
 # Use a specific .env file as the schema entry point
 varlock scan --path .env.prod

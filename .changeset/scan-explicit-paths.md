@@ -1,5 +1,5 @@
 ---
-"varlock": minor-isolated
+"varlock": minor
 ---
 
 `varlock scan` now accepts optional positional path/glob arguments to scan specific files, directories, or glob patterns instead of the whole repo. This is useful for scanning build output folders (e.g. `dist`, `.next`) to ensure no secrets leaked into what will be published.
