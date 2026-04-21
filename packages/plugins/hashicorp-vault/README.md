@@ -8,6 +8,7 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 
 - **Zero-config authentication** - Automatically uses Vault token from environment or CLI
 - **AppRole authentication** - For automated and CI/CD workflows
+- **JWT/OIDC authentication** - Authenticate from Vercel, GitHub Actions, and other platforms without long-lived credentials
 - **Vault CLI integration** - Works seamlessly with `vault login` for local development
 - **Auto-infer secret keys** from environment variable names
 - **JSON key extraction** from secrets using `#` syntax or named `key` parameter
@@ -90,12 +91,26 @@ You can also provide a token directly:
 VAULT_TOKEN=
 ```
 
+### JWT/OIDC auth (For Vercel, GitHub Actions, etc.)
+
+If you're deploying on a platform that supports OIDC, you can authenticate using Vault's JWT auth method:
+
+```env-spec
+# @plugin(@varlock/hashicorp-vault-plugin)
+# @initHcpVault(url="https://vault.example.com:8200", jwtRole="varlock-role")
+```
+
+The plugin auto-detects the OIDC token from your platform and exchanges it for a Vault token via the JWT auth method. You need to configure the JWT auth backend in Vault with your platform's OIDC issuer.
+
+See the [OIDC Workload Identity guide](https://varlock.dev/guides/oidc/) for full setup instructions.
+
 ### Authentication Priority
 
 The plugin tries authentication methods in this order:
 1. **Explicit token** - If `token` is provided in `@initHcpVault()`
 2. **AppRole** - If both `roleId` and `secretId` are provided
-3. **CLI token file** - From `~/.vault-token` (created by `vault login`) or `~/.bao-token` (created by `bao login` for OpenBao)
+3. **JWT/OIDC** - If `jwtRole` is provided, exchanges a platform OIDC token for a Vault token
+4. **CLI token file** - From `~/.vault-token` (created by `vault login`) or `~/.bao-token` (created by `bao login` for OpenBao)
 
 ### Vault Enterprise namespaces
 
@@ -220,6 +235,9 @@ Initialize a HashiCorp Vault plugin instance.
 - `namespace?: string` - Vault Enterprise namespace
 - `defaultPath?: string` - Default secret path when no path argument is given to `vaultSecret()`
 - `pathPrefix?: string` - Prefix automatically prepended to all secret paths
+- `jwtRole?: string` - JWT auth method role name (enables OIDC workload identity)
+- `jwtAuthPath?: string` - JWT auth method mount path (defaults to `jwt`)
+- `oidcToken?: string` - Explicit OIDC JWT token (auto-detected from platform if not provided)
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### Functions

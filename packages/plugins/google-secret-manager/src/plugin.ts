@@ -1,6 +1,7 @@
 import { type Resolver, plugin } from 'varlock/plugin-lib';
 
 import { GoogleAuth } from 'google-auth-library';
+import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
@@ -21,16 +22,39 @@ plugin.standardVars = {
 class GsmPluginInstance {
   private projectId?: string;
   private credentials?: any;
+  private workloadIdentityProvider?: string;
+  private serviceAccountEmail?: string;
+  private oidcToken?: string;
 
   constructor(
     readonly id: string,
   ) {
   }
 
-  setAuth(projectId?: any, credentials?: any) {
+  setAuth(
+    projectId?: any,
+    credentials?: any,
+    workloadIdentityProvider?: any,
+    serviceAccountEmail?: any,
+    oidcToken?: any,
+  ) {
     this.credentials = credentials;
     this.projectId = projectId ? String(projectId) : undefined;
-    debug('gsm instance', this.id, 'set auth - projectId:', projectId, 'hasCredentials:', !!credentials);
+    this.workloadIdentityProvider = workloadIdentityProvider ? String(workloadIdentityProvider) : undefined;
+    this.serviceAccountEmail = serviceAccountEmail ? String(serviceAccountEmail) : undefined;
+    this.oidcToken = oidcToken ? String(oidcToken) : undefined;
+    debug(
+      'gsm instance',
+      this.id,
+      'set auth - projectId:',
+      projectId,
+      'hasCredentials:',
+      !!credentials,
+      'workloadIdentityProvider:',
+      this.workloadIdentityProvider,
+      'serviceAccountEmail:',
+      this.serviceAccountEmail,
+    );
   }
 
   private authClientPromise: Promise<GoogleAuth> | undefined;
@@ -39,12 +63,8 @@ class GsmPluginInstance {
 
     this.authClientPromise = (async () => {
       try {
-        const authConfig: ConstructorParameters<typeof GoogleAuth>[0] = {
-          scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-        };
-
+        // First priority: explicit service account credentials
         if (this.credentials) {
-          // Parse credentials if it's a string
           let parsedCredentials = this.credentials;
           if (typeof this.credentials === 'string') {
             try {
@@ -53,22 +73,72 @@ class GsmPluginInstance {
               throw new SchemaError('Invalid service account JSON format');
             }
           }
-          authConfig.credentials = parsedCredentials;
 
           // Extract projectId from credentials if not explicitly provided
           if (!this.projectId && parsedCredentials.project_id) {
             this.projectId = parsedCredentials.project_id;
           }
           debug('Using Service Account Credentials');
-        } else {
-          debug('Using Application Default Credentials');
+
+          const auth = new GoogleAuth({
+            scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+            credentials: parsedCredentials,
+            projectId: this.projectId,
+          });
+          debug('GSM auth client initialized for instance', this.id);
+          return auth;
         }
 
-        if (this.projectId) {
-          authConfig.projectId = this.projectId;
+        // Second priority: OIDC via Workload Identity Federation
+        if (this.workloadIdentityProvider) {
+          // Get OIDC token - either explicit or auto-detected from platform
+          let jwt: string | undefined = this.oidcToken;
+          if (!jwt) {
+            const result = await getOidcToken(this.workloadIdentityProvider);
+            jwt = result?.token;
+          }
+
+          if (jwt) {
+            debug('Using Workload Identity Federation with OIDC token');
+
+            // Build external account credentials JSON that GoogleAuth understands
+            const externalAccountConfig: Record<string, any> = {
+              type: 'external_account',
+              audience: this.workloadIdentityProvider,
+              subject_token_type: 'urn:ietf:params:oauth:token-type:jwt',
+              token_url: 'https://sts.googleapis.com/v1/token',
+              // Use file-sourced credential with a temp approach
+              credential_source: {
+                file: '', // placeholder - overridden below
+              },
+            };
+
+            if (this.serviceAccountEmail) {
+              const saUrl = 'https://iamcredentials.googleapis.com/v1/projects/-'
+                + `/serviceAccounts/${this.serviceAccountEmail}`
+                + ':generateAccessToken';
+              externalAccountConfig.service_account_impersonation_url = saUrl;
+            }
+
+            // GoogleAuth can accept external_account type credentials
+            const auth = new GoogleAuth({
+              scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+              credentials: externalAccountConfig as any,
+              projectId: this.projectId,
+            });
+
+            debug('GSM WIF auth client initialized for instance', this.id);
+            return auth;
+          }
+          debug('WIF configured but no OIDC token available, falling back');
         }
 
-        const auth = new GoogleAuth(authConfig);
+        // Third priority: Application Default Credentials
+        debug('Using Application Default Credentials');
+        const auth = new GoogleAuth({
+          scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+          projectId: this.projectId,
+        });
         debug('GSM auth client initialized for instance', this.id);
         return auth;
       } catch (err) {
@@ -76,6 +146,7 @@ class GsmPluginInstance {
         throw new SchemaError(`Failed to initialize Google Secret Manager client: ${errorMsg}`, {
           tip: [
             'Verify service account JSON is valid',
+            'For OIDC: Ensure workloadIdentityProvider is correctly configured',
             'For ADC: Run `gcloud auth application-default login`',
             'Check GOOGLE_APPLICATION_CREDENTIALS environment variable',
           ].join('\n'),
@@ -112,7 +183,7 @@ class GsmPluginInstance {
       const url = `https://secretmanager.googleapis.com/v1/${secretPath}:access`;
 
       const client = await auth.getClient();
-      const headers = await client.getRequestHeaders();
+      const headers = await client.getRequestHeaders() as unknown as Record<string, string>;
       const response = await fetch(url, { headers });
 
       if (!response.ok) {
@@ -189,14 +260,21 @@ plugin.registerRootDecorator({
       id,
       projectIdResolver: objArgs.projectId,
       credentialsResolver: objArgs.credentials,
+      workloadIdentityProviderResolver: objArgs.workloadIdentityProvider,
+      serviceAccountEmailResolver: objArgs.serviceAccountEmail,
+      oidcTokenResolver: objArgs.oidcToken,
     };
   },
   async execute({
     id, projectIdResolver, credentialsResolver,
+    workloadIdentityProviderResolver, serviceAccountEmailResolver, oidcTokenResolver,
   }) {
     const projectId = await projectIdResolver?.resolve();
     const credentials = await credentialsResolver?.resolve();
-    pluginInstances[id].setAuth(projectId, credentials);
+    const workloadIdentityProvider = await workloadIdentityProviderResolver?.resolve();
+    const serviceAccountEmail = await serviceAccountEmailResolver?.resolve();
+    const oidcToken = await oidcTokenResolver?.resolve();
+    pluginInstances[id].setAuth(projectId, credentials, workloadIdentityProvider, serviceAccountEmail, oidcToken);
   },
 });
 

@@ -148,6 +148,7 @@ export default defineConfig({
           items: [
             { label: 'Schema', slug: 'guides/schema' },
             { label: 'Secrets', slug: 'guides/secrets' },
+            { label: 'OIDC Workload Identity', slug: 'guides/oidc', badge: 'new' },
             { label: 'Environments', slug: 'guides/environments' },
             { label: 'Imports', slug: 'guides/import' },
             { label: 'Plugins', slug: 'guides/plugins' },
