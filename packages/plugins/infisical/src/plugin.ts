@@ -1,5 +1,6 @@
 import { type Resolver, plugin } from 'varlock/plugin-lib';
 import { InfisicalSDK } from '@infisical/sdk';
+import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;
 
@@ -28,6 +29,10 @@ class InfisicalPluginInstance {
   private clientId?: string;
   /** Client Secret for Universal Auth */
   private clientSecret?: string;
+  /** Identity ID for OIDC auth */
+  private identityId?: string;
+  /** Explicit OIDC token override */
+  private oidcToken?: string;
   /** Optional default secret path */
   private secretPath?: string;
 
@@ -42,14 +47,18 @@ class InfisicalPluginInstance {
     clientSecret: any,
     siteUrl?: string,
     secretPath?: string,
+    identityId?: any,
+    oidcToken?: any,
   ) {
     if (projectId && typeof projectId === 'string') this.projectId = projectId;
     if (environment && typeof environment === 'string') this.environment = environment;
     if (clientId && typeof clientId === 'string') this.clientId = clientId;
     if (clientSecret && typeof clientSecret === 'string') this.clientSecret = clientSecret;
+    if (identityId && typeof identityId === 'string') this.identityId = identityId;
+    if (oidcToken && typeof oidcToken === 'string') this.oidcToken = oidcToken;
     this.siteUrl = siteUrl;
     this.secretPath = secretPath;
-    debug('infisical instance', this.id, 'set auth - projectId:', projectId, 'environment:', environment);
+    debug('infisical instance', this.id, 'set auth - projectId:', projectId, 'environment:', environment, 'hasIdentityId:', !!identityId);
   }
 
   private infisicalClientPromise?: Promise<InfisicalSDK>;
@@ -57,9 +66,13 @@ class InfisicalPluginInstance {
   private async initClient() {
     if (this.infisicalClientPromise) return this.infisicalClientPromise;
 
-    if (!this.clientId || !this.clientSecret) {
-      throw new SchemaError('Infisical client ID and secret are required', {
-        tip: 'Set clientId and clientSecret in @initInfisical() decorator',
+    if (!this.clientId && !this.identityId) {
+      throw new SchemaError('Infisical authentication is required', {
+        tip: [
+          'Use one of the following:',
+          '  1. Universal Auth: @initInfisical(clientId=..., clientSecret=...)',
+          '  2. OIDC Auth: @initInfisical(identityId=...) for deployed environments',
+        ].join('\n'),
       });
     }
 
@@ -72,19 +85,45 @@ class InfisicalPluginInstance {
 
         const client = new InfisicalSDK(clientConfig);
 
-        // Authenticate using Universal Auth
-        await client.auth().universalAuth.login({
-          clientId: this.clientId!,
-          clientSecret: this.clientSecret!,
-        });
+        if (this.clientId && this.clientSecret) {
+          // Authenticate using Universal Auth
+          await client.auth().universalAuth.login({
+            clientId: this.clientId,
+            clientSecret: this.clientSecret,
+          });
+          debug('Infisical client initialized with Universal Auth');
+        } else if (this.identityId) {
+          // Authenticate using OIDC
+          let jwt: string | undefined = this.oidcToken;
+          if (!jwt) {
+            const result = await getOidcToken();
+            jwt = result?.token;
+          }
 
-        debug('Infisical client initialized successfully');
+          if (!jwt) {
+            throw new SchemaError('OIDC auth configured but no token available', {
+              tip: [
+                'Ensure you are running in an environment that provides OIDC tokens:',
+                '  - Vercel, GitHub Actions, Fly.io, GCP Cloud Run, GitLab CI',
+                'Or provide an explicit token via @initInfisical(oidcToken=...)',
+              ].join('\n'),
+            });
+          }
+
+          await (client.auth() as any).oidcAuth.login({
+            identityId: this.identityId,
+            jwt,
+          });
+          debug('Infisical client initialized with OIDC Auth');
+        }
+
         return client;
       } catch (err: any) {
+        if (err instanceof SchemaError) throw err;
         const errorMsg = err?.message || String(err);
         throw new SchemaError(`Failed to initialize Infisical client: ${errorMsg}`, {
           tip: [
-            'Verify client ID and secret are correct',
+            'Verify your authentication credentials are correct',
             'Check if your machine identity has access to the project',
             'If using self-hosted Infisical, verify siteUrl is correct',
           ].join('\n'),
@@ -244,14 +283,18 @@ plugin.registerRootDecorator({
       });
     }
 
-    if (!objArgs.clientId) {
-      throw new SchemaError('clientId is required', {
-        tip: 'Add clientId parameter: @initInfisical(clientId=$INFISICAL_CLIENT_ID, ...)',
+    // Either clientId+clientSecret OR identityId is required
+    if (!objArgs.clientId && !objArgs.identityId) {
+      throw new SchemaError('Authentication is required: provide clientId+clientSecret or identityId for OIDC', {
+        tip: [
+          'Option 1 - Universal Auth: @initInfisical(clientId=$INFISICAL_CLIENT_ID, clientSecret=$INFISICAL_CLIENT_SECRET, ...)',
+          'Option 2 - OIDC Auth: @initInfisical(identityId=your-identity-id, ...)',
+        ].join('\n'),
       });
     }
 
-    if (!objArgs.clientSecret) {
-      throw new SchemaError('clientSecret is required', {
+    if (objArgs.clientId && !objArgs.clientSecret) {
+      throw new SchemaError('clientSecret is required when using clientId', {
         tip: 'Add clientSecret parameter: @initInfisical(clientSecret=$INFISICAL_CLIENT_SECRET, ...)',
       });
     }
@@ -279,6 +322,8 @@ plugin.registerRootDecorator({
       environmentResolver: objArgs.environment,
       clientIdResolver: objArgs.clientId,
       clientSecretResolver: objArgs.clientSecret,
+      identityIdResolver: objArgs.identityId,
+      oidcTokenResolver: objArgs.oidcToken,
     };
   },
   async execute({
@@ -289,6 +334,8 @@ plugin.registerRootDecorator({
     environmentResolver,
     clientIdResolver,
     clientSecretResolver,
+    identityIdResolver,
+    oidcTokenResolver,
   }) {
     // even if these are empty, we can't throw errors yet
     // in case the instance is never actually used
@@ -296,6 +343,8 @@ plugin.registerRootDecorator({
     const environment = await environmentResolver?.resolve();
     const clientId = await clientIdResolver?.resolve();
     const clientSecret = await clientSecretResolver?.resolve();
+    const identityId = await identityIdResolver?.resolve();
+    const oidcToken = await oidcTokenResolver?.resolve();
 
     pluginInstances[id].setAuth(
       projectId,
@@ -304,6 +353,8 @@ plugin.registerRootDecorator({
       clientSecret,
       siteUrl,
       secretPath,
+      identityId,
+      oidcToken,
     );
   },
 });

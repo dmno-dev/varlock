@@ -3,6 +3,7 @@ import ky from 'ky';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;
 
@@ -25,7 +26,8 @@ const FIX_AUTH_TIP = [
   'Verify your Vault credentials are configured correctly. Use one of the following options:',
   '  1. Provide a token explicitly via @initHcpVault(token=$VAULT_TOKEN)',
   '  2. Use AppRole auth via @initHcpVault(roleId=..., secretId=...)',
-  '  3. Login via the vault CLI (vault login) - the ~/.vault-token file will be used automatically',
+  '  3. Use JWT/OIDC auth via @initHcpVault(jwtRole=...) for deployed environments',
+  '  4. Login via the vault CLI (vault login) - the ~/.vault-token file will be used automatically',
 ].join('\n');
 
 interface CachedToken {
@@ -41,6 +43,9 @@ class VaultPluginInstance {
   private secretId?: string;
   private defaultPath?: string;
   private pathPrefix?: string;
+  private jwtRole?: string;
+  private jwtAuthPath?: string;
+  private oidcToken?: string;
   private cachedToken?: CachedToken;
   private secretCache = new Map<string, Promise<Record<string, any>>>();
 
@@ -56,6 +61,9 @@ class VaultPluginInstance {
     secretId?: any,
     defaultPath?: any,
     pathPrefix?: any,
+    jwtRole?: any,
+    jwtAuthPath?: any,
+    oidcToken?: any,
   ) {
     this.url = url ? String(url).replace(/\/+$/, '') : undefined;
     this.namespace = namespace ? String(namespace) : undefined;
@@ -64,6 +72,9 @@ class VaultPluginInstance {
     this.secretId = secretId ? String(secretId) : undefined;
     this.defaultPath = defaultPath ? String(defaultPath) : undefined;
     this.pathPrefix = pathPrefix ? String(pathPrefix) : undefined;
+    this.jwtRole = jwtRole ? String(jwtRole) : undefined;
+    this.jwtAuthPath = jwtAuthPath ? String(jwtAuthPath) : 'jwt';
+    this.oidcToken = oidcToken ? String(oidcToken) : undefined;
     debug(
       'vault instance',
       this.id,
@@ -73,6 +84,8 @@ class VaultPluginInstance {
       !!this.token,
       'hasRoleId:',
       !!this.roleId,
+      'jwtRole:',
+      this.jwtRole,
       'namespace:',
       this.namespace,
       'defaultPath:',
@@ -100,7 +113,12 @@ class VaultPluginInstance {
       return this.loginWithAppRole();
     }
 
-    // 3. Vault/OpenBao CLI token helper files
+    // 3. JWT/OIDC auth
+    if (this.jwtRole) {
+      return this.loginWithJwt();
+    }
+
+    // 4. Vault/OpenBao CLI token helper files
     for (const tokenFile of ['.vault-token', '.bao-token']) {
       try {
         const tokenPath = join(homedir(), tokenFile);
@@ -117,6 +135,76 @@ class VaultPluginInstance {
     throw new SchemaError('No Vault authentication found', {
       tip: FIX_AUTH_TIP,
     });
+  }
+
+  private async loginWithJwt(): Promise<string> {
+    if (!this.url) throw new SchemaError('Vault URL is required for JWT auth');
+
+    // Get OIDC token - either explicit or auto-detected from platform
+    let jwt: string | undefined = this.oidcToken;
+    if (!jwt) {
+      const result = await getOidcToken();
+      jwt = result?.token;
+    }
+
+    if (!jwt) {
+      throw new SchemaError('JWT/OIDC auth configured but no token available', {
+        tip: [
+          'Ensure you are running in an environment that provides OIDC tokens:',
+          '  - Vercel (VERCEL_OIDC_TOKEN)',
+          '  - GitHub Actions (requires id-token: write permission)',
+          '  - Fly.io, GCP Cloud Run, GitLab CI',
+          'Or provide an explicit token via @initHcpVault(oidcToken=...)',
+        ].join('\n'),
+      });
+    }
+
+    try {
+      const headers: Record<string, string> = {};
+      if (this.namespace) headers['X-Vault-Namespace'] = this.namespace;
+
+      const authPath = this.jwtAuthPath || 'jwt';
+      const response = await ky.post(`${this.url}/v1/auth/${authPath}/login`, {
+        json: { role: this.jwtRole, jwt },
+        headers,
+      }).json<{ auth: { client_token: string; lease_duration: number } }>();
+
+      const clientToken = response.auth.client_token;
+      const leaseDuration = response.auth.lease_duration;
+
+      this.cachedToken = {
+        token: clientToken,
+        expiresAt: Date.now() + (leaseDuration * 1000),
+      };
+
+      debug('Successfully authenticated with JWT/OIDC');
+      return clientToken;
+    } catch (err: any) {
+      let errorMessage = 'JWT/OIDC authentication failed';
+      let errorTip: string | undefined;
+
+      if (err.response) {
+        const status = err.response.status;
+        if (status === 400) {
+          errorMessage = 'JWT login failed - invalid token or role';
+          errorTip = [
+            'Verify your JWT auth configuration:',
+            '  - jwtRole: Must match a role configured in Vault\'s JWT auth method',
+            '  - The JWT token must satisfy the role\'s bound claims',
+            `  - Auth path: auth/${this.jwtAuthPath || 'jwt'}`,
+          ].join('\n');
+        } else if (status === 403) {
+          errorMessage = 'JWT login denied - token does not meet role requirements';
+          errorTip = 'Check the bound_claims and bound_audiences on the Vault JWT role';
+        } else {
+          errorMessage = `JWT login failed (HTTP ${status})`;
+        }
+      } else if (err.message) {
+        errorMessage = `JWT login error: ${err.message}`;
+      }
+
+      throw new SchemaError(errorMessage, { tip: errorTip });
+    }
   }
 
   private async loginWithAppRole(): Promise<string> {
@@ -361,6 +449,9 @@ plugin.registerRootDecorator({
       secretIdResolver: objArgs.secretId,
       defaultPathResolver: objArgs.defaultPath,
       pathPrefixResolver: objArgs.pathPrefix,
+      jwtRoleResolver: objArgs.jwtRole,
+      jwtAuthPathResolver: objArgs.jwtAuthPath,
+      oidcTokenResolver: objArgs.oidcToken,
     };
   },
   async execute({
@@ -372,6 +463,9 @@ plugin.registerRootDecorator({
     secretIdResolver,
     defaultPathResolver,
     pathPrefixResolver,
+    jwtRoleResolver,
+    jwtAuthPathResolver,
+    oidcTokenResolver,
   }) {
     const url = await urlResolver.resolve();
     const namespace = await namespaceResolver?.resolve();
@@ -380,7 +474,21 @@ plugin.registerRootDecorator({
     const secretId = await secretIdResolver?.resolve();
     const defaultPath = await defaultPathResolver?.resolve();
     const pathPrefix = await pathPrefixResolver?.resolve();
-    pluginInstances[id].setAuth(url, namespace, token, roleId, secretId, defaultPath, pathPrefix);
+    const jwtRole = await jwtRoleResolver?.resolve();
+    const jwtAuthPath = await jwtAuthPathResolver?.resolve();
+    const oidcToken = await oidcTokenResolver?.resolve();
+    pluginInstances[id].setAuth(
+      url,
+      namespace,
+      token,
+      roleId,
+      secretId,
+      defaultPath,
+      pathPrefix,
+      jwtRole,
+      jwtAuthPath,
+      oidcToken,
+    );
   },
 });
 
