@@ -313,7 +313,7 @@ async function handleDeploy(args: Array<string>) {
   const secretCount = Object.keys(secretsObj).filter((k) => !k.startsWith('__VARLOCK_ENV')).length;
   console.log(`\x1b[36m✨ Deploying with varlock: ${varCount} var${varCount !== 1 ? 's' : ''}, ${secretCount} secret${secretCount !== 1 ? 's' : ''} 🧙🔒\x1b[0m`);
 
-  let exitCode = 0;
+  let exitCode = process.exitCode ?? 0;
   try {
     debug('deploy: spawning wrangler');
     exitCode = await spawnWrangler([...args, ...varFlags, '--secrets-file', tmp.filePath, '--keep-vars=false']);
@@ -348,7 +348,7 @@ async function handleTypes(args: Array<string>) {
   debug('types: starting FIFO serve');
   const handle = tmp.startServing(() => envFileLines.join('\n'));
 
-  let exitCode = 0;
+  let exitCode = process.exitCode ?? 0;
   try {
     debug('types: spawning wrangler');
     exitCode = await spawnWrangler([...args, '--env-file', tmp.filePath]);
