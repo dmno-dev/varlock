@@ -10,7 +10,9 @@ import {
   GetParameterCommand,
   type GetParameterCommandOutput,
 } from '@aws-sdk/client-ssm';
+import { STSClient, AssumeRoleWithWebIdentityCommand } from '@aws-sdk/client-sts';
 import { fromIni } from '@aws-sdk/credential-providers';
+import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
@@ -35,8 +37,16 @@ const FIX_AUTH_TIP = [
   '  1. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables',
   '  2. Configure ~/.aws/credentials file (run: aws configure)',
   '  3. Provide credentials explicitly via @initAws(accessKeyId=..., secretAccessKey=...)',
-  '  4. Use IAM roles (if running on AWS infrastructure)',
+  '  4. Use OIDC via @initAws(oidcRoleArn=...) for deployed environments (Vercel, GitHub Actions, etc.)',
+  '  5. Use IAM roles (if running on AWS infrastructure)',
 ].join('\n');
+
+interface OidcCredentials {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken: string;
+  expiration: number;
+}
 
 class AwsPluginInstance {
   private region?: string;
@@ -45,6 +55,10 @@ class AwsPluginInstance {
   private sessionToken?: string;
   private profile?: string;
   private namePrefix?: string;
+  private oidcRoleArn?: string;
+  private oidcSessionName?: string;
+  private oidcToken?: string;
+  private cachedOidcCredentials?: OidcCredentials;
 
   constructor(
     readonly id: string,
@@ -58,6 +72,9 @@ class AwsPluginInstance {
     sessionToken?: any,
     profile?: any,
     namePrefix?: any,
+    oidcRoleArn?: any,
+    oidcSessionName?: any,
+    oidcToken?: any,
   ) {
     this.region = region ? String(region) : undefined;
     this.accessKeyId = accessKeyId ? String(accessKeyId) : undefined;
@@ -65,6 +82,9 @@ class AwsPluginInstance {
     this.sessionToken = sessionToken ? String(sessionToken) : undefined;
     this.profile = profile;
     this.namePrefix = namePrefix ? String(namePrefix) : undefined;
+    this.oidcRoleArn = oidcRoleArn ? String(oidcRoleArn) : undefined;
+    this.oidcSessionName = oidcSessionName ? String(oidcSessionName) : undefined;
+    this.oidcToken = oidcToken ? String(oidcToken) : undefined;
     debug(
       'aws instance',
       this.id,
@@ -76,9 +96,93 @@ class AwsPluginInstance {
       !!this.accessKeyId,
       'hasSecretKey:',
       !!this.secretAccessKey,
+      'oidcRoleArn:',
+      this.oidcRoleArn,
       'namePrefix:',
       this.namePrefix,
     );
+  }
+
+  private async getOidcCredentials(): Promise<OidcCredentials | undefined> {
+    // Return cached credentials if still valid (with 5 min buffer)
+    if (this.cachedOidcCredentials && this.cachedOidcCredentials.expiration > Date.now() + 5 * 60 * 1000) {
+      debug('Using cached OIDC credentials');
+      return this.cachedOidcCredentials;
+    }
+
+    // Get OIDC token - either explicit or auto-detected from platform
+    let jwt: string | undefined = this.oidcToken;
+    if (!jwt) {
+      const result = await getOidcToken('sts.amazonaws.com');
+      jwt = result?.token;
+    }
+
+    if (!jwt) {
+      debug('No OIDC token available');
+      return undefined;
+    }
+
+    debug('Exchanging OIDC token for AWS credentials via STS');
+    const stsClient = new STSClient({ region: this.region });
+    const response = await stsClient.send(new AssumeRoleWithWebIdentityCommand({
+      RoleArn: this.oidcRoleArn,
+      WebIdentityToken: jwt,
+      RoleSessionName: this.oidcSessionName || 'varlock-session',
+    }));
+
+    if (!response.Credentials?.AccessKeyId
+      || !response.Credentials?.SecretAccessKey
+      || !response.Credentials?.SessionToken) {
+      throw new SchemaError('STS AssumeRoleWithWebIdentity returned incomplete credentials', {
+        tip: 'Verify the IAM role trust policy allows your OIDC provider',
+      });
+    }
+
+    this.cachedOidcCredentials = {
+      accessKeyId: response.Credentials.AccessKeyId,
+      secretAccessKey: response.Credentials.SecretAccessKey,
+      sessionToken: response.Credentials.SessionToken,
+      expiration: response.Credentials.Expiration?.getTime() || Date.now() + 3600 * 1000,
+    };
+
+    debug('OIDC credentials obtained, expires:', new Date(this.cachedOidcCredentials.expiration).toISOString());
+    return this.cachedOidcCredentials;
+  }
+
+  private async getCredentials(): Promise<{ credentials?: any; credentialDescription: string }> {
+    if (this.accessKeyId && this.secretAccessKey) {
+      return {
+        credentials: {
+          accessKeyId: this.accessKeyId,
+          secretAccessKey: this.secretAccessKey,
+          sessionToken: this.sessionToken,
+        },
+        credentialDescription: 'explicit AWS credentials',
+      };
+    }
+
+    if (this.oidcRoleArn) {
+      const oidcCreds = await this.getOidcCredentials();
+      if (oidcCreds) {
+        return {
+          credentials: {
+            accessKeyId: oidcCreds.accessKeyId,
+            secretAccessKey: oidcCreds.secretAccessKey,
+            sessionToken: oidcCreds.sessionToken,
+          },
+          credentialDescription: 'OIDC credentials',
+        };
+      }
+    }
+
+    if (this.profile) {
+      return {
+        credentials: fromIni({ profile: this.profile }),
+        credentialDescription: `AWS profile: ${this.profile}`,
+      };
+    }
+
+    return { credentialDescription: 'default AWS credential chain' };
   }
 
   applyNamePrefix(name: string): string {
@@ -94,28 +198,13 @@ class AwsPluginInstance {
 
     this.secretsManagerClientPromise = (async () => {
       try {
-        const clientConfig: any = {
+        const { credentials, credentialDescription } = await this.getCredentials();
+        debug('Using', credentialDescription);
+
+        const client = new SecretsManagerClient({
           region: this.region,
-        };
-
-        if (this.accessKeyId && this.secretAccessKey) {
-          // Use explicit credentials
-          clientConfig.credentials = {
-            accessKeyId: this.accessKeyId,
-            secretAccessKey: this.secretAccessKey,
-            sessionToken: this.sessionToken,
-          };
-          debug('Using explicit AWS credentials');
-        } else if (this.profile) {
-          // Use named profile from ~/.aws/credentials
-          clientConfig.credentials = fromIni({ profile: this.profile });
-          debug('Using AWS profile:', this.profile);
-        } else {
-          // Use default AWS credential chain (env vars, ~/.aws/credentials, IAM roles)
-          debug('Using default AWS credential chain');
-        }
-
-        const client = new SecretsManagerClient(clientConfig);
+          ...(credentials && { credentials }),
+        });
         debug('AWS Secrets Manager client initialized for instance', this.id);
         return client;
       } catch (err) {
@@ -135,28 +224,13 @@ class AwsPluginInstance {
 
     this.ssmClientPromise = (async () => {
       try {
-        const clientConfig: any = {
+        const { credentials, credentialDescription } = await this.getCredentials();
+        debug('Using', credentialDescription);
+
+        const client = new SSMClient({
           region: this.region,
-        };
-
-        if (this.accessKeyId && this.secretAccessKey) {
-          // Use explicit credentials
-          clientConfig.credentials = {
-            accessKeyId: this.accessKeyId,
-            secretAccessKey: this.secretAccessKey,
-            sessionToken: this.sessionToken,
-          };
-          debug('Using explicit AWS credentials');
-        } else if (this.profile) {
-          // Use named profile from ~/.aws/credentials
-          clientConfig.credentials = fromIni({ profile: this.profile });
-          debug('Using AWS profile:', this.profile);
-        } else {
-          // Use default AWS credential chain (env vars, ~/.aws/credentials, IAM roles)
-          debug('Using default AWS credential chain');
-        }
-
-        const client = new SSMClient(clientConfig);
+          ...(credentials && { credentials }),
+        });
         debug('AWS SSM client initialized for instance', this.id);
         return client;
       } catch (err) {
@@ -423,6 +497,9 @@ plugin.registerRootDecorator({
       secretAccessKeyResolver: objArgs.secretAccessKey,
       sessionTokenResolver: objArgs.sessionToken,
       namePrefixResolver: objArgs.namePrefix,
+      oidcRoleArnResolver: objArgs.oidcRoleArn,
+      oidcSessionNameResolver: objArgs.oidcSessionName,
+      oidcTokenResolver: objArgs.oidcToken,
     };
   },
   async execute({
@@ -433,6 +510,9 @@ plugin.registerRootDecorator({
     secretAccessKeyResolver,
     sessionTokenResolver,
     namePrefixResolver,
+    oidcRoleArnResolver,
+    oidcSessionNameResolver,
+    oidcTokenResolver,
   }) {
     const region = await regionResolver.resolve();
     const accessKeyId = await accessKeyIdResolver?.resolve();
@@ -440,7 +520,20 @@ plugin.registerRootDecorator({
     const sessionToken = await sessionTokenResolver?.resolve();
     const profile = await profileResolver?.resolve();
     const namePrefix = await namePrefixResolver?.resolve();
-    pluginInstances[id].setAuth(region, accessKeyId, secretAccessKey, sessionToken, profile, namePrefix);
+    const oidcRoleArn = await oidcRoleArnResolver?.resolve();
+    const oidcSessionName = await oidcSessionNameResolver?.resolve();
+    const oidcToken = await oidcTokenResolver?.resolve();
+    pluginInstances[id].setAuth(
+      region,
+      accessKeyId,
+      secretAccessKey,
+      sessionToken,
+      profile,
+      namePrefix,
+      oidcRoleArn,
+      oidcSessionName,
+      oidcToken,
+    );
   },
 });
 

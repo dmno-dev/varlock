@@ -1,5 +1,6 @@
 import { type Resolver, plugin } from 'varlock/plugin-lib';
 import ky from 'ky';
+import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;
 
@@ -19,8 +20,8 @@ const DEFAULT_API_URL = 'https://api.akeyless.io';
 const FIX_AUTH_TIP = [
   'Verify your Akeyless credentials are configured correctly:',
   '  1. Provide an API Key via @initAkeyless(accessId=$AKEYLESS_ACCESS_ID, accessKey=$AKEYLESS_ACCESS_KEY)',
-  '  2. Ensure the Access ID starts with "p-" (API Key auth)',
-  '  3. Verify the Access Key matches the Access ID in the Akeyless Console',
+  '  2. Use OIDC via @initAkeyless(oidcAccessId=...) for deployed environments',
+  '  3. Ensure the Access ID starts with "p-" (API Key auth) or matches your OIDC auth method',
 ].join('\n');
 
 interface CachedToken {
@@ -48,6 +49,8 @@ function extractJsonKey(
 class AkeylessPluginInstance {
   private accessId?: string;
   private accessKey?: string;
+  private oidcAccessId?: string;
+  private oidcToken?: string;
   private apiUrl: string = DEFAULT_API_URL;
   private pathPrefix?: string;
   private cachedToken?: CachedToken;
@@ -62,9 +65,13 @@ class AkeylessPluginInstance {
     accessKey?: any,
     apiUrl?: any,
     pathPrefix?: any,
+    oidcAccessId?: any,
+    oidcToken?: any,
   ) {
     this.accessId = accessId ? String(accessId) : undefined;
     this.accessKey = accessKey ? String(accessKey) : undefined;
+    this.oidcAccessId = oidcAccessId ? String(oidcAccessId) : undefined;
+    this.oidcToken = oidcToken ? String(oidcToken) : undefined;
     if (apiUrl) this.apiUrl = String(apiUrl).replace(/\/+$/, '');
     this.pathPrefix = pathPrefix ? String(pathPrefix) : undefined;
     debug(
@@ -76,6 +83,8 @@ class AkeylessPluginInstance {
       !!this.accessId,
       'hasAccessKey:',
       !!this.accessKey,
+      'oidcAccessId:',
+      this.oidcAccessId,
       'pathPrefix:',
       this.pathPrefix,
     );
@@ -97,21 +106,50 @@ class AkeylessPluginInstance {
       return this.cachedToken.token;
     }
 
-    if (!this.accessId || !this.accessKey) {
-      throw new SchemaError('Akeyless Access ID and Access Key are required', {
+    // Determine auth method
+    let authPayload: Record<string, string>;
+
+    if (this.accessId && this.accessKey) {
+      // API Key auth
+      debug('Authenticating with Akeyless API Key');
+      authPayload = {
+        'access-id': this.accessId,
+        'access-key': this.accessKey,
+        'access-type': 'access_key',
+      };
+    } else if (this.oidcAccessId) {
+      // OIDC auth
+      let jwt: string | undefined = this.oidcToken;
+      if (!jwt) {
+        const result = await getOidcToken();
+        jwt = result?.token;
+      }
+
+      if (!jwt) {
+        throw new SchemaError('OIDC auth configured but no token available', {
+          tip: [
+            'Ensure you are running in an environment that provides OIDC tokens:',
+            '  - Vercel, GitHub Actions, Fly.io, GCP Cloud Run, GitLab CI',
+            'Or provide an explicit token via @initAkeyless(oidcToken=...)',
+          ].join('\n'),
+        });
+      }
+
+      debug('Authenticating with Akeyless OIDC');
+      authPayload = {
+        'access-id': this.oidcAccessId,
+        'access-type': 'oidc',
+        'oidc-token': jwt,
+      };
+    } else {
+      throw new SchemaError('Akeyless authentication is required', {
         tip: FIX_AUTH_TIP,
       });
     }
 
     try {
-      debug('Authenticating with Akeyless API Key');
-
       const response = await ky.post(`${this.apiUrl}/auth`, {
-        json: {
-          'access-id': this.accessId,
-          'access-key': this.accessKey,
-          'access-type': 'access_key',
-        },
+        json: authPayload,
       }).json<{ token: string; expiry?: number }>();
 
       const token = response.token;
@@ -312,15 +350,18 @@ plugin.registerRootDecorator({
       throw new SchemaError(`Instance with id "${id}" already initialized`);
     }
 
-    // accessId is required
-    if (!objArgs.accessId) {
-      throw new SchemaError('accessId parameter is required', {
-        tip: 'Provide your Akeyless Access ID: @initAkeyless(accessId=$AKEYLESS_ACCESS_ID, accessKey=$AKEYLESS_ACCESS_KEY)',
+    // Either accessId+accessKey OR oidcAccessId is required
+    if (!objArgs.accessId && !objArgs.oidcAccessId) {
+      throw new SchemaError('Authentication is required: provide accessId+accessKey or oidcAccessId for OIDC', {
+        tip: [
+          'Option 1 - API Key: @initAkeyless(accessId=$AKEYLESS_ACCESS_ID, accessKey=$AKEYLESS_ACCESS_KEY)',
+          'Option 2 - OIDC: @initAkeyless(oidcAccessId=your-access-id)',
+        ].join('\n'),
       });
     }
-    // accessKey is required
-    if (!objArgs.accessKey) {
-      throw new SchemaError('accessKey parameter is required', {
+
+    if (objArgs.accessId && !objArgs.accessKey) {
+      throw new SchemaError('accessKey is required when using accessId', {
         tip: 'Provide your Akeyless Access Key: @initAkeyless(accessId=$AKEYLESS_ACCESS_ID, accessKey=$AKEYLESS_ACCESS_KEY)',
       });
     }
@@ -333,16 +374,21 @@ plugin.registerRootDecorator({
       accessKeyResolver: objArgs.accessKey,
       apiUrlResolver: objArgs.apiUrl,
       pathPrefixResolver: objArgs.pathPrefix,
+      oidcAccessIdResolver: objArgs.oidcAccessId,
+      oidcTokenResolver: objArgs.oidcToken,
     };
   },
   async execute({
-    id, accessIdResolver, accessKeyResolver, apiUrlResolver, pathPrefixResolver,
+    id, accessIdResolver, accessKeyResolver, apiUrlResolver,
+    pathPrefixResolver, oidcAccessIdResolver, oidcTokenResolver,
   }) {
-    const accessId = await accessIdResolver.resolve();
-    const accessKey = await accessKeyResolver.resolve();
+    const accessId = await accessIdResolver?.resolve();
+    const accessKey = await accessKeyResolver?.resolve();
     const apiUrl = await apiUrlResolver?.resolve();
     const pathPrefix = await pathPrefixResolver?.resolve();
-    pluginInstances[id].setAuth(accessId, accessKey, apiUrl, pathPrefix);
+    const oidcAccessId = await oidcAccessIdResolver?.resolve();
+    const oidcToken = await oidcTokenResolver?.resolve();
+    pluginInstances[id].setAuth(accessId, accessKey, apiUrl, pathPrefix, oidcAccessId, oidcToken);
   },
 });
 

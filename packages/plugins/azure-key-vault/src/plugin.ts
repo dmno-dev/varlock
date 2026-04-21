@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
+import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
@@ -38,6 +39,7 @@ class AzurePluginInstance {
   private tenantId?: string;
   private clientId?: string;
   private clientSecret?: string;
+  private oidcToken?: string;
   private cachedToken?: CachedToken;
   private secretCache = new Map<string, Promise<string>>();
 
@@ -51,11 +53,13 @@ class AzurePluginInstance {
     tenantId?: any,
     clientId?: any,
     clientSecret?: any,
+    oidcToken?: any,
   ) {
     this.vaultUrl = vaultUrl ? String(vaultUrl) : undefined;
     this.tenantId = tenantId ? String(tenantId) : undefined;
     this.clientId = clientId ? String(clientId) : undefined;
     this.clientSecret = clientSecret ? String(clientSecret) : undefined;
+    this.oidcToken = oidcToken ? String(oidcToken) : undefined;
     debug(
       'azure instance',
       this.id,
@@ -67,6 +71,8 @@ class AzurePluginInstance {
       !!this.clientId,
       'hasClientSecret:',
       !!this.clientSecret,
+      'hasOidcToken:',
+      !!this.oidcToken,
     );
   }
 
@@ -204,6 +210,47 @@ class AzurePluginInstance {
     return undefined;
   }
 
+  private async getFederatedCredentialToken(tenantId: string, clientId: string): Promise<string | undefined> {
+    // Get OIDC token - either explicit or auto-detected from platform
+    let jwt: string | undefined = this.oidcToken;
+    if (!jwt) {
+      const result = await getOidcToken('api://AzureADTokenExchange');
+      jwt = result?.token;
+    }
+
+    if (!jwt) {
+      debug('No OIDC token available for federated credential');
+      return undefined;
+    }
+
+    try {
+      debug('Exchanging OIDC token for Azure access token via federated credential');
+      const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+
+      const response = await ky.post(tokenUrl, {
+        body: new URLSearchParams({
+          grant_type: 'client_credentials',
+          client_id: clientId,
+          client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+          client_assertion: jwt,
+          scope: 'https://vault.azure.net/.default',
+        }),
+      }).json<AzureTokenResponse>();
+
+      // Cache the token
+      this.cachedToken = {
+        token: response.access_token,
+        expiresAt: Date.now() + (response.expires_in * 1000),
+      };
+
+      debug('Successfully obtained Azure access token via federated credential');
+      return response.access_token;
+    } catch (err: any) {
+      debug('Federated credential exchange failed:', err.message || err);
+      return undefined;
+    }
+  }
+
   private async getAccessToken(): Promise<string> {
     // Check if we have a cached token that's still valid (with 5 min buffer)
     if (this.cachedToken && this.cachedToken.expiresAt > Date.now() + 5 * 60 * 1000) {
@@ -222,14 +269,23 @@ class AzurePluginInstance {
       return this.getServicePrincipalToken(tenantId, clientId, clientSecret);
     }
 
-    // Second priority: Try Managed Identity (for Azure-hosted apps)
+    // Second priority: OIDC federated credential (tenantId + clientId without clientSecret)
+    if (tenantId && clientId) {
+      const federatedToken = await this.getFederatedCredentialToken(tenantId, clientId);
+      if (federatedToken) {
+        debug('Using OIDC federated credential authentication');
+        return federatedToken;
+      }
+    }
+
+    // Third priority: Try Managed Identity (for Azure-hosted apps)
     const managedIdentityToken = await this.getManagedIdentityToken();
     if (managedIdentityToken) {
       debug('Using Managed Identity authentication');
       return managedIdentityToken;
     }
 
-    // Third priority: Fall back to Azure CLI authentication
+    // Fourth priority: Fall back to Azure CLI authentication
     const cliToken = await this.getAzureCliToken();
     if (cliToken) {
       debug('Using Azure CLI authentication');
@@ -243,12 +299,17 @@ class AzurePluginInstance {
         '  - Run: az login',
         '  - This will automatically work with varlock',
         '',
-        'Option 2: Use Managed Identity (for Azure-hosted apps)',
+        'Option 2: Use OIDC federated credential (for Vercel, GitHub Actions, etc.)',
+        '  - Provide tenantId and clientId via @initAzure(tenantId=..., clientId=...)',
+        '  - Configure a federated credential on your Azure App Registration',
+        '  - No client secret needed!',
+        '',
+        'Option 3: Use Managed Identity (for Azure-hosted apps)',
         '  - Enable system-assigned or user-assigned managed identity on your Azure resource',
         '  - Grant the identity "Key Vault Secrets User" role on your Key Vault',
         '  - No credentials needed in your code!',
         '',
-        'Option 3: Provide service principal credentials via @initAzure():',
+        'Option 4: Provide service principal credentials via @initAzure():',
         '  - tenantId: Your Azure AD tenant ID',
         '  - clientId: Your service principal application (client) ID',
         '  - clientSecret: Your service principal client secret',
@@ -462,6 +523,7 @@ plugin.registerRootDecorator({
       tenantIdResolver: objArgs.tenantId,
       clientIdResolver: objArgs.clientId,
       clientSecretResolver: objArgs.clientSecret,
+      oidcTokenResolver: objArgs.oidcToken,
     };
   },
   async execute({
@@ -470,12 +532,14 @@ plugin.registerRootDecorator({
     tenantIdResolver,
     clientIdResolver,
     clientSecretResolver,
+    oidcTokenResolver,
   }) {
     const vaultUrl = await vaultUrlResolver.resolve();
     const tenantId = await tenantIdResolver?.resolve();
     const clientId = await clientIdResolver?.resolve();
     const clientSecret = await clientSecretResolver?.resolve();
-    pluginInstances[id].setAuth(vaultUrl, tenantId, clientId, clientSecret);
+    const oidcToken = await oidcTokenResolver?.resolve();
+    pluginInstances[id].setAuth(vaultUrl, tenantId, clientId, clientSecret, oidcToken);
   },
 });
 
