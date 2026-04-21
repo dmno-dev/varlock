@@ -4,7 +4,9 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { scanFileForValues, walkDirectory, walkDirectoryAll, resolveTargetPaths } from '../scan.command';
+import {
+  scanFileForValues, walkDirectory, walkDirectoryAll, resolveTargetPaths,
+} from '../scan.command';
 
 describe('scanFileForValues', () => {
   let tempDir: string;
