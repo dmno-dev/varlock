@@ -8,6 +8,7 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 
 - ✅ Fetch secrets from Google Cloud Secret Manager
 - ✅ Auto-name secrets using config item keys
+- ✅ OIDC Workload Identity Federation for Vercel, GitHub Actions, and other platforms
 - ✅ Application Default Credentials (ADC) or Service Account authentication
 - ✅ Versioned secret access (latest or specific version)
 - ✅ Multiple plugin instances for different projects
@@ -73,6 +74,23 @@ The `credentials` parameter accepts:
 - Object with the parsed service account key
 - If omitted, uses Application Default Credentials
 
+### OIDC Workload Identity Federation (For Vercel, GitHub Actions, etc.)
+
+If you're deploying on a platform that supports OIDC, you can authenticate without a service account key:
+
+```env-spec
+# @plugin(@varlock/google-secret-manager-plugin)
+# @initGsm(
+#   projectId=my-gcp-project,
+#   workloadIdentityProvider="//iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL/providers/PROVIDER",
+#   serviceAccountEmail="my-sa@my-project.iam.gserviceaccount.com"
+# )
+```
+
+The plugin auto-detects the OIDC token from your platform and exchanges it for GCP credentials via Workload Identity Federation. You need to set up a Workload Identity Pool and Provider in GCP.
+
+See the [OIDC Workload Identity guide](https://varlock.dev/guides/oidc/) for full setup instructions.
+
 ### Multiple Instances
 
 Connect to multiple GCP projects:
@@ -131,6 +149,9 @@ Root decorator to initialize a Google Secret Manager plugin instance.
 **Parameters:**
 - `projectId?: string` - GCP project ID (can be inferred from service account credentials)
 - `credentials?: string | object` - Service account JSON key (string or object). If omitted, uses Application Default Credentials
+- `workloadIdentityProvider?: string` - Full Workload Identity Provider resource name for OIDC federation
+- `serviceAccountEmail?: string` - Service account email for WIF impersonation
+- `oidcToken?: string` - Explicit OIDC JWT token (auto-detected from platform if not provided)
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### `gsm()`
