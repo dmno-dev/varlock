@@ -412,22 +412,30 @@ async function handleDev(args: Array<string>) {
   });
 
   // watch env source files for changes and restart wrangler with fresh data
+  const DEBOUNCE_MS = 300;
+  // force a restart if the last save event was more than this long after the previous restart,
+  // even when the resolved env is identical — handles repeated saves of an unchanged file
+  const FORCE_RESTART_IDLE_MS = 5000;
   let restartTimeout: ReturnType<typeof setTimeout> | undefined;
   let cachedGraphJson = loaded.json;
+  let lastRestartAt = 0;
   function scheduleRestart() {
     // debounce — multiple files may change at once (e.g. editor saves multiple files,
     // or macOS fs.watch() emits extra events for unchanged files)
     if (restartTimeout) clearTimeout(restartTimeout);
     restartTimeout = setTimeout(() => {
+      restartTimeout = undefined;
       try {
         const freshLoaded = loadSerializedGraph();
-        // compare serialized JSON strings — only restart when the resolved env actually changed
-        if (freshLoaded.json === cachedGraphJson) {
-          restartTimeout = undefined;
+        const now = Date.now();
+        const idleSinceLastRestart = now - lastRestartAt > FORCE_RESTART_IDLE_MS;
+        // skip restart only when env is unchanged AND a restart happened recently
+        if (freshLoaded.json === cachedGraphJson && !idleSinceLastRestart) {
           return;
         }
         cachedGraphJson = freshLoaded.json;
         loaded = freshLoaded;
+        lastRestartAt = now;
         cachedContent = formatEnvFileContent(freshLoaded);
         handle.update(cachedContent);
         console.log('[varlock-wrangler] env changed, restarting wrangler...');
@@ -435,7 +443,7 @@ async function handleDev(args: Array<string>) {
       } catch (err) {
         console.error('[varlock-wrangler] failed to re-resolve env:', (err as Error).message);
       }
-    }, 300);
+    }, DEBOUNCE_MS);
   }
 
   // set up watchers on env source files
