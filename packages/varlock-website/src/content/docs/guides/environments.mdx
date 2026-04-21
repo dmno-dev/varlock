@@ -16,7 +16,7 @@ While many have traditionally shied away from using environment-specific `.env` 
 ### Process overrides
 `varlock` will always treat environment variables passed into the process with the most precedence. Generally, we recommend moving as much configuration as possible into your `.env` files, but there are cases where you may want to override specific values at runtime, either from the environment itself, or by prepending them to your command (e.g., `APP_ENV=prod pnpm run build`).
 
-At the very least, you'll often need to to inject an environment flag (e.g., `APP_ENV`) and a _secret-zero_ which allows access to the rest of your secrets.
+At the very least, you'll often need to inject an environment flag (e.g., `APP_ENV`) and a _secret-zero_ which allows access to the rest of your secrets in deployed environments. For local workflows, consider [device-local encryption](/guides/local-encryption/) to secure local secret-zero handling.
 
 That said, as a first step to adopting `varlock`, you could rely entirely on process overrides to inject all config values, but still benefit from having a clear schema with validation applied to them.
 

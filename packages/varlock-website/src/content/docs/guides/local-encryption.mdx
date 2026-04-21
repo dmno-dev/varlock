@@ -1,0 +1,147 @@
+---
+title: Local encryption
+description: Use varlock() to secure local untracked secrets with cross-platform encryption backends
+---
+
+Varlock includes built-in device-local encryption that lets you secure local untracked secrets (typically overrides in `.env.local`) directly in your `.env.*.local` files.
+
+## When to use this
+
+Local encryption is ideal for:
+- **Solo developers** who want to avoid plaintext local secret files
+- **Teams** where each developer manages their own local override secrets
+- **Reducing secret-zero dependence** for local workflows while still using external secret managers in deployed environments
+
+## Quick start
+
+1. Add your local secrets as plaintext in `.env.local` (which should be gitignored)
+2. Run `varlock encrypt --file .env.local` to encrypt them in-place
+3. Values are replaced with `varlock("local:<encrypted>")`
+4. Decryption happens automatically during `varlock load` / `varlock run`
+
+```env-spec title=".env.local"
+# Before encryption
+# @sensitive
+API_KEY=sk-secret-key-12345
+
+# After running `varlock encrypt --file .env.local`
+# @sensitive
+API_KEY=varlock("local:BGJ2a3...")
+```
+
+## Using `varlock(prompt)`
+
+Instead of pre-encrypting, you can use `varlock(prompt)` and fill values interactively on first load:
+
+```env-spec title=".env.local"
+# @sensitive
+API_KEY=varlock(prompt)
+```
+After adding new `varlock(prompt)` entries, run `varlock load` to trigger the prompt flow and persist encrypted values.
+
+```bash
+varlock load
+```
+
+On first resolution encrypted values are written back to the file as `varlock("local:<encrypted>")`.
+
+```env-spec title=".env.local"
+# After running `varlock load`
+# @sensitive
+API_KEY=varlock("local:BGJ2a3...")
+```
+
+
+
+
+
+## Core commands
+
+Use [`varlock encrypt`](/reference/cli-commands/#encrypt) to create encrypted payloads:
+
+```bash
+# Interactive: encrypt a single value
+varlock encrypt
+
+# Batch: encrypt all sensitive plaintext values in .env.local
+varlock encrypt --file .env.local
+```
+
+Use [`varlock reveal`](/reference/cli-commands/#reveal) to inspect decrypted values safely:
+
+```bash
+varlock reveal
+varlock reveal API_KEY
+varlock reveal API_KEY --copy
+```
+
+Use [`varlock lock`](/reference/cli-commands/#lock) to invalidate biometric session cache when stepping away:
+
+```bash
+varlock lock
+```
+
+## Backend selection overview
+
+Varlock chooses the best available backend automatically:
+
+| Platform | Backend | Key Storage | Biometric |
+|----------|---------|-------------|-----------|
+| macOS | Secure Enclave | Hardware Secure Enclave | Touch ID / Face ID |
+| Windows | DPAPI + Windows Hello | Windows credential store | Windows Hello (face/fingerprint/PIN) |
+| Linux | TPM2 / Secret Service | TPM2 and/or system key store | Yes (when configured via polkit/PAM) |
+| All platforms | File-based fallback | `~/.varlock/` directory | No |
+
+If native capabilities are unavailable, varlock falls back to file-based local encryption.
+
+## Platform setup
+
+### macOS
+
+- Native Swift helper (Secure Enclave integration)
+- No additional install steps are typically required beyond varlock itself
+- Uses system-native secure input / auth prompts
+- Includes a menu bar applet flow for native interactions
+- Hardware-backed key protection via Secure Enclave with biometric auth where supported
+
+### Windows
+
+- Native helper with DPAPI-based key protection
+- Windows native and WSL workflows are both supported
+- Automated daemon startup/installation behavior is built in for biometric session flows
+- WSL decrypt flows use a native bridge to the Windows daemon path
+- Biometric-capable session behavior where Windows Hello is available
+- No extra package installs are typically required
+
+### Linux
+
+- Native Linux helper when available
+- User-presence verification via polkit/PAM (can support fingerprint/face/password depending system setup)
+
+Common packages/tools:
+- `tpm2-tools` (plus distro TPM2 libs such as `tpm2-tss`)
+- `polkit` for user-presence authorization flows
+- `xclip` or `xsel` for `varlock reveal --copy`
+
+Example installs:
+
+```bash
+# Debian/Ubuntu
+sudo apt-get update
+sudo apt-get install -y tpm2-tools tpm2-tss policykit-1 xclip
+```
+
+```bash
+# Fedora/RHEL variants
+sudo dnf install -y tpm2-tools tpm2-tss polkit xclip
+```
+
+If biometric/user-presence prompts are unavailable on Linux, complete policy setup (native helper command):
+
+```bash
+sudo varlock-local-encrypt setup --linux-biometrics
+```
+
+:::tip[A note on secret-zero]
+When using plugins locally that fetch secrets from external sources, you will almost always still need a _secret-zero_; usually some sort of service account token or API key. Local encryption keeps this value out of plaintext, meaning you can avoid having any plaintext secrets on your machine.
+:::

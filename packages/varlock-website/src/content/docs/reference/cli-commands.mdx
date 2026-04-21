@@ -73,7 +73,8 @@ varlock load [options]
 ```
 
 **Options:**
-- `--format`:     Format of output [pretty|json|env|shell]
+- `--format`:     Format of output [pretty|json|env|shell|json-full]
+- `--compact`:    Compact output (json-full: no indentation, env/shell: skip undefined values)
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@currentEnv` in `.env.schema`
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point (overrides `varlock.loadPath` in `package.json`). Can be specified multiple times to load from multiple paths — later paths take higher precedence.
@@ -88,6 +89,12 @@ varlock load --env production
 
 # Output validation results in JSON format
 varlock load --format json
+
+# Output full serialized graph (including errors/configErrors fields)
+varlock load --format json-full
+
+# Compact output
+varlock load --format json-full --compact
 
 # Output as shell export statements (useful for direnv / eval)
 eval "$(varlock load --format shell)"
@@ -357,6 +364,10 @@ varlock reveal MY_SECRET --copy
 Non-sensitive values are not shown by `varlock reveal`. Use [`varlock printenv`](#printenv) for non-sensitive values, or to inject a sensitive value into a command.
 :::
 
+:::note[Clipboard support on Linux]
+`varlock reveal --copy` uses your system clipboard command (`xclip` or `xsel`) on Linux. Install one of them if copy mode is unavailable.
+:::
+
 </div>
 
 <div>
@@ -368,7 +379,7 @@ Locks the encryption daemon, requiring biometric authentication (e.g., Touch ID)
 varlock lock
 ```
 
-This command only has an effect when using a biometric-enabled encryption backend (macOS Secure Enclave or Windows Hello). On other backends, it will display a message and exit.
+This command only has an effect when using a biometric-enabled encryption backend (macOS Secure Enclave, Windows Hello, or Linux with polkit/PAM biometric setup). On other backends, it will display a message and exit.
 
 :::tip
 Use `varlock lock` when stepping away from your machine to ensure the next person to decrypt a secret must authenticate biometrically.

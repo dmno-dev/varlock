@@ -260,7 +260,7 @@ API_URL=if(isEmpty($CUSTOM_API_URL), "https://api.default.com", $CUSTOM_API_URL)
 <div>
 ### `varlock()`
 
-Decrypts a locally encrypted value, or prompts for a new secret to encrypt. This is the built-in resolver for varlock's [device-local encryption](/guides/secrets/#local-encryption) feature.
+Decrypts a locally encrypted value, or prompts for a new secret to encrypt. This is the built-in resolver for varlock's [device-local encryption](/guides/local-encryption/) feature.
 
 **Decrypt mode** — pass an encrypted payload to decrypt at load time:
 ```env-spec "varlock"
@@ -278,7 +278,12 @@ API_KEY=varlock(prompt=1)
 
 On first run with `prompt` mode, you'll be asked to enter the secret value. Once entered, the file is automatically updated with the encrypted payload. On macOS with Secure Enclave, a native dialog with biometric authentication is used.
 
-Values are encrypted using the best available backend on your platform — see the [secrets guide](/guides/secrets/#local-encryption) for details.
+Values are encrypted using the best available backend on your platform — see the [Local encryption guide](/guides/local-encryption/) for details.
+
+Encrypted payload lifecycle:
+- Store encrypted payloads (`varlock("local:...")`) in local override files (typically `.env.local`)
+- Decryption happens at runtime during `varlock load` / `varlock run`
+- Use [`varlock reveal`](/reference/cli-commands/#reveal) when you need to inspect a decrypted value interactively
 
 :::tip
 You don't need to write `varlock()` calls by hand. Use [`varlock encrypt`](/reference/cli-commands/#encrypt) to encrypt values interactively or in bulk.
