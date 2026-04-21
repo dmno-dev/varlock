@@ -1,3 +1,11 @@
 {
-  "changelog": ["github", { "repo": "dmno-dev/varlock" }]
+  "baseBranch": "main",
+  "changelog": ["github", { "internalAuthors": ["theoephraim", "philmillman"] }],
+  "packages": {
+    "env-spec-language": {
+      "skipNpmPublish": true,
+      "buildCommand": "bun run package",
+      "publishCommand": "bun run publish:vsce && bun run publish:ovsx"
+    }
+  }
 }

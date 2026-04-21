@@ -10,7 +10,7 @@
         "@stylistic/eslint-plugin": "^5.9.0",
         "@typescript-eslint/eslint-plugin": "^8.56.1",
         "@typescript-eslint/parser": "^8.56.1",
-        "@varlock/bumpy": "^0.0.1",
+        "@varlock/bumpy": "^1.0.0",
         "@varlock/cloudflare-integration": "workspace:*",
         "@varlock/keepass-plugin": "workspace:*",
         "@varlock/tsconfig": "workspace:*",
@@ -1308,7 +1308,7 @@
 
     "@varlock/bitwarden-plugin": ["@varlock/bitwarden-plugin@workspace:packages/plugins/bitwarden"],
 
-    "@varlock/bumpy": ["@varlock/bumpy@0.0.1", "", { "bin": { "bumpy": "dist/cli.mjs" } }, "sha512-BFFVnTbFi2zkzUBm15MLx7KqI1bos8BPYsLlD9+db/OC17D7xgGuNdQw2kZYGzGIq865A/f1dmc8Lz/t5KwuNQ=="],
+    "@varlock/bumpy": ["@varlock/bumpy@1.0.0", "", { "bin": { "bumpy": "dist/cli.mjs" } }, "sha512-H1BBjy3oDTk1pEL+yuHXnhiGUhR7fKxpENgYAKC9hrnf87UkiehVItPq55XTcGd8NOHrfQE1ZhnUzijzXUgDeA=="],
 
     "@varlock/ci-env-info": ["@varlock/ci-env-info@workspace:packages/ci-env-info"],
 
