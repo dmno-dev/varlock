@@ -1,4 +1,5 @@
 import { execSync, execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listWorkspaces } from './list-workspaces';
@@ -6,9 +7,29 @@ import { listWorkspaces } from './list-workspaces';
 const __filename = fileURLToPath(import.meta.url);
 const MONOREPO_ROOT = path.resolve(path.dirname(__filename), '..');
 
+/** Read bumpy config and return set of package names that skip npm publishing */
+function getSkipNpmPackages(): Set<string> {
+  const configPath = path.join(MONOREPO_ROOT, '.bumpy', '_config.json');
+  try {
+    // bumpy config may be jsonc (with comments), strip them before parsing
+    const raw = fs.readFileSync(configPath, 'utf-8')
+      .replace(/\/\/.*$/gm, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    const config = JSON.parse(raw);
+    const skip = new Set<string>();
+    for (const [name, pkgConfig] of Object.entries(config.packages ?? {})) {
+      if ((pkgConfig as any).skipNpmPublish) skip.add(name);
+    }
+    return skip;
+  } catch {
+    return new Set();
+  }
+}
+
 let err: unknown;
 try {
   const workspacePackagesInfo = await listWorkspaces(MONOREPO_ROOT);
+  const skipNpmPackages = getSkipNpmPackages();
 
   // Check if we're on bumpy version branch
   const currentBranch = process.env.GITHUB_HEAD_REF || execSync('git branch --show-current').toString().trim();
@@ -35,8 +56,11 @@ try {
       .map((filePath) => `${MONOREPO_ROOT}/${filePath.replace('/package.json', '')}`)
       .filter((filePath) => workspacePackagesInfo.some((p) => p.path === filePath));
   } else {
+    // On a normal PR, use bumpy status to determine which packages would be released.
+    // This includes pending bump files from main (merged into the branch), so preview
+    // releases will be published for all pending packages — not just those changed in the PR.
+    // This ensures preview packages that reference each other have consistent versions.
     console.log('Running on normal PR, using bumpy to determine packages to release...');
-    // Use bumpy status to determine which packages would be released
     const bumpyStatusRaw = execSync('bunx @varlock/bumpy status --json 2>/dev/null').toString();
     const bumpyStatus = JSON.parse(bumpyStatusRaw);
 
@@ -46,8 +70,11 @@ try {
       .map((p: any) => p.path);
   }
 
-  // filter out vscode extension which is not released via npm
-  releasePackagePaths = releasePackagePaths.filter((p: string) => !p.endsWith('packages/vscode-plugin'));
+  // Filter out packages that aren't published to npm (e.g. vscode extension)
+  releasePackagePaths = releasePackagePaths.filter((p: string) => {
+    const pkg = workspacePackagesInfo.find((w) => w.path === p);
+    return pkg && !skipNpmPackages.has(pkg.name);
+  });
 
   if (!releasePackagePaths.length) {
     console.log('No packages to release!');
