@@ -1,5 +1,16 @@
 # @varlock/cloudflare-integration
 
+
+## 0.1.1
+
+_2026-04-22_
+
+- [#635](https://github.com/dmno-dev/varlock/pull/635) [`2515c80`](https://github.com/dmno-dev/varlock/commit/2515c805562c993ec26786bd1aa097ade5686a50) Thanks [@app/copilot-swe-agent](https://github.com/app/copilot-swe-agent)! - fix(cloudflare): debounce wrangler restarts and skip when env is unchanged
+  `varlock-wrangler dev` now caches the serialized resolved env graph and compares it
+  after each debounced watch event. Wrangler only restarts when the resolved env has
+  actually changed, preventing restart loops caused by spurious `fs.watch()` events
+  on macOS (which can emit events even when file contents are identical).
+- [#632](https://github.com/dmno-dev/varlock/pull/632) [`9abdffa`](https://github.com/dmno-dev/varlock/commit/9abdffaa894ce887892211960a60af39d02e434b) - pass through exit-code if set from process to avoid silent fails
 ## 0.1.0
 
 ### Minor Changes

@@ -68,7 +68,7 @@
     },
     "packages/integrations/cloudflare": {
       "name": "@varlock/cloudflare-integration",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "bin": {
         "varlock-wrangler": "./bin/varlock-wrangler.js",
       },
@@ -76,13 +76,13 @@
         "@types/node": "catalog:",
         "@varlock/vite-integration": "workspace:^",
         "tsup": "catalog:",
-        "varlock": "workspace:^",
+        "varlock": "workspace:^0.9.1",
         "vite": "^7.1.0",
         "vitest": "catalog:",
       },
       "peerDependencies": {
         "@cloudflare/vite-plugin": ">=1",
-        "varlock": "workspace:^",
+        "varlock": "workspace:^0.9.1",
         "vite": ">=5",
         "wrangler": ">=3",
       },
@@ -394,7 +394,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "0.9.0",
+      "version": "0.9.1",
       "bin": {
         "varlock": "./bin/cli.js",
       },
