@@ -40,7 +40,7 @@ jobs:
       - name: Install node deps
         run: bun install
       - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@v2.3.11
+        uses: rharkor/caching-for-turbo@v2.3.13
 
       # Ensure npm 11.5.1 or later is installed (for trusted publishing)
       - name: Update npm

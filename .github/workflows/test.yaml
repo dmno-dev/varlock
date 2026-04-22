@@ -41,7 +41,7 @@ jobs:
           test -n "${{ steps.varlock.outputs.json-env }}"
           echo "Varlock action output is present"
       - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@v2.3.11
+        uses: rharkor/caching-for-turbo@v2.3.13
 
       # ------------------------------------------------------------
       - name: Bumpy release plan check
