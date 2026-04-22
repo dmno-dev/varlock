@@ -475,7 +475,7 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
       // @deprecated=false explicitly opts out of the deprecation warning
       if (decVal.isStatic && decVal.staticValue === false) return;
       const msgPart = decVal.isStatic && _.isString(decVal.staticValue)
-        ? ` - ${decVal.staticValue}`
+        ? `: ${decVal.staticValue}`
         : '';
       throw new SchemaError(`This config item is deprecated${msgPart}`, { isWarning: true });
     },

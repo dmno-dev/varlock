@@ -87,8 +87,9 @@ export class ConfigItem {
   get isDeprecated(): boolean {
     const deprecatedDec = this.getDec('deprecated');
     if (!deprecatedDec) return false;
-    // @deprecated=false explicitly opts out
-    return deprecatedDec.parsedDecorator.simplifiedValue !== false;
+    const val = deprecatedDec.parsedDecorator.simplifiedValue;
+    // @deprecated=false explicitly opts out; bare/@deprecated=true/string = deprecated
+    return val === true || typeof val === 'string';
   }
 
   get deprecationMessage(): string | undefined {
