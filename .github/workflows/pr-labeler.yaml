@@ -23,7 +23,7 @@ jobs:
           script: |
             const MAINTAINERS = 'theoephraim philmillman'.split(' ');
             const pr = context.payload.pull_request;
-            const isRelease = pr.head.ref === 'changeset-release/main';
+            const isRelease = pr.head.ref === 'bumpy/version-packages';
             const isRenovate = pr.user.login === 'renovate[bot]';
             const isCopilot = pr.user.login === 'Copilot';
             const isMaintainer = MAINTAINERS.includes(pr.user.login);

@@ -33,7 +33,7 @@ jobs:
           ARGS=""
           if [[ "${{ github.event.inputs.force-all }}" == "true" ]] || [[ "${{ contains(github.event.pull_request.labels.*.name, 'framework-tests') }}" == "true" ]]; then
             ARGS="--all"
-          elif [[ "${{ github.head_ref }}" == "changeset-release/main" ]]; then
+          elif [[ "${{ github.head_ref }}" == "bumpy/version-packages" ]]; then
             ARGS="--release-pr"
           fi
           bun run scripts/detect-changed-integrations.ts $ARGS

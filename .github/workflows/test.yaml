@@ -44,6 +44,13 @@ jobs:
         uses: rharkor/caching-for-turbo@v2.3.11
 
       # ------------------------------------------------------------
+      - name: Bumpy release plan check
+        if: github.event_name == 'pull_request'
+        run: bunx @varlock/bumpy ci check --pat-comments
+        env:
+          BUMPY_GH_TOKEN: ${{ secrets.BUMPY_GH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+
       - name: ESLint
         run: bun run lint
       - name: TypeScript type check

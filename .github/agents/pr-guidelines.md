@@ -25,22 +25,21 @@ When implementing a new feature or making significant changes, the PR should inc
   - `/reference/*.mdx` - API reference documentation
 
 ### 4. Changeset
-- **Always** create a changeset file in `.changeset/` directory
+- **Always** create a changeset file in `.bumpy/` directory
 - Use semantic versioning: `minor` for new features, `patch` for bug fixes, `major` for breaking changes
 - Include clear description of the changes, but keep it short
-- Format: Create a new `.md` file in `.changeset/` with:
+- Use non-interactive mode: `bumpy add --packages "varlock:minor" --message "description" --name "changeset-name"`
+- Or create a `.md` file in `.bumpy/` manually:
   ```markdown
   ---
   "varlock": <minor|patch|major>
   ---
-  
+
   Brief description of the change
   (or use bullet list for multiple changes)
-- An empty changeset is needed for changes that do not affect any published packages
-  ```markdown
-  ---
-  ---
   ```
+- An empty changeset is needed for changes that do not affect any published packages:
+  `bumpy add --empty`
 
 ### 5. Code Review
 - Run `bun run lint:fix` and then resolve remaining lint errors
@@ -52,12 +51,11 @@ When implementing a new feature or making significant changes, the PR should inc
 - Fix any discovered vulnerabilities
 - Include security summary in PR
 
-## Changeset Commands
+## Bumpy Commands
 
 Available commands (defined in root `package.json`):
-- `bun run changeset:add` - Interactively create a changeset (not available in CI)
-- `bun run changeset:version` - Bundle changesets into version bumps
-- `bun run changeset:publish` - Publish packages to npm
+- `bun run bumpy:add` - Interactively create a changeset
+- `bumpy add --packages "pkg:bump" --message "desc" --name "name"` - Non-interactive (AI/CI)
 
 ## Documentation Structure
 

@@ -1,16 +1,14 @@
 /**
  * Resolves `workspace:` and `catalog:` version protocols in all workspace package.json files.
  *
- * This is needed because `changeset publish` calls `npm publish` under the hood (when not using pnpm),
- * and npm doesn't understand these protocols. Previously pnpm handled this automatically during publish.
+ * This is needed for pkg-pr-new preview releases, which call `npm publish` under the hood
+ * and npm doesn't understand these protocols.
  *
  * - `workspace:*` → resolved version (e.g. "0.3.0")
  * - `workspace:^` → `^{version}` (e.g. "^0.3.0")
  * - `workspace:~` → `~{version}` (e.g. "~0.3.0")
  * - `catalog:` or `catalog:default` → version from root package.json `catalog` field
  * - `catalog:{name}` → version from root package.json `catalogs.{name}` field
- *
- * See: https://github.com/changesets/changesets/issues/1376
  */
 import fs from 'node:fs';
 import path from 'node:path';

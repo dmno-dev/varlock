@@ -93,24 +93,26 @@ bun run lint:fix         # Run ESLint with auto-fix
 ```
 **🚨 CRITICAL**: Always run `bun run lint:fix` before completing any task!
 
-### Changesets
+### Versioning (bumpy)
 ```bash
-bun run changeset:add    # Add a new changeset
-bun run changeset:empty  # Add an empty changeset
-bun run changeset:version # Version packages and update changelogs
-bun run changeset:publish # Build and publish packages
+bun run bumpy:add        # Add a new changeset (interactive)
 ```
 **🚨 CRITICAL**: Always add a changeset for package changes that affect users!
 
 #### Isolated bump types
-This repo supports custom `minor-isolated` and `patch-isolated` bump types via patched `@changesets/*` packages. These suppress dependency propagation — the package gets bumped but dependents are not automatically bumped. Use **`minor-isolated`** for minor bumps that don't affect the library API consumed by dependents (e.g., CLI-only features in `varlock`). This is the most common use case — because all packages are still on `0.x`, `^0.y.z` ranges treat minor bumps as out-of-range, which would otherwise cascade bumps to all dependents. `patch-isolated` exists but is rarely needed since patch bumps stay within `^` ranges on `0.x`. `major-isolated` is not supported — major bumps must propagate to keep semver ranges valid.
+Bumpy natively supports `minor-isolated` and `patch-isolated` bump types. These suppress dependency propagation — the package gets bumped but dependents are not automatically bumped. Use **`minor-isolated`** for minor bumps that don't affect the library API consumed by dependents (e.g., CLI-only features in `varlock`). This is the most common use case — because all packages are still on `0.x`, `^0.y.z` ranges treat minor bumps as out-of-range, which would otherwise cascade bumps to all dependents. `patch-isolated` exists but is rarely needed since patch bumps stay within `^` ranges on `0.x`. `major-isolated` is not supported — major bumps must propagate to keep semver ranges valid.
+
+#### Non-interactive changeset creation (AI/CI)
+```bash
+bumpy add --packages "varlock:minor,@varlock/utils:patch" --message "description" --name "changeset-name"
+```
 
 ## Coding Standards
 
 ### 🚨 MANDATORY PRE-COMPLETION CHECKLIST
 Before marking any task as complete, you MUST:
 - [ ] Run `bun run lint:fix` and resolve any remaining errors
-- [ ] Add a changeset with `bun run changeset:add` (unless internal-only change)
+- [ ] Add a changeset with `bun run bumpy:add` (unless internal-only change)
 - [ ] Verify build passes with `bun run build:libs`
 
 ### Style & Formatting
@@ -154,7 +156,7 @@ The project uses Turborepo with the following task configurations:
 
 ### GitHub Actions Workflows
 - **test.yaml**: Main CI workflow (lint, build, test)
-- **release.yaml**: Release workflow using changesets
+- **release.yaml**: Release workflow using bumpy
 - **release-preview.yaml**: Preview release workflow
 - **binary-release.yaml**: Binary release workflow
 - **pr-labeler.yaml**: Auto-labels PRs

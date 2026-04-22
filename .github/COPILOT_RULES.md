@@ -13,16 +13,16 @@ bun run lint:fix
 
 ### 2. Always Add a Changeset
 ```bash
-bun run changeset:add
+bun run bumpy:add
 ```
 - Every PR NEEDS a changeset
-- If only internal changes (docs, CI, tests, config) you can use an empty changeset
+- If only internal changes (docs, CI, tests, config) you can use an empty changeset: `bumpy add --empty`
 - IF the work affects any published packages, select them
 - Choose the correct version bump type (patch/minor/major)
 - Write a clear, user-facing description
-- **If bun fails**: Use `npm run changeset:add` as fallback
+- For non-interactive (AI/CI): `bumpy add --packages "varlock:patch" --message "description" --name "changeset-name"`
 
-Example changeset:
+Example changeset (`.bumpy/<name>.md`):
 ```
 ---
 "varlock": patch
@@ -51,7 +51,7 @@ bun run build:libs
 | Task | Command | When |
 |------|---------|------|
 | Lint & Fix | `bun run lint:fix` | After every code change |
-| Add Changeset | `bun run changeset:add` | When changing published packages |
+| Add Changeset | `bun run bumpy:add` | When changing published packages |
 | Build Check | `bun run build:libs` | Before completing any task |
 | Run Tests | `bun run test:ci` | When changing logic |
 

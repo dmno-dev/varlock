@@ -1,0 +1,13 @@
+{
+  "$schema": "../node_modules/@varlock/bumpy/config-schema.json",
+  "baseBranch": "main",
+  "changelog": ["github", { "internalAuthors": ["theoephraim", "philmillman"] }],
+  "packages": {
+    // this is the vscode extension
+    "env-spec-language": {
+      "skipNpmPublish": true,
+      "buildCommand": "bun run package",
+      "publishCommand": "bun run publish:vsce && bun run publish:ovsx"
+    }
+  }
+}

@@ -27,7 +27,7 @@ bun run smoke-test
 
 The GitHub Actions workflow (`.github/workflows/smoke-test.yaml`) runs these tests on:
 - Ubuntu, macOS, and Windows
-- Only on release PRs (created by Changesets)
+- Only on release PRs (created by bumpy)
 
 The workflow:
 1. Builds libraries once on Ubuntu (cached with Turbo)

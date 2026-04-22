@@ -6,6 +6,7 @@
     // package.json needs to be "json" rather than "json with comments" so that the "version lens" plugin works
     "package.json": "json",
     "turbo.json": "jsonc",
+    "**/.bumpy/_config.json": "jsonc",
   },
   "eslint.runtime": "bun",
   "eslint.validate": [

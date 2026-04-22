@@ -9,7 +9,7 @@ Varlock includes both local and CI smoke tests to verify that the core functiona
 ## When Smoke Tests Run
 
 ### GitHub Actions (CI)
-The full cross-platform smoke test suite runs automatically on **release PRs only** (PRs created by changesets with "[Changesets]" in the title). This prevents slowing down regular development while ensuring thorough testing before releases.
+The full cross-platform smoke test suite runs automatically on **release PRs only** (PRs created by bumpy with "Versioned release" in the title). This prevents slowing down regular development while ensuring thorough testing before releases.
 
 **Workflow:** `.github/workflows/smoke-test.yaml`
 

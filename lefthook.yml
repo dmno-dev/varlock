@@ -10,3 +10,5 @@ pre-push:
   jobs:
     - name: typecheck
       run: bun run typecheck
+    - name: bumpy
+      run: bunx bumpy check

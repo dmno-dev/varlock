@@ -250,7 +250,7 @@ export default tseslint.config(
   },
 
   { // JSONC
-    files: ['**/tsconfig.json', '**/tsconfig.*.json', '**/.vscode/*.json', 'turbo.json'],
+    files: ['**/tsconfig.json', '**/tsconfig.*.json', '**/.vscode/*.json', 'turbo.json', '**/.bumpy/_config.json'],
     language: 'jsonc/jsonc',
     rules: {
       'jsonc/comma-dangle': ['error', 'only-multiline'],

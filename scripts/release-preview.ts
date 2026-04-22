@@ -7,19 +7,39 @@ import { listWorkspaces } from './list-workspaces';
 const __filename = fileURLToPath(import.meta.url);
 const MONOREPO_ROOT = path.resolve(path.dirname(__filename), '..');
 
+/** Read bumpy config and return set of package names that skip npm publishing */
+function getSkipNpmPackages(): Set<string> {
+  const configPath = path.join(MONOREPO_ROOT, '.bumpy', '_config.json');
+  try {
+    // bumpy config may be jsonc (with comments), strip them before parsing
+    const raw = fs.readFileSync(configPath, 'utf-8')
+      .replace(/\/\/.*$/gm, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    const config = JSON.parse(raw);
+    const skip = new Set<string>();
+    for (const [name, pkgConfig] of Object.entries(config.packages ?? {})) {
+      if ((pkgConfig as any).skipNpmPublish) skip.add(name);
+    }
+    return skip;
+  } catch {
+    return new Set();
+  }
+}
+
 let err: unknown;
 try {
   const workspacePackagesInfo = await listWorkspaces(MONOREPO_ROOT);
+  const skipNpmPackages = getSkipNpmPackages();
 
-  // Check if we're on changeset-release/main branch
+  // Check if we're on bumpy version branch
   const currentBranch = process.env.GITHUB_HEAD_REF || execSync('git branch --show-current').toString().trim();
   let releasePackagePaths: Array<string>;
 
   console.log('current branch = ', currentBranch);
 
-  if (currentBranch === 'changeset-release/main') {
-    // On changeset-release/main branch, find modified package.json files
-    console.log('Running on changeset-release/main branch, finding modified package.json files...');
+  if (currentBranch === 'bumpy/version-packages') {
+    // On bumpy version branch, find modified package.json files
+    console.log('Running on bumpy/version-packages branch, finding modified package.json files...');
     const gitDiff = execSync('git diff origin/main --name-only').toString();
     const modifiedPackageJsons = gitDiff
       .split('\n')
@@ -36,22 +56,25 @@ try {
       .map((filePath) => `${MONOREPO_ROOT}/${filePath.replace('/package.json', '')}`)
       .filter((filePath) => workspacePackagesInfo.some((p) => p.path === filePath));
   } else {
-    console.log('Running on normal PR, using changesets to determine packages to release...');
-    // Regular changeset-based logic
-    // generate summary of changed (publishable) modules according to changesets
-    execSync('bunx changeset status --output=changesets-summary.json');
+    // On a normal PR, use bumpy status to determine which packages would be released.
+    // This includes pending bump files from main (merged into the branch), so preview
+    // releases will be published for all pending packages — not just those changed in the PR.
+    // This ensures preview packages that reference each other have consistent versions.
+    console.log('Running on normal PR, using bumpy to determine packages to release...');
+    const bumpyStatusRaw = execSync('bunx @varlock/bumpy status --json 2>/dev/null').toString();
+    const bumpyStatus = JSON.parse(bumpyStatusRaw);
 
-    const changeSetsSummaryRaw = fs.readFileSync('./changesets-summary.json', 'utf8');
-    const changeSetsSummary = JSON.parse(changeSetsSummaryRaw);
-
-    releasePackagePaths = changeSetsSummary.releases
-      .filter((r: any) => r.newVersion !== r.oldVersion)
+    releasePackagePaths = bumpyStatus.releases
       .map((r: any) => workspacePackagesInfo.find((p) => p.name === r.name))
+      .filter(Boolean)
       .map((p: any) => p.path);
   }
 
-  // filter out vscode extension which is not released via npm
-  releasePackagePaths = releasePackagePaths.filter((p: string) => !p.endsWith('packages/vscode-plugin'));
+  // Filter out packages that aren't published to npm (e.g. vscode extension)
+  releasePackagePaths = releasePackagePaths.filter((p: string) => {
+    const pkg = workspacePackagesInfo.find((w) => w.path === p);
+    return pkg && !skipNpmPackages.has(pkg.name);
+  });
 
   if (!releasePackagePaths.length) {
     console.log('No packages to release!');
@@ -74,8 +97,4 @@ try {
   console.error(_err);
 }
 
-// Only clean up changesets-summary.json if it exists (only created in changeset case)
-if (fs.existsSync('./changesets-summary.json')) {
-  fs.unlinkSync('./changesets-summary.json');
-}
 process.exit(err ? 1 : 0);

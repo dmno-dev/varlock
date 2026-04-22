@@ -20,6 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           # this is needed so that pushes to the version release branch will use the token we pass in below
           # otherwise the default token will be used, and we will not get an updated pkg.pr.new preview for that branch
           persist-credentials: false
@@ -46,21 +47,20 @@ jobs:
         run: npm install -g npm@latest
 
       # ------------------------------------------------------------
-      - name: Create Release Pull Request or Publish to npm
-        id: changesets
-        uses: changesets/action@v1
-        with:
-          title: "[Changesets] Versioned release"
-          commit: "[Changesets] Create versioned packages for publishing"
-          # This expects you to have a script called release which does a build for your packages and calls changeset publish
-          publish: bun run changeset:publish
-          version: bun run changeset:version
+      - name: Build libraries
+        run: bun run build:libs
         env:
-          # we use a personal token instead of the automatic repo one so that the binary release workflow will be triggered
-          # (see https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow#triggering-a-workflow-from-a-workflow)
-          GITHUB_TOKEN: ${{ secrets.PUBLISHING_GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           BUILD_TYPE: release
+
+      - name: Create Release PR / Publish
+        run: bunx @varlock/bumpy ci release --pat-pr
+        env:
+          # BUMPY_GH_TOKEN is a bot user PAT used by bumpy to push the version branch and create PRs
+          # so that PR workflows (binary-release, etc.) will be triggered
+          # (see https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow#triggering-a-workflow-from-a-workflow)
+          BUMPY_GH_TOKEN: ${{ secrets.BUMPY_GH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          # these are needed for vscode extension publishing
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
