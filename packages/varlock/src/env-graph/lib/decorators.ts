@@ -469,6 +469,17 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
   {
     name: 'icon',
   },
+  {
+    name: 'deprecated',
+    process(decVal) {
+      // @deprecated=false explicitly opts out of the deprecation warning
+      if (decVal.isStatic && decVal.staticValue === false) return;
+      const msgPart = decVal.isStatic && _.isString(decVal.staticValue)
+        ? ` - ${decVal.staticValue}`
+        : '';
+      throw new SchemaError(`This config item is deprecated${msgPart}`, { isWarning: true });
+    },
+  },
 
   // test-only decorators — dropped in release builds
   ...__VARLOCK_BUILD_TYPE__ === 'test' ? [

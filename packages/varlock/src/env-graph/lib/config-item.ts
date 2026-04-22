@@ -83,6 +83,20 @@ export class ConfigItem {
     if (explicitIconDec) return explicitIconDec.resolvedValue;
     return this.dataType?.icon;
   }
+
+  get isDeprecated(): boolean {
+    const deprecatedDec = this.getDec('deprecated');
+    if (!deprecatedDec) return false;
+    // @deprecated=false explicitly opts out
+    return deprecatedDec.parsedDecorator.simplifiedValue !== false;
+  }
+
+  get deprecationMessage(): string | undefined {
+    const deprecatedDec = this.getDec('deprecated');
+    if (!deprecatedDec) return undefined;
+    const val = deprecatedDec.parsedDecorator.simplifiedValue;
+    return typeof val === 'string' ? val : undefined;
+  }
   get docsLinks() {
     // matching { url, description } from OpenAPI
     const links: Array<{ url: string, description?: string }> = [];
@@ -773,6 +787,8 @@ export class ConfigItem {
       isSensitive,
       icon,
       docsLinks,
+      isDeprecated: this.isDeprecated,
+      deprecationMessage: this.deprecationMessage,
     };
   }
 }
@@ -787,4 +803,6 @@ export type TypeGenItemInfo = {
   isSensitive: boolean;
   icon?: string;
   docsLinks: Array<{ url: string, description?: string }>;
+  isDeprecated: boolean;
+  deprecationMessage?: string;
 };
