@@ -52,6 +52,18 @@ function getVarlockSourcesAsLoadedEnvFiles(): LoadedEnvFiles {
 }
 
 const IS_WORKER = !!process.env.NEXT_PRIVATE_WORKER;
+
+/**
+ * Detect if we're running inside a serverless function at runtime (not during build).
+ * VERCEL is set during both build AND runtime, so we can't use it alone.
+ * AWS_LAMBDA_FUNCTION_NAME is only set inside the actual Lambda execution environment.
+ */
+function isServerlessRuntime() {
+  return !!(
+    process.env.AWS_LAMBDA_FUNCTION_NAME // AWS Lambda (Vercel serverless uses Lambda)
+    || process.env.LAMBDA_TASK_ROOT // Alternative AWS Lambda indicator
+  );
+}
 function debug(...args: Array<any>) {
   if (!process.env.DEBUG_VARLOCK_NEXT_INTEGRATION) return;
   // eslint-disable-next-line no-console
@@ -312,6 +324,18 @@ export function loadEnvConfig(
     return { combinedEnv, parsedEnv, loadedEnvFiles };
   }
 
+  // On serverless platforms (Vercel, AWS Lambda, etc), @next/env is loaded by
+  // ___next_launcher.cjs BEFORE the webpack runtime. The varlock CLI binary
+  // is not available at runtime — only at build time. The webpack/turbopack
+  // init bundle (which runs when the bundled server loads) will set
+  // process.env.__VARLOCK_ENV with the inlined env data. So we return an empty
+  // result here and let the init bundle handle setup.
+  // See: https://github.com/dmno-dev/varlock/issues/584
+  if (!dev && isServerlessRuntime()) {
+    debug('>> SERVERLESS RUNTIME — deferring to init bundle');
+    return { combinedEnv: { ...initialEnv }, parsedEnv: {}, loadedEnvFiles: [] };
+  }
+
   lastReloadAt = new Date();
 
   debug('>> RELOADING ENV');
@@ -342,6 +366,13 @@ export function loadEnvConfig(
   } catch (err) {
     // this error message comes from execSyncVarlock when it cannot find varlock
     if ((err as any).message.includes('Unable to find varlock executable')) {
+      // At runtime on serverless platforms the binary won't exist — the init bundle
+      // injected into the webpack/turbopack runtime will set up env when it loads.
+      // This is a fallback for platforms not caught by isServerlessRuntime() above.
+      if (!dev) {
+        debug('varlock binary not found (likely serverless runtime) — deferring to init bundle');
+        return { combinedEnv: { ...initialEnv }, parsedEnv: {}, loadedEnvFiles: [] };
+      }
       // eslint-disable-next-line no-console
       console.error([
         '',
