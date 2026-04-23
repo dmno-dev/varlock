@@ -36,6 +36,14 @@ export const commandSpec = define({
       short: 'p',
       description: 'Path to a specific .env file or directory to use as the entry point',
     },
+    'clear-cache': {
+      type: 'boolean',
+      description: 'Clear cache and re-resolve all values',
+    },
+    'skip-cache': {
+      type: 'boolean',
+      description: 'Skip cache entirely for this invocation',
+    },
   },
   examples: `
 Loads and validates environment variables according to your .env files, and prints the results.
@@ -68,6 +76,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
     entryFilePath: ctx.values.path,
+    clearCache: ctx.values['clear-cache'],
+    skipCache: ctx.values['skip-cache'],
   });
 
   // For json-full, always output the serialized graph — it includes `errors` and

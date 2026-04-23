@@ -1,4 +1,6 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 
 import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import { Client, createClient } from '@1password/sdk';
@@ -12,6 +14,15 @@ const OP_ICON = 'simple-icons:1password';
 plugin.name = '1pass';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
+
+// capture cache accessor while the plugin proxy context is active
+// (the `plugin` proxy is only valid during module initialization, not during resolve())
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache not available (e.g., no encryption key)
+}
 plugin.icon = OP_ICON;
 plugin.standardVars = {
   initDecorator: '@initOp',
@@ -95,6 +106,8 @@ class OpPluginInstance {
   private connectHost?: string;
   /** API token for authenticating with the Connect server */
   private connectToken?: string;
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   constructor(
     readonly id: string,
@@ -429,13 +442,14 @@ plugin.registerRootDecorator({
       id,
       account,
       connectHost,
+      cacheTtlResolver: objArgs.cacheTtl,
       tokenResolver: objArgs.token,
       allowAppAuthResolver: objArgs.allowAppAuth,
       connectTokenResolver: objArgs.connectToken,
     };
   },
   async execute({
-    id, account, connectHost, tokenResolver, allowAppAuthResolver, connectTokenResolver,
+    id, account, connectHost, cacheTtlResolver, tokenResolver, allowAppAuthResolver, connectTokenResolver,
   }) {
     // even if these are empty, we can't throw errors yet
     // in case the instance is never actually used
@@ -449,6 +463,10 @@ plugin.registerRootDecorator({
       connectHost,
       connectToken as string | undefined,
     );
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -463,7 +481,6 @@ plugin.registerDataType({
       description: '1Password service accounts',
       url: 'https://developer.1password.com/docs/service-accounts/',
     },
-    'https://example.com',
   ],
   async validate(val) {
     if (!val.startsWith('ops_')) {
@@ -541,8 +558,21 @@ plugin.registerResolverFunction({
     if (typeof opReference !== 'string') {
       throw new SchemaError('expected op item location to resolve to a string');
     }
-    const opValue = await selectedInstance.readItem(opReference);
-    return opValue;
+
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `op:${instanceId}:${opReference}`;
+      const cached = await pluginCache.get(cacheKey);
+      if (cached !== undefined) {
+        debug('cache hit for %s', cacheKey);
+        return cached;
+      }
+      const opValue = await selectedInstance.readItem(opReference);
+      await pluginCache.set(cacheKey, opValue, selectedInstance.cacheTtl);
+      return opValue;
+    }
+
+    return await selectedInstance.readItem(opReference);
   },
 });
 
@@ -602,6 +632,20 @@ plugin.registerResolverFunction({
     if (typeof environmentId !== 'string') {
       throw new SchemaError('expected environment ID to resolve to a string');
     }
+
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `opEnv:${instanceId}:${environmentId}`;
+      const cached = await pluginCache.get(cacheKey);
+      if (cached !== undefined) {
+        debug('cache hit for %s', cacheKey);
+        return cached;
+      }
+      const result = await selectedInstance.readEnvironment(environmentId);
+      await pluginCache.set(cacheKey, result, selectedInstance.cacheTtl);
+      return result;
+    }
+
     return await selectedInstance.readEnvironment(environmentId);
   },
 });

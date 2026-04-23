@@ -1,5 +1,6 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
+import { randomBytes, randomUUID, randomInt as cryptoRandomInt } from 'node:crypto';
 
 import _ from '@env-spec/utils/my-dash';
 import {
@@ -9,6 +10,7 @@ import {
 import { ConfigItem } from './config-item';
 import { SimpleQueue } from './simple-queue';
 import { ResolutionError, SchemaError, VarlockError } from './errors';
+import { parseTtl, TTL_FOREVER } from '../../lib/cache/ttl-parser';
 import type { EnvGraphDataSource } from './data-source';
 import { DecoratorInstance } from './decorators';
 import { getErrorLocation } from './error-location';
@@ -626,6 +628,278 @@ export const IsEmptyResolver: typeof Resolver = createResolver({
 });
 
 
+// ── Random value generators ────────────────────────────────────────────
+
+export const RandomIntResolver: typeof Resolver = createResolver({
+  name: 'randomInt',
+  description: 'Generate a random integer between min and max (inclusive)',
+  icon: 'mdi:dice-multiple',
+  inferredType: 'number',
+  argsSchema: {
+    type: 'array',
+    arrayMinLength: 0,
+    arrayMaxLength: 2,
+  },
+  process() {
+    const args = this.arrArgs ?? [];
+    let min = 0;
+    let max = 2_147_483_647; // int32 max
+    if (args.length === 1) {
+      if (!args[0].isStatic || typeof args[0].staticValue !== 'number') {
+        throw new SchemaError('randomInt() max argument must be a static number');
+      }
+      max = args[0].staticValue as number;
+    } else if (args.length === 2) {
+      if (!args[0].isStatic || typeof args[0].staticValue !== 'number') {
+        throw new SchemaError('randomInt() min argument must be a static number');
+      }
+      if (!args[1].isStatic || typeof args[1].staticValue !== 'number') {
+        throw new SchemaError('randomInt() max argument must be a static number');
+      }
+      min = args[0].staticValue as number;
+      max = args[1].staticValue as number;
+    }
+    if (!Number.isInteger(min) || !Number.isInteger(max)) {
+      throw new SchemaError('randomInt() arguments must be integers');
+    }
+    if (min > max) {
+      throw new SchemaError(`randomInt() min (${min}) must be <= max (${max})`);
+    }
+    return { min, max };
+  },
+  async resolve({ min, max }) {
+    // crypto.randomInt is exclusive on upper bound, so +1 for inclusive
+    return cryptoRandomInt(min, max + 1);
+  },
+});
+
+export const RandomFloatResolver: typeof Resolver = createResolver({
+  name: 'randomFloat',
+  description: 'Generate a random float between min and max',
+  icon: 'mdi:dice-multiple',
+  inferredType: 'number',
+  argsSchema: {
+    type: 'mixed',
+    arrayMinLength: 0,
+    arrayMaxLength: 2,
+  },
+  process() {
+    const args = this.arrArgs ?? [];
+    let min = 0;
+    let max = 1;
+    if (args.length === 1) {
+      if (!args[0].isStatic || typeof args[0].staticValue !== 'number') {
+        throw new SchemaError('randomFloat() max argument must be a static number');
+      }
+      max = args[0].staticValue as number;
+    } else if (args.length === 2) {
+      if (!args[0].isStatic || typeof args[0].staticValue !== 'number') {
+        throw new SchemaError('randomFloat() min argument must be a static number');
+      }
+      if (!args[1].isStatic || typeof args[1].staticValue !== 'number') {
+        throw new SchemaError('randomFloat() max argument must be a static number');
+      }
+      min = args[0].staticValue as number;
+      max = args[1].staticValue as number;
+    }
+    if (min > max) {
+      throw new SchemaError(`randomFloat() min (${min}) must be <= max (${max})`);
+    }
+    const precisionResolver = this.objArgs?.precision;
+    let precision = 2;
+    if (precisionResolver) {
+      if (!precisionResolver.isStatic || typeof precisionResolver.staticValue !== 'number') {
+        throw new SchemaError('randomFloat() precision must be a static integer');
+      }
+      precision = precisionResolver.staticValue as number;
+    }
+    return { min, max, precision };
+  },
+  async resolve({ min, max, precision }) {
+    const value = min + Math.random() * (max - min);
+    return Number(value.toFixed(precision));
+  },
+});
+
+export const RandomUuidResolver: typeof Resolver = createResolver({
+  name: 'randomUuid',
+  description: 'Generate a random UUID v4',
+  icon: 'mdi:identifier',
+  inferredType: 'string',
+  async resolve() {
+    return randomUUID();
+  },
+});
+
+export const RandomHexResolver: typeof Resolver = createResolver({
+  name: 'randomHex',
+  description: 'Generate a random hex string of the given byte length',
+  icon: 'mdi:dice-multiple',
+  inferredType: 'string',
+  argsSchema: {
+    type: 'array',
+    arrayMinLength: 0,
+    arrayMaxLength: 1,
+  },
+  process() {
+    const args = this.arrArgs ?? [];
+    let bytes = 16; // default 32 hex chars
+    if (args.length === 1) {
+      if (!args[0].isStatic || typeof args[0].staticValue !== 'number') {
+        throw new SchemaError('randomHex() length argument must be a static number');
+      }
+      bytes = args[0].staticValue as number;
+      if (!Number.isInteger(bytes) || bytes < 1) {
+        throw new SchemaError('randomHex() length must be a positive integer');
+      }
+    }
+    return { bytes };
+  },
+  async resolve({ bytes }) {
+    return randomBytes(bytes).toString('hex');
+  },
+});
+
+export const RandomStringResolver: typeof Resolver = createResolver({
+  name: 'randomString',
+  description: 'Generate a random string of the given length',
+  icon: 'mdi:dice-multiple',
+  inferredType: 'string',
+  argsSchema: {
+    type: 'mixed',
+    arrayMinLength: 0,
+    arrayMaxLength: 1,
+  },
+  process() {
+    const args = this.arrArgs ?? [];
+    let length = 16;
+    if (args.length === 1) {
+      if (!args[0].isStatic || typeof args[0].staticValue !== 'number') {
+        throw new SchemaError('randomString() length argument must be a static number');
+      }
+      length = args[0].staticValue as number;
+      if (!Number.isInteger(length) || length < 1) {
+        throw new SchemaError('randomString() length must be a positive integer');
+      }
+    }
+    const charsetResolver = this.objArgs?.charset;
+    let charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    if (charsetResolver) {
+      if (!charsetResolver.isStatic || typeof charsetResolver.staticValue !== 'string') {
+        throw new SchemaError('randomString() charset must be a static string');
+      }
+      charset = charsetResolver.staticValue as string;
+      if (charset.length === 0) {
+        throw new SchemaError('randomString() charset must not be empty');
+      }
+    }
+    return { length, charset };
+  },
+  async resolve({ length, charset }) {
+    const bytes = randomBytes(length);
+    let result = '';
+    for (let i = 0; i < length; i++) {
+      result += charset[bytes[i] % charset.length];
+    }
+    return result;
+  },
+});
+
+// ── Cache resolver ─────────────────────────────────────────────────────
+
+export const CacheResolver: typeof Resolver = createResolver({
+  name: 'cache',
+  description: 'Cache the result of a resolver',
+  icon: 'mdi:cached',
+  argsSchema: {
+    type: 'mixed',
+    arrayMinLength: 1,
+    arrayMaxLength: 1,
+  },
+  process() {
+    // pass through child resolver's inferred type
+    const childResolver = this.arrArgs?.[0];
+    if (childResolver?.inferredType) {
+      this.inferredType = childResolver.inferredType;
+    }
+
+    // warn if the child resolver is a static value — caching a literal is pointless
+    if (childResolver instanceof StaticValueResolver) {
+      this._schemaErrors.push(new SchemaError(
+        'wraps a static value which never changes — caching has no effect',
+        { isWarning: true },
+      ));
+    }
+
+    // optional explicit cache key
+    const keyResolver = this.objArgs?.key;
+    let customKey: string | undefined;
+    if (keyResolver) {
+      if (!keyResolver.isStatic || typeof keyResolver.staticValue !== 'string') {
+        throw new SchemaError('key must be a static string');
+      }
+      customKey = keyResolver.staticValue as string;
+    }
+
+    // optional TTL
+    const ttlResolver = this.objArgs?.ttl;
+    let ttl: string | number | undefined;
+    if (ttlResolver) {
+      if (!ttlResolver.isStatic) {
+        throw new SchemaError('ttl must be a static value');
+      }
+      const ttlVal = ttlResolver.staticValue;
+      if (typeof ttlVal !== 'string' && typeof ttlVal !== 'number') {
+        throw new SchemaError('ttl must be a string like "1h" or a number (0 = forever)');
+      }
+      parseTtl(ttlVal);
+      ttl = ttlVal;
+    }
+
+    return { ttl, customKey };
+  },
+  async resolve(state) {
+    const { getResolutionContext } = await import('./resolution-context');
+    const ctx = getResolutionContext();
+    const cacheStore = ctx?.cacheStore;
+    const item = ctx?.currentItem;
+
+    const childResolver = this.arrArgs![0];
+
+    // Use explicit key if provided, otherwise auto-generate from file/item/resolver text
+    let cacheKey: string;
+    if (state.customKey) {
+      cacheKey = `resolver:custom:${state.customKey}`;
+    } else {
+      const resolverText = this._parsedNode?.toString() ?? childResolver._parsedNode?.toString() ?? 'unknown';
+      const filePath = (this.dataSource as any)?.fullPath ?? this.dataSource?.label ?? 'unknown';
+      cacheKey = `resolver:${filePath}:${item?.key ?? 'unknown'}:${resolverText}`;
+    }
+
+    if (cacheStore && !ctx?.skipCache) {
+      // try cache read (unless clear-cache mode)
+      if (!ctx?.clearCache) {
+        const cached = await cacheStore.get(cacheKey);
+        if (cached) {
+          ctx?.cacheHits.push({ cacheKey, cachedAt: cached.cachedAt, expiresAt: cached.expiresAt });
+          return cached.value;
+        }
+      }
+    }
+
+    // cache miss — resolve wrapped resolver
+    const childValue = await childResolver.resolve();
+
+    // write to cache (even in clear-cache mode — that's the "rewrite" part)
+    if (cacheStore && !ctx?.skipCache && childValue !== undefined) {
+      const ttlMs = state.ttl != null ? parseTtl(state.ttl) : TTL_FOREVER;
+      await cacheStore.set(cacheKey, childValue, ttlMs);
+    }
+
+    return childValue;
+  },
+});
+
 // Special function for `@defaultSensitive=inferFromPrefix(PUBLIC_)`
 // we may want to formalize this pattern of a resolver function used in a root decorator
 // but resolved within the context of a specific item
@@ -659,6 +933,12 @@ export const BaseResolvers: Array<ResolverChildClass> = [
   FallbackResolver,
   RefResolver,
   ExecResolver,
+  RandomIntResolver,
+  RandomFloatResolver,
+  RandomUuidResolver,
+  RandomHexResolver,
+  RandomStringResolver,
+  CacheResolver,
   RemapResolver,
   IfsResolver,
   ForEnvResolver,

@@ -1,4 +1,6 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 import ky from 'ky';
 import { Buffer } from 'node:buffer';
 import { webcrypto } from 'node:crypto';
@@ -13,6 +15,15 @@ const BITWARDEN_ICON = 'simple-icons:bitwarden';
 plugin.name = 'bitwarden';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
+
+// capture cache accessor while the plugin proxy context is active
+// (the `plugin` proxy is only valid during module initialization, not during resolve())
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache not available (e.g., no encryption key)
+}
 plugin.icon = BITWARDEN_ICON;
 plugin.standardVars = {
   initDecorator: '@initBitwarden',
@@ -56,6 +67,9 @@ class BitwardenPluginInstance {
   private cachedAuth?: CachedAuth;
   /** In-flight auth promise - prevents parallel resolution from triggering multiple auth requests (rate limit fix) */
   private authInFlight?: Promise<CachedAuth>;
+
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   constructor(
     readonly id: string,
@@ -336,6 +350,7 @@ plugin.registerRootDecorator({
       apiUrl,
       identityUrl,
       accessTokenResolver: objArgs.accessToken,
+      cacheTtlResolver: objArgs.cacheTtl,
     };
   },
   async execute({
@@ -343,6 +358,7 @@ plugin.registerRootDecorator({
     apiUrl,
     identityUrl,
     accessTokenResolver,
+    cacheTtlResolver,
   }) {
     // even if the token is empty, we can't throw errors yet
     // in case the instance is never actually used
@@ -353,6 +369,11 @@ plugin.registerRootDecorator({
       apiUrl,
       identityUrl,
     );
+
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -485,7 +506,19 @@ plugin.registerResolverFunction({
       });
     }
 
-    const secretValue = await selectedInstance.getSecret(secretId);
-    return secretValue;
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `bw:${instanceId}:${secretId}`;
+      const cached = await pluginCache.get(cacheKey);
+      if (cached !== undefined) {
+        debug('cache hit for %s', cacheKey);
+        return cached;
+      }
+      const secretValue = await selectedInstance.getSecret(secretId);
+      await pluginCache.set(cacheKey, secretValue, selectedInstance.cacheTtl);
+      return secretValue;
+    }
+
+    return await selectedInstance.getSecret(secretId);
   },
 });

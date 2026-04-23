@@ -88,6 +88,32 @@ const VALIDATION_STATE_COLORS = {
   valid: 'cyan',
 } as const;
 
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d`;
+  const w = Math.floor(d / 7);
+  return `${w}w`;
+}
+
+export function formatTimeAgo(timestamp: number): string {
+  const diffMs = Date.now() - timestamp;
+  const diffS = Math.floor(diffMs / 1000);
+  if (diffS < 60) return `${diffS}s ago`;
+  const diffM = Math.floor(diffS / 60);
+  if (diffM < 60) return `${diffM}m ago`;
+  const diffH = Math.floor(diffM / 60);
+  if (diffH < 24) return `${diffH}h ago`;
+  const diffD = Math.floor(diffH / 24);
+  return `${diffD}d ago`;
+}
+
 export function getItemSummary(item: ConfigItem) {
   const summary: Array<string> = [];
   const itemErrors = item.errors;
@@ -109,6 +135,16 @@ export function getItemSummary(item: ConfigItem) {
     valAsStr = redactString(item.resolvedValue)!;
   }
 
+  // build inline indicators to append after the value
+  const indicators: Array<string> = [];
+  if (item.isCacheHit) {
+    const oldest = Math.min(...item._cacheHits.map((h) => h.cachedAt));
+    indicators.push(ansis.gray(`📦 ${formatTimeAgo(oldest)}`));
+  }
+  if (item.isOverridden) {
+    indicators.push(ansis.yellow('🟡 process.env'));
+  }
+
   summary.push(joinAndCompact([
     ansis.gray('   └'),
     valAsStr,
@@ -116,11 +152,8 @@ export function getItemSummary(item: ConfigItem) {
       ansis.gray.italic('< coerced from ')
       + (isSensitive ? formattedValue(item.resolvedRawValue) : formattedValue(item.resolvedRawValue, false))
     ),
+    indicators.length > 0 && ansis.gray(' ') + indicators.join(' '),
   ]));
-
-  if (item.isOverridden) {
-    summary.push(`   🟡 ${ansis.yellow.italic('set via process.env override')}`);
-  }
 
   itemErrors?.forEach((err) => {
     summary.push(ansis[err.isWarning ? 'yellow' : 'red'](`   - ${err.isWarning ? '[WARNING] ' : ''}${err.message}`));

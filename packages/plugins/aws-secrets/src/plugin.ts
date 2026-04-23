@@ -1,4 +1,6 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 
 import {
   SecretsManagerClient,
@@ -20,6 +22,15 @@ plugin.name = 'aws';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = AWS_ICON;
+
+// capture cache accessor while the plugin proxy context is active
+// (the `plugin` proxy is only valid during module initialization, not during resolve())
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache not available (e.g., no encryption key)
+}
 
 plugin.standardVars = {
   initDecorator: '@initAws',
@@ -45,6 +56,8 @@ class AwsPluginInstance {
   private sessionToken?: string;
   private profile?: string;
   private namePrefix?: string;
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   constructor(
     readonly id: string,
@@ -423,6 +436,7 @@ plugin.registerRootDecorator({
       secretAccessKeyResolver: objArgs.secretAccessKey,
       sessionTokenResolver: objArgs.sessionToken,
       namePrefixResolver: objArgs.namePrefix,
+      cacheTtlResolver: objArgs.cacheTtl,
     };
   },
   async execute({
@@ -433,6 +447,7 @@ plugin.registerRootDecorator({
     secretAccessKeyResolver,
     sessionTokenResolver,
     namePrefixResolver,
+    cacheTtlResolver,
   }) {
     const region = await regionResolver.resolve();
     const accessKeyId = await accessKeyIdResolver?.resolve();
@@ -441,6 +456,10 @@ plugin.registerRootDecorator({
     const profile = await profileResolver?.resolve();
     const namePrefix = await namePrefixResolver?.resolve();
     pluginInstances[id].setAuth(region, accessKeyId, secretAccessKey, sessionToken, profile, namePrefix);
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -598,6 +617,19 @@ plugin.registerResolverFunction({
     // Apply namePrefix
     const finalSecretId = selectedInstance.applyNamePrefix(secretId);
 
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `awsSecret:${instanceId}:${finalSecretId}`;
+      const cached = await pluginCache.get(cacheKey);
+      if (cached !== undefined) {
+        debug('cache hit for %s', cacheKey);
+        return cached;
+      }
+      const secretValue = await selectedInstance.getSecret(finalSecretId, jsonKey);
+      await pluginCache.set(cacheKey, secretValue, selectedInstance.cacheTtl);
+      return secretValue;
+    }
+
     const secretValue = await selectedInstance.getSecret(finalSecretId, jsonKey);
     return secretValue;
   },
@@ -716,6 +748,19 @@ plugin.registerResolverFunction({
 
     // Apply namePrefix
     const finalParameterName = selectedInstance.applyNamePrefix(parameterName);
+
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `awsParam:${instanceId}:${finalParameterName}`;
+      const cached = await pluginCache.get(cacheKey);
+      if (cached !== undefined) {
+        debug('cache hit for %s', cacheKey);
+        return cached;
+      }
+      const parameterValue = await selectedInstance.getParameter(finalParameterName, jsonKey);
+      await pluginCache.set(cacheKey, parameterValue, selectedInstance.cacheTtl);
+      return parameterValue;
+    }
 
     const parameterValue = await selectedInstance.getParameter(finalParameterName, jsonKey);
     return parameterValue;

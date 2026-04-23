@@ -12,6 +12,10 @@ export function loadVarlockEnvGraph(opts?: {
   currentEnvFallback?: string,
   /** Explicit entry file path - overrides package.json config */
   entryFilePath?: string,
+  /** Clear cache and re-resolve all values */
+  clearCache?: boolean,
+  /** Skip cache entirely for this invocation */
+  skipCache?: boolean,
 }) {
   const pkgLoadPath = readVarlockPackageJsonConfig()?.loadPath;
   const resolvedEntryFilePath = opts?.entryFilePath ?? pkgLoadPath;
@@ -43,6 +47,8 @@ export function loadVarlockEnvGraph(opts?: {
   return runWithWorkspaceInfo(() => loadEnvGraph({
     ...opts,
     entryFilePath: resolvedEntryFilePath,
+    clearCache: opts?.clearCache,
+    skipCache: opts?.skipCache,
     afterInit: async (_g) => {
       // TODO: register varlock resolver
     },
