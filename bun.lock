@@ -109,7 +109,7 @@
     },
     "packages/integrations/nextjs": {
       "name": "@varlock/nextjs-integration",
-      "version": "0.3.5",
+      "version": "0.3.6",
       "devDependencies": {
         "@types/node": "catalog:",
         "tsup": "catalog:",
