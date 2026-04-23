@@ -2,6 +2,12 @@
 
 
 
+
+## 0.3.6
+
+_2026-04-23_
+
+- [#651](https://github.com/dmno-dev/varlock/pull/651) - bundle varlock into next-env-compat and skip CLI exec at runtime on serverless platforms
 ## 0.3.5
 
 _2026-04-23_
