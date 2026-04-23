@@ -1,0 +1,115 @@
+name: Preview varlock CLI binaries
+
+# Build SEA binaries as downloadable artifacts for PR testing.
+# Triggered by adding the "preview:standalone" label to a PR, or manually via workflow_dispatch.
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Gate: only run when the "preview:standalone" label is present
+  check-label:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.label.name == 'preview:standalone'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "preview:standalone label detected — building preview binaries"
+
+  # Build and sign the macOS native binary (cache-aware)
+  build-native-macos:
+    needs: check-label
+    uses: ./.github/workflows/build-native-macos.yaml
+    with:
+      mode: preview
+      artifact-name: native-bin-macos-preview
+    secrets:
+      OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
+  # Build Rust native binaries for Linux and Windows
+  build-native-rust:
+    needs: check-label
+    uses: ./.github/workflows/build-native-rust.yaml
+    with:
+      artifact-name: native-bin-rust-preview
+
+  # Build SEA binaries for all platforms and upload as artifacts
+  build-sea-binaries:
+    needs: [build-native-macos, build-native-rust]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Cache bun dependencies
+        uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.x"
+      - name: Install node deps
+        run: bun install
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@v2.3.11
+
+      # Download macOS native binary
+      - name: Download macOS native binary
+        uses: actions/download-artifact@v8
+        with:
+          name: native-bin-macos-preview
+          path: packages/varlock/native-bins/darwin/VarlockEnclave.app
+      - name: Restore macOS binary permissions
+        run: chmod +x packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
+
+      # Download Rust native binaries
+      - name: Download Linux x64 native binary
+        uses: actions/download-artifact@v8
+        with:
+          name: native-bin-rust-preview-linux-x64
+          path: packages/varlock/native-bins/linux-x64
+      - name: Download Linux arm64 native binary
+        uses: actions/download-artifact@v8
+        with:
+          name: native-bin-rust-preview-linux-arm64
+          path: packages/varlock/native-bins/linux-arm64
+      - name: Download Windows x64 native binary
+        uses: actions/download-artifact@v8
+        with:
+          name: native-bin-rust-preview-win32-x64
+          path: packages/varlock/native-bins/win32-x64
+      - name: Restore Rust binary permissions
+        run: |
+          chmod +x packages/varlock/native-bins/linux-x64/varlock-local-encrypt
+          chmod +x packages/varlock/native-bins/linux-arm64/varlock-local-encrypt
+
+      # Build SEA binaries
+      - name: Build libraries
+        run: bun run build:libs
+        env:
+          BUILD_TYPE: preview
+      - name: Build varlock SEA binaries
+        run: bun run packages/varlock/scripts/build-binaries.ts
+
+      # Upload individual platform archives for easy download
+      - name: Upload all preview binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: varlock-preview-binaries
+          path: |
+            packages/varlock/dist-sea/*.tar.gz
+            packages/varlock/dist-sea/*.zip
+            packages/varlock/dist-sea/checksums.txt
+          retention-days: 14
