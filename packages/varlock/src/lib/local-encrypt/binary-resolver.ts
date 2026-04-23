@@ -103,7 +103,7 @@ function resolveBinaryFromDir(dir: string): string | undefined {
  * This is the primary path for binary/SEA distribution (install.sh, homebrew).
  */
 function resolveSeaSibling(): string | undefined {
-  const execDir = path.dirname(process.execPath);
+  const execDir = path.dirname(fs.realpathSync(process.execPath));
   return resolveBinaryFromDir(execDir);
 }
 

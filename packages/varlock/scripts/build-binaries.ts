@@ -116,7 +116,7 @@ if (devMode) {
     let archiveCmd: string;
     if (isWin) {
       archive = `varlock-${archiveName}.zip`;
-      archiveCmd = `zip -j ${DIST_DIR}/${archive} ${targetDir}/${binName}`;
+      archiveCmd = `zip -j ${DIST_DIR}/${archive} ${targetDir}/*`;
     } else {
       archive = `varlock-${archiveName}.tar.gz`;
       archiveCmd = `tar --gzip -cf ${DIST_DIR}/${archive} -C ${targetDir}/ .`;
