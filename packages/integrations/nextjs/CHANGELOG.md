@@ -1,5 +1,11 @@
 # @varlock/nextjs-integration
 
+
+## 0.3.4
+
+_2026-04-23_
+
+- [#647](https://github.com/dmno-dev/varlock/pull/647) - bundle varlock into next-env-compat to fix Vercel module resolution
 ## 0.3.3
 
 ### Patch Changes
