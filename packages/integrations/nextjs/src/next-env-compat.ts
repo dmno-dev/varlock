@@ -329,9 +329,9 @@ export function loadEnvConfig(
     const cleanEnv = { ...initialEnv };
     delete cleanEnv.DEBUG_VARLOCK;
     const varlockLoadedEnvStr = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
-      showLogsOnError: true,
-      // Never use exitOnError here — we handle all error cases in the catch block
-      // below, including the "binary not found" case on serverless platforms.
+      // We handle all error display and exit logic ourselves in the catch block
+      // so we can silently defer on serverless platforms where the binary is missing.
+      showLogsOnError: false,
       exitOnError: false,
       env: cleanEnv as any,
     });
@@ -362,10 +362,13 @@ export function loadEnvConfig(
       process.exit(1);
     }
 
-    // showLogsOnError already printed the formatted CLI output above,
-    // so we only add a short note here (err.message duplicates stderr)
-    // eslint-disable-next-line no-console
+    // For real errors (validation failures, etc.) show the CLI output
+    /* eslint-disable no-console */
+    const errAny = err as any;
+    if (errAny.stdout) console.log(errAny.stdout.toString());
+    if (errAny.stderr) console.error(errAny.stderr.toString());
     console.error('[varlock] ⚠️ failed to load env — see error above');
+    /* eslint-enable no-console */
 
     // In a build, we want to fail hard so broken env doesn't get deployed
     if (!dev) {
