@@ -330,8 +330,9 @@ export function loadEnvConfig(
     delete cleanEnv.DEBUG_VARLOCK;
     const varlockLoadedEnvStr = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
       showLogsOnError: true,
-      // in a build, we want to fail and exit, while in dev we can keep retrying when changes are detected
-      exitOnError: !dev,
+      // Never use exitOnError here — we handle all error cases in the catch block
+      // below, including the "binary not found" case on serverless platforms.
+      exitOnError: false,
       env: cleanEnv as any,
     });
     if (loadCount >= 2) {
@@ -340,8 +341,16 @@ export function loadEnvConfig(
     }
     varlockLoadedEnv = JSON.parse(varlockLoadedEnvStr);
   } catch (err) {
-    // this error message comes from execSyncVarlock when it cannot find varlock
     if ((err as any).message.includes('Unable to find varlock executable')) {
+      // In production the binary may not exist — e.g., on serverless platforms
+      // where only traced files are included. The init bundle injected into the
+      // webpack/turbopack runtime will set process.env.__VARLOCK_ENV with inlined
+      // env data when the bundled server loads.
+      // See: https://github.com/dmno-dev/varlock/issues/584
+      if (!dev) {
+        debug('varlock binary not found — deferring to init bundle');
+        return { combinedEnv: { ...initialEnv }, parsedEnv: {}, loadedEnvFiles: [] };
+      }
       // eslint-disable-next-line no-console
       console.error([
         '',
@@ -357,6 +366,11 @@ export function loadEnvConfig(
     // so we only add a short note here (err.message duplicates stderr)
     // eslint-disable-next-line no-console
     console.error('[varlock] ⚠️ failed to load env — see error above');
+
+    // In a build, we want to fail hard so broken env doesn't get deployed
+    if (!dev) {
+      process.exit((err as any).status ?? 1);
+    }
 
     // if we dont do this, we'll see an error that looks like `process.env.__VARLOCK_ENV is not set` which is misleading.
     // Ideally we would pass through an error of some kind and trigger the webpack runtime error popup
