@@ -12,8 +12,7 @@
   "exports": {
     ".": "./dist/next-env-compat.js",
     "./plugin": "./dist/plugin.js",
-    "./loader": "./dist/loader.js",
-    "./varlock-env-inline": "./dist/varlock-env-inline.js"
+    "./loader": "./dist/loader.js"
   },
   "files": ["dist"],
   "scripts": {
