@@ -119,6 +119,10 @@ final class KeychainPickerDialog: NSObject, NSTableViewDataSource, NSTableViewDe
 
         NSApp.activate(ignoringOtherApps: true)
         alert.window.initialFirstResponder = searchField
+        alert.layout()
+        RunLoop.current.perform(inModes: [.modalPanel]) { [self] in
+            alert.window.makeFirstResponder(self.searchField)
+        }
 
         let response = alert.runModal()
 
@@ -258,6 +262,10 @@ final class KeychainPickerDialog: NSObject, NSTableViewDataSource, NSTableViewDe
         NSApp.activate(ignoringOtherApps: true)
 
         alert.window.initialFirstResponder = valueField
+        alert.layout()
+        RunLoop.current.perform(inModes: [.modalPanel]) {
+            alert.window.makeFirstResponder(valueField)
+        }
 
         let response = alert.runModal()
         createButton = nil

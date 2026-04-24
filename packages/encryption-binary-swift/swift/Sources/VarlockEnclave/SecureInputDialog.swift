@@ -29,8 +29,15 @@ final class SecureInputDialog {
             // Bring the app to front so the dialog is visible
             NSApp.activate(ignoringOtherApps: true)
 
-            // Make the input field the first responder after the alert is shown
+            // Focus the input field after the modal window is on screen.
+            // initialFirstResponder alone is unreliable with NSAlert accessory
+            // views. We schedule makeFirstResponder in the .modalPanel run loop
+            // mode so it fires once runModal() is active and the window is key.
             alert.window.initialFirstResponder = inputField
+            alert.layout()
+            RunLoop.current.perform(inModes: [.modalPanel]) {
+                alert.window.makeFirstResponder(inputField)
+            }
 
             let response = alert.runModal()
             if response == .alertFirstButtonReturn {
