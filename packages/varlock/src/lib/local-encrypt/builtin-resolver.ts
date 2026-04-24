@@ -8,23 +8,101 @@
 import fs from 'node:fs';
 import { createResolver, Resolver } from '../../env-graph/lib/resolver';
 import { ResolutionError, SchemaError } from '../../env-graph/lib/errors';
-import { SimpleQueue } from '../../env-graph/lib/simple-queue';
 import prompts from '../../cli/helpers/prompts';
 import * as localEncrypt from './index';
 
 const LOCAL_PREFIX = 'local:';
 const PLUGIN_ICON = 'mdi:fingerprint';
 
-function getPromptResolutionQueue() {
-  const globalKey = '__varlockPromptResolutionQueue__';
-  const globalState = globalThis as typeof globalThis & {
-    [globalKey]?: SimpleQueue;
-  };
-  globalState[globalKey] ??= new SimpleQueue();
-  return globalState[globalKey];
+// ── Unified varlock() batch queue ──────────────────────────────
+// Collects all concurrent varlock() calls (both prompt and decrypt) into a
+// single batch using setImmediate, then processes them sequentially.
+// Prompts are sorted first so the user enters values before biometric decrypts.
+// If the user cancels a prompt or biometric auth, all remaining items in the
+// batch are rejected immediately.
+
+type VarlockBatchEntry = {
+  kind: 'prompt' | 'decrypt';
+  resolve: (value: string) => void;
+  reject: (reason: unknown) => void;
+} & (
+  | { kind: 'decrypt'; ciphertext: string }
+  | { kind: 'prompt'; execute: () => Promise<string> }
+);
+
+let pendingBatch: Array<VarlockBatchEntry> | undefined;
+
+function enqueueBatchEntry(entry: VarlockBatchEntry) {
+  let triggerBatch = false;
+  if (!pendingBatch) {
+    pendingBatch = [];
+    triggerBatch = true;
+  }
+  pendingBatch.push(entry);
+
+  if (triggerBatch) {
+    // eslint-disable-next-line no-use-before-define
+    setImmediate(() => executeBatch());
+  }
 }
 
-const promptResolutionQueue = getPromptResolutionQueue();
+function enqueueDecrypt(ciphertext: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    enqueueBatchEntry({ kind: 'decrypt', ciphertext, resolve, reject });
+  });
+}
+
+function enqueuePrompt(execute: () => Promise<string>): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    enqueueBatchEntry({ kind: 'prompt', execute, resolve, reject });
+  });
+}
+
+function bailRemaining(batch: Array<VarlockBatchEntry>, startIndex: number, error: Error) {
+  for (let j = startIndex; j < batch.length; j++) {
+    batch[j].reject(error);
+  }
+}
+
+async function executeBatch() {
+  const batch = pendingBatch;
+  pendingBatch = undefined;
+  if (!batch?.length) return;
+
+  // Sort prompts before decrypts so the user enters values first
+  batch.sort((a, b) => {
+    if (a.kind === b.kind) return 0;
+    return a.kind === 'prompt' ? -1 : 1;
+  });
+
+  // Ensure encryption key exists before processing any items
+  await localEncrypt.ensureKey();
+
+  for (let i = 0; i < batch.length; i++) {
+    const entry = batch[i];
+    try {
+      if (entry.kind === 'decrypt') {
+        const plaintext = await localEncrypt.decryptValue(entry.ciphertext);
+        entry.resolve(plaintext);
+      } else {
+        const result = await entry.execute();
+        entry.resolve(result);
+      }
+    } catch (err) {
+      entry.reject(err);
+
+      // If this looks like a user cancellation or auth failure, bail on remaining items
+      const msg = err instanceof Error ? err.message : String(err);
+      if (
+        msg.includes('cancelled') || msg.includes('canceled')
+        || msg.includes('verification failed')
+      ) {
+        bailRemaining(batch, i + 1, new ResolutionError('Skipped — user cancelled'));
+        return;
+      }
+    }
+  }
+}
 
 function escapeRegExp(str: string) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -97,17 +175,17 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
     return { mode: 'decrypt', payload };
   },
   async resolve(state: VarlockResolverState) {
-    // Ensure a key exists (first-time setup)
-    await localEncrypt.ensureKey();
-
     if (state.mode === 'decrypt') {
       let ciphertext = state.payload;
       if (ciphertext.startsWith(LOCAL_PREFIX)) {
         ciphertext = ciphertext.slice(LOCAL_PREFIX.length);
       }
       try {
-        return await localEncrypt.decryptValue(ciphertext);
+        return await enqueueDecrypt(ciphertext);
       } catch (err) {
+        // Re-throw ResolutionErrors (e.g. batch cancellation) as-is
+        if (err instanceof ResolutionError) throw err;
+
         const backend = localEncrypt.getBackendInfo();
         throw new ResolutionError(
           `Decryption failed: ${err instanceof Error ? err.message : err}`,
@@ -122,11 +200,10 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
       }
     }
 
-    // Prompt mode: prompt user for secret, encrypt it, write back to file.
-    // These must run sequentially to avoid overlapping interactive prompts and
-    // accidentally applying input to the wrong config item.
-    return promptResolutionQueue.enqueue(async () => {
-      const { itemKey, sourceFilePath } = state;
+    // Prompt mode: enqueued into the unified batch so prompts run before decrypts
+    // and cancellation propagates to all remaining items.
+    const { itemKey, sourceFilePath } = state;
+    return enqueuePrompt(async () => {
       const backend = localEncrypt.getBackendInfo();
 
       // Use daemon's native dialog on macOS Secure Enclave
