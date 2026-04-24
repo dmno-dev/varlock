@@ -90,6 +90,7 @@ function main() {
   const localEncryptDir = path.join(userVarlockDir, 'local-encrypt');
   const keysDir = path.join(localEncryptDir, 'keys');
   const daemonPidPath = path.join(localEncryptDir, 'daemon.pid');
+  const daemonInfoPath = path.join(localEncryptDir, 'daemon.info');
   const daemonSockPath = path.join(localEncryptDir, 'daemon.sock');
   const daemonSockLockPath = `${daemonSockPath}.lock`;
 
@@ -154,7 +155,7 @@ function main() {
     }
   }
 
-  for (const filePath of [daemonPidPath, daemonSockPath, daemonSockLockPath]) {
+  for (const filePath of [daemonPidPath, daemonInfoPath, daemonSockPath, daemonSockLockPath]) {
     if (removeFile(filePath, dryRun, verbose)) {
       removedFileArtifacts += 1;
     }

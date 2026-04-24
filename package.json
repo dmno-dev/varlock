@@ -15,6 +15,7 @@
   "scripts": {
     "build": "turbo build --filter=\"!smoke-test-*\"",
     "build:libs": "bun run build --filter=\"!@varlock/website\" --filter=\"!smoke-test-*\"",
+    "build:swift": "bun run --filter=\"@varlock/encryption-binary-swift\" build:current",
     "test:ci": "turbo test:ci --filter=\"!smoke-test-*\"",
     "smoke-test": "cd smoke-tests && bun run test",
     "test:frameworks": "cd framework-tests && bun run test",

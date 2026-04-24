@@ -20,6 +20,12 @@ import { getUserVarlockDir } from '../user-config-dir';
 import { resolveNativeBinary } from './binary-resolver';
 import type { KeychainItemMeta, KeychainItemRef } from './types';
 
+function debug(msg: string) {
+  if (process.env.VARLOCK_DEBUG) {
+    process.stderr.write(`[varlock:daemon-client] ${msg}\n`);
+  }
+}
+
 function getSocketDir(): string {
   return path.join(getUserVarlockDir(), 'local-encrypt');
 }
@@ -36,6 +42,76 @@ function getPidPath(): string {
   return path.join(getSocketDir(), 'daemon.pid');
 }
 
+function getDaemonInfoPath(): string {
+  return path.join(getSocketDir(), 'daemon.info');
+}
+
+/**
+ * Check whether the currently running daemon was spawned from the same binary
+ * we would spawn now. Compares the resolved binary path and its mtime against
+ * the values recorded in daemon.info when the daemon was last started.
+ *
+ * Returns the stale PID (to kill) if there's a mismatch or no info file
+ * exists (daemon predates version tracking), or undefined if daemon is current.
+ */
+function checkDaemonBinaryStale(): number | undefined {
+  const infoPath = getDaemonInfoPath();
+  const pidPath = getPidPath();
+
+  let info: { binaryPath: string; binaryMtimeMs: number } | undefined;
+  try {
+    info = JSON.parse(fs.readFileSync(infoPath, 'utf-8'));
+  } catch {
+    // No info file — daemon predates version tracking, treat as stale
+  }
+
+  const currentBinaryPath = resolveNativeBinary();
+  if (!currentBinaryPath) return undefined; // no binary available at all
+
+  if (info) {
+    // Path changed (e.g. new npm install, different resolution strategy)
+    if (currentBinaryPath !== info.binaryPath) {
+      debug(`daemon binary path changed: ${info.binaryPath} → ${currentBinaryPath}`);
+    } else {
+      // Same path — check if the file was updated in place
+      try {
+        const stat = fs.statSync(currentBinaryPath);
+        if (stat.mtimeMs === info.binaryMtimeMs) {
+          debug('daemon binary is current — no restart needed');
+          return undefined; // same binary, daemon is current
+        }
+        debug(`daemon binary mtime changed: ${info.binaryMtimeMs} → ${stat.mtimeMs}`);
+      } catch {
+        return undefined; // can't stat, assume OK
+      }
+    }
+  } else {
+    debug('no daemon.info file — treating running daemon as stale');
+  }
+
+  // Binary changed — read PID so caller can kill the stale daemon
+  try {
+    const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
+    process.kill(pid, 0); // verify process is alive
+    return pid;
+  } catch {
+    return undefined; // stale PID or process already gone
+  }
+}
+
+/** Write daemon.info recording which binary was used to spawn the daemon */
+function writeDaemonInfo(binaryPath: string): void {
+  try {
+    const stat = fs.statSync(binaryPath);
+    fs.writeFileSync(getDaemonInfoPath(), JSON.stringify({
+      binaryPath,
+      binaryMtimeMs: stat.mtimeMs,
+    }));
+  } catch {
+    // Non-fatal — version checking just won't work this time
+  }
+}
+
 export class DaemonClient {
   private socket: net.Socket | null = null;
   private messageQueue = new Map<string, {
@@ -45,6 +121,8 @@ export class DaemonClient {
   private isConnected = false;
   private buffer = Buffer.alloc(0);
   private connectingPromise: Promise<void> | null = null;
+  /** Set after we spawn a daemon in this process — skip stale check to avoid restart loops */
+  private spawnedInThisProcess = false;
 
   async ensureConnected(): Promise<void> {
     if (this.isConnected && this.socket) return;
@@ -78,11 +156,30 @@ export class DaemonClient {
 
   private async doConnect(): Promise<void> {
     const socketPath = getSocketPath();
-    try {
-      await this.connectToSocket(socketPath);
-      return;
-    } catch {
-      // Daemon not running, spawn it
+
+    // Check if a running daemon was spawned from a stale binary
+    const stalePid = this.spawnedInThisProcess ? undefined : checkDaemonBinaryStale();
+    if (stalePid) {
+      debug(`killing stale daemon (pid ${stalePid}) — binary has been updated`);
+      try {
+        process.kill(stalePid, 'SIGTERM');
+      } catch {
+        // already gone
+      }
+      // Clean up so spawnDaemon doesn't think a daemon is still running
+      for (const file of [getPidPath(), getDaemonInfoPath()]) {
+        try { fs.unlinkSync(file); } catch { /* ignore */ }
+      }
+      if (process.platform !== 'win32') {
+        try { fs.unlinkSync(socketPath); } catch { /* ignore */ }
+      }
+    } else {
+      try {
+        await this.connectToSocket(socketPath);
+        return;
+      } catch {
+        // Daemon not running, spawn it
+      }
     }
 
     try {
@@ -308,7 +405,7 @@ export class DaemonClient {
     // Clean up stale files before spawning
     // On Windows, named pipes don't leave files — only clean PID and Unix sockets
     if (!isWindows) {
-      for (const file of [socketPath, pidPath]) {
+      for (const file of [socketPath, pidPath, getDaemonInfoPath()]) {
         if (fs.existsSync(file)) {
           fs.unlinkSync(file);
         }
@@ -318,9 +415,11 @@ export class DaemonClient {
         throw new Error(`Failed to clean up stale socket file: ${socketPath}`);
       }
     } else {
-      // Clean PID file only on Windows
-      if (fs.existsSync(pidPath)) {
-        fs.unlinkSync(pidPath);
+      // Clean PID + info files on Windows (named pipes don't leave socket files)
+      for (const file of [pidPath, getDaemonInfoPath()]) {
+        if (fs.existsSync(file)) {
+          fs.unlinkSync(file);
+        }
       }
     }
 
@@ -349,6 +448,8 @@ export class DaemonClient {
           const parsed = JSON.parse(stdoutData);
           if (parsed.ready) {
             clearTimeout(timeout);
+            writeDaemonInfo(binaryPath);
+            this.spawnedInThisProcess = true;
             child.unref();
             child.stdout!.destroy();
             child.stderr!.destroy();
