@@ -258,6 +258,32 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
             ],
           });
 
+          nextEnv.describeScenario('encrypted env blob with _VARLOCK_ENV_KEY', {
+            command: buildCommand,
+            env: { _VARLOCK_ENV_KEY: '846a4cbdf4fefeff0da38d8f3766ffe50d8db12f8ce32849bb1e1a60ecb4ba0d' },
+            templateFiles: {
+              'app/page.tsx': 'pages/basic-page.tsx',
+            },
+            fileAssertions: [
+              {
+                description: 'runtime files contain encrypted blob (varlock:v1: prefix) instead of plaintext',
+                fileGlob: '.next/server/**/*runtime*.js',
+                shouldContain: ['varlock:v1:'],
+                shouldNotContain: ['super-secret-var'],
+              },
+              {
+                description: 'prerendered HTML still has correct values (build uses plaintext env)',
+                fileGlob: '.next/**/*.html',
+                shouldContain: [
+                  'next-prefixed-public-var',
+                  'unprefixed-public-var',
+                  'sensitive-var-available',
+                ],
+                shouldNotContain: ['super-secret-value'],
+              },
+            ],
+          });
+
           nextEnv.describeScenario('leaky edge page', {
             command: buildCommand,
             templateFiles: {

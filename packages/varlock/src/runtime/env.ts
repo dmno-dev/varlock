@@ -247,7 +247,24 @@ export function initVarlockEnv(opts?: {
   let serializedEnvData: SerializedEnvGraph;
   // when we inject resolved config at build time, we store it here
   if ((globalThis as any).__varlockLoadedEnv) {
-    serializedEnvData = (globalThis as any).__varlockLoadedEnv;
+    let loaded = (globalThis as any).__varlockLoadedEnv;
+    // if the blob was encrypted at build time, it will be a string rather than an object
+    if (typeof loaded === 'string') {
+      // Lazy-import to avoid pulling node:crypto into browser/frontend bundles.
+      // The init bundles (init-server/init-edge) handle the process.env.__VARLOCK_ENV
+      // path themselves, so this branch only fires for the globalThis path
+      // (Vite resolved-env, Cloudflare).
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { isEncryptedBlob, decryptEnvBlobSync } = require('./crypto');
+      if (isEncryptedBlob(loaded)) {
+        const key = processExists ? process.env._VARLOCK_ENV_KEY : undefined;
+        if (!key) throw new Error('[varlock] __varlockLoadedEnv is encrypted but _VARLOCK_ENV_KEY is not set');
+        loaded = decryptEnvBlobSync(loaded, key);
+      }
+      loaded = JSON.parse(loaded);
+      (globalThis as any).__varlockLoadedEnv = loaded;
+    }
+    serializedEnvData = loaded;
 
   // otherwise if we inject via `varlock run` or have already loaded, it will be in process.env
   } else if (processExists && process.env.__VARLOCK_ENV) {

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { encryptEnvBlobSync } from 'varlock/encrypt-env';
 
 function debug(...args: Array<any>) {
   if (!process.env.DEBUG_VARLOCK_NEXT_INTEGRATION) return;
@@ -23,6 +24,11 @@ export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
   const rawEnv = process.env.__VARLOCK_ENV;
   if (!rawEnv) {
     return;
+  }
+
+  let envPayload = rawEnv;
+  if (process.env._VARLOCK_ENV_KEY) {
+    envPayload = encryptEnvBlobSync(rawEnv, process.env._VARLOCK_ENV_KEY);
   }
 
   // Find turbopack runtime files ([turbopack]_runtime.js) and edge-wrapper files.
@@ -58,7 +64,7 @@ export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
   // Load both init bundles — server (full, node:zlib/node:http) and edge (no node builtins)
   const initServerSrc = fs.readFileSync(require.resolve('varlock/init-server'), 'utf8');
   const initEdgeSrc = fs.readFileSync(require.resolve('varlock/init-edge'), 'utf8');
-  const envInline = `process.env.__VARLOCK_ENV = process.env.__VARLOCK_ENV || ${JSON.stringify(rawEnv)};`;
+  const envInline = `process.env.__VARLOCK_ENV = process.env.__VARLOCK_ENV || ${JSON.stringify(envPayload)};`;
 
   // The CJS init bundles use `exports.X = ...` at the end, so we must provide
   // a dummy `exports` object when wrapping in an IIFE to avoid ReferenceError.

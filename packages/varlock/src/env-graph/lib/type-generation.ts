@@ -241,6 +241,8 @@ export async function generateTypes(graph: EnvGraph, lang: string, typesPath: st
   // Skip items that exist only in env-specific sources
   const items: Array<TypeGenItemInfo> = [];
   for (const itemKey of graph.sortedConfigKeys) {
+    // _VARLOCK_ENV_KEY is infrastructure — not accessed via ENV proxy
+    if (itemKey === '_VARLOCK_ENV_KEY') continue;
     const configItem = graph.configSchema[itemKey];
     if (!configItem.defsForTypeGeneration.length) continue;
     items.push(await configItem.getTypeGenInfo());
