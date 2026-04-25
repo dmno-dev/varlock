@@ -171,6 +171,20 @@
         "varlock": "workspace:^",
       },
     },
+    "packages/plugins/apple-keychain": {
+      "name": "@varlock/apple-keychain-plugin",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@env-spec/utils": "workspace:^",
+        "@types/node": "catalog:",
+        "tsup": "catalog:",
+        "varlock": "workspace:^",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "varlock": "workspace:^",
+      },
+    },
     "packages/plugins/aws-secrets": {
       "name": "@varlock/aws-secrets-plugin",
       "version": "0.0.6",
@@ -1299,6 +1313,8 @@
     "@varlock/1password-plugin": ["@varlock/1password-plugin@workspace:packages/plugins/1password"],
 
     "@varlock/akeyless-plugin": ["@varlock/akeyless-plugin@workspace:packages/plugins/akeyless"],
+
+    "@varlock/apple-keychain-plugin": ["@varlock/apple-keychain-plugin@workspace:packages/plugins/apple-keychain"],
 
     "@varlock/astro-integration": ["@varlock/astro-integration@workspace:packages/integrations/astro"],
 

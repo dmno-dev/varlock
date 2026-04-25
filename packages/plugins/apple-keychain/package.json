@@ -1,0 +1,56 @@
+{
+  "name": "@varlock/apple-keychain-plugin",
+  "description": "Varlock plugin to load secrets from macOS Keychain",
+  "version": "0.0.1",
+  "type": "module",
+  "homepage": "https://varlock.dev/plugins/apple-keychain/",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/plugins/apple-keychain"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    "./plugin": "./dist/plugin.cjs"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "varlock",
+    "plugin",
+    "varlock-plugin",
+    "apple-keychain",
+    "keychain",
+    "macos",
+    "secrets",
+    "secret-management",
+    "env",
+    ".env",
+    "dotenv",
+    "environment variables",
+    "env vars",
+    "config"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^"
+  },
+  "devDependencies": {
+    "@env-spec/utils": "workspace:^",
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "varlock": "workspace:^",
+    "vitest": "catalog:"
+  }
+}
