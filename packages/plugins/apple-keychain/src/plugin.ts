@@ -11,22 +11,13 @@ debug('init - version =', plugin.version);
 plugin.icon = KEYCHAIN_ICON;
 
 
-/**
- * Manages interaction with macOS Keychain via the `security` CLI.
- * Supports generic passwords (most common for app secrets) and
- * internet passwords. Caches lookups within a resolution session.
- */
 class KeychainPluginInstance {
-  /** Default service name for generic password lookups */
   private service?: string;
-  /** Default account name */
   private account?: string;
   /** Specific keychain file to search (e.g., login.keychain-db) */
   private keychainPath?: string;
 
-  /** Cache of retrieved secrets for the current resolution session */
   private cache = new Map<string, string>();
-  /** Track whether `security` CLI is available (lazy check) */
   private securityChecked = false;
 
   constructor(
@@ -49,9 +40,6 @@ class KeychainPluginInstance {
     );
   }
 
-  /**
-   * Lazily check that the `security` command is available (macOS only).
-   */
   private async ensureSecurityAvailable(): Promise<void> {
     if (this.securityChecked) return;
 
@@ -70,17 +58,11 @@ class KeychainPluginInstance {
           tip: 'The `security` CLI should be available on all macOS installations. Check your PATH.',
         });
       }
-      // `security help` exits with non-zero but that's fine - it means the binary exists
+      // `security help` exits non-zero but that means the binary exists
       this.securityChecked = true;
     }
   }
 
-  /**
-   * Retrieve a generic password from the keychain.
-   *
-   * @param service - The service name (maps to -s flag)
-   * @param account - The account name (maps to -a flag). Optional if a default is configured.
-   */
   async getGenericPassword(service: string, account?: string): Promise<string> {
     await this.ensureSecurityAvailable();
 
@@ -96,7 +78,7 @@ class KeychainPluginInstance {
     if (effectiveAccount) {
       args.push('-a', effectiveAccount);
     }
-    args.push('-w'); // output only the password
+    args.push('-w');
     if (this.keychainPath) {
       args.push(this.keychainPath);
     }
@@ -112,12 +94,6 @@ class KeychainPluginInstance {
     }
   }
 
-  /**
-   * Retrieve an internet password from the keychain.
-   *
-   * @param server - The server/hostname (maps to -s flag)
-   * @param account - The account name (maps to -a flag). Optional.
-   */
   async getInternetPassword(server: string, account?: string): Promise<string> {
     await this.ensureSecurityAvailable();
 
@@ -149,14 +125,11 @@ class KeychainPluginInstance {
     }
   }
 
-  /**
-   * Handle errors from `security` CLI commands with helpful messages.
-   */
   private handleSecurityError(err: unknown, type: string, service: string, account?: string): never {
     if (err instanceof ExecError) {
       const errMsg = err.data || err.message;
 
-      // security returns exit code 44 when item not found
+      // security exits 44 when item not found
       if (errMsg.includes('could not be found') || errMsg.includes('SecKeychainSearchCopyNext')) {
         const itemDesc = account ? `service="${service}", account="${account}"` : `service="${service}"`;
         throw new ResolutionError(`Keychain item not found (${itemDesc})`, {
@@ -199,12 +172,7 @@ class KeychainPluginInstance {
 }
 
 
-// --- Plugin Instances ---
-
 const pluginInstances: Record<string, KeychainPluginInstance> = {};
-
-
-// --- Root Decorator: @initKeychain ---
 
 plugin.registerRootDecorator({
   name: 'initKeychain',
@@ -213,7 +181,6 @@ plugin.registerRootDecorator({
   async process(argsVal) {
     const objArgs = argsVal.objArgs;
 
-    // Validate id is static (if provided)
     if (objArgs?.id && !objArgs.id.isStatic) {
       throw new SchemaError('Expected id to be static');
     }
@@ -222,19 +189,16 @@ plugin.registerRootDecorator({
       throw new SchemaError(`Instance with id "${id}" already initialized`);
     }
 
-    // Validate service is static (if provided)
     if (objArgs?.service && !objArgs.service.isStatic) {
       throw new SchemaError('Expected service to be static');
     }
     const service = objArgs?.service ? String(objArgs.service.staticValue) : undefined;
 
-    // Validate account is static (if provided)
     if (objArgs?.account && !objArgs.account.isStatic) {
       throw new SchemaError('Expected account to be static');
     }
     const account = objArgs?.account ? String(objArgs.account.staticValue) : undefined;
 
-    // Validate keychainPath is static (if provided)
     if (objArgs?.keychainPath && !objArgs.keychainPath.isStatic) {
       throw new SchemaError('Expected keychainPath to be static');
     }
@@ -254,8 +218,6 @@ plugin.registerRootDecorator({
 });
 
 
-// --- Resolver: keychain() ---
-
 plugin.registerResolverFunction({
   name: 'keychain',
   label: 'Fetch secret from macOS Keychain',
@@ -271,15 +233,13 @@ plugin.registerResolverFunction({
     let accountResolver: Resolver | undefined;
     let inferredService: string | undefined;
 
-    // Check for named parameters
     accountResolver = this.objArgs?.account;
     const typeResolver = this.objArgs?.type; // 'generic' or 'internet'
 
-    // Parse positional arguments
     const argCount = this.arrArgs?.length ?? 0;
 
     if (argCount === 0) {
-      // keychain() - auto-infer service name from parent config item key
+      // no args: infer service name from parent config item key
       instanceId = '_default';
       const parent = (this as any).parent;
       const itemKey = parent?.key || '';
@@ -290,12 +250,10 @@ plugin.registerResolverFunction({
       }
       inferredService = itemKey;
     } else if (argCount === 1) {
-      // keychain("service-name")
       instanceId = '_default';
       serviceResolver = this.arrArgs![0];
     } else if (argCount === 2) {
-      // keychain("service-name", "account-name") OR keychain(instanceId, "service-name")
-      // We treat 2 args as (service, account)
+      // 2 positional args are always (service, account) — instance id is set via the named `id` param
       instanceId = '_default';
       serviceResolver = this.arrArgs![0];
       accountResolver ||= this.arrArgs![1];
@@ -305,7 +263,6 @@ plugin.registerResolverFunction({
 
     instanceId ??= '_default';
 
-    // Validate instance exists
     if (!Object.values(pluginInstances).length) {
       throw new SchemaError('No keychain plugin instances found', {
         tip: 'Initialize at least one keychain plugin instance using the @initKeychain() root decorator',
@@ -337,7 +294,6 @@ plugin.registerResolverFunction({
   }) {
     const selectedInstance = pluginInstances[instanceId];
 
-    // Resolve service name
     let service: string;
     if (serviceResolver) {
       const resolved = await serviceResolver.resolve();
@@ -351,7 +307,6 @@ plugin.registerResolverFunction({
       throw new SchemaError('No service name provided or inferred');
     }
 
-    // Resolve account (optional)
     let account: string | undefined;
     if (accountResolver) {
       const resolved = await accountResolver.resolve();
@@ -361,7 +316,6 @@ plugin.registerResolverFunction({
       account = resolved;
     }
 
-    // Resolve type (default: generic)
     let type: 'generic' | 'internet' = 'generic';
     if (typeResolver) {
       const resolved = await typeResolver.resolve();
