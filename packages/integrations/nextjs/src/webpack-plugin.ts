@@ -6,6 +6,7 @@ import {
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 
 import { type SerializedEnvGraph } from 'varlock';
+import { encryptEnvBlobSync } from 'varlock/encrypt-env';
 import type { NextConfig } from 'next';
 
 const WEBPACK_PLUGIN_NAME = 'VarlockNextWebpackPlugin';
@@ -173,8 +174,12 @@ export function createWebpackConfigFn(
         // inline the resolved env so it's baked into the build
         // this removes the need for a .env.production.local file on platforms like Vercel
         const rawEnv = process.env.__VARLOCK_ENV;
-        const envInline = rawEnv
-          ? `process.env.__VARLOCK_ENV = process.env.__VARLOCK_ENV || ${JSON.stringify(rawEnv)};`
+        let envPayload = rawEnv;
+        if (rawEnv && process.env._VARLOCK_ENV_KEY) {
+          envPayload = encryptEnvBlobSync(rawEnv, process.env._VARLOCK_ENV_KEY);
+        }
+        const envInline = envPayload
+          ? `process.env.__VARLOCK_ENV = process.env.__VARLOCK_ENV || ${JSON.stringify(envPayload)};`
           : '';
 
         const updatedSourceStr = [

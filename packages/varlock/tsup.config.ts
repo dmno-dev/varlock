@@ -10,6 +10,7 @@ export default defineConfig([
       'src/runtime/patch-console.ts',
       'src/runtime/patch-response.ts',
 
+      'src/runtime/crypto.ts',
       'src/env.ts',
       'src/auto-load.ts',
       'src/dotenv-compat.ts', // exposed under `/config` to match dotenv

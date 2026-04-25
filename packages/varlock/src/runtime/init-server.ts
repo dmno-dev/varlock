@@ -6,6 +6,14 @@ import { initVarlockEnv } from '../runtime/env';
 import { patchGlobalConsole } from '../runtime/patch-console';
 import { patchGlobalServerResponse } from '../runtime/patch-server-response';
 import { patchGlobalResponse } from '../runtime/patch-response';
+import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
+
+// Decrypt the env blob if it was encrypted at build time
+if (process.env.__VARLOCK_ENV && isEncryptedBlob(process.env.__VARLOCK_ENV)) {
+  const key = process.env._VARLOCK_ENV_KEY;
+  if (!key) throw new Error('[varlock] __VARLOCK_ENV is encrypted but _VARLOCK_ENV_KEY is not set');
+  process.env.__VARLOCK_ENV = decryptEnvBlobSync(process.env.__VARLOCK_ENV, key);
+}
 
 initVarlockEnv();
 patchGlobalConsole();
