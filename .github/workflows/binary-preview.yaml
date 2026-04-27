@@ -63,7 +63,7 @@ jobs:
       - name: Install node deps
         run: bun install
       - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@v2.3.11
+        uses: rharkor/caching-for-turbo@v2.3.14
 
       # Download macOS native binary
       - name: Download macOS native binary
@@ -105,7 +105,7 @@ jobs:
 
       # Upload individual platform archives for easy download
       - name: Upload all preview binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: varlock-preview-binaries
           path: |

@@ -46,7 +46,7 @@ jobs:
       - name: Install node deps
         run: bun install
       - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@v2.3.11
+        uses: rharkor/caching-for-turbo@v2.3.14
       # ------------------------------------------------------------
 
       - name: get version from release tag
