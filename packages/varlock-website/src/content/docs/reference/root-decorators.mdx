@@ -94,6 +94,8 @@ Sets the default state of each item being treated as [_sensitive_](/guides/secre
 - `false`: All items are not sensitive unless marked otherwise.
 - `inferFromPrefix(PREFIX)`: Item is marked not sensitive if key starts with the given `PREFIX`; all others are sensitive. Useful for marking e.g. `PUBLIC_` keys as non-sensitive by default.
 
+📖 See the [secrets management guide](/guides/secrets/) for best practices on handling sensitive values, and how to use plugins to fetch them from secret management platforms.
+
 ```env-spec
 # @defaultSensitive=inferFromPrefix(PUBLIC_)
 # ---

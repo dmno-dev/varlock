@@ -337,7 +337,9 @@ Instead of encrypting values ahead of time, you can use `varlock(prompt)` as a p
 <div>
 ### `varlock reveal` ||reveal||
 
-Securely view or copy the decrypted values of `@sensitive` environment variables. Values are displayed in an alternate terminal screen buffer so they don't persist in your scrollback history.
+Securely view or copy the value of a `@sensitive` environment variable. The value is displayed in an alternate terminal screen buffer so it doesn't persist in your scrollback history.
+
+🔒 Usually sensitive values are redacted, so this is needed to actually view the value without exposing it in plaintext on disk or in your terminal history.
 
 ```bash
 varlock reveal [VAR_NAME] [options]

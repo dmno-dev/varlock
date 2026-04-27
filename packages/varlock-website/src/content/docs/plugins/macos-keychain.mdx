@@ -1,0 +1,99 @@
+---
+title: macOS Keychain
+description: Using the macOS Keychain as a secrets source with Varlock
+---
+
+import { Steps, Icon, Aside } from '@astrojs/starlight/components';
+
+The built-in `keychain()` resolver lets you load secrets directly from the **macOS Keychain** using declarative instructions in your `.env` files. It communicates with the Keychain through Varlock's native Swift daemon, which enforces biometric authentication (Touch ID) and per-session access control.
+
+:::note[Built-in support]
+No plugin installation is required — `keychain()` is built into Varlock and available out of the box on macOS.
+:::
+
+:::tip[Or use `varlock()`]
+If you don't already have secrets stored in your macOS Keychain, you may want to use the [`varlock()` resolver](/guides/local-encryption) instead. It provides the same biometric-gated, device-local encryption benefits without needing to manage Keychain items — and it works cross-platform.
+
+See the [local encryption guide](/guides/local-encryption/) for more details.
+:::
+
+## Features
+
+- **Built-in** — No plugin or extra dependency needed
+- **Biometric gating** — Access is protected by Touch ID via Varlock's native daemon
+- **Interactive picker** — Use `keychain(prompt)` to browse and select items via a native dialog
+- **Auto-write-back** — Prompt mode writes the resolved reference back to your config file
+- **Named or positional syntax** — Flexible argument styles for quick or precise lookups
+- **Field selection** — Extract specific fields from keychain items
+- **Multiple keychain support** — Access the login, System, or custom keychains
+
+:::caution
+`keychain()` is only supported on **macOS**. It will throw an error on other platforms. If your team includes non-Mac developers, consider wrapping keychain items with a fallback or using a cross-platform secrets source for shared configs.
+:::
+
+
+## Getting started
+Rather than wiring up items individually, the easiest way to get started is by using `keychain(prompt)`. This will open a native picker dialog where you can select existing keychain items, or create new ones. After selection, Varlock will automatically write the resolved reference back into your config file for future use.
+
+```env-spec add="keychain(prompt)"
+ITEM=keychain(prompt) # Opens a native picker dialog
+```
+
+## Reference
+
+<div class="reference-docs">
+<div>
+#### `keychain()`
+
+Fetch a secret from the macOS Keychain. Communicates with the Keychain through Varlock's native daemon, which enforces biometric (Touch ID) authentication.
+
+**Array args:**
+- `service` (optional): Service name of the keychain item (positional shorthand)
+- `prompt` (optional): Enter interactive picker mode
+
+**Key/value args:**
+- `service` (optional): Service name of the keychain item
+- `account` (optional): Account identifier for the keychain item
+- `keychain` (optional): Name of a specific keychain to search (e.g., `"System"`)
+- `field` (optional): Specific field to extract from the keychain item
+- `prompt` (optional): If set, opens a native picker dialog for interactive selection
+
+```env-spec /keychain\\(.*\\)/
+# Positional shorthand
+DATABASE_PASSWORD=keychain("com.company.database")
+
+# Named service param
+API_KEY=keychain(service="com.company.api")
+
+# With account
+ADMIN_PW=keychain("com.company.db", account="admin")
+
+# Targeting a specific keychain
+CERT=keychain("com.company.cert", keychain="System")
+
+# Field selection
+TOKEN=keychain("com.company.auth", field="password")
+
+# Interactive picker mode
+NEW_SECRET=keychain(prompt)
+```
+</div>
+</div>
+
+---
+
+## Troubleshooting
+
+### "keychain() is only supported on macOS"
+This resolver requires macOS. It is not available on Linux or Windows. If you need cross-platform secret management, consider using one of the [plugin-based secret sources](/plugins/overview).
+
+### Failed to read keychain item
+- Verify the item exists in Keychain Access.app
+- Check that the service name and account match exactly
+- Try `keychain(prompt)` to browse available items and grant VarlockEnclave access via the native dialog
+
+### Selection was cancelled
+If you dismiss the native picker without selecting an item, the resolution will fail. Run `varlock` again to retry, or replace `keychain(prompt)` with an explicit `keychain(service="...")` reference.
+
+### VarlockEnclave access
+The first time you access a keychain item through Varlock, macOS may prompt you to grant access to VarlockEnclave. Approve this to allow future reads. If you accidentally denied access, you can update the item's Access Control settings in Keychain Access.app.
