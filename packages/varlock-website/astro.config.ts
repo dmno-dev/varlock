@@ -209,7 +209,7 @@ export default defineConfig({
             { label: 'Root decorators', slug: 'reference/root-decorators' },
             { label: 'Item decorators', slug: 'reference/item-decorators' },
             { label: '> @type data types', slug: 'reference/data-types' },
-            { label: 'Value functions', slug: 'reference/functions' },
+            { label: 'Resolver functions', slug: 'reference/functions' },
             { label: 'Builtin variables', slug: 'reference/builtin-variables', badge: 'new' },
           ],
         },

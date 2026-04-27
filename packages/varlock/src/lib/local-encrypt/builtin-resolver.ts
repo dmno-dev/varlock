@@ -48,13 +48,17 @@ function enqueueBatchEntry(entry: VarlockBatchEntry) {
 
 function enqueueDecrypt(ciphertext: string): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    enqueueBatchEntry({ kind: 'decrypt', ciphertext, resolve, reject });
+    enqueueBatchEntry({
+      kind: 'decrypt', ciphertext, resolve, reject,
+    });
   });
 }
 
 function enqueuePrompt(execute: () => Promise<string>): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    enqueueBatchEntry({ kind: 'prompt', execute, resolve, reject });
+    enqueueBatchEntry({
+      kind: 'prompt', execute, resolve, reject,
+    });
   });
 }
 

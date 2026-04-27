@@ -4,8 +4,6 @@ import { ConfigItem } from './config-item';
 import { EnvGraphDataSource, FileBasedDataSource, ImportAliasSource } from './data-source';
 
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
-import { VarlockResolver } from '../../lib/local-encrypt/builtin-resolver';
-import { KeychainResolver } from '../../lib/local-encrypt/keychain-resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, getTransitiveDeps, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
@@ -229,10 +227,6 @@ export class EnvGraph {
     for (const resolverClass of BaseResolvers) {
       this.registerResolver(resolverClass);
     }
-    // register built-in varlock() resolver for local encryption
-    this.registerResolver(VarlockResolver);
-    // register built-in keychain() resolver for macOS Keychain access
-    this.registerResolver(KeychainResolver);
     // base root decorators (envFlag, generateTypes, import, etc)
     for (const rootDec of builtInRootDecorators) {
       this.registerRootDecorator(rootDec);
