@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+  "skills": [
+    {
+      "name": "varlock-docs-search",
+      "type": "skill-md",
+      "description": "Search and reference varlock documentation via the hosted Docs MCP endpoint.",
+      "url": "https://varlock.dev/.well-known/agent-skills/varlock-docs-search/SKILL.md",
+      "digest": "sha256:aa2ddb2b62b1773e69a84a1f02cc203a57e91cfa87cfd2f2ae83d6c9608dc99f"
+    },
+    {
+      "name": "varlock-agent-readiness",
+      "type": "skill-md",
+      "description": "Discover and verify varlock machine-readable discovery endpoints for agents.",
+      "url": "https://varlock.dev/.well-known/agent-skills/varlock-agent-readiness/SKILL.md",
+      "digest": "sha256:5b44f81041074c8e60d22e79dd3a21075661055c7f06bb00870ee0460fb3857b"
+    }
+  ]
+}

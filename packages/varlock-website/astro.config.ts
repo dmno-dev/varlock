@@ -239,10 +239,15 @@ export default defineConfig({
       policy: [
         {
           userAgent: '*',
-          // The next line enables or disables the crawling on the `robots.txt` level
+          // The next line enables or disables the crawling on the `robots.txt` level outside of production.
           disallow: ENV.VARLOCK_ENV === 'production' ? '' : '/',
         },
       ],
+      transform(content) {
+        const contentSignalLine = 'Content-Signal: ai-train=no, search=yes, ai-input=no';
+        if (content.includes(contentSignalLine)) return content;
+        return `${content.trimEnd()}\n${contentSignalLine}\n`;
+      },
     }),
     partytown({
       // Example: Add dataLayer.push as a forwarding-event.
