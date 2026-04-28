@@ -98,13 +98,13 @@ export default defineConfig({
     varlockAstroIntegration(),
     starlight({
       title: 'varlock',
-      favicon: '/favicon.svg',
+      favicon: '/favicon.png',
       disable404Route: true,
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/dmno-dev/varlock' },
         { icon: 'discord', label: 'Discord', href: 'https://chat.dmno.dev' },
       ],
-      logo: { src: './src/assets/logos/logo-pixel.png' },
+      logo: { src: './src/assets/logos/logo-1x.png' },
       routeMiddleware: './src/route-data.ts', // adds the Open Graph images.
       components: {
         Head: '@/components/CustomHead.astro',

@@ -1,6 +1,7 @@
 ---
 import Head from "@astrojs/starlight/components/Head.astro";
 import { Font } from "astro:assets";
+import animLogo from "../assets/logos/varlock-logo-anim.gif";
 ---
 
 <!-- <Font cssVariable="--font-pixel" preload /> -->
@@ -9,3 +10,22 @@ import { Font } from "astro:assets";
 <Head>
   <slot />
 </Head>
+
+<script is:inline define:vars={{ animLogoSrc: animLogo.src }}>
+  document.addEventListener("DOMContentLoaded", () => {
+    const siteTitle = document.querySelector(".site-title");
+    const logoImg = siteTitle?.querySelector("img");
+    if (!logoImg) return;
+
+    const staticSrc = logoImg.src;
+    // preload the gif so hover swap is instant
+    new Image().src = animLogoSrc;
+
+    siteTitle.addEventListener("mouseenter", () => {
+      logoImg.src = animLogoSrc;
+    });
+    siteTitle.addEventListener("mouseleave", () => {
+      logoImg.src = staticSrc;
+    });
+  });
+</script>
