@@ -133,6 +133,15 @@ if (hasIcon) {
   fs.copyFileSync(iconSrc, path.join(resourcesDir, 'AppIcon.icns'));
 }
 
+// Copy menu bar icon PDFs
+const menuIconsDir = path.join(import.meta.dir, '..', 'resources');
+for (const iconName of ['varlock-menu-locked.pdf', 'varlock-menu-unlocked.pdf']) {
+  const src = path.join(menuIconsDir, iconName);
+  if (fs.existsSync(src)) {
+    fs.copyFileSync(src, path.join(resourcesDir, iconName));
+  }
+}
+
 // Write Info.plist with environment-specific metadata
 const infoPlist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

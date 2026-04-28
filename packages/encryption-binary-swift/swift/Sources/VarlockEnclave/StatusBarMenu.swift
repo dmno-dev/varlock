@@ -36,8 +36,18 @@ final class StatusBarMenu: NSObject, NSMenuDelegate {
     private func updateIcon() {
         guard let button = statusItem?.button else { return }
         let hasActiveSessions = sessionManager.hasAnySessions()
-        button.image = nil
-        button.title = hasActiveSessions ? "🔓" : "🔒"
+        let iconName = hasActiveSessions ? "varlock-menu-unlocked" : "varlock-menu-locked"
+        if let iconURL = Bundle.main.url(forResource: iconName, withExtension: "pdf"),
+           let image = NSImage(contentsOf: iconURL) {
+            image.isTemplate = true
+            image.size = NSSize(width: 18, height: 18)
+            button.image = image
+            button.title = ""
+        } else {
+            // Fallback to emoji if PDF icons are missing
+            button.image = nil
+            button.title = hasActiveSessions ? "🔓" : "🔒"
+        }
     }
 
     // NSMenuDelegate — update items and icon each time the menu opens
@@ -60,7 +70,7 @@ final class StatusBarMenu: NSObject, NSMenuDelegate {
         // Lock action — disabled with status text when already locked
         let hasActiveSessions = sessionManager.hasAnySessions()
         if hasActiveSessions {
-            let lockItem = NSMenuItem(title: "Lock", action: #selector(lockClicked), keyEquivalent: "l")
+            let lockItem = NSMenuItem(title: "Lock all sessions", action: #selector(lockClicked), keyEquivalent: "")
             lockItem.target = self
             menu.addItem(lockItem)
         } else {
@@ -72,7 +82,7 @@ final class StatusBarMenu: NSObject, NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
 
         // Quit
-        let quitItem = NSMenuItem(title: "Quit Daemon", action: #selector(quitClicked), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit Daemon", action: #selector(quitClicked), keyEquivalent: "")
         quitItem.target = self
         menu.addItem(quitItem)
     }
