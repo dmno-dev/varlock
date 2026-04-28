@@ -1,0 +1,29 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schemas/2025-03-26/server-card.json",
+  "serverInfo": {
+    "name": "Varlock docs MCP",
+    "version": "0.0.1"
+  },
+  "transports": [
+    {
+      "type": "streamable-http",
+      "endpoint": "https://docs.mcp.varlock.dev/mcp"
+    },
+    {
+      "type": "sse",
+      "endpoint": "https://docs.mcp.varlock.dev/sse"
+    }
+  ],
+  "capabilities": {
+    "tools": {
+      "listChanged": false
+    },
+    "resources": {
+      "subscribe": false,
+      "listChanged": false
+    },
+    "prompts": {
+      "listChanged": false
+    }
+  }
+}
