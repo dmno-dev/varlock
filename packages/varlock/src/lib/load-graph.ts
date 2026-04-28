@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadEnvGraph } from '../env-graph';
+import { VarlockResolver } from './local-encrypt/builtin-resolver';
+import { KeychainResolver } from './local-encrypt/keychain-resolver';
 import { CliExitError } from '../cli/helpers/exit-error';
 import { runWithWorkspaceInfo } from './workspace-utils';
 import { readVarlockPackageJsonConfig } from './package-json-config';
@@ -41,8 +43,9 @@ function loadFromPaths(
   return runWithWorkspaceInfo(() => loadEnvGraph({
     currentEnvFallback: config.currentEnvFallback,
     entryFilePaths: resolvedPaths,
-    afterInit: async (_g) => {
-      // TODO: register varlock resolver
+    afterInit: async (g) => {
+      g.registerResolver(VarlockResolver);
+      g.registerResolver(KeychainResolver);
     },
   }));
 }
@@ -82,8 +85,9 @@ export function loadVarlockEnvGraph(opts?: {
 
   return runWithWorkspaceInfo(() => loadEnvGraph({
     currentEnvFallback: opts?.currentEnvFallback,
-    afterInit: async (_g) => {
-      // TODO: register varlock resolver
+    afterInit: async (g) => {
+      g.registerResolver(VarlockResolver);
+      g.registerResolver(KeychainResolver);
     },
   }));
 }

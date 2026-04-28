@@ -327,6 +327,7 @@ html[data-theme='dark'] .expressive-code .frame {
 }
 
 .expressive-code .code {
+  font-size: 13px;
   font-family: var(--code-font);
 }
 

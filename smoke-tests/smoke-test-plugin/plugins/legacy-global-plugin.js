@@ -1,5 +1,7 @@
 // Legacy plugin that uses the old implicit `plugin` global (no require).
 // Used to verify the migration error message is shown.
+
+// eslint-disable-next-line no-undef
 plugin.registerResolverFunction({
   name: 'legacyTest',
   argsSchema: {

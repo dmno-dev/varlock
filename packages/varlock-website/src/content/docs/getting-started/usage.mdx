@@ -42,3 +42,21 @@ Executes a command in a child process, injecting your resolved and validated env
 
 
 See the [`varlock run` CLI Reference](/reference/cli-commands/#run) for more information.
+
+### `varlock encrypt`
+
+<ExecCommandWidget command="varlock encrypt --file .env.local" />
+
+Encrypts sensitive values using device-local encryption. Use `--file` to encrypt all `@sensitive` plaintext values in a `.env` file in-place, or run without arguments for interactive single-value encryption.
+
+Encrypted values are stored as `varlock("local:<encrypted>")` and are automatically decrypted during `varlock load` or `varlock run`.
+
+See the [`varlock encrypt` CLI Reference](/reference/cli-commands/#encrypt) and the [Local encryption guide](/guides/local-encryption/) for more information.
+
+### `varlock reveal`
+
+<ExecCommandWidget command="varlock reveal" />
+
+Securely view or copy decrypted values of `@sensitive` environment variables. Values are shown in an alternate screen buffer to prevent scrollback capture.
+
+See the [`varlock reveal` CLI Reference](/reference/cli-commands/#reveal) for more information.

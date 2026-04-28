@@ -54,6 +54,7 @@ export default tseslint.config(
       '**/out',
       '**/next-env.d.ts',
       '.magent',
+      '.claude',
       'framework-tests/.test-projects',
       'framework-tests/.packed',
     ],
@@ -159,6 +160,7 @@ export default tseslint.config(
     },
   },
   {
+    // allow console.log in some scripts/tests/etc
     files: [
       'scripts/**',
       'ignore/**',
@@ -168,6 +170,8 @@ export default tseslint.config(
       'packages/varlock/scripts/**',
       'smoke-tests/**',
       'framework-tests/**',
+      'packages/encryption-binary-swift/scripts/**',
+      'packages/encryption-binary-rust/scripts/**',
     ],
     rules: {
       'no-console': 0,
@@ -177,22 +181,6 @@ export default tseslint.config(
     files: ['smoke-tests/smoke-test-plugin/plugins/**'],
     rules: {
       '@typescript-eslint/no-require-imports': 0,
-    },
-  },
-  {
-    // plugin files use triple-slash directives for the `plugin` global type
-    // which is injected at runtime by varlock via globalThis
-    files: [
-      'smoke-tests/**/plugins/**',
-      'packages/varlock/src/env-graph/test/plugins/**',
-    ],
-    languageOptions: {
-      globals: {
-        plugin: 'readonly',
-      },
-    },
-    rules: {
-      '@typescript-eslint/triple-slash-reference': 0,
     },
   },
   {

@@ -1,0 +1,219 @@
+name: Build Rust native binaries
+
+# Reusable workflow that compiles the varlock-local-encrypt Rust binary
+# for Linux and Windows targets.
+#
+# Builds are cached by Cargo.lock + source hash. Each platform builds
+# natively on its own runner for maximum compatibility.
+#
+# Output: native binaries uploaded as artifacts, ready to be bundled
+# into the varlock npm package and CLI release archives.
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: 'Base name for uploaded artifacts (suffixed with platform)'
+        type: string
+        default: 'native-bin-rust'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            native-bin-subdir: linux-x64
+            binary-name: varlock-local-encrypt
+            test-interop: true  # only need interop on one platform — crypto is identical
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            native-bin-subdir: linux-arm64
+            binary-name: varlock-local-encrypt
+            test-interop: false
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            native-bin-subdir: win32-x64
+            binary-name: varlock-local-encrypt.exe
+            test-interop: false
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.native-bin-subdir }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Cache Cargo registry + build artifacts by lockfile hash
+      - name: Cache Cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/encryption-binary-rust/target
+          key: rust-${{ matrix.target }}-${{ hashFiles('packages/encryption-binary-rust/Cargo.lock') }}-${{ hashFiles('packages/encryption-binary-rust/src/**') }}
+          restore-keys: |
+            rust-${{ matrix.target }}-${{ hashFiles('packages/encryption-binary-rust/Cargo.lock') }}-
+            rust-${{ matrix.target }}-
+
+      - name: Install musl toolchain
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Install UPX
+        shell: bash
+        run: |
+          if [[ "${{ matrix.os }}" == *"ubuntu"* ]]; then
+            sudo apt-get update && sudo apt-get install -y upx-ucl
+          elif [[ "${{ matrix.os }}" == *"windows"* ]]; then
+            choco install upx --yes
+          fi
+
+      - name: Build release binary
+        working-directory: packages/encryption-binary-rust
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          ARTIFACT_DIR="native-bins/${{ matrix.native-bin-subdir }}"
+          mkdir -p "$ARTIFACT_DIR"
+          cp "packages/encryption-binary-rust/target/${{ matrix.target }}/release/${{ matrix.binary-name }}" "$ARTIFACT_DIR/"
+          echo "=== Binary info (before UPX) ==="
+          RAW_SIZE=$(stat --format=%s "$ARTIFACT_DIR/${{ matrix.binary-name }}" 2>/dev/null || stat -f%z "$ARTIFACT_DIR/${{ matrix.binary-name }}")
+          echo "Size: $(( RAW_SIZE / 1024 )) KB ($RAW_SIZE bytes)"
+          file "$ARTIFACT_DIR/${{ matrix.binary-name }}" || true
+          echo "=== UPX compress ==="
+          upx --best "$ARTIFACT_DIR/${{ matrix.binary-name }}" || echo "UPX compression failed, continuing with uncompressed binary"
+          FINAL_SIZE=$(stat --format=%s "$ARTIFACT_DIR/${{ matrix.binary-name }}" 2>/dev/null || stat -f%z "$ARTIFACT_DIR/${{ matrix.binary-name }}")
+          echo "=== Binary info (after UPX) ==="
+          echo "Size: $(( FINAL_SIZE / 1024 )) KB ($FINAL_SIZE bytes)"
+          if [ "$RAW_SIZE" != "$FINAL_SIZE" ]; then
+            RATIO=$(( FINAL_SIZE * 100 / RAW_SIZE ))
+            echo "Compression: ${RATIO}% of original"
+          fi
+          echo ""
+          echo "📦 ${{ matrix.native-bin-subdir }}/${{ matrix.binary-name }}: $(( FINAL_SIZE / 1024 )) KB"
+
+      # Run Rust unit tests
+      - name: Run unit tests
+        working-directory: packages/encryption-binary-rust
+        run: cargo test --release --target ${{ matrix.target }}
+
+      # Test the built binary end-to-end (one-shot commands, no biometric)
+      # Uses python (not python3) for Windows compat; printf for reliable base64 input
+      - name: Test binary - status
+        shell: bash
+        run: |
+          BIN="native-bins/${{ matrix.native-bin-subdir }}/${{ matrix.binary-name }}"
+          PY=$(command -v python3 || command -v python)
+          echo "=== status ==="
+          $BIN status
+          $BIN status | $PY -c "import sys,json; d=json.load(sys.stdin); assert d['ok'], 'status not ok'"
+
+      - name: Test binary - key lifecycle + encrypt/decrypt roundtrip
+        shell: bash
+        run: |
+          BIN="native-bins/${{ matrix.native-bin-subdir }}/${{ matrix.binary-name }}"
+          PY=$(command -v python3 || command -v python)
+
+          echo "=== generate-key ==="
+          $BIN generate-key --key-id ci-test
+          $BIN key-exists --key-id ci-test | $PY -c "import sys,json; d=json.load(sys.stdin); assert d['exists']"
+
+          echo "=== encrypt ==="
+          PLAINTEXT=$($PY -c "import base64; print(base64.b64encode(b'hello from CI').decode())")
+          CIPHERTEXT=$($BIN encrypt --key-id ci-test --data "$PLAINTEXT" | $PY -c "import sys,json; print(json.load(sys.stdin)['ciphertext'])")
+          echo "Ciphertext: ${CIPHERTEXT:0:40}..."
+
+          echo "=== decrypt ==="
+          DECRYPTED=$($BIN decrypt --key-id ci-test --data "$CIPHERTEXT" | $PY -c "import sys,json; print(json.load(sys.stdin)['plaintext'])")
+          echo "Decrypted: $DECRYPTED"
+
+          if [ "$DECRYPTED" != "hello from CI" ]; then
+            echo "::error::Roundtrip failed! Expected 'hello from CI', got '$DECRYPTED'"
+            exit 1
+          fi
+
+          echo "=== delete-key ==="
+          $BIN delete-key --key-id ci-test
+
+          echo "All binary tests passed"
+
+      # Cross-platform interop: encrypt with Rust, decrypt with JS, and vice versa
+      # Only on platforms where Bun is available and keys aren't DPAPI-protected
+      - name: Setup Bun (for interop test)
+        if: matrix.test-interop
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install JS deps (for interop test)
+        if: matrix.test-interop
+        run: bun install
+
+      # Bidirectional Rust↔JS interop test (Linux x64 only — crypto is platform-independent)
+      - name: Setup Bun (for interop test)
+        if: matrix.test-interop
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install JS deps (for interop test)
+        if: matrix.test-interop
+        run: bun install
+
+      - name: Test Rust↔JS interop
+        if: matrix.test-interop
+        shell: bash
+        run: |
+          BIN="native-bins/${{ matrix.native-bin-subdir }}/${{ matrix.binary-name }}"
+
+          # Generate key with Rust (no DPAPI on Linux = plaintext PKCS8)
+          $BIN generate-key --key-id interop-test
+          KEY_FILE="$HOME/.config/varlock/local-encrypt/keys/interop-test.json"
+          PUBLIC_KEY=$(python3 -c "import json; print(json.load(open('$KEY_FILE'))['publicKey'])")
+          PRIVATE_KEY=$(python3 -c "import json; print(json.load(open('$KEY_FILE'))['protectedPrivateKey'])")
+
+          # Rust→JS: encrypt with Rust, decrypt with JS
+          PLAINTEXT_B64=$(python3 -c "import base64; print(base64.b64encode(b'rust to javascript').decode())")
+          CIPHERTEXT=$($BIN encrypt --key-id interop-test --data "$PLAINTEXT_B64" | python3 -c "import sys,json; print(json.load(sys.stdin)['ciphertext'])")
+          RESULT=$(bun -e "
+            const { decrypt } = await import('./packages/varlock/src/lib/local-encrypt/crypto.ts');
+            const result = await decrypt('$PRIVATE_KEY', '$PUBLIC_KEY', '$CIPHERTEXT');
+            process.stdout.write(result);
+          ")
+          [ "$RESULT" = "rust to javascript" ] || { echo "::error::Rust→JS failed! Got: $RESULT"; exit 1; }
+          echo "Rust→JS: '$RESULT'"
+
+          # JS→Rust: encrypt with JS, decrypt with Rust
+          CIPHERTEXT=$(bun -e "
+            const { encrypt } = await import('./packages/varlock/src/lib/local-encrypt/crypto.ts');
+            const result = await encrypt('$PUBLIC_KEY', 'javascript to rust');
+            process.stdout.write(result);
+          ")
+          RESULT=$($BIN decrypt --key-id interop-test --data "$CIPHERTEXT" | python3 -c "import sys,json; print(json.load(sys.stdin)['plaintext'])")
+          [ "$RESULT" = "javascript to rust" ] || { echo "::error::JS→Rust failed! Got: $RESULT"; exit 1; }
+          echo "JS→Rust: '$RESULT'"
+
+          $BIN delete-key --key-id interop-test
+          echo "All interop tests passed"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}-${{ matrix.native-bin-subdir }}
+          path: native-bins/${{ matrix.native-bin-subdir }}/
+          retention-days: 7
+
+      # Cache the built binary so preview releases on other runners can restore it
+      - name: Cache built binary
+        uses: actions/cache/save@v5
+        with:
+          path: native-bins/${{ matrix.native-bin-subdir }}/
+          key: native-bin-rust-${{ matrix.native-bin-subdir }}-${{ hashFiles('packages/encryption-binary-rust/Cargo.lock', 'packages/encryption-binary-rust/src/**') }}

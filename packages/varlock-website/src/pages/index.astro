@@ -41,18 +41,10 @@ const metaHead = createMetaHead({
           <img
             src="https://varlock-pixel-art.dmno.workers.dev/characters/warlock1.gif"
           />
-          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/effects/black-hole.gif" /> -->
           <div>
-            <!-- <span class="tagline">Env files you can share!</span> -->
-            <!-- <br /> -->
             <span class="sparkle">AI-safe</span> .env files: <br />
-            Schemas for agents, <br />Secrets for humans.
+            Schemas for agents, secrets for humans
           </div>
-          <!-- <div>
-            Environment variables with<br />the right amount of magic
-          </div> -->
-          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/effects/black-hole.gif" /> -->
-          <!-- <img src="https://varlock-pixel-art.dmno.workers.dev/characters/demon1.gif" /> -->
           <img
             src="https://varlock-pixel-art.dmno.workers.dev/characters/warlock1.gif"
           />
@@ -63,21 +55,30 @@ const metaHead = createMetaHead({
         lang="env-spec"
         code=`
 # Declarative schema — AI agents get full context, never secret values
-# @sensitive @required @type=string(startsWith=sk-)
-OPENAI_API_KEY=
+# @sensitive @required @type=string(startsWith=sk-ant-api)
+# @docs(https://platform.claude.com/docs/en/api/overview)
+ANTHROPIC_API_KEY=
 
 # @type=enum(development, preview, production, test)
 APP_ENV=development # set non-sensitive default values directly
 
-# use function calls to securely fetch data from external sources
-XYZ_TOKEN=exec('op read "op://api-prod/xyz/auth-token"')
+# use function calls and plugins to securely fetch data from external sources
+XYZ_TOKEN=op("op://api-prod/xyz/auth-token")
     `
       />
       <p class="env-spec-example-note">
         Unlike <i>.env.example</i>, your <i>.env.schema</i> is a single source of
-        truth, built for collaboration, that will never be out of sync. AI agents
-        can read your schema for full context — without accessing your secrets.
+        truth, built for collaboration, that will never be out of sync. Agents can
+        read your schema for full context — without accessing your secrets.
       </p>
+      <Code
+        title=".env.local (git-ignored)"
+        lang="env-spec"
+        code=`
+# built-in encryption for local overrides - NOTHING in plaintext
+ANTHROPIC_API_KEY=varlock(local:ABC123...)
+      `
+      />
 
       <div class="button-container">
         <LinkButton href="getting-started/introduction">Get Started</LinkButton>
@@ -291,6 +292,19 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
       </p>
 
       <EmailSignup client:load />
+
+      <div>
+        <a
+          href="https://osscar.dev/org/dmno-dev"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <img
+            src="https://osscar.dev/api/badge?slug=dmno-dev"
+            alt="Featured on OSSCAR"
+          />
+        </a>
+      </div>
     </div>
   </main>
 </Layout>
@@ -299,7 +313,7 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
   .container {
     max-width: 1000px;
     margin: 0 auto;
-    padding: 2rem 1rem;
+    padding: 1rem 1rem;
     gap: 2rem;
   }
 
@@ -477,14 +491,14 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
   }
   .homepage-hero {
     text-align: center;
-    padding-bottom: 1em;
+    padding-bottom: 0.3em;
     h1 {
-      margin: 1em 0;
+      margin: 0.5em 0;
       display: flex;
       gap: 1em;
       justify-content: center;
       align-items: flex-start;
-      font-size: 36px;
+      font-size: 32px;
       text-wrap: balance;
 
       @media screen and (max-width: 700px) {
@@ -517,6 +531,7 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
   }
   .env-spec-example-note {
     padding: 0 1em;
+    text-align: center;
   }
 
   h2 {

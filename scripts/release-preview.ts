@@ -6,13 +6,26 @@ import { listWorkspaces } from './list-workspaces';
 const __filename = fileURLToPath(import.meta.url);
 const MONOREPO_ROOT = path.resolve(path.dirname(__filename), '..');
 
+// Accept package paths from RELEASE_PACKAGES env var (set by check-release-packages step)
+const releasePackagesEnv = process.env.RELEASE_PACKAGES;
+if (!releasePackagesEnv) {
+  console.error('RELEASE_PACKAGES env var not set — run check-release-packages.ts first');
+  process.exit(1);
+}
+
+let releasePackagePaths: Array<string> = JSON.parse(releasePackagesEnv);
+
+if (!releasePackagePaths.length) {
+  console.log('No packages to release!');
+  process.exit(0);
+}
+
 let err: unknown;
 try {
   const workspacePackagesInfo = await listWorkspaces(MONOREPO_ROOT);
 
   // Check if we're on bumpy version branch
   const currentBranch = process.env.GITHUB_HEAD_REF || execSync('git branch --show-current').toString().trim();
-  let releasePackagePaths: Array<string>;
 
   console.log('current branch = ', currentBranch);
 
@@ -33,7 +46,7 @@ try {
     // Get the workspace paths for modified packages
     releasePackagePaths = modifiedPackageJsons
       .map((filePath) => `${MONOREPO_ROOT}/${filePath.replace('/package.json', '')}`)
-      .filter((filePath) => workspacePackagesInfo.some((p) => p.path === filePath));
+      .filter((filePath) => workspacePackagesInfo.some((p: { path: string }) => p.path === filePath));
   } else {
     // On a normal PR, use bumpy status to determine which packages would be released.
     // This includes pending bump files from main (merged into the branch), so preview
@@ -65,7 +78,7 @@ try {
     // Filter to only packages that publish to npm (using publishTargets from bumpy 1.2+)
     releasePackagePaths = bumpyStatus.releases
       .filter((r: any) => r.publishTargets?.includes('npm'))
-      .map((r: any) => workspacePackagesInfo.find((p) => p.name === r.name))
+      .map((r: any) => workspacePackagesInfo.find((p: { name: string }) => p.name === r.name))
       .filter(Boolean)
       .map((p: any) => p.path);
   }
@@ -92,5 +105,6 @@ try {
   if (_err.message) console.error(_err.message);
   if (_err.stderr?.toString().trim()) console.error(_err.stderr.toString());
 }
+
 
 process.exit(err ? 1 : 0);

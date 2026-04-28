@@ -15,11 +15,13 @@
   "scripts": {
     "build": "turbo build --filter=\"!smoke-test-*\"",
     "build:libs": "bun run build --filter=\"!@varlock/website\" --filter=\"!smoke-test-*\"",
+    "build:swift": "bun run --filter=\"@varlock/encryption-binary-swift\" build:current",
     "test:ci": "turbo test:ci --filter=\"!smoke-test-*\"",
     "smoke-test": "cd smoke-tests && bun run test",
     "test:frameworks": "cd framework-tests && bun run test",
-    "typecheck": "turbo typecheck --filter=\"!@varlock/website\" --filter=\"!smoke-test-*\" --filter=\"!varlock-docs-mcp\"",
-    "check": "bun run lint && bun run typecheck && bun run build:libs && bun run test:ci",
+    "typecheck": "tsc --noEmit",
+    "typecheck:all": "turbo typecheck --filter=\"!@varlock/website\" --filter=\"!smoke-test-*\" --filter=\"!varlock-docs-mcp\"",
+    "check": "bun run lint && bun run typecheck:all && bun run build:libs && bun run test:ci",
     "dev": "turbo run dev --concurrency=40 --parallel --filter=\"!smoke-test-*\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -32,6 +34,7 @@
     "@cloudflare/vite-plugin": "^1.30.1",
     "@eslint/js": "^10.0.1",
     "@stylistic/eslint-plugin": "^5.9.0",
+    "@types/node": "catalog:",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",
     "@varlock/cloudflare-integration": "workspace:*",
@@ -47,7 +50,8 @@
     "lefthook": "^2.1.6",
     "turbo": "^2.8.12",
     "typescript": "catalog:",
-    "typescript-eslint": "^8.56.1"
+    "typescript-eslint": "^8.56.1",
+    "varlock": "workspace:*"
   },
   "packageManager": "bun@1.3.11",
   "engines": {
