@@ -11,4 +11,4 @@ pre-push:
     - name: typecheck
       run: bun run typecheck
     - name: bumpy
-      run: bunx bumpy check
+      run: bunx @varlock/bumpy check

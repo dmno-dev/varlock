@@ -206,12 +206,12 @@ strong {
 
   &:hover {
     img {
-      transform: scale(1.1);
+      /* transform: scale(1.35); */
     }
   }
 
   img {
-    transition: transform .2s;
+    transform: scale(1.35);
     image-rendering: pixelated;
     image-rendering: -moz-crisp-edges;
     image-rendering: crisp-edges;
