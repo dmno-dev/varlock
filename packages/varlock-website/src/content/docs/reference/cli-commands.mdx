@@ -276,6 +276,44 @@ You can also set it up manually -- see the [Secrets guide](/guides/secrets/#scan
 </div>
 
 <div>
+### `varlock audit` ||audit||
+
+Scans your source code for environment variable references and compares them against keys defined in your schema.
+
+This command reports two drift categories:
+- **Missing in schema**: key is used in code but not declared in schema
+- **Unused in schema**: key is declared in schema but not referenced in code
+
+Exit codes:
+- `0` when schema and code are in sync
+- `1` when drift is detected
+
+```bash
+varlock audit [options]
+```
+
+**Options:**
+- `--path` / `-p`: Path to a specific `.env` file or directory to use as the schema entry point
+
+**Examples:**
+```bash
+# Audit current project
+varlock audit
+
+# Audit using a specific .env file as schema entry point
+varlock audit --path .env.prod
+
+# Audit using a directory as schema entry point
+varlock audit --path ./config
+```
+
+:::note
+When `--path` points to a directory, code scanning is scoped to that directory tree. When it points to a file, scanning is scoped to that file's parent directory.
+:::
+
+</div>
+
+<div>
 ### `varlock typegen` ||typegen||
 
 Generates type files according to [`@generateTypes`](/reference/root-decorators/#generatetypes) and your config schema. Uses only non-environment-specific schema info, so output is deterministic regardless of which environment is active.
