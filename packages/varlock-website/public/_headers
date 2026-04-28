@@ -2,3 +2,14 @@
 /*.txt
   Content-Type: text/plain; charset=utf-8
 
+/
+  Link: </.well-known/api-catalog>; rel="api-catalog"
+  Link: </guides/mcp>; rel="service-doc"
+  Link: </.well-known/mcp/server-card.json>; rel="describedby"
+  Link: </.well-known/agent-skills/index.json>; rel="describedby"
+
+/.well-known/api-catalog
+  Content-Type: application/linkset+json; charset=utf-8
+
+/.well-known/agent-skills/*/SKILL.md
+  Content-Type: text/markdown; charset=utf-8

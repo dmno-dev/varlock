@@ -1,0 +1,19 @@
+{
+  "linkset": [
+    {
+      "anchor": "https://docs.mcp.varlock.dev/mcp",
+      "service-desc": [
+        {
+          "href": "https://varlock.dev/.well-known/mcp/server-card.json",
+          "type": "application/json"
+        }
+      ],
+      "service-doc": [
+        {
+          "href": "https://varlock.dev/guides/mcp",
+          "type": "text/html"
+        }
+      ]
+    }
+  ]
+}
