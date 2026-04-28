@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://varlock.dev" target="_blank" rel="noopener noreferrer">
-    <img src="/packages/varlock-website/public/github-readme-banner.png" alt="Varlock banner">
+    <img src="/packages/varlock-website/src/assets/logos/wordmark.png" alt="Varlock banner">
   </a>
 </p>
 <br/>
