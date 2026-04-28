@@ -233,6 +233,8 @@ export type ResolverDef<T = any> = {
   label?: string;
   icon?: string;
   inferredType?: string;
+  /** If true, using this resolver implies the item is sensitive (unless explicitly overridden) */
+  impliesSensitive?: boolean;
   argsSchema?: {
     type: 'array' | 'object' | 'mixed';
     arrayExactLength?: number;

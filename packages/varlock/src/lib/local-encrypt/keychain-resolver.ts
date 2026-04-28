@@ -13,14 +13,10 @@
  *   keychain(prompt)                     — interactive picker, writes back reference
  */
 
-import fs from 'node:fs';
 import { createResolver, Resolver } from '../../env-graph/lib/resolver';
 import { ResolutionError, SchemaError } from '../../env-graph/lib/errors';
 import { getDaemonClient } from './index';
-
-function escapeRegExp(str: string) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+import { writeBackValue } from './write-back';
 
 type KeychainResolverState = {
   mode: 'get';
@@ -39,10 +35,6 @@ function writeBackKeychainRef(
   ref: { service: string; account?: string; keychain?: string },
   sourceFilePath: string | undefined,
 ) {
-  if (!sourceFilePath) return;
-  const currentContents = fs.readFileSync(sourceFilePath, 'utf-8');
-  const pattern = new RegExp(`^(${escapeRegExp(itemKey)}\\s*=\\s*)keychain\\([^)]*\\)`, 'm');
-
   // Use positional shorthand when only service is needed, named args when disambiguating
   let argsStr: string;
   if (!ref.account && !ref.keychain) {
@@ -54,16 +46,14 @@ function writeBackKeychainRef(
     argsStr = parts.join(', ');
   }
 
-  const updatedContents = currentContents.replace(pattern, `$1keychain(${argsStr})`);
-  if (updatedContents !== currentContents) {
-    fs.writeFileSync(sourceFilePath, updatedContents);
-  }
+  writeBackValue(itemKey, `keychain(${argsStr})`, sourceFilePath);
 }
 
 export const KeychainResolver: typeof Resolver = createResolver<KeychainResolverState>({
   name: 'keychain',
   label: 'Read from macOS Keychain',
   icon: 'mdi:key-chain',
+  impliesSensitive: true,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,

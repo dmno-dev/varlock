@@ -224,7 +224,7 @@ export function getBackendInfo(): BackendInfo {
     }
   } else {
     debug(`getBackendInfo: using file backend (type=${type}, binaryPath=${binaryPath ?? 'none'}, isFileFallback=${isFileFallback})`);
-    if (isFileFallback) {
+    if (isFileFallback && !process.env._VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK) {
       process.stderr.write(
         '[varlock] Warning: native encryption binary not found, falling back to file-based encryption (not hardware-backed)\n',
       );

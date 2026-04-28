@@ -18,9 +18,19 @@ final class SecureInputDialog {
             alert.addButton(withTitle: "Encrypt")
             alert.addButton(withTitle: "Cancel")
 
-            let inputField = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 44))
+
+            let inputField = NSSecureTextField(frame: NSRect(x: 0, y: 20, width: 300, height: 24))
             inputField.placeholderString = "Enter or paste secret value..."
-            alert.accessoryView = inputField
+            container.addSubview(inputField)
+
+            let hint = NSTextField(labelWithString: "Pasting multi-line strings works")
+            hint.font = NSFontManager.shared.convert(NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), toHaveTrait: .italicFontMask)
+            hint.textColor = .secondaryLabelColor
+            hint.frame = NSRect(x: 0, y: 0, width: 300, height: 16)
+            container.addSubview(hint)
+
+            alert.accessoryView = container
 
             // Set the window title to include the item key for context
             let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Varlock"

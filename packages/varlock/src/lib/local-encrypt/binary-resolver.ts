@@ -183,8 +183,8 @@ let _cachedBinaryPath: string | undefined | null = null; // null = not yet resol
 export function resolveNativeBinary(): string | undefined {
   if (_cachedBinaryPath !== null) return _cachedBinaryPath;
 
-  if (process.env.VARLOCK_FORCE_FILE_BACKEND) {
-    debug('VARLOCK_FORCE_FILE_BACKEND is set — skipping native binary resolution');
+  if (process.env._VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK) {
+    debug('_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK is set — skipping native binary resolution');
     _cachedBinaryPath = undefined;
     return undefined;
   }

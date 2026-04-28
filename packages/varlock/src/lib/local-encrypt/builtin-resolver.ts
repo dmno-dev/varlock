@@ -5,11 +5,11 @@
  * Works cross-platform using the local-encrypt abstraction layer.
  */
 
-import fs from 'node:fs';
 import { createResolver, Resolver } from '../../env-graph/lib/resolver';
 import { ResolutionError, SchemaError } from '../../env-graph/lib/errors';
 import prompts from '../../cli/helpers/prompts';
 import * as localEncrypt from './index';
+import { writeBackValue } from './write-back';
 
 const LOCAL_PREFIX = 'local:';
 const PLUGIN_ICON = 'mdi:fingerprint';
@@ -108,10 +108,6 @@ async function executeBatch() {
   }
 }
 
-function escapeRegExp(str: string) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 type VarlockResolverState = {
   mode: 'decrypt';
   payload: string;
@@ -125,27 +121,17 @@ function writeBackEncryptedValue(
   itemKey: string,
   ciphertext: string,
   sourceFilePath: string | undefined,
-): { updated: boolean; reason?: 'missing-source-file' | 'item-not-found' } {
-  if (!sourceFilePath) {
-    return { updated: false, reason: 'missing-source-file' };
-  }
-
-  const currentContents = fs.readFileSync(sourceFilePath, 'utf-8');
-  const pattern = new RegExp(`^(\\s*(?:export\\s+)?${escapeRegExp(itemKey)}\\s*=\\s*)varlock\\([^)]*\\)`, 'm');
+) {
   const prefixedCiphertext = `${LOCAL_PREFIX}${ciphertext}`;
-  const updatedContents = currentContents.replace(pattern, `$1varlock("${prefixedCiphertext}")`);
-  if (updatedContents !== currentContents) {
-    fs.writeFileSync(sourceFilePath, updatedContents);
-    return { updated: true };
-  }
-
-  return { updated: false, reason: 'item-not-found' };
+  return writeBackValue(itemKey, `varlock("${prefixedCiphertext}")`, sourceFilePath);
 }
+
 
 export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverState>({
   name: 'varlock',
   label: 'Decrypt locally encrypted value',
   icon: PLUGIN_ICON,
+  impliesSensitive: true,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -196,8 +182,8 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
           {
             tip: [
               `Backend: ${backend.type} (${backend.hardwareBacked ? 'hardware-backed' : 'file-based'})`,
-              'Make sure the encryption key has not been deleted.',
-              'Run `varlock encrypt --help` for more info.',
+              'This usually means the value was encrypted with a different key or backend.',
+              'Set a new value using `varlock encrypt` or `KEY=varlock(prompt)`.',
             ].join('\n'),
           },
         );
@@ -250,7 +236,7 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
         );
       }
 
-      const rawValue = await prompts.password({ message: `Enter the secret value for ${itemKey}:` });
+      const rawValue = await prompts.password({ message: `Enter the secret value for ${itemKey}:`, hint: 'for multi-line values, use `varlock encrypt`' });
       const isCanceled = typeof rawValue !== 'string';
       if (isCanceled || !rawValue) {
         throw new ResolutionError('Secret input was cancelled', {

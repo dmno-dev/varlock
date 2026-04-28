@@ -365,6 +365,7 @@ export const multiselect = <Value>(opts: MultiSelectOptions<Value>) => {
 export interface PasswordOptions extends CommonOptions {
   message: string;
   mask?: string;
+  hint?: string;
 }
 
 function getPasswordPromptChain() {
@@ -405,7 +406,8 @@ export const password = async (opts: PasswordOptions) => {
       input: opts.input,
       output: opts.output,
       render() {
-        const title = `${color.gray(S_BAR)}\n${symbol(this.state)}  ${opts.message}\n`;
+        const hintLine = opts.hint ? `${color.gray(S_BAR)}  ${color.dim(opts.hint)}\n` : '';
+        const title = `${color.gray(S_BAR)}\n${symbol(this.state)}  ${opts.message}\n${hintLine}`;
         const value = this.value ? String(this.value) : '';
         const masked = value ? mask.repeat(value.length) : '';
 

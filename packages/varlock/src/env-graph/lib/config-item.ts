@@ -384,6 +384,7 @@ export class ConfigItem {
 
 
   _isSensitive: boolean = true;
+  /** Whether sensitivity was explicitly set via a per-item @sensitive or @public decorator */
   _sensitiveExplicitlySet = false;
   get isSensitive(): boolean {
     return this._isSensitive;
@@ -496,6 +497,20 @@ export class ConfigItem {
     await this.resolveDecorators();
     await this.processRequired();
     await this.processSensitive();
+
+    // Resolver functions like varlock() and keychain() imply sensitivity —
+    // override defaults but respect explicit per-item @sensitive=false / @public
+    if (this.valueResolver?.def?.impliesSensitive && !this._sensitiveExplicitlySet) {
+      this._isSensitive = true;
+      // Only warn if the item has a non-override definition where @sensitive could be added
+      const hasSchemaSource = this.defs.some((d) => d.source && d.source.type !== 'overrides');
+      if (hasSchemaSource) {
+        this._schemaErrors.push(new SchemaError(
+          'implicitly treated as @sensitive — add @sensitive to schema',
+          { isWarning: true },
+        ));
+      }
+    }
 
     if (!this.valueResolver) {
       this.isResolved = true;

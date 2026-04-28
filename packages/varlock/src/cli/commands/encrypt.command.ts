@@ -1,5 +1,5 @@
 import { define } from 'gunshi';
-import { isCancel, password } from '@clack/prompts';
+import { isCancel } from '@clack/prompts';
 import ansis from 'ansis';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -12,9 +12,10 @@ import { FileBasedDataSource } from '../../env-graph';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
-import { multiselect } from '../helpers/prompts';
+import { multiselect, password } from '../helpers/prompts';
 import { gracefulExit } from 'exit-hook';
 import * as localEncrypt from '../../lib/local-encrypt';
+import { writeBackValue } from '../../lib/local-encrypt/write-back';
 
 export const commandSpec = define({
   name: 'encrypt',
@@ -101,21 +102,12 @@ async function encryptFile(keyId: string, filePath: string) {
 
   console.log('');
 
-  // Encrypt each value and write back using string replacement on the raw file.
-  // We re-read each time since prior replacements modify the file.
   let encryptedCount = 0;
   for (const item of filteredItems) {
     const ciphertext = await localEncrypt.encryptValue(item.value, keyId);
-    const prefixed = `local:${ciphertext}`;
+    const result = writeBackValue(item.key, `varlock("local:${ciphertext}")`, resolvedPath);
 
-    const currentContents = fs.readFileSync(resolvedPath, 'utf-8');
-    // Match the line for this key and replace the static value with varlock("local:...")
-    const escaped = item.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pattern = new RegExp(`^(${escaped}\\s*=\\s*).*$`, 'm');
-    const updatedContents = currentContents.replace(pattern, `$1varlock("${prefixed}")`);
-
-    if (updatedContents !== currentContents) {
-      fs.writeFileSync(resolvedPath, updatedContents);
+    if (result.updated) {
       encryptedCount++;
       console.log(`  Encrypted: ${item.key}`);
     }
@@ -151,31 +143,46 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // Avoids putting secrets in shell history (e.g. `echo $SECRET | varlock encrypt`).
   console.log('');
 
-  let rawValue: string;
+  let ciphertext: string;
+
   if (!process.stdin.isTTY) {
     const chunks: Array<Buffer> = [];
     for await (const chunk of process.stdin) {
       chunks.push(chunk as Buffer);
     }
-    rawValue = Buffer.concat(chunks).toString('utf-8').replace(/\r?\n$/, '');
+    const rawValue = Buffer.concat(chunks).toString('utf-8').replace(/\r?\n$/, '');
     if (!rawValue) {
       throw new CliExitError('No value received on stdin');
     }
+    try {
+      ciphertext = await localEncrypt.encryptValue(rawValue, keyId);
+    } catch (err) {
+      if (err instanceof CliExitError) throw err;
+      throw new CliExitError(
+        `Encryption failed: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  } else if (backend.biometricAvailable) {
+    // Use native secure input dialog (supports multi-line paste)
+    const client = localEncrypt.getDaemonClient();
+    const result = await client.promptSecret({ keyId });
+    if (!result) {
+      return gracefulExit();
+    }
+    ciphertext = result;
   } else {
-    const prompted = await password({ message: 'Enter the value you want to encrypt' });
+    const prompted = await password({ message: 'Enter the value you want to encrypt', hint: 'for multi-line values, pipe via stdin' });
     if (isCancel(prompted)) return gracefulExit();
-    rawValue = prompted;
+    try {
+      ciphertext = await localEncrypt.encryptValue(prompted, keyId);
+    } catch (err) {
+      if (err instanceof CliExitError) throw err;
+      throw new CliExitError(
+        `Encryption failed: ${err instanceof Error ? err.message : err}`,
+      );
+    }
   }
 
-  try {
-    const ciphertext = await localEncrypt.encryptValue(rawValue, keyId);
-
-    console.log('\nCopy this into your .env.local file and rename the key appropriately:\n');
-    console.log(`SOME_SENSITIVE_KEY=varlock("local:${ciphertext}")`);
-  } catch (err) {
-    if (err instanceof CliExitError) throw err;
-    throw new CliExitError(
-      `Encryption failed: ${err instanceof Error ? err.message : err}`,
-    );
-  }
+  console.log('\nCopy this into your .env.local file and rename the key appropriately:\n');
+  console.log(`SOME_SENSITIVE_KEY=varlock("local:${ciphertext}")`);
 };

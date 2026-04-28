@@ -237,11 +237,17 @@ export async function decrypt(
   // AES-256-GCM decrypt
   // Web Crypto expects ciphertext + tag concatenated
   const cryptoKey = await subtle.importKey('raw', bs(aesKey), 'AES-GCM', false, ['decrypt']);
-  const decrypted = await subtle.decrypt(
-    { name: 'AES-GCM', iv: bs(nonce), tagLength: TAG_LENGTH * 8 },
-    cryptoKey,
-    bs(ciphertextAndTag), // already ciphertext || tag
-  );
-
-  return new TextDecoder().decode(decrypted);
+  try {
+    const decrypted = await subtle.decrypt(
+      { name: 'AES-GCM', iv: bs(nonce), tagLength: TAG_LENGTH * 8 },
+      cryptoKey,
+      bs(ciphertextAndTag), // already ciphertext || tag
+    );
+    return new TextDecoder().decode(decrypted);
+  } catch (err) {
+    throw new Error(
+      'Unable to decrypt value',
+      { cause: err },
+    );
+  }
 }
