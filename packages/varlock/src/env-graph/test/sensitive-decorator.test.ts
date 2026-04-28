@@ -1,6 +1,11 @@
-import { describe, test } from 'vitest';
+import {
+  describe, test, expect, vi,
+} from 'vitest';
+import path from 'node:path';
 import outdent from 'outdent';
 import { envFilesTest } from './helpers/generic-test';
+import { EnvGraph, DotEnvFileDataSource } from '../index';
+import { createEnvGraphDataType } from '../lib/data-types';
 
 describe('@sensitive and @defaultSensitive tests', () => {
   test('no @defaultSensitive set - sensitive by default, can override', envFilesTest({
@@ -152,8 +157,186 @@ describe('@sensitive and @defaultSensitive tests', () => {
     }));
   });
 
-  test.todo('data type sensitive can set sensitivity');
-  test.todo('data type sensitive is not overridden by item decorators');
+  describe('explicit @sensitive overrides @defaultSensitive from other files', () => {
+    test('@sensitive in schema wins over @defaultSensitive=false in local', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @sensitive
+          ITEM_A=
+        `,
+        '.env.local': outdent`
+          # @defaultSensitive=false
+          # ---
+          ITEM_A=secret
+        `,
+      },
+      expectSensitive: { ITEM_A: true },
+    }));
+
+    test('@sensitive=false in schema wins over @defaultSensitive=true in local', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @sensitive=false
+          ITEM_A=
+        `,
+        '.env.local': outdent`
+          # @defaultSensitive=true
+          # ---
+          ITEM_A=value
+        `,
+      },
+      expectSensitive: { ITEM_A: false },
+    }));
+
+    test('@public in schema wins over @defaultSensitive=true in local', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @public
+          ITEM_A=
+        `,
+        '.env.local': outdent`
+          # @defaultSensitive=true
+          # ---
+          ITEM_A=value
+        `,
+      },
+      expectSensitive: { ITEM_A: false },
+    }));
+
+    test('@sensitive in local wins over @defaultSensitive=false in schema', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @defaultSensitive=false
+          # ---
+          ITEM_A=
+        `,
+        '.env.local': outdent`
+          # @sensitive
+          ITEM_A=secret
+        `,
+      },
+      expectSensitive: { ITEM_A: true },
+    }));
+
+    test('@sensitive in schema wins over inferFromPrefix in local', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @sensitive
+          PUBLIC_ITEM=
+        `,
+        '.env.local': outdent`
+          # @defaultSensitive=inferFromPrefix(PUBLIC_)
+          # ---
+          PUBLIC_ITEM=value
+        `,
+      },
+      expectSensitive: { PUBLIC_ITEM: true },
+    }));
+
+    test('items without explicit decorator still follow @defaultSensitive', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @sensitive
+          EXPLICIT_SENSITIVE=
+          NO_DECORATOR=
+        `,
+        '.env.local': outdent`
+          # @defaultSensitive=false
+          # ---
+          EXPLICIT_SENSITIVE=secret
+          NO_DECORATOR=value
+        `,
+      },
+      expectSensitive: { EXPLICIT_SENSITIVE: true, NO_DECORATOR: false },
+    }));
+  });
+
+  describe('data type with sensitive flag', () => {
+    function dataTypeSensitiveTest(spec: {
+      envFile: string;
+      sensitiveDataType: boolean;
+      expectSensitive: Record<string, boolean>;
+    }) {
+      return async () => {
+        const currentDir = path.dirname(expect.getState().testPath!);
+        vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
+
+        const g = new EnvGraph();
+        g.registerDataType(createEnvGraphDataType({
+          name: 'secret-token',
+          sensitive: spec.sensitiveDataType,
+        }));
+        const source = new DotEnvFileDataSource('.env.schema', { overrideContents: spec.envFile });
+        await g.setRootDataSource(source);
+        await g.finishLoad();
+        await g.resolveEnvValues();
+
+        for (const [key, expected] of Object.entries(spec.expectSensitive)) {
+          const item = g.configSchema[key];
+          expect(item.isSensitive, `expected ${key} to be ${expected ? 'sensitive' : 'NOT sensitive'}`).toBe(expected);
+        }
+      };
+    }
+
+    test('data type sensitive=true makes items sensitive', dataTypeSensitiveTest({
+      sensitiveDataType: true,
+      envFile: outdent`
+        TYPED=      # @type=secret-token
+        UNTYPED=
+      `,
+      expectSensitive: { TYPED: true, UNTYPED: true },
+    }));
+
+    test('data type sensitive=false makes items not sensitive (overrides default)', dataTypeSensitiveTest({
+      sensitiveDataType: false,
+      envFile: outdent`
+        TYPED=      # @type=secret-token
+        UNTYPED=
+      `,
+      expectSensitive: { TYPED: false, UNTYPED: true },
+    }));
+
+    test('data type sensitive skips @defaultSensitive', dataTypeSensitiveTest({
+      sensitiveDataType: true,
+      envFile: outdent`
+        # @defaultSensitive=false
+        # ---
+        TYPED=      # @type=secret-token
+        UNTYPED=
+      `,
+      expectSensitive: { TYPED: true, UNTYPED: false },
+    }));
+
+    test('explicit @sensitive=false overrides data type sensitive=true', dataTypeSensitiveTest({
+      sensitiveDataType: true,
+      envFile: outdent`
+        # @sensitive=false
+        TYPED=      # @type=secret-token
+        UNTYPED=
+      `,
+      expectSensitive: { TYPED: false, UNTYPED: true },
+    }));
+
+    test('explicit @public overrides data type sensitive=true', dataTypeSensitiveTest({
+      sensitiveDataType: true,
+      envFile: outdent`
+        # @public
+        TYPED=      # @type=secret-token
+        UNTYPED=
+      `,
+      expectSensitive: { TYPED: false, UNTYPED: true },
+    }));
+
+    test('explicit @sensitive=true overrides data type sensitive=false', dataTypeSensitiveTest({
+      sensitiveDataType: false,
+      envFile: outdent`
+        # @sensitive
+        TYPED=      # @type=secret-token
+        UNTYPED=
+      `,
+      expectSensitive: { TYPED: true, UNTYPED: true },
+    }));
+  });
 });
 
 // maybe not the right spot, but it is related to sensitivity and decorators

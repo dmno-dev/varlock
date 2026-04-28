@@ -317,62 +317,62 @@ export class ConfigItem {
 
   private async processRequired() {
     try {
+      // Pass 1: explicit per-item @required / @optional decorators take highest priority
       for (const def of this.defs) {
         const requiredDecs = def.itemDef.decorators?.filter((d) => d.name === 'required' || d.name === 'optional') || [];
-        // NOTE - checks for duplicates and using required+optional together are already handled more generally
         const requiredDec = requiredDecs[0];
+        if (!requiredDec) continue;
 
-        // Explicit per-item decorators
-        if (requiredDec) {
-          const usingOptional = requiredDec.name === 'optional';
+        const usingOptional = requiredDec.name === 'optional';
 
-          // need to track if required-ness is dynamic
-          // NOTE - if any other resolver ever has a static value, we'll need to change this
-          if (requiredDec.decValueResolver?.fnName !== '\0static') {
-            this._isRequiredDynamic = true;
-          }
-
-          const requiredDecoratorVal = await requiredDec.resolve();
-          // if we got an error, we'll bail and the error will be checked later
-          if (requiredDec.schemaErrors.length) {
-            // but we mark as not required so we don't _also_ get required error
-            this._isRequired = false;
-            return;
-          }
-          if (![true, false, undefined].includes(requiredDecoratorVal)) {
-            throw new SchemaError('@required/@optional must resolve to a boolean or undefined');
-          }
-          if (requiredDecoratorVal !== undefined) {
-            this._isRequired = usingOptional ? !requiredDecoratorVal : requiredDecoratorVal;
-            return;
-          }
+        // need to track if required-ness is dynamic
+        // NOTE - if any other resolver ever has a static value, we'll need to change this
+        if (requiredDec.decValueResolver?.fnName !== '\0static') {
+          this._isRequiredDynamic = true;
         }
 
-        // Root-level @defaultRequired (skip for defs without a source, e.g. builtins)
-        const defaultRequiredDec = def.source?.getRootDec('defaultRequired');
-        if (defaultRequiredDec) {
-          const defaultRequiredVal = await defaultRequiredDec.resolve();
-          // @defaultRequired = true/false
-          if (_.isBoolean(defaultRequiredVal)) {
-            this._isRequired = defaultRequiredVal;
-            return;
+        const requiredDecoratorVal = await requiredDec.resolve();
+        // if we got an error, we'll bail and the error will be checked later
+        if (requiredDec.schemaErrors.length) {
+          // but we mark as not required so we don't _also_ get required error
+          this._isRequired = false;
+          return;
+        }
+        if (![true, false, undefined].includes(requiredDecoratorVal)) {
+          throw new SchemaError('@required/@optional must resolve to a boolean or undefined');
+        }
+        if (requiredDecoratorVal !== undefined) {
+          this._isRequired = usingOptional ? !requiredDecoratorVal : requiredDecoratorVal;
+          return;
+        }
+      }
 
-          // @defaultRequired = infer
-          // we infer based on if a value is set in this source
-          } else if (defaultRequiredVal === 'infer') {
-            if (def.itemDef.resolver) {
-              if (def.itemDef.resolver instanceof StaticValueResolver) {
-                this._isRequired = def.itemDef.resolver.staticValue !== undefined && def.itemDef.resolver.staticValue !== '';
-              } else {
-                this._isRequired = true;
-              }
+      // Pass 2: @defaultRequired from source files
+      for (const def of this.defs) {
+        const defaultRequiredDec = def.source?.getRootDec('defaultRequired');
+        if (!defaultRequiredDec) continue;
+
+        const defaultRequiredVal = await defaultRequiredDec.resolve();
+        // @defaultRequired = true/false
+        if (_.isBoolean(defaultRequiredVal)) {
+          this._isRequired = defaultRequiredVal;
+          return;
+
+        // @defaultRequired = infer
+        // we infer based on if a value is set in this source
+        } else if (defaultRequiredVal === 'infer') {
+          if (def.itemDef.resolver) {
+            if (def.itemDef.resolver instanceof StaticValueResolver) {
+              this._isRequired = def.itemDef.resolver.staticValue !== undefined && def.itemDef.resolver.staticValue !== '';
             } else {
-              this._isRequired = false;
+              this._isRequired = true;
             }
-            return;
           } else {
-            throw new SchemaError('@defaultRequired must resolve to a boolean or "infer"');
+            this._isRequired = false;
           }
+          return;
+        } else {
+          throw new SchemaError('@defaultRequired must resolve to a boolean or "infer"');
         }
       }
     } catch (err) {
@@ -384,43 +384,39 @@ export class ConfigItem {
 
 
   _isSensitive: boolean = true;
+  _sensitiveExplicitlySet = false;
   get isSensitive(): boolean {
     return this._isSensitive;
   }
   private async processSensitive() {
     const sensitiveFromDataType = this.dataType?.isSensitive;
+
+    // Pass 1: explicit per-item @sensitive / @public decorators take highest priority
     for (const def of this.defs) {
       const sensitiveDecs = def.itemDef.decorators?.filter((d) => d.name === 'sensitive' || d.name === 'public') || [];
-      // NOTE - checks for duplicates and using sensitive+public together are already handled more generally
       const sensitiveDec = sensitiveDecs[0];
+      if (!sensitiveDec) continue;
 
-      // Explicit per-item decorators
-      if (sensitiveDec) {
-        const usingPublic = sensitiveDec.name === 'public';
-
-        const sensitiveDecValue = await sensitiveDec.resolve();
-        // can bail if the decorator value resolution failed
-        if (sensitiveDec.schemaErrors.length) {
-          return;
-        }
-        if (![true, false, undefined].includes(sensitiveDecValue)) {
-          throw new SchemaError('@sensitive/@public must resolve to a boolean or undefined');
-        }
-        if (sensitiveDecValue !== undefined) {
-          this._isSensitive = usingPublic ? !sensitiveDecValue : sensitiveDecValue;
-          return;
-        }
+      const usingPublic = sensitiveDec.name === 'public';
+      const sensitiveDecValue = await sensitiveDec.resolve();
+      if (sensitiveDec.schemaErrors.length) return;
+      if (![true, false, undefined].includes(sensitiveDecValue)) {
+        throw new SchemaError('@sensitive/@public must resolve to a boolean or undefined');
       }
+      if (sensitiveDecValue !== undefined) {
+        this._isSensitive = usingPublic ? !sensitiveDecValue : sensitiveDecValue;
+        this._sensitiveExplicitlySet = true;
+        return;
+      }
+    }
 
-      // we skip `defaultSensitive` behaviour if the data type specifies sensitivity
-      if (sensitiveFromDataType !== undefined) continue;
-
-      // skip for defs without a source (e.g. builtins)
-      const defaultSensitiveDec = def.source?.getRootDec('defaultSensitive');
-      if (defaultSensitiveDec) {
+    // Pass 2: @defaultSensitive from source files (skipped if data type specifies sensitivity)
+    if (sensitiveFromDataType === undefined) {
+      for (const def of this.defs) {
+        const defaultSensitiveDec = def.source?.getRootDec('defaultSensitive');
+        if (!defaultSensitiveDec) continue;
         if (!defaultSensitiveDec.decValueResolver) throw new Error('expected defaultSensitive to have a value resolver');
-        // special case for inferFromPrefix()
-        // TODO: formalize this pattern of a root decorator running a function _within the context of an item_
+
         if (defaultSensitiveDec.decValueResolver.fnName === 'inferFromPrefix') {
           const prefix = defaultSensitiveDec.decValueResolver.arrArgs![0].staticValue;
           if (!_.isString(prefix)) {
@@ -440,6 +436,7 @@ export class ConfigItem {
         }
       }
     }
+
     if (sensitiveFromDataType !== undefined) this._isSensitive = sensitiveFromDataType;
   }
 

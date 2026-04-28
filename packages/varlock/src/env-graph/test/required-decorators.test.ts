@@ -223,6 +223,85 @@ describe('required decorators', () => {
       },
     }));
   });
+  describe('explicit @required overrides @defaultRequired from other files', () => {
+    test('@required in schema wins over @defaultRequired=false in local', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @required
+          ITEM_A=
+        `,
+        '.env.local': outdent`
+          # @defaultRequired=false
+          # ---
+          ITEM_A=value
+        `,
+      },
+      expectRequired: { ITEM_A: true },
+    }));
+
+    test('@optional in schema wins over @defaultRequired=true in local', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @optional
+          ITEM_A=
+        `,
+        '.env.local': outdent`
+          # @defaultRequired=true
+          # ---
+          ITEM_A=value
+        `,
+      },
+      expectRequired: { ITEM_A: false },
+    }));
+
+    test('@required in local wins over @defaultRequired=false in schema', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @defaultRequired=false
+          # ---
+          ITEM_A=
+        `,
+        '.env.local': outdent`
+          # @required
+          ITEM_A=value
+        `,
+      },
+      expectRequired: { ITEM_A: true },
+    }));
+
+    test('@required in schema wins over @defaultRequired=infer in local', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @required
+          ITEM_A=
+        `,
+        '.env.local': outdent`
+          # @defaultRequired=infer
+          # ---
+          ITEM_A=
+        `,
+      },
+      expectRequired: { ITEM_A: true },
+    }));
+
+    test('items without explicit decorator still follow @defaultRequired', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @required
+          EXPLICIT_REQUIRED=
+          NO_DECORATOR=
+        `,
+        '.env.local': outdent`
+          # @defaultRequired=false
+          # ---
+          EXPLICIT_REQUIRED=value
+          NO_DECORATOR=value
+        `,
+      },
+      expectRequired: { EXPLICIT_REQUIRED: true, NO_DECORATOR: false },
+    }));
+  });
+
   describe('dynamic @required based on other items', () => {
     test('dynamic @required works', envFilesTest({
       files: {
