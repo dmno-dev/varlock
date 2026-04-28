@@ -599,8 +599,8 @@ export class EnvGraph {
     return _.some(_.values(this.configSchema), (i) => !i.isValid);
   }
 
-  async generateTypes(lang: string, outputPath: string) {
-    await generateTypes(this, lang, outputPath);
+  async generateTypes(lang: string, outputPath: string, strict?: boolean) {
+    await generateTypes(this, lang, outputPath, strict);
   }
 
   /**
@@ -635,7 +635,7 @@ export class EnvGraph {
         ? path.resolve(generateTypesDec.dataSource.fullPath, '..', typeGenSettings.obj.path)
         : typeGenSettings.obj.path;
 
-      await this.generateTypes(typeGenSettings.obj.lang, outputPath);
+      await this.generateTypes(typeGenSettings.obj.lang, outputPath, typeGenSettings.obj.strict === true);
       generatedCount++;
     }
     return generatedCount;
