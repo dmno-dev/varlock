@@ -12,6 +12,8 @@ import redactionImg from "../assets/demo-images/redaction.png";
 import multiEnvImg from "../assets/demo-images/multi-env.png";
 import externalProvidersImg from "../assets/demo-images/external-providers.png";
 import EmailSignup from "../components/EmailSignup.vue";
+import warlockStandingImg from "../assets/animation/warlock-standing.gif";
+import warlockStrikeImg from "../assets/animation/warlock-strike.gif";
 
 const site = Astro.site ?? new URL(Astro.url.origin);
 const pageUrl = new URL(Astro.url.pathname, site).href;
@@ -38,15 +40,20 @@ const metaHead = createMetaHead({
       <div class="homepage-hero not-content">
         <VarlockRetroBanner />
         <h1>
-          <img
-            src="https://varlock-pixel-art.dmno.workers.dev/characters/warlock1.gif"
+          <Image
+            src={warlockStandingImg}
+            alt="Varlock warlock"
           />
           <div>
             <span class="sparkle">AI-safe</span> .env files: <br />
             Schemas for agents, secrets for humans
           </div>
-          <img
-            src="https://varlock-pixel-art.dmno.workers.dev/characters/warlock1.gif"
+          <!-- <div>
+            Environment variables with<br />the right amount of magic
+          </div> -->
+          <Image
+            src={warlockStrikeImg}
+            alt="Varlock warlock striking"
           />
         </h1>
       </div>
