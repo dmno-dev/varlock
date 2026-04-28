@@ -48,6 +48,14 @@ class Varlock < Formula
 
   def install
     bin.install "varlock"
+
+    on_macos do
+      libexec.install "VarlockEnclave.app"
+    end
+
+    on_linux do
+      libexec.install "varlock-local-encrypt"
+    end
   end
 
   test do

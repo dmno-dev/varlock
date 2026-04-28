@@ -2,7 +2,8 @@
  * Resolves the path to the platform-specific native helper binary.
  *
  * Resolution order:
- * 1. SEA sibling: same directory as the running varlock binary (install.sh, homebrew)
+ * 1. SEA sibling: same directory as the running varlock binary (install.sh, standalone)
+ * 1b. SEA libexec: ../libexec/ relative to the binary (homebrew convention)
  * 2. Bundled in npm package: native-bins/<platform>[-<arch>]/ within the varlock package
  * 3. Dev fallback: walk up from __dirname to find build output
  *
@@ -99,12 +100,20 @@ function resolveBinaryFromDir(dir: string): string | undefined {
 }
 
 /**
- * Strategy 1: Look for the binary next to the running varlock binary.
- * This is the primary path for binary/SEA distribution (install.sh, homebrew).
+ * Strategy 1: Look for the binary next to the running varlock binary,
+ * then check ../libexec/ (homebrew convention for internal helpers).
+ * This is the primary path for binary/SEA distribution.
  */
 function resolveSeaSibling(): string | undefined {
   const execDir = path.dirname(fs.realpathSync(process.execPath));
-  return resolveBinaryFromDir(execDir);
+
+  // 1a. Same directory as the binary (install.sh, standalone archives)
+  const sibling = resolveBinaryFromDir(execDir);
+  if (sibling) return sibling;
+
+  // 1b. ../libexec/ relative to the binary (homebrew layout)
+  const libexecDir = path.join(execDir, '..', 'libexec');
+  return resolveBinaryFromDir(libexecDir);
 }
 
 /**
@@ -173,6 +182,12 @@ let _cachedBinaryPath: string | undefined | null = null; // null = not yet resol
 
 export function resolveNativeBinary(): string | undefined {
   if (_cachedBinaryPath !== null) return _cachedBinaryPath;
+
+  if (process.env.VARLOCK_FORCE_FILE_BACKEND) {
+    debug('VARLOCK_FORCE_FILE_BACKEND is set — skipping native binary resolution');
+    _cachedBinaryPath = undefined;
+    return undefined;
+  }
 
   debug(`resolving: platform=${process.platform}, isWSL=${isWSL()}, binaryName=${getPlatformBinaryName()}, subdir=${getNativeBinSubdir()}`);
 

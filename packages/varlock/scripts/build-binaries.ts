@@ -43,6 +43,28 @@ if (devMode) {
     `--outfile ${DIST_DIR}/${binName}`,
     ENTRY,
   ].join(' '));
+
+  // Bundle platform-specific native binary alongside the dev binary
+  if (process.platform === 'darwin') {
+    const appBundleSrc = path.join(NATIVE_BINS_DIR, 'darwin', 'VarlockEnclave.app');
+    if (fs.existsSync(appBundleSrc)) {
+      console.log('Bundling macOS native binary (VarlockEnclave.app)');
+      exec(`cp -R "${appBundleSrc}" "${DIST_DIR}/VarlockEnclave.app"`);
+    } else {
+      console.log(`Warning: macOS native binary not found at ${appBundleSrc}, skipping`);
+    }
+  } else {
+    const isWin = process.platform === 'win32';
+    const nativeBinSubdir = isWin ? 'win32-x64' : `${process.platform}-${process.arch}`;
+    const rustBinaryName = isWin ? 'varlock-local-encrypt.exe' : 'varlock-local-encrypt';
+    const rustBinarySrc = path.join(NATIVE_BINS_DIR, nativeBinSubdir, rustBinaryName);
+    if (fs.existsSync(rustBinarySrc)) {
+      console.log(`Bundling Rust native binary (${nativeBinSubdir}/${rustBinaryName})`);
+      exec(`cp "${rustBinarySrc}" "${DIST_DIR}/${rustBinaryName}"`);
+    } else {
+      console.log(`Warning: Rust native binary not found at ${rustBinarySrc}, skipping`);
+    }
+  }
 } else {
   // Build for all platforms and create archives
   for (const { bunTarget, archiveName } of ALL_TARGETS) {

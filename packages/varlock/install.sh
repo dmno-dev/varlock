@@ -173,6 +173,29 @@ main() {
 
   chmod u+x "$_bin_path"
 
+  # Install platform-specific native encryption binary alongside the CLI
+  case $OS in
+    macos)
+      if [ -d "${_temp_dir}/VarlockEnclave.app" ]; then
+        cp -R "${_temp_dir}/VarlockEnclave.app" "${INSTALL_DIR}/VarlockEnclave.app"
+        echo "  Installed native encryption binary (VarlockEnclave.app)"
+      fi
+    ;;
+    linux)
+      if [ -f "${_temp_dir}/varlock-local-encrypt" ]; then
+        install "${_temp_dir}/varlock-local-encrypt" "${INSTALL_DIR}/"
+        chmod u+x "${INSTALL_DIR}/varlock-local-encrypt"
+        echo "  Installed native encryption binary (varlock-local-encrypt)"
+      fi
+    ;;
+    win-*)
+      if [ -f "${_temp_dir}/varlock-local-encrypt.exe" ]; then
+        install "${_temp_dir}/varlock-local-encrypt.exe" "${INSTALL_DIR}/"
+        echo "  Installed native encryption binary (varlock-local-encrypt.exe)"
+      fi
+    ;;
+  esac
+
   echo "✅ Successfully installed varlock @ $($_bin_path --version) to ${_bin_path}"
   rm -rf "${_temp_dir}"
 
