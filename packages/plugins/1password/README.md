@@ -90,6 +90,8 @@ When enabled, if the service account token is empty, the plugin will use the des
 Keep in mind that this method connects as _YOU_ who likely has more access than a tightly scoped service account. Consider only enabling this for non-production secrets.
 :::
 
+> **Using this from a devcontainer?** The plugin ships a `varlock-op-bridge` helper that proxies `op` calls to your host's desktop app, so biometric unlock works from inside the container. See [Using desktop app auth from a devcontainer](https://varlock.dev/plugins/1password/#using-desktop-app-auth-from-a-devcontainer).
+
 ### Connect server setup (self-hosted)
 
 If you are running a self-hosted [1Password Connect server](https://developer.1password.com/docs/connect/), you can authenticate using a Connect server URL and token:
