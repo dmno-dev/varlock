@@ -544,6 +544,9 @@ export class EnvGraph {
       });
     }
     for (const itemKey of this.sortedConfigKeys) {
+      // _VARLOCK_ENV_KEY is used to encrypt/decrypt the blob itself — including it
+      // would be redundant (the runtime already has it via process.env) and wasteful.
+      if (itemKey === '_VARLOCK_ENV_KEY') continue;
       const item = this.configSchema[itemKey];
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,

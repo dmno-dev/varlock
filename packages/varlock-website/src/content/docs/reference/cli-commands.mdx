@@ -319,6 +319,16 @@ You can also temporarily opt out by setting the `VARLOCK_TELEMETRY_DISABLED` env
 </div>
 
 <div>
+### `varlock generate-key` ||generate-key||
+
+Generates a random 256-bit encryption key for use with `_VARLOCK_ENV_KEY`. This key is used to encrypt the resolved env blob that gets baked into your build output on certain frameworks/platforms.
+
+```bash
+varlock generate-key
+```
+
+See the [Next.js](/integrations/nextjs/#encrypting-the-env-blob) and [Vite](/integrations/vite/#encrypting-the-env-blob) integration docs for setup instructions.
+
 ### `varlock help` ||help||
 
 Displays general help information, alias for `varlock --help`

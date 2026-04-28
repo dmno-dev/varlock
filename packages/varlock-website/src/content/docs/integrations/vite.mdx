@@ -118,7 +118,7 @@ varlockVitePlugin({ ssrInjectMode: 'auto-load' })
 
 - `init-only` - injects varlock initialization code, but does not load the env vars. You must still boot your app via `varlock run` in this mode.
 - `auto-load` - injects `import 'varlock/auto-load';` to load your resolved env via the varlock CLI
-- `resolved-env` - injects the fully resolved env data into your built code. This is useful in environments like Vercel/Cloudflare/etc where you have no control over your build command, and limited access to use CLI commands or the filesystem
+- `resolved-env` - injects the fully resolved env data into your built code. This is useful in environments like Vercel/Cloudflare/etc where you have no control over your build command, and limited access to use CLI commands or the filesystem. See the [encrypting the env blob](#encrypting-the-env-blob) section for more information.
 
 **If not specified, we will attempt to infer the correct mode based on the presence of other vite plugins and environment variables, which give us hints about how your application will be run.**
 Otherwise defaulting to `init-only`.
@@ -240,6 +240,57 @@ All non-sensitive items are bundled at build time via `ENV`, while `import.meta.
 :::
 
 
+
+---
+
+## Encrypting the env blob ||encrypting-the-env-blob||
+
+When using `ssrInjectMode: 'resolved-env'`, varlock injects the fully resolved env data into your SSR build output. By default, this blob is plaintext JSON — meaning anyone with access to the build artifact can read your secrets.
+
+To encrypt this blob, set the `_VARLOCK_ENV_KEY` environment variable with a 256-bit hex key. When present at build time, the blob is encrypted with AES-256-GCM before being injected. At runtime, it's decrypted using the same key from the runtime environment.
+
+<Steps>
+
+1. **Generate and set the key on your platform**
+
+    For Vercel, this one-liner generates a key and sets it as a sensitive env var for all environments:
+
+    ```bash
+    varlock generate-key --plain | vercel env add _VARLOCK_ENV_KEY production preview development --sensitive
+    ```
+
+    Or generate and set it manually — the key must be available at both **build time** (for encryption) and **runtime** (for decryption):
+
+    <ExecCommandWidget command="varlock generate-key" showBinary={false} />
+
+2. **Ensure you're using `resolved-env` mode**
+
+    Encryption only applies when the blob is inlined into the build:
+
+    ```ts title="vite.config.ts"
+    varlockVitePlugin({ ssrInjectMode: 'resolved-env' })
+    ```
+
+3. **Optionally add it to your `.env.local` for local builds**
+
+    ```env title=".env.local"
+    _VARLOCK_ENV_KEY=your-64-char-hex-key-here
+    ```
+
+</Steps>
+
+:::tip
+You can define `_VARLOCK_ENV_KEY` in your `.env.schema` to enable validation. It will automatically be excluded from the injected blob and from type generation.
+
+```env-spec title=".env.schema"
+# @sensitive
+_VARLOCK_ENV_KEY=
+```
+:::
+
+:::note
+The encryption key is **never baked into the build**. It must always come from the runtime environment. The encrypted blob is useless without it.
+:::
 
 ---
 

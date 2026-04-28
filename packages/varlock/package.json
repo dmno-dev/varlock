@@ -95,6 +95,11 @@
       "types": "./dist/runtime/init-edge.d.cts",
       "default": "./dist/runtime/init-edge.cjs"
     },
+    "./encrypt-env": {
+      "ts-src": "./src/runtime/crypto.ts",
+      "types": "./dist/runtime/crypto.d.ts",
+      "default": "./dist/runtime/crypto.js"
+    },
     "./exec-sync-varlock": {
       "ts-src": "./src/lib/exec-sync-varlock.ts",
       "types": "./dist/lib/exec-sync-varlock.d.ts",

@@ -10,6 +10,7 @@ import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 import { patchGlobalResponse } from 'varlock/patch-response';
 import { createDebug, type SerializedEnvGraph } from 'varlock';
 import { execSyncVarlock } from 'varlock/exec-sync-varlock';
+import { encryptEnvBlobSync } from 'varlock/encrypt-env';
 
 import { createReplacerTransformFn, SUPPORTED_FILES } from './transform';
 
@@ -274,7 +275,13 @@ See https://varlock.dev/integrations/vite/ for more details.
             );
           } else {
             if (ssrInjectMode === 'resolved-env') {
-              injectCode.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
+              const serialized = JSON.stringify(varlockLoadedEnv);
+              if (process.env._VARLOCK_ENV_KEY) {
+                const encrypted = encryptEnvBlobSync(serialized, process.env._VARLOCK_ENV_KEY);
+                injectCode.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(encrypted)};`);
+              } else {
+                injectCode.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
+              }
             }
 
             // inject custom entry code from integrations

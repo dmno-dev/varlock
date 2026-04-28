@@ -326,6 +326,51 @@ varlock run -- node .next/standalone/server.js
 
 
 ---
+
+## Encrypting the env blob ||encrypting-the-env-blob||
+
+When deploying to platforms like Vercel, varlock injects the fully resolved env data into your build output so it's available at runtime without needing the CLI or filesystem access. By default, this blob is plaintext JSON — meaning anyone with access to the build artifact can read your secrets.
+
+To encrypt this blob, set the `_VARLOCK_ENV_KEY` environment variable with a 256-bit hex key. When present at build time, the blob is encrypted with AES-256-GCM before being injected. At runtime, the init bundle decrypts it using the same key from the runtime environment.
+
+<Steps>
+
+1. **Generate and set the key on Vercel**
+
+    This one-liner generates a key and sets it as a sensitive env var on Vercel for all environments:
+
+    ```bash
+    varlock generate-key --plain | vercel env add _VARLOCK_ENV_KEY production preview development --sensitive
+    ```
+
+    Or generate and set it manually on your platform — the key must be available at both **build time** (for encryption) and **runtime** (for decryption):
+
+    <ExecCommandWidget command="varlock generate-key" showBinary={false} />
+
+3. **Optionally add it to your `.env.local` for local builds**
+
+    If you want local builds to also encrypt the blob (e.g., to test the flow), add the key to `.env.local`:
+
+    ```env title=".env.local"
+    _VARLOCK_ENV_KEY=your-64-char-hex-key-here
+    ```
+
+</Steps>
+
+:::tip
+You can define `_VARLOCK_ENV_KEY` in your `.env.schema` to enable validation (e.g., required in production). It will automatically be excluded from the injected blob and from type generation — it's infrastructure, not application config.
+
+```env-spec title=".env.schema"
+# @sensitive
+_VARLOCK_ENV_KEY=
+```
+:::
+
+:::note
+The encryption key is **never baked into the build**. It must always come from the runtime environment (e.g., a Vercel environment variable). The encrypted blob is useless without it.
+:::
+
+---
 ## Troubleshooting
 
 - ❌ `process.env.__VARLOCK_ENV is not set`

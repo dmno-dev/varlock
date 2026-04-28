@@ -245,6 +245,37 @@ describe('Vite', () => {
     });
   });
 
+  // ---- Encrypted env blob ----
+
+  describe('encrypted env blob', () => {
+    viteEnv.describeScenario('SSR build with _VARLOCK_ENV_KEY encrypts the blob', {
+      command: 'vite build --ssr src/ssr-entry.ts',
+      env: { _VARLOCK_ENV_KEY: '846a4cbdf4fefeff0da38d8f3766ffe50d8db12f8ce32849bb1e1a60ecb4ba0d' },
+      templateFiles: {
+        'vite.config.ts': 'vite-configs/vite.config.resolved-env.ts',
+        'index.html': 'html/basic.html',
+        'src/ssr-entry.ts': 'pages/ssr-entry.ts',
+      },
+      fileAssertions: [
+        {
+          description: 'SSR output contains encrypted blob (varlock:v1: prefix)',
+          fileGlob: 'dist/*.js',
+          shouldContain: ['varlock:v1:'],
+        },
+        {
+          description: 'SSR output does not contain plaintext secret',
+          fileGlob: 'dist/*.js',
+          shouldNotContain: ['super-secret-value'],
+        },
+        {
+          description: 'public vars are still statically replaced',
+          fileGlob: 'dist/*.js',
+          shouldContain: ['public-test-value'],
+        },
+      ],
+    });
+  });
+
   // ---- Dev server ----
 
   describe('dev server', () => {
