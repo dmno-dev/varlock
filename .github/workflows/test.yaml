@@ -41,9 +41,8 @@ jobs:
       # ------------------------------------------------------------
       - name: Bumpy release plan check
         if: github.event_name == 'pull_request'
-        run: bunx @varlock/bumpy ci check --pat-comments
+        run: bunx @varlock/bumpy ci check
         env:
-          BUMPY_GH_TOKEN: ${{ secrets.BUMPY_GH_TOKEN }}
           GH_TOKEN: ${{ github.token }}
 
       # lint, build, tests  ---------------------------------

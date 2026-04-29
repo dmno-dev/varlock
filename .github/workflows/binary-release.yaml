@@ -20,20 +20,32 @@ concurrency: ${{ github.workflow }}-${{ github.ref }}
 jobs:
   debug:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: print github context
         env:
           GITHUB_CONTEXT: ${{ toJson(github) }}
         run: |
           echo "$GITHUB_CONTEXT"
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            # github.ref_name is e.g. "varlock@1.2.3" — strip the package prefix
+            echo "version=${GITHUB_REF_NAME#varlock@}" >> $GITHUB_OUTPUT
+          fi
 
   # Build and sign the macOS native binary (cache hit if already built in CI)
   build-native-macos:
+    needs: debug
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'varlock@')
     uses: ./.github/workflows/build-native-macos.yaml
     with:
       mode: release
-      version: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+      version: ${{ needs.debug.outputs.version }}
       artifact-name: native-bin-macos-signed
     secrets:
       OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}

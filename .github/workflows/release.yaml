@@ -112,7 +112,7 @@ jobs:
           BUILD_TYPE: release
 
       - name: Create Release PR / Publish
-        run: bunx @varlock/bumpy ci release --pat-pr
+        run: bunx @varlock/bumpy ci release
         env:
           # BUMPY_GH_TOKEN is a bot user PAT used by bumpy to push the version branch and create PRs
           # so that PR workflows (binary-release, etc.) will be triggered
