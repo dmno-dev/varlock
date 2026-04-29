@@ -168,10 +168,14 @@ export class DaemonClient {
       }
       // Clean up so spawnDaemon doesn't think a daemon is still running
       for (const file of [getPidPath(), getDaemonInfoPath()]) {
-        try { fs.unlinkSync(file); } catch { /* ignore */ }
+        try {
+          fs.unlinkSync(file);
+        } catch { /* ignore */ }
       }
       if (process.platform !== 'win32') {
-        try { fs.unlinkSync(socketPath); } catch { /* ignore */ }
+        try {
+          fs.unlinkSync(socketPath);
+        } catch { /* ignore */ }
       }
     } else {
       try {
