@@ -24,7 +24,8 @@ const workspacePackagesInfo = await listWorkspaces(MONOREPO_ROOT);
 const currentBranch = process.env.GITHUB_HEAD_REF || execSync('git branch --show-current').toString().trim();
 let releasePackagePaths: Array<string>;
 
-if (currentBranch === 'changeset-release/main') {
+if (currentBranch === 'bumpy/version-packages') {
+  // On bumpy version branch, find modified package.json files
   const gitDiff = execSync('git diff origin/main --name-only').toString();
   const modifiedPackageJsons = gitDiff
     .split('\n')
@@ -35,22 +36,38 @@ if (currentBranch === 'changeset-release/main') {
     .map((filePath) => `${MONOREPO_ROOT}/${filePath.replace('/package.json', '')}`)
     .filter((filePath) => workspacePackagesInfo.some((p) => p.path === filePath));
 } else {
-  execSync('bunx changeset status --output=changesets-summary.json', { cwd: MONOREPO_ROOT });
+  // Normal PR: use bumpy status to determine which packages have pending changesets
+  let bumpyStatusRaw: string;
+  try {
+    bumpyStatusRaw = execSync('bunx @varlock/bumpy status --json 2>/dev/null', { cwd: MONOREPO_ROOT }).toString();
+  } catch (execErr: any) {
+    // bumpy may exit non-zero with warnings but still output valid JSON
+    bumpyStatusRaw = execErr.stdout?.toString() ?? '';
+    if (!bumpyStatusRaw) {
+      console.log('No pending changesets found');
+      releasePackagePaths = [];
+    }
+  }
 
-  const changeSetsSummaryRaw = fs.readFileSync(path.join(MONOREPO_ROOT, 'changesets-summary.json'), 'utf8');
-  const changeSetsSummary = JSON.parse(changeSetsSummaryRaw);
-
-  releasePackagePaths = changeSetsSummary.releases
-    .filter((r: any) => r.newVersion !== r.oldVersion)
-    .map((r: any) => workspacePackagesInfo.find((p) => p.name === r.name))
-    .filter(Boolean)
-    .map((p: any) => p.path);
-
-  fs.unlinkSync(path.join(MONOREPO_ROOT, 'changesets-summary.json'));
+  if (bumpyStatusRaw!) {
+    // stdout may contain warning lines before the JSON — extract just the JSON
+    const jsonMatch = bumpyStatusRaw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.log('No JSON output from bumpy status');
+      releasePackagePaths = [];
+    } else {
+      const bumpyStatus = JSON.parse(jsonMatch[0]);
+      releasePackagePaths = bumpyStatus.releases
+        .filter((r: any) => r.publishTargets?.includes('npm'))
+        .map((r: any) => workspacePackagesInfo.find((p) => p.name === r.name))
+        .filter(Boolean)
+        .map((p: any) => p.path);
+    }
+  }
 }
 
 // filter out vscode extension which is not released via npm
-releasePackagePaths = releasePackagePaths.filter((p: string) => !p.endsWith('packages/vscode-plugin'));
+releasePackagePaths = releasePackagePaths!.filter((p: string) => !p.endsWith('packages/vscode-plugin'));
 
 const includesVarlock = releasePackagePaths.some((p) => p.endsWith('packages/varlock'));
 

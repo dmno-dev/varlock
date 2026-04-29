@@ -6,7 +6,7 @@ ignore
 
 .turbo
 vite.config.ts.timestamp*
-changesets-summary.json
+
 
 .env.local
 .env.*.local
