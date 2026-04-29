@@ -41,6 +41,7 @@
   - `patch-isolated` exists but is rarely needed — patch bumps on `0.x` stay within `^` ranges and don't cascade
   - `major-isolated` is intentionally **not** supported (major bumps must propagate to keep semver ranges valid)
 - Non-interactive changeset creation (for CI/AI): `bumpy add --packages "pkg:minor" --message "description" --name "changeset-name"`
+- Bump files are only required when publishable packages have changed (based on `changedFilePatterns` in `.bumpy/_config.json`). Changes to CI workflows, root config files, scripts, docs, etc. do **not** require a bump file — bumpy's pre-push hook will not block in that case.
 
 ## Linting
 
