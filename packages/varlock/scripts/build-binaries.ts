@@ -20,6 +20,7 @@ const ALL_TARGETS = [
 ];
 
 const devMode = process.argv.includes('--dev');
+const skipNative = process.argv.includes('--skip-native');
 
 function exec(cmd: string) {
   execSync(cmd, { cwd: PKG_DIR, stdio: 'inherit' });
@@ -92,43 +93,45 @@ if (devMode) {
     ].join(' '));
 
     // Bundle platform-specific native binaries alongside the CLI binary
-    const isMac = archiveName.startsWith('macos-');
-    if (isMac) {
-      const appBundleSrc = path.join(NATIVE_BINS_DIR, 'darwin', 'VarlockEnclave.app');
-      if (!fs.existsSync(appBundleSrc)) {
-        throw new Error(`macOS native binary not found at ${appBundleSrc} — cannot build release without it`);
-      }
-      console.log('  Bundling macOS native binary (VarlockEnclave.app)');
-      exec(`cp -R "${appBundleSrc}" "${targetDir}/VarlockEnclave.app"`);
-    }
-
-    // Bundle Rust native binary for Linux/Windows
-    let nativeBinSubdir: string | null = null;
-    if (isWin) {
-      nativeBinSubdir = 'win32-x64';
-    } else if (archiveName.startsWith('linux-musl-')) {
-      nativeBinSubdir = `linux-${archiveName.replace('linux-musl-', '')}`;
-    } else if (archiveName.startsWith('linux-')) {
-      nativeBinSubdir = `linux-${archiveName.replace('linux-', '')}`;
-    }
-
-    if (nativeBinSubdir && !isMac) {
-      const rustBinaryName = isWin ? 'varlock-local-encrypt.exe' : 'varlock-local-encrypt';
-      const rustBinarySrc = path.join(NATIVE_BINS_DIR, nativeBinSubdir, rustBinaryName);
-      if (!fs.existsSync(rustBinarySrc)) {
-        throw new Error(`Rust native binary not found at ${rustBinarySrc} — cannot build release without it`);
-      }
-      console.log(`  Bundling Rust native binary (${nativeBinSubdir}/${rustBinaryName})`);
-      exec(`cp "${rustBinarySrc}" "${targetDir}/${rustBinaryName}"`);
-
-      // Linux builds also bundle the Windows .exe for WSL2 support
-      if (archiveName.startsWith('linux')) {
-        const winExeSrc = path.join(NATIVE_BINS_DIR, 'win32-x64', 'varlock-local-encrypt.exe');
-        if (!fs.existsSync(winExeSrc)) {
-          throw new Error(`Windows native binary not found at ${winExeSrc} — needed for WSL2 support in Linux builds`);
+    if (!skipNative) {
+      const isMac = archiveName.startsWith('macos-');
+      if (isMac) {
+        const appBundleSrc = path.join(NATIVE_BINS_DIR, 'darwin', 'VarlockEnclave.app');
+        if (!fs.existsSync(appBundleSrc)) {
+          throw new Error(`macOS native binary not found at ${appBundleSrc} — cannot build release without it`);
         }
-        console.log('  Bundling Windows .exe for WSL2 support');
-        exec(`cp "${winExeSrc}" "${targetDir}/varlock-local-encrypt.exe"`);
+        console.log('  Bundling macOS native binary (VarlockEnclave.app)');
+        exec(`cp -R "${appBundleSrc}" "${targetDir}/VarlockEnclave.app"`);
+      }
+
+      // Bundle Rust native binary for Linux/Windows
+      let nativeBinSubdir: string | null = null;
+      if (isWin) {
+        nativeBinSubdir = 'win32-x64';
+      } else if (archiveName.startsWith('linux-musl-')) {
+        nativeBinSubdir = `linux-${archiveName.replace('linux-musl-', '')}`;
+      } else if (archiveName.startsWith('linux-')) {
+        nativeBinSubdir = `linux-${archiveName.replace('linux-', '')}`;
+      }
+
+      if (nativeBinSubdir && !isMac) {
+        const rustBinaryName = isWin ? 'varlock-local-encrypt.exe' : 'varlock-local-encrypt';
+        const rustBinarySrc = path.join(NATIVE_BINS_DIR, nativeBinSubdir, rustBinaryName);
+        if (!fs.existsSync(rustBinarySrc)) {
+          throw new Error(`Rust native binary not found at ${rustBinarySrc} — cannot build release without it`);
+        }
+        console.log(`  Bundling Rust native binary (${nativeBinSubdir}/${rustBinaryName})`);
+        exec(`cp "${rustBinarySrc}" "${targetDir}/${rustBinaryName}"`);
+
+        // Linux builds also bundle the Windows .exe for WSL2 support
+        if (archiveName.startsWith('linux')) {
+          const winExeSrc = path.join(NATIVE_BINS_DIR, 'win32-x64', 'varlock-local-encrypt.exe');
+          if (!fs.existsSync(winExeSrc)) {
+            throw new Error(`Windows native binary not found at ${winExeSrc} — needed for WSL2 support in Linux builds`);
+          }
+          console.log('  Bundling Windows .exe for WSL2 support');
+          exec(`cp "${winExeSrc}" "${targetDir}/varlock-local-encrypt.exe"`);
+        }
       }
     }
 

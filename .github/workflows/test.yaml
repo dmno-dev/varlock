@@ -41,9 +41,8 @@ jobs:
       # ------------------------------------------------------------
       - name: Bumpy release plan check
         if: github.event_name == 'pull_request'
-        run: bunx @varlock/bumpy ci check --pat-comments
+        run: bunx @varlock/bumpy ci check
         env:
-          BUMPY_GH_TOKEN: ${{ secrets.BUMPY_GH_TOKEN }}
           GH_TOKEN: ${{ github.token }}
 
       # lint, build, tests  ---------------------------------
@@ -186,12 +185,27 @@ jobs:
           path: packages/varlock/native-bins/win32-x64/
           key: native-bin-rust-win32-x64-${{ hashFiles('packages/encryption-binary-rust/Cargo.lock', 'packages/encryption-binary-rust/src/**') }}
 
-      - name: Fix Rust binary permissions
+      - name: Verify and fix Rust binary permissions
         if: steps.check-release.outputs.includes-varlock == 'true'
         run: |
-          for BIN in packages/varlock/native-bins/linux-*/varlock-local-encrypt; do
-            [ -f "$BIN" ] && chmod +x "$BIN" && echo "Fixed: $BIN"
+          MISSING=()
+          for SUBDIR in linux-x64 linux-arm64 win32-x64; do
+            if [ "$SUBDIR" = "win32-x64" ]; then
+              BIN="packages/varlock/native-bins/$SUBDIR/varlock-local-encrypt.exe"
+            else
+              BIN="packages/varlock/native-bins/$SUBDIR/varlock-local-encrypt"
+            fi
+            if [ ! -f "$BIN" ]; then
+              MISSING+=("$BIN")
+            elif [ "$SUBDIR" != "win32-x64" ]; then
+              chmod +x "$BIN" && echo "Fixed: $BIN"
+            fi
           done
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "::error::Rust native binaries not found: ${MISSING[*]}"
+            echo "Cache may not be seeded yet — ensure release.yaml has run on main"
+            exit 1
+          fi
 
       - name: Build publishable npm packages
         if: steps.check-release.outputs.packages != '[]'

@@ -74,7 +74,7 @@ jobs:
           echo "=== build-binaries.ts content check ==="
           grep -n 'bytecode' packages/varlock/scripts/build-binaries.ts || echo "no bytecode references found"
           echo "=== building ==="
-          cd packages/varlock && bun run build:binaries
+          cd packages/varlock && bun run build:binaries -- --skip-native
 
       - name: Pack varlock packages
         run: |
