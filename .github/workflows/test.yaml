@@ -170,13 +170,6 @@ jobs:
             mv "$dir" "$subdir" 2>/dev/null || true
           done
 
-      - name: Restore cached Rust binaries (from prior run)
-        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-and-test.outputs.rust-changed != 'true'
-        run: |
-          CACHE_KEY_SUFFIX="${{ hashFiles('packages/encryption-binary-rust/Cargo.lock', 'packages/encryption-binary-rust/src/**') }}"
-          for SUBDIR in linux-x64 linux-arm64 win32-x64; do
-            echo "Restoring native-bin-rust-$SUBDIR..."
-          done
       - uses: actions/cache/restore@v5
         if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-and-test.outputs.rust-changed != 'true'
         with:

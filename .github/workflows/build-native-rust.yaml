@@ -149,16 +149,6 @@ jobs:
 
           echo "All binary tests passed"
 
-      # Cross-platform interop: encrypt with Rust, decrypt with JS, and vice versa
-      # Only on platforms where Bun is available and keys aren't DPAPI-protected
-      - name: Setup Bun (for interop test)
-        if: matrix.test-interop
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install JS deps (for interop test)
-        if: matrix.test-interop
-        run: bun install
-
       # Bidirectional Rust↔JS interop test (Linux x64 only — crypto is platform-independent)
       - name: Setup Bun (for interop test)
         if: matrix.test-interop
