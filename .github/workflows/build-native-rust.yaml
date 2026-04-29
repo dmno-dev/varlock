@@ -204,6 +204,7 @@ jobs:
       # Cache the built binary so preview releases on other runners can restore it
       - name: Cache built binary
         uses: actions/cache/save@v5
+        continue-on-error: true  # cache key is immutable; fails harmlessly if already saved by a concurrent run
         with:
           path: native-bins/${{ matrix.native-bin-subdir }}/
           key: native-bin-rust-${{ matrix.native-bin-subdir }}-${{ hashFiles('packages/encryption-binary-rust/Cargo.lock', 'packages/encryption-binary-rust/src/**') }}

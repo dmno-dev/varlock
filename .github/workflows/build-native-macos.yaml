@@ -211,6 +211,7 @@ jobs:
       # it on a Linux runner without needing a macOS build
       - name: Cache signed .app bundle
         uses: actions/cache/save@v5
+        continue-on-error: true  # cache key is immutable; fails harmlessly if already saved by a concurrent run
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
           key: native-bin-macos-signed-${{ hashFiles('packages/encryption-binary-swift/swift/**') }}
