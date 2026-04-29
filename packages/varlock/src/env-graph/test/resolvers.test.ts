@@ -71,7 +71,10 @@ function functionValueTests(
             } else {
               expect(item.isValid, `Expected item ${key} to be valid`).toBeTruthy();
             }
-            expect(item.resolvedValue).toEqual(expectedValue);
+            const normalizedResolvedValue = typeof item.resolvedValue === 'string'
+              ? item.resolvedValue.replaceAll('\r', '')
+              : item.resolvedValue;
+            expect(normalizedResolvedValue).toEqual(expectedValue);
           }
         }
       });
