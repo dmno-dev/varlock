@@ -40,10 +40,7 @@ const metaHead = createMetaHead({
       <div class="homepage-hero not-content">
         <VarlockRetroBanner />
         <h1>
-          <Image
-            src={warlockStandingImg}
-            alt="Varlock warlock"
-          />
+          <Image src={warlockStandingImg} alt="Varlock warlock" />
           <div>
             <span class="sparkle">AI-safe</span> .env files: <br />
             Schemas for agents, secrets for humans
@@ -51,10 +48,7 @@ const metaHead = createMetaHead({
           <!-- <div>
             Environment variables with<br />the right amount of magic
           </div> -->
-          <Image
-            src={warlockStrikeImg}
-            alt="Varlock warlock striking"
-          />
+          <Image src={warlockStrikeImg} alt="Varlock warlock striking" />
         </h1>
       </div>
       <Code
@@ -502,7 +496,7 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
     h1 {
       margin: 0.5em 0;
       display: flex;
-      gap: 1em;
+      gap: 0em;
       justify-content: center;
       align-items: flex-start;
       font-size: 32px;
@@ -524,6 +518,8 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
         }
         flex-shrink: 0;
         margin-top: -30px;
+        margin-left: -20px;
+        margin-right: -20px;
 
         /* scale: 2; */
         &:first-child {
