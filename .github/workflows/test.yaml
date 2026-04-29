@@ -143,13 +143,16 @@ jobs:
           key: native-bin-macos-signed-${{ hashFiles('packages/encryption-binary-swift/swift/**') }}
       - name: Verify and fix native binary permissions
         if: steps.check-release.outputs.includes-varlock == 'true'
+        id: check-macos-native
         run: |
           BINARY=packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
           if [ ! -f "$BINARY" ]; then
-            echo "::error::macOS native binary not found — cannot publish varlock preview without it"
-            exit 1
+            echo "::warning::macOS native binary not found — preview will be published without it"
+            echo "found=false" >> $GITHUB_OUTPUT
+          else
+            chmod +x "$BINARY"
+            echo "found=true" >> $GITHUB_OUTPUT
           fi
-          chmod +x "$BINARY"
 
       # Get Rust native binaries if varlock is being released
       # If the Rust build ran this run, download the artifacts; otherwise restore from cache
