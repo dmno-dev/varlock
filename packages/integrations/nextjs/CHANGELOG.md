@@ -3,6 +3,12 @@
 
 
 
+
+## 1.0.0
+<sub>2026-04-29</sub>
+
+- Updated dependency `varlock` v1.0.0
+
 ## 0.3.6
 
 _2026-04-23_

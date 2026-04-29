@@ -66,7 +66,7 @@
     },
     "packages/integrations/astro": {
       "name": "@varlock/astro-integration",
-      "version": "0.2.7",
+      "version": "1.0.0",
       "devDependencies": {
         "@types/node": "catalog:",
         "@varlock/vite-integration": "workspace:*",
@@ -82,7 +82,7 @@
     },
     "packages/integrations/cloudflare": {
       "name": "@varlock/cloudflare-integration",
-      "version": "0.1.1",
+      "version": "1.0.0",
       "bin": {
         "varlock-wrangler": "./bin/varlock-wrangler.js",
       },
@@ -90,13 +90,13 @@
         "@types/node": "catalog:",
         "@varlock/vite-integration": "workspace:^",
         "tsup": "catalog:",
-        "varlock": "workspace:^0.9.1",
+        "varlock": "workspace:^1.0.0",
         "vite": "^7.1.0",
         "vitest": "catalog:",
       },
       "peerDependencies": {
         "@cloudflare/vite-plugin": ">=1",
-        "varlock": "workspace:^0.9.1",
+        "varlock": "workspace:^1.0.0",
         "vite": ">=5",
         "wrangler": ">=3",
       },
@@ -108,7 +108,7 @@
     },
     "packages/integrations/expo": {
       "name": "@varlock/expo-integration",
-      "version": "0.0.1",
+      "version": "1.0.0",
       "devDependencies": {
         "@babel/core": "^7.29.0",
         "@types/node": "catalog:",
@@ -123,7 +123,7 @@
     },
     "packages/integrations/nextjs": {
       "name": "@varlock/nextjs-integration",
-      "version": "0.3.6",
+      "version": "1.0.0",
       "devDependencies": {
         "@types/node": "catalog:",
         "tsup": "catalog:",
@@ -137,7 +137,7 @@
     },
     "packages/integrations/vite": {
       "name": "@varlock/vite-integration",
-      "version": "0.2.10",
+      "version": "1.0.0",
       "devDependencies": {
         "@types/node": "catalog:",
         "ast-matcher": "^1.2.0",
@@ -155,7 +155,7 @@
     },
     "packages/plugins/1password": {
       "name": "@varlock/1password-plugin",
-      "version": "0.3.5",
+      "version": "1.0.0",
       "devDependencies": {
         "@1password/sdk": "0.4.1-beta.1",
         "@1password/sdk-core": "0.4.1-beta.1",
@@ -172,7 +172,7 @@
     },
     "packages/plugins/akeyless": {
       "name": "@varlock/akeyless-plugin",
-      "version": "0.0.2",
+      "version": "1.0.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -187,7 +187,7 @@
     },
     "packages/plugins/aws-secrets": {
       "name": "@varlock/aws-secrets-plugin",
-      "version": "0.0.6",
+      "version": "1.0.0",
       "devDependencies": {
         "@aws-sdk/client-secrets-manager": "^3.700.0",
         "@aws-sdk/client-ssm": "^3.700.0",
@@ -204,7 +204,7 @@
     },
     "packages/plugins/azure-key-vault": {
       "name": "@varlock/azure-key-vault-plugin",
-      "version": "0.1.0",
+      "version": "1.0.0",
       "devDependencies": {
         "@azure/identity": "^4.13.0",
         "@azure/keyvault-secrets": "^4.10.0",
@@ -221,7 +221,7 @@
     },
     "packages/plugins/bitwarden": {
       "name": "@varlock/bitwarden-plugin",
-      "version": "0.0.6",
+      "version": "1.0.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -236,7 +236,7 @@
     },
     "packages/plugins/dashlane": {
       "name": "@varlock/dashlane-plugin",
-      "version": "0.0.1",
+      "version": "1.0.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -251,7 +251,7 @@
     },
     "packages/plugins/doppler": {
       "name": "@varlock/doppler-plugin",
-      "version": "0.0.2",
+      "version": "1.0.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -266,7 +266,7 @@
     },
     "packages/plugins/google-secret-manager": {
       "name": "@varlock/google-secret-manager-plugin",
-      "version": "0.2.1",
+      "version": "1.0.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -281,7 +281,7 @@
     },
     "packages/plugins/hashicorp-vault": {
       "name": "@varlock/hashicorp-vault-plugin",
-      "version": "0.0.4",
+      "version": "1.0.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -296,7 +296,7 @@
     },
     "packages/plugins/infisical": {
       "name": "@varlock/infisical-plugin",
-      "version": "0.0.6",
+      "version": "1.0.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@infisical/sdk": "^5.0.0",
@@ -311,7 +311,7 @@
     },
     "packages/plugins/keepass": {
       "name": "@varlock/keepass-plugin",
-      "version": "0.0.2",
+      "version": "1.0.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -328,7 +328,7 @@
     },
     "packages/plugins/keeper": {
       "name": "@varlock/keeper-plugin",
-      "version": "0.0.2",
+      "version": "1.0.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@keeper-security/secrets-manager-core": "17.4.0",
@@ -344,7 +344,7 @@
     },
     "packages/plugins/pass": {
       "name": "@varlock/pass-plugin",
-      "version": "0.0.6",
+      "version": "1.0.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -358,7 +358,7 @@
     },
     "packages/plugins/passbolt": {
       "name": "@varlock/passbolt-plugin",
-      "version": "0.0.1",
+      "version": "1.0.0",
       "dependencies": {
         "openpgp": "6.3.0",
       },
@@ -378,7 +378,7 @@
     },
     "packages/plugins/proton-pass": {
       "name": "@varlock/proton-pass-plugin",
-      "version": "0.0.3",
+      "version": "1.0.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -408,7 +408,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "0.9.1",
+      "version": "1.0.0",
       "bin": {
         "varlock": "./bin/cli.js",
       },

@@ -1,7 +1,7 @@
 {
   "name": "@varlock/passbolt-plugin",
   "description": "Varlock plugin to load secrets from Passbolt Secrets Manager",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/passbolt/",
   "bugs": "https://github.com/dmno-dev/varlock/issues",

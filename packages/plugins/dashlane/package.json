@@ -1,7 +1,7 @@
 {
   "name": "@varlock/dashlane-plugin",
   "description": "Varlock plugin to load secrets from Dashlane via dcli",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/dashlane/",
   "bugs": "https://github.com/dmno-dev/varlock/issues",

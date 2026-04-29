@@ -1,5 +1,11 @@
 # @varlock/infisical-plugin
 
+
+## 1.0.0
+<sub>2026-04-29</sub>
+
+- Updated dependency `varlock` v1.0.0
+
 ## 0.0.6
 
 ### Patch Changes

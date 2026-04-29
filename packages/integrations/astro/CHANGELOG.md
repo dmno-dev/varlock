@@ -1,5 +1,11 @@
 # @varlock/astro-integration
 
+
+## 1.0.0
+<sub>2026-04-29</sub>
+
+- Updated dependency `varlock` v1.0.0
+
 ## 0.2.7
 
 ### Patch Changes
