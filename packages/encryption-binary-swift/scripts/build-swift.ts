@@ -36,7 +36,17 @@ function getArg(flag: string): string | undefined {
 const universal = args.includes('--universal');
 const signingIdentity = getArg('--sign');
 const mode = (getArg('--mode') ?? 'dev') as 'dev' | 'preview' | 'release';
-const version = getArg('--version') ?? '0.0.0-dev';
+const version = getArg('--version') ?? (() => {
+  // Read the version from varlock's package.json so the .app bundle
+  // has a meaningful CFBundleVersion even when --version is not passed
+  try {
+    const pkgPath = path.resolve(import.meta.dir, '..', '..', 'varlock', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    return pkg.version ?? '0.0.0-dev';
+  } catch {
+    return '0.0.0-dev';
+  }
+})();
 
 // ── Paths ───────────────────────────────────────────────────────
 
