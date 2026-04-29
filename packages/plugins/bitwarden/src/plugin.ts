@@ -3,6 +3,7 @@ import ky from 'ky';
 import { Buffer } from 'node:buffer';
 import { webcrypto } from 'node:crypto';
 import { deriveKeyFromAccessToken, decryptAes256CbcHmac } from './crypto-utils.js';
+import { execBwCliCommand, type BwItem } from './bw-pm-cli-helper.js';
 
 const { subtle } = webcrypto;
 
@@ -487,5 +488,215 @@ plugin.registerResolverFunction({
 
     const secretValue = await selectedInstance.getSecret(secretId);
     return secretValue;
+  },
+});
+
+// ──────────────────────────────────────────────────────────────
+// Bitwarden Password Manager / Vaultwarden  (bwp)
+// CLI-based access via the `bw` command-line tool.
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * Extract a named field from a Bitwarden vault item JSON object.
+ * Standard fields: password, username, notes, totp, uri
+ * Falls back to searching the `fields` array for custom fields.
+ */
+function extractBwItemField(item: BwItem, field: string): string {
+  switch (field) {
+    case 'password':
+      if (item.login?.password != null) return item.login.password;
+      throw new ResolutionError(`Item "${item.name}" has no password field`);
+    case 'username':
+      if (item.login?.username != null) return item.login.username;
+      throw new ResolutionError(`Item "${item.name}" has no username field`);
+    case 'notes':
+      if (item.notes != null) return item.notes;
+      throw new ResolutionError(`Item "${item.name}" has no notes`);
+    case 'totp':
+      if (item.login?.totp != null) return item.login.totp;
+      throw new ResolutionError(`Item "${item.name}" has no TOTP field`);
+    case 'uri':
+      if (item.login?.uris?.[0]?.uri != null) return item.login.uris[0].uri;
+      throw new ResolutionError(`Item "${item.name}" has no URI field`);
+    default: {
+      // Try custom fields (case-insensitive match)
+      const customField = item.fields?.find(
+        (f) => f.name.toLowerCase() === field.toLowerCase(),
+      );
+      if (customField != null) return customField.value ?? '';
+      throw new ResolutionError(`Field "${field}" not found in item "${item.name}"`, {
+        tip: [
+          'Available standard fields: password, username, notes, totp, uri',
+          `Custom fields on this item: ${item.fields?.map((f) => f.name).join(', ') || 'none'}`,
+        ].join('\n'),
+      });
+    }
+  }
+}
+
+class BitwardenPasswordManagerInstance {
+  private sessionToken?: string;
+
+  constructor(readonly id: string) {}
+
+  setAuth(sessionToken: unknown) {
+    if (sessionToken && typeof sessionToken === 'string') this.sessionToken = sessionToken;
+    debug('bwp instance', this.id, 'set auth');
+  }
+
+  async getSecret(itemQuery: string, field: string = 'password'): Promise<string> {
+    if (!this.sessionToken) {
+      throw new ResolutionError('No session token configured for Bitwarden Password Manager', {
+        tip: [
+          'Unlock your vault and capture the session token: bw unlock',
+          'Set BWP_SESSION (or your configured env var) to the returned token',
+        ].join('\n'),
+      });
+    }
+
+    const raw = await execBwCliCommand(['get', 'item', itemQuery, '--nointeraction'], this.sessionToken);
+
+    let item: BwItem;
+    try {
+      item = JSON.parse(raw);
+    } catch {
+      throw new ResolutionError(`Failed to parse Bitwarden CLI response for item "${itemQuery}"`, {
+        tip: 'Make sure your session token is valid and the `bw` CLI is working correctly',
+      });
+    }
+
+    return extractBwItemField(item, field);
+  }
+}
+
+const bwpPluginInstances: Record<string, BitwardenPasswordManagerInstance> = {};
+
+plugin.registerRootDecorator({
+  name: 'initBwp',
+  description: 'Initialize a Bitwarden Password Manager (or Vaultwarden) plugin instance via the `bw` CLI',
+  isFunction: true,
+  async process(argsVal) {
+    const objArgs = argsVal.objArgs;
+    if (!objArgs) throw new SchemaError('Expected configuration arguments');
+
+    // id (optional, static)
+    if (objArgs.id && !objArgs.id.isStatic) {
+      throw new SchemaError('Expected id to be static');
+    }
+    const id = String(objArgs?.id?.staticValue || '_default');
+
+    if (bwpPluginInstances[id]) {
+      throw new SchemaError(`Bitwarden PM instance with id "${id}" already initialized`);
+    }
+
+    if (!objArgs.sessionToken) {
+      throw new SchemaError('sessionToken is required', {
+        tip: [
+          'Unlock your vault to obtain a session token: bw unlock',
+          'Then pass it as: @initBwp(sessionToken=$BWP_SESSION)',
+        ].join('\n'),
+      });
+    }
+
+    bwpPluginInstances[id] = new BitwardenPasswordManagerInstance(id);
+
+    return {
+      id,
+      sessionTokenResolver: objArgs.sessionToken,
+    };
+  },
+  async execute({ id, sessionTokenResolver }) {
+    const sessionTokenValue = await sessionTokenResolver?.resolve();
+    bwpPluginInstances[id].setAuth(sessionTokenValue);
+  },
+});
+
+plugin.registerDataType({
+  name: 'bwSessionToken',
+  sensitive: true,
+  typeDescription: 'Bitwarden CLI session token (output of `bw unlock`)',
+  icon: BITWARDEN_ICON,
+  docs: [
+    {
+      description: 'Bitwarden CLI authentication',
+      url: 'https://bitwarden.com/help/cli/#unlock',
+    },
+  ],
+  async validate(val) {
+    if (typeof val !== 'string' || val.length === 0) {
+      throw new ValidationError('Bitwarden session token must be a non-empty string');
+    }
+  },
+});
+
+plugin.registerResolverFunction({
+  name: 'bwp',
+  label: 'Fetch a field from a Bitwarden Password Manager / Vaultwarden vault item via the `bw` CLI',
+  icon: BITWARDEN_ICON,
+  argsSchema: {
+    type: 'mixed',
+    arrayMinLength: 1,
+    arrayMaxLength: 2,
+  },
+  process() {
+    let instanceId = '_default';
+    let itemQueryResolver: Resolver | undefined;
+    const fieldResolver = this.objArgs?.field;
+
+    const arrArgs = this.arrArgs ?? [];
+    const argCount = arrArgs.length;
+
+    if (argCount === 1) {
+      itemQueryResolver = arrArgs[0];
+    } else if (argCount === 2) {
+      if (!arrArgs[0].isStatic) {
+        throw new SchemaError('Expected instance id (first argument) to be a static value');
+      }
+      instanceId = String(arrArgs[0].staticValue);
+      itemQueryResolver = arrArgs[1];
+    } else {
+      throw new SchemaError('Expected 1 or 2 positional arguments: bwp("item") or bwp(instanceId, "item")');
+    }
+
+    if (!Object.keys(bwpPluginInstances).length) {
+      throw new SchemaError('No Bitwarden PM plugin instances found', {
+        tip: 'Initialize at least one instance using the @initBwp() root decorator',
+      });
+    }
+
+    const selectedInstance = bwpPluginInstances[instanceId];
+    if (!selectedInstance) {
+      if (instanceId === '_default') {
+        throw new SchemaError('Bitwarden PM plugin instance (without id) not found', {
+          tip: [
+            'Either remove the `id` param from your @initBwp call',
+            'or use `bwp(id, "item")` to select an instance by id',
+            `Available ids: ${Object.keys(bwpPluginInstances).join(', ')}`,
+          ].join('\n'),
+        });
+      } else {
+        throw new SchemaError(`Bitwarden PM plugin instance id "${instanceId}" not found`, {
+          tip: `Available ids: ${Object.keys(bwpPluginInstances).join(', ')}`,
+        });
+      }
+    }
+
+    return { instanceId, itemQueryResolver, fieldResolver };
+  },
+  async resolve({ instanceId, itemQueryResolver, fieldResolver }) {
+    const selectedInstance = bwpPluginInstances[instanceId];
+
+    const itemQuery = await itemQueryResolver.resolve();
+    if (typeof itemQuery !== 'string' || !itemQuery) {
+      throw new SchemaError('Expected item name/id to resolve to a non-empty string');
+    }
+
+    let field = 'password';
+    if (fieldResolver) {
+      const resolvedField = await fieldResolver.resolve();
+      if (typeof resolvedField === 'string' && resolvedField) field = resolvedField;
+    }
+
+    return await selectedInstance.getSecret(itemQuery, field);
   },
 });
