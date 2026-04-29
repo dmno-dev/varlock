@@ -1,5 +1,6 @@
 ---
 import Default from "@astrojs/starlight/components/Footer.astro";
+import EmailSignup from "./EmailSignup.vue";
 ---
 
 <Default>
@@ -7,6 +8,8 @@ import Default from "@astrojs/starlight/components/Footer.astro";
 </Default>
 
 <div class="custom-footer">
+  <EmailSignup client:load />
+  <br />
   <p>
     © 2026 <a href="https://dmno.io">DMNO Inc.</a> All rights reserved.
   </p>

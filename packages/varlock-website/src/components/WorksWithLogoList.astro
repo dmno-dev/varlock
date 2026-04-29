@@ -1,8 +1,38 @@
 ---
-import LogoList, { type LogoItem } from "./LogoList.astro";
+import { Icon } from "astro-iconify";
 import OpencodeLogo from "../custom-icons/opencode-logo.svg";
+import cupboardTile from "../assets/pixel-art/inventory-cupboard-tile.png";
 
-const secretsLogos: LogoItem[] = [
+interface LogoItem {
+  title: string;
+  icon?: string;
+  customIcon?: astroHTML.JSX.Element | ((_props: Record<string, any>) => any);
+  href?: string;
+}
+
+const allLogos: LogoItem[] = [
+  // AI Tools
+  {
+    title: "Claude Code",
+    icon: "simple-icons:anthropic",
+    href: "/guides/ai-tools/",
+  },
+  {
+    title: "Cursor",
+    icon: "simple-icons:cursor",
+    href: "/guides/ai-tools/",
+  },
+  {
+    title: "Gemini CLI",
+    icon: "simple-icons:googlegemini",
+    href: "/guides/ai-tools/",
+  },
+  {
+    title: "Opencode",
+    customIcon: OpencodeLogo,
+    href: "/guides/ai-tools/",
+  },
+  // Plugins
   {
     title: "1Password",
     icon: "simple-icons:1password",
@@ -10,7 +40,7 @@ const secretsLogos: LogoItem[] = [
   },
   {
     title: "Infisical",
-    icon: "mdi:shield-key-outline",
+    icon: "mdi:infinity",
     href: "/plugins/infisical/",
   },
   {
@@ -33,42 +63,33 @@ const secretsLogos: LogoItem[] = [
     icon: "simple-icons:bitwarden",
     href: "/plugins/bitwarden/",
   },
-];
-
-const aiToolsLogos: LogoItem[] = [
+  // Integrations
   {
-    title: "Claude Code",
-    icon: "simple-icons:anthropic",
-    href: "/guides/ai-tools/",
+    title: "Next.js",
+    icon: "simple-icons:nextdotjs",
+    href: "/integrations/nextjs/",
   },
   {
-    title: "Cursor",
-    icon: "simple-icons:cursor",
-    href: "/guides/ai-tools/",
+    title: "Vite",
+    icon: "simple-icons:vite",
+    href: "/integrations/vite/",
   },
   {
-    title: "Gemini CLI",
-    icon: "simple-icons:googlegemini",
-    href: "/guides/ai-tools/",
+    title: "Astro",
+    icon: "simple-icons:astro",
+    href: "/integrations/astro/",
   },
   {
-    title: "Opencode",
-    customIcon: OpencodeLogo,
-    href: "/guides/ai-tools/",
+    title: "GitHub Actions",
+    icon: "simple-icons:githubactions",
+    href: "/integrations/github-action/",
   },
   {
-    title: "...and more",
-    icon: "mdi:robot-outline",
-    href: "/guides/ai-tools/",
+    title: "Docker",
+    icon: "simple-icons:docker",
+    href: "/guides/docker/",
   },
-];
-
-const languagesLogos: LogoItem[] = [
-  {
-    title: "TS/JS",
-    icon: "simple-icons:typescript",
-    href: "/integrations/javascript/",
-  },
+  // Languages
   {
     title: "Node.js",
     icon: "simple-icons:nodedotjs",
@@ -99,24 +120,7 @@ const languagesLogos: LogoItem[] = [
     icon: "simple-icons:php",
     href: "/integrations/other-languages/",
   },
-  {
-    title: "...and more",
-    icon: "simple-icons:gnubash",
-    href: "/integrations/other-languages/",
-  },
-];
-
-const integrationsLogos: LogoItem[] = [
-  {
-    title: "Next.js",
-    icon: "simple-icons:nextdotjs",
-    href: "/integrations/nextjs/",
-  },
-  {
-    title: "Vite",
-    icon: "simple-icons:vite",
-    href: "/integrations/vite/",
-  },
+  // Extra
   {
     title: "Qwik",
     icon: "simple-icons:qwik",
@@ -133,48 +137,141 @@ const integrationsLogos: LogoItem[] = [
     href: "/integrations/vite/#frameworks",
   },
   {
-    title: "Astro",
-    icon: "simple-icons:astro",
-    href: "/integrations/astro/",
-  },
-  {
-    title: "GitHub Actions",
-    icon: "simple-icons:githubactions",
-    href: "/integrations/github-action/",
-  },
-  {
-    title: "Docker",
-    icon: "simple-icons:docker",
-    href: "/guides/docker/",
+    title: "TypeScript",
+    icon: "simple-icons:typescript",
+    href: "/integrations/javascript/",
   },
 ];
 ---
 
-<div class="works-with-container">
-  <LogoList title="AI Tools" logos={aiToolsLogos} theme="orange" />
-  <LogoList title="Plugins" logos={secretsLogos} theme="purple" />
-  <LogoList title="Integrations" logos={integrationsLogos} theme="cyan" />
-  <LogoList title="Languages" logos={languagesLogos} theme="green" />
+<div class="inventory-grid not-content">
+  {
+    allLogos.map(({ title, icon, customIcon: CustomIcon, href }) => {
+      const inner = (
+        <div class="inventory-slot">
+          <img src={cupboardTile.src} alt="" class="slot-bg" />
+          <div class="slot-icon">
+            {CustomIcon ? (
+              <div class="custom-svg" role="img" aria-label={title}>
+                <CustomIcon />
+              </div>
+            ) : (
+              <Icon name={icon} aria-label={title} />
+            )}
+          </div>
+          <span class="slot-label">{title}</span>
+        </div>
+      );
+
+      if (href) {
+        return (
+          <a href={href} class="slot-link">
+            {inner}
+          </a>
+        );
+      }
+      return inner;
+    })
+  }
 </div>
 
 <style>
-  .works-with-container {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 2rem;
-    margin: 4rem 0;
+  .inventory-grid {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0px;
+    margin: 3rem auto;
   }
 
-  @media (max-width: 1000px) {
-    .works-with-container {
-      grid-template-columns: repeat(2, 1fr);
-    }
+  .slot-link {
+    text-decoration: none;
+    color: inherit;
   }
 
-  @media (max-width: 768px) {
-    .works-with-container {
-      grid-template-columns: 1fr;
-      gap: 3rem;
-    }
+  .inventory-slot {
+    position: relative;
+    width: 72px;
+    height: 72px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .slot-bg {
+    position: absolute;
+    inset: 0;
+    width: 72px;
+    height: 72px;
+    image-rendering: pixelated;
+    pointer-events: none;
+  }
+
+  .slot-icon {
+    position: relative;
+    z-index: 1;
+    width: 32px;
+    height: 32px;
+    color: #c8b89a;
+    transition:
+      color 150ms ease,
+      transform 150ms ease,
+      filter 150ms ease;
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
+  }
+
+  .slot-icon :global(svg) {
+    width: 100%;
+    height: 100%;
+  }
+
+  .custom-svg {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .custom-svg :global(svg) {
+    width: 100%;
+    height: 100%;
+  }
+
+  .custom-svg :global(path) {
+    fill: currentColor;
+  }
+
+  .slot-label {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%) translateY(50%);
+    z-index: 2;
+    background: rgba(0, 0, 0, 0.85);
+    color: #e8dcc8;
+    font-size: 0.7rem;
+    line-height: 1.2;
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid rgba(200, 184, 154, 0.3);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 150ms ease;
+    font-family: monospace;
+  }
+
+  .slot-link:hover .slot-label,
+  .slot-link:focus-visible .slot-label,
+  .inventory-slot:hover .slot-label {
+    opacity: 1;
+  }
+
+  .slot-link:hover .slot-icon,
+  .slot-link:focus-visible .slot-icon {
+    color: #f0d890;
+    transform: scale(1.1);
+    filter: drop-shadow(0 0 8px rgba(240, 216, 144, 0.4));
   }
 </style>

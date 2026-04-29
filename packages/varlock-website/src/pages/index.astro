@@ -11,7 +11,6 @@ import intellisenseImg from "../assets/demo-images/intellisense.png";
 import redactionImg from "../assets/demo-images/redaction.png";
 import multiEnvImg from "../assets/demo-images/multi-env.png";
 import externalProvidersImg from "../assets/demo-images/external-providers.png";
-import EmailSignup from "../components/EmailSignup.vue";
 import warlockStandingImg from "../assets/animation/warlock-standing.gif";
 import warlockStrikeImg from "../assets/animation/warlock-strike.gif";
 
@@ -85,13 +84,6 @@ ANTHROPIC_API_KEY=varlock(local:ABC123...)
         <LinkButton href="getting-started/introduction">Get Started</LinkButton>
         <LinkButton href="reference/item-decorators">Reference Docs</LinkButton>
       </div>
-      <h2 style="justify-content: center;">
-        <img
-          src="https://varlock-pixel-art.dmno.workers.dev/effects/fire.gif"
-        />
-        Stay in the loop
-      </h2>
-      <EmailSignup client:load />
       <WorksWithLogoList />
       <div class="features-grid">
         <div class="text-only-card">
@@ -292,8 +284,6 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
         process.
       </p>
 
-      <EmailSignup client:load />
-
       <div>
         <a
           href="https://osscar.dev/org/dmno-dev"
@@ -492,7 +482,7 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
   }
   .homepage-hero {
     text-align: center;
-    padding-bottom: 0.3em;
+    margin-bottom: 1rem;
     h1 {
       margin: 0.5em 0;
       display: flex;
@@ -517,7 +507,8 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
           }
         }
         flex-shrink: 0;
-        margin-top: -30px;
+        margin-top: -36px;
+        margin-bottom: 0px;
         margin-left: -20px;
         margin-right: -20px;
 
@@ -527,14 +518,14 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
         }
         &:last-child {
           transform: scaleX(-1);
-          margin-bottom: 8px;
         }
       }
     }
   }
   .env-spec-example-note {
-    padding: 0 1em;
+    padding: 0.5em 1em;
     text-align: center;
+    font-weight: bold;
   }
 
   h2 {
