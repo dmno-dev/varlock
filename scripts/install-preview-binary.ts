@@ -13,7 +13,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 const WORKFLOW_NAME = 'binary-preview.yaml';
-const ARTIFACT_NAME = 'varlock-preview-binaries';
 
 function run(cmd: string): string {
   return execSync(cmd, { encoding: 'utf-8' }).trim();
@@ -83,12 +82,17 @@ try {
   process.exit(1);
 }
 
-// --- Download artifact ---
+// --- Download the platform-specific artifact ---
+const archiveName = getArchiveName();
+const artifactName = `varlock-preview-${archiveName}`;
+const isWin = os.platform() === 'win32';
+const ext = isWin ? 'zip' : 'tar.gz';
+
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-preview-'));
-console.log(`Downloading artifact to ${tmpDir}...`);
+console.log(`Downloading ${artifactName} to ${tmpDir}...`);
 
 try {
-  run(`gh run download ${runId} --name ${ARTIFACT_NAME} --dir "${tmpDir}"`);
+  run(`gh run download ${runId} --name ${artifactName} --dir "${tmpDir}"`);
 } catch (e) {
   console.error('Failed to download artifact:', (e as Error).message);
   console.error('The workflow may still be running, or the artifact may have expired (14 day retention).');
@@ -96,15 +100,11 @@ try {
   process.exit(1);
 }
 
-// --- Extract the right archive ---
-const archiveName = getArchiveName();
-const isWin = os.platform() === 'win32';
-const ext = isWin ? 'zip' : 'tar.gz';
 const archiveFile = path.join(tmpDir, `varlock-${archiveName}.${ext}`);
 
 if (!fs.existsSync(archiveFile)) {
   console.error(`Archive not found: varlock-${archiveName}.${ext}`);
-  console.error('Available archives:', fs.readdirSync(tmpDir).join(', '));
+  console.error('Available files:', fs.readdirSync(tmpDir).join(', '));
   fs.rmSync(tmpDir, { recursive: true });
   process.exit(1);
 }

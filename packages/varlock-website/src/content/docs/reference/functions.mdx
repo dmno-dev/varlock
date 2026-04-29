@@ -22,12 +22,11 @@ CONFIG=exec(`aws ssm get-parameter --name "/config/${APP_ENV}" --with-decryption
 ```
 
 
-Currently, there are built-in utility functions, and soon there will be functions to handle values encrypted using varlock provided tools.
+There are built-in utility functions, encryption functions for device-local secrets, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
 
-Plugins may also register additional resolvers - which can be used to generate and transform values, or fetch data from external providers.
-
-
+## Core
 <div class="reference-docs">
+
 <div>
 ### `ref()`
 
@@ -121,6 +120,11 @@ APP_ENV=remap($CI_BRANCH, production="main", preview=/.*/, development=undefined
 ```
 :::
 </div>
+
+</div>
+
+## Utilities
+<div class="reference-docs">
 
 <div>
 ### `ifs()`
@@ -238,7 +242,7 @@ API_URL=if(eq($GIT_BRANCH, "main"), api.example.com, staging-api.example.com)
 
 Negates a value and returns a boolean. Falsy values are - `false`, `""`, `0`, `undefined`, and will be negated to `true`. Otherwise will return `false`.
 
-```env-spec "not"
+```env-spec /(not)\\(/
 # Negate the result of another function
 SHOULD_DISABLE_FEATURE=not(forEnv(production))
 ```
@@ -256,6 +260,73 @@ HAS_API_KEY=not(isEmpty($API_KEY))
 # Use with conditional logic
 API_URL=if(isEmpty($CUSTOM_API_URL), "https://api.default.com", $CUSTOM_API_URL)
 ```
+</div>
+
+</div>
+
+## Encryption
+<div class="reference-docs">
+
+<div>
+### `varlock()`
+
+Decrypts a locally encrypted value, or prompts for a new secret to encrypt. This is the built-in resolver for varlock's [device-local encryption](/guides/local-encryption/) feature.
+
+**Decrypt mode** — pass an encrypted payload to decrypt at load time:
+```env-spec "varlock"
+# @sensitive
+API_KEY=varlock("local:<encrypted-payload>")
+```
+
+**Prompt mode** — prompts the user to enter a secret, encrypts it, and writes the encrypted value back to the source file:
+```env-spec "varlock"
+# @sensitive
+API_KEY=varlock(prompt)
+# also valid as a key=value param:
+API_KEY=varlock(prompt=1)
+```
+
+On first run with `prompt` mode, you'll be asked to enter the secret value. Once entered, the file is automatically updated with the encrypted payload. On macOS with Secure Enclave, a native dialog with biometric authentication is used.
+
+Values are encrypted using the best available backend on your platform — see the [Local encryption guide](/guides/local-encryption/) for details.
+
+Encrypted payload lifecycle:
+- Store encrypted payloads (`varlock("local:...")`) in local override files (typically `.env.local`)
+- Decryption happens at runtime during `varlock load` / `varlock run`
+- Use [`varlock reveal`](/reference/cli-commands/#reveal) when you need to inspect a decrypted value interactively
+
+</div>
+
+<div>
+### `keychain()`
+
+Reads a secret from the **macOS Keychain**. This built-in resolver communicates through Varlock's native Swift daemon, enforcing biometric (Touch ID) authentication and per-session access control. See the [macOS Keychain page](/plugins/macos-keychain/) for full documentation.
+
+**Array args:**
+- `service` (optional): Service name of the keychain item (positional shorthand)
+- `prompt` (optional): Enter interactive picker mode
+
+**Key/value args:**
+- `service` (optional): Service name of the keychain item
+- `account` (optional): Account identifier for the keychain item
+- `keychain` (optional): Name of a specific keychain to search (e.g., `"System"`)
+- `field` (optional): Specific field to extract from the keychain item
+- `prompt` (optional): If set, opens a native picker dialog for interactive selection
+
+```env-spec /keychain\\(.*\\)/
+# Positional shorthand
+DATABASE_PASSWORD=keychain("com.company.database")
+
+# Named service with account
+ADMIN_PW=keychain("com.company.db", account="admin")
+
+# Interactive picker mode — writes back resolved reference
+NEW_SECRET=keychain(prompt)
+```
+
+:::caution
+`keychain()` is only available on macOS. For cross-platform local encryption, use [`varlock()`](#varlock) instead.
+:::
 </div>
 
 </div>

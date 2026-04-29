@@ -1,0 +1,18 @@
+{
+  "name": "@varlock/encryption-binary-swift",
+  "description": "macOS Secure Enclave encryption binary for varlock (Swift)",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "kill-daemon": "bun run scripts/kill-daemon.ts",
+    "build:universal": "bun run kill-daemon && bun run scripts/build-swift.ts --universal",
+    "build:current": "bun run kill-daemon && bun run scripts/build-swift.ts",
+    "clean": "rm -rf swift/.build"
+  },
+  "devDependencies": {
+    "@varlock/1password-plugin": "workspace:*",
+    "varlock": "workspace:*"
+  },
+  "author": "dmno-dev",
+  "license": "MIT"
+}

@@ -1,0 +1,91 @@
+name: Notarize macOS native binary
+
+# Reusable workflow that takes an already-signed .app bundle artifact,
+# submits it to Apple for notarization, and staples the ticket.
+# Requires a macOS runner for xcrun.
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      source-artifact-name:
+        description: 'Name of the signed .app artifact to notarize'
+        type: string
+        required: true
+      artifact-name:
+        description: 'Name for the notarized artifact'
+        type: string
+        default: 'native-bin-macos-notarized'
+    secrets:
+      OP_CI_TOKEN:
+        required: true
+
+jobs:
+  notarize:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      # skip bun dep caching since less likely to hit
+
+      - name: Install node deps
+        run: bun install
+
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@v2.3.11
+
+      - name: Build varlock libs
+        run: bun run build:libs
+
+      - name: Download signed .app bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.source-artifact-name }}
+          path: VarlockEnclave.app
+
+      # Load secrets from 1Password via varlock (scoped to the Swift package)
+      - name: Load signing secrets
+        uses: dmno-dev/varlock-action@v1.0.1
+        with:
+          working-directory: packages/encryption-binary-swift
+        env:
+          OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
+      - name: Notarize and staple
+        working-directory: packages/encryption-binary-swift
+        run: |
+          APP_PATH="$GITHUB_WORKSPACE/VarlockEnclave.app"
+
+          # Create a zip for notarization submission
+          ditto -c -k --keepParent "$APP_PATH" $RUNNER_TEMP/VarlockEnclave.zip
+
+          # Submit for notarization and wait
+          xcrun notarytool submit $RUNNER_TEMP/VarlockEnclave.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          # Staple the notarization ticket to the app bundle
+          xcrun stapler staple "$APP_PATH"
+        env:
+          OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
+      - name: Verify notarization
+        run: |
+          echo "=== Code signature ==="
+          codesign -dvv VarlockEnclave.app 2>&1 || true
+          echo "=== Notarization staple ==="
+          xcrun stapler validate VarlockEnclave.app
+
+      - name: Upload notarized artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: VarlockEnclave.app
+          retention-days: 7

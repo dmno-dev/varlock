@@ -6,7 +6,7 @@ ignore
 
 .turbo
 vite.config.ts.timestamp*
-changesets-summary.json
+
 
 .env.local
 .env.*.local
@@ -16,4 +16,5 @@ smoke-tests/pnpm-lock.yaml
 framework-tests/.packed
 framework-tests/.test-projects
 .magent
+.claude/worktrees/
 eslint-output.txt

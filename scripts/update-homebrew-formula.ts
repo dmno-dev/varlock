@@ -5,7 +5,7 @@ const VERSION = process.env.RELEASE_VERSION;
 
 // get checksums file from dist-sea since we are running this script just after building the binaries
 const checksumsStr = await fs.readFile(path.join(import.meta.dirname, '../packages/varlock/dist-sea/checksums.txt'), 'utf-8');
-const checksums = {};
+const checksums: Record<string, string> = {};
 checksumsStr.split('\n').forEach((line) => {
   if (!line.trim()) return; // skip trailing blank line
   const [sha256, fileName] = line.split('  ');
@@ -48,6 +48,14 @@ class Varlock < Formula
 
   def install
     bin.install "varlock"
+
+    on_macos do
+      libexec.install "VarlockEnclave.app"
+    end
+
+    on_linux do
+      libexec.install "varlock-local-encrypt"
+    end
   end
 
   test do
