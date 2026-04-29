@@ -82,8 +82,12 @@ if (isPR && releasePackagePaths.length > 0) {
 
   console.log('Packages with changes in this PR:', [...changedPackagePaths]);
 
-  // Find workspace dependencies of changed packages (transitively)
-  // so that if package A changed and depends on B, B is also published
+  // Start with changed packages that are in the bumpy release list
+  const bumpyPathSet = new Set(releasePackagePaths);
+  const changedReleasable = [...changedPackagePaths].filter((p) => bumpyPathSet.has(p));
+
+  // For those releasable packages, also include their transitive workspace
+  // dependencies (so preview packages that reference each other have consistent versions)
   const workspacesByName = new Map(workspaces.map((ws) => [ws.name, ws]));
 
   function getWorkspaceDeps(pkgPath: string): Array<string> {
@@ -104,9 +108,8 @@ if (isPR && releasePackagePaths.length > 0) {
     }
   }
 
-  // Collect changed packages + their transitive workspace dependencies
   const neededPackages = new Set<string>();
-  const queue = [...changedPackagePaths];
+  const queue = [...changedReleasable];
   while (queue.length > 0) {
     const pkg = queue.pop()!;
     if (neededPackages.has(pkg)) continue;
@@ -118,7 +121,7 @@ if (isPR && releasePackagePaths.length > 0) {
     }
   }
 
-  console.log('Packages needed (changed + dependencies):', [...neededPackages]);
+  console.log('Packages needed (changed releasable + dependencies):', [...neededPackages]);
 
   // Intersect with bumpy's release list
   releasePackagePaths = releasePackagePaths.filter((p) => neededPackages.has(p));

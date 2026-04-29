@@ -194,10 +194,12 @@ jobs:
           done
 
       - name: Build publishable npm packages
+        if: steps.check-release.outputs.packages != '[]'
         run: bun run build:libs
         env:
           BUILD_TYPE: preview
       - name: Release preview packages
+        if: steps.check-release.outputs.packages != '[]'
         run: bun run scripts/release-preview.ts
         env:
           RELEASE_PACKAGES: ${{ steps.check-release.outputs.packages }}
