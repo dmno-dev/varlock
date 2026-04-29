@@ -1,5 +1,6 @@
 ---
 import { Image } from "astro:assets";
+import { Icon } from "astro-iconify";
 
 import Layout from "../layouts/Layout.astro";
 import { createMetaHead } from "../lib/meta";
@@ -13,6 +14,7 @@ import multiEnvImg from "../assets/demo-images/multi-env.png";
 import externalProvidersImg from "../assets/demo-images/external-providers.png";
 import warlockStandingImg from "../assets/animation/warlock-standing.gif";
 import warlockStrikeImg from "../assets/animation/warlock-strike.gif";
+import syntaxLogo from "../assets/other-logos/syntax.svg";
 
 const site = Astro.site ?? new URL(Astro.url.origin);
 const pageUrl = new URL(Astro.url.pathname, site).href;
@@ -84,7 +86,46 @@ ANTHROPIC_API_KEY=varlock(local:ABC123...)
         <LinkButton href="getting-started/introduction">Get Started</LinkButton>
         <LinkButton href="reference/item-decorators">Reference Docs</LinkButton>
       </div>
+
+      <div class="badge-row">
+        <a
+          href="https://osscar.dev/org/dmno-dev"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <img
+            src="https://osscar.dev/api/badge?slug=dmno-dev&variant=compact"
+            alt="Featured on OSSCAR"
+          />
+        </a>
+        <a
+          href="https://www.youtube.com/watch?v=M5IkdUunf8g"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="custom-badge syntax-badge"
+        >
+          <Image src={syntaxLogo} alt="Syntax" height={36} />
+          <span class="badge-text">
+            <span class="badge-line">Featured in</span>
+            <span class="badge-line">Ep 985</span>
+          </span>
+        </a>
+        <a
+          href="https://github.blog/open-source/maintainers/securing-the-ai-software-supply-chain-security-results-across-67-open-source-projects/"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="custom-badge github-badge"
+        >
+          <Icon name="simple-icons:github" width={32} height={32} />
+          <span class="badge-text">
+            <span class="badge-line">GitHub Secure</span>
+            <span class="badge-line badge-line-green">Open Source Fund</span>
+          </span>
+        </a>
+      </div>
+
       <WorksWithLogoList />
+
       <div class="features-grid">
         <div class="text-only-card">
           <div>
@@ -283,19 +324,6 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
         Use <code>varlock run</code> to inject resolved, validated env vars into another
         process.
       </p>
-
-      <div>
-        <a
-          href="https://osscar.dev/org/dmno-dev"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img
-            src="https://osscar.dev/api/badge?slug=dmno-dev"
-            alt="Featured on OSSCAR"
-          />
-        </a>
-      </div>
     </div>
   </main>
 </Layout>
@@ -526,6 +554,73 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
     padding: 0.5em 1em;
     text-align: center;
     font-weight: bold;
+  }
+
+  .custom-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border-radius: 8px;
+    overflow: hidden;
+    text-decoration: none;
+    color: #e0e0e0;
+    background: #1a1a1a;
+    height: 64px;
+    padding: 0 0.8rem;
+  }
+
+  .badge-label {
+    text-transform: uppercase;
+    font-size: 0.6rem;
+    letter-spacing: 0.06em;
+    opacity: 0.7;
+  }
+
+  .badge-text {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .badge-line {
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+
+  .badge-line-green {
+    color: #2da44e;
+  }
+
+  .syntax-badge {
+    border-left: 2px solid #fabf46;
+  }
+
+  .github-badge {
+    border-left: 2px solid #0e8a2c;
+  }
+
+  .badge-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .badge-row > a {
+    transition:
+      transform 0.2s ease,
+      box-shadow 0.2s ease;
+    border-radius: 8px;
+  }
+
+  .badge-row > a:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   }
 
   h2 {
