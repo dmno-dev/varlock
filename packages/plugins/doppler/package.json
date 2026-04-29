@@ -1,7 +1,7 @@
 {
   "name": "@varlock/doppler-plugin",
   "description": "Varlock plugin to load secrets from Doppler",
-  "version": "0.0.2",
+  "version": "1.0.0",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/doppler/",
   "bugs": "https://github.com/dmno-dev/varlock/issues",

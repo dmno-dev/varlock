@@ -1,6 +1,21 @@
 # varlock
 
 
+
+## 1.0.0
+<sub>2026-04-29</sub>
+
+- [#666](https://github.com/dmno-dev/varlock/pull/666) - fix: explicit per-item decorators now take priority over @defaultSensitive/@defaultRequired from other files
+- [#567](https://github.com/dmno-dev/varlock/pull/567) - Built-in local encryption utilities - let's get everything out of plaintext!
+  - Add built-in `varlock()` resolver for local device-bound encryption using tiny native binaries
+    - macOS via Swift/Secure Enclave
+    - Windows via Windows Hello/TPM (+WSL2 support)
+    - Linux via TPM2/keyring
+  - Add `varlock encrypt` command with stdin support
+  - Add `varlock reveal` command
+  - Add `varlock lock` command to clear local session unlock
+  - Add `keychain()` resolver for built-in macOS Keychain support
+
 ## 0.9.1
 
 _2026-04-22_
