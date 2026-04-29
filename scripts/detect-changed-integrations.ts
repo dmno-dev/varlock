@@ -101,32 +101,51 @@ if (isReleasePR) {
   }
   console.log('Changed packages (from modified package.json):', [...changedPackages]);
 } else {
-  // Normal PR: use bumpy status to get pending changesets
-  let bumpyStatus: any;
+  // Normal PR: detect changed packages by diffing against origin/main
+  console.log('Normal PR — detecting changed packages via git diff...');
+  let gitDiff: string;
   try {
-    const statusOutput = execSync('bunx @varlock/bumpy status --json', {
-      cwd: REPO_ROOT,
+    execSync('git fetch origin main --depth=1', { stdio: 'pipe' });
+    gitDiff = execSync('git diff origin/main --name-only', {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    bumpyStatus = JSON.parse(statusOutput);
-  } catch {
-    // bumpy status exits non-zero when there are no changesets
+  } catch (e) {
+    console.error('Failed to diff against origin/main:', e);
+    // If we can't diff, fall back to running all tests
+    writeResults(ALL_INTEGRATIONS);
+    process.exit(0);
   }
 
-  if (!bumpyStatus) {
-    console.log('No changesets found');
-    // Don't exit — test files themselves may have changed (detected below)
-    changedPackages = new Set<string>();
-  } else {
-    changedPackages = new Set<string>(
-      bumpyStatus.releases
-        ?.map((r: { name: string }) => r.name) ?? [],
-    );
-    if (!process.env.GITHUB_OUTPUT) {
-      console.log('Changed packages (from bumpy):', [...changedPackages]);
+  // Map changed files to package names by reading their package.json
+  changedPackages = new Set<string>();
+  const changedDirs = new Set<string>();
+  for (const filePath of gitDiff.split('\n').filter(Boolean)) {
+    // Extract the package directory (e.g. "packages/foo/src/bar.ts" -> "packages/foo")
+    const parts = filePath.split('/');
+    let pkgDir: string | undefined;
+    if (parts[0] === 'packages' && parts.length >= 2) {
+      // Handle packages/integrations/foo/... or packages/foo/...
+      if (parts[1] === 'integrations' && parts.length >= 3) {
+        pkgDir = parts.slice(0, 3).join('/');
+      } else {
+        pkgDir = parts.slice(0, 2).join('/');
+      }
+    }
+    if (pkgDir && !changedDirs.has(pkgDir)) {
+      changedDirs.add(pkgDir);
+      const pkgJsonPath = join(REPO_ROOT, pkgDir, 'package.json');
+      if (existsSync(pkgJsonPath)) {
+        try {
+          const pkg = JSON.parse(readFileSync(pkgJsonPath, 'utf-8'));
+          if (pkg.name) changedPackages.add(pkg.name);
+        } catch {
+          // skip unparseable package.json
+        }
+      }
     }
   }
+  console.log('Changed packages (from git diff):', [...changedPackages]);
 }
 
 // Changes to core varlock package trigger all integration tests on release PRs.
