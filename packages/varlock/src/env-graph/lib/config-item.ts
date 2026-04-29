@@ -384,7 +384,6 @@ export class ConfigItem {
 
 
   _isSensitive: boolean = true;
-  /** Whether sensitivity was explicitly set via a per-item @sensitive or @public decorator */
   _sensitiveExplicitlySet = false;
   get isSensitive(): boolean {
     return this._isSensitive;
