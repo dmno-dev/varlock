@@ -4,6 +4,12 @@
 
 
 
+
+## 1.0.1
+<sub>2026-04-29</sub>
+
+- Bump to avoid conflict with accidental 1.0.0 publish (long time ago)
+
 ## 1.0.0
 <sub>2026-04-29</sub>
 

@@ -66,7 +66,7 @@
     },
     "packages/integrations/astro": {
       "name": "@varlock/astro-integration",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "devDependencies": {
         "@types/node": "catalog:",
         "@varlock/vite-integration": "workspace:*",
@@ -123,7 +123,7 @@
     },
     "packages/integrations/nextjs": {
       "name": "@varlock/nextjs-integration",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "devDependencies": {
         "@types/node": "catalog:",
         "tsup": "catalog:",
@@ -137,7 +137,7 @@
     },
     "packages/integrations/vite": {
       "name": "@varlock/vite-integration",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "devDependencies": {
         "@types/node": "catalog:",
         "ast-matcher": "^1.2.0",
@@ -155,7 +155,7 @@
     },
     "packages/plugins/1password": {
       "name": "@varlock/1password-plugin",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "devDependencies": {
         "@1password/sdk": "0.4.1-beta.1",
         "@1password/sdk-core": "0.4.1-beta.1",
