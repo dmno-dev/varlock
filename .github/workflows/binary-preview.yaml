@@ -105,13 +105,54 @@ jobs:
       - name: Build varlock SEA binaries
         run: bun run packages/varlock/scripts/build-binaries.ts
 
-      # Upload individual platform archives for easy download
-      - name: Upload all preview binaries
-        uses: actions/upload-artifact@v7
+      # Upload each platform archive as its own artifact so consumers
+      # only need to download the one they need (~60-90 MB each)
+      - name: Upload platform artifacts
+        run: |
+          for f in packages/varlock/dist-sea/varlock-*.tar.gz packages/varlock/dist-sea/varlock-*.zip; do
+            [ -f "$f" ] || continue
+            # extract platform name: varlock-macos-arm64.tar.gz -> macos-arm64
+            BASENAME=$(basename "$f")
+            PLATFORM=$(echo "$BASENAME" | sed 's/^varlock-//' | sed 's/\.tar\.gz$//' | sed 's/\.zip$//')
+            echo "Uploading $BASENAME as varlock-preview-$PLATFORM"
+          done
+      - uses: actions/upload-artifact@v7
         with:
-          name: varlock-preview-binaries
-          path: |
-            packages/varlock/dist-sea/*.tar.gz
-            packages/varlock/dist-sea/*.zip
-            packages/varlock/dist-sea/checksums.txt
+          name: varlock-preview-macos-x64
+          path: packages/varlock/dist-sea/varlock-macos-x64.tar.gz
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        with:
+          name: varlock-preview-macos-arm64
+          path: packages/varlock/dist-sea/varlock-macos-arm64.tar.gz
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        with:
+          name: varlock-preview-linux-x64
+          path: packages/varlock/dist-sea/varlock-linux-x64.tar.gz
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        with:
+          name: varlock-preview-linux-arm64
+          path: packages/varlock/dist-sea/varlock-linux-arm64.tar.gz
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        with:
+          name: varlock-preview-linux-musl-x64
+          path: packages/varlock/dist-sea/varlock-linux-musl-x64.tar.gz
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        with:
+          name: varlock-preview-linux-musl-arm64
+          path: packages/varlock/dist-sea/varlock-linux-musl-arm64.tar.gz
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        with:
+          name: varlock-preview-win-x64
+          path: packages/varlock/dist-sea/varlock-win-x64.zip
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        with:
+          name: varlock-preview-checksums
+          path: packages/varlock/dist-sea/checksums.txt
           retention-days: 14
