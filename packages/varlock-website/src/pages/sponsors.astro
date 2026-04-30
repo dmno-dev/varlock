@@ -1,0 +1,344 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { createMetaHead } from "../lib/meta";
+import { LinkButton } from "@astrojs/starlight/components";
+import { Image } from "astro:assets";
+import roundtableImg from "../assets/pixel-art/roundtable.jpg";
+
+const site = Astro.site ?? new URL(Astro.url.origin);
+const pageUrl = new URL(Astro.url.pathname, site).href;
+const ogImageUrl = new URL("/og-images/index.png", site).href;
+const pageTitle = "Varlock Corporate Sponsorship Program";
+const pageDescription =
+  "Support Varlock with transparent, tiered corporate sponsorship. Get roadmap access, advisory council participation, fast support, and consulting hours.";
+const metaHead = createMetaHead({
+  title: pageTitle,
+  description: pageDescription,
+  url: pageUrl,
+  ogImageUrl,
+});
+
+const sponsorshipTiers = [
+  {
+    tier: "Diamond",
+    cost: "$100,000 / year",
+    benefits:
+      "2 Advisory Council seats, premier homepage logo, 24-hour support, 20 consulting hours, maximum roadmap influence",
+  },
+  {
+    tier: "Platinum",
+    cost: "$50,000 / year",
+    benefits:
+      "1 Advisory Council seat, large homepage logo, 48-hour support, 10 consulting hours, co-marketing",
+  },
+  {
+    tier: "Gold",
+    cost: "$25,000 / year",
+    benefits:
+      "Advisory Council observer status, medium logo, dedicated support, 5 consulting hours, roadmap insights",
+  },
+  {
+    tier: "Silver",
+    cost: "$5,000-$10,000 / year*",
+    benefits: "Logo placement, priority support, beta access, monthly updates",
+  },
+  {
+    tier: "Bronze",
+    cost: "$2,500 / year",
+    benefits: "Name listing, newsletter, community recognition",
+  },
+];
+---
+
+<Layout
+  title={pageTitle}
+  description={pageDescription}
+  showSearch={false}
+  head={metaHead}
+>
+  <main>
+    <div class="container">
+      <section class="hero not-content">
+        <p class="eyebrow">Varlock.dev Corporate Sponsorship Program</p>
+        <h1>Ensure the sustainability of software your business depends on</h1>
+        <p>
+          By sponsoring Varlock.dev, your organization shares maintenance costs
+          with the community, gains strategic influence over the roadmap, and
+          reduces risk from dependency on unmaintained software.
+        </p>
+
+        <div class="button-container">
+          <LinkButton href="mailto:sponsor@varlock.dev">
+            Contact sponsor@varlock.dev
+          </LinkButton>
+          <LinkButton href="https://novacal.io/phil_miller/sponsorship-call">
+            Schedule a discovery call
+          </LinkButton>
+        </div>
+      </section>
+      <Image
+        src={roundtableImg}
+        alt="Varlock advisory council roundtable illustration"
+        class="hero-image img-with-border"
+      />
+
+      <section>
+        <h2>Sponsorship Tiers</h2>
+        <div class="tier-table-wrap">
+          <table class="tier-table">
+            <thead>
+              <tr>
+                <th>Tier</th>
+                <th>Annual Cost</th>
+                <th>Key Benefits</th>
+              </tr>
+            </thead>
+            <tbody>
+              {
+                sponsorshipTiers.map((tier) => (
+                  <tr>
+                    <td>{tier.tier}</td>
+                    <td>{tier.cost}</td>
+                    <td>{tier.benefits}</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+        <p class="note">
+          *Silver tier is based on company size: $5K (1-99 employees), $7.5K
+          (100-999), $10K (1000+).
+        </p>
+        <p class="note">
+          All tiers require a 1-year minimum commitment (2 years preferred).
+        </p>
+      </section>
+
+      <section>
+        <h2>Fund Allocation</h2>
+        <ul>
+          <li><strong>50%</strong> Core Development and Maintenance</li>
+          <li><strong>25%</strong> Feature Development Fund</li>
+          <li><strong>15%</strong> Infrastructure and Operations</li>
+          <li><strong>10%</strong> Community and Coordination</li>
+        </ul>
+        <p class="note">
+          Feature fund contribution by tier: Bronze 0%, Silver 20%, Gold 25%,
+          Platinum 35%, Diamond 40%.
+        </p>
+      </section>
+
+      <section>
+        <h2>Advisory Council (Gold+)</h2>
+        <ul>
+          <li>4 strategic meetings each year</li>
+          <li>Direct influence on roadmap and priorities</li>
+          <li>Early visibility into project direction</li>
+          <li>Forum to share use cases and implementation needs</li>
+        </ul>
+        <p class="note">
+          Council access by tier: Diamond 2 seats, Platinum 1 seat, Gold
+          observer status.
+        </p>
+      </section>
+
+      <section>
+        <h2>Payment Options</h2>
+        <ol>
+          <li>GitHub Sponsors: monthly or annual</li>
+          <li>Bank transfer / wire: annual invoices with PO support</li>
+          <li>Corporate credit card: via GitHub Sponsors or payment link</li>
+        </ol>
+        <p class="note">
+          Multi-year discounts: 2 years = 10% off, 3 years = 15% off.
+        </p>
+      </section>
+
+      <section>
+        <h2>Who Should Sponsor?</h2>
+        <ul>
+          <li>Your products rely on Varlock</li>
+          <li>Your team or customers use Varlock daily</li>
+          <li>You need long-term, active maintenance</li>
+          <li>You want influence over future direction</li>
+          <li>You want to upstream features</li>
+          <li>You value developer community visibility</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Next Steps</h2>
+        <ol>
+          <li>Review full program details at varlock.dev/sponsors</li>
+          <li>Contact sponsor@varlock.dev to discuss requirements</li>
+          <li>Schedule a 30-minute discovery call</li>
+          <li>Sign sponsorship agreement</li>
+          <li>Get onboarded with logo placement within 5 days</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>What Makes This Program Different?</h2>
+        <ul>
+          <li>Clear fund allocation with quarterly reporting</li>
+          <li>Advisory council designed for real roadmap impact</li>
+          <li>Fast support SLAs for higher tiers (24-48 hours)</li>
+          <li>Gold+ includes dedicated consulting hours</li>
+          <li>Direct management without OpenCollective overhead fees</li>
+        </ul>
+      </section>
+
+      <section class="contact-card">
+        <h2>Contact</h2>
+        <p>
+          <strong>Email:</strong>
+          <a href="mailto:sponsor@varlock.dev">sponsor@varlock.dev</a>
+        </p>
+        <p>
+          <strong>Website:</strong>
+          <a href="https://varlock.dev/sponsors">varlock.dev/sponsors</a>
+        </p>
+        <p>
+          <strong>Schedule Call:</strong>
+          <a href="https://novacal.io/phil_miller/sponsorship-call">
+            Booking Link
+          </a>
+        </p>
+        <p class="version-note">Last updated: April 2026 • v1.0</p>
+      </section>
+    </div>
+  </main>
+</Layout>
+
+<style is:global>
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 1rem;
+  }
+
+  .hero {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+
+  .hero-image {
+    width: 100%;
+    max-width: 760px;
+    height: auto;
+    margin: 0 auto 1rem;
+    display: block;
+  }
+
+  .eyebrow {
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--brand-purple--text);
+    margin-bottom: 0.75rem;
+  }
+
+  .hero h1 {
+    margin-bottom: 1rem;
+    text-wrap: balance;
+  }
+
+  .button-container {
+    margin-top: 1.25rem;
+    display: flex;
+    justify-content: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .button-container > .sl-link-button {
+    min-width: 25%;
+    border: 2px solid transparent;
+    text-align: center;
+  }
+
+  .button-container > .sl-link-button:hover {
+    background-color: var(--sl-color-black);
+    color: var(--sl-color-text-accent);
+    border: 2px solid var(--sl-color-text-accent);
+    animation: pixelate 1.25s infinite;
+  }
+
+  .button-container > .sl-link-button::after {
+    content: " →";
+    margin-left: 0.25rem;
+    white-space: nowrap;
+  }
+
+  @keyframes pixelate {
+    0% {
+      border-style: solid;
+    }
+    25% {
+      border-style: dotted;
+    }
+    50% {
+      border-style: dashed;
+    }
+    75% {
+      border-style: dotted;
+    }
+    100% {
+      border-style: solid;
+    }
+  }
+
+  section {
+    margin-top: 2rem;
+  }
+
+  .tier-table-wrap {
+    overflow-x: auto;
+  }
+
+  .tier-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .tier-table th,
+  .tier-table td {
+    border: 1px solid var(--sl-color-hairline-light);
+    text-align: left;
+    vertical-align: top;
+    padding: 0.75rem;
+  }
+
+  .tier-table th:nth-child(2),
+  .tier-table td:nth-child(2) {
+    white-space: nowrap;
+  }
+
+  .tier-table th {
+    background: var(--sl-color-bg-nav);
+  }
+
+  .note {
+    font-size: 0.9rem;
+    color: var(--sl-color-text-accent);
+  }
+
+  .contact-card {
+    border: 1px dotted var(--brand-purple--t1);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .contact-card p {
+    margin: 0.5rem 0;
+  }
+
+  .version-note {
+    margin-top: 1rem;
+    font-size: 0.85rem;
+    color: var(--sl-color-text-accent);
+  }
+</style>
