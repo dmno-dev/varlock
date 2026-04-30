@@ -12,10 +12,14 @@ const OP_CLI_CACHE: Record<string, any> = {};
 /** Proxy env vars that must be forwarded so `op` can reach 1Password through HTTP/SOCKS proxies
  * (e.g. corporate proxies, container networks, sandboxed dev tools like Claude Code). */
 const PROXY_ENV_KEYS = [
-  'http_proxy', 'HTTP_PROXY',
-  'https_proxy', 'HTTPS_PROXY',
-  'all_proxy', 'ALL_PROXY',
-  'no_proxy', 'NO_PROXY',
+  'http_proxy',
+  'HTTP_PROXY',
+  'https_proxy',
+  'HTTPS_PROXY',
+  'all_proxy',
+  'ALL_PROXY',
+  'no_proxy',
+  'NO_PROXY',
 ] as const;
 
 function pickProxyEnv(): Record<string, string> {
