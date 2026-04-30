@@ -23,15 +23,6 @@ jobs:
       - uses: actions/checkout@v6
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
-      - name: Cache bun dependencies
-        uses: actions/cache@v5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
-      - name: Install node deps
-        run: bun install
       - id: plan
         run: bunx @varlock/bumpy ci plan
         env:
