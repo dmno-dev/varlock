@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       mode: ${{ steps.plan.outputs.mode }}
+      packages: ${{ steps.plan.outputs.packages }}
+      includes-varlock: ${{ steps.check-varlock.outputs.result }}
     steps:
       - uses: actions/checkout@v6
       - name: Setup Bun
@@ -35,11 +37,19 @@ jobs:
         run: bunx @varlock/bumpy ci plan
         env:
           GH_TOKEN: ${{ github.token }}
+      - id: check-varlock
+        run: |
+          # packages output is comma-separated — check for exact "varlock" entry
+          if echo ",${{ steps.plan.outputs.packages }}," | grep -q ',varlock,'; then
+            echo "result=true" >> $GITHUB_OUTPUT
+          else
+            echo "result=false" >> $GITHUB_OUTPUT
+          fi
 
   # Build and sign the macOS native binary (cache hit if already built in CI)
   build-native-macos:
     needs: plan
-    if: needs.plan.outputs.mode == 'publish'
+    if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
     uses: ./.github/workflows/build-native-macos.yaml
     with:
       mode: release
@@ -50,7 +60,7 @@ jobs:
   # Notarize for production npm distribution
   notarize-native-macos:
     needs: [plan, build-native-macos]
-    if: needs.plan.outputs.mode == 'publish'
+    if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
     uses: ./.github/workflows/notarize-native-macos.yaml
     with:
       source-artifact-name: native-bin-macos-signed
@@ -61,7 +71,7 @@ jobs:
   # Build Rust native binaries for Linux and Windows
   build-native-rust:
     needs: plan
-    if: needs.plan.outputs.mode == 'publish'
+    if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
     uses: ./.github/workflows/build-native-rust.yaml
     with:
       artifact-name: native-bin-rust
@@ -108,36 +118,36 @@ jobs:
 
       # Download signed macOS native binary so it's included in the npm package
       - name: Download macOS native binary
-        if: needs.plan.outputs.mode == 'publish'
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
         uses: actions/download-artifact@v8
         with:
           name: native-bin-macos-npm
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
       - name: Restore native binary execute permission
-        if: needs.plan.outputs.mode == 'publish'
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
         run: chmod +x packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
 
       # Download Rust native binaries for Linux and Windows
       - name: Download Linux x64 native binary
-        if: needs.plan.outputs.mode == 'publish'
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
         uses: actions/download-artifact@v8
         with:
           name: native-bin-rust-linux-x64
           path: packages/varlock/native-bins/linux-x64
       - name: Download Linux arm64 native binary
-        if: needs.plan.outputs.mode == 'publish'
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
         uses: actions/download-artifact@v8
         with:
           name: native-bin-rust-linux-arm64
           path: packages/varlock/native-bins/linux-arm64
       - name: Download Windows x64 native binary
-        if: needs.plan.outputs.mode == 'publish'
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
         uses: actions/download-artifact@v8
         with:
           name: native-bin-rust-win32-x64
           path: packages/varlock/native-bins/win32-x64
       - name: Restore Rust binary execute permissions
-        if: needs.plan.outputs.mode == 'publish'
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
         run: |
           chmod +x packages/varlock/native-bins/linux-x64/varlock-local-encrypt
           chmod +x packages/varlock/native-bins/linux-arm64/varlock-local-encrypt
