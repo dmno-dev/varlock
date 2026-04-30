@@ -1,0 +1,95 @@
+name: CodeQL Analysis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # weekly scan — Sundays at 4am UTC
+    - cron: '0 4 * * 0'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze-js:
+    name: Analyze JavaScript/TypeScript + Actions
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        language: [javascript-typescript, actions]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          config-file: ./.github/codeql/codeql-config.yml
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: ${{ matrix.language }}
+
+  check-native-changes:
+    name: Check native source changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      swift-changed: ${{ steps.check.outputs.swift-changed }}
+      rust-changed: ${{ steps.check.outputs.rust-changed }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FILES=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --paginate --jq '.[].filename')
+          if echo "$FILES" | grep -q '^packages/encryption-binary-swift/'; then
+            echo "swift-changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "swift-changed=false" >> $GITHUB_OUTPUT
+          fi
+          if echo "$FILES" | grep -q '^packages/encryption-binary-rust/'; then
+            echo "rust-changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "rust-changed=false" >> $GITHUB_OUTPUT
+          fi
+
+  analyze-swift:
+    name: Analyze Swift
+    needs: check-native-changes
+    if: always() && (github.event_name != 'pull_request' || needs.check-native-changes.outputs.swift-changed == 'true')
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: swift
+          config-file: ./.github/codeql/codeql-config.yml
+      - name: Build Swift binary
+        run: |
+          cd packages/encryption-binary-swift
+          swift build
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: swift
+
+  analyze-rust:
+    name: Analyze Rust
+    needs: check-native-changes
+    if: always() && (github.event_name != 'pull_request' || needs.check-native-changes.outputs.rust-changed == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: rust
+          config-file: ./.github/codeql/codeql-config.yml
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: rust

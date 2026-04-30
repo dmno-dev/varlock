@@ -8,11 +8,30 @@ on:
 permissions:
   contents: read
 
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+concurrency:
+  group: bumpy-release
+  cancel-in-progress: false
 
 jobs:
+  # Determine what bumpy will do — only run expensive build/notarize when publishing
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      includes-varlock: ${{ contains(fromJSON(steps.plan.outputs.json).packageNames, 'varlock') }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - id: plan
+        run: bunx @varlock/bumpy ci plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   # Build and sign the macOS native binary (cache hit if already built in CI)
   build-native-macos:
+    needs: plan
+    if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
     uses: ./.github/workflows/build-native-macos.yaml
     with:
       mode: release
@@ -22,7 +41,8 @@ jobs:
 
   # Notarize for production npm distribution
   notarize-native-macos:
-    needs: build-native-macos
+    needs: [plan, build-native-macos]
+    if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
     uses: ./.github/workflows/notarize-native-macos.yaml
     with:
       source-artifact-name: native-bin-macos-signed
@@ -32,13 +52,16 @@ jobs:
 
   # Build Rust native binaries for Linux and Windows
   build-native-rust:
+    needs: plan
+    if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
     uses: ./.github/workflows/build-native-rust.yaml
     with:
       artifact-name: native-bin-rust
 
   release:
     name: Release
-    needs: [notarize-native-macos, build-native-rust]
+    needs: [plan, notarize-native-macos, build-native-rust]
+    if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # Required for OIDC
@@ -77,30 +100,36 @@ jobs:
 
       # Download signed macOS native binary so it's included in the npm package
       - name: Download macOS native binary
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
         uses: actions/download-artifact@v8
         with:
           name: native-bin-macos-npm
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
       - name: Restore native binary execute permission
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
         run: chmod +x packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
 
       # Download Rust native binaries for Linux and Windows
       - name: Download Linux x64 native binary
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
         uses: actions/download-artifact@v8
         with:
           name: native-bin-rust-linux-x64
           path: packages/varlock/native-bins/linux-x64
       - name: Download Linux arm64 native binary
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
         uses: actions/download-artifact@v8
         with:
           name: native-bin-rust-linux-arm64
           path: packages/varlock/native-bins/linux-arm64
       - name: Download Windows x64 native binary
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
         uses: actions/download-artifact@v8
         with:
           name: native-bin-rust-win32-x64
           path: packages/varlock/native-bins/win32-x64
       - name: Restore Rust binary execute permissions
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
         run: |
           chmod +x packages/varlock/native-bins/linux-x64/varlock-local-encrypt
           chmod +x packages/varlock/native-bins/linux-arm64/varlock-local-encrypt

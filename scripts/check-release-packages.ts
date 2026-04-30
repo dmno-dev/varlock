@@ -37,7 +37,7 @@ if (bumpyStatusRaw) {
   if (jsonMatch) {
     const bumpyStatus = JSON.parse(jsonMatch[0]);
     const bumpyReleases = bumpyStatus.releases
-      .filter((r: any) => r.publishTargets?.includes('npm'));
+      .filter((r: any) => r.publishTargets?.some((t: any) => t.type === 'npm'));
     releasePackagePaths = bumpyReleases
       .map((r: any) => path.resolve(MONOREPO_ROOT, r.dir));
   }
