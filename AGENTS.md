@@ -35,11 +35,6 @@
 - This monorepo uses **bumpy** (`@varlock/bumpy`) for version management
 - Changeset files live in `.bumpy/` and are created with `bunx @varlock/bumpy add` (or `bun run bumpy:add`)
 - Standard bump types: `major`, `minor`, `patch`
-- **Isolated bump types**: `minor-isolated` and `patch-isolated` are natively supported
-  - These suppress dependency propagation — the package itself gets bumped but dependents are **not** automatically bumped
-  - Use **`minor-isolated`** for minor bumps that don't affect the library API consumed by dependents (e.g., CLI-only features in `varlock` that plugins/integrations don't depend on). This is the most common use case — because all packages are still on `0.x`, `^0.y.z` ranges treat minor bumps as out-of-range, which would otherwise cascade bumps to all dependents.
-  - `patch-isolated` exists but is rarely needed — patch bumps on `0.x` stay within `^` ranges and don't cascade
-  - `major-isolated` is intentionally **not** supported (major bumps must propagate to keep semver ranges valid)
 - Non-interactive changeset creation (for CI/AI): `bumpy add --packages "pkg:minor" --message "description" --name "changeset-name"`
 - Bump files are only required when publishable packages have changed (based on `changedFilePatterns` in `.bumpy/_config.json`). Changes to CI workflows, root config files, scripts, docs, etc. do **not** require a bump file — bumpy's pre-push hook will not block in that case.
 
