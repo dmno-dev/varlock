@@ -18,8 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       mode: ${{ steps.plan.outputs.mode }}
-      packages: ${{ steps.plan.outputs.packages }}
-      includes-varlock: ${{ steps.check-varlock.outputs.result }}
+      includes-varlock: ${{ contains(fromJSON(steps.plan.outputs.json).packageNames, 'varlock') }}
     steps:
       - uses: actions/checkout@v6
       - name: Setup Bun
@@ -37,14 +36,6 @@ jobs:
         run: bunx @varlock/bumpy ci plan
         env:
           GH_TOKEN: ${{ github.token }}
-      - id: check-varlock
-        run: |
-          # packages output is comma-separated — check for exact "varlock" entry
-          if echo ",${{ steps.plan.outputs.packages }}," | grep -q ',varlock,'; then
-            echo "result=true" >> $GITHUB_OUTPUT
-          else
-            echo "result=false" >> $GITHUB_OUTPUT
-          fi
 
   # Build and sign the macOS native binary (cache hit if already built in CI)
   build-native-macos:
