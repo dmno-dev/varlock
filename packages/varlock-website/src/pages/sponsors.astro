@@ -2,6 +2,8 @@
 import Layout from "../layouts/Layout.astro";
 import { createMetaHead } from "../lib/meta";
 import { LinkButton } from "@astrojs/starlight/components";
+import { Image } from "astro:assets";
+import roundtableImg from "../assets/pixel-art/roundtable.jpg";
 
 const site = Astro.site ?? new URL(Astro.url.origin);
 const pageUrl = new URL(Astro.url.pathname, site).href;
@@ -64,6 +66,7 @@ const sponsorshipTiers = [
           with the community, gains strategic influence over the roadmap, and
           reduces risk from dependency on unmaintained software.
         </p>
+
         <div class="button-container">
           <LinkButton href="mailto:sponsor@varlock.dev">
             Contact sponsor@varlock.dev
@@ -73,6 +76,11 @@ const sponsorshipTiers = [
           </LinkButton>
         </div>
       </section>
+      <Image
+        src={roundtableImg}
+        alt="Varlock advisory council roundtable illustration"
+        class="hero-image img-with-border"
+      />
 
       <section>
         <h2>Sponsorship Tiers</h2>
@@ -213,6 +221,14 @@ const sponsorshipTiers = [
   .hero {
     text-align: center;
     margin-bottom: 2rem;
+  }
+
+  .hero-image {
+    width: 100%;
+    max-width: 760px;
+    height: auto;
+    margin: 0 auto 1rem;
+    display: block;
   }
 
   .eyebrow {
