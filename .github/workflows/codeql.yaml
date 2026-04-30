@@ -14,29 +14,12 @@ permissions:
   security-events: write
 
 jobs:
-  analyze-js:
-    name: Analyze JavaScript/TypeScript + Actions
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        language: [javascript-typescript, actions]
-    steps:
-      - uses: actions/checkout@v6
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: ${{ matrix.language }}
-          config-file: ./.github/codeql/codeql-config.yml
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: ${{ matrix.language }}
-
-  check-native-changes:
-    name: Check native source changes
-    if: github.event_name == 'pull_request'
+  check-changes:
+    name: Check changed languages
     runs-on: ubuntu-latest
     outputs:
+      js-changed: ${{ steps.check.outputs.js-changed }}
+      actions-changed: ${{ steps.check.outputs.actions-changed }}
       swift-changed: ${{ steps.check.outputs.swift-changed }}
       rust-changed: ${{ steps.check.outputs.rust-changed }}
     steps:
@@ -44,22 +27,72 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          FILES=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --paginate --jq '.[].filename')
-          if echo "$FILES" | grep -q '^packages/encryption-binary-swift/'; then
-            echo "swift-changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "swift-changed=false" >> $GITHUB_OUTPUT
+          # On schedule, scan everything
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            for lang in js actions swift rust; do
+              echo "${lang}-changed=true" >> $GITHUB_OUTPUT
+            done
+            exit 0
           fi
-          if echo "$FILES" | grep -q '^packages/encryption-binary-rust/'; then
-            echo "rust-changed=true" >> $GITHUB_OUTPUT
+
+          # Get changed files via API (no checkout needed)
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            FILES=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --paginate --jq '.[].filename')
           else
-            echo "rust-changed=false" >> $GITHUB_OUTPUT
+            FILES=$(gh api repos/${{ github.repository }}/commits/${{ github.sha }} --jq '.files[].filename')
           fi
+
+          check_pattern() {
+            if echo "$FILES" | grep -qE "$1"; then
+              echo "true"
+            else
+              echo "false"
+            fi
+          }
+
+          echo "js-changed=$(check_pattern '\.(js|ts|jsx|tsx|mjs|cjs)$')" >> $GITHUB_OUTPUT
+          echo "actions-changed=$(check_pattern '^\.github/')" >> $GITHUB_OUTPUT
+          echo "swift-changed=$(check_pattern '^packages/encryption-binary-swift/')" >> $GITHUB_OUTPUT
+          echo "rust-changed=$(check_pattern '^packages/encryption-binary-rust/')" >> $GITHUB_OUTPUT
+
+  analyze-js:
+    name: Analyze JavaScript/TypeScript
+    needs: check-changes
+    if: needs.check-changes.outputs.js-changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          config-file: ./.github/codeql/codeql-config.yml
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: javascript-typescript
+
+  analyze-actions:
+    name: Analyze Actions
+    needs: check-changes
+    if: needs.check-changes.outputs.actions-changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: actions
+          config-file: ./.github/codeql/codeql-config.yml
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: actions
 
   analyze-swift:
     name: Analyze Swift
-    needs: check-native-changes
-    if: always() && (github.event_name != 'pull_request' || needs.check-native-changes.outputs.swift-changed == 'true')
+    needs: check-changes
+    if: needs.check-changes.outputs.swift-changed == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
@@ -70,7 +103,7 @@ jobs:
           config-file: ./.github/codeql/codeql-config.yml
       - name: Build Swift binary
         run: |
-          cd packages/encryption-binary-swift
+          cd packages/encryption-binary-swift/swift
           swift build
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
@@ -79,8 +112,8 @@ jobs:
 
   analyze-rust:
     name: Analyze Rust
-    needs: check-native-changes
-    if: always() && (github.event_name != 'pull_request' || needs.check-native-changes.outputs.rust-changed == 'true')
+    needs: check-changes
+    if: needs.check-changes.outputs.rust-changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
