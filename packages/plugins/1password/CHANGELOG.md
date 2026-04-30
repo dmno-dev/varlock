@@ -2,6 +2,12 @@
 
 
 
+
+## 1.0.2
+<sub>2026-04-30</sub>
+
+- [#653](https://github.com/dmno-dev/varlock/pull/653) Thanks [@benevolent-tenacious-t](https://github.com/benevolent-tenacious-t)! - Forward proxy environment variables (`http_proxy`, `https_proxy`, `ALL_PROXY`, `NO_PROXY` and case variants) to the `op` subprocess in the batch read path. Fixes secret resolution failures in proxied environments (corporate proxies, Claude Code sandbox, Docker, CI runners behind proxies).
+
 ## 1.0.1
 <sub>2026-04-29</sub>
 
