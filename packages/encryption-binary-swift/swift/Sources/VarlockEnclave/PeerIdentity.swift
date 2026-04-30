@@ -61,8 +61,11 @@ private func getStartTime(pid: pid_t) -> Int {
 func getSessionIdentifier(forPid pid: pid_t) -> String? {
     guard let info = getProcessInfo(pid: pid) else { return nil }
 
+    // e_tdev is dev_t (Int32). NODEV is -1 in signed representation
+    // (0xFFFFFFFF unsigned). Comparing Int32(-1) != UInt32.max is true in
+    // Swift's BinaryInteger comparison, so we must compare in the same type.
     let ttyDev = info.kp_eproc.e_tdev
-    let hasTty = ttyDev != UInt32.max && ttyDev != 0
+    let hasTty = ttyDev > 0
 
     if hasTty {
         // TTY-based identity: device name + session leader start time

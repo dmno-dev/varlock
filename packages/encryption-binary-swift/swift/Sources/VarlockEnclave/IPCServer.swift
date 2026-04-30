@@ -16,7 +16,7 @@ final class IPCServer {
     private var isRunning = false
 
     /// Handler for incoming messages. Second parameter is the peer's TTY identity (nil if unknown).
-    var messageHandler: ((_ message: [String: Any], _ ttyId: String?) -> [String: Any])?
+    var messageHandler: ((_ message: [String: Any], _ sessionId: String?) -> [String: Any])?
 
     /// Called after accept (new client) and after each successfully parsed JSON message.
     var onConnectionActivity: (() -> Void)?
@@ -169,12 +169,12 @@ final class IPCServer {
             }
         }
 
-        // Resolve the peer's TTY identity once per connection
-        let ttyId: String?
+        // Resolve the peer's session identity once per connection
+        let sessionId: String?
         if let peerPid = getPeerPid(fd: fd) {
-            ttyId = getSessionIdentifier(forPid: peerPid)
+            sessionId = getSessionIdentifier(forPid: peerPid)
         } else {
-            ttyId = nil
+            sessionId = nil
         }
 
         while isRunning {
@@ -206,7 +206,7 @@ final class IPCServer {
             onConnectionActivity?()
 
             // Handle message with the peer's TTY identity
-            let response = messageHandler?(json, ttyId) ?? ["error": "No handler"]
+            let response = messageHandler?(json, sessionId) ?? ["error": "No handler"]
             sendResponse(fd: fd, id: json["id"] as? String, response: response)
         }
     }

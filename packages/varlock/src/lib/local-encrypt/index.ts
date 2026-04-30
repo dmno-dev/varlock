@@ -34,13 +34,13 @@ function debug(msg: string) {
  * Prefers the controlling terminal; falls back to a stable ancestor PID
  * found by walking the process tree (mirrors the macOS Swift daemon logic).
  */
-let _cachedTtyId: string | undefined;
-function getSelfTtyId(): string {
-  if (_cachedTtyId) return _cachedTtyId;
+let _cachedSessionId: string | undefined;
+function getSelfSessionId(): string {
+  if (_cachedSessionId) return _cachedSessionId;
   try {
     const ttyPath = fs.readlinkSync('/proc/self/fd/0');
     if (ttyPath && ttyPath.startsWith('/dev/')) {
-      _cachedTtyId = ttyPath;
+      _cachedSessionId = ttyPath;
       return ttyPath;
     }
   } catch {
@@ -64,14 +64,23 @@ function getSelfTtyId(): string {
     }
     if (chain.length >= 4) {
       const scopePid = chain[chain.length - 3];
-      _cachedTtyId = `ptree:${scopePid}`;
-      return _cachedTtyId;
+      // Include start time for PID-reuse resistance (field 21 after comm in /proc/stat)
+      let startTime = 0;
+      try {
+        const scopeStat = fs.readFileSync(`/proc/${scopePid}/stat`, 'utf-8');
+        const scopeFields = scopeStat.split(') ');
+        if (scopeFields.length >= 2) {
+          startTime = parseInt(scopeFields[1].split(' ')[19], 10) || 0;
+        }
+      } catch { /* ignore */ }
+      _cachedSessionId = `ptree:${scopePid}:${startTime}`;
+      return _cachedSessionId;
     }
   } catch {
     // Not available
   }
-  _cachedTtyId = `pid:${process.pid}`;
-  return _cachedTtyId;
+  _cachedSessionId = `pid:${process.pid}`;
+  return _cachedSessionId;
 }
 
 let _wslDaemonPrestartAttempted = false;
@@ -371,10 +380,10 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
       }
       // Use spawnSync with stdin to avoid exposing ciphertext or session
       // identity in process listings (visible via tasklist/procfs).
-      // Stdin JSON includes both the data and the TTY ID for session scoping.
+      // Stdin JSON includes both the data and the session ID for session scoping.
       const stdinPayload = JSON.stringify({
         data: ciphertext,
-        ttyId: getSelfTtyId(),
+        ttyId: getSelfSessionId(),
       });
       const runViaDaemon = (timeout: number) => spawnSync(binaryPath, ['decrypt', '--key-id', keyId, '--data-stdin', '--via-daemon'], {
         input: stdinPayload,

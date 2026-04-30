@@ -7,7 +7,7 @@ import AppKit
 /// Each terminal or parent application must independently authenticate via
 /// Touch ID. This prevents rogue processes from piggybacking on an existing
 /// session. Sessions are identified by TTY device (for terminal processes)
-/// or by session leader PID (for GUI-spawned processes like VSCode extensions).
+/// or by a stable ancestor PID (for GUI-spawned processes like VSCode extensions).
 ///
 /// Biometric reuse timeout is handled by macOS via `touchIDAuthenticationAllowableReuseDuration`.
 /// This manager handles per-session scoping, explicit invalidation (lock command),
@@ -44,18 +44,16 @@ final class SessionManager {
     /// On first call per session, triggers Touch ID. Subsequent calls within the
     /// reuse duration return the cached context without re-prompting.
     ///
-    /// Sessions are identified by TTY device (terminal) or session leader PID
-    /// (GUI-spawned processes). Processes with no identifiable session always
-    /// require fresh authentication.
-    func getAuthenticatedContext(ttyId: String?) throws -> LAContext {
+    /// Processes with no identifiable session always require fresh authentication.
+    func getAuthenticatedContext(sessionId: String?) throws -> LAContext {
         return try queue.sync {
             // Check for cached context from a previous auth in this session
-            if let key = ttyId, let context = contexts[key] {
+            if let key = sessionId, let context = contexts[key] {
                 resetDaemonTimer()
                 return context
             }
 
-            // Need fresh auth (always for no-TTY, or first time for this TTY)
+            // Need fresh auth (first time for this session, or always for unidentifiable callers)
             let context = LAContext()
             context.touchIDAuthenticationAllowableReuseDuration = SessionManager.sessionTimeout
 
@@ -90,7 +88,7 @@ final class SessionManager {
 
             // Only cache if the process has a session identity to scope to.
             // Unidentifiable callers get a fresh context every time.
-            if let key = ttyId {
+            if let key = sessionId {
                 contexts[key] = context
             }
             resetDaemonTimer()
@@ -120,8 +118,8 @@ final class SessionManager {
     /// Whether the given session has a cached context.
     /// Always returns false for unidentifiable callers (they never cache).
     /// Note: the session may still re-prompt if macOS's reuse duration has expired.
-    func isSessionWarm(ttyId: String?) -> Bool {
-        guard let key = ttyId else { return false }
+    func isSessionWarm(sessionId: String?) -> Bool {
+        guard let key = sessionId else { return false }
         return queue.sync {
             return contexts[key] != nil
         }

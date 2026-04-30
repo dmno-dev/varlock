@@ -185,8 +185,8 @@ case "daemon":
         sessionManager.noteIpcActivity()
     }
 
-    // Handle IPC messages (ttyId is resolved from the peer's TTY or session leader)
-    server.messageHandler = { message, ttyId in
+    // Handle IPC messages (sessionId is resolved from the peer's TTY or process tree)
+    server.messageHandler = { message, sessionId in
         guard let action = message["action"] as? String else {
             return ["error": "Missing action"]
         }
@@ -202,7 +202,7 @@ case "daemon":
             let keyId = (payload["keyId"] as? String) ?? defaultKeyId
 
             do {
-                let context = try sessionManager.getAuthenticatedContext(ttyId: ttyId)
+                let context = try sessionManager.getAuthenticatedContext(sessionId: sessionId)
                 let decrypted = try SecureEnclaveManager.decrypt(
                     payload: ciphertext,
                     keyId: keyId,
@@ -221,8 +221,8 @@ case "daemon":
             return [
                 "result": [
                     "pong": true,
-                    "sessionWarm": sessionManager.isSessionWarm(ttyId: ttyId),
-                    "ttyId": ttyId as Any,
+                    "sessionWarm": sessionManager.isSessionWarm(sessionId: sessionId),
+                    "sessionId": sessionId as Any,
                 ],
             ]
 
@@ -312,7 +312,7 @@ case "daemon":
 
             // Password reads require biometric gate
             do {
-                _ = try sessionManager.getAuthenticatedContext(ttyId: ttyId)
+                _ = try sessionManager.getAuthenticatedContext(sessionId: sessionId)
             } catch {
                 return ["error": error.localizedDescription]
             }
