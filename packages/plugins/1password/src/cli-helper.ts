@@ -1,9 +1,28 @@
 import { ExecError, spawnAsync } from '@env-spec/utils/exec-helpers';
 import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import { plugin } from 'varlock/plugin-lib';
+import { getBridgeSocketPath, invokeOpViaBridge } from './bridge/client';
 
 const { debug } = plugin;
 const { ResolutionError } = plugin.ERRORS;
+
+/**
+ * Single chokepoint for invoking the `op` CLI.
+ * Routes to the host-side bridge over a Unix socket when VARLOCK_OP_BRIDGE_SOCKET is set
+ * (e.g. from inside a devcontainer that cannot reach the host's desktop app for biometric auth);
+ * otherwise spawns `op` locally.
+ */
+async function invokeOp(
+  argv: Array<string>,
+  opts: { env?: Record<string, string | undefined>; input?: string } = {},
+): Promise<string> {
+  const bridgeSocket = getBridgeSocketPath();
+  if (bridgeSocket) {
+    debug('invoking op via bridge', bridgeSocket, argv);
+    return invokeOpViaBridge(bridgeSocket, argv, opts);
+  }
+  return spawnAsync('op', argv, opts);
+}
 
 const ENABLE_BATCHING = true;
 
@@ -67,7 +86,7 @@ export async function execOpCliCommand(cmdArgs: Array<string>) {
     // strip OP_SERVICE_ACCOUNT_TOKEN from env so the CLI doesn't auto-detect it
     // when the user hasn't explicitly wired it into their schema
     const { OP_SERVICE_ACCOUNT_TOKEN: _, ...cleanEnv } = process.env;
-    const cliResult = await spawnAsync('op', cmdArgs, { env: cleanEnv });
+    const cliResult = await invokeOp(cmdArgs, { env: cleanEnv });
     authCompletedFn?.(true);
     debug(`> took ${+new Date() - +startAt}ms`);
     // OP_CLI_CACHE[cacheKey] = cliResult;
@@ -200,7 +219,7 @@ async function executeReadBatch(batchToExecute: NonNullable<typeof opReadBatch>)
   const authCompletedFn = await checkOpCliAuth();
   // `env -0` splits values by a null character instead of newlines
   // because otherwise we'll have trouble dealing with values that contain newlines
-  await spawnAsync('op', `run --no-masking ${lockCliToOpAccount ? `--account ${lockCliToOpAccount} ` : ''}-- env -0`.split(' '), {
+  await invokeOp(`run --no-masking ${lockCliToOpAccount ? `--account ${lockCliToOpAccount} ` : ''}-- env -0`.split(' '), {
     env: {
       // have to pass a few things through at least path so it can find `op` and related config files
       PATH: process.env.PATH!,
