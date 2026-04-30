@@ -9,6 +9,27 @@ const ENABLE_BATCHING = true;
 
 const OP_CLI_CACHE: Record<string, any> = {};
 
+/** Proxy env vars that must be forwarded so `op` can reach 1Password through HTTP/SOCKS proxies
+ * (e.g. corporate proxies, container networks, sandboxed dev tools like Claude Code). */
+const PROXY_ENV_KEYS = [
+  'http_proxy',
+  'HTTP_PROXY',
+  'https_proxy',
+  'HTTPS_PROXY',
+  'all_proxy',
+  'ALL_PROXY',
+  'no_proxy',
+  'NO_PROXY',
+] as const;
+
+function pickProxyEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of PROXY_ENV_KEYS) {
+    if (process.env[key]) env[key] = process.env[key]!;
+  }
+  return env;
+}
+
 // for now we'll just use a single 1pass account for all requests
 // but we'll likely want to support multiple accounts in the future
 // note that the SDK does not currently support this - but service accounts are already limited to an account
@@ -207,6 +228,8 @@ async function executeReadBatch(batchToExecute: NonNullable<typeof opReadBatch>)
       ...process.env.USER && { USER: process.env.USER },
       ...process.env.HOME && { HOME: process.env.HOME },
       ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
+      // proxy env vars so `op` can connect through HTTP/SOCKS proxies
+      ...pickProxyEnv(),
       // this setting actually just enables the CLI + Desktop App integration
       // which in some cases op has a hard time detecting via app setting
       OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
