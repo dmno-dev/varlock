@@ -22,6 +22,17 @@ const ALL_TARGETS = [
 const devMode = process.argv.includes('--dev');
 const skipNative = process.argv.includes('--skip-native');
 
+function isWSL(): boolean {
+  if (process.platform !== 'linux') return false;
+  if (process.env.WSL_DISTRO_NAME) return true;
+
+  try {
+    return /microsoft|wsl/i.test(fs.readFileSync('/proc/version', 'utf-8'));
+  } catch {
+    return false;
+  }
+}
+
 function exec(cmd: string) {
   execSync(cmd, { cwd: PKG_DIR, stdio: 'inherit' });
 }
@@ -56,8 +67,9 @@ if (devMode) {
     }
   } else {
     const isWin = process.platform === 'win32';
-    const nativeBinSubdir = isWin ? 'win32-x64' : `${process.platform}-${process.arch}`;
-    const rustBinaryName = isWin ? 'varlock-local-encrypt.exe' : 'varlock-local-encrypt';
+    const useWindowsHelper = isWin || isWSL();
+    const nativeBinSubdir = useWindowsHelper ? 'win32-x64' : `${process.platform}-${process.arch}`;
+    const rustBinaryName = useWindowsHelper ? 'varlock-local-encrypt.exe' : 'varlock-local-encrypt';
     const rustBinarySrc = path.join(NATIVE_BINS_DIR, nativeBinSubdir, rustBinaryName);
     if (fs.existsSync(rustBinarySrc)) {
       console.log(`Bundling Rust native binary (${nativeBinSubdir}/${rustBinaryName})`);

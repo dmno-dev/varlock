@@ -10,6 +10,7 @@ import {
 } from '@clack/core';
 import color from 'ansis';
 import isUnicodeSupported from 'is-unicode-supported';
+import { isWSL } from '../../lib/local-encrypt/wsl-detect';
 
 const unicode = isUnicodeSupported();
 const isCI = (): boolean => process.env.CI === 'true';
@@ -394,8 +395,9 @@ export const password = async (opts: PasswordOptions) => {
     const mask = opts.mask ?? S_PASSWORD_MASK;
 
     // Native cmd.exe can mishandle repeated @clack/core password prompts in a
-    // single process; use upstream clack's Windows handling for reliability.
-    if (process.platform === 'win32') {
+    // single process; use upstream clack's platform handling for reliability.
+    // WSL interop terminals have shown similar repeated-prompt issues.
+    if (process.platform === 'win32' || isWSL()) {
       const { password: clackPassword, isCancel } = await import('@clack/prompts');
       const result = await clackPassword({ message: opts.message, mask });
       return isCancel(result) ? Symbol('cancel') : result;
