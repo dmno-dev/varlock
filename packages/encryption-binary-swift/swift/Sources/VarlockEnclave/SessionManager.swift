@@ -2,13 +2,15 @@ import Foundation
 import LocalAuthentication
 import AppKit
 
-/// Manages biometric authentication sessions for the daemon, scoped per-TTY.
+/// Manages biometric authentication sessions for the daemon, scoped per-session.
 ///
-/// Each terminal must independently authenticate via Touch ID. This prevents
-/// rogue processes in other terminals from piggybacking on an existing session.
+/// Each terminal or parent application must independently authenticate via
+/// Touch ID. This prevents rogue processes from piggybacking on an existing
+/// session. Sessions are identified by TTY device (for terminal processes)
+/// or by session leader PID (for GUI-spawned processes like VSCode extensions).
 ///
 /// Biometric reuse timeout is handled by macOS via `touchIDAuthenticationAllowableReuseDuration`.
-/// This manager handles per-TTY scoping, explicit invalidation (lock command),
+/// This manager handles per-session scoping, explicit invalidation (lock command),
 /// and system events (sleep, screen lock).
 final class SessionManager {
     /// How long Touch ID stays unlocked per terminal before re-prompting (seconds).
@@ -18,7 +20,7 @@ final class SessionManager {
     /// How long the daemon stays alive with no connections at all
     static let daemonInactivityTimeout: TimeInterval = 1800 // 30 minutes
 
-    /// Per-TTY cached LAContext (macOS owns the timeout via reuse duration)
+    /// Per-session cached LAContext (macOS owns the timeout via reuse duration)
     private var contexts: [String: LAContext] = [:]
     private let queue = DispatchQueue(label: "dev.varlock.session")
 
@@ -38,16 +40,16 @@ final class SessionManager {
 
     // MARK: - Public API
 
-    /// Get or create an authenticated LAContext for the given TTY.
-    /// On first call per TTY, triggers Touch ID. Subsequent calls within the
+    /// Get or create an authenticated LAContext for the given session.
+    /// On first call per session, triggers Touch ID. Subsequent calls within the
     /// reuse duration return the cached context without re-prompting.
     ///
-    /// Processes without a controlling TTY (detached, background, etc.) always
-    /// require fresh authentication — they never share or cache sessions, since
-    /// there's no stable identity to scope the session to.
+    /// Sessions are identified by TTY device (terminal) or session leader PID
+    /// (GUI-spawned processes). Processes with no identifiable session always
+    /// require fresh authentication.
     func getAuthenticatedContext(ttyId: String?) throws -> LAContext {
         return try queue.sync {
-            // For processes with a TTY, check for cached context
+            // Check for cached context from a previous auth in this session
             if let key = ttyId, let context = contexts[key] {
                 resetDaemonTimer()
                 return context
@@ -86,9 +88,8 @@ final class SessionManager {
                 throw EnclaveError.biometricFailed(error.localizedDescription)
             }
 
-            // Only cache if the process has a TTY identity to scope the session to.
-            // No-TTY callers get a fresh context every time — there's no stable
-            // identity to prevent session sharing across unrelated processes.
+            // Only cache if the process has a session identity to scope to.
+            // Unidentifiable callers get a fresh context every time.
             if let key = ttyId {
                 contexts[key] = context
             }
@@ -98,7 +99,7 @@ final class SessionManager {
         }
     }
 
-    /// Invalidate all TTY sessions (used by lock command, sleep/lock events).
+    /// Invalidate all sessions (used by lock command, sleep/lock events).
     func invalidateAllSessions() {
         queue.sync {
             for (_, context) in contexts {
@@ -116,8 +117,8 @@ final class SessionManager {
         }
     }
 
-    /// Whether the given TTY has a cached session.
-    /// Always returns false for no-TTY callers (they never cache).
+    /// Whether the given session has a cached context.
+    /// Always returns false for unidentifiable callers (they never cache).
     /// Note: the session may still re-prompt if macOS's reuse duration has expired.
     func isSessionWarm(ttyId: String?) -> Bool {
         guard let key = ttyId else { return false }
@@ -126,7 +127,7 @@ final class SessionManager {
         }
     }
 
-    /// Whether any TTY has a cached session.
+    /// Whether any session has a cached context.
     func hasAnySessions() -> Bool {
         return queue.sync {
             return !contexts.isEmpty

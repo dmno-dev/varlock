@@ -30,8 +30,9 @@ function debug(msg: string) {
 }
 
 /**
- * Get a TTY identifier for session scoping.
- * Reads the controlling terminal from /proc/self/fd/0 or falls back to PID.
+ * Get a session identifier for biometric session scoping (WSL only).
+ * Prefers the controlling terminal; falls back to a stable ancestor PID
+ * found by walking the process tree (mirrors the macOS Swift daemon logic).
  */
 let _cachedTtyId: string | undefined;
 function getSelfTtyId(): string {
@@ -41,6 +42,30 @@ function getSelfTtyId(): string {
     if (ttyPath && ttyPath.startsWith('/dev/')) {
       _cachedTtyId = ttyPath;
       return ttyPath;
+    }
+  } catch {
+    // Not available
+  }
+  // No TTY — walk the process tree to find a stable ancestor.
+  // Uses the same grandchild-of-app-root logic as the macOS daemon:
+  // build ancestry chain up to PID 1, then use the process 2 levels
+  // below the top (the grandchild of the app root).
+  try {
+    const chain: Array<number> = [process.pid];
+    let current = process.pid;
+    for (let i = 0; i < 64; i++) {
+      const stat = fs.readFileSync(`/proc/${current}/stat`, 'utf-8');
+      const fields = stat.split(') ');
+      if (fields.length < 2) break;
+      const ppid = parseInt(fields[1].split(' ')[1], 10);
+      if (!ppid || ppid <= 1) break;
+      chain.push(ppid);
+      current = ppid;
+    }
+    if (chain.length >= 4) {
+      const scopePid = chain[chain.length - 3];
+      _cachedTtyId = `ptree:${scopePid}`;
+      return _cachedTtyId;
     }
   } catch {
     // Not available

@@ -172,7 +172,7 @@ final class IPCServer {
         // Resolve the peer's TTY identity once per connection
         let ttyId: String?
         if let peerPid = getPeerPid(fd: fd) {
-            ttyId = getTtyIdentifier(forPid: peerPid)
+            ttyId = getSessionIdentifier(forPid: peerPid)
         } else {
             ttyId = nil
         }

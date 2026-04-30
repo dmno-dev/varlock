@@ -185,7 +185,7 @@ case "daemon":
         sessionManager.noteIpcActivity()
     }
 
-    // Handle IPC messages (ttyId is resolved from the peer's controlling terminal)
+    // Handle IPC messages (ttyId is resolved from the peer's TTY or session leader)
     server.messageHandler = { message, ttyId in
         guard let action = message["action"] as? String else {
             return ["error": "Missing action"]
