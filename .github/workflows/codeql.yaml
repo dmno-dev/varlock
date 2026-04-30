@@ -32,29 +32,34 @@ jobs:
         with:
           category: ${{ matrix.language }}
 
-  check-swift:
-    name: Check Swift changes
+  check-native-changes:
+    name: Check native source changes
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
-      changed: ${{ steps.check.outputs.changed }}
+      swift-changed: ${{ steps.check.outputs.swift-changed }}
+      rust-changed: ${{ steps.check.outputs.rust-changed }}
     steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
       - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          elif git diff --name-only origin/main...HEAD 2>/dev/null | grep -q '^packages/encryption-binary-swift/'; then
-            echo "changed=true" >> $GITHUB_OUTPUT
+          FILES=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --paginate --jq '.[].filename')
+          if echo "$FILES" | grep -q '^packages/encryption-binary-swift/'; then
+            echo "swift-changed=true" >> $GITHUB_OUTPUT
           else
-            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "swift-changed=false" >> $GITHUB_OUTPUT
+          fi
+          if echo "$FILES" | grep -q '^packages/encryption-binary-rust/'; then
+            echo "rust-changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "rust-changed=false" >> $GITHUB_OUTPUT
           fi
 
   analyze-swift:
     name: Analyze Swift
-    needs: check-swift
-    if: needs.check-swift.outputs.changed == 'true'
+    needs: check-native-changes
+    if: always() && (github.event_name != 'pull_request' || needs.check-native-changes.outputs.swift-changed == 'true')
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
@@ -72,29 +77,10 @@ jobs:
         with:
           category: swift
 
-  check-rust:
-    name: Check Rust changes
-    runs-on: ubuntu-latest
-    outputs:
-      changed: ${{ steps.check.outputs.changed }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - id: check
-        run: |
-          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          elif git diff --name-only origin/main...HEAD 2>/dev/null | grep -q '^packages/encryption-binary-rust/'; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
-          fi
-
   analyze-rust:
     name: Analyze Rust
-    needs: check-rust
-    if: needs.check-rust.outputs.changed == 'true'
+    needs: check-native-changes
+    if: always() && (github.event_name != 'pull_request' || needs.check-native-changes.outputs.rust-changed == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
