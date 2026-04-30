@@ -103,7 +103,7 @@ jobs:
           config-file: ./.github/codeql/codeql-config.yml
       - name: Build Swift binary
         run: |
-          cd packages/encryption-binary-swift
+          cd packages/encryption-binary-swift/swift
           swift build
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
