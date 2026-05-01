@@ -1,5 +1,5 @@
 import {
-  cpSync, writeFileSync, readFileSync,
+  cpSync, writeFileSync, readFileSync, readdirSync,
   rmSync, existsSync, mkdirSync,
 } from 'node:fs';
 import {
@@ -389,7 +389,17 @@ export class FrameworkTestEnv {
    * Clean build artifacts between scenarios.
    */
   cleanBuildArtifacts(): void {
-    const artifactDirs = ['.next', 'out', 'dist', '.turbo', '.wrangler'];
+    // Clean .next but preserve the cache directory so turbopack/webpack
+    // compilation cache speeds up subsequent builds within the same fixture
+    const nextDir = join(this.dir, '.next');
+    if (existsSync(nextDir)) {
+      for (const entry of readdirSync(nextDir)) {
+        if (entry === 'cache') continue;
+        rmSync(join(nextDir, entry), { recursive: true, force: true });
+      }
+    }
+
+    const artifactDirs = ['out', 'dist', '.turbo', '.wrangler'];
     for (const dir of artifactDirs) {
       const fullPath = join(this.dir, dir);
       if (existsSync(fullPath)) {

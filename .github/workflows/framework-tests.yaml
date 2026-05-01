@@ -113,6 +113,15 @@ jobs:
         with:
           version: 10
 
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: ~/.local/share/pnpm/store/v3
+          key: pnpm-${{ runner.os }}-${{ matrix.integration.name }}-${{ hashFiles('framework-tests/**/package.json') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-${{ matrix.integration.name }}-
+            pnpm-${{ runner.os }}-
+
       - name: Install dependencies
         run: bun install
 
@@ -127,3 +136,4 @@ jobs:
         timeout-minutes: 15
         env:
           NEXTJS_TURBO_ONLY: ${{ contains(matrix.integration.name, '(quick)') && '1' || '' }}
+          NEXT_TELEMETRY_DISABLED: '1'
