@@ -3,10 +3,15 @@ import {
 } from 'vitest';
 import { FrameworkTestEnv } from '../../harness/index';
 
-const BUNDLERS = [
+const ALL_BUNDLERS = [
   'webpack',
   'turbopack',
 ];
+
+// When running quick mode (just v16), skip webpack to cut build time in half
+const BUNDLERS = process.env.NEXTJS_TURBO_ONLY
+  ? ALL_BUNDLERS.filter((b) => b === 'turbopack')
+  : ALL_BUNDLERS;
 
 const EXPORT_CONFIG = {
   path: '_base/next.config.mjs' as const,

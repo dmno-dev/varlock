@@ -31,6 +31,15 @@ const INTEGRATION_PACKAGES: Record<string, Array<string>> = {
   astro: ['@varlock/astro-integration', '@varlock/vite-integration'],
 };
 
+// Quick test paths for integrations where full suite is expensive.
+// When only core varlock or harness changes trigger the integration, run the quick
+// path. When the integration's own package or test files change, run full suite.
+const QUICK_TEST_PATHS: Record<string, string> = {
+  nextjs: 'nextjs/nextjs-v16.test.ts',
+};
+
+type IntegrationEntry = { name: string; testPath: string };
+
 const ALL_INTEGRATIONS = Object.keys(INTEGRATION_PACKAGES);
 const forceAll = process.argv.includes('--all');
 const isReleasePR = process.argv.includes('--release-pr');
@@ -44,20 +53,27 @@ function writeGithubOutputs(outputs: Record<string, string>) {
 
 const REPO_ROOT = join(import.meta.dirname, '..');
 
-function writeResults(integrations: Array<string>) {
-  const anyChanged = integrations.length > 0;
+function toEntry(name: string, mode: 'full' | 'quick' = 'full'): IntegrationEntry {
+  if (mode === 'quick' && QUICK_TEST_PATHS[name]) {
+    return { name: `${name} (quick)`, testPath: QUICK_TEST_PATHS[name] };
+  }
+  return { name, testPath: `${name}/` };
+}
+
+function writeResults(entries: Array<IntegrationEntry>) {
+  const anyChanged = entries.length > 0;
   writeGithubOutputs({
     'any-changed': String(anyChanged),
-    integrations: JSON.stringify(integrations),
+    integrations: JSON.stringify(entries),
   });
   if (!process.env.GITHUB_OUTPUT) {
-    console.log('Integrations to test:', integrations.length > 0 ? integrations : '(none)');
+    console.log('Integrations to test:', entries.length > 0 ? entries.map((e) => e.name) : '(none)');
   }
 }
 
-// --all flag: test everything
+// --all flag: test everything (full suite)
 if (forceAll) {
-  writeResults(ALL_INTEGRATIONS);
+  writeResults(ALL_INTEGRATIONS.map((name) => toEntry(name, 'full')));
   process.exit(0);
 }
 
@@ -78,7 +94,7 @@ if (isReleasePR) {
     });
   } catch (e) {
     console.error('Failed to diff against origin/main:', e);
-    writeResults(ALL_INTEGRATIONS);
+    writeResults(ALL_INTEGRATIONS.map((name) => toEntry(name, 'full')));
     process.exit(0);
   }
 
@@ -113,7 +129,7 @@ if (isReleasePR) {
   } catch (e) {
     console.error('Failed to diff against origin/main:', e);
     // If we can't diff, fall back to running all tests
-    writeResults(ALL_INTEGRATIONS);
+    writeResults(ALL_INTEGRATIONS.map((name) => toEntry(name, 'full')));
     process.exit(0);
   }
 
@@ -153,7 +169,7 @@ if (isReleasePR) {
 if (changedPackages.has('varlock')) {
   if (isReleasePR) {
     console.log('Core varlock package changed on release PR — running all integration tests');
-    writeResults(ALL_INTEGRATIONS);
+    writeResults(ALL_INTEGRATIONS.map((name) => toEntry(name, 'full')));
     process.exit(0);
   } else {
     console.log('Core varlock package changed — triggering core-only test suites');
@@ -176,7 +192,7 @@ try {
     } else if (filePath.startsWith('framework-tests/harness/') || filePath === 'framework-tests/vitest.config.ts') {
       // Shared test infrastructure changed — trigger all
       console.log(`Shared framework test file changed (${filePath}) — running all integration tests`);
-      writeResults(ALL_INTEGRATIONS);
+      writeResults(ALL_INTEGRATIONS.map((name) => toEntry(name, 'quick')));
       process.exit(0);
     }
   }
@@ -188,14 +204,18 @@ try {
 }
 
 // Match changed packages to integration test suites
-const integrationsList = Object.entries(INTEGRATION_PACKAGES)
-  .filter(([name, packages]) => {
-    // triggered if the test files themselves changed
-    if (changedTestIntegrations.has(name)) return true;
-    // suites with no integration packages are triggered by core varlock changes
-    if (packages.length === 0) return changedPackages.has('varlock');
-    return packages.some((pkg) => changedPackages.has(pkg));
-  })
-  .map(([name]) => name);
+const entries: Array<IntegrationEntry> = [];
+for (const [name, packages] of Object.entries(INTEGRATION_PACKAGES)) {
+  // Test files changed or integration package changed → full suite
+  if (changedTestIntegrations.has(name) || packages.some((pkg) => changedPackages.has(pkg))) {
+    entries.push(toEntry(name, 'full'));
+    continue;
+  }
+  // Suites with no integration packages are triggered by core varlock changes (quick)
+  if (packages.length === 0 && changedPackages.has('varlock')) {
+    entries.push(toEntry(name, 'quick'));
+    continue;
+  }
+}
 
-writeResults(integrationsList);
+writeResults(entries);

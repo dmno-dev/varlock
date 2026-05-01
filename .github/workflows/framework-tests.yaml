@@ -81,7 +81,7 @@ jobs:
           retention-days: 1
 
   test:
-    name: Framework Tests (${{ matrix.integration }})
+    name: Framework Tests (${{ matrix.integration.name }})
     needs: [detect-integrations, build]
     if: needs.detect-integrations.outputs.any-changed == 'true'
     runs-on: ubuntu-latest
@@ -122,8 +122,8 @@ jobs:
           name: built-repo
           path: packages/
 
-      - name: Run ${{ matrix.integration }} framework tests
-        run: cd framework-tests && bun install && bun run test -- --reporter=verbose frameworks/${{ matrix.integration }}/
+      - name: Run ${{ matrix.integration.name }} framework tests
+        run: cd framework-tests && bun install && bun run test -- --reporter=verbose frameworks/${{ matrix.integration.testPath }}
         timeout-minutes: 15
-        # env:
-        #   FRAMEWORK_TEST_VERBOSE: '1'
+        env:
+          NEXTJS_TURBO_ONLY: ${{ contains(matrix.integration.name, '(quick)') && '1' || '' }}
