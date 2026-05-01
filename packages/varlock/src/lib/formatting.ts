@@ -96,10 +96,11 @@ export function getItemSummary(item: ConfigItem) {
   const isRequired = item.isRequired;
   summary.push(joinAndCompact([
     icon,
-    ansis[VALIDATION_STATE_COLORS[item.validationState]](item.key) + (isRequired ? ansis.magenta('*') : ''),
+    ansis[VALIDATION_STATE_COLORS[item.validationState]](item.isDeprecated ? ansis.strikethrough(item.key) : item.key) + (isRequired ? ansis.magenta('*') : ''),
 
     // ansis.gray(`[type = ${item.type.typeLabel}]`),
     isSensitive && ` 🔐${ansis.gray.italic('sensitive')}`,
+    item.isDeprecated && ` 😵${ansis.yellow.dim.italic('deprecated')}`,
 
     // item.useAt ? ansis.gray.italic(`(${item.useAt?.join(', ')})`) : undefined,
   ]));

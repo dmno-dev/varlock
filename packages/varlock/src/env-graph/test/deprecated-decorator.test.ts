@@ -3,7 +3,6 @@ import outdent from 'outdent';
 import { envFilesTest } from './helpers/generic-test';
 import { EnvGraph } from '../index';
 import { DotEnvFileDataSource } from '../lib/data-source';
-import { SchemaError } from '../lib/errors';
 
 describe('@deprecated item decorator', () => {
   it('bare @deprecated emits a warning and item still resolves', envFilesTest({
@@ -30,7 +29,7 @@ describe('@deprecated item decorator', () => {
     },
   }));
 
-  it('@deprecated with a string message includes the message in the warning', async () => {
+  it('@deprecated with a string message exposes the deprecation message', async () => {
     const g = new EnvGraph();
     const source = new DotEnvFileDataSource('.env.schema', {
       overrideContents: outdent`
@@ -46,12 +45,11 @@ describe('@deprecated item decorator', () => {
 
     const item = g.configSchema.MY_VAR;
     expect(item.resolvedValue).toBe('hello');
-    const warnings = item.errors.filter((e) => e.isWarning);
-    expect(warnings.length).toBeGreaterThan(0);
-    expect(warnings[0].message).toContain('Use NEW_VAR instead');
+    expect(item.isDeprecated).toBe(true);
+    expect(item.deprecationMessage).toBe('Use NEW_VAR instead');
   });
 
-  it('@deprecated=false does not emit a warning', async () => {
+  it('@deprecated=false does not mark the item as deprecated', async () => {
     const g = new EnvGraph();
     const source = new DotEnvFileDataSource('.env.schema', {
       overrideContents: outdent`
@@ -67,11 +65,11 @@ describe('@deprecated item decorator', () => {
 
     const item = g.configSchema.MY_VAR;
     expect(item.resolvedValue).toBe('hello');
-    expect(item.isValid).toBe(true);
+    expect(item.isDeprecated).toBe(false);
     expect(item.errors.length).toBe(0);
   });
 
-  it('@deprecated only emits a warning, not an error (validationState=warn)', async () => {
+  it('@deprecated does not emit errors or warnings', async () => {
     const g = new EnvGraph();
     const source = new DotEnvFileDataSource('.env.schema', {
       overrideContents: outdent`
@@ -86,10 +84,9 @@ describe('@deprecated item decorator', () => {
     await g.resolveEnvValues();
 
     const item = g.configSchema.MY_VAR;
-    expect(item.validationState).toBe('warn');
-    expect(item.errors.every((e) => e.isWarning)).toBe(true);
-    expect(item.errors[0]).toBeInstanceOf(SchemaError);
-    expect(item.errors[0].message).toContain('deprecated');
+    expect(item.isDeprecated).toBe(true);
+    expect(item.validationState).toBe('valid');
+    expect(item.errors.length).toBe(0);
   });
 
   it('isDeprecated getter returns true when @deprecated is set', async () => {
