@@ -41,10 +41,21 @@ final class IPCServer {
         guard lockFD >= 0 else {
             throw IPCError.socketCreationFailed("Failed to create lock file: \(String(cString: strerror(errno)))")
         }
-        guard flock(lockFD, LOCK_EX | LOCK_NB) == 0 else {
+        if flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
+            // Lock held by another process (possibly stuck in UE state).
+            // Delete the lock file and reopen — the new file gets a fresh inode
+            // so the old process's flock (tied to the old inode) doesn't block us.
             close(lockFD)
-            lockFD = -1
-            throw IPCError.socketCreationFailed("Another daemon instance holds the lock")
+            unlink(lockPath)
+            lockFD = open(lockPath, O_CREAT | O_RDWR, 0o600)
+            guard lockFD >= 0 else {
+                throw IPCError.socketCreationFailed("Failed to recreate lock file: \(String(cString: strerror(errno)))")
+            }
+            guard flock(lockFD, LOCK_EX | LOCK_NB) == 0 else {
+                close(lockFD)
+                lockFD = -1
+                throw IPCError.socketCreationFailed("Another daemon instance holds the lock")
+            }
         }
 
         // Clean up any stale socket file (safe now — we hold the lock)

@@ -20,9 +20,16 @@ import { getUserVarlockDir } from '../user-config-dir';
 import { resolveNativeBinary } from './binary-resolver';
 import type { KeychainItemMeta, KeychainItemRef } from './types';
 
-/** Timeout for individual daemon IPC messages */
+/** Timeout for daemon IPC messages that don't involve user interaction */
 const SEND_TIMEOUT_MS = 30_000;
-/** Timeout for interactive messages (biometric prompts, UI pickers) */
+/**
+ * Timeout for messages that may trigger biometric auth (Touch ID).
+ * Must exceed the Swift-side biometric timeout (60s) so the TS client
+ * doesn't kill the daemon while Touch ID is still waiting for the user.
+ * Killing mid-biometric can leave the process stuck in kernel UE state.
+ */
+const BIOMETRIC_TIMEOUT_MS = 90_000;
+/** Timeout for interactive messages (GUI dialogs for secret input, keychain picker) */
 const INTERACTIVE_TIMEOUT_MS = 5 * 60_000;
 /** How long to wait for SIGTERM before escalating to SIGKILL */
 const KILL_GRACE_MS = 2_000;
@@ -98,12 +105,34 @@ function getSocketPath(): string {
   return path.join(getSocketDir(), 'daemon.sock');
 }
 
+function getLockPath(): string {
+  return `${getSocketPath()}.lock`;
+}
+
 function getPidPath(): string {
   return path.join(getSocketDir(), 'daemon.pid');
 }
 
 function getDaemonInfoPath(): string {
   return path.join(getSocketDir(), 'daemon.info');
+}
+
+/** All state files that should be cleaned up when resetting daemon state */
+function getDaemonStateFiles(): Array<string> {
+  const files = [getPidPath(), getDaemonInfoPath()];
+  if (process.platform !== 'win32') {
+    files.push(getSocketPath(), getLockPath());
+  }
+  return files;
+}
+
+/** Remove all daemon state files, ignoring errors */
+function cleanupDaemonFiles(): void {
+  for (const file of getDaemonStateFiles()) {
+    try {
+      fs.unlinkSync(file);
+    } catch { /* ignore */ }
+  }
 }
 
 /**
@@ -155,7 +184,10 @@ function checkDaemonBinaryStale(): number | undefined {
     process.kill(pid, 0); // verify process is alive
     return pid;
   } catch {
-    return undefined; // stale PID or process already gone
+    // Process already gone — clean up stale files so spawnDaemon starts clean
+    debug('stale PID file points to dead process — cleaning up');
+    cleanupDaemonFiles();
+    return undefined;
   }
 }
 
@@ -222,17 +254,7 @@ export class DaemonClient {
     if (stalePid) {
       debug(`killing stale daemon (pid ${stalePid}) — binary has been updated`);
       killDaemonProcess(stalePid);
-      // Clean up so spawnDaemon doesn't think a daemon is still running
-      for (const file of [getPidPath(), getDaemonInfoPath()]) {
-        try {
-          fs.unlinkSync(file);
-        } catch { /* ignore */ }
-      }
-      if (process.platform !== 'win32') {
-        try {
-          fs.unlinkSync(socketPath);
-        } catch { /* ignore */ }
-      }
+      cleanupDaemonFiles();
     } else {
       try {
         await this.connectToSocket(socketPath);
@@ -244,9 +266,10 @@ export class DaemonClient {
 
     try {
       await this.spawnDaemon();
-    } catch {
+    } catch (err) {
       // Another process may have won the race to spawn the daemon.
       // Wait briefly for it to be ready, then try connecting.
+      debug(`spawnDaemon failed: ${err instanceof Error ? err.message : err}`);
       await new Promise<void>((r) => {
         setTimeout(r, 1000);
       });
@@ -260,7 +283,7 @@ export class DaemonClient {
       const result = await this.sendMessage({
         action: 'decrypt',
         payload: { ciphertext, keyId },
-      });
+      }, BIOMETRIC_TIMEOUT_MS);
       if (typeof result === 'string') return result;
       if (result && typeof result === 'object' && 'error' in result) {
         throw new Error(String(result.error));
@@ -306,10 +329,12 @@ export class DaemonClient {
   async keychainGet(opts: { service?: string; account?: string; keychain?: string; field?: string }): Promise<string> {
     return this.withRetry(async () => {
       await this.ensureConnected();
+      // Password reads may trigger biometric; metadata field reads won't,
+      // but we use the biometric timeout for both since it's harmless.
       const result = await this.sendMessage({
         action: 'keychain-get',
         payload: opts,
-      });
+      }, BIOMETRIC_TIMEOUT_MS);
       if (typeof result === 'string') return result;
       if (result && typeof result === 'object' && 'error' in result) {
         throw new Error(String(result.error));
@@ -397,12 +422,7 @@ export class DaemonClient {
     } catch { /* no PID file or already dead */ }
 
     // Remove stale files so spawnDaemon starts clean
-    const socketPath = getSocketPath();
-    for (const file of [getPidPath(), getDaemonInfoPath(), ...(process.platform !== 'win32' ? [socketPath] : [])]) {
-      try {
-        fs.unlinkSync(file);
-      } catch { /* ignore */ }
-    }
+    cleanupDaemonFiles();
   }
 
   private connectToSocket(socketPath: string): Promise<void> {
@@ -545,24 +565,9 @@ export class DaemonClient {
     }
 
     // Clean up stale files before spawning
-    // On Windows, named pipes don't leave files — only clean PID and Unix sockets
-    if (!isWindows) {
-      for (const file of [socketPath, pidPath, getDaemonInfoPath()]) {
-        if (fs.existsSync(file)) {
-          fs.unlinkSync(file);
-        }
-      }
-      // Verify socket file is actually gone
-      if (fs.existsSync(socketPath)) {
-        throw new Error(`Failed to clean up stale socket file: ${socketPath}`);
-      }
-    } else {
-      // Clean PID + info files on Windows (named pipes don't leave socket files)
-      for (const file of [pidPath, getDaemonInfoPath()]) {
-        if (fs.existsSync(file)) {
-          fs.unlinkSync(file);
-        }
-      }
+    cleanupDaemonFiles();
+    if (!isWindows && fs.existsSync(socketPath)) {
+      throw new Error(`Failed to clean up stale socket file: ${socketPath}`);
     }
 
     return new Promise((resolve, reject) => {

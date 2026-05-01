@@ -17,6 +17,11 @@ final class SessionManager {
     /// Passed to macOS via `touchIDAuthenticationAllowableReuseDuration`.
     static let sessionTimeout: TimeInterval = 300 // 5 minutes
 
+    /// Max time to wait for evaluatePolicy (biometric prompt) before giving up.
+    /// Prevents the daemon from hanging forever if the prompt is dismissed oddly
+    /// or the Secure Enclave stops responding.
+    static let biometricTimeoutSeconds: TimeInterval = 60
+
     /// How long the daemon stays alive with no connections at all
     static let daemonInactivityTimeout: TimeInterval = 1800 // 30 minutes
 
@@ -80,7 +85,11 @@ final class SessionManager {
                 semaphore.signal()
             }
 
-            semaphore.wait()
+            let waitResult = semaphore.wait(timeout: .now() + SessionManager.biometricTimeoutSeconds)
+            if waitResult == .timedOut {
+                context.invalidate()
+                throw EnclaveError.biometricFailed("Biometric prompt timed out after \(Int(SessionManager.biometricTimeoutSeconds))s")
+            }
 
             if let error = evalError {
                 throw EnclaveError.biometricFailed(error.localizedDescription)
