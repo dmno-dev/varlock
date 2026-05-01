@@ -19,6 +19,10 @@ on:
         description: 'Base name for uploaded artifacts (suffixed with platform)'
         type: string
         default: 'native-bin-rust'
+      source-hash:
+        description: 'Pre-computed hash of Rust source files (from Ubuntu runner). When provided, used for the binary cache key instead of local hashFiles to ensure cross-OS consistency.'
+        type: string
+        default: ''
 
 jobs:
   build:
@@ -214,4 +218,4 @@ jobs:
         continue-on-error: true  # cache key is immutable; fails harmlessly if already saved by a concurrent run
         with:
           path: packages/varlock/native-bins/${{ matrix.native-bin-subdir }}/
-          key: native-bin-rust-${{ matrix.native-bin-subdir }}-${{ hashFiles('packages/encryption-binary-rust/Cargo.lock', 'packages/encryption-binary-rust/src/**') }}
+          key: native-bin-rust-${{ matrix.native-bin-subdir }}-${{ inputs.source-hash || hashFiles('packages/encryption-binary-rust/Cargo.lock', 'packages/encryption-binary-rust/src/**') }}
