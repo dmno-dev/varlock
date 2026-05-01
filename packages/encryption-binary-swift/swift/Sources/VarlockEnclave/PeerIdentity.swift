@@ -30,43 +30,94 @@ private func getProcessInfo(pid: pid_t) -> kinfo_proc? {
     return info
 }
 
-/// Get a stable TTY identifier for a process.
+/// Get the PPID for a given process.
+private func getParentPid(pid: pid_t) -> pid_t? {
+    guard let info = getProcessInfo(pid: pid) else { return nil }
+    let ppid = info.kp_eproc.e_ppid
+    return ppid > 0 ? ppid : nil
+}
+
+/// Get the start time (seconds since epoch) for a given process.
+private func getStartTime(pid: pid_t) -> Int {
+    guard let info = getProcessInfo(pid: pid) else { return 0 }
+    return Int(info.kp_proc.p_starttime.tv_sec)
+}
+
+/// Get a stable session identifier for a process.
 ///
-/// Combines the TTY device name with the session leader's start time.
-/// The session leader is the shell process that owns the TTY (its PID equals
-/// the session ID). Using its start time prevents TTY device reuse attacks
-/// (where a new terminal is allocated the same /dev/ttysNNN after the old one closed).
+/// Prefers the controlling TTY (combined with the session leader's start time
+/// to prevent TTY device reuse attacks). When no TTY is available (e.g.,
+/// processes spawned by VSCode/Cursor extensions, background agents, etc.),
+/// walks up the process tree to find a stable ancestor for session scoping.
 ///
-/// Returns nil if the process has no controlling TTY (detached, CI, etc).
-func getTtyIdentifier(forPid pid: pid_t) -> String? {
+/// The no-TTY algorithm finds the "app root" (ancestor whose PPID is 1/launchd),
+/// then uses the grandchild of that app root in the peer's ancestry chain.
+/// This scopes sessions narrowly — e.g., for Cursor, each Claude Code instance
+/// gets its own session, while a malicious extension in the same window cannot
+/// piggyback. If the tree is too shallow (peer is a direct child or grandchild
+/// of the app root), returns nil (no caching, fresh auth each time).
+///
+/// Returns nil if no stable identity can be determined.
+func getSessionIdentifier(forPid pid: pid_t) -> String? {
     guard let info = getProcessInfo(pid: pid) else { return nil }
 
+    // e_tdev is dev_t (Int32). NODEV is -1 in signed representation
+    // (0xFFFFFFFF unsigned). Comparing Int32(-1) != UInt32.max is true in
+    // Swift's BinaryInteger comparison, so we must compare in the same type.
     let ttyDev = info.kp_eproc.e_tdev
-    // NODEV (0xFFFFFFFF) or 0 means no controlling tty
-    guard ttyDev != UInt32.max, ttyDev != 0 else { return nil }
+    let hasTty = ttyDev > 0
 
-    // Convert device number to name (e.g., "ttys003")
-    guard let namePtr = devname(dev_t(ttyDev), S_IFCHR) else { return nil }
-    let ttyName = String(cString: namePtr)
+    if hasTty {
+        // TTY-based identity: device name + session leader start time
+        guard let namePtr = devname(dev_t(ttyDev), S_IFCHR) else { return nil }
+        let ttyName = String(cString: namePtr)
 
-    // Get the session leader's start time for uniqueness.
-    // getsid() returns the session leader PID (the shell that owns the TTY),
-    // which is stable across all processes launched from the same terminal.
-    // (e_tpgid is the *foreground process group*, which changes on every command.)
-    let sessionLeaderPid = getsid(pid)
-    var startTimestamp: Int = 0
+        let sessionLeaderPid = getsid(pid)
+        var startTimestamp: Int = 0
+        if sessionLeaderPid > 0, let leaderInfo = getProcessInfo(pid: sessionLeaderPid) {
+            startTimestamp = Int(leaderInfo.kp_proc.p_starttime.tv_sec)
+        }
+        if startTimestamp == 0 {
+            startTimestamp = Int(info.kp_proc.p_starttime.tv_sec)
+        }
 
-    if sessionLeaderPid > 0, let leaderInfo = getProcessInfo(pid: sessionLeaderPid) {
-        startTimestamp = Int(leaderInfo.kp_proc.p_starttime.tv_sec)
+        return "tty:\(ttyName):\(startTimestamp)"
     }
 
-    // If we couldn't get the session leader start time, fall back to the
-    // connecting process's own start time (less ideal but still unique per session)
-    if startTimestamp == 0 {
-        startTimestamp = Int(info.kp_proc.p_starttime.tv_sec)
+    // No TTY — walk up the process tree to find a scoping ancestor.
+    //
+    // Build the ancestry chain from the peer up to (but not including) PID 1.
+    // Example chain for Claude in Cursor:
+    //   [node/bun, zsh, claude, extension-host, Cursor]
+    //   indices: 0     1     2       3              4
+    //
+    // The last element is the "app root" (PPID=1).
+    // We use the element at index (count - 3) — the grandchild of the app root.
+    // This gives us per-tool scoping (e.g., the Claude binary), which is narrow
+    // enough that other extensions can't piggyback, but stable across multiple
+    // commands spawned by that tool.
+    //
+    // If the chain is too short (< 4 elements), we can't determine a stable
+    // intermediate ancestor, so we return nil (no caching).
+
+    var chain: [pid_t] = [pid]
+    var current = pid
+    // Walk up with a depth limit to avoid infinite loops
+    for _ in 0..<64 {
+        guard let ppid = getParentPid(pid: current), ppid > 1 else { break }
+        chain.append(ppid)
+        current = ppid
     }
 
-    return "\(ttyName):\(startTimestamp)"
+    // Need at least 4 levels: peer → intermediate → scope-target → app-child → app-root
+    // so that scope-target is a meaningful intermediate process
+    guard chain.count >= 4 else { return nil }
+
+    // The grandchild of the app root: 2 levels below the last element
+    let scopePid = chain[chain.count - 3]
+    let startTime = getStartTime(pid: scopePid)
+
+    return "ptree:\(scopePid):\(startTime)"
 }
 
 // MARK: - Process Verification

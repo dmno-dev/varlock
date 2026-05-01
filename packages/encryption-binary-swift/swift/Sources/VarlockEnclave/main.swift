@@ -7,19 +7,24 @@ func jsonOutput(_ dict: [String: Any]) {
     guard let data = try? JSONSerialization.data(withJSONObject: dict),
           let str = String(data: data, encoding: .utf8) else {
         fputs("{\"error\":\"Failed to serialize output\"}\n", stderr)
-        exit(1)
+        _exit(1)
     }
     print(str)
 }
 
 func jsonError(_ message: String) -> Never {
     jsonOutput(["error": message])
-    exit(1)
+    // Flush stdout since _exit() won't do it for us
+    fflush(stdout)
+    // Use _exit to skip framework cleanup — LocalAuthentication teardown can
+    // hang in the kernel (UE state) if the Secure Enclave is unresponsive.
+    _exit(1)
 }
 
 func jsonSuccess(_ result: [String: Any]) -> Never {
     jsonOutput(["ok": true].merging(result) { _, new in new })
-    exit(0)
+    fflush(stdout)
+    _exit(0)
 }
 
 // MARK: - CLI Parsing
@@ -174,7 +179,9 @@ case "daemon":
         if let pidPath = pidPath {
             try? FileManager.default.removeItem(atPath: pidPath)
         }
-        exit(0)
+        // Use _exit to skip framework cleanup — LocalAuthentication teardown
+        // can hang in the kernel (UE state) if Secure Enclave is unresponsive.
+        _exit(0)
     }
 
     sessionManager.onDaemonTimeout = {
@@ -185,8 +192,8 @@ case "daemon":
         sessionManager.noteIpcActivity()
     }
 
-    // Handle IPC messages (ttyId is resolved from the peer's controlling terminal)
-    server.messageHandler = { message, ttyId in
+    // Handle IPC messages (sessionId is resolved from the peer's TTY or process tree)
+    server.messageHandler = { message, sessionId in
         guard let action = message["action"] as? String else {
             return ["error": "Missing action"]
         }
@@ -202,7 +209,7 @@ case "daemon":
             let keyId = (payload["keyId"] as? String) ?? defaultKeyId
 
             do {
-                let context = try sessionManager.getAuthenticatedContext(ttyId: ttyId)
+                let context = try sessionManager.getAuthenticatedContext(sessionId: sessionId)
                 let decrypted = try SecureEnclaveManager.decrypt(
                     payload: ciphertext,
                     keyId: keyId,
@@ -221,8 +228,8 @@ case "daemon":
             return [
                 "result": [
                     "pong": true,
-                    "sessionWarm": sessionManager.isSessionWarm(ttyId: ttyId),
-                    "ttyId": ttyId as Any,
+                    "sessionWarm": sessionManager.isSessionWarm(sessionId: sessionId),
+                    "sessionId": sessionId as Any,
                 ],
             ]
 
@@ -312,7 +319,7 @@ case "daemon":
 
             // Password reads require biometric gate
             do {
-                _ = try sessionManager.getAuthenticatedContext(ttyId: ttyId)
+                _ = try sessionManager.getAuthenticatedContext(sessionId: sessionId)
             } catch {
                 return ["error": error.localizedDescription]
             }
@@ -414,7 +421,8 @@ case "help", "--help", "-h":
     All output is JSON. Errors return {"error": "message"}.
     """
     print(help)
-    exit(0)
+    fflush(stdout)
+    _exit(0)
 
 default:
     jsonError("Unknown command: \(command). Run with --help for usage.")

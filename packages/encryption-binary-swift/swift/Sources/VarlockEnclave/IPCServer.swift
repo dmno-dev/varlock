@@ -16,7 +16,7 @@ final class IPCServer {
     private var isRunning = false
 
     /// Handler for incoming messages. Second parameter is the peer's TTY identity (nil if unknown).
-    var messageHandler: ((_ message: [String: Any], _ ttyId: String?) -> [String: Any])?
+    var messageHandler: ((_ message: [String: Any], _ sessionId: String?) -> [String: Any])?
 
     /// Called after accept (new client) and after each successfully parsed JSON message.
     var onConnectionActivity: (() -> Void)?
@@ -41,10 +41,21 @@ final class IPCServer {
         guard lockFD >= 0 else {
             throw IPCError.socketCreationFailed("Failed to create lock file: \(String(cString: strerror(errno)))")
         }
-        guard flock(lockFD, LOCK_EX | LOCK_NB) == 0 else {
+        if flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
+            // Lock held by another process (possibly stuck in UE state).
+            // Delete the lock file and reopen — the new file gets a fresh inode
+            // so the old process's flock (tied to the old inode) doesn't block us.
             close(lockFD)
-            lockFD = -1
-            throw IPCError.socketCreationFailed("Another daemon instance holds the lock")
+            unlink(lockPath)
+            lockFD = open(lockPath, O_CREAT | O_RDWR, 0o600)
+            guard lockFD >= 0 else {
+                throw IPCError.socketCreationFailed("Failed to recreate lock file: \(String(cString: strerror(errno)))")
+            }
+            guard flock(lockFD, LOCK_EX | LOCK_NB) == 0 else {
+                close(lockFD)
+                lockFD = -1
+                throw IPCError.socketCreationFailed("Another daemon instance holds the lock")
+            }
         }
 
         // Clean up any stale socket file (safe now — we hold the lock)
@@ -169,12 +180,12 @@ final class IPCServer {
             }
         }
 
-        // Resolve the peer's TTY identity once per connection
-        let ttyId: String?
+        // Resolve the peer's session identity once per connection
+        let sessionId: String?
         if let peerPid = getPeerPid(fd: fd) {
-            ttyId = getTtyIdentifier(forPid: peerPid)
+            sessionId = getSessionIdentifier(forPid: peerPid)
         } else {
-            ttyId = nil
+            sessionId = nil
         }
 
         while isRunning {
@@ -206,7 +217,7 @@ final class IPCServer {
             onConnectionActivity?()
 
             // Handle message with the peer's TTY identity
-            let response = messageHandler?(json, ttyId) ?? ["error": "No handler"]
+            let response = messageHandler?(json, sessionId) ?? ["error": "No handler"]
             sendResponse(fd: fd, id: json["id"] as? String, response: response)
         }
     }

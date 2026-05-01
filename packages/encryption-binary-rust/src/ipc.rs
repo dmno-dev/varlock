@@ -129,8 +129,8 @@ impl IpcServer {
                         continue;
                     }
 
-                    // Get peer TTY identity
-                    let tty_id = get_peer_tty_id(&stream);
+                    // Get peer session identity
+                    let tty_id = get_peer_session_id(&stream);
 
                     std::thread::spawn(move || {
                         handle_client(stream, handler, on_activity, running, tty_id);
@@ -398,10 +398,10 @@ fn verify_unix_client(_stream: &UnixStream) -> bool {
     true
 }
 
-// ── Peer TTY identity (Linux) ────────────────────────────────────
+// ── Peer session identity (Linux) ───────────────────────────────
 
 #[cfg(target_os = "linux")]
-fn get_peer_tty_id(stream: &UnixStream) -> Option<String> {
+fn get_peer_session_id(stream: &UnixStream) -> Option<String> {
     use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
     use std::os::fd::AsFd;
 
@@ -412,19 +412,15 @@ fn get_peer_tty_id(stream: &UnixStream) -> Option<String> {
         return None;
     }
 
-    // Read the process's controlling terminal from /proc
-    get_tty_for_pid(pid as u32)
+    // Prefer TTY-based identity, fall back to process tree
+    get_tty_session_id(pid as u32)
+        .or_else(|| get_ptree_session_id(pid as u32))
 }
 
+/// TTY-based session identity: tty device + session leader start time.
 #[cfg(target_os = "linux")]
-fn get_tty_for_pid(pid: u32) -> Option<String> {
-    // Read /proc/<pid>/stat to get the tty_nr field (field 7, 0-indexed 6)
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-
-    // The stat line format is: pid (comm) state ppid pgrp session tty_nr ...
-    // comm can contain spaces and parens, so find the last ')' first
-    let after_comm = stat.rfind(')')? + 2;
-    let fields: Vec<&str> = stat[after_comm..].split_whitespace().collect();
+fn get_tty_session_id(pid: u32) -> Option<String> {
+    let fields = parse_proc_stat(pid)?;
 
     // After the closing paren: state(0) ppid(1) pgrp(2) session(3) tty_nr(4)
     let tty_nr: u32 = fields.get(4)?.parse().ok()?;
@@ -443,20 +439,61 @@ fn get_tty_for_pid(pid: u32) -> Option<String> {
     let minor = (tty_nr & 0xff) | ((tty_nr >> 12) & 0xfff00);
     let tty_name = format!("tty{major}:{minor}");
 
-    Some(format!("{tty_name}:{start_time}"))
+    Some(format!("tty:{tty_name}:{start_time}"))
+}
+
+/// Process-tree-based session identity for non-TTY processes.
+/// Mirrors the macOS Swift daemon logic: walks the ancestry chain up to PID 1,
+/// then uses the grandchild of the root as a stable scope key.
+#[cfg(target_os = "linux")]
+fn get_ptree_session_id(pid: u32) -> Option<String> {
+    let mut chain: Vec<u32> = vec![pid];
+    let mut current = pid;
+
+    for _ in 0..64 {
+        let ppid = get_parent_pid(current)?;
+        if ppid <= 1 {
+            break;
+        }
+        chain.push(ppid);
+        current = ppid;
+    }
+
+    // Need at least 4 levels for a meaningful intermediate ancestor
+    if chain.len() < 4 {
+        return None;
+    }
+
+    let scope_pid = chain[chain.len() - 3];
+    let start_time = get_process_start_time(scope_pid).unwrap_or(0);
+    Some(format!("ptree:{scope_pid}:{start_time}"))
+}
+
+/// Parse /proc/<pid>/stat and return the fields after the comm closing paren.
+#[cfg(target_os = "linux")]
+fn parse_proc_stat(pid: u32) -> Option<Vec<String>> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let after_comm = stat.rfind(')')? + 2;
+    Some(stat[after_comm..].split_whitespace().map(|s| s.to_string()).collect())
+}
+
+/// Get the PPID for a given process from /proc.
+#[cfg(target_os = "linux")]
+fn get_parent_pid(pid: u32) -> Option<u32> {
+    let fields = parse_proc_stat(pid)?;
+    // After comm: state(0) ppid(1)
+    fields.get(1)?.parse().ok()
 }
 
 #[cfg(target_os = "linux")]
 fn get_process_start_time(pid: u32) -> Option<u64> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let after_comm = stat.rfind(')')? + 2;
-    let fields: Vec<&str> = stat[after_comm..].split_whitespace().collect();
+    let fields = parse_proc_stat(pid)?;
     // Field 19 after comm is starttime (in clock ticks since boot)
     fields.get(19)?.parse().ok()
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn get_peer_tty_id(_stream: &UnixStream) -> Option<String> {
+fn get_peer_session_id(_stream: &UnixStream) -> Option<String> {
     None
 }
 
@@ -727,4 +764,60 @@ fn send_windows_response(
     }
 
     Ok(())
+}
+
+// ── Tests ───────────────────────────────────────────────────────
+
+#[cfg(test)]
+#[cfg(target_os = "linux")]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_proc_stat_self() {
+        let fields = parse_proc_stat(std::process::id()).expect("should parse own /proc/stat");
+        // Should have at least 20 fields (we read up to field 19 for starttime)
+        assert!(fields.len() >= 20, "expected >=20 fields, got {}", fields.len());
+        // Field 0 is state (single char like R, S, etc.)
+        assert_eq!(fields[0].len(), 1);
+        // Field 1 is ppid (should be > 0)
+        let ppid: u32 = fields[1].parse().expect("ppid should be a number");
+        assert!(ppid > 0);
+    }
+
+    #[test]
+    fn test_get_parent_pid() {
+        let ppid = get_parent_pid(std::process::id()).expect("should get own ppid");
+        assert!(ppid > 1, "test process ppid should be > 1");
+    }
+
+    #[test]
+    fn test_get_process_start_time() {
+        let st = get_process_start_time(std::process::id()).expect("should get own start time");
+        assert!(st > 0);
+    }
+
+    #[test]
+    fn test_get_ptree_session_id_self() {
+        // The test runner process should have a deep enough chain
+        // (cargo test → test binary → ... → init), but the exact depth
+        // depends on the environment. Just verify it returns Some or None
+        // without panicking, and if Some, has the right format.
+        if let Some(id) = get_ptree_session_id(std::process::id()) {
+            assert!(id.starts_with("ptree:"), "expected ptree: prefix, got {id}");
+            let parts: Vec<&str> = id.split(':').collect();
+            assert_eq!(parts.len(), 3, "expected ptree:pid:starttime, got {id}");
+            let _pid: u32 = parts[1].parse().expect("pid should be a number");
+            let _st: u64 = parts[2].parse().expect("start time should be a number");
+        }
+    }
+
+    #[test]
+    fn test_get_tty_session_id_format() {
+        // May or may not have a TTY depending on how tests are run.
+        // Just verify it doesn't panic and has correct format if present.
+        if let Some(id) = get_tty_session_id(std::process::id()) {
+            assert!(id.starts_with("tty:"), "expected tty: prefix, got {id}");
+        }
+    }
 }

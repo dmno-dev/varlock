@@ -55,7 +55,7 @@ jobs:
       - name: ESLint
         run: bun run lint
       - name: TypeScript type check
-        run: bun run typecheck
+        run: bun run typecheck:all
       - name: Build libraries
         run: bun run build:libs
       - name: Run tests
