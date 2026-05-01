@@ -122,6 +122,11 @@ export async function getTsDefinitionForItem(info: TypeGenItemInfo, indentLevel 
     });
   }
 
+  if (info.isDeprecated) {
+    jsDocLines.push('');
+    jsDocLines.push(info.deprecationMessage ? `@deprecated ${info.deprecationMessage}` : '@deprecated');
+  }
+
   // more ideas:
   // - we have an `exampleValue` property we could include
   // - there's also a `@example` jsdoc directive which is meant to show a code example

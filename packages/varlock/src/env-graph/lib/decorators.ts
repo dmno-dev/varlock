@@ -469,6 +469,9 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
   {
     name: 'icon',
   },
+  {
+    name: 'deprecated',
+  },
 
   // test-only decorators — dropped in release builds
   ...__VARLOCK_BUILD_TYPE__ === 'test' ? [
