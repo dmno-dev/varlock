@@ -10,6 +10,7 @@ const { mockExecSyncVarlock, mockInitVarlockEnv, mockPatchGlobalConsole } = vi.h
 
 vi.mock('varlock/exec-sync-varlock', () => ({
   execSyncVarlock: mockExecSyncVarlock,
+  VarlockExecError: class VarlockExecError extends Error {},
 }));
 
 vi.mock('varlock/env', () => ({
@@ -39,7 +40,7 @@ describe('withVarlockMetroConfig', () => {
     delete process.env.__VARLOCK_ENV;
     delete (globalThis as any).__varlockLoadedEnv;
     vi.clearAllMocks();
-    mockExecSyncVarlock.mockReturnValue(JSON.stringify(FAKE_ENV_GRAPH));
+    mockExecSyncVarlock.mockReturnValue({ stdout: JSON.stringify(FAKE_ENV_GRAPH), stderr: '' });
   });
 
   afterEach(() => {
@@ -60,9 +61,7 @@ describe('withVarlockMetroConfig', () => {
   it('calls execSyncVarlock to load config', () => {
     withVarlockMetroConfig({});
     expect(mockExecSyncVarlock).toHaveBeenCalledOnce();
-    expect(mockExecSyncVarlock).toHaveBeenCalledWith('load --format json-full', {
-      showLogsOnError: true,
-    });
+    expect(mockExecSyncVarlock).toHaveBeenCalledWith('load --format json-full', { fullResult: true });
   });
 
   it('sets process.env.__VARLOCK_ENV with the JSON result', () => {

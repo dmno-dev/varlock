@@ -1,3 +1,4 @@
+import { writeFileSync } from 'node:fs';
 import { define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
@@ -37,6 +38,14 @@ export const commandSpec = define({
       multiple: true,
       description: 'Path to a specific .env file or directory to use as the entry point (can be specified multiple times)',
     },
+    'summary-stderr': {
+      type: 'boolean',
+      description: 'Also output the pretty (redacted) summary to stderr (useful alongside --format json-full to get both machine-readable output on stdout and a human-readable summary on stderr)',
+    },
+    'summary-file': {
+      type: 'string',
+      description: 'Also write the pretty (redacted) summary to a file path (useful for CI, e.g. $GITHUB_STEP_SUMMARY)',
+    },
   },
   examples: `
 Loads and validates environment variables according to your .env files, and prints the results.
@@ -51,6 +60,8 @@ Examples:
   varlock load -p ./envs -p ./overrides  # Load from multiple directories
   varlock load --compact          # Use compact format - skips undefined values, no indentation for json-full
   varlock load --env production   # Load for a specific environment (⚠️ ignored if using @currentEnv!)
+  varlock load --format json-full --summary-stderr   # JSON on stdout + redacted human summary on stderr
+  varlock load --format json-full --summary-file /tmp/summary.txt   # JSON on stdout + redacted human summary written to file
 `.trim(),
 });
 
@@ -65,7 +76,9 @@ export function formatShellValue(value: string): string {
 }
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
-  const { format, compact, 'show-all': showAll } = ctx.values;
+  const {
+    format, compact, 'show-all': showAll, 'summary-stderr': summaryStderr, 'summary-file': summaryFile,
+  } = ctx.values;
 
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
@@ -91,6 +104,19 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     checkForConfigErrors(envGraph, { showAll, noThrow: true });
   } else {
     checkForConfigErrors(envGraph, { showAll });
+  }
+
+  if ((summaryStderr || summaryFile) && format !== 'pretty') {
+    const summaryLines = envGraph.sortedConfigKeys.map(
+      (key) => getItemSummary(envGraph.configSchema[key]),
+    );
+    const summaryStr = `${summaryLines.join('\n')}\n`;
+    if (summaryStderr) {
+      process.stderr.write(summaryStr);
+    }
+    if (summaryFile) {
+      writeFileSync(summaryFile, summaryStr);
+    }
   }
 
   if (format === 'pretty') {

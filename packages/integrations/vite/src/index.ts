@@ -9,7 +9,7 @@ import { patchGlobalConsole } from 'varlock/patch-console';
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 import { patchGlobalResponse } from 'varlock/patch-response';
 import { createDebug, type SerializedEnvGraph } from 'varlock';
-import { execSyncVarlock } from 'varlock/exec-sync-varlock';
+import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 
 import { createReplacerTransformFn, SUPPORTED_FILES } from './transform';
 
@@ -57,25 +57,25 @@ let loadCount = 0;
 function reloadConfig(cwd?: string) {
   debug('loading config - count =', ++loadCount, cwd ? `(cwd: ${cwd})` : '');
   try {
-    const execResult = execSyncVarlock('load --format json-full --compact', {
+    const { stdout } = execSyncVarlock('load --format json-full --compact', {
+      fullResult: true,
       env: originalProcessEnv,
       ...(cwd && { cwd }),
     });
-    process.env.__VARLOCK_ENV = execResult;
-    varlockLoadedEnv = JSON.parse(process.env.__VARLOCK_ENV) as SerializedEnvGraph;
+    process.env.__VARLOCK_ENV = stdout;
+    varlockLoadedEnv = JSON.parse(stdout) as SerializedEnvGraph;
     configIsValid = true;
   } catch (err) {
     // CLI exits non-zero on validation failure but still outputs JSON to stdout.
     // Try to parse it so we have sources (for file watching) and error details.
-    const errAny = err as any;
-    const stdout = errAny?.stdout?.toString();
-    if (stdout) {
-      try {
-        varlockLoadedEnv = JSON.parse(stdout) as SerializedEnvGraph;
-      } catch { /* not parseable — hard failure */ }
+    if (err instanceof VarlockExecError) {
+      if (err.stdout) {
+        try {
+          varlockLoadedEnv = JSON.parse(err.stdout) as SerializedEnvGraph;
+        } catch { /* not parseable — hard failure */ }
+      }
+      if (err.stderr) console.error(err.stderr);
     }
-    // Show the human-readable error output from the CLI
-    if (errAny?.stderr) console.error(errAny.stderr.toString());
     configIsValid = false;
     resetStaticReplacements();
     return;

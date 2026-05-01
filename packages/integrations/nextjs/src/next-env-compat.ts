@@ -10,7 +10,7 @@ import { execSync } from 'child_process';
 import { type SerializedEnvGraph } from 'varlock';
 import { initVarlockEnv, resetRedactionMap } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
-import { execSyncVarlock } from 'varlock/exec-sync-varlock';
+import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 
 export type Env = { [key: string]: string | undefined };
 export type LoadedEnvFiles = Array<{
@@ -328,18 +328,15 @@ export function loadEnvConfig(
     // strip DEBUG_VARLOCK from env to prevent debug output from contaminating JSON stdout
     const cleanEnv = { ...initialEnv };
     delete cleanEnv.DEBUG_VARLOCK;
-    const varlockLoadedEnvStr = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
-      // We handle all error display and exit logic ourselves in the catch block
-      // so we can silently defer on serverless platforms where the binary is missing.
-      showLogsOnError: false,
-      exitOnError: false,
+    const { stdout } = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
+      fullResult: true,
       env: cleanEnv as any,
     });
     if (loadCount >= 2) {
       // eslint-disable-next-line no-console
       console.log('✅ env reloaded and validated');
     }
-    varlockLoadedEnv = JSON.parse(varlockLoadedEnvStr);
+    varlockLoadedEnv = JSON.parse(stdout);
   } catch (err) {
     if ((err as any).message.includes('Unable to find varlock executable')) {
       // In production the binary may not exist — e.g., on serverless platforms
@@ -363,16 +360,15 @@ export function loadEnvConfig(
     }
 
     // For real errors (validation failures, etc.) show the CLI output
-    /* eslint-disable no-console */
-    const errAny = err as any;
-    if (errAny.stdout) console.log(errAny.stdout.toString());
-    if (errAny.stderr) console.error(errAny.stderr.toString());
-    console.error('[varlock] ⚠️ failed to load env — see error above');
-    /* eslint-enable no-console */
+    if (err instanceof VarlockExecError) {
+      if (err.stderr) process.stderr.write(err.stderr);
+      // eslint-disable-next-line no-console
+      console.error('[varlock] ⚠️ failed to load env — see error above');
+    }
 
     // In a build, we want to fail hard so broken env doesn't get deployed
     if (!dev) {
-      process.exit((err as any).status ?? 1);
+      process.exit((err as any).exitCode ?? 1);
     }
 
     // if we dont do this, we'll see an error that looks like `process.env.__VARLOCK_ENV is not set` which is misleading.

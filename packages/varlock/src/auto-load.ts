@@ -1,4 +1,4 @@
-import { execSyncVarlock } from './lib/exec-sync-varlock';
+import { execSyncVarlock, VarlockExecError } from './lib/exec-sync-varlock';
 
 import { initVarlockEnv } from './runtime/env';
 import { patchGlobalConsole } from './runtime/patch-console';
@@ -10,16 +10,24 @@ import { patchGlobalResponse } from './runtime/patch-response';
 // so we call out to the CLI using execSync
 // this also isolates the varlock loading process from the end user process
 
-
-const execResult = execSyncVarlock('load --format json-full --compact', {
-  exitOnError: true,
-  showLogsOnError: true,
-  // Pass the directory of this module so that in monorepos the binary search
-  // starts from inside the varlock package (e.g. apps/web/node_modules/varlock)
-  // rather than from process.cwd(), which may be an unrelated workspace root.
-  callerDir: import.meta.dirname ?? new URL('.', import.meta.url).pathname,
-});
-process.env.__VARLOCK_ENV = execResult;
+try {
+  const { stdout } = execSyncVarlock('load --format json-full --compact', {
+    fullResult: true,
+    // Pass the directory of this module so that in monorepos the binary search
+    // starts from inside the varlock package (e.g. apps/web/node_modules/varlock)
+    // rather than from process.cwd(), which may be an unrelated workspace root.
+    callerDir: import.meta.dirname ?? new URL('.', import.meta.url).pathname,
+  });
+  process.env.__VARLOCK_ENV = stdout;
+} catch (err) {
+  if (err instanceof VarlockExecError && err.stderr) {
+    process.stderr.write(err.stderr);
+  } else {
+    // eslint-disable-next-line no-console
+    console.error(err);
+  }
+  process.exit((err as any).exitCode ?? 1);
+}
 
 // initialize varlock and patch globals as necessary
 initVarlockEnv();
@@ -27,4 +35,3 @@ initVarlockEnv();
 patchGlobalConsole();
 patchGlobalServerResponse();
 patchGlobalResponse();
-

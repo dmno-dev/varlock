@@ -32,7 +32,8 @@ const FIXTURE_ENV_GRAPH = vi.hoisted(async () => {
 // are in place when the module-level `loadVarlockConfig()` runs.
 // ---------------------------------------------------------------------------
 vi.mock('varlock/exec-sync-varlock', async () => ({
-  execSyncVarlock: vi.fn().mockReturnValue(JSON.stringify(await FIXTURE_ENV_GRAPH)),
+  execSyncVarlock: vi.fn().mockReturnValue({ stdout: JSON.stringify(await FIXTURE_ENV_GRAPH), stderr: '' }),
+  VarlockExecError: class VarlockExecError extends Error {},
 }));
 
 vi.mock('varlock/env', () => ({
