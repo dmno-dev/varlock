@@ -18,3 +18,11 @@ framework-tests/.test-projects
 .magent
 .claude/worktrees/
 eslint-output.txt
+
+# PHP
+vendor/
+composer.lock
+*.cache
+examples/laravel-app/.env
+examples/symfony-app/.env.local
+examples/symfony-app/.env.dev

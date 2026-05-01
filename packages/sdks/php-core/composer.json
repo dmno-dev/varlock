@@ -1,0 +1,16 @@
+{
+    "name": "varlock/php-core",
+    "description": "Core PHP SDK for Varlock - manifest-based env validation, type coercion, and secret resolution",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "Varlock\\Core\\": "src/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
