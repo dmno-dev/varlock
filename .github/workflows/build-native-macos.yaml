@@ -214,7 +214,7 @@ jobs:
         continue-on-error: true  # cache key is immutable; fails harmlessly if already saved by a concurrent run
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
-          key: native-bin-macos-signed-${{ hashFiles('packages/encryption-binary-swift/swift/**') }}
+          key: native-bin-macos-signed-${{ hashFiles('packages/encryption-binary-swift/swift/Package.swift', 'packages/encryption-binary-swift/swift/Sources/**') }}
 
       - name: Cleanup signing keychain
         if: always()
