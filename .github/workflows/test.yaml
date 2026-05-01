@@ -11,6 +11,8 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     outputs:
+      includes-varlock: ${{ steps.check-release.outputs.includes-varlock }}
+      release-packages: ${{ steps.check-release.outputs.packages }}
       swift-changed: ${{ steps.check-swift.outputs.changed }}
       rust-changed: ${{ steps.check-rust.outputs.changed }}
       swift-cache-hit: ${{ steps.swift-cache-check.outputs.cache-hit }}
@@ -58,9 +60,16 @@ jobs:
       - name: Run tests
         run: bun run test:ci
 
+      # Determine which packages will be preview-released (used to gate native builds)
+      - name: Check release packages
+        if: github.ref_name != 'main'
+        id: check-release
+        run: bun run scripts/check-release-packages.ts
+
       # Check if native binary source changed (used to gate native builds)
       - name: Check for Swift source changes
         id: check-swift
+        if: steps.check-release.outputs.includes-varlock == 'true'
         run: |
           if git diff --name-only origin/main...HEAD | grep -qE '^(packages/encryption-binary-swift/|\.github/workflows/build-native-macos\.yaml)'; then
             echo "changed=true" >> $GITHUB_OUTPUT
@@ -69,6 +78,7 @@ jobs:
           fi
       - name: Check for Rust source changes
         id: check-rust
+        if: steps.check-release.outputs.includes-varlock == 'true'
         run: |
           if git diff --name-only origin/main...HEAD | grep -qE '^(packages/encryption-binary-rust/|\.github/workflows/build-native-rust\.yaml)'; then
             echo "changed=true" >> $GITHUB_OUTPUT
@@ -79,7 +89,7 @@ jobs:
       # Check if native binary caches exist (lookup-only, no download)
       - name: Check Swift binary cache
         id: swift-cache-check
-        if: steps.check-swift.outputs.changed != 'true'
+        if: steps.check-release.outputs.includes-varlock == 'true' && steps.check-swift.outputs.changed != 'true'
         uses: actions/cache/restore@v5
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
@@ -89,12 +99,13 @@ jobs:
       # (hashFiles can differ across OSes, so we normalize it here)
       - name: Compute Rust source hash
         id: rust-hash
+        if: steps.check-release.outputs.includes-varlock == 'true'
         run: |
           HASH=${{ hashFiles('packages/encryption-binary-rust/Cargo.lock', 'packages/encryption-binary-rust/src/**') }}
           echo "hash=$HASH" >> $GITHUB_OUTPUT
       - name: Check Rust cache - linux-x64
         id: rust-cache-check-linux-x64
-        if: steps.check-rust.outputs.changed != 'true'
+        if: steps.check-release.outputs.includes-varlock == 'true' && steps.check-rust.outputs.changed != 'true'
         uses: actions/cache/restore@v5
         with:
           path: packages/varlock/native-bins/linux-x64/
@@ -102,7 +113,7 @@ jobs:
           lookup-only: true
       - name: Check Rust cache - linux-arm64
         id: rust-cache-check-linux-arm64
-        if: steps.check-rust.outputs.changed != 'true'
+        if: steps.check-release.outputs.includes-varlock == 'true' && steps.check-rust.outputs.changed != 'true'
         uses: actions/cache/restore@v5
         with:
           path: packages/varlock/native-bins/linux-arm64/
@@ -110,7 +121,7 @@ jobs:
           lookup-only: true
       - name: Check Rust cache - win32-x64
         id: rust-cache-check-win32-x64
-        if: steps.check-rust.outputs.changed != 'true'
+        if: steps.check-release.outputs.includes-varlock == 'true' && steps.check-rust.outputs.changed != 'true'
         uses: actions/cache/restore@v5
         with:
           path: packages/varlock/native-bins/win32-x64/
@@ -118,7 +129,7 @@ jobs:
           lookup-only: true
       - name: Determine Rust cache status
         id: rust-cache-final
-        if: steps.check-rust.outputs.changed != 'true'
+        if: steps.check-release.outputs.includes-varlock == 'true' && steps.check-rust.outputs.changed != 'true'
         run: |
           if [[ "${{ steps.rust-cache-check-linux-x64.outputs.cache-hit }}" == "true" \
              && "${{ steps.rust-cache-check-linux-arm64.outputs.cache-hit }}" == "true" \
@@ -129,21 +140,24 @@ jobs:
             echo "::warning::Some Rust binary caches missing — will trigger rebuild"
           fi
 
-  # Build + sign the macOS native binary if Swift source changed or cache is missing
-  # this must be done on a mac-os runner
+  # Build + sign the macOS native binary if varlock is being released AND (source changed or cache missing)
   build-native-macos:
     needs: build-and-test
-    if: needs.build-and-test.outputs.swift-changed == 'true' || needs.build-and-test.outputs.swift-cache-hit != 'true'
+    if: >-
+      needs.build-and-test.outputs.includes-varlock == 'true'
+      && (needs.build-and-test.outputs.swift-changed == 'true' || needs.build-and-test.outputs.swift-cache-hit != 'true')
     uses: ./.github/workflows/build-native-macos.yaml
     with:
       artifact-name: native-bin-macos-ci
     secrets:
       OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
 
-  # Build Rust native binaries if source changed or cache is missing
+  # Build Rust native binaries if varlock is being released AND (source changed or cache missing)
   build-native-rust:
     needs: build-and-test
-    if: needs.build-and-test.outputs.rust-changed == 'true' || needs.build-and-test.outputs.rust-cache-hit != 'true'
+    if: >-
+      needs.build-and-test.outputs.includes-varlock == 'true'
+      && (needs.build-and-test.outputs.rust-changed == 'true' || needs.build-and-test.outputs.rust-cache-hit != 'true')
     uses: ./.github/workflows/build-native-rust.yaml
     with:
       artifact-name: native-bin-rust-ci
@@ -177,28 +191,23 @@ jobs:
       - name: Enable turborepo build cache
         uses: rharkor/caching-for-turbo@v2.3.11
 
-      # Determine which packages will be preview-released
-      - name: Check release packages
-        id: check-release
-        run: bun run scripts/check-release-packages.ts
-
       # Get signed macOS .app if varlock is being released
       # If the macOS build ran this run, download the artifact directly
       # Otherwise, restore from cross-run cache
       - name: Download macOS native binary (from this run)
-        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-native-macos.result == 'success'
+        if: needs.build-and-test.outputs.includes-varlock == 'true' && needs.build-native-macos.result == 'success'
         uses: actions/download-artifact@v8
         with:
           name: native-bin-macos-ci
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
       - name: Restore cached macOS native binary (from prior run)
-        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-native-macos.result != 'success'
+        if: needs.build-and-test.outputs.includes-varlock == 'true' && needs.build-native-macos.result != 'success'
         uses: actions/cache/restore@v5
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
           key: native-bin-macos-signed-${{ hashFiles('packages/encryption-binary-swift/swift/Package.swift', 'packages/encryption-binary-swift/swift/Sources/**') }}
       - name: Verify and fix native binary permissions
-        if: steps.check-release.outputs.includes-varlock == 'true'
+        if: needs.build-and-test.outputs.includes-varlock == 'true'
         run: |
           BINARY=packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
           if [ ! -f "$BINARY" ]; then
@@ -210,7 +219,7 @@ jobs:
       # Get Rust native binaries if varlock is being released
       # If the Rust build ran this run, download the artifacts; otherwise restore from cache
       - name: Download Rust binaries (from this run)
-        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-native-rust.result == 'success'
+        if: needs.build-and-test.outputs.includes-varlock == 'true' && needs.build-native-rust.result == 'success'
         uses: actions/download-artifact@v8
         with:
           pattern: native-bin-rust-ci-*
@@ -218,7 +227,7 @@ jobs:
           merge-multiple: false
       # Flatten: download-artifact creates subdirs per artifact name, but we need linux-x64/ etc.
       - name: Flatten Rust artifact directories (from this run)
-        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-native-rust.result == 'success'
+        if: needs.build-and-test.outputs.includes-varlock == 'true' && needs.build-native-rust.result == 'success'
         run: |
           cd packages/varlock/native-bins
           for dir in native-bin-rust-ci-*/; do
@@ -227,23 +236,23 @@ jobs:
           done
 
       - uses: actions/cache/restore@v5
-        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-native-rust.result != 'success'
+        if: needs.build-and-test.outputs.includes-varlock == 'true' && needs.build-native-rust.result != 'success'
         with:
           path: packages/varlock/native-bins/linux-x64/
           key: native-bin-rust-linux-x64-${{ needs.build-and-test.outputs.rust-source-hash }}
       - uses: actions/cache/restore@v5
-        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-native-rust.result != 'success'
+        if: needs.build-and-test.outputs.includes-varlock == 'true' && needs.build-native-rust.result != 'success'
         with:
           path: packages/varlock/native-bins/linux-arm64/
           key: native-bin-rust-linux-arm64-${{ needs.build-and-test.outputs.rust-source-hash }}
       - uses: actions/cache/restore@v5
-        if: steps.check-release.outputs.includes-varlock == 'true' && needs.build-native-rust.result != 'success'
+        if: needs.build-and-test.outputs.includes-varlock == 'true' && needs.build-native-rust.result != 'success'
         with:
           path: packages/varlock/native-bins/win32-x64/
           key: native-bin-rust-win32-x64-${{ needs.build-and-test.outputs.rust-source-hash }}
 
       - name: Verify and fix Rust binary permissions
-        if: steps.check-release.outputs.includes-varlock == 'true'
+        if: needs.build-and-test.outputs.includes-varlock == 'true'
         run: |
           MISSING=()
           for SUBDIR in linux-x64 linux-arm64 win32-x64; do
@@ -265,12 +274,12 @@ jobs:
           fi
 
       - name: Build publishable npm packages
-        if: steps.check-release.outputs.packages != '[]'
+        if: needs.build-and-test.outputs.release-packages != '[]'
         run: bun run build:libs
         env:
           BUILD_TYPE: preview
       - name: Release preview packages
-        if: steps.check-release.outputs.packages != '[]'
+        if: needs.build-and-test.outputs.release-packages != '[]'
         run: bun run scripts/release-preview.ts
         env:
-          RELEASE_PACKAGES: ${{ steps.check-release.outputs.packages }}
+          RELEASE_PACKAGES: ${{ needs.build-and-test.outputs.release-packages }}
