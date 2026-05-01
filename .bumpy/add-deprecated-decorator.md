@@ -1,5 +1,5 @@
 ---
-varlock: patch
+varlock: minor
 ---
 
-Add @deprecated item decorator that emits a deprecation warning and annotates TypeScript types with @deprecated JSDoc
+Add @deprecated item decorator with strikethrough display in pretty output and @deprecated JSDoc in generated TypeScript types
