@@ -11,14 +11,13 @@ import { patchGlobalResponse } from './runtime/patch-response';
 // this also isolates the varlock loading process from the end user process
 
 try {
-  const { stdout, stderr } = execSyncVarlock('load --format json-full --compact --summary-stderr', {
+  const { stdout } = execSyncVarlock('load --format json-full --compact', {
     fullResult: true,
     // Pass the directory of this module so that in monorepos the binary search
     // starts from inside the varlock package (e.g. apps/web/node_modules/varlock)
     // rather than from process.cwd(), which may be an unrelated workspace root.
     callerDir: import.meta.dirname ?? new URL('.', import.meta.url).pathname,
   });
-  if (stderr) process.stderr.write(stderr);
   process.env.__VARLOCK_ENV = stdout;
 } catch (err) {
   if (err instanceof VarlockExecError && err.stderr) {

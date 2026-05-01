@@ -48,8 +48,7 @@ function spawnWrangler(args: Array<string>): Promise<number> {
 }
 
 function loadSerializedGraph() {
-  const { stdout, stderr } = execSyncVarlock('load --format json-full --compact --summary-stderr', { fullResult: true });
-  if (stderr) process.stderr.write(stderr);
+  const { stdout } = execSyncVarlock('load --format json-full --compact', { fullResult: true });
   return {
     json: stdout,
     graph: JSON.parse(stdout) as {

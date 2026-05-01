@@ -328,11 +328,10 @@ export function loadEnvConfig(
     // strip DEBUG_VARLOCK from env to prevent debug output from contaminating JSON stdout
     const cleanEnv = { ...initialEnv };
     delete cleanEnv.DEBUG_VARLOCK;
-    const { stdout, stderr } = execSyncVarlock(`load --format json-full --summary-stderr --env ${envFromNextCommand}`, {
+    const { stdout } = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
       fullResult: true,
       env: cleanEnv as any,
     });
-    if (stderr) process.stderr.write(stderr);
     if (loadCount >= 2) {
       // eslint-disable-next-line no-console
       console.log('✅ env reloaded and validated');

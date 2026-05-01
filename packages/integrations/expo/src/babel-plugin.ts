@@ -14,11 +14,10 @@ let configIsValid = true;
 function loadVarlockConfig() {
   debug('loading varlock config for expo babel plugin');
   try {
-    const { stdout, stderr } = execSyncVarlock('load --format json-full --summary-stderr', {
+    const { stdout } = execSyncVarlock('load --format json-full', {
       fullResult: true,
       env: originalProcessEnv,
     });
-    if (stderr) process.stderr.write(stderr);
     process.env.__VARLOCK_ENV = stdout;
     varlockLoadedEnv = JSON.parse(stdout) as SerializedEnvGraph;
     configIsValid = true;

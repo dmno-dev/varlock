@@ -57,12 +57,11 @@ let loadCount = 0;
 function reloadConfig(cwd?: string) {
   debug('loading config - count =', ++loadCount, cwd ? `(cwd: ${cwd})` : '');
   try {
-    const { stdout, stderr } = execSyncVarlock('load --format json-full --compact --summary-stderr', {
+    const { stdout } = execSyncVarlock('load --format json-full --compact', {
       fullResult: true,
       env: originalProcessEnv,
       ...(cwd && { cwd }),
     });
-    if (stderr) process.stderr.write(stderr);
     process.env.__VARLOCK_ENV = stdout;
     varlockLoadedEnv = JSON.parse(stdout) as SerializedEnvGraph;
     configIsValid = true;

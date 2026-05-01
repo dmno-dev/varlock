@@ -61,7 +61,7 @@ describe('withVarlockMetroConfig', () => {
   it('calls execSyncVarlock to load config', () => {
     withVarlockMetroConfig({});
     expect(mockExecSyncVarlock).toHaveBeenCalledOnce();
-    expect(mockExecSyncVarlock).toHaveBeenCalledWith('load --format json-full --summary-stderr', { fullResult: true });
+    expect(mockExecSyncVarlock).toHaveBeenCalledWith('load --format json-full', { fullResult: true });
   });
 
   it('sets process.env.__VARLOCK_ENV with the JSON result', () => {
