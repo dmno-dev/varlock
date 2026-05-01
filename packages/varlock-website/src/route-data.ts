@@ -16,7 +16,7 @@ export const onRequest = defineRouteMiddleware((context) => {
     context.site,
   );
   if (!context.locals.starlightRoute.id) {
-    ogImageUrl = new URL('/default-og-image.png', context.site);
+    ogImageUrl = new URL('/default-og-image-new.png', context.site);
   }
 
   head.push(
