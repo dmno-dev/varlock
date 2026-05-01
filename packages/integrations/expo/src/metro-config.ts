@@ -1,5 +1,5 @@
 import { resolve, dirname } from 'node:path';
-import { execSyncVarlock } from 'varlock/exec-sync-varlock';
+import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { initVarlockEnv } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import type { SerializedEnvGraph } from 'varlock';
@@ -76,17 +76,19 @@ export function withVarlockMetroConfig<T extends Record<string, any>>(config: T)
   if (process.env.__VARLOCK_ENV) return config;
 
   try {
-    const execResult = execSyncVarlock('load --format json-full', {
-      showLogsOnError: true,
-    });
-    process.env.__VARLOCK_ENV = execResult;
+    const { stdout, stderr } = execSyncVarlock('load --format json-full --summary-stderr', { fullResult: true });
+    if (stderr) process.stderr.write(stderr);
+    process.env.__VARLOCK_ENV = stdout;
 
-    const parsed = JSON.parse(execResult) as SerializedEnvGraph;
+    const parsed = JSON.parse(stdout) as SerializedEnvGraph;
     (globalThis as any).__varlockLoadedEnv = parsed;
 
     initVarlockEnv();
     patchGlobalConsole();
   } catch (err) {
+    if (err instanceof VarlockExecError && err.stderr) {
+      process.stderr.write(err.stderr);
+    }
     throw new Error(
       '@varlock/expo-integration: Failed to initialize varlock in Metro config.\n'
       + 'Your .env.schema may have syntax errors or failing validation.\n'

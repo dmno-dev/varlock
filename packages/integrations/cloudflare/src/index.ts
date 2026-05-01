@@ -81,7 +81,7 @@ export function varlockCloudflareVitePlugin(
     if (!isDevMode) return userResult;
 
     // Single CLI call for the full graph, then extract individual vars.
-    const serializedGraph = execSyncVarlock('load --format json-full --compact');
+    const { stdout: serializedGraph } = execSyncVarlock('load --format json-full --compact', { fullResult: true });
     let graph: { config: Record<string, { value: unknown }> };
     try {
       graph = JSON.parse(serializedGraph);

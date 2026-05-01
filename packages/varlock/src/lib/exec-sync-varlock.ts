@@ -41,26 +41,53 @@ function findVarlockBin(startDir: string): string | null {
   return null;
 }
 
+
+/** Error thrown by `execSyncVarlock` when the CLI exits with a non-zero status code and `fullResult` is enabled. */
+export class VarlockExecError extends Error {
+  constructor(
+    message: string,
+    public stdout: string,
+    public stderr: string,
+    public exitCode: number,
+  ) {
+    super(message);
+  }
+}
+
+export type ExecVarlockResult = { stdout: string, stderr: string };
+
+type ExecSyncVarlockOpts = Parameters<typeof execSyncType>[1] & {
+  exitOnError?: boolean,
+  showLogsOnError?: boolean,
+  /**
+   * Additional directory to start searching for the varlock binary from.
+   * Searched before process.cwd(). Pass `import.meta.dirname` from the
+   * call-site so that in monorepos the binary installed next to the
+   * importing package is found even when cwd is an unrelated workspace root.
+   */
+  callerDir?: string,
+  /**
+   * When true, return `{ stdout, stderr }` instead of just the stdout string,
+   * and throw `VarlockExecError` (with `.stdout`, `.stderr`, `.exitCode`) on failure
+   * instead of the raw execSync error.
+   */
+  fullResult?: boolean,
+};
+
 /**
- * small helper to call execSync and call the varlock cli
+ * Small helper to call execSync and call the varlock cli.
  *
- * when end user runs via a package manager, it will inject node_modules/.bin into PATH
- * but otherwise we may need to try to find that path ourselves
+ * When the user runs via a package manager, it will inject node_modules/.bin into PATH
+ * but otherwise we may need to try to find that path ourselves.
+ *
+ * @returns stdout as a string by default, or `{ stdout, stderr }` when `fullResult: true`
  */
+export function execSyncVarlock(command: string, opts?: ExecSyncVarlockOpts & { fullResult?: false }): string;
+export function execSyncVarlock(command: string, opts: ExecSyncVarlockOpts & { fullResult: true }): ExecVarlockResult;
 export function execSyncVarlock(
   command: string,
-  opts?: (Parameters<typeof execSyncType>[1] & {
-    exitOnError?: boolean,
-    showLogsOnError?: boolean,
-    /**
-     * Additional directory to start searching for the varlock binary from.
-     * Searched before process.cwd(). Pass `import.meta.dirname` from the
-     * call-site so that in monorepos the binary installed next to the
-     * importing package is found even when cwd is an unrelated workspace root.
-     */
-    callerDir?: string,
-  }),
-) {
+  opts?: ExecSyncVarlockOpts,
+): string | ExecVarlockResult {
   try {
     // in most cases, user will be running via their package manager
     // and a package.json script (ie `pnpm run start`)
@@ -71,7 +98,9 @@ export function execSyncVarlock(
         ...opts?.cwd && { cwd: opts.cwd },
         stdio: 'pipe',
       });
-      return result.toString();
+      return opts?.fullResult
+        ? { stdout: result.toString(), stderr: '' }
+        : result.toString();
     } catch (err) {
       // code 127 means not found (on linux only)
       // ENOENT from execSync means that a shell was not found
@@ -102,11 +131,30 @@ export function execSyncVarlock(
           stdio: 'pipe',
           ...(needsShell && { shell: true }),
         });
-        return result.toString();
+        return opts?.fullResult
+          ? { stdout: result.toString(), stderr: '' }
+          : result.toString();
       }
     }
     throw new Error('Unable to find varlock executable');
   } catch (err) {
+    // In fullResult mode, wrap the error as VarlockExecError with structured fields
+    if (opts?.fullResult) {
+      if (err instanceof VarlockExecError) throw err; // already wrapped
+      const errAny = err as any;
+      // execSync/execFileSync attach stdout/stderr Buffers on the error
+      if (errAny.status != null) {
+        throw new VarlockExecError(
+          `varlock ${command} failed (exit code ${errAny.status})`,
+          errAny.stdout?.toString() ?? '',
+          errAny.stderr?.toString() ?? '',
+          errAny.status ?? 1,
+        );
+      }
+      throw err; // not a process error (e.g. "Unable to find varlock executable")
+    }
+
+    // Legacy behavior for non-fullResult callers
     const errAny = err as any;
     if (opts?.showLogsOnError) {
       /* eslint-disable no-console */

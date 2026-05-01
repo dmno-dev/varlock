@@ -48,12 +48,11 @@ function spawnWrangler(args: Array<string>): Promise<number> {
 }
 
 function loadSerializedGraph() {
-  const serializedGraphJson = execSyncVarlock('load --format json-full --compact', {
-    showLogsOnError: true,
-  });
+  const { stdout, stderr } = execSyncVarlock('load --format json-full --compact --summary-stderr', { fullResult: true });
+  if (stderr) process.stderr.write(stderr);
   return {
-    json: serializedGraphJson,
-    graph: JSON.parse(serializedGraphJson) as {
+    json: stdout,
+    graph: JSON.parse(stdout) as {
       basePath?: string,
       sources: Array<{ label: string, enabled: boolean, path?: string }>,
       config: Record<string, { value: unknown, isSensitive: boolean }>,

@@ -1,4 +1,4 @@
-import { execSyncVarlock } from 'varlock/exec-sync-varlock';
+import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { initVarlockEnv } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import { createDebug, type SerializedEnvGraph } from 'varlock';
@@ -14,12 +14,13 @@ let configIsValid = true;
 function loadVarlockConfig() {
   debug('loading varlock config for expo babel plugin');
   try {
-    const execResult = execSyncVarlock('load --format json-full', {
+    const { stdout, stderr } = execSyncVarlock('load --format json-full --summary-stderr', {
+      fullResult: true,
       env: originalProcessEnv,
-      showLogsOnError: true,
     });
-    process.env.__VARLOCK_ENV = execResult;
-    varlockLoadedEnv = JSON.parse(process.env.__VARLOCK_ENV) as SerializedEnvGraph;
+    if (stderr) process.stderr.write(stderr);
+    process.env.__VARLOCK_ENV = stdout;
+    varlockLoadedEnv = JSON.parse(stdout) as SerializedEnvGraph;
     configIsValid = true;
 
     // Make the loaded env available on globalThis so that any module instance
@@ -31,7 +32,10 @@ function loadVarlockConfig() {
     initVarlockEnv();
     // this will be a no-op if disabled by settings
     patchGlobalConsole();
-  } catch (_err) {
+  } catch (err) {
+    if (err instanceof VarlockExecError && err.stderr) {
+      process.stderr.write(err.stderr);
+    }
     configIsValid = false;
   }
 }
