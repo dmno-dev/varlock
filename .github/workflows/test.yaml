@@ -25,7 +25,7 @@ jobs:
           fetch-depth: 0
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
-      
+
       # this caching step is kind of a wash
       # downloading the cache adds a few seconds and then installing is a bit faster
       - name: Cache bun dependencies
