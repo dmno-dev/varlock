@@ -2,6 +2,15 @@
 
 
 
+
+## 1.1.0
+<sub>2026-05-02</sub>
+
+- [#681](https://github.com/dmno-dev/varlock/pull/681) - Add --summary-stderr/--summary-file flags to varlock load and fullResult option to execSyncVarlock
+- [#644](https://github.com/dmno-dev/varlock/pull/644) - Add @deprecated item decorator with strikethrough display in pretty output and @deprecated JSDoc in generated TypeScript types
+- [#675](https://github.com/dmno-dev/varlock/pull/675)  *(patch)* - fix biometric session scoping for non-TTY processes
+- [#679](https://github.com/dmno-dev/varlock/pull/679)  *(patch)* - wsl standalone binary fixes
+
 ## 1.0.0
 <sub>2026-04-29</sub>
 
