@@ -1,6 +1,6 @@
 {
   "name": "varlock",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "AI-safe .env files: Schemas for agents, Secrets for humans.",
   "main": "index.js",
   "type": "module",

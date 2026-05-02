@@ -2,6 +2,12 @@
 
 
 
+
+## 1.1.0
+<sub>2026-05-02</sub>
+
+- [#681](https://github.com/dmno-dev/varlock/pull/681) - Add --summary-stderr/--summary-file flags to varlock load and fullResult option to execSyncVarlock
+
 ## 1.0.0
 <sub>2026-04-29</sub>
 

@@ -82,7 +82,7 @@
     },
     "packages/integrations/cloudflare": {
       "name": "@varlock/cloudflare-integration",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "bin": {
         "varlock-wrangler": "./bin/varlock-wrangler.js",
       },
@@ -90,13 +90,13 @@
         "@types/node": "catalog:",
         "@varlock/vite-integration": "workspace:^",
         "tsup": "catalog:",
-        "varlock": "workspace:^1.0.0",
+        "varlock": "workspace:^1.1.0",
         "vite": "^7.1.0",
         "vitest": "catalog:",
       },
       "peerDependencies": {
         "@cloudflare/vite-plugin": ">=1",
-        "varlock": "workspace:^1.0.0",
+        "varlock": "workspace:^1.1.0",
         "vite": ">=5",
         "wrangler": ">=3",
       },
@@ -108,7 +108,7 @@
     },
     "packages/integrations/expo": {
       "name": "@varlock/expo-integration",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "devDependencies": {
         "@babel/core": "^7.29.0",
         "@types/node": "catalog:",
@@ -123,7 +123,7 @@
     },
     "packages/integrations/nextjs": {
       "name": "@varlock/nextjs-integration",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "devDependencies": {
         "@types/node": "catalog:",
         "tsup": "catalog:",
@@ -137,7 +137,7 @@
     },
     "packages/integrations/vite": {
       "name": "@varlock/vite-integration",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "devDependencies": {
         "@types/node": "catalog:",
         "ast-matcher": "^1.2.0",
@@ -408,7 +408,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "bin": {
         "varlock": "./bin/cli.js",
       },
