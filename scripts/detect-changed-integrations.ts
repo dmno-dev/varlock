@@ -29,6 +29,7 @@ const INTEGRATION_PACKAGES: Record<string, Array<string>> = {
   expo: ['@varlock/expo-integration'],
   'vanilla-node': [], // no integration package — triggered only by core varlock changes
   astro: ['@varlock/astro-integration', '@varlock/vite-integration'],
+  'tanstack-start': ['@varlock/cloudflare-integration', '@varlock/vite-integration'],
 };
 
 // Quick test paths for integrations where full suite is expensive.

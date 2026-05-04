@@ -114,9 +114,17 @@ export interface VarlockVitePluginOptions {
 export function varlockVitePlugin(
   vitePluginOptions?: VarlockVitePluginOptions,
 ): any {
+  // tracks which SSR environments have already had init code injected
+  // to prevent duplicate injection when multiple modules are detected as entries
+  const injectedSsrEnvironments = new Set<string>();
+
   return {
     name: 'inject-varlock-config',
     enforce: 'post',
+
+    buildStart() {
+      injectedSsrEnvironments.clear();
+    },
 
     // hook to modify config before it is resolved
     async config(config, env) {
@@ -168,6 +176,27 @@ See https://varlock.dev/integrations/vite/ for more details.
 
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
 
+      // Exclude varlock from dep optimization.
+      // `varlock/env` is a runtime proxy that breaks if pre-bundled by
+      // esbuild/rolldown — especially in Cloudflare worker environments
+      // where the optimizer runs separately and can lose the pre-bundled
+      // file after re-optimization cycles.
+      const varlockExclude = ['varlock', 'varlock/env', 'varlock/patch-console', 'varlock/patch-response'];
+      config.optimizeDeps ??= {};
+      config.optimizeDeps.exclude = [
+        ...config.optimizeDeps.exclude ?? [],
+        ...varlockExclude,
+      ];
+      config.ssr ??= {};
+      config.ssr.optimizeDeps ??= {};
+      config.ssr.optimizeDeps.exclude = [
+        ...config.ssr.optimizeDeps.exclude ?? [],
+        ...varlockExclude,
+      ];
+      // For Vite 7+, per-environment excludes are handled by the
+      // `configEnvironment` hook below. For Vite 6, `configResolved`
+      // patches all resolved environments.
+
       if (!configIsValid) {
         if (isDevCommand) {
           // adjust vite's setting so it doesnt bury the error messages
@@ -189,9 +218,52 @@ See https://varlock.dev/integrations/vite/ for more details.
         }
       }
     },
+    // Vite 6+ hook: runs for each environment (client, ssr, worker, etc.)
+    // Ensures varlock is excluded from dep optimization in every environment,
+    // including Cloudflare worker environments created by @cloudflare/vite-plugin.
+    configEnvironment(_name: string, envConfig: any) {
+      const varlockExclude = ['varlock', 'varlock/env', 'varlock/patch-console', 'varlock/patch-response'];
+      envConfig.dev ??= {};
+      envConfig.dev.optimizeDeps ??= {};
+      envConfig.dev.optimizeDeps.exclude = [
+        ...envConfig.dev.optimizeDeps.exclude ?? [],
+        ...varlockExclude,
+      ];
+      // Also set at the environment level (Vite 6 uses this path)
+      envConfig.optimizeDeps ??= {};
+      envConfig.optimizeDeps.exclude = [
+        ...envConfig.optimizeDeps.exclude ?? [],
+        ...varlockExclude,
+      ];
+    },
     // hook to observe/modify config after it is resolved
     configResolved(config) {
       debug('vite plugin - configResolved fn called');
+
+      // Patch per-environment optimizeDeps for Vite 6 (which lacks
+      // the `configEnvironment` hook). By this point all plugins have
+      // registered their environments, so we can patch them all.
+      // The resolved config is technically frozen, but `optimizeDeps`
+      // objects within environments are still mutable in practice.
+      const varlockExclude = ['varlock', 'varlock/env', 'varlock/patch-console', 'varlock/patch-response'];
+      if ((config as any).environments) {
+        for (const envName of Object.keys((config as any).environments)) {
+          const envConf = (config as any).environments[envName];
+          if (envConf?.dev?.optimizeDeps) {
+            envConf.dev.optimizeDeps.exclude = [
+              ...envConf.dev.optimizeDeps.exclude ?? [],
+              ...varlockExclude,
+            ];
+          }
+          if (envConf?.optimizeDeps) {
+            envConf.optimizeDeps.exclude = [
+              ...envConf.optimizeDeps.exclude ?? [],
+              ...varlockExclude,
+            ];
+          }
+        }
+      }
+
       if (!varlockLoadedEnv) return;
       // inject all .env files that varlock loaded into `configFileDependencies`
       // so that vite will watch them and reload if they change
@@ -232,8 +304,19 @@ See https://varlock.dev/integrations/vite/ for more details.
       const fileExt = id.split('?')[0].split('#')[0].split('.').pop() || '';
       let isEntry = false;
       if (SUPPORTED_FILES.includes(fileExt)) {
-        const moduleIds = Array.from(this.getModuleIds());
-        if (moduleIds[0] === id) isEntry = true;
+        // In build mode, getModuleInfo(id).isEntry is reliable.
+        // In dev mode it's not supported (vite 6 throws, others return undefined),
+        // so fall back to checking if this is the first module in the graph.
+        try {
+          const moduleInfo = this.getModuleInfo(id);
+          if (moduleInfo?.isEntry) isEntry = true;
+        } catch {
+          // vite 6 throws "isEntry property of ModuleInfo is not supported" in dev
+        }
+        if (!isEntry) {
+          const moduleIds = Array.from(this.getModuleIds());
+          if (moduleIds[0] === id) isEntry = true;
+        }
       }
 
       // allow integrations to register additional virtual module IDs as entry points
@@ -264,44 +347,57 @@ See https://varlock.dev/integrations/vite/ for more details.
         // and code to load our env, or the already resolved env
         // TODO: keep an eye on environments API, as single ssr flag may be phased out
         if (options?.ssr) {
-          const ssrInjectMode = vitePluginOptions?.ssrInjectMode ?? 'init-only';
-          const isEdgeRuntime = vitePluginOptions?.ssrEdgeRuntime ?? false;
-
-          debug('ssrInjectMode =', ssrInjectMode, 'isDev =', isDevEnv);
-          if (ssrInjectMode === 'auto-load') {
-            injectCode.push(
-              "import 'varlock/auto-load';",
-            );
+          // In build mode, prevent duplicate SSR init injection when multiple
+          // modules are detected as entries within the same environment (e.g.,
+          // TanStack Start + Cloudflare where both the framework entry and the
+          // CF virtual worker entry match).
+          // In dev mode, skip dedup — Vite may re-transform the entry after
+          // dependency re-optimization, and the init code must be re-injected.
+          const envKey = this.environment?.name ?? '__ssr__';
+          if (!isDevEnv && injectedSsrEnvironments.has(envKey)) {
+            debug(`skipping duplicate SSR injection for env "${envKey}"`);
           } else {
-            if (ssrInjectMode === 'resolved-env') {
-              injectCode.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
-            }
+            injectedSsrEnvironments.add(envKey);
 
-            // inject custom entry code from integrations
-            if (vitePluginOptions?.ssrEntryCode?.length) {
-              injectCode.push(...vitePluginOptions.ssrEntryCode);
-            }
+            const ssrInjectMode = vitePluginOptions?.ssrInjectMode ?? 'init-only';
+            const isEdgeRuntime = vitePluginOptions?.ssrEdgeRuntime ?? false;
 
-            // TODO: we may want to move this to a single module we import
-            injectCode.push(
-              "import { initVarlockEnv } from 'varlock/env';",
-              "import { patchGlobalConsole } from 'varlock/patch-console';",
-              "import { patchGlobalResponse } from 'varlock/patch-response';",
-            );
-            // edge runtimes don't have node:http ServerResponse
-            if (!isEdgeRuntime) {
+            debug('ssrInjectMode =', ssrInjectMode, 'isDev =', isDevEnv);
+            if (ssrInjectMode === 'auto-load') {
               injectCode.push(
-                "import { patchGlobalServerResponse } from 'varlock/patch-server-response';",
+                "import 'varlock/auto-load';",
               );
+            } else {
+              if (ssrInjectMode === 'resolved-env') {
+                injectCode.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
+              }
+
+              // inject custom entry code from integrations
+              if (vitePluginOptions?.ssrEntryCode?.length) {
+                injectCode.push(...vitePluginOptions.ssrEntryCode);
+              }
+
+              // TODO: we may want to move this to a single module we import
+              injectCode.push(
+                "import { initVarlockEnv } from 'varlock/env';",
+                "import { patchGlobalConsole } from 'varlock/patch-console';",
+                "import { patchGlobalResponse } from 'varlock/patch-response';",
+              );
+              // edge runtimes don't have node:http ServerResponse
+              if (!isEdgeRuntime) {
+                injectCode.push(
+                  "import { patchGlobalServerResponse } from 'varlock/patch-server-response';",
+                );
+              }
+              injectCode.push(
+                'initVarlockEnv();',
+                'patchGlobalConsole();',
+              );
+              if (!isEdgeRuntime) {
+                injectCode.push('patchGlobalServerResponse();');
+              }
+              injectCode.push('patchGlobalResponse();');
             }
-            injectCode.push(
-              'initVarlockEnv();',
-              'patchGlobalConsole();',
-            );
-            if (!isEdgeRuntime) {
-              injectCode.push('patchGlobalServerResponse();');
-            }
-            injectCode.push('patchGlobalResponse();');
           }
 
         // this build is for the client

@@ -14,6 +14,7 @@
     "test:expo": "vitest run frameworks/expo",
     "test:nextjs": "vitest run frameworks/nextjs",
     "test:vanilla-node": "vitest run frameworks/vanilla-node",
+    "test:tanstack-start": "vitest run frameworks/tanstack-start",
     "test:vite": "vitest run frameworks/vite"
   },
   "devDependencies": {

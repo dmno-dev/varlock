@@ -9,6 +9,7 @@ const PACKAGE_NAMES = [
   '@varlock/nextjs-integration',
   '@varlock/astro-integration',
   '@varlock/vite-integration',
+  '@varlock/cloudflare-integration',
   '@varlock/expo-integration',
 ];
 
