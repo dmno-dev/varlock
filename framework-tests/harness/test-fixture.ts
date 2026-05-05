@@ -193,7 +193,7 @@ export class FrameworkTestEnv {
     });
 
     if (!installResult.success) {
-      console.error(`[${this.label}] Install failed:\n${installResult.stderr}`);
+      console.error(`[${this.label}] Install failed (exit code ${installResult.exitCode}):\n${installResult.stderr || installResult.stdout || '(no output)'}`);
       throw new Error(`Dependency installation failed for fixture "${this.label}"`);
     }
     console.log(`[${this.label}] Dependencies installed successfully`);
