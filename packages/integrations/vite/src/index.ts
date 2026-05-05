@@ -113,18 +113,6 @@ export interface VarlockVitePluginOptions {
 // is loosely typed, this is functionally equivalent.
 const VARLOCK_INIT_MODULE_ID = '\0varlock-ssr-init';
 
-// Packages to exclude from Vite's dep optimizer — `varlock/env` is a runtime
-// proxy that breaks if pre-bundled by esbuild/rolldown.
-const VARLOCK_OPTIMIZE_DEPS_EXCLUDE = ['varlock', 'varlock/env', 'varlock/patch-console', 'varlock/patch-response'];
-
-function addVarlockOptimizeDepsExclude(config: any) {
-  config.optimizeDeps ??= {};
-  config.optimizeDeps.exclude = [
-    ...config.optimizeDeps.exclude ?? [],
-    ...VARLOCK_OPTIMIZE_DEPS_EXCLUDE,
-  ];
-}
-
 export function varlockVitePlugin(
   vitePluginOptions?: VarlockVitePluginOptions,
 ): any {
@@ -234,12 +222,6 @@ See https://varlock.dev/integrations/vite/ for more details.
 
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
 
-      // Exclude varlock from dep optimization (Vite 5 top-level config).
-      // Vite 6+ environments are handled by configEnvironment / configResolved below.
-      addVarlockOptimizeDepsExclude(config);
-      config.ssr ??= {};
-      addVarlockOptimizeDepsExclude(config.ssr);
-
       if (!configIsValid) {
         if (isDevCommand) {
           // adjust vite's setting so it doesnt bury the error messages
@@ -261,26 +243,9 @@ See https://varlock.dev/integrations/vite/ for more details.
         }
       }
     },
-    // Vite 7+ hook: runs for each environment (client, ssr, worker, etc.)
-    configEnvironment(_name: string, envConfig: any) {
-      addVarlockOptimizeDepsExclude(envConfig);
-      envConfig.dev ??= {};
-      addVarlockOptimizeDepsExclude(envConfig.dev);
-    },
     // hook to observe/modify config after it is resolved
     configResolved(config) {
       debug('vite plugin - configResolved fn called');
-
-      // Patch per-environment optimizeDeps for Vite 6 (which lacks the
-      // `configEnvironment` hook). The resolved config is technically frozen,
-      // but `optimizeDeps` objects within environments are still mutable.
-      if ((config as any).environments) {
-        for (const envName of Object.keys((config as any).environments)) {
-          const envConf = (config as any).environments[envName];
-          if (envConf?.dev?.optimizeDeps) addVarlockOptimizeDepsExclude(envConf.dev);
-          if (envConf?.optimizeDeps) addVarlockOptimizeDepsExclude(envConf);
-        }
-      }
 
       if (!varlockLoadedEnv) return;
       // inject all .env files that varlock loaded into `configFileDependencies`
