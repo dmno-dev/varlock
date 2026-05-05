@@ -116,10 +116,6 @@ const VARLOCK_INIT_MODULE_ID = '\0varlock-ssr-init';
 export function varlockVitePlugin(
   vitePluginOptions?: VarlockVitePluginOptions,
 ): any {
-  // tracks which SSR environments have already had init code injected
-  // to prevent duplicate injection when multiple modules are detected as entries
-  const injectedSsrEnvironments = new Set<string>();
-
   // Build the virtual init module content once. This module is imported
   // by SSR entry points and evaluates before any user code because it
   // has no transitive dependencies on user modules.
@@ -168,10 +164,6 @@ export function varlockVitePlugin(
   return {
     name: 'inject-varlock-config',
     enforce: 'post',
-
-    buildStart() {
-      injectedSsrEnvironments.clear();
-    },
 
     resolveId(id) {
       if (id === VARLOCK_INIT_MODULE_ID) return id;
@@ -398,17 +390,10 @@ See https://varlock.dev/integrations/vite/ for more details.
           // SSR entry: import the virtual init module. Because this module
           // has no transitive deps on user code, the bundler evaluates it
           // first — ensuring initVarlockEnv() runs before any user modules.
-          // In build mode, dedup across environments to prevent double injection
-          // when multiple modules match as entries (e.g. TanStack + CF).
-          // In dev mode, skip dedup — Vite may re-transform after dep re-optimization.
-          const envKey = this.environment?.name ?? '__ssr__';
-          if (!isDevEnv && injectedSsrEnvironments.has(envKey)) {
-            debug(`skipping duplicate SSR injection for env "${envKey}"`);
-          } else {
-            injectedSsrEnvironments.add(envKey);
-            debug('ssrInjectMode =', vitePluginOptions?.ssrInjectMode ?? 'init-only', 'isDev =', isDevEnv);
-            injectCode.push(`import '${VARLOCK_INIT_MODULE_ID}';`);
-          }
+          // Multiple entries importing the same virtual module is harmless —
+          // ES modules evaluate only once.
+          debug('ssrInjectMode =', vitePluginOptions?.ssrInjectMode ?? 'init-only', 'isDev =', isDevEnv);
+          injectCode.push(`import '${VARLOCK_INIT_MODULE_ID}';`);
         } else {
           // Client entry
           injectCode.push('globalThis.__varlockThrowOnMissingKeys = true;');
