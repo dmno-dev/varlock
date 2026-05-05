@@ -250,6 +250,7 @@ export function defineAstroTests(astroVersion: number, testDir: string) {
               shouldContain: [
                 'public_var::public-var-value',
                 'has_secret::yes',
+                'toplevel_has_secret::yes',
               ],
               shouldNotContain: ['super-secret-value'],
             },
