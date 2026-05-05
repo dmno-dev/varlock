@@ -344,15 +344,12 @@ See https://varlock.dev/integrations/vite/ for more details.
       // replace build-time ENV.x references
       let magicString = replacerFn(this, code, id);
 
-      // we need to detect if this module is one of our worker entry points
-      // when running `vite build`, we could use `this.getModuleInfo(id).isEntry`
-      // but that doesnt work in dev, so we try to detect it another way
+      // Detect if this module is an entry point so we can inject varlock init.
+      // For regular files: try isEntry (build mode), fall back to moduleIds[0] (dev).
+      // For virtual modules: check ssrEntryModuleIds from integrations (e.g. CF plugin).
       const fileExt = id.split('?')[0].split('#')[0].split('.').pop() || '';
       let isEntry = false;
       if (SUPPORTED_FILES.includes(fileExt)) {
-        // In build mode, getModuleInfo(id).isEntry is reliable.
-        // In dev mode it's not supported (vite 6 throws, others return undefined),
-        // so fall back to checking if this is the first module in the graph.
         try {
           const moduleInfo = this.getModuleInfo(id);
           if (moduleInfo?.isEntry) isEntry = true;
@@ -364,42 +361,26 @@ See https://varlock.dev/integrations/vite/ for more details.
           if (moduleIds[0] === id) isEntry = true;
         }
       }
-
-      // allow integrations to register additional virtual module IDs as entry points
       if (vitePluginOptions?.ssrEntryModuleIds?.includes(id)) isEntry = true;
 
       if (isEntry) {
         debug(`detected entry: ${id}`);
-        // using env.command (in config hook) is misleading
-        // because some frameworks (react router) boot dev servers during the build process
-        // even during the build, there are multiple environments
-        // but at least this seems to work for our needs
-        let isDevEnv = false;
-
-        // ! environments are only supported in vite 6+
-        // so we try to make sure it still works in vite 5 too
-        if (this.environment) {
-          isDevEnv = this.environment.mode === 'dev';
-        } else {
-          isDevEnv = isDevCommand;
-        }
 
         const injectCode = ['// INJECTED BY @varlock/vite-integration ----'];
 
         if (options?.ssr) {
-          // SSR entry: import the virtual init module. Because this module
-          // has no transitive deps on user code, the bundler evaluates it
-          // first — ensuring initVarlockEnv() runs before any user modules.
-          // Multiple entries importing the same virtual module is harmless —
-          // ES modules evaluate only once.
-          debug('ssrInjectMode =', vitePluginOptions?.ssrInjectMode ?? 'init-only', 'isDev =', isDevEnv);
+          // SSR entry: import the virtual init module. It has no transitive deps
+          // on user code so the bundler evaluates it first — ensuring
+          // initVarlockEnv() runs before any user modules.
           injectCode.push(`import '${VARLOCK_INIT_MODULE_ID}';`);
         } else {
           // Client entry
           injectCode.push('globalThis.__varlockThrowOnMissingKeys = true;');
+          // Detect dev vs build for client-side dev helpers.
+          // Use the environment API (vite 6+), falling back to command check (vite 5).
+          const isDevEnv = this.environment ? this.environment.mode === 'dev' : isDevCommand;
           if (isDevEnv) {
             injectCode.push(
-              '// NOTE - __varlockValidKeys is only injected during development',
               `globalThis.__varlockValidKeys = ${JSON.stringify(Object.keys(varlockLoadedEnv?.config || {}))};`,
             );
           }
