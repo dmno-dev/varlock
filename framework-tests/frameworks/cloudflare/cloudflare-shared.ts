@@ -61,6 +61,9 @@ export function defineCloudflareTests(
               'api_url::https://api.example.com',
               // varlock ENV proxy - sensitive (accessible but value not leaked)
               'has_sensitive::yes',
+              // top-level ENV access (module evaluation time, not per-request)
+              'toplevel_api_url::https://api.example.com',
+              'toplevel_has_secret::yes',
               // cloudflare native env access
               'native_public_var::public-test-value',
               'native_has_secret::yes',
@@ -151,6 +154,8 @@ export function defineCloudflareTests(
               'public_var::public-test-value',
               'api_url::https://api.example.com',
               'has_sensitive::yes',
+              'toplevel_api_url::https://api.example.com',
+              'toplevel_has_secret::yes',
             ],
             shouldNotContain: ['super-secret-value'],
           },
