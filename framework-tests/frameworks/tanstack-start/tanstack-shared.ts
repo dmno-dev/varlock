@@ -114,6 +114,33 @@ export function defineTanstackTests(
         },
       ],
     });
+
+    // Top-level ENV access — verifies initVarlockEnv runs before
+    // application modules so ENV.x works outside handlers/async fns.
+    nodeEnv.describeDevScenario('top-level ENV access (build + preview)', {
+      command: 'vite build && vite preview --port 15194',
+      readyPattern: /Local:.*http/,
+      readyTimeout: 60_000,
+      timeout: 120_000,
+      templateFiles: {
+        'vite.config.ts': 'configs/vite.config.node.ts',
+        'src/routes/index.tsx': 'routes/index-toplevel.tsx',
+        'src/router.tsx': 'routes/router-toplevel.tsx',
+      },
+      requests: [
+        {
+          path: '/',
+          bodyAssertions: {
+            shouldContain: [
+              'public_var::public-test-value',
+              'api_url::https://api.example.com',
+              'has_sensitive::yes',
+            ],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+    });
   });
 
   // ---- Cloudflare target --------------------------------------------------
@@ -207,6 +234,34 @@ export function defineTanstackTests(
       templateFiles: {
         'vite.config.ts': 'configs/vite.config.cloudflare.ts',
         'wrangler.jsonc': 'configs/wrangler.jsonc',
+      },
+      requests: [
+        {
+          path: '/',
+          bodyAssertions: {
+            shouldContain: [
+              'public_var::public-test-value',
+              'api_url::https://api.example.com',
+              'has_sensitive::yes',
+            ],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+    });
+
+    // Top-level ENV access — verifies initVarlockEnv runs before
+    // application modules so ENV.x works outside handlers/async fns.
+    cfEnv.describeDevScenario('top-level ENV access (build + preview)', {
+      command: 'vite build && vite preview --port 15195',
+      readyPattern: /Local:.*http/,
+      readyTimeout: 60_000,
+      timeout: 120_000,
+      templateFiles: {
+        'vite.config.ts': 'configs/vite.config.cloudflare.ts',
+        'wrangler.jsonc': 'configs/wrangler.jsonc',
+        'src/routes/index.tsx': 'routes/index-toplevel.tsx',
+        'src/router.tsx': 'routes/router-toplevel.tsx',
       },
       requests: [
         {
