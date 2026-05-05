@@ -113,6 +113,18 @@ export interface VarlockVitePluginOptions {
 // is loosely typed, this is functionally equivalent.
 const VARLOCK_INIT_MODULE_ID = '\0varlock-ssr-init';
 
+// Packages to exclude from Vite's dep optimizer — `varlock/env` is a runtime
+// proxy that breaks if pre-bundled by esbuild/rolldown.
+const VARLOCK_OPTIMIZE_DEPS_EXCLUDE = ['varlock', 'varlock/env', 'varlock/patch-console', 'varlock/patch-response'];
+
+function addVarlockOptimizeDepsExclude(config: any) {
+  config.optimizeDeps ??= {};
+  config.optimizeDeps.exclude = [
+    ...config.optimizeDeps.exclude ?? [],
+    ...VARLOCK_OPTIMIZE_DEPS_EXCLUDE,
+  ];
+}
+
 export function varlockVitePlugin(
   vitePluginOptions?: VarlockVitePluginOptions,
 ): any {
@@ -222,26 +234,11 @@ See https://varlock.dev/integrations/vite/ for more details.
 
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
 
-      // Exclude varlock from dep optimization.
-      // `varlock/env` is a runtime proxy that breaks if pre-bundled by
-      // esbuild/rolldown — especially in Cloudflare worker environments
-      // where the optimizer runs separately and can lose the pre-bundled
-      // file after re-optimization cycles.
-      const varlockExclude = ['varlock', 'varlock/env', 'varlock/patch-console', 'varlock/patch-response'];
-      config.optimizeDeps ??= {};
-      config.optimizeDeps.exclude = [
-        ...config.optimizeDeps.exclude ?? [],
-        ...varlockExclude,
-      ];
+      // Exclude varlock from dep optimization (Vite 5 top-level config).
+      // Vite 6+ environments are handled by configEnvironment / configResolved below.
+      addVarlockOptimizeDepsExclude(config);
       config.ssr ??= {};
-      config.ssr.optimizeDeps ??= {};
-      config.ssr.optimizeDeps.exclude = [
-        ...config.ssr.optimizeDeps.exclude ?? [],
-        ...varlockExclude,
-      ];
-      // For Vite 7+, per-environment excludes are handled by the
-      // `configEnvironment` hook below. For Vite 6, `configResolved`
-      // patches all resolved environments.
+      addVarlockOptimizeDepsExclude(config.ssr);
 
       if (!configIsValid) {
         if (isDevCommand) {
@@ -264,49 +261,24 @@ See https://varlock.dev/integrations/vite/ for more details.
         }
       }
     },
-    // Vite 6+ hook: runs for each environment (client, ssr, worker, etc.)
-    // Ensures varlock is excluded from dep optimization in every environment,
-    // including Cloudflare worker environments created by @cloudflare/vite-plugin.
+    // Vite 7+ hook: runs for each environment (client, ssr, worker, etc.)
     configEnvironment(_name: string, envConfig: any) {
-      const varlockExclude = ['varlock', 'varlock/env', 'varlock/patch-console', 'varlock/patch-response'];
+      addVarlockOptimizeDepsExclude(envConfig);
       envConfig.dev ??= {};
-      envConfig.dev.optimizeDeps ??= {};
-      envConfig.dev.optimizeDeps.exclude = [
-        ...envConfig.dev.optimizeDeps.exclude ?? [],
-        ...varlockExclude,
-      ];
-      // Also set at the environment level (Vite 6 uses this path)
-      envConfig.optimizeDeps ??= {};
-      envConfig.optimizeDeps.exclude = [
-        ...envConfig.optimizeDeps.exclude ?? [],
-        ...varlockExclude,
-      ];
+      addVarlockOptimizeDepsExclude(envConfig.dev);
     },
     // hook to observe/modify config after it is resolved
     configResolved(config) {
       debug('vite plugin - configResolved fn called');
 
-      // Patch per-environment optimizeDeps for Vite 6 (which lacks
-      // the `configEnvironment` hook). By this point all plugins have
-      // registered their environments, so we can patch them all.
-      // The resolved config is technically frozen, but `optimizeDeps`
-      // objects within environments are still mutable in practice.
-      const varlockExclude = ['varlock', 'varlock/env', 'varlock/patch-console', 'varlock/patch-response'];
+      // Patch per-environment optimizeDeps for Vite 6 (which lacks the
+      // `configEnvironment` hook). The resolved config is technically frozen,
+      // but `optimizeDeps` objects within environments are still mutable.
       if ((config as any).environments) {
         for (const envName of Object.keys((config as any).environments)) {
           const envConf = (config as any).environments[envName];
-          if (envConf?.dev?.optimizeDeps) {
-            envConf.dev.optimizeDeps.exclude = [
-              ...envConf.dev.optimizeDeps.exclude ?? [],
-              ...varlockExclude,
-            ];
-          }
-          if (envConf?.optimizeDeps) {
-            envConf.optimizeDeps.exclude = [
-              ...envConf.optimizeDeps.exclude ?? [],
-              ...varlockExclude,
-            ];
-          }
+          if (envConf?.dev?.optimizeDeps) addVarlockOptimizeDepsExclude(envConf.dev);
+          if (envConf?.optimizeDeps) addVarlockOptimizeDepsExclude(envConf);
         }
       }
 
