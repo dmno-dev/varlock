@@ -2,7 +2,7 @@ import { type Resolver, plugin } from 'varlock/plugin-lib';
 
 import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import { Client, createClient } from '@1password/sdk';
-import { opCliRead, opCliEnvironmentRead, enableCliServiceAccountAuth } from './cli-helper';
+import { opCliRead, opCliEnvironmentRead } from './cli-helper';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
@@ -124,7 +124,6 @@ class OpPluginInstance {
     if (connectHost && typeof connectHost === 'string') this.connectHost = connectHost.replace(/\/+$/, '');
     if (connectToken && typeof connectToken === 'string') this.connectToken = connectToken;
     if (allowMissing !== undefined) this.allowMissing = allowMissing;
-    if (useCliWithServiceAccount) enableCliServiceAccountAuth();
     debug('op instance', this.id, ' set auth - ', token, allowAppAuth, account, 'connect:', !!connectHost, 'useCliWithServiceAccount:', useCliWithServiceAccount);
   }
 
@@ -284,7 +283,7 @@ class OpPluginInstance {
     } else if (this.token && this.useCliWithServiceAccount) {
       // user wants to use the `op` CLI with service account token instead of the WASM SDK
       // NOTE - cli helper does its own batching, untethered to a specific op instance
-      return await opCliRead(opReference, this.account);
+      return await opCliRead(opReference, this.account, this.token);
     } else if (this.token) {
       // using JS SDK client using service account token
       await this.initSdkClient();
@@ -325,7 +324,7 @@ class OpPluginInstance {
       });
     } else if (this.token && this.useCliWithServiceAccount) {
       // user wants to use the `op` CLI with service account token instead of the WASM SDK
-      const cliResult = await opCliEnvironmentRead(environmentId, this.account);
+      const cliResult = await opCliEnvironmentRead(environmentId, this.account, this.token);
       return parseOpEnvOutput(cliResult);
     } else if (this.token) {
       // Use SDK - supports environments since v0.4.1-beta.1

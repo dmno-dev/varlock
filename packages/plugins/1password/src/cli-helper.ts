@@ -34,6 +34,9 @@ function pickProxyEnv(): Record<string, string> {
 // but we'll likely want to support multiple accounts in the future
 // note that the SDK does not currently support this - but service accounts are already limited to an account
 let lockCliToOpAccount: string | undefined;
+// service account token to forward to `op` subprocesses when useCliWithServiceAccount=true
+// stored at module level (mirroring lockCliToOpAccount) since CLI batching is a module-level singleton
+let cliServiceAccountToken: string | undefined;
 
 /*
   ! IMPORTANT INFO ON CLI AUTH
@@ -53,20 +56,6 @@ let lockCliToOpAccount: string | undefined;
 // use a singleton within the module to track op cli auth state as a mutex / deferred promise
 let opAuthDeferred: DeferredPromise<boolean> | undefined;
 
-/**
- * When true, OP_SERVICE_ACCOUNT_TOKEN is forwarded to `op` subprocesses.
- * Set via enableCliServiceAccountAuth() when useCliWithServiceAccount=true.
- */
-let passServiceAccountTokenToCli = false;
-
-/**
- * Enable forwarding of OP_SERVICE_ACCOUNT_TOKEN to `op` subprocesses.
- * Call this when the user opts into CLI-based auth using a service account token.
- */
-export function enableCliServiceAccountAuth() {
-  passServiceAccountTokenToCli = true;
-}
-
 /** Called after each `op` invocation so parallel waiters can proceed; no-op when this caller only waited on the mutex. */
 type OpAuthCompletedFn = (success: boolean) => void;
 
@@ -83,7 +72,7 @@ async function checkOpCliAuth(): Promise<OpAuthCompletedFn> {
 }
 
 
-export async function execOpCliCommand(cmdArgs: Array<string>) {
+export async function execOpCliCommand(cmdArgs: Array<string>, serviceAccountToken?: string) {
   // very simple in-memory cache, will persist between runs in watch mode
   // but need to think through how a user can opt out
   // and interact with this cache from the web UI when we add it for the regular cache
@@ -101,11 +90,11 @@ export async function execOpCliCommand(cmdArgs: Array<string>) {
     debug('op cli command args', cmdArgs);
     // strip OP_SERVICE_ACCOUNT_TOKEN from env so the CLI doesn't auto-detect it
     // when the user hasn't explicitly wired it into their schema.
-    // When useCliWithServiceAccount is enabled we keep it so `op` can authenticate.
+    // When useCliWithServiceAccount is enabled the caller passes the token explicitly.
     const { OP_SERVICE_ACCOUNT_TOKEN: _, ...cleanEnv } = process.env;
     const cliResult = await spawnAsync('op', cmdArgs, {
-      env: passServiceAccountTokenToCli && process.env.OP_SERVICE_ACCOUNT_TOKEN
-        ? { ...cleanEnv, OP_SERVICE_ACCOUNT_TOKEN: process.env.OP_SERVICE_ACCOUNT_TOKEN }
+      env: serviceAccountToken
+        ? { ...cleanEnv, OP_SERVICE_ACCOUNT_TOKEN: serviceAccountToken }
         : cleanEnv,
     });
     authCompletedFn?.(true);
@@ -249,10 +238,8 @@ async function executeReadBatch(batchToExecute: NonNullable<typeof opReadBatch>)
       ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
       // proxy env vars so `op` can connect through HTTP/SOCKS proxies
       ...pickProxyEnv(),
-      // forward service account token when the user has opted into CLI-based service account auth
-      ...passServiceAccountTokenToCli && process.env.OP_SERVICE_ACCOUNT_TOKEN && {
-        OP_SERVICE_ACCOUNT_TOKEN: process.env.OP_SERVICE_ACCOUNT_TOKEN,
-      },
+      // forward service account token when the instance opted into CLI-based service account auth
+      ...cliServiceAccountToken && { OP_SERVICE_ACCOUNT_TOKEN: cliServiceAccountToken },
       // this setting actually just enables the CLI + Desktop App integration
       // which in some cases op has a hard time detecting via app setting
       OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
@@ -339,8 +326,9 @@ async function executeReadBatch(batchToExecute: NonNullable<typeof opReadBatch>)
  * reads a single value from 1Password by reference (similar to `op read`)
  * but internally batches requests and uses `op run`
  * */
-export async function opCliRead(opReference: string, account?: string) {
+export async function opCliRead(opReference: string, account?: string, serviceAccountToken?: string) {
   lockCliToOpAccount ||= account;
+  cliServiceAccountToken ||= serviceAccountToken;
   if (account && lockCliToOpAccount !== account) {
     throw new ResolutionError('Cannot use multiple different 1Password accounts when using CLI auth with batching enabled', {
       tip: [
@@ -383,7 +371,7 @@ export async function opCliRead(opReference: string, account?: string) {
       '--no-newline',
       ...(lockCliToOpAccount ? ['--account', lockCliToOpAccount] : []),
       opReference,
-    ]);
+    ], cliServiceAccountToken);
     return result;
   }
 }
@@ -391,13 +379,14 @@ export async function opCliRead(opReference: string, account?: string) {
 export async function opCliEnvironmentRead(
   environmentId: string,
   account?: string,
+  serviceAccountToken?: string,
 ): Promise<string> {
   const result = await execOpCliCommand([
     'environment',
     'read',
     environmentId,
     ...(account ? ['--account', account] : []),
-  ]);
+  ], serviceAccountToken);
   return result;
 }
 
