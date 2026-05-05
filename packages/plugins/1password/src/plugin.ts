@@ -617,7 +617,7 @@ class OpPluginInstance {
         }
         // add item to batch, with deferred promise
         this.readBatch[opReference] ||= { defers: [] };
-        const deferred = createDeferredPromise();
+        const deferred = createDeferredPromise<string>();
         this.readBatch[opReference].defers.push(deferred);
         if (triggerBatch) {
           setImmediate(() => this.executeReadBatch());
