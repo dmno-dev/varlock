@@ -151,6 +151,10 @@ For SvelteKit on Cloudflare, use the dedicated [`varlockSvelteKitCloudflarePlugi
 
 </Steps>
 
+:::caution[Remove `.dev.vars`]
+If you have a `.dev.vars` file in your project root, **delete it**. Varlock manages env injection automatically — a `.dev.vars` file will conflict and the plugin will throw an error. This also applies to `.dev.vars.<environment>` files.
+:::
+
 ### How it works
 
 - **In dev**: Resolved vars are automatically injected into miniflare's bindings.

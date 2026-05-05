@@ -15,6 +15,9 @@ export function runCommand(
     const child = spawn(command, {
       cwd,
       shell: true,
+      // Ignore stdin so commands that prompt for input get EOF immediately
+      // instead of hanging (e.g. wrangler telemetry consent).
+      stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
         // Disable corepack so it doesn't reject pnpm/npm when the repo root

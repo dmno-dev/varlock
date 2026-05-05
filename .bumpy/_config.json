@@ -12,6 +12,12 @@
       "skipNpmPublish": true,
       "buildCommand": "bun run package",
       "publishCommand": "bun run publish:vsce && bun run publish:ovsx"
+    },
+    "@varlock/astro-integration": {
+      "cascadeFrom": ["@varlock/vite-integration"]
+    },
+    "@varlock/cloudflare-integration": {
+      "cascadeFrom": ["@varlock/vite-integration"]
     }
   }
 }
