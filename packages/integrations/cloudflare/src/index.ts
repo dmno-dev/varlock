@@ -156,6 +156,10 @@ function serveFifoOrFile(filePath: string, content: string) {
  * `@cloudflare/vite-plugin` (which doesn't support SvelteKit) and uses an
  * SSR-entry-based env loader.
  *
+ * **Important:** Do not use a `.dev.vars` file alongside this plugin — varlock
+ * handles env injection automatically. The plugin will throw an error if a
+ * `.dev.vars` file is detected in your project root or build output.
+ *
  * @example
  * ```ts
  * import { varlockCloudflareVitePlugin } from '@varlock/cloudflare-integration';
@@ -202,8 +206,18 @@ export function varlockCloudflareVitePlugin(
   const modeDetector: import('vite').Plugin = {
     name: 'varlock-cloudflare-mode',
     enforce: 'pre',
-    config(_config, env) {
+    config(config, env) {
       isDevMode = env.command === 'serve';
+
+      // Error if a .dev.vars file exists — it conflicts with varlock's env management.
+      const root = config.root ? path.resolve(config.root) : process.cwd();
+      const devVarsPath = path.resolve(root, '.dev.vars');
+      if (existsSync(devVarsPath)) {
+        throw new Error(
+          '[varlock] A .dev.vars file was found in your project root, which conflicts with varlock\'s env management.\n'
+          + 'Remove the .dev.vars file — varlock handles env injection automatically.',
+        );
+      }
     },
   };
 
@@ -275,9 +289,10 @@ export function varlockCloudflareVitePlugin(
       if (!devVarsPath) return;
 
       if (existsSync(devVarsPath)) {
-        // A .dev.vars was already emitted by the CF plugin during build
-        // (copied from the project root). Skip our injection.
-        return;
+        throw new Error(
+          '[varlock] A .dev.vars file was found in the build output, which conflicts with varlock\'s env management.\n'
+          + 'Remove your project-root .dev.vars file — varlock handles env injection automatically.',
+        );
       }
 
       // Build dotenv-format content from the already-loaded env graph.
