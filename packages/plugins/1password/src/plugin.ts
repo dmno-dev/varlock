@@ -2,7 +2,7 @@ import { type Resolver, plugin } from 'varlock/plugin-lib';
 
 import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import { Client, createClient } from '@1password/sdk';
-import { opCliRead, opCliEnvironmentRead } from './cli-helper';
+import { opCliRead, opCliEnvironmentRead, enableCliServiceAccountAuth } from './cli-helper';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
@@ -91,6 +91,11 @@ class OpPluginInstance {
    * (will not be set to true if a token is provided)
    * */
   private allowAppAuth?: boolean;
+  /**
+   * if true, use the `op` CLI with the service account token instead of the WASM SDK.
+   * Useful in memory-constrained environments where the SDK is too heavy.
+   * */
+  private useCliWithServiceAccount?: boolean;
   /** URL of a 1Password Connect server */
   private connectHost?: string;
   /** API token for authenticating with the Connect server */
@@ -110,14 +115,17 @@ class OpPluginInstance {
     connectHost?: string,
     connectToken?: string,
     allowMissing?: boolean,
+    useCliWithServiceAccount?: boolean,
   ) {
     if (token && typeof token === 'string') this.token = token;
     this.allowAppAuth = allowAppAuth;
+    this.useCliWithServiceAccount = useCliWithServiceAccount;
     this.account = account;
     if (connectHost && typeof connectHost === 'string') this.connectHost = connectHost.replace(/\/+$/, '');
     if (connectToken && typeof connectToken === 'string') this.connectToken = connectToken;
     if (allowMissing !== undefined) this.allowMissing = allowMissing;
-    debug('op instance', this.id, ' set auth - ', token, allowAppAuth, account, 'connect:', !!connectHost);
+    if (useCliWithServiceAccount) enableCliServiceAccountAuth();
+    debug('op instance', this.id, ' set auth - ', token, allowAppAuth, account, 'connect:', !!connectHost, 'useCliWithServiceAccount:', useCliWithServiceAccount);
   }
 
   /** Whether this instance is configured for Connect server */
@@ -273,6 +281,10 @@ class OpPluginInstance {
   async readItem(opReference: string) {
     if (this.isConnect) {
       return await this.readItemViaConnect(opReference);
+    } else if (this.token && this.useCliWithServiceAccount) {
+      // user wants to use the `op` CLI with service account token instead of the WASM SDK
+      // NOTE - cli helper does its own batching, untethered to a specific op instance
+      return await opCliRead(opReference, this.account);
     } else if (this.token) {
       // using JS SDK client using service account token
       await this.initSdkClient();
@@ -311,6 +323,10 @@ class OpPluginInstance {
           'Use a service account token or desktop app auth instead, or use op() to read individual items.',
         ],
       });
+    } else if (this.token && this.useCliWithServiceAccount) {
+      // user wants to use the `op` CLI with service account token instead of the WASM SDK
+      const cliResult = await opCliEnvironmentRead(environmentId, this.account);
+      return parseOpEnvOutput(cliResult);
     } else if (this.token) {
       // Use SDK - supports environments since v0.4.1-beta.1
       await this.initSdkClient();
@@ -454,10 +470,12 @@ plugin.registerRootDecorator({
       tokenResolver: objArgs.token,
       allowAppAuthResolver: objArgs.allowAppAuth,
       connectTokenResolver: objArgs.connectToken,
+      useCliWithServiceAccountResolver: objArgs.useCliWithServiceAccount,
     };
   },
   async execute({
-    id, account, connectHost, allowMissingResolver, tokenResolver, allowAppAuthResolver, connectTokenResolver,
+    id, account, connectHost, allowMissingResolver, tokenResolver,
+    allowAppAuthResolver, connectTokenResolver, useCliWithServiceAccountResolver,
   }) {
     // even if these are empty, we can't throw errors yet
     // in case the instance is never actually used
@@ -465,6 +483,7 @@ plugin.registerRootDecorator({
     const enableAppAuth = await allowAppAuthResolver?.resolve();
     const connectToken = await connectTokenResolver?.resolve();
     const allowMissing = await allowMissingResolver?.resolve();
+    const useCliWithServiceAccount = await useCliWithServiceAccountResolver?.resolve();
     pluginInstances[id].setAuth(
       token,
       !!enableAppAuth,
@@ -472,6 +491,7 @@ plugin.registerRootDecorator({
       connectHost,
       connectToken as string | undefined,
       allowMissing as boolean | undefined,
+      !!useCliWithServiceAccount,
     );
   },
 });

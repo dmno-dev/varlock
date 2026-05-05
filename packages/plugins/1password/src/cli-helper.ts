@@ -53,6 +53,20 @@ let lockCliToOpAccount: string | undefined;
 // use a singleton within the module to track op cli auth state as a mutex / deferred promise
 let opAuthDeferred: DeferredPromise<boolean> | undefined;
 
+/**
+ * When true, OP_SERVICE_ACCOUNT_TOKEN is forwarded to `op` subprocesses.
+ * Set via enableCliServiceAccountAuth() when useCliWithServiceAccount=true.
+ */
+let passServiceAccountTokenToCli = false;
+
+/**
+ * Enable forwarding of OP_SERVICE_ACCOUNT_TOKEN to `op` subprocesses.
+ * Call this when the user opts into CLI-based auth using a service account token.
+ */
+export function enableCliServiceAccountAuth() {
+  passServiceAccountTokenToCli = true;
+}
+
 /** Called after each `op` invocation so parallel waiters can proceed; no-op when this caller only waited on the mutex. */
 type OpAuthCompletedFn = (success: boolean) => void;
 
@@ -86,9 +100,14 @@ export async function execOpCliCommand(cmdArgs: Array<string>) {
     // uses system-installed copy of `op`
     debug('op cli command args', cmdArgs);
     // strip OP_SERVICE_ACCOUNT_TOKEN from env so the CLI doesn't auto-detect it
-    // when the user hasn't explicitly wired it into their schema
+    // when the user hasn't explicitly wired it into their schema.
+    // When useCliWithServiceAccount is enabled we keep it so `op` can authenticate.
     const { OP_SERVICE_ACCOUNT_TOKEN: _, ...cleanEnv } = process.env;
-    const cliResult = await spawnAsync('op', cmdArgs, { env: cleanEnv });
+    const cliResult = await spawnAsync('op', cmdArgs, {
+      env: passServiceAccountTokenToCli && process.env.OP_SERVICE_ACCOUNT_TOKEN
+        ? { ...cleanEnv, OP_SERVICE_ACCOUNT_TOKEN: process.env.OP_SERVICE_ACCOUNT_TOKEN }
+        : cleanEnv,
+    });
     authCompletedFn?.(true);
     debug(`> took ${+new Date() - +startAt}ms`);
     // OP_CLI_CACHE[cacheKey] = cliResult;
@@ -230,6 +249,10 @@ async function executeReadBatch(batchToExecute: NonNullable<typeof opReadBatch>)
       ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
       // proxy env vars so `op` can connect through HTTP/SOCKS proxies
       ...pickProxyEnv(),
+      // forward service account token when the user has opted into CLI-based service account auth
+      ...passServiceAccountTokenToCli && process.env.OP_SERVICE_ACCOUNT_TOKEN && {
+        OP_SERVICE_ACCOUNT_TOKEN: process.env.OP_SERVICE_ACCOUNT_TOKEN,
+      },
       // this setting actually just enables the CLI + Desktop App integration
       // which in some cases op has a hard time detecting via app setting
       OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
