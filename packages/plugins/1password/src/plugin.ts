@@ -180,7 +180,7 @@ class OpPluginInstance {
       // Wait for the in-flight first `op` call to finish (or an earlier batch to settle the mutex).
       await this.cliAuthDeferred.promise;
       // Mutex is already resolved — still return a callable so callers can always invoke authCompletedFn(success).
-      return (_success: boolean) => undefined;
+      return () => undefined;
     }
     // First caller creates the mutex and must call the returned fn when its `op` run completes.
     this.cliAuthDeferred = createDeferredPromise<boolean>();
@@ -313,7 +313,7 @@ class OpPluginInstance {
 
     if (shouldExecuteBatch) {
       setTimeout(async () => {
-        if (!this.cliBatch) throw Error('expected to find op read batch!');
+        if (!this.cliBatch) throw Error('Internal error: CLI batch was unexpectedly cleared before execution');
         const batchToExecute = this.cliBatch;
         this.cliBatch = undefined;
         await this.executeCliBatch(batchToExecute);
