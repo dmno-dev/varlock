@@ -56,7 +56,7 @@ jobs:
         run: bun install
 
       - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@v2.3.11
+        uses: rharkor/caching-for-turbo@v2.3.14
 
       - name: Build varlock and integrations
         run: bun run build:libs
@@ -142,7 +142,7 @@ jobs:
           node-version: ${{ matrix.node-version }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@v6
         with:
           version: 10
 

@@ -47,7 +47,7 @@ jobs:
         run: bun install
 
       - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@v2.3.11
+        uses: rharkor/caching-for-turbo@v2.3.14
 
       # Cache the Swift .build directory so compilation is fast on unchanged source
       - name: Compute Swift source hash
