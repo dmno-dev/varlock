@@ -8,6 +8,7 @@ import {
 } from './cli-helper';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
+const { debug } = plugin;
 
 const PLUGIN_VERSION = plugin.version;
 const OP_ICON = 'simple-icons:1password';
@@ -17,8 +18,165 @@ type OpAuthCompletedFn = (success: boolean) => void;
 
 const CLI_BATCH_READ_TIMEOUT = 50;
 
+/*
+  ! IMPORTANT INFO ON CLI APP AUTH
+
+  Because we trigger multiple requests in parallel, if the app/cli is not unlocked, it will show multiple auth popups.
+  In a big project this is super awkward because you may need to scan your finger over and over again.
+
+  To work around this, we track if we are currently making the first op cli command, and if so acquire a mutex in the form of
+  a deferred promise that other requests can then wait on. We also use the additional trick of checking `op whoami` so that
+  if the app is already unlocked, we dont have to actually wait for the first request to finish to proceed with the rest.
+
+  Ideally 1Password will fix this issue at some point and we can remove this extra logic.
+
+  NOTE - We don't currently do anything special to handle if the user denies the login, or is logged into the wrong account.
+
+  IMPORTANT: This shared state is intentional for the `allowAppAuth` path. When authenticating via the local 1Password
+  desktop app (not a service account), all plugin instances share the same local login context, so we must use a single
+  shared auth mutex to prevent duplicate auth prompts. Service account instances use per-instance state instead.
+*/
+
+// Module-level auth mutex shared across all allowAppAuth instances (same local `op` login context).
+let appAuthDeferred: DeferredPromise<boolean> | undefined;
+// Module-level read batch shared across all allowAppAuth instances.
+let appAuthBatch: Record<string, { deferredPromises: Array<DeferredPromise<string>> }> | undefined;
+// Locked account for the shared app auth path (all app-auth instances must use the same account).
+let lockCliToOpAccount: string | undefined;
+
+async function checkAppCliAuth(): Promise<OpAuthCompletedFn> {
+  if (appAuthDeferred) {
+    await appAuthDeferred.promise;
+    return () => undefined;
+  }
+  appAuthDeferred = createDeferredPromise<boolean>();
+  return appAuthDeferred.resolve;
+}
+
+async function executeAppCliBatch(batchToExecute: NonNullable<typeof appAuthBatch>) {
+  debug('execute op read batch (app auth)', Object.keys(batchToExecute));
+  const envMap = {} as Record<string, string>;
+  let i = 1;
+  Object.keys(batchToExecute).forEach((opReference) => {
+    envMap[`VARLOCK_1P_INJECT_${i++}`] = opReference;
+  });
+  const startAt = new Date();
+
+  const authCompletedFn = await checkAppCliAuth();
+  // `env -0` splits values by a null character instead of newlines
+  // because otherwise we'll have trouble dealing with values that contain newlines
+  await spawnAsync('op', `run --no-masking ${lockCliToOpAccount ? `--account ${lockCliToOpAccount} ` : ''}-- env -0`.split(' '), {
+    env: {
+      PATH: process.env.PATH!,
+      ...process.env.USER && { USER: process.env.USER },
+      ...process.env.HOME && { HOME: process.env.HOME },
+      ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
+      ...pickProxyEnv(),
+      OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
+      ...envMap,
+    },
+  })
+    .then((result) => {
+      authCompletedFn?.(true);
+      debug(`batched OP request took ${+new Date() - +startAt}ms`);
+
+      const lines = result.split('\0');
+      for (const line of lines) {
+        const eqPos = line.indexOf('=');
+        const key = line.substring(0, eqPos);
+        if (!envMap[key]) continue;
+        const val = line.substring(eqPos + 1);
+        const opRef = envMap[key];
+        batchToExecute[opRef].deferredPromises.forEach((p) => {
+          p.resolve(val);
+        });
+      }
+    })
+    .catch(async (err) => {
+      authCompletedFn?.(false);
+      const opErr = processOpCliError(err);
+      debug('batch failed', opErr);
+      if ((opErr as any).code === 'BAD_VAULT_REFERENCE') {
+        const badId = (opErr as any).extraMetadata.badVaultId;
+        for (const opRef in batchToExecute) {
+          if (opRef.startsWith(`op://${badId}/`)) {
+            batchToExecute[opRef].deferredPromises.forEach((p) => {
+              p.reject(opErr);
+            });
+            delete batchToExecute[opRef];
+          }
+        }
+      } else if ((opErr as any).code === 'BAD_ITEM_REFERENCE') {
+        const badId = (opErr as any).extraMetadata.badItemId;
+        for (const opRef in batchToExecute) {
+          if (opRef.split('/')?.[3] === badId) {
+            batchToExecute[opRef].deferredPromises.forEach((p) => {
+              p.reject(opErr);
+            });
+            delete batchToExecute[opRef];
+          }
+        }
+      } else if ((opErr as any).code === 'BAD_FIELD_REFERENCE') {
+        const badId = (opErr as any).extraMetadata.badFieldId;
+        for (const opRef in batchToExecute) {
+          if (opRef.split('/')?.slice(4).join('/') === badId) {
+            batchToExecute[opRef].deferredPromises.forEach((p) => {
+              p.reject(opErr);
+            });
+            delete batchToExecute[opRef];
+          }
+        }
+      } else {
+        for (const opRef in batchToExecute) {
+          batchToExecute[opRef].deferredPromises.forEach((p) => {
+            p.reject(opErr);
+          });
+          delete batchToExecute[opRef];
+        }
+      }
+      if (Object.keys(batchToExecute).length) {
+        debug('re-executing remainder of batch', Object.keys(batchToExecute));
+        await executeAppCliBatch(batchToExecute);
+      }
+    });
+}
+
+/**
+ * Reads a 1Password reference via the CLI + desktop app auth path.
+ * Uses a module-level shared batch and auth mutex since all allowAppAuth instances
+ * share the same local `op` login context.
+ */
+async function appAuthCliRead(opReference: string, account?: string): Promise<string> {
+  lockCliToOpAccount ||= account;
+  if (account && lockCliToOpAccount !== account) {
+    throw new ResolutionError('Cannot use multiple different 1Password accounts when using CLI auth with batching enabled', {
+      tip: [
+        'When using CLI auth with batching, all references must use the same 1Password account',
+        'Consider using service account tokens instead of CLI auth to allow multiple accounts',
+      ],
+    });
+  }
+
+  let shouldExecuteBatch = false;
+  if (!appAuthBatch) {
+    appAuthBatch = {};
+    shouldExecuteBatch = true;
+  }
+  appAuthBatch[opReference] ||= { deferredPromises: [] };
+  const deferred = createDeferredPromise<string>();
+  appAuthBatch[opReference].deferredPromises.push(deferred);
+  if (shouldExecuteBatch) {
+    setTimeout(async () => {
+      if (!appAuthBatch) throw Error('Internal error: app-auth CLI batch was unexpectedly cleared before execution');
+      const batchToExecute = appAuthBatch;
+      appAuthBatch = undefined;
+      await executeAppCliBatch(batchToExecute);
+    }, CLI_BATCH_READ_TIMEOUT);
+  }
+  return deferred.promise;
+}
+
 plugin.name = '1pass';
-const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = OP_ICON;
 plugin.standardVars = {
@@ -111,24 +269,9 @@ class OpPluginInstance {
   /** If true, missing items/fields/vaults return undefined instead of throwing */
   allowMissing?: boolean;
 
-  /*
-    ! IMPORTANT INFO ON CLI AUTH
-
-    Because we trigger multiple requests in parallel, if the app/cli is not unlocked, it will show multiple auth popups.
-    In a big project this is super awkward because you may need to scan your finger over and over again.
-
-    To work around this, we track if we are currently making the first op cli command, and if so acquire a mutex in the form of
-    a deferred promise that other requests can then wait on. We also use the additional trick of checking `op whoami` so that
-    if the app is already unlocked, we dont have to actually wait for the first request to finish to proceed with the rest.
-
-    Ideally 1Password will fix this issue at some point and we can remove this extra logic.
-
-    NOTE - We don't currently do anything special to handle if the user denies the login, or is logged into the wrong account.
-  */
-
-  /** Per-instance auth mutex to avoid multiple concurrent auth prompts from the op CLI. */
+  /** Per-instance auth mutex for the service-account CLI path (each token is an independent auth context). */
   private cliAuthDeferred?: DeferredPromise<boolean>;
-  /** Per-instance CLI read batch: maps op references to their pending deferred promises. */
+  /** Per-instance CLI read batch for the service-account CLI path. */
   private cliBatch?: Record<string, { deferredPromises: Array<DeferredPromise<string>> }>;
 
   constructor(
@@ -173,7 +316,7 @@ class OpPluginInstance {
 
   // ── Connect REST API helpers ──────────────────────────────
 
-  // ── CLI helpers (per-instance, no global side effects) ──────
+  // ── CLI helpers (per-instance, for service account path only) ──────
 
   private async checkCliAuth(): Promise<OpAuthCompletedFn> {
     if (this.cliAuthDeferred) {
@@ -187,7 +330,7 @@ class OpPluginInstance {
     return this.cliAuthDeferred.resolve;
   }
 
-  /** Executes the accumulated CLI read batch for this instance using `op run`. */
+  /** Executes the per-instance CLI read batch using `op run` with a service account token. */
   private async executeCliBatch(batchToExecute: NonNullable<typeof this.cliBatch>) {
     debug('execute op read batch', Object.keys(batchToExecute));
     const envMap = {} as Record<string, string>;
@@ -483,7 +626,8 @@ class OpPluginInstance {
       }
     } else if (this.allowAppAuth) {
       // using op CLI to talk to 1Password desktop app
-      return await this.cliRead(opReference);
+      // Uses shared module-level batch+mutex since all app-auth instances share the same local `op` login context.
+      return await appAuthCliRead(opReference, this.account);
     } else {
       throw new SchemaError('Unable to authenticate with 1Password', {
         tip: `Plugin instance (${this.id}) must be provided a service account token, a Connect server, or have app auth enabled (allowAppAuth=true)`,
