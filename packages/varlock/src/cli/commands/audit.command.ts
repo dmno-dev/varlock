@@ -96,7 +96,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const scanTargets = (ctx.positionals ?? []).slice(ctx.commandPath?.length ?? 0);
 
   const envGraph = await loadVarlockEnvGraph({
-    entryFilePath: providedEntryPath,
+    entryFilePaths: providedEntryPath ? [providedEntryPath] : undefined,
   });
 
   checkForSchemaErrors(envGraph);
