@@ -116,6 +116,14 @@ export const ROOT_DECORATORS: Array<DecoratorInfo> = [
     insertText: '@setValuesBulk(${1:exec("command")}, format=${2|json,env|})',
     isFunction: true,
   },
+  {
+    name: 'auditIgnorePaths',
+    scope: 'root',
+    summary: 'Excludes directories from the audit code scanner.',
+    documentation: 'Paths are relative to the file. Can be called multiple times — paths are merged additively.',
+    insertText: '@auditIgnorePaths(${1:path})',
+    isFunction: true,
+  },
 ];
 
 export const ITEM_DECORATORS: Array<DecoratorInfo> = [
@@ -183,6 +191,13 @@ export const ITEM_DECORATORS: Array<DecoratorInfo> = [
     summary: 'Attaches an icon identifier to an item.',
     documentation: 'Useful for generated docs and UI surfaces that show schema metadata.',
     insertText: '@icon=${1:mdi:key}',
+  },
+  {
+    name: 'auditIgnore',
+    scope: 'item',
+    summary: 'Suppresses "unused in schema" warnings from varlock audit.',
+    documentation: 'Use on items consumed only by external tools that won\'t appear in your application code.',
+    insertText: '@auditIgnore',
   },
 ];
 

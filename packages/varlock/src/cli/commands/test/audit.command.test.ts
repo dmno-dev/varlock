@@ -214,7 +214,7 @@ describe('audit command', () => {
 
     await commandFn({ values: {} } as any);
 
-    expect(consoleLogSpy).toHaveBeenCalledWith('ℹ️ Skipping custom ignored paths: e2e, scripts, mocks');
+    expect(consoleLogSpy).toHaveBeenCalledWith('ℹ️ Skipping ignored paths: e2e, scripts, mocks');
     expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
       { cwd: '/repo' },
       ['e2e', 'scripts', 'mocks'],

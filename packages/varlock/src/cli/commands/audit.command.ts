@@ -10,6 +10,7 @@ import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import {
   scanCodeForEnvVars,
   type EnvVarReference,
+  type ScanCodeEnvVarsResult,
 } from '../helpers/env-var-scanner';
 import { gracefulExit } from 'exit-hook';
 import { diffSchemaAndCodeKeys } from '../helpers/audit-diff';
@@ -23,14 +24,23 @@ export const commandSpec = define({
       short: 'p',
       description: 'Path to a specific .env file or directory to use as the schema entry point',
     },
+    ignore: {
+      type: 'string',
+      short: 'i',
+      multiple: true,
+      description: 'Directory to exclude from code scanning (can be specified multiple times)',
+    },
   },
   examples: `
 Scans your source code for environment variable references and compares them
 to keys defined in your varlock schema.
 
 Examples:
-  varlock audit                    # Audit current project
-  varlock audit --path .env.prod   # Audit using a specific env entry point
+  varlock audit                          # Audit current project
+  varlock audit --path .env.prod         # Audit using a specific env entry point
+  varlock audit ./src ./lib              # Only scan specific directories
+  varlock audit --ignore vendor          # Exclude a directory from scanning
+  varlock audit -i vendor -i generated   # Exclude multiple directories
 `.trim(),
 });
 
@@ -82,6 +92,9 @@ async function getCustomAuditIgnorePaths(envGraph: any): Promise<Array<string>> 
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const providedEntryPath = ctx.values.path as string | undefined;
+  const cliIgnoreDirs = (ctx.values.ignore ?? []) as Array<string>;
+  const scanTargets = (ctx.positionals ?? []).slice(ctx.commandPath?.length ?? 0);
+
   const envGraph = await loadVarlockEnvGraph({
     entryFilePath: providedEntryPath,
   });
@@ -106,14 +119,34 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     : (schemaScanRoot ?? process.cwd());
 
   const customIgnoredPaths = await getCustomAuditIgnorePaths(envGraph);
-  if (customIgnoredPaths.length > 0) {
-    console.log(`ℹ️ Skipping custom ignored paths: ${customIgnoredPaths.join(', ')}`);
+  // Merge CLI --ignore dirs with schema @auditIgnorePaths
+  const allIgnoredPaths = [...customIgnoredPaths, ...cliIgnoreDirs];
+  if (allIgnoredPaths.length > 0) {
+    console.log(`ℹ️ Skipping ignored paths: ${allIgnoredPaths.join(', ')}`);
   }
 
-  const scanResult = await scanCodeForEnvVars(
-    { cwd: finalScanRoot },
-    customIgnoredPaths,
-  );
+  // If positional scan targets are provided, scan each one individually and merge results
+  let scanResult: ScanCodeEnvVarsResult;
+  if (scanTargets.length > 0) {
+    const mergedRefs: Array<EnvVarReference> = [];
+    let totalFilesScanned = 0;
+    for (const target of scanTargets) {
+      const resolvedTarget = path.resolve(finalScanRoot, target);
+      const result = await scanCodeForEnvVars(
+        { cwd: resolvedTarget },
+        allIgnoredPaths,
+      );
+      mergedRefs.push(...result.references);
+      totalFilesScanned += result.scannedFilesCount;
+    }
+    const uniqueKeys = [...new Set(mergedRefs.map((r) => r.key))].sort((a, b) => a.localeCompare(b));
+    scanResult = { keys: uniqueKeys, references: mergedRefs, scannedFilesCount: totalFilesScanned };
+  } else {
+    scanResult = await scanCodeForEnvVars(
+      { cwd: finalScanRoot },
+      allIgnoredPaths,
+    );
+  }
   const schemaKeys = Object.keys(envGraph.configSchema);
 
   const diff = diffSchemaAndCodeKeys(schemaKeys, scanResult.keys);
