@@ -12,13 +12,14 @@ import Badge from '@/components/Badge.astro';
 
 Our [Infisical](https://infisical.com/) plugin enables secure loading of secrets from Infisical using declarative instructions within your `.env` files.
 
-The plugin uses machine identities with Universal Auth for programmatic access to your Infisical secrets, making it suitable for both CI/CD and production environments.
+The plugin uses machine identities with Universal Auth or [OIDC workload identity](/guides/oidc/) for programmatic access to your Infisical secrets, making it suitable for both CI/CD and production environments.
 
 ## Features
 
 - **Fetch secrets** from Infisical projects and environments
 - **Bulk-load secrets** with `infisicalBulk()` via `@setValuesBulk`
 - **Universal Auth** with Client ID and Client Secret
+- **[OIDC authentication](/guides/oidc/)** - Authenticate using platform OIDC tokens (Vercel, GitHub Actions, etc.)
 - **Support for self-hosted** Infisical instances
 - **Secret paths** for hierarchical organization
 - **Filter by tag** to load only matching secrets
@@ -101,6 +102,28 @@ INFISICAL_CLIENT_SECRET=
 </Steps>
 
 For detailed instructions, see [Infisical Machine Identities documentation](https://infisical.com/docs/documentation/platform/identities/machine-identities).
+
+### OIDC authentication
+
+For deployments on platforms that issue OIDC tokens (Vercel, GitHub Actions, GitLab CI, Fly.io, GCP), you can use [OIDC workload identity federation](/guides/oidc/) to authenticate without client credentials. Varlock auto-detects the platform's OIDC token and uses it to authenticate via Infisical's OIDC machine identity auth.
+
+**Provider-side setup:**
+
+1. Create a Machine Identity in Infisical
+2. Add an OIDC auth method to the identity, configuring the issuer and claims
+3. Grant the identity access to your project
+
+**Varlock config:**
+```env-spec title=".env.schema"
+# @plugin(@varlock/infisical-plugin)
+# @initInfisical(
+#   projectId=your-project-id,
+#   environment=production,
+#   identityId=your-identity-id
+# )
+```
+
+No `clientId` or `clientSecret` is needed — the `identityId` parameter triggers OIDC authentication. For platforms not auto-detected, pass an explicit token via `oidcToken`.
 
 ### Self-hosted Infisical
 
@@ -223,6 +246,8 @@ Initialize an Infisical plugin instance for accessing secrets.
 - `clientId` (required): Universal Auth Client ID. Should be a reference to a config item of type `infisicalClientId`.
 - `clientSecret` (required): Universal Auth Client Secret. Should be a reference to a config item of type `infisicalClientSecret`.
 - `siteUrl` (optional): Custom Infisical instance URL (defaults to `https://app.infisical.com`)
+- `identityId` (optional): Machine identity ID for OIDC authentication (alternative to `clientId`/`clientSecret`)
+- `oidcToken` (optional): Explicit OIDC JWT token (auto-detected from platform if omitted)
 - `secretPath` (optional): Default secret path for all secrets (defaults to `/`)
 - `id` (optional): Instance identifier for multiple instances
 

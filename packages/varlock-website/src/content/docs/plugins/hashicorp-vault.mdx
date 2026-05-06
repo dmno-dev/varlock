@@ -12,7 +12,7 @@ import Badge from '@/components/Badge.astro';
 
 Our HashiCorp Vault plugin enables secure loading of secrets from [HashiCorp Vault](https://www.vaultproject.io/) (KV v2 secrets engine) and [OpenBao](https://openbao.org/) using declarative instructions within your `.env` files.
 
-The plugin supports multiple authentication methods including explicit tokens, AppRole for CI/CD, and automatic CLI token detection for local development.
+The plugin supports multiple authentication methods including explicit tokens, AppRole for CI/CD, JWT/OIDC for platform-based workload identity, and automatic CLI token detection for local development.
 
 ## Features
 
@@ -24,6 +24,7 @@ The plugin supports multiple authentication methods including explicit tokens, A
 - **JSON key extraction** from secrets using `#` syntax or named `key` parameter
 - **Path prefixing** with `pathPrefix` option for organized secret management
 - **Default path** support for sharing a common secret path across items
+- **[JWT/OIDC authentication](/guides/oidc/)** - Authenticate using platform OIDC tokens (Vercel, GitHub Actions, etc.)
 - Support for Vault Enterprise namespaces
 - Support for multiple Vault instances
 
@@ -45,8 +46,9 @@ See the [plugins guide](/guides/plugins/#installation) for more instructions on 
 
 The plugin tries authentication methods in this priority order:
 1. **Explicit token** - If `token` is provided in `@initHcpVault()`
-2. **AppRole** - If both `roleId` and `secretId` are provided
-3. **CLI token file** - From `~/.vault-token` (created by `vault login`) or `~/.bao-token` (created by `bao login` for OpenBao)
+2. **JWT/OIDC** - If `jwtRole` is provided, uses [OIDC workload identity federation](/guides/oidc/)
+3. **AppRole** - If both `roleId` and `secretId` are provided
+4. **CLI token file** - From `~/.vault-token` (created by `vault login`) or `~/.bao-token` (created by `bao login` for OpenBao)
 
 ### Automatic authentication (Recommended for local dev)
 
@@ -87,6 +89,41 @@ AppRole is the recommended auth method for CI/CD and server environments:
 
 3. **Set your credentials in deployed environments**. Use your platform's env var management UI to securely inject these values.
 </Steps>
+
+### JWT/OIDC authentication
+
+For deployments on platforms that issue OIDC tokens (Vercel, GitHub Actions, GitLab CI, Fly.io, GCP), you can use [OIDC workload identity federation](/guides/oidc/) to authenticate with Vault's JWT/OIDC auth method. Varlock auto-detects the platform's OIDC token and uses it to authenticate.
+
+**Provider-side setup:**
+
+1. Enable the JWT auth method:
+```bash
+vault auth enable jwt
+```
+
+2. Configure it with the OIDC provider:
+```bash
+vault write auth/jwt/config \
+  oidc_discovery_url="https://oidc.vercel.com"
+```
+
+3. Create a role with bound claims:
+```bash
+vault write auth/jwt/role/varlock-role \
+  role_type="jwt" \
+  bound_audiences="https://vault.example.com" \
+  user_claim="sub" \
+  policies="secrets-reader" \
+  ttl=1h
+```
+
+**Varlock config:**
+```env-spec title=".env.schema"
+# @plugin(@varlock/hashicorp-vault-plugin)
+# @initHcpVault(url="https://vault.example.com:8200", jwtRole="varlock-role")
+```
+
+You can optionally set `jwtAuthPath` if the JWT auth method is mounted at a non-default path. For platforms not auto-detected, pass an explicit token via `oidcToken`.
 
 ### Explicit token
 
@@ -315,6 +352,9 @@ Initialize a HashiCorp Vault / OpenBao plugin instance.
 - `roleId` (optional): AppRole role ID for automated authentication
 - `secretId` (optional): AppRole secret ID for automated authentication
 - `namespace` (optional): Vault Enterprise namespace
+- `jwtRole` (optional): Vault JWT/OIDC auth role name for OIDC authentication
+- `jwtAuthPath` (optional): Mount path for the JWT auth method (defaults to `jwt`)
+- `oidcToken` (optional): Explicit OIDC JWT token (auto-detected from platform if omitted)
 - `defaultPath` (optional): Default secret path when no path argument is given to `vaultSecret()`
 - `pathPrefix` (optional): Prefix automatically prepended to all secret paths
 - `id` (optional): Instance identifier for multiple instances

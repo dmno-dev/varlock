@@ -1,0 +1,130 @@
+---
+title: OIDC Workload Identity
+description: Authenticate with secret providers using OIDC tokens from your deployment platform — no long-lived credentials needed
+---
+
+Many deployment platforms issue short-lived [OIDC](https://openid.net/developers/how-connect-works/) tokens that your application can exchange for temporary credentials with secret providers. This eliminates the need to store long-lived API keys or service account credentials in your deployment environment — no "secret zero" needed to fetch the rest of your secrets.
+
+Varlock supports OIDC workload identity federation across multiple plugins and platforms. In most cases, the OIDC token is **auto-detected** from your deployment platform, so you just need to configure the provider side.
+
+## How it works
+
+```
+1. Your app starts on a deployment platform (Vercel, GitHub Actions, etc.)
+2. Varlock auto-detects the platform and requests an OIDC token
+3. The token is exchanged with your secret provider for temporary credentials
+4. Secrets are fetched using the temporary credentials (valid 15 min – 1 hour)
+```
+
+No long-lived secrets are stored anywhere in the deployment environment.
+
+## Supported plugins
+
+| Plugin | OIDC mechanism | Setup guide |
+|--------|---------------|-------------|
+| [AWS Secrets](/plugins/aws-secrets/) | STS `AssumeRoleWithWebIdentity` | [OIDC setup](/plugins/aws-secrets/#oidc-authentication) |
+| [Azure Key Vault](/plugins/azure-key-vault/) | Federated credential (JWT assertion) | [OIDC setup](/plugins/azure-key-vault/#oidc-federated-credentials) |
+| [Google Secret Manager](/plugins/google-secret-manager/) | Workload Identity Federation | [OIDC setup](/plugins/google-secret-manager/#oidc-workload-identity-federation) |
+| [HashiCorp Vault](/plugins/hashicorp-vault/) | JWT/OIDC auth method | [OIDC setup](/plugins/hashicorp-vault/#jwtoidc-authentication) |
+| [Infisical](/plugins/infisical/) | OIDC machine identity | [OIDC setup](/plugins/infisical/#oidc-authentication) |
+| [Akeyless](/plugins/akeyless/) | OIDC access type | [OIDC setup](/plugins/akeyless/#oidc-authentication) |
+
+## Supported platforms
+
+Varlock auto-detects OIDC tokens from these deployment platforms:
+
+| Platform | How it works | Token source | Setup |
+|----------|-------------|-------------|-------|
+| **Vercel** | Token available in builds and serverless functions | `VERCEL_OIDC_TOKEN` env var | [details](#vercel) |
+| **GitHub Actions** | Requires `permissions: id-token: write` in workflow | Token request API | [details](#github-actions) |
+| **GitLab CI** | Requires `id_tokens` in `.gitlab-ci.yml` | `CI_JOB_JWT_V2` env var | [details](#gitlab-ci) |
+| **Fly.io** | Available to all Fly Machines | Internal API endpoint | [details](#flyio) |
+| **GCP Cloud Run** | Available via metadata server | Metadata endpoint | [details](#gcp-cloud-run) |
+
+For platforms not listed above, you can pass an explicit OIDC token using the `oidcToken` parameter on each plugin. See [Custom / other platforms](#custom--other-platforms).
+
+### Vercel
+
+OIDC tokens are available automatically in Vercel builds and serverless functions. No additional configuration is needed on the Vercel side.
+
+To use with a secret provider, you need to configure the provider to trust Vercel's OIDC issuer:
+- **Issuer URL:** `https://oidc.vercel.com`
+- **Audience:** Varies by provider (see plugin-specific docs)
+
+See [Vercel OIDC documentation](https://vercel.com/docs/oidc) for details.
+
+### GitHub Actions
+
+Add `id-token: write` permission to your workflow:
+
+```yaml
+jobs:
+  deploy:
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      # ... your build/deploy steps
+```
+
+- **Issuer URL:** `https://token.actions.githubusercontent.com`
+- **Subject claim:** `repo:<org>/<repo>:ref:refs/heads/<branch>` (varies by trigger)
+
+See [GitHub Actions OIDC documentation](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect) for details.
+
+### GitLab CI
+
+Add `id_tokens` to your `.gitlab-ci.yml`:
+
+```yaml
+job_name:
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: https://your-provider-audience
+  script:
+    - # your build/deploy steps
+```
+
+- **Issuer URL:** `https://gitlab.com` (or your self-hosted instance)
+
+See [GitLab CI OIDC documentation](https://docs.gitlab.com/ee/ci/secrets/id_token_authentication.html) for details.
+
+### Fly.io
+
+OIDC tokens are available automatically to all Fly Machines. No additional configuration needed.
+
+- **Issuer URL:** `https://oidc.fly.io`
+
+See [Fly.io OIDC documentation](https://fly.io/docs/security/openid-connect/) for details.
+
+### GCP Cloud Run
+
+Identity tokens are available via the GCP metadata server for services with a service account.
+
+- **Issuer URL:** `https://accounts.google.com`
+
+### Custom / other platforms
+
+For platforms that aren't auto-detected, pass an explicit OIDC JWT token using the `oidcToken` parameter on any supported plugin:
+
+```env-spec
+# @initAws(region=us-east-1, oidcRoleArn="arn:aws:iam::123:role/my-role", oidcToken=$MY_OIDC_TOKEN)
+```
+
+## Troubleshooting
+
+### Token not detected
+- **Vercel:** Ensure `VERCEL_OIDC_TOKEN` is available (check Vercel project settings)
+- **GitHub Actions:** Add `permissions: id-token: write` to your workflow/job
+- **GitLab CI:** Configure `id_tokens` in your job definition
+- **Other platforms:** Pass an explicit token via `oidcToken=...`
+
+### Token exchange failed
+- Verify the OIDC issuer URL matches exactly what you configured on the provider
+- Check that the audience claim matches what the provider expects
+- Ensure the subject/claims conditions match your deployment context
+
+### Permission denied after successful auth
+- The OIDC exchange succeeded, but the resulting identity doesn't have the right permissions
+- Check role/policy assignments on the provider side

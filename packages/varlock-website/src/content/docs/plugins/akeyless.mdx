@@ -12,11 +12,12 @@ import Badge from '@/components/Badge.astro';
 
 Our Akeyless plugin enables secure loading of secrets from [Akeyless Platform](https://www.akeyless.io/) using declarative instructions within your `.env` files.
 
-The plugin uses Akeyless's REST API with API Key authentication (Access ID + Access Key) and supports static, dynamic, and rotated secret types.
+The plugin uses Akeyless's REST API with API Key or [OIDC](/guides/oidc/) authentication and supports static, dynamic, and rotated secret types.
 
 ## Features
 
 - **API Key authentication** - Simple Access ID + Access Key authentication
+- **[OIDC authentication](/guides/oidc/)** - Authenticate using platform OIDC tokens (Vercel, GitHub Actions, etc.)
 - **Static secrets** - Fetch key/value secrets
 - **Dynamic secrets** - Fetch on-demand generated credentials (database, cloud, etc.)
 - **Rotated secrets** - Fetch auto-rotated credentials
@@ -64,6 +65,24 @@ The plugin authenticates using an API Key consisting of an Access ID and Access 
 
 3. **Set your credentials in deployed environments**. Use your platform's env var management UI to securely inject these values.
 </Steps>
+
+### OIDC authentication
+
+For deployments on platforms that issue OIDC tokens (Vercel, GitHub Actions, GitLab CI, Fly.io, GCP), you can use [OIDC workload identity federation](/guides/oidc/) to authenticate without an API key. Varlock auto-detects the platform's OIDC token and uses it to authenticate via Akeyless's OIDC access type.
+
+**Provider-side setup:**
+
+1. Create an OIDC auth method in Akeyless Console
+2. Configure it with the deployment platform's issuer URL
+3. Associate the auth method with an access role that has read permissions
+
+**Varlock config:**
+```env-spec title=".env.schema"
+# @plugin(@varlock/akeyless-plugin)
+# @initAkeyless(oidcAccessId="p-your-access-id")
+```
+
+No `accessKey` is needed — the `oidcAccessId` parameter triggers OIDC authentication. For platforms not auto-detected, pass an explicit token via `oidcToken`.
 
 ### Using an Akeyless Gateway
 
@@ -203,8 +222,10 @@ Only grant access to the specific secret paths your application needs. Avoid gra
 Initialize an Akeyless plugin instance.
 
 **Key/value args:**
-- `accessId` (required): Akeyless Access ID (starts with `p-` for API Key auth)
-- `accessKey` (required): Akeyless Access Key
+- `accessId` (optional): Akeyless Access ID (starts with `p-` for API Key auth). Required when using API Key auth.
+- `accessKey` (optional): Akeyless Access Key. Required when using API Key auth.
+- `oidcAccessId` (optional): Akeyless Access ID for OIDC authentication (alternative to `accessId`/`accessKey`)
+- `oidcToken` (optional): Explicit OIDC JWT token (auto-detected from platform if omitted)
 - `apiUrl` (optional): Akeyless API URL (defaults to `https://api.akeyless.io`). Use this for self-hosted Akeyless Gateway.
 - `pathPrefix` (optional): Prefix automatically prepended to all secret paths
 - `id` (optional): Instance identifier for multiple instances

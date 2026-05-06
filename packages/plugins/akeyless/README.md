@@ -7,6 +7,7 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 ## Features
 
 - **API Key authentication** - Simple access_id + access_key authentication
+- **OIDC authentication** - Authenticate from Vercel, GitHub Actions, and other platforms without long-lived credentials
 - **Static secrets** - Fetch static (key/value) secrets
 - **Dynamic secrets** - Fetch on-demand generated credentials (database, cloud, etc.)
 - **Rotated secrets** - Fetch auto-rotated credentials
@@ -69,6 +70,19 @@ If you are running a self-hosted [Akeyless Gateway](https://docs.akeyless.io/doc
 #   apiUrl="https://gateway.example.com:8080"
 # )
 ```
+
+### OIDC authentication (For Vercel, GitHub Actions, etc.)
+
+If you're deploying on a platform that supports OIDC, you can authenticate without an API key:
+
+```env-spec
+# @plugin(@varlock/akeyless-plugin)
+# @initAkeyless(oidcAccessId="p-your-oidc-access-id")
+```
+
+The plugin auto-detects the OIDC token from your platform and authenticates with Akeyless using the OIDC access type. You need to create an OIDC auth method in the Akeyless Console and configure it with your platform's issuer URL.
+
+See the [OIDC Workload Identity guide](https://varlock.dev/guides/oidc/) for full setup instructions.
 
 ### Multiple instances
 
@@ -161,8 +175,10 @@ Initialize an Akeyless plugin instance.
 
 **Parameters:**
 
-- `accessId: string` (required) - Akeyless Access ID (starts with `p-` for API Key auth)
-- `accessKey: string` (required) - Akeyless Access Key
+- `accessId?: string` - Akeyless Access ID (starts with `p-` for API Key auth). Required if not using OIDC.
+- `accessKey?: string` - Akeyless Access Key. Required if `accessId` is provided.
+- `oidcAccessId?: string` - Akeyless Access ID for OIDC auth method (alternative to accessId/accessKey)
+- `oidcToken?: string` - Explicit OIDC JWT token (auto-detected from platform if not provided)
 - `apiUrl?: string` - Akeyless API URL (defaults to `https://api.akeyless.io`). Use this for self-hosted Akeyless Gateway.
 - `pathPrefix?: string` - Prefix automatically prepended to all secret paths
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
