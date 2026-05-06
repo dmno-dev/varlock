@@ -3,7 +3,7 @@ title: OIDC Workload Identity
 description: Authenticate with secret providers using OIDC tokens from your deployment platform — no long-lived credentials needed
 ---
 
-Many deployment platforms issue short-lived [OIDC](https://openid.net/developers/how-connect-works/) tokens that your application can exchange for temporary credentials with secret providers. This eliminates the need to store long-lived API keys or service account credentials in your deployment environment — no secrets needed to fetch secrets.
+Many deployment platforms issue short-lived [OIDC](https://openid.net/developers/how-connect-works/) tokens that your application can exchange for temporary credentials with secret providers. This eliminates the need to store long-lived API keys or service account credentials in your deployment environment — no "secret zero" needed to fetch the rest of your secrets.
 
 Varlock supports OIDC workload identity federation across multiple plugins and platforms. In most cases, the OIDC token is **auto-detected** from your deployment platform, so you just need to configure the provider side.
 
@@ -18,32 +18,30 @@ Varlock supports OIDC workload identity federation across multiple plugins and p
 
 No long-lived secrets are stored anywhere in the deployment environment.
 
+## Supported plugins
+
+| Plugin | OIDC mechanism | Setup guide |
+|--------|---------------|-------------|
+| [AWS Secrets](/plugins/aws-secrets/) | STS `AssumeRoleWithWebIdentity` | [OIDC setup](/plugins/aws-secrets/#oidc-authentication) |
+| [Azure Key Vault](/plugins/azure-key-vault/) | Federated credential (JWT assertion) | [OIDC setup](/plugins/azure-key-vault/#oidc-federated-credentials) |
+| [Google Secret Manager](/plugins/google-secret-manager/) | Workload Identity Federation | [OIDC setup](/plugins/google-secret-manager/#oidc-workload-identity-federation) |
+| [HashiCorp Vault](/plugins/hashicorp-vault/) | JWT/OIDC auth method | [OIDC setup](/plugins/hashicorp-vault/#jwtoidc-authentication) |
+| [Infisical](/plugins/infisical/) | OIDC machine identity | [OIDC setup](/plugins/infisical/#oidc-authentication) |
+| [Akeyless](/plugins/akeyless/) | OIDC access type | [OIDC setup](/plugins/akeyless/#oidc-authentication) |
+
 ## Supported platforms
 
 Varlock auto-detects OIDC tokens from these deployment platforms:
 
-| Platform | How it works | Token source |
-|----------|-------------|-------------|
-| **Vercel** | Token available in builds and serverless functions | `VERCEL_OIDC_TOKEN` env var |
-| **GitHub Actions** | Requires `permissions: id-token: write` in workflow | Token request API |
-| **GitLab CI** | Requires `id_tokens` in `.gitlab-ci.yml` | `CI_JOB_JWT_V2` env var |
-| **Fly.io** | Available to all Fly Machines | Internal API endpoint |
-| **GCP Cloud Run** | Available via metadata server | Metadata endpoint |
+| Platform | How it works | Token source | Setup |
+|----------|-------------|-------------|-------|
+| **Vercel** | Token available in builds and serverless functions | `VERCEL_OIDC_TOKEN` env var | [details](#vercel) |
+| **GitHub Actions** | Requires `permissions: id-token: write` in workflow | Token request API | [details](#github-actions) |
+| **GitLab CI** | Requires `id_tokens` in `.gitlab-ci.yml` | `CI_JOB_JWT_V2` env var | [details](#gitlab-ci) |
+| **Fly.io** | Available to all Fly Machines | Internal API endpoint | [details](#flyio) |
+| **GCP Cloud Run** | Available via metadata server | Metadata endpoint | [details](#gcp-cloud-run) |
 
-For platforms not listed above, you can pass an explicit OIDC token using the `oidcToken` parameter on each plugin.
-
-## Supported plugins
-
-| Plugin | OIDC mechanism | Key parameter |
-|--------|---------------|--------------|
-| [AWS Secrets](/plugins/aws-secrets/) | STS `AssumeRoleWithWebIdentity` | `oidcRoleArn` |
-| [Azure Key Vault](/plugins/azure-key-vault/) | Federated credential (JWT assertion) | `tenantId` + `clientId` (no `clientSecret`) |
-| [Google Secret Manager](/plugins/google-secret-manager/) | Workload Identity Federation | `workloadIdentityProvider` |
-| [HashiCorp Vault](/plugins/hashicorp-vault/) | JWT/OIDC auth method | `jwtRole` |
-| [Infisical](/plugins/infisical/) | OIDC machine identity | `identityId` |
-| [Akeyless](/plugins/akeyless/) | OIDC access type | `oidcAccessId` |
-
-## Platform setup
+For platforms not listed above, you can pass an explicit OIDC token using the `oidcToken` parameter on each plugin. See [Custom / other platforms](#custom--other-platforms).
 
 ### Vercel
 
@@ -51,7 +49,7 @@ OIDC tokens are available automatically in Vercel builds and serverless function
 
 To use with a secret provider, you need to configure the provider to trust Vercel's OIDC issuer:
 - **Issuer URL:** `https://oidc.vercel.com`
-- **Audience:** Varies by provider (see plugin-specific docs below)
+- **Audience:** Varies by provider (see plugin-specific docs)
 
 See [Vercel OIDC documentation](https://vercel.com/docs/oidc) for details.
 
@@ -112,175 +110,6 @@ For platforms that aren't auto-detected, pass an explicit OIDC JWT token using t
 
 ```env-spec
 # @initAws(region=us-east-1, oidcRoleArn="arn:aws:iam::123:role/my-role", oidcToken=$MY_OIDC_TOKEN)
-```
-
-## Plugin-specific setup
-
-### AWS
-
-**Provider-side setup:**
-
-1. Create an IAM OIDC identity provider for your platform:
-```bash
-aws iam create-open-id-connect-provider \
-  --url https://oidc.vercel.com \
-  --client-id-list sts.amazonaws.com \
-  --thumbprint-list <thumbprint>
-```
-
-2. Create an IAM role with a trust policy:
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Principal": {
-      "Federated": "arn:aws:iam::123456789012:oidc-provider/oidc.vercel.com"
-    },
-    "Action": "sts:AssumeRoleWithWebIdentity",
-    "Condition": {
-      "StringEquals": {
-        "oidc.vercel.com:aud": "sts.amazonaws.com"
-      }
-    }
-  }]
-}
-```
-
-3. Attach your secrets access policy to the role.
-
-**Varlock config:**
-```env-spec
-# @plugin(@varlock/aws-secrets-plugin)
-# @initAws(region=us-east-1, oidcRoleArn="arn:aws:iam::123456789012:role/varlock-oidc-role")
-```
-
-### Azure
-
-**Provider-side setup:**
-
-1. Create an App Registration (or use an existing one)
-2. Add a federated credential:
-```bash
-az ad app federated-credential create \
-  --id <app-object-id> \
-  --parameters '{
-    "name": "vercel-oidc",
-    "issuer": "https://oidc.vercel.com",
-    "subject": "<your-vercel-subject-claim>",
-    "audiences": ["api://AzureADTokenExchange"]
-  }'
-```
-3. Grant the App Registration "Key Vault Secrets User" role on your vault.
-
-**Varlock config:**
-```env-spec
-# @plugin(@varlock/azure-key-vault-plugin)
-# @initAzure(
-#   vaultUrl="https://my-vault.vault.azure.net/",
-#   tenantId=$AZURE_TENANT_ID,
-#   clientId=$AZURE_CLIENT_ID
-# )
-```
-Note: when `clientSecret` is omitted but `tenantId` and `clientId` are provided, the plugin automatically uses OIDC federated credentials.
-
-### Google Cloud
-
-**Provider-side setup:**
-
-1. Create a Workload Identity Pool and Provider:
-```bash
-gcloud iam workload-identity-pools create varlock-pool \
-  --location=global
-
-gcloud iam workload-identity-pools providers create-oidc vercel \
-  --location=global \
-  --workload-identity-pool=varlock-pool \
-  --issuer-uri=https://oidc.vercel.com \
-  --attribute-mapping="google.subject=assertion.sub"
-```
-
-2. Grant the pool access to a service account:
-```bash
-gcloud iam service-accounts add-iam-policy-binding \
-  my-sa@my-project.iam.gserviceaccount.com \
-  --role=roles/iam.workloadIdentityUser \
-  --member="principalSet://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/varlock-pool/*"
-```
-
-3. Grant the service account Secret Manager access.
-
-**Varlock config:**
-```env-spec
-# @plugin(@varlock/google-secret-manager-plugin)
-# @initGsm(
-#   projectId=my-project,
-#   workloadIdentityProvider="//iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/varlock-pool/providers/vercel",
-#   serviceAccountEmail="my-sa@my-project.iam.gserviceaccount.com"
-# )
-```
-
-### HashiCorp Vault
-
-**Provider-side setup:**
-
-1. Enable the JWT auth method:
-```bash
-vault auth enable jwt
-```
-
-2. Configure it with the OIDC provider:
-```bash
-vault write auth/jwt/config \
-  oidc_discovery_url="https://oidc.vercel.com"
-```
-
-3. Create a role with bound claims:
-```bash
-vault write auth/jwt/role/varlock-role \
-  role_type="jwt" \
-  bound_audiences="https://vault.example.com" \
-  user_claim="sub" \
-  policies="secrets-reader" \
-  ttl=1h
-```
-
-**Varlock config:**
-```env-spec
-# @plugin(@varlock/hashicorp-vault-plugin)
-# @initHcpVault(url="https://vault.example.com:8200", jwtRole="varlock-role")
-```
-
-### Infisical
-
-**Provider-side setup:**
-
-1. Create a Machine Identity in Infisical
-2. Add an OIDC auth method to the identity, configuring the issuer and claims
-3. Grant the identity access to your project
-
-**Varlock config:**
-```env-spec
-# @plugin(@varlock/infisical-plugin)
-# @initInfisical(
-#   projectId=your-project-id,
-#   environment=production,
-#   identityId=your-identity-id
-# )
-```
-
-### Akeyless
-
-**Provider-side setup:**
-
-1. Create an OIDC auth method in Akeyless Console
-2. Configure it with the deployment platform's issuer URL
-3. Associate the auth method with an access role that has read permissions
-
-**Varlock config:**
-```env-spec
-# @plugin(@varlock/akeyless-plugin)
-# @initAkeyless(oidcAccessId="p-your-access-id")
 ```
 
 ## Troubleshooting

@@ -23,6 +23,7 @@ The plugin automatically integrates with Azure authentication, including Managed
 - Support for service principal credentials (for non-Azure environments)
 - Support for versioned secrets
 - Automatic token caching and renewal
+- **[OIDC workload identity](/guides/oidc/)** - Authenticate using platform OIDC tokens (Vercel, GitHub Actions, etc.)
 - Lightweight implementation using REST API (47 KB bundle, no heavy Azure SDK dependencies)
 
 ## Installation and setup
@@ -43,8 +44,9 @@ See the [plugins guide](/guides/plugins/#installation) for more instructions on 
 
 The plugin tries authentication methods in this priority order:
 1. **Service Principal** - If all three credentials (`tenantId`, `clientId`, `clientSecret`) are provided
-2. **Managed Identity** - Automatically used when running on Azure infrastructure
-3. **Azure CLI** - Falls back to `az login` for local development
+2. **OIDC federated credentials** - If `tenantId` and `clientId` are provided without `clientSecret`, uses [OIDC workload identity federation](/guides/oidc/)
+3. **Managed Identity** - Automatically used when running on Azure infrastructure
+4. **Azure CLI** - Falls back to `az login` for local development
 
 ### Automatic authentication (Recommended)
 
@@ -96,6 +98,38 @@ If you're deploying outside of Azure (e.g., AWS, GCP, on-premises), wire up serv
 
 3. **Set your credentials in deployed environments**. Use your platform's env var management UI to securely inject these values.
 </Steps>
+
+### OIDC federated credentials
+
+For deployments on platforms that issue OIDC tokens (Vercel, GitHub Actions, GitLab CI, Fly.io, GCP), you can use [OIDC workload identity federation](/guides/oidc/) to authenticate without a client secret. Varlock auto-detects the platform's OIDC token and exchanges it for an Azure access token via federated credential authentication.
+
+**Provider-side setup:**
+
+1. Create an App Registration (or use an existing one)
+2. Add a federated credential:
+```bash
+az ad app federated-credential create \
+  --id <app-object-id> \
+  --parameters '{
+    "name": "vercel-oidc",
+    "issuer": "https://oidc.vercel.com",
+    "subject": "<your-vercel-subject-claim>",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+```
+3. Grant the App Registration "Key Vault Secrets User" role on your vault.
+
+**Varlock config:**
+```env-spec title=".env.schema"
+# @plugin(@varlock/azure-key-vault-plugin)
+# @initAzure(
+#   vaultUrl="https://my-vault.vault.azure.net/",
+#   tenantId=$AZURE_TENANT_ID,
+#   clientId=$AZURE_CLIENT_ID
+# )
+```
+
+When `clientSecret` is omitted but `tenantId` and `clientId` are provided, the plugin automatically uses OIDC federated credentials. For platforms not auto-detected, pass an explicit token via `oidcToken`.
 
 ### Multiple vaults
 
@@ -275,6 +309,7 @@ Initialize an Azure Key Vault plugin instance for accessing secrets.
 - `tenantId` (optional): Azure AD tenant ID (directory ID)
 - `clientId` (optional): Service principal application (client) ID
 - `clientSecret` (optional): Service principal client secret (password)
+- `oidcToken` (optional): Explicit OIDC JWT token (auto-detected from platform if omitted)
 - `id` (optional): Instance identifier for multiple vaults
 
 ```env-spec "@initAzure"
