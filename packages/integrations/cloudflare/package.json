@@ -1,7 +1,7 @@
 {
   "name": "@varlock/cloudflare-integration",
   "description": "Cloudflare Workers integration for varlock - deploy secrets via wrangler and auto-configure Vite",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "repository": {
     "type": "git",
     "url": "https://github.com/dmno-dev/varlock.git",

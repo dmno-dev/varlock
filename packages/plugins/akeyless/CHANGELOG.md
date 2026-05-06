@@ -1,6 +1,12 @@
 # @varlock/akeyless-plugin
 
 
+
+## 1.1.0
+<sub>2026-05-06</sub>
+
+- [#636](https://github.com/dmno-dev/varlock/pull/636) - add OIDC workload identity federation support to secret provider plugins
+
 ## 1.0.0
 <sub>2026-04-29</sub>
 

@@ -3,6 +3,12 @@
 
 
 
+
+## 1.1.1
+<sub>2026-05-06</sub>
+
+- [#690](https://github.com/dmno-dev/varlock/pull/690) - fix cloudflare + tanstack start + vite 6/7/8 compatibility
+
 ## 1.1.0
 <sub>2026-05-02</sub>
 
