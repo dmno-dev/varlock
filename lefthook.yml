@@ -9,6 +9,6 @@ pre-commit:
 pre-push:
   jobs:
     - name: typecheck
-      run: bun run typecheck
+      run: bun run typecheck:all
     - name: bumpy
       run: bunx @varlock/bumpy check
