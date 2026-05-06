@@ -162,6 +162,7 @@
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
         "import-meta-resolve": "^4.2.0",
+        "outdent": "catalog:",
         "tsup": "catalog:",
         "varlock": "workspace:^",
         "vitest": "catalog:",

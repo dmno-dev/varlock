@@ -295,7 +295,7 @@ class OpPluginInstance {
     if (connectHost && typeof connectHost === 'string') this.connectHost = connectHost.replace(/\/+$/, '');
     if (connectToken && typeof connectToken === 'string') this.connectToken = connectToken;
     if (allowMissing !== undefined) this.allowMissing = allowMissing;
-    debug('op instance', this.id, ' set auth - ', token, allowAppAuth, account, 'connect:', !!connectHost, 'useCliWithServiceAccount:', useCliWithServiceAccount);
+    debug('op instance', this.id, ' set auth - token:', !!token, 'allowAppAuth:', allowAppAuth, 'account:', account, 'connect:', !!connectHost, 'connectToken:', !!connectToken, 'useCliWithServiceAccount:', useCliWithServiceAccount);
   }
 
   /** Whether this instance is configured for Connect server */
@@ -332,7 +332,7 @@ class OpPluginInstance {
 
   /** Executes the per-instance CLI read batch using `op run` with a service account token. */
   private async executeCliBatch(batchToExecute: NonNullable<typeof this.cliBatch>) {
-    debug('execute op read batch', Object.keys(batchToExecute));
+    debug('execute op read batch (service account CLI)', Object.keys(batchToExecute));
     const envMap = {} as Record<string, string>;
     let i = 1;
     Object.keys(batchToExecute).forEach((opReference) => {
@@ -679,7 +679,7 @@ class OpPluginInstance {
     this.readBatch = undefined;
 
     const opReferences = Object.keys(batch || {});
-    debug('bulk fetching', opReferences);
+    debug('bulk fetching (SDK)', opReferences);
     if (!opReferences.length) return;
 
     try {

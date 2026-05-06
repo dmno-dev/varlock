@@ -19,6 +19,7 @@
   "scripts": {
     "dev": "bun run copy-wasm && tsup --watch",
     "build": "tsup && bun run copy-wasm",
+    "build:test": "tsup --config tsup.test.config.ts",
     "copy-wasm": "mkdir -p dist || true && cp node_modules/@1password/sdk-core/nodejs/core_bg.wasm ./dist",
     "test": "vitest",
     "typecheck": "tsc --noEmit"
@@ -49,6 +50,7 @@
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
     "import-meta-resolve": "^4.2.0",
+    "outdent": "catalog:",
     "tsup": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"
