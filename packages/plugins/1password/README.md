@@ -63,6 +63,28 @@ OP_TOKEN=
 Vault access rules cannot be edited after creation. If your vault setup changes, you'll need to create a new service account.
 :::
 
+### CLI-based service account auth (memory-constrained environments)
+
+By default, service account tokens use the 1Password JavaScript SDK (which includes a WASM module). In memory-constrained environments (e.g., 512 MB containers), the SDK's memory footprint may be prohibitive.
+
+Set `useCliWithServiceAccount=true` to use the `op` CLI binary instead of the SDK while still authenticating via `OP_SERVICE_ACCOUNT_TOKEN`:
+
+```env-spec
+# @plugin(@varlock/1password-plugin)
+# @initOp(token=$OP_TOKEN, useCliWithServiceAccount=true)
+# ---
+
+# @type=opServiceAccountToken @sensitive
+OP_TOKEN=
+```
+
+**Requirements:**
+
+1. Install the `op` CLI: [Installation guide](https://developer.1password.com/docs/cli/get-started/)
+2. The `OP_SERVICE_ACCOUNT_TOKEN` (i.e. `$OP_TOKEN` above) must resolve to a valid service account token at load time.
+
+The `op` binary is significantly lighter than the WASM SDK. `op` authentication is handled headlessly via the token — no desktop app or interactive sign-in is needed.
+
 ### Desktop app auth (for local dev)
 
 During local development, you can use the 1Password desktop app instead of a service account:
