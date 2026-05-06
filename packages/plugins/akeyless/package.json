@@ -1,7 +1,7 @@
 {
   "name": "@varlock/akeyless-plugin",
   "description": "Varlock plugin to load secrets from Akeyless Platform",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/akeyless/",
   "bugs": "https://github.com/dmno-dev/varlock/issues",

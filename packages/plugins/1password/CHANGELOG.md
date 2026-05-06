@@ -3,6 +3,12 @@
 
 
 
+
+## 1.1.0
+<sub>2026-05-06</sub>
+
+- [#692](https://github.com/dmno-dev/varlock/pull/692) - add useCliWithServiceAccount param to use op CLI instead of WASM SDK when a service account token is provided, enabling headless auth in memory-constrained environments
+
 ## 1.0.2
 <sub>2026-04-30</sub>
 
