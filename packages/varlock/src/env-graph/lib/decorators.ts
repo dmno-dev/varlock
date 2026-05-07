@@ -301,6 +301,10 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     name: 'preventLeaks',
   },
   {
+    name: 'auditIgnorePaths',
+    isFunction: true,
+  },
+  {
     name: 'setValuesBulk',
     isFunction: true,
     process(argsVal) {
@@ -471,6 +475,9 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
   },
   {
     name: 'deprecated',
+  },
+  {
+    name: 'auditIgnore',
   },
 
   // test-only decorators — dropped in release builds

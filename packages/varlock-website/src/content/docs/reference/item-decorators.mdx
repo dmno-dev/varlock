@@ -165,4 +165,17 @@ Useful for generated docs and UI surfaces that show schema metadata.
 SERVICE_X_API_KEY=
 ```
 </div>
+
+<div>
+### `@auditIgnore`
+**Value type:** `boolean`
+
+Suppresses "unused in schema" warnings from [`varlock audit`](/reference/cli-commands/#audit) for this item. Useful for items that are only consumed by external tools and won't appear in your application code.
+
+```env-spec
+# @auditIgnore
+# used by CI tooling, not referenced in code
+CI_DEPLOY_TOKEN=
+```
+</div>
 </div>

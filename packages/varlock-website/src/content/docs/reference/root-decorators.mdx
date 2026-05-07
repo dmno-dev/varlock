@@ -327,4 +327,27 @@ See note on [`@redactLogs`](#redactlogs) about potential performance impact.
 
 </div>
 
+<div>
+### `@auditIgnorePaths()`
+**Arg types:** `[ ...paths: string[] ]`
+
+Excludes directories from the [`varlock audit`](/reference/cli-commands/#audit) code scanner. Paths are relative to the file containing the decorator. _Can be called multiple times — paths are merged additively._
+
+Useful for excluding generated code, vendored dependencies, or directories that contain env var references you don't want to audit.
+
+```env-spec
+# @auditIgnorePaths(vendor, generated/config)
+# ---
+API_KEY=
+```
+
+```env-spec
+# called multiple times — paths are merged
+# @auditIgnorePaths(vendor)
+# @auditIgnorePaths(generated/config, scripts/setup)
+# ---
+API_KEY=
+```
+</div>
+
 </div>
