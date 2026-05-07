@@ -67,6 +67,8 @@ describe('audit command', () => {
         API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
         DATABASE_URL: { getDec: vi.fn().mockReturnValue(undefined) },
       },
+      graphAdjacencyList: { API_KEY: [], DATABASE_URL: [] },
+      sortedDataSources: [],
       getRootDecFns: vi.fn().mockReturnValue([]),
       rootDataSource: undefined,
       basePath: '/repo',
@@ -169,6 +171,8 @@ describe('audit command', () => {
         IGNORED_UNUSED: { getDec: vi.fn().mockReturnValue(true) }, // # @auditIgnore
         EXPLICIT_FALSE_UNUSED: { getDec: vi.fn().mockReturnValue(false) }, // # @auditIgnore=false
       },
+      graphAdjacencyList: { API_KEY: [], IGNORED_UNUSED: [], EXPLICIT_FALSE_UNUSED: [] },
+      sortedDataSources: [],
       getRootDecFns: vi.fn().mockReturnValue([]),
       rootDataSource: undefined,
       basePath: '/repo',
@@ -189,11 +193,65 @@ describe('audit command', () => {
     expect(errorOutput).toContain('(Hint: If this is used by an external tool, add # @auditIgnore to the item)');
   });
 
+  test('excludes internally referenced keys from unused-in-schema', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {
+        APP_ENV: { getDec: vi.fn().mockReturnValue(undefined) },
+        API_URL: { getDec: vi.fn().mockReturnValue(undefined) },
+        DERIVED_URL: { getDec: vi.fn().mockReturnValue(undefined) },
+        PLUGIN_TOKEN: { getDec: vi.fn().mockReturnValue(undefined) },
+        ORPHAN_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
+      },
+      // DERIVED_URL depends on API_URL
+      graphAdjacencyList: {
+        APP_ENV: [],
+        API_URL: [],
+        DERIVED_URL: ['API_URL'],
+        PLUGIN_TOKEN: [],
+        ORPHAN_KEY: [],
+      },
+      sortedDataSources: [
+        {
+          rootDecorators: [
+          // simple root decorator: @currentEnv=$APP_ENV
+            { decValueResolver: { deps: ['APP_ENV'] } },
+            // function-call root decorator: @initPlugin(token=$PLUGIN_TOKEN)
+            { decValueResolver: { deps: ['PLUGIN_TOKEN'] } },
+          ],
+        },
+      ],
+      getRootDecFns: vi.fn().mockReturnValue([]),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      keys: ['DERIVED_URL'],
+      references: [],
+      scannedFilesCount: 1,
+    });
+
+    await commandFn({ values: {} } as any);
+
+    expect(gracefulExitMock).toHaveBeenCalledWith(1);
+    const errorOutput = consoleErrorSpy.mock.calls.flat().join('\n');
+    // APP_ENV is referenced by simple root decorator (@currentEnv), should not be reported
+    expect(errorOutput).not.toContain('APP_ENV');
+    // API_URL is depended on by DERIVED_URL, should not be reported
+    expect(errorOutput).not.toContain('API_URL');
+    // PLUGIN_TOKEN is referenced by function-call root decorator (@initPlugin), should not be reported
+    expect(errorOutput).not.toContain('PLUGIN_TOKEN');
+    // ORPHAN_KEY is not in code and not referenced internally, should be reported
+    expect(errorOutput).toContain('ORPHAN_KEY');
+  });
+
   test('flattens multiple # @auditIgnorePaths(...) calls and forwards merged excludes to scanner', async () => {
     loadVarlockEnvGraphMock.mockResolvedValue({
       configSchema: {
         API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
       },
+      graphAdjacencyList: { API_KEY: [] },
+      sortedDataSources: [],
       getRootDecFns: vi.fn().mockReturnValue([
         {
           resolve: vi.fn().mockResolvedValue({ arr: ['e2e', './scripts/'], obj: { unused: 'x' } }),

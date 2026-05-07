@@ -76,6 +76,32 @@ function collectStringArgs(input: unknown, out: Array<string>) {
   out.push(normalized);
 }
 
+/** Collect all config keys that are depended on by other items or root decorators */
+function getInternallyReferencedKeys(envGraph: any): Set<string> {
+  const referenced = new Set<string>();
+
+  // Keys referenced by other config items (via $REF, concat, fallback, etc.)
+  const adjList = envGraph.graphAdjacencyList;
+  if (adjList) {
+    for (const itemKey in adjList) {
+      for (const dep of adjList[itemKey]) {
+        referenced.add(dep);
+      }
+    }
+  }
+
+  // Keys referenced by root decorators (e.g., @currentEnv=$APP_ENV)
+  for (const source of envGraph.sortedDataSources ?? []) {
+    for (const dec of source.rootDecorators ?? []) {
+      for (const dep of dec.decValueResolver?.deps ?? []) {
+        referenced.add(dep);
+      }
+    }
+  }
+
+  return referenced;
+}
+
 async function getCustomAuditIgnorePaths(envGraph: any): Promise<Array<string>> {
   const rootDecFns = typeof envGraph?.getRootDecFns === 'function'
     ? envGraph.getRootDecFns('auditIgnorePaths')
@@ -150,8 +176,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const schemaKeys = Object.keys(envGraph.configSchema);
 
   const diff = diffSchemaAndCodeKeys(schemaKeys, scanResult.keys);
+  const internallyReferenced = getInternallyReferencedKeys(envGraph);
   const unusedInSchema: Array<string> = [];
   for (const key of diff.unusedInSchema) {
+    // Skip keys that are referenced internally by other items or root decorators
+    if (internallyReferenced.has(key)) continue;
+
     const item = envGraph.configSchema[key];
     const itemDecorators = (item as any)?.decorators as Record<string, unknown> | undefined;
     const isIgnored = (typeof item?.getDec === 'function' && (item.getDec('auditIgnore') as unknown) === true)
