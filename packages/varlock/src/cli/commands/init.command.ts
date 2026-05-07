@@ -24,7 +24,12 @@ import { tryCatch } from '@env-spec/utils/try-catch';
 export const commandSpec = define({
   name: 'init',
   description: 'Set up varlock in the current project',
-  args: {},
+  args: {
+    agent: {
+      type: 'boolean',
+      description: 'Run in non-interactive mode for agent/automation workflows',
+    },
+  },
   examples: `
 This command starts an interactive onboarding process to help you get started with Varlock.
 It will:
@@ -36,6 +41,7 @@ It will:
 
 Examples:
   varlock init                    # Run in the current directory
+  varlock init --agent            # Run non-interactively (agent/automation friendly)
   cd path/to/your/project && varlock init
 
 For more information, visit https://varlock.dev/getting-started/installation
@@ -43,9 +49,13 @@ For more information, visit https://varlock.dev/getting-started/installation
 });
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
+  const agentMode = Boolean(ctx.values.agent);
   const jsPackageManager = detectJsPackageManager();
 
   console.log('🧙 Hello and welcome to Varlock 🔒🔥✨');
+  if (agentMode) {
+    logLines([ansis.dim('Agent mode enabled: running init non-interactively with deterministic defaults.')]);
+  }
 
   // scan for all .env files within current directory
   const envFilePaths = await findEnvFiles();
@@ -91,17 +101,31 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     if (allExampleFileNames.length === 1) {
       exampleFileToConvert = parsedEnvFiles[allExampleFileNames[0]];
     } else if (allExampleFileNames.length > 1) {
-      console.log('');
-      // not quite sure about this, but we'll just let them select one
-      const selectedExample = await select({
-        message: `We detected more than one example .env file. Which one should we use to create your new ${fmt.fileName('.env.schema')}?`,
-        options: allExampleFileNames.map((fileName) => ({
-          label: fileName,
-          value: parsedEnvFiles[fileName],
-        })),
-      });
-      if (isCancel(selectedExample)) return gracefulExit(0);
-      exampleFileToConvert = selectedExample;
+      if (agentMode) {
+        const sortedFileNames = [...allExampleFileNames].sort((a, b) => a.localeCompare(b));
+        const preferredFileName = sortedFileNames.find((name) => name === '.env.example')
+          ?? sortedFileNames.find((name) => name.startsWith('.env.example.'))
+          ?? sortedFileNames.find((name) => name === '.env.sample')
+          ?? sortedFileNames.find((name) => name.startsWith('.env.sample.'))
+          ?? sortedFileNames[0];
+        exampleFileToConvert = parsedEnvFiles[preferredFileName];
+        logLines([
+          '',
+          ansis.dim(`Agent mode: auto-selected ${fmt.fileName(preferredFileName)} to generate ${fmt.fileName('.env.schema')}.`),
+        ]);
+      } else {
+        console.log('');
+        // not quite sure about this, but we'll just let them select one
+        const selectedExample = await select({
+          message: `We detected more than one example .env file. Which one should we use to create your new ${fmt.fileName('.env.schema')}?`,
+          options: allExampleFileNames.map((fileName) => ({
+            label: fileName,
+            value: parsedEnvFiles[fileName],
+          })),
+        });
+        if (isCancel(selectedExample)) return gracefulExit(0);
+        exampleFileToConvert = selectedExample;
+      }
     }
 
     // update the schema
@@ -171,10 +195,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       `- if an item value is a ${ansis.italic('useful example')} rather than a default, use ${fmt.decorator('@example')}`,
       `- if an item value is just a dummy placeholder, delete it`,
     ]);
-    const confirmReviewed = await prompts.confirm({
-      message: `Have you reviewed and updated your new ${fmt.fileName('.env.schema')} file?`,
-    });
-    if (isCancel(confirmReviewed)) return gracefulExit(0);
+    if (!agentMode) {
+      const confirmReviewed = await prompts.confirm({
+        message: `Have you reviewed and updated your new ${fmt.fileName('.env.schema')} file?`,
+      });
+      if (isCancel(confirmReviewed)) return gracefulExit(0);
+    } else {
+      logLines([ansis.dim(`Agent mode: skipping review confirmation prompt. Please review ${fmt.fileName('.env.schema')} manually.`)]);
+    }
 
     // reload the graph
     const reloadedSchemaFile = await parseEnvSpecDotEnvFile(await fs.readFile(schemaFilePath, 'utf-8'));
@@ -190,12 +218,16 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
     // delete the example file if they want us to
     if (exampleFileToConvert) {
-      const confirmDeleteExample = await prompts.confirm({
-        message: `Should we delete your ${fmt.fileName(exampleFileToConvert.fileName)} file? ${ansis.italic.gray('(you can always do this yourself later)')}`,
-      });
-      if (isCancel(confirmDeleteExample)) return gracefulExit(0);
-      if (confirmDeleteExample) {
-        await fs.unlink(exampleFileToConvert.fullPath);
+      if (!agentMode) {
+        const confirmDeleteExample = await prompts.confirm({
+          message: `Should we delete your ${fmt.fileName(exampleFileToConvert.fileName)} file? ${ansis.italic.gray('(you can always do this yourself later)')}`,
+        });
+        if (isCancel(confirmDeleteExample)) return gracefulExit(0);
+        if (confirmDeleteExample) {
+          await fs.unlink(exampleFileToConvert.fullPath);
+        }
+      } else {
+        logLines([ansis.dim(`Agent mode: left ${fmt.fileName(exampleFileToConvert.fileName)} in place (no destructive prompts).`)]);
       }
     }
 
@@ -223,12 +255,16 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         console.log('  ', itemKeys.map((k) => ansis.italic(k)).join(', '));
       }
 
-      const confirmDeleteRedundant = await prompts.confirm({
-        message: 'Should we delete these redundant values from your other .env files?',
-      });
-      if (isCancel(confirmDeleteRedundant)) return gracefulExit(0);
-      if (confirmDeleteRedundant) {
-        await detectRedundantValues(parsedEnvSchemaFile, parsedEnvFiles, { delete: true });
+      if (!agentMode) {
+        const confirmDeleteRedundant = await prompts.confirm({
+          message: 'Should we delete these redundant values from your other .env files?',
+        });
+        if (isCancel(confirmDeleteRedundant)) return gracefulExit(0);
+        if (confirmDeleteRedundant) {
+          await detectRedundantValues(parsedEnvSchemaFile, parsedEnvFiles, { delete: true });
+        }
+      } else {
+        logLines([ansis.dim('Agent mode: skipped automatic deletion of redundant values.')]);
       }
     }
 

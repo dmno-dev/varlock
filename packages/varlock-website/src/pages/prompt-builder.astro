@@ -1,0 +1,47 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { createMetaHead } from "../lib/meta";
+import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
+import PromptBuilderApp from "../components/PromptBuilderApp.vue";
+
+const site = Astro.site ?? new URL(Astro.url.origin);
+const pageUrl = new URL(Astro.url.pathname, site).href;
+const ogImageUrl = new URL("/default-og-image-new.png", site).href;
+const pageTitle = "Varlock prompt builder";
+const pageDescription =
+  "Pick languages, repo layout, and stack; generate a shareable prompt with links to Varlock docs.";
+const metaHead = createMetaHead({
+  title: pageTitle,
+  description: pageDescription,
+  url: pageUrl,
+  ogImageUrl,
+});
+---
+
+<Layout
+  title={pageTitle}
+  description={pageDescription}
+  showSearch={false}
+  head={metaHead}
+>
+  <main class="prompt-builder-page not-content">
+    <div class="pb-banner-wrap">
+      <VarlockRetroBanner />
+    </div>
+    <PromptBuilderApp client:load />
+  </main>
+</Layout>
+
+<style>
+  .prompt-builder-page {
+    max-width: var(--sl-content-width);
+    margin: 0 auto;
+    padding: 0 1rem 2rem;
+  }
+
+  .pb-banner-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1rem;
+  }
+</style>
