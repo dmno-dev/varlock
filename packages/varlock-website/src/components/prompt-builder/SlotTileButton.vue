@@ -10,8 +10,7 @@
     <span class="inventory-slot">
       <img :src="cupboardUrl" alt="" class="slot-bg" width="72" height="72" />
       <span class="slot-icon">
-        <OpencodePixel v-if="tile.customIcon === 'opencode'" />
-        <Icon v-else-if="tile.icon" :icon="tile.icon" aria-hidden="true" />
+        <Icon :icon="tile.icon" aria-hidden="true" />
       </span>
       <span class="slot-label slot-label-always">{{ tile.title }}</span>
     </span>
@@ -21,7 +20,6 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue';
 import type { WorksWithTile } from '../../lib/works-with-tiles';
-import OpencodePixel from './OpencodePixel.vue';
 
 defineProps<{
   tile: WorksWithTile;
