@@ -182,25 +182,14 @@
                 {{ copyLabel }}
               </button>
               <a
-                v-for="action in aiAddActions"
-                :key="action.id"
                 class="rpg-btn rpg-btn-link"
-                :href="action.href"
-                :target="action.external ? '_blank' : undefined"
-                :rel="action.external ? 'noopener noreferrer' : undefined"
-                @click="onAiAddActionClick($event, action)"
+                :href="addToRepoUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                @click="onAddToRepoClick"
               >
-                {{ action.label }}
+                Add to my repo
               </a>
-              <button
-                v-if="aiAddActions.length === 0"
-                type="button"
-                class="rpg-btn rpg-btn-muted"
-                disabled
-                title="Select an AI tool to enable a local deep link."
-              >
-                Add via selected AI tool
-              </button>
             </div>
             <p v-if="actionNotice" class="scroll-action-notice">{{ actionNotice }}</p>
           </div>
@@ -291,23 +280,6 @@ function formatTileLine(tile: WorksWithTile) {
   return link ? `- ${tile.title}: ${link}` : `- ${tile.title}`;
 }
 
-function aiToolHref(id: string, prompt: string) {
-  switch (id) {
-    case 'claude-code':
-      return `claude-cli://open?q=${prompt}`;
-    case 'cursor':
-      return `cursor://ai/new?prompt=${prompt}`;
-    case 'copilot':
-      return 'https://github.com/copilot';
-    case 'gemini-cli':
-      return `gemini://prompt?text=${prompt}`;
-    case 'opencode':
-      return `opencode://prompt?text=${prompt}`;
-    default:
-      return '';
-  }
-}
-
 function tilesForPickedCategory(cat: WorksWithTileCategory): Array<WorksWithTile> {
   const out: Array<WorksWithTile> = [];
   for (const id of selectedPickIds.value) {
@@ -370,40 +342,14 @@ const generatedPrompt = computed(() => {
   }
 
   lines.push(
-    'Please walk me through running `varlock init`, authoring a sensible `.env.schema`, and installing any needed Varlock plugins and framework/language integrations for the stack above. Prefer the linked Varlock docs.',
+    'Please run `varlock init --agent`, author a sensible of `.env.schema` files (as many as needed), and install any required Varlock plugins and framework/language integrations for the stack above. Always prefer the linked Varlock docs. You can validate your `.env.schema` with `varlock load --agent`.',
   );
   return lines.join('\n');
 });
 
-interface AiAddAction {
-  id: string;
-  label: string;
-  href: string;
-  external: boolean;
-  requiresManualPaste: boolean;
-}
+const addToRepoUrl = 'https://github.com';
 
-const aiAddActions = computed(() => {
-  if (typeof window === 'undefined') return [];
-  const prompt = encodeURIComponent(generatedPrompt.value);
-  const out: Array<AiAddAction> = [];
-  for (const tile of aiTilesList) {
-    if (!selectedPickIds.value.has(tile.id)) continue;
-    const href = aiToolHref(tile.id, prompt);
-    if (!href) continue;
-    out.push({
-      id: tile.id,
-      label: `Add via ${tile.title}`,
-      href,
-      external: tile.id === 'copilot',
-      requiresManualPaste: tile.id === 'copilot',
-    });
-  }
-  return out;
-});
-
-function onAiAddActionClick(event: MouseEvent, action: AiAddAction) {
-  if (!action.requiresManualPaste) return;
+function onAddToRepoClick(event: MouseEvent) {
   event.preventDefault();
   navigator.clipboard.writeText(generatedPrompt.value).then(() => {
     actionNotice.value = 'Prompt copied to clipboard for manual paste. Opening now...';
@@ -419,7 +365,7 @@ function onAiAddActionClick(event: MouseEvent, action: AiAddAction) {
     }, 2500);
   }).finally(() => {
     setTimeout(() => {
-      window.open(action.href, '_blank', 'noopener,noreferrer');
+      window.open(addToRepoUrl, '_blank', 'noopener,noreferrer');
     }, 1500);
   });
 }
