@@ -1,24 +1,17 @@
 ---
 import { Icon } from "astro-iconify";
-import OpencodeLogo from "../custom-icons/opencode-logo.svg";
 import cupboardTile from "../assets/pixel-art/inventory-cupboard-tile.png";
 import { worksWithTilesForDisplay } from "../lib/works-with-tiles";
 ---
 
 <div class="inventory-grid not-content">
   {
-    worksWithTilesForDisplay().map(({ title, icon, customIcon, href }) => {
+    worksWithTilesForDisplay().map(({ title, icon, href }) => {
       const inner = (
         <div class="inventory-slot">
           <img src={cupboardTile.src} alt="" class="slot-bg" />
           <div class="slot-icon">
-            {customIcon === "opencode" ? (
-              <div class="custom-svg" role="img" aria-label={title}>
-                <OpencodeLogo />
-              </div>
-            ) : (
-              <Icon name={icon} aria-label={title} />
-            )}
+            <Icon name={icon} aria-label={title} />
           </div>
           <span class="slot-label">{title}</span>
         </div>
@@ -38,12 +31,11 @@ import { worksWithTilesForDisplay } from "../lib/works-with-tiles";
 
 <style>
   .inventory-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
-    gap: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
     width: 100%;
     margin: 3rem auto;
-    justify-items: stretch;
   }
 
   .slot-link {
@@ -85,23 +77,6 @@ import { worksWithTilesForDisplay } from "../lib/works-with-tiles";
   .slot-icon :global(svg) {
     width: 100%;
     height: 100%;
-  }
-
-  .custom-svg {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .custom-svg :global(svg) {
-    width: 100%;
-    height: 100%;
-  }
-
-  .custom-svg :global(path) {
-    fill: currentColor;
   }
 
   .slot-label {

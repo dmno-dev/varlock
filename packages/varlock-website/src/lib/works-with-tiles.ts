@@ -10,7 +10,6 @@ export interface WorksWithTile {
   id: string;
   title: string;
   icon?: string;
-  customIcon?: 'opencode';
   href?: string;
   category: WorksWithTileCategory;
 }
@@ -57,7 +56,7 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
   {
     id: 'opencode',
     title: 'Opencode',
-    customIcon: 'opencode',
+    icon: 'opencode-logo',
     href: '/guides/ai-tools/',
     category: 'ai',
   },
@@ -152,7 +151,7 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
   {
     id: 'tanstack-start',
     title: 'TanStack Start',
-    icon: 'simple-icons:react',
+    icon: 'simple-icons:tanstack',
     href: '/integrations/tanstack-start/',
     category: 'frameworks',
   },
@@ -189,7 +188,7 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
   {
     id: 'akeyless',
     title: 'Akeyless',
-    icon: 'mdi:key-variant',
+    icon: 'akeyless-logo',
     href: '/plugins/akeyless/',
     category: 'secrets',
   },
@@ -224,7 +223,7 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
   {
     id: 'doppler',
     title: 'Doppler',
-    icon: 'mdi:cloud-sync-outline',
+    icon: 'doppler-logo',
     href: '/plugins/doppler/',
     category: 'secrets',
   },
@@ -259,7 +258,7 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
   {
     id: 'keeper',
     title: 'Keeper',
-    icon: 'mdi:key-wireless',
+    icon: 'simple-icons:keeper',
     href: '/plugins/keeper/',
     category: 'secrets',
   },
@@ -273,14 +272,14 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
   {
     id: 'pass',
     title: 'Pass',
-    icon: 'simple-icons:gnuprivacyguard',
+    icon: 'tabler:password',
     href: '/plugins/pass/',
     category: 'secrets',
   },
   {
     id: 'passbolt',
     title: 'Passbolt',
-    icon: 'mdi:lock-outline',
+    icon: 'simple-icons:passbolt',
     href: '/plugins/passbolt/',
     category: 'secrets',
   },
