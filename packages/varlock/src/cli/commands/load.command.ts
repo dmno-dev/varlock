@@ -23,7 +23,7 @@ export const commandSpec = define({
     },
     agent: {
       type: 'boolean',
-      description: 'Agent-safe mode: force JSON output with sensitive values redacted',
+      description: 'Agent-safe mode: redact sensitive values (defaults to JSON format if --format is not set)',
     },
     compact: {
       type: 'boolean',
@@ -85,7 +85,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const {
     format, compact, 'show-all': showAll, 'summary-stderr': summaryStderr, 'summary-file': summaryFile, agent,
   } = ctx.values;
-  const outputFormat = agent ? 'json' : format;
+  // --agent defaults to json if no explicit --format was set, but respects --format if provided
+  const outputFormat = agent && format === 'pretty' ? 'json' : format;
+
+  if (agent && (outputFormat === 'env' || outputFormat === 'shell')) {
+    throw new Error(`--agent is not compatible with --format ${outputFormat}`);
+  }
 
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
@@ -126,6 +131,24 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   }
 
+  /** When --agent is set, return a copy of the resolved env with sensitive values redacted */
+  function getRedactedEnvObject() {
+    const redactedEnv: Record<string, unknown> = {};
+    const resolvedEnv = envGraph.getResolvedEnvObject();
+    for (const itemKey of envGraph.sortedConfigKeys) {
+      const item = envGraph.configSchema[itemKey];
+      const value = resolvedEnv[itemKey];
+      if (item.isSensitive && typeof value === 'string') {
+        redactedEnv[itemKey] = redactString(value);
+      } else if (item.isSensitive && value !== undefined) {
+        redactedEnv[itemKey] = '[REDACTED]';
+      } else {
+        redactedEnv[itemKey] = value;
+      }
+    }
+    return redactedEnv;
+  }
+
   if (outputFormat === 'pretty') {
     showPluginWarnings(envGraph);
     for (const itemKey of envGraph.sortedConfigKeys) {
@@ -133,27 +156,21 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       console.log(getItemSummary(item));
     }
   } else if (outputFormat === 'json') {
-    if (agent) {
-      const redactedEnv: Record<string, unknown> = {};
-      const resolvedEnv = envGraph.getResolvedEnvObject();
-      for (const itemKey of envGraph.sortedConfigKeys) {
-        const item = envGraph.configSchema[itemKey];
-        const value = resolvedEnv[itemKey];
-        if (item.isSensitive && typeof value === 'string') {
-          redactedEnv[itemKey] = redactString(value);
-        } else if (item.isSensitive && value !== undefined) {
-          redactedEnv[itemKey] = '[REDACTED]';
-        } else {
-          redactedEnv[itemKey] = value;
-        }
-      }
-      console.log(JSON.stringify(redactedEnv, null, 2));
-    } else {
-      console.log(JSON.stringify(envGraph.getResolvedEnvObject(), null, 2));
-    }
+    const env = agent ? getRedactedEnvObject() : envGraph.getResolvedEnvObject();
+    console.log(JSON.stringify(env, null, 2));
   } else if (outputFormat === 'json-full') {
     const indent = compact ? 0 : 2;
     const serialized = envGraph.getSerializedGraph();
+    if (agent) {
+      for (const key in serialized.config) {
+        const item = serialized.config[key];
+        if (item.isSensitive && typeof item.value === 'string') {
+          item.value = redactString(item.value);
+        } else if (item.isSensitive && item.value !== undefined) {
+          item.value = '[REDACTED]';
+        }
+      }
+    }
     console.log(JSON.stringify(serialized, null, indent));
     // Output JSON to stdout even on failure (so consumers can parse err.stdout),
     // but still exit non-zero so execSync callers know something is wrong

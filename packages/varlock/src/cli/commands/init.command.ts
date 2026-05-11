@@ -21,27 +21,6 @@ import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { findEnvFiles } from '../helpers/find-env-files';
 import { tryCatch } from '@env-spec/utils/try-catch';
 
-function logAgentPostInitGuidance() {
-  logLines([
-    '',
-    ansis.bold('Agent follow-up (sensitivity)'),
-    'Init applied heuristics for which keys look sensitive and set a default for new items. Do not assume that is correct for this repo.',
-    '',
-    `1. Confirm with the user which keys are actually ${fmt.decorator('@sensitive')} (secrets, tokens, private keys) vs safe to treat as non-sensitive (public URLs, feature flags, app names, etc.). Update ${fmt.fileName('.env.schema')} accordingly.`,
-    '',
-    `2. Confirm whether the root ${fmt.decorator('defaultSensitive')} decorator should be ${fmt.decorator('true')} or ${fmt.decorator('false')} for this project:`,
-    `   - ${fmt.decorator('true')}: new items default to sensitive unless marked otherwise (good when most env vars are secrets).`,
-    `   - ${fmt.decorator('false')}: new items default to non-sensitive; mark secrets explicitly with ${fmt.decorator('@sensitive')} (good when most env vars are not secrets).`,
-    '',
-    'Apply whatever the user chooses before treating the schema as final.',
-    '',
-    `3. Validate the resolved config any time (while iterating with the user and for the final result) using ${fmt.command('varlock load --agent', { jsPackageManager: true })}. It prints JSON with sensitive values redacted so you can safely inspect output in logs or transcripts.`,
-    '',
-    ansis.dim('Docs: https://varlock.dev/guides/schema and https://varlock.dev/reference/item-decorators'),
-    '',
-  ]);
-}
-
 export const commandSpec = define({
   name: 'init',
   description: 'Set up varlock in the current project',
@@ -202,44 +181,67 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       await fs.appendFile('.gitignore', '\n!.env.schema');
     }
 
-    // ask them to review and confirm
-    logLines([
-      '',
-      ansis.bold(`🚧 Please review and update your new ${fmt.fileName('.env.schema')} file! 🚧`),
-      `We've done our best to get you started, but you must review and make sure it is correct!`,
-      '',
-      `👉 Some helpful pointers to get you started:`,
-      `- add a description to each item when the name is not self explanatory - it will come through in generated types`,
-      `- use ${fmt.decorator('@required')} (or ${fmt.decorator('@optional')}) to tag items that should fail validation when empty`,
-      `- use ${fmt.decorator('@sensitive')} to tag items that contain sensitive secrets, and must be handled accordingly`,
-      `- use ${fmt.decorator('@type')} to set an item's data type (if not a basic string), which affects validation and coercion logic`,
-      `- if an item value is a ${ansis.italic('useful example')} rather than a default, use ${fmt.decorator('@example')}`,
-      `- if an item value is just a dummy placeholder, delete it`,
-    ]);
-    if (!agentMode) {
+    if (agentMode) {
+      logLines([
+        '',
+        ansis.bold('Agent setup instructions:'),
+        '- Initial schema generation uses heuristics, and must be reviewed and confirmed explicitly with the user',
+        '- Schema writing guide: https://varlock.dev/guides/schema',
+        '- Confirm/add `@type` on items, default is string, so no `@type=string` necessary',
+        '- Add `@required`/`@optional`, can adjust `@defaultRequired` root decorator to change default behavior',
+        '- Confirm with user which items are `@sensitive` (secrets, private keys, etc) - see https://varlock.dev/guides/secrets/',
+        '- Remove placeholder example values, move useful ones to `@example`',
+        '- Add description comments when key itself is not self-explanitory',
+        '- Add `@docs()` to attach docs links to items',
+        '',
+        'Help user review and update .env.schema file for them, validating that config is resolving correctly and valid.',
+        'Schema file is safe to read, do not look directly at values in .env / .env.local files - tell user to edit those files if necessary.',
+        `Validate the resolved config any time using ${fmt.command('varlock load --agent', { jsPackageManager: true })}. It prints JSON with sensitive values redacted so you can safely inspect output in logs or transcripts. Or drop the \`--agent\` flag to get human-readable output to show the user.`,
+        '',
+        'Advanced setup:',
+        '- Can use multiple .env files or functions to manage variation per environment, see https://varlock.dev/guides/environments/',
+        '- Complex/large files can be broken up and use `@import`, see https://varlock.dev/guides/import/',
+        '- If user wants to load secrets from external sources, help install and configure plugins - see https://varlock.dev/guides/plugins/',
+        '- If user has any sensitive values in plaintext, can use local encryption, see `https://varlock.dev/guides/local-encryption/',
+        '',
+      ]);
+    } else {
+      // ask them to review and confirm
+      logLines([
+        '',
+        ansis.bold(`🚧 Please review and update your new ${fmt.fileName('.env.schema')} file! 🚧`),
+        `We've done our best to get you started, but you must review and make sure it is correct!`,
+        '',
+        `👉 Some helpful pointers to get you started:`,
+        `- add a description to each item when the name is not self explanatory - it will come through in generated types`,
+        `- use ${fmt.decorator('@required')} (or ${fmt.decorator('@optional')}) to tag items that should fail validation when empty`,
+        `- use ${fmt.decorator('@sensitive')} to tag items that contain sensitive secrets, and must be handled accordingly`,
+        `- use ${fmt.decorator('@type')} to set an item's data type (if not a basic string), which affects validation and coercion logic`,
+        `- if an item value is a ${ansis.italic('useful example')} rather than a default, use ${fmt.decorator('@example')}`,
+        `- if an item value is just a dummy placeholder, delete it`,
+      ]);
       const confirmReviewed = await prompts.confirm({
         message: `Have you reviewed and updated your new ${fmt.fileName('.env.schema')} file?`,
       });
       if (isCancel(confirmReviewed)) return gracefulExit(0);
-    } else {
-      logLines([ansis.dim(`Agent mode: skipping review confirmation prompt. Please review ${fmt.fileName('.env.schema')} manually.`)]);
-    }
 
-    // reload the graph
-    const reloadedSchemaFile = await parseEnvSpecDotEnvFile(await fs.readFile(schemaFilePath, 'utf-8'));
-
-    // check if they removed the EXAMPLE_ITEM and warn them
-    if (reloadedSchemaFile.configItems.find((i) => i.key === 'EXAMPLE_ITEM')) {
-      logLines([
-        '',
-        ansis.bold(`🚨 Really? ${ansis.red("You didn't remove the EXAMPLE_ITEM!")}`),
-        `Please make sure your schema is all correct before using it...`,
-      ]);
+      // reload the graph
+      const reloadedSchemaFile = await parseEnvSpecDotEnvFile(await fs.readFile(schemaFilePath, 'utf-8'));
+      // check if they removed the EXAMPLE_ITEM and warn them
+      if (reloadedSchemaFile.configItems.find((i) => i.key === 'EXAMPLE_ITEM')) {
+        logLines([
+          '',
+          ansis.bold(`🚨 Really? ${ansis.red("You didn't remove the EXAMPLE_ITEM!")}`),
+          `Please make sure your schema is all correct before using it...`,
+        ]);
+      }
     }
 
     // delete the example file if they want us to
     if (exampleFileToConvert) {
-      if (!agentMode) {
+      if (agentMode) {
+        logLines([`- left ${exampleFileToConvert.fileName} in place (no destructive prompts) - confirm with user and remove for them`]);
+      } else {
         const confirmDeleteExample = await prompts.confirm({
           message: `Should we delete your ${fmt.fileName(exampleFileToConvert.fileName)} file? ${ansis.italic.gray('(you can always do this yourself later)')}`,
         });
@@ -247,8 +249,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         if (confirmDeleteExample) {
           await fs.unlink(exampleFileToConvert.fullPath);
         }
-      } else {
-        logLines([ansis.dim(`Agent mode: left ${fmt.fileName(exampleFileToConvert.fileName)} in place (no destructive prompts).`)]);
       }
     }
 
@@ -257,26 +257,32 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       return f.fileName.startsWith('.env.default'); // also covers ".env.defaults"
     });
     if (defaultsFile) {
-      logLines([
-        '',
-        `🚧 We detected a ${fmt.fileName(defaultsFile.fileName)} file in your project`,
-        `You should migrate these default values into ${fmt.fileName('.env.schema')} and delete it.`,
-      ]);
+      if (agentMode) {
+        logLines([`- found ${defaultsFile.fileName} in project - tell user to migrate defaults to .env.schema and delete it`]);
+      } else {
+        logLines([
+          '',
+          `🚧 We detected a ${fmt.fileName(defaultsFile.fileName)} file in your project`,
+          `You should migrate these default values into ${fmt.fileName('.env.schema')} and delete it.`,
+        ]);
+      }
     }
 
     // detect and remove redundant defaults that are now in the schema
     const redundantInfo = await detectRedundantValues(parsedEnvSchemaFile, parsedEnvFiles);
     if (Object.keys(redundantInfo).length > 0) {
-      logLines([
-        '',
-        ansis.bold('‼️  Now that your schema contains defaults, some values in your other .env files are redundant:'),
-      ]);
-      for (const [sourcePath, itemKeys] of Object.entries(redundantInfo)) {
-        console.log(fmt.filePath(sourcePath));
-        console.log('  ', itemKeys.map((k) => ansis.italic(k)).join(', '));
-      }
+      if (agentMode) {
+        logLines([`- found redundant values in other .env files - tell user to review and delete them`]);
+      } else {
+        logLines([
+          '',
+          ansis.bold('‼️  Now that your schema contains defaults, some values in your other .env files are redundant:'),
+        ]);
+        for (const [sourcePath, itemKeys] of Object.entries(redundantInfo)) {
+          console.log(fmt.filePath(sourcePath));
+          console.log('  ', itemKeys.map((k) => ansis.italic(k)).join(', '));
+        }
 
-      if (!agentMode) {
         const confirmDeleteRedundant = await prompts.confirm({
           message: 'Should we delete these redundant values from your other .env files?',
         });
@@ -284,22 +290,22 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         if (confirmDeleteRedundant) {
           await detectRedundantValues(parsedEnvSchemaFile, parsedEnvFiles, { delete: true });
         }
-      } else {
-        logLines([ansis.dim('Agent mode: skipped automatic deletion of redundant values.')]);
       }
     }
 
     // final success!
-    logLines([
-      '',
-      ansis.bold('🎉 Great!'),
-      `You can run ${fmt.command('varlock load', { jsPackageManager })} to attempt loading your env vars validate against your new schema.`,
-      '',
-      'Check out our docs for more info about integrating into your application.',
-      '',
-      '📖 https://varlock.dev 👈',
-      '',
-    ]);
+    if (!agentMode) {
+      logLines([
+        '',
+        ansis.bold('🎉 Great!'),
+        `You can run ${fmt.command('varlock load', { jsPackageManager })} to attempt loading your env vars validate against your new schema.`,
+        '',
+        'Check out our docs for more info about integrating into your application.',
+        '',
+        '📖 https://varlock.dev 👈',
+        '',
+      ]);
+    }
   }
 
   // * MAKE SURE VARLOCK IS INSTALLED ------------------------------------------
@@ -342,9 +348,5 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         ansis.dim(`See ${ansis.underline('https://varlock.dev/integrations/bun')} for more info.`),
       ]);
     }
-  }
-
-  if (agentMode) {
-    logAgentPostInitGuidance();
   }
 };
