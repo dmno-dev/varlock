@@ -3,6 +3,13 @@
 
 
 
+
+## 1.2.0
+<sub>2026-05-11</sub>
+
+- [#569](https://github.com/dmno-dev/varlock/pull/569) Thanks [@danish-fareed](https://github.com/danish-fareed)! - add code env scanner and audit command with `@auditIgnore` / `@auditIgnorePaths` decorators
+- [#695](https://github.com/dmno-dev/varlock/pull/695)  *(patch)* - Add --agent flag for init and load
+
 ## 1.1.0
 <sub>2026-05-02</sub>
 
