@@ -21,6 +21,27 @@ import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { findEnvFiles } from '../helpers/find-env-files';
 import { tryCatch } from '@env-spec/utils/try-catch';
 
+function logAgentPostInitGuidance() {
+  logLines([
+    '',
+    ansis.bold('Agent follow-up (sensitivity)'),
+    'Init applied heuristics for which keys look sensitive and set a default for new items. Do not assume that is correct for this repo.',
+    '',
+    `1. Confirm with the user which keys are actually ${fmt.decorator('@sensitive')} (secrets, tokens, private keys) vs safe to treat as non-sensitive (public URLs, feature flags, app names, etc.). Update ${fmt.fileName('.env.schema')} accordingly.`,
+    '',
+    `2. Confirm whether the root ${fmt.decorator('defaultSensitive')} decorator should be ${fmt.decorator('true')} or ${fmt.decorator('false')} for this project:`,
+    `   - ${fmt.decorator('true')}: new items default to sensitive unless marked otherwise (good when most env vars are secrets).`,
+    `   - ${fmt.decorator('false')}: new items default to non-sensitive; mark secrets explicitly with ${fmt.decorator('@sensitive')} (good when most env vars are not secrets).`,
+    '',
+    'Apply whatever the user chooses before treating the schema as final.',
+    '',
+    `3. Validate the resolved config any time (while iterating with the user and for the final result) using ${fmt.command('varlock load --agent', { jsPackageManager: true })}. It prints JSON with sensitive values redacted so you can safely inspect output in logs or transcripts.`,
+    '',
+    ansis.dim('Docs: https://varlock.dev/guides/schema and https://varlock.dev/reference/item-decorators'),
+    '',
+  ]);
+}
+
 export const commandSpec = define({
   name: 'init',
   description: 'Set up varlock in the current project',
@@ -321,5 +342,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         ansis.dim(`See ${ansis.underline('https://varlock.dev/integrations/bun')} for more info.`),
       ]);
     }
+  }
+
+  if (agentMode) {
+    logAgentPostInitGuidance();
   }
 };
