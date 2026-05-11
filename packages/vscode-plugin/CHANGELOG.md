@@ -1,5 +1,11 @@
 # env-spec-language
 
+
+## 0.2.0
+<sub>2026-05-11</sub>
+
+- [#569](https://github.com/dmno-dev/varlock/pull/569) Thanks [@danish-fareed](https://github.com/danish-fareed)! - add code env scanner and audit command with `@auditIgnore` / `@auditIgnorePaths` decorators
+
 ## 0.1.3
 
 ### Patch Changes
