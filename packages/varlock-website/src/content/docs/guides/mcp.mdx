@@ -531,13 +531,21 @@ See below for tool-specific setup instructions.
 ```
   </TabItem>
   <TabItem label="Claude">
-  To add a server in Claude Code, run the following command:
+  To add a server in Claude Code, run the following command. Use `--scope user` so the server is available in **all** Claude Code sessions; without it, the install applies to the current project only.
+
   ```bash
-  claude mcp add --transport http varlock-docs-mcp https://docs.mcp.varlock.dev/mcp
+  claude mcp add --scope user --transport http varlock-docs-mcp https://docs.mcp.varlock.dev/mcp
   ```
 
   See [Claude's documentation](https://docs.claude.com/en/docs/claude-code/mcp#option-1%3A-add-a-remote-http-server) for more information.
 
+  </TabItem>
+  <TabItem label="Codex">
+  To add the Varlock docs MCP server in Codex, run:
+
+  ```bash
+  codex mcp add varlock-docs-mcp --url https://docs.mcp.varlock.dev/mcp
+  ```
 
   </TabItem>
   <TabItem label="opencode">
