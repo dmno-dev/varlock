@@ -4,6 +4,7 @@ import { gracefulExit } from 'exit-hook';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { getItemSummary } from '../../lib/formatting';
+import { redactString } from '../../runtime/lib/redaction';
 import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
@@ -19,6 +20,10 @@ export const commandSpec = define({
       choices: ['pretty', 'json', 'env', 'shell', 'json-full'],
       description: 'Format of output',
       default: 'pretty',
+    },
+    agent: {
+      type: 'boolean',
+      description: 'Agent-safe mode: redact sensitive values (defaults to JSON format if --format is not set)',
     },
     compact: {
       type: 'boolean',
@@ -62,6 +67,7 @@ Examples:
   varlock load --env production   # Load for a specific environment (⚠️ ignored if using @currentEnv!)
   varlock load --format json-full --summary-stderr   # JSON on stdout + redacted human summary on stderr
   varlock load --format json-full --summary-file /tmp/summary.txt   # JSON on stdout + redacted human summary written to file
+  varlock load --agent            # Agent-safe JSON output with sensitive values redacted
 `.trim(),
 });
 
@@ -77,8 +83,14 @@ export function formatShellValue(value: string): string {
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const {
-    format, compact, 'show-all': showAll, 'summary-stderr': summaryStderr, 'summary-file': summaryFile,
+    format, compact, 'show-all': showAll, 'summary-stderr': summaryStderr, 'summary-file': summaryFile, agent,
   } = ctx.values;
+  // --agent defaults to json if no explicit --format was set, but respects --format if provided
+  const outputFormat = agent && format === 'pretty' ? 'json' : format;
+
+  if (agent && (outputFormat === 'env' || outputFormat === 'shell')) {
+    throw new Error(`--agent is not compatible with --format ${outputFormat}`);
+  }
 
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
@@ -88,7 +100,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // For json-full, always output the serialized graph — it includes `errors` and
   // `configErrors` fields so consumers can handle failures gracefully.
   // For all other formats, exit on errors as before.
-  if (format !== 'json-full') {
+  if (outputFormat !== 'json-full') {
     checkForSchemaErrors(envGraph);
     checkForNoEnvFiles(envGraph);
   }
@@ -100,13 +112,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   await envGraph.resolveEnvValues();
 
-  if (format === 'json-full') {
+  if (outputFormat === 'json-full') {
     checkForConfigErrors(envGraph, { showAll, noThrow: true });
   } else {
     checkForConfigErrors(envGraph, { showAll });
   }
 
-  if ((summaryStderr || summaryFile) && format !== 'pretty') {
+  if ((summaryStderr || summaryFile) && outputFormat !== 'pretty') {
     const summaryLines = envGraph.sortedConfigKeys.map(
       (key) => getItemSummary(envGraph.configSchema[key]),
     );
@@ -119,27 +131,56 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   }
 
-  if (format === 'pretty') {
+  /** When --agent is set, return a copy of the resolved env with sensitive values redacted */
+  function getRedactedEnvObject() {
+    const redactedEnv: Record<string, unknown> = {};
+    const resolvedEnv = envGraph.getResolvedEnvObject();
+    for (const itemKey of envGraph.sortedConfigKeys) {
+      const item = envGraph.configSchema[itemKey];
+      const value = resolvedEnv[itemKey];
+      if (item.isSensitive && typeof value === 'string') {
+        redactedEnv[itemKey] = redactString(value);
+      } else if (item.isSensitive && value !== undefined) {
+        redactedEnv[itemKey] = '[REDACTED]';
+      } else {
+        redactedEnv[itemKey] = value;
+      }
+    }
+    return redactedEnv;
+  }
+
+  if (outputFormat === 'pretty') {
     showPluginWarnings(envGraph);
     for (const itemKey of envGraph.sortedConfigKeys) {
       const item = envGraph.configSchema[itemKey];
       console.log(getItemSummary(item));
     }
-  } else if (format === 'json') {
-    console.log(JSON.stringify(envGraph.getResolvedEnvObject(), null, 2));
-  } else if (format === 'json-full') {
+  } else if (outputFormat === 'json') {
+    const env = agent ? getRedactedEnvObject() : envGraph.getResolvedEnvObject();
+    console.log(JSON.stringify(env, null, 2));
+  } else if (outputFormat === 'json-full') {
     const indent = compact ? 0 : 2;
     const serialized = envGraph.getSerializedGraph();
+    if (agent) {
+      for (const key in serialized.config) {
+        const item = serialized.config[key];
+        if (item.isSensitive && typeof item.value === 'string') {
+          item.value = redactString(item.value);
+        } else if (item.isSensitive && item.value !== undefined) {
+          item.value = '[REDACTED]';
+        }
+      }
+    }
     console.log(JSON.stringify(serialized, null, indent));
     // Output JSON to stdout even on failure (so consumers can parse err.stdout),
     // but still exit non-zero so execSync callers know something is wrong
     if (serialized.errors) {
       gracefulExit(1);
     }
-  } else if (format === 'env' || format === 'shell') {
+  } else if (outputFormat === 'env' || outputFormat === 'shell') {
     const resolvedEnv = envGraph.getResolvedEnvObject();
     const skipUndefined = compact === true;
-    const prefix = format === 'shell' ? 'export ' : '';
+    const prefix = outputFormat === 'shell' ? 'export ' : '';
 
     for (const key in resolvedEnv) {
       const value = resolvedEnv[key];
@@ -152,7 +193,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       if (value === undefined) {
         strValue = '';
       } else if (typeof value === 'string') {
-        if (format === 'shell') {
+        if (outputFormat === 'shell') {
           strValue = formatShellValue(value);
         } else {
           strValue = `"${value.replaceAll('"', '\\"').replaceAll('\n', '\\n')}"`;
@@ -163,6 +204,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       console.log(`${prefix}${key}=${strValue}`);
     }
   } else {
-    throw new Error(`Unknown format: ${format}`);
+    throw new Error(`Unknown format: ${outputFormat}`);
   }
 };

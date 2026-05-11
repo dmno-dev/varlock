@@ -1,163 +1,17 @@
 ---
 import { Icon } from "astro-iconify";
-import OpencodeLogo from "../custom-icons/opencode-logo.svg";
 import cupboardTile from "../assets/pixel-art/inventory-cupboard-tile.png";
-
-interface LogoItem {
-  title: string;
-  icon?: string;
-  customIcon?: astroHTML.JSX.Element | ((_props: Record<string, any>) => any);
-  href?: string;
-}
-
-const allLogos: LogoItem[] = [
-  // AI Tools
-  {
-    title: "Claude Code",
-    icon: "simple-icons:anthropic",
-    href: "/guides/ai-tools/",
-  },
-  {
-    title: "Cursor",
-    icon: "simple-icons:cursor",
-    href: "/guides/ai-tools/",
-  },
-  {
-    title: "Gemini CLI",
-    icon: "simple-icons:googlegemini",
-    href: "/guides/ai-tools/",
-  },
-  {
-    title: "Opencode",
-    customIcon: OpencodeLogo,
-    href: "/guides/ai-tools/",
-  },
-  // Plugins
-  {
-    title: "1Password",
-    icon: "simple-icons:1password",
-    href: "/plugins/1password/",
-  },
-  {
-    title: "Infisical",
-    icon: "mdi:infinity",
-    href: "/plugins/infisical/",
-  },
-  {
-    title: "AWS Secrets",
-    icon: "simple-icons:amazonaws",
-    href: "/plugins/aws-secrets/",
-  },
-  {
-    title: "Azure Key Vault",
-    icon: "simple-icons:microsoftazure",
-    href: "/plugins/azure-key-vault/",
-  },
-  {
-    title: "Google Secret Manager",
-    icon: "simple-icons:googlecloud",
-    href: "/plugins/google-secret-manager/",
-  },
-  {
-    title: "Bitwarden",
-    icon: "simple-icons:bitwarden",
-    href: "/plugins/bitwarden/",
-  },
-  // Integrations
-  {
-    title: "Next.js",
-    icon: "simple-icons:nextdotjs",
-    href: "/integrations/nextjs/",
-  },
-  {
-    title: "Vite",
-    icon: "simple-icons:vite",
-    href: "/integrations/vite/",
-  },
-  {
-    title: "Astro",
-    icon: "simple-icons:astro",
-    href: "/integrations/astro/",
-  },
-  {
-    title: "GitHub Actions",
-    icon: "simple-icons:githubactions",
-    href: "/integrations/github-action/",
-  },
-  {
-    title: "Docker",
-    icon: "simple-icons:docker",
-    href: "/guides/docker/",
-  },
-  // Languages
-  {
-    title: "Node.js",
-    icon: "simple-icons:nodedotjs",
-    href: "/integrations/javascript/",
-  },
-  {
-    title: "Bun",
-    icon: "simple-icons:bun",
-    href: "/integrations/bun/",
-  },
-  {
-    title: "Python",
-    icon: "simple-icons:python",
-    href: "/integrations/other-languages/",
-  },
-  {
-    title: "Ruby",
-    icon: "simple-icons:ruby",
-    href: "/integrations/other-languages/",
-  },
-  {
-    title: "Go",
-    icon: "simple-icons:go",
-    href: "/integrations/other-languages/",
-  },
-  {
-    title: "PHP",
-    icon: "simple-icons:php",
-    href: "/integrations/other-languages/",
-  },
-  // Extra
-  {
-    title: "Qwik",
-    icon: "simple-icons:qwik",
-    href: "/integrations/vite/#frameworks",
-  },
-  {
-    title: "React Router",
-    icon: "simple-icons:reactrouter",
-    href: "/integrations/vite/#frameworks",
-  },
-  {
-    title: "Cloudflare Workers",
-    icon: "simple-icons:cloudflare",
-    href: "/integrations/vite/#frameworks",
-  },
-  {
-    title: "TypeScript",
-    icon: "simple-icons:typescript",
-    href: "/integrations/javascript/",
-  },
-];
+import { worksWithTilesForDisplay } from "../lib/works-with-tiles";
 ---
 
 <div class="inventory-grid not-content">
   {
-    allLogos.map(({ title, icon, customIcon: CustomIcon, href }) => {
+    worksWithTilesForDisplay().map(({ title, icon, href }) => {
       const inner = (
         <div class="inventory-slot">
           <img src={cupboardTile.src} alt="" class="slot-bg" />
           <div class="slot-icon">
-            {CustomIcon ? (
-              <div class="custom-svg" role="img" aria-label={title}>
-                <CustomIcon />
-              </div>
-            ) : (
-              <Icon name={icon} aria-label={title} />
-            )}
+            <Icon name={icon} aria-label={title} />
           </div>
           <span class="slot-label">{title}</span>
         </div>
@@ -180,7 +34,7 @@ const allLogos: LogoItem[] = [
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 0px;
+    width: 100%;
     margin: 3rem auto;
   }
 
@@ -223,23 +77,6 @@ const allLogos: LogoItem[] = [
   .slot-icon :global(svg) {
     width: 100%;
     height: 100%;
-  }
-
-  .custom-svg {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .custom-svg :global(svg) {
-    width: 100%;
-    height: 100%;
-  }
-
-  .custom-svg :global(path) {
-    fill: currentColor;
   }
 
   .slot-label {

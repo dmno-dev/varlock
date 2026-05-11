@@ -231,6 +231,49 @@ strong {
   }
 }
 
+.cta-button-row {
+  margin-top: 0.75rem;
+  display: flex;
+  justify-content: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.cta-button-row > .sl-link-button {
+  border: 2px solid transparent;
+}
+
+.cta-button-row > .sl-link-button:hover {
+  background-color: var(--sl-color-black);
+  color: var(--sl-color-text-accent);
+  border: 2px solid var(--sl-color-text-accent);
+  animation: pixelate 1.25s infinite;
+}
+
+.cta-button-row > .sl-link-button::after {
+  content: " →";
+  margin-left: 0.25rem;
+  white-space: nowrap;
+}
+
+@keyframes pixelate {
+  0% {
+    border-style: solid;
+  }
+  25% {
+    border-style: dotted;
+  }
+  50% {
+    border-style: dashed;
+  }
+  75% {
+    border-style: dotted;
+  }
+  100% {
+    border-style: solid;
+  }
+}
+
 
 /* borders around code blocks, file trees, images */
 starlight-file-tree,
