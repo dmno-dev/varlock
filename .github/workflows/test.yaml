@@ -32,8 +32,17 @@ jobs:
           node-version: "24.x"
       - name: Install js deps (w/ bun)
         run: bun install
+      - name: Audit dependencies
+        run: |
+          # GHSA-8r9q-7v3j-jr4g, GHSA-345p-7cg4-v4c7, GHSA-w48q-cv73-mx4w:
+          # @modelcontextprotocol/sdk vulnerabilities via `agents` dep in varlock-docs-mcp.
+          # agents pins to an old SDK version; varlock-docs-mcp needs an agents upgrade (TODO).
+          bun audit --audit-level=high \
+            --ignore GHSA-8r9q-7v3j-jr4g \
+            --ignore GHSA-345p-7cg4-v4c7 \
+            --ignore GHSA-w48q-cv73-mx4w
       - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@v2.3.14
+        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
 
       # ------------------------------------------------------------
       - name: Bumpy release plan check
@@ -174,7 +183,7 @@ jobs:
       - name: Install node deps
         run: bun install
       - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@v2.3.14
+        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
 
       # Get signed macOS .app if varlock is being released
       # If the macOS build ran this run, download the artifact directly

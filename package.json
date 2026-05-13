@@ -57,7 +57,8 @@
   },
   "overrides": {
     "form-data": "4.0.5",
-    "punycode": "npm:punycode@^2.3.1"
+    "punycode": "npm:punycode@^2.3.1",
+    "@xmldom/xmldom": ">=0.8.12"
   },
   "catalog": {
     "@sindresorhus/is": "^7.2.0",
