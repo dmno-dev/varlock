@@ -4,6 +4,12 @@
 
 
 
+
+## 1.1.2
+<sub>2026-05-13</sub>
+
+- [#702](https://github.com/dmno-dev/varlock/pull/702) - Fix varlock-wrangler: skip unsupported --keep-vars flag for `versions upload`, and propagate wrangler exit code correctly for deploy/types commands.
+
 ## 1.1.1
 <sub>2026-05-06</sub>
 
