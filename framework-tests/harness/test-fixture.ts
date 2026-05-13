@@ -100,7 +100,18 @@ export class FrameworkTestEnv {
 
     // Isolate from parent workspaces so the test project
     // is treated as its own independent root
-    writeFileSync(join(this.dir, 'pnpm-workspace.yaml'), 'minimumReleaseAge: 4320\n');
+    // pnpm v11 defaults: block all build scripts, and error on packages missing time metadata.
+    // Allow known native packages that need postinstall scripts, and skip age check for packages
+    // without registry time metadata (common for some npm packages).
+    writeFileSync(join(this.dir, 'pnpm-workspace.yaml'), [
+      'minimumReleaseAge: 4320',
+      'minimumReleaseAgeIgnoreMissingTime: true',
+      'onlyBuiltDependencies:',
+      '  - esbuild',
+      '  - sharp',
+      '  - lightningcss',
+      '',
+    ].join('\n'));
     writeFileSync(join(this.dir, '.npmrc'), 'ignore-workspace-root-check=true\n');
 
     // Copy _base/ skeleton into the project

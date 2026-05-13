@@ -58,8 +58,7 @@
   "overrides": {
     "form-data": "4.0.5",
     "punycode": "npm:punycode@^2.3.1",
-    "@xmldom/xmldom": ">=0.8.12",
-    "@modelcontextprotocol/sdk": ">=1.25.2"
+    "@xmldom/xmldom": ">=0.8.12"
   },
   "catalog": {
     "@sindresorhus/is": "^7.2.0",
@@ -73,9 +72,5 @@
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vitest": "^4.0.18"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "next": "^16.2.6"
   }
 }
