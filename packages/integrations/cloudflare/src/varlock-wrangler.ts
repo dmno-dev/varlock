@@ -238,9 +238,13 @@ function formatEnvFileContent(graph: ReturnType<typeof loadSerializedGraph>) {
 
 // --- command detection ---
 
+function isVersionsUploadCommand(args: Array<string>) {
+  return args[0] === 'versions' && args[1] === 'upload';
+}
+
 function isDeployCommand(args: Array<string>) {
   if (args[0] === 'deploy') return true;
-  if (args[0] === 'versions' && args[1] === 'upload') return true;
+  if (isVersionsUploadCommand(args)) return true;
   return false;
 }
 
@@ -314,13 +318,16 @@ async function handleDeploy(args: Array<string>) {
   let exitCode = process.exitCode ?? 0;
   try {
     debug('deploy: spawning wrangler');
-    exitCode = await spawnWrangler([...args, ...varFlags, '--secrets-file', tmp.filePath, '--keep-vars=false']);
+    const wranglerArgs = [...args, ...varFlags, '--secrets-file', tmp.filePath];
+    if (!isVersionsUploadCommand(args)) wranglerArgs.push('--keep-vars=false');
+    exitCode = await spawnWrangler(wranglerArgs);
     debug('deploy: wrangler exited with code', exitCode);
   } finally {
     debug('deploy: cleaning up');
     handle.stop();
     tmp.cleanup();
   }
+  process.exitCode = exitCode;
 }
 
 async function handleTypes(args: Array<string>) {
@@ -356,6 +363,7 @@ async function handleTypes(args: Array<string>) {
     handle.stop();
     tmp.cleanup();
   }
+  process.exitCode = exitCode;
 }
 
 async function handleDev(args: Array<string>) {
