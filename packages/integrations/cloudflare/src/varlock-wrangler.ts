@@ -327,6 +327,7 @@ async function handleDeploy(args: Array<string>) {
     handle.stop();
     tmp.cleanup();
   }
+  process.exitCode = exitCode;
 }
 
 async function handleTypes(args: Array<string>) {
@@ -362,6 +363,7 @@ async function handleTypes(args: Array<string>) {
     handle.stop();
     tmp.cleanup();
   }
+  process.exitCode = exitCode;
 }
 
 async function handleDev(args: Array<string>) {

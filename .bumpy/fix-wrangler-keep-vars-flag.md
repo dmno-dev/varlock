@@ -2,4 +2,4 @@
 "@varlock/cloudflare-integration": patch
 ---
 
-Fix varlock-wrangler versions upload to avoid passing unsupported --keep-vars flag.
+Fix varlock-wrangler: skip unsupported --keep-vars flag for `versions upload`, and propagate wrangler exit code correctly for deploy/types commands.
