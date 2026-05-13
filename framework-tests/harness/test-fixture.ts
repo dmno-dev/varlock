@@ -100,7 +100,7 @@ export class FrameworkTestEnv {
 
     // Isolate from parent workspaces so the test project
     // is treated as its own independent root
-    writeFileSync(join(this.dir, 'pnpm-workspace.yaml'), '');
+    writeFileSync(join(this.dir, 'pnpm-workspace.yaml'), 'minimumReleaseAge: 4320\n');
     writeFileSync(join(this.dir, '.npmrc'), 'ignore-workspace-root-check=true\n');
 
     // Copy _base/ skeleton into the project

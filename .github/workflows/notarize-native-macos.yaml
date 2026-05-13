@@ -37,7 +37,7 @@ jobs:
         run: bun install
 
       - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@v2.3.14
+        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
 
       - name: Build varlock libs
         run: bun run build:libs

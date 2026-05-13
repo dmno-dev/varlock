@@ -1,1 +1,4 @@
 env = false
+
+[install]
+minimumReleaseAge = 259200 # 3 days in seconds
