@@ -127,6 +127,30 @@ describe('CLI Commands', () => {
     });
   });
 
+  describe('run command', () => {
+    test('varlock run should forward child stdout', () => {
+      const result = varlockRun(['node', '-p', '1+1'], { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).toBe(0);
+      expect(result.output.trim()).toBe('2');
+    });
+
+    test('varlock run should propagate non-zero exit code', () => {
+      const result = varlockRun(['node', '-e', 'process.exit(42)'], {
+        cwd: 'smoke-test-basic',
+      });
+      expect(result.exitCode).toBe(42);
+    });
+
+    test('varlock run should forward child stderr', () => {
+      const result = varlockRun(
+        ['node', '-e', 'process.stderr.write("error-output\\n")'],
+        { cwd: 'smoke-test-basic' },
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('error-output');
+    });
+  });
+
   describe('type generation', () => {
     const typeFilePath = join(SMOKE_TESTS_DIR, 'smoke-test-basic', 'env.d.ts');
     const typeFilePathAutoFalse = join(SMOKE_TESTS_DIR, 'smoke-test-typegen-auto', 'env.d.ts');
