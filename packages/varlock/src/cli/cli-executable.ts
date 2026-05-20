@@ -5,7 +5,7 @@ import { VARLOCK_BANNER_COLOR } from '../lib/ascii-art';
 import { CliExitError } from './helpers/exit-error';
 import { fmt } from './helpers/pretty-format';
 import { trackCommand, trackInstall } from './helpers/telemetry';
-import { InvalidEnvError } from './helpers/error-checks';
+import { FatalSchemaError, InvalidEnvError } from './helpers/error-checks';
 import { checkBunVersion } from '../lib/check-bun-version';
 import { checkLocalVersionMismatch } from '../lib/check-local-version';
 import packageJson from '../../package.json';
@@ -137,7 +137,7 @@ subCommands.set('install-plugin', buildLazyCommand(installPluginCommandSpec, asy
         suggestion: `Run \`${fmt.command('varlock --help', { jsPackageManager: true })}\` for more info.`,
       });
       console.error(badCommandErr.getFormattedOutput());
-    } else if (error instanceof CliExitError || error instanceof InvalidEnvError) {
+    } else if (error instanceof CliExitError || error instanceof InvalidEnvError || error instanceof FatalSchemaError) {
       // in watch mode, we just log but do not actually exit
       console.error(error.getFormattedOutput());
       // TODO: we'll probably want to implement watch mode, so it wont actually exit
