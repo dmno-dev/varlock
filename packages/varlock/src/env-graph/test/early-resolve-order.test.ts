@@ -153,7 +153,7 @@ describe('early resolve order - error when later file redefines early-resolved i
       `,
       '.env.dev': 'APP_ENV=staging',
     },
-    earlyError: true,
+    expectError: true,
   }));
 
   test('error when imported file redefines item used in @import enabled condition', envFilesTest({
@@ -171,7 +171,7 @@ describe('early resolve order - error when later file redefines early-resolved i
         AZURE_CLIENT_ID=some-client-id
       `,
     },
-    earlyError: true,
+    expectError: true,
   }));
 
   test('error when imported file redefines item used in @disable condition', envFilesTest({
@@ -191,7 +191,7 @@ describe('early resolve order - error when later file redefines early-resolved i
         AZURE_CLIENT_ID=some-client-id
       `,
     },
-    earlyError: true,
+    expectError: true,
   }));
 
   test('no error when imported file defines a different item (not the early-resolved one)', envFilesTest({

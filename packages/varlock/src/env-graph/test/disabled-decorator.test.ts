@@ -36,6 +36,6 @@ describe('@disable root decorator', () => {
       # ---
       FOO=bar
     `,
-    loadingError: true,
+    expectError: true,
   }));
 });

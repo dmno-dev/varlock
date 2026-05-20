@@ -244,13 +244,13 @@ export class ConfigItem {
           this.effectiveDecoratorFns[dec.name].push(dec);
         } else {
           if (decKeysInThisDef.has(dec.name)) {
-            dec._schemaErrors.push(new SchemaError(`decorator @${dec.name} cannot be used twice in same definition`));
+            dec._errors.push(new SchemaError(`decorator @${dec.name} cannot be used twice in same definition`));
             continue;
           }
           if (dec.incompatibleWith) {
             for (const otherDecName of dec.incompatibleWith) {
               if (allDecsInThisDef?.includes(otherDecName)) {
-                dec._schemaErrors.push(new SchemaError(`decorator @${dec.name} is incompatible with @${otherDecName} in the same definition`));
+                dec._errors.push(new SchemaError(`decorator @${dec.name} is incompatible with @${otherDecName} in the same definition`));
                 continue;
               }
             }
@@ -348,7 +348,7 @@ export class ConfigItem {
 
         const requiredDecoratorVal = await requiredDec.resolve();
         // if we got an error, we'll bail and the error will be checked later
-        if (requiredDec.schemaErrors.length) {
+        if (requiredDec.schemaErrors.some((e) => !e.isWarning)) {
           // but we mark as not required so we don't _also_ get required error
           this._isRequired = false;
           return;
@@ -414,7 +414,7 @@ export class ConfigItem {
 
       const usingPublic = sensitiveDec.name === 'public';
       const sensitiveDecValue = await sensitiveDec.resolve();
-      if (sensitiveDec.schemaErrors.length) return;
+      if (sensitiveDec.schemaErrors.some((e) => !e.isWarning)) return;
       if (![true, false, undefined].includes(sensitiveDecValue)) {
         throw new SchemaError('@sensitive/@public must resolve to a boolean or undefined');
       }
@@ -657,7 +657,7 @@ export class ConfigItem {
           }
 
           const requiredDecoratorVal = await requiredDec.resolve();
-          if (requiredDec.schemaErrors.length) {
+          if (requiredDec.schemaErrors.some((e) => !e.isWarning)) {
             isRequired = false;
             break;
           }
@@ -706,7 +706,7 @@ export class ConfigItem {
           // Skip dynamic decorators to avoid caching a stale result (same as @required fix above)
           if (sensitiveDec.decValueResolver?.fnName !== '\0static') break;
           const sensitiveDecValue = await sensitiveDec.resolve();
-          if (sensitiveDec.schemaErrors.length) break;
+          if (sensitiveDec.schemaErrors.some((e) => !e.isWarning)) break;
           if (![true, false, undefined].includes(sensitiveDecValue)) break;
           if (sensitiveDecValue !== undefined) {
             isSensitive = usingPublic ? !sensitiveDecValue : sensitiveDecValue;

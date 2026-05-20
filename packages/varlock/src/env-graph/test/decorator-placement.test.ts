@@ -62,7 +62,7 @@ describe('decorator placement validation', () => {
           ITEM=foo
         `,
       },
-      earlyError: true,
+      expectError: true,
     }));
 
     test('item decorator in header without divider causes schema error', envFilesTest({
@@ -73,7 +73,7 @@ describe('decorator placement validation', () => {
           ITEM=foo
         `,
       },
-      earlyError: true,
+      expectError: true,
     }));
   });
 
@@ -112,7 +112,7 @@ describe('decorator placement validation', () => {
           ITEM2=bar
         `,
       },
-      earlyError: true,
+      expectError: true,
     }));
   });
 
@@ -125,7 +125,7 @@ describe('decorator placement validation', () => {
           ITEM=foo
         `,
       },
-      earlyError: true,
+      expectError: true,
     }));
 
     test('duplicate root decorator across header comment blocks', envFilesTest({
@@ -138,7 +138,7 @@ describe('decorator placement validation', () => {
           ITEM=foo
         `,
       },
-      earlyError: true,
+      expectError: true,
     }));
 
     test('function-call root decorators can be used multiple times', envFilesTest({
@@ -163,7 +163,7 @@ describe('decorator placement validation', () => {
           ITEM=foo
         `,
       },
-      earlyError: true,
+      expectError: true,
     }));
 
     test('value-only decorator used as function call causes schema error', envFilesTest({
@@ -174,7 +174,7 @@ describe('decorator placement validation', () => {
           ITEM=foo
         `,
       },
-      earlyError: true,
+      expectError: true,
     }));
 
     test('item function-only decorator used as value causes schema error', envFilesTest({
@@ -217,7 +217,7 @@ describe('decorator placement validation', () => {
           ITEM=foo
         `,
       },
-      earlyError: true,
+      expectError: true,
     }));
   });
 });

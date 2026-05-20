@@ -186,7 +186,7 @@ export class EnvGraph {
     // because its a class, we can't use `name`
     const fnName = resolverClass.fnName;
     if (fnName in this.registeredResolverFunctions) {
-      throw new Error(`Resolver ${fnName} already registered`);
+      throw new SchemaError(`Resolver ${fnName} already registered`);
     }
     this.registeredResolverFunctions[fnName] = resolverClass;
   }
@@ -195,7 +195,7 @@ export class EnvGraph {
   registerDataType(factory: EnvGraphDataTypeFactory) {
     const name = factory.dataTypeName;
     if (name in this.dataTypesRegistry) {
-      throw new Error(`Data type "${name}" already registered`);
+      throw new SchemaError(`Data type "${name}" already registered`);
     }
     this.dataTypesRegistry[factory.dataTypeName] = factory;
   }
@@ -204,7 +204,7 @@ export class EnvGraph {
   registerItemDecorator(decoratorDef: ItemDecoratorDef) {
     const name = decoratorDef.name;
     if (name in this.itemDecoratorsRegistry) {
-      throw new Error(`Item decorator "${name}" already registered`);
+      throw new SchemaError(`Item decorator "${name}" already registered`);
     }
     this.itemDecoratorsRegistry[decoratorDef.name] = decoratorDef;
   }
@@ -213,7 +213,7 @@ export class EnvGraph {
   registerRootDecorator(decoratorDef: RootDecoratorDef) {
     const name = decoratorDef.name;
     if (name in this.itemDecoratorsRegistry) {
-      throw new Error(`Root decorator "${name}" already registered`);
+      throw new SchemaError(`Root decorator "${name}" already registered`);
     }
     this.rootDecoratorsRegistry[decoratorDef.name] = decoratorDef;
   }
@@ -344,12 +344,12 @@ export class EnvGraph {
     }
 
     // process root decorators
-    let processingError = false;
+    let hasErrors = false;
     for (const source of this.sortedDataSources) {
       if (source.disabled) continue;
       for (const decInstance of source.rootDecorators) {
         await decInstance.process();
-        if (decInstance.schemaErrors.some((e) => !e.isWarning)) processingError = true;
+        if (decInstance.schemaErrors.some((e) => !e.isWarning)) hasErrors = true;
       }
     }
 
@@ -364,10 +364,10 @@ export class EnvGraph {
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
       await item.process();
-      if (item.errors.some((e) => !e.isWarning)) processingError = true;
+      if (item.errors.some((e) => !e.isWarning)) hasErrors = true;
     }
 
-    if (processingError) return;
+    if (hasErrors) return;
 
     // check for cycles in resolver dependencies
     const cycles = findGraphCycles(this.graphAdjacencyList);
@@ -388,7 +388,7 @@ export class EnvGraph {
     for (const source of this.sortedDataSources) {
       if (source.disabled) continue;
       for (const decInstance of source.rootDecorators) {
-        if (!decInstance.decValueResolver) throw new Error('expected decorator value resolver');
+        if (!decInstance.decValueResolver) continue; // no resolver = errored during process()
         await this.resolveEnvValues(decInstance.decValueResolver.deps);
         try {
           await decInstance.execute();
@@ -396,13 +396,14 @@ export class EnvGraph {
           // prefer the error's own location (e.g. from a nested resolver) over the decorator's
           const errLocation = (err as any).more?.location
             || getErrorLocation(source, decInstance.parsedDecorator);
-          decInstance._executionError = new SchemaError(
+          decInstance._errors.push(new ResolutionError(
             err as Error,
             {
+              severity: 'fatal',
               location: errLocation,
               ...((err as any).tip && { tip: (err as any).tip }),
             },
-          );
+          ));
         }
       }
     }
@@ -561,13 +562,7 @@ export class EnvGraph {
     // root-level errors (loading, schema, resolution errors from data sources)
     const rootErrors: Array<string> = [];
     for (const source of this.sortedDataSources) {
-      if (source.loadingError) {
-        rootErrors.push(`${source.label}: ${source.loadingError.message}`);
-      }
-      for (const err of source.schemaErrors) {
-        rootErrors.push(`${source.label}: ${err.message}`);
-      }
-      for (const err of source.resolutionErrors) {
+      for (const err of source.errors.filter((e) => !e.isWarning)) {
         rootErrors.push(`${source.label}: ${err.message}`);
       }
     }

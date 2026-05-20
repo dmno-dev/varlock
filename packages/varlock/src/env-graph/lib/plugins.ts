@@ -19,7 +19,7 @@ import { confirm } from '../../cli/helpers/prompts';
 
 import { FileBasedDataSource, type EnvGraphDataSource } from './data-source';
 import {
-  CoercionError, ResolutionError, SchemaError, ValidationError,
+  CoercionError, LoadingError, ResolutionError, SchemaError, ValidationError, VarlockError,
 } from './errors';
 import { getErrorLocation } from './error-location';
 import { createResolver, type ResolverDef } from './resolver';
@@ -143,10 +143,10 @@ async function loadPluginModuleESM(filePath: string): Promise<void> {
       source = new Bun.Transpiler({ loader: 'ts' }).transformSync(source);
     }
 
-    await import(`data:text/javascript,${encodeURIComponent(source)}`);
+    await import(/* webpackIgnore: true */ `data:text/javascript,${encodeURIComponent(source)}`);
   } else {
     const fileUrl = pathToFileURL(filePath).href;
-    await import(`${fileUrl}?t=${Date.now()}`);
+    await import(/* webpackIgnore: true */ `${fileUrl}?t=${Date.now()}`);
   }
 }
 
@@ -174,7 +174,7 @@ export class VarlockPlugin {
   get icon() { return this._icon || 'mdi:puzzle'; }
   set icon(val: string) { this._icon = val; }
 
-  loadingError?: Error;
+  loadingError?: VarlockError;
   warnings: Array<SchemaError> = [];
 
   readonly localPath?: string;
@@ -187,7 +187,7 @@ export class VarlockPlugin {
   constructor(opts: {
     type: 'single-file' | 'package',
     localPath: string,
-    loadingError?: Error,
+    loadingError?: VarlockError,
     packageJson?: { name: string; version?: string; description?: string };
   }) {
     this.type = opts.type;
@@ -354,7 +354,7 @@ export class VarlockPlugin {
         loadPluginModuleCJS(this.pluginFilePath);
       }
     } catch (err) {
-      this.loadingError = err as Error;
+      this.loadingError = err instanceof VarlockError ? err : new LoadingError(err as Error);
     } finally {
       // Restore globalThis.plugin to its previous state
       if (hadGlobalPlugin) {
@@ -427,13 +427,13 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
         if (possibleMatchingPlugin.version === plugin.version) {
           const installedInSources = possibleMatchingPlugin.installDecoratorInstances.map((dec) => dec.dataSource);
           if (installedInSources.includes(pluginDecorator.dataSource)) {
-            pluginDecorator._schemaErrors.push(new SchemaError(`Plugin ${plugin.name} already installed in this data source`));
+            pluginDecorator._errors.push(new SchemaError(`Plugin ${plugin.name} already installed in this data source`));
             return;
           }
 
           existingPlugin = possibleMatchingPlugin;
         } else {
-          pluginDecorator._schemaErrors.push(new SchemaError(`Plugin ${plugin.name} version conflict: tried to install version ${plugin.version} but version ${possibleMatchingPlugin.version} is already installed`));
+          pluginDecorator._errors.push(new SchemaError(`Plugin ${plugin.name} version conflict: tried to install version ${plugin.version} but version ${possibleMatchingPlugin.version} is already installed`));
           return;
         }
       }
@@ -596,7 +596,7 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
   const installPluginDecorators = dataSource.getRootDecFns('plugin');
   if (installPluginDecorators.length) {
     if (!(dataSource instanceof FileBasedDataSource)) {
-      dataSource._loadingError = new Error('@plugin can only be used from a file-based data source');
+      dataSource._errors.push(new SchemaError('@plugin can only be used from a file-based data source'));
       return;
     }
     const dataSourceDir = path.dirname(dataSource.fullPath);
@@ -751,7 +751,7 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
         // might return an existing plugin if matches one in the graph
         await registerPluginInGraph(graph, plugin, pluginDecorator);
       } catch (err) {
-        pluginDecorator._schemaErrors.push(err as any);
+        pluginDecorator._errors.push(err instanceof SchemaError ? err : new SchemaError(err as Error));
         continue;
       }
     }

@@ -10,6 +10,8 @@ export class CliExitError extends Error {
       suggestion?: string | Array<string>,
       /** always triggers a full exit, even in watch mode - useful if problem is irrecoverable */
       forceExit?: boolean,
+      /** suppress formatted output (details already logged to stderr) */
+      silent?: boolean,
     },
   ) {
     super(message);
@@ -18,6 +20,8 @@ export class CliExitError extends Error {
   get forceExit() { return !!this.more?.forceExit; }
 
   getFormattedOutput() {
+    if (this.more?.silent) return '';
+
     let msg = `\n💥 ${ansis.red(this.message)} 💥\n`;
 
     if (this.more?.details) {

@@ -8,7 +8,8 @@ export { Resolver, StaticValueResolver } from './lib/resolver';
 export { ConfigItem, type TypeGenItemInfo } from './lib/config-item';
 export {
   VarlockError,
-  ConfigLoadError, SchemaError, ValidationError, CoercionError, ResolutionError,
+  ConfigLoadError, LoadingError, ParseError, SchemaError, ValidationError, CoercionError, ResolutionError,
+  type ErrorSeverity,
 } from './lib/errors';
 export {
   BUILTIN_VARS, isBuiltinVar,

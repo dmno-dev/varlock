@@ -1,21 +1,13 @@
 import ansis from 'ansis';
-import _ from '@env-spec/utils/my-dash';
-import { EnvGraph, ConfigItem, FileBasedDataSource } from '../../env-graph';
+import { EnvGraph, FileBasedDataSource } from '../../env-graph';
 import { getItemSummary, joinAndCompact } from '../../lib/formatting';
-import { ParseError, VarlockError } from '../../env-graph/lib/errors';
+import {
+  LoadingError, ParseError, VarlockError,
+} from '../../env-graph/lib/errors';
+import { CliExitError } from './exit-error';
 
-
-export class FatalSchemaError extends Error {
-  constructor(message = 'Fatal schema error') {
-    super(message);
-  }
-  getFormattedOutput() {
-    return ''; // details already logged to stderr
-  }
-}
-
-function showErrorLocationDetails(err: Error) {
-  if (!(err instanceof VarlockError) || !err.location) return;
+function showErrorLocationDetails(err: VarlockError) {
+  if (!err.location) return;
   const errLoc = err.location;
   const errPreview = [
     errLoc.lineStr,
@@ -27,6 +19,13 @@ function showErrorLocationDetails(err: Error) {
   console.error(errPreview);
 }
 
+function showErrorTip(err: VarlockError) {
+  if (!err.tip) return;
+  for (const line of err.tip.split('\n')) {
+    console.error(`  ${line}`);
+  }
+}
+
 export function checkForNoEnvFiles(envGraph: EnvGraph, opts?: { noThrow?: boolean }) {
   if (Object.keys(envGraph.configSchema).length === 0) {
     // If a source has a parse error, the schema couldn't be read at all so
@@ -35,7 +34,7 @@ export function checkForNoEnvFiles(envGraph: EnvGraph, opts?: { noThrow?: boolea
     const hasParseErrors = envGraph.sortedDataSources.some((s) => s.loadingError instanceof ParseError);
     if (hasParseErrors) {
       if (opts?.noThrow) return;
-      throw new FatalSchemaError('Parse error');
+      throw new CliExitError('Parse error', { silent: true });
     }
 
     const displayPath = envGraph.basePath ?? process.cwd();
@@ -48,62 +47,58 @@ export function checkForNoEnvFiles(envGraph: EnvGraph, opts?: { noThrow?: boolea
       console.error('Add items to your .env.schema file to get started.');
     }
     if (opts?.noThrow) return;
-    throw new FatalSchemaError('No env files');
+    throw new CliExitError('No env files', { silent: true });
   }
 }
 
 export function checkForSchemaErrors(envGraph: EnvGraph, opts?: { noThrow?: boolean }) {
-  // first we check for loading/parse errors - some cases we may want to let it fail silently?
   let hasErrors = false;
+  let hasOutput = false;
   for (const source of envGraph.sortedDataSources) {
-    // do we care about loading errors from disabled sources?
-    // if (source.disabled) continue;
+    const warnings = source.errors.filter((e) => e.isWarning);
+    const errors = source.errors.filter((e) => !e.isWarning);
 
-    if (source.loadingError) {
-      hasErrors = true;
-      console.error(`🚨 Error encountered while loading ${source.label}\n`);
+    if (!warnings.length && !errors.length) continue;
+    hasOutput = true;
 
-      console.error(source.loadingError.message);
-      showErrorLocationDetails(source.loadingError);
+    // group by error type for clearer output
+    const loadingErrors = errors.filter((e) => e instanceof LoadingError || e instanceof ParseError);
+    const otherErrors = errors.filter((e) => !(e instanceof LoadingError || e instanceof ParseError));
 
-      // For plugin loading errors, show the full stack trace since it's usually
-      // a runtime error from executing the plugin code
-      if (source.loadingError.stack && !(source.loadingError instanceof VarlockError)) {
-        console.error(`\n${ansis.dim('Stack trace:')}`);
-        console.error(ansis.dim(source.loadingError.stack));
-      }
+    // single header per file
+    console.error(ansis.bold[errors.length ? 'red' : 'yellow'](`-- Problems encountered in ${source.label} --`));
 
-      if (!opts?.noThrow) throw new FatalSchemaError('Loading error');
+    if (source instanceof FileBasedDataSource) {
+      console.error('📁', ansis.dim(`${source.fullPath}`));
+      console.log('');
     }
-    // TODO: unify this with the above!
-    const schemaWarnings = source.schemaErrors.filter((e) => e.isWarning);
-    const schemaErrors = source.schemaErrors.filter((e) => !e.isWarning);
 
-    for (const warning of schemaWarnings) {
-      console.error(ansis.yellow(`⚠️  [WARNING] ${warning.message} (${source.label})`));
+    for (const warning of warnings) {
+      console.error(ansis.yellow(`- ⚠️  ${warning.message}`));
       showErrorLocationDetails(warning);
     }
 
-    if (schemaErrors.length) {
-      hasErrors = true;
-      console.error(`🚨 Error(s) encountered in ${source.label}`);
-
-      for (const schemaErr of schemaErrors) {
-        console.error(`- ${schemaErr.message}`);
-        showErrorLocationDetails(schemaErr);
+    for (const err of loadingErrors) {
+      console.error(ansis.red(`- ❌ ${err.message}`));
+      showErrorLocationDetails(err);
+      if (err.isUnexpected && err.originalError?.stack) {
+        console.error(`\n${ansis.dim('Stack trace:')}`);
+        console.error(ansis.dim(err.originalError.stack));
       }
-      if (!opts?.noThrow) throw new FatalSchemaError('Schema error');
+    }
+
+    for (const err of otherErrors) {
+      console.error(ansis.red(`- ❌ ${err.message}`));
+      showErrorTip(err);
+      showErrorLocationDetails(err);
+    }
+
+    if (errors.length) {
+      hasErrors = true;
+      if (!opts?.noThrow) throw new CliExitError('Schema error', { silent: true });
     }
   }
-
-  // now we check for any schema errors - where something about how things are wired up is invalid
-  // NOTE - we should not have run any resolution yet
-  // TODO: make sure we are calling this before attempting to resolve values
-  // const failingItems = _.filter(_.values(envGraph.configSchema), (item) => item.validationState === 'error');
-  // if (failingItems.length > 0) {
-  //   throw new CliExitError('Schema is currently invalid');
-  // }
-  return hasErrors;
+  return { hasErrors, hasOutput };
 }
 
 
@@ -135,27 +130,27 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
   /** Log errors to stderr but don't throw — used when the caller will handle errors itself (e.g. json-full output) */
   noThrow?: boolean;
 }) {
-  // check for root decorator "execution"
+  // check for root decorator execution errors (fatal — stop before showing items)
   let hasRootDecoratorErrors = false;
   for (const source of envGraph.sortedDataSources) {
-    if (source.resolutionErrors.length) {
+    const resErrors = source.resolutionErrors;
+    if (resErrors.length) {
       hasRootDecoratorErrors = true;
       console.error(`🚨 Root decorator error(s) in ${source.label}`);
+      if (source instanceof FileBasedDataSource) {
+        console.error(ansis.dim(`   ${source.fullPath}`));
+      }
 
-      for (const err of source.resolutionErrors) {
-        console.error(`- ${err.message}`);
-        if (err instanceof VarlockError && err.tip) {
-          for (const line of err.tip.split('\n')) {
-            console.error(`  ${line}`);
-          }
-        }
+      for (const err of resErrors) {
+        console.error(ansis.red(`  - ❌ ${err.message}`));
+        showErrorTip(err);
         showErrorLocationDetails(err);
       }
     }
   }
 
   if (hasRootDecoratorErrors) {
-    if (!opts?.noThrow) throw new FatalSchemaError('Root decorator error');
+    if (!opts?.noThrow) throw new CliExitError('Schema error', { silent: true });
     return;
   }
 
@@ -166,36 +161,28 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
     .map((k) => envGraph.configSchema[k])
     .filter((item) => item.validationState === 'warn');
 
-  // TODO: use service.isValid?
   if (failingItems.length > 0) {
-    console.error(`\n🚨 🚨 🚨  ${ansis.bold.underline('Configuration is currently invalid ')}  🚨 🚨 🚨\n`);
-    console.error('Invalid items:\n');
+    console.error(`\n🚨🚨🚨  ${ansis.bold.red.underline('Configuration is currently invalid')}  🚨🚨🚨\n`);
 
-    _.each(failingItems, (item: ConfigItem) => {
+    for (const item of failingItems) {
       console.error(getItemSummary(item));
-      console.error();
-    });
-
-    if (warningItems.length) {
-      console.error('Items with warnings:\n');
-      _.each(warningItems, (item: ConfigItem) => {
-        console.error(getItemSummary(item));
-        console.error();
-      });
     }
+    for (const item of warningItems) {
+      console.error(getItemSummary(item));
+    }
+
     if (opts?.showAll) {
       console.error();
       console.error(joinAndCompact([
         'Valid items:',
         ansis.italic.gray('(remove `--show-all` flag to hide)'),
       ]));
-      console.error();
       const validItems = envGraph.sortedConfigKeys
         .map((k) => envGraph.configSchema[k])
         .filter((i) => !!i.isValid);
-      _.each(validItems, (item: ConfigItem) => {
+      for (const item of validItems) {
         console.error(getItemSummary(item));
-      });
+      }
     }
 
     showPluginWarnings(envGraph);

@@ -63,7 +63,7 @@ export class Resolver {
   /** reference to the parsed node that created this resolver, used for error location tracking */
   _parsedNode?: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
     | ParsedEnvSpecFunctionArgs;
-  _schemaErrors: Array<SchemaError> = [];
+  _errors: Array<SchemaError> = [];
   private _depsObj: Record<string, boolean> = {};
 
   get childResolvers(): Array<Resolver> {
@@ -75,11 +75,10 @@ export class Resolver {
 
   get schemaErrors(): Array<SchemaError> {
     return [
-      ...this._schemaErrors,
+      ...this._errors,
       ...this.childResolvers.flatMap((r) => r.schemaErrors),
     ];
   }
-  set schemaErrors(v: Array<SchemaError>) { throw new Error('set _schemaErrors instead'); }
 
   get depsObj(): Record<string, boolean> {
     const mergedDepsObj = { ...this._depsObj };
@@ -98,14 +97,14 @@ export class Resolver {
 
     const { argsSchema } = this.def;
     if (argsSchema?.type === 'array' && this.objArgs !== undefined) {
-      this._schemaErrors.push(new SchemaError('Resolver does not support key-value args'));
+      this._errors.push(new SchemaError('Resolver does not support key-value args'));
     } else if (argsSchema?.type === 'object' && this.arrArgs !== undefined) {
-      this._schemaErrors.push(new SchemaError('Resolver expects only key-value args'));
+      this._errors.push(new SchemaError('Resolver expects only key-value args'));
     }
 
     if (argsSchema?.arrayExactLength !== undefined) {
       if (this.arrArgs?.length !== argsSchema.arrayExactLength) {
-        this._schemaErrors.push(
+        this._errors.push(
           new SchemaError(
             `expects exactly ${argsSchema.arrayExactLength} argument${argsSchema.arrayExactLength > 1 ? 's' : ''}`,
           ),
@@ -114,7 +113,7 @@ export class Resolver {
     }
     if (argsSchema?.arrayMinLength !== undefined) {
       if ((this.arrArgs?.length ?? 0) < argsSchema.arrayMinLength) {
-        this._schemaErrors.push(
+        this._errors.push(
           new SchemaError(
             `expects at least ${argsSchema.arrayMinLength} argument${argsSchema.arrayMinLength > 1 ? 's' : ''}`,
           ),
@@ -123,7 +122,7 @@ export class Resolver {
     }
     if (argsSchema?.arrayMaxLength !== undefined) {
       if ((this.arrArgs?.length ?? 0) > argsSchema.arrayMaxLength) {
-        this._schemaErrors.push(
+        this._errors.push(
           new SchemaError(`expects at most ${argsSchema.arrayMaxLength} argument${argsSchema.arrayMaxLength > 1 ? 's' : ''}`),
         );
       }
@@ -132,7 +131,7 @@ export class Resolver {
     if (argsSchema?.objKeyMinLength !== undefined) {
       const objKeyLengths = Object.keys(this.objArgs || {}).length;
       if (objKeyLengths < argsSchema.objKeyMinLength) {
-        this._schemaErrors.push(
+        this._errors.push(
           new SchemaError(
             `expects at least ${argsSchema.objKeyMinLength} key value arg${argsSchema.objKeyMinLength > 1 ? 's' : ''}`,
           ),
@@ -141,14 +140,14 @@ export class Resolver {
     }
 
     // call specific resolve fn for the resolver
-    if (this._schemaErrors.length === 0) {
+    if (this._errors.length === 0) {
       try {
         this.meta = this.def.process?.call(this);
       } catch (error) {
         if (error instanceof SchemaError) {
-          this._schemaErrors.push(error);
+          this._errors.push(error);
         } else if (error instanceof Error) {
-          this._schemaErrors.push(new SchemaError(error));
+          this._errors.push(new SchemaError(error));
         } else {
           throw new Error(`Non-error thrown while processing resolver - ${error}`);
         }
@@ -157,7 +156,7 @@ export class Resolver {
 
     // adding fn name to resolver schema errors
     if (!this.def.name.startsWith('\0')) {
-      for (const e of this._schemaErrors) {
+      for (const e of this._errors) {
         e.message = `${this.def.name}(): ${e.message}`;
       }
     }
@@ -307,7 +306,7 @@ export class ErrorResolver extends Resolver {
   };
   constructor(readonly err: SchemaError) {
     super([]);
-    this._schemaErrors.push(err);
+    this._errors.push(err);
   }
 }
 
@@ -464,7 +463,7 @@ export const RemapResolver: typeof Resolver = createResolver({
         throw new SchemaError('expects at least 1 key=value remapping pair');
       }
       // add a deprecation warning - will show in `varlock load` pretty output below the item
-      this._schemaErrors.push(new SchemaError('key=value syntax is deprecated', {
+      this._errors.push(new SchemaError('key=value syntax is deprecated', {
         isWarning: true,
         tip: 'Use positional pairs instead: remap($VAR, match1, result1, match2, result2, ...)',
       }));

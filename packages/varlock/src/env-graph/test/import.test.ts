@@ -86,7 +86,7 @@ describe('@import', () => {
         APP_ENV=dev
       `,
     },
-    loadingError: true,
+    expectError: true,
   }));
 
   describe('partial imports', () => {
@@ -154,7 +154,7 @@ describe('@import', () => {
       `,
         'env.json': '',
       },
-      loadingError: true,
+      expectError: true,
     }));
 
     test('importing non-existant file triggers an error', envFilesTest({
@@ -164,7 +164,7 @@ describe('@import', () => {
         # ---
       `,
       },
-      loadingError: true,
+      expectError: true,
     }));
   });
 
@@ -309,7 +309,7 @@ describe('@import', () => {
           ITEM2=value-from-.env.import
         `,
       },
-      loadingError: true,
+      expectError: true,
     }));
     test('error - bad reference', envFilesTest({
       files: {
@@ -322,7 +322,7 @@ describe('@import', () => {
           ITEM2=value-from-.env.import
         `,
       },
-      loadingError: true,
+      expectError: true,
     }));
 
     // forEnv has special handling, so good to test
@@ -369,7 +369,7 @@ describe('@import', () => {
           ITEM1=value-from-.env.schema
         `,
       },
-      loadingError: true,
+      expectError: true,
     }));
 
     test('allowMissing=true with existing file imports normally', envFilesTest({
@@ -443,7 +443,7 @@ describe('@import', () => {
           ITEM2=value-from-.env.import
         `,
       },
-      loadingError: true,
+      expectError: true,
     }));
   });
 

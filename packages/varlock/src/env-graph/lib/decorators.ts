@@ -8,7 +8,7 @@ import {
 import { EnvGraphDataSource } from './data-source';
 import type { ConfigItem } from './config-item';
 import { StaticValueResolver, type Resolver, convertParsedValueToResolvers } from './resolver';
-import { SchemaError } from './errors';
+import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
 
 
@@ -28,16 +28,26 @@ export abstract class DecoratorInstance {
 
   abstract graph: EnvGraph;
 
-  _schemaErrors: Array<SchemaError> = [];
-  get schemaErrors() {
+  _errors: Array<VarlockError> = [];
+
+  get schemaErrors(): Array<VarlockError> {
     return [
-      ...this._schemaErrors,
+      ...this._errors.filter((e) => e instanceof SchemaError),
       ...this._decValueResolver?.schemaErrors || [],
     ];
   }
 
   // error encountered during `execute` function
-  _executionError?: Error;
+  get _executionError(): VarlockError | undefined {
+    return this._errors.find((e) => e instanceof ResolutionError);
+  }
+
+  get errors(): Array<VarlockError> {
+    return [
+      ...this._errors,
+      ...this._decValueResolver?.schemaErrors || [],
+    ];
+  }
 
   private decoratorDef?: ItemDecoratorDef | RootDecoratorDef;
   get incompatibleWith() {
@@ -58,6 +68,20 @@ export abstract class DecoratorInstance {
         : this.graph.itemDecoratorsRegistry;
       this.decoratorDef = decRegistry[this.name];
       if (!this.decoratorDef) {
+        // decorators like @todo and @see are common in comments and should only warn
+        const commentLikeDecorators = ['todo', 'see', 'note'];
+        const nameLower = this.name.toLowerCase().replace(/:$/, '');
+        if (commentLikeDecorators.includes(nameLower)) {
+          const hint = nameLower === 'see'
+            ? ' - use @docs() to link documentation'
+            : ' - did you mean to write a comment?';
+          throw new SchemaError(`@${this.name} is not a valid decorator${hint}`, { isWarning: true });
+        }
+
+        if (this.parsedDecorator.hasInvalidName) {
+          throw new SchemaError(`"@${this.name}" is not a valid decorator name - only letters, numbers, and underscores are allowed`);
+        }
+
         // check if the decorator exists in the other registry (misplaced)
         const otherRegistry = this.isRootDecorator
           ? this.graph.itemDecoratorsRegistry
@@ -69,7 +93,13 @@ export abstract class DecoratorInstance {
             throw new SchemaError(`@${this.name} is a root decorator and cannot be attached to a config item - it must be in the file header (before the first config item)`);
           }
         }
-        throw new Error(`Unknown decorator: @${this.name}`);
+        throw new SchemaError(`Unknown decorator: @${this.name}`);
+      }
+
+      // surface parser-level warnings (e.g. trailing text after decorator)
+      // placed after unknown-decorator checks so comment-like names (which throw above) skip this
+      if (this.parsedDecorator.warning) {
+        this._errors.push(new SchemaError(this.parsedDecorator.warning, { isWarning: true }));
       }
 
       // validate function-call vs value syntax
@@ -112,7 +142,7 @@ export abstract class DecoratorInstance {
         this.processedData = await this.decoratorDef.process?.(this.decValueResolver);
       }
     } catch (e) {
-      this._schemaErrors.push(e instanceof SchemaError ? e : new SchemaError(e as Error));
+      this._errors.push(e instanceof SchemaError ? e : new SchemaError(e as Error));
     }
   }
   async execute() {
@@ -127,14 +157,14 @@ export abstract class DecoratorInstance {
 
     await this.process();
     if (!this.decValueResolver) {
-      // process() already recorded schema errors, don't throw again (warnings don't block)
-      if (this._schemaErrors.some((e) => !e.isWarning)) return;
+      // process() already recorded schema errors, don't throw again
+      if (this._errors.length) return;
       throw new Error('expected decorator to have a value resolver');
     }
     try {
       this.resolvedValue = await this.decValueResolver.resolve();
     } catch (err) {
-      this._schemaErrors.push(err as any);
+      this._errors.push(err as any);
       return;
     }
 
@@ -357,8 +387,7 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
       if (enabledResolver !== undefined) {
         const enabledValue = await enabledResolver.resolve();
         if (!_.isBoolean(enabledValue)) {
-          dataSource._loadingError = new SchemaError('@setValuesBulk: enabled must be a boolean');
-          return;
+          throw new SchemaError('@setValuesBulk: enabled must be a boolean');
         }
         if (!enabledValue) return; // disabled - skip data resolution entirely
       }
@@ -374,8 +403,7 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
       }
 
       if (typeof dataString !== 'string') {
-        dataSource._loadingError = new SchemaError('@setValuesBulk: data resolver must return a string');
-        return;
+        throw new SchemaError('@setValuesBulk: data resolver must return a string');
       }
 
       // detect or use explicit format
@@ -383,16 +411,10 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
 
       // parse the data
       let entries: Record<string, { value: string | number | boolean, description?: string }>;
-      try {
-        if (effectiveFormat === 'json') {
-          entries = parseJsonBulkValues(dataString);
-        } else {
-          entries = parseEnvBulkValues(dataString);
-        }
-      } catch (err) {
-        // surface parse errors as loading errors on the data source
-        dataSource._loadingError = err instanceof SchemaError ? err : new SchemaError(err as Error);
-        return;
+      if (effectiveFormat === 'json') {
+        entries = parseJsonBulkValues(dataString);
+      } else {
+        entries = parseEnvBulkValues(dataString);
       }
 
       // dynamic import to avoid circular dependency

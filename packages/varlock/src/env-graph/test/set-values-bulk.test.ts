@@ -31,7 +31,7 @@ describe('@setValuesBulk() root decorator', () => {
         # @setValuesBulk('{bad-json}', format=json)
         # ---
       `,
-      loadingError: true,
+      resolutionError: true,
     }));
 
     test('numeric and boolean values remain typed', envFilesTest({
@@ -76,7 +76,7 @@ describe('@setValuesBulk() root decorator', () => {
         # @setValuesBulk('NOT_VALID_ENV', format=env)
         # ---
       `,
-      loadingError: true,
+      resolutionError: true,
     }));
 
     test('quoted values handled correctly', envFilesTest({
@@ -173,7 +173,7 @@ describe('@setValuesBulk() root decorator', () => {
         # ---
         API_KEY=
       `,
-      earlyError: true,
+      expectError: true,
     }));
 
     test('invalid format option', envFilesTest({
@@ -182,7 +182,7 @@ describe('@setValuesBulk() root decorator', () => {
         # ---
         API_KEY=
       `,
-      earlyError: true,
+      expectError: true,
     }));
 
     test('invalid auto-detect format', envFilesTest({
@@ -190,7 +190,7 @@ describe('@setValuesBulk() root decorator', () => {
         # @setValuesBulk('FOO: "bar"')
         # ---
       `,
-      loadingError: true,
+      resolutionError: true,
     }));
 
     test('unknown option name', envFilesTest({
@@ -199,7 +199,7 @@ describe('@setValuesBulk() root decorator', () => {
         # ---
         API_KEY=
       `,
-      earlyError: true,
+      expectError: true,
     }));
   });
 

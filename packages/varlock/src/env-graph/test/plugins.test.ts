@@ -21,7 +21,7 @@ describe('plugins ', () => {
       # @plugin(@varlock/test-plugin@xxx)
       # ---
     `,
-    earlyError: true,
+    expectError: true,
   }));
   test('adding plugin twice in same file creates error', envFilesTest({
     envFile: outdent`
@@ -29,7 +29,7 @@ describe('plugins ', () => {
       # @plugin(./plugins/test-plugin)
       # ---
     `,
-    earlyError: true,
+    expectError: true,
   }));
   test('adding plugin in multiple files is allowed', envFilesTest({
     files: {
@@ -52,7 +52,7 @@ describe('plugins ', () => {
       # @plugin(not-varlock-plugin)
       # ---
     `,
-    earlyError: true,
+    expectError: true,
   }));
   test('plugins cannot have naming conflicts for registered decorators/etc', envFilesTest({
     envFile: outdent`
@@ -60,7 +60,7 @@ describe('plugins ', () => {
       # @plugin(./plugins/test-plugin-conflict-2)
       # ---
     `,
-    earlyError: true,
+    expectError: true,
   }));
   test('plugins cannot have version conflicts', envFilesTest({
     envFile: outdent`
@@ -68,14 +68,14 @@ describe('plugins ', () => {
       # @plugin(./plugins/test-plugin-version-conflict)
       # ---
     `,
-    earlyError: true,
+    expectError: true,
   }));
   test('plugin folder must have package.json', envFilesTest({
     envFile: outdent`
       # @plugin(./plugins/test-plugin-no-package-json)
       # ---
     `,
-    earlyError: true,
+    expectError: true,
   }));
 
   test('warning on item does not block plugin resolver on same item', envFilesTest({
