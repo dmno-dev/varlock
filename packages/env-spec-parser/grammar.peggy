@@ -24,11 +24,11 @@ EnvSpecFile =
   }
 
 ConfigItem =
-  preComments:(@(IgnoredDecoratorComment / DecoratorComment / Comment) "\n")*
+  preComments:(@(DecoratorComment / Comment) "\n")*
   (_ "export " _)? // we'll allow `export SOME_VAR=...` so we can read other env files
   _ key:ConfigItemKey _ "=" value:ConfigItemValue? // I don't like supporting the extra spaces around the key
   _
-  postComment:(@(IgnoredDecoratorComment / DecoratorComment / Comment))?
+  postComment:(@(DecoratorComment / Comment))?
   _n
   {
     return new ParsedEnvSpecConfigItem({
@@ -46,7 +46,7 @@ ConfigItemValue = FunctionCall / multiLineString / quotedString / unquotedString
 
 CommentBlock =
   // not sure if we want to treat these as decorators if within comment block?
-  comments:(@(IgnoredDecoratorComment / DecoratorComment / Comment) _n)+
+  comments:(@(DecoratorComment / Comment) _n)+
   end:(Divider / _n)
   {
     return new ParsedEnvSpecCommentBlock({
@@ -70,25 +70,27 @@ Comment =
     })
   }
 
-IgnoredDecoratorComment =
-  "#" leadingSpace:$_
-  contents:$(
-    ("@" [a-zA-Z]+ ":" [^\n]*)
-    / ("@" [a-zA-Z]+ __ !([@#]) [^\n]*)
-  )
-  {
-    return new ParsedEnvSpecComment({ contents, leadingSpace, _location: location() })
-  }
-
 DecoratorComment =
   "#" leadingSpace:$_
   first:Decorator
   rest:(__ @(Decorator))*
+  trailingText:(__ @$([^\n]+) / @$("#" [^\n]*))?
   _
-  postComment:$("#" [^\n]*)? // extra post comments after decorators are not parsed at all
   {
+    const allDecorators = [first, ...rest];
+    let postComment;
+    if (trailingText) {
+      if (trailingText.startsWith('#')) {
+        postComment = trailingText;
+      } else {
+        // attach trailing text warning to the last decorator on the line
+        const lastDec = allDecorators[allDecorators.length - 1];
+        lastDec.data.warning = `Unexpected trailing text after @${lastDec.name}`;
+        postComment = trailingText;
+      }
+    }
     return new ParsedEnvSpecDecoratorComment({
-      decorators: [first, ...rest],
+      decorators: allDecorators,
       leadingSpace,
       postComment,
       _location: location(),
@@ -111,9 +113,10 @@ Decorator =
   }
 
 
-// we allow an ending ":", because we don't want to choke on pre-existing comments
-// but we will treat the entire line as a normal comment if we do see that
-DecoratorName = $([a-zA-Z] [a-zA-Z0-9_]*)
+// Permissive decorator name: starts with a letter, then any non-whitespace
+// except characters that have syntactic meaning (=, (, ), #, @).
+// Invalid names are flagged downstream as warnings.
+DecoratorName = $([a-zA-Z] [^ \t\n=()#@]*)
 DecoratorValue = DecoratorFunctionCall / quotedString / unquotedStringWithoutSpaces
 
 // Decorator-specific function call (supports multi-line with # continuation)

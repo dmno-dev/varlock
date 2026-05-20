@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import outdent from 'outdent';
 import {
-  ParsedEnvSpecFunctionCall, ParsedEnvSpecFunctionArgs, ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
+  ParsedEnvSpecFunctionCall, ParsedEnvSpecFunctionArgs, ParsedEnvSpecStaticValue,
+  parseEnvSpecDotEnvFile,
 } from '../src';
 import { expectInstanceOf } from './test-utils';
 
@@ -194,21 +195,10 @@ describe('decorator parsing', () => {
     ['# @dec="`"', { dec: '`' }],
     ['# @dec="\\""', { dec: '"' }],
     ['# @dec=qu"ote', { dec: 'qu"ote' }],
-    ['# @dec=foo bar', new Error()],
     ['# @dec="""', new Error()],
-    ['# @dec="foo" not commented', new Error()],
     ['# @dec1@dec2', new Error()],
     ['# @', new Error()],
     ['# @0badDecorator', new Error()],
-    ['# @bad-decorator', new Error()],
-    ['# @okDec @badDecWithColon:', new Error()],
-
-    // want to gracefully handle these, since we've seen them in the wild
-    // so instead of dying, we'll just treat them as normal comments
-    ['# @see https://example.com for info', { '!see': true }],
-    ['# @see @something https://example.com for info', new Error()],
-    ['# @todo:', { '!todo': true, '!todo:': true }],
-    ['# @todo: fix me later', { '!todo': true, '!todo:': true }],
   ]));
 
   describe('comments and line breaks', basicDecoratorTests([
@@ -263,4 +253,78 @@ describe('decorator parsing', () => {
       expected: { dec: true, '!ignored': true },
     },
   ]));
+
+  describe('warnings on decorator-like comments with trailing text', () => {
+    function parseDecorators(comments: string) {
+      const result = parseEnvSpecDotEnvFile(`${comments}\nVAL=`);
+      return result.configItems[0].decoratorsArray;
+    }
+
+    // trailing text warning is attached to the last decorator on the line
+    it('should produce a warning for `# @foo blah` (decorator with trailing text)', () => {
+      const decs = parseDecorators('# @foo blah');
+      expect(decs).toHaveLength(1);
+      expect(decs[0].warning).toBeTruthy();
+    });
+
+    it('should produce a warning for `# @see https://example.com`', () => {
+      const decs = parseDecorators('# @see https://example.com');
+      expect(decs).toHaveLength(1);
+      expect(decs[0].warning).toBeTruthy();
+    });
+
+    // colon after decorator name is also a warning (via hasInvalidName)
+    it('should flag `# @todo: fix me later` as invalid name + trailing text', () => {
+      const decs = parseDecorators('# @todo: fix me later');
+      expect(decs).toHaveLength(1);
+      expect(decs[0].hasInvalidName).toBe(true);
+      expect(decs[0].warning).toBeTruthy();
+    });
+
+    it('should flag `# @todo:` as invalid name', () => {
+      const decs = parseDecorators('# @todo:');
+      expect(decs).toHaveLength(1);
+      expect(decs[0].hasInvalidName).toBe(true);
+    });
+
+    it('should attach warning to last decorator for `# @dec1 @dec2 bad comment`', () => {
+      const decs = parseDecorators('# @dec1 @dec2 bad comment');
+      expect(decs).toHaveLength(2);
+      expect(decs[0].warning).toBeUndefined();
+      expect(decs[1].warning).toBeTruthy();
+    });
+
+    it('should produce a warning for `# @dec=foo bar` (trailing text after value)', () => {
+      const decs = parseDecorators('# @dec=foo bar');
+      expect(decs).toHaveLength(1);
+      expect(decs[0].warning).toBeTruthy();
+    });
+
+    it('should produce a warning for `# @dec="foo" not commented` (trailing text after quoted value)', () => {
+      const decs = parseDecorators('# @dec="foo" not commented');
+      expect(decs).toHaveLength(1);
+      expect(decs[0].warning).toBeTruthy();
+    });
+
+    // invalid decorator names (hyphens, colons) produce hasInvalidName
+    it('should flag `# @bad-decorator` as invalid name', () => {
+      const decs = parseDecorators('# @bad-decorator');
+      expect(decs).toHaveLength(1);
+      expect(decs[0].hasInvalidName).toBe(true);
+    });
+
+    it('should flag only the bad decorator in `# @okDec @badDecWithColon:`', () => {
+      const decs = parseDecorators('# @okDec @badDecWithColon:');
+      expect(decs).toHaveLength(2);
+      expect(decs[0].hasInvalidName).toBe(false);
+      expect(decs[1].hasInvalidName).toBe(true);
+    });
+
+    // post-decorator comments prefixed with # are valid
+    it('should NOT produce a warning for `# @dec # this is ok` (post comment)', () => {
+      const decs = parseDecorators('# @dec # this is ok');
+      expect(decs).toHaveLength(1);
+      expect(decs[0].warning).toBeUndefined();
+    });
+  });
 });

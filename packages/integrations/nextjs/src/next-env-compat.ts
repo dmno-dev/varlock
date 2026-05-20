@@ -359,25 +359,40 @@ export function loadEnvConfig(
       process.exit(1);
     }
 
-    // For real errors (validation failures, etc.) show the CLI output
+    // The CLI writes pretty-formatted errors to stderr and JSON to stdout (even on failure).
+    // Pipe stderr through so the user sees the nice error output, and parse stdout
+    // for structured data (sources for file watching, etc.)
     if (err instanceof VarlockExecError) {
       if (err.stderr) process.stderr.write(err.stderr);
-      // eslint-disable-next-line no-console
-      console.error('[varlock] ⚠️ failed to load env — see error above');
+
+      if (err.stdout) {
+        try {
+          varlockLoadedEnv = JSON.parse(err.stdout);
+        } catch { /* stdout not parseable — hard failure */ }
+      }
     }
+
+    // eslint-disable-next-line no-console
+    console.error('\n[varlock] ⚠️ fix the error(s) above and save to reload\n');
 
     // In a build, we want to fail hard so broken env doesn't get deployed
     if (!dev) {
       process.exit((err as any).exitCode ?? 1);
     }
 
-    // if we dont do this, we'll see an error that looks like `process.env.__VARLOCK_ENV is not set` which is misleading.
-    // Ideally we would pass through an error of some kind and trigger the webpack runtime error popup
-    process.env.__VARLOCK_ENV = JSON.stringify({
+    // Set __VARLOCK_ENV so downstream code doesn't see a missing-env error.
+    // Pass through whatever the CLI returned (includes error details + sources)
+    // so file watchers can be set up for auto-reload on fix.
+    process.env.__VARLOCK_ENV = JSON.stringify(varlockLoadedEnv || {
       sources: [],
       config: {},
       settings: {},
+      errors: { root: ['failed to load env'] },
     });
+
+    if (dev && varlockLoadedEnv) {
+      enableExtraFileWatchers(varlockLoadedEnv.sources, varlockLoadedEnv.basePath);
+    }
 
     return { combinedEnv: {}, parsedEnv: {}, loadedEnvFiles: [] };
   }
