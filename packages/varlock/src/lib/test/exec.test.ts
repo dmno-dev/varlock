@@ -78,8 +78,9 @@ describe('exec', () => {
     });
     const elapsedMs = Date.now() - startMs;
     expect(result.exitCode).toBe(0);
-    // Should take at least 200ms; a lower value means we resolved prematurely
-    // before the child's setTimeout could fire. Allow 100ms slack for slow CI.
+    // The child runs a 300ms setTimeout, so the Promise must not resolve before
+    // the child exits. We assert ≥200ms (100ms slack for slow/loaded CI runners)
+    // to avoid flakiness while still catching a premature resolve (e.g. <50ms).
     expect(elapsedMs).toBeGreaterThanOrEqual(200);
   });
 });
