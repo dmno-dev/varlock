@@ -212,6 +212,7 @@ export default defineConfig({
             { label: '> @type data types', slug: 'reference/data-types' },
             { label: 'Resolver functions', slug: 'reference/functions' },
             { label: 'Builtin variables', slug: 'reference/builtin-variables', badge: 'new' },
+            { label: 'Plugin API', slug: 'reference/plugin-api' },
           ],
         },
         {

@@ -1,0 +1,408 @@
+---
+title: Plugin API
+description: Reference for the varlock/plugin-lib module — all properties and methods available to plugin authors
+---
+
+Plugins import from `varlock/plugin-lib` and register their behaviour at module-load time.
+
+```ts
+import { type Resolver, plugin } from 'varlock/plugin-lib';
+```
+
+The `plugin` object is a proxy that delegates to the currently-loading plugin instance. It is valid only during plugin module execution.
+
+See the [plugins guide](/guides/plugins/#plugin-authoring-best-practices) for authoring patterns, packaging conventions, and testing setup.
+
+## Metadata properties
+
+<div class="reference-docs">
+
+<div>
+
+### `plugin.name`
+**Type:** `string`
+
+A short internal identifier for the plugin, used in log output and debug messages. Convention is lowercase with hyphens.
+
+```ts
+plugin.name = 'my-service';
+```
+
+</div>
+
+<div>
+
+### `plugin.version`
+**Type:** `string` (read-only)
+
+The version string from the plugin package's `package.json`. Populated automatically — do not assign.
+
+```ts
+debug('loaded version', plugin.version);
+```
+
+</div>
+
+<div>
+
+### `plugin.icon`
+**Type:** `string`
+
+An icon identifier shown in the VS Code extension and website UI. First-party plugins use [Simple Icons](https://simpleicons.org) identifiers (e.g. `simple-icons:vault`). Any [Iconify](https://icones.js.org) identifier is accepted.
+
+```ts
+plugin.icon = 'simple-icons:yourservice';
+```
+
+</div>
+
+<div>
+
+### `plugin.standardVars`
+**Type:**
+```ts
+{
+  initDecorator: string;
+  params: Record<string, {
+    key: string | Array<string>;
+    dataType?: string;
+  }>;
+}
+```
+
+Declares well-known environment variable names that your plugin reads (e.g. `VAULT_TOKEN`). Varlock will warn if those variables are detected in the process environment but are not wired up to the init decorator in the schema.
+
+- `initDecorator` — the init decorator name including the `@` prefix (e.g. `'@initMyPlugin'`).
+- `params` — maps a parameter name to the env var key(s) it corresponds to. If multiple keys are given the first found in the environment is used.
+- `dataType` — optional; suggests a custom type name in the warning hint.
+
+```ts
+plugin.standardVars = {
+  initDecorator: '@initMyPlugin',
+  params: {
+    token: { key: 'MY_SERVICE_TOKEN', dataType: 'myServiceToken' },
+    url:   { key: ['MY_SERVICE_URL', 'MY_SVC_URL'] },
+  },
+};
+```
+
+</div>
+
+<div>
+
+### `plugin.debug`
+**Type:** `(...args: any[]) => void`
+
+A scoped debug logger. Messages are only printed when the `VARLOCK_DEBUG` environment variable is set. Namespaced to `varlock:plugin:<name>` — set `plugin.name` before using it.
+
+Destructure before use so it can be called without referencing `plugin` each time:
+
+```ts
+plugin.name = 'my-service';
+const { debug } = plugin;
+
+debug('init - version =', plugin.version);
+debug('resolving reference', ref);
+```
+
+</div>
+
+<div>
+
+### `plugin.ERRORS`
+**Type:**
+```ts
+{
+  ValidationError: typeof ValidationError;
+  CoercionError:   typeof CoercionError;
+  SchemaError:     typeof SchemaError;
+  ResolutionError: typeof ResolutionError;
+}
+```
+
+Always destructure and use these classes instead of plain `Error`. They carry structured metadata and are handled specially by the runtime.
+
+```ts
+const { ValidationError, SchemaError, CoercionError, ResolutionError } = plugin.ERRORS;
+```
+
+All four share the same constructor signature:
+
+```ts
+throw new ResolutionError('Secret not found', {
+  tip: 'Check the path and verify your token has read access',
+  code: 'NOT_FOUND', // optional machine-readable code
+});
+```
+
+`tip` may be a string or an array of strings (joined with newlines).
+
+| Class | When to use |
+|---|---|
+| `SchemaError` | Problems at parse / schema-build time — bad arguments, missing config, duplicate IDs |
+| `ResolutionError` | Problems at value-fetch time — secret not found, network error, auth failure |
+| `ValidationError` | Value fails a `registerDataType` constraint |
+| `CoercionError` | Value cannot be converted to the expected type |
+
+</div>
+
+</div>
+
+## Registration methods
+
+<div class="reference-docs">
+
+<div>
+
+### `plugin.registerRootDecorator()` ||registerRootDecorator||
+
+Registers a decorator that users can place in the _header_ section of a `.env` file. Root decorators are mainly used for plugin initialisation.
+
+**Argument type:**
+
+```ts
+type RootDecoratorDef<Processed = any> = {
+  name: string;
+  description?: string;
+  isFunction?: boolean;       // true → must be called as @name(...)
+  deprecated?: boolean | string;
+  incompatibleWith?: Array<string>;
+  process?: (decoratorValue: Resolver) => Processed | Promise<Processed>;
+  execute?: (state: Processed) => void | Promise<void>;
+};
+```
+
+**Two-phase execution:** `process` runs during schema parsing; `execute` runs at resolution time. Return resolvers from `process` so `execute` can await them once dependent schema items have resolved.
+
+Inside `process`, `decoratorValue.objArgs` is a `Record<string, Resolver>` (keyword args) and `decoratorValue.arrArgs` is an `Array<Resolver>` (positional args). Each `Resolver` exposes:
+- `isStatic` / `staticValue` — available at parse time for literal arguments
+- `resolve()` — awaitable at `execute` time for dynamic arguments
+
+```ts
+const instances: Record<string, { token?: string }> = {};
+
+plugin.registerRootDecorator({
+  name: 'initMyPlugin',
+  description: 'Initialise a MyPlugin connection',
+  isFunction: true,
+
+  async process(argsVal) {
+    const { objArgs } = argsVal;
+    if (!objArgs) throw new SchemaError('@initMyPlugin requires arguments');
+
+    if (objArgs.id && !objArgs.id.isStatic) {
+      throw new SchemaError('id must be a static value');
+    }
+    const id = String(objArgs.id?.staticValue ?? '_default');
+
+    if (instances[id]) throw new SchemaError(`Instance "${id}" already initialised`);
+    instances[id] = {};
+
+    return { id, tokenResolver: objArgs.token };
+  },
+
+  async execute({ id, tokenResolver }) {
+    instances[id].token = tokenResolver
+      ? String(await tokenResolver.resolve())
+      : undefined;
+  },
+});
+```
+
+Usage in a `.env.schema` file:
+
+```env-spec title=".env.schema" "@initMyPlugin"
+# @plugin(my-plugin)
+# @initMyPlugin(token=$MY_SERVICE_TOKEN)
+# ---
+# @sensitive
+MY_SERVICE_TOKEN=
+```
+
+</div>
+
+<div>
+
+### `plugin.registerItemDecorator()` ||registerItemDecorator||
+
+Registers a decorator that users can attach to individual config items.
+
+**Argument type:**
+
+```ts
+type ItemDecoratorDef<Processed = any> = {
+  name: string;
+  incompatibleWith?: Array<string>;
+  isFunction?: boolean;
+  deprecated?: boolean | string;
+  process?: (decoratorValue: Resolver) => Processed | Promise<Processed>;
+  execute?: (state: Processed) => void | Promise<void>;
+};
+```
+
+Like root decorators, `process` runs at parse time and `execute` at resolution time. If neither is provided the decorator acts as an inert marker.
+
+```ts
+plugin.registerItemDecorator({
+  name: 'awsRegion',
+
+  process(decoratorValue) {
+    if (!decoratorValue.isStatic) {
+      throw new SchemaError('@awsRegion value must be a static string');
+    }
+    const region = String(decoratorValue.staticValue);
+    const VALID = ['us-east-1', 'eu-west-1', 'ap-southeast-1'];
+    if (!VALID.includes(region)) {
+      throw new SchemaError(
+        `@awsRegion: "${region}" is not a valid region`,
+        { tip: `Valid regions: ${VALID.join(', ')}` },
+      );
+    }
+    return { region };
+  },
+});
+```
+
+Usage:
+
+```env-spec title=".env.schema" "@awsRegion"
+# @awsRegion=us-east-1
+AWS_BUCKET=my-prod-bucket
+```
+
+</div>
+
+<div>
+
+### `plugin.registerDataType()` ||registerDataType||
+
+Registers a named data type that users apply with `# @type=name`. Data types add validation, coercion, sensitive-marking, and documentation links to config items.
+
+**Argument type:**
+
+```ts
+type DataTypeDef = {
+  name: string;
+  typeDescription?: string;
+  icon?: string;
+  sensitive?: boolean;
+  coerce?: (value: any) => CoercedType | CoercionError | undefined;
+  validate?: (value: any) => void | true | ValidationError | Array<ValidationError>
+             | Promise<void | true | ValidationError | Array<ValidationError>>;
+  docs?: Array<string | { url: string; description: string }>;
+};
+```
+
+- `coerce` is called first; return the canonical form, `undefined` to skip, or a `CoercionError`.
+- `validate` is called after coercion. Throw or return a `ValidationError` to reject the value.
+- `sensitive: true` marks all items of this type as sensitive by default (users can override with `# @public`).
+
+```ts
+plugin.registerDataType({
+  name: 'myServiceToken',
+  sensitive: true,
+  typeDescription: 'API token for MyService',
+  icon: 'simple-icons:yourservice',
+  docs: [{ description: 'Generating tokens', url: 'https://docs.example.com/tokens' }],
+  validate(val) {
+    if (typeof val !== 'string' || !val.startsWith('mst_')) {
+      throw new ValidationError('Token must start with "mst_"');
+    }
+  },
+});
+```
+
+Usage:
+
+```env-spec title=".env.schema" "@type"
+# @type=myServiceToken
+MY_SERVICE_TOKEN=
+```
+
+</div>
+
+<div>
+
+### `plugin.registerResolverFunction()` ||registerResolverFunction||
+
+Registers a function that users can use as a config item value. At resolution time Varlock calls the function to produce the final value — the primary mechanism for fetching secrets from external providers.
+
+**Argument type:**
+
+```ts
+type ResolverDef<Processed = any> = {
+  name: string;
+  description?: string;
+  label?: string;
+  icon?: string;
+  argsSchema?: {
+    type: 'array' | 'object' | 'mixed';
+    arrayExactLength?: number;
+    arrayMinLength?: number;
+    arrayMaxLength?: number;
+    objKeyMinLength?: number;
+  };
+  process?: (this: Resolver) => Processed;
+  resolve: (this: Resolver, state: Processed) => ResolvedValue | Promise<ResolvedValue>;
+};
+```
+
+**Two-phase execution:** `process` runs at schema-build time (`this` is the `Resolver` instance); validate argument shapes and return state for `resolve`. `resolve` runs at value-fetch time; await resolvers and call your SDK/API.
+
+`argsSchema` constraints are enforced _before_ `process` runs, so validation code can assume the correct number of arguments.
+
+Access arguments via `this.arrArgs` (positional, `Array<Resolver>`) and `this.objArgs` (keyword, `Record<string, Resolver>`). Each `Resolver` exposes `isStatic`, `staticValue`, and `resolve()`.
+
+```ts
+plugin.registerResolverFunction({
+  name: 'myPlugin',
+  label: 'Fetch secret from MyService',
+  icon: 'simple-icons:yourservice',
+  argsSchema: {
+    type: 'array',
+    arrayMinLength: 1,
+    arrayMaxLength: 2, // myPlugin(ref) or myPlugin(instanceId, ref)
+  },
+
+  process() {
+    let instanceId = '_default';
+    let refResolver: Resolver;
+
+    if (this.arrArgs!.length === 1) {
+      refResolver = this.arrArgs![0];
+    } else {
+      if (!this.arrArgs![0].isStatic) {
+        throw new SchemaError('Instance id must be a static value');
+      }
+      instanceId = String(this.arrArgs![0].staticValue);
+      refResolver = this.arrArgs![1];
+    }
+
+    if (!instances[instanceId]) {
+      throw new SchemaError(
+        `No MyPlugin instance "${instanceId}" found`,
+        { tip: 'Add @initMyPlugin() to your .env.schema file' },
+      );
+    }
+    return { instanceId, refResolver };
+  },
+
+  async resolve({ instanceId, refResolver }) {
+    const ref = String(await refResolver.resolve());
+    return await instances[instanceId].fetchSecret(ref);
+  },
+});
+```
+
+Usage:
+
+```env-spec title=".env.schema" /myPlugin\\(.*\\)/
+# @sensitive
+DB_PASSWORD=myPlugin(services/db#password)
+# Named instance:
+API_KEY=myPlugin(prod, services/api#key)
+```
+
+</div>
+
+</div>
