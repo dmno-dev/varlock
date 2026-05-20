@@ -4,7 +4,7 @@ import {
 } from 'node:fs';
 import { execSync, spawn, type ChildProcess } from 'node:child_process';
 import { varlockVitePlugin, varlockLoadedEnv } from '@varlock/vite-integration';
-import { execSyncVarlock } from 'varlock/exec-sync-varlock';
+import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
 import { CLOUDFLARE_SSR_ENTRY_CODE } from './shared-ssr-entry-code';
 
@@ -235,7 +235,43 @@ export function varlockCloudflareVitePlugin(
     if (!isDevMode) return userResult;
 
     // Single CLI call for the full graph, then extract individual vars.
-    const { stdout: serializedGraph } = execSyncVarlock('load --format json-full --compact', { fullResult: true });
+    let serializedGraph: string;
+    try {
+      const result = execSyncVarlock('load --format json-full --compact', { fullResult: true });
+      serializedGraph = result.stdout;
+    } catch (err) {
+      // Pipe stderr so the user sees varlock's pretty error output
+      if (err instanceof VarlockExecError) {
+        if (err.stderr) process.stderr.write(err.stderr);
+        // The CLI outputs JSON to stdout even on failure — try to use it
+        // so the vite plugin can still set up file watchers for auto-reload
+        if (err.stdout) {
+          try {
+            const parsed = JSON.parse(err.stdout);
+            // Set __VARLOCK_ENV with error details so downstream code knows what happened
+            const fallbackGraph = JSON.stringify(parsed);
+            return {
+              ...userResult,
+              vars: { ...cfg.vars, ...userResult?.vars, __VARLOCK_ENV: fallbackGraph },
+            };
+          } catch { /* stdout not parseable */ }
+        }
+      }
+      // eslint-disable-next-line no-console
+      console.error('\n[varlock] ⚠️ failed to load env — see error above\n');
+      // Return empty vars so the dev server can still start (errors will show in the browser via vite plugin)
+      return {
+        ...userResult,
+        vars: {
+          ...cfg.vars,
+          ...userResult?.vars,
+          __VARLOCK_ENV: JSON.stringify({
+            sources: [], config: {}, settings: {}, errors: { root: ['failed to load env'] },
+          }),
+        },
+      };
+    }
+
     let graph: { config: Record<string, { value: unknown }> };
     try {
       graph = JSON.parse(serializedGraph);
