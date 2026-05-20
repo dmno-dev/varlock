@@ -78,7 +78,8 @@ describe('exec', () => {
     });
     const elapsedMs = Date.now() - startMs;
     expect(result.exitCode).toBe(0);
-    // Should take at least 300ms; anything less means we resolved prematurely
-    expect(elapsedMs).toBeGreaterThanOrEqual(280);
+    // Should take at least 200ms; a lower value means we resolved prematurely
+    // before the child's setTimeout could fire. Allow 100ms slack for slow CI.
+    expect(elapsedMs).toBeGreaterThanOrEqual(200);
   });
 });

@@ -253,6 +253,7 @@ export function exec(
     let errorEmitted = false;
 
     childProcess.on('error', (error) => {
+      if (errorEmitted) return;
       errorEmitted = true;
       reject(
         Object.assign(error, {
