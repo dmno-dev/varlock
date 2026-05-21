@@ -48,6 +48,8 @@ let configIsValid = true;
 export let varlockLoadedEnv: SerializedEnvGraph;
 /** Stderr output from the last failed varlock load (ANSI-colored) */
 export let varlockLastError: string | undefined;
+let lastErrorAt = 0;
+let configHookCalled = false;
 let staticReplacements: Record<string, any> = {};
 let replacerFn: ReturnType<typeof createReplacerTransformFn>;
 
@@ -84,6 +86,7 @@ function reloadConfig(cwd?: string) {
     process.env.__VARLOCK_ENV = stdout;
     varlockLoadedEnv = JSON.parse(stdout) as SerializedEnvGraph;
     varlockLastError = undefined;
+    lastErrorAt = 0;
     configIsValid = true;
   } catch (err) {
     // CLI exits non-zero on validation failure but still outputs JSON to stdout.
@@ -97,10 +100,18 @@ function reloadConfig(cwd?: string) {
           process.env.__VARLOCK_ENV = err.stdout;
         } catch { /* not parseable — hard failure */ }
       }
-      if (err.stderr && err.stderr !== varlockLastError) {
+      if (err.stderr) {
+        // Debounce identical errors — frameworks like Astro can trigger
+        // multiple rapid reloads. But if some time has passed, show it
+        // again (the user may have re-introduced the same error).
+        const now = Date.now();
+        const isDuplicate = err.stderr === varlockLastError && (now - lastErrorAt) < 5000;
         varlockLastError = err.stderr;
-        console.error(err.stderr);
-        console.error('\n[varlock] ⚠️ config is invalid — fix the error(s) above and save to reload\n');
+        lastErrorAt = now;
+        if (!isDuplicate) {
+          console.error(err.stderr);
+          console.error('\n[varlock] ⚠️ config is invalid — fix the error(s) above to continue\n');
+        }
       }
     }
     configIsValid = false;
@@ -201,7 +212,7 @@ export function varlockVitePlugin(
 
     // hook to modify config before it is resolved
     async config(config, env) {
-      debug('vite plugin - config fn called');
+      debug('vite plugin - config fn called, loadCount =', loadCount, 'command =', env.command);
 
       // warn if the user has set envDir - varlock ignores this option
       // and instead reads env files from cwd (or the path configured in package.json)
@@ -235,11 +246,16 @@ See https://varlock.dev/integrations/vite/ for more details.
         // Vitest workspace setups where each child project has its own
         // env files — the module-level load used cwd which may be wrong.
         reloadConfig(projectRoot);
+      } else if (!configHookCalled) {
+        // First config hook call — module-level reloadConfig() already
+        // loaded from the correct directory, no need to reload.
+        configHookCalled = true;
+      } else if (isDevCommand) {
+        // Dev mode restart (triggered by configFileDependencies change).
+        // The module stays cached so the module-level reloadConfig()
+        // doesn't re-run — we need to reload here.
+        reloadConfig();
       }
-      // Otherwise, the module-level reloadConfig() already loaded from
-      // the correct directory. In dev mode, file changes trigger a full
-      // vite restart (via configFileDependencies) which re-evaluates
-      // this module and runs a fresh reloadConfig() automatically.
 
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
 
@@ -248,7 +264,7 @@ See https://varlock.dev/integrations/vite/ for more details.
           // adjust vite's setting so it doesnt bury the error messages
           config.clearScreen = false;
         } else {
-          // CLI already printed formatted errors to stderr — just exit
+          console.error('\n[varlock] config is invalid — cannot proceed with build\n');
           process.exit(1);
         }
       }
@@ -271,17 +287,17 @@ See https://varlock.dev/integrations/vite/ for more details.
     async configureServer(server) {
       debug('vite plugin - configureServer fn called');
 
-      if (!configIsValid) {
-        // serve an error page for all requests
-        server.middlewares.use((req, res, next) => {
-          // skip HMR websocket and vite internal requests
-          if (req.url?.startsWith('/@')) return next();
+      // Always register middleware — check configIsValid dynamically on each
+      // request so the error page appears/disappears as config is fixed/broken
+      server.middlewares.use((req, res, next) => {
+        if (configIsValid) return next();
+        // skip HMR websocket and vite internal requests
+        if (req.url?.startsWith('/@')) return next();
 
-          res.statusCode = 500;
-          res.setHeader('Content-Type', 'text/html; charset=utf-8');
-          res.end(buildErrorPageHtml(varlockLastError));
-        });
-      }
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.end(buildErrorPageHtml(varlockLastError));
+      });
     },
 
     transform(code, id, options) {
@@ -359,6 +375,7 @@ See https://varlock.dev/integrations/vite/ for more details.
     // this enables replacing %ENV.xxx% constants in html entry-point files
     // see https://vite.dev/guide/env-and-mode.html#html-constant-replacement
     transformIndexHtml(html) {
+      debug('transformIndexHtml called, configIsValid =', configIsValid);
       if (!configIsValid) {
         return buildErrorPageHtml(varlockLastError);
       }
