@@ -5,9 +5,8 @@ import { LinkButton } from "@astrojs/starlight/components";
 import { Image } from "astro:assets";
 import roundtableImg from "../assets/pixel-art/roundtable.jpg";
 
-const site = Astro.site ?? new URL(Astro.url.origin);
-const pageUrl = new URL(Astro.url.pathname, site).href;
-const ogImageUrl = new URL("/og-images/index.png", site).href;
+const pageUrl = new URL(new URL(Astro.request.url).pathname, Astro.site!).href;
+const ogImageUrl = new URL("/og-images/index.png", Astro.site!).href;
 const pageTitle = "Varlock Corporate Sponsorship Program";
 const pageDescription =
   "Support Varlock with transparent, tiered corporate sponsorship. Get roadmap access, advisory council participation, fast support, and consulting hours.";

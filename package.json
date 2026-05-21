@@ -30,13 +30,14 @@
     "prepare": "lefthook install"
   },
   "devDependencies": {
-    "@varlock/bumpy": "^1.8.0",
-    "@cloudflare/vite-plugin": "^1.30.1",
+    "@cloudflare/vite-plugin": "^1.37.1",
     "@eslint/js": "^10.0.1",
+    "@socketsecurity/bun-security-scanner": "^1.1.2",
     "@stylistic/eslint-plugin": "^5.9.0",
     "@types/node": "catalog:",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",
+    "@varlock/bumpy": "^1.8.0",
     "@varlock/tsconfig": "workspace:*",
     "eslint": "^10.0.2",
     "eslint-plugin-es-x": "^9.5.0",
@@ -46,7 +47,7 @@
     "eslint-stylistic-airbnb": "^2.0.1",
     "globals": "^17.3.0",
     "lefthook": "^2.1.6",
-    "turbo": "^2.8.12",
+    "turbo": "^2.9.14",
     "typescript": "catalog:",
     "typescript-eslint": "^8.56.1",
     "varlock": "workspace:*"
@@ -56,9 +57,10 @@
     "node": ">=22"
   },
   "overrides": {
-    "form-data": "4.0.5",
-    "punycode": "npm:punycode@^2.3.1",
-    "@xmldom/xmldom": ">=0.8.12"
+    "@xmldom/xmldom": ">=0.9.10",
+    "@modelcontextprotocol/sdk": ">=1.29.0",
+    "postcss": ">=8.5.10",
+    "ws": ">=8.20.1"
   },
   "catalog": {
     "@sindresorhus/is": "^7.2.0",

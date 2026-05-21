@@ -4,9 +4,8 @@ import { createMetaHead } from "../lib/meta";
 import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
 import PromptBuilderApp from "../components/PromptBuilderApp.vue";
 
-const site = Astro.site ?? new URL(Astro.url.origin);
-const pageUrl = new URL(Astro.url.pathname, site).href;
-const ogImageUrl = new URL("/default-og-image-new.png", site).href;
+const pageUrl = new URL(new URL(Astro.request.url).pathname, Astro.site!).href;
+const ogImageUrl = new URL("/default-og-image-new.png", Astro.site!).href;
 const pageTitle = "Varlock prompt builder";
 const pageDescription =
   "Pick languages, repo layout, and stack; generate a shareable prompt with links to Varlock docs.";
