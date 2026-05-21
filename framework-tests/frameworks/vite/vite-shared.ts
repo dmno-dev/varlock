@@ -507,6 +507,7 @@ export function defineViteTests(
         requests: [
           {
             path: '/',
+            expectedStatus: 500,
             bodyAssertions: {
               shouldContain: ['invalid'],
               shouldNotContain: ['public-test-value'],
