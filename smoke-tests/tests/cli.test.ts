@@ -189,4 +189,53 @@ describe('CLI Commands', () => {
       expect(existsSync(typeFilePathAutoFalse)).toBe(false);
     });
   });
+
+  describe('error output - schema errors', () => {
+    test('exits non-zero on unknown root decorator', () => {
+      const result = varlockLoad({ cwd: 'smoke-test-invalid' });
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    test('shows the unknown decorator error in output', () => {
+      const result = varlockLoad({ cwd: 'smoke-test-invalid' });
+      expect(result.output).toContain('Unknown decorator');
+      expect(result.output).toContain('@badRootDecorator');
+    });
+
+    test('shows file path in error output', () => {
+      const result = varlockLoad({ cwd: 'smoke-test-invalid' });
+      expect(result.output).toContain('.env.schema');
+    });
+
+    test('--format json-full outputs JSON even on schema errors', () => {
+      const result = varlockLoad({ cwd: 'smoke-test-invalid', format: 'json-full' });
+      expect(() => JSON.parse(result.stdout)).not.toThrow();
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.errors).toBeDefined();
+    });
+  });
+
+  describe('error output - validation errors', () => {
+    test('exits non-zero on invalid config', () => {
+      const result = varlockLoad({ cwd: 'smoke-test-invalid-items' });
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    test('shows invalid decorator name error', () => {
+      const result = varlockLoad({ cwd: 'smoke-test-invalid-items' });
+      expect(result.output).toContain('not a valid decorator name');
+      expect(result.output).toContain('@sensitive,');
+    });
+
+    test('shows required value error', () => {
+      const result = varlockLoad({ cwd: 'smoke-test-invalid-items' });
+      expect(result.output).toContain('REQUIRED_MISSING');
+      expect(result.output).toContain('required but is currently empty');
+    });
+
+    test('shows "Configuration is currently invalid" banner', () => {
+      const result = varlockLoad({ cwd: 'smoke-test-invalid-items' });
+      expect(result.output).toContain('Configuration is currently invalid');
+    });
+  });
 });
