@@ -381,21 +381,41 @@ async function handleDev(args: Array<string>) {
   }
 
   debug('dev: resolving env');
-  let loaded;
+  let loaded: ReturnType<typeof loadSerializedGraph> | undefined;
+  let configIsValid = false;
   try {
     loaded = loadSerializedGraph();
+    configIsValid = true;
   } catch (err) {
-    if (err instanceof VarlockExecError && err.stderr) process.stderr.write(err.stderr);
-    console.error('\n[varlock-wrangler] Failed to resolve environment variables\n');
+    if (err instanceof VarlockExecError) {
+      if (err.stderr) process.stderr.write(err.stderr);
+      // Parse stdout even on failure — we need sources for file watchers
+      if (err.stdout) {
+        try {
+          const parsed = JSON.parse(err.stdout);
+          loaded = { json: err.stdout, graph: parsed };
+        } catch { /* not parseable */ }
+      }
+    }
+    console.error('\n[varlock-wrangler] ⚠️ config is invalid — fix the error(s) above and save to reload\n');
+  }
+
+  if (!loaded) {
+    console.error('[varlock-wrangler] Failed to parse env — cannot start dev server');
     process.exitCode = 1;
     return;
   }
-  debug('dev: resolved', Object.keys(loaded.graph.config).length, 'env vars');
+  debug('dev: resolved', Object.keys(loaded.graph.config).length, 'env vars, valid =', configIsValid);
 
   const tmp = createServingTempFile('varlock-dev-env');
   debug('dev: created FIFO at', tmp.filePath);
 
-  let cachedContent = formatEnvFileContent(loaded);
+  // When config is invalid, serve a minimal env file with __VARLOCK_ENV containing
+  // the error JSON — this lets the worker's initVarlockEnv() succeed (with configHasErrors=true)
+  // instead of throwing "initVarlockEnv failed"
+  let cachedContent = configIsValid
+    ? formatEnvFileContent(loaded)
+    : `${formatEnvLine('__VARLOCK_ENV', loaded.json)}\n`;
   let wranglerChild: ReturnType<typeof spawn> | undefined;
   const watchers: Array<ReturnType<typeof watch>> = [];
 
@@ -443,6 +463,7 @@ async function handleDev(args: Array<string>) {
         }
         cachedGraphJson = freshLoaded.json;
         loaded = freshLoaded;
+        configIsValid = true;
         lastRestartAt = now;
         cachedContent = formatEnvFileContent(freshLoaded);
         handle.update(cachedContent);
@@ -450,9 +471,28 @@ async function handleDev(args: Array<string>) {
         wranglerChild?.kill();
         // NOTE: restartTimeout stays truthy so the exit handler knows this was a restart-kill
       } catch (err) {
+        configIsValid = false;
+        if (err instanceof VarlockExecError) {
+          if (err.stderr) process.stderr.write(err.stderr);
+          // Update FIFO with error-state env and restart wrangler so the
+          // worker picks up configHasErrors=true and warns on ENV access
+          if (err.stdout) {
+            try {
+              const parsed = JSON.parse(err.stdout);
+              loaded = { json: err.stdout, graph: parsed };
+              cachedGraphJson = err.stdout;
+              cachedContent = `${formatEnvLine('__VARLOCK_ENV', err.stdout)}\n`;
+              handle.update(cachedContent);
+              lastRestartAt = Date.now();
+              console.error('\n[varlock-wrangler] \u26a0\ufe0f config is invalid \u2014 fix the error(s) above and save to reload\n');
+              wranglerChild?.kill();
+              // restartTimeout stays truthy so the exit handler knows this was a restart-kill
+              return;
+            } catch { /* not parseable */ }
+          }
+        }
         restartTimeout = undefined;
-        if (err instanceof VarlockExecError && err.stderr) process.stderr.write(err.stderr);
-        console.error('\n[varlock-wrangler] ⚠️ failed to re-resolve env — fix the error(s) above and save to reload\n');
+        console.error('\n[varlock-wrangler] \u26a0\ufe0f config is invalid \u2014 fix the error(s) above and save to reload\n');
       }
     }, DEBOUNCE_MS);
   }
