@@ -339,10 +339,9 @@ const EnvProxy = new Proxy<TypedEnvSchema>({}, {
     }
 
     if (configHasErrors) {
-      throw new Error(
-        'varlock ENV failed to load — your config has errors.\n'
-        + 'Fix the error(s) and try again.',
-      );
+      // eslint-disable-next-line no-console
+      console.error(`[varlock] ⚠️ ENV.${prop} accessed but config has errors — values may be missing or incorrect`);
+      return undefined;
     }
 
     if (prop in envValues) return envValues[prop];

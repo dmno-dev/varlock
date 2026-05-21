@@ -205,9 +205,15 @@ function writeResolvedEnvFile() {
 // - these methods are the same as the original module -----------------
 
 export function updateInitialEnv(newEnv: Env) {
-  if (Object.keys(newEnv).length) {
-    debug('updateInitialEnv', newEnv);
-    Object.assign(initialEnv || {}, newEnv);
+  if (!Object.keys(newEnv).length) return;
+  debug('updateInitialEnv', newEnv);
+  // Only merge keys that were already in initialEnv or are Next.js internal vars.
+  // Varlock-managed keys injected into process.env by initVarlockEnv should NOT
+  // pollute initialEnv — otherwise they get treated as process.env overrides on reload.
+  for (const [key, value] of Object.entries(newEnv)) {
+    if (key in (initialEnv || {}) || key.startsWith('__NEXT')) {
+      (initialEnv || {})[key] = value;
+    }
   }
 }
 
@@ -380,9 +386,12 @@ export function loadEnvConfig(
       process.exit((err as any).exitCode ?? 1);
     }
 
-    // Set __VARLOCK_ENV so downstream code doesn't see a missing-env error.
-    // Pass through whatever the CLI returned (includes error details + sources)
-    // so file watchers can be set up for auto-reload on fix.
+    // Reset process.env to initial state so stale values from a previous
+    // successful load don't persist (Next.js reads process.env directly for SSR)
+    replaceProcessEnv(initialEnv);
+
+    // Set __VARLOCK_ENV with error details so the ENV proxy knows config is
+    // invalid (throws a clear error) and file watchers can be set up.
     process.env.__VARLOCK_ENV = JSON.stringify(varlockLoadedEnv || {
       sources: [],
       config: {},
