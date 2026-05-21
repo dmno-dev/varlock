@@ -21,9 +21,8 @@ const sidebar = [
   },
 ];
 
-const site = Astro.site ?? new URL(Astro.url.origin);
-const pageUrl = new URL(Astro.url.pathname, site).href;
-const ogImageUrl = new URL("/og-images/blog.png", site).href;
+const pageUrl = new URL(new URL(Astro.request.url).pathname, Astro.site!).href;
+const ogImageUrl = new URL("/og-images/blog.png", Astro.site!).href;
 const pageTitle = "Blog";
 const pageDescription =
   "Updates, guides, and tips from the Varlock team.";

@@ -13,25 +13,25 @@
   },
   "dependencies": {
     "@iconify/vue": "^5.0.0",
-    "@astrojs/mdx": "^4.3.13",
-    "@astrojs/partytown": "^2.1.4",
-    "@astrojs/sitemap": "^3.7.0",
-    "@astrojs/starlight": "^0.37.6",
-    "@astrojs/vue": "^5.1.4",
-    "astro": "^5.17.1",
+    "@astrojs/mdx": "^5.0.6",
+    "@astrojs/partytown": "^2.1.7",
+    "@astrojs/sitemap": "^3.7.2",
+    "@astrojs/starlight": "^0.39.2",
+    "@astrojs/vue": "^6.0.1",
+    "astro": "^6.3.6",
     "astro-iconify": "^1.2.0",
-    "astro-og-canvas": "^0.7.2",
+    "astro-og-canvas": "^0.11.1",
     "astro-robots-txt": "^1.0.0",
     "canvaskit-wasm": "^0.40.0",
     "outdent": "catalog:",
     "remark-custom-header-id": "^1.0.0",
-    "starlight-llms-txt": "^0.6.0",
+    "starlight-llms-txt": "^0.10.0",
     "vue": "^3.5.22"
   },
   "devDependencies": {
     "@varlock/astro-integration": "workspace:*",
     "varlock": "workspace:*",
-    "wrangler": "^4.45.3"
+    "wrangler": "^4.93.0"
   },
   "engines": {
     "node": ">=22"

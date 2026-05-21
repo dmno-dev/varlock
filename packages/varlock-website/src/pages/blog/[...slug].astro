@@ -32,9 +32,8 @@ const sidebar = [
   },
 ];
 
-const site = Astro.site ?? new URL(Astro.url.origin);
-const pageUrl = new URL(Astro.url.pathname, site).href;
-const ogImageUrl = new URL(`/og-images/blog/${post.id}.png`, site).href;
+const pageUrl = new URL(new URL(Astro.request.url).pathname, Astro.site!).href;
+const ogImageUrl = new URL(`/og-images/blog/${post.id}.png`, Astro.site!).href;
 ---
 
 <Layout

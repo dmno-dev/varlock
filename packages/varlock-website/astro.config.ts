@@ -13,7 +13,7 @@ import remarkCustomHeaderId from 'remark-custom-header-id';
 import varlockAstroIntegration from '@varlock/astro-integration';
 import { ENV } from 'varlock/env';
 
-import envSpecGrammar from '../vscode-plugin/language/env-spec.tmLanguage.json' assert { type: 'json' };
+import envSpecGrammar from '../vscode-plugin/language/env-spec.tmLanguage.json' with { type: 'json' };
 
 // https://astro.build/config
 export default defineConfig({
@@ -76,21 +76,19 @@ export default defineConfig({
       },
     ],
   },
-  experimental: {
-    fonts: [
-      {
-        provider: fontProviders.google(),
-        name: 'JetBrains Mono',
-        cssVariable: '--font-jetbrains-mono',
-      },
-      {
-        provider: fontProviders.google(),
-        name: 'Inter',
-        cssVariable: '--font-default',
-        weights: ['300', '400', '700'],
-      },
-    ],
-  },
+  fonts: [
+    {
+      provider: fontProviders.google(),
+      name: 'JetBrains Mono',
+      cssVariable: '--font-jetbrains-mono',
+    },
+    {
+      provider: fontProviders.google(),
+      name: 'Inter',
+      cssVariable: '--font-default',
+      weights: ['300', '400', '700'],
+    },
+  ],
   image: {
     service: passthroughImageService(),
   },
