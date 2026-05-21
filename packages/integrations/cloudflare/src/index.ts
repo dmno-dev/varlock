@@ -3,7 +3,9 @@ import {
   existsSync, readdirSync, unlinkSync, writeFileSync,
 } from 'node:fs';
 import { execSync, spawn, type ChildProcess } from 'node:child_process';
-import { varlockVitePlugin, varlockLoadedEnv } from '@varlock/vite-integration';
+import {
+  varlockVitePlugin, varlockLoadedEnv, varlockLastError, buildErrorPageHtml,
+} from '@varlock/vite-integration';
 import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
 import { CLOUDFLARE_SSR_ENTRY_CODE } from './shared-ssr-entry-code';
 
@@ -11,6 +13,7 @@ const isWindows = process.platform === 'win32';
 
 /** Name exposed by `@cloudflare/vite-plugin`'s main plugin object. */
 const CLOUDFLARE_PLUGIN_NAME = 'vite-plugin-cloudflare';
+
 
 
 // --- helpers for preview FIFO env injection --------------------------------
@@ -236,8 +239,10 @@ export function varlockCloudflareVitePlugin(
     // Reuse the env already loaded by the varlock vite plugin (avoids a duplicate CLI call).
     // The vite plugin's reloadConfig() runs at module load time, before this callback.
     const serializedGraph = process.env.__VARLOCK_ENV;
-    if (!varlockLoadedEnv || !serializedGraph) {
-      // vite plugin failed to load — it already showed the error
+    if (!varlockLoadedEnv || !serializedGraph || varlockLoadedEnv.errors) {
+      // vite plugin failed to load or config is invalid — it already showed the error.
+      // Return minimal vars so the cloudflare plugin doesn't crash,
+      // but don't inject real values.
       return {
         ...userResult,
         vars: {
@@ -260,6 +265,25 @@ export function varlockCloudflareVitePlugin(
         ...cfg.vars, ...userResult?.vars, ...vars, __VARLOCK_ENV: serializedGraph,
       },
     };
+  };
+
+  // Show an error page when config is invalid (cloudflare workers don't get
+  // the vite HMR error overlay since they run in a separate workerd runtime)
+  const errorPagePlugin: import('vite').Plugin = {
+    name: 'varlock-cloudflare-error-page',
+    configureServer(server) {
+      // Return middleware — returning from configureServer adds it in the
+      // "post" phase, after internal vite middlewares
+      return () => {
+        server.middlewares.use((req, res, next) => {
+          if (!varlockLoadedEnv?.errors) return next();
+
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.end(buildErrorPageHtml(varlockLastError));
+        });
+      };
+    },
   };
 
   const varlockPlugin = varlockVitePlugin({
@@ -336,6 +360,7 @@ export function varlockCloudflareVitePlugin(
     conflictGuard,
     modeDetector,
     previewEnvInjector,
+    errorPagePlugin,
     varlockPlugin,
     // cloudflare() may return a single plugin or an array
     ...(Array.isArray(cloudflarePlugin) ? cloudflarePlugin : [cloudflarePlugin]),

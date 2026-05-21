@@ -13,6 +13,25 @@ import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 
 import { createReplacerTransformFn, SUPPORTED_FILES } from './transform';
 
+import { ansiToHtml } from './ansi-to-html';
+export { ansiToHtml };
+
+export function buildErrorPageHtml(ansiError?: string): string {
+  const errorContent = ansiError
+    ? ansiToHtml(ansiError)
+    : 'Config is invalid — check your terminal for details.';
+
+  return `<!DOCTYPE html>
+<html><head><title>varlock - config error</title></head>
+<body style="font-family: monospace; background: #1e1e2e; color: #cdd6f4; margin: 0; padding: 2rem;">
+<div style="margin-bottom: 1.5rem;">
+  <h2 style="color: #f38ba8; margin: 0 0 0.5rem 0;">🔒 Varlock — env config validation failed</h2>
+  <p style="color: #6c7086; margin: 0;">Your environment variables are loaded and validated by <a href="https://varlock.dev" style="color: #89b4fa;">varlock</a>. Fix the error(s) below and save to reload.</p>
+</div>
+<pre style="white-space: pre-wrap; word-wrap: break-word; line-height: 1.5; background: #181825; padding: 1rem; border-radius: 8px;">${errorContent}</pre>
+</body></html>`;
+}
+
 
 // enables throwing when user accesses a bad key on ENV
 (globalThis as any).__varlockThrowOnMissingKeys = true;
@@ -29,6 +48,8 @@ debug('varlock vite plugin loaded. first load = ', isFirstLoad);
 let isDevCommand: boolean;
 let configIsValid = true;
 export let varlockLoadedEnv: SerializedEnvGraph;
+/** Stderr output from the last failed varlock load (ANSI-colored) */
+export let varlockLastError: string | undefined;
 let staticReplacements: Record<string, any> = {};
 let replacerFn: ReturnType<typeof createReplacerTransformFn>;
 
@@ -72,9 +93,15 @@ function reloadConfig(cwd?: string) {
       if (err.stdout) {
         try {
           varlockLoadedEnv = JSON.parse(err.stdout) as SerializedEnvGraph;
+          // Set __VARLOCK_ENV even on failure so `varlock/env` can initialize
+          // with partial data (prevents "ENV not initialized" throws)
+          process.env.__VARLOCK_ENV = err.stdout;
         } catch { /* not parseable — hard failure */ }
       }
-      if (err.stderr) console.error(err.stderr);
+      if (err.stderr) {
+        varlockLastError = err.stderr;
+        console.error(err.stderr);
+      }
     }
     configIsValid = false;
     resetStaticReplacements();
@@ -227,18 +254,7 @@ See https://varlock.dev/integrations/vite/ for more details.
           // adjust vite's setting so it doesnt bury the error messages
           config.clearScreen = false;
         } else {
-          console.log('💥 Varlock config validation failed 💥');
-          if (varlockLoadedEnv?.errors?.root) {
-            for (const msg of varlockLoadedEnv.errors.root) {
-              console.log(`  - ${msg}`);
-            }
-          }
-          if (varlockLoadedEnv?.errors?.configItems) {
-            for (const [key, msg] of Object.entries(varlockLoadedEnv.errors.configItems)) {
-              console.log(`  - ${key}: ${msg}`);
-            }
-          }
-          // throwing an error spits out a big useless stack trace... so better to just exit?
+          // CLI already printed formatted errors to stderr — just exit
           process.exit(1);
         }
       }
@@ -262,17 +278,17 @@ See https://varlock.dev/integrations/vite/ for more details.
       debug('vite plugin - configureServer fn called');
 
       if (!configIsValid) {
-        // triggers the built-in vite error overlay
+        // remind the user after vite's startup output scrolls by
+        console.error('\n[varlock] ⚠️ config is invalid — fix the error(s) above and save to reload\n');
+
+        // serve an error page for all requests
         server.middlewares.use((req, res, next) => {
-          server.hot.send({
-            type: 'error',
-            err: {
-              plugin: 'varlock',
-              message: 'Your config is currently invalid - check your terminal for more details',
-              stack: '',
-            },
-          });
-          return next();
+          // skip HMR websocket and vite internal requests
+          if (req.url?.startsWith('/@')) return next();
+
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.end(buildErrorPageHtml(varlockLastError));
         });
       }
     },

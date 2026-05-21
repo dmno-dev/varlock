@@ -330,7 +330,25 @@ const EnvProxy = new Proxy<TypedEnvSchema>({}, {
     if (IGNORED_PROXY_KEYS.includes(prop)) return;
 
     if (!initializedEnv) {
-      throw new Error('varlock ENV not initialized');
+      // Check if __VARLOCK_ENV was set but contained errors (config invalid)
+      const rawEnv = globalThis.process?.env?.__VARLOCK_ENV;
+      if (rawEnv) {
+        try {
+          const parsed = JSON.parse(rawEnv);
+          if (parsed.errors) {
+            throw new Error(
+              'varlock ENV failed to load — your config has errors.\n'
+              + 'Fix the errors above and save to reload.',
+            );
+          }
+        } catch (e) {
+          if (e instanceof Error && e.message.includes('varlock ENV failed')) throw e;
+        }
+      }
+      throw new Error(
+        'varlock ENV not initialized — make sure varlock is set up correctly.\n'
+        + 'See https://varlock.dev/docs/get-started for setup instructions.',
+      );
     }
 
     if (prop in envValues) return envValues[prop];
