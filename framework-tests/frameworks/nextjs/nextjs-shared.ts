@@ -72,7 +72,7 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
       });
 
       nextEnv.describeDevScenario('invalid schema shows errors in dev and boots', {
-        command: 'next dev --turbopack --port 13900',
+        command: `next dev --turbopack --port ${13900 + nextVersion}`,
         readyPattern: /Ready in/,
         readyTimeout: 30_000,
         templateFiles: {
