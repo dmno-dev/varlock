@@ -198,6 +198,51 @@ describe('decorator placement validation', () => {
     }));
   });
 
+  describe('duplicate unknown/invalid decorators do not trigger dupe errors', () => {
+    test('duplicate unknown item decorators only get unknown-decorator errors', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @see @see
+          ITEM=foo
+        `,
+      },
+      // should still resolve — @see is just a warning, not a fatal error
+      expectValues: { ITEM: 'foo' },
+    }));
+
+    test('duplicate unknown item decorators with valid names only get unknown-decorator errors', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @badDec @badDec
+          ITEM=foo
+        `,
+      },
+      expectValues: { ITEM: SchemaError },
+    }));
+
+    test('duplicate invalid-name item decorators only get invalid-name errors', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @todo: @todo:
+          ITEM=foo
+        `,
+      },
+      expectValues: { ITEM: 'foo' },
+    }));
+
+    test('duplicate unknown root decorators do not trigger dupe errors', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @see @see
+          # ---
+          ITEM=foo
+        `,
+      },
+      // @see in header is a warning, not a fatal error
+      expectValues: { ITEM: 'foo' },
+    }));
+  });
+
   describe('unknown decorators trigger errors', () => {
     test('unknown item decorator causes schema error', envFilesTest({
       files: {
