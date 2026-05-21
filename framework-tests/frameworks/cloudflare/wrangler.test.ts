@@ -245,9 +245,14 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
   });
 
   describe('invalid config', () => {
-    wranglerEnv.describeScenario('invalid schema causes dev failure', {
+    // Note: varlock-wrangler dev now boots with invalid config (sets up
+    // file watchers for auto-reload), but the workerd runtime still fails
+    // to start because the worker code can't initialize without valid env
+    // bindings. The important thing is the error details are shown.
+    wranglerEnv.describeScenario('invalid schema shows errors in dev', {
       command: 'varlock-wrangler dev --port 18791',
       expectSuccess: false,
+      timeout: 30_000,
       templateFiles: {
         'src/index.ts': { path: 'workers/basic-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
         'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
@@ -257,7 +262,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
       outputAssertions: [
         {
           description: 'validation error details are shown',
-          shouldContain: ['MISSING_REQUIRED_VAR'],
+          shouldContain: ['Configuration is currently invalid', 'MISSING_REQUIRED_VAR'],
         },
       ],
     });
