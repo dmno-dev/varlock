@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { spawn, execSync } from 'node:child_process';
 
-import { execSyncVarlock } from 'varlock/exec-sync-varlock';
+import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 
 const isWindows = process.platform === 'win32';
 const debugEnabled = !!process.env.VARLOCK_DEBUG;
@@ -265,8 +265,9 @@ async function handleDeploy(args: Array<string>) {
   let loaded;
   try {
     loaded = loadSerializedGraph();
-  } catch {
-    console.error('Failed to resolve environment variables');
+  } catch (err) {
+    if (err instanceof VarlockExecError && err.stderr) process.stderr.write(err.stderr);
+    console.error('\n[varlock-wrangler] Failed to resolve environment variables\n');
     process.exitCode = 1;
     return;
   }
@@ -335,8 +336,9 @@ async function handleTypes(args: Array<string>) {
   let loaded;
   try {
     loaded = loadSerializedGraph();
-  } catch {
-    console.error('Failed to resolve environment variables');
+  } catch (err) {
+    if (err instanceof VarlockExecError && err.stderr) process.stderr.write(err.stderr);
+    console.error('\n[varlock-wrangler] Failed to resolve environment variables\n');
     process.exitCode = 1;
     return;
   }
@@ -383,8 +385,8 @@ async function handleDev(args: Array<string>) {
   try {
     loaded = loadSerializedGraph();
   } catch (err) {
-    console.error('Failed to resolve environment variables');
-    console.error(err);
+    if (err instanceof VarlockExecError && err.stderr) process.stderr.write(err.stderr);
+    console.error('\n[varlock-wrangler] Failed to resolve environment variables\n');
     process.exitCode = 1;
     return;
   }
@@ -449,7 +451,8 @@ async function handleDev(args: Array<string>) {
         // NOTE: restartTimeout stays truthy so the exit handler knows this was a restart-kill
       } catch (err) {
         restartTimeout = undefined;
-        console.error('[varlock-wrangler] failed to re-resolve env:', (err as Error).message);
+        if (err instanceof VarlockExecError && err.stderr) process.stderr.write(err.stderr);
+        console.error('\n[varlock-wrangler] ⚠️ failed to re-resolve env — fix the error(s) above and save to reload\n');
       }
     }, DEBOUNCE_MS);
   }
