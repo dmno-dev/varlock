@@ -253,7 +253,6 @@ export function exec(
     let errorEmitted = false;
 
     childProcess.on('error', (error) => {
-      if (errorEmitted) return;
       errorEmitted = true;
       reject(
         Object.assign(error, {
@@ -263,20 +262,9 @@ export function exec(
       );
     });
 
-    // Use 'close' instead of 'exit' to ensure all piped stdout/stderr data has
-    // been flushed and processed by data-event handlers before we resolve/reject.
-    // The 'exit' event fires as soon as the child process exits, but when stdio
-    // is 'pipe' the OS pipe buffer may still hold unread data. 'close' fires only
-    // after all stdio streams have been fully drained — guaranteeing that 'data'
-    // event callbacks (which forward child output to process.stdout/stderr) have
-    // already run before we call gracefulExit(). Without this, process.exit()
-    // can terminate the parent before the buffered output is written, silently
-    // dropping stdout/stderr (observed on Windows with PowerShell + npx).
-    childProcess.on('close', (code, signal) => {
-      if (errorEmitted) return;
-
+    childProcess.on('exit', (code, signal) => {
       // Windows special case: exit code 1 without error event might be ENOENT
-      if (process.platform === 'win32' && code === 1 && !existsSync(resolvedCommand)) {
+      if (process.platform === 'win32' && code === 1 && !errorEmitted && !existsSync(resolvedCommand)) {
         const error: any = new Error(`Command not found: ${command}`);
         error.code = 'ENOENT';
         error.exitCode = 1;
