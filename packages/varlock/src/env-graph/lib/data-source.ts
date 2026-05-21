@@ -751,7 +751,7 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
           `Item decorator @${dec.name} cannot be used in the file header - it must be attached to a config item`,
           { location: this._locationFromParsed(dec) },
         ));
-      } else if (!dec.isBareFnCall) {
+      } else if (!dec.isBareFnCall && !dec.hasInvalidName && dec.name in this.graph!.rootDecoratorsRegistry) {
         if (seenRootDecs.has(dec.name)) {
           this._errors.push(new SchemaError(
             `Root decorator @${dec.name} cannot be used more than once in the same file`,

@@ -243,7 +243,7 @@ export class ConfigItem {
           this.effectiveDecoratorFns[dec.name] ||= [];
           this.effectiveDecoratorFns[dec.name].push(dec);
         } else {
-          if (decKeysInThisDef.has(dec.name)) {
+          if (decKeysInThisDef.has(dec.name) && !dec._errors.length) {
             dec._errors.push(new SchemaError(`decorator @${dec.name} cannot be used twice in same definition`));
             continue;
           }
