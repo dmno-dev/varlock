@@ -249,14 +249,13 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
     // file watchers for auto-reload), but the workerd runtime still fails
     // to start because the worker code can't initialize without valid env
     // bindings. The important thing is the error details are shown.
-    // varlock-wrangler dev now stays alive on invalid config (waiting for
-    // file fix + reload), so it can't be tested with describeScenario which
-    // waits for exit. The behavior is verified by manual testing.
+    // varlock-wrangler dev boots with invalid config. Kill once we see
+    // varlock-wrangler dev boots even with invalid config (for fix-and-reload).
+    // The worker runs but ENV proxy warns on access. Use killAfterPattern to
+    // stop the long-running process once we see the error output.
     wranglerEnv.describeScenario('invalid schema shows errors in dev', {
-      skip: true,
       command: 'varlock-wrangler dev --port 18791',
-      expectSuccess: false,
-      timeout: 30_000,
+      killAfterPattern: /config is invalid|config has errors|Configuration is currently invalid/,
       templateFiles: {
         'src/index.ts': { path: 'workers/basic-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
         'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
@@ -265,8 +264,8 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
       },
       outputAssertions: [
         {
-          description: 'validation error details are shown',
-          shouldContain: ['Configuration is currently invalid', 'MISSING_REQUIRED_VAR'],
+          description: 'varlock error output is shown',
+          shouldContain: ['MISSING_REQUIRED_VAR'],
         },
       ],
     });

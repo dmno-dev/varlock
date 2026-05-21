@@ -107,6 +107,8 @@ export interface TestScenario {
   fileAssertions?: Array<OutputAssertion>;
   /** Timeout for this scenario in ms (default: 120_000) */
   timeout?: number;
+  /** Kill the process shortly after this pattern appears in output (useful for long-running commands that don't exit) */
+  killAfterPattern?: RegExp;
   /** Also run the entire scenario with `export const runtime = 'edge'` inserted after directives in all .tsx/.ts template files */
   alsoTestEdgeRuntime?: boolean;
   /** Skip this entire scenario */

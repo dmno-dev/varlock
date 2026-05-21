@@ -4,6 +4,8 @@ import type { BuildResult } from './types.js';
 export interface RunCommandOptions {
   env?: Record<string, string>;
   timeout?: number;
+  /** Kill the process shortly after this pattern appears in stdout/stderr */
+  killAfterPattern?: RegExp;
 }
 
 export function runCommand(
@@ -31,27 +33,46 @@ export function runCommand(
     const stdoutChunks: Array<string> = [];
     const stderrChunks: Array<string> = [];
 
+    const ANSI_RE = /\x1b\[[0-9;]*m/g; // eslint-disable-line no-control-regex
+    let killScheduled = false;
+    function checkKillPattern() {
+      if (!opts?.killAfterPattern || killScheduled) return;
+      const combined = (stdoutChunks.join('') + stderrChunks.join('')).replace(ANSI_RE, '');
+      if (opts.killAfterPattern.test(combined)) {
+        killScheduled = true;
+        // brief delay to collect any trailing output, then force-kill
+        setTimeout(() => {
+          killedByTimeout = true; // eslint-disable-line no-use-before-define
+          // Use SIGKILL to ensure process tree dies (SIGTERM may not kill child processes like workerd)
+          child.kill('SIGKILL');
+        }, 1000);
+      }
+    }
+
     child.stdout?.on('data', (data) => {
       stdoutChunks.push(data.toString());
+      checkKillPattern();
     });
     child.stderr?.on('data', (data) => {
       stderrChunks.push(data.toString());
+      checkKillPattern();
     });
 
     const timeout = opts?.timeout ?? 120_000;
+    let killedByTimeout = false;
     const timer = setTimeout(() => {
+      killedByTimeout = true;
       child.kill('SIGTERM');
-      reject(new Error(`Command timed out after ${timeout}ms: ${command}`));
     }, timeout);
 
     child.on('close', (code) => {
       clearTimeout(timer);
-      const exitCode = code ?? 1;
+      const exitCode = killedByTimeout ? 1 : (code ?? 1);
       resolve({
         exitCode,
         stdout: stdoutChunks.join(''),
         stderr: stderrChunks.join(''),
-        success: exitCode === 0,
+        success: !killedByTimeout && exitCode === 0,
       });
     });
 

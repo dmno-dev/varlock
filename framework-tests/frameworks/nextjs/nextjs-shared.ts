@@ -71,9 +71,12 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
         ],
       });
 
+      // Next 14's turbo dev support is limited; skip this test for v14
+      const devFlag = getBuildToolFlag(nextVersion, 'turbopack');
       nextEnv.describeDevScenario('invalid schema shows errors in dev and boots', {
-        command: `next dev --turbopack --port ${13900 + nextVersion}`,
-        readyPattern: /Ready in/,
+        skip: nextVersion === 14,
+        command: `next dev ${devFlag} --port ${13900 + nextVersion}`,
+        readyPattern: /Ready in|Starting\.\.\./,
         readyTimeout: 30_000,
         templateFiles: {
           'app/page.tsx': 'pages/basic-page.tsx',

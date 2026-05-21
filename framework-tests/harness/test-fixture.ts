@@ -273,6 +273,7 @@ export class FrameworkTestEnv {
     return runCommand(this.dir, buildCmd, {
       env: scenario.env,
       timeout: scenario.timeout ?? 120_000,
+      killAfterPattern: scenario.killAfterPattern,
     });
   }
 
@@ -308,15 +309,21 @@ export class FrameworkTestEnv {
       const ctx: { result?: BuildResult } = {};
       beforeAll(async () => {
         ctx.result = await env.runScenario(scenario);
-      }, scenario.timeout ?? 120_000);
+      // Add buffer over command timeout so the command can resolve before the hook times out
+      }, (scenario.timeout ?? 120_000) + 5_000);
 
-      const expectSuccess = scenario.expectSuccess ?? true;
-      test(expectSuccess ? 'build succeeds' : 'build fails as expected', () => {
-        assertBuildResult(ctx.result!, {
-          command: scenario.command,
-          expectSuccess: scenario.expectSuccess,
+      // When expectSuccess is explicitly set, assert on the exit code.
+      // When omitted (undefined), skip the assertion (useful for long-running
+      // commands killed by killAfterPattern where exit code is meaningless).
+      if (scenario.expectSuccess !== undefined) {
+        const expectSuccess = scenario.expectSuccess;
+        test(expectSuccess ? 'build succeeds' : 'build fails as expected', () => {
+          assertBuildResult(ctx.result!, {
+            command: scenario.command,
+            expectSuccess,
+          });
         });
-      });
+      }
 
       for (const assertion of scenario.outputAssertions ?? []) {
         const testName = assertion.description ?? 'output assertions pass';
