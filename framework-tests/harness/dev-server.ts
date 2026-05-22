@@ -185,6 +185,16 @@ export async function runDevServer(
   const stdoutChunks: Array<string> = [];
   const stderrChunks: Array<string> = [];
 
+  const spawnEnv = {
+    ...process.env,
+    // Dev servers should run in development mode, not vitest's test mode
+    NODE_ENV: 'development',
+    COREPACK_ENABLE_STRICT: '0',
+    COREPACK_ENABLE_PROJECT_SPEC: '0',
+    WRANGLER_SEND_METRICS: 'false',
+    VARLOCK_DEBUG: '1',
+    ...scenario.env,
+  };
   log(`Spawning: ${command}`);
   let child: ChildProcess;
   try {
@@ -192,14 +202,7 @@ export async function runDevServer(
       cwd,
       shell: true,
       detached: true,
-      env: {
-        ...process.env,
-        COREPACK_ENABLE_STRICT: '0',
-        COREPACK_ENABLE_PROJECT_SPEC: '0',
-        WRANGLER_SEND_METRICS: 'false',
-        VARLOCK_DEBUG: '1',
-        ...scenario.env,
-      },
+      env: spawnEnv,
     });
   } catch (err) {
     logError(`Failed to spawn: ${(err as Error).message}`);
