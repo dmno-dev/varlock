@@ -159,6 +159,7 @@ export class ParsedEnvSpecDecorator {
     value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
       | ParsedEnvSpecFunctionArgs | undefined;
     isBareFnCall?: boolean; // true if decorator is a bare fn call (eg: @import(...))
+    warning?: string;
     _location?: any;
   }) {
     // bare decorator is equivalent to `@decorator=true`
@@ -175,8 +176,16 @@ export class ParsedEnvSpecDecorator {
     }
   }
 
+  static VALID_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_]*$/;
+
   get name() {
     return this.data.name;
+  }
+  get hasInvalidName() {
+    return !ParsedEnvSpecDecorator.VALID_NAME_RE.test(this.data.name);
+  }
+  get warning() {
+    return this.data.warning;
   }
   get isBareFnCall() {
     return !!this.data.isBareFnCall;

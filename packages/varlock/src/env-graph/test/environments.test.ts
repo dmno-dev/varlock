@@ -13,7 +13,7 @@ describe('@currentEnv and .env.* file loading logic', () => {
       `,
       '.env': 'APP_ENV=dev',
     },
-    loadingError: true,
+    expectError: true,
   }));
 
   test('all .env.* files are loaded in correct precedence order', envFilesTest({
@@ -106,7 +106,7 @@ describe('@currentEnv and .env.* file loading logic', () => {
         APP_ENV=dev
       `,
     },
-    loadingError: true,
+    expectError: true,
   }));
 
   // some other tools (e.g. dotenv-expand, Next.js) automatically skip .env.local for test mode
@@ -268,7 +268,7 @@ describe('@currentEnv and .env.* file loading logic', () => {
       'dir/.env.dev': 'IMPORTED_ITEM=dev-val',
       'dir/.env.prod': 'IMPORTED_ITEM=prod-val',
     },
-    loadingError: true,
+    expectError: true,
   }));
   test('currentEnv can be set from an imported file', envFilesTest({
     files: {

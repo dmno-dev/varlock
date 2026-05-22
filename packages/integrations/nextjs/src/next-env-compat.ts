@@ -205,9 +205,15 @@ function writeResolvedEnvFile() {
 // - these methods are the same as the original module -----------------
 
 export function updateInitialEnv(newEnv: Env) {
-  if (Object.keys(newEnv).length) {
-    debug('updateInitialEnv', newEnv);
-    Object.assign(initialEnv || {}, newEnv);
+  if (!Object.keys(newEnv).length) return;
+  debug('updateInitialEnv', newEnv);
+  // Only merge keys that were already in initialEnv or are Next.js internal vars.
+  // Varlock-managed keys injected into process.env by initVarlockEnv should NOT
+  // pollute initialEnv — otherwise they get treated as process.env overrides on reload.
+  for (const [key, value] of Object.entries(newEnv)) {
+    if (key in (initialEnv || {}) || key.startsWith('__NEXT')) {
+      (initialEnv || {})[key] = value;
+    }
   }
 }
 
@@ -359,25 +365,43 @@ export function loadEnvConfig(
       process.exit(1);
     }
 
-    // For real errors (validation failures, etc.) show the CLI output
+    // The CLI writes pretty-formatted errors to stderr and JSON to stdout (even on failure).
+    // Pipe stderr through so the user sees the nice error output, and parse stdout
+    // for structured data (sources for file watching, etc.)
     if (err instanceof VarlockExecError) {
       if (err.stderr) process.stderr.write(err.stderr);
-      // eslint-disable-next-line no-console
-      console.error('[varlock] ⚠️ failed to load env — see error above');
+
+      if (err.stdout) {
+        try {
+          varlockLoadedEnv = JSON.parse(err.stdout);
+        } catch { /* stdout not parseable — hard failure */ }
+      }
     }
+
+    // eslint-disable-next-line no-console
+    console.error('\n[varlock] ⚠️ fix the error(s) above and save to reload\n');
 
     // In a build, we want to fail hard so broken env doesn't get deployed
     if (!dev) {
       process.exit((err as any).exitCode ?? 1);
     }
 
-    // if we dont do this, we'll see an error that looks like `process.env.__VARLOCK_ENV is not set` which is misleading.
-    // Ideally we would pass through an error of some kind and trigger the webpack runtime error popup
-    process.env.__VARLOCK_ENV = JSON.stringify({
+    // Reset process.env to initial state so stale values from a previous
+    // successful load don't persist (Next.js reads process.env directly for SSR)
+    replaceProcessEnv(initialEnv);
+
+    // Set __VARLOCK_ENV with error details so the ENV proxy knows config is
+    // invalid (throws a clear error) and file watchers can be set up.
+    process.env.__VARLOCK_ENV = JSON.stringify(varlockLoadedEnv || {
       sources: [],
       config: {},
       settings: {},
+      errors: { root: ['failed to load env'] },
     });
+
+    if (dev && varlockLoadedEnv) {
+      enableExtraFileWatchers(varlockLoadedEnv.sources, varlockLoadedEnv.basePath);
+    }
 
     return { combinedEnv: {}, parsedEnv: {}, loadedEnvFiles: [] };
   }

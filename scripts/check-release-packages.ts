@@ -39,7 +39,7 @@ if (bumpyStatusRaw) {
     const bumpyStatus = JSON.parse(jsonMatch[0]);
     const isPR = !!process.env.GITHUB_HEAD_REF || !!process.env.GITHUB_BASE_REF;
 
-    let bumpyReleases = bumpyStatus.releases
+    const bumpyReleases = bumpyStatus.releases
       .filter((r: any) => r.publishTargets?.some((t: any) => t.type === 'npm'));
 
     if (isPR) {

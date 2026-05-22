@@ -239,8 +239,8 @@ export async function runDevServer(
 
   try {
     log(`Waiting for ready pattern (timeout=${readyTimeout}ms)...`);
-    const serverUrl = await waitForReady(child, stdoutChunks, stderrChunks, scenario.readyPattern, readyTimeout);
-    if (!serverUrl) {
+    let currentUrl = await waitForReady(child, stdoutChunks, stderrChunks, scenario.readyPattern, readyTimeout);
+    if (!currentUrl) {
       logError(`Timeout waiting for ready pattern. Command: ${command}`);
       dumpOutput();
       return {
@@ -252,7 +252,7 @@ export async function runDevServer(
       };
     }
 
-    log(`Server ready at ${serverUrl}`);
+    log(`Server ready at ${currentUrl}`);
 
     const responses: Array<DevServerRequestResult> = [];
     for (let i = 0; i < scenario.requests.length; i++) {
@@ -297,11 +297,13 @@ export async function runDevServer(
               error: 'Server did not become ready again after file edit',
             };
           }
-          log(`Server restarted at ${newUrl}`);
+          // Update URL in case the port changed (e.g. when using --port 0)
+          currentUrl = newUrl;
+          log(`Server restarted at ${currentUrl}`);
         }
       }
 
-      const url = `${serverUrl}${req.path}`;
+      const url = `${currentUrl}${req.path}`;
       log(`Request ${i + 1}/${scenario.requests.length}: GET ${url}`);
       try {
         const result = await fetchWithRetry(url);
@@ -326,7 +328,7 @@ export async function runDevServer(
       stdout: getStdout(),
       stderr: getStderr(),
       responses,
-      serverUrl,
+      serverUrl: currentUrl,
     };
   } catch (err) {
     logError(`Error: ${(err as Error).message}`);

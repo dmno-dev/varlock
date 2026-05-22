@@ -42,6 +42,8 @@ export type VarlockErrorLocationDetails = {
 };
 
 
+export type ErrorSeverity = 'warning' | 'error' | 'fatal';
+
 export class VarlockError extends Error {
   originalError?: Error;
   get isUnexpected() { return !!this.originalError; }
@@ -52,11 +54,13 @@ export class VarlockError extends Error {
   static defaultIcon = '❌';
   icon: string;
 
-  _isWarning = false;
+  private _severity: ErrorSeverity = 'error';
 
   constructor(errOrMessage: string | Error, readonly more?: {
     tip?: string | Array<string>,
     err?: Error,
+    severity?: ErrorSeverity,
+    /** @deprecated use severity: 'warning' instead */
     isWarning?: boolean,
     /** machine-friendly error code if needed for anything else */
     code?: string,
@@ -74,7 +78,11 @@ export class VarlockError extends Error {
     }
     if (_.isArray(more?.tip)) more.tip = more.tip.join('\n');
     this.name = this.constructor.name;
-    if (more?.isWarning) this.isWarning = true;
+    if (more?.severity) {
+      this.severity = more.severity;
+    } else if (more?.isWarning) {
+      this.severity = 'warning';
+    }
 
     this.icon ||= (this.constructor as any).defaultIcon;
   }
@@ -96,13 +104,16 @@ export class VarlockError extends Error {
     return this.more?.extraMetadata;
   }
 
-  set isWarning(w: boolean) {
-    this._isWarning = w;
-    if (this._isWarning) {
-      this.icon = '🧐';
-    }
+  get severity() { return this._severity; }
+  set severity(s: ErrorSeverity) {
+    this._severity = s;
+    if (s === 'warning') this.icon = '🧐';
   }
-  get isWarning() { return this._isWarning; }
+
+  get isWarning() { return this._severity === 'warning'; }
+  set isWarning(w: boolean) { this.severity = w ? 'warning' : 'error'; }
+
+  get isFatal() { return this._severity === 'fatal'; }
 
   toJSON() {
     return {
@@ -110,9 +121,10 @@ export class VarlockError extends Error {
       type: this.type,
       name: this.name,
       message: this.message,
+      severity: this.severity,
       isUnexpected: this.isUnexpected,
       ...this.tip && { tip: this.tip },
-      ...this.isWarning && { isWarning: this.isWarning },
+      ...this.isWarning && { isWarning: true },
     };
   }
 }
@@ -148,6 +160,9 @@ export class ConfigLoadError extends VarlockError {
   }
 }
 
+export class LoadingError extends VarlockError {
+  static defaultIcon = '📂';
+}
 export class ParseError extends VarlockError {
   static defaultIcon = '😵‍💫';
 }

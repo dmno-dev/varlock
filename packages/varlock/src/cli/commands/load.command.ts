@@ -9,6 +9,7 @@ import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import ansis from 'ansis';
 
 export const commandSpec = define({
   name: 'load',
@@ -97,25 +98,37 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     entryFilePaths: ctx.values.path,
   });
 
-  // For json-full, always output the serialized graph — it includes `errors` and
-  // `configErrors` fields so consumers can handle failures gracefully.
+  // For json-full, still run the checks so their pretty output goes to stderr,
+  // but use noThrow so we can continue to output JSON to stdout.
   // For all other formats, exit on errors as before.
-  if (outputFormat !== 'json-full') {
-    checkForSchemaErrors(envGraph);
+  let hasSchemaErrors = false;
+  let hadSchemaOutput = false;
+  if (outputFormat === 'json-full') {
+    const result = checkForSchemaErrors(envGraph, { noThrow: true });
+    hasSchemaErrors = result.hasErrors;
+    hadSchemaOutput = result.hasOutput;
+    checkForNoEnvFiles(envGraph, { noThrow: true });
+  } else {
+    const result = checkForSchemaErrors(envGraph);
+    hadSchemaOutput = result.hasOutput;
     checkForNoEnvFiles(envGraph);
   }
 
   if (!envGraph.rootDataSource) throw new Error('expected root data source to be set');
 
-  // Generate types before resolving values — uses only non-env-specific schema info
-  await envGraph.generateTypesIfNeeded();
+  // Skip resolution + config checks when schema has errors — the downstream
+  // errors would just be noise caused by the parse/schema failure
+  if (!hasSchemaErrors) {
+    // Generate types before resolving values — uses only non-env-specific schema info
+    await envGraph.generateTypesIfNeeded();
 
-  await envGraph.resolveEnvValues();
+    await envGraph.resolveEnvValues();
 
-  if (outputFormat === 'json-full') {
-    checkForConfigErrors(envGraph, { showAll, noThrow: true });
-  } else {
-    checkForConfigErrors(envGraph, { showAll });
+    if (outputFormat === 'json-full') {
+      checkForConfigErrors(envGraph, { showAll, noThrow: true });
+    } else {
+      checkForConfigErrors(envGraph, { showAll });
+    }
   }
 
   if ((summaryStderr || summaryFile) && outputFormat !== 'pretty') {
@@ -151,6 +164,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   if (outputFormat === 'pretty') {
     showPluginWarnings(envGraph);
+    if (hadSchemaOutput) {
+      console.error();
+    }
+    console.error(ansis.bold.green('-- Resolved config --'));
     for (const itemKey of envGraph.sortedConfigKeys) {
       const item = envGraph.configSchema[itemKey];
       console.log(getItemSummary(item));

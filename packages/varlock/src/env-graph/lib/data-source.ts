@@ -11,7 +11,9 @@ import {
 import { ConfigItem, type ConfigItemDef } from './config-item';
 import { EnvGraph } from './env-graph';
 
-import { ParseError, SchemaError } from './errors';
+import {
+  LoadingError, ParseError, SchemaError, VarlockError,
+} from './errors';
 import { pathExists } from '@env-spec/utils/fs-utils';
 import { processPluginInstallDecorators } from './plugins';
 import { RootDecoratorInstance } from './decorators';
@@ -206,7 +208,7 @@ export abstract class EnvGraphDataSource {
 
       const disabledVal = await disabledDec.resolve();
       if (!_.isBoolean(disabledVal)) {
-        this._loadingError = new Error('expected @disable to be boolean value');
+        this._errors.push(new LoadingError('expected @disable to be boolean value'));
         return;
       }
       this._disabled = disabledVal;
@@ -233,7 +235,7 @@ export abstract class EnvGraphDataSource {
         const isMatchingStatic = itemDef.parsedValue instanceof ParsedEnvSpecStaticValue
           && itemDef.parsedValue.unescapedValue === existingItem.resolvedValue;
         if (!isMatchingStatic) {
-          this._schemaErrors.push(new SchemaError(
+          this._errors.push(new SchemaError(
             `"${itemKey}" was already resolved during early initialization (used by @currentEnv, @import, or @disable) `
             + `and cannot be redefined by ${this.label}`,
           ));
@@ -252,7 +254,7 @@ export abstract class EnvGraphDataSource {
     const envFlagDec = this.getRootDec('envFlag');
     if (currentEnvDec && envFlagDec) {
       // TODO can we set this in the decorator definition?
-      this._loadingError = new Error('Cannot use both @currentEnv and @envFlag decorators');
+      this._errors.push(new LoadingError('Cannot use both @currentEnv and @envFlag decorators'));
     }
     let envFlagItemKey: string | undefined;
     let skipCurrentEnvProcessing = false;
@@ -296,7 +298,7 @@ export abstract class EnvGraphDataSource {
 
     if (envFlagItemKey) {
       if (!this.configItemDefs[envFlagItemKey] && !isBuiltinVar(envFlagItemKey)) {
-        this._loadingError = new Error(`environment flag "${envFlagItemKey}" must be defined within this schema`);
+        this._errors.push(new LoadingError(`environment flag "${envFlagItemKey}" must be defined within this schema`));
         return;
       }
 
@@ -415,7 +417,7 @@ export abstract class EnvGraphDataSource {
                 const dirExists = Object.keys(this.graph.virtualImports).some((p) => p.startsWith(fullImportPath));
                 if (!dirExists && allowMissing) continue;
                 if (!dirExists) {
-                  this._loadingError = new Error(`Virtual directory import ${fullImportPath} not found`);
+                  this._errors.push(new LoadingError(`Virtual directory import ${fullImportPath} not found`));
                   return;
                 }
                 // eslint-disable-next-line no-use-before-define
@@ -428,7 +430,7 @@ export abstract class EnvGraphDataSource {
                 const fileExists = this.graph.virtualImports[fullImportPath];
                 if (!fileExists && allowMissing) continue;
                 if (!fileExists) {
-                  this._loadingError = new Error(`Virtual import ${fullImportPath} not found`);
+                  this._errors.push(new LoadingError(`Virtual import ${fullImportPath} not found`));
                   return;
                 }
                 // eslint-disable-next-line no-use-before-define
@@ -445,7 +447,7 @@ export abstract class EnvGraphDataSource {
 
               if (!fsStat && allowMissing) continue;
               if (!fsStat) {
-                this._loadingError = new Error(`Import path does not exist: ${fullImportPath}`);
+                this._errors.push(new LoadingError(`Import path does not exist: ${fullImportPath}`));
                 return;
               }
 
@@ -459,16 +461,16 @@ export abstract class EnvGraphDataSource {
                   });
                   this.graph.recordLoadedImportPath(fullImportPath, dirChild);
                 } else {
-                  this._loadingError = new Error(`Imported path ending with "/" is not a directory: ${fullImportPath}`);
+                  this._errors.push(new LoadingError(`Imported path ending with "/" is not a directory: ${fullImportPath}`));
                   return;
                 }
               // File import
               } else {
                 if (fsStat.isDirectory()) {
-                  this._loadingError = new Error('Imported path is a directory, add trailing "/" to import');
+                  this._errors.push(new LoadingError('Imported path is a directory, add trailing "/" to import'));
                   return;
                 } else if (!fileName.startsWith('.env.')) {
-                  this._loadingError = new Error('imported file must be a .env.* file');
+                  this._errors.push(new LoadingError('imported file must be a .env.* file'));
                   return;
                 }
                 // TODO: once we have more file types, here we would detect the type and import it correctly
@@ -481,17 +483,17 @@ export abstract class EnvGraphDataSource {
               }
             }
           } else if (importPath.startsWith('http://') || importPath.startsWith('https://')) {
-            this._loadingError = new Error('http imports not supported yet');
+            this._errors.push(new LoadingError('http imports not supported yet'));
             return;
           } else if (importPath.startsWith('npm:')) {
-            this._loadingError = new Error('npm imports not supported yet');
+            this._errors.push(new LoadingError('npm imports not supported yet'));
             return;
           } else {
-            this._loadingError = new Error('unsupported import type');
+            this._errors.push(new LoadingError('unsupported import type'));
             return;
           }
         } catch (err) {
-          this._loadingError = err as Error;
+          this._errors.push(err instanceof LoadingError ? err : new LoadingError(err as Error));
           return;
         }
       }
@@ -518,16 +520,17 @@ export abstract class EnvGraphDataSource {
     return this._disabled || this.parent?._disabled;
   }
 
-  /** an error encountered while loading/parsing the data source */
-  _loadingError?: Error;
-  get loadingError() {
-    if (this._loadingError) return this._loadingError;
+  _errors: Array<VarlockError> = [];
+
+  /** first loading/parse error on this data source (including plugin loading errors) */
+  get loadingError(): VarlockError | undefined {
+    const ownError = this._errors.find((e) => e instanceof LoadingError || e instanceof ParseError);
+    if (ownError) return ownError;
 
     // Check if any plugins loaded by this data source have errors
     if (this.graph) {
       for (const plugin of this.graph.plugins) {
         if (plugin.loadingError) {
-          // Check if this plugin was installed by this data source
           for (const installDecorator of plugin.installDecoratorInstances) {
             if (installDecorator.dataSource === this) {
               return plugin.loadingError;
@@ -539,20 +542,29 @@ export abstract class EnvGraphDataSource {
 
     return undefined;
   }
-  _schemaErrors: Array<SchemaError> = [];
+
   get schemaErrors() {
-    return _.compact([
-      ...this._schemaErrors,
+    return [
+      ...this._errors.filter((e) => e instanceof SchemaError),
       ...this.rootDecorators.flatMap((d) => d.schemaErrors),
-    ]);
+    ];
   }
 
   get resolutionErrors() {
     return _.compact([...this.rootDecorators.flatMap((d) => d._executionError)]);
   }
 
+  /** all errors from this data source (own + decorator schema + decorator execution) */
+  get errors(): Array<VarlockError> {
+    return [
+      ...this._errors,
+      ...this.rootDecorators.flatMap((d) => d.schemaErrors),
+      ...this.resolutionErrors,
+    ];
+  }
+
   get isValid() {
-    return !this.loadingError && !this.schemaErrors.some((e) => !e.isWarning) && !this.resolutionErrors.length;
+    return this.errors.every((e) => e.isWarning);
   }
 
   configItemDefs: Record<string, ConfigItemDef> = {};
@@ -675,7 +687,7 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
   async _finishInit() {
     if (!this.rawContents) {
       if (!await pathExists(this.fullPath)) {
-        this._loadingError = new Error(`File does not exist: ${this.fullPath}`);
+        this._errors.push(new LoadingError(`File does not exist: ${this.fullPath}`));
         return;
       }
       this.rawContents = await fs.readFile(this.fullPath, 'utf8');
@@ -697,7 +709,7 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
     this.parsedFile = await tryCatch(
       () => parseEnvSpecDotEnvFile(rawContents),
       (error) => {
-        this._loadingError = new ParseError(`Parse error: ${error.message}`, {
+        const parseError = new ParseError(`Parse error: ${error.message}`, {
           location: {
             id: this.fullPath,
             lineNumber: error.location.start.line,
@@ -706,7 +718,8 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
           },
         });
         // TODO: figure out cause vs passing in as `err` param
-        this._loadingError.cause = error;
+        parseError.cause = error;
+        this._errors.push(parseError);
       },
     );
 
@@ -734,13 +747,13 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
     const seenRootDecs = new Set<string>();
     for (const dec of parsedFile.decoratorsArray) {
       if (dec.name in this.graph!.itemDecoratorsRegistry) {
-        this._schemaErrors.push(new SchemaError(
+        this._errors.push(new SchemaError(
           `Item decorator @${dec.name} cannot be used in the file header - it must be attached to a config item`,
           { location: this._locationFromParsed(dec) },
         ));
-      } else if (!dec.isBareFnCall) {
+      } else if (!dec.isBareFnCall && !dec.hasInvalidName && dec.name in this.graph!.rootDecoratorsRegistry) {
         if (seenRootDecs.has(dec.name)) {
-          this._schemaErrors.push(new SchemaError(
+          this._errors.push(new SchemaError(
             `Root decorator @${dec.name} cannot be used more than once in the same file`,
             { location: this._locationFromParsed(dec) },
           ));
@@ -757,7 +770,7 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
       for (const comment of block.comments) {
         if (comment instanceof ParsedEnvSpecDecoratorComment) {
           for (const dec of comment.decorators) {
-            this._schemaErrors.push(new SchemaError(
+            this._errors.push(new SchemaError(
               `Decorator @${dec.name} is in a detached comment block - decorators must be in the file header or attached directly to a config item (no blank lines between the decorator and the item)`,
               { location: this._locationFromParsed(dec) },
             ));
@@ -841,11 +854,11 @@ export class DirectoryDataSource extends EnvGraphDataSource {
       // Check if this is a partial import that forgot to include the env flag key
       // (only for directories - files can fall back to parent's env setting for forEnv)
       if (this.isPartialImport && !this.importKeys?.includes(envFlagKey)) {
-        this._loadingError = new Error(
+        this._errors.push(new LoadingError(
           `Imported directory has @currentEnv set to $${envFlagKey}, `
           + `but "${envFlagKey}" is not included in the import list. `
           + `Add "${envFlagKey}" to the @import() arguments.`,
-        );
+        ));
         return undefined;
       }
       const envFlagItem = this.graph.configSchema[envFlagKey];
@@ -886,7 +899,7 @@ export class DirectoryDataSource extends EnvGraphDataSource {
 
     // Resolve currentEnv from schema's own @currentEnv (set during finishInit, not during imports)
     let currentEnv = await this._resolveCurrentEnv();
-    if (this._loadingError) return;
+    if (this.loadingError) return;
 
     if (currentEnv) {
       await this._loadEnvSpecificFiles(currentEnv);
@@ -902,7 +915,7 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     // If we didn't load env-specific files above, check again now and process their imports too.
     if (!currentEnv) {
       currentEnv = await this._resolveCurrentEnv();
-      if (this._loadingError) return;
+      if (this.loadingError) return;
       if (currentEnv) {
         const envSources = await this._loadEnvSpecificFiles(currentEnv);
         for (const source of envSources) {

@@ -2,6 +2,7 @@ import { expect, vi } from 'vitest';
 import path from 'node:path';
 import {
   EnvGraph, SchemaError, DirectoryDataSource, DotEnvFileDataSource, MultiplePathsContainerDataSource,
+  type VarlockError,
 } from '../../index';
 import type { Constructor } from '@env-spec/utils/type-utils';
 
@@ -26,8 +27,16 @@ export function envFilesTest(spec: {
   /** Override process.env for builtin var detection (avoids modifying real process.env) */
   processEnv?: Record<string, string | undefined>;
   debug?: boolean;
-  earlyError?: boolean;
-  loadingError?: boolean;
+  /**
+   * Expect an error before resolution.
+   * - `true` — any non-warning error on a data source or plugin
+   * - A VarlockError subclass — additionally asserts the error is an instance of that class
+   */
+  expectError?: boolean | Constructor<VarlockError>;
+  /**
+   * Expect a root decorator execution error (happens during resolution).
+   */
+  resolutionError?: boolean;
   expectValues?: Record<string, string | number | boolean | undefined | Constructor<Error>>;
   expectNotInSchema?: Array<string>,
   expectRequired?: Record<string, boolean | Constructor<Error>>;
@@ -96,26 +105,36 @@ export function envFilesTest(spec: {
       }
     }
 
-    // TODO - improve terminology around errors
-    // and how we distinguish between errors in different phases
-    if (spec.earlyError) {
-      expect(
-        g.plugins.some((p) => p.loadingError)
-        || g.sortedDataSources.some((s) => s.schemaErrors.length > 0 || s.loadingError),
-        'Expected an early error, but didnt find one',
-      ).toBeTruthy();
+    if (spec.expectError) {
+      const allErrors = [
+        ...g.sortedDataSources.flatMap((s) => s.errors.filter((e) => !e.isWarning)),
+        ...g.plugins.filter((p) => p.loadingError).map((p) => p.loadingError!),
+      ];
+      expect(allErrors.length, 'Expected an error, but didnt find one').toBeGreaterThan(0);
+      if (typeof spec.expectError === 'function') {
+        const ErrorClass = spec.expectError;
+        expect(
+          allErrors.some((e) => e instanceof ErrorClass),
+          `Expected a ${ErrorClass.name}, but got: ${allErrors.map((e) => e.constructor.name).join(', ')}`,
+        ).toBe(true);
+      }
     }
 
-    if (spec.loadingError) {
+    if (spec.expectError) {
+      // don't proceed to resolution checks
+    } else if (spec.resolutionError) {
+      await g.resolveEnvValues();
       expect(
-        g.sortedDataSources.some((s) => s.loadingError),
-        'Expected a loading error, but didnt find one',
+        g.sortedDataSources.some((s) => s.resolutionErrors.length > 0),
+        'Expected a resolution error, but didnt find one',
       ).toBeTruthy();
     } else {
-      const firstLoadingError = g.sortedDataSources.find((s) => s.loadingError)?.loadingError;
+      // check for source-level errors (loading, schema on the source itself)
+      // item-level schema errors are fine — they don't prevent resolution
+      const firstSourceError = g.sortedDataSources.flatMap((s) => s._errors).find((e) => !e.isWarning);
       expect(
-        firstLoadingError,
-        `Expected no loading errors, but got - ${firstLoadingError?.message}`,
+        firstSourceError,
+        `Expected no errors, but got - ${firstSourceError?.message}`,
       ).toBeFalsy();
 
       // Simulate calling getTypeGenInfo() before resolveEnvValues(), as the CLI does

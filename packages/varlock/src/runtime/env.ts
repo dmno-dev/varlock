@@ -223,6 +223,7 @@ export function scanForLeaks(
 // --------------
 
 let initializedEnv = false;
+let configHasErrors = false;
 const envValues = {} as Record<string, any>;
 export const varlockSettings = {} as Record<string, any>;
 
@@ -264,6 +265,7 @@ export function initVarlockEnv(opts?: {
     throw new Error('initVarlockEnv failed');
   }
   Object.assign(varlockSettings, serializedEnvData.settings);
+  configHasErrors = !!(serializedEnvData as any).errors;
   resetRedactionMap(serializedEnvData);
 
   const setProcessEnv = processExists;
@@ -330,7 +332,16 @@ const EnvProxy = new Proxy<TypedEnvSchema>({}, {
     if (IGNORED_PROXY_KEYS.includes(prop)) return;
 
     if (!initializedEnv) {
-      throw new Error('varlock ENV not initialized');
+      throw new Error(
+        'varlock ENV not initialized — make sure varlock is set up correctly.\n'
+        + 'See https://varlock.dev/docs/get-started for setup instructions.',
+      );
+    }
+
+    if (configHasErrors) {
+      // eslint-disable-next-line no-console
+      console.error(`[varlock] ⚠️ ENV.${prop} accessed but config has errors — values may be missing or incorrect`);
+      return undefined;
     }
 
     if (prop in envValues) return envValues[prop];

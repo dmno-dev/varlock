@@ -66,7 +66,32 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
         outputAssertions: [
           {
             description: 'validation error details are shown',
-            shouldContain: ['MISSING_REQUIRED_VAR'],
+            shouldContain: ['Configuration is currently invalid', 'MISSING_REQUIRED_VAR'],
+          },
+        ],
+      });
+
+      // Next 14's turbo dev support is limited; skip this test for v14
+      const devFlag = getBuildToolFlag(nextVersion, 'turbopack');
+      nextEnv.describeDevScenario('invalid schema shows errors in dev and boots', {
+        skip: nextVersion === 14,
+        command: `next dev ${devFlag} --port ${13900 + nextVersion}`,
+        readyPattern: /Ready in|Starting\.\.\./,
+        readyTimeout: 30_000,
+        templateFiles: {
+          'app/page.tsx': 'pages/basic-page.tsx',
+          '.env.schema': 'schemas/.env.schema.invalid',
+        },
+        requests: [
+          {
+            path: '/',
+            // dev server should still boot even with invalid config
+          },
+        ],
+        outputAssertions: [
+          {
+            description: 'error details shown in terminal',
+            shouldContain: ['Configuration is currently invalid', 'MISSING_REQUIRED_VAR'],
           },
         ],
       });

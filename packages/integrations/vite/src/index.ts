@@ -13,6 +13,25 @@ import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 
 import { createReplacerTransformFn, SUPPORTED_FILES } from './transform';
 
+import { ansiToHtml } from './ansi-to-html';
+export { ansiToHtml };
+
+export function buildErrorPageHtml(ansiError?: string): string {
+  const errorContent = ansiError
+    ? ansiToHtml(ansiError)
+    : 'Config is invalid — check your terminal for details.';
+
+  return `<!DOCTYPE html>
+<html><head><title>varlock - config error</title></head>
+<body style="font-family: monospace; background: #1e1e2e; color: #cdd6f4; margin: 0; padding: 2rem;">
+<div style="margin-bottom: 1.5rem;">
+  <h2 style="color: #f38ba8; margin: 0 0 0.5rem 0;">🔒 Varlock — env config validation failed</h2>
+  <p style="color: #6c7086; margin: 0;">Your environment variables are loaded and validated by <a href="https://varlock.dev" style="color: #89b4fa;">varlock</a>. Fix the error(s) below and save to reload.</p>
+</div>
+<pre style="white-space: pre-wrap; word-wrap: break-word; line-height: 1.5; background: #181825; padding: 1rem; border-radius: 8px;">${errorContent}</pre>
+</body></html>`;
+}
+
 
 // enables throwing when user accesses a bad key on ENV
 (globalThis as any).__varlockThrowOnMissingKeys = true;
@@ -22,13 +41,15 @@ const originalProcessEnv = { ...process.env };
 
 const debug = createDebug('varlock:vite-integration');
 
-let isFirstLoad = !(process as any).__VARLOCK_ENV;
-
-debug('varlock vite plugin loaded. first load = ', isFirstLoad);
+debug('varlock vite plugin loaded');
 
 let isDevCommand: boolean;
 let configIsValid = true;
 export let varlockLoadedEnv: SerializedEnvGraph;
+/** Stderr output from the last failed varlock load (ANSI-colored) */
+export let varlockLastError: string | undefined;
+let lastErrorAt = 0;
+let configHookCalled = false;
 let staticReplacements: Record<string, any> = {};
 let replacerFn: ReturnType<typeof createReplacerTransformFn>;
 
@@ -64,6 +85,8 @@ function reloadConfig(cwd?: string) {
     });
     process.env.__VARLOCK_ENV = stdout;
     varlockLoadedEnv = JSON.parse(stdout) as SerializedEnvGraph;
+    varlockLastError = undefined;
+    lastErrorAt = 0;
     configIsValid = true;
   } catch (err) {
     // CLI exits non-zero on validation failure but still outputs JSON to stdout.
@@ -72,9 +95,24 @@ function reloadConfig(cwd?: string) {
       if (err.stdout) {
         try {
           varlockLoadedEnv = JSON.parse(err.stdout) as SerializedEnvGraph;
+          // Set __VARLOCK_ENV even on failure so `varlock/env` can initialize
+          // with partial data (prevents "ENV not initialized" throws)
+          process.env.__VARLOCK_ENV = err.stdout;
         } catch { /* not parseable — hard failure */ }
       }
-      if (err.stderr) console.error(err.stderr);
+      if (err.stderr) {
+        // Debounce identical errors — frameworks like Astro can trigger
+        // multiple rapid reloads. But if some time has passed, show it
+        // again (the user may have re-introduced the same error).
+        const now = Date.now();
+        const isDuplicate = err.stderr === varlockLastError && (now - lastErrorAt) < 5000;
+        varlockLastError = err.stderr;
+        lastErrorAt = now;
+        if (!isDuplicate) {
+          console.error(err.stderr);
+          console.error('\n[varlock] ⚠️ config is invalid — fix the error(s) above to continue\n');
+        }
+      }
     }
     configIsValid = false;
     resetStaticReplacements();
@@ -174,7 +212,7 @@ export function varlockVitePlugin(
 
     // hook to modify config before it is resolved
     async config(config, env) {
-      debug('vite plugin - config fn called');
+      debug('vite plugin - config fn called, loadCount =', loadCount, 'command =', env.command);
 
       // warn if the user has set envDir - varlock ignores this option
       // and instead reads env files from cwd (or the path configured in package.json)
@@ -204,19 +242,18 @@ See https://varlock.dev/integrations/vite/ for more details.
       const rootDiffersFromCwd = !!(projectRoot && path.relative(projectRoot, process.cwd()) !== '');
 
       if (rootDiffersFromCwd) {
-        // Always reload with the correct project root when it differs from
-        // cwd. This handles monorepo Vitest workspace setups where each child
-        // project has its own env files — even if the monorepo root also has
-        // env files (which would cause the initial module-level load to
-        // succeed with the wrong project's config).
+        // Reload with the correct project root. This handles monorepo
+        // Vitest workspace setups where each child project has its own
+        // env files — the module-level load used cwd which may be wrong.
         reloadConfig(projectRoot);
-      } else if (isFirstLoad) {
-        isFirstLoad = false;
-        // Roots match — the module-level reloadConfig() already loaded from
-        // the correct directory, no need to reload.
+      } else if (!configHookCalled) {
+        // First config hook call — module-level reloadConfig() already
+        // loaded from the correct directory, no need to reload.
+        configHookCalled = true;
       } else if (isDevCommand) {
-        // Dev mode re-trigger (e.g., after .env file updates)
-        // TODO: be smarter about only reloading if the env files changed?
+        // Dev mode restart (triggered by configFileDependencies change).
+        // The module stays cached so the module-level reloadConfig()
+        // doesn't re-run — we need to reload here.
         reloadConfig();
       }
 
@@ -227,18 +264,7 @@ See https://varlock.dev/integrations/vite/ for more details.
           // adjust vite's setting so it doesnt bury the error messages
           config.clearScreen = false;
         } else {
-          console.log('💥 Varlock config validation failed 💥');
-          if (varlockLoadedEnv?.errors?.root) {
-            for (const msg of varlockLoadedEnv.errors.root) {
-              console.log(`  - ${msg}`);
-            }
-          }
-          if (varlockLoadedEnv?.errors?.configItems) {
-            for (const [key, msg] of Object.entries(varlockLoadedEnv.errors.configItems)) {
-              console.log(`  - ${key}: ${msg}`);
-            }
-          }
-          // throwing an error spits out a big useless stack trace... so better to just exit?
+          console.error('\n[varlock] config is invalid — cannot proceed with build\n');
           process.exit(1);
         }
       }
@@ -261,20 +287,17 @@ See https://varlock.dev/integrations/vite/ for more details.
     async configureServer(server) {
       debug('vite plugin - configureServer fn called');
 
-      if (!configIsValid) {
-        // triggers the built-in vite error overlay
-        server.middlewares.use((req, res, next) => {
-          server.hot.send({
-            type: 'error',
-            err: {
-              plugin: 'varlock',
-              message: 'Your config is currently invalid - check your terminal for more details',
-              stack: '',
-            },
-          });
-          return next();
-        });
-      }
+      // Always register middleware — check configIsValid dynamically on each
+      // request so the error page appears/disappears as config is fixed/broken
+      server.middlewares.use((req, res, next) => {
+        if (configIsValid) return next();
+        // skip HMR websocket and vite internal requests
+        if (req.url?.startsWith('/@')) return next();
+
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.end(buildErrorPageHtml(varlockLastError));
+      });
     },
 
     transform(code, id, options) {
@@ -352,21 +375,9 @@ See https://varlock.dev/integrations/vite/ for more details.
     // this enables replacing %ENV.xxx% constants in html entry-point files
     // see https://vite.dev/guide/env-and-mode.html#html-constant-replacement
     transformIndexHtml(html) {
+      debug('transformIndexHtml called, configIsValid =', configIsValid);
       if (!configIsValid) {
-        // TODO: build a nice error page somehow and just use it here
-        // we should be showing you specific errors and have links to the right files/lines where possible
-        return `
-<html>
-<head>
-  <script type="module" src="/@vite/client"></script>
-  <title>Invalid config</title>
-</head>
-<body>
-  <h2>Your varlock config is currently invalid!</h2>
-  <p>Check your terminal for more details</p>
-</body>
-</html>
-        `;
+        return buildErrorPageHtml(varlockLastError);
       }
 
       //! Note on vite's built-in html constant replacement

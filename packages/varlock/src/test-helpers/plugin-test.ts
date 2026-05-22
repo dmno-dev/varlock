@@ -85,20 +85,20 @@ export function pluginTest(spec: PluginTestSpec) {
     }
 
     if (spec.expectSchemaError) {
-      const hasError = g.plugins.some((p) => p.loadingError)
-        || g.sortedDataSources.some((s) => s.schemaErrors.length > 0 || s.loadingError);
-      expect(hasError, 'Expected a schema error, but none found').toBeTruthy();
-      return; // don't resolve if we expected schema errors
+      const allErrors = [
+        ...g.sortedDataSources.flatMap((s) => s.errors.filter((e) => !e.isWarning)),
+        ...g.plugins.filter((p) => p.loadingError).map((p) => p.loadingError!),
+      ];
+      expect(allErrors.length, 'Expected an error, but none found').toBeGreaterThan(0);
+      return; // don't resolve if we expected errors
     }
 
-    // verify no unexpected loading errors
-    for (const p of g.plugins) {
-      expect(p.loadingError, `Plugin loading error: ${p.loadingError?.message}`).toBeFalsy();
-    }
-    for (const ds of g.sortedDataSources) {
-      expect(ds.loadingError, `Data source loading error: ${ds.loadingError?.message}`).toBeFalsy();
-      expect(ds.schemaErrors.length, `Schema errors: ${ds.schemaErrors.map((e) => e.message).join(', ')}`).toBe(0);
-    }
+    // verify no unexpected errors
+    const firstError = [
+      ...g.sortedDataSources.flatMap((s) => s.errors),
+      ...g.plugins.filter((p) => p.loadingError).map((p) => p.loadingError!),
+    ].find((e) => !e.isWarning);
+    expect(firstError, `Unexpected error: ${firstError?.message}`).toBeFalsy();
 
     await g.resolveEnvValues();
 

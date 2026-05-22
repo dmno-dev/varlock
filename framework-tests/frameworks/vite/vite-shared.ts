@@ -489,7 +489,7 @@ export function defineViteTests(
         outputAssertions: [
           {
             description: 'build output indicates config validation failure',
-            shouldContain: ['Varlock config validation failed', 'MISSING_REQUIRED_VAR'],
+            shouldContain: ['Configuration is currently invalid', 'MISSING_REQUIRED_VAR'],
           },
         ],
       });
@@ -507,6 +507,7 @@ export function defineViteTests(
         requests: [
           {
             path: '/',
+            expectedStatus: 500,
             bodyAssertions: {
               shouldContain: ['invalid'],
               shouldNotContain: ['public-test-value'],

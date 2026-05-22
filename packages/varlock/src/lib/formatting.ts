@@ -91,7 +91,9 @@ const VALIDATION_STATE_COLORS = {
 export function getItemSummary(item: ConfigItem) {
   const summary: Array<string> = [];
   const itemErrors = item.errors;
-  const icon = itemErrors.length ? itemErrors[0].icon : '✅';
+  const icon = itemErrors.length
+    ? (itemErrors.find((e) => !e.isWarning) ?? itemErrors[0]).icon
+    : '✅';
   const isSensitive = item.isSensitive;
   const isRequired = item.isRequired;
   summary.push(joinAndCompact([

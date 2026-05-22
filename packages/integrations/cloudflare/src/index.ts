@@ -3,8 +3,9 @@ import {
   existsSync, readdirSync, unlinkSync, writeFileSync,
 } from 'node:fs';
 import { execSync, spawn, type ChildProcess } from 'node:child_process';
-import { varlockVitePlugin, varlockLoadedEnv } from '@varlock/vite-integration';
-import { execSyncVarlock } from 'varlock/exec-sync-varlock';
+import {
+  varlockVitePlugin, varlockLoadedEnv, varlockLastError, buildErrorPageHtml,
+} from '@varlock/vite-integration';
 import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
 import { CLOUDFLARE_SSR_ENTRY_CODE } from './shared-ssr-entry-code';
 
@@ -12,6 +13,7 @@ const isWindows = process.platform === 'win32';
 
 /** Name exposed by `@cloudflare/vite-plugin`'s main plugin object. */
 const CLOUDFLARE_PLUGIN_NAME = 'vite-plugin-cloudflare';
+
 
 
 // --- helpers for preview FIFO env injection --------------------------------
@@ -234,17 +236,26 @@ export function varlockCloudflareVitePlugin(
     // Only inject vars in dev — production gets them via varlock-wrangler deploy.
     if (!isDevMode) return userResult;
 
-    // Single CLI call for the full graph, then extract individual vars.
-    const { stdout: serializedGraph } = execSyncVarlock('load --format json-full --compact', { fullResult: true });
-    let graph: { config: Record<string, { value: unknown }> };
-    try {
-      graph = JSON.parse(serializedGraph);
-    } catch (err) {
-      throw new Error(`[varlock] failed to parse config graph: ${(err as Error).message}`);
+    // Reuse the env already loaded by the varlock vite plugin (avoids a duplicate CLI call).
+    // The vite plugin's reloadConfig() runs at module load time, before this callback.
+    const serializedGraph = process.env.__VARLOCK_ENV;
+    if (!varlockLoadedEnv || !serializedGraph || varlockLoadedEnv.errors) {
+      // vite plugin failed to load or config is invalid — it already showed the error.
+      // Return minimal vars so the cloudflare plugin doesn't crash,
+      // but don't inject real values.
+      return {
+        ...userResult,
+        vars: {
+          ...cfg.vars,
+          ...userResult?.vars,
+          ...(serializedGraph && { __VARLOCK_ENV: serializedGraph }),
+        },
+      };
     }
+
     const vars: Record<string, string> = {};
-    for (const key in graph.config) {
-      const { value } = graph.config[key];
+    for (const key in varlockLoadedEnv.config) {
+      const { value } = varlockLoadedEnv.config[key] as { value: unknown };
       if (value === undefined) continue;
       vars[key] = typeof value === 'string' ? value : JSON.stringify(value);
     }
@@ -254,6 +265,25 @@ export function varlockCloudflareVitePlugin(
         ...cfg.vars, ...userResult?.vars, ...vars, __VARLOCK_ENV: serializedGraph,
       },
     };
+  };
+
+  // Show an error page when config is invalid (cloudflare workers don't get
+  // the vite HMR error overlay since they run in a separate workerd runtime)
+  const errorPagePlugin: import('vite').Plugin = {
+    name: 'varlock-cloudflare-error-page',
+    configureServer(server) {
+      // Return middleware — returning from configureServer adds it in the
+      // "post" phase, after internal vite middlewares
+      return () => {
+        server.middlewares.use((req, res, next) => {
+          if (!varlockLoadedEnv?.errors) return next();
+
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.end(buildErrorPageHtml(varlockLastError));
+        });
+      };
+    },
   };
 
   const varlockPlugin = varlockVitePlugin({
@@ -330,6 +360,7 @@ export function varlockCloudflareVitePlugin(
     conflictGuard,
     modeDetector,
     previewEnvInjector,
+    errorPagePlugin,
     varlockPlugin,
     // cloudflare() may return a single plugin or an array
     ...(Array.isArray(cloudflarePlugin) ? cloudflarePlugin : [cloudflarePlugin]),
