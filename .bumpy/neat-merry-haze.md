@@ -1,5 +1,5 @@
 ---
-"package-name": patch
+varlock: patch
 ---
 
 Fix `varlock encrypt` on WSL
