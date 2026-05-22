@@ -143,7 +143,7 @@ describe('CLI Commands', () => {
 
     test('varlock run should forward child stderr', () => {
       const result = varlockRun(
-        ['node', '-e', 'process.stderr.write("error-output\\n")'],
+        ['node', '-e', "process.stderr.write('error-output\\n')"],
         { cwd: 'smoke-test-basic' },
       );
       expect(result.exitCode).toBe(0);
