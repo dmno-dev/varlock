@@ -60,6 +60,7 @@
     "@xmldom/xmldom": ">=0.9.10",
     "@modelcontextprotocol/sdk": ">=1.29.0",
     "postcss": ">=8.5.10",
+    "qs": "^6.15.2",
     "ws": ">=8.20.1"
   },
   "catalog": {
