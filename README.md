@@ -113,6 +113,7 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 | [varlock](packages/varlock) | [![npm version](https://img.shields.io/npm/v/varlock.svg)](https://npmjs.com/package/varlock) |
 | [@env-spec/parser](packages/env-spec-parser) | [![npm version](https://img.shields.io/npm/v/@env-spec/parser.svg)](https://npmjs.com/package/@env-spec/parser) |
 | [@env-spec VSCode extension](packages/vscode-plugin) | [VSCode Marketplace](https://marketplace.visualstudio.com/items?itemName=varlock.env-spec-language), [Open VSX Registry](https://open-vsx.org/extension/varlock/env-spec-language) |
+| [@env-spec Zed extension](https://github.com/petercr/varlock-zed-extension) | [Source repository](https://github.com/petercr/varlock-zed-extension) |
 | [varlock Docker image](Dockerfile) | [GitHub Container Registry](https://github.com/orgs/dmno-dev/packages/container/package/varlock) |
 
 ### Plugins

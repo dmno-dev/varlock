@@ -1,0 +1,22 @@
+---
+title: "@env-spec Zed extension"
+description: "Syntax highlighting and language tooling for @env-spec enabled .env.schema files in Zed"
+---
+
+The @env-spec Zed extension provides language support for Varlock `.env.schema` files in Zed.
+
+## Installation
+
+The extension is available from the [source repository](https://github.com/petercr/varlock-zed-extension). Once the Zed extension registry submission is approved, it will also be installable from Zed's extension gallery.
+
+## Features
+
+- `.env.schema` language registration
+- Tree-sitter syntax highlighting for @env-spec comments and `.env.schema` values
+- LSP-backed completions for decorators, `@type` values/options, resolver functions, `$KEY` references, and enum item values
+- LSP-backed diagnostics for incompatible decorators, duplicate decorators, enum values, and static `@type` mismatches
+- Hover info for known @decorators
+
+## How to use this extension
+
+After installing the extension, open a `.env.schema` file and confirm the language mode is `Varlock Schema`.

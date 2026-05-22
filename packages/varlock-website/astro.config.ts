@@ -222,6 +222,7 @@ export default defineConfig({
             { label: 'Reference', slug: 'env-spec/reference' },
             // { label: 'Best practices', slug: 'env-spec/best-practices' },
             { label: 'VS Code extension', slug: 'env-spec/vs-code-ext' },
+            { label: 'Zed extension', slug: 'env-spec/zed-ext' },
           ],
         },
       ],
