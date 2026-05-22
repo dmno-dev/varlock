@@ -100,6 +100,15 @@ export class FrameworkTestEnv {
 
     // Isolate from parent workspaces so the test project
     // is treated as its own independent root
+
+    // Prevent bun from inheriting the repo root's bunfig.toml which has
+    // minimumReleaseAge and a security scanner that can block/hang installs
+    writeFileSync(join(this.dir, 'bunfig.toml'), [
+      '[install]',
+      'minimumReleaseAge = 0',
+      '',
+    ].join('\n'));
+
     // pnpm v11 defaults: block all build scripts, and error on packages missing time metadata.
     // Allow known native packages that need postinstall scripts, and skip age check for packages
     // without registry time metadata (common for some npm packages).

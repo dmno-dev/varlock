@@ -179,6 +179,7 @@ if (changedPackages.has('varlock')) {
 
 // Detect integrations whose test files themselves changed (git diff against base)
 const changedTestIntegrations = new Set<string>();
+let harnessChanged = false;
 try {
   execSync('git fetch origin main --depth=1', { stdio: 'pipe' });
   const diffOutput = execSync('git diff origin/main --name-only -- framework-tests/', {
@@ -191,10 +192,9 @@ try {
     if (match && ALL_INTEGRATIONS.includes(match[1])) {
       changedTestIntegrations.add(match[1]);
     } else if (filePath.startsWith('framework-tests/harness/') || filePath === 'framework-tests/vitest.config.ts') {
-      // Shared test infrastructure changed — trigger all
-      console.log(`Shared framework test file changed (${filePath}) — running all integration tests`);
-      writeResults(ALL_INTEGRATIONS.map((name) => toEntry(name, 'quick')));
-      process.exit(0);
+      // Shared test infrastructure changed — flag for all integrations
+      console.log(`Shared framework test file changed (${filePath}) — will run all integration tests`);
+      harnessChanged = true;
     }
   }
   if (changedTestIntegrations.size > 0) {
@@ -210,6 +210,12 @@ for (const [name, packages] of Object.entries(INTEGRATION_PACKAGES)) {
   // Test files changed or integration package changed → full suite
   if (changedTestIntegrations.has(name) || packages.some((pkg) => changedPackages.has(pkg))) {
     entries.push(toEntry(name, 'full'));
+    continue;
+  }
+  // Harness changed → run all integrations, but only full if the integration's
+  // own package also changed (already handled above), otherwise quick
+  if (harnessChanged) {
+    entries.push(toEntry(name, 'quick'));
     continue;
   }
   // Suites with no integration packages are triggered by core varlock changes (quick)

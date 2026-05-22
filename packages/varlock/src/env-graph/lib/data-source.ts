@@ -554,13 +554,19 @@ export abstract class EnvGraphDataSource {
     return _.compact([...this.rootDecorators.flatMap((d) => d._executionError)]);
   }
 
-  /** all errors from this data source (own + decorator schema + decorator execution) */
+  /** all errors from this data source (own + decorator schema + decorator execution + plugin loading) */
   get errors(): Array<VarlockError> {
-    return [
+    const errs = [
       ...this._errors,
       ...this.rootDecorators.flatMap((d) => d.schemaErrors),
       ...this.resolutionErrors,
     ];
+    // include plugin loading errors (checked via loadingError getter which looks at plugins)
+    const pluginErr = this.loadingError;
+    if (pluginErr && !errs.includes(pluginErr)) {
+      errs.push(pluginErr);
+    }
+    return errs;
   }
 
   get isValid() {
