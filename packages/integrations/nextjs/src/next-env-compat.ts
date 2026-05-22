@@ -403,7 +403,7 @@ export function loadEnvConfig(
       enableExtraFileWatchers(varlockLoadedEnv.sources, varlockLoadedEnv.basePath);
     }
 
-    return { combinedEnv: {}, parsedEnv: {}, loadedEnvFiles: [] };
+    return { combinedEnv: { ...initialEnv }, parsedEnv: {}, loadedEnvFiles: [] };
   }
 
   parsedEnv = {};
