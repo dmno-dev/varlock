@@ -162,8 +162,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         `Encryption failed: ${err instanceof Error ? err.message : err}`,
       );
     }
-  } else if (backend.biometricAvailable) {
-    // Use native secure input dialog (supports multi-line paste)
+  } else if (backend.biometricAvailable && backend.type === 'secure-enclave') {
+    // Use native secure input dialog (supports multi-line paste) — macOS Secure Enclave only.
+    // Windows Hello (windows-tpm) and WSL2 do not support the prompt-secret daemon action;
+    // those backends fall through to the terminal prompt below.
     const client = localEncrypt.getDaemonClient();
     const result = await client.promptSecret({ keyId });
     if (!result) {
