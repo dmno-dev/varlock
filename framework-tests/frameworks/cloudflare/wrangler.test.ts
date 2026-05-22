@@ -31,7 +31,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
   afterAll(() => wranglerEnv.teardown());
 
   wranglerEnv.describeDevScenario('basic worker', {
-    command: 'varlock-wrangler dev --port 18787',
+    command: 'varlock-wrangler dev --port 0',
     readyPattern: /Ready on|ready in/i,
     readyTimeout: 30_000,
     templateFiles: {
@@ -71,7 +71,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
   });
 
   wranglerEnv.describeDevScenario('leaky worker', {
-    command: 'varlock-wrangler dev --port 18788',
+    command: 'varlock-wrangler dev --port 0',
     readyPattern: /Ready on|ready in/i,
     readyTimeout: 30_000,
     templateFiles: {
@@ -97,7 +97,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
   });
 
   wranglerEnv.describeDevScenario('leaky worker (Uint8Array body)', {
-    command: 'varlock-wrangler dev --port 18790',
+    command: 'varlock-wrangler dev --port 0',
     readyPattern: /Ready on|ready in/i,
     readyTimeout: 30_000,
     templateFiles: {
@@ -123,7 +123,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
   });
 
   wranglerEnv.describeDevScenario('large env (chunking)', {
-    command: 'varlock-wrangler dev --port 18789',
+    command: 'varlock-wrangler dev --port 0',
     readyPattern: /Ready on|ready in/i,
     readyTimeout: 30_000,
     templateFiles: {
@@ -149,7 +149,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
   });
 
   wranglerEnv.describeDevScenario('env reload on file change', {
-    command: 'varlock-wrangler dev --port 18790',
+    command: 'varlock-wrangler dev --port 0',
     readyPattern: /Ready on|ready in/i,
     readyTimeout: 30_000,
     templateFiles: {
@@ -193,7 +193,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
   });
 
   wranglerEnv.describeDevScenario('no restart on unchanged env content', {
-    command: 'varlock-wrangler dev --port 18792',
+    command: 'varlock-wrangler dev --port 0',
     readyPattern: /Ready on|ready in/i,
     readyTimeout: 30_000,
     templateFiles: {
@@ -254,7 +254,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
     // The worker runs but ENV proxy warns on access. Use killAfterPattern to
     // stop the long-running process once we see the error output.
     wranglerEnv.describeScenario('invalid schema shows errors in dev', {
-      command: 'varlock-wrangler dev --port 18791',
+      command: 'varlock-wrangler dev --port 0',
       killAfterPattern: /config is invalid|config has errors|Configuration is currently invalid/,
       templateFiles: {
         'src/index.ts': { path: 'workers/basic-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },

@@ -1,5 +1,19 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import type { BuildResult } from './types.js';
+
+/**
+ * Kill a detached process group. Uses SIGKILL on the negative PID to ensure
+ * all children (wrangler, workerd, etc.) are terminated and stdio pipes close.
+ */
+function killProcessGroup(child: ChildProcess) {
+  if (child.pid) {
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch { /* already dead */ }
+  } else {
+    child.kill('SIGKILL');
+  }
+}
 
 export interface RunCommandOptions {
   env?: Record<string, string>;
@@ -17,6 +31,10 @@ export function runCommand(
     const child = spawn(command, {
       cwd,
       shell: true,
+      // Use detached so we can kill the entire process group (shell + children)
+      // via process.kill(-pid). Without this, child.kill() only kills the shell
+      // and grandchildren (e.g. wrangler/workerd) survive, keeping pipes open.
+      detached: true,
       // Ignore stdin so commands that prompt for input get EOF immediately
       // instead of hanging (e.g. wrangler telemetry consent).
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -40,11 +58,10 @@ export function runCommand(
       const combined = (stdoutChunks.join('') + stderrChunks.join('')).replace(ANSI_RE, '');
       if (opts.killAfterPattern.test(combined)) {
         killScheduled = true;
-        // brief delay to collect any trailing output, then force-kill
+        // brief delay to collect any trailing output, then force-kill the process group
         setTimeout(() => {
           killedByTimeout = true; // eslint-disable-line no-use-before-define
-          // Use SIGKILL to ensure process tree dies (SIGTERM may not kill child processes like workerd)
-          child.kill('SIGKILL');
+          killProcessGroup(child);
         }, 1000);
       }
     }
@@ -62,7 +79,7 @@ export function runCommand(
     let killedByTimeout = false;
     const timer = setTimeout(() => {
       killedByTimeout = true;
-      child.kill('SIGTERM');
+      killProcessGroup(child);
     }, timeout);
 
     child.on('close', (code) => {
