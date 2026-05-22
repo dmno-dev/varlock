@@ -541,7 +541,7 @@ export class DaemonClient {
     // rather than spawning a broken daemon or hanging indefinitely.
     if (isWSL()) {
       throw new Error(
-        'DaemonClient is not supported on WSL2 — use the Windows binary directly with --via-daemon',
+        'DaemonClient is not supported on WSL2. The Windows encryption daemon uses a Windows named pipe that Linux socket APIs cannot connect to. Use the Windows binary directly instead.',
       );
     }
 
