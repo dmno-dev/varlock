@@ -8,6 +8,10 @@
  * - Windows: named pipe (TODO)
  *
  * Generalized from the secure-enclave plugin's EnclaveDaemonClient.
+ *
+ * Note: WSL2 cannot connect to the Windows named-pipe daemon from the Linux
+ * side. All WSL2 code paths that need biometric operations must bypass this
+ * client and invoke the Windows binary directly (e.g. via --via-daemon).
  */
 
 import net from 'node:net';
@@ -18,6 +22,7 @@ import { spawn } from 'node:child_process';
 
 import { getUserVarlockDir } from '../user-config-dir';
 import { resolveNativeBinary } from './binary-resolver';
+import { isWSL } from './wsl-detect';
 import type { KeychainItemMeta, KeychainItemRef } from './types';
 
 /** Timeout for daemon IPC messages that don't involve user interaction */
@@ -529,6 +534,17 @@ export class DaemonClient {
   }
 
   private async spawnDaemon(): Promise<void> {
+    // WSL2: the Windows daemon listens on a Windows named pipe that Linux
+    // sockets cannot connect to. All WSL2 biometric operations must bypass
+    // DaemonClient and invoke the Windows binary directly via --via-daemon.
+    // If we somehow reach this point on WSL2, fail fast with a clear message
+    // rather than spawning a broken daemon or hanging indefinitely.
+    if (isWSL()) {
+      throw new Error(
+        'DaemonClient is not supported on WSL2 — use the Windows binary directly with --via-daemon',
+      );
+    }
+
     const binaryPath = resolveNativeBinary();
     if (!binaryPath) {
       throw new Error('Native encryption binary not found — cannot start daemon');
