@@ -206,10 +206,17 @@ export class FrameworkTestEnv {
     writeFileSync(templatePkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
 
     // Install dependencies
+    // Give each fixture its own bun cache to avoid global cache contention
+    // when multiple bun installs run concurrently (can cause hangs on CI)
     const installCmd = pm === 'yarn' ? 'yarn install' : `${pm} install`;
+    const installEnv: Record<string, string> = {};
+    if (pm === 'bun') {
+      installEnv.BUN_INSTALL_CACHE_DIR = join(this.dir, '.bun-cache');
+    }
     console.log(`[${this.label}] Installing dependencies with ${pm}...`);
     const installResult = await runCommand(this.dir, installCmd, {
       timeout: this.config.installTimeout ?? 120_000,
+      env: installEnv,
     });
 
     if (!installResult.success) {
