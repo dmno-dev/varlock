@@ -22,7 +22,7 @@ export function defineCloudflareTests(
     const cfEnv = new FrameworkTestEnv({
       testDir,
       framework: `cloudflare-vite-${label}`,
-      packageManager: 'bun',
+      packageManager: 'pnpm',
       dependencies: {
         varlock: 'will-be-replaced',
         '@varlock/cloudflare-integration': 'will-be-replaced',
