@@ -5,6 +5,13 @@
 
 
 
+
+## 1.1.3
+<sub>2026-05-24</sub>
+
+- [#708](https://github.com/dmno-dev/varlock/pull/708) - graceful error handling, error page in dev, stderr piping in varlock-wrangler
+- [#708](https://github.com/dmno-dev/varlock/pull/708) - styled html error page for varlock load failures in dev mode
+
 ## 1.1.2
 <sub>2026-05-13</sub>
 

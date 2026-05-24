@@ -4,6 +4,13 @@
 
 
 
+
+## 1.1.2
+<sub>2026-05-24</sub>
+
+- [#708](https://github.com/dmno-dev/varlock/pull/708) - set __VARLOCK_ENV on failure so ENV proxy can initialize with partial data
+- [#708](https://github.com/dmno-dev/varlock/pull/708) - styled html error page for varlock load failures in dev mode
+
 ## 1.1.1
 <sub>2026-05-06</sub>
 

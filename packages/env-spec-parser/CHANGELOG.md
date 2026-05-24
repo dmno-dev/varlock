@@ -1,5 +1,11 @@
 # @env-spec/parser
 
+
+## 0.3.2
+<sub>2026-05-24</sub>
+
+- [#708](https://github.com/dmno-dev/varlock/pull/708) - decorator name validation and warnings
+
 ## 0.3.1
 
 ### Patch Changes

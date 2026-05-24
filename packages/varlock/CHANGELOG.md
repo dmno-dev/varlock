@@ -4,6 +4,14 @@
 
 
 
+
+## 1.3.0
+<sub>2026-05-24</sub>
+
+- [#708](https://github.com/dmno-dev/varlock/pull/708) - unified error handling with severity levels
+- [#711](https://github.com/dmno-dev/varlock/pull/711)  *(patch)* - Fix `varlock encrypt` on WSL
+- [#713](https://github.com/dmno-dev/varlock/pull/713)  *(patch)* - include plugin loading errors in DataSource.errors getter
+
 ## 1.2.0
 <sub>2026-05-11</sub>
 
