@@ -119,6 +119,7 @@ export class FrameworkTestEnv {
       '  - esbuild',
       '  - sharp',
       '  - lightningcss',
+      '  - workerd',
       '',
     ].join('\n'));
     writeFileSync(join(this.dir, '.npmrc'), 'ignore-workspace-root-check=true\n');

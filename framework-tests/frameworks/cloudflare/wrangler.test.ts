@@ -10,7 +10,7 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
   const wranglerEnv = new FrameworkTestEnv({
     testDir: import.meta.dirname,
     framework: 'cloudflare-wrangler',
-    packageManager: 'bun',
+    packageManager: 'pnpm',
     dependencies: {
       varlock: 'will-be-replaced',
       '@varlock/cloudflare-integration': 'will-be-replaced',
