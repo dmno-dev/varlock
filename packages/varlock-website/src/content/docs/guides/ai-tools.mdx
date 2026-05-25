@@ -145,6 +145,54 @@ Here's how to configure and run popular AI coding CLI tools with varlock:
 
 ---
 
+## Agent mode
+
+Varlock provides a non-interactive `--agent` flag for `init` and `load` commands, designed for AI coding assistants running commands on your behalf.
+
+### `varlock init --agent`
+
+Use this when an AI agent is setting up Varlock in a project:
+
+```bash
+varlock init --agent
+```
+
+In agent mode, init:
+- Skips interactive confirmation prompts
+- Uses deterministic defaults when multiple `.env.example` files are found
+- Prints schema review guidance for the agent to follow
+- Detects your AI tool and installs a project-scoped Varlock skill with security rules, schema checklists, and CLI guidance
+- Updates the installed skill automatically when a newer bundled version is available
+- Can optionally install the [Docs MCP](/guides/mcp/#docs-mcp) server
+
+You can re-run init on projects that already have a `.env.schema` to install or update agent tooling:
+
+```bash
+varlock init --agent --ai-tool cursor --install-docs-mcp
+```
+
+**Flags:**
+- `--ai-tool` — Override auto-detection (`cursor`, `claude`, `codex`, `opencode`, `vscode`). Required when auto-detection fails in agent mode.
+- `--install-docs-mcp` — Install the Varlock Docs MCP server in the detected AI tool
+
+In interactive mode (without `--agent`), init will prompt whether to install the Docs MCP after setup.
+
+:::tip
+Use the [Prompt Builder](/prompt-builder/) to generate a tailored setup prompt for your stack and AI tool.
+:::
+
+### `varlock load --agent`
+
+Use this to validate resolved config without exposing secret values in logs or agent transcripts:
+
+```bash
+varlock load --agent
+```
+
+Agent mode defaults to JSON output and redacts values marked `@sensitive`. It is not compatible with `--format env` or `--format shell` (which would expose raw values).
+
+Drop the `--agent` flag when you need human-readable output to show the user directly.
+
 ## Allowing schema files for AI tools
 
 Most AI tools ignore `.env.*` files by default. To ensure your AI tool can access your environment schema, add the following to your `.gitignore`:
