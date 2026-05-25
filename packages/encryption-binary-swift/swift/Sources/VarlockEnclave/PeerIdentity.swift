@@ -50,14 +50,13 @@ private func getStartTime(pid: pid_t) -> Int {
 /// processes spawned by VSCode/Cursor extensions, background agents, etc.),
 /// walks up the process tree to find a stable ancestor for session scoping.
 ///
-/// The no-TTY algorithm finds the "app root" (ancestor whose PPID is 1/launchd),
-/// then uses the grandchild of that app root in the peer's ancestry chain.
-/// This scopes sessions narrowly — e.g., for Cursor, each Claude Code instance
-/// gets its own session, while a malicious extension in the same window cannot
-/// piggyback. If the tree is too shallow (peer is a direct child or grandchild
-/// of the app root), returns nil (no caching, fresh auth each time).
+/// The no-TTY algorithm walks the process tree to the app root (child of launchd),
+/// then picks a stable scope key:
+///   - Deep trees (4+ levels): grandchild of the app root (e.g. Claude in Cursor)
+///   - If that process is an ephemeral shell wrapper, walk up to a longer-lived ancestor
+///   - Shallow trees (2–3 levels): app root (e.g. Codex exec'ing scripts directly)
 ///
-/// Returns nil if no stable identity can be determined.
+/// Returns nil only when no ancestor can be determined (chain shorter than 2).
 func getSessionIdentifier(forPid pid: pid_t) -> String? {
     guard let info = getProcessInfo(pid: pid) else { return nil }
 
@@ -97,8 +96,11 @@ func getSessionIdentifier(forPid pid: pid_t) -> String? {
     // enough that other extensions can't piggyback, but stable across multiple
     // commands spawned by that tool.
     //
-    // If the chain is too short (< 4 elements), we can't determine a stable
-    // intermediate ancestor, so we return nil (no caching).
+    // If the chain is too short (< 2 elements), we can't determine any ancestor.
+    // Shallow trees (2–3 levels) scope to the app root so agents like Codex that
+    // exec commands as direct/grandchildren of the app still get session reuse.
+    // Deeper trees use the grandchild of the app root, unless that process is an
+    // ephemeral shell wrapper (sh/bash/zsh), in which case we walk up further.
 
     var chain: [pid_t] = [pid]
     var current = pid
@@ -109,15 +111,39 @@ func getSessionIdentifier(forPid pid: pid_t) -> String? {
         current = ppid
     }
 
-    // Need at least 4 levels: peer → intermediate → scope-target → app-child → app-root
-    // so that scope-target is a meaningful intermediate process
-    guard chain.count >= 4 else { return nil }
-
-    // The grandchild of the app root: 2 levels below the last element
-    let scopePid = chain[chain.count - 3]
+    guard let scopePid = selectScopePid(from: chain) else { return nil }
     let startTime = getStartTime(pid: scopePid)
 
     return "ptree:\(scopePid):\(startTime)"
+}
+
+/// Shell and similar one-shot runners that should not be used as session scope keys.
+private let ephemeralRunnerNames: Set<String> = [
+    "sh", "bash", "zsh", "dash", "fish", "ksh", "csh", "tcsh",
+]
+
+private func isEphemeralRunner(pid: pid_t) -> Bool {
+    guard let processPath = getProcessPath(pid: pid) else { return false }
+    let name = (processPath as NSString).lastPathComponent.lowercased()
+    return ephemeralRunnerNames.contains(name)
+}
+
+/// Pick a stable scope PID from an ancestry chain (peer first, app root last).
+private func selectScopePid(from chain: [pid_t]) -> pid_t? {
+    guard chain.count >= 2 else { return nil }
+
+    if chain.count >= 4 {
+        var scopePid = chain[chain.count - 3]
+        if isEphemeralRunner(pid: scopePid) {
+            // Shell wrappers are one-shot; scope to a longer-lived ancestor.
+            let fallback = chain[chain.count - 2]
+            scopePid = isEphemeralRunner(pid: fallback) ? chain[chain.count - 1] : fallback
+        }
+        return scopePid
+    }
+
+    // Shallow tree: scope to the app root (direct child of launchd).
+    return chain[chain.count - 1]
 }
 
 // MARK: - Process Verification

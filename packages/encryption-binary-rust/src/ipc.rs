@@ -444,7 +444,7 @@ fn get_tty_session_id(pid: u32) -> Option<String> {
 
 /// Process-tree-based session identity for non-TTY processes.
 /// Mirrors the macOS Swift daemon logic: walks the ancestry chain up to PID 1,
-/// then uses the grandchild of the root as a stable scope key.
+/// then picks a stable scope key (see `select_scope_pid_from_chain`).
 #[cfg(target_os = "linux")]
 fn get_ptree_session_id(pid: u32) -> Option<String> {
     let mut chain: Vec<u32> = vec![pid];
@@ -459,14 +459,62 @@ fn get_ptree_session_id(pid: u32) -> Option<String> {
         current = ppid;
     }
 
-    // Need at least 4 levels for a meaningful intermediate ancestor
-    if chain.len() < 4 {
+    let scope_pid = select_scope_pid_from_chain(&chain, is_ephemeral_runner)?;
+    let start_time = get_process_start_time(scope_pid).unwrap_or(0);
+    Some(format!("ptree:{scope_pid}:{start_time}"))
+}
+
+/// Shell and similar one-shot runners that should not be used as session scope keys.
+#[cfg(target_os = "linux")]
+const EPHEMERAL_RUNNER_NAMES: &[&str] = &["sh", "bash", "zsh", "dash", "fish", "ksh", "csh", "tcsh"];
+
+#[cfg(target_os = "linux")]
+fn is_ephemeral_runner_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    EPHEMERAL_RUNNER_NAMES.contains(&lower.as_str())
+}
+
+#[cfg(target_os = "linux")]
+fn is_ephemeral_runner(pid: u32) -> bool {
+    let exe_path = std::fs::read_link(format!("/proc/{pid}/exe")).ok();
+    let comm = std::fs::read_to_string(format!("/proc/{pid}/comm"))
+        .ok()
+        .map(|s| s.trim().to_string());
+
+    if let Some(path) = exe_path {
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            return is_ephemeral_runner_name(name);
+        }
+    }
+
+    comm.as_deref().is_some_and(is_ephemeral_runner_name)
+}
+
+/// Pick a stable scope PID from an ancestry chain (peer first, app root last).
+#[cfg(any(test, target_os = "linux"))]
+fn select_scope_pid_from_chain(
+    chain: &[u32],
+    is_ephemeral: impl Fn(u32) -> bool,
+) -> Option<u32> {
+    if chain.len() < 2 {
         return None;
     }
 
-    let scope_pid = chain[chain.len() - 3];
-    let start_time = get_process_start_time(scope_pid).unwrap_or(0);
-    Some(format!("ptree:{scope_pid}:{start_time}"))
+    if chain.len() >= 4 {
+        let mut scope_pid = chain[chain.len() - 3];
+        if is_ephemeral(scope_pid) {
+            let fallback = chain[chain.len() - 2];
+            scope_pid = if is_ephemeral(fallback) {
+                chain[chain.len() - 1]
+            } else {
+                fallback
+            };
+        }
+        return Some(scope_pid);
+    }
+
+    // Shallow tree: scope to the app root (direct child of init).
+    Some(chain[chain.len() - 1])
 }
 
 /// Parse /proc/<pid>/stat and return the fields after the comm closing paren.
@@ -795,6 +843,54 @@ mod tests {
     fn test_get_process_start_time() {
         let st = get_process_start_time(std::process::id()).expect("should get own start time");
         assert!(st > 0);
+    }
+
+    #[test]
+    fn test_select_scope_pid_shallow_codex_tree() {
+        // [bun, codex-app]
+        let chain = [100u32, 50];
+        assert_eq!(
+            select_scope_pid_from_chain(&chain, |_| false),
+            Some(50),
+        );
+    }
+
+    #[test]
+    fn test_select_scope_pid_grandchild_codex_tree() {
+        // [bun, codex-worker, codex-app]
+        let chain = [100u32, 80, 50];
+        assert_eq!(
+            select_scope_pid_from_chain(&chain, |_| false),
+            Some(50),
+        );
+    }
+
+    #[test]
+    fn test_select_scope_pid_shell_wrapper() {
+        // [bun, sh, codex-worker, codex-app]
+        let chain = [100u32, 99, 80, 50];
+        let is_shell = |pid: u32| pid == 99;
+        assert_eq!(
+            select_scope_pid_from_chain(&chain, is_shell),
+            Some(80),
+        );
+    }
+
+    #[test]
+    fn test_select_scope_pid_cursor_style() {
+        // [node, zsh, claude, extension-host, cursor]
+        let chain = [100u32, 99, 88, 77, 50];
+        let is_shell = |pid: u32| pid == 99;
+        assert_eq!(
+            select_scope_pid_from_chain(&chain, is_shell),
+            Some(88),
+        );
+    }
+
+    #[test]
+    fn test_select_scope_pid_too_shallow() {
+        let chain = [100u32];
+        assert_eq!(select_scope_pid_from_chain(&chain, |_| false), None);
     }
 
     #[test]

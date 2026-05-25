@@ -29,6 +29,48 @@ function debug(msg: string) {
   }
 }
 
+const EPHEMERAL_RUNNER_NAMES = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'ksh', 'csh', 'tcsh']);
+
+function isEphemeralRunner(pid: number): boolean {
+  try {
+    const exePath = fs.readlinkSync(`/proc/${pid}/exe`);
+    const name = exePath.split('/').pop()?.toLowerCase();
+    if (name && EPHEMERAL_RUNNER_NAMES.has(name)) return true;
+  } catch { /* ignore */ }
+  try {
+    const comm = fs.readFileSync(`/proc/${pid}/comm`, 'utf-8').trim().toLowerCase();
+    return EPHEMERAL_RUNNER_NAMES.has(comm);
+  } catch {
+    return false;
+  }
+}
+
+function selectScopePidFromChain(chain: Array<number>): number | undefined {
+  if (chain.length < 2) return undefined;
+
+  if (chain.length >= 4) {
+    let scopePid = chain[chain.length - 3];
+    if (isEphemeralRunner(scopePid)) {
+      const fallback = chain[chain.length - 2];
+      scopePid = isEphemeralRunner(fallback) ? chain[chain.length - 1] : fallback;
+    }
+    return scopePid;
+  }
+
+  return chain[chain.length - 1];
+}
+
+function getProcessStartTime(pid: number): number {
+  try {
+    const scopeStat = fs.readFileSync(`/proc/${pid}/stat`, 'utf-8');
+    const scopeFields = scopeStat.split(') ');
+    if (scopeFields.length >= 2) {
+      return parseInt(scopeFields[1].split(' ')[19], 10) || 0;
+    }
+  } catch { /* ignore */ }
+  return 0;
+}
+
 /**
  * Get a session identifier for biometric session scoping (WSL only).
  * Prefers the controlling terminal; falls back to a stable ancestor PID
@@ -47,9 +89,6 @@ function getSelfSessionId(): string {
     // Not available
   }
   // No TTY — walk the process tree to find a stable ancestor.
-  // Uses the same grandchild-of-app-root logic as the macOS daemon:
-  // build ancestry chain up to PID 1, then use the process 2 levels
-  // below the top (the grandchild of the app root).
   try {
     const chain: Array<number> = [process.pid];
     let current = process.pid;
@@ -62,17 +101,9 @@ function getSelfSessionId(): string {
       chain.push(ppid);
       current = ppid;
     }
-    if (chain.length >= 4) {
-      const scopePid = chain[chain.length - 3];
-      // Include start time for PID-reuse resistance (field 21 after comm in /proc/stat)
-      let startTime = 0;
-      try {
-        const scopeStat = fs.readFileSync(`/proc/${scopePid}/stat`, 'utf-8');
-        const scopeFields = scopeStat.split(') ');
-        if (scopeFields.length >= 2) {
-          startTime = parseInt(scopeFields[1].split(' ')[19], 10) || 0;
-        }
-      } catch { /* ignore */ }
+    const scopePid = selectScopePidFromChain(chain);
+    if (scopePid !== undefined) {
+      const startTime = getProcessStartTime(scopePid);
       _cachedSessionId = `ptree:${scopePid}:${startTime}`;
       return _cachedSessionId;
     }
