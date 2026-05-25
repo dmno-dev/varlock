@@ -286,6 +286,11 @@ export function getDaemonClient(): DaemonClient {
   return daemonClient;
 }
 
+/** Close the daemon client socket if one was created. Safe to call multiple times. */
+export function cleanupDaemonClient(): void {
+  daemonClient?.cleanup();
+}
+
 // ── Key management ─────────────────────────────────────────────────────
 
 /** Check if a key exists. */

@@ -2,6 +2,7 @@ import { checkForConfigErrors } from './cli/helpers/error-checks';
 import { loadVarlockEnvGraph } from './lib/load-graph';
 import { initVarlockEnv } from './runtime/env';
 import { checkBunVersion } from './lib/check-bun-version';
+import { cleanupDaemonClient } from './lib/local-encrypt';
 
 // Import env-graph components for internal API
 import {
@@ -26,7 +27,22 @@ export async function load() {
   // loadFromSerializedGraph(envGraph.getSerializedGraph());
   process.env.__VARLOCK_ENV = JSON.stringify(envGraph.getSerializedGraph());
   initVarlockEnv();
+  // Close daemon socket so the process can exit naturally after load() resolves.
+  // The socket is unref'd by default (see DaemonClient.connectToSocket), but
+  // explicitly closing it here is belt-and-suspenders for runtimes/environments
+  // where unref() may not be sufficient.
+  cleanupDaemonClient();
   // TODO: return resolved env and schema / meta info
+}
+
+/**
+ * Close the daemon client socket opened during `load()` or other operations
+ * that resolved `keychain(...)` values. This is called automatically by
+ * `load()`, but you can call it explicitly if you manage the connection
+ * lifecycle yourself.
+ */
+export function cleanup() {
+  cleanupDaemonClient();
 }
 
 

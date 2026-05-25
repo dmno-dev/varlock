@@ -441,6 +441,10 @@ export class DaemonClient {
       socket.on('connect', () => {
         clearTimeout(timeout);
         this.socket = socket;
+        // Unref the socket so it does not keep the process alive when idle.
+        // Pending sendMessage calls re-ref the socket via the timeout timer,
+        // so interactive/biometric operations are not affected.
+        this.socket.unref();
         this.isConnected = true;
         this.buffer = Buffer.alloc(0);
         resolve();
