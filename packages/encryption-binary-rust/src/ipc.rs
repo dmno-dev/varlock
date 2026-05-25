@@ -412,20 +412,30 @@ fn get_peer_session_id(stream: &UnixStream) -> Option<String> {
         return None;
     }
 
-    // Prefer TTY-based identity, then known LLM session env keys, then process tree.
-    get_tty_session_id(pid as u32)
-        .or_else(|| get_no_tty_session_id_from_env(pid as u32))
-        .or_else(|| get_ptree_session_id(pid as u32))
+    let parent_session_id = get_parent_session_id(pid as u32);
+    let ai_session = get_ai_session_from_env(pid as u32);
+
+    match (ai_session, parent_session_id) {
+        (Some((key, value)), Some(parent)) => Some(format!("env:{key}:{value}|{parent}")),
+        (Some((key, value)), None) => Some(format!("env:{key}:{value}")),
+        (None, Some(parent)) => Some(parent),
+        (None, None) => None,
+    }
 }
 
 #[cfg(target_os = "linux")]
-fn get_no_tty_session_id_from_env(pid: u32) -> Option<String> {
+fn get_parent_session_id(pid: u32) -> Option<String> {
+    get_tty_session_id(pid).or_else(|| get_ptree_session_id(pid))
+}
+
+#[cfg(target_os = "linux")]
+fn get_ai_session_from_env(pid: u32) -> Option<(String, String)> {
     let bytes = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
     let env_pairs = parse_env_pairs(bytes.split(|b| *b == 0).filter(|entry| !entry.is_empty()));
     for key in NO_TTY_SESSION_ENV_KEYS {
         if let Some(value) = env_pairs.get(*key) {
             if !value.trim().is_empty() {
-                return Some(format!("env:{key}:{value}"));
+                return Some((key.to_string(), value.to_string()));
             }
         }
     }
@@ -501,7 +511,6 @@ const NO_TTY_SESSION_ENV_KEYS: &[&str] = &[
     "CODEX_THREAD_ID",
     "CLAUDE_CODE_SESSION_ID",
     "CLAUDE_SESSION_ID",
-    "CLAUDE_CODE_SSE_PORT",
 ];
 
 #[cfg(target_os = "linux")]

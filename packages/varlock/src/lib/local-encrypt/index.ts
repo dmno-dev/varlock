@@ -36,7 +36,6 @@ const NO_TTY_SESSION_ENV_KEYS = [
   'CODEX_THREAD_ID',
   'CLAUDE_CODE_SESSION_ID',
   'CLAUDE_SESSION_ID',
-  'CLAUDE_CODE_SSE_PORT',
 ] as const;
 
 function getProcessName(pid: number): string | undefined {
@@ -112,30 +111,16 @@ function getNoTtySessionIdFromEnv(): string | undefined {
   return undefined;
 }
 
-/**
- * Get a session identifier for biometric session scoping (WSL only).
- * Prefers the controlling terminal; falls back to a stable ancestor PID
- * found by walking the process tree (mirrors the macOS Swift daemon logic).
- */
-let _cachedSessionId: string | undefined;
-function getSelfSessionId(): string {
-  if (_cachedSessionId) return _cachedSessionId;
+function getParentSessionId(): string {
   try {
     const ttyPath = fs.readlinkSync('/proc/self/fd/0');
     if (ttyPath && ttyPath.startsWith('/dev/')) {
-      _cachedSessionId = ttyPath;
       return ttyPath;
     }
   } catch {
     // Not available
   }
-  // No TTY — prefer known LLM session env identifiers.
-  const envSessionId = getNoTtySessionIdFromEnv();
-  if (envSessionId) {
-    _cachedSessionId = envSessionId;
-    return envSessionId;
-  }
-  // No TTY — walk the process tree to find a stable ancestor.
+
   try {
     const chain: Array<number> = [process.pid];
     let current = process.pid;
@@ -151,13 +136,32 @@ function getSelfSessionId(): string {
     const scopePid = selectScopePidFromChain(chain);
     if (scopePid !== undefined) {
       const startTime = getProcessStartTime(scopePid);
-      _cachedSessionId = `ptree:${scopePid}:${startTime}`;
-      return _cachedSessionId;
+      return `ptree:${scopePid}:${startTime}`;
     }
   } catch {
     // Not available
   }
-  _cachedSessionId = `pid:${process.pid}`;
+
+  return `pid:${process.pid}`;
+}
+
+/**
+ * Get a session identifier for biometric session scoping (WSL only).
+ * Prefers the controlling terminal; falls back to a stable ancestor PID
+ * found by walking the process tree (mirrors the macOS Swift daemon logic).
+ */
+let _cachedSessionId: string | undefined;
+function getSelfSessionId(): string {
+  if (_cachedSessionId) return _cachedSessionId;
+
+  const parentSessionId = getParentSessionId();
+  const envSessionId = getNoTtySessionIdFromEnv();
+  if (envSessionId) {
+    _cachedSessionId = `${envSessionId}|${parentSessionId}`;
+    return _cachedSessionId;
+  }
+
+  _cachedSessionId = parentSessionId;
   return _cachedSessionId;
 }
 

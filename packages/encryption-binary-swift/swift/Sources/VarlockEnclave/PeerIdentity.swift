@@ -60,34 +60,52 @@ private func getStartTime(pid: pid_t) -> Int {
 /// Returns nil only when no ancestor can be determined (chain shorter than 2).
 func getSessionIdentifier(forPid pid: pid_t) -> String? {
     guard let info = getProcessInfo(pid: pid) else { return nil }
+    let parentSessionId = getParentSessionIdentifier(forPid: pid, processInfo: info)
+    let aiSession = getAiSessionFromEnvironment(forPid: pid)
 
+    if let aiSession, let parentSessionId {
+        return "env:\(aiSession.key):\(aiSession.value)|\(parentSessionId)"
+    }
+    if let parentSessionId {
+        return parentSessionId
+    }
+    if let aiSession {
+        return "env:\(aiSession.key):\(aiSession.value)"
+    }
+    return nil
+}
+
+private func getParentSessionIdentifier(forPid pid: pid_t, processInfo info: kinfo_proc) -> String? {
+    if let ttyId = getTtySessionIdentifier(forPid: pid, processInfo: info) {
+        return ttyId
+    }
+    return getProcessTreeSessionIdentifier(forPid: pid)
+}
+
+private func getTtySessionIdentifier(forPid pid: pid_t, processInfo info: kinfo_proc) -> String? {
     // e_tdev is dev_t (Int32). NODEV is -1 in signed representation
     // (0xFFFFFFFF unsigned). Comparing Int32(-1) != UInt32.max is true in
     // Swift's BinaryInteger comparison, so we must compare in the same type.
     let ttyDev = info.kp_eproc.e_tdev
-    let hasTty = ttyDev > 0
+    guard ttyDev > 0 else { return nil }
 
-    if hasTty {
-        // TTY-based identity: device name + session leader start time
-        guard let namePtr = devname(dev_t(ttyDev), S_IFCHR) else { return nil }
-        let ttyName = String(cString: namePtr)
+    // TTY-based identity: device name + session leader start time
+    guard let namePtr = devname(dev_t(ttyDev), S_IFCHR) else { return nil }
+    let ttyName = String(cString: namePtr)
 
-        let sessionLeaderPid = getsid(pid)
-        var startTimestamp: Int = 0
-        if sessionLeaderPid > 0, let leaderInfo = getProcessInfo(pid: sessionLeaderPid) {
-            startTimestamp = Int(leaderInfo.kp_proc.p_starttime.tv_sec)
-        }
-        if startTimestamp == 0 {
-            startTimestamp = Int(info.kp_proc.p_starttime.tv_sec)
-        }
-
-        return "tty:\(ttyName):\(startTimestamp)"
+    let sessionLeaderPid = getsid(pid)
+    var startTimestamp: Int = 0
+    if sessionLeaderPid > 0, let leaderInfo = getProcessInfo(pid: sessionLeaderPid) {
+        startTimestamp = Int(leaderInfo.kp_proc.p_starttime.tv_sec)
+    }
+    if startTimestamp == 0 {
+        startTimestamp = Int(info.kp_proc.p_starttime.tv_sec)
     }
 
-    if let envSessionId = getNoTtySessionIdFromEnvironment(forPid: pid) {
-        return envSessionId
-    }
+    return "tty:\(ttyName):\(startTimestamp)"
+}
 
+private func getProcessTreeSessionIdentifier(forPid pid: pid_t) -> String? {
     // No TTY — walk up the process tree to find a scoping ancestor.
     //
     // Build the ancestry chain from the peer up to (but not including) PID 1.
@@ -108,10 +126,8 @@ func getSessionIdentifier(forPid pid: pid_t) -> String? {
     // ephemeral shell wrapper (sh/bash/zsh), in which case we walk up further.
 
     let chain = buildAncestryChain(from: pid)
-
     guard let scopePid = selectScopePid(from: chain) else { return nil }
     let startTime = getStartTime(pid: scopePid)
-
     return "ptree:\(scopePid):\(startTime)"
 }
 
@@ -137,23 +153,15 @@ private let noTtySessionEnvKeys: [String] = [
     "CODEX_THREAD_ID",
     "CLAUDE_CODE_SESSION_ID",
     "CLAUDE_SESSION_ID",
-    "CLAUDE_CODE_SSE_PORT",
 ]
 
-private func getNoTtySessionIdFromEnvironment(forPid pid: pid_t) -> String? {
+private func getAiSessionFromEnvironment(forPid pid: pid_t) -> (key: String, value: String)? {
     guard let env = getProcessEnvironment(pid: pid) else { return nil }
     for key in noTtySessionEnvKeys {
         guard let valueRaw = env[key] else { continue }
         let value = valueRaw.trimmingCharacters(in: .whitespacesAndNewlines)
         if !value.isEmpty {
-            // Bind env identity to process-tree scope to reduce spoofing.
-            // A caller must match both the env id and expected host lineage.
-            let chain = buildAncestryChain(from: pid)
-            if let scopePid = selectScopePid(from: chain) {
-                let scopeStart = getStartTime(pid: scopePid)
-                return "env:\(key):\(value):\(scopePid):\(scopeStart)"
-            }
-            return "env:\(key):\(value)"
+            return (key, value)
         }
     }
     return nil
