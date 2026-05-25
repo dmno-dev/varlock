@@ -29,20 +29,53 @@ function debug(msg: string) {
   }
 }
 
-const EPHEMERAL_RUNNER_NAMES = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'ksh', 'csh', 'tcsh']);
+const SHELL_RUNNER_NAMES = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'ksh', 'csh', 'tcsh']);
+const VARLOCK_LAUNCHER_NAMES = new Set(['varlock', 'varlock.exe', 'varlock.cmd']);
+const PACKAGE_MANAGER_RUNNER_NAMES = new Set(['bun', 'node', 'npm', 'npx', 'pnpm', 'pnpx', 'yarn', 'yarnpkg']);
+const NO_TTY_SESSION_ENV_KEYS = [
+  'CODEX_THREAD_ID',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_SESSION_ID',
+  'CLAUDE_CODE_SSE_PORT',
+] as const;
 
-function isEphemeralRunner(pid: number): boolean {
+function getProcessName(pid: number): string | undefined {
   try {
     const exePath = fs.readlinkSync(`/proc/${pid}/exe`);
-    const name = exePath.split('/').pop()?.toLowerCase();
-    if (name && EPHEMERAL_RUNNER_NAMES.has(name)) return true;
+    return exePath.split('/').pop()?.toLowerCase();
   } catch { /* ignore */ }
   try {
-    const comm = fs.readFileSync(`/proc/${pid}/comm`, 'utf-8').trim().toLowerCase();
-    return EPHEMERAL_RUNNER_NAMES.has(comm);
+    return fs.readFileSync(`/proc/${pid}/comm`, 'utf-8').trim().toLowerCase();
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+function getProcessArgs(pid: number): Array<string> {
+  try {
+    return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8').split('\0').filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function processCommandLineLaunchesVarlock(pid: number): boolean {
+  return getProcessArgs(pid).some((arg) => {
+    const name = arg.split('/').pop()?.toLowerCase();
+    return Boolean(
+      (name && VARLOCK_LAUNCHER_NAMES.has(name))
+      || arg.includes('/node_modules/.bin/varlock')
+      || arg.includes('/varlock/bin/cli.js')
+      || arg.includes('/packages/varlock/bin/cli.js'),
+    );
+  });
+}
+
+function isEphemeralRunner(pid: number): boolean {
+  const name = getProcessName(pid);
+  if (!name) return false;
+  if (SHELL_RUNNER_NAMES.has(name) || VARLOCK_LAUNCHER_NAMES.has(name)) return true;
+  return PACKAGE_MANAGER_RUNNER_NAMES.has(name) && processCommandLineLaunchesVarlock(pid);
 }
 
 function selectScopePidFromChain(chain: Array<number>): number | undefined {
@@ -71,6 +104,14 @@ function getProcessStartTime(pid: number): number {
   return 0;
 }
 
+function getNoTtySessionIdFromEnv(): string | undefined {
+  for (const key of NO_TTY_SESSION_ENV_KEYS) {
+    const value = process.env[key]?.trim();
+    if (value) return `env:${key}:${value}`;
+  }
+  return undefined;
+}
+
 /**
  * Get a session identifier for biometric session scoping (WSL only).
  * Prefers the controlling terminal; falls back to a stable ancestor PID
@@ -87,6 +128,12 @@ function getSelfSessionId(): string {
     }
   } catch {
     // Not available
+  }
+  // No TTY — prefer known LLM session env identifiers.
+  const envSessionId = getNoTtySessionIdFromEnv();
+  if (envSessionId) {
+    _cachedSessionId = envSessionId;
+    return envSessionId;
   }
   // No TTY — walk the process tree to find a stable ancestor.
   try {

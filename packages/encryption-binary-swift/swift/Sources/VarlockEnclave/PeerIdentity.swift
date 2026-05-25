@@ -52,6 +52,7 @@ private func getStartTime(pid: pid_t) -> Int {
 ///
 /// The no-TTY algorithm walks the process tree to the app root (child of launchd),
 /// then picks a stable scope key:
+///   - Preferred: a known LLM session environment identifier
 ///   - Deep trees (4+ levels): grandchild of the app root (e.g. Claude in Cursor)
 ///   - If that process is an ephemeral shell wrapper, walk up to a longer-lived ancestor
 ///   - Shallow trees (2–3 levels): app root (e.g. Codex exec'ing scripts directly)
@@ -83,6 +84,10 @@ func getSessionIdentifier(forPid pid: pid_t) -> String? {
         return "tty:\(ttyName):\(startTimestamp)"
     }
 
+    if let envSessionId = getNoTtySessionIdFromEnvironment(forPid: pid) {
+        return envSessionId
+    }
+
     // No TTY — walk up the process tree to find a scoping ancestor.
     //
     // Build the ancestry chain from the peer up to (but not including) PID 1.
@@ -102,6 +107,59 @@ func getSessionIdentifier(forPid pid: pid_t) -> String? {
     // Deeper trees use the grandchild of the app root, unless that process is an
     // ephemeral shell wrapper (sh/bash/zsh), in which case we walk up further.
 
+    let chain = buildAncestryChain(from: pid)
+
+    guard let scopePid = selectScopePid(from: chain) else { return nil }
+    let startTime = getStartTime(pid: scopePid)
+
+    return "ptree:\(scopePid):\(startTime)"
+}
+
+/// Shells are one-shot command wrappers and should never scope a no-TTY session.
+private let shellRunnerNames: Set<String> = [
+    "sh", "bash", "zsh", "dash", "fish", "ksh", "csh", "tcsh",
+]
+
+/// Varlock CLI launchers are also one-shot; scope to the host that invoked them.
+private let varlockLauncherNames: Set<String> = [
+    "varlock", "varlock.exe", "varlock.cmd",
+]
+
+/// Runtime/package-manager processes are wrappers only when their command line
+/// shows they are launching the Varlock CLI. A long-lived process like Vite may
+/// also be `node` or `bun`, and should remain a valid session scope.
+private let packageManagerRunnerNames: Set<String> = [
+    "bun", "node", "npm", "npx", "pnpm", "pnpx", "yarn", "yarnpkg",
+]
+
+/// For no-TTY contexts (agents/extensions), prefer a per-LLM-session key.
+private let noTtySessionEnvKeys: [String] = [
+    "CODEX_THREAD_ID",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_SESSION_ID",
+    "CLAUDE_CODE_SSE_PORT",
+]
+
+private func getNoTtySessionIdFromEnvironment(forPid pid: pid_t) -> String? {
+    guard let env = getProcessEnvironment(pid: pid) else { return nil }
+    for key in noTtySessionEnvKeys {
+        guard let valueRaw = env[key] else { continue }
+        let value = valueRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !value.isEmpty {
+            // Bind env identity to process-tree scope to reduce spoofing.
+            // A caller must match both the env id and expected host lineage.
+            let chain = buildAncestryChain(from: pid)
+            if let scopePid = selectScopePid(from: chain) {
+                let scopeStart = getStartTime(pid: scopePid)
+                return "env:\(key):\(value):\(scopePid):\(scopeStart)"
+            }
+            return "env:\(key):\(value)"
+        }
+    }
+    return nil
+}
+
+private func buildAncestryChain(from pid: pid_t) -> [pid_t] {
     var chain: [pid_t] = [pid]
     var current = pid
     // Walk up with a depth limit to avoid infinite loops
@@ -110,22 +168,127 @@ func getSessionIdentifier(forPid pid: pid_t) -> String? {
         chain.append(ppid)
         current = ppid
     }
-
-    guard let scopePid = selectScopePid(from: chain) else { return nil }
-    let startTime = getStartTime(pid: scopePid)
-
-    return "ptree:\(scopePid):\(startTime)"
+    return chain
 }
-
-/// Shell and similar one-shot runners that should not be used as session scope keys.
-private let ephemeralRunnerNames: Set<String> = [
-    "sh", "bash", "zsh", "dash", "fish", "ksh", "csh", "tcsh",
-]
 
 private func isEphemeralRunner(pid: pid_t) -> Bool {
     guard let processPath = getProcessPath(pid: pid) else { return false }
     let name = (processPath as NSString).lastPathComponent.lowercased()
-    return ephemeralRunnerNames.contains(name)
+    if shellRunnerNames.contains(name) || varlockLauncherNames.contains(name) {
+        return true
+    }
+    return packageManagerRunnerNames.contains(name) && processCommandLineLaunchesVarlock(pid: pid)
+}
+
+private func processCommandLineLaunchesVarlock(pid: pid_t) -> Bool {
+    guard let args = getProcessArguments(pid: pid), !args.isEmpty else { return false }
+    return args.contains { arg in
+        let name = (arg as NSString).lastPathComponent.lowercased()
+        return varlockLauncherNames.contains(name)
+            || arg.contains("/node_modules/.bin/varlock")
+            || arg.contains("/varlock/bin/cli.js")
+            || arg.contains("/packages/varlock/bin/cli.js")
+    }
+}
+
+private func getProcessArguments(pid: pid_t) -> [String]? {
+    var argMax: Int32 = 0
+    var argMaxSize = MemoryLayout<Int32>.size
+    var argMaxMib: [Int32] = [CTL_KERN, KERN_ARGMAX]
+    guard sysctl(&argMaxMib, UInt32(argMaxMib.count), &argMax, &argMaxSize, nil, 0) == 0, argMax > 0 else {
+        return nil
+    }
+
+    var buffer = [CChar](repeating: 0, count: Int(argMax))
+    var size = buffer.count
+    var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+    guard sysctl(&mib, UInt32(mib.count), &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else {
+        return nil
+    }
+
+    let argc = buffer.withUnsafeBytes { rawBuffer -> Int32 in
+        rawBuffer.load(as: Int32.self)
+    }
+    guard argc > 0 else { return [] }
+
+    var offset = MemoryLayout<Int32>.size
+
+    // Skip executable path.
+    while offset < size, buffer[offset] != 0 { offset += 1 }
+    while offset < size, buffer[offset] == 0 { offset += 1 }
+
+    var args: [String] = []
+    for _ in 0..<argc {
+        guard offset < size else { break }
+        let start = offset
+        while offset < size, buffer[offset] != 0 { offset += 1 }
+        if offset > start {
+            buffer.withUnsafeBufferPointer { ptr in
+                if let base = ptr.baseAddress {
+                    args.append(String(cString: base.advanced(by: start)))
+                }
+            }
+        }
+        while offset < size, buffer[offset] == 0 { offset += 1 }
+    }
+
+    return args
+}
+
+private func getProcessEnvironment(pid: pid_t) -> [String: String]? {
+    var argMax: Int32 = 0
+    var argMaxSize = MemoryLayout<Int32>.size
+    var argMaxMib: [Int32] = [CTL_KERN, KERN_ARGMAX]
+    guard sysctl(&argMaxMib, UInt32(argMaxMib.count), &argMax, &argMaxSize, nil, 0) == 0, argMax > 0 else {
+        return nil
+    }
+
+    var buffer = [CChar](repeating: 0, count: Int(argMax))
+    var size = buffer.count
+    var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+    guard sysctl(&mib, UInt32(mib.count), &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else {
+        return nil
+    }
+
+    let argc = buffer.withUnsafeBytes { rawBuffer -> Int32 in
+        rawBuffer.load(as: Int32.self)
+    }
+    guard argc >= 0 else { return nil }
+
+    var offset = MemoryLayout<Int32>.size
+
+    // Skip executable path.
+    while offset < size, buffer[offset] != 0 { offset += 1 }
+    while offset < size, buffer[offset] == 0 { offset += 1 }
+
+    // Skip argv entries.
+    for _ in 0..<argc {
+        guard offset < size else { break }
+        while offset < size, buffer[offset] != 0 { offset += 1 }
+        while offset < size, buffer[offset] == 0 { offset += 1 }
+    }
+
+    var env: [String: String] = [:]
+
+    while offset < size {
+        while offset < size, buffer[offset] == 0 { offset += 1 }
+        guard offset < size else { break }
+
+        let start = offset
+        while offset < size, buffer[offset] != 0 { offset += 1 }
+        guard offset > start else { continue }
+
+        buffer.withUnsafeBufferPointer { ptr in
+            guard let base = ptr.baseAddress else { return }
+            let entry = String(cString: base.advanced(by: start))
+            guard let eq = entry.firstIndex(of: "=") else { return }
+            let key = String(entry[..<eq])
+            let value = String(entry[entry.index(after: eq)...])
+            env[key] = value
+        }
+    }
+
+    return env
 }
 
 /// Pick a stable scope PID from an ancestry chain (peer first, app root last).

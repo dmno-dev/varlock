@@ -412,9 +412,24 @@ fn get_peer_session_id(stream: &UnixStream) -> Option<String> {
         return None;
     }
 
-    // Prefer TTY-based identity, fall back to process tree
+    // Prefer TTY-based identity, then known LLM session env keys, then process tree.
     get_tty_session_id(pid as u32)
+        .or_else(|| get_no_tty_session_id_from_env(pid as u32))
         .or_else(|| get_ptree_session_id(pid as u32))
+}
+
+#[cfg(target_os = "linux")]
+fn get_no_tty_session_id_from_env(pid: u32) -> Option<String> {
+    let bytes = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+    let env_pairs = parse_env_pairs(bytes.split(|b| *b == 0).filter(|entry| !entry.is_empty()));
+    for key in NO_TTY_SESSION_ENV_KEYS {
+        if let Some(value) = env_pairs.get(*key) {
+            if !value.trim().is_empty() {
+                return Some(format!("env:{key}:{value}"));
+            }
+        }
+    }
+    None
 }
 
 /// TTY-based session identity: tty device + session leader start time.
@@ -464,14 +479,80 @@ fn get_ptree_session_id(pid: u32) -> Option<String> {
     Some(format!("ptree:{scope_pid}:{start_time}"))
 }
 
-/// Shell and similar one-shot runners that should not be used as session scope keys.
+/// Shells are one-shot command wrappers and should never scope a no-TTY session.
 #[cfg(target_os = "linux")]
-const EPHEMERAL_RUNNER_NAMES: &[&str] = &["sh", "bash", "zsh", "dash", "fish", "ksh", "csh", "tcsh"];
+const SHELL_RUNNER_NAMES: &[&str] = &["sh", "bash", "zsh", "dash", "fish", "ksh", "csh", "tcsh"];
+
+/// Varlock CLI launchers are also one-shot; scope to the host that invoked them.
+#[cfg(target_os = "linux")]
+const VARLOCK_LAUNCHER_NAMES: &[&str] = &["varlock", "varlock.exe", "varlock.cmd"];
+
+/// Runtime/package-manager processes are wrappers only when their command line
+/// shows they are launching the Varlock CLI. A long-lived process like Vite may
+/// also be `node` or `bun`, and should remain a valid session scope.
+#[cfg(target_os = "linux")]
+const PACKAGE_MANAGER_RUNNER_NAMES: &[&str] = &[
+    "bun", "node", "npm", "npx", "pnpm", "pnpx", "yarn", "yarnpkg",
+];
+
+/// For no-TTY agent/extension contexts, prefer an explicit LLM session id.
+#[cfg(target_os = "linux")]
+const NO_TTY_SESSION_ENV_KEYS: &[&str] = &[
+    "CODEX_THREAD_ID",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_SESSION_ID",
+    "CLAUDE_CODE_SSE_PORT",
+];
 
 #[cfg(target_os = "linux")]
-fn is_ephemeral_runner_name(name: &str) -> bool {
+fn parse_env_pairs<'a>(entries: impl Iterator<Item = &'a [u8]>) -> std::collections::HashMap<String, String> {
+    entries
+        .filter_map(|entry| {
+            let str_entry = String::from_utf8_lossy(entry);
+            let (key, value) = str_entry.split_once('=')?;
+            Some((key.to_string(), value.to_string()))
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn contains_runner_name(names: &[&str], name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    EPHEMERAL_RUNNER_NAMES.contains(&lower.as_str())
+    names.contains(&lower.as_str())
+}
+
+#[cfg(target_os = "linux")]
+fn process_args(pid: u32) -> Vec<String> {
+    std::fs::read(format!("/proc/{pid}/cmdline"))
+        .ok()
+        .map(|bytes| {
+            bytes
+                .split(|b| *b == 0)
+                .filter(|arg| !arg.is_empty())
+                .map(|arg| String::from_utf8_lossy(arg).to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "linux")]
+fn process_command_line_launches_varlock(pid: u32) -> bool {
+    process_args_launches_varlock(process_args(pid).iter().map(String::as_str))
+}
+
+#[cfg(target_os = "linux")]
+fn process_args_launches_varlock<'a>(args: impl Iterator<Item = &'a str>) -> bool {
+    args.into_iter().any(|arg| {
+        let name = std::path::Path::new(arg)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        VARLOCK_LAUNCHER_NAMES.contains(&name.as_str())
+            || arg.contains("/node_modules/.bin/varlock")
+            || arg.contains("/varlock/bin/cli.js")
+            || arg.contains("/packages/varlock/bin/cli.js")
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -481,17 +562,23 @@ fn is_ephemeral_runner(pid: u32) -> bool {
         .ok()
         .map(|s| s.trim().to_string());
 
-    if let Some(path) = exe_path {
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            return is_ephemeral_runner_name(name);
-        }
-    }
+    let Some(name) = exe_path
+        .as_deref()
+        .and_then(|path| path.file_name())
+        .and_then(|n| n.to_str())
+        .or(comm.as_deref())
+    else {
+        return false;
+    };
 
-    comm.as_deref().is_some_and(is_ephemeral_runner_name)
+    contains_runner_name(SHELL_RUNNER_NAMES, name)
+        || contains_runner_name(VARLOCK_LAUNCHER_NAMES, name)
+        || (contains_runner_name(PACKAGE_MANAGER_RUNNER_NAMES, name)
+            && process_command_line_launches_varlock(pid))
 }
 
 /// Pick a stable scope PID from an ancestry chain (peer first, app root last).
-#[cfg(any(test, target_os = "linux"))]
+#[cfg(target_os = "linux")]
 fn select_scope_pid_from_chain(
     chain: &[u32],
     is_ephemeral: impl Fn(u32) -> bool,
@@ -846,6 +933,20 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_env_pairs() {
+        let input = vec![
+            b"CODEX_THREAD_ID=abc123".as_slice(),
+            b"FOO=bar".as_slice(),
+            b"INVALID".as_slice(),
+        ];
+
+        let parsed = parse_env_pairs(input.into_iter());
+        assert_eq!(parsed.get("CODEX_THREAD_ID").map(String::as_str), Some("abc123"));
+        assert_eq!(parsed.get("FOO").map(String::as_str), Some("bar"));
+        assert!(!parsed.contains_key("INVALID"));
+    }
+
+    #[test]
     fn test_select_scope_pid_shallow_codex_tree() {
         // [bun, codex-app]
         let chain = [100u32, 50];
@@ -874,6 +975,31 @@ mod tests {
             select_scope_pid_from_chain(&chain, is_shell),
             Some(80),
         );
+    }
+
+    #[test]
+    fn test_select_scope_pid_package_manager_wrapper() {
+        // [varlock-local-encrypt peer, bun, codex-worker, codex-app]
+        let chain = [100u32, 99, 80, 50];
+        let is_package_manager = |pid: u32| pid == 99;
+        assert_eq!(
+            select_scope_pid_from_chain(&chain, is_package_manager),
+            Some(80),
+        );
+    }
+
+    #[test]
+    fn test_package_manager_names_are_conditional_wrappers() {
+        for name in ["bun", "node", "npm", "npx", "pnpm", "pnpx", "yarn", "yarnpkg"] {
+            assert!(
+                contains_runner_name(PACKAGE_MANAGER_RUNNER_NAMES, name),
+                "{name} should be a conditional wrapper",
+            );
+            assert!(
+                !contains_runner_name(SHELL_RUNNER_NAMES, name),
+                "{name} should not be an unconditional shell wrapper",
+            );
+        }
     }
 
     #[test]
