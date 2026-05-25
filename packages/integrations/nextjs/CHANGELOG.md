@@ -6,6 +6,13 @@
 
 
 
+
+## 1.1.1
+<sub>2026-05-24</sub>
+
+- [#708](https://github.com/dmno-dev/varlock/pull/708) - next-env-compat improvements
+- [#713](https://github.com/dmno-dev/varlock/pull/713) - fix: preserve initial env vars in nextjs dev error path to prevent v15 turbopack from exiting
+
 ## 1.1.0
 <sub>2026-05-02</sub>
 
