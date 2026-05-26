@@ -109,6 +109,71 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
       const buildCommand = `next build ${buildToolFlag}`;
 
       describe(`bundler=${webpackOrTurbo}`, () => {
+        const devPort = 14000 + (nextVersion * 10) + (webpackOrTurbo === 'turbopack' ? 1 : 0);
+        const devCommand = `next dev ${buildToolFlag} --port ${devPort}`.replace(/\s+/g, ' ').trim();
+
+        nextEnv.describeDevScenario('dev: unchanged extra env file content does not trigger reload', {
+          command: devCommand,
+          readyPattern: /Ready in|Starting\.\.\./,
+          readyTimeout: 40_000,
+          templateFiles: {
+            'app/page.tsx': 'pages/basic-page.tsx',
+          },
+          requests: [
+            {
+              path: '/',
+              bodyAssertions: {
+                shouldContain: ['env-specific-var--dev'],
+              },
+            },
+            {
+              path: '/',
+              fileEdits: {
+                '.env.dev': 'ENV_SPECIFIC_VAR=env-specific-var--dev',
+              },
+              // Watchers are debounced; wait long enough to assert no reload path.
+              fileEditDelay: 2000,
+              bodyAssertions: {
+                shouldContain: ['env-specific-var--dev'],
+              },
+            },
+          ],
+          outputAssertions: [
+            {
+              description: 'integration logs unchanged-content skip message',
+              shouldContain: ['file contents unchanged, skipping next reload'],
+            },
+          ],
+        });
+
+        nextEnv.describeDevScenario('dev: changed extra env file content triggers reload', {
+          command: devCommand,
+          readyPattern: /Ready in|Starting\.\.\./,
+          readyTimeout: 40_000,
+          templateFiles: {
+            'app/page.tsx': 'pages/basic-page.tsx',
+          },
+          requests: [
+            {
+              path: '/',
+              bodyAssertions: {
+                shouldContain: ['env-specific-var--dev'],
+              },
+            },
+            {
+              path: '/',
+              fileEdits: {
+                '.env.dev': 'ENV_SPECIFIC_VAR=env-specific-var--dev-updated',
+              },
+              fileEditDelay: 2500,
+              bodyAssertions: {
+                shouldContain: ['env-specific-var--dev-updated'],
+                shouldNotContain: ['env-specific-var--dev'],
+              },
+            },
+          ],
+        });
+
         describe('output=export', () => {
           nextEnv.describeScenario('basic page', {
             command: buildCommand,

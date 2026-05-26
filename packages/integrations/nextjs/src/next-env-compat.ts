@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import { createHash } from 'crypto';
 import { type SerializedEnvGraph } from 'varlock';
 import { initVarlockEnv, resetRedactionMap } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
@@ -77,6 +78,11 @@ function consumePendingReloadSummary() {
   return `${files.length} env source file${files.length === 1 ? '' : 's'}`;
 }
 
+function getEnvFromNextCommand(dev: boolean): string {
+  if (process.env.NODE_ENV === 'test') return 'test';
+  return dev ? 'development' : 'production';
+}
+
 function enableExtraFileWatchers(sources: SerializedEnvGraph['sources'], basePath?: string) {
   if (IS_WORKER || !rootDir) return;
 
@@ -111,30 +117,76 @@ function enableExtraFileWatchers(sources: SerializedEnvGraph['sources'], basePat
   const mustDestroyTriggerFile = !triggerFilePath;
   triggerFilePath ||= path.join(rootDir!, '.env');
 
-  function triggerNextReload(changedPath: string) {
-    pendingReloadFiles.add(changedPath);
-    debug('extra file changed, triggering reload:', changedPath);
-    if (mustDestroyTriggerFile) {
-      fs.writeFileSync(triggerFilePath!, [
-        '# This file was created by @varlock/nextjs-integration',
-        '# It is used to trigger Next.js to reload when non-standard .env files change',
-        '# You can safely ignore and delete it',
-        '# @disable',
-        '# ---',
-      ].join('\n'), 'utf-8');
-      setTimeout(() => {
-        // eslint-disable-next-line
-        try { fs.unlinkSync(triggerFilePath!); } catch { /* may already be gone */ }
-      }, 1000);
-    } else {
-      const currentContents = fs.readFileSync(triggerFilePath!, 'utf-8');
-      fs.writeFileSync(triggerFilePath!, currentContents, 'utf-8');
+  const pendingWatchChanges = new Set<string>();
+  const watchedFileHashes = new Map<string, string | undefined>();
+  let debounceTimeout: ReturnType<typeof setTimeout> | undefined;
+  const DEBOUNCE_MS = 300;
+
+  function formatChangeSummary(changedPaths: Array<string>) {
+    return `${changedPaths.length} env source file${changedPaths.length === 1 ? '' : 's'}`;
+  }
+
+  function readFileHash(filePath: string): string | undefined {
+    try {
+      if (!fs.existsSync(filePath)) return undefined;
+      const contents = fs.readFileSync(filePath, 'utf-8');
+      const hash = createHash('sha256');
+      hash.update(contents, 'utf8');
+      return hash.digest('hex');
+    } catch {
+      return undefined;
     }
+  }
+
+  function triggerNextReload(changedPath: string) {
+    pendingWatchChanges.add(changedPath);
+    if (debounceTimeout) clearTimeout(debounceTimeout);
+
+    debounceTimeout = setTimeout(() => {
+      const changedPaths = [...pendingWatchChanges];
+      pendingWatchChanges.clear();
+
+      if (!changedPaths.length) return;
+      const changedByContent: Array<string> = [];
+      for (const filePath of changedPaths) {
+        const prev = watchedFileHashes.get(filePath);
+        const next = readFileHash(filePath);
+        watchedFileHashes.set(filePath, next);
+        if (next !== prev) changedByContent.push(filePath);
+      }
+
+      if (!changedByContent.length) {
+        const summary = formatChangeSummary(changedPaths);
+        // eslint-disable-next-line no-console
+        console.log(`[varlock] change detected in ${summary}; file contents unchanged, skipping next reload.`);
+        return;
+      }
+
+      for (const changed of changedByContent) pendingReloadFiles.add(changed);
+      debug('extra file changed, triggering reload:', changedByContent);
+      if (mustDestroyTriggerFile) {
+        fs.writeFileSync(triggerFilePath!, [
+          '# This file was created by @varlock/nextjs-integration',
+          '# It is used to trigger Next.js to reload when non-standard .env files change',
+          '# You can safely ignore and delete it',
+          '# @disable',
+          '# ---',
+        ].join('\n'), 'utf-8');
+        setTimeout(() => {
+          // eslint-disable-next-line
+          try { fs.unlinkSync(triggerFilePath!); } catch { /* may already be gone */ }
+        }, 1000);
+      } else {
+        const currentContents = fs.readFileSync(triggerFilePath!, 'utf-8');
+        fs.writeFileSync(triggerFilePath!, currentContents, 'utf-8');
+      }
+    }, DEBOUNCE_MS);
   }
 
   debug('setting up extra file watchers for:', extraFilePaths);
   for (const filePath of extraFilePaths) {
     watchedExtraFiles.add(filePath);
+    watchedFileHashes.set(filePath, readFileHash(filePath));
     fs.watchFile(filePath, { interval: 500 }, () => {
       triggerNextReload(filePath);
     });
@@ -337,8 +389,7 @@ export function loadEnvConfig(
   // we must match @next/env default behaviour for which .env.XXX files to load
   // which is based on the current command (`next dev` vs `next build`) and `NODE_ENV=test`
   // however we will pass it through and let the user ignore it by setting their own `@currentEnv`
-  let envFromNextCommand = dev ? 'development' : 'production';
-  if (process.env.NODE_ENV === 'test') envFromNextCommand = 'test';
+  const envFromNextCommand = getEnvFromNextCommand(!!dev);
   debug('Inferred env mode (to match @next/env):', envFromNextCommand);
 
   try {
