@@ -68,6 +68,14 @@ debug('✨ LOADED @next/env module!');
 // those extra files and trigger a reload by touching one of Next's watched files.
 const NEXT_WATCHED_ENV_FILES = ['.env', '.env.local', '.env.development', '.env.development.local'];
 const watchedExtraFiles = new Set<string>();
+const pendingReloadFiles = new Set<string>();
+
+function consumePendingReloadSummary() {
+  const files = [...pendingReloadFiles];
+  pendingReloadFiles.clear();
+  if (!files.length) return 'env source file change';
+  return `${files.length} env source file${files.length === 1 ? '' : 's'}`;
+}
 
 function enableExtraFileWatchers(sources: SerializedEnvGraph['sources'], basePath?: string) {
   if (IS_WORKER || !rootDir) return;
@@ -104,6 +112,7 @@ function enableExtraFileWatchers(sources: SerializedEnvGraph['sources'], basePat
   triggerFilePath ||= path.join(rootDir!, '.env');
 
   function triggerNextReload(changedPath: string) {
+    pendingReloadFiles.add(changedPath);
     debug('extra file changed, triggering reload:', changedPath);
     if (mustDestroyTriggerFile) {
       fs.writeFileSync(triggerFilePath!, [
@@ -319,6 +328,8 @@ export function loadEnvConfig(
   }
 
   lastReloadAt = new Date();
+  const reloadSummary = forceReload ? consumePendingReloadSummary() : undefined;
+  const previousSerializedEnv = process.env.__VARLOCK_ENV;
 
   debug('>> RELOADING ENV');
   replaceProcessEnv(initialEnv);
@@ -338,7 +349,17 @@ export function loadEnvConfig(
       fullResult: true,
       env: cleanEnv as any,
     });
-    if (loadCount >= 2) {
+    if (loadCount >= 2 && forceReload) {
+      const envChanged = stdout !== previousSerializedEnv;
+      const summary = reloadSummary || 'env source file change';
+      if (envChanged) {
+        // eslint-disable-next-line no-console
+        console.log(`[varlock] change detected in ${summary}; reloaded env, changes found.`);
+      } else {
+        // eslint-disable-next-line no-console
+        console.log(`[varlock] change detected in ${summary}; reloaded env, no changes found.`);
+      }
+    } else if (loadCount >= 2) {
       // eslint-disable-next-line no-console
       console.log('✅ env reloaded and validated');
     }
@@ -378,6 +399,11 @@ export function loadEnvConfig(
       }
     }
 
+    if (forceReload) {
+      const summary = reloadSummary || 'env source file change';
+      // eslint-disable-next-line no-console
+      console.error(`\n[varlock] change detected in ${summary}; reload failed.`);
+    }
     // eslint-disable-next-line no-console
     console.error('\n[varlock] ⚠️ fix the error(s) above and save to reload\n');
 
