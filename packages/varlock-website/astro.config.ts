@@ -152,6 +152,7 @@ export default defineConfig({
             { label: 'Imports', slug: 'guides/import' },
             { label: 'Plugins', slug: 'guides/plugins' },
             { label: 'Migrate from dotenv', slug: 'guides/migrate-from-dotenv' },
+            { label: 'Shell completion', slug: 'guides/shell-completion' },
             { label: 'Telemetry', slug: 'guides/telemetry' },
             { label: 'MCP', slug: 'guides/mcp' },
             { label: 'AI Tools', slug: 'guides/ai-tools' },

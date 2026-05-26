@@ -1,0 +1,62 @@
+---
+title: Shell completion
+description: Enable tab completion for the varlock CLI in bash, zsh, fish, and PowerShell
+---
+
+import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
+
+The varlock CLI supports tab completion for subcommands and flags. Setup is a one-time step per shell.
+
+Generate a completion script with `varlock complete <shell>`, then install it using the instructions below for your shell.
+
+After upgrading varlock, re-run `varlock complete <shell>` if new commands or flags were added.
+
+## Bash
+
+```bash
+mkdir -p ~/.local/share/bash-completion/completions
+varlock complete bash > ~/.local/share/bash-completion/completions/varlock
+source ~/.bashrc
+```
+
+## Zsh
+
+Zsh completion files must be named with a leading underscore:
+
+```bash
+mkdir -p ~/.zsh/completions
+echo 'fpath=(~/.zsh/completions $fpath)' >> ~/.zshrc
+echo 'autoload -U compinit && compinit' >> ~/.zshrc
+varlock complete zsh > ~/.zsh/completions/_varlock
+source ~/.zshrc
+```
+
+## Fish
+
+```bash
+mkdir -p ~/.config/fish/completions
+varlock complete fish > ~/.config/fish/completions/varlock.fish
+```
+
+Fish loads completions automatically — restart your shell or open a new terminal to pick them up.
+
+## PowerShell
+
+```powershell
+varlock complete powershell >> $PROFILE
+. $PROFILE
+```
+
+## What gets completed
+
+Tab completion covers varlock **subcommands** and **static flags** (including enum choices like `load --format`).
+
+Dynamic values — such as env var names from your schema — are not completed yet.
+
+## Troubleshooting
+
+If completions stop working after an upgrade, regenerate the script:
+
+<ExecCommandWidget command="varlock complete zsh > ~/.zsh/completions/_varlock" />
+
+Replace `zsh` and the output path with your shell and install location.
