@@ -85,7 +85,7 @@ DecoratorComment =
       } else {
         // attach trailing text warning to the last decorator on the line
         const lastDec = allDecorators[allDecorators.length - 1];
-        lastDec.data.warning = `Unexpected trailing text after @${lastDec.name}`;
+        lastDec.data.warning = `Unexpected trailing text after @${lastDec.name} - use another # for trailing comment`;
         postComment = trailingText;
       }
     }
