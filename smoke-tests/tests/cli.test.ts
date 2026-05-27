@@ -16,6 +16,41 @@ describe('CLI Commands', () => {
     expect(result.output).toContain('varlock');
   });
 
+  describe('shell completion', () => {
+    test('varlock complete bash generates bash completion script', () => {
+      const result = runVarlock(['complete', 'bash']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('bash completion for varlock');
+      expect(result.stdout).toContain('__varlock');
+    });
+
+    test('varlock complete zsh generates zsh completion script', () => {
+      const result = runVarlock(['complete', 'zsh']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('#compdef varlock');
+      expect(result.stdout).toContain('_varlock');
+    });
+
+    test('varlock complete fish generates fish completion script', () => {
+      const result = runVarlock(['complete', 'fish']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('complete -c varlock');
+    });
+
+    test('varlock complete -- suggests subcommands at runtime', () => {
+      const result = runVarlock(['complete', '--', 'lo']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('load');
+      expect(result.stdout).toContain('lock');
+    });
+
+    test('complete appears in varlock --help', () => {
+      const result = runVarlock(['--help']);
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('complete');
+    });
+  });
+
   test('varlock load should succeed', () => {
     const result = varlockLoad({ cwd: 'smoke-test-basic' });
     expect(result.exitCode).toBe(0);
