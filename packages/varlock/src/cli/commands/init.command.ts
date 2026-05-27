@@ -1,6 +1,8 @@
 /* eslint-disable @stylistic/quotes */
 import path from 'node:path';
+import os from 'node:os';
 import fs from 'node:fs/promises';
+import { execSync } from 'node:child_process';
 import ansis from 'ansis';
 import { isCancel, select } from '@clack/prompts';
 import { define } from 'gunshi';
@@ -382,6 +384,81 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         `✅ Created ${fmt.fileName('bunfig.toml')} with ${ansis.bold('env = false')}`,
         ansis.dim('This disables Bun\'s automatic .env loading, which conflicts with Varlock.'),
         ansis.dim(`See ${ansis.underline('https://varlock.dev/integrations/bun')} for more info.`),
+      ]);
+    }
+  }
+
+  // * OFFER SHELL COMPLETION SETUP ---------------------------------------------
+  // Only offer when varlock is on PATH (standalone binary or global install) —
+  // completions won't work for local project dependencies invoked via npx/bunx.
+  let varlockGloballyAccessible = false;
+  try {
+    const whichCmd = process.platform === 'win32' ? 'where varlock' : 'which varlock';
+    const resolvedPath = execSync(whichCmd, { stdio: 'pipe', encoding: 'utf-8' }).trim();
+    // npx/pnpm exec/bunx prepend node_modules/.bin to PATH, so `which` may
+    // resolve to a local shim — exclude those since completions won't work
+    // from other directories
+    varlockGloballyAccessible = !resolvedPath.includes('node_modules');
+  } catch {
+    // not on PATH
+  }
+  if (!agentMode && varlockGloballyAccessible) {
+    try {
+      const shellEnv = process.env.SHELL || '';
+      const shellName = path.basename(shellEnv);
+      const homeDir = os.homedir();
+
+      const shellCompletionInfo: Record<string, { file: string, setupCommands: Array<string> }> = {
+        bash: {
+          file: path.join(homeDir, '.local/share/bash-completion/completions/varlock'),
+          setupCommands: [
+            `mkdir -p ${path.join(homeDir, '.local/share/bash-completion/completions')}`,
+            `varlock complete bash > ${path.join(homeDir, '.local/share/bash-completion/completions/varlock')}`,
+          ],
+        },
+        zsh: {
+          file: path.join(homeDir, '.zsh/completions/_varlock'),
+          setupCommands: [
+            `mkdir -p ${path.join(homeDir, '.zsh/completions')}`,
+            `grep -q 'fpath=(~/.zsh/completions' ${path.join(homeDir, '.zshrc')} 2>/dev/null || echo 'fpath=(~/.zsh/completions $fpath)' >> ${path.join(homeDir, '.zshrc')}`,
+            `grep -q 'autoload -U compinit' ${path.join(homeDir, '.zshrc')} 2>/dev/null || echo 'autoload -U compinit && compinit' >> ${path.join(homeDir, '.zshrc')}`,
+            `varlock complete zsh > ${path.join(homeDir, '.zsh/completions/_varlock')}`,
+          ],
+        },
+        fish: {
+          file: path.join(homeDir, '.config/fish/completions/varlock.fish'),
+          setupCommands: [
+            `mkdir -p ${path.join(homeDir, '.config/fish/completions')}`,
+            `varlock complete fish > ${path.join(homeDir, '.config/fish/completions/varlock.fish')}`,
+          ],
+        },
+      };
+
+      const info = shellCompletionInfo[shellName];
+      if (info) {
+        const alreadyInstalled = await pathExists(info.file);
+        if (!alreadyInstalled) {
+          const confirmCompletions = await prompts.confirm({
+            message: `Would you like to enable shell completions for ${shellName}?`,
+            initialValue: true,
+          });
+          if (!isCancel(confirmCompletions) && confirmCompletions) {
+            for (const cmd of info.setupCommands) {
+              execSync(cmd, { stdio: 'pipe' });
+            }
+            logLines([
+              '',
+              `✅ Shell completions installed for ${ansis.bold(shellName)}`,
+              ansis.dim('Restart your shell or open a new terminal to start using tab completions.'),
+            ]);
+          }
+        }
+      }
+    } catch {
+      logLines([
+        '',
+        `⚠️  Could not auto-install shell completions.`,
+        `See ${ansis.underline('https://varlock.dev/guides/shell-completion')} for manual setup instructions.`,
       ]);
     }
   }

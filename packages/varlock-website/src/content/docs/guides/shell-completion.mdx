@@ -3,49 +3,55 @@ title: Shell completion
 description: Enable tab completion for the varlock CLI in bash, zsh, fish, and PowerShell
 ---
 
+import { Tabs, TabItem } from "@astrojs/starlight/components";
 import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
 
 The varlock CLI supports tab completion for subcommands and flags. Setup is a one-time step per shell.
+
+:::note[Global install required]
+Shell completions require `varlock` to be accessible on your system PATH — either via the [standalone binary](/getting-started/installation/#as-a-standalone-binary) (Homebrew or cURL) or a global npm install (`npm install -g varlock`). They won't work when varlock is only installed as a local project dependency (invoked via `npx`/`bunx`).
+:::
 
 Generate a completion script with `varlock complete <shell>`, then install it using the instructions below for your shell.
 
 After upgrading varlock, re-run `varlock complete <shell>` if new commands or flags were added.
 
-## Bash
+## Setup
 
-```bash
-mkdir -p ~/.local/share/bash-completion/completions
-varlock complete bash > ~/.local/share/bash-completion/completions/varlock
-source ~/.bashrc
-```
+<Tabs syncKey="shell">
+  <TabItem label="Zsh">
+    Zsh completion files must be named with a leading underscore:
 
-## Zsh
+    ```bash
+    mkdir -p ~/.zsh/completions
+    echo 'fpath=(~/.zsh/completions $fpath)' >> ~/.zshrc
+    echo 'autoload -U compinit && compinit' >> ~/.zshrc
+    varlock complete zsh > ~/.zsh/completions/_varlock
+    source ~/.zshrc
+    ```
+  </TabItem>
+  <TabItem label="Bash">
+    ```bash
+    mkdir -p ~/.local/share/bash-completion/completions
+    varlock complete bash > ~/.local/share/bash-completion/completions/varlock
+    source ~/.bashrc
+    ```
+  </TabItem>
+  <TabItem label="Fish">
+    ```bash
+    mkdir -p ~/.config/fish/completions
+    varlock complete fish > ~/.config/fish/completions/varlock.fish
+    ```
 
-Zsh completion files must be named with a leading underscore:
-
-```bash
-mkdir -p ~/.zsh/completions
-echo 'fpath=(~/.zsh/completions $fpath)' >> ~/.zshrc
-echo 'autoload -U compinit && compinit' >> ~/.zshrc
-varlock complete zsh > ~/.zsh/completions/_varlock
-source ~/.zshrc
-```
-
-## Fish
-
-```bash
-mkdir -p ~/.config/fish/completions
-varlock complete fish > ~/.config/fish/completions/varlock.fish
-```
-
-Fish loads completions automatically — restart your shell or open a new terminal to pick them up.
-
-## PowerShell
-
-```powershell
-varlock complete powershell >> $PROFILE
-. $PROFILE
-```
+    Fish loads completions automatically — restart your shell or open a new terminal to pick them up.
+  </TabItem>
+  <TabItem label="PowerShell">
+    ```powershell
+    varlock complete powershell >> $PROFILE
+    . $PROFILE
+    ```
+  </TabItem>
+</Tabs>
 
 ## What gets completed
 
