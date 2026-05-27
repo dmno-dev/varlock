@@ -54,7 +54,7 @@ function basicDecoratorTests(tests: Array<[string, any] | { label: string, comme
               }
             } else {
               expectInstanceOf(decoratorObject[key].value, ParsedEnvSpecStaticValue);
-              expect(decoratorObject[key].value.value).toEqual(expectedValue);
+              expect((decoratorObject[key].value as any).value).toEqual(expectedValue);
             }
           }
         }
@@ -260,25 +260,25 @@ describe('decorator parsing', () => {
       return result.configItems[0].decoratorsArray;
     }
 
-    // trailing text warning is attached to the last decorator on the line
-    it('should produce a warning for `# @foo blah` (decorator with trailing text)', () => {
+    // stray text is attached to the preceding decorator
+    it('should attach stray text to decorator for `# @foo blah`', () => {
       const decs = parseDecorators('# @foo blah');
       expect(decs).toHaveLength(1);
-      expect(decs[0].warning).toBeTruthy();
+      expect(decs[0].strayText).toBe('blah');
     });
 
-    it('should produce a warning for `# @see https://example.com`', () => {
+    it('should attach stray text for `# @see https://example.com`', () => {
       const decs = parseDecorators('# @see https://example.com');
       expect(decs).toHaveLength(1);
-      expect(decs[0].warning).toBeTruthy();
+      expect(decs[0].strayText).toBe('https://example.com');
     });
 
     // colon after decorator name is also a warning (via hasInvalidName)
-    it('should flag `# @todo: fix me later` as invalid name + trailing text', () => {
+    it('should flag `# @todo: fix me later` as invalid name + stray text', () => {
       const decs = parseDecorators('# @todo: fix me later');
       expect(decs).toHaveLength(1);
       expect(decs[0].hasInvalidName).toBe(true);
-      expect(decs[0].warning).toBeTruthy();
+      expect(decs[0].strayText).toBe('fix me later');
     });
 
     it('should flag `# @todo:` as invalid name', () => {
@@ -287,23 +287,25 @@ describe('decorator parsing', () => {
       expect(decs[0].hasInvalidName).toBe(true);
     });
 
-    it('should attach warning to last decorator for `# @dec1 @dec2 bad comment`', () => {
+    it('should attach stray text to last decorator for `# @dec1 @dec2 bad comment`', () => {
       const decs = parseDecorators('# @dec1 @dec2 bad comment');
       expect(decs).toHaveLength(2);
-      expect(decs[0].warning).toBeUndefined();
-      expect(decs[1].warning).toBeTruthy();
+      expect(decs[0].name).toBe('dec1');
+      expect(decs[0].strayText).toBeUndefined();
+      expect(decs[1].name).toBe('dec2');
+      expect(decs[1].strayText).toBe('bad comment');
     });
 
-    it('should produce a warning for `# @dec=foo bar` (trailing text after value)', () => {
+    it('should attach stray text for `# @dec=foo bar`', () => {
       const decs = parseDecorators('# @dec=foo bar');
       expect(decs).toHaveLength(1);
-      expect(decs[0].warning).toBeTruthy();
+      expect(decs[0].strayText).toBe('bar');
     });
 
-    it('should produce a warning for `# @dec="foo" not commented` (trailing text after quoted value)', () => {
+    it('should attach stray text for `# @dec="foo" not commented`', () => {
       const decs = parseDecorators('# @dec="foo" not commented');
       expect(decs).toHaveLength(1);
-      expect(decs[0].warning).toBeTruthy();
+      expect(decs[0].strayText).toBe('not commented');
     });
 
     // invalid decorator names (hyphens, colons) produce hasInvalidName
@@ -321,10 +323,26 @@ describe('decorator parsing', () => {
     });
 
     // post-decorator comments prefixed with # are valid
-    it('should NOT produce a warning for `# @dec # this is ok` (post comment)', () => {
+    it('should NOT have stray text for `# @dec # this is ok` (post comment)', () => {
       const decs = parseDecorators('# @dec # this is ok');
       expect(decs).toHaveLength(1);
-      expect(decs[0].warning).toBeUndefined();
+      expect(decs[0].strayText).toBeUndefined();
+    });
+
+    // decorators after stray text are still parsed as real decorators
+    it('should parse both decorators in `# @dec1 extra @dec2 extra` with stray text on each', () => {
+      const decs = parseDecorators('# @dec1 extra @dec2 extra');
+      expect(decs).toHaveLength(2);
+      expect(decs[0].name).toBe('dec1');
+      expect(decs[0].strayText).toBe('extra');
+      expect(decs[1].name).toBe('dec2');
+      expect(decs[1].strayText).toBe('extra');
+    });
+
+    it('should attach stray text to decorator', () => {
+      const decs = parseDecorators('# @dec1 extra');
+      expect(decs).toHaveLength(1);
+      expect(decs[0].strayText).toBe('extra');
     });
   });
 });
