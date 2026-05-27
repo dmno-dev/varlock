@@ -87,10 +87,6 @@ jobs:
       - name: Enable turborepo build cache
         uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
 
-      # Ensure npm 11.5.1 or later is installed (for trusted publishing)
-      - name: Update npm
-        run: npm install -g npm@latest
-
       # Download signed macOS native binary so it's included in the npm package
       - name: Download macOS native binary
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
