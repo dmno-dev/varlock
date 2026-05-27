@@ -96,10 +96,13 @@ export abstract class DecoratorInstance {
         throw new SchemaError(`Unknown decorator: @${this.name}`);
       }
 
-      // surface parser-level warnings (e.g. trailing text after decorator)
-      // placed after unknown-decorator checks so comment-like names (which throw above) skip this
-      if (this.parsedDecorator.warning) {
-        this._errors.push(new SchemaError(this.parsedDecorator.warning, { isWarning: true }));
+
+      // stray text found after this decorator (e.g. `# @dec some text`)
+      if (this.parsedDecorator.strayText) {
+        this._errors.push(new SchemaError(
+          `Unexpected text "${this.parsedDecorator.strayText}" after @${this.name} - use another # for trailing comments`,
+          { isWarning: true },
+        ));
       }
 
       // validate function-call vs value syntax

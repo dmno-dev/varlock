@@ -18,7 +18,7 @@ const { command, showBinary = true, dlx = false } = Astro.props;
     <Code code={`pnpm ${dlx ? "dlx" : "exec --"} ${command}`} lang="bash" />
   </TabItem>
   <TabItem label="bun">
-    <Code code={`${dlx ? "bunx" : "bun exec"} ${command}`} lang="bash" />
+    <Code code={`bunx ${command}`} lang="bash" />
   </TabItem>
   <TabItem label="vlt">
     <Code code={`${dlx ? "vlx" : "vlx --"} ${command}`} lang="bash" />

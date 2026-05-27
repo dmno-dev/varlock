@@ -61,7 +61,8 @@
     "@modelcontextprotocol/sdk": ">=1.29.0",
     "postcss": ">=8.5.10",
     "qs": "^6.15.2",
-    "ws": ">=8.20.1"
+    "ws": ">=8.20.1",
+    "tmp": ">=0.2.6"
   },
   "catalog": {
     "@sindresorhus/is": "^7.2.0",

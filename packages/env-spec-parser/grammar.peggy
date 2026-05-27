@@ -73,20 +73,19 @@ Comment =
 DecoratorComment =
   "#" leadingSpace:$_
   first:Decorator
-  rest:(__ @(Decorator))*
-  trailingText:(__ @$([^\n]+) / @$("#" [^\n]*))?
+  rest:(__ @DecoratorOrText)*
+  postComment:(_  @$("#" [^\n]*))?
   _
   {
-    const allDecorators = [first, ...rest];
-    let postComment;
-    if (trailingText) {
-      if (trailingText.startsWith('#')) {
-        postComment = trailingText;
+    const allDecorators = [first];
+    let lastDecorator = first;
+    for (const item of rest) {
+      if (item instanceof ParsedEnvSpecDecorator) {
+        allDecorators.push(item);
+        lastDecorator = item;
       } else {
-        // attach trailing text warning to the last decorator on the line
-        const lastDec = allDecorators[allDecorators.length - 1];
-        lastDec.data.warning = `Unexpected trailing text after @${lastDec.name}`;
-        postComment = trailingText;
+        // attach stray text to the preceding decorator
+        lastDecorator.data.strayText = item;
       }
     }
     return new ParsedEnvSpecDecoratorComment({
@@ -96,6 +95,14 @@ DecoratorComment =
       _location: location(),
     })
   }
+
+// either a decorator (@name...) or a non-decorator text chunk
+// words must start with a non-#, non-@, non-whitespace char but may contain # mid-word
+// this ensures `# comment` is still captured by postComment
+DecoratorOrText =
+  Decorator
+  / first:$([^ \t@#\n] [^ \t@\n]*) rest:(__ @$([^ \t@#\n] [^ \t@\n]*))*
+    { return [first, ...rest].join(' '); }
 
 Decorator =
   "@" name:DecoratorName
