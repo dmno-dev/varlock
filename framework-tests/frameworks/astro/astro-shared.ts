@@ -3,8 +3,10 @@ import {
 } from 'vitest';
 import { FrameworkTestEnv } from '../../harness/index';
 
-export function defineAstroTests(astroVersion: number, testDir: string) {
+export function defineAstroTests(astroVersion: number, testDir: string, opts: { portBase: number }) {
   const nodeAdapterVersion = astroVersion >= 6 ? '^10' : '^9';
+  let nextPort = opts.portBase;
+  const port = () => nextPort++;
 
   describe(`Astro v${astroVersion}`, () => {
     const astroEnv = new FrameworkTestEnv({
@@ -177,7 +179,7 @@ export function defineAstroTests(astroVersion: number, testDir: string) {
 
     describe('server output', () => {
       astroEnv.describeDevScenario('basic SSR page', {
-        command: 'astro dev --port 14321',
+        command: `astro dev --port ${port()}`,
         readyPattern: /http:\/\/localhost/,
         readyTimeout: 30_000,
         templateFiles: {
@@ -208,7 +210,7 @@ export function defineAstroTests(astroVersion: number, testDir: string) {
       });
 
       astroEnv.describeDevScenario('leaky SSR page', {
-        command: 'astro dev --port 14322',
+        command: `astro dev --port ${port()}`,
         readyPattern: /http:\/\/localhost/,
         readyTimeout: 30_000,
         templateFiles: {
@@ -235,7 +237,7 @@ export function defineAstroTests(astroVersion: number, testDir: string) {
       });
 
       astroEnv.describeDevScenario('API endpoint', {
-        command: 'astro dev --port 14323',
+        command: `astro dev --port ${port()}`,
         readyPattern: /http:\/\/localhost/,
         readyTimeout: 30_000,
         templateFiles: {
@@ -259,7 +261,7 @@ export function defineAstroTests(astroVersion: number, testDir: string) {
       });
 
       astroEnv.describeDevScenario('leaky API endpoint', {
-        command: 'astro dev --port 14324',
+        command: `astro dev --port ${port()}`,
         readyPattern: /http:\/\/localhost/,
         readyTimeout: 30_000,
         templateFiles: {
@@ -285,7 +287,7 @@ export function defineAstroTests(astroVersion: number, testDir: string) {
       });
 
       astroEnv.describeDevScenario('non-existent var access in API endpoint', {
-        command: 'astro dev --port 14325',
+        command: `astro dev --port ${port()}`,
         readyPattern: /http:\/\/localhost/,
         readyTimeout: 30_000,
         templateFiles: {
@@ -319,7 +321,7 @@ export function defineAstroTests(astroVersion: number, testDir: string) {
       // This appears to be a vitest + Astro-specific interaction issue.
       astroEnv.describeDevScenario('env reload on .env file change', {
         skip: true,
-        command: 'astro dev --port 14326',
+        command: `astro dev --port ${port()}`,
         readyPattern: /http:\/\/localhost/,
         readyTimeout: 30_000,
         templateFiles: {

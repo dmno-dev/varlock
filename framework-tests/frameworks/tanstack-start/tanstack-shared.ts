@@ -20,9 +20,12 @@ export function defineTanstackTests(
   opts: {
     viteVersion: string;
     reactPluginVersion?: string;
+    portBase: number;
   },
 ) {
-  const { viteVersion, reactPluginVersion = '^5' } = opts;
+  const { viteVersion, reactPluginVersion = '^5', portBase } = opts;
+  let nextPort = portBase;
+  const port = () => nextPort++;
 
   // ---- Node target (plain vite plugin) ------------------------------------
   describe(`TanStack Start (${label}) — node target`, () => {
@@ -50,7 +53,7 @@ export function defineTanstackTests(
     afterAll(() => nodeEnv.teardown());
 
     nodeEnv.describeDevScenario('dev server', {
-      command: 'vite dev --port 15190',
+      command: `vite dev --port ${port()}`,
       readyPattern: /Local:.*http/,
       readyTimeout: 45_000,
       templateFiles: {
@@ -93,7 +96,7 @@ export function defineTanstackTests(
     });
 
     nodeEnv.describeDevScenario('build + preview', {
-      command: 'vite build && vite preview --port 15193',
+      command: `vite build && vite preview --port ${port()}`,
       readyPattern: /Local:.*http/,
       readyTimeout: 60_000,
       timeout: 120_000,
@@ -118,7 +121,7 @@ export function defineTanstackTests(
     // Top-level ENV access — verifies initVarlockEnv runs before
     // application modules so ENV.x works outside handlers/async fns.
     nodeEnv.describeDevScenario('top-level ENV access (build + preview)', {
-      command: 'vite build && vite preview --port 15194',
+      command: `vite build && vite preview --port ${port()}`,
       readyPattern: /Local:.*http/,
       readyTimeout: 60_000,
       timeout: 120_000,
@@ -174,7 +177,7 @@ export function defineTanstackTests(
     afterAll(() => cfEnv.teardown());
 
     cfEnv.describeDevScenario('dev server', {
-      command: 'vite dev --port 15191',
+      command: `vite dev --port ${port()}`,
       readyPattern: /Local:.*http/,
       readyTimeout: 45_000,
       templateFiles: {
@@ -227,7 +230,7 @@ export function defineTanstackTests(
     });
 
     cfEnv.describeDevScenario('build + preview', {
-      command: 'vite build && vite preview --port 15192',
+      command: `vite build && vite preview --port ${port()}`,
       readyPattern: /Local:.*http/,
       readyTimeout: 60_000,
       timeout: 120_000,
@@ -253,7 +256,7 @@ export function defineTanstackTests(
     // Top-level ENV access — verifies initVarlockEnv runs before
     // application modules so ENV.x works outside handlers/async fns.
     cfEnv.describeDevScenario('top-level ENV access (build + preview)', {
-      command: 'vite build && vite preview --port 15195',
+      command: `vite build && vite preview --port ${port()}`,
       readyPattern: /Local:.*http/,
       readyTimeout: 60_000,
       timeout: 120_000,
