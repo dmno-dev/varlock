@@ -40,11 +40,6 @@ function exec(cmd: string) {
 exec(`rm -rf ${DIST_DIR}`);
 exec(`mkdir -p ${DIST_DIR}`);
 
-const templatesSrc = path.join(PKG_DIR, 'templates');
-if (fs.existsSync(templatesSrc)) {
-  exec(`cp -R "${templatesSrc}" "${DIST_DIR}/templates"`);
-}
-
 // dev mode = only build for the current platform, into dist-sea/varlock
 if (devMode) {
   const binName = process.platform === 'win32' ? 'varlock.exe' : 'varlock';
@@ -92,11 +87,6 @@ if (devMode) {
     const binName = `varlock${isWin ? '.exe' : ''}`;
 
     exec(`mkdir -p ${targetDir}`);
-
-    if (fs.existsSync(templatesSrc)) {
-      exec(`cp -R "${templatesSrc}" "${targetDir}/templates"`);
-    }
-
     exec([
       'bun build',
       '--compile',

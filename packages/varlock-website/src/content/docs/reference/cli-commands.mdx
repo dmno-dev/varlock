@@ -54,16 +54,12 @@ While plugins cannot add additional CLI commands, they can extend varlock with a
 ### `varlock init` ||init||
 Starts an interactive onboarding process to help you get started. Will help create your `.env.schema` and install varlock as a dependency if necessary.
 
-Can be re-run on projects that already have a `.env.schema` to install or update agent tooling (skills and Docs MCP).
-
 ```bash
 varlock init [options]
 ```
 
 **Options:**
-- `--agent`: Run non-interactively for agent/automation workflows. Skips confirmation prompts, uses deterministic defaults for schema generation, and installs agent tooling.
-- `--ai-tool`: Override AI tool auto-detection. One of: `cursor`, `claude`, `codex`, `opencode`, `vscode`. Required in `--agent` mode when auto-detection fails.
-- `--install-docs-mcp`: Install the [Varlock Docs MCP](/guides/mcp/#docs-mcp) server in the detected or overridden AI tool.
+- `--agent`: Run non-interactively for agent/automation workflows. Skips confirmation prompts and uses deterministic defaults for schema generation.
 
 **Examples:**
 ```bash
@@ -72,13 +68,10 @@ varlock init
 
 # Non-interactive setup for AI agents
 varlock init --agent
-
-# Install agent tooling on an existing project
-varlock init --agent --ai-tool cursor --install-docs-mcp
 ```
 
 :::tip
-See the [AI Tools guide](/guides/ai-tools/#agent-mode) for more on using `--agent` with AI coding assistants.
+Install the Varlock agent skill with `npx skills add dmno-dev/varlock`. See the [AI Tools guide](/guides/ai-tools/#agent-mode) for more.
 :::
 
 </div>

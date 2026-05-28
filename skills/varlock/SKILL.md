@@ -5,8 +5,6 @@ description: >-
   setting up varlock, migrating from dotenv, adding plugins or framework
   integrations, configuring env validation, marking secrets @sensitive,
   running varlock init/load/scan/run, or integrating varlock into a project.
-metadata:
-  varlock-skill-version: 1
 ---
 
 # Varlock
@@ -98,9 +96,11 @@ After adding an integration or plugin, run `varlock load --agent` to confirm the
 
 ## Setup
 
-1. Run `varlock init --agent` (add `--ai-tool cursor|claude|codex|opencode` if auto-detection fails)
+1. Run `varlock init --agent` to create or review `.env.schema`
 2. Review the generated schema with the user — init heuristics are a draft, not final
-3. Re-run `varlock init --agent` on existing projects to refresh the Varlock skill or install Docs MCP (`--install-docs-mcp`)
+3. Install this skill with [skills](https://github.com/vercel-labs/skills): `npx skills add dmno-dev/varlock`
+
+Update later with `npx skills update varlock`.
 
 ## Schema checklist
 
@@ -131,7 +131,7 @@ Fix schema and tracked env files based on validation errors. Do not patch gitign
 
 | Command | Use when |
 |---------|----------|
-| `varlock init --agent` | Setting up varlock or refreshing agent tooling |
+| `varlock init --agent` | Setting up varlock non-interactively |
 | `varlock load --agent` | Validating config safely in agent logs |
 | `varlock load` | Showing human-readable output to the user |
 | `varlock run -- <cmd>` | Injecting resolved env into a process |

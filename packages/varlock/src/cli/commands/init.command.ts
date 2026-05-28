@@ -22,49 +22,6 @@ import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { findEnvFiles } from '../helpers/find-env-files';
 import { tryCatch } from '@env-spec/utils/try-catch';
 import { scanCodeForEnvVars } from '../helpers/env-var-scanner';
-import {
-  AI_TOOLS, detectAiTool, parseAiTool, runAgentSetup, type AgentSetupResult,
-} from '../helpers/agent-setup';
-
-function logAgentSetupResult(
-  result: AgentSetupResult,
-  opts: { agentMode: boolean, attemptedDocsMcp?: boolean },
-) {
-  if (!result.aiTool) {
-    if (opts.agentMode) {
-      logLines([
-        '',
-        ansis.bold('Agent tooling:'),
-        ansis.yellow('Could not detect your AI tool automatically.'),
-        `Re-run with ${fmt.command('varlock init --agent --ai-tool <tool>', { jsPackageManager: true })} where tool is one of: ${AI_TOOLS.join(', ')}.`,
-      ]);
-    } else if (opts.attemptedDocsMcp) {
-      logLines([
-        '',
-        ansis.yellow('Could not detect your AI tool. Docs MCP was not installed.'),
-      ]);
-    }
-    return;
-  }
-
-  const lines = ['', ansis.bold(`Agent tooling (${result.aiTool}):`)];
-
-  if (result.skill?.action === 'installed') {
-    lines.push(`✅ Installed Varlock skill (v${result.skill.version})`);
-  } else if (result.skill?.action === 'updated') {
-    lines.push(`✅ Updated Varlock skill to v${result.skill.version}`);
-  } else if (result.skill?.skippedReason) {
-    lines.push(ansis.dim(`Skill: ${result.skill.skippedReason}`));
-  }
-
-  if (result.docsMcp?.installed) {
-    lines.push(`✅ Installed Varlock Docs MCP`);
-  } else if (result.docsMcp?.skippedReason) {
-    lines.push(ansis.dim(`Docs MCP: ${result.docsMcp.skippedReason}`));
-  }
-
-  logLines(lines);
-}
 
 export const commandSpec = define({
   name: 'init',
@@ -74,14 +31,6 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'Run in non-interactive mode for agent/automation workflows',
     },
-    'ai-tool': {
-      type: 'string',
-      description: `Override AI tool auto-detection (${AI_TOOLS.join(', ')})`,
-    },
-    'install-docs-mcp': {
-      type: 'boolean',
-      description: 'Install the Varlock Docs MCP server in the detected AI tool',
-    },
   },
   examples: `
 This command starts an interactive onboarding process to help you get started with Varlock.
@@ -89,14 +38,12 @@ It will:
   - Scan for existing .env files in your project
   - Help create a .env.schema file from your .env.example or .env.sample file
   - Install varlock as a dependency in package.json (if applicable)
-  - Install agent skills and Docs MCP when run with --agent
 
 📍 Run this command in directories that contain .env or .env.* files
 
 Examples:
-  varlock init                                              # Run in the current directory
-  varlock init --agent                                      # Run non-interactively (agent/automation friendly)
-  varlock init --agent --ai-tool cursor --install-docs-mcp  # Install agent tooling on an existing project
+  varlock init                    # Run in the current directory
+  varlock init --agent            # Run non-interactively (agent/automation friendly)
   cd path/to/your/project && varlock init
 
 For more information, visit https://varlock.dev/getting-started/installation
@@ -105,13 +52,7 @@ For more information, visit https://varlock.dev/getting-started/installation
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const agentMode = Boolean(ctx.values.agent);
-  const aiToolOverride = ctx.values['ai-tool'];
-  const installDocsMcpFlag = Boolean(ctx.values['install-docs-mcp']);
   const jsPackageManager = detectJsPackageManager();
-
-  if (aiToolOverride && !parseAiTool(aiToolOverride)) {
-    throw new Error(`Invalid --ai-tool value "${aiToolOverride}". Expected one of: ${AI_TOOLS.join(', ')}`);
-  }
 
   console.log('🧙 Hello and welcome to Varlock 🔒🔥✨');
   if (agentMode) {
@@ -145,12 +86,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   // * SET UP SCHEMA  ---------------------------------------------
   if (existingSchemaFile) {
+    // for now - we don't do anything if they already have a schema set up
+    // in the future, we may want to add more tools for projects that are already set up
     logLines([
       `It looks like you already have a ${fmt.fileName('.env.schema')} file 🎉`,
+      'This init helper is meant to help you get a new project set up.',
       'If you need to make changes to your schema or values, you can update your files directly.',
       'See more docs at https://varlock.dev/guides/schema',
-      '',
-      ansis.dim(`Already set up? Re-run ${fmt.command('varlock init --agent', { jsPackageManager: true })} to install or update agent skills and Docs MCP.`),
     ]);
   } else {
     const allExampleFileNames = Object.keys(parsedEnvFiles).filter((fileName) => {
@@ -289,7 +231,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         '- Add `@docs()` to attach docs links to items',
         '',
         'Help user review and update .env.schema file for them, validating that config is resolving correctly and valid.',
-        'Schema file is safe to read, as are tracked `.env.[currentEnv]` files. Do not look directly at values in `.env`, `.env.local`, or `.env.[currentEnv].local` files — tell user to edit those files if necessary.',
+        'Schema file is safe to read, do not look directly at values in .env / .env.local files - tell user to edit those files if necessary.',
         `Validate the resolved config any time using ${fmt.command('varlock load --agent', { jsPackageManager: true })}. It prints JSON with sensitive values redacted so you can safely inspect output in logs or transcripts. Or drop the \`--agent\` flag to get human-readable output to show the user.`,
         '',
         'Advanced setup:',
@@ -442,32 +384,5 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         ansis.dim(`See ${ansis.underline('https://varlock.dev/integrations/bun')} for more info.`),
       ]);
     }
-  }
-
-  // * AGENT SETUP (skills + optional Docs MCP) --------------------------------
-  let shouldInstallDocsMcp = installDocsMcpFlag;
-
-  if (!agentMode && !shouldInstallDocsMcp && detectAiTool({ aiToolOverride })) {
-    const confirmInstallDocsMcp = await prompts.confirm({
-      message: 'Install the Varlock Docs MCP server in your AI tool?',
-    });
-    if (isCancel(confirmInstallDocsMcp)) return gracefulExit(0);
-    shouldInstallDocsMcp = confirmInstallDocsMcp;
-  }
-
-  if (agentMode) {
-    const agentSetupResult = runAgentSetup({
-      aiToolOverride,
-      installSkill: true,
-      installDocsMcp: shouldInstallDocsMcp,
-    });
-    logAgentSetupResult(agentSetupResult, { agentMode: true });
-  } else if (shouldInstallDocsMcp) {
-    const agentSetupResult = runAgentSetup({
-      aiToolOverride,
-      installSkill: false,
-      installDocsMcp: true,
-    });
-    logAgentSetupResult(agentSetupResult, { agentMode: false, attemptedDocsMcp: true });
   }
 };

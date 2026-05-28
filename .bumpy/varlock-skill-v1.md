@@ -2,4 +2,4 @@
 varlock: patch
 ---
 
-Add bundled Varlock agent skill template with versioned auto-updates on `varlock init --agent`.
+Add Varlock agent skill at `skills/varlock/SKILL.md` for installation via `npx skills add dmno-dev/varlock`.

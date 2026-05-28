@@ -38,6 +38,12 @@ For AI agent workflows, use non-interactive mode instead:
 
 <ExecCommandWidget command="varlock init --agent" showBinary={false} dlx={true} />
 
+Then install the Varlock agent skill:
+
+```bash
+npx skills add dmno-dev/varlock
+```
+
 This will install `varlock` as a dependency and scan your project for `.env` files and create a `.env.schema` file in the root of your project. Depending on your project configuration, it will optionally:
 - Remove your existing `.env.example` file
 - Add decorators to your `.env.schema` file to specify the type of each environment variable
