@@ -109,6 +109,64 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
       const buildCommand = `next build ${buildToolFlag}`;
 
       describe(`bundler=${webpackOrTurbo}`, () => {
+        const devPort = 14000 + (nextVersion * 10) + (webpackOrTurbo === 'turbopack' ? 1 : 0);
+        const devCommand = `next dev ${buildToolFlag} --port ${devPort}`.replace(/\s+/g, ' ').trim();
+
+        nextEnv.describeDevScenario('dev: unchanged extra env file content does not trigger reload', {
+          command: devCommand,
+          readyPattern: /Ready in|Starting\.\.\./,
+          readyTimeout: 40_000,
+          templateFiles: {
+            'app/page.tsx': 'pages/basic-page.tsx',
+          },
+          requests: [
+            {
+              path: '/',
+              bodyAssertions: {
+                shouldContain: ['Varlock Framework Test - Next.js'],
+              },
+            },
+            {
+              path: '/',
+              fileEdits: {
+                '.env.dev': 'ENV_SPECIFIC_VAR=env-specific-var--dev',
+              },
+              // Watchers are debounced; wait long enough to assert no reload path.
+              fileEditDelay: 2000,
+              bodyAssertions: {
+                shouldContain: ['Varlock Framework Test - Next.js'],
+              },
+            },
+          ],
+        });
+
+        nextEnv.describeDevScenario('dev: changed extra env file content triggers reload', {
+          command: devCommand,
+          readyPattern: /Ready in|Starting\.\.\./,
+          readyTimeout: 40_000,
+          templateFiles: {
+            'app/page.tsx': 'pages/basic-page.tsx',
+          },
+          requests: [
+            {
+              path: '/',
+              bodyAssertions: {
+                shouldContain: ['Varlock Framework Test - Next.js'],
+              },
+            },
+            {
+              path: '/',
+              fileEdits: {
+                '.env.dev': 'ENV_SPECIFIC_VAR=env-specific-var--dev-updated',
+              },
+              fileEditDelay: 2500,
+              bodyAssertions: {
+                shouldContain: ['Varlock Framework Test - Next.js'],
+              },
+            },
+          ],
+        });
+
         describe('output=export', () => {
           nextEnv.describeScenario('basic page', {
             command: buildCommand,
