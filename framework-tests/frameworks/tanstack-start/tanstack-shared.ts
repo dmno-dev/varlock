@@ -7,9 +7,9 @@ import {
 import { FrameworkTestEnv } from '../../harness/index';
 
 const TANSTACK_DEPS = {
-  '@tanstack/react-router': '^1.169.1',
-  '@tanstack/react-start': '^1.167.62',
-  '@tanstack/router-plugin': '^1.167.32',
+  '@tanstack/react-router': '^1.170.8',
+  '@tanstack/react-start': '^1.168.13',
+  '@tanstack/router-plugin': '^1.168.11',
   react: '19.2.4',
   'react-dom': '19.2.4',
 };
