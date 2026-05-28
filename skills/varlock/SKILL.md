@@ -98,9 +98,9 @@ After adding an integration or plugin, run `varlock load --agent` to confirm the
 
 1. Run `varlock init --agent` to create or review `.env.schema`
 2. Review the generated schema with the user — init heuristics are a draft, not final
-3. Install this skill with [skills](https://github.com/vercel-labs/skills): `npx skills add dmno-dev/varlock`
-
-Update later with `npx skills update varlock`.
+3. Install this skill:
+   - **skills** (recommended): `npx skills add dmno-dev/varlock` — update with `npx skills update varlock`
+   - **GitHub CLI** (v2.90+): `gh skill install dmno-dev/varlock varlock` — update with `gh skill update varlock`
 
 ## Schema checklist
 

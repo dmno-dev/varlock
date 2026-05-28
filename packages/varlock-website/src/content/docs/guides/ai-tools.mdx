@@ -145,20 +145,22 @@ Here's how to configure and run popular AI coding CLI tools with varlock:
 
 ---
 
-## Agent mode
+## Install the Varlock skill
 
-Varlock provides a non-interactive `--agent` flag for `init` and `load`, designed for AI coding assistants running commands on your behalf.
+Give your AI agent project-scoped instructions for working with Varlock — security rules, schema checklists, and CLI guidance. Install using one of:
 
-### Install the Varlock skill
+<Tabs>
+  <TabItem label="skills">
 
-Install project-scoped agent instructions with the [skills CLI](https://github.com/vercel-labs/skills):
+Install with the [skills CLI](https://github.com/vercel-labs/skills) (recommended):
 
 ```bash
 npx skills add dmno-dev/varlock
 ```
 
-The CLI detects your installed agents and installs to the correct skills directory (Cursor, Claude Code, Codex, Copilot, OpenCode, and [50+ others](https://github.com/vercel-labs/skills#supported-agents)). Target a specific agent with `-a`:
+The CLI detects your installed agents and installs to the correct skills directory (Cursor, Claude Code, Codex, Copilot, OpenCode, and [50+ others](https://github.com/vercel-labs/skills#supported-agents)). 
 
+Target a specific agent with `-a`:
 ```bash
 npx skills add dmno-dev/varlock -a cursor -a claude-code -y
 ```
@@ -168,6 +170,34 @@ Update later with:
 ```bash
 npx skills update varlock
 ```
+
+  </TabItem>
+  <TabItem label="GitHub CLI">
+
+Install with [`gh skill`](https://github.blog/changelog/2026-04-16-manage-agent-skills-with-github-cli/) (requires GitHub CLI v2.90+):
+
+```bash
+gh skill install dmno-dev/varlock varlock
+```
+
+Target a specific agent and scope:
+
+```bash
+gh skill install dmno-dev/varlock varlock --agent cursor --scope project
+```
+
+Update later with:
+
+```bash
+gh skill update varlock
+```
+
+  </TabItem>
+</Tabs>
+
+## Agent mode
+
+Varlock provides a non-interactive `--agent` flag for `init` and `load`, designed for AI coding assistants running commands on your behalf.
 
 ### `varlock init --agent`
 
@@ -207,7 +237,9 @@ If you use a tool with its own ignore file, check that tool's documentation to s
 
 ## Custom instructions and rules
 
-To give your AI tool full context about `varlock`, you can provide it with the [full Varlock `llms.txt`](https://varlock.dev/llms-full.txt). In Cursor, this is accomplished via 'Add New Custom Docs'. 
+The [Varlock agent skill](#install-the-varlock-skill) is the recommended way to give agents structured guidance for schema work and CLI usage.
+
+You can also provide broader context with the [full Varlock `llms.txt`](https://varlock.dev/llms-full.txt). In Cursor, this is accomplished via 'Add New Custom Docs'. 
 
 If your tool supports custom rules, you can use our own varlock [Cursor rule file from this repo](https://github.com/dmno-dev/varlock/blob/main/.cursor/rules/varlock.mdc) as a starting point to create your own that is most suited to your workflow. 
 
