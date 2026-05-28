@@ -28,6 +28,7 @@ let lastReloadAt: Date | undefined;
 let varlockLoadedEnv: SerializedEnvGraph;
 let combinedEnv: Env | undefined;
 let parsedEnv: Env | undefined;
+let lastLoadedSourceStateHash: string | undefined;
 // this is used by next just to display the list of .env files in a startup log
 let loadedEnvFiles: LoadedEnvFiles = [];
 let rootDir: string | undefined;
@@ -63,6 +64,70 @@ function debug(...args: Array<any>) {
 }
 debug('✨ LOADED @next/env module!');
 
+let lastUserLogSignature: string | undefined;
+let lastUserLogAt = 0;
+const USER_LOG_DEDUPE_MS = 1500;
+
+function logUserInfo(message: string) {
+  const now = Date.now();
+  const signature = `info:${message}`;
+  if (lastUserLogSignature === signature && (now - lastUserLogAt) < USER_LOG_DEDUPE_MS) return;
+  lastUserLogSignature = signature;
+  lastUserLogAt = now;
+  // eslint-disable-next-line no-console
+  console.log(message);
+}
+
+function logUserError(message: string) {
+  const now = Date.now();
+  const signature = `error:${message}`;
+  if (lastUserLogSignature === signature && (now - lastUserLogAt) < USER_LOG_DEDUPE_MS) return;
+  lastUserLogSignature = signature;
+  lastUserLogAt = now;
+  // eslint-disable-next-line no-console
+  console.error(message);
+}
+
+function debugHash(hash: string | undefined) {
+  if (hash === undefined) return '(missing)';
+  return hash.slice(0, 10);
+}
+
+function readFileHash(filePath: string): string | undefined {
+  try {
+    if (!fs.existsSync(filePath)) return undefined;
+    const contents = fs.readFileSync(filePath, 'utf-8');
+    const hash = createHash('sha256');
+    hash.update(contents, 'utf8');
+    return hash.digest('hex');
+  } catch {
+    return undefined;
+  }
+}
+
+function getTrackedSourcePaths(sources: SerializedEnvGraph['sources'], basePath?: string): Array<string> {
+  if (!rootDir) return [];
+  const tracked = new Set<string>();
+  for (const source of sources) {
+    if (!source.enabled || !source.path) continue;
+    const absPath = basePath ? path.resolve(basePath, source.path) : path.resolve(rootDir, source.path);
+    tracked.add(absPath);
+  }
+  tracked.add(path.join(rootDir, '.env.schema'));
+  return [...tracked].sort();
+}
+
+function computeSourceStateHash(sources: SerializedEnvGraph['sources'], basePath?: string): string | undefined {
+  const trackedPaths = getTrackedSourcePaths(sources, basePath);
+  if (!trackedPaths.length) return undefined;
+  const hash = createHash('sha256');
+  for (const filePath of trackedPaths) {
+    const fileHash = readFileHash(filePath) || '(missing)';
+    hash.update(`${filePath}:${fileHash}\n`);
+  }
+  return hash.digest('hex');
+}
+
 
 // Next.js only watches a fixed set of .env files for changes. Varlock may load
 // additional files (e.g. .env.schema, .env.staging, custom sources). We watch
@@ -71,11 +136,24 @@ const NEXT_WATCHED_ENV_FILES = ['.env', '.env.local', '.env.development', '.env.
 const watchedExtraFiles = new Set<string>();
 const pendingReloadFiles = new Set<string>();
 
+function formatChangedFilesSummary(paths: Array<string>): string {
+  if (!paths.length) return 'no files';
+  const displayPaths = paths.map((filePath) => {
+    if (!rootDir) return filePath;
+    const rel = path.relative(rootDir, filePath);
+    return rel || filePath;
+  });
+
+  if (displayPaths.length === 1) return displayPaths[0];
+  if (displayPaths.length <= 3) return displayPaths.join(', ');
+  return `${displayPaths.slice(0, 3).join(', ')} +${displayPaths.length - 3} more`;
+}
+
 function consumePendingReloadSummary() {
   const files = [...pendingReloadFiles];
   pendingReloadFiles.clear();
-  if (!files.length) return 'env source file change';
-  return `${files.length} env source file${files.length === 1 ? '' : 's'}`;
+  if (!files.length) return undefined;
+  return formatChangedFilesSummary(files);
 }
 
 function getEnvFromNextCommand(dev: boolean): string {
@@ -119,68 +197,85 @@ function enableExtraFileWatchers(sources: SerializedEnvGraph['sources'], basePat
 
   const pendingWatchChanges = new Set<string>();
   const watchedFileHashes = new Map<string, string | undefined>();
+  const watchStabilityRetries = new Map<string, number>();
   let debounceTimeout: ReturnType<typeof setTimeout> | undefined;
   const DEBOUNCE_MS = 300;
+  const MAX_STABILITY_RETRIES = 5;
 
-  function formatChangeSummary(changedPaths: Array<string>) {
-    return `${changedPaths.length} env source file${changedPaths.length === 1 ? '' : 's'}`;
-  }
+  function processPendingWatchChanges() {
+    const changedPaths = [...pendingWatchChanges];
+    pendingWatchChanges.clear();
+    if (!changedPaths.length) return;
+    debug('processing watch changes', changedPaths);
 
-  function readFileHash(filePath: string): string | undefined {
-    try {
-      if (!fs.existsSync(filePath)) return undefined;
-      const contents = fs.readFileSync(filePath, 'utf-8');
-      const hash = createHash('sha256');
-      hash.update(contents, 'utf8');
-      return hash.digest('hex');
-    } catch {
-      return undefined;
+    const changedByContent: Array<string> = [];
+    const unstablePaths: Array<string> = [];
+    for (const filePath of changedPaths) {
+      const prev = watchedFileHashes.get(filePath);
+      const next = readFileHash(filePath);
+      debug(
+        'watch hash compare',
+        filePath,
+        `prev=${debugHash(prev)}`,
+        `next=${debugHash(next)}`,
+      );
+
+      // During editor saves the target file may briefly disappear/be unreadable.
+      // Defer evaluation until file state stabilizes to avoid false-positive reloads.
+      if (next === undefined && prev !== undefined) {
+        const retryCount = (watchStabilityRetries.get(filePath) || 0) + 1;
+        if (retryCount <= MAX_STABILITY_RETRIES) {
+          watchStabilityRetries.set(filePath, retryCount);
+          unstablePaths.push(filePath);
+          debug('watch state unstable, retrying', filePath, `(attempt ${retryCount}/${MAX_STABILITY_RETRIES})`);
+          continue;
+        }
+      }
+
+      watchStabilityRetries.delete(filePath);
+      watchedFileHashes.set(filePath, next);
+      if (next !== prev) changedByContent.push(filePath);
+    }
+
+    if (unstablePaths.length) {
+      for (const filePath of unstablePaths) pendingWatchChanges.add(filePath);
+      if (debounceTimeout) clearTimeout(debounceTimeout);
+      debounceTimeout = setTimeout(processPendingWatchChanges, DEBOUNCE_MS);
+    }
+
+    if (!changedByContent.length) {
+      // If all paths are still stabilizing, wait for the next pass before logging.
+      if (unstablePaths.length === changedPaths.length) return;
+      const summary = formatChangedFilesSummary(changedPaths);
+      logUserInfo(`ℹ️ [varlock] change detected in ${summary}; file contents unchanged, skipping next reload.`);
+      return;
+    }
+
+    for (const changed of changedByContent) pendingReloadFiles.add(changed);
+    debug('extra file changed, triggering reload:', changedByContent);
+    if (mustDestroyTriggerFile) {
+      fs.writeFileSync(triggerFilePath!, [
+        '# This file was created by @varlock/nextjs-integration',
+        '# It is used to trigger Next.js to reload when non-standard .env files change',
+        '# You can safely ignore and delete it',
+        '# @disable',
+        '# ---',
+      ].join('\n'), 'utf-8');
+      setTimeout(() => {
+        // eslint-disable-next-line
+        try { fs.unlinkSync(triggerFilePath!); } catch { /* may already be gone */ }
+      }, 1000);
+    } else {
+      const currentContents = fs.readFileSync(triggerFilePath!, 'utf-8');
+      fs.writeFileSync(triggerFilePath!, currentContents, 'utf-8');
     }
   }
 
   function triggerNextReload(changedPath: string) {
+    debug('watch event', changedPath);
     pendingWatchChanges.add(changedPath);
     if (debounceTimeout) clearTimeout(debounceTimeout);
-
-    debounceTimeout = setTimeout(() => {
-      const changedPaths = [...pendingWatchChanges];
-      pendingWatchChanges.clear();
-
-      if (!changedPaths.length) return;
-      const changedByContent: Array<string> = [];
-      for (const filePath of changedPaths) {
-        const prev = watchedFileHashes.get(filePath);
-        const next = readFileHash(filePath);
-        watchedFileHashes.set(filePath, next);
-        if (next !== prev) changedByContent.push(filePath);
-      }
-
-      if (!changedByContent.length) {
-        const summary = formatChangeSummary(changedPaths);
-        // eslint-disable-next-line no-console
-        console.log(`[varlock] change detected in ${summary}; file contents unchanged, skipping next reload.`);
-        return;
-      }
-
-      for (const changed of changedByContent) pendingReloadFiles.add(changed);
-      debug('extra file changed, triggering reload:', changedByContent);
-      if (mustDestroyTriggerFile) {
-        fs.writeFileSync(triggerFilePath!, [
-          '# This file was created by @varlock/nextjs-integration',
-          '# It is used to trigger Next.js to reload when non-standard .env files change',
-          '# You can safely ignore and delete it',
-          '# @disable',
-          '# ---',
-        ].join('\n'), 'utf-8');
-        setTimeout(() => {
-          // eslint-disable-next-line
-          try { fs.unlinkSync(triggerFilePath!); } catch { /* may already be gone */ }
-        }, 1000);
-      } else {
-        const currentContents = fs.readFileSync(triggerFilePath!, 'utf-8');
-        fs.writeFileSync(triggerFilePath!, currentContents, 'utf-8');
-      }
-    }, DEBOUNCE_MS);
+    debounceTimeout = setTimeout(processPendingWatchChanges, DEBOUNCE_MS);
   }
 
   debug('setting up extra file watchers for:', extraFilePaths);
@@ -323,6 +418,7 @@ type LoadedEnvConfig = {
 };
 
 let loadCount = 0;
+let suppressSkipLogUntil = 0;
 
 export function loadEnvConfig(
   dir: string,
@@ -335,7 +431,9 @@ export function loadEnvConfig(
   initialEnv ||= { ...process.env };
 
   loadCount++;
-  debug('loadEnvConfig!', 'forceReload = ', forceReload);
+  debug('loadEnvConfig!', { forceReload, loadCount, dev });
+  const reloadSummary = forceReload ? consumePendingReloadSummary() : undefined;
+  const effectiveReloadSummary = forceReload ? (reloadSummary || 'an env source file') : undefined;
 
   // onReload is used to show a log of which .env file changed
   // TODO: add similar log to show which env file changed
@@ -348,6 +446,19 @@ export function loadEnvConfig(
   // schema and have the dev server automatically retry without a restart.
   if (dev) enableExtraFileWatchers([], undefined);
 
+  // Hydrate cached env metadata as early as possible so forceReload decisions
+  // can use source-state hashing even in fresh worker processes.
+  if (!varlockLoadedEnv && process.env.__VARLOCK_ENV) {
+    try {
+      varlockLoadedEnv = JSON.parse(process.env.__VARLOCK_ENV);
+    } catch {
+      // ignore parse failure; fallback path will perform a full reload
+    }
+  }
+  if (!lastLoadedSourceStateHash && varlockLoadedEnv) {
+    lastLoadedSourceStateHash = computeSourceStateHash(varlockLoadedEnv.sources, varlockLoadedEnv.basePath);
+  }
+
   let useCachedEnv = !!process.env.__VARLOCK_ENV;
   if (forceReload) {
     // Throttle reloads to at most once per second to avoid spinning during
@@ -355,6 +466,27 @@ export function loadEnvConfig(
     if (!lastReloadAt || lastReloadAt.getTime() < Date.now() - 1000) {
       lastReloadAt = new Date();
       useCachedEnv = false;
+    } else {
+      debug('forceReload requested but throttled (within 1s window)');
+    }
+  }
+
+  if (forceReload && varlockLoadedEnv && lastLoadedSourceStateHash) {
+    const currentSourceStateHash = computeSourceStateHash(varlockLoadedEnv.sources, varlockLoadedEnv.basePath);
+    debug(
+      'source state hash compare',
+      `prev=${debugHash(lastLoadedSourceStateHash)}`,
+      `next=${debugHash(currentSourceStateHash)}`,
+    );
+    if (currentSourceStateHash && currentSourceStateHash === lastLoadedSourceStateHash) {
+      useCachedEnv = true;
+      if (loadCount >= 2 && effectiveReloadSummary) {
+        if (Date.now() >= suppressSkipLogUntil) {
+          logUserInfo(`ℹ️ [varlock] change detected in ${effectiveReloadSummary}; file contents unchanged, skipping reload.`);
+        } else {
+          debug('suppressing immediate follow-up skip log');
+        }
+      }
     }
   }
 
@@ -368,6 +500,7 @@ export function loadEnvConfig(
       resetRedactionMap(varlockLoadedEnv);
       debug('patching console with varlock redactor');
       patchGlobalConsole();
+      lastLoadedSourceStateHash = computeSourceStateHash(varlockLoadedEnv.sources, varlockLoadedEnv.basePath);
     }
 
     combinedEnv = { ...initialEnv, ...parsedEnv };
@@ -380,7 +513,6 @@ export function loadEnvConfig(
   }
 
   lastReloadAt = new Date();
-  const reloadSummary = forceReload ? consumePendingReloadSummary() : undefined;
   const previousSerializedEnv = process.env.__VARLOCK_ENV;
 
   debug('>> RELOADING ENV');
@@ -402,17 +534,24 @@ export function loadEnvConfig(
     });
     if (loadCount >= 2 && forceReload) {
       const envChanged = stdout !== previousSerializedEnv;
-      const summary = reloadSummary || 'env source file change';
-      if (envChanged) {
-        // eslint-disable-next-line no-console
-        console.log(`[varlock] change detected in ${summary}; reloaded env, changes found.`);
-      } else {
-        // eslint-disable-next-line no-console
-        console.log(`[varlock] change detected in ${summary}; reloaded env, no changes found.`);
+      if (effectiveReloadSummary) {
+        if (envChanged) {
+          suppressSkipLogUntil = Date.now() + 1200;
+          logUserInfo(`✅ [varlock] change detected in ${effectiveReloadSummary}; reloaded env, changes found.`);
+        } else {
+          suppressSkipLogUntil = Date.now() + 1200;
+          logUserInfo(`✅ [varlock] change detected in ${effectiveReloadSummary}; reloaded env, no changes found.`);
+        }
       }
     } else if (loadCount >= 2) {
-      // eslint-disable-next-line no-console
-      console.log('✅ env reloaded and validated');
+      debug('reload occurred without forceReload (likely Next-triggered reload path)');
+      debug('emitting success banner', {
+        pid: process.pid,
+        loadCount,
+        forceReload,
+        isWorker: IS_WORKER,
+      });
+      logUserInfo('✅ [varlock] env reloaded and validated');
     }
     varlockLoadedEnv = JSON.parse(stdout);
   } catch (err) {
@@ -451,12 +590,10 @@ export function loadEnvConfig(
     }
 
     if (forceReload) {
-      const summary = reloadSummary || 'env source file change';
-      // eslint-disable-next-line no-console
-      console.error(`\n[varlock] change detected in ${summary}; reload failed.`);
+      const summary = effectiveReloadSummary || 'an env source file';
+      logUserError(`\n[varlock] change detected in ${summary}; reload failed.`);
     }
-    // eslint-disable-next-line no-console
-    console.error('\n[varlock] ⚠️ fix the error(s) above and save to reload\n');
+    logUserError('\n[varlock] ⚠️ fix the error(s) above and save to reload\n');
 
     // In a build, we want to fail hard so broken env doesn't get deployed
     if (!dev) {
@@ -497,6 +634,7 @@ export function loadEnvConfig(
 
   combinedEnv = { ...initialEnv, ...parsedEnv };
   loadedEnvFiles = getVarlockSourcesAsLoadedEnvFiles();
+  lastLoadedSourceStateHash = computeSourceStateHash(varlockLoadedEnv.sources, varlockLoadedEnv.basePath);
 
   // Set up watchers for source files that Next.js doesn't natively watch.
   // Called after every reload so newly-added sources get watched too.

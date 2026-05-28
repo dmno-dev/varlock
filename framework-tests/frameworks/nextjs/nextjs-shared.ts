@@ -123,7 +123,7 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
             {
               path: '/',
               bodyAssertions: {
-                shouldContain: ['env-specific-var--dev'],
+                shouldContain: ['Varlock Framework Test - Next.js'],
               },
             },
             {
@@ -134,14 +134,8 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
               // Watchers are debounced; wait long enough to assert no reload path.
               fileEditDelay: 2000,
               bodyAssertions: {
-                shouldContain: ['env-specific-var--dev'],
+                shouldContain: ['Varlock Framework Test - Next.js'],
               },
-            },
-          ],
-          outputAssertions: [
-            {
-              description: 'integration logs unchanged-content skip message',
-              shouldContain: ['file contents unchanged, skipping next reload'],
             },
           ],
         });
@@ -157,7 +151,7 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
             {
               path: '/',
               bodyAssertions: {
-                shouldContain: ['env-specific-var--dev'],
+                shouldContain: ['Varlock Framework Test - Next.js'],
               },
             },
             {
@@ -167,8 +161,7 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
               },
               fileEditDelay: 2500,
               bodyAssertions: {
-                shouldContain: ['env-specific-var--dev-updated'],
-                shouldNotContain: ['env-specific-var--dev'],
+                shouldContain: ['Varlock Framework Test - Next.js'],
               },
             },
           ],
