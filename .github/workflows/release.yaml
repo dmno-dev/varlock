@@ -9,12 +9,38 @@ permissions:
   contents: read
 
 concurrency:
-  group: bumpy-release
+  group: bumpy-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  # Wait for the CI test suite to pass before releasing
+  wait-for-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for CI test suite to complete
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Waiting for CI test suite (build-and-test) to complete..."
+          for i in $(seq 1 60); do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/${{ github.sha }}/check-runs \
+              --jq '.check_runs[] | select(.name == "build-and-test") | .status + ":" + (.conclusion // "pending")')
+            echo "Attempt $i: $STATUS"
+            if [[ "$STATUS" == "completed:success" ]]; then
+              echo "CI test suite passed!"
+              exit 0
+            elif [[ "$STATUS" == "completed:"* ]]; then
+              echo "::error::CI test suite failed with: $STATUS"
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "::error::Timed out waiting for CI test suite"
+          exit 1
+
   # Determine what bumpy will do — only run expensive build/notarize when publishing
   plan:
+    needs: wait-for-tests
     runs-on: ubuntu-latest
     outputs:
       mode: ${{ steps.plan.outputs.mode }}
