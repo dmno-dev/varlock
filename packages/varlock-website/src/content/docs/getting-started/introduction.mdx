@@ -20,19 +20,9 @@ Varlock aims to be the most comprehensive environment variable management tool. 
 - **[Framework Integrations](/integrations/overview/)** - Official integrations for Next.js, Vite, Astro, and more, plus support for any language via `varlock run`
 - **[Replacement for dotenv](/guides/migrate-from-dotenv/)** - Can be used as a direct replacement for `dotenv` in most projects with minimal code changes
 
-## AI Tooling
+## AI tooling
 
-Varlock is purpose-built for the AI era. Your `.env.schema` gives AI agents full context on your configuration — variable names, types, validation rules, descriptions — without ever exposing secret values. Use `varlock scan` to catch secrets that may have leaked into AI-generated code, and `varlock run` to securely inject secrets into AI CLI tools like Claude Code, Cursor, Aider, and Gemini CLI.
-
-### Docs MCP
-
-Varlock provides a Docs MCP server that allows AI tools to search and understand the Varlock documentation. This makes it easier for AI assistants to help you integrate and use Varlock in your projects.
-
-See the [MCP guide](/guides/mcp/#docs-mcp) for setup instructions for Cursor, Claude, Opencode, VS Code, and other MCP-compatible tools.
-
-### LLMs.txt
-
-Varlock also provides an `LLMs.txt` file that helps AI models understand how to integrate and interact with your environment variable configuration. See it at [https://varlock.dev/llms.txt](https://varlock.dev/llms.txt).
+Varlock is built for AI-assisted development: your `.env.schema` gives agents schema context without exposing secret values. See the [AI Tools guide](/guides/ai-tools/) for `varlock run` with coding CLIs, the maintainer skill, [Docs MCP](/guides/mcp/#docs-mcp), and [LLMs.txt](https://varlock.dev/llms.txt).
 
 ## Next Steps
 

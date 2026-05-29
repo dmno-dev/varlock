@@ -34,7 +34,7 @@ ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
 GOOGLE_API_KEY=exec('op read "op://api-local/google/api-key"')
 ```
 
-Store the actual secret values in your preferred [secrets provider](/guides/secrets-providers) like 1Password (as shown above), AWS Secrets Manager, or any other provider with a CLI to fetch invidual secrets.
+Store the actual secret values in your preferred [secret provider](/plugins/overview/) (for example 1Password, as shown above), AWS Secrets Manager, or any other provider with a CLI to fetch individual secrets. See also the [Secrets guide](/guides/secrets/#loading-secrets-from-external-sources).
 
 :::tip
 You can use any secrets provider you want, but we like 1Password since it uses biometric authentication for local access. All the examples in this guide use 1Password as a means of showing more real world examples.

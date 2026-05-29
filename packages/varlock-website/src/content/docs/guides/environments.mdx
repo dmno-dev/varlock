@@ -154,15 +154,9 @@ APP_ENV=production turbo run build
 
 it will load the correct `.env.production` file because the override for `APP_ENV` is passed correctly to `turbo` and in turn to `varlock`.
 
-> Substitute whatever your env flag is for `APP_ENV` in the above example.
-
 :::tip
-In the above example, we're _only_ passing the `APP_ENV` because that's the variable you are most likely going to want to override in your scripts. If there are other variables you want to pass to your scripts, they will need to be explicitly added as well.
+Substitute whatever your environment flag is for `APP_ENV` in the above example. We're _only_ passing `APP_ENV` because that is the variable you are most likely going to want to override in your scripts. If there are other variables you want to pass to your scripts, they will need to be explicitly added as well.
 :::
-
-
-
----
 
 ### Setting the Environment Flag
 
