@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { execFileSync, execSync } from 'node:child_process';
 
 // weird tsup issue using `typeof execSync` from node:child_process
@@ -9,6 +10,9 @@ import type { execSync as execSyncType } from 'child_process';
 
 const platform = os.platform();
 const isWindows = platform.match(/^win/i);
+const moduleDir = import.meta.dirname ?? path.dirname(fileURLToPath(import.meta.url));
+// Keep this URL static so serverless file tracers include the CLI entry.
+const tracedPackageCliPath = fileURLToPath(new URL('./cli/cli-executable.js', import.meta.url));
 
 
 /**
@@ -38,6 +42,42 @@ function findVarlockBin(startDir: string): string | null {
     if (parentDir === currentDir) break;
     currentDir = parentDir;
   }
+  return null;
+}
+
+/**
+ * Find the CLI entry inside the varlock package itself.
+ * Serverless bundlers often omit node_modules/.bin, but they do include traced
+ * package files. Running the package-local JS entry avoids depending on .bin.
+ */
+function findVarlockPackageCli(startDir: string): string | null {
+  const checkedPaths = new Set<string>();
+
+  function checkCliPath(cliPath: string) {
+    if (checkedPaths.has(cliPath)) return null;
+    checkedPaths.add(cliPath);
+    return fs.existsSync(cliPath) ? cliPath : null;
+  }
+
+  const tracedCliPath = checkCliPath(tracedPackageCliPath);
+  if (tracedCliPath) return tracedCliPath;
+
+  let currentDir = startDir;
+  while (currentDir) {
+    for (const cliPath of [
+      path.join(currentDir, 'cli', 'cli-executable.js'),
+      path.join(currentDir, 'dist', 'cli', 'cli-executable.js'),
+      path.join(currentDir, 'bin', 'cli.js'),
+    ]) {
+      const foundCliPath = checkCliPath(cliPath);
+      if (foundCliPath) return foundCliPath;
+    }
+
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) break;
+    currentDir = parentDir;
+  }
+
   return null;
 }
 
@@ -74,6 +114,24 @@ type ExecSyncVarlockOpts = Parameters<typeof execSyncType>[1] & {
   fullResult?: boolean,
 };
 
+function getExecOpts(opts?: ExecSyncVarlockOpts): Parameters<typeof execSyncType>[1] {
+  if (!opts) return undefined;
+  const {
+    callerDir: _callerDir,
+    exitOnError: _exitOnError,
+    showLogsOnError: _showLogsOnError,
+    fullResult: _fullResult,
+    ...execOpts
+  } = opts;
+  return execOpts;
+}
+
+function formatResult(result: Buffer | string, fullResult?: boolean) {
+  return fullResult
+    ? { stdout: result.toString(), stderr: '' }
+    : result.toString();
+}
+
 /**
  * Small helper to call execSync and call the varlock cli.
  *
@@ -88,19 +146,19 @@ export function execSyncVarlock(
   command: string,
   opts?: ExecSyncVarlockOpts,
 ): string | ExecVarlockResult {
+  const execOpts = getExecOpts(opts);
+  const commandArgs = command.split(' ');
+
   try {
     // in most cases, user will be running via their package manager
     // and a package.json script (ie `pnpm run start`)
     // which will inject node_modules/.bin into PATH
     try {
       const result = execSync(`varlock ${command}`, {
-        ...opts?.env && { env: opts.env },
-        ...opts?.cwd && { cwd: opts.cwd },
+        ...execOpts,
         stdio: 'pipe',
       });
-      return opts?.fullResult
-        ? { stdout: result.toString(), stderr: '' }
-        : result.toString();
+      return formatResult(result, opts?.fullResult);
     } catch (err) {
       // code 127 means not found (on linux only)
       // ENOENT from execSync means that a shell was not found
@@ -118,6 +176,7 @@ export function execSyncVarlock(
     const searchDirs = [
       ...(cwdStr ? [cwdStr] : []),
       ...(opts?.callerDir ? [opts.callerDir] : []),
+      moduleDir,
       process.cwd(),
     ];
 
@@ -126,14 +185,23 @@ export function execSyncVarlock(
       if (varlockPath) {
         // .cmd files are batch scripts that must be run through cmd.exe
         const needsShell = varlockPath.endsWith('.cmd');
-        const result = execFileSync(varlockPath, command.split(' '), {
-          ...opts,
+        const result = execFileSync(varlockPath, commandArgs, {
+          ...execOpts,
           stdio: 'pipe',
           ...(needsShell && { shell: true }),
         });
-        return opts?.fullResult
-          ? { stdout: result.toString(), stderr: '' }
-          : result.toString();
+        return formatResult(result, opts?.fullResult);
+      }
+    }
+
+    for (const startDir of searchDirs) {
+      const packageCliPath = findVarlockPackageCli(startDir);
+      if (packageCliPath) {
+        const result = execFileSync(process.execPath, [packageCliPath, ...commandArgs], {
+          ...execOpts,
+          stdio: 'pipe',
+        });
+        return formatResult(result, opts?.fullResult);
       }
     }
     throw new Error('Unable to find varlock executable');
