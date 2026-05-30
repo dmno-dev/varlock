@@ -267,6 +267,7 @@ export function defineViteTests(
           'index.html': 'html/basic.html',
           'src/ssr-entry.ts': 'pages/ssr-entry.ts',
         },
+        expectSuccess: true,
         fileAssertions: [
           {
             description: 'SSR output contains encrypted blob (varlock:v1: prefix)',
