@@ -2,6 +2,8 @@
 "varlock": minor
 "@varlock/nextjs-integration": patch
 "@varlock/vite-integration": patch
+"@varlock/cloudflare-integration": patch
+"@varlock/expo-integration": patch
 ---
 
-add _VARLOCK_ENV_KEY support to encrypt env blob in build output
+add @encryptInjectedEnv and @disableProcessEnvInjection root decorators for encrypted deployments
