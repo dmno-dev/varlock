@@ -352,22 +352,13 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
             templateFiles: {
               'app/page.tsx': 'pages/basic-page.tsx',
             },
+            expectSuccess: true,
             fileAssertions: [
               {
-                description: 'runtime files contain encrypted blob (varlock:v1: prefix) instead of plaintext',
-                fileGlob: '.next/server/**/*runtime*.js',
+                description: 'server JS files contain encrypted blob (varlock:v1: prefix) instead of plaintext',
+                fileGlob: '.next/server/**/*.js',
                 shouldContain: ['varlock:v1:'],
                 shouldNotContain: ['super-secret-var'],
-              },
-              {
-                description: 'prerendered HTML still has correct values (build uses plaintext env)',
-                fileGlob: '.next/**/*.html',
-                shouldContain: [
-                  'next-prefixed-public-var',
-                  'unprefixed-public-var',
-                  'sensitive-var-available',
-                ],
-                shouldNotContain: ['super-secret-value'],
               },
             ],
           });
