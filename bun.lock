@@ -345,7 +345,7 @@
     },
     "packages/plugins/kubernetes": {
       "name": "@varlock/kubernetes-plugin",
-      "version": "0.1.0",
+      "version": "0.0.0",
       "devDependencies": {
         "@kubernetes/client-node": "^1.4.0",
         "@types/node": "catalog:",
