@@ -1,0 +1,104 @@
+---
+title: Kubernetes Plugin
+description: Using Kubernetes Secrets and ConfigMaps with Varlock
+---
+
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/kubernetes-plugin" />
+</div>
+
+The Kubernetes plugin reads values from Kubernetes Secrets and ConfigMaps using declarative instructions in your `.env` files.
+
+It is read-only: it does not create, update, or delete Kubernetes resources.
+
+## Features
+
+- **Fetch Secret keys** with `k8sSecret()`
+- **Fetch ConfigMap keys** with `k8sConfigMap()`
+- **Bulk-load resources** with `k8sSecretBulk()` and `k8sConfigMapBulk()`
+- **Use local kubeconfig** for development
+- **Use in-cluster service account auth** when running inside Kubernetes
+- **Multiple plugin instances** for different namespaces or clusters
+
+## Installation and setup
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/kubernetes-plugin)
+# @initKubernetes(namespace=default)
+# ---
+```
+
+For local development, the plugin uses your default kubeconfig. Inside a pod, it uses the mounted service account credentials.
+
+You can also provide explicit API server auth:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/kubernetes-plugin)
+# @initKubernetes(
+#   namespace=default,
+#   clusterServer="https://kubernetes.default.svc",
+#   token=$KUBERNETES_TOKEN
+# )
+# ---
+
+# @type=kubernetesBearerToken @sensitive
+KUBERNETES_TOKEN=
+```
+
+## Loading values
+
+```env-spec title=".env.schema"
+# The key defaults to the config item key
+DATABASE_URL=k8sSecret(app-secrets)
+
+# Or provide the key explicitly
+DB_URL=k8sSecret(app-secrets, DATABASE_URL)
+
+PUBLIC_API_HOST=k8sConfigMap(app-config, PUBLIC_API_HOST)
+```
+
+Kubernetes Secret values are base64-decoded before being returned.
+
+## Bulk loading
+
+Use bulk loading when a Secret or ConfigMap contains several environment variables:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/kubernetes-plugin)
+# @initKubernetes(namespace=default)
+# @setValuesBulk(k8sSecretBulk(app-secrets), format=json)
+# @setValuesBulk(k8sConfigMapBulk(app-config), format=json)
+# ---
+
+DATABASE_URL=
+API_KEY=
+PUBLIC_API_HOST=
+```
+
+## Multiple instances
+
+```env-spec title=".env.schema"
+# @initKubernetes(id=dev, namespace=dev)
+# @initKubernetes(id=prod, namespace=prod, context=prod)
+# ---
+
+DEV_DATABASE_URL=k8sSecret(dev, app-secrets, DATABASE_URL)
+PROD_DATABASE_URL=k8sSecret(prod, app-secrets, DATABASE_URL)
+```
+
+## Options
+
+`@initKubernetes()` supports:
+
+- `id` optional static instance id, defaults to `_default`
+- `namespace` optional namespace, defaults to kubeconfig context namespace or `default`
+- `context` optional kubeconfig context name
+- `kubeconfig` optional path to a kubeconfig file, or raw kubeconfig YAML/JSON
+- `clusterServer` optional Kubernetes API server URL for explicit auth
+- `token` optional bearer token for explicit auth
+- `skipTlsVerify` optional boolean for explicit auth
+- `allowMissing` optional boolean; missing resources or keys return `undefined`
+
+If `allowMissing=true` is used, mark optional config items with `@required=false` or wrap the resolver with `fallback()`.
