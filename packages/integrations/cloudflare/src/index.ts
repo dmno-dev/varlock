@@ -8,6 +8,7 @@ import {
 } from '@varlock/vite-integration';
 import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
 import { CLOUDFLARE_SSR_ENTRY_CODE } from './shared-ssr-entry-code';
+import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 
 const isWindows = process.platform === 'win32';
 
@@ -85,12 +86,24 @@ function formatDevVarsContent(
     const strValue = typeof item.value === 'string' ? item.value : JSON.stringify(item.value);
     lines.push(formatEnvLine(key, strValue));
   }
-  // include __VARLOCK_ENV (compact JSON) for the varlock runtime,
+  // include __VARLOCK_ENV for the varlock runtime,
+  // encrypt the blob if @encryptInjectedEnv is enabled or _VARLOCK_ENV_KEY is set
+  const encryptionRequired = !!varlockLoadedEnv?.settings?.encryptInjectedEnv;
+  let encryptionKey = process.env._VARLOCK_ENV_KEY;
+  if (encryptionRequired && !encryptionKey) {
+    // auto-generate a temporary key for dev mode
+    encryptionKey = generateEncryptionKeyHex();
+  }
+  let envBlob = serializedGraph;
+  if (encryptionKey) {
+    envBlob = encryptEnvBlobSync(envBlob, encryptionKey);
+    lines.push(formatEnvLine('_VARLOCK_ENV_KEY', encryptionKey));
+  }
   // split into chunks if it exceeds CF's 5KB secret limit
-  if (Buffer.byteLength(serializedGraph) <= CF_SECRET_MAX_BYTES) {
-    lines.push(formatEnvLine('__VARLOCK_ENV', serializedGraph));
+  if (Buffer.byteLength(envBlob) <= CF_SECRET_MAX_BYTES) {
+    lines.push(formatEnvLine('__VARLOCK_ENV', envBlob));
   } else {
-    const chunks = chunkString(serializedGraph, CF_SECRET_MAX_BYTES);
+    const chunks = chunkString(envBlob, CF_SECRET_MAX_BYTES);
     lines.push(formatEnvLine('__VARLOCK_ENV_CHUNKS', String(chunks.length)));
     for (let i = 0; i < chunks.length; i++) {
       lines.push(formatEnvLine(`__VARLOCK_ENV_${i}`, chunks[i]));

@@ -34,10 +34,11 @@ if (typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Work
     __varlockEnvJson = parts.join("");
   }
   if (__varlockEnvJson) {
-    try {
+    if (__varlockEnvJson.startsWith("varlock:v1:")) {
+      // encrypted blob — stash for decryption by the init module
+      globalThis.__varlockEncryptedEnv = __varlockEnvJson;
+    } else {
       globalThis.__varlockLoadedEnv = JSON.parse(__varlockEnvJson);
-    } catch (e) {
-      throw new Error("[varlock] failed to parse __VARLOCK_ENV: " + e.message);
     }
   }
 }

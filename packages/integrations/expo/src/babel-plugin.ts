@@ -25,6 +25,7 @@ function loadVarlockConfig() {
     // Make the loaded env available on globalThis so that any module instance
     // of varlock/env (including Metro's SSR bundle) can pick it up during
     // lazy/auto initialization.
+    // No encryption needed here — Expo's Metro process is both build and runtime.
     (globalThis as any).__varlockLoadedEnv = varlockLoadedEnv;
 
     // initialize varlock and patch globals as necessary

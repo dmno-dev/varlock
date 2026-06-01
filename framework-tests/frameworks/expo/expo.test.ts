@@ -146,6 +146,31 @@ describe('Expo Integration', () => {
     });
   });
 
+  describe('encrypted env blob', () => {
+    expoEnv.describeScenario('build succeeds with _VARLOCK_ENV_KEY', {
+      command: 'node build.mjs',
+      env: { _VARLOCK_ENV_KEY: '846a4cbdf4fefeff0da38d8f3766ffe50d8db12f8ce32849bb1e1a60ecb4ba0d' },
+      templateFiles: {
+        'app/page.tsx': 'pages/basic-page.tsx',
+      },
+      fileAssertions: [
+        {
+          description: 'public env vars are still statically replaced',
+          fileGlob: 'dist/**/*.js',
+          shouldContain: [
+            '"Varlock Expo Test"',
+            '"https://api.example.com"',
+          ],
+        },
+        {
+          description: 'sensitive var is NOT inlined',
+          fileGlob: 'dist/**/*.js',
+          shouldNotContain: ['super-secret-key-12345'],
+        },
+      ],
+    });
+  });
+
   describe('invalid schema', () => {
     expoEnv.describeScenario('build fails on invalid config', {
       command: 'node build.mjs',

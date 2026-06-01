@@ -8,6 +8,8 @@
  * Async version uses Web Crypto API (init-edge, where node:crypto is unavailable).
  */
 
+import crypto from 'node:crypto';
+
 const ENCRYPTED_PREFIX = 'varlock:v1:';
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
@@ -35,8 +37,6 @@ function hexToBytes(hex: string): Uint8Array {
 
 export function encryptEnvBlobSync(json: string, hexKey: string): string {
   validateHexKey(hexKey);
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const crypto = require('node:crypto');
   const keyBytes = hexToBytes(hexKey);
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv('aes-256-gcm', keyBytes, iv);
@@ -51,8 +51,6 @@ export function decryptEnvBlobSync(encrypted: string, hexKey: string): string {
   if (!isEncryptedBlob(encrypted)) {
     throw new Error('[varlock] expected encrypted blob with varlock:v1: prefix');
   }
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const crypto = require('node:crypto');
   const combined = Buffer.from(encrypted.slice(ENCRYPTED_PREFIX.length), 'base64');
   const iv = combined.subarray(0, IV_LENGTH);
   const authTag = combined.subarray(combined.length - AUTH_TAG_LENGTH);
@@ -99,7 +97,5 @@ export async function decryptEnvBlobAsync(encrypted: string, hexKey: string): Pr
 // -- Key generation -------------------------------------------------------
 
 export function generateEncryptionKeyHex(): string {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const crypto = require('node:crypto');
   return (crypto.randomBytes(32) as Buffer).toString('hex');
 }

@@ -174,9 +174,18 @@ export function createWebpackConfigFn(
         // inline the resolved env so it's baked into the build
         // this removes the need for a .env.production.local file on platforms like Vercel
         const rawEnv = process.env.__VARLOCK_ENV;
+        const encryptionRequired = latestLoadedVarlockEnv?.settings?.encryptInjectedEnv;
+        const encryptionKey = process.env._VARLOCK_ENV_KEY;
+        if (encryptionRequired && !encryptionKey) {
+          throw new Error(
+            '[varlock] @encryptInjectedEnv is enabled but _VARLOCK_ENV_KEY is not set.\n'
+            + 'Generate a key with `varlock generate-key` and set it on your platform.\n'
+            + 'See https://varlock.dev/guides/encrypted-deployments/ for details.',
+          );
+        }
         let envPayload = rawEnv;
-        if (rawEnv && process.env._VARLOCK_ENV_KEY) {
-          envPayload = encryptEnvBlobSync(rawEnv, process.env._VARLOCK_ENV_KEY);
+        if (rawEnv && encryptionKey) {
+          envPayload = encryptEnvBlobSync(rawEnv, encryptionKey);
         }
         const envInline = envPayload
           ? `process.env.__VARLOCK_ENV = process.env.__VARLOCK_ENV || ${JSON.stringify(envPayload)};`

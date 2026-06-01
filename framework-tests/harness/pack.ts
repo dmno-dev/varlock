@@ -64,19 +64,31 @@ const PACKAGE_DIRS: Record<string, string> = {
 /**
  * Finds an existing packed .tgz file for the given package name.
  */
-function findPackedFile(packageName: string): string | undefined {
-  if (!existsSync(PACKED_DIR)) return undefined;
+function findPackedFiles(packageName: string): Array<string> {
+  if (!existsSync(PACKED_DIR)) return [];
 
   const files = readdirSync(PACKED_DIR).filter((f) => f.endsWith('.tgz'));
 
   // Package names like @varlock/nextjs-integration produce tgz files like
   // varlock-nextjs-integration-0.2.3.tgz (scoped @ and / are stripped/replaced)
+  // Match "name-VERSION.tgz" where VERSION starts with a digit to avoid
+  // "varlock-" matching "varlock-vite-integration-..."
   const normalizedName = packageName
     .replace(/^@/, '')
     .replace(/\//g, '-');
 
-  const match = files.find((f) => f.startsWith(`${normalizedName}-`));
-  return match ? join(PACKED_DIR, match) : undefined;
+  return files
+    .filter((f) => {
+      if (!f.startsWith(`${normalizedName}-`)) return false;
+      const rest = f.slice(normalizedName.length + 1);
+      return /^\d/.test(rest);
+    })
+    .map((f) => join(PACKED_DIR, f));
+}
+
+function findPackedFile(packageName: string): string | undefined {
+  const matches = findPackedFiles(packageName);
+  return matches[0];
 }
 
 /**
@@ -111,9 +123,8 @@ export function packPackages(
         if (existing) return existing;
       }
 
-      // Remove old tarball if it exists (version may not have changed)
-      const oldPacked = findPackedFile(name);
-      if (oldPacked) {
+      // Remove all old tarballs for this package (handles version bumps leaving stale files)
+      for (const oldPacked of findPackedFiles(name)) {
         rmSync(oldPacked);
       }
 

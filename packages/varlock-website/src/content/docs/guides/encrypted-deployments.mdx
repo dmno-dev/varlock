@@ -1,0 +1,106 @@
+---
+title: Encrypted deployments
+description: Encrypt the env blob in your build output so secrets are never stored in plaintext
+---
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+
+When deploying SSR applications to **serverless platforms** (like Vercel, Netlify, or Cloudflare Workers), varlock injects the fully resolved env data into your server-side build output so it's available at runtime without needing the CLI or filesystem access. This is necessary because serverless environments don't give you control over how the application boots.
+
+By default, this blob is **plaintext JSON**. Since it only appears in server-side code, it's generally safe — your secrets are not exposed to the client. However, encrypting the blob provides an extra layer of protection, particularly against secrets leaking via **sourcemaps** that may be uploaded to error tracking services.
+
+## Enabling encryption
+
+Add the [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) root decorator to your `.env.schema`:
+
+```env-spec title=".env.schema"
+# @encryptInjectedEnv
+# ---
+SECRET_KEY= # @sensitive
+```
+
+You can also enable it conditionally for specific environments:
+
+```env-spec title=".env.schema"
+# @encryptInjectedEnv=forEnv(prod)
+# ---
+SECRET_KEY= # @sensitive
+```
+
+## How it works
+
+1. At **build time**, varlock encrypts the serialized env graph with **AES-256-GCM** before injecting it
+2. The encrypted blob is prefixed with `varlock:v1:` — you can verify encryption by inspecting your build output
+3. At **runtime**, `initVarlockEnv()` detects the encrypted prefix and decrypts using `_VARLOCK_ENV_KEY` from the runtime environment
+4. The key is **never baked into the build** — it must always come from the runtime environment
+
+## Key management
+
+The encryption key (`_VARLOCK_ENV_KEY`) is managed differently depending on your platform:
+
+### Local development
+
+No setup needed — varlock **auto-generates a temporary key** when running dev servers. The key exists only in memory for the duration of the dev session.
+
+### Cloudflare Workers
+
+No setup needed — `varlock-wrangler deploy` **auto-generates a key** and uploads it alongside your encrypted env as a Cloudflare secret binding. The key persists across deploys.
+
+### Vercel, Netlify, and other platforms
+
+You must set `_VARLOCK_ENV_KEY` as an environment variable on your platform. The key must be available at both **build time** (for encryption) and **runtime** (for decryption).
+
+<Steps>
+
+1. **Generate and set the key**
+
+    <Tabs>
+      <TabItem label="Vercel">
+      ```bash
+      varlock generate-key --plain | vercel env add _VARLOCK_ENV_KEY production preview development --sensitive
+      ```
+      </TabItem>
+      <TabItem label="Netlify">
+      ```bash
+      netlify env:set _VARLOCK_ENV_KEY $(varlock generate-key --plain) --secret
+      ```
+      </TabItem>
+      <TabItem label="Other platforms">
+      Generate a key and set it as a secret/env var on your platform:
+
+      <ExecCommandWidget command="varlock generate-key" showBinary={false} />
+      </TabItem>
+    </Tabs>
+
+2. **Deploy your app**
+
+    The build will fail with a clear error if `@encryptInjectedEnv` is enabled but `_VARLOCK_ENV_KEY` is not set.
+
+</Steps>
+
+## Supported integrations
+
+| Integration | How it works |
+|---|---|
+| **[Next.js](/integrations/nextjs/)** | Encrypts the env blob injected into the webpack/turbopack build output |
+| **[Vite](/integrations/vite/)** | Encrypts the env blob when using `ssrInjectMode: 'resolved-env'` |
+| **[Astro](/integrations/astro/)** | Uses the Vite integration — encryption applies to SSR adapter builds |
+| **[SvelteKit](/integrations/sveltekit/)** | Uses the Vite integration — encryption applies to SSR builds |
+| **[TanStack Start](/integrations/tanstack-start/)** | Uses the Vite integration — encryption applies to SSR builds |
+| **[Cloudflare Workers](/integrations/cloudflare/)** | Encrypts the `__VARLOCK_ENV` secret binding uploaded at deploy time |
+| **[Expo](/integrations/expo/)** | Encrypts the env blob used by the Metro bundler for server routes |
+
+## Verifying encryption
+
+After building with encryption enabled, you can inspect your build output to confirm the blob is encrypted:
+
+```bash
+# Look for the encrypted prefix in build output
+grep -r 'varlock:v1:' dist/ .next/server/ 2>/dev/null
+```
+
+If encryption is working, you'll see `varlock:v1:` followed by a base64-encoded ciphertext instead of raw JSON.
+
+## Alternative: manual key without the decorator
+
+You can also enable encryption without the `@encryptInjectedEnv` decorator by simply setting `_VARLOCK_ENV_KEY` in your environment. When present, varlock will encrypt the blob — but it won't enforce the key's presence or auto-generate it.

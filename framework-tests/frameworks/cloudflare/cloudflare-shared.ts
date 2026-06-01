@@ -163,6 +163,32 @@ export function defineCloudflareTests(
       ],
     });
 
+    cfEnv.describeDevScenario('encrypted env blob with _VARLOCK_ENV_KEY', {
+      command: `vite dev --port ${basePort + 5}`,
+      readyPattern: /Local:.*http/,
+      readyTimeout: 30_000,
+      env: { _VARLOCK_ENV_KEY: '846a4cbdf4fefeff0da38d8f3766ffe50d8db12f8ce32849bb1e1a60ecb4ba0d' },
+      templateFiles: {
+        'src/index.ts': 'workers/basic-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.ts',
+        'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      requests: [
+        {
+          path: '/',
+          bodyAssertions: {
+            shouldContain: [
+              'public_var::public-test-value',
+              'api_url::https://api.example.com',
+              'has_sensitive::yes',
+            ],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+    });
+
     cfEnv.describeDevScenario('large env (chunking)', {
       command: `vite dev --port ${basePort + 4}`,
       readyPattern: /Local:.*http/,

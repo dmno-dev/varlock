@@ -46,6 +46,8 @@ export type SerializedEnvGraph = {
   settings: {
     redactLogs?: boolean;
     preventLeaks?: boolean;
+    encryptInjectedEnv?: boolean;
+    disableProcessEnvInjection?: boolean;
   },
   config: Record<string, {
     value: any;
@@ -411,6 +413,8 @@ export class EnvGraph {
     // maybe should be part of a _resolve all root decorators_ step?
     await this.getRootDec('redactLogs')?.resolve();
     await this.getRootDec('preventLeaks')?.resolve();
+    await this.getRootDec('encryptInjectedEnv')?.resolve();
+    await this.getRootDec('disableProcessEnvInjection')?.resolve();
   }
 
   get graphAdjacencyList() {
@@ -558,6 +562,8 @@ export class EnvGraph {
     // expose a few root level settings
     serializedGraph.settings.redactLogs = this.getRootDec('redactLogs')?.resolvedValue ?? true;
     serializedGraph.settings.preventLeaks = this.getRootDec('preventLeaks')?.resolvedValue ?? true;
+    serializedGraph.settings.encryptInjectedEnv = this.getRootDec('encryptInjectedEnv')?.resolvedValue ?? false;
+    serializedGraph.settings.disableProcessEnvInjection = this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
 
     // collect all errors into a single nested object
     const errors: SerializedEnvGraphErrors = {};

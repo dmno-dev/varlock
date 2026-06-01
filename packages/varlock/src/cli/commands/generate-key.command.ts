@@ -1,6 +1,6 @@
+import { randomBytes } from 'node:crypto';
 import { define } from 'gunshi';
 
-import { generateEncryptionKeyHex } from '../../runtime/crypto';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
 export const commandSpec = define({
@@ -10,7 +10,7 @@ export const commandSpec = define({
 });
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async () => {
-  const key = generateEncryptionKeyHex();
+  const key = randomBytes(32).toString('hex');
 
   console.log('');
   console.log('Generated _VARLOCK_ENV_KEY:');

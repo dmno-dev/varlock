@@ -26,9 +26,22 @@ export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
     return;
   }
 
+  const encryptionKey = process.env._VARLOCK_ENV_KEY;
+  let encryptionRequired = false;
+  try {
+    const parsed = JSON.parse(rawEnv);
+    encryptionRequired = !!parsed?.settings?.encryptInjectedEnv;
+  } catch { /* ignore parse errors */ }
+  if (encryptionRequired && !encryptionKey) {
+    throw new Error(
+      '[varlock] @encryptInjectedEnv is enabled but _VARLOCK_ENV_KEY is not set.\n'
+      + 'Generate a key with `varlock generate-key` and set it on your platform.\n'
+      + 'See https://varlock.dev/guides/encrypted-deployments/ for details.',
+    );
+  }
   let envPayload = rawEnv;
-  if (process.env._VARLOCK_ENV_KEY) {
-    envPayload = encryptEnvBlobSync(rawEnv, process.env._VARLOCK_ENV_KEY);
+  if (encryptionKey) {
+    envPayload = encryptEnvBlobSync(rawEnv, encryptionKey);
   }
 
   // Find turbopack runtime files ([turbopack]_runtime.js) and edge-wrapper files.

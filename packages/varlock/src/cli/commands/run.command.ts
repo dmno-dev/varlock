@@ -5,6 +5,7 @@ import { exec } from '../../lib/exec';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { CliExitError } from '../helpers/exit-error';
 import { resetRedactionMap, redactSensitiveConfig } from '../../runtime/env';
 
 export const commandSpec = define({
@@ -20,9 +21,14 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'Disable stdout/stderr redaction and use stdio inherit for full TTY pass-through (use for interactive tools that require raw TTY)',
     },
+    inject: {
+      type: 'string',
+      short: 'i',
+      description: 'Control what gets injected into the child process env: "all" (default), "vars" (individual vars only, no blob), or "blob" (only __VARLOCK_ENV blob, no individual vars)',
+    },
     'no-inject-graph': {
       type: 'boolean',
-      description: 'Disable injection of __VARLOCK_ENV serialized config graph into the child process environment (prevents sensitive value exposure via env inspection)',
+      description: 'Deprecated: use --inject vars instead',
     },
     path: {
       type: 'string',
@@ -40,7 +46,8 @@ Examples:
   varlock run -- python script.py               # Run a Python script
   varlock run -- sh -c 'echo $MY_VAR'           # Use shell expansion for env vars
   varlock run --no-redact-stdout -- psql        # Preserve TTY for interactive tools
-  varlock run --no-inject-graph -- sh           # Omit serialized config graph from env
+  varlock run --inject vars -- sh               # Inject only individual vars, no blob
+  varlock run --inject blob -- node app.js      # Inject only the blob, no individual vars
   varlock run --path .env.prod -- node app.js   # Use a specific .env file
   varlock run --path ./config/ -- node app.js   # Use a specific directory
   varlock run -p ./envs -p ./overrides -- node app.js  # Use multiple directories
@@ -49,7 +56,8 @@ Examples:
 
 💡 Tip: For shell expansion of env vars, use: sh -c 'your command here'
 💡 Tip: Use --no-redact-stdout for interactive tools that require raw TTY (e.g., psql, claude)
-💡 Tip: Use --no-inject-graph to prevent __VARLOCK_ENV from being visible in child process environment (e.g., interactive shells, long-lived processes)
+💡 Tip: Use --inject vars to prevent __VARLOCK_ENV from being visible in child process env
+💡 Tip: Use --inject blob when your app uses the ENV proxy and doesn't need individual process.env vars
   `.trim(),
 });
 
@@ -97,15 +105,32 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const serializedGraph = envGraph.getSerializedGraph();
   // console.log(resolvedEnv);
 
-  const noInjectGraph = ctx.values['no-inject-graph'] ?? false;
+  // handle deprecated --no-inject-graph flag
+  let injectDefault = 'all';
+  if (ctx.values['no-inject-graph']) {
+    console.warn('[varlock] ⚠️  --no-inject-graph is deprecated, use --inject vars instead');
+    injectDefault = 'vars';
+  }
+  const injectMode = ctx.values.inject ?? injectDefault;
+  const validModes = ['all', 'vars', 'blob'];
+  if (!validModes.includes(injectMode)) {
+    throw new CliExitError(`Invalid --inject mode: "${injectMode}". Must be one of: ${validModes.join(', ')}`);
+  }
+  const injectVars = injectMode === 'all' || injectMode === 'vars';
+  const injectBlob = injectMode === 'all' || injectMode === 'blob';
 
-  // needs more thought here
   const fullInjectedEnv: NodeJS.ProcessEnv = {
     ...process.env,
-    ...resolvedEnv,
+    ...(injectVars ? resolvedEnv : {}),
     __VARLOCK_RUN: '1', // flag for a child process to detect it is running via `varlock run`
-    ...(!noInjectGraph ? { __VARLOCK_ENV: JSON.stringify(serializedGraph) } : {}),
+    ...(injectBlob ? { __VARLOCK_ENV: JSON.stringify(serializedGraph) } : {}),
   };
+
+  // when only injecting the blob, also inject the encryption key so the
+  // child process can decrypt it (if encrypted)
+  if (injectBlob && !injectVars && process.env._VARLOCK_ENV_KEY) {
+    fullInjectedEnv._VARLOCK_ENV_KEY = process.env._VARLOCK_ENV_KEY;
+  }
 
   const redactLogs = serializedGraph.settings?.redactLogs ?? true;
   const noRedactStdout = ctx.values['no-redact-stdout'] ?? false;

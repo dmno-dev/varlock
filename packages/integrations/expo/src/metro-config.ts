@@ -80,6 +80,7 @@ export function withVarlockMetroConfig<T extends Record<string, any>>(config: T)
     process.env.__VARLOCK_ENV = stdout;
 
     const parsed = JSON.parse(stdout) as SerializedEnvGraph;
+    // No encryption needed here — Expo's Metro process is both build and runtime.
     (globalThis as any).__varlockLoadedEnv = parsed;
 
     initVarlockEnv();
