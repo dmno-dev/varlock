@@ -294,9 +294,8 @@ See https://varlock.dev/integrations/vite/ for more details.
 
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
 
-      // Ensure node:crypto (and its bare alias) is externalized in SSR builds.
-      // tsup/esbuild strips the node: prefix, so the built varlock dist uses
-      // `import crypto from 'crypto'` which Vite doesn't auto-externalize.
+      // esbuild strips the node: prefix from imports, so varlock's built dist
+      // uses bare 'crypto' which Vite SSR doesn't auto-externalize
       config.ssr ||= {};
       config.ssr.external ||= [];
       if (Array.isArray(config.ssr.external) && !config.ssr.external.includes('crypto')) {
