@@ -295,11 +295,16 @@ See https://varlock.dev/integrations/vite/ for more details.
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
 
       // esbuild strips the node: prefix from imports, so varlock's built dist
-      // uses bare 'crypto' which Vite SSR doesn't auto-externalize
-      config.ssr ||= {};
-      config.ssr.external ||= [];
-      if (Array.isArray(config.ssr.external) && !config.ssr.external.includes('crypto')) {
-        config.ssr.external.push('crypto');
+      // uses bare 'crypto' which Vite SSR doesn't auto-externalize.
+      // Skip when CF Vite plugin is present — it rejects ssr.external since
+      // Workers handle node builtins via nodejs_compat.
+      const hasCfPlugin = config.plugins?.flat().some((p: any) => p?.name?.includes('cloudflare'));
+      if (!hasCfPlugin) {
+        config.ssr ||= {};
+        config.ssr.external ||= [];
+        if (Array.isArray(config.ssr.external) && !config.ssr.external.includes('crypto')) {
+          config.ssr.external.push('crypto');
+        }
       }
 
       if (!configIsValid) {
