@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   describe, beforeAll, afterAll,
 } from 'vitest';
@@ -348,7 +349,7 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
 
           nextEnv.describeScenario('encrypted env blob with _VARLOCK_ENV_KEY', {
             command: buildCommand,
-            env: { _VARLOCK_ENV_KEY: '846a4cbdf4fefeff0da38d8f3766ffe50d8db12f8ce32849bb1e1a60ecb4ba0d' },
+            env: { _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
             templateFiles: {
               'app/page.tsx': 'pages/basic-page.tsx',
             },

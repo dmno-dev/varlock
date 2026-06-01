@@ -3,6 +3,7 @@ Shared Vite test definitions, parameterized by Vite version.
 Covers static builds, HTML constant replacement, leak detection,
 log redaction, sourcemap scrubbing, SSR init injection, and dev server.
 */
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -261,7 +262,7 @@ export function defineViteTests(
     describe('encrypted env blob', () => {
       viteEnv.describeScenario('SSR build with _VARLOCK_ENV_KEY encrypts the blob', {
         command: 'vite build --ssr src/ssr-entry.ts',
-        env: { _VARLOCK_ENV_KEY: '846a4cbdf4fefeff0da38d8f3766ffe50d8db12f8ce32849bb1e1a60ecb4ba0d' },
+        env: { _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
         templateFiles: {
           'vite.config.ts': 'vite-configs/vite.config.resolved-env.ts',
           'index.html': 'html/basic.html',

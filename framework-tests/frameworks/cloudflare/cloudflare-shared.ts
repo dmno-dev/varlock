@@ -2,6 +2,7 @@
 Shared Cloudflare Workers test definitions, parameterized by Vite version.
 Covers basic worker dev, leak detection, build + preview, and large env chunking.
 */
+import { randomBytes } from 'node:crypto';
 import {
   describe, beforeAll, afterAll,
 } from 'vitest';
@@ -167,7 +168,7 @@ export function defineCloudflareTests(
       command: `vite dev --port ${basePort + 5}`,
       readyPattern: /Local:.*http/,
       readyTimeout: 30_000,
-      env: { _VARLOCK_ENV_KEY: '846a4cbdf4fefeff0da38d8f3766ffe50d8db12f8ce32849bb1e1a60ecb4ba0d' },
+      env: { _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
       templateFiles: {
         'src/index.ts': 'workers/basic-worker.ts',
         'vite.config.ts': 'vite-configs/vite.config.ts',
