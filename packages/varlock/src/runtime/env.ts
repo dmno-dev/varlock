@@ -247,6 +247,7 @@ export function initVarlockEnv(opts?: {
 
   let serializedEnvData: SerializedEnvGraph;
   // when we inject resolved config at build time, we store it here
+  // (decryption is handled by server-only init code before initVarlockEnv is called)
   if ((globalThis as any).__varlockLoadedEnv) {
     serializedEnvData = (globalThis as any).__varlockLoadedEnv;
 
@@ -268,7 +269,7 @@ export function initVarlockEnv(opts?: {
   configHasErrors = !!(serializedEnvData as any).errors;
   resetRedactionMap(serializedEnvData);
 
-  const setProcessEnv = processExists;
+  const setProcessEnv = processExists && !serializedEnvData.settings?.disableProcessEnvInjection;
 
   // if we've already injected process.env vars in the past, we'll reset those now
   if (setProcessEnv) {

@@ -102,6 +102,11 @@
       "types": "./dist/runtime/init-edge.d.cts",
       "default": "./dist/runtime/init-edge.cjs"
     },
+    "./encrypt-env": {
+      "ts-src": "./src/runtime/crypto.ts",
+      "types": "./dist/runtime/crypto.d.ts",
+      "default": "./dist/runtime/crypto.js"
+    },
     "./exec-sync-varlock": {
       "ts-src": "./src/lib/exec-sync-varlock.ts",
       "types": "./dist/lib/exec-sync-varlock.d.ts",
@@ -132,6 +137,7 @@
     "@clack/prompts": "^1.0.0",
     "@env-spec/parser": "workspace:*",
     "@env-spec/utils": "workspace:*",
+    "@gunshi/plugin-completion": "^0.32.0",
     "@sindresorhus/is": "catalog:",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
@@ -140,7 +146,6 @@
     "ansis": "catalog:",
     "browser-or-node": "^3.0.0",
     "ci-info": "^4.3.1",
-    "@gunshi/plugin-completion": "^0.32.0",
     "exit-hook": "^5.1.0",
     "gunshi": "^0.32.0",
     "is-docker": "^4.0.0",

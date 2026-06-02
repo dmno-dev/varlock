@@ -3,6 +3,7 @@ Shared Vite test definitions, parameterized by Vite version.
 Covers static builds, HTML constant replacement, leak detection,
 log redaction, sourcemap scrubbing, SSR init injection, and dev server.
 */
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -251,6 +252,38 @@ export function defineViteTests(
             description: 'sensitive value is not present in SSR output',
             fileGlob: 'dist/*.js',
             shouldNotContain: ['super-secret-value'],
+          },
+        ],
+      });
+    });
+
+    // ---- Encrypted env blob ----
+
+    describe('encrypted env blob', () => {
+      viteEnv.describeScenario('SSR build with _VARLOCK_ENV_KEY encrypts the blob', {
+        command: 'vite build --ssr src/ssr-entry.ts',
+        env: { _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
+        templateFiles: {
+          'vite.config.ts': 'vite-configs/vite.config.resolved-env.ts',
+          'index.html': 'html/basic.html',
+          'src/ssr-entry.ts': 'pages/ssr-entry.ts',
+        },
+        expectSuccess: true,
+        fileAssertions: [
+          {
+            description: 'SSR output contains encrypted blob (varlock:v1: prefix)',
+            fileGlob: 'dist/*.js',
+            shouldContain: ['varlock:v1:'],
+          },
+          {
+            description: 'SSR output does not contain plaintext secret',
+            fileGlob: 'dist/*.js',
+            shouldNotContain: ['super-secret-value'],
+          },
+          {
+            description: 'public vars are still statically replaced',
+            fileGlob: 'dist/*.js',
+            shouldContain: ['public-test-value'],
           },
         ],
       });

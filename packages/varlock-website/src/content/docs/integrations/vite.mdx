@@ -118,7 +118,7 @@ varlockVitePlugin({ ssrInjectMode: 'auto-load' })
 
 - `init-only` - injects varlock initialization code, but does not load the env vars. You must still boot your app via `varlock run` in this mode.
 - `auto-load` - injects `import 'varlock/auto-load';` to load your resolved env via the varlock CLI
-- `resolved-env` - injects the fully resolved env data into your built code. This is useful in environments like Vercel/Cloudflare/etc where you have no control over your build command, and limited access to use CLI commands or the filesystem
+- `resolved-env` - injects the fully resolved env data into your built code. This is useful in environments like Vercel/Cloudflare/etc where you have no control over your build command, and limited access to use CLI commands or the filesystem. See the [encrypting the env blob](#encrypting-the-env-blob) section for more information.
 
 **If not specified, we will attempt to infer the correct mode based on the presence of other vite plugins and environment variables, which give us hints about how your application will be run.**
 Otherwise defaulting to `init-only`.
@@ -240,6 +240,12 @@ All non-sensitive items are bundled at build time via `ENV`, while `import.meta.
 :::
 
 
+
+---
+
+:::note[Encrypting the env blob]
+When using `ssrInjectMode: 'resolved-env'`, Varlock injects the fully resolved env data into your SSR build output. By default, this blob is plaintext JSON — meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
+:::
 
 ---
 

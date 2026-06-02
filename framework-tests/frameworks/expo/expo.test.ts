@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   describe, beforeAll, afterAll,
 } from 'vitest';
@@ -141,6 +142,31 @@ describe('Expo Integration', () => {
           description: 'empty sensitive var reference is preserved',
           fileGlob: 'dist/**/*.js',
           shouldContain: ['ENV.EMPTY_SECRET'],
+        },
+      ],
+    });
+  });
+
+  describe('encrypted env blob', () => {
+    expoEnv.describeScenario('build succeeds with _VARLOCK_ENV_KEY', {
+      command: 'node build.mjs',
+      env: { _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
+      templateFiles: {
+        'app/page.tsx': 'pages/basic-page.tsx',
+      },
+      fileAssertions: [
+        {
+          description: 'public env vars are still statically replaced',
+          fileGlob: 'dist/**/*.js',
+          shouldContain: [
+            '"Varlock Expo Test"',
+            '"https://api.example.com"',
+          ],
+        },
+        {
+          description: 'sensitive var is NOT inlined',
+          fileGlob: 'dist/**/*.js',
+          shouldNotContain: ['super-secret-key-12345'],
         },
       ],
     });

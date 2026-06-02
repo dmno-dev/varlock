@@ -163,6 +163,10 @@ This integration will automatically inject a new middleware that scans outgoing 
 
 
 
+:::note[Encrypting the env blob]
+When deploying SSR Astro apps to serverless platforms, varlock injects the resolved env into your server-side build output as plaintext JSON. This is generally safe since it only appears in server code, but you can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
+:::
+
 ---
 
 ## Reference

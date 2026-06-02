@@ -16,6 +16,7 @@ import { env as __cfEnv } from 'cloudflare:workers';
 import { initVarlockEnv } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import { patchGlobalResponse } from 'varlock/patch-response';
+import { isEncryptedBlob, decryptEnvBlobSync } from 'varlock/encrypt-env';
 
 // load __VARLOCK_ENV — may be a single binding or split into chunks if >5KB
 let __varlockEnvJson: string | undefined;
@@ -37,10 +38,13 @@ if (__cfEnv?.__VARLOCK_ENV) {
   __varlockEnvJson = parts.join('');
 }
 if (__varlockEnvJson) {
-  try {
+  // decrypt if the blob was encrypted, then parse and set for initVarlockEnv
+  if (isEncryptedBlob(__varlockEnvJson)) {
+    const key = (__cfEnv as any)?._VARLOCK_ENV_KEY as string | undefined;
+    if (!key) throw new Error('[varlock] __VARLOCK_ENV is encrypted but _VARLOCK_ENV_KEY binding is not set');
+    (globalThis as any).__varlockLoadedEnv = JSON.parse(decryptEnvBlobSync(__varlockEnvJson, key));
+  } else {
     (globalThis as any).__varlockLoadedEnv = JSON.parse(__varlockEnvJson);
-  } catch (err) {
-    throw new Error(`[varlock] failed to parse __VARLOCK_ENV: ${(err as Error).message}`);
   }
 }
 

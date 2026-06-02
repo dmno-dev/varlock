@@ -334,6 +334,12 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     name: 'preventLeaks',
   },
   {
+    name: 'encryptInjectedEnv',
+  },
+  {
+    name: 'disableProcessEnvInjection',
+  },
+  {
     name: 'auditIgnorePaths',
     isFunction: true,
   },

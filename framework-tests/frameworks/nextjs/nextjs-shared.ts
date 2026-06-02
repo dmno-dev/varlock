@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   describe, beforeAll, afterAll,
 } from 'vitest';
@@ -342,6 +343,23 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
               {
                 description: 'output contains leak detection message',
                 shouldContain: ['DETECTED LEAKED SENSITIVE CONFIG'],
+              },
+            ],
+          });
+
+          nextEnv.describeScenario('encrypted env blob with _VARLOCK_ENV_KEY', {
+            command: buildCommand,
+            env: { _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
+            templateFiles: {
+              'app/page.tsx': 'pages/basic-page.tsx',
+            },
+            expectSuccess: true,
+            fileAssertions: [
+              {
+                description: 'server JS files contain encrypted blob (varlock:v1: prefix) instead of plaintext',
+                fileGlob: '.next/server/**/*.js',
+                shouldContain: ['varlock:v1:'],
+                shouldNotContain: ['super-secret-var'],
               },
             ],
           });
