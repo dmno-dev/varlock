@@ -8,7 +8,7 @@ repository = "https://github.com/dmno-dev/varlock"
 
 [grammars.env]
 repository = "https://github.com/dmno-dev/varlock"
-rev = "7659c2f0014abf8cfe8992b9c5e4ed25b98433d3"
+rev = "a27ef6b61fc32331f28b7faece367e6310d4eaba"
 path = "packages/zed-plugin/tree-sitter-varlock-schema"
 
 [language_servers.varlock-schema-language-server]
