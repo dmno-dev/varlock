@@ -1,0 +1,27 @@
+{
+  "name": "varlock-env-spec-language-server",
+  "version": "0.1.3",
+  "private": true,
+  "type": "commonjs",
+  "description": "Varlock @env-spec language server for .env.schema files (bundled, shipped via GitHub release)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/zed-plugin/server"
+  },
+  "main": "out/server.js",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "bundle": "esbuild src/server.ts --bundle --platform=node --target=node18 --format=cjs --outfile=out/server.js --legal-comments=none",
+    "build": "npm run typecheck && npm run bundle"
+  },
+  "dependencies": {
+    "vscode-languageserver": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.17",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.8.3"
+  }
+}

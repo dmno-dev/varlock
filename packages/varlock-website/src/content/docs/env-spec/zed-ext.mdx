@@ -7,7 +7,7 @@ The @env-spec Zed extension provides language support for Varlock `.env.schema` 
 
 ## Installation
 
-The extension is available from the [source repository](https://github.com/petercr/varlock-zed-extension). Once the Zed extension registry submission is approved, it will also be installable from Zed's extension gallery.
+The extension source lives in the [varlock monorepo](https://github.com/dmno-dev/varlock/tree/main/packages/zed-plugin). Once the Zed extension registry submission is approved, it will also be installable from Zed's extension gallery.
 
 ## Features
 
@@ -19,4 +19,12 @@ The extension is available from the [source repository](https://github.com/peter
 
 ## How to use this extension
 
-After installing the extension, open a `.env.schema` file and confirm the language mode is `Varlock Schema`.
+After installing the extension, open a `.env.schema` file and set the language mode to `Varlock Schema`.
+
+If you would like to have it autodetected by file type, add the following to your `settings.json` file in Zed's settings:
+
+```json
+"file_types": {
+  "Varlock Schema": [".env.schema", "*.env.schema"],
+},
+```

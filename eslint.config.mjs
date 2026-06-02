@@ -44,6 +44,9 @@ export default tseslint.config(
       '**/.turbo',
       'packages/eslint-custom-rules',
       'packages/env-spec-parser/src/grammar.js',
+      'packages/zed-plugin/target',
+      'packages/zed-plugin/server/package-lock.json',
+      'packages/zed-plugin/tree-sitter-varlock-schema',
       'packages/varlock-website/.astro',
       'packages/varlock/src/env-graph/test/plugins',
       '**/*.ignore',
@@ -168,6 +171,7 @@ export default tseslint.config(
       'packages/*.ignore/**',
       'packages/varlock/src/cli/**',
       'packages/varlock/scripts/**',
+      'packages/zed-plugin/scripts/**',
       'smoke-tests/**',
       'framework-tests/**',
       'packages/encryption-binary-swift/scripts/**',
@@ -181,6 +185,13 @@ export default tseslint.config(
     files: ['smoke-tests/smoke-test-plugin/plugins/**'],
     rules: {
       '@typescript-eslint/no-require-imports': 0,
+    },
+  },
+  {
+    files: ['packages/zed-plugin/server/src/**'],
+    rules: {
+      '@typescript-eslint/array-type': 0,
+      'no-use-before-define': 0,
     },
   },
   {
