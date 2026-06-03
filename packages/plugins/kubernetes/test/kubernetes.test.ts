@@ -259,6 +259,92 @@ describe('kubernetes plugin', () => {
     }
   });
 
+  test('uses defaultSecret when no name argument is provided', async () => {
+    const api = await startFakeKubeApi();
+    try {
+      await runKubernetesTest(api, {
+        initParams: 'defaultSecret=app-secrets',
+        schema: outdent`
+          DATABASE_URL=k8sSecret()
+          SECRET_KEY=k8sSecret(key=API_KEY)
+        `,
+        expectValues: {
+          DATABASE_URL: 'postgres://example',
+          SECRET_KEY: 'secret-api-key',
+        },
+      });
+    } finally {
+      await api.close();
+    }
+  });
+
+  test('uses defaultConfigMap when no name argument is provided', async () => {
+    const api = await startFakeKubeApi();
+    try {
+      await runKubernetesTest(api, {
+        initParams: 'defaultConfigMap=app-config',
+        header: outdent`
+          # @setValuesBulk(k8sConfigMapBulk(), format=json)
+        `,
+        schema: outdent`
+          PUBLIC_API_HOST=
+          CERT=
+          API_HOST=k8sConfigMap(name=app-config, key=PUBLIC_API_HOST)
+        `,
+        expectValues: {
+          PUBLIC_API_HOST: 'api.example.com',
+          CERT: 'cert-data',
+          API_HOST: 'api.example.com',
+        },
+      });
+    } finally {
+      await api.close();
+    }
+  });
+
+  test('positional name overrides defaultSecret', async () => {
+    const api = await startFakeKubeApi();
+    try {
+      await runKubernetesTest(api, {
+        initParams: 'defaultSecret=app-secrets',
+        schema: outdent`
+          DATABASE_URL=k8sSecret()
+          STRIPE_KEY=k8sSecret(other-secrets, API_KEY)
+        `,
+        expectValues: {
+          DATABASE_URL: 'postgres://example',
+          STRIPE_KEY: Error,
+        },
+      });
+    } finally {
+      await api.close();
+    }
+  });
+
+  test('errors when no name is provided and no default is configured', async () => {
+    const api = await startFakeKubeApi();
+    try {
+      await runKubernetesTest(api, {
+        schema: 'DATABASE_URL=k8sSecret()',
+        expectValues: { DATABASE_URL: Error },
+      });
+    } finally {
+      await api.close();
+    }
+  });
+
+  test('rejects mixing positional and named args for the same field', async () => {
+    const api = await startFakeKubeApi();
+    try {
+      await runKubernetesTest(api, {
+        schema: 'MIXED=k8sSecret(app-secrets, name=other-secrets)',
+        expectValues: { MIXED: Error },
+      });
+    } finally {
+      await api.close();
+    }
+  });
+
   test('validates init and token schema', async () => {
     await pluginTest({
       schema: outdent`
