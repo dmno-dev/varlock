@@ -85,18 +85,26 @@ function createServingTempFile(prefix: string) {
     }
   }
 
+  type ServingHandle = {
+    update: (content: string) => Promise<void>,
+    stop: () => void,
+  };
+
   /**
    * Start serving content via the FIFO (or write a regular file on Windows).
    * On Unix: spawns a child process that writes to the FIFO in a loop.
    * Using a child process means the blocked libuv thread lives in the child —
    * killing the child cleanly releases it, allowing our main process to exit.
    * On Windows: writes a regular file, with refresh() to update it.
+   *
+   * Returns a promise that resolves once the FIFO server is ready to accept
+   * a reader — this prevents racing with downstream consumers (e.g. wrangler).
    */
-  function startServing(getContent: () => string) {
+  async function startServing(getContent: () => string): Promise<ServingHandle> {
     if (isWindows) {
       writeFileSync(filePath, getContent());
       return {
-        update(content: string) { writeFileSync(filePath, content); },
+        async update(content: string) { writeFileSync(filePath, content); },
         stop() {
           /* noop on Windows */
         },
@@ -105,38 +113,89 @@ function createServingTempFile(prefix: string) {
 
     // spawn a child process to serve the FIFO
     // the child reads content from stdin, then writes it to the FIFO in a loop
+    // fd 3 is a control pipe: child writes 'ready\n' once it has buffered the
+    // content and is about to begin serving, and writes 'err:<message>\n' on
+    // any write failure so the parent can surface it instead of dying silently.
     const fifoServer = spawn(process.execPath, [
       '-e', `
       const fs = require('fs');
       const path = ${JSON.stringify(filePath)};
-      let content = '';
-      process.stdin.on('data', d => content += d);
+      const ctrl = fs.createWriteStream(null, { fd: 3 });
+      const chunks = [];
+      process.stdin.on('data', d => chunks.push(d));
       process.stdin.on('end', () => {
+        // concat Buffers once at end — '+=' on a Buffer corrupts split UTF-8
+        const content = Buffer.concat(chunks).toString('utf8');
+        // signal readiness *before* the first (blocking) FIFO open so the
+        // parent knows it's safe to spawn the reader (e.g. wrangler).
+        ctrl.write('ready\\n');
+        let iter = 0;
         (function serve() {
+          iter++;
           try { fs.writeFileSync(path, content); setImmediate(serve); }
-          catch { process.exit(); }
+          catch (e) {
+            try { ctrl.write('err:iter=' + iter + ' ' + (e && e.code || '') + ' ' + (e && e.message || String(e)) + '\\n'); } catch {}
+            try { process.stderr.write('[varlock-wrangler:fifo-server] write failed (iter=' + iter + '): ' + (e && e.stack || e) + '\\n'); } catch {}
+            process.exit(1);
+          }
         })();
       });
     `,
     ], {
-      stdio: ['pipe', 'ignore', 'ignore'],
+      // stdio: stdin=pipe (content), stdout=ignored, stderr=piped (forwarded),
+      // fd 3 = control pipe for ready/error signals
+      stdio: ['pipe', 'ignore', 'pipe', 'pipe'],
     });
     fifoServer.stdin!.write(getContent());
     fifoServer.stdin!.end();
 
-    return {
+    // forward child stderr so we don't lose diagnostic output on crashes
+    fifoServer.stderr?.on('data', (d) => process.stderr.write(d));
+
+    // surface any control-pipe messages (errors after readiness)
+    const controlPipe = (fifoServer.stdio as Array<any>)[3] as NodeJS.ReadableStream;
+
+    // wait for child to signal it's ready (i.e. has buffered the content
+    // and is about to begin serving). without this, the parent can race
+    // ahead and spawn wrangler before the child even starts.
+    await new Promise<void>((resolve, reject) => {
+      let buf = '';
+      const onData = (d: Buffer) => {
+        buf += d.toString('utf8');
+        if (buf.includes('ready\n')) {
+          controlPipe.off('data', onData);
+          // keep listening for post-ready error messages
+          controlPipe.on('data', (more: Buffer) => {
+            const msg = more.toString('utf8').trim();
+            if (msg) process.stderr.write(`[varlock-wrangler] fifo-server: ${msg}\n`);
+          });
+          resolve();
+        } else if (buf.startsWith('err:')) {
+          reject(new Error(`fifo-server failed before ready: ${buf.trim()}`));
+        }
+      };
+      controlPipe.on('data', onData);
+      fifoServer.once('exit', (code, signal) => {
+        if (!buf.includes('ready\n')) {
+          reject(new Error(`fifo-server exited before ready (code=${code}, signal=${signal})`));
+        }
+      });
+    });
+
+    const handle: ServingHandle = {
       /** Kill and respawn the FIFO server with new content */
-      update(content: string) {
+      async update(content: string) {
         fifoServer.kill();
-        const replacement = startServing(() => content);
+        const replacement: ServingHandle = await startServing(() => content);
         // swap the stop/update methods on this handle
-        this.stop = replacement.stop;
-        this.update = replacement.update;
+        handle.stop = replacement.stop;
+        handle.update = replacement.update;
       },
       stop() {
         fifoServer.kill();
       },
     };
+    return handle;
   }
 
   return {
@@ -324,7 +383,8 @@ async function handleDeploy(args: Array<string>) {
   const tmp = createServingTempFile('varlock-secrets');
   const content = JSON.stringify(secretsObj);
   debug('deploy: starting FIFO serve');
-  const handle = tmp.startServing(() => content);
+  const handle = await tmp.startServing(() => content);
+  debug('deploy: FIFO serve ready');
 
   process.on('SIGINT', () => {
     handle.stop();
@@ -379,7 +439,8 @@ async function handleTypes(args: Array<string>) {
 
   const tmp = createServingTempFile('varlock-types-env');
   debug('types: starting FIFO serve');
-  const handle = tmp.startServing(() => envFileLines.join('\n'));
+  const handle = await tmp.startServing(() => envFileLines.join('\n'));
+  debug('types: FIFO serve ready');
 
   let exitCode = process.exitCode ?? 0;
   try {
@@ -446,7 +507,8 @@ async function handleDev(args: Array<string>) {
   const watchers: Array<ReturnType<typeof watch>> = [];
 
   debug('dev: starting FIFO serve');
-  const handle = tmp.startServing(() => cachedContent);
+  const handle = await tmp.startServing(() => cachedContent);
+  debug('dev: FIFO serve ready');
 
   function cleanup() {
     handle.stop();
@@ -475,7 +537,7 @@ async function handleDev(args: Array<string>) {
     // debounce — multiple files may change at once (e.g. editor saves multiple files,
     // or macOS fs.watch() emits extra events for unchanged files)
     if (restartTimeout) clearTimeout(restartTimeout);
-    restartTimeout = setTimeout(() => {
+    restartTimeout = setTimeout(async () => {
       const changedFileList = [...changedFiles];
       changedFiles.clear();
       try {
@@ -492,7 +554,8 @@ async function handleDev(args: Array<string>) {
         loaded = freshLoaded;
         configIsValid = true;
         cachedContent = formatEnvFileContent(freshLoaded);
-        handle.update(cachedContent);
+        // await readiness so wrangler doesn't restart before the new FIFO server is serving
+        await handle.update(cachedContent);
         const changedMsg = changedFileList.length
           ? `change detected in ${changedFileList.length} env source file${changedFileList.length === 1 ? '' : 's'}`
           : 'change detected in env source files';
@@ -511,7 +574,7 @@ async function handleDev(args: Array<string>) {
               loaded = { json: err.stdout, graph: parsed };
               cachedGraphJson = err.stdout;
               cachedContent = `${formatEnvLine('__VARLOCK_ENV', err.stdout)}\n`;
-              handle.update(cachedContent);
+              await handle.update(cachedContent);
               console.error('\n[varlock-wrangler] \u26a0\ufe0f config is invalid \u2014 fix the error(s) above and save to reload\n');
               wranglerChild?.kill();
               // restartTimeout stays truthy so the exit handler knows this was a restart-kill
