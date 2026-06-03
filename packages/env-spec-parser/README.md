@@ -10,7 +10,7 @@ _Here is a short illustrative example:_
 ```dotenv
 # Stripe secret api key
 # @required @sensitive @type=string(startsWith="sk_")
-# @docsUrl=https://docs.stripe.com/keys
+# @docs(https://docs.stripe.com/keys)
 STRIPE_SECRET_KEY=encrypted("asdfqwerqwe2374298374lksdjflksdjf981273948okjdfksdl")
 ```
 
