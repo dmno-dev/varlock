@@ -4,7 +4,7 @@ import * as k8s from '@kubernetes/client-node';
 
 const { SchemaError, ResolutionError, ValidationError } = plugin.ERRORS;
 
-const KUBERNETES_ICON = 'logos:kubernetes';
+const KUBERNETES_ICON = 'mdi:kubernetes';
 const SERVICE_ACCOUNT_NAMESPACE_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/namespace';
 
 plugin.name = 'kubernetes';
@@ -20,7 +20,7 @@ plugin.standardVars = {
   },
 };
 
-type KubernetesAuthConfig = {
+type KubernetesInstanceConfig = {
   namespace?: string;
   context?: string;
   kubeconfig?: string;
@@ -28,6 +28,8 @@ type KubernetesAuthConfig = {
   token?: string;
   skipTlsVerify?: boolean;
   allowMissing?: boolean;
+  defaultSecret?: string;
+  defaultConfigMap?: string;
 };
 
 type KubernetesObjectKind = 'Secret' | 'ConfigMap';
@@ -111,7 +113,7 @@ function decodeConfigMapData(configMap: {
 }
 
 class KubernetesPluginInstance {
-  private authConfig: KubernetesAuthConfig = {};
+  private config: KubernetesInstanceConfig = {};
   private namespace = 'default';
   private clientPromise?: Promise<k8s.CoreV1Api>;
 
@@ -119,12 +121,12 @@ class KubernetesPluginInstance {
     readonly id: string,
   ) {}
 
-  setAuth(config: KubernetesAuthConfig) {
-    this.authConfig = config;
+  setConfig(config: KubernetesInstanceConfig) {
+    this.config = config;
     debug(
       'kubernetes instance',
       this.id,
-      'set auth - namespace:',
+      'set config - namespace:',
       config.namespace,
       'context:',
       config.context,
@@ -136,7 +138,15 @@ class KubernetesPluginInstance {
       !!config.token,
       'allowMissing:',
       !!config.allowMissing,
+      'defaultSecret:',
+      config.defaultSecret,
+      'defaultConfigMap:',
+      config.defaultConfigMap,
     );
+  }
+
+  getDefaultName(kind: KubernetesObjectKind): string | undefined {
+    return kind === 'Secret' ? this.config.defaultSecret : this.config.defaultConfigMap;
   }
 
   private async initKubeConfig(): Promise<k8s.KubeConfig> {
@@ -147,7 +157,7 @@ class KubernetesPluginInstance {
       clusterServer,
       token,
       skipTlsVerify,
-    } = this.authConfig;
+    } = this.config;
 
     const kc = new k8s.KubeConfig();
 
@@ -229,17 +239,12 @@ class KubernetesPluginInstance {
     return this.clientPromise;
   }
 
-  private missingValue(): undefined {
-    if (this.authConfig.allowMissing) return undefined;
-    throw new Error('unreachable');
-  }
-
-  private handleReadError(err: unknown, kind: KubernetesObjectKind, resourceName: string): never | undefined {
+  private handleReadError(err: unknown, kind: KubernetesObjectKind, resourceName: string): undefined {
     const status = getApiExceptionStatus(err);
     const location = `${kind} "${resourceName}" in namespace "${this.namespace}"`;
 
     if (status === 404) {
-      if (this.authConfig.allowMissing) return this.missingValue();
+      if (this.config.allowMissing) return undefined;
       throw new ResolutionError(`${location} not found`, {
         tip: `Check the ${kind} name and namespace, or set allowMissing=true on @initKubernetes()`,
       });
@@ -271,7 +276,7 @@ class KubernetesPluginInstance {
     key: string,
     availableKeys: Array<string>,
   ): string | undefined {
-    if (this.authConfig.allowMissing) return undefined;
+    if (this.config.allowMissing) return undefined;
     throw new ResolutionError(`Key "${key}" not found in Kubernetes ${kind} "${resourceName}"`, {
       tip: availableKeys.length
         ? `Available keys: ${availableKeys.join(', ')}`
@@ -324,9 +329,8 @@ class KubernetesPluginInstance {
       return JSON.stringify(decodeSecretData(secretName, secret.data));
     } catch (err) {
       if (err instanceof ResolutionError) throw err;
-      const maybeMissing = this.handleReadError(err, 'Secret', secretName);
-      if (maybeMissing === undefined) return '{}';
-      throw new Error('unreachable');
+      this.handleReadError(err, 'Secret', secretName);
+      return '{}';
     }
   }
 
@@ -341,9 +345,8 @@ class KubernetesPluginInstance {
       return JSON.stringify(decodeConfigMapData(configMap));
     } catch (err) {
       if (err instanceof ResolutionError) throw err;
-      const maybeMissing = this.handleReadError(err, 'ConfigMap', configMapName);
-      if (maybeMissing === undefined) return '{}';
-      throw new Error('unreachable');
+      this.handleReadError(err, 'ConfigMap', configMapName);
+      return '{}';
     }
   }
 }
@@ -394,63 +397,120 @@ function inferItemKey(resolverCtx: any, resolverName: string): string {
   });
 }
 
-function parseKeyResolverArgs(resolverCtx: any, resolverName: string) {
-  let instanceId = '_default';
-  let resourceNameResolver: Resolver;
-  let keyResolver: Resolver | undefined;
-  let inferredKey: string | undefined;
-
-  const argCount = resolverCtx.arrArgs?.length ?? 0;
-  if (argCount === 1) {
-    resourceNameResolver = resolverCtx.arrArgs[0];
-    inferredKey = inferItemKey(resolverCtx, resolverName);
-  } else if (argCount === 2) {
-    resourceNameResolver = resolverCtx.arrArgs[0];
-    keyResolver = resolverCtx.arrArgs[1];
-  } else if (argCount === 3) {
-    if (!resolverCtx.arrArgs[0].isStatic) {
-      throw new SchemaError('Expected instance id to be a static value');
-    }
-    instanceId = String(resolverCtx.arrArgs[0].staticValue);
-    resourceNameResolver = resolverCtx.arrArgs[1];
-    keyResolver = resolverCtx.arrArgs[2];
-  } else {
-    throw new SchemaError(`Expected ${resolverName}() to receive 1-3 arguments`);
+function parseStaticInstanceId(resolver: Resolver, paramLabel: string): string {
+  if (!resolver.isStatic) {
+    throw new SchemaError(`Expected ${paramLabel} to be a static value`);
   }
+  return String(resolver.staticValue);
+}
+
+function parseKeyResolverArgs(resolverCtx: any, resolverName: string, kind: KubernetesObjectKind) {
+  const arrArgs: Array<Resolver> = resolverCtx.arrArgs || [];
+  const objArgs: Record<string, Resolver> = resolverCtx.objArgs || {};
+
+  let instanceId = '_default';
+  let resourceNameResolver: Resolver | undefined;
+  let keyResolver: Resolver | undefined;
+
+  if (arrArgs.length === 3) {
+    instanceId = parseStaticInstanceId(arrArgs[0], 'instance id');
+    resourceNameResolver = arrArgs[1];
+    keyResolver = arrArgs[2];
+  } else if (arrArgs.length === 2) {
+    resourceNameResolver = arrArgs[0];
+    keyResolver = arrArgs[1];
+  } else if (arrArgs.length === 1) {
+    resourceNameResolver = arrArgs[0];
+  } else if (arrArgs.length > 3) {
+    throw new SchemaError(`Expected ${resolverName}() to receive 0-3 positional arguments`);
+  }
+
+  if (objArgs.id) {
+    if (arrArgs.length === 3) {
+      throw new SchemaError('Cannot use both positional and named id');
+    }
+    instanceId = parseStaticInstanceId(objArgs.id, 'id');
+  }
+  if (objArgs.name) {
+    if (resourceNameResolver) {
+      throw new SchemaError(`Cannot use both positional and named name for ${resolverName}()`);
+    }
+    resourceNameResolver = objArgs.name;
+  }
+  if (objArgs.key) {
+    if (keyResolver) {
+      throw new SchemaError(`Cannot use both positional and named key for ${resolverName}()`);
+    }
+    keyResolver = objArgs.key;
+  }
+
+  const inferredKey = keyResolver ? undefined : inferItemKey(resolverCtx, resolverName);
 
   getPluginInstance(instanceId, resolverName);
 
   return {
     instanceId,
-    resourceNameResolver: resourceNameResolver!,
+    resourceNameResolver,
     keyResolver,
     inferredKey,
+    kind,
   };
 }
 
-function parseBulkResolverArgs(resolverCtx: any, resolverName: string) {
-  let instanceId = '_default';
-  let resourceNameResolver: Resolver;
+function parseBulkResolverArgs(resolverCtx: any, resolverName: string, kind: KubernetesObjectKind) {
+  const arrArgs: Array<Resolver> = resolverCtx.arrArgs || [];
+  const objArgs: Record<string, Resolver> = resolverCtx.objArgs || {};
 
-  const argCount = resolverCtx.arrArgs?.length ?? 0;
-  if (argCount === 1) {
-    resourceNameResolver = resolverCtx.arrArgs[0];
-  } else if (argCount === 2) {
-    if (!resolverCtx.arrArgs[0].isStatic) {
-      throw new SchemaError('Expected instance id to be a static value');
+  let instanceId = '_default';
+  let resourceNameResolver: Resolver | undefined;
+
+  if (arrArgs.length === 2) {
+    instanceId = parseStaticInstanceId(arrArgs[0], 'instance id');
+    resourceNameResolver = arrArgs[1];
+  } else if (arrArgs.length === 1) {
+    resourceNameResolver = arrArgs[0];
+  } else if (arrArgs.length > 2) {
+    throw new SchemaError(`Expected ${resolverName}() to receive 0-2 positional arguments`);
+  }
+
+  if (objArgs.id) {
+    if (arrArgs.length === 2) {
+      throw new SchemaError('Cannot use both positional and named id');
     }
-    instanceId = String(resolverCtx.arrArgs[0].staticValue);
-    resourceNameResolver = resolverCtx.arrArgs[1];
-  } else {
-    throw new SchemaError(`Expected ${resolverName}() to receive 1-2 arguments`);
+    instanceId = parseStaticInstanceId(objArgs.id, 'id');
+  }
+  if (objArgs.name) {
+    if (resourceNameResolver) {
+      throw new SchemaError(`Cannot use both positional and named name for ${resolverName}()`);
+    }
+    resourceNameResolver = objArgs.name;
   }
 
   getPluginInstance(instanceId, resolverName);
 
   return {
     instanceId,
-    resourceNameResolver: resourceNameResolver!,
+    resourceNameResolver,
+    kind,
   };
+}
+
+async function resolveResourceName(
+  instanceId: string,
+  resourceNameResolver: Resolver | undefined,
+  kind: KubernetesObjectKind,
+): Promise<string> {
+  if (resourceNameResolver) {
+    return resolveString(resourceNameResolver, `${kind} name`);
+  }
+  const defaultName = pluginInstances[instanceId].getDefaultName(kind);
+  if (!defaultName) {
+    const defaultParam = kind === 'Secret' ? 'defaultSecret' : 'defaultConfigMap';
+    throw new SchemaError(`No ${kind} name provided`, {
+      tip: `Pass a name argument, or set ${defaultParam} on @initKubernetes()`,
+    });
+  }
+  return defaultName;
 }
 
 plugin.registerRootDecorator({
@@ -480,6 +540,8 @@ plugin.registerRootDecorator({
       tokenResolver: objArgs.token,
       skipTlsVerifyResolver: objArgs.skipTlsVerify,
       allowMissingResolver: objArgs.allowMissing,
+      defaultSecretResolver: objArgs.defaultSecret,
+      defaultConfigMapResolver: objArgs.defaultConfigMap,
     };
   },
   async execute({
@@ -491,6 +553,8 @@ plugin.registerRootDecorator({
     tokenResolver,
     skipTlsVerifyResolver,
     allowMissingResolver,
+    defaultSecretResolver,
+    defaultConfigMapResolver,
   }) {
     const namespace = asOptionalString(await namespaceResolver?.resolve());
     const context = asOptionalString(await contextResolver?.resolve());
@@ -499,8 +563,10 @@ plugin.registerRootDecorator({
     const token = asOptionalString(await tokenResolver?.resolve());
     const skipTlsVerify = asOptionalBoolean(await skipTlsVerifyResolver?.resolve(), 'skipTlsVerify');
     const allowMissing = asOptionalBoolean(await allowMissingResolver?.resolve(), 'allowMissing');
+    const defaultSecret = asOptionalString(await defaultSecretResolver?.resolve());
+    const defaultConfigMap = asOptionalString(await defaultConfigMapResolver?.resolve());
 
-    pluginInstances[id].setAuth({
+    pluginInstances[id].setConfig({
       namespace,
       context,
       kubeconfig,
@@ -508,6 +574,8 @@ plugin.registerRootDecorator({
       token,
       skipTlsVerify,
       allowMissing,
+      defaultSecret,
+      defaultConfigMap,
     });
   },
 });
@@ -536,17 +604,17 @@ plugin.registerResolverFunction({
   label: 'Fetch key from Kubernetes Secret',
   icon: KUBERNETES_ICON,
   argsSchema: {
-    type: 'array',
-    arrayMinLength: 1,
+    type: 'mixed',
+    arrayMinLength: 0,
     arrayMaxLength: 3,
   },
   process() {
-    return parseKeyResolverArgs(this, 'k8sSecret');
+    return parseKeyResolverArgs(this, 'k8sSecret', 'Secret');
   },
   async resolve({
-    instanceId, resourceNameResolver, keyResolver, inferredKey,
+    instanceId, resourceNameResolver, keyResolver, inferredKey, kind,
   }) {
-    const resourceName = await resolveString(resourceNameResolver, 'Secret name');
+    const resourceName = await resolveResourceName(instanceId, resourceNameResolver, kind);
     const key = keyResolver ? await resolveString(keyResolver, 'Secret key') : inferredKey;
     if (!key) throw new SchemaError('No Secret key provided');
     return pluginInstances[instanceId].getSecretKey(resourceName, key);
@@ -558,17 +626,17 @@ plugin.registerResolverFunction({
   label: 'Fetch key from Kubernetes ConfigMap',
   icon: KUBERNETES_ICON,
   argsSchema: {
-    type: 'array',
-    arrayMinLength: 1,
+    type: 'mixed',
+    arrayMinLength: 0,
     arrayMaxLength: 3,
   },
   process() {
-    return parseKeyResolverArgs(this, 'k8sConfigMap');
+    return parseKeyResolverArgs(this, 'k8sConfigMap', 'ConfigMap');
   },
   async resolve({
-    instanceId, resourceNameResolver, keyResolver, inferredKey,
+    instanceId, resourceNameResolver, keyResolver, inferredKey, kind,
   }) {
-    const resourceName = await resolveString(resourceNameResolver, 'ConfigMap name');
+    const resourceName = await resolveResourceName(instanceId, resourceNameResolver, kind);
     const key = keyResolver ? await resolveString(keyResolver, 'ConfigMap key') : inferredKey;
     if (!key) throw new SchemaError('No ConfigMap key provided');
     return pluginInstances[instanceId].getConfigMapKey(resourceName, key);
@@ -580,15 +648,15 @@ plugin.registerResolverFunction({
   label: 'Load all keys from Kubernetes Secret',
   icon: KUBERNETES_ICON,
   argsSchema: {
-    type: 'array',
-    arrayMinLength: 1,
+    type: 'mixed',
+    arrayMinLength: 0,
     arrayMaxLength: 2,
   },
   process() {
-    return parseBulkResolverArgs(this, 'k8sSecretBulk');
+    return parseBulkResolverArgs(this, 'k8sSecretBulk', 'Secret');
   },
-  async resolve({ instanceId, resourceNameResolver }) {
-    const resourceName = await resolveString(resourceNameResolver, 'Secret name');
+  async resolve({ instanceId, resourceNameResolver, kind }) {
+    const resourceName = await resolveResourceName(instanceId, resourceNameResolver, kind);
     return pluginInstances[instanceId].getSecretBulk(resourceName);
   },
 });
@@ -598,15 +666,15 @@ plugin.registerResolverFunction({
   label: 'Load all keys from Kubernetes ConfigMap',
   icon: KUBERNETES_ICON,
   argsSchema: {
-    type: 'array',
-    arrayMinLength: 1,
+    type: 'mixed',
+    arrayMinLength: 0,
     arrayMaxLength: 2,
   },
   process() {
-    return parseBulkResolverArgs(this, 'k8sConfigMapBulk');
+    return parseBulkResolverArgs(this, 'k8sConfigMapBulk', 'ConfigMap');
   },
-  async resolve({ instanceId, resourceNameResolver }) {
-    const resourceName = await resolveString(resourceNameResolver, 'ConfigMap name');
+  async resolve({ instanceId, resourceNameResolver, kind }) {
+    const resourceName = await resolveResourceName(instanceId, resourceNameResolver, kind);
     return pluginInstances[instanceId].getConfigMapBulk(resourceName);
   },
 });
