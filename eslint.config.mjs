@@ -43,7 +43,7 @@ export default tseslint.config(
       '**/node_modules',
       '**/.turbo',
       'packages/eslint-custom-rules',
-      'packages/env-spec-parser/src/grammar.js',
+      'packages/env-spec-parser/src/monogram/runtime/**',
       'packages/varlock-website/.astro',
       'packages/varlock/src/env-graph/test/plugins',
       '**/*.ignore',
