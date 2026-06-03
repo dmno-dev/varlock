@@ -629,7 +629,7 @@
 
     "unquoted-string-within-fn-call": {
       "comment": "unquoted string value within fn call",
-      "match": "([^ \n#,)$]+)",
+      "match": "([^ \n,)$]+)",
       "name": "string.unquoted.env-spec",
       "captures": {
         "1": {
