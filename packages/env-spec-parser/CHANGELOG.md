@@ -2,6 +2,12 @@
 
 
 
+
+## 0.3.4
+<sub>2026-06-03</sub>
+
+- [#742](https://github.com/dmno-dev/varlock/pull/742)  *(patch)* Thanks [@Shtian](https://github.com/Shtian)! - Fixed URL fragments in @docs() decorator not being highlighted correctly.
+
 ## 0.3.3
 <sub>2026-05-29</sub>
 

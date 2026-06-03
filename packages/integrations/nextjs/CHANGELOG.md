@@ -8,6 +8,12 @@
 
 
 
+
+## 1.1.3
+<sub>2026-06-03</sub>
+
+- [#656](https://github.com/dmno-dev/varlock/pull/656)  *(patch)* - add @encryptInjectedEnv and @disableProcessEnvInjection root decorators for encrypted deployments
+
 ## 1.1.2
 <sub>2026-05-29</sub>
 
