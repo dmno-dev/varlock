@@ -61,6 +61,20 @@ EXAMPLE_VAR=test
 # <- comment.line.env-spec
 DEC_FN_VAR=test
 
+# @docs(https://varlock.dev/env-spec/overview/#a-short-example)
+# <- comment.line.env-spec
+#                                             ^^^^^^^^^^^^^^^^ string.unquoted.env-spec
+DOCS_FRAGMENT_VAR=test
+
+# @type(
+#   string,
+#   ^^^^^^ string.unquoted.env-spec
+#   number
+#   ^^^^^^ string.unquoted.env-spec
+# )
+# ^ punctuation.section.parens.end.env-spec
+MULTI_DEC_VAR=test
+
 # ======================
 # Variable expansion
 # ======================
