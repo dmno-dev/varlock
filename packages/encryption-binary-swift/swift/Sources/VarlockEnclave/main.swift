@@ -392,6 +392,14 @@ case "daemon":
         sigIntSource.resume()
 
         app.run()
+    } catch IPCError.lockHeld {
+        // Another daemon won the race (parallel spawn — e.g. turbo tasks).
+        // Emit a marker the JS launcher can recognize and exit cleanly without
+        // touching any shared state. We deliberately skip removing pidPath here
+        // since the existing daemon owns it.
+        jsonOutput(["alreadyRunning": true])
+        fflush(stdout)
+        _exit(0)
     } catch {
         jsonError("Failed to start daemon: \(error.localizedDescription)")
     }

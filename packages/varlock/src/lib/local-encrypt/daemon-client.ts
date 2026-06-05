@@ -617,6 +617,15 @@ export class DaemonClient {
             child.stdout!.destroy();
             child.stderr!.destroy();
             resolve();
+          } else if (parsed.alreadyRunning) {
+            // Another daemon won the lock (parallel-spawn race). The existing
+            // daemon owns pidPath / daemon.info, so we just resolve and let
+            // the caller connect to it.
+            clearTimeout(timeout);
+            child.unref();
+            child.stdout!.destroy();
+            child.stderr!.destroy();
+            resolve();
           }
         } catch {
           // Incomplete JSON, keep buffering

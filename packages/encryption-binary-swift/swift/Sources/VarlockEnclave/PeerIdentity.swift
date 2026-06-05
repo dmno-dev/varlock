@@ -82,26 +82,85 @@ private func getParentSessionIdentifier(forPid pid: pid_t, processInfo info: kin
     return getProcessTreeSessionIdentifier(forPid: pid)
 }
 
+/// Env vars set by terminal multiplexers on every descendant. When present they
+/// signal "the user is interactively driving this pane", so per-pane PTYs should
+/// remain a session boundary even though they look identical (structurally) to
+/// PTYs allocated by fan-out task runners like turbo.
+private let multiplexerEnvKeys: [String] = [
+    "TMUX",                // tmux: "<socket>,<server_pid>,<session_id>"
+    "STY",                 // GNU screen: "<pid>.<tty>.<host>"
+    "ZELLIJ",              // zellij
+    "ZELLIJ_SESSION_NAME", // zellij (alt)
+]
+
+private func detectMultiplexerSignal(env: [String: String]?) -> (key: String, value: String)? {
+    guard let env else { return nil }
+    for key in multiplexerEnvKeys {
+        guard let raw = env[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            continue
+        }
+        return (key, raw)
+    }
+    return nil
+}
+
 private func getTtySessionIdentifier(forPid pid: pid_t, processInfo info: kinfo_proc) -> String? {
     // e_tdev is dev_t (Int32). NODEV is -1 in signed representation
     // (0xFFFFFFFF unsigned). Comparing Int32(-1) != UInt32.max is true in
     // Swift's BinaryInteger comparison, so we must compare in the same type.
-    let ttyDev = info.kp_eproc.e_tdev
-    guard ttyDev > 0 else { return nil }
+    let peerTty = info.kp_eproc.e_tdev
+    guard peerTty > 0 else { return nil }
 
-    // TTY-based identity: device name + session leader start time
-    guard let namePtr = devname(dev_t(ttyDev), S_IFCHR) else { return nil }
+    // Pick the anchor process for TTY scoping. Walking up past per-task PTYs
+    // prevents fan-out task runners (turbo, nx, pnpm/npm parallel scripts,
+    // concurrently, etc.) from fragmenting biometric sessions across what the
+    // user perceives as a single command. Multiplexers (tmux, screen, zellij)
+    // are detected via env vars and treated as a session boundary so panes the
+    // user split for independent work remain separate.
+    let peerEnv = getProcessEnvironment(pid: pid)
+    let multiplexer = detectMultiplexerSignal(env: peerEnv)
+
+    var anchorPid = pid
+    var anchorTty = peerTty
+    var current = pid
+    for _ in 0..<64 {
+        guard let ppid = getParentPid(pid: current), ppid > 1,
+              let parentInfo = getProcessInfo(pid: ppid),
+              parentInfo.kp_eproc.e_tdev > 0 else { break }
+
+        // Multiplexer present: only walk up while the parent still carries the
+        // same multiplexer value. That keeps us inside the pane (still walking
+        // past any inner turbo-style wrapper PTYs) but stops at the pane's
+        // outermost shell, never crossing into the host shell that launched
+        // the multiplexer.
+        if let mux = multiplexer {
+            let parentEnv = getProcessEnvironment(pid: ppid)
+            let parentValue = parentEnv?[mux.key]?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if parentValue != mux.value { break }
+        }
+
+        anchorPid = ppid
+        anchorTty = parentInfo.kp_eproc.e_tdev
+        current = ppid
+    }
+
+    guard let namePtr = devname(dev_t(anchorTty), S_IFCHR) else { return nil }
     let ttyName = String(cString: namePtr)
 
-    let sessionLeaderPid = getsid(pid)
+    let sessionLeaderPid = getsid(anchorPid)
     var startTimestamp: Int = 0
     if sessionLeaderPid > 0, let leaderInfo = getProcessInfo(pid: sessionLeaderPid) {
         startTimestamp = Int(leaderInfo.kp_proc.p_starttime.tv_sec)
     }
     if startTimestamp == 0 {
-        startTimestamp = Int(info.kp_proc.p_starttime.tv_sec)
+        startTimestamp = getStartTime(pid: anchorPid)
     }
 
+    if let mux = multiplexer {
+        // Include the multiplexer value so separate tmux servers / sessions
+        // stay distinct even if a TTY device name happens to collide.
+        return "tty:\(ttyName):\(startTimestamp):\(mux.key)=\(mux.value)"
+    }
     return "tty:\(ttyName):\(startTimestamp)"
 }
 
