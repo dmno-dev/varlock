@@ -2,6 +2,12 @@
 
 
 
+
+## 1.1.1
+<sub>2026-06-05</sub>
+
+- [#747](https://github.com/dmno-dev/varlock/pull/747)  *(patch)* - fix OIDC auth for @infisical/sdk v5 by exchanging JWT via oidc-auth login endpoint
+
 ## 1.1.0
 <sub>2026-05-06</sub>
 

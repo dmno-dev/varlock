@@ -298,10 +298,10 @@
     },
     "packages/plugins/infisical": {
       "name": "@varlock/infisical-plugin",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
-        "@infisical/sdk": "^5.0.0",
+        "@infisical/sdk": "^5.0.2",
         "@types/node": "catalog:",
         "tsup": "catalog:",
         "varlock": "workspace:^",
