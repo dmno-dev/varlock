@@ -7,6 +7,12 @@
 
 
 
+
+## 1.5.1
+<sub>2026-06-05</sub>
+
+- [#754](https://github.com/dmno-dev/varlock/pull/754)  *(patch)* - fix biometric session fragmentation under turborepo and prevent duplicate daemons from parallel-spawn races
+
 ## 1.5.0
 <sub>2026-06-03</sub>
 
