@@ -45,7 +45,7 @@
     "varlock": "workspace:^"
   },
   "devDependencies": {
-    "@infisical/sdk": "^5.0.0",
+    "@infisical/sdk": "^5.0.2",
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
     "tsup": "catalog:",

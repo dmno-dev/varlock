@@ -62,6 +62,35 @@ class InfisicalPluginInstance {
   }
 
   private infisicalClientPromise?: Promise<InfisicalSDK>;
+  private static readonly defaultSiteUrl = 'https://app.infisical.com';
+
+  private async exchangeOidcToken(identityId: string, jwt: string): Promise<string> {
+    const response = await fetch(
+      `${this.siteUrl || InfisicalPluginInstance.defaultSiteUrl}/api/v1/auth/oidc-auth/login`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          identityId,
+          jwt,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const responseText = await response.text().catch(() => '');
+      throw new Error(responseText || `OIDC login failed with status ${response.status}`);
+    }
+
+    const payload = await response.json() as { accessToken?: string };
+    if (!payload.accessToken) {
+      throw new Error('OIDC login response did not include accessToken');
+    }
+
+    return payload.accessToken;
+  }
 
   private async initClient() {
     if (this.infisicalClientPromise) return this.infisicalClientPromise;
@@ -110,10 +139,8 @@ class InfisicalPluginInstance {
             });
           }
 
-          await (client.auth() as any).oidcAuth.login({
-            identityId: this.identityId,
-            jwt,
-          });
+          const accessToken = await this.exchangeOidcToken(this.identityId, jwt);
+          client.auth().accessToken(accessToken);
           debug('Infisical client initialized with OIDC Auth');
         }
 
