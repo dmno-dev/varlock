@@ -166,5 +166,5 @@ DB_PASSWORD=protonPass(prod, pass://Production/Database/password)
 This resolver uses:
 - `pass-cli info` to check authentication state
 - `pass-cli login --interactive <username>` when login is required
-- `pass-cli item view --output json <secretRef>` to fetch the requested field
-
+- `pass-cli run --no-masking -- env -0` to batch multiple `pass://...` refs in one CLI invocation
+- `pass-cli item view --output json <secretRef>` as a fallback for per-secret retries/error handling
