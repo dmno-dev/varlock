@@ -1,4 +1,5 @@
 import ansis from 'ansis';
+import { gracefulExit } from 'exit-hook';
 import { EnvGraph, FileBasedDataSource } from '../../env-graph';
 import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import {
@@ -106,7 +107,7 @@ export function checkForSchemaErrors(envGraph: EnvGraph, opts?: { noThrow?: bool
         console.error(`- ${resErr.message}`);
         showErrorLocationDetails(resErr);
       }
-      return gracefulExit(1);
+      gracefulExit(1);
     }
   }
   return { hasErrors, hasOutput };

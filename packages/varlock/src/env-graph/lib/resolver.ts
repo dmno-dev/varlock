@@ -857,7 +857,7 @@ export const CacheResolver: typeof Resolver = createResolver({
 
     // warn if the child resolver is a static value — caching a literal is pointless
     if (childResolver instanceof StaticValueResolver) {
-      this._schemaErrors.push(new SchemaError(
+      this._errors.push(new SchemaError(
         'wraps a static value which never changes — caching has no effect',
         { isWarning: true },
       ));
