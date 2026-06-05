@@ -1,0 +1,20 @@
+name: Nightly dependency audit
+on:
+  schedule:
+    - cron: '15 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install js deps (w/ bun)
+        run: bun install
+      - name: Full dependency audit
+        run: bun run audit:full
