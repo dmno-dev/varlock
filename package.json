@@ -25,6 +25,8 @@
     "dev": "turbo run dev --concurrency=40 --parallel --filter=\"!smoke-test-*\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "audit:changed": "bun run scripts/audit-changed-packages.ts --audit-level=moderate",
+    "audit:full": "bun audit --audit-level=moderate",
     "bumpy:add": "bumpy add",
     "release:create-missing-tags": "node scripts/create-missing-release-tags.js",
     "prepare": "lefthook install"
@@ -53,13 +55,14 @@
     "typescript-eslint": "^8.56.1",
     "varlock": "workspace:*"
   },
-  "packageManager": "bun@1.3.11",
+  "packageManager": "bun@1.3.14",
   "engines": {
     "node": ">=22"
   },
   "overrides": {
     "@xmldom/xmldom": ">=0.9.10",
     "@modelcontextprotocol/sdk": ">=1.29.0",
+    "hono": ">=4.12.21",
     "postcss": ">=8.5.10",
     "qs": "^6.15.2",
     "ws": ">=8.20.1",
