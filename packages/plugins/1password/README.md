@@ -80,7 +80,7 @@ OP_TOKEN=
 
 **Requirements:**
 
-1. Install the `op` CLI: [Installation guide](https://developer.1password.com/docs/cli/get-started/)
+1. Install the `op` CLI: [Installation guide](https://www.1password.dev/cli/get-started/)
 2. The `OP_SERVICE_ACCOUNT_TOKEN` (i.e. `$OP_TOKEN` above) must resolve to a valid service account token at load time.
 
 The `op` binary is significantly lighter than the WASM SDK. `op` authentication is handled headlessly via the token — no desktop app or interactive sign-in is needed.
@@ -100,7 +100,7 @@ OP_TOKEN=
 
 **Setup requirements:**
 
-1. Install the `op` CLI: [Installation guide](https://developer.1password.com/docs/cli/get-started/)
+1. Install the `op` CLI: [Installation guide](https://www.1password.dev/cli/get-started/)
 2. Enable desktop app + CLI integration in 1Password settings
 3. Specify your account shorthand (optional but recommended)
    - Run `op account list` to see available accounts
@@ -114,7 +114,7 @@ Keep in mind that this method connects as _YOU_ who likely has more access than 
 
 ### Connect server setup (self-hosted)
 
-If you are running a self-hosted [1Password Connect server](https://developer.1password.com/docs/connect/), you can authenticate using a Connect server URL and token:
+If you are running a self-hosted [1Password Connect server](https://www.1password.dev/connect/), you can authenticate using a Connect server URL and token:
 
 ```env-spec
 # @plugin(@varlock/1password-plugin)
@@ -127,7 +127,7 @@ OP_CONNECT_TOKEN=
 
 **Setup requirements:**
 
-1. Deploy a [1Password Connect server](https://developer.1password.com/docs/connect/get-started/)
+1. Deploy a [1Password Connect server](https://www.1password.dev/connect/get-started/)
 2. Create a Connect token with access to the required vault(s)
 3. Set the `OP_CONNECT_TOKEN` environment variable
 
@@ -201,7 +201,7 @@ PROD_ITEM=op(prod, op://vault-name/item-name/field-name)
 
 ### Loading 1Password Environments
 
-Use `opLoadEnvironment()` with `@setValuesBulk` to load all variables from a [1Password environment](https://developer.1password.com/docs/environments/) at once:
+Use `opLoadEnvironment()` with `@setValuesBulk` to load all variables from a [1Password environment](https://www.1password.dev/environments/) at once:
 
 ```env-spec
 # @plugin(@varlock/1password-plugin)
@@ -310,11 +310,11 @@ Vault access rules cannot be edited after creation. If your setup changes, creat
 :::
 
 **Access toggle:**
-Each vault has a toggle to disable service account access in general. It's on by default. [Learn more](https://developer.1password.com/docs/service-accounts/manage-service-accounts/#manage-access)
+Each vault has a toggle to disable service account access in general. It's on by default. [Learn more](https://www.1password.dev/service-accounts/manage-service-accounts/)
 
 ### Rate Limits
 
-Note that [rate limits](https://developer.1password.com/docs/service-accounts/rate-limits/) vary by account type (personal, family, teams, business).
+Note that [rate limits](https://www.1password.dev/service-accounts/rate-limits/) vary by account type (personal, family, teams, business).
 
 ## Troubleshooting
 
@@ -353,8 +353,8 @@ Note that [rate limits](https://developer.1password.com/docs/service-accounts/ra
 ## Resources
 
 - [1Password](https://1password.com/)
-- [Service Accounts](https://developer.1password.com/docs/service-accounts/)
-- [1Password Connect](https://developer.1password.com/docs/connect/)
-- [1Password CLI](https://developer.1password.com/docs/cli/)
-- [Secret References](https://developer.1password.com/docs/cli/secret-references/)
+- [Service Accounts](https://www.1password.dev/service-accounts/)
+- [1Password Connect](https://www.1password.dev/connect/)
+- [1Password CLI](https://www.1password.dev/cli/)
+- [Secret References](https://www.1password.dev/cli/secret-references/)
 - [Full documentation](https://varlock.dev/plugins/1password/)
