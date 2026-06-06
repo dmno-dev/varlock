@@ -124,7 +124,7 @@ describe('dynamic public env hydration', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const payload = await loadPublicDynamicEnv();
 
@@ -141,7 +141,7 @@ describe('dynamic public env hydration', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     await loadPublicDynamicEnv();
     const second = await loadPublicDynamicEnv();
@@ -161,7 +161,7 @@ describe('dynamic public env hydration', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const [a, b] = await Promise.all([
       loadPublicDynamicEnv(),
