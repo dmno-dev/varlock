@@ -22,3 +22,30 @@ While some of these features are similar to what can be accomplished via [`astro
 - More data types and options available
 - Leak detection, log redaction, and more security guardrails
 - Works with various adapters and platforms to make your resolved config available
+- Automatically injects a server route for dynamic+public values (`/__varlock/public-env` by default)
+
+## Dynamic public endpoint
+
+The integration injects a JSON endpoint for `getPublicDynamicEnv()` in server/dev mode:
+
+- default behavior: auto-enabled only when your schema has dynamic+public items
+- default path when enabled: `/__varlock/public-env`
+- force-enable at default path:
+
+```ts
+varlockAstroIntegration({ publicDynamicEndpoint: true });
+```
+
+- disable it:
+
+```ts
+varlockAstroIntegration({ publicDynamicEndpoint: false });
+```
+
+- customize the path:
+
+```ts
+varlockAstroIntegration({
+  publicDynamicEndpoint: { path: '/api/public-env' },
+});
+```

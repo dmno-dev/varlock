@@ -260,6 +260,44 @@ export function defineAstroTests(astroVersion: number, testDir: string, opts: { 
         ],
       });
 
+      astroEnv.describeDevScenario('dynamic public env endpoint', {
+        command: `astro dev --port ${port()}`,
+        readyPattern: /http:\/\/localhost/,
+        readyTimeout: 30_000,
+        templateFiles: {
+          'src/pages/index.astro': 'pages/basic-page.astro',
+          'astro.config.mts': 'configs/astro.config.server.mts',
+        },
+        requests: [
+          {
+            path: '/__varlock/public-env',
+            bodyAssertions: {
+              shouldContain: ['"PUBLIC_DYNAMIC_VAR":"public-dynamic-var--dev"'],
+              shouldNotContain: ['super-secret-value'],
+            },
+          },
+        ],
+      });
+
+      astroEnv.describeDevScenario('dynamic public env endpoint - custom path', {
+        command: `astro dev --port ${port()}`,
+        readyPattern: /http:\/\/localhost/,
+        readyTimeout: 30_000,
+        templateFiles: {
+          'src/pages/index.astro': 'pages/basic-page.astro',
+          'astro.config.mts': 'configs/astro.config.server.custom-public-path.mts',
+        },
+        requests: [
+          {
+            path: '/api/public-env',
+            bodyAssertions: {
+              shouldContain: ['"PUBLIC_DYNAMIC_VAR":"public-dynamic-var--dev"'],
+              shouldNotContain: ['super-secret-value'],
+            },
+          },
+        ],
+      });
+
       astroEnv.describeDevScenario('leaky API endpoint', {
         command: `astro dev --port ${port()}`,
         readyPattern: /http:\/\/localhost/,
@@ -282,6 +320,39 @@ export function defineAstroTests(astroVersion: number, testDir: string, opts: { 
           {
             description: 'leak detection message appears',
             shouldContain: ['DETECTED LEAKED SENSITIVE CONFIG'],
+          },
+        ],
+      });
+
+      astroEnv.describeDevScenario('dynamic public env endpoint - disabled', {
+        command: `astro dev --port ${port()}`,
+        readyPattern: /http:\/\/localhost/,
+        readyTimeout: 30_000,
+        templateFiles: {
+          'src/pages/index.astro': 'pages/basic-page.astro',
+          'astro.config.mts': 'configs/astro.config.server.no-public-endpoint.mts',
+        },
+        requests: [
+          {
+            path: '/__varlock/public-env',
+            expectedStatus: 404,
+          },
+        ],
+      });
+
+      astroEnv.describeDevScenario('dynamic public env endpoint - auto disabled when none exist', {
+        command: `astro dev --port ${port()}`,
+        readyPattern: /http:\/\/localhost/,
+        readyTimeout: 30_000,
+        templateFiles: {
+          'src/pages/index.astro': 'pages/basic-page.astro',
+          'astro.config.mts': 'configs/astro.config.server.mts',
+          '.env.schema': 'schemas/.env.schema.no-public-dynamic',
+        },
+        requests: [
+          {
+            path: '/__varlock/public-env',
+            expectedStatus: 404,
           },
         ],
       });

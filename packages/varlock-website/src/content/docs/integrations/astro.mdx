@@ -75,6 +75,61 @@ console.log(ENV.SOMEVAR);             // ✨ recommended
 - Better error messages for invalid or unavailable keys
 - Enables future DX improvements and tighter control over what is bundled
 
+## Dynamic+public config
+
+Use [`@dynamic`](/reference/item-decorators/#dynamic) to keep selected public values runtime-resolved:
+For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
+
+```env-spec title=".env.schema"
+# @defaultSensitive=inferFromPrefix('PUBLIC_')
+# @defaultDynamic=sensitive
+# ---
+PUBLIC_STATIC_FLAG=enabled
+PUBLIC_RUNTIME_FLAG=enabled # @dynamic
+```
+
+### Server rendering
+
+In server-rendered Astro code, access dynamic values via `ENV.KEY` as usual.
+
+### Client-side usage
+
+When the schema contains any dynamic+public keys, this integration automatically injects a route at `/__varlock/public-env` (SSR builds only). Load it in the browser with `loadPublicDynamicEnv()`:
+
+```astro title="src/components/MyClientThing.astro"
+---
+---
+<script>
+  import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+
+  await loadPublicDynamicEnv();
+  console.log(ENV.PUBLIC_RUNTIME_FLAG);
+</script>
+```
+
+:::note[Static output]
+If `output: 'static'`, there is no server route to fetch runtime public values from. Dynamic+public values require a server-rendered deployment target.
+:::
+
+### Route injection options
+
+You can control endpoint injection:
+
+```ts title="astro.config.ts"
+import { defineConfig } from 'astro/config';
+import varlockAstroIntegration from '@varlock/astro-integration';
+
+export default defineConfig({
+  integrations: [
+    varlockAstroIntegration({
+      publicDynamicEndpoint: true, // auto by default
+      // or: { path: '/my-public-env' }
+      // or: false (disable auto endpoint)
+    }),
+  ],
+});
+```
+
 ### Within `astro.config.*`
 It's often useful to be able to access env vars in your Astro config. Without varlock, it's a bit awkward, but varlock makes it dead simple - in fact it's already available! Just import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
 

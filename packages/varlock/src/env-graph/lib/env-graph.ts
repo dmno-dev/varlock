@@ -52,6 +52,7 @@ export type SerializedEnvGraph = {
   config: Record<string, {
     value: any;
     isSensitive: boolean;
+    isDynamic: boolean;
   }>;
   /** Present only when config has errors — consumers can check `if (data.errors)` */
   errors?: SerializedEnvGraphErrors;
@@ -296,6 +297,7 @@ export class EnvGraph {
       // internal def has no decorators and no source with root-level defaults.
       item._isRequired = false;
       item._isSensitive = false;
+      item._isDynamic = false;
       // Set dataType directly since registerBuiltinVar is called synchronously
       // during resolver processing, and the item may not get a process() call
       // from the finishLoad loop (for...in doesn't reliably visit new keys).
@@ -556,6 +558,7 @@ export class EnvGraph {
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,
         isSensitive: item.isSensitive,
+        isDynamic: item.isDynamic,
       };
     }
 

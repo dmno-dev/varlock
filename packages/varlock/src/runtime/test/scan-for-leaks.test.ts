@@ -8,7 +8,7 @@ import type { SerializedEnvGraph } from '../../env-graph';
 function setSecret(key: string, value: string) {
   resetRedactionMap({
     config: {
-      [key]: { isSensitive: true, value },
+      [key]: { isSensitive: true, isDynamic: true, value },
     },
   } as unknown as SerializedEnvGraph);
 }

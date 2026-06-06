@@ -9,6 +9,7 @@ import {
 } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
+import { execSyncVarlock } from 'varlock/exec-sync-varlock';
 
 import { type SerializedEnvGraph } from 'varlock';
 import { createWebpackConfigFn } from './webpack-plugin';
@@ -63,6 +64,44 @@ function debug(...args: Array<any>) {
   );
 }
 debug('✨ LOADED @varlock/next-integration/plugin module!');
+
+function getEnvFromNextCommandForPlugin() {
+  if (process.env.NODE_ENV === 'test') return 'test';
+  return process.env.NODE_ENV === 'production' ? 'production' : 'development';
+}
+
+function hydrateVarlockEnvForPlugin() {
+  const cwd = process.cwd();
+  const inherited = process.env.__VARLOCK_ENV;
+  if (inherited) {
+    try {
+      const inheritedGraph = JSON.parse(inherited) as SerializedEnvGraph;
+      if (inheritedGraph.basePath) {
+        const inheritedBasePath = path.resolve(inheritedGraph.basePath);
+        if (inheritedBasePath.startsWith(cwd)) {
+          debug('using existing __VARLOCK_ENV in plugin process', { inheritedBasePath, cwd });
+          return;
+        }
+      }
+      debug('ignoring inherited __VARLOCK_ENV from another project context');
+    } catch {
+      debug('failed to parse inherited __VARLOCK_ENV, reloading');
+    }
+  }
+
+  const envFromNextCommand = getEnvFromNextCommandForPlugin();
+  const cleanEnv = { ...process.env } as Record<string, string>;
+  delete cleanEnv.DEBUG_VARLOCK;
+  const { stdout } = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
+    fullResult: true,
+    env: cleanEnv as any,
+    cwd,
+  });
+  process.env.__VARLOCK_ENV = stdout;
+  debug('hydrated __VARLOCK_ENV in plugin process from varlock load');
+}
+
+hydrateVarlockEnvForPlugin();
 
 type VarlockPluginOptions = {
   // injectResolvedConfigAtBuildTime: boolean,

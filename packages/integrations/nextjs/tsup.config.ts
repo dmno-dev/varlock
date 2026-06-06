@@ -27,6 +27,7 @@ export default defineConfig([
     entry: [
       'src/plugin.ts',
       'src/loader.ts',
+      'src/dynamic-access.ts',
     ],
 
     dts: true,

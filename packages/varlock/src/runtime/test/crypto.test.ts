@@ -9,7 +9,7 @@ import {
 
 const TEST_KEY = 'a'.repeat(64); // valid 256-bit hex key
 const TEST_JSON = JSON.stringify({
-  config: { API_KEY: { value: 'secret-123', isSensitive: true } },
+  config: { API_KEY: { value: 'secret-123', isSensitive: true, isDynamic: true } },
   sources: [],
   settings: {},
 });

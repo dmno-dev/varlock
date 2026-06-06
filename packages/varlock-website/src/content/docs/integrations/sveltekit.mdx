@@ -56,6 +56,75 @@ See the [**Vite integration page**](/integrations/vite/) for configuration optio
 
 ---
 
+## Dynamic+public recipe
+
+SvelteKit uses Vite, so dynamic/public behavior comes from varlock core + the Vite integration.
+For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
+
+Use this schema shape:
+
+```env-spec title=".env.schema"
+# @defaultSensitive=false
+# @defaultDynamic=sensitive
+# ---
+PUBLIC_STATIC_VAR=
+PUBLIC_DYNAMIC_VAR= # @dynamic
+
+# @sensitive
+SECRET_VAR=
+```
+
+### 1) Server-rendered routes
+
+In non-prerendered server paths, access `ENV.KEY` directly:
+
+```ts title="src/routes/+page.server.ts"
+import { ENV } from 'varlock/env';
+
+export const load = async () => ({
+  runtimeFlag: ENV.PUBLIC_DYNAMIC_VAR,
+});
+```
+
+### 2) Client routes/components
+
+Expose an endpoint and load once before reading `ENV.KEY` on the client:
+
+```ts title="src/routes/__varlock/public-env/+server.ts"
+import { getPublicDynamicEnv } from 'varlock/env';
+
+export const GET = async () => new Response(JSON.stringify(getPublicDynamicEnv()), {
+  headers: {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+  },
+});
+```
+
+```svelte title="src/routes/+page.svelte"
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+
+  let runtimeFlag = 'loading...';
+
+  onMount(async () => {
+    await loadPublicDynamicEnv();
+    runtimeFlag = ENV.PUBLIC_DYNAMIC_VAR;
+  });
+</script>
+
+<p>{runtimeFlag}</p>
+```
+
+If you only want a subset, return `getPublicDynamicEnv(['PUBLIC_DYNAMIC_VAR'])` from the endpoint.
+
+### 3) Prerendered routes
+
+Prerendered routes should only use static values. Keep dynamic-key usage out of routes/files that must be prerendered.
+
+---
+
 ## Setup for Cloudflare Workers
 
 <div class="page-badges">
@@ -143,7 +212,7 @@ Varlock replaces all four `$env/*` modules with a single `ENV` object from `varl
 | :---------------- | :----------------- |
 | `$env/static/public` | `ENV.FOO` where `@sensitive=false` — non-sensitive values are inlined at build time on both client and server |
 | `$env/static/private` | `ENV.FOO` where `@sensitive=true`, referenced from SSR/server code — inlined into the server bundle, build errors if referenced from client code |
-| `$env/dynamic/public` | **Not yet supported** — non-sensitive values are currently always inlined at build time (equivalent to `$env/static/public`). Runtime-resolved public values are on the roadmap. |
+| `$env/dynamic/public` | `ENV.FOO` where `@dynamic` + non-sensitive, loaded at runtime for client usage via `loadPublicDynamicEnv()` (see [recipe above](#dynamicpublic-recipe)) |
 | `$env/dynamic/private` | `ENV.FOO` — in server contexts it's read from the live runtime env (e.g. Cloudflare bindings via `varlockCloudflareVitePlugin`, or Node's `process.env` elsewhere) rather than baked into the bundle |
 | `PUBLIC_` prefix requirement | Per-item [`@sensitive`](/reference/item-decorators/#sensitive) decorator, or a schema-wide [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) rule |
 

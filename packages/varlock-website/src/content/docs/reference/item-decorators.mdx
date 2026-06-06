@@ -93,6 +93,32 @@ PUBLIC_API_URL=https://api.example.com
 </div>
 
 <div>
+### `@dynamic`
+**Value type:** `boolean`
+
+Sets whether the item is _dynamic_ - meaning integrations should avoid replacing it at build time and instead resolve it at runtime.
+
+By default, dynamic behavior follows sensitivity (sensitive items are dynamic, non-sensitive items are static), but this can be overridden globally with [`@defaultDynamic`](/reference/root-decorators/#defaultdynamic).
+
+```env-spec
+# @dynamic
+PUBLIC_RUNTIME_FLAG=
+```
+</div>
+
+<div>
+### `@static`
+**Value type:** `boolean`
+
+Opposite of [`@dynamic`](#dynamic). Equivalent to writing `@dynamic=false`.
+
+```env-spec
+# @static
+SENSITIVE_BUILD_TIME_TOKEN=
+```
+</div>
+
+<div>
 ### `@type`
 **Value type:** [`data type`](/reference/data-types) (name only or function call)
 
