@@ -28,6 +28,9 @@ type EnvGraphDataTypeDef<CoerceReturnType, ValidateInputType = FallbackIfUnknown
    * */
   validate?: (value: ValidateInputType) => MaybePromise<(true | undefined | void | Error | Array<Error>)>;
 
+  /** optional placeholder generator used by proxy mode */
+  generatePlaceholder?: (value: CoerceReturnType | string | undefined) => string | undefined;
+
   // asyncValidate? - async validation function, meant to be called more sparingly
   // for example, when could validate an API key is currently valid
 
@@ -58,6 +61,9 @@ export class EnvGraphDataType {
   get icon() { return this.def.icon; }
   get isSensitive() { return this.def.sensitive; }
   get docsEntries() { return this.def.docs; }
+  generatePlaceholder(val: any) {
+    return this.def.generatePlaceholder?.(val);
+  }
 
   /** @internal */
   get _rawDef() { return this.def; }

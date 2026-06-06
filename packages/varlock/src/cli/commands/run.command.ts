@@ -7,6 +7,8 @@ import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import { resetRedactionMap, redactSensitiveConfig } from '../../runtime/env';
+import { buildProxySchemaFingerprint } from '../helpers/proxy-schema-fingerprint';
+import { startLocalProxyRuntime } from '../../proxy/runtime-proxy';
 
 export const commandSpec = define({
   name: 'run',
@@ -30,6 +32,10 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'Deprecated: use --inject vars instead',
     },
+    proxy: {
+      type: 'boolean',
+      description: 'Enable proxy placeholder mode for items managed by @proxy rules',
+    },
     path: {
       type: 'string',
       short: 'p',
@@ -48,6 +54,7 @@ Examples:
   varlock run --no-redact-stdout -- psql        # Preserve TTY for interactive tools
   varlock run --inject vars -- sh               # Inject only individual vars, no blob
   varlock run --inject blob -- node app.js      # Inject only the blob, no individual vars
+  varlock run --proxy -- node app.js            # Inject placeholders for @proxy-managed items
   varlock run --path .env.prod -- node app.js   # Use a specific .env file
   varlock run --path ./config/ -- node app.js   # Use a specific directory
   varlock run -p ./envs -p ./overrides -- node app.js  # Use multiple directories
@@ -66,6 +73,8 @@ let childCommandKilledFromRestart = false;
 const isWatchModeRestart = false; // TODO: re-enable watch mode
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
+  let proxyRuntime: Awaited<ReturnType<typeof startLocalProxyRuntime>> | undefined;
+
   // if "--" is present, split the args into our command and the rest, which will be another external command
   const argv = process.argv.slice(2);
   let restCommandArgs: Array<string> = [];
@@ -103,6 +112,20 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   const resolvedEnv = envGraph.getResolvedEnvObject();
   const serializedGraph = envGraph.getSerializedGraph();
+  const proxySchemaFingerprint = ctx.values.proxy ? buildProxySchemaFingerprint(envGraph) : undefined;
+  let proxyManagedItems = [] as Array<Awaited<ReturnType<typeof envGraph.getProxyManagedItems>>[number]>;
+  let proxyRules = [] as Array<Awaited<ReturnType<typeof envGraph.getProxyRules>>[number]>;
+
+  if (ctx.values.proxy) {
+    proxyManagedItems = await envGraph.getProxyManagedItems();
+    proxyRules = await envGraph.getProxyRules();
+    for (const managedItem of proxyManagedItems) {
+      resolvedEnv[managedItem.key] = managedItem.placeholder;
+      if (serializedGraph.config[managedItem.key]) {
+        serializedGraph.config[managedItem.key].value = managedItem.placeholder;
+      }
+    }
+  }
   // console.log(resolvedEnv);
 
   // handle deprecated --no-inject-graph flag
@@ -118,11 +141,26 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
   const injectVars = injectMode === 'all' || injectMode === 'vars';
   const injectBlob = injectMode === 'all' || injectMode === 'blob';
+  if (ctx.values.proxy) {
+    proxyRuntime = await startLocalProxyRuntime({
+      managedItems: proxyManagedItems,
+      rules: proxyRules,
+      egressMode: serializedGraph.settings?.proxyEgress ?? 'permissive',
+    });
+  }
 
   const fullInjectedEnv: NodeJS.ProcessEnv = {
     ...process.env,
+    ...(proxyRuntime?.env ?? {}),
     ...(injectVars ? resolvedEnv : {}),
     __VARLOCK_RUN: '1', // flag for a child process to detect it is running via `varlock run`
+    ...(ctx.values.proxy
+      ? {
+        __VARLOCK_PROXY_CHILD: '1',
+        __VARLOCK_PROXY_PARENT_PID: String(process.pid),
+        ...(proxySchemaFingerprint ? { __VARLOCK_PROXY_SCHEMA_FINGERPRINT: proxySchemaFingerprint } : {}),
+      }
+      : {}),
     ...(injectBlob ? { __VARLOCK_ENV: JSON.stringify(serializedGraph) } : {}),
   };
 
@@ -137,7 +175,24 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   // Initialize the redaction map if redaction is enabled
   if (redactLogs) {
-    resetRedactionMap(serializedGraph);
+    const redactionGraph = {
+      ...serializedGraph,
+      config: { ...serializedGraph.config },
+    };
+
+    if (ctx.values.proxy) {
+      for (const managedItem of proxyManagedItems) {
+        const schemaItem = serializedGraph.config[managedItem.key];
+        if (!schemaItem?.isSensitive) continue;
+        if (!managedItem.realValue || managedItem.realValue === schemaItem.value) continue;
+        redactionGraph.config[`__PROXY_REAL__${managedItem.key}`] = {
+          value: managedItem.realValue,
+          isSensitive: true,
+        };
+      }
+    }
+
+    resetRedactionMap(redactionGraph);
   }
 
   // When --no-redact-stdout is set, use stdio: 'inherit' to preserve TTY detection
@@ -220,6 +275,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     if ((error as any).signal === 'SIGINT' && childCommandKilledFromRestart) {
       // console.log('child command failed due to being killed form restart');
       childCommandKilledFromRestart = false;
+      await proxyRuntime?.stop();
       return;
     }
 
@@ -247,8 +303,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   if (!isWatchEnabled) {
+    await proxyRuntime?.stop();
     return gracefulExit(exitCode);
   } else {
+    await proxyRuntime?.stop();
     console.log('... watching for changes ...');
   }
 };
