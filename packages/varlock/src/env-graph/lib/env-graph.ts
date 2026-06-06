@@ -10,7 +10,11 @@ import { ResolutionError, SchemaError } from './errors';
 import { generateTypes } from './type-generation';
 
 import {
-  builtInItemDecorators, builtInRootDecorators, RootDecoratorInstance, type ItemDecoratorDef, type RootDecoratorDef,
+  builtInItemDecorators, builtInRootDecorators,
+  ItemDecoratorInstance,
+  RootDecoratorInstance,
+  type ItemDecoratorDef,
+  type RootDecoratorDef,
 } from './decorators';
 import { getErrorLocation } from './error-location';
 import type { VarlockPlugin } from './plugins';
@@ -19,6 +23,8 @@ import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
 import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
 import { isVarlockReservedKey } from './reserved-vars';
 import { buildOverrideProvenanceMetadata, type OverrideProvenanceMetadata } from '../../lib/injected-env-provenance';
+import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
+import type { ProxyEgressMode, ProxyManagedItem, ProxyRule } from '../../proxy/types';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -51,6 +57,8 @@ export type SerializedEnvGraph = {
     preventLeaks?: boolean;
     encryptInjectedEnv?: boolean;
     disableProcessEnvInjection?: boolean;
+    enableProxy?: boolean;
+    proxyEgress?: ProxyEgressMode;
   },
   config: Record<string, {
     value: any;
@@ -518,6 +526,8 @@ export class EnvGraph {
     await this.getRootDec('preventLeaks')?.resolve();
     await this.getRootDec('encryptInjectedEnv')?.resolve();
     await this.getRootDec('disableProcessEnvInjection')?.resolve();
+    await this.getRootDecFns('enableProxy')?.[0]?.resolve();
+    await Promise.all(this.getRootDecFns('proxy').map(async (d) => d.resolve()));
   }
 
   get graphAdjacencyList() {
@@ -690,6 +700,13 @@ export class EnvGraph {
     serializedGraph.settings.preventLeaks = this.getRootDec('preventLeaks')?.resolvedValue ?? true;
     serializedGraph.settings.encryptInjectedEnv = this.getRootDec('encryptInjectedEnv')?.resolvedValue ?? false;
     serializedGraph.settings.disableProcessEnvInjection = this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
+    const enableProxy = this.getRootDecFns('enableProxy')[0]?.resolvedValue;
+    serializedGraph.settings.enableProxy = !!enableProxy;
+    if (enableProxy?.obj?.egress === 'strict') {
+      serializedGraph.settings.proxyEgress = 'strict';
+    } else {
+      serializedGraph.settings.proxyEgress = 'permissive';
+    }
 
     // collect all errors into a single nested object
     const errors: SerializedEnvGraphErrors = {};
@@ -796,4 +813,96 @@ export class EnvGraph {
 
   /** plugins installed globally in the graph */
   plugins: Array<VarlockPlugin> = [];
+
+  private static normalizeDomainList(domainValue: unknown): Array<string> {
+    if (!_.isString(domainValue)) return [];
+    return domainValue
+      .split(',')
+      .map((d) => d.trim())
+      .filter(Boolean);
+  }
+
+  private static collectRefItemKeysFromResolverArgs(dec: RootDecoratorInstance | ItemDecoratorInstance): Array<string> {
+    const arrArgs = dec?.decValueResolver?.arrArgs;
+    if (!arrArgs) return [];
+
+    const itemKeys: Array<string> = [];
+    for (const arg of arrArgs) {
+      if (arg.fnName === 'ref' && _.isString(arg.arrArgs?.[0]?.staticValue)) {
+        itemKeys.push(arg.arrArgs[0].staticValue);
+      }
+    }
+    return itemKeys;
+  }
+
+  async getProxyRules(): Promise<Array<ProxyRule>> {
+    const rules: Array<ProxyRule> = [];
+
+    // detached rules from root-level @proxy(...)
+    for (const rootProxyDec of this.getRootDecFns('proxy')) {
+      const resolved = await rootProxyDec.resolve();
+      const domain = EnvGraph.normalizeDomainList(resolved?.obj?.domain);
+      if (domain.length === 0) continue;
+
+      rules.push({
+        source: 'detached',
+        domain,
+        itemKeys: EnvGraph.collectRefItemKeysFromResolverArgs(rootProxyDec),
+        ...(_.isString(resolved?.obj?.path) ? { path: resolved.obj.path } : {}),
+        ...(_.isString(resolved?.obj?.method) ? { method: resolved.obj.method } : {}),
+        ...(_.isBoolean(resolved?.obj?.block) ? { block: resolved.obj.block } : {}),
+        ...(_.isString(resolved?.obj?.sign) ? { sign: resolved.obj.sign } : {}),
+        ...(_.isString(resolved?.obj?.transform) ? { transform: resolved.obj.transform } : {}),
+      });
+    }
+
+    // attached rules from item-level @proxy(...)
+    for (const itemKey of this.sortedConfigKeys) {
+      const item = this.configSchema[itemKey];
+      for (const itemProxyDec of item.getDecFns('proxy')) {
+        const resolved = await itemProxyDec.resolve();
+        const domain = EnvGraph.normalizeDomainList(resolved?.obj?.domain);
+        if (domain.length === 0) continue;
+
+        const detachedItemKeys = EnvGraph.collectRefItemKeysFromResolverArgs(itemProxyDec);
+        const itemKeys = _.uniq([itemKey, ...detachedItemKeys]);
+        rules.push({
+          source: 'attached',
+          domain,
+          itemKeys,
+          ...(_.isString(resolved?.obj?.path) ? { path: resolved.obj.path } : {}),
+          ...(_.isString(resolved?.obj?.method) ? { method: resolved.obj.method } : {}),
+          ...(_.isBoolean(resolved?.obj?.block) ? { block: resolved.obj.block } : {}),
+          ...(_.isString(resolved?.obj?.sign) ? { sign: resolved.obj.sign } : {}),
+          ...(_.isString(resolved?.obj?.transform) ? { transform: resolved.obj.transform } : {}),
+        });
+      }
+    }
+
+    return rules;
+  }
+
+  async getProxyManagedItems(): Promise<Array<ProxyManagedItem>> {
+    const rules = await this.getProxyRules();
+    const managedKeys = _.uniq(rules.flatMap((r) => r.itemKeys));
+    const managedItems: Array<ProxyManagedItem> = [];
+
+    const usedPlaceholders = new Set<string>();
+    for (const key of managedKeys) {
+      const item = this.configSchema[key];
+      if (!item) {
+        throw new SchemaError(`@proxy references unknown item "${key}"`);
+      }
+      if (!_.isString(item.resolvedValue) || item.resolvedValue.length === 0) continue;
+
+      const placeholder = await generateProxyPlaceholderForItem(item, usedPlaceholders);
+      managedItems.push({
+        key,
+        placeholder,
+        realValue: item.resolvedValue,
+      });
+    }
+
+    return managedItems;
+  }
 }

@@ -434,6 +434,7 @@ export class ConfigItem {
     return this._isSensitive;
   }
   private async processSensitive() {
+    const hasProxyDecorator = this.getDecFns('proxy').length > 0;
     const sensitiveFromDataType = this.dataType?.isSensitive;
 
     // Pass 1: explicit per-item @sensitive / @public decorators take highest priority
@@ -451,12 +452,12 @@ export class ConfigItem {
       if (sensitiveDecValue !== undefined) {
         this._isSensitive = usingPublic ? !sensitiveDecValue : sensitiveDecValue;
         this._sensitiveExplicitlySet = true;
-        return;
+        break;
       }
     }
 
     // Pass 2: @defaultSensitive from source files (skipped if data type specifies sensitivity)
-    if (sensitiveFromDataType === undefined) {
+    if (!this._sensitiveExplicitlySet && sensitiveFromDataType === undefined) {
       for (const def of this.defs) {
         const defaultSensitiveDec = def.source?.getRootDec('defaultSensitive');
         if (!defaultSensitiveDec) continue;
@@ -469,20 +470,25 @@ export class ConfigItem {
             return;
           }
           this._isSensitive = !this.key.startsWith(prefix);
-          return;
+          break;
         } else {
           const defaultSensitiveVal = await defaultSensitiveDec.resolve();
           if (!_.isBoolean(defaultSensitiveVal)) {
             this._schemaErrors.push(new SchemaError('@defaultSensitive must resolve to a boolean value'));
           } else {
             this._isSensitive = defaultSensitiveVal;
-            return;
+            break;
           }
         }
       }
     }
 
-    if (sensitiveFromDataType !== undefined) this._isSensitive = sensitiveFromDataType;
+    if (!this._sensitiveExplicitlySet && sensitiveFromDataType !== undefined) this._isSensitive = sensitiveFromDataType;
+
+    // proxy-managed items should always be treated as sensitive
+    if (hasProxyDecorator) {
+      this._isSensitive = true;
+    }
   }
 
 

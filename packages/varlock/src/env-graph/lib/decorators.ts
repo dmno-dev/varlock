@@ -1,7 +1,7 @@
 /// <reference path="../../globals.d.ts" />
 import _ from '@env-spec/utils/my-dash';
 import {
-  ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue,
+  ParsedEnvSpecFunctionArgs, ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue,
   parseEnvSpecDotEnvFile,
   type ParsedEnvSpecDecorator,
 } from '@env-spec/parser';
@@ -121,10 +121,16 @@ export abstract class DecoratorInstance {
       // so instead we just make a new dummy resolver holding the args
       if (
         this.decoratorDef.useFnArgsResolver
-        && this.parsedDecorator.value instanceof ParsedEnvSpecFunctionCall
+        && (
+          this.parsedDecorator.value instanceof ParsedEnvSpecFunctionCall
+          || this.parsedDecorator.value instanceof ParsedEnvSpecFunctionArgs
+        )
       ) {
+        const fnArgsValue = this.parsedDecorator.value instanceof ParsedEnvSpecFunctionCall
+          ? this.parsedDecorator.value.data.args
+          : this.parsedDecorator.value;
         this._decValueResolver = convertParsedValueToResolvers(
-          this.parsedDecorator.value.data.args,
+          fnArgsValue,
           this.dataSource,
           this.graph.registeredResolverFunctions,
         );
@@ -350,6 +356,36 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     name: 'disableProcessEnvInjection',
   },
   {
+    name: 'enableProxy',
+    isFunction: true,
+    useFnArgsResolver: true,
+    process: (argsVal) => {
+      const egressResolver = argsVal.objArgs?.egress;
+      if (!egressResolver || !egressResolver.isStatic) return;
+      const egressValue = egressResolver.staticValue;
+      if (egressValue !== 'permissive' && egressValue !== 'strict') {
+        throw new SchemaError('@enableProxy: egress must be "permissive" or "strict"');
+      }
+    },
+  },
+  {
+    name: 'proxy',
+    isFunction: true,
+    useFnArgsResolver: true,
+    process: (argsVal) => {
+      const domainResolver = argsVal.objArgs?.domain;
+      if (!domainResolver) {
+        throw new SchemaError('@proxy: missing required "domain" option');
+      }
+
+      for (const arg of argsVal.arrArgs || []) {
+        if (arg.fnName !== 'ref') {
+          throw new SchemaError('@proxy: positional args must be item refs like $API_KEY');
+        }
+      }
+    },
+  },
+  {
     name: 'auditIgnorePaths',
     isFunction: true,
   },
@@ -519,6 +555,31 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
   },
   {
     name: 'auditIgnore',
+  },
+  {
+    name: 'placeholder',
+    process: (decVal) => {
+      if (!decVal.isStatic || !_.isString(decVal.staticValue)) {
+        throw new SchemaError('@placeholder must be a static string value');
+      }
+    },
+  },
+  {
+    name: 'proxy',
+    isFunction: true,
+    useFnArgsResolver: true,
+    process: (argsVal) => {
+      const domainResolver = argsVal.objArgs?.domain;
+      if (!domainResolver) {
+        throw new SchemaError('@proxy: missing required "domain" option');
+      }
+
+      for (const arg of argsVal.arrArgs || []) {
+        if (arg.fnName !== 'ref') {
+          throw new SchemaError('@proxy: positional args must be item refs like $API_KEY');
+        }
+      }
+    },
   },
 
   // test-only decorators — dropped in release builds
