@@ -458,13 +458,13 @@ export class ConfigItem {
   _isSensitive: boolean = true;
   _sensitiveExplicitlySet = false;
   /** how sensitivity was determined (undefined = the global default that items are sensitive) */
-  _sensitiveSource?: 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix';
+  _sensitiveSource?: 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'proxy';
   get isSensitive(): boolean {
     return this._isSensitive;
   }
 
   /** how this item's sensitivity was determined — used by `varlock explain` */
-  get sensitiveSource(): 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'default' {
+  get sensitiveSource(): 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'proxy' | 'default' {
     return this._sensitiveSource ?? 'default';
   }
 
@@ -486,6 +486,20 @@ export class ConfigItem {
     return this._preventLeaks;
   }
   private async processSensitive() {
+    // Resolve the normal sensitivity signals first (so @sensitive/@public schema
+    // validation still runs), then force sensitivity for @proxy-managed items below.
+    await this.resolveSensitiveSource();
+
+    // @proxy-managed items are always sensitive: the proxied child only ever sees a
+    // placeholder while the real value is injected at the wire, so force sensitivity
+    // regardless of any @public / @sensitive=false signal.
+    if (this.getDecFns('proxy').length > 0) {
+      this._isSensitive = true;
+      this._sensitiveSource = 'proxy';
+    }
+  }
+
+  private async resolveSensitiveSource() {
     const sensitiveFromDataType = this.dataType?.isSensitive;
 
     // Pass 1: explicit per-item @sensitive / @public decorators take highest priority

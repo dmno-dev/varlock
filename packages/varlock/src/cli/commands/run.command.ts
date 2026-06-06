@@ -7,6 +7,8 @@ import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
+import { buildProxySchemaFingerprint } from '../helpers/proxy-schema-fingerprint';
+import { startLocalProxyRuntime } from '../../proxy/runtime-proxy';
 
 export const commandSpec = define({
   name: 'run',
@@ -36,6 +38,10 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'Pass @internal items through to the child process (by default they are stripped, even when set in the ambient env). Use this for a nested `varlock run` whose own resolution needs the internal value (e.g. a secret-zero token).',
     },
+    proxy: {
+      type: 'boolean',
+      description: 'Enable proxy placeholder mode for items managed by @proxy rules',
+    },
     path: {
       type: 'string',
       short: 'p',
@@ -61,6 +67,7 @@ Examples:
   varlock run -- sh -c 'echo $MY_VAR'           # Use shell expansion for env vars
   varlock run --inject vars -- sh               # Inject only individual vars, no blob
   varlock run --inject blob -- node app.js      # Inject only the blob, no individual vars
+  varlock run --proxy -- node app.js            # Inject placeholders for @proxy-managed items
   varlock run --path .env.prod -- node app.js   # Use a specific .env file
   varlock run --path ./config/ -- node app.js   # Use a specific directory
   varlock run -p ./envs -p ./overrides -- node app.js  # Use multiple directories
@@ -162,6 +169,8 @@ function signalChild(signal: NodeJS.Signals | number) {
 }
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
+  let proxyRuntime: Awaited<ReturnType<typeof startLocalProxyRuntime>> | undefined;
+
   // if "--" is present, split the args into our command and the rest, which will be another external command
   const argv = process.argv.slice(2);
   let restCommandArgs: Array<string> = [];
@@ -206,6 +215,21 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const serializedGraph = envGraph.getSerializedGraph();
   const { resetRedactionMap } = await import('../../runtime/env');
   const { createRedactedStreamWriter } = await import('../../runtime/lib/redact-stream');
+
+  const proxySchemaFingerprint = ctx.values.proxy ? buildProxySchemaFingerprint(envGraph) : undefined;
+  let proxyManagedItems = [] as Array<Awaited<ReturnType<typeof envGraph.getProxyManagedItems>>[number]>;
+  let proxyRules = [] as Array<Awaited<ReturnType<typeof envGraph.getProxyRules>>[number]>;
+
+  if (ctx.values.proxy) {
+    proxyManagedItems = await envGraph.getProxyManagedItems();
+    proxyRules = await envGraph.getProxyRules();
+    for (const managedItem of proxyManagedItems) {
+      resolvedEnv[managedItem.key] = managedItem.placeholder;
+      if (serializedGraph.config[managedItem.key]) {
+        serializedGraph.config[managedItem.key].value = managedItem.placeholder;
+      }
+    }
+  }
   // console.log(resolvedEnv);
 
   // handle deprecated --no-inject-graph flag
@@ -221,11 +245,26 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
   const injectVars = injectMode === 'all' || injectMode === 'vars';
   const injectBlob = injectMode === 'all' || injectMode === 'blob';
+  if (ctx.values.proxy) {
+    proxyRuntime = await startLocalProxyRuntime({
+      managedItems: proxyManagedItems,
+      rules: proxyRules,
+      egressMode: serializedGraph.settings?.proxyEgress ?? 'permissive',
+    });
+  }
 
   const fullInjectedEnv: NodeJS.ProcessEnv = {
     ...process.env,
+    ...(proxyRuntime?.env ?? {}),
     ...(injectVars ? resolvedEnv : {}),
     __VARLOCK_RUN: '1', // flag for a child process to detect it is running via `varlock run`
+    ...(ctx.values.proxy
+      ? {
+        __VARLOCK_PROXY_CHILD: '1',
+        __VARLOCK_PROXY_PARENT_PID: String(process.pid),
+        ...(proxySchemaFingerprint ? { __VARLOCK_PROXY_SCHEMA_FINGERPRINT: proxySchemaFingerprint } : {}),
+      }
+      : {}),
     ...(injectBlob ? { __VARLOCK_ENV: JSON.stringify(serializedGraph) } : {}),
   };
 
@@ -332,7 +371,25 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       detached: useProcessGroup,
     });
   } else {
-    resetRedactionMap(serializedGraph);
+    // augment the redaction map with the real (injected-by-proxy) secret values so that
+    // any real value leaking back through the child's output is still redacted, even
+    // though the child only ever sees placeholders
+    const redactionGraph = {
+      ...serializedGraph,
+      config: { ...serializedGraph.config },
+    };
+    if (ctx.values.proxy) {
+      for (const managedItem of proxyManagedItems) {
+        const schemaItem = serializedGraph.config[managedItem.key];
+        if (!schemaItem?.isSensitive) continue;
+        if (!managedItem.realValue || managedItem.realValue === schemaItem.value) continue;
+        redactionGraph.config[`__PROXY_REAL__${managedItem.key}`] = {
+          value: managedItem.realValue,
+          isSensitive: true,
+        };
+      }
+    }
+    resetRedactionMap(redactionGraph);
 
     commandProcess = exec(rawCommand, commandArgsOnly, {
       stdin: 'inherit',
@@ -368,6 +425,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     if (err.signal === 'SIGINT' && childCommandKilledFromRestart) {
       // console.log('child command failed due to being killed form restart');
       childCommandKilledFromRestart = false;
+      await proxyRuntime?.stop();
       return;
     }
 
@@ -402,8 +460,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   if (!isWatchEnabled) {
+    await proxyRuntime?.stop();
     return gracefulExit(exitCode);
   } else {
+    await proxyRuntime?.stop();
     console.log('... watching for changes ...');
   }
 };
