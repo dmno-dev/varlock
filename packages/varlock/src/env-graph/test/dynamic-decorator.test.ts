@@ -76,10 +76,10 @@ describe('@dynamic, @static, and @defaultDynamic', () => {
     },
   }));
 
-  test('@defaultDynamic=sensitive links dynamic to final sensitivity', envFilesTest({
+  test('@defaultDynamic=inferFromSensitive links dynamic to final sensitivity', envFilesTest({
     envFile: outdent`
       # @defaultSensitive=inferFromPrefix(PUBLIC_)
-      # @defaultDynamic=sensitive
+      # @defaultDynamic=inferFromSensitive
       # ---
       PUBLIC_FOO=
       SECRET_BAR=
@@ -96,7 +96,7 @@ describe('@dynamic, @static, and @defaultDynamic', () => {
 
   test('explicit @dynamic/@static beats @defaultDynamic', envFilesTest({
     envFile: outdent`
-      # @defaultDynamic=sensitive
+      # @defaultDynamic=inferFromSensitive
       # ---
       SECRET_STATIC= # @sensitive @static
       PUBLIC_DYNAMIC= # @public @dynamic
@@ -107,15 +107,21 @@ describe('@dynamic, @static, and @defaultDynamic', () => {
     },
   }));
 
-  test('serializes isDynamic in graph output', envFilesTest({
+  // isDynamic is only serialized when it diverges from the sensitivity linkage,
+  // so consumers read `isDynamic ?? isSensitive` and the common-case blob stays small
+  test('serializes isDynamic in graph output only when it diverges from sensitivity', envFilesTest({
     envFile: outdent`
-      PUBLIC=        # @public
+      PUBLIC=         # @public
       DYNAMIC_PUBLIC= # @public @dynamic
+      SECRET=         # @sensitive
+      STATIC_SECRET=  # @sensitive @static
     `,
     expectSerializedMatches: {
       config: {
-        PUBLIC: { isDynamic: false },
-        DYNAMIC_PUBLIC: { isDynamic: true },
+        PUBLIC: { isSensitive: false },
+        DYNAMIC_PUBLIC: { isSensitive: false, isDynamic: true },
+        SECRET: { isSensitive: true },
+        STATIC_SECRET: { isSensitive: true, isDynamic: false },
       },
     },
   }));

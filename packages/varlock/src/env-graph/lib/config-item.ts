@@ -745,11 +745,11 @@ export class ConfigItem {
           this._isDynamic = defaultDynamicVal;
           return;
         }
-        if (defaultDynamicVal === 'sensitive') {
+        if (defaultDynamicVal === 'inferFromSensitive') {
           this._isDynamic = this._isSensitive;
           return;
         }
-        throw new SchemaError('@defaultDynamic must resolve to true, false, or "sensitive"');
+        throw new SchemaError('@defaultDynamic must resolve to true, false, or inferFromSensitive');
       }
     } catch (err) {
       this._schemaErrors.push(err instanceof SchemaError ? err : new SchemaError(err as Error));
@@ -1173,7 +1173,7 @@ export class ConfigItem {
           foundDynamic = true;
           break;
         }
-        if (defaultDynamicVal === 'sensitive') {
+        if (defaultDynamicVal === 'inferFromSensitive') {
           isDynamic = isSensitive;
           foundDynamic = true;
           break;

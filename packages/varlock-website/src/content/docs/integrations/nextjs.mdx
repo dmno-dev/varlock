@@ -223,11 +223,11 @@ Varlock separates:
 
 For a full mental model and cross-framework patterns, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
 
-By default, dynamic behavior follows sensitivity (`@defaultDynamic=sensitive`), but you can override per item with [`@dynamic`](/reference/item-decorators/#dynamic) / [`@static`](/reference/item-decorators/#static).
+By default, dynamic behavior follows sensitivity (`@defaultDynamic=inferFromSensitive`), but you can override per item with [`@dynamic`](/reference/item-decorators/#dynamic) / [`@static`](/reference/item-decorators/#static).
 
 ```env-spec title=".env.schema"
 # @defaultSensitive=inferFromPrefix('NEXT_PUBLIC_')
-# @defaultDynamic=sensitive
+# @defaultDynamic=inferFromSensitive
 # ---
 NEXT_PUBLIC_STATIC_FLAG=enabled
 NEXT_PUBLIC_RUNTIME_FLAG=enabled # @dynamic

@@ -22,17 +22,35 @@ function getNextHeadersFn() {
     'next/dist/api/headers',
     'next/dist/server/request/headers',
   ];
+  // When this module is bundled (turbopack, webpack-bundled layers), the bundler
+  // rewrites require() and resolves the right module instance. When it stays
+  // external (webpack server externals), require() resolves from THIS package's
+  // context - under pnpm isolation `next` is not reachable there, so also try
+  // resolving from the app root. That fallback must not use a static builtin
+  // import (bundlers try to resolve it when this file gets bundled into
+  // restricted contexts) - process.getBuiltinModule is invisible to them.
+  const appRequire = (id: string) => {
+    const nodeModule = (globalThis as any).process?.getBuiltinModule?.('node:module');
+    if (!nodeModule?.createRequire) throw new Error('createRequire unavailable');
+    return nodeModule.createRequire(`${process.cwd()}/package.json`)(id);
+  };
+  const loaders: Array<(id: string) => any> = [
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    (id) => require(id),
+    appRequire,
+  ];
   for (const candidate of candidates) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const mod = require(candidate);
-      if (typeof mod?.headers === 'function') {
-        debug(`resolved headers() from ${candidate}`);
-        cachedHeadersFn = mod.headers;
-        return cachedHeadersFn;
+    for (const load of loaders) {
+      try {
+        const mod = load(candidate);
+        if (typeof mod?.headers === 'function') {
+          debug(`resolved headers() from ${candidate}`);
+          cachedHeadersFn = mod.headers;
+          return cachedHeadersFn;
+        }
+      } catch (err) {
+        debug(`failed loading ${candidate}: ${String((err as any)?.message ?? err)}`);
       }
-    } catch (err) {
-      debug(`failed loading ${candidate}: ${String((err as any)?.message ?? err)}`);
     }
   }
   cachedHeadersFn = null;
@@ -52,6 +70,13 @@ export function initVarlockNextDynamicAccess() {
     existingHook?.(meta);
     if (!meta) return;
     debug(`hook invoked for key=${meta.key} isPublic=${meta.isPublic}`);
+
+    // Only dynamic+PUBLIC keys force the route dynamic - their whole point is
+    // runtime freshness, so baking one into prerendered output would be wrong.
+    // Sensitive keys are dynamic by default, and reading one server-side during
+    // prerender is legitimate (leak scanning polices the rendered output) -
+    // forcing headers() there would break static/export builds.
+    if (!meta.isPublic) return;
 
     const headersFn = getNextHeadersFn();
     if (!headersFn) {

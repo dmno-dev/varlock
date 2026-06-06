@@ -575,9 +575,9 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
   {
     name: 'defaultDynamic',
     process: (decVal) => {
-      if (!decVal.isStatic || ![true, false, 'sensitive'].includes(decVal.staticValue as any)) {
+      if (!decVal.isStatic || ![true, false, 'inferFromSensitive'].includes(decVal.staticValue as any)) {
         throw new Error(
-          '@defaultDynamic decorator value must be a static value of true, false, or "sensitive"',
+          '@defaultDynamic decorator value must be a static value of true, false, or inferFromSensitive',
         );
       }
     },

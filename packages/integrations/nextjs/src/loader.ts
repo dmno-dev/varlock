@@ -231,7 +231,8 @@ function webpackLoader(this: LoaderContext, source: string) {
       initGuard = [
         'import {initVarlockEnv as __varlock$init} from \'varlock/env\';',
         'import {patchGlobalConsole as __varlock$patchConsole} from \'varlock/patch-console\';',
-        'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;__varlock$init();__varlock$patchConsole();}',
+        'import {initVarlockNextDynamicAccess as __varlock$initDynAccess} from \'@varlock/nextjs-integration/dynamic-access\';',
+        'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;__varlock$init();__varlock$patchConsole();__varlock$initDynAccess();}',
         // React wraps console for RSC dev replay AFTER our initial patch in the
         // runtime file. Re-patching outside the once-guard ensures our redaction
         // wraps React's wrapper so secrets are redacted before React captures them.
@@ -249,32 +250,10 @@ function webpackLoader(this: LoaderContext, source: string) {
     }
   }
 
-  if (!isClientComponent && source.includes('ENV.')) {
-    const dynamicKeys = Object.entries(envGraph.config)
-      .filter(([, item]) => (item.isDynamic ?? item.isSensitive))
-      .map(([key]) => key);
-
-    if (dynamicKeys.length) {
-      const markerFn = '__varlockMarkDynamicAccess';
-      const markerImport = '__varlockHeadersForDynamicAccess';
-      let hasDynamicRewrites = false;
-
-      for (const key of dynamicKeys) {
-        const pattern = new RegExp(`\\bENV\\.${escapeRegExp(key)}(?![\\w$])`, 'g');
-        if (!pattern.test(result)) continue;
-        hasDynamicRewrites = true;
-        result = result.replace(pattern, `(${markerFn}(), ENV.${key})`);
-      }
-
-      if (hasDynamicRewrites && !result.includes(`const ${markerFn} =`)) {
-        const dynamicAccessPrelude = [
-          `import { headers as ${markerImport} } from 'next/headers';`,
-          `const ${markerFn} = () => { ${markerImport}(); };`,
-        ].join('\n');
-        result = prependAfterDirectives(result, dynamicAccessPrelude);
-      }
-    }
-  }
+  // NOTE - dynamic ENV access marking routes dynamic is handled at runtime by the
+  // global access hook (see dynamic-access.ts, installed via the init guard above).
+  // A source-level rewrite that imported next/headers was tried and reverted: the
+  // injected import is a hard compile error in pages-router files.
 
   // static replacements for non-dynamic env vars
   // webpack uses DefinePlugin for this, so only needed for turbopack

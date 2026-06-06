@@ -30,7 +30,7 @@ export interface VarlockAstroIntegrationOptions extends VarlockVitePluginOptions
   publicDynamicEndpoint?: boolean | VarlockAstroPublicDynamicEndpointOptions,
 }
 
-function hasDynamicPublicConfigInSchema(cwd?: string): boolean {
+function hasPublicDynamicConfigInSchema(cwd?: string): boolean {
   try {
     const { stdout } = execSyncVarlock('load --format json-full --compact', {
       fullResult: true,
@@ -41,9 +41,11 @@ function hasDynamicPublicConfigInSchema(cwd?: string): boolean {
       (itemInfo) => (itemInfo.isDynamic ?? itemInfo.isSensitive) && !itemInfo.isSensitive,
     );
   } catch (err) {
-    debug('Failed to auto-detect dynamic+public config, defaulting to endpoint enabled', err);
-    // Fail open in auto mode so the endpoint remains available.
-    return true;
+    debug('Failed to auto-detect public+dynamic config, skipping endpoint injection', err);
+    // Fail closed in auto mode - if the schema fails to load, the build will
+    // surface a proper error anyway; injecting a route into a broken config
+    // just muddies the failure. Users can force it with publicDynamicEndpoint=true.
+    return false;
   }
 }
 
@@ -53,8 +55,8 @@ function shouldInjectPublicDynamicEndpoint(
 ): boolean {
   if (option === false) return false;
   if (option === true || typeof option === 'object') return true;
-  // Auto mode: only inject when dynamic+public keys exist.
-  return hasDynamicPublicConfigInSchema(cwd);
+  // Auto mode: only inject when public+dynamic keys exist.
+  return hasPublicDynamicConfigInSchema(cwd);
 }
 
 function resolvePublicDynamicEndpointPath(
@@ -87,11 +89,16 @@ function varlockAstroIntegration(
         const routePath = resolvePublicDynamicEndpointPath(publicDynamicEndpoint, fileURLToPath(opts.config.root));
         if (!routePath) return;
 
-        // Server-only route handlers are not supported in static production builds.
-        // We still inject during `astro dev`, so local development stays consistent.
-        if (opts.command === 'build' && opts.config.output !== 'server') {
+        // In auto mode, skip injection for static build output: a non-prerendered
+        // route requires an adapter, and the adapter isn't registered yet in this
+        // hook so we can't check for one. We still inject during `astro dev` so
+        // local development stays consistent. Astro 5 static-output apps WITH an
+        // adapter can serve server routes - those users should opt in explicitly
+        // (publicDynamicEndpoint=true or an options object), which always injects.
+        const explicitlyEnabled = publicDynamicEndpoint === true || typeof publicDynamicEndpoint === 'object';
+        if (!explicitlyEnabled && opts.command === 'build' && opts.config.output !== 'server') {
           debug(
-            `Skipping "${routePath}" injection for static build output. Set output="server" to enable dynamic public env route.`,
+            `Skipping "${routePath}" injection for static build output. Set output="server" or pass publicDynamicEndpoint=true (requires an adapter) to enable the public dynamic env route.`,
           );
           return;
         }

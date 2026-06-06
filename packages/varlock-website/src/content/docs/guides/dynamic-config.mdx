@@ -15,7 +15,7 @@ These are related, but not the same.
 By default, static/dynamic behavior follows sensitivity:
 
 ```env-spec title=".env.schema"
-# @defaultDynamic=sensitive
+# @defaultDynamic=inferFromSensitive
 # ---
 PUBLIC_FOO=        # static by default
 # @sensitive
@@ -27,9 +27,9 @@ Override per item with:
 - [`@static`](/reference/item-decorators/#static)
 
 Or override globally with [`@defaultDynamic`](/reference/root-decorators/#defaultdynamic):
-- `sensitive` (default)
-- `true` (all dynamic unless overridden)
-- `false` (all static unless overridden)
+- `inferFromSensitive` (default): dynamic follows sensitivity
+- `true`: all dynamic unless overridden
+- `false`: all static unless overridden
 
 ## Typical patterns
 
@@ -42,9 +42,9 @@ Or override globally with [`@defaultDynamic`](/reference/root-decorators/#defaul
 
 When public values are dynamic, the client must load them at runtime:
 
-- `getPublicDynamicEnv(keys?)` — server-side helper for endpoint payloads
-- `loadPublicDynamicEnv(opts?)` — client-side fetch + hydrate helper
-- `ENV.MY_VAR` — keep using the same access pattern after hydration
+- `getPublicDynamicEnv(keys?)`: server-side helper for endpoint payloads
+- `loadPublicDynamicEnv(opts?)`: client-side fetch + hydrate helper
+- `ENV.MY_VAR`: keep using the same access pattern after hydration
 
 Example:
 
@@ -88,7 +88,7 @@ Varlock runtime can detect this and warn/error when dynamic keys are accessed du
 
 ## Guidance
 
-- Start with `@defaultDynamic=sensitive` for predictable defaults.
+- Start with `@defaultDynamic=inferFromSensitive` for predictable defaults.
 - Mark intentional runtime public values with `@dynamic`.
 - Keep dynamic+public loading scoped to only the parts of your app that need it.
 - Prefer one app-level endpoint/payload shape per app unless you have a strong reason to split.

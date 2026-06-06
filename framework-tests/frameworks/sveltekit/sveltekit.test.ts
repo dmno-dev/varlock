@@ -140,7 +140,7 @@ describe('SvelteKit', () => {
   });
 
   // TODO: build/prerender-time guard for dynamic access is not wired up for
-  // SvelteKit yet — the vite plugin sets _VARLOCK_EXECUTION_PHASE=build, but
+  // SvelteKit yet — the vite plugin sets __VARLOCK_EXECUTION_PHASE=build, but
   // prerendering happens in a separate child process spawned by SvelteKit.
   env.describeScenario('prerender + dynamic access is rejected (TODO)', {
     skip: true,

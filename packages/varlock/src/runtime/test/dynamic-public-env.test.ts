@@ -3,49 +3,45 @@ import {
 } from 'vitest';
 import {
   ENV,
-  clearDynamicPublicEnv,
+  clearPublicDynamicEnv,
   getDynamicConfigKeys,
-  getDynamicPublicConfigKeys,
-  getDynamicPublicEnv,
+  getPublicDynamicConfigKeys,
   loadPublicDynamicEnv,
   getPublicDynamicEnv,
   initVarlockEnv,
-  setDynamicPublicEnv,
+  setPublicDynamicEnv,
 } from '../env';
 
 const DYNAMIC_KEY = 'PUBLIC_DYNAMIC_TEST';
 const originalFetch = globalThis.fetch;
 
-describe('dynamic public env hydration', () => {
+describe('public dynamic env hydration', () => {
   beforeEach(() => {
     (globalThis as any).__varlockThrowOnMissingKeys = true;
-    (globalThis as any).__varlockExecutionPhase = undefined;
-    (globalThis as any).__varlockDynamicBuildAccessMode = undefined;
     (globalThis as any).__varlockDynamicKeys = [DYNAMIC_KEY];
-    (globalThis as any).__varlockDynamicPublicKeys = [DYNAMIC_KEY];
+    (globalThis as any).__varlockPublicDynamicKeys = [DYNAMIC_KEY];
     (globalThis as any).__varlockOnDynamicConfigAccess = undefined;
-    delete process.env._VARLOCK_EXECUTION_PHASE;
+    delete process.env.__VARLOCK_EXECUTION_PHASE;
     delete process.env._VARLOCK_DYNAMIC_BUILD_ACCESS_MODE;
-    clearDynamicPublicEnv([DYNAMIC_KEY]);
+    clearPublicDynamicEnv([DYNAMIC_KEY]);
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
   });
 
-  it('hydrates ENV values via setDynamicPublicEnv', () => {
-    setDynamicPublicEnv({ [DYNAMIC_KEY]: 'hello-runtime' });
+  it('hydrates ENV values via setPublicDynamicEnv', () => {
+    setPublicDynamicEnv({ [DYNAMIC_KEY]: 'hello-runtime' });
     expect((ENV as any)[DYNAMIC_KEY]).toBe('hello-runtime');
-    expect((getDynamicPublicEnv() as any)[DYNAMIC_KEY]).toBe('hello-runtime');
     expect((getPublicDynamicEnv() as any)[DYNAMIC_KEY]).toBe('hello-runtime');
   });
 
   it('getPublicDynamicEnv accepts an optional key list', () => {
-    (globalThis as any).__varlockDynamicPublicKeys = [
+    (globalThis as any).__varlockPublicDynamicKeys = [
       'PUBLIC_DYNAMIC_TEST',
       'OTHER_PUBLIC_DYNAMIC',
     ];
-    setDynamicPublicEnv({
+    setPublicDynamicEnv({
       PUBLIC_DYNAMIC_TEST: 'a',
       OTHER_PUBLIC_DYNAMIC: 'b',
     });
@@ -55,8 +51,8 @@ describe('dynamic public env hydration', () => {
   });
 
   it('getPublicDynamicEnv honors explicit keys when metadata is unavailable', () => {
-    (globalThis as any).__varlockDynamicPublicKeys = undefined;
-    setDynamicPublicEnv({
+    (globalThis as any).__varlockPublicDynamicKeys = undefined;
+    setPublicDynamicEnv({
       PUBLIC_DYNAMIC_TEST: 'a',
       OTHER_PUBLIC_DYNAMIC: 'b',
     });
@@ -65,14 +61,28 @@ describe('dynamic public env hydration', () => {
     });
   });
 
-  it('throws helpful guidance when dynamic+public key is accessed before hydration', () => {
-    expect(() => (ENV as any)[DYNAMIC_KEY]).toThrow(/dynamic\+public and has not been hydrated yet/i);
+  it('setPublicDynamicEnv ignores undeclared keys when the declared list is known', () => {
+    setPublicDynamicEnv({
+      [DYNAMIC_KEY]: 'hello-runtime',
+      NOT_A_DECLARED_KEY: 'malicious',
+    });
+    expect((ENV as any)[DYNAMIC_KEY]).toBe('hello-runtime');
+    expect(() => (ENV as any).NOT_A_DECLARED_KEY).toThrow(/does not exist/i);
+  });
+
+  it('throws helpful guidance when public+dynamic key is accessed before hydration', () => {
+    expect(() => (ENV as any)[DYNAMIC_KEY]).toThrow(/public\+dynamic and has not been hydrated yet/i);
+  });
+
+  it('hydration guidance works when only the public key list is present (browser case)', () => {
+    (globalThis as any).__varlockDynamicKeys = undefined;
+    expect(() => (ENV as any)[DYNAMIC_KEY]).toThrow(/public\+dynamic and has not been hydrated yet/i);
   });
 
   it('notifies on dynamic key access when a runtime hook is installed', () => {
     const onAccess = vi.fn();
     (globalThis as any).__varlockOnDynamicConfigAccess = onAccess;
-    setDynamicPublicEnv({ [DYNAMIC_KEY]: 'hello-runtime' });
+    setPublicDynamicEnv({ [DYNAMIC_KEY]: 'hello-runtime' });
     expect((ENV as any)[DYNAMIC_KEY]).toBe('hello-runtime');
     expect(onAccess).toHaveBeenCalledWith({
       key: DYNAMIC_KEY,
@@ -97,22 +107,49 @@ describe('dynamic public env hydration', () => {
       'PUBLIC_DYNAMIC_TEST',
       'SECRET_DYNAMIC_TEST',
     ]));
-    expect(getDynamicPublicConfigKeys()).toEqual(['PUBLIC_DYNAMIC_TEST']);
+    expect(getPublicDynamicConfigKeys()).toEqual(['PUBLIC_DYNAMIC_TEST']);
   });
 
-  it('throws when a dynamic key is accessed during build/prerender phase', () => {
-    (globalThis as any).__varlockDynamicKeys = [DYNAMIC_KEY];
-    (globalThis as any).__varlockExecutionPhase = 'build';
-    setDynamicPublicEnv({ [DYNAMIC_KEY]: 'hello-runtime' });
+  it('reads isDynamic from the blob with sensitivity as the fallback linkage', () => {
+    process.env.__VARLOCK_ENV = JSON.stringify({
+      sources: [],
+      settings: {},
+      config: {
+        // isDynamic omitted - follows isSensitive
+        PUBLIC_STATIC_TEST: { value: 'a', isSensitive: false },
+        SECRET_TEST: { value: 'b', isSensitive: true },
+      },
+    });
+
+    initVarlockEnv();
+
+    expect(getDynamicConfigKeys()).toEqual(['SECRET_TEST']);
+    expect(getPublicDynamicConfigKeys()).toEqual([]);
+  });
+
+  it('throws when a public+dynamic key is accessed during build/prerender phase', () => {
+    process.env.__VARLOCK_EXECUTION_PHASE = 'build';
+    setPublicDynamicEnv({ [DYNAMIC_KEY]: 'hello-runtime' });
     expect(() => (ENV as any)[DYNAMIC_KEY]).toThrow(/accessed during build/i);
   });
 
-  it('supports _VARLOCK_EXECUTION_PHASE and _VARLOCK_DYNAMIC_BUILD_ACCESS_MODE', () => {
-    (globalThis as any).__varlockExecutionPhase = undefined;
-    (globalThis as any).__varlockDynamicBuildAccessMode = undefined;
-    process.env._VARLOCK_EXECUTION_PHASE = 'build';
+  it('does not guard non-public dynamic keys during build (leak scanning covers output)', () => {
+    process.env.__VARLOCK_ENV = JSON.stringify({
+      sources: [],
+      settings: {},
+      config: {
+        SECRET_DYNAMIC_TEST: { value: 'shh', isSensitive: true },
+      },
+    });
+    initVarlockEnv();
+    process.env.__VARLOCK_EXECUTION_PHASE = 'build';
+    expect((ENV as any).SECRET_DYNAMIC_TEST).toBe('shh');
+  });
+
+  it('supports downgrading the build guard via _VARLOCK_DYNAMIC_BUILD_ACCESS_MODE=warn', () => {
+    process.env.__VARLOCK_EXECUTION_PHASE = 'build';
     process.env._VARLOCK_DYNAMIC_BUILD_ACCESS_MODE = 'warn';
-    setDynamicPublicEnv({ [DYNAMIC_KEY]: 'hello-runtime' });
+    setPublicDynamicEnv({ [DYNAMIC_KEY]: 'hello-runtime' });
     expect(() => (ENV as any)[DYNAMIC_KEY]).not.toThrow();
   });
 
@@ -124,7 +161,7 @@ describe('dynamic public env hydration', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const payload = await loadPublicDynamicEnv();
 
@@ -141,7 +178,7 @@ describe('dynamic public env hydration', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     await loadPublicDynamicEnv();
     const second = await loadPublicDynamicEnv();
@@ -161,7 +198,7 @@ describe('dynamic public env hydration', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const [a, b] = await Promise.all([
       loadPublicDynamicEnv(),

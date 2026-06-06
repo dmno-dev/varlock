@@ -152,7 +152,7 @@ For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/gu
 
 ```env-spec title=".env.schema"
 # @defaultSensitive=inferFromPrefix('VITE_')
-# @defaultDynamic=sensitive
+# @defaultDynamic=inferFromSensitive
 # ---
 VITE_STATIC_FLAG=enabled
 VITE_RUNTIME_FLAG=enabled # @dynamic

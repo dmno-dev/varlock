@@ -385,7 +385,7 @@ export function initVarlockEnv(opts?: {
 
   const setProcessEnv = processExists && !serializedEnvData.settings?.disableProcessEnvInjection;
   const dynamicKeys: Array<string> = [];
-  const dynamicPublicKeys: Array<string> = [];
+  const publicDynamicKeys: Array<string> = [];
 
   // if we've already injected process.env vars in the past, we'll reset those now
   // (injection bookkeeping lives on the shared state so a reload flowing through a
@@ -403,7 +403,7 @@ export function initVarlockEnv(opts?: {
     // isDynamic is omitted from the blob when it matches the sensitivity linkage
     if (item.isDynamic ?? item.isSensitive) {
       dynamicKeys.push(itemKey);
-      if (!item.isSensitive) dynamicPublicKeys.push(itemKey);
+      if (!item.isSensitive) publicDynamicKeys.push(itemKey);
     }
     envValues[itemKey] = item.value;
     if (setProcessEnv) {
@@ -416,7 +416,7 @@ export function initVarlockEnv(opts?: {
     }
   }
   (globalThis as any).__varlockDynamicKeys = dynamicKeys;
-  (globalThis as any).__varlockDynamicPublicKeys = dynamicPublicKeys;
+  (globalThis as any).__varlockPublicDynamicKeys = publicDynamicKeys;
   envState.initialized = true;
 }
 
@@ -457,41 +457,55 @@ type DynamicConfigAccessMeta = {
   isPublic: boolean,
 };
 
-function getStringArrayGlobal(name: string): Array<string> {
-  const val = (globalThis as any)[name];
-  if (!Array.isArray(val)) return [];
-  return val.filter((k) => typeof k === 'string');
+/**
+ * Dynamic key lists live on globalThis (like the rest of the shared env state):
+ * `__varlockDynamicKeys` is written by initVarlockEnv (server-side only), while
+ * `__varlockPublicDynamicKeys` is also injected into browser bundles by the
+ * framework integrations. A missing global means "unknown" (e.g. hydration
+ * before any init), which callers treat differently from known-and-empty.
+ *
+ * Sets are cached per underlying array reference since the ENV proxy checks
+ * membership on every property access.
+ */
+const keySetCache: Record<string, { arr: unknown, set: Set<string> }> = {};
+function getKeySetGlobal(name: string): Set<string> | undefined {
+  const arr = (globalThis as any)[name];
+  if (!Array.isArray(arr)) return undefined;
+  const cached = keySetCache[name];
+  if (cached && cached.arr === arr) return cached.set;
+  const set = new Set<string>(arr.filter((k) => typeof k === 'string'));
+  keySetCache[name] = { arr, set };
+  return set;
 }
 
 export function getDynamicConfigKeys(): Array<string> {
-  return getStringArrayGlobal('__varlockDynamicKeys');
+  return [...getKeySetGlobal('__varlockDynamicKeys') ?? []];
 }
 
-export function getDynamicPublicConfigKeys(): Array<string> {
-  return getStringArrayGlobal('__varlockDynamicPublicKeys');
-}
-
-function getDynamicPublicKeys(): Array<string> {
-  return getDynamicPublicConfigKeys();
+export function getPublicDynamicConfigKeys(): Array<string> {
+  return [...getKeySetGlobal('__varlockPublicDynamicKeys') ?? []];
 }
 
 function resolvePublicDynamicKeys(keys?: Array<string>): Array<string> {
-  const allowedKeys = getDynamicPublicKeys();
-  if (!keys?.length) return allowedKeys;
-  if (!allowedKeys.length) return keys;
-  const allowedSet = new Set(allowedKeys);
-  return keys.filter((k) => allowedSet.has(k));
+  const allowed = getKeySetGlobal('__varlockPublicDynamicKeys');
+  if (!keys?.length) return allowed ? [...allowed] : [];
+  // when the declared key list is unknown we have nothing to check against,
+  // so trust the caller's explicit list
+  if (!allowed) return keys;
+  return keys.filter((k) => allowed.has(k));
 }
 
+// set by varlock itself (e.g. the vite integration during `vite build`) so the
+// ENV proxy can tell app code is executing during build/prerender rather than at
+// runtime - an env var (not a global) because prerendering may happen in a
+// child process (e.g. SvelteKit)
 function getVarlockExecutionPhase() {
-  if ((globalThis as any).__varlockExecutionPhase) return (globalThis as any).__varlockExecutionPhase as string;
-  return globalThis.process?.env?._VARLOCK_EXECUTION_PHASE;
+  return globalThis.process?.env?.__VARLOCK_EXECUTION_PHASE;
 }
 
+// user-set toggle to downgrade the build-time dynamic access guard to a warning
 function getDynamicBuildAccessMode() {
-  const mode = (globalThis as any).__varlockDynamicBuildAccessMode
-    ?? globalThis.process?.env?._VARLOCK_DYNAMIC_BUILD_ACCESS_MODE
-    ?? 'error';
+  const mode = globalThis.process?.env?._VARLOCK_DYNAMIC_BUILD_ACCESS_MODE ?? 'error';
   return mode === 'warn' ? 'warn' : 'error';
 }
 
@@ -512,42 +526,38 @@ function notifyDynamicConfigAccess(meta: DynamicConfigAccessMeta) {
 
 const dynamicBuildAccessWarnedKeys = new Set<string>();
 const DEFAULT_PUBLIC_DYNAMIC_ENV_ENDPOINT = '/__varlock/public-env';
-let dynamicPublicEnvLoadPromise: Promise<Partial<PublicTypedEnvSchema>> | undefined;
-let hasLoadedDynamicPublicEnv = false;
-let lastLoadedDynamicPublicEnv = {} as Record<string, unknown>;
+let publicDynamicEnvLoadPromise: Promise<Partial<PublicTypedEnvSchema>> | undefined;
+let hasLoadedPublicDynamicEnv = false;
+let lastLoadedPublicDynamicEnv = {} as Record<string, unknown>;
 
-function hasHydratedDynamicPublicEnv() {
-  const dynamicPublicKeys = getDynamicPublicKeys();
-  if (!dynamicPublicKeys.length) return false;
-  return dynamicPublicKeys.every((key) => key in envValues);
+function hasHydratedPublicDynamicEnv() {
+  const publicDynamicKeys = getKeySetGlobal('__varlockPublicDynamicKeys');
+  if (!publicDynamicKeys?.size) return false;
+  return [...publicDynamicKeys].every((key) => key in envValues);
 }
 
 /**
- * Hydrate dynamic+public env values at runtime (typically in the browser),
+ * Hydrate public+dynamic env values at runtime (typically in the browser),
  * while keeping the same `ENV.KEY` access pattern.
  */
-export function setDynamicPublicEnv(
+export function setPublicDynamicEnv(
   values: Partial<PublicTypedEnvSchema> | Record<string, unknown>,
 ) {
+  const allowed = getKeySetGlobal('__varlockPublicDynamicKeys');
   envState.initialized = true;
   for (const [key, value] of Object.entries(values || {})) {
+    // when the declared key list is known, ignore anything outside it so a bad
+    // endpoint payload can't overwrite static or sensitive values in the store
+    if (allowed && !allowed.has(key)) {
+      debug(`[public-dynamic] ignoring undeclared key in hydration payload: ${key}`);
+      continue;
+    }
     envValues[key] = value;
   }
 }
 
 /**
- * Returns the currently hydrated dynamic+public values from the ENV proxy store.
- */
-export function getDynamicPublicEnv(): Partial<PublicTypedEnvSchema> {
-  const out: Record<string, unknown> = {};
-  for (const key of resolvePublicDynamicKeys()) {
-    if (key in envValues) out[key] = envValues[key];
-  }
-  return out as Partial<PublicTypedEnvSchema>;
-}
-
-/**
- * Returns dynamic+public env values as an object.
+ * Returns public+dynamic env values as an object.
  * Optionally pass a key list to limit which values are included.
  */
 export function getPublicDynamicEnv(keys?: Array<string>): Partial<PublicTypedEnvSchema> {
@@ -559,18 +569,18 @@ export function getPublicDynamicEnv(keys?: Array<string>): Partial<PublicTypedEn
 }
 
 /**
- * Clears hydrated dynamic+public values from the ENV proxy store.
+ * Clears hydrated public+dynamic values from the ENV proxy store.
  */
-export function clearDynamicPublicEnv(keys?: Array<string>) {
+export function clearPublicDynamicEnv(keys?: Array<string>) {
   for (const key of resolvePublicDynamicKeys(keys)) {
     delete envValues[key];
   }
-  hasLoadedDynamicPublicEnv = false;
-  lastLoadedDynamicPublicEnv = {};
+  hasLoadedPublicDynamicEnv = false;
+  lastLoadedPublicDynamicEnv = {};
 }
 
 /**
- * Loads dynamic+public env values from a server endpoint and hydrates the ENV proxy.
+ * Loads public+dynamic env values from a server endpoint and hydrates the ENV proxy.
  * The server endpoint controls which keys are returned.
  */
 export async function loadPublicDynamicEnv(opts?: {
@@ -580,9 +590,9 @@ export async function loadPublicDynamicEnv(opts?: {
   requestInit?: RequestInit,
 }): Promise<Partial<PublicTypedEnvSchema>> {
   if (!opts?.force) {
-    if (hasHydratedDynamicPublicEnv()) return getDynamicPublicEnv();
-    if (hasLoadedDynamicPublicEnv) return lastLoadedDynamicPublicEnv as Partial<PublicTypedEnvSchema>;
-    if (dynamicPublicEnvLoadPromise) return dynamicPublicEnvLoadPromise;
+    if (hasHydratedPublicDynamicEnv()) return getPublicDynamicEnv();
+    if (hasLoadedPublicDynamicEnv) return lastLoadedPublicDynamicEnv as Partial<PublicTypedEnvSchema>;
+    if (publicDynamicEnvLoadPromise) return publicDynamicEnvLoadPromise;
   }
 
   const endpoint = opts?.endpoint
@@ -597,7 +607,7 @@ export async function loadPublicDynamicEnv(opts?: {
     );
   }
 
-  dynamicPublicEnvLoadPromise = (async () => {
+  publicDynamicEnvLoadPromise = (async () => {
     const response = await fetchImpl(endpoint, {
       method: 'GET',
       cache: 'no-store',
@@ -606,7 +616,7 @@ export async function loadPublicDynamicEnv(opts?: {
     });
     if (!response.ok) {
       throw new Error(
-        `[varlock] Failed to load dynamic public env (${response.status}) from ${endpoint}`,
+        `[varlock] Failed to load public dynamic env (${response.status}) from ${endpoint}`,
       );
     }
 
@@ -616,16 +626,16 @@ export async function loadPublicDynamicEnv(opts?: {
     }
     const payloadObj = payload as Record<string, unknown>;
 
-    setDynamicPublicEnv(payloadObj);
-    hasLoadedDynamicPublicEnv = true;
-    lastLoadedDynamicPublicEnv = payloadObj;
+    setPublicDynamicEnv(payloadObj);
+    hasLoadedPublicDynamicEnv = true;
+    lastLoadedPublicDynamicEnv = payloadObj;
     return payloadObj as Partial<PublicTypedEnvSchema>;
   })();
 
   try {
-    return await dynamicPublicEnvLoadPromise;
+    return await publicDynamicEnvLoadPromise;
   } finally {
-    dynamicPublicEnvLoadPromise = undefined;
+    publicDynamicEnvLoadPromise = undefined;
   }
 }
 
@@ -649,44 +659,46 @@ const EnvProxy = new Proxy<TypedEnvSchema>({}, {
       return undefined;
     }
 
-    const dynamicKeys = getDynamicConfigKeys();
+    const dynamicKeys = getKeySetGlobal('__varlockDynamicKeys');
+    const publicDynamicKeys = getKeySetGlobal('__varlockPublicDynamicKeys');
     if (prop in envValues) {
-      const isDynamic = dynamicKeys.includes(prop);
-      if (isDynamic) {
+      if (dynamicKeys?.has(prop)) {
+        const isPublic = !!publicDynamicKeys?.has(prop);
         debug(`[dynamic-access] detected dynamic access for ENV.${prop}`);
-      }
-      if (isDynamic) {
-        notifyDynamicConfigAccess({
-          key: prop,
-          isPublic: getDynamicPublicKeys().includes(prop),
-        });
-      }
-      if (isDynamic && shouldGuardDynamicAccessDuringBuild()) {
-        const msg = [
-          `[varlock] dynamic config \`ENV.${prop}\` was accessed during ${getVarlockExecutionPhase()}.`,
-          'Dynamic values cannot be safely inlined during static build/prerender.',
-          'Use runtime SSR access (non-prerender) or load/hydrate dynamic public values at runtime.',
-        ].join(' ');
-        if (getDynamicBuildAccessMode() === 'warn') {
-          if (!dynamicBuildAccessWarnedKeys.has(prop)) {
-            dynamicBuildAccessWarnedKeys.add(prop);
-            // eslint-disable-next-line no-console
-            console.warn(msg);
+        notifyDynamicConfigAccess({ key: prop, isPublic });
+        // Guard only public+dynamic values: baking one into prerendered output defeats
+        // its runtime-freshness intent. Sensitive (dynamic-by-default) values may be
+        // legitimately read server-side during static builds - actual leakage into
+        // build output is caught by the leak scanner instead.
+        if (isPublic && shouldGuardDynamicAccessDuringBuild()) {
+          const msg = [
+            `[varlock] dynamic config \`ENV.${prop}\` was accessed during ${getVarlockExecutionPhase()}.`,
+            'Dynamic values cannot be safely inlined during static build/prerender.',
+            'Use runtime SSR access (non-prerender) or load/hydrate public dynamic values at runtime.',
+          ].join(' ');
+          if (getDynamicBuildAccessMode() === 'warn') {
+            if (!dynamicBuildAccessWarnedKeys.has(prop)) {
+              dynamicBuildAccessWarnedKeys.add(prop);
+              // eslint-disable-next-line no-console
+              console.warn(msg);
+            }
+          } else {
+            throw new Error(msg);
           }
-        } else {
-          throw new Error(msg);
         }
       }
       return envValues[prop];
     }
     if ((globalThis as any).__varlockThrowOnMissingKeys) {
-      if (dynamicKeys.includes(prop)) {
-        if (getDynamicPublicKeys().includes(prop)) {
-          throw new Error(
-            `\`ENV.${prop}\` is dynamic+public and has not been hydrated yet. `
-            + 'Load dynamic public env first, then access it via ENV.',
-          );
-        }
+      // check the public list first - in the browser only __varlockPublicDynamicKeys
+      // is injected, so this branch must not depend on the full dynamic key list
+      if (publicDynamicKeys?.has(prop)) {
+        throw new Error(
+          `\`ENV.${prop}\` is public+dynamic and has not been hydrated yet. `
+          + 'Load public dynamic env first (e.g. via loadPublicDynamicEnv()), then access it via ENV.',
+        );
+      }
+      if (dynamicKeys?.has(prop)) {
         throw new Error(
           `\`ENV.${prop}\` is dynamic and is not available in this environment.`,
         );

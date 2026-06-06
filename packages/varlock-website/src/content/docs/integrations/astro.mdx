@@ -82,7 +82,7 @@ For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/gu
 
 ```env-spec title=".env.schema"
 # @defaultSensitive=inferFromPrefix('PUBLIC_')
-# @defaultDynamic=sensitive
+# @defaultDynamic=inferFromSensitive
 # ---
 PUBLIC_STATIC_FLAG=enabled
 PUBLIC_RUNTIME_FLAG=enabled # @dynamic
@@ -94,7 +94,7 @@ In server-rendered Astro code, access dynamic values via `ENV.KEY` as usual.
 
 ### Client-side usage
 
-When the schema contains any dynamic+public keys, this integration automatically injects a route at `/__varlock/public-env` (SSR builds only). Load it in the browser with `loadPublicDynamicEnv()`:
+When the schema contains any public+dynamic keys, this integration automatically injects a route at `/__varlock/public-env` (SSR builds only). Load it in the browser with `loadPublicDynamicEnv()`:
 
 ```astro title="src/components/MyClientThing.astro"
 ---
@@ -108,7 +108,7 @@ When the schema contains any dynamic+public keys, this integration automatically
 ```
 
 :::note[Static output]
-If `output: 'static'`, there is no server route to fetch runtime public values from. Dynamic+public values require a server-rendered deployment target.
+With `output: 'static'`, the endpoint is not injected automatically during builds (it is still available in `astro dev`). If you use static output with an adapter (so non-prerendered routes are allowed), opt in explicitly with `publicDynamicEndpoint: true`. Without an adapter there is no server to serve runtime public values from.
 :::
 
 ### Route injection options

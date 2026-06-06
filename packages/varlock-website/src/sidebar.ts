@@ -21,6 +21,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
       { label: 'Schema', slug: 'guides/schema' },
       { label: 'Secrets', slug: 'guides/secrets' },
       { label: 'Environments', slug: 'guides/environments' },
+      { label: 'Static vs dynamic', slug: 'guides/dynamic-config', badge: 'new' },
       { label: 'Imports', slug: 'guides/import' },
       { label: 'Monorepos', slug: 'guides/monorepos', badge: 'new' },
       { label: 'Plugins', slug: 'guides/plugins' },
