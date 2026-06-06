@@ -64,14 +64,15 @@ describe('parseTtl', () => {
     it('treats "0" string as forever', () => {
       expect(parseTtl('0')).toBe(Infinity);
     });
+    it('treats "0s" string as forever', () => {
+      // any zero-duration TTL is treated as "cache forever" for consistency
+      expect(parseTtl('0s')).toBe(Infinity);
+    });
   });
 
   describe('error cases', () => {
     it('rejects empty string', () => {
       expect(() => parseTtl('')).toThrow();
-    });
-    it('rejects zero with unit suffix', () => {
-      expect(() => parseTtl('0s')).toThrow();
     });
     it('rejects negative', () => {
       expect(() => parseTtl('-5m')).toThrow();

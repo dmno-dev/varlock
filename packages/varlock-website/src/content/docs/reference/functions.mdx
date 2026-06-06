@@ -269,40 +269,26 @@ API_URL=if(isEmpty($CUSTOM_API_URL), "https://api.default.com", $CUSTOM_API_URL)
 These functions generate random values using cryptographically secure randomness (`node:crypto`). They are typically used with [`cache()`](#cache) to generate a value once and persist it across runs.
 
 <div>
-### `randomInt()`
+### `randomNum()`
 
-Generates a random integer. By default generates between `0` and `2,147,483,647` (int32 max).
+Generates a random number. **Integer by default**; if you pass `precision=N`, returns a float with `N` decimal places.
 
 - With 1 arg: generates between `0` and `max` (inclusive)
 - With 2 args: generates between `min` and `max` (inclusive)
+- `precision=N` option switches to float mode (decimal places, 0-20)
 
-```env-spec "randomInt"
-# Random port between 3000 and 4000
-DEV_PORT=cache(randomInt(3000, 4000))
+```env-spec "randomNum"
+# Random port between 3000 and 4000 (integer)
+DEV_PORT=cache(randomNum(3000, 4000))
 
 # Random integer up to 1000
-SEED=cache(randomInt(1000))
+SEED=cache(randomNum(1000))
 
-# Random integer with default range
-BIG_NUMBER=cache(randomInt())
-```
-</div>
-
-<div>
-### `randomFloat()`
-
-Generates a random floating-point number. By default generates between `0` and `1` with 2 decimal places.
-
-- With 1 arg: generates between `0` and `max`
-- With 2 args: generates between `min` and `max`
-- `precision=N` option controls decimal places (default: 2)
-
-```env-spec "randomFloat"
-# Random float between 0 and 1 (default)
-RATE=cache(randomFloat())
+# Random float between 0 and 1 with 4 decimal places
+RATE=cache(randomNum(0, 1, precision=4))
 
 # Random float between 10 and 20 with 4 decimal places
-THRESHOLD=cache(randomFloat(10, 20, precision=4))
+THRESHOLD=cache(randomNum(10, 20, precision=4))
 ```
 </div>
 
@@ -320,15 +306,19 @@ INSTANCE_ID=cache(randomUuid())
 <div>
 ### `randomHex()`
 
-Generates a random hexadecimal string. Argument is the byte length (each byte = 2 hex characters). Default is `16` bytes (32 hex chars).
+Generates a random hexadecimal string. By default the argument is the **character length** of the output. Pass `bytes=true` to interpret the argument as a byte count instead (where each byte = 2 hex characters). Default is `32` characters.
 
 ```env-spec "randomHex"
-# 64-character hex string (32 bytes)
-ENCRYPTION_KEY=cache(randomHex(32))
+# 32-character hex string (default)
+SESSION_SECRET=cache(randomHex())
   @sensitive
 
-# 32-character hex string (default 16 bytes)
-SESSION_SECRET=cache(randomHex())
+# 64-character hex string
+ENCRYPTION_KEY=cache(randomHex(64))
+  @sensitive
+
+# 32 bytes (= 64 hex chars) — byte-length mode
+HMAC_KEY=cache(randomHex(32, bytes=true))
   @sensitive
 ```
 </div>
