@@ -17,14 +17,20 @@ export const commandSpec = define({
       type: 'string',
       description: 'Clear cache for a specific plugin only',
     },
+    yes: {
+      type: 'boolean',
+      short: 'y',
+      description: 'Skip confirmation prompts (required for non-interactive `clear`)',
+    },
   },
   examples: `
 Manage the encrypted value cache used by cache() and plugin authors.
 
 Examples:
-  varlock cache                    # Interactive cache browser
-  varlock cache clear              # Clear all cache entries
-  varlock cache clear --plugin 1password  # Clear cache for specific plugin
+  varlock cache                       # Interactive cache browser (or status summary if non-TTY)
+  varlock cache status                # Print cache status summary (non-interactive)
+  varlock cache clear --yes           # Clear all entries (no prompt)
+  varlock cache clear --plugin 1password --yes  # Clear cache for a specific plugin
 `.trim(),
 });
 
@@ -70,6 +76,28 @@ function groupEntries(entries: Array<CacheEntry>): Record<string, Array<CacheEnt
   return groups;
 }
 
+/** Print a non-interactive cache status summary. Safe to run in CI. */
+function printStatus(store: CacheStore): void {
+  const stats = store.getStats();
+  const filePath = store.getFilePath();
+  const fileSize = fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
+  const sizeStr = fileSize < 1024 ? `${fileSize} B` : `${(fileSize / 1024).toFixed(1)} KB`;
+
+  console.log(`\n  ${ansis.bold('Varlock cache')}`);
+  console.log(`  Location:     ${ansis.gray(filePath)}`);
+  console.log(`  File size:    ${sizeStr}`);
+  console.log(`  Total entries: ${stats.total}${stats.expired ? ansis.gray(` (${stats.expired} expired)`) : ''}`);
+  if (Object.keys(stats.byPrefix).length > 0) {
+    console.log('  By group:');
+    for (const [prefix, count] of Object.entries(stats.byPrefix)) {
+      console.log(`    ${prefix.padEnd(30)} ${count}`);
+    }
+  }
+  console.log('');
+}
+
+const isInteractive = () => process.stdout.isTTY && process.stdin.isTTY;
+
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const positionals = (ctx.positionals ?? []).slice(ctx.commandPath?.length ?? 0);
   const action = positionals[0];
@@ -81,18 +109,48 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   const store = new CacheStore();
 
+  // explicit non-interactive status
+  if (action === 'status') {
+    printStatus(store);
+    return;
+  }
+
   // non-interactive clear
   if (action === 'clear') {
     const pluginName = ctx.values.plugin;
-    let count: number;
+    const skipConfirm = ctx.values.yes;
+    const target = pluginName
+      ? `cache entries for plugin "${pluginName}"`
+      : 'cache entries';
 
-    if (pluginName) {
-      count = store.clearByPrefix(`plugin:${pluginName}:`);
-      console.log(`  Cleared ${count} cache entries for plugin "${pluginName}"`);
-    } else {
-      count = store.clearAll();
-      console.log(`  Cleared ${count} cache entries`);
+    // require either --yes or an interactive confirm
+    if (!skipConfirm) {
+      if (!isInteractive()) {
+        console.error(ansis.red(`Refusing to clear ${target} without confirmation.`));
+        console.error('  Re-run with --yes to confirm, or run interactively.');
+        process.exitCode = 1;
+        return;
+      }
+      const confirmed = await confirm({
+        message: `Clear all ${target}? This cannot be undone.`,
+        initialValue: false,
+      });
+      if (isCancel(confirmed) || !confirmed) {
+        console.log(ansis.gray('  Aborted.'));
+        return;
+      }
     }
+
+    const count = pluginName
+      ? store.clearByPrefix(`plugin:${pluginName}:`)
+      : store.clearAll();
+    console.log(`  Cleared ${count} ${target}`);
+    return;
+  }
+
+  // default (no action) — interactive browser if TTY, status summary otherwise
+  if (!isInteractive()) {
+    printStatus(store);
     return;
   }
 

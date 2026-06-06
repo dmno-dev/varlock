@@ -211,4 +211,24 @@ describe('CacheStore', () => {
       expect(result).toBeUndefined();
     });
   });
+
+  // skip on windows where unix-style file modes don't apply
+  describe.skipIf(process.platform === 'win32')('file permissions', () => {
+    // bitwise mask is the standard way to extract Unix permission bits from stat.mode
+    /* eslint-disable no-bitwise */
+    it('writes the cache file with 0600 permissions', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:k', 'v', 60_000);
+      const stat = fs.statSync(store.getFilePath());
+      expect(stat.mode & 0o777).toBe(0o600);
+    });
+
+    it('creates the cache directory with 0700 permissions', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:k', 'v', 60_000);
+      const stat = fs.statSync(path.dirname(store.getFilePath()));
+      expect(stat.mode & 0o777).toBe(0o700);
+    });
+    /* eslint-enable no-bitwise */
+  });
 });

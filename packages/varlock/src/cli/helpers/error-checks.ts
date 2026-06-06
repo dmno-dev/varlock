@@ -1,5 +1,4 @@
 import ansis from 'ansis';
-import { gracefulExit } from 'exit-hook';
 import { EnvGraph, FileBasedDataSource } from '../../env-graph';
 import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import {
@@ -58,8 +57,9 @@ export function checkForSchemaErrors(envGraph: EnvGraph, opts?: { noThrow?: bool
   for (const source of envGraph.sortedDataSources) {
     const warnings = source.errors.filter((e) => e.isWarning);
     const errors = source.errors.filter((e) => !e.isWarning);
+    const resolutionErrors = source.resolutionErrors;
 
-    if (!warnings.length && !errors.length) continue;
+    if (!warnings.length && !errors.length && !resolutionErrors.length) continue;
     hasOutput = true;
 
     // group by error type for clearer output
@@ -67,7 +67,8 @@ export function checkForSchemaErrors(envGraph: EnvGraph, opts?: { noThrow?: bool
     const otherErrors = errors.filter((e) => !(e instanceof LoadingError || e instanceof ParseError));
 
     // single header per file
-    console.error(ansis.bold[errors.length ? 'red' : 'yellow'](`-- Problems encountered in ${source.label} --`));
+    const hasAnyError = errors.length || resolutionErrors.length;
+    console.error(ansis.bold[hasAnyError ? 'red' : 'yellow'](`-- Problems encountered in ${source.label} --`));
 
     if (source instanceof FileBasedDataSource) {
       console.error('📁', ansis.dim(`${source.fullPath}`));
@@ -94,20 +95,21 @@ export function checkForSchemaErrors(envGraph: EnvGraph, opts?: { noThrow?: bool
       showErrorLocationDetails(err);
     }
 
-    if (errors.length) {
-      hasErrors = true;
-      if (!opts?.noThrow) throw new CliExitError('Schema error', { silent: true });
-    }
-
-    // check for errors from decorator execute() (e.g., invalid plugin options like cacheTtl)
-    if (source.resolutionErrors.length) {
-      console.error(`🚨 Error(s) during initialization of ${source.label}`);
-
-      for (const resErr of source.resolutionErrors) {
-        console.error(`- ${resErr.message}`);
+    // surface errors from decorator execute() (e.g., invalid plugin options like cacheTtl).
+    // these are fatal and must halt before resolution so downstream resolvers don't
+    // run against a half-initialized plugin.
+    if (resolutionErrors.length) {
+      console.error(ansis.red(`🚨 Error(s) during initialization of ${source.label}`));
+      for (const resErr of resolutionErrors) {
+        console.error(ansis.red(`- ❌ ${resErr.message}`));
+        showErrorTip(resErr);
         showErrorLocationDetails(resErr);
       }
-      gracefulExit(1);
+    }
+
+    if (hasAnyError) {
+      hasErrors = true;
+      if (!opts?.noThrow) throw new CliExitError('Schema error', { silent: true });
     }
   }
   return { hasErrors, hasOutput };

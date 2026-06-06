@@ -106,8 +106,8 @@ export class CacheStore {
     const data = this.loadFile();
     const count = Object.keys(data).length;
     if (count > 0) {
-      this.memCache = {};
-      this.saveFile(this.memCache);
+      for (const key of Object.keys(data)) delete data[key];
+      this.saveFile(data);
     }
     return count;
   }
@@ -204,13 +204,17 @@ export class CacheStore {
     try {
       const dir = path.dirname(this.filePath);
       if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+        // 0700 — cache keys include file paths and resolver source text,
+        // which can leak secret topology even though values are encrypted
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       }
 
       // atomic write: write to temp file then rename
       const tmpPath = `${this.filePath}.tmp.${process.pid}`;
-      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
       fs.renameSync(tmpPath, this.filePath);
+      // explicit chmod in case rename preserved an existing file's mode
+      fs.chmodSync(this.filePath, 0o600);
     } catch (err) {
       debug('cache file save failed: %O', err);
     }
