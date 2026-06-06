@@ -1,0 +1,94 @@
+---
+title: Static vs Dynamic Config
+description: How to control build-time replacement vs runtime resolution, and how to use dynamic+public values safely
+---
+
+Varlock separates two concerns:
+
+- **sensitive vs public**: security boundary (can this be exposed to clients?)
+- **static vs dynamic**: execution-time boundary (can this be replaced at build time?)
+
+These are related, but not the same.
+
+## Defaults and decorators
+
+By default, static/dynamic behavior follows sensitivity:
+
+```env-spec title=".env.schema"
+# @defaultDynamic=sensitive
+# ---
+PUBLIC_FOO=        # static by default
+# @sensitive
+SECRET_BAR=        # dynamic by default
+```
+
+Override per item with:
+- [`@dynamic`](/reference/item-decorators/#dynamic)
+- [`@static`](/reference/item-decorators/#static)
+
+Or override globally with [`@defaultDynamic`](/reference/root-decorators/#defaultdynamic):
+- `sensitive` (default)
+- `true` (all dynamic unless overridden)
+- `false` (all static unless overridden)
+
+## Typical patterns
+
+- `static + public` (most common): safe to inline in client bundles
+- `dynamic + sensitive` (most common): runtime-only secrets
+- `dynamic + public` (valid): runtime feature flags, environment banners, etc.
+- `static + sensitive` (rare, use with care): server-only build-time replacement
+
+## Runtime helpers for dynamic+public
+
+When public values are dynamic, the client must load them at runtime:
+
+- `getPublicDynamicEnv(keys?)` — server-side helper for endpoint payloads
+- `loadPublicDynamicEnv(opts?)` — client-side fetch + hydrate helper
+- `ENV.MY_VAR` — keep using the same access pattern after hydration
+
+Example:
+
+```ts title="server endpoint"
+import { getPublicDynamicEnv } from 'varlock/env';
+
+export function GET() {
+  return Response.json(getPublicDynamicEnv(), {
+    headers: { 'cache-control': 'no-store' },
+  });
+}
+```
+
+```ts title="client code"
+import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+
+await loadPublicDynamicEnv({ endpoint: '/__varlock/public-env' });
+console.log(ENV.PUBLIC_RUNTIME_FLAG);
+```
+
+## Framework behavior
+
+| Framework | Dynamic server access | Dynamic+public endpoint |
+| :-- | :-- | :-- |
+| Next.js | Dynamic access via `ENV.KEY` in server render paths marks route dynamic | Add a route handler (recommended default path: `/__varlock/public-env`) |
+| Astro | Works in SSR paths | Auto-injected endpoint in SSR mode (configurable) |
+| SvelteKit | Works in SSR paths | Add a `+server.ts` endpoint |
+| Vite (generic) | Works in SSR/server runtime | Add your own server endpoint |
+
+See framework-specific recipes:
+- [Next.js](/integrations/nextjs/)
+- [Astro](/integrations/astro/)
+- [SvelteKit](/integrations/sveltekit/)
+- [Vite](/integrations/vite/)
+
+## Prerender/build guardrails
+
+Dynamic config should not be consumed in static prerender/build contexts unless explicitly designed for it.
+
+Varlock runtime can detect this and warn/error when dynamic keys are accessed during prerender/build phases, helping catch accidental usage early.
+
+## Guidance
+
+- Start with `@defaultDynamic=sensitive` for predictable defaults.
+- Mark intentional runtime public values with `@dynamic`.
+- Keep dynamic+public loading scoped to only the parts of your app that need it.
+- Prefer one app-level endpoint/payload shape per app unless you have a strong reason to split.

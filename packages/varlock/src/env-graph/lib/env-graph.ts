@@ -87,6 +87,8 @@ export type SerializedEnvGraph = {
     preventLeaks?: boolean;
     /** true = used only by varlock, not injected into the app. Only present in inspection output (never in the blob). */
     isInternal?: boolean;
+    /** whether the value must stay runtime-resolved (never inlined at build time). Omitted when it matches `isSensitive` (the default linkage), so consumers should read `isDynamic ?? isSensitive`. */
+    isDynamic?: boolean;
   }>;
   /** Keys that were genuine process.env overrides at this invocation, so nested varlock invocations re-apply exactly those (and nothing else) as overrides. */
   overrideKeys?: Array<string>;
@@ -433,6 +435,7 @@ export class EnvGraph {
       // internal def has no decorators and no source with root-level defaults.
       item._isRequired = false;
       item._isSensitive = false;
+      item._isDynamic = false;
       // Set dataType directly since registerBuiltinVar is called synchronously
       // during resolver processing, and the item may not get a process() call
       // from the finishLoad loop (for...in doesn't reliably visit new keys).
@@ -876,6 +879,9 @@ export class EnvGraph {
         ...item.isInternal ? { isInternal: true } : {},
         // only emit when opted out — keeps the common-case blob smaller
         ...item.isSensitive && !item.preventLeaks ? { preventLeaks: false } : {},
+        // only emit when it diverges from the sensitivity linkage (the default), so
+        // consumers read `isDynamic ?? isSensitive` and the common-case blob stays small
+        ...item.isDynamic !== item.isSensitive ? { isDynamic: item.isDynamic } : {},
       };
     }
     // Only process.env keys that correspond to a config item can actually act as overrides.

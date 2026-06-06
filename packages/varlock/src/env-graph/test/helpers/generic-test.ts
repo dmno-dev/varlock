@@ -43,6 +43,7 @@ export function envFilesTest(spec: {
   expectRequiredIsDynamic?: Record<string, boolean>;
   expectSensitive?: Record<string, boolean | Constructor<Error>>;
   expectTags?: Record<string, Array<string>>;
+  expectDynamic?: Record<string, boolean | Constructor<Error>>;
   expectSerializedMatches?: any;
   /**
    * Simulate calling getTypeGenInfo() on all items before resolveEnvValues(),
@@ -190,6 +191,12 @@ export function envFilesTest(spec: {
         for (const key of Object.keys(spec.expectTags)) {
           const item = g.configSchema[key];
           expect(item.tags, `${key} tags did not match`).toEqual(spec.expectTags[key]);
+        }
+      }
+      if (spec.expectDynamic) {
+        for (const key of Object.keys(spec.expectDynamic)) {
+          const item = g.configSchema[key];
+          expect(item.isDynamic, `expected ${key} to be ${spec.expectDynamic[key] ? 'dynamic' : 'NOT dynamic'}`).toBe(spec.expectDynamic[key]);
         }
       }
     }

@@ -4,7 +4,7 @@ import pkg from './package.json';
 export default defineConfig({
   entry: [ // Entry point(s)
     'src/index.ts',
-    'src/astro-middleware.ts',
+    'src/public-dynamic-env-route.ts',
   ],
 
   external: ['@varlock/cloudflare-integration/ssr-entry-code'],

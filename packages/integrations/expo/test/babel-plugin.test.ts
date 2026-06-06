@@ -157,6 +157,11 @@ describe('varlockExpoBabelPlugin – sensitive values are NOT replaced', () => {
     const replaceWith = visitMemberExpression('ENV', 'SECRET_KEY', false, '/app/api/route+api.ts');
     expect(replaceWith).not.toHaveBeenCalled();
   });
+
+  it('does NOT replace ENV.PUBLIC_DYNAMIC_URL (isDynamic=true)', () => {
+    const replaceWith = visitMemberExpression('ENV', 'PUBLIC_DYNAMIC_URL');
+    expect(replaceWith).not.toHaveBeenCalled();
+  });
 });
 
 describe('varlockExpoBabelPlugin – unknown / irrelevant expressions are skipped', () => {

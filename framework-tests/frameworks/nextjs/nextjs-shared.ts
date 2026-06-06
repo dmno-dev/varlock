@@ -351,6 +351,37 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
             ? '.next/server/edge/**/*.js'
             : '.next/server/middleware.js';
 
+          nextEnv.describeScenario('dynamic public access in page marks route dynamic', {
+            command: buildCommand,
+            skip: nextVersion === 14,
+            templateFiles: {
+              'app/page.tsx': 'pages/dynamic-direct-page.tsx',
+              '.env.schema': 'schemas/.env.schema.dynamic-public',
+            },
+            outputAssertions: [
+              {
+                description: 'route is treated as dynamic (not prerendered)',
+                shouldContain: ['┌ ƒ /'],
+              },
+            ],
+          });
+
+          nextEnv.describeScenario('nested dynamic public access marks route dynamic', {
+            command: buildCommand,
+            skip: nextVersion === 14,
+            templateFiles: {
+              'app/page.tsx': 'pages/dynamic-nested-page.tsx',
+              '.env.schema': 'schemas/.env.schema.dynamic-public',
+              'app/components/nested-dynamic-value.tsx': 'pages/dynamic-nested-component.tsx',
+            },
+            outputAssertions: [
+              {
+                description: 'route is treated as dynamic (not prerendered)',
+                shouldContain: ['┌ ƒ /'],
+              },
+            ],
+          });
+
           // One build covering the app router (server + client component),
           // the pages router (getStaticProps), and edge middleware — each
           // asserted against its own output file.

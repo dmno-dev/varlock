@@ -27,7 +27,8 @@ function createStaticReplacementsProxy(debug: (...args: Array<any>) => void) {
       const replaceKeys = [] as Array<string>;
       for (const itemKey in latestLoadedVarlockEnv.config) {
         const item = latestLoadedVarlockEnv.config[itemKey];
-        if (!item.isSensitive) replaceKeys.push(`ENV.${itemKey}`);
+        const isDynamic = item.isDynamic ?? item.isSensitive;
+        if (!isDynamic) replaceKeys.push(`ENV.${itemKey}`);
       }
       debug('reloaded static replacements keys', replaceKeys);
       return replaceKeys;
@@ -35,7 +36,9 @@ function createStaticReplacementsProxy(debug: (...args: Array<any>) => void) {
     getOwnPropertyDescriptor(_target, prop) {
       const itemKey = prop.toString().split('.')[1];
       const item = latestLoadedVarlockEnv?.config[itemKey];
-      if (!item || item.isSensitive) return;
+      if (!item) return;
+      const isDynamic = item.isDynamic ?? item.isSensitive;
+      if (isDynamic) return;
       return {
         value: '', // this value is not used, the get handler will return the value
         writable: false,
@@ -46,7 +49,9 @@ function createStaticReplacementsProxy(debug: (...args: Array<any>) => void) {
     get(_target, prop) {
       const itemKey = prop.toString().split('.')[1];
       const item = latestLoadedVarlockEnv?.config[itemKey];
-      if (item && !item.isSensitive) return JSON.stringify(item.value);
+      if (!item) return;
+      const isDynamic = item.isDynamic ?? item.isSensitive;
+      if (!isDynamic) return JSON.stringify(item.value);
     },
   });
 }

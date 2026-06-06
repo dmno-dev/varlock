@@ -79,7 +79,7 @@ function getReplacerTransformCached(envGraph: SerializedEnvGraph) {
     cachedReplacerGraph = envGraph;
     const replacements: Record<string, string> = {};
     for (const [key, item] of Object.entries(envGraph.config)) {
-      if (item.isSensitive) continue;
+      if (item.isDynamic ?? item.isSensitive) continue;
       // 'undefined' as a string so it gets spliced in as a literal
       replacements[`ENV.${key}`] = item.value === undefined ? 'undefined' : JSON.stringify(item.value);
     }
@@ -133,7 +133,7 @@ function inlineEnvValues(source: string, filePath: string, envGraph: SerializedE
     }
     let result = source;
     for (const [key, item] of Object.entries(envGraph.config)) {
-      if (item.isSensitive) continue;
+      if (item.isDynamic ?? item.isSensitive) continue;
       // match ENV.KEY as a member expression (word boundary before ENV, not followed by more identifier chars)
       const pattern = new RegExp(`\\bENV\\.${escapeRegExp(key)}(?![\\w$])`, 'g');
       result = result.replace(pattern, item.value === undefined ? 'undefined' : JSON.stringify(item.value));
@@ -157,11 +157,11 @@ function prependAfterDirectives(source: string, codeToPrepend: string): string {
 /**
  * Webpack/Turbopack loader that:
  * 1. Injects resolved env config into instrumentation and proxy files.
- * 2. Replaces `ENV.KEY` references for non-sensitive vars with literal JSON values.
+ * 2. Replaces `ENV.KEY` references for static vars with literal JSON values.
  *
- * SECURITY: Sensitive env values are ONLY embedded into server-side files
- * (never client components). The static ENV.KEY replacements explicitly skip
- * sensitive vars.
+ * SECURITY: Dynamic env values are not embedded at build time, and sensitive
+ * values are expected to stay dynamic by default. The static ENV.KEY
+ * replacements explicitly skip dynamic vars.
  */
 function webpackLoader(this: LoaderContext, source: string) {
   // only transform files within the project root
@@ -240,7 +240,7 @@ function webpackLoader(this: LoaderContext, source: string) {
       ].join('');
       result = prependAfterDirectives(result, initGuard);
     } else {
-      initGuard = 'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;require(\'varlock/env\').initVarlockEnv();require(\'varlock/patch-console\').patchGlobalConsole();}';
+      initGuard = 'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;require(\'varlock/env\').initVarlockEnv();require(\'varlock/patch-console\').patchGlobalConsole();require(\'@varlock/nextjs-integration/dynamic-access\').initVarlockNextDynamicAccess();}';
       // (see comment above about re-patching console for webpack RSC dev replay)
       if (isWebpack) {
         initGuard += 'require(\'varlock/patch-console\').patchGlobalConsole();';
@@ -249,7 +249,34 @@ function webpackLoader(this: LoaderContext, source: string) {
     }
   }
 
-  // static replacements for non-sensitive env vars
+  if (!isClientComponent && source.includes('ENV.')) {
+    const dynamicKeys = Object.entries(envGraph.config)
+      .filter(([, item]) => (item.isDynamic ?? item.isSensitive))
+      .map(([key]) => key);
+
+    if (dynamicKeys.length) {
+      const markerFn = '__varlockMarkDynamicAccess';
+      const markerImport = '__varlockHeadersForDynamicAccess';
+      let hasDynamicRewrites = false;
+
+      for (const key of dynamicKeys) {
+        const pattern = new RegExp(`\\bENV\\.${escapeRegExp(key)}(?![\\w$])`, 'g');
+        if (!pattern.test(result)) continue;
+        hasDynamicRewrites = true;
+        result = result.replace(pattern, `(${markerFn}(), ENV.${key})`);
+      }
+
+      if (hasDynamicRewrites && !result.includes(`const ${markerFn} =`)) {
+        const dynamicAccessPrelude = [
+          `import { headers as ${markerImport} } from 'next/headers';`,
+          `const ${markerFn} = () => { ${markerImport}(); };`,
+        ].join('\n');
+        result = prependAfterDirectives(result, dynamicAccessPrelude);
+      }
+    }
+  }
+
+  // static replacements for non-dynamic env vars
   // webpack uses DefinePlugin for this, so only needed for turbopack
   if (isTurbopack && source.includes('ENV.')) {
     const isDev = loaderOptions.dev ?? process.env.NODE_ENV === 'development';

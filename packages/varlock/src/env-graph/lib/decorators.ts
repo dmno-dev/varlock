@@ -573,6 +573,16 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     },
   },
   {
+    name: 'defaultDynamic',
+    process: (decVal) => {
+      if (!decVal.isStatic || ![true, false, 'sensitive'].includes(decVal.staticValue as any)) {
+        throw new Error(
+          '@defaultDynamic decorator value must be a static value of true, false, or "sensitive"',
+        );
+      }
+    },
+  },
+  {
     name: 'disable',
   },
   // NOTE: `@generate*` decorators (@generateTsTypes, @generatePythonEnv, the deprecated
@@ -846,6 +856,14 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
   },
   {
     name: 'internal',
+  },
+  {
+    name: 'dynamic',
+    incompatibleWith: ['static'],
+  },
+  {
+    name: 'static',
+    incompatibleWith: ['dynamic'],
   },
   {
     name: 'type',
