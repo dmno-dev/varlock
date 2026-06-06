@@ -1,0 +1,445 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "env-spec",
+  "scopeName": "source.env-spec",
+  "patterns": [
+    {
+      "include": "#divider"
+    },
+    {
+      "include": "#hash"
+    },
+    {
+      "include": "#assign_key"
+    },
+    {
+      "include": "#triple_double"
+    },
+    {
+      "include": "#triple_tick"
+    },
+    {
+      "include": "#dq_string"
+    },
+    {
+      "include": "#sq_string"
+    },
+    {
+      "include": "#bt_string"
+    },
+    {
+      "include": "#number"
+    },
+    {
+      "include": "#export"
+    },
+    {
+      "include": "#bool"
+    },
+    {
+      "include": "#undefined"
+    },
+    {
+      "include": "#operator-overrides"
+    },
+    {
+      "include": "#quote_chunk"
+    },
+    {
+      "include": "#slash_text"
+    },
+    {
+      "include": "#unquoted_text"
+    },
+    {
+      "include": "#dec_value_text"
+    },
+    {
+      "include": "#dec_arg_text"
+    },
+    {
+      "include": "#dec_text"
+    },
+    {
+      "include": "#scope-punctuation-definition-parameters-begin"
+    },
+    {
+      "include": "#scope-punctuation-definition-parameters-end"
+    },
+    {
+      "include": "#scope-punctuation-separator-comma"
+    },
+    {
+      "include": "#indent"
+    },
+    {
+      "include": "#dedent"
+    },
+    {
+      "include": "#function_name"
+    },
+    {
+      "include": "#ident"
+    },
+    {
+      "include": "#dec_name"
+    },
+    {
+      "include": "#expansion"
+    },
+    {
+      "include": "#arg_unquoted_text"
+    },
+    {
+      "include": "#ws"
+    },
+    {
+      "include": "#newline"
+    }
+  ],
+  "repository": {
+    "ws": {
+      "name": "meta.whitespace.env-spec",
+      "match": "[ \\t]+"
+    },
+    "indent": {
+      "name": "variable.other.readwrite.env-spec",
+      "match": "(?!)"
+    },
+    "dedent": {
+      "name": "variable.other.env-spec",
+      "match": "(?!)"
+    },
+    "newline": {
+      "name": "meta.separator.newline.env-spec",
+      "match": "(?!)"
+    },
+    "divider": {
+      "name": "comment.line.env-spec",
+      "match": "#[ \\t]*[-=~#]{3,}[^\\r\\n]*"
+    },
+    "hash": {
+      "name": "comment.line.env-spec",
+      "match": "#"
+    },
+    "export": {
+      "name": "keyword.control.export.env-spec",
+      "match": "export\\b"
+    },
+    "assign_key": {
+      "name": "entity.name.tag.env-spec",
+      "match": "[a-zA-Z_][a-zA-Z0-9._-]*(?==)"
+    },
+    "function_name": {
+      "name": "variable.function.env-spec",
+      "match": "[a-zA-Z][a-zA-Z0-9_]*(?=[ \\t]*\\()"
+    },
+    "ident": {
+      "name": "variable.other.readwrite.env-spec",
+      "match": "[a-zA-Z_][a-zA-Z0-9._-]*(?=[ \\t\\n#=(),]|$)"
+    },
+    "dec_name": {
+      "name": "variable.other.env-spec",
+      "match": "@[a-zA-Z][^ \\t\\n=()#@]*(?=[ \\t\\n=()#]|$)"
+    },
+    "number": {
+      "name": "constant.numeric.env-spec",
+      "match": "-?(?:\\d+\\.\\d+|\\d+)(?=[ \\t\\n#,)=]|$)"
+    },
+    "bool": {
+      "name": "constant.language.boolean.env-spec",
+      "match": "(?:true|false)\\b"
+    },
+    "undefined": {
+      "name": "constant.language.undefined.env-spec",
+      "match": "undefined\\b"
+    },
+    "triple_double": {
+      "name": "string.quoted.triple.env-spec",
+      "match": "\"\"\"[\\s\\S]*?\\n[\\s\\S]*?\"\"\""
+    },
+    "triple_tick": {
+      "name": "string.quoted.triple.env-spec",
+      "match": "```(?:\\\\```|[\\s\\S])*?```"
+    },
+    "dq_string": {
+      "name": "string.quoted.double.env-spec",
+      "begin": "\"",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.begin.env-spec"
+        }
+      },
+      "end": "\"|$",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.end.env-spec"
+        }
+      },
+      "patterns": [
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.env-spec"
+        },
+        {
+          "begin": "\\\\?\\$\\{",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.interpolation.begin.env-spec"
+            }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.interpolation.end.env-spec"
+            }
+          },
+          "name": "variable.function.env-spec"
+        },
+        {
+          "begin": "\\\\?\\$\\(",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.interpolation.begin.env-spec"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.interpolation.end.env-spec"
+            }
+          },
+          "name": "variable.function.env-spec"
+        }
+      ]
+    },
+    "sq_string": {
+      "name": "string.quoted.single.env-spec",
+      "begin": "'",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.begin.env-spec"
+        }
+      },
+      "end": "'|$",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.end.env-spec"
+        }
+      },
+      "patterns": [
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.env-spec"
+        }
+      ]
+    },
+    "bt_string": {
+      "name": "string.quoted.other.env-spec",
+      "begin": "`",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.begin.env-spec"
+        }
+      },
+      "end": "`|$",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.end.env-spec"
+        }
+      },
+      "patterns": [
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.env-spec"
+        },
+        {
+          "begin": "\\\\?\\$\\{",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.interpolation.begin.env-spec"
+            }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.interpolation.end.env-spec"
+            }
+          },
+          "name": "variable.function.env-spec"
+        },
+        {
+          "begin": "\\\\?\\$\\(",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.interpolation.begin.env-spec"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.interpolation.end.env-spec"
+            }
+          },
+          "name": "variable.function.env-spec"
+        }
+      ]
+    },
+    "quote_chunk": {
+      "name": "string.unquoted.env-spec",
+      "match": "[\"'`]+"
+    },
+    "expansion": {
+      "name": "variable.function.env-spec",
+      "match": "(?:\\\\?\\$\\{?[a-zA-Z_][a-zA-Z0-9_]*\\}?|\\\\?\\$\\([^)]+\\))"
+    },
+    "slash_text": {
+      "name": "string.unquoted.env-spec",
+      "match": "\\/[^#=,\\r\\n()]*"
+    },
+    "unquoted_text": {
+      "name": "string.unquoted.env-spec",
+      "match": "(?![a-zA-Z][a-zA-Z0-9_]*[ \\t]*\\()[^#=,\\r\\n()$\"'`\\t ][^#=,\\r\\n()$]*"
+    },
+    "arg_unquoted_text": {
+      "name": "variable.other.env-spec",
+      "match": "(?![a-zA-Z][a-zA-Z0-9_]*[ \\t]*\\()[^ \\t\\n,()=#][^ \\t\\n,)]*"
+    },
+    "dec_value_text": {
+      "name": "string.unquoted.env-spec",
+      "match": "(?![a-zA-Z][a-zA-Z0-9_]*[ \\t]*\\()[^# \\t\\n=(),\"'`$][^# \\t\\n=(),$]*"
+    },
+    "dec_arg_text": {
+      "name": "string.unquoted.env-spec",
+      "match": "(?![a-zA-Z][a-zA-Z0-9_]*[ \\t]*\\()[^ \\t\\n,()#=\"'`$][^ \\t\\n,()#=$]*"
+    },
+    "dec_text": {
+      "name": "string.unquoted.env-spec",
+      "match": "(?![a-zA-Z][a-zA-Z0-9_]*[ \\t]*\\()[^@#=\\s(),\"'`$][^@#=\\s(),\"'`$]*"
+    },
+    "type-inner": {
+      "patterns": [
+        {
+          "include": "#simple-type"
+        }
+      ]
+    },
+    "operator-overrides": {
+      "match": "(=)",
+      "captures": {
+        "1": {
+          "name": "keyword.operator.assignment.env-spec"
+        }
+      }
+    },
+    "scope-punctuation-definition-parameters-begin": {
+      "match": "\\(",
+      "name": "punctuation.definition.parameters.begin.env-spec"
+    },
+    "scope-punctuation-definition-parameters-end": {
+      "match": "\\)",
+      "name": "punctuation.definition.parameters.end.env-spec"
+    },
+    "scope-punctuation-separator-comma": {
+      "match": ",",
+      "name": "punctuation.separator.comma.env-spec"
+    },
+    "expression": {
+      "patterns": [
+        {
+          "include": "#divider"
+        },
+        {
+          "include": "#hash"
+        },
+        {
+          "include": "#assign_key"
+        },
+        {
+          "include": "#triple_double"
+        },
+        {
+          "include": "#triple_tick"
+        },
+        {
+          "include": "#dq_string"
+        },
+        {
+          "include": "#sq_string"
+        },
+        {
+          "include": "#bt_string"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "include": "#export"
+        },
+        {
+          "include": "#bool"
+        },
+        {
+          "include": "#undefined"
+        },
+        {
+          "include": "#operator-overrides"
+        },
+        {
+          "include": "#quote_chunk"
+        },
+        {
+          "include": "#slash_text"
+        },
+        {
+          "include": "#unquoted_text"
+        },
+        {
+          "include": "#dec_value_text"
+        },
+        {
+          "include": "#dec_arg_text"
+        },
+        {
+          "include": "#dec_text"
+        },
+        {
+          "include": "#scope-punctuation-definition-parameters-begin"
+        },
+        {
+          "include": "#scope-punctuation-definition-parameters-end"
+        },
+        {
+          "include": "#scope-punctuation-separator-comma"
+        },
+        {
+          "include": "#indent"
+        },
+        {
+          "include": "#dedent"
+        },
+        {
+          "include": "#function_name"
+        },
+        {
+          "include": "#ident"
+        },
+        {
+          "include": "#dec_name"
+        },
+        {
+          "include": "#expansion"
+        },
+        {
+          "include": "#arg_unquoted_text"
+        },
+        {
+          "include": "#ws"
+        },
+        {
+          "include": "#newline"
+        }
+      ]
+    }
+  }
+}

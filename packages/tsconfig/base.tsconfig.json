@@ -8,6 +8,7 @@
     "skipLibCheck": true,
     "lib": ["ES2023"],
     "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
     "customConditions": ["ts-src"]
   }
 }
