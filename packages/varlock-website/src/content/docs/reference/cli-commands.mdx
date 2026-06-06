@@ -471,25 +471,36 @@ When `--path` points to a directory, code scanning is scoped to that directory t
 <div>
 ### `varlock cache` ||cache||
 
-Manage the encrypted value cache used by [`cache()`](/reference/functions/#cache) and plugin authors. Shows cache status by default, or clears cached entries.
+Manage the encrypted value cache used by [`cache()`](/reference/functions/#cache) and plugin authors. When run in a TTY, opens an interactive browser; otherwise prints a status summary.
 
 ```bash
-varlock cache [clear] [options]
+varlock cache [status|clear] [options]
 ```
+
+**Sub-commands:**
+- `status` — print a non-interactive cache status summary (location, file size, entry counts by group)
+- `clear` — remove cache entries. Requires `--yes` for non-interactive use.
 
 **Options:**
 - `--plugin <name>`: When clearing, only remove entries for a specific plugin
+- `--yes` / `-y`: Skip confirmation prompts (required when clearing without a TTY)
 
 **Examples:**
 ```bash
-# Show cache status (entry counts, file size, location)
+# Interactive cache browser (or status summary in CI)
 varlock cache
 
-# Clear all cache entries
+# Print a non-interactive status summary
+varlock cache status
+
+# Clear all cache entries (prompts to confirm)
 varlock cache clear
 
+# Clear all cache entries without confirming (e.g. CI)
+varlock cache clear --yes
+
 # Clear cache for a specific plugin only
-varlock cache clear --plugin 1password
+varlock cache clear --plugin 1password --yes
 ```
 
 </div>
