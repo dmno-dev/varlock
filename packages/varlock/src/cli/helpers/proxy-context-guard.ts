@@ -6,6 +6,7 @@ export const PROXY_CHILD_ENV_VAR = '__VARLOCK_PROXY_CHILD';
 export const PROXY_SCHEMA_FINGERPRINT_ENV_VAR = '__VARLOCK_PROXY_SCHEMA_FINGERPRINT';
 
 const COMMANDS_DENIED_IN_PROXY = new Set(['run', 'printenv', 'reveal']);
+type LoadOutputFormat = 'pretty' | 'json' | 'env' | 'shell' | 'json-full';
 
 export function isProxyChildProcess(env: NodeJS.ProcessEnv = process.env): boolean {
   return env[PROXY_CHILD_ENV_VAR] === '1';
@@ -16,12 +17,12 @@ export function isProxyChildProcess(env: NodeJS.ProcessEnv = process.env): boole
  * We only care about format + agent safety flags.
  */
 export function parseLoadSafetyArgs(argsAfterCommand: Array<string>): {
-  format: 'pretty' | 'json' | 'env' | 'shell' | 'json-full';
+  format: LoadOutputFormat;
   agent: boolean;
   env?: string;
   paths?: Array<string>;
 } {
-  let format: 'pretty' | 'json' | 'env' | 'shell' | 'json-full' = 'pretty';
+  let format: LoadOutputFormat = 'pretty';
   let agent = false;
   let currentEnvFallback: string | undefined;
   const paths: Array<string> = [];
@@ -70,7 +71,7 @@ export function parseLoadSafetyArgs(argsAfterCommand: Array<string>): {
     if (arg === '--format' || arg === '-f') {
       const next = argsAfterCommand[i + 1];
       if (next && !next.startsWith('-')) {
-        const parsed = next as typeof format;
+        const parsed = next as LoadOutputFormat;
         if (parsed === 'pretty' || parsed === 'json' || parsed === 'env' || parsed === 'shell' || parsed === 'json-full') {
           format = parsed;
         }
@@ -79,7 +80,7 @@ export function parseLoadSafetyArgs(argsAfterCommand: Array<string>): {
     }
 
     if (arg.startsWith('--format=')) {
-      const inline = arg.slice('--format='.length) as typeof format;
+      const inline = arg.slice('--format='.length) as LoadOutputFormat;
       if (inline === 'pretty' || inline === 'json' || inline === 'env' || inline === 'shell' || inline === 'json-full') {
         format = inline;
       }
@@ -87,7 +88,7 @@ export function parseLoadSafetyArgs(argsAfterCommand: Array<string>): {
     }
 
     if (arg.startsWith('-f=')) {
-      const inline = arg.slice(3) as typeof format;
+      const inline = arg.slice(3) as LoadOutputFormat;
       if (inline === 'pretty' || inline === 'json' || inline === 'env' || inline === 'shell' || inline === 'json-full') {
         format = inline;
       }
