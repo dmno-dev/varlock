@@ -61,6 +61,7 @@
       "devDependencies": {
         "@types/node": "catalog:",
         "ansis": "catalog:",
+        "monogram": "github:dmno-dev/monogram#e759454",
         "outdent": "catalog:",
         "peggy": "^5.0.6",
         "tsup": "catalog:",
@@ -2552,6 +2553,8 @@
     "mlly": ["mlly@1.8.2", "", { "dependencies": { "acorn": "^8.16.0", "pathe": "^2.0.3", "pkg-types": "^1.3.1", "ufo": "^1.6.3" } }, "sha512-d+ObxMQFmbt10sretNDytwt85VrbkhhUA/JBGm1MPaWJ65Cl4wOgLaB1NYvJSZ0Ef03MMEU/0xpPMXUIQ29UfA=="],
 
     "modern-tar": ["modern-tar@0.7.6", "", {}, "sha512-sweCIVXzx1aIGTCdzcMlSZt1h8k5Tmk08VNAuRk3IU28XamGiOH5ypi11g6De2CH7PhYqSSnGy2A/EFhbWnVKg=="],
+
+    "monogram": ["monogram@github:dmno-dev/monogram#e759454", {}, "dmno-dev-monogram-e759454", "sha512-Nk25BquBcZ+fuUBVGYADhm1vKV8+xoX5HNKppTaTFevVrOgIMOZr0jzIZmb7DZrGS3lbG3KSuSCChWsvx+6K+Q=="],
 
     "mrmime": ["mrmime@2.0.1", "", {}, "sha512-Y3wQdFg2Va6etvQ5I82yUhGdsKrcYox6p7FfL1LbK2J4V01F9TGlepTIhnK24t7koZibmg82KGglhA1XK5IsLQ=="],
 

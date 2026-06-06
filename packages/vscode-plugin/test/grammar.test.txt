@@ -12,20 +12,20 @@ SIMPLE=value
 QUOTED_DOUBLE="hello world"
 #^^^^^^^^^^^^ entity.name.tag.env-spec
 #            ^ keyword.operator.assignment.env-spec
-#             ^ punctuation.definition.string.begin
+#             ^ punctuation.definition.string.begin.env-spec
 #              ^^^^^^^^^^^ string.quoted.double.env-spec
-#                         ^ punctuation.definition.string.end
+#                         ^ punctuation.definition.string.end.env-spec
 
 QUOTED_SINGLE='hello world'
 #^^^^^^^^^^^^ entity.name.tag.env-spec
 #            ^ keyword.operator.assignment.env-spec
-#             ^ punctuation.definition.string.begin
+#             ^ punctuation.definition.string.begin.env-spec
 #              ^^^^^^^^^^^ string.quoted.single.env-spec
 
 QUOTED_BACKTICK=`hello world`
 #^^^^^^^^^^^^^^ entity.name.tag.env-spec
 #              ^ keyword.operator.assignment.env-spec
-#               ^ punctuation.definition.string.begin
+#               ^ punctuation.definition.string.begin.env-spec
 #                ^^^^^^^^^^^ string.quoted.other.env-spec
 
 EMPTY_VALUE=
@@ -33,7 +33,6 @@ EMPTY_VALUE=
 #          ^ keyword.operator.assignment.env-spec
 
 export EXPORTED=value
-#^^^^^^ keyword.control.export.env-spec
 #      ^^^^^^^^ entity.name.tag.env-spec
 
 # ======================
@@ -129,33 +128,28 @@ REF_SIMPLE=$OTHER
 #          ^^^^^^ variable.function.env-spec
 
 REF_BRACKETED=${OTHER}
-#             ^^ punctuation.section.interpolation.env-spec
-#               ^^^^^ variable.function.env-spec
+#             ^^^^^^^^ variable.function.env-spec
 
 EXEC_EXPANSION=$(echo hello)
-#              ^^ punctuation.section.interpolation.env-spec
+#              ^^^^^^^^^^^^^ variable.function.env-spec
 
 MIXED_UNQUOTED=foo-${OTHER}-bar
 #              ^^^^ string.unquoted.env-spec
-#                  ^^ punctuation.section.interpolation.env-spec
-#                    ^^^^^ variable.function.env-spec
-#                         ^ punctuation.section.interpolation.env-spec
+#                  ^^^^^^^^ variable.function.env-spec
 #                          ^^^^ string.unquoted.env-spec
 
 FN_EXPANSION=fn(foo-${OTHER})
 #            ^^ variable.function.env-spec
 #              ^ punctuation.definition.parameters.begin.env-spec
 #               ^^^^ string.unquoted.env-spec
-#                   ^^ punctuation.section.interpolation.env-spec
-#                     ^^^^^ variable.function.env-spec
-#                          ^ punctuation.section.interpolation.env-spec
+#                   ^^^^^^^^ variable.function.env-spec
 #                           ^ punctuation.definition.parameters.end.env-spec
 
 EXEC_IN_DQ="pre-$(echo whoami)-post"
 #           ^^^^ string.quoted.double.env-spec
-#               ^^ punctuation.section.interpolation.env-spec
+#               ^^ punctuation.definition.interpolation.begin.env-spec
 #                 ^^^^^^^^^^^ variable.function.env-spec
-#                            ^ punctuation.section.interpolation.env-spec
+#                            ^ punctuation.definition.interpolation.end.env-spec
 #                             ^^^^^ string.quoted.double.env-spec
 
 # ======================

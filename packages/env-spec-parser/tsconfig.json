@@ -1,5 +1,8 @@
 {
   "extends": "@varlock/tsconfig/base.tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true
+  },
   "include": ["src/**/*.ts", "scripts/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

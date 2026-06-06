@@ -24,6 +24,7 @@
     "dev:ts": "tsup --watch",
     "build:lib": "tsup",
     "build": "bun run build:lib",
+    "generate:monogram": "bun run scripts/generate-monogram-artifacts.ts",
     "bench:parsers": "bun run scripts/benchmark-parsers.ts",
     "test": "vitest",
     "test:ci": "vitest --run",
@@ -47,8 +48,10 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "ansis": "catalog:",
+    "monogram": "github:dmno-dev/monogram#e759454",
     "outdent": "catalog:",
     "tsup": "catalog:",
     "vitest": "catalog:"
-  }
+  },
+  "dependencies": {}
 }

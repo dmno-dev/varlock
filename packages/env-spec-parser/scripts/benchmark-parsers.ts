@@ -46,9 +46,7 @@ function runMonogramFailureCheck() {
   let failures = 0;
   for (let i = 0; i < ITERATIONS; i += 1) {
     try {
-      parseWithMonogram(fixtures[i % fixtureCount], {
-        onStats: (_stats) => undefined,
-      });
+      parseWithMonogram(fixtures[i % fixtureCount]);
     } catch {
       failures += 1;
     }
