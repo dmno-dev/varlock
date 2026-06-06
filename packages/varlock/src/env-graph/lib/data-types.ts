@@ -2,6 +2,9 @@ import _ from '@env-spec/utils/my-dash';
 import { type FallbackIfUnknown } from '@env-spec/utils/type-utils';
 import { CoercionError, ValidationError } from './errors';
 import { parseRegexLikeString } from './resolver';
+import {
+  parseDuration, convertDurationFromMs, type DurationUnit,
+} from '../../lib/duration';
 
 type MaybePromise<T> = T | Promise<T>;
 
@@ -527,6 +530,68 @@ const Md5DataType = createEnvGraphDataType({
 });
 
 
+const VALID_DURATION_UNITS: ReadonlyArray<DurationUnit> = ['ms', 'seconds', 'minutes', 'hours', 'days', 'weeks'];
+
+/**
+ * Flexible duration type. Accepts human-readable strings ("1h", "30m", "500ms",
+ * "2days") or bare numbers (interpreted as milliseconds), and outputs a number
+ * in the unit specified by the `output` setting (default: `ms`).
+ *
+ * @example
+ *   # @type=duration                       → "1h" coerces to 3600000
+ *   # @type=duration(output="seconds")     → "1h" coerces to 3600
+ *   # @type=duration(output="minutes")     → "1h" coerces to 60
+ */
+const DurationDataType = createEnvGraphDataType(
+  (settings?: {
+    /** Unit to output. Defaults to "ms". */
+    output?: DurationUnit;
+    /** Optional minimum duration, in the same input format (e.g. "1s"). */
+    min?: string | number;
+    /** Optional maximum duration, in the same input format. */
+    max?: string | number;
+  }) => ({
+    name: 'duration',
+    icon: 'mdi:timer-outline',
+    typeDescription: 'flexible duration (accepts "1h", "30m", "500ms", "2days", etc. — outputs ms by default)',
+    coerce(rawVal) {
+      if (rawVal === undefined || rawVal === null) return undefined;
+      const output = settings?.output ?? 'ms';
+      if (!VALID_DURATION_UNITS.includes(output)) {
+        throw new CoercionError(`Invalid duration output unit: "${output}" — valid: ${VALID_DURATION_UNITS.join(', ')}`);
+      }
+      try {
+        const ms = parseDuration(rawVal as string | number);
+        return convertDurationFromMs(ms, output);
+      } catch (err) {
+        throw new CoercionError((err as Error).message);
+      }
+    },
+    validate(val) {
+      if (typeof val !== 'number' || !Number.isFinite(val)) {
+        return new ValidationError('Duration must be a finite number');
+      }
+      const output = settings?.output ?? 'ms';
+      if (settings?.min !== undefined) {
+        const minMs = parseDuration(settings.min);
+        const minInOutput = convertDurationFromMs(minMs, output);
+        if (val < minInOutput) {
+          return new ValidationError(`Duration must be at least ${settings.min}`);
+        }
+      }
+      if (settings?.max !== undefined) {
+        const maxMs = parseDuration(settings.max);
+        const maxInOutput = convertDurationFromMs(maxMs, output);
+        if (val > maxInOutput) {
+          return new ValidationError(`Duration must be at most ${settings.max}`);
+        }
+      }
+      return true;
+    },
+  }),
+);
+
+
 export const BaseDataTypes: Array<EnvGraphDataTypeFactory> = [
   StringDataType,
   NumberDataType,
@@ -541,4 +606,5 @@ export const BaseDataTypes: Array<EnvGraphDataTypeFactory> = [
   IsoDateDataType,
   UuidDataType,
   Md5DataType,
+  DurationDataType,
 ];

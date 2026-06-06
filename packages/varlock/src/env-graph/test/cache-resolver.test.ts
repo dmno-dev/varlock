@@ -330,8 +330,8 @@ describe('cache() resolver', () => {
   });
 
   describe('type inference', () => {
-    it('infers number type from randomInt() child', async () => {
-      const g = await loadAndResolve('A=cache(randomInt(1, 10))');
+    it('infers number type from randomNum() child', async () => {
+      const g = await loadAndResolve('A=cache(randomNum(1, 10))');
       const item = g.configSchema.A;
       // the value should be coerced as a number, not a string
       expect(typeof item.resolvedValue).toBe('number');
