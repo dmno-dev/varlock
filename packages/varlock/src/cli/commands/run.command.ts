@@ -6,8 +6,6 @@ import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
-import { resetRedactionMap, redactSensitiveConfig } from '../../runtime/env';
-import { buildRunInjectedEnvBlob, parseRunInjectionMetadata } from '../../lib/injected-env-provenance';
 
 export const commandSpec = define({
   name: 'run',
@@ -104,6 +102,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   const resolvedEnv = envGraph.getResolvedEnvObject();
   const serializedGraph = envGraph.getSerializedGraph();
+  const { resetRedactionMap, redactSensitiveConfig } = await import('../../runtime/env');
   // console.log(resolvedEnv);
 
   // handle deprecated --no-inject-graph flag
@@ -119,20 +118,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
   const injectVars = injectMode === 'all' || injectMode === 'vars';
   const injectBlob = injectMode === 'all' || injectMode === 'blob';
-  const parentRunMetadata = parseRunInjectionMetadata(process.env.__VARLOCK_ENV);
-  const inheritedOverrideKeys = parentRunMetadata?.overrideKeys ?? Object.keys(process.env);
-  const injectedBlob = injectBlob
-    ? buildRunInjectedEnvBlob({
-      serializedGraph,
-      overrideKeys: inheritedOverrideKeys,
-    })
-    : undefined;
 
   const fullInjectedEnv: NodeJS.ProcessEnv = {
     ...process.env,
     ...(injectVars ? resolvedEnv : {}),
     __VARLOCK_RUN: '1', // flag for a child process to detect it is running via `varlock run`
-    ...(injectedBlob ? { __VARLOCK_ENV: injectedBlob } : {}),
+    ...(injectBlob ? { __VARLOCK_ENV: JSON.stringify(serializedGraph) } : {}),
   };
 
   // when only injecting the blob, also inject the encryption key so the

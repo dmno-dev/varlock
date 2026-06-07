@@ -1,46 +1,56 @@
 import { describe, expect, test } from 'vitest';
 import {
-  buildRunInjectedEnvBlob,
-  parseRunInjectionMetadata,
+  buildOverrideProvenanceMetadata,
+  parseOverrideProvenanceMetadata,
   selectOverrideValuesFromEnv,
 } from '../injected-env-provenance';
 
 describe('injected env provenance', () => {
-  test('builds and parses run metadata', () => {
-    const blob = buildRunInjectedEnvBlob({
-      serializedGraph: {
-        config: {},
-        settings: {},
-        sources: [],
-      },
-      overrideKeys: ['A', 'B', 'A'],
-    });
+  test('builds override metadata', () => {
+    const metadata = buildOverrideProvenanceMetadata(['A', 'B', 'A']);
+    expect(metadata.source).toBe('varlock');
+    expect(metadata.version).toBe(1);
+    expect(metadata.overrideKeys).toEqual(['A', 'B']);
+  });
 
-    const parsed = parseRunInjectionMetadata(blob);
-    expect(parsed?.source).toBe('varlock-run');
+  test('parses current metadata shape', () => {
+    const parsed = parseOverrideProvenanceMetadata(JSON.stringify({
+      __varlockOverrideMeta: {
+        source: 'varlock',
+        version: 1,
+        overrideKeys: ['A', 'B', 'A'],
+      },
+      config: {},
+      settings: {},
+      sources: [],
+    }));
+    expect(parsed?.source).toBe('varlock');
     expect(parsed?.version).toBe(1);
     expect(parsed?.overrideKeys).toEqual(['A', 'B']);
   });
 
-  test('returns undefined for missing metadata', () => {
-    expect(parseRunInjectionMetadata(JSON.stringify({
+  test('parses legacy run metadata shape', () => {
+    const parsed = parseOverrideProvenanceMetadata(JSON.stringify({
+      __varlockRunMeta: {
+        source: 'varlock-run',
+        version: 1,
+        overrideKeys: ['A'],
+      },
       config: {},
       settings: {},
       sources: [],
-    }))).toBeUndefined();
+    }));
+    expect(parsed?.source).toBe('varlock');
+    expect(parsed?.version).toBe(1);
+    expect(parsed?.overrideKeys).toEqual(['A']);
   });
 
   test('returns undefined for malformed blob', () => {
-    expect(parseRunInjectionMetadata('{not-json')).toBeUndefined();
+    expect(parseOverrideProvenanceMetadata('{not-json')).toBeUndefined();
   });
 
-  test('returns undefined for invalid metadata shape', () => {
-    expect(parseRunInjectionMetadata(JSON.stringify({
-      __varlockRunMeta: {
-        source: 'varlock-run',
-        version: 2,
-        overrideKeys: ['A'],
-      },
+  test('returns undefined for missing metadata', () => {
+    expect(parseOverrideProvenanceMetadata(JSON.stringify({
       config: {},
       settings: {},
       sources: [],
@@ -61,4 +71,3 @@ describe('injected env provenance', () => {
     });
   });
 });
-

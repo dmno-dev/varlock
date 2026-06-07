@@ -7,14 +7,14 @@ import { CliExitError } from '../cli/helpers/exit-error';
 import { runWithWorkspaceInfo } from './workspace-utils';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { createDebug } from './debug';
-import { parseRunInjectionMetadata, selectOverrideValuesFromEnv } from './injected-env-provenance';
+import { parseOverrideProvenanceMetadata, selectOverrideValuesFromEnv } from './injected-env-provenance';
 
 const debug = createDebug('varlock:load');
 
 function getGraphEnvOverridesFromRuntimeEnv() {
-  const runMetadata = parseRunInjectionMetadata(process.env.__VARLOCK_ENV);
-  if (!runMetadata) return undefined;
-  return selectOverrideValuesFromEnv(process.env, runMetadata.overrideKeys);
+  const provenance = parseOverrideProvenanceMetadata(process.env.__VARLOCK_ENV);
+  if (!provenance) return undefined;
+  return selectOverrideValuesFromEnv(process.env, provenance.overrideKeys);
 }
 
 function normalizePkgLoadPath(pkgLoadPath: string | Array<string>): Array<string> {

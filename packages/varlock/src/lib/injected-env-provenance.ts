@@ -1,38 +1,39 @@
 import type { SerializedEnvGraph } from '../env-graph';
 
-const RUN_INJECTION_SOURCE = 'varlock-run';
-const RUN_INJECTION_VERSION = 1;
+const OVERRIDE_PROVENANCE_SOURCE = 'varlock';
+const OVERRIDE_PROVENANCE_VERSION = 1;
 
-type RunInjectionMetadata = {
-  source: typeof RUN_INJECTION_SOURCE;
-  version: typeof RUN_INJECTION_VERSION;
+export type OverrideProvenanceMetadata = {
+  source: typeof OVERRIDE_PROVENANCE_SOURCE;
+  version: typeof OVERRIDE_PROVENANCE_VERSION;
   overrideKeys: Array<string>;
 };
 
 type SerializedGraphWithRunMetadata = SerializedEnvGraph & {
-  __varlockRunMeta?: RunInjectionMetadata;
+  __varlockOverrideMeta?: OverrideProvenanceMetadata;
+  /** Legacy field written by previous implementation in run.command.ts */
+  __varlockRunMeta?: {
+    source: 'varlock-run';
+    version: 1;
+    overrideKeys: Array<string>;
+  };
 };
 
 function normalizeOverrideKeys(overrideKeys: Array<string>) {
   return [...new Set(overrideKeys.filter((k) => typeof k === 'string'))];
 }
 
-export function buildRunInjectedEnvBlob(opts: {
-  serializedGraph: SerializedEnvGraph;
-  overrideKeys: Array<string>;
-}) {
-  const graphWithMeta: SerializedGraphWithRunMetadata = {
-    ...opts.serializedGraph,
-    __varlockRunMeta: {
-      source: RUN_INJECTION_SOURCE,
-      version: RUN_INJECTION_VERSION,
-      overrideKeys: normalizeOverrideKeys(opts.overrideKeys),
-    },
+export function buildOverrideProvenanceMetadata(
+  overrideKeys: Array<string>,
+): OverrideProvenanceMetadata {
+  return {
+    source: OVERRIDE_PROVENANCE_SOURCE,
+    version: OVERRIDE_PROVENANCE_VERSION,
+    overrideKeys: normalizeOverrideKeys(overrideKeys),
   };
-  return JSON.stringify(graphWithMeta);
 }
 
-export function parseRunInjectionMetadata(blob?: string): RunInjectionMetadata | undefined {
+export function parseOverrideProvenanceMetadata(blob?: string): OverrideProvenanceMetadata | undefined {
   if (!blob) return undefined;
 
   let parsed: unknown;
@@ -43,16 +44,17 @@ export function parseRunInjectionMetadata(blob?: string): RunInjectionMetadata |
   }
 
   if (!parsed || typeof parsed !== 'object') return undefined;
-  const metadata = (parsed as SerializedGraphWithRunMetadata).__varlockRunMeta;
+  const parsedGraph = parsed as SerializedGraphWithRunMetadata;
+  const metadata = parsedGraph.__varlockOverrideMeta ?? parsedGraph.__varlockRunMeta;
   if (!metadata || typeof metadata !== 'object') return undefined;
-  if (metadata.source !== RUN_INJECTION_SOURCE) return undefined;
-  if (metadata.version !== RUN_INJECTION_VERSION) return undefined;
+  if (metadata.source !== OVERRIDE_PROVENANCE_SOURCE && metadata.source !== 'varlock-run') return undefined;
+  if (metadata.version !== OVERRIDE_PROVENANCE_VERSION) return undefined;
   if (!Array.isArray(metadata.overrideKeys)) return undefined;
   if (metadata.overrideKeys.some((k) => typeof k !== 'string')) return undefined;
 
   return {
-    source: metadata.source,
-    version: metadata.version,
+    source: OVERRIDE_PROVENANCE_SOURCE,
+    version: OVERRIDE_PROVENANCE_VERSION,
     overrideKeys: normalizeOverrideKeys(metadata.overrideKeys),
   };
 }
@@ -67,4 +69,3 @@ export function selectOverrideValuesFromEnv(
   }
   return selected;
 }
-
