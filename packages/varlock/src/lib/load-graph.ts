@@ -7,8 +7,15 @@ import { CliExitError } from '../cli/helpers/exit-error';
 import { runWithWorkspaceInfo } from './workspace-utils';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { createDebug } from './debug';
+import { parseRunInjectionMetadata, selectOverrideValuesFromEnv } from './injected-env-provenance';
 
 const debug = createDebug('varlock:load');
+
+function getGraphEnvOverridesFromRuntimeEnv() {
+  const runMetadata = parseRunInjectionMetadata(process.env.__VARLOCK_ENV);
+  if (!runMetadata) return undefined;
+  return selectOverrideValuesFromEnv(process.env, runMetadata.overrideKeys);
+}
 
 function normalizePkgLoadPath(pkgLoadPath: string | Array<string>): Array<string> {
   if (Array.isArray(pkgLoadPath)) return pkgLoadPath;
@@ -22,6 +29,7 @@ function loadFromPaths(
     errorPrefix: string,
     errorSuggestion: string,
     currentEnvFallback?: string,
+    overrideValues?: Record<string, string | undefined>,
   },
 ) {
   const resolvedPaths = rawPaths.map((p) => path.resolve(p));
@@ -43,6 +51,8 @@ function loadFromPaths(
   return runWithWorkspaceInfo(() => loadEnvGraph({
     currentEnvFallback: config.currentEnvFallback,
     entryFilePaths: resolvedPaths,
+    overrideValues: config.overrideValues,
+    processEnvOverride: config.overrideValues,
     afterInit: async (g) => {
       g.registerResolver(VarlockResolver);
       g.registerResolver(KeychainResolver);
@@ -55,6 +65,7 @@ export function loadVarlockEnvGraph(opts?: {
   /** Explicit entry file paths from --path flag(s) - overrides package.json config */
   entryFilePaths?: Array<string>,
 }) {
+  const runtimeOverrideValues = getGraphEnvOverridesFromRuntimeEnv();
   const cliPaths = opts?.entryFilePaths?.filter(Boolean);
 
   // If --path flag(s) provided, they take precedence over package.json config
@@ -65,6 +76,7 @@ export function loadVarlockEnvGraph(opts?: {
       errorPrefix: 'The --path value does not exist',
       errorSuggestion: 'Use `--path` to specify a valid file or directory.',
       currentEnvFallback: opts?.currentEnvFallback,
+      overrideValues: runtimeOverrideValues,
     });
   }
 
@@ -78,6 +90,7 @@ export function loadVarlockEnvGraph(opts?: {
       errorPrefix: 'A path in `varlock.loadPath` configured in package.json does not exist',
       errorSuggestion: 'Update `varlock.loadPath` in your package.json to point to valid files or directories.',
       currentEnvFallback: opts?.currentEnvFallback,
+      overrideValues: runtimeOverrideValues,
     });
   }
 
@@ -85,6 +98,8 @@ export function loadVarlockEnvGraph(opts?: {
 
   return runWithWorkspaceInfo(() => loadEnvGraph({
     currentEnvFallback: opts?.currentEnvFallback,
+    overrideValues: runtimeOverrideValues,
+    processEnvOverride: runtimeOverrideValues,
     afterInit: async (g) => {
       g.registerResolver(VarlockResolver);
       g.registerResolver(KeychainResolver);
