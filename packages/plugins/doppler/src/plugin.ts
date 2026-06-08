@@ -1,4 +1,6 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 import ky from 'ky';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;
@@ -9,6 +11,13 @@ const DOPPLER_API_BASE = 'https://api.doppler.com/v3';
 plugin.name = 'doppler';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
+// capture cache accessor while plugin proxy context is active
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache unavailable in this runtime context
+}
 plugin.icon = DOPPLER_ICON;
 plugin.standardVars = {
   initDecorator: '@initDoppler',
@@ -24,6 +33,8 @@ class DopplerPluginInstance {
   private config?: string;
   /** Service token for API access */
   private serviceToken?: string;
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
   /** Cache for fetched secrets (keyed by project+config) */
   private secretsCache?: Promise<Record<string, string>>;
 
@@ -40,6 +51,10 @@ class DopplerPluginInstance {
     if (config && typeof config === 'string') this.config = config;
     if (serviceToken && typeof serviceToken === 'string') this.serviceToken = serviceToken;
     debug('doppler instance', this.id, 'set auth - project:', project, 'config:', config);
+  }
+
+  getCacheScope(): string {
+    return `${this.project || ''}:${this.config || ''}`;
   }
 
   private getAuthHeaders(): Record<string, string> {
@@ -212,6 +227,7 @@ plugin.registerRootDecorator({
 
     return {
       id,
+      cacheTtlResolver: objArgs.cacheTtl,
       projectResolver: objArgs.project,
       configResolver: objArgs.config,
       serviceTokenResolver: objArgs.serviceToken,
@@ -219,6 +235,7 @@ plugin.registerRootDecorator({
   },
   async execute({
     id,
+    cacheTtlResolver,
     projectResolver,
     configResolver,
     serviceTokenResolver,
@@ -230,6 +247,10 @@ plugin.registerRootDecorator({
     const serviceToken = await serviceTokenResolver?.resolve();
 
     pluginInstances[id].setAuth(project, config, serviceToken);
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -336,6 +357,26 @@ plugin.registerResolverFunction({
       throw new SchemaError('No secret name provided');
     }
 
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `doppler:${instanceId}:${selectedInstance.getCacheScope()}:bulk`;
+      const cached = await pluginCache.get(cacheKey);
+      let secrets: Record<string, string>;
+      if (cached !== undefined && typeof cached === 'object' && cached !== null) {
+        secrets = cached as Record<string, string>;
+      } else {
+        secrets = JSON.parse(await selectedInstance.listSecrets()) as Record<string, string>;
+        await pluginCache.set(cacheKey, secrets, selectedInstance.cacheTtl);
+      }
+
+      if (!(secretName in secrets)) {
+        throw new ResolutionError(
+          `Secret "${secretName}" not found in configured Doppler project/config`,
+        );
+      }
+
+      return secrets[secretName];
+    }
+
     const secretValue = await selectedInstance.getSecret(secretName);
     return secretValue;
   },
@@ -386,6 +427,16 @@ plugin.registerResolverFunction({
   },
   async resolve({ instanceId }) {
     const selectedInstance = pluginInstances[instanceId];
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `doppler:${instanceId}:${selectedInstance.getCacheScope()}:bulk`;
+      const cached = await pluginCache.get(cacheKey);
+      if (cached !== undefined && typeof cached === 'object' && cached !== null) {
+        return JSON.stringify(cached);
+      }
+      const bulk = await selectedInstance.listSecrets();
+      await pluginCache.set(cacheKey, JSON.parse(bulk), selectedInstance.cacheTtl);
+      return bulk;
+    }
     return await selectedInstance.listSecrets();
   },
 });

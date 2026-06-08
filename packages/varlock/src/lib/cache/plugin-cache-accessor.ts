@@ -1,4 +1,4 @@
-import type { CacheStore } from './cache-store';
+import type { CacheStoreLike } from './cache-store';
 import { parseTtl } from './ttl-parser';
 
 /**
@@ -22,7 +22,7 @@ import { parseTtl } from './ttl-parser';
 export class PluginCacheAccessor {
   constructor(
     private pluginName: string,
-    private cacheStore: CacheStore,
+    private cacheStore: CacheStoreLike,
   ) {}
 
   private buildKey(key: string): string {

@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { CacheStore } from '../../lib/cache/cache-store';
+import type { CacheStoreLike } from '../../lib/cache/cache-store';
 import type { ConfigItem } from './config-item';
 
 export type CacheHitInfo = {
@@ -9,7 +9,7 @@ export type CacheHitInfo = {
 };
 
 export type ResolutionContextData = {
-  cacheStore?: CacheStore;
+  cacheStore?: CacheStoreLike;
   skipCache: boolean;
   clearCache: boolean;
   /** Cache hits recorded during resolution of the current item */

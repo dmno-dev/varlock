@@ -94,8 +94,8 @@ varlock load [options]
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@currentEnv` in `.env.schema`
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point (overrides `varlock.loadPath` in `package.json`). Can be specified multiple times to load from multiple paths — later paths take higher precedence.
-- `--clear-cache`: Clear the cache and re-resolve all values (writes new values back to cache)
-- `--skip-cache`: Skip cache entirely for this invocation (no reads or writes)
+- `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (writes new values back unless `--skip-cache` is also set)
+- `--skip-cache`: Skip cache entirely for this invocation (no reads or writes). This overrides `@cache=disk`/`@cache=memory`.
 
 **Examples:**
 ```bash
@@ -152,8 +152,8 @@ varlock run -- <command>
 - `--no-redact-stdout`: Disable stdout/stderr redaction to preserve TTY detection for interactive tools
 - `--no-inject-graph`: Disable injection of `__VARLOCK_ENV` serialized config graph into the child process environment
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
-- `--clear-cache`: Clear the cache and re-resolve all values
-- `--skip-cache`: Skip cache entirely for this invocation
+- `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values
+- `--skip-cache`: Skip cache entirely for this invocation (no reads or writes). This overrides `@cache=disk`/`@cache=memory`.
 
 **Examples:**
 ```bash
@@ -471,7 +471,7 @@ When `--path` points to a directory, code scanning is scoped to that directory t
 <div>
 ### `varlock cache` ||cache||
 
-Manage the encrypted value cache used by [`cache()`](/reference/functions/#cache) and plugin authors. When run in a TTY, opens an interactive browser; otherwise prints a status summary.
+Manage the encrypted **disk cache** used by [`cache()`](/reference/functions/#cache) and plugin authors when cache mode is set to `disk`. When run in a TTY, opens an interactive browser; otherwise prints a status summary.
 
 ```bash
 varlock cache [status|clear] [options]
@@ -502,6 +502,12 @@ varlock cache clear --yes
 # Clear cache for a specific plugin only
 varlock cache clear --plugin 1password --yes
 ```
+
+:::note
+When global cache mode is `memory` (or disabled), this command does not show per-process in-memory entries.
+:::
+
+See the [Caching guide](/guides/caching/) for cache mode strategy and troubleshooting.
 
 </div>
 
@@ -575,4 +581,3 @@ varlock subcommand --help
 
 </div>
 </div>
-

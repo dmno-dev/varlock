@@ -163,6 +163,7 @@ Initialize a Passbolt Secrets Manager plugin instance.
 
 - `accountKit: string` (required) - Passbolt account kit
 - `passphrase: string` (required) - Passphrase to decrypt your private key
+- `cacheTtl?: string | number` - Cache resolved values for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `0` for forever)
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### Functions

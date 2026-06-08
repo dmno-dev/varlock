@@ -21,6 +21,8 @@ It shells out to the official Proton Pass CLI (`pass-cli`) to resolve secret ref
 - **In-session caching** per resolution run
 - **Helpful error messages** with resolution tips
 
+This caching is in-session plugin memoization. For global varlock cache modes and CLI controls, see the [Caching guide](/guides/caching/).
+
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/proton-pass-plugin` package as a normal dependency.
@@ -167,4 +169,3 @@ This resolver uses:
 - `pass-cli info` to check authentication state
 - `pass-cli login --interactive <username>` when login is required
 - `pass-cli item view --output json <secretRef>` to fetch the requested field
-

@@ -5,6 +5,11 @@ import * as localEncrypt from '../local-encrypt';
 import { createDebug } from '../debug';
 
 const debug = createDebug('varlock:cache');
+const LOCK_WAIT_MS = 25;
+const LOCK_TIMEOUT_MS = 5_000;
+const LOCK_STALE_MS = 30_000;
+const MAX_CACHE_KEY_LENGTH = 2_048;
+const lockWaitBuffer = new Int32Array(new SharedArrayBuffer(4));
 
 type CacheEntry = {
   /** encrypted value */
@@ -17,6 +22,17 @@ type CacheEntry = {
 
 type CacheData = Record<string, CacheEntry>;
 
+export type CacheStoreLike = {
+  get(cacheKey: string): Promise<{ value: any; cachedAt: number; expiresAt: number } | undefined>;
+  set(cacheKey: string, value: any, ttlMs: number): Promise<void>;
+  delete(cacheKey: string): void;
+  clearAll(): number;
+  clearByPrefix(prefix: string): number;
+  getStats(): { total: number; expired: number; byPrefix: Record<string, number> };
+  listEntries(): Array<{ key: string; cachedAt: number; expiresAt: number }>;
+  getFilePath(): string;
+};
+
 /**
  * JSON-file-based encrypted cache store.
  *
@@ -26,8 +42,6 @@ type CacheData = Record<string, CacheEntry>;
  */
 export class CacheStore {
   private filePath: string;
-  /** In-memory cache — source of truth during a session to avoid concurrent read/write races */
-  private memCache?: CacheData;
 
   constructor(private keyId: string = 'varlock-default') {
     const cacheDir = path.join(getUserVarlockDir(), 'cache');
@@ -39,6 +53,7 @@ export class CacheStore {
    * The value is JSON-parsed after decryption to preserve its original type (number, boolean, object, etc.).
    */
   async get(cacheKey: string): Promise<{ value: any; cachedAt: number; expiresAt: number } | undefined> {
+    this.assertValidCacheKey(cacheKey);
     const data = this.loadFile();
     const entry = data[cacheKey];
     if (!entry) return undefined;
@@ -46,8 +61,11 @@ export class CacheStore {
     // check expiry
     if (Date.now() > entry.e) {
       debug('cache expired for %s', cacheKey);
-      delete data[cacheKey];
-      this.saveFile(data);
+      this.withWriteLock(() => {
+        const latestData = this.loadFile();
+        delete latestData[cacheKey];
+        this.saveFile(latestData);
+      });
       return undefined;
     }
 
@@ -57,8 +75,11 @@ export class CacheStore {
     } catch (err) {
       debug('cache decrypt failed for %s: %O', cacheKey, err);
       // corrupt or key mismatch — treat as cache miss
-      delete data[cacheKey];
-      this.saveFile(data);
+      this.withWriteLock(() => {
+        const latestData = this.loadFile();
+        delete latestData[cacheKey];
+        this.saveFile(latestData);
+      });
       return undefined;
     }
   }
@@ -68,19 +89,23 @@ export class CacheStore {
    * The value is JSON-stringified before encryption to preserve its type on retrieval.
    */
   async set(cacheKey: string, value: any, ttlMs: number): Promise<void> {
-    const data = this.loadFile();
+    this.assertValidCacheKey(cacheKey);
     const now = Date.now();
 
     try {
+      await localEncrypt.ensureKey(this.keyId);
       const serialized = JSON.stringify(value);
       const encrypted = await localEncrypt.encryptValue(serialized, this.keyId);
-      data[cacheKey] = {
-        v: encrypted,
-        c: now,
-        // Infinity TTL → use a far-future expiry (~100 years)
-        e: Number.isFinite(ttlMs) ? now + ttlMs : now + 100 * 365.25 * 86_400_000,
-      };
-      this.saveFile(data);
+      this.withWriteLock(() => {
+        const data = this.loadFile();
+        data[cacheKey] = {
+          v: encrypted,
+          c: now,
+          // Infinity TTL → use a far-future expiry (~100 years)
+          e: Number.isFinite(ttlMs) ? now + ttlMs : now + 100 * 365.25 * 86_400_000,
+        };
+        this.saveFile(data);
+      });
       debug('cache set %s (ttl=%dms)', cacheKey, ttlMs);
     } catch (err) {
       debug('cache encrypt failed for %s: %O', cacheKey, err);
@@ -92,24 +117,29 @@ export class CacheStore {
    * Delete a specific cache entry.
    */
   delete(cacheKey: string): void {
-    const data = this.loadFile();
-    if (cacheKey in data) {
-      delete data[cacheKey];
-      this.saveFile(data);
-    }
+    this.assertValidCacheKey(cacheKey);
+    this.withWriteLock(() => {
+      const data = this.loadFile();
+      if (cacheKey in data) {
+        delete data[cacheKey];
+        this.saveFile(data);
+      }
+    });
   }
 
   /**
    * Clear all cache entries. Returns the count of cleared entries.
    */
   clearAll(): number {
-    const data = this.loadFile();
-    const count = Object.keys(data).length;
-    if (count > 0) {
-      for (const key of Object.keys(data)) delete data[key];
-      this.saveFile(data);
-    }
-    return count;
+    return this.withWriteLock(() => {
+      const data = this.loadFile();
+      const count = Object.keys(data).length;
+      if (count > 0) {
+        for (const key of Object.keys(data)) delete data[key];
+        this.saveFile(data);
+      }
+      return count;
+    });
   }
 
   /**
@@ -117,18 +147,21 @@ export class CacheStore {
    * Example: `clearByPrefix("plugin:1password:")` clears all 1password plugin cache.
    */
   clearByPrefix(prefix: string): number {
-    const data = this.loadFile();
-    let count = 0;
-    for (const key of Object.keys(data)) {
-      if (key.startsWith(prefix)) {
-        delete data[key];
-        count++;
+    this.assertValidCacheKey(prefix, 'cache key prefix');
+    return this.withWriteLock(() => {
+      const data = this.loadFile();
+      let count = 0;
+      for (const key of Object.keys(data)) {
+        if (key.startsWith(prefix)) {
+          delete data[key];
+          count++;
+        }
       }
-    }
-    if (count > 0) {
-      this.saveFile(data);
-    }
-    return count;
+      if (count > 0) {
+        this.saveFile(data);
+      }
+      return count;
+    });
   }
 
   /**
@@ -181,34 +214,20 @@ export class CacheStore {
   // -- internal --
 
   private loadFile(): CacheData {
-    if (this.memCache) return this.memCache;
     try {
       if (!fs.existsSync(this.filePath)) {
-        this.memCache = {};
-        return this.memCache;
+        return {};
       }
       const raw = fs.readFileSync(this.filePath, 'utf-8');
-      const data = JSON.parse(raw) as CacheData;
-
-      // cleanup expired entries while we're here
-      this.memCache = this.cleanup(data);
-      return this.memCache;
+      return this.cleanup(JSON.parse(raw) as CacheData);
     } catch (err) {
       debug('cache file load failed: %O', err);
-      this.memCache = {};
-      return this.memCache;
+      return {};
     }
   }
 
   private saveFile(data: CacheData): void {
     try {
-      const dir = path.dirname(this.filePath);
-      if (!fs.existsSync(dir)) {
-        // 0700 — cache keys include file paths and resolver source text,
-        // which can leak secret topology even though values are encrypted
-        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      }
-
       // atomic write: write to temp file then rename
       const tmpPath = `${this.filePath}.tmp.${process.pid}`;
       fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
@@ -222,17 +241,71 @@ export class CacheStore {
 
   private cleanup(data: CacheData): CacheData {
     const now = Date.now();
-    let dirty = false;
     for (const key of Object.keys(data)) {
-      if (now > data[key].e) {
-        delete data[key];
-        dirty = true;
-      }
-    }
-    // write back cleaned data if anything was removed
-    if (dirty) {
-      this.saveFile(data);
+      if (now > data[key].e) delete data[key];
     }
     return data;
+  }
+
+  private withWriteLock<T>(fn: () => T): T {
+    const dir = path.dirname(this.filePath);
+    if (!fs.existsSync(dir)) {
+      // 0700 — cache keys include file paths and resolver source text,
+      // which can leak secret topology even though values are encrypted
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    }
+    const lockPath = `${this.filePath}.lock`;
+    const deadline = Date.now() + LOCK_TIMEOUT_MS;
+    while (true) {
+      try {
+        fs.mkdirSync(lockPath, { mode: 0o700 });
+        break;
+      } catch (err: any) {
+        if (err?.code !== 'EEXIST') {
+          throw err;
+        }
+        try {
+          const stat = fs.statSync(lockPath);
+          if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+            fs.rmSync(lockPath, { recursive: true, force: true });
+            continue;
+          }
+        } catch {
+          // lock file disappeared between checks; retry
+        }
+        if (Date.now() >= deadline) {
+          throw new Error(`Timed out waiting for cache lock at ${lockPath}`);
+        }
+        Atomics.wait(lockWaitBuffer, 0, 0, LOCK_WAIT_MS);
+      }
+    }
+
+    try {
+      return fn();
+    } finally {
+      try {
+        fs.rmSync(lockPath, { recursive: true, force: true });
+      } catch {
+        // lock cleanup failure is non-fatal
+      }
+    }
+  }
+
+  private assertValidCacheKey(key: string, label = 'cache key'): void {
+    if (typeof key !== 'string') {
+      throw new Error(`Invalid ${label}: must be a string`);
+    }
+    if (key.length === 0) {
+      throw new Error(`Invalid ${label}: cannot be empty`);
+    }
+    if (key.length > MAX_CACHE_KEY_LENGTH) {
+      throw new Error(`Invalid ${label}: exceeds max length (${MAX_CACHE_KEY_LENGTH})`);
+    }
+    for (let i = 0; i < key.length; i++) {
+      const code = key.charCodeAt(i);
+      if (code < 32 || code === 127) {
+        throw new Error(`Invalid ${label}: contains control characters`);
+      }
+    }
   }
 }
