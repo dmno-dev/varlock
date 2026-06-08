@@ -8,6 +8,7 @@ import { runWithWorkspaceInfo } from './workspace-utils';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { createDebug } from './debug';
 import { parseOverrideProvenanceMetadata, selectOverrideValuesFromEnv } from './injected-env-provenance';
+import { getProxyPlaceholderOverridesForEnv } from '../proxy/session-registry';
 
 const debug = createDebug('varlock:load');
 
@@ -32,6 +33,7 @@ function loadFromPaths(
     overrideValues?: Record<string, string | undefined>,
     clearCache?: boolean,
     skipCache?: boolean,
+    proxyPlaceholderOverrides?: Record<string, string>,
   },
 ) {
   const resolvedPaths = rawPaths.map((p) => path.resolve(p));
@@ -60,11 +62,17 @@ function loadFromPaths(
     afterInit: async (g) => {
       g.registerResolver(VarlockResolver);
       g.registerResolver(KeychainResolver);
+      if (config.proxyPlaceholderOverrides) {
+        g.overrideValues = {
+          ...g.overrideValues,
+          ...config.proxyPlaceholderOverrides,
+        };
+      }
     },
   }));
 }
 
-export function loadVarlockEnvGraph(opts?: {
+export async function loadVarlockEnvGraph(opts?: {
   currentEnvFallback?: string,
   /** Explicit entry file paths from --path flag(s) - overrides package.json config */
   entryFilePaths?: Array<string>,
@@ -74,6 +82,11 @@ export function loadVarlockEnvGraph(opts?: {
   skipCache?: boolean,
 }) {
   const runtimeOverrideValues = getGraphEnvOverridesFromRuntimeEnv();
+  const proxyPlaceholderOverrides = await getProxyPlaceholderOverridesForEnv().catch(() => undefined);
+  if (proxyPlaceholderOverrides) {
+    debug('applying %d proxy placeholder override(s)', Object.keys(proxyPlaceholderOverrides).length);
+  }
+
   const cliPaths = opts?.entryFilePaths?.filter(Boolean);
 
   // If --path flag(s) provided, they take precedence over package.json config
@@ -87,6 +100,7 @@ export function loadVarlockEnvGraph(opts?: {
       overrideValues: runtimeOverrideValues,
       clearCache: opts?.clearCache,
       skipCache: opts?.skipCache,
+      proxyPlaceholderOverrides,
     });
   }
 
@@ -103,6 +117,7 @@ export function loadVarlockEnvGraph(opts?: {
       overrideValues: runtimeOverrideValues,
       clearCache: opts?.clearCache,
       skipCache: opts?.skipCache,
+      proxyPlaceholderOverrides,
     });
   }
 
@@ -117,6 +132,12 @@ export function loadVarlockEnvGraph(opts?: {
     afterInit: async (g) => {
       g.registerResolver(VarlockResolver);
       g.registerResolver(KeychainResolver);
+      if (proxyPlaceholderOverrides) {
+        g.overrideValues = {
+          ...g.overrideValues,
+          ...proxyPlaceholderOverrides,
+        };
+      }
     },
   }));
 }
