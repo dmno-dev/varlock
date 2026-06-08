@@ -571,6 +571,9 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
       }
     },
   },
+  {
+    name: 'proxyPassthrough',
+  },
 
   // test-only decorators — dropped in release builds
   ...__VARLOCK_BUILD_TYPE__ === 'test' ? [

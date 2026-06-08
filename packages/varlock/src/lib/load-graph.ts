@@ -7,6 +7,7 @@ import { CliExitError } from '../cli/helpers/exit-error';
 import { runWithWorkspaceInfo } from './workspace-utils';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { createDebug } from './debug';
+import { getProxyPlaceholderOverridesForEnv } from '../proxy/session-registry';
 
 const debug = createDebug('varlock:load');
 
@@ -22,6 +23,7 @@ function loadFromPaths(
     errorPrefix: string,
     errorSuggestion: string,
     currentEnvFallback?: string,
+    proxyPlaceholderOverrides?: Record<string, string>,
   },
 ) {
   const resolvedPaths = rawPaths.map((p) => path.resolve(p));
@@ -46,15 +48,26 @@ function loadFromPaths(
     afterInit: async (g) => {
       g.registerResolver(VarlockResolver);
       g.registerResolver(KeychainResolver);
+      if (config.proxyPlaceholderOverrides) {
+        g.overrideValues = {
+          ...g.overrideValues,
+          ...config.proxyPlaceholderOverrides,
+        };
+      }
     },
   }));
 }
 
-export function loadVarlockEnvGraph(opts?: {
+export async function loadVarlockEnvGraph(opts?: {
   currentEnvFallback?: string,
   /** Explicit entry file paths from --path flag(s) - overrides package.json config */
   entryFilePaths?: Array<string>,
 }) {
+  const proxyPlaceholderOverrides = await getProxyPlaceholderOverridesForEnv().catch(() => undefined);
+  if (proxyPlaceholderOverrides) {
+    debug('applying %d proxy placeholder override(s)', Object.keys(proxyPlaceholderOverrides).length);
+  }
+
   const cliPaths = opts?.entryFilePaths?.filter(Boolean);
 
   // If --path flag(s) provided, they take precedence over package.json config
@@ -65,6 +78,7 @@ export function loadVarlockEnvGraph(opts?: {
       errorPrefix: 'The --path value does not exist',
       errorSuggestion: 'Use `--path` to specify a valid file or directory.',
       currentEnvFallback: opts?.currentEnvFallback,
+      proxyPlaceholderOverrides,
     });
   }
 
@@ -78,6 +92,7 @@ export function loadVarlockEnvGraph(opts?: {
       errorPrefix: 'A path in `varlock.loadPath` configured in package.json does not exist',
       errorSuggestion: 'Update `varlock.loadPath` in your package.json to point to valid files or directories.',
       currentEnvFallback: opts?.currentEnvFallback,
+      proxyPlaceholderOverrides,
     });
   }
 
@@ -88,6 +103,12 @@ export function loadVarlockEnvGraph(opts?: {
     afterInit: async (g) => {
       g.registerResolver(VarlockResolver);
       g.registerResolver(KeychainResolver);
+      if (proxyPlaceholderOverrides) {
+        g.overrideValues = {
+          ...g.overrideValues,
+          ...proxyPlaceholderOverrides,
+        };
+      }
     },
   }));
 }
