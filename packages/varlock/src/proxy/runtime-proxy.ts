@@ -23,9 +23,15 @@ export type StartLocalProxyRuntimeInput = {
   managedItems: Array<ProxyManagedItem>;
   rules: Array<ProxyRule>;
   egressMode: ProxyEgressMode;
+  onActivity?: (activity: {
+    matched: boolean;
+    blocked: boolean;
+  }) => void;
 };
 
 type HostInfo = { host: string, port: number };
+
+type HeaderTransformFn = (value: string) => string;
 
 function parseHostPort(value: string): HostInfo | null {
   const [host, portRaw] = value.split(':');
@@ -53,7 +59,7 @@ function hostMatchesProxyRules(host: string, rules: Array<ProxyRule>): boolean {
   return rules.some((rule) => rule.domain.some((d) => domainMatches(d, host)));
 }
 
-function replaceUsingManagedItems(value: string, managedItems: Array<ProxyManagedItem>): string {
+function replacePlaceholdersWithReal(value: string, managedItems: Array<ProxyManagedItem>): string {
   let next = value;
   for (const item of managedItems) {
     if (item.placeholder) {
@@ -63,20 +69,116 @@ function replaceUsingManagedItems(value: string, managedItems: Array<ProxyManage
   return next;
 }
 
+function replaceRealWithPlaceholders(value: string, managedItems: Array<ProxyManagedItem>): string {
+  let next = value;
+  const sortedByRealLength = [...managedItems]
+    .filter((item) => !!item.realValue && !!item.placeholder)
+    .sort((a, b) => b.realValue.length - a.realValue.length);
+  for (const item of sortedByRealLength) {
+    next = next.split(item.realValue).join(item.placeholder);
+  }
+  return next;
+}
+
 function transformHeaders(
   headers: http.IncomingHttpHeaders,
-  managedItems: Array<ProxyManagedItem>,
+  transformValue: HeaderTransformFn,
 ): Record<string, string | Array<string>> {
   const out: Record<string, string | Array<string>> = {};
   for (const [key, val] of Object.entries(headers)) {
     if (val === undefined) continue;
     if (Array.isArray(val)) {
-      out[key] = val.map((v) => replaceUsingManagedItems(v, managedItems));
+      out[key] = val.map((v) => transformValue(v));
     } else {
-      out[key] = replaceUsingManagedItems(String(val), managedItems);
+      out[key] = transformValue(String(val));
     }
   }
   return out;
+}
+
+function getHeaderValue(
+  headers: http.IncomingHttpHeaders,
+  key: string,
+): string | undefined {
+  const raw = headers[key.toLowerCase()];
+  if (raw === undefined) return undefined;
+  if (Array.isArray(raw)) return raw[0];
+  return String(raw);
+}
+
+function isUncompressedResponse(headers: http.IncomingHttpHeaders): boolean {
+  const contentEncoding = getHeaderValue(headers, 'content-encoding');
+  if (!contentEncoding) return true;
+  const tokens = contentEncoding.split(',').map((token) => token.trim().toLowerCase()).filter(Boolean);
+  if (!tokens.length) return true;
+  return tokens.every((token) => token === 'identity');
+}
+
+function isTextLikeResponse(headers: http.IncomingHttpHeaders): boolean {
+  const contentType = getHeaderValue(headers, 'content-type')?.toLowerCase();
+  if (!contentType) return false;
+  return contentType.startsWith('text/')
+    || contentType.includes('json')
+    || contentType.includes('xml')
+    || contentType.includes('javascript')
+    || contentType.includes('x-www-form-urlencoded')
+    || contentType.includes('graphql');
+}
+
+function shouldRedactResponseBody(headers: http.IncomingHttpHeaders): boolean {
+  return isUncompressedResponse(headers) && isTextLikeResponse(headers);
+}
+
+function redactOutgoingHeaders(
+  headers: http.IncomingHttpHeaders,
+  managedItems: Array<ProxyManagedItem>,
+): Record<string, string | Array<string>> {
+  return transformHeaders(
+    headers,
+    (value) => replaceRealWithPlaceholders(value, managedItems),
+  );
+}
+
+function forwardUpstreamResponseWithRedaction(
+  upstreamRes: http.IncomingMessage,
+  clientRes: http.ServerResponse,
+  managedItems: Array<ProxyManagedItem>,
+  shouldRedact: boolean,
+) {
+  const statusCode = upstreamRes.statusCode ?? 502;
+  const outgoingHeaders = shouldRedact
+    ? redactOutgoingHeaders(upstreamRes.headers, managedItems)
+    : { ...upstreamRes.headers };
+
+  if (!shouldRedact || !shouldRedactResponseBody(upstreamRes.headers)) {
+    clientRes.writeHead(statusCode, outgoingHeaders);
+    upstreamRes.pipe(clientRes);
+    return;
+  }
+
+  const chunks: Array<Buffer> = [];
+  upstreamRes.on('data', (chunk: Buffer | string) => {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  });
+
+  upstreamRes.on('end', () => {
+    const originalBody = Buffer.concat(chunks).toString('utf8');
+    const redactedBody = replaceRealWithPlaceholders(originalBody, managedItems);
+    const redactedBuffer = Buffer.from(redactedBody, 'utf8');
+
+    const headersForWrite = { ...outgoingHeaders };
+    headersForWrite['content-length'] = String(redactedBuffer.byteLength);
+    delete headersForWrite['transfer-encoding'];
+    delete headersForWrite.etag;
+
+    clientRes.writeHead(statusCode, headersForWrite);
+    clientRes.end(redactedBuffer);
+  });
+
+  upstreamRes.on('error', () => {
+    if (!clientRes.headersSent) clientRes.statusCode = 502;
+    clientRes.end('Upstream proxy error');
+  });
 }
 
 function sanitizeHostForFilename(host: string): string {
@@ -196,17 +298,18 @@ async function readBody(req: http.IncomingMessage): Promise<Buffer> {
 }
 
 function buildPathnameAndQuery(input: string, managedItems: Array<ProxyManagedItem>): string {
-  return replaceUsingManagedItems(input, managedItems);
+  return replacePlaceholdersWithReal(input, managedItems);
 }
 
 /**
- * Local MITM proxy runtime for `varlock run --proxy`.
+ * Local MITM proxy runtime for `varlock proxy run`.
  * Rewrites placeholder values to real values for requests matching @proxy domains.
  */
 export async function startLocalProxyRuntime({
   managedItems,
   rules,
   egressMode,
+  onActivity,
 }: StartLocalProxyRuntimeInput): Promise<ProxyRuntimeContext> {
   const certsDir = await mkdtemp(path.join(os.tmpdir(), 'varlock-proxy-certs-'));
   const { caKeyPath, caCertPath, combinedCaPath } = await createProxyCa(certsDir);
@@ -223,15 +326,28 @@ export async function startLocalProxyRuntime({
     const shouldRewrite = hostMatchesProxyRules(hostInfo.host, rules);
     const shouldAllowEgress = egressMode === 'permissive' || shouldRewrite;
     if (!shouldAllowEgress) {
+      onActivity?.({
+        matched: shouldRewrite,
+        blocked: true,
+      });
       res.statusCode = 403;
       res.end('Proxy egress blocked by strict mode');
       return;
     }
+    onActivity?.({
+      matched: shouldRewrite,
+      blocked: false,
+    });
     const body = await readBody(req);
     const bodyString = body.toString('utf8');
-    const rewrittenBody = shouldRewrite ? replaceUsingManagedItems(bodyString, managedItems) : bodyString;
+    const rewrittenBody = shouldRewrite ? replacePlaceholdersWithReal(bodyString, managedItems) : bodyString;
 
-    const upstreamHeaders = transformHeaders(req.headers, shouldRewrite ? managedItems : []);
+    const upstreamHeaders = transformHeaders(
+      req.headers,
+      shouldRewrite
+        ? (value) => replacePlaceholdersWithReal(value, managedItems)
+        : (value) => value,
+    );
     delete upstreamHeaders['proxy-connection'];
     delete upstreamHeaders.connection;
 
@@ -251,8 +367,12 @@ export async function startLocalProxyRuntime({
       path: rewrittenPath,
       headers: upstreamHeaders,
     }, (upstreamRes) => {
-      res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
-      upstreamRes.pipe(res);
+      forwardUpstreamResponseWithRedaction(
+        upstreamRes,
+        res,
+        managedItems,
+        shouldRewrite,
+      );
     });
 
     upstreamReq.on('error', () => {
@@ -319,21 +439,34 @@ export async function startLocalProxyRuntime({
     const shouldRewrite = hostMatchesProxyRules(destination.hostname, rules);
     const shouldAllowEgress = egressMode === 'permissive' || shouldRewrite;
     if (!shouldAllowEgress) {
+      onActivity?.({
+        matched: shouldRewrite,
+        blocked: true,
+      });
       clientRes.statusCode = 403;
       clientRes.end('Proxy egress blocked by strict mode');
       return;
     }
+    onActivity?.({
+      matched: shouldRewrite,
+      blocked: false,
+    });
     const isHttps = destination.protocol === 'https:';
 
     const body = await readBody(clientReq);
     const bodyString = body.toString('utf8');
-    const rewrittenBody = shouldRewrite ? replaceUsingManagedItems(bodyString, managedItems) : bodyString;
+    const rewrittenBody = shouldRewrite ? replacePlaceholdersWithReal(bodyString, managedItems) : bodyString;
 
     const rewrittenPath = shouldRewrite
       ? buildPathnameAndQuery(`${destination.pathname}${destination.search}`, managedItems)
       : `${destination.pathname}${destination.search}`;
 
-    const upstreamHeaders = transformHeaders(clientReq.headers, shouldRewrite ? managedItems : []);
+    const upstreamHeaders = transformHeaders(
+      clientReq.headers,
+      shouldRewrite
+        ? (value) => replacePlaceholdersWithReal(value, managedItems)
+        : (value) => value,
+    );
     delete upstreamHeaders['proxy-connection'];
     delete upstreamHeaders.connection;
     upstreamHeaders.host = destination.host;
@@ -350,8 +483,12 @@ export async function startLocalProxyRuntime({
       path: rewrittenPath,
       headers: upstreamHeaders,
     }, (upstreamRes) => {
-      clientRes.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
-      upstreamRes.pipe(clientRes);
+      forwardUpstreamResponseWithRedaction(
+        upstreamRes,
+        clientRes,
+        managedItems,
+        shouldRewrite,
+      );
     });
 
     upstream.on('error', () => {
@@ -372,6 +509,10 @@ export async function startLocalProxyRuntime({
     const shouldRewrite = hostMatchesProxyRules(hostInfo.host, rules);
     const shouldAllowEgress = egressMode === 'permissive' || shouldRewrite;
     if (!shouldAllowEgress) {
+      onActivity?.({
+        matched: shouldRewrite,
+        blocked: true,
+      });
       clientSocket.write('HTTP/1.1 403 Forbidden\r\nContent-Length: 34\r\nConnection: close\r\n\r\nProxy egress blocked by strict mode');
       clientSocket.destroy();
       return;
