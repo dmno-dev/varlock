@@ -22,7 +22,7 @@ CONFIG=exec(`aws ssm get-parameter --name "/config/${APP_ENV}" --with-decryption
 ```
 
 
-There are built-in utility functions, [random value generators](#random-value-generators), a [`cache()`](#cache) function for persisting values across runs, encryption functions for device-local secrets, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
+There are built-in utility functions, [random value generators](#random-value-generators), a [`cache()`](#cache) function for reusing values according to your global cache mode, encryption functions for device-local secrets, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
 
 ## Core
 <div class="reference-docs">
@@ -268,7 +268,7 @@ API_URL=if(isEmpty($CUSTOM_API_URL), "https://api.default.com", $CUSTOM_API_URL)
 
 ## Random value generators
 
-These functions generate random values using cryptographically secure randomness (`node:crypto`). They are typically used with [`cache()`](#cache) to generate a value once and persist it across runs.
+These functions generate random values using cryptographically secure randomness (`node:crypto`). They are typically used with [`cache()`](#cache) to generate a value once and reuse it according to your active cache mode.
 
 <div>
 ### `randomNum()`
@@ -348,11 +348,16 @@ PIN_CODE=cache(randomString(8, charset="0123456789"))
 <div>
 ### `cache()`
 
-Wraps any resolver to cache its result across invocations. Cached values are encrypted at rest using varlock's [device-local encryption](/guides/secrets/#local-encryption).
+Wraps any resolver to cache its result.
+
+- In `disk` cache mode, values persist across invocations and are encrypted at rest.
+- In `memory` cache mode, values are reused only within the current varlock process.
+- In `disabled` mode, `cache()` is effectively bypassed.
 
 - First arg: the resolver to cache
 - `ttl=D` option: how long to cache (default: forever). Supports `s`, `m`, `h`, `d`, `w` suffixes, or `0` for forever.
 - `key=S` option: use an explicit cache key instead of the auto-generated one. Useful when the same cached value should be shared across files or when you want a stable key that doesn't change with resolver edits.
+  - Keys must be non-empty printable text (no control characters) and at most 2048 characters.
 
 The cache automatically invalidates when you change the wrapped resolver expression (unless using a custom `key`).
 
@@ -370,9 +375,15 @@ TEMP_KEY=cache(randomHex(32), ttl="30m")
 SHARED_TOKEN=cache(exec(`fetch-org-token.sh`), ttl="1d", key="org-auth-token")
 ```
 
-Use the [`varlock cache`](/reference/cli-commands/#cache) CLI command to view cache status or clear cached values.
+Use the [`varlock cache`](/reference/cli-commands/#cache) CLI command to view or clear the **disk cache**.
 
 Use `--clear-cache` or `--skip-cache` flags on `varlock load` / `varlock run` to control caching behavior for a single invocation.
+
+Global cache behavior is configured with the [`@cache` root decorator](/reference/root-decorators/#cache).
+
+In `memory` mode, `varlock cache` will not show in-memory entries from a running process.
+
+For strategy recommendations and troubleshooting, see the [Caching guide](/guides/caching/).
 
 :::tip
 Plugin authors can also use the cache API via `plugin.cache.get()` / `plugin.cache.set()` to cache expensive API calls. See the [Plugins guide](/guides/plugins/) for more information.

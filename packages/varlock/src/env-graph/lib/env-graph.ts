@@ -71,7 +71,9 @@ export class EnvGraph {
 
   // -- Cache --
   /** @internal cache store instance, initialized during loading */
-  _cacheStore?: import('../../lib/cache/cache-store').CacheStore;
+  _cacheStore?: import('../../lib/cache/cache-store').CacheStoreLike;
+  /** @internal cache mode selected from CLI/loader auto policy */
+  _cacheMode: 'auto' | 'memory' | 'disk' | 'disabled' = 'auto';
   /** @internal --clear-cache flag: clear cache then resolve + rewrite */
   _clearCacheMode = false;
   /** @internal --skip-cache flag: skip cache entirely */
@@ -365,6 +367,42 @@ export class EnvGraph {
         await decInstance.process();
         if (decInstance.schemaErrors.some((e) => !e.isWarning)) hasErrors = true;
       }
+    }
+
+    // apply global cache policy early so plugin modules see the final setting
+    // when @plugin decorators execute below.
+    const cacheDec = this.getRootDec('cache');
+    if (cacheDec) {
+      const cacheSetting = await cacheDec.resolve();
+      let cacheMode: 'auto' | 'memory' | 'disk' | 'disabled' = 'auto';
+      if (cacheSetting === false) {
+        cacheMode = 'disabled';
+      } else if (cacheSetting === true) {
+        cacheMode = 'disk';
+      } else if (cacheSetting === 'auto' || cacheSetting === 'memory' || cacheSetting === 'disk' || cacheSetting === 'disabled') {
+        cacheMode = cacheSetting;
+      }
+      if (cacheMode === 'disabled') {
+        this._cacheMode = 'disabled';
+        this._skipCacheMode = true;
+        this._cacheStore = undefined;
+      } else if (!this._skipCacheMode) {
+        const { CacheStore, InMemoryCacheStore } = await import('../../lib/cache');
+        if (cacheMode === 'memory') {
+          this._cacheMode = 'memory';
+          this._cacheStore = new InMemoryCacheStore();
+        } else if (cacheMode === 'disk') {
+          this._cacheMode = 'disk';
+          this._cacheStore = new CacheStore();
+        } else if (cacheMode === 'auto') {
+          if (!this._cacheStore) {
+            if (this._cacheMode === 'memory') this._cacheStore = new InMemoryCacheStore();
+            else if (this._cacheMode === 'disk') this._cacheStore = new CacheStore();
+          }
+        }
+      }
+    } else if (this._skipCacheMode) {
+      this._cacheStore = undefined;
     }
 
     // check declared standardVars against the environment

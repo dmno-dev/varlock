@@ -15,6 +15,7 @@ import { outdent } from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../index';
 import { Resolver } from '../lib/resolver';
 import { CacheStore } from '../../lib/cache';
+import { InMemoryCacheStore } from '../../lib/cache/in-memory-cache-store';
 
 let tempDir: string;
 
@@ -159,6 +160,66 @@ describe('cache() resolver', () => {
   });
 
   describe('caching behavior with cache store', () => {
+    it('supports global cache memory mode via @cache=memory', async () => {
+      const loadWithMemoryCache = async () => {
+        const g = new EnvGraph();
+        g.registerResolver(RandomResolver);
+        g.registerResolver(CounterResolver);
+        const source = new DotEnvFileDataSource('.env.schema', {
+          overrideContents: outdent`
+            # @defaultRequired=false
+            # @cache=memory
+            # ---
+            A=cache(random(), ttl="1h")
+          `,
+        });
+        await g.setRootDataSource(source);
+        await g.finishLoad();
+        await g.resolveEnvValues();
+        return g;
+      };
+
+      const g1 = await loadWithMemoryCache();
+      expect(g1._skipCacheMode).toBe(false);
+      expect(g1._cacheStore).toBeInstanceOf(InMemoryCacheStore);
+      expect(g1.configSchema.A.resolvedValue).toBeDefined();
+    });
+
+    it('supports global cache disable via @cache=false', async () => {
+      const store = createTestCacheStore();
+      const loadWithGlobalCacheDisabled = async () => {
+        const g = new EnvGraph();
+        g.registerResolver(RandomResolver);
+        g.registerResolver(CounterResolver);
+        g._cacheStore = store;
+        const source = new DotEnvFileDataSource('.env.schema', {
+          overrideContents: outdent`
+            # @defaultRequired=false
+            # @cache=false
+            # ---
+            A=cache(random(), ttl="1h")
+          `,
+        });
+        await g.setRootDataSource(source);
+        await g.finishLoad();
+        await g.resolveEnvValues();
+        return g;
+      };
+
+      const g1 = await loadWithGlobalCacheDisabled();
+      const firstValue = g1.configSchema.A.resolvedValue;
+      expect(firstValue).toBeDefined();
+      expect(g1._skipCacheMode).toBe(true);
+      expect(g1._cacheStore).toBeUndefined();
+      expect(g1.configSchema.A.isCacheHit).toBe(false);
+      expect(calls.random).toBe(1);
+
+      const g2 = await loadWithGlobalCacheDisabled();
+      expect(g2.configSchema.A.resolvedValue).not.toBe(firstValue);
+      expect(g2.configSchema.A.isCacheHit).toBe(false);
+      expect(calls.random).toBe(2);
+    });
+
     it('caches a value and returns it on second resolve', async () => {
       const store = createTestCacheStore();
 

@@ -236,6 +236,45 @@ XYZ_API_KEY=op(op://api-prod/xyz/api-key) # new resolver
 
 
 <div>
+### `@cache`
+**Value type:** `boolean | "auto" | "memory" | "disk" | "disabled"`
+
+Sets global cache mode for [`cache()`](/reference/functions/#cache) and plugin cache APIs.
+
+**Modes:**
+- `auto` (default): choose mode automatically
+- `memory`: cache only in-process (not persisted)
+- `disk`: cache to encrypted disk storage (persists across invocations)
+- `disabled`: disable caching globally
+- `true`: alias for `disk`
+- `false`: alias for `disabled`
+
+In `auto` mode, Varlock uses:
+- `memory` in CI, or when local encryption is using file-based fallback
+- `disk` otherwise
+
+```env-spec
+# @cache=auto
+# ---
+INSTANCE_ID=cache(randomUuid())
+```
+
+```env-spec
+# Disable all caching for this schema
+# @cache=false
+# ---
+INSTANCE_ID=cache(randomUuid())
+```
+
+:::note
+`--skip-cache` on `varlock load` / `varlock run` disables cache reads and writes for that invocation, regardless of `@cache`.
+:::
+
+See the [Caching guide](/guides/caching/) for mode selection guidance by environment.
+
+</div>
+
+<div>
 ### `@generateTypes()`
 **Arg types (key/value):**
 - `lang`: Language to generate types for (currently only `ts` / TypeScript is supported, with more languages planned)

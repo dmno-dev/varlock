@@ -328,6 +328,17 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     isFunction: true,
   },
   {
+    name: 'cache',
+    process: (decVal) => {
+      if (!decVal.isStatic) throw new Error('@cache decorator value must be static');
+      const v = decVal.staticValue;
+      if (v === false) return 'disabled';
+      if (v === true) return 'disk';
+      if (v === 'auto' || v === 'memory' || v === 'disk' || v === 'disabled') return v;
+      throw new Error('@cache decorator value must be one of: true, false, "auto", "memory", "disk", "disabled"');
+    },
+  },
+  {
     name: 'redactLogs',
   },
   {

@@ -8,6 +8,8 @@ import { CacheStore } from './cache-store';
 
 // mock localEncrypt to avoid needing real encryption keys
 vi.mock('../local-encrypt', () => ({
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  ensureKey: vi.fn(async () => {}),
   encryptValue: vi.fn(async (value: string) => `encrypted:${value}`),
   decryptValue: vi.fn(async (value: string) => value.replace('encrypted:', '')),
 }));
@@ -189,6 +191,24 @@ describe('CacheStore', () => {
       // value should be encrypted JSON, not plaintext
       expect(data['plugin:test:enc'].v).toBe('encrypted:"secret"');
       expect(data['plugin:test:enc'].v).not.toBe('secret');
+    });
+  });
+
+  describe('key validation', () => {
+    it('rejects empty cache keys', async () => {
+      const store = new CacheStore();
+      await expect(store.get('')).rejects.toThrow('Invalid cache key');
+      await expect(store.set('', 'v', 60_000)).rejects.toThrow('Invalid cache key');
+      expect(() => store.delete('')).toThrow('Invalid cache key');
+      expect(() => store.clearByPrefix('')).toThrow('Invalid cache key prefix');
+    });
+
+    it('rejects control characters in cache keys', async () => {
+      const store = new CacheStore();
+      await expect(store.get('plugin:test:\nkey')).rejects.toThrow('control characters');
+      await expect(store.set('plugin:test:\u0000key', 'v', 60_000)).rejects.toThrow('control characters');
+      expect(() => store.delete('plugin:test:\rkey')).toThrow('control characters');
+      expect(() => store.clearByPrefix('plugin:test:\t')).toThrow('control characters');
     });
   });
 

@@ -3,7 +3,7 @@ import path from 'node:path';
 import _ from '@env-spec/utils/my-dash';
 import { EnvGraph } from './env-graph';
 import { DirectoryDataSource, DotEnvFileDataSource, MultiplePathsContainerDataSource } from './data-source';
-import { CacheStore } from '../../lib/cache';
+import { CacheStore, InMemoryCacheStore } from '../../lib/cache';
 import * as localEncrypt from '../../lib/local-encrypt';
 
 export async function loadEnvGraph(opts?: {
@@ -30,17 +30,14 @@ export async function loadEnvGraph(opts?: {
   if (opts?.clearCache) graph._clearCacheMode = true;
   if (opts?.skipCache) graph._skipCacheMode = true;
 
-  // initialize cache store (graceful — if encryption key doesn't exist, skip caching)
+  // initialize cache store (encryption key is ensured lazily on first write)
   if (!opts?.skipCache) {
-    try {
-      await localEncrypt.ensureKey();
-      graph._cacheStore = new CacheStore();
-      if (graph._clearCacheMode) {
-        graph._cacheStore.clearAll();
-      }
-    } catch {
-      // cache unavailable — proceed without caching
-    }
+    const backend = localEncrypt.getBackendInfo();
+    const isCi = graph.ciEnvInfo.isCI;
+    const shouldUseMemory = backend.type === 'file' || isCi;
+    graph._cacheMode = shouldUseMemory ? 'memory' : 'disk';
+    graph._cacheStore = shouldUseMemory ? new InMemoryCacheStore() : new CacheStore();
+    if (graph._clearCacheMode) graph._cacheStore.clearAll();
   }
 
   let rawPaths: Array<string> | undefined;

@@ -26,6 +26,8 @@ Pass stores each secret as a GPG-encrypted file in `~/.password-store`, organize
 - **In-session caching** - Each entry is decrypted only once per resolution
 - **Helpful error messages** with resolution tips
 
+This caching is in-session plugin memoization. For global varlock cache modes and CLI controls, see the [Caching guide](/guides/caching/).
+
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/pass-plugin` package as a normal dependency.

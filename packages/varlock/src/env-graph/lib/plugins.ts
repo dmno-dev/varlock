@@ -15,7 +15,7 @@ import _ from '@env-spec/utils/my-dash';
 import { pathExists } from '@env-spec/utils/fs-utils';
 import { getUserVarlockDir } from '../../lib/user-config-dir';
 import { PluginCacheAccessor } from '../../lib/cache/plugin-cache-accessor';
-import type { CacheStore } from '../../lib/cache/cache-store';
+import type { CacheStoreLike } from '../../lib/cache/cache-store';
 import { parseTtl } from '../../lib/cache/ttl-parser';
 import { resolveCacheTtl } from '../../lib/cache/resolve-cache-ttl';
 import { confirm } from '../../cli/helpers/prompts';
@@ -218,7 +218,7 @@ export class VarlockPlugin {
   // -- Cache API for plugin authors --
   private _cacheAccessor?: PluginCacheAccessor;
   /** @internal set by EnvGraph when plugins are loaded */
-  _cacheStore?: CacheStore;
+  _cacheStore?: CacheStoreLike;
 
   /**
    * Scoped cache accessor for this plugin.
@@ -797,4 +797,3 @@ export type VarlockPluginCtx = {
 };
 
 export type definePluginFn = (p: VarlockPlugin) => void;
-

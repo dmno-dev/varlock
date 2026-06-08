@@ -12,6 +12,8 @@ Load secrets from [Doppler](https://www.doppler.com/) into your Varlock configur
 - ✅ Auto-infer secret names from variable names
 - ✅ Helpful error messages with resolution tips
 
+`cacheTtl` is optional and uses the same duration format as varlock `cache()` (e.g. `"5m"`, `"1h"`, `"1d"`, or `0` for forever).
+
 ## Installation
 
 ```bash
@@ -37,7 +39,8 @@ Navigate to your project config in the Doppler dashboard → **Access** → **Se
 # @initDoppler(
 #   project=my-project,
 #   config=dev,
-#   serviceToken=$DOPPLER_TOKEN
+#   serviceToken=$DOPPLER_TOKEN,
+#   cacheTtl="5m"
 # )
 # ---
 

@@ -24,6 +24,8 @@ The plugin uses service tokens for programmatic access to your Doppler secrets, 
 - **Auto-infer secret names** from variable names for convenience
 - **Helpful error messages** with resolution tips
 
+This caching is in-session plugin memoization. For global varlock cache modes and CLI controls, see the [Caching guide](/guides/caching/).
+
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/doppler-plugin` package as a normal dependency.
@@ -168,18 +170,22 @@ Initialize a Doppler plugin instance for accessing secrets.
 - `project` (required): Doppler project name
 - `config` (required): Config name (e.g., `dev`, `stg`, `prd`, or a branch config)
 - `serviceToken` (required): Doppler service token. Should be a reference to a config item of type `dopplerServiceToken`.
+- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `0` for forever)
 - `id` (optional): Instance identifier for multiple instances
 
 ```env-spec "@initDoppler"
 # @initDoppler(
 #   project=my-project,
 #   config=dev,
-#   serviceToken=$DOPPLER_TOKEN
+#   serviceToken=$DOPPLER_TOKEN,
+#   cacheTtl="5m"
 # )
 # ---
 # @type=dopplerServiceToken @sensitive
 DOPPLER_TOKEN=
 ```
+
+For global cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 </div>
 </div>
 

@@ -1,4 +1,6 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 import { InfisicalSDK } from '@infisical/sdk';
 import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
@@ -9,6 +11,13 @@ const INFISICAL_ICON = 'simple-icons:infisical';
 plugin.name = 'infisical';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
+// capture cache accessor while plugin proxy context is active
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache unavailable in this runtime context
+}
 plugin.icon = INFISICAL_ICON;
 plugin.standardVars = {
   initDecorator: '@initInfisical',
@@ -35,6 +44,8 @@ class InfisicalPluginInstance {
   private oidcToken?: string;
   /** Optional default secret path */
   private secretPath?: string;
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   constructor(
     readonly id: string,
@@ -343,6 +354,7 @@ plugin.registerRootDecorator({
 
     return {
       id,
+      cacheTtlResolver: objArgs.cacheTtl,
       siteUrl,
       secretPath,
       projectIdResolver: objArgs.projectId,
@@ -355,6 +367,7 @@ plugin.registerRootDecorator({
   },
   async execute({
     id,
+    cacheTtlResolver,
     siteUrl,
     secretPath,
     projectIdResolver,
@@ -383,6 +396,10 @@ plugin.registerRootDecorator({
       identityId,
       oidcToken,
     );
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -524,6 +541,18 @@ plugin.registerResolverFunction({
       secretPath = resolvedPath;
     }
 
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `infisical:${instanceId}:${secretPath || ''}:${secretName}`;
+      const cached = await pluginCache.get(cacheKey);
+      if (cached !== undefined) {
+        debug('cache hit for %s', cacheKey);
+        return cached;
+      }
+      const secretValue = await selectedInstance.getSecret(secretName, secretPath);
+      await pluginCache.set(cacheKey, secretValue, selectedInstance.cacheTtl);
+      return secretValue;
+    }
+
     const secretValue = await selectedInstance.getSecret(secretName, secretPath);
     return secretValue;
   },
@@ -595,6 +624,20 @@ plugin.registerResolverFunction({
         throw new SchemaError('Expected tag to resolve to a string');
       }
       tagSlugs = [resolvedTag];
+    }
+
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const tagsKey = tagSlugs?.join(',') || '';
+      const cacheKey = `infisicalBulk:${instanceId}:${secretPath || ''}:${tagsKey}`;
+      const cached = await pluginCache.get(cacheKey);
+      if (cached !== undefined) {
+        debug('cache hit for %s', cacheKey);
+        if (typeof cached === 'string') return cached;
+        return JSON.stringify(cached);
+      }
+      const bulk = await selectedInstance.listSecrets(secretPath, tagSlugs);
+      await pluginCache.set(cacheKey, JSON.parse(bulk), selectedInstance.cacheTtl);
+      return bulk;
     }
 
     return await selectedInstance.listSecrets(secretPath, tagSlugs);
