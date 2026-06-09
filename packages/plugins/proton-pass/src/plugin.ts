@@ -109,9 +109,6 @@ class ProtonPassPluginInstance {
   // Login batching / deduping for parallel resolutions.
   private loginInFlight: Promise<void> | undefined;
 
-  private loggedInAtMs?: number;
-  private loggedInTtlMs = 60_000;
-
   constructor(readonly id: string) {}
 
   configure(opts: {
@@ -138,86 +135,47 @@ class ProtonPassPluginInstance {
   }
 
   private async ensureCliLoggedIn(): Promise<void> {
-    // fast path: info is assumed ok for a short time window
-    if (this.loggedInAtMs && Date.now() - this.loggedInAtMs < this.loggedInTtlMs) return;
-
     if (this.loginInFlight) {
       await this.loginInFlight;
       return;
     }
 
     this.loginInFlight = (async () => {
+      // Attempt login
+      if (!this.username) {
+        throw new ResolutionError('Proton Pass CLI not authenticated and no username configured', {
+          tip: [
+            NOT_LOGGED_IN_TIP,
+            'Initialize the plugin with a username: @initProtonPass(username=..., ...)',
+          ].join('\n'),
+        });
+      }
+
+      if (!this.password) {
+        throw new ResolutionError('Proton Pass CLI not authenticated and no password configured', {
+          tip: [
+            NOT_LOGGED_IN_TIP,
+            LOGIN_HELP_TIP,
+            'Provide `password` via `@initProtonPass(password=...)` or set `PROTON_PASS_PASSWORD`.',
+          ].join('\n'),
+        });
+      }
+
+      debug('logging into proton pass via `pass-cli login --interactive`');
       try {
-        debug('checking proton pass login via `pass-cli info`');
-        await spawnAsync('pass-cli', ['info']);
-        this.loggedInAtMs = Date.now();
-        return;
-      } catch (err) {
-        // fall through to login attempt
-        const errMsg = err instanceof ExecError ? (err.data || err.message) : String(err);
-        debug('pass-cli info failed:', errMsg);
-
-        if (err instanceof ExecError && (err as any).code === 'ENOENT') {
-          throw new ResolutionError('`pass-cli` command not found', {
-            tip: PASS_CLI_NOT_FOUND_TIP,
-          });
-        }
-
-        const needsLogin = [
-          'not logged',
-          'not authenticated',
-          'unauthorized',
-          'login required',
-          'authentication',
-          'session',
-        ].some((t) => errMsg.toLowerCase().includes(t));
-
-        if (!needsLogin) {
-          throw new ResolutionError(`Proton Pass CLI error: ${errMsg}`, {
-            tip: ['Try running `pass-cli info` to inspect the CLI state.'].join('\n'),
-          });
-        }
-
-        // Attempt login
-        if (!this.username) {
-          throw new ResolutionError('Proton Pass CLI not authenticated and no username configured', {
-            tip: [
-              NOT_LOGGED_IN_TIP,
-              'Initialize the plugin with a username: @initProtonPass(username=..., ...)',
-            ].join('\n'),
-          });
-        }
-
-        if (!this.password) {
-          throw new ResolutionError('Proton Pass CLI not authenticated and no password configured', {
-            tip: [
-              NOT_LOGGED_IN_TIP,
-              LOGIN_HELP_TIP,
-              'Provide `password` via `@initProtonPass(password=...)` or set `PROTON_PASS_PASSWORD`.',
-            ].join('\n'),
-          });
-        }
-
-        debug('logging into proton pass via `pass-cli login --interactive`');
-        try {
-          await spawnAsync(
-            'pass-cli',
-            ['login', '--interactive', this.username],
-            this.loginEnv ? { env: { ...(process.env as Record<string, string>), ...this.loginEnv } } : undefined,
-          );
-        } catch (loginErr) {
-          const loginMsg = loginErr instanceof ExecError ? (loginErr.data || loginErr.message) : String(loginErr);
-          throw new ResolutionError(`Proton Pass CLI login failed: ${loginMsg}`, {
-            tip: [
-              NOT_LOGGED_IN_TIP,
-              LOGIN_HELP_TIP,
-            ].join('\n'),
-          });
-        }
-
-        // Verify after login
-        await spawnAsync('pass-cli', ['info']);
-        this.loggedInAtMs = Date.now();
+        await spawnAsync(
+          'pass-cli',
+          ['login', '--interactive', this.username],
+          this.loginEnv ? { env: { ...(process.env as Record<string, string>), ...this.loginEnv } } : undefined,
+        );
+      } catch (loginErr) {
+        const loginMsg = loginErr instanceof ExecError ? (loginErr.data || loginErr.message) : String(loginErr);
+        throw new ResolutionError(`Proton Pass CLI login failed: ${loginMsg}`, {
+          tip: [
+            NOT_LOGGED_IN_TIP,
+            LOGIN_HELP_TIP,
+          ].join('\n'),
+        });
       }
     })();
 
@@ -228,11 +186,45 @@ class ProtonPassPluginInstance {
     }
   }
 
+  private isAuthError(err: unknown): boolean {
+    if (!(err instanceof ExecError)) return false;
+    const errMsg = err.data || err.message;
+    const lower = errMsg.toLowerCase();
+    return [
+      'not logged',
+      'not authenticated',
+      'unauthorized',
+      'login required',
+      'authentication',
+      'session',
+    ].some((t) => lower.includes(t));
+  }
+
+  private async spawnWithAuthRetry(
+    args: Array<string>,
+    opts?: { env?: Record<string, string> },
+  ): Promise<string> {
+    try {
+      return await spawnAsync('pass-cli', args, opts);
+    } catch (err) {
+      if (err instanceof ExecError && (err as any).code === 'ENOENT') {
+        throw new ResolutionError('`pass-cli` command not found', {
+          tip: PASS_CLI_NOT_FOUND_TIP,
+        });
+      }
+
+      if (!this.isAuthError(err)) throw err;
+
+      debug('pass-cli command requires auth, attempting login and retry', args.join(' '));
+      await this.ensureCliLoggedIn();
+
+      return spawnAsync('pass-cli', args, opts);
+    }
+  }
+
   private async getSecretDirect(secretRef: string): Promise<string> {
     const cached = this.cache.get(secretRef);
     if (cached !== undefined) return cached;
-
-    await this.ensureCliLoggedIn();
 
     const fieldName = getSecretFieldNameFromRef(secretRef);
     if (!fieldName) {
@@ -240,8 +232,7 @@ class ProtonPassPluginInstance {
     }
 
     debug('fetching proton pass secret via item view', secretRef);
-    const result = await spawnAsync(
-      'pass-cli',
+    const result = await this.spawnWithAuthRetry(
       ['item', 'view', '--output', 'json', secretRef],
     );
     const cliStdout = result.trim();
@@ -277,16 +268,13 @@ class ProtonPassPluginInstance {
     const batchSecretRefs = Object.keys(batchToExecute);
     debug('executing proton pass batch read', batchSecretRefs);
     try {
-      await this.ensureCliLoggedIn();
-
       const envMap: Record<string, string> = {};
       let i = 1;
       for (const secretRef of batchSecretRefs) {
         envMap[`VARLOCK_PROTON_PASS_INJECT_${i++}`] = secretRef;
       }
 
-      const result = await spawnAsync(
-        'pass-cli',
+      const result = await this.spawnWithAuthRetry(
         ['run', '--no-masking', '--', 'env', '-0'],
         {
           env: {

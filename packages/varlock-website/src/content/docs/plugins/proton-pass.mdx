@@ -76,6 +76,17 @@ If `pass-cli` is already logged in, you can also omit credentials and just rely 
 This mostly applies to local development, in CI, you will probably want static credentials.
 :::
 
+### Reducing local login prompts
+
+For local development, especially with multi-process task runners like Turbo, these patterns help reduce repeated prompts:
+
+- Store Proton Pass credentials in local config items (for example `.env.local`), wire them into `@initProtonPass(...)`, and encrypt sensitive values using [Varlock local encryption](/guides/local-encryption/).
+- Reuse an existing `pass-cli` session when possible (`pass-cli login` once in your terminal before starting your dev tasks).
+
+:::note[TOTP in local config]
+If your account requires TOTP, a static value in config will expire quickly. For fully non-interactive workflows, consider using a Proton Pass personal access token instead.
+:::
+
 ## Loading secrets
 
 Use the `protonPass()` resolver function to fetch a field value from a Proton Pass secret reference.
@@ -124,12 +135,12 @@ Initialize a Proton Pass plugin instance for `protonPass()` resolver.
 
 ```env-spec "@initProtonPass"
 # @initProtonPass(
-  id=prod, 
-  username=$PROTON_PASS_USERNAME, 
-  password=$PROTON_PASS_PASSWORD,
-  totp=$PROTON_PASS_TOTP,
-  extraPassword=$PROTON_PASS_EXTRA_PASSWORD
-)
+#   id=prod, 
+#   username=$PROTON_PASS_USERNAME, 
+#   password=$PROTON_PASS_PASSWORD,
+#   totp=$PROTON_PASS_TOTP,
+#   extraPassword=$PROTON_PASS_EXTRA_PASSWORD
+# )
 ```
 </div>
 </div>
@@ -164,7 +175,6 @@ DB_PASSWORD=protonPass(prod, pass://Production/Database/password)
 ### Under the hood
 
 This resolver uses:
-- `pass-cli info` to check authentication state
-- `pass-cli login --interactive <username>` when login is required
 - `pass-cli run --no-masking -- env -0` to batch multiple `pass://...` refs in one CLI invocation
+- `pass-cli login --interactive <username>` only when an auth error occurs, then retries the original command
 - `pass-cli item view --output json <secretRef>` as a fallback for per-secret retries/error handling

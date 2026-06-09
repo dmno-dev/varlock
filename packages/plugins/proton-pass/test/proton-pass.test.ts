@@ -2,7 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  afterAll, beforeAll, describe, test,
+  afterAll, beforeAll, describe, expect, test,
 } from 'vitest';
 import { pluginTest } from 'varlock/test-helpers';
 
@@ -14,6 +14,7 @@ const FAKE_PASS_CLI_SRC = path.join(__dirname, 'fake-pass-cli.cjs');
 const FAKE_PASS_CLI = path.join(FAKE_BIN_DIR, 'pass-cli');
 const CONFIG_PATH = path.join(FAKE_BIN_DIR, 'config.json');
 const STATE_PATH = path.join(FAKE_BIN_DIR, 'state.json');
+const LOG_PATH = path.join(FAKE_BIN_DIR, 'calls.log');
 
 type FakePassConfig = {
   refs?: Record<string, string>;
@@ -30,6 +31,14 @@ function resetFakeCli(config: FakePassConfig) {
   fs.mkdirSync(FAKE_BIN_DIR, { recursive: true });
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config), 'utf8');
   fs.writeFileSync(STATE_PATH, JSON.stringify({ loggedIn: false }), 'utf8');
+  fs.rmSync(LOG_PATH, { force: true });
+}
+
+function getFakeCliCalls(): Array<Array<string>> {
+  if (!fs.existsSync(LOG_PATH)) return [];
+  const content = fs.readFileSync(LOG_PATH, 'utf8').trim();
+  if (!content) return [];
+  return content.split('\n').map((line) => JSON.parse(line) as Array<string>);
 }
 
 async function runProtonPassTest(opts: {
@@ -181,5 +190,28 @@ SECRET=protonPass(pass://Production/Database/password)
         SECRET: Error,
       },
     });
+  });
+
+  test('lazy auth retry avoids extra preflight info checks', async () => {
+    await runProtonPassTest({
+      config: {
+        refs: {
+          'pass://Production/Database/password': 'db-secret',
+        },
+      },
+      schemaItems: `
+DB_PASS=protonPass(pass://Production/Database/password)
+`,
+      expectValues: {
+        DB_PASS: 'db-secret',
+      },
+    });
+
+    const calls = getFakeCliCalls();
+    const commandNames = calls.map((args) => args[0]);
+
+    // First read attempts run, then logs in and retries run once.
+    // No `info` preflight means fewer interactive auth prompts.
+    expect(commandNames).toEqual(['run', 'login', 'run']);
   });
 });
