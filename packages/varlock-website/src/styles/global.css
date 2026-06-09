@@ -76,16 +76,16 @@ h5:has(img) {
 
 /* Inline code in markdown headings should stay inline but retain subtle emphasis */
 .sl-markdown-content :is(h1, h2, h3, h4, h5, h6) code {
-  background: color-mix(in srgb, currentColor 12%, transparent);
+  background: color-mix(in srgb, currentColor 10%, transparent);
   border: 0;
   border-radius: 0;
   color: inherit;
   display: inline;
   font-family: var(--code-font);
-  font-size: .82em;
-  font-weight: 600;
+  font-size: .9em;
+  font-weight: 400;
   line-height: inherit;
-  padding: .08em .26em;
+  padding: .02em .1em;
   text-decoration: none;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
@@ -263,18 +263,18 @@ strong {
   flex-wrap: wrap;
 }
 
-.cta-button-row > .sl-link-button {
+.cta-button-row>.sl-link-button {
   border: 2px solid transparent;
 }
 
-.cta-button-row > .sl-link-button:hover {
+.cta-button-row>.sl-link-button:hover {
   background-color: var(--sl-color-black);
   color: var(--sl-color-text-accent);
   border: 2px solid var(--sl-color-text-accent);
   animation: pixelate 1.25s infinite;
 }
 
-.cta-button-row > .sl-link-button::after {
+.cta-button-row>.sl-link-button::after {
   content: " →";
   margin-left: 0.25rem;
   white-space: nowrap;
@@ -284,15 +284,19 @@ strong {
   0% {
     border-style: solid;
   }
+
   25% {
     border-style: dotted;
   }
+
   50% {
     border-style: dashed;
   }
+
   75% {
     border-style: dotted;
   }
+
   100% {
     border-style: solid;
   }
