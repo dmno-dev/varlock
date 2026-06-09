@@ -61,7 +61,9 @@ PATH2=`base/${APP_ENV}/config.json` # equivalent using expansion
 
 Executes a CLI command and uses its output as the value. This is particularly useful for integrating with external tools and services.
 
-NOTE - many CLI tools output an additional newline. `exec()` will trim this automatically.
+:::note
+Many CLI tools output an additional newline. `exec()` will trim this automatically.
+:::
 
 Expansion equivalent: `exec(command)` === `$(command)`
 

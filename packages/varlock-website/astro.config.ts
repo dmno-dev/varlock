@@ -221,7 +221,6 @@ export default defineConfig({
           items: [
             { label: 'Overview', slug: 'env-spec/overview' },
             { label: 'Reference', slug: 'env-spec/reference' },
-            // { label: 'Best practices', slug: 'env-spec/best-practices' },
             { label: 'VS Code extension', slug: 'env-spec/vs-code-ext' },
           ],
         },
