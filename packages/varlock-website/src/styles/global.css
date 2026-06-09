@@ -77,8 +77,8 @@ h5:has(img) {
 /* Inline code in markdown headings should stay inline but retain subtle emphasis */
 .sl-markdown-content :is(h1, h2, h3, h4, h5, h6) code {
   background: color-mix(in srgb, currentColor 12%, transparent);
-  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-  border-radius: .24em;
+  border: 0;
+  border-radius: 0;
   color: inherit;
   display: inline;
   font-family: var(--code-font);
