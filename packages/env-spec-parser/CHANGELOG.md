@@ -1,6 +1,18 @@
 # @env-spec/parser
 
 
+
+
+## 0.3.4
+<sub>2026-06-03</sub>
+
+- [#742](https://github.com/dmno-dev/varlock/pull/742)  *(patch)* Thanks [@Shtian](https://github.com/Shtian)! - Fixed URL fragments in @docs() decorator not being highlighted correctly.
+
+## 0.3.3
+<sub>2026-05-29</sub>
+
+- [#724](https://github.com/dmno-dev/varlock/pull/724)  *(patch)* - improve stray text handling on decorator lines - decorators after stray text are no longer silently ignored
+
 ## 0.3.2
 <sub>2026-05-24</sub>
 

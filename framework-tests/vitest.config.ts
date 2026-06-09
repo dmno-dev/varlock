@@ -7,6 +7,14 @@ export default defineConfig({
     globals: true,
     include: ['frameworks/**/*.test.ts'],
     pool: 'forks',
+    poolOptions: {
+      forks: {
+        // Run test files sequentially — these tests spawn heavy dev servers
+        // (wrangler/workerd, next dev, vite dev) that exhaust CI runner resources
+        // when running concurrently
+        singleFork: true,
+      },
+    },
     teardownTimeout: 30_000,
   },
 });

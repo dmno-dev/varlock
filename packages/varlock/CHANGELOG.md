@@ -5,6 +5,28 @@
 
 
 
+
+
+
+## 1.5.1
+<sub>2026-06-05</sub>
+
+- [#754](https://github.com/dmno-dev/varlock/pull/754)  *(patch)* - fix biometric session fragmentation under turborepo and prevent duplicate daemons from parallel-spawn races
+
+## 1.5.0
+<sub>2026-06-03</sub>
+
+- [#656](https://github.com/dmno-dev/varlock/pull/656)  *(minor)* - add @encryptInjectedEnv and @disableProcessEnvInjection root decorators for encrypted deployments
+
+## 1.4.0
+<sub>2026-05-29</sub>
+
+- [#722](https://github.com/dmno-dev/varlock/pull/722)  *(minor)* - Add shell tab completion via `varlock complete`
+- [#724](https://github.com/dmno-dev/varlock/pull/724)  *(patch)* - improve stray text handling on decorator lines - decorators after stray text are no longer silently ignored
+- [#718](https://github.com/dmno-dev/varlock/pull/718)  *(patch)* - Fix repeated Touch ID prompts when using keychain() from Codex and other non-TTY agents by improving biometric session scoping for shallow process trees.
+- [#719](https://github.com/dmno-dev/varlock/pull/719)  *(patch)* - Add Varlock agent skill at `skills/varlock/SKILL.md` for installation via `npx skills add dmno-dev/varlock`.
+- [#731](https://github.com/dmno-dev/varlock/pull/731)  *(patch)* - Replace shell completion auto-install in init with link to docs guide
+
 ## 1.3.0
 <sub>2026-05-24</sub>
 

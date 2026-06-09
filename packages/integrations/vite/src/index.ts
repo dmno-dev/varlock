@@ -10,6 +10,7 @@ import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 import { patchGlobalResponse } from 'varlock/patch-response';
 import { createDebug, type SerializedEnvGraph } from 'varlock';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
+import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 
 import { createReplacerTransformFn, SUPPORTED_FILES } from './transform';
 
@@ -166,11 +167,33 @@ export function varlockVitePlugin(
       'globalThis.__varlockThrowOnMissingKeys = true;',
     ];
 
+    const encryptionRequired = varlockLoadedEnv?.settings?.encryptInjectedEnv;
+    let encryptionKey: string | undefined = process.env._VARLOCK_ENV_KEY;
+
     if (ssrInjectMode === 'auto-load') {
       lines.push("import 'varlock/auto-load';");
     } else {
       if (ssrInjectMode === 'resolved-env') {
-        lines.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
+        if (encryptionRequired && !encryptionKey) {
+          if (isDevCommand) {
+            // auto-generate a temporary key for local dev
+            encryptionKey = generateEncryptionKeyHex();
+            process.env._VARLOCK_ENV_KEY = encryptionKey;
+          } else {
+            throw new Error(
+              '[varlock] @encryptInjectedEnv is enabled but _VARLOCK_ENV_KEY is not set.\n'
+              + 'Generate a key with `varlock generate-key` and set it on your platform.\n'
+              + 'See https://varlock.dev/guides/encrypted-deployments/ for details.',
+            );
+          }
+        }
+        const serialized = JSON.stringify(varlockLoadedEnv);
+        if (encryptionKey) {
+          const encrypted = encryptEnvBlobSync(serialized, encryptionKey);
+          lines.push(`globalThis.__varlockEncryptedEnv = ${JSON.stringify(encrypted)};`);
+        } else {
+          lines.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
+        }
       }
 
       // inject custom entry code from integrations (e.g., CF bindings loader)
@@ -178,10 +201,22 @@ export function varlockVitePlugin(
         lines.push(...vitePluginOptions.ssrEntryCode);
       }
 
+      // decrypt the encrypted env blob before initVarlockEnv runs
       lines.push(
         "import { initVarlockEnv } from 'varlock/env';",
         "import { patchGlobalConsole } from 'varlock/patch-console';",
         "import { patchGlobalResponse } from 'varlock/patch-response';",
+      );
+      // always include decryption support — the blob may be encrypted at build time
+      // (via _VARLOCK_ENV_KEY) or at deploy time (e.g., Cloudflare varlock-wrangler)
+      lines.push(
+        "import { decryptEnvBlobSync } from 'varlock/encrypt-env';",
+        'if (globalThis.__varlockEncryptedEnv) {',
+        '  const __key = typeof process !== \'undefined\' && process.env._VARLOCK_ENV_KEY;',
+        "  if (!__key) throw new Error('[varlock] encrypted env blob present but _VARLOCK_ENV_KEY is not set');",
+        '  globalThis.__varlockLoadedEnv = JSON.parse(decryptEnvBlobSync(globalThis.__varlockEncryptedEnv, __key));',
+        '  delete globalThis.__varlockEncryptedEnv;',
+        '}',
       );
       if (!isEdgeRuntime) {
         lines.push("import { patchGlobalServerResponse } from 'varlock/patch-server-response';");
@@ -258,6 +293,19 @@ See https://varlock.dev/integrations/vite/ for more details.
       }
 
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
+
+      // esbuild strips the node: prefix from imports, so varlock's built dist
+      // uses bare 'crypto' which Vite SSR doesn't auto-externalize.
+      // Skip when CF Vite plugin is present — it rejects ssr.external since
+      // Workers handle node builtins via nodejs_compat.
+      const hasCfPlugin = config.plugins?.flat().some((p: any) => p?.name?.includes('cloudflare'));
+      if (!hasCfPlugin) {
+        config.ssr ||= {};
+        config.ssr.external ||= [];
+        if (Array.isArray(config.ssr.external) && !config.ssr.external.includes('crypto')) {
+          config.ssr.external.push('crypto');
+        }
+      }
 
       if (!configIsValid) {
         if (isDevCommand) {

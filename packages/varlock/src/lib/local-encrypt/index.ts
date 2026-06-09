@@ -29,27 +29,98 @@ function debug(msg: string) {
   }
 }
 
-/**
- * Get a session identifier for biometric session scoping (WSL only).
- * Prefers the controlling terminal; falls back to a stable ancestor PID
- * found by walking the process tree (mirrors the macOS Swift daemon logic).
- */
-let _cachedSessionId: string | undefined;
-function getSelfSessionId(): string {
-  if (_cachedSessionId) return _cachedSessionId;
+const SHELL_RUNNER_NAMES = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'ksh', 'csh', 'tcsh']);
+const VARLOCK_LAUNCHER_NAMES = new Set(['varlock', 'varlock.exe', 'varlock.cmd']);
+const PACKAGE_MANAGER_RUNNER_NAMES = new Set(['bun', 'node', 'npm', 'npx', 'pnpm', 'pnpx', 'yarn', 'yarnpkg']);
+const NO_TTY_SESSION_ENV_KEYS = [
+  'CODEX_THREAD_ID',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_SESSION_ID',
+] as const;
+
+function getProcessName(pid: number): string | undefined {
+  try {
+    const exePath = fs.readlinkSync(`/proc/${pid}/exe`);
+    return exePath.split('/').pop()?.toLowerCase();
+  } catch { /* ignore */ }
+  try {
+    return fs.readFileSync(`/proc/${pid}/comm`, 'utf-8').trim().toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+function getProcessArgs(pid: number): Array<string> {
+  try {
+    return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8').split('\0').filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function processCommandLineLaunchesVarlock(pid: number): boolean {
+  return getProcessArgs(pid).some((arg) => {
+    const name = arg.split('/').pop()?.toLowerCase();
+    return Boolean(
+      (name && VARLOCK_LAUNCHER_NAMES.has(name))
+      || arg.includes('/node_modules/.bin/varlock')
+      || arg.includes('/varlock/bin/cli.js')
+      || arg.includes('/packages/varlock/bin/cli.js'),
+    );
+  });
+}
+
+function isEphemeralRunner(pid: number): boolean {
+  const name = getProcessName(pid);
+  if (!name) return false;
+  if (SHELL_RUNNER_NAMES.has(name) || VARLOCK_LAUNCHER_NAMES.has(name)) return true;
+  return PACKAGE_MANAGER_RUNNER_NAMES.has(name) && processCommandLineLaunchesVarlock(pid);
+}
+
+function selectScopePidFromChain(chain: Array<number>): number | undefined {
+  if (chain.length < 2) return undefined;
+
+  if (chain.length >= 4) {
+    let scopePid = chain[chain.length - 3];
+    if (isEphemeralRunner(scopePid)) {
+      const fallback = chain[chain.length - 2];
+      scopePid = isEphemeralRunner(fallback) ? chain[chain.length - 1] : fallback;
+    }
+    return scopePid;
+  }
+
+  return chain[chain.length - 1];
+}
+
+function getProcessStartTime(pid: number): number {
+  try {
+    const scopeStat = fs.readFileSync(`/proc/${pid}/stat`, 'utf-8');
+    const scopeFields = scopeStat.split(') ');
+    if (scopeFields.length >= 2) {
+      return parseInt(scopeFields[1].split(' ')[19], 10) || 0;
+    }
+  } catch { /* ignore */ }
+  return 0;
+}
+
+function getNoTtySessionIdFromEnv(): string | undefined {
+  for (const key of NO_TTY_SESSION_ENV_KEYS) {
+    const value = process.env[key]?.trim();
+    if (value) return `env:${key}:${value}`;
+  }
+  return undefined;
+}
+
+function getParentSessionId(): string {
   try {
     const ttyPath = fs.readlinkSync('/proc/self/fd/0');
     if (ttyPath && ttyPath.startsWith('/dev/')) {
-      _cachedSessionId = ttyPath;
       return ttyPath;
     }
   } catch {
     // Not available
   }
-  // No TTY — walk the process tree to find a stable ancestor.
-  // Uses the same grandchild-of-app-root logic as the macOS daemon:
-  // build ancestry chain up to PID 1, then use the process 2 levels
-  // below the top (the grandchild of the app root).
+
   try {
     const chain: Array<number> = [process.pid];
     let current = process.pid;
@@ -62,24 +133,35 @@ function getSelfSessionId(): string {
       chain.push(ppid);
       current = ppid;
     }
-    if (chain.length >= 4) {
-      const scopePid = chain[chain.length - 3];
-      // Include start time for PID-reuse resistance (field 21 after comm in /proc/stat)
-      let startTime = 0;
-      try {
-        const scopeStat = fs.readFileSync(`/proc/${scopePid}/stat`, 'utf-8');
-        const scopeFields = scopeStat.split(') ');
-        if (scopeFields.length >= 2) {
-          startTime = parseInt(scopeFields[1].split(' ')[19], 10) || 0;
-        }
-      } catch { /* ignore */ }
-      _cachedSessionId = `ptree:${scopePid}:${startTime}`;
-      return _cachedSessionId;
+    const scopePid = selectScopePidFromChain(chain);
+    if (scopePid !== undefined) {
+      const startTime = getProcessStartTime(scopePid);
+      return `ptree:${scopePid}:${startTime}`;
     }
   } catch {
     // Not available
   }
-  _cachedSessionId = `pid:${process.pid}`;
+
+  return `pid:${process.pid}`;
+}
+
+/**
+ * Get a session identifier for biometric session scoping (WSL only).
+ * Prefers the controlling terminal; falls back to a stable ancestor PID
+ * found by walking the process tree (mirrors the macOS Swift daemon logic).
+ */
+let _cachedSessionId: string | undefined;
+function getSelfSessionId(): string {
+  if (_cachedSessionId) return _cachedSessionId;
+
+  const parentSessionId = getParentSessionId();
+  const envSessionId = getNoTtySessionIdFromEnv();
+  if (envSessionId) {
+    _cachedSessionId = `${envSessionId}|${parentSessionId}`;
+    return _cachedSessionId;
+  }
+
+  _cachedSessionId = parentSessionId;
   return _cachedSessionId;
 }
 

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   describe, beforeAll, afterAll,
 } from 'vitest';
@@ -109,6 +110,64 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
       const buildCommand = `next build ${buildToolFlag}`;
 
       describe(`bundler=${webpackOrTurbo}`, () => {
+        const devPort = 14000 + (nextVersion * 10) + (webpackOrTurbo === 'turbopack' ? 1 : 0);
+        const devCommand = `next dev ${buildToolFlag} --port ${devPort}`.replace(/\s+/g, ' ').trim();
+
+        nextEnv.describeDevScenario('dev: unchanged extra env file content does not trigger reload', {
+          command: devCommand,
+          readyPattern: /Ready in|Starting\.\.\./,
+          readyTimeout: 40_000,
+          templateFiles: {
+            'app/page.tsx': 'pages/basic-page.tsx',
+          },
+          requests: [
+            {
+              path: '/',
+              bodyAssertions: {
+                shouldContain: ['Varlock Framework Test - Next.js'],
+              },
+            },
+            {
+              path: '/',
+              fileEdits: {
+                '.env.dev': 'ENV_SPECIFIC_VAR=env-specific-var--dev',
+              },
+              // Watchers are debounced; wait long enough to assert no reload path.
+              fileEditDelay: 2000,
+              bodyAssertions: {
+                shouldContain: ['Varlock Framework Test - Next.js'],
+              },
+            },
+          ],
+        });
+
+        nextEnv.describeDevScenario('dev: changed extra env file content triggers reload', {
+          command: devCommand,
+          readyPattern: /Ready in|Starting\.\.\./,
+          readyTimeout: 40_000,
+          templateFiles: {
+            'app/page.tsx': 'pages/basic-page.tsx',
+          },
+          requests: [
+            {
+              path: '/',
+              bodyAssertions: {
+                shouldContain: ['Varlock Framework Test - Next.js'],
+              },
+            },
+            {
+              path: '/',
+              fileEdits: {
+                '.env.dev': 'ENV_SPECIFIC_VAR=env-specific-var--dev-updated',
+              },
+              fileEditDelay: 2500,
+              bodyAssertions: {
+                shouldContain: ['Varlock Framework Test - Next.js'],
+              },
+            },
+          ],
+        });
+
         describe('output=export', () => {
           nextEnv.describeScenario('basic page', {
             command: buildCommand,
@@ -284,6 +343,23 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
               {
                 description: 'output contains leak detection message',
                 shouldContain: ['DETECTED LEAKED SENSITIVE CONFIG'],
+              },
+            ],
+          });
+
+          nextEnv.describeScenario('encrypted env blob with _VARLOCK_ENV_KEY', {
+            command: buildCommand,
+            env: { _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
+            templateFiles: {
+              'app/page.tsx': 'pages/basic-page.tsx',
+            },
+            expectSuccess: true,
+            fileAssertions: [
+              {
+                description: 'server JS files contain encrypted blob (varlock:v1: prefix) instead of plaintext',
+                fileGlob: '.next/server/**/*.js',
+                shouldContain: ['varlock:v1:'],
+                shouldNotContain: ['super-secret-var'],
               },
             ],
           });

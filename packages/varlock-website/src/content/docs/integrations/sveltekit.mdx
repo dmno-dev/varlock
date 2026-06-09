@@ -194,5 +194,6 @@ PUBLIC_API_URL=         # non-sensitive (has PUBLIC_ prefix)
 All non-sensitive items are replaced at build time wherever `ENV.FOO` appears. Sensitive items are only available in server contexts — build-time checks block them from client bundles, and runtime log redaction / response leak detection catch any that slip past the build layer.
 :::
 
-
-
+:::note[Encrypting the env blob]
+When deploying SSR SvelteKit apps to serverless platforms, varlock injects the resolved env into your server-side build output as plaintext JSON. This is generally safe since it only appears in server code, but you can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
+:::

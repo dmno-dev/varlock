@@ -2,6 +2,7 @@
 Shared Cloudflare Workers test definitions, parameterized by Vite version.
 Covers basic worker dev, leak detection, build + preview, and large env chunking.
 */
+import { randomBytes } from 'node:crypto';
 import {
   describe, beforeAll, afterAll,
 } from 'vitest';
@@ -156,6 +157,32 @@ export function defineCloudflareTests(
               'has_sensitive::yes',
               'toplevel_api_url::https://api.example.com',
               'toplevel_has_secret::yes',
+            ],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+    });
+
+    cfEnv.describeDevScenario('encrypted env blob with _VARLOCK_ENV_KEY', {
+      command: `vite dev --port ${basePort + 5}`,
+      readyPattern: /Local:.*http/,
+      readyTimeout: 30_000,
+      env: { _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
+      templateFiles: {
+        'src/index.ts': 'workers/basic-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.ts',
+        'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      requests: [
+        {
+          path: '/',
+          bodyAssertions: {
+            shouldContain: [
+              'public_var::public-test-value',
+              'api_url::https://api.example.com',
+              'has_sensitive::yes',
             ],
             shouldNotContain: ['super-secret-value'],
           },

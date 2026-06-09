@@ -385,4 +385,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       ]);
     }
   }
+
+  if (!agentMode) {
+    logLines([
+      '',
+      `💡 Want tab completions for the varlock CLI? See ${ansis.underline('https://varlock.dev/guides/shell-completion')}`,
+    ]);
+  }
 };

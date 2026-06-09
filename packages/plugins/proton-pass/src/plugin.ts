@@ -90,6 +90,8 @@ function extractJsonFieldValue(
 }
 
 class ProtonPassPluginInstance {
+  private static readonly BATCH_READ_TIMEOUT_MS = 50;
+
   private username?: string;
   private password?: string;
   private totp?: string;
@@ -97,6 +99,12 @@ class ProtonPassPluginInstance {
 
   // Cache decrypted values for the current resolution session.
   private cache = new Map<string, string>();
+
+  // Batch pending secret reads to reduce repeated interactive prompts.
+  private readBatch: Record<string, { deferredPromises: Array<{
+    resolve: (v: string) => void;
+    reject: (e: unknown) => void;
+  }> }> | undefined;
 
   // Login batching / deduping for parallel resolutions.
   private loginInFlight: Promise<void> | undefined;
@@ -220,7 +228,7 @@ class ProtonPassPluginInstance {
     }
   }
 
-  async getSecret(secretRef: string): Promise<string> {
+  private async getSecretDirect(secretRef: string): Promise<string> {
     const cached = this.cache.get(secretRef);
     if (cached !== undefined) return cached;
 
@@ -261,6 +269,110 @@ class ProtonPassPluginInstance {
       this.cache.set(secretRef, plain);
       return plain;
     }
+  }
+
+  private async executeReadBatch(
+    batchToExecute: NonNullable<ProtonPassPluginInstance['readBatch']>,
+  ): Promise<void> {
+    const batchSecretRefs = Object.keys(batchToExecute);
+    debug('executing proton pass batch read', batchSecretRefs);
+    try {
+      await this.ensureCliLoggedIn();
+
+      const envMap: Record<string, string> = {};
+      let i = 1;
+      for (const secretRef of batchSecretRefs) {
+        envMap[`VARLOCK_PROTON_PASS_INJECT_${i++}`] = secretRef;
+      }
+
+      const result = await spawnAsync(
+        'pass-cli',
+        ['run', '--no-masking', '--', 'env', '-0'],
+        {
+          env: {
+            ...(process.env as Record<string, string>),
+            ...(this.loginEnv || {}),
+            ...envMap,
+          },
+        },
+      );
+
+      const unresolvedRefs = new Set(batchSecretRefs);
+      const lines = result.split('\0');
+      for (const line of lines) {
+        const eqPos = line.indexOf('=');
+        if (eqPos <= 0) continue;
+        const key = line.substring(0, eqPos);
+        const secretRef = envMap[key];
+        if (!secretRef) continue;
+
+        const val = line.substring(eqPos + 1);
+        unresolvedRefs.delete(secretRef);
+        this.cache.set(secretRef, val);
+        batchToExecute[secretRef].deferredPromises.forEach((p) => p.resolve(val));
+      }
+
+      // Any unresolved refs are retried individually to preserve useful per-secret errors.
+      if (unresolvedRefs.size) {
+        debug('batch did not resolve all refs, retrying direct reads', [...unresolvedRefs]);
+        await Promise.all([...unresolvedRefs].map(async (secretRef) => {
+          try {
+            const val = await this.getSecretDirect(secretRef);
+            batchToExecute[secretRef].deferredPromises.forEach((p) => p.resolve(val));
+          } catch (err) {
+            batchToExecute[secretRef].deferredPromises.forEach((p) => p.reject(err));
+          }
+        }));
+      }
+    } catch (err) {
+      // Retry each ref individually on batch failure so allowMissing + per-ref errors still work.
+      debug('proton pass batch read failed, retrying per-ref', err instanceof Error ? err.message : String(err));
+      await Promise.all(batchSecretRefs.map(async (secretRef) => {
+        try {
+          const val = await this.getSecretDirect(secretRef);
+          batchToExecute[secretRef].deferredPromises.forEach((p) => p.resolve(val));
+        } catch (refErr) {
+          batchToExecute[secretRef].deferredPromises.forEach((p) => p.reject(refErr));
+        }
+      }));
+    }
+  }
+
+  async getSecret(secretRef: string): Promise<string> {
+    const cached = this.cache.get(secretRef);
+    if (cached !== undefined) return cached;
+
+    let shouldExecuteBatch = false;
+    if (!this.readBatch) {
+      this.readBatch = {};
+      shouldExecuteBatch = true;
+    }
+    this.readBatch[secretRef] ||= { deferredPromises: [] };
+
+    const deferred = {} as {
+      promise: Promise<string>;
+      resolve: (value: string) => void;
+      reject: (error: unknown) => void;
+    };
+    deferred.promise = new Promise<string>((resolve, reject) => {
+      deferred.resolve = resolve;
+      deferred.reject = reject;
+    });
+    this.readBatch[secretRef].deferredPromises.push({
+      resolve: deferred.resolve,
+      reject: deferred.reject,
+    });
+
+    if (shouldExecuteBatch) {
+      setTimeout(async () => {
+        if (!this.readBatch) return;
+        const batchToExecute = this.readBatch;
+        this.readBatch = undefined;
+        await this.executeReadBatch(batchToExecute);
+      }, ProtonPassPluginInstance.BATCH_READ_TIMEOUT_MS);
+    }
+
+    return deferred.promise;
   }
 }
 
@@ -487,5 +599,3 @@ plugin.registerResolverFunction({
     }
   },
 });
-
-

@@ -9,6 +9,7 @@ import { randomBytes } from 'node:crypto';
 import { spawn, execSync } from 'node:child_process';
 
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
+import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 
 const isWindows = process.platform === 'win32';
 const debugEnabled = !!process.env.VARLOCK_DEBUG;
@@ -54,6 +55,7 @@ function loadSerializedGraph() {
     graph: JSON.parse(stdout) as {
       basePath?: string,
       sources: Array<{ label: string, enabled: boolean, path?: string }>,
+      settings?: { encryptInjectedEnv?: boolean },
       config: Record<string, { value: unknown, isSensitive: boolean }>,
     },
   };
@@ -231,8 +233,19 @@ function formatEnvFileContent(graph: ReturnType<typeof loadSerializedGraph>) {
     lines.push(formatEnvLine(key, strValue));
   }
   // include __VARLOCK_ENV for the varlock runtime (compact JSON, no newlines)
+  // encrypt the blob if @encryptInjectedEnv is enabled or _VARLOCK_ENV_KEY is set
+  const encryptionRequired = !!graph.graph.settings?.encryptInjectedEnv;
+  let encryptionKey = process.env._VARLOCK_ENV_KEY;
+  if (encryptionRequired && !encryptionKey) {
+    encryptionKey = generateEncryptionKeyHex();
+  }
+  let envBlob = graph.json;
+  if (encryptionKey) {
+    envBlob = encryptEnvBlobSync(envBlob, encryptionKey);
+    lines.push(formatEnvLine('_VARLOCK_ENV_KEY', encryptionKey));
+  }
   // split into chunks if it exceeds CF's 5KB secret limit
-  addVarlockEnvToLines(lines, graph.json);
+  addVarlockEnvToLines(lines, envBlob);
   return lines.join('\n');
 }
 
@@ -292,8 +305,21 @@ async function handleDeploy(args: Array<string>) {
       varFlags.push('--var', `${key}:${strValue}`);
     }
   }
+  // encrypt the blob if @encryptInjectedEnv is enabled or _VARLOCK_ENV_KEY is set
+  const encryptionRequired = !!loaded.graph.settings?.encryptInjectedEnv;
+  let encryptionKey = process.env._VARLOCK_ENV_KEY;
+  if (encryptionRequired && !encryptionKey) {
+    // auto-generate a key for Cloudflare since we control the deploy pipeline
+    encryptionKey = generateEncryptionKeyHex();
+    console.log('[varlock-wrangler] auto-generated _VARLOCK_ENV_KEY for encrypted deployment');
+  }
+  let envBlob = loaded.json;
+  if (encryptionKey) {
+    envBlob = encryptEnvBlobSync(envBlob, encryptionKey);
+    secretsObj._VARLOCK_ENV_KEY = encryptionKey;
+  }
   // split into chunks if it exceeds CF's 5KB secret limit
-  addVarlockEnvToRecord(secretsObj, loaded.json);
+  addVarlockEnvToRecord(secretsObj, envBlob);
 
   const tmp = createServingTempFile('varlock-secrets');
   const content = JSON.stringify(secretsObj);
@@ -441,33 +467,36 @@ async function handleDev(args: Array<string>) {
 
   // watch env source files for changes and restart wrangler with fresh data
   const DEBOUNCE_MS = 300;
-  // force a restart if the last save event was more than this long after the previous restart,
-  // even when the resolved env is identical — handles repeated saves of an unchanged file
-  const FORCE_RESTART_IDLE_MS = 5000;
   let restartTimeout: ReturnType<typeof setTimeout> | undefined;
   let cachedGraphJson = loaded.json;
-  let lastRestartAt = Date.now();
-  function scheduleRestart() {
+  const changedFiles = new Set<string>();
+  function scheduleRestart(changedFilePath?: string) {
+    if (changedFilePath) changedFiles.add(changedFilePath);
     // debounce — multiple files may change at once (e.g. editor saves multiple files,
     // or macOS fs.watch() emits extra events for unchanged files)
     if (restartTimeout) clearTimeout(restartTimeout);
     restartTimeout = setTimeout(() => {
+      const changedFileList = [...changedFiles];
+      changedFiles.clear();
       try {
         const freshLoaded = loadSerializedGraph();
-        const now = Date.now();
-        const idleSinceLastRestart = now - lastRestartAt > FORCE_RESTART_IDLE_MS;
-        // skip restart only when env is unchanged AND a restart happened recently
-        if (freshLoaded.json === cachedGraphJson && !idleSinceLastRestart) {
+        if (freshLoaded.json === cachedGraphJson) {
+          const changedMsg = changedFileList.length
+            ? `change detected in ${changedFileList.length} env source file${changedFileList.length === 1 ? '' : 's'}`
+            : 'change detected in env source files';
+          console.log(`[varlock-wrangler] ${changedMsg}; reloaded env, no changes found, skipping restart.`);
           restartTimeout = undefined;
           return;
         }
         cachedGraphJson = freshLoaded.json;
         loaded = freshLoaded;
         configIsValid = true;
-        lastRestartAt = now;
         cachedContent = formatEnvFileContent(freshLoaded);
         handle.update(cachedContent);
-        console.log('[varlock-wrangler] env changed, restarting wrangler...');
+        const changedMsg = changedFileList.length
+          ? `change detected in ${changedFileList.length} env source file${changedFileList.length === 1 ? '' : 's'}`
+          : 'change detected in env source files';
+        console.log(`[varlock-wrangler] ${changedMsg}; reloaded env, changes found, restarting wrangler...`);
         wranglerChild?.kill();
         // NOTE: restartTimeout stays truthy so the exit handler knows this was a restart-kill
       } catch (err) {
@@ -483,7 +512,6 @@ async function handleDev(args: Array<string>) {
               cachedGraphJson = err.stdout;
               cachedContent = `${formatEnvLine('__VARLOCK_ENV', err.stdout)}\n`;
               handle.update(cachedContent);
-              lastRestartAt = Date.now();
               console.error('\n[varlock-wrangler] \u26a0\ufe0f config is invalid \u2014 fix the error(s) above and save to reload\n');
               wranglerChild?.kill();
               // restartTimeout stays truthy so the exit handler knows this was a restart-kill
@@ -503,7 +531,7 @@ async function handleDev(args: Array<string>) {
       if (!source.enabled || !source.path) continue;
       const fullPath = join(loaded.graph.basePath, source.path);
       try {
-        const w = watch(fullPath, () => scheduleRestart());
+        const w = watch(fullPath, () => scheduleRestart(fullPath));
         watchers.push(w);
         debug('dev: watching', fullPath);
       } catch {

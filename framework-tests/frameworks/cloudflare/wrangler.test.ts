@@ -238,7 +238,8 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
     ],
     outputAssertions: [
       {
-        description: 'wrangler is not restarted when env content is unchanged',
+        description: 'wrangler logs unchanged reload and does not restart',
+        shouldContain: ['reloaded env, no changes found, skipping restart'],
         shouldNotContain: ['env changed, restarting wrangler'],
       },
     ],

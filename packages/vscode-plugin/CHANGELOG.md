@@ -1,6 +1,12 @@
 # env-spec-language
 
 
+
+## 0.2.1
+<sub>2026-06-03</sub>
+
+- [#742](https://github.com/dmno-dev/varlock/pull/742)  *(patch)* Thanks [@Shtian](https://github.com/Shtian)! - Fixed URL fragments in @docs() decorator not being highlighted correctly.
+
 ## 0.2.0
 <sub>2026-05-11</sub>
 

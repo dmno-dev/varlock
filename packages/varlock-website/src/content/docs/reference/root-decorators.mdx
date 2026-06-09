@@ -328,6 +328,74 @@ See note on [`@redactLogs`](#redactlogs) about potential performance impact.
 </div>
 
 <div>
+### `@encryptInjectedEnv`
+**Value type:** `boolean`
+
+Controls whether the injected env blob in server-side build output is encrypted. When enabled, varlock encrypts the blob with AES-256-GCM using the `_VARLOCK_ENV_KEY` environment variable.
+
+This is primarily relevant for serverless deployments (Vercel, Netlify, etc.) where varlock injects resolved env data into the build output. The blob only appears in server-side code and is generally safe, but encryption provides extra protection — particularly against secrets leaking via sourcemaps.
+
+**Options:**
+- `false` (default): Blob is injected as plaintext JSON
+- `true`: Blob is encrypted, `_VARLOCK_ENV_KEY` required at build time and runtime
+- `forEnv(...)`: Conditionally enable based on the current environment
+
+```env-spec
+# @encryptInjectedEnv
+# ---
+SECRET_KEY= # @sensitive
+```
+
+```env-spec
+# only encrypt in production
+# @encryptInjectedEnv=forEnv(prod)
+# ---
+SECRET_KEY= # @sensitive
+```
+
+**Key management:**
+- For **Cloudflare Workers**, the key is auto-generated and uploaded as a secret binding — no manual setup needed
+- For **local dev**, a temporary key is auto-generated when running dev servers
+- For **production deploys** to other platforms, you must set `_VARLOCK_ENV_KEY` on your platform — see the [encrypted deployments guide](/guides/encrypted-deployments/)
+</div>
+
+<div>
+### `@disableProcessEnvInjection`
+**Value type:** `boolean`
+
+Prevents varlock from injecting resolved values into `process.env`. When enabled, env vars are only accessible via the `ENV` proxy — `process.env.MY_VAR` will not contain varlock-resolved values.
+
+This is useful for security hardening. Combined with [`@encryptInjectedEnv`](#encryptinjectedenv), it ensures that no plaintext secrets exist in `process.env` at all.
+
+**Options:**
+- `false` (default): Values are injected into `process.env` as usual
+- `true`: Values are only accessible via `ENV`
+- `forEnv(...)`: Conditionally enable based on the current environment
+
+```env-spec
+# @disableProcessEnvInjection
+# ---
+SECRET_KEY= # @sensitive
+PUBLIC_URL=
+```
+
+```env-spec
+# disable process.env injection only in production
+# @disableProcessEnvInjection=forEnv(prod)
+# ---
+SECRET_KEY= # @sensitive
+```
+
+:::caution
+When enabled, any code that reads from `process.env` directly (including third-party libraries) will not see varlock-resolved values. Make sure all env access in your application goes through the `ENV` proxy.
+:::
+
+:::note
+This decorator only affects the runtime `initVarlockEnv()` behavior — it does **not** affect [`varlock run`](/reference/cli-commands/#run), which always injects individual env vars into the child process by default. Use `varlock run --no-inject-vars` if you also want to skip individual var injection when using `varlock run`.
+:::
+</div>
+
+<div>
 ### `@auditIgnorePaths()`
 **Arg types:** `[ ...paths: string[] ]`
 

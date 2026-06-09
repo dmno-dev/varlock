@@ -4,7 +4,6 @@ import { varlockNextConfigPlugin } from '@varlock/nextjs-integration/plugin';
 const nextConfig = {
   // OUTPUT-MODE
   productionBrowserSourceMaps: true,
-  eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
 };
 

@@ -205,6 +205,8 @@ main() {
   echo ""
   echo "export PATH=\"${INSTALL_DIR_UNEXPANDED}:\$PATH\""
   echo ""
+  echo "Optional: enable tab completion — see https://varlock.dev/guides/shell-completion/"
+  echo ""
 
 # TODO verify this command completes successfully
 $_bin_path --post-install curl

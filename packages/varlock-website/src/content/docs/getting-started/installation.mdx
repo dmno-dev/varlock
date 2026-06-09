@@ -4,7 +4,7 @@ description: How to install and set up Varlock in your project
 ---
 
 import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
-import { LinkButton } from "@astrojs/starlight/components";
+import { LinkButton, TabItem, Tabs } from "@astrojs/starlight/components";
 
 There are two ways to install `varlock`:
 
@@ -37,7 +37,10 @@ To install `varlock` in your project, run:
 This will install `varlock` as a dependency and scan your project for `.env` files and create a `.env.schema` file in the root of your project. Depending on your project configuration, it will optionally:
 - Remove your existing `.env.example` file
 - Add decorators to your `.env.schema` file to specify the type of each environment variable
-{/* - Encrypt secrets in your `.env` file */}
+
+For AI agent workflows, use non-interactive mode instead:
+
+<ExecCommandWidget command="varlock init --agent" showBinary={false} dlx={true} />
 
 ## As a standalone binary
 
@@ -56,5 +59,35 @@ Then run the setup wizard to help you get started:
 varlock init
 ```
 
-You can then run `varlock --help` to see the available commands or read the [CLI Reference](/reference/cli-commands/).
+
+## Varlock skill
+
+Then install the Varlock agent skill:
+
+<Tabs>
+  <TabItem label="skills">
+
+```bash
+npx skills add dmno-dev/varlock
+```
+
+  </TabItem>
+  <TabItem label="GitHub CLI">
+
+Requires GitHub CLI v2.90+.
+
+```bash
+gh skill install dmno-dev/varlock varlock
+```
+
+  </TabItem>
+</Tabs>
+
+See the [AI Tools guide](/guides/ai-tools/#install-the-varlock-skill) for update commands and agent-specific options.
+
+
+
+:::tip[Shell completions]
+Enable tab completion for varlock commands and flags in your terminal. See the [Shell Completion guide](/guides/shell-completion/) for setup instructions.
+:::
 

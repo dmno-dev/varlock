@@ -7,7 +7,7 @@ import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
 
 Varlock provides a command-line interface for managing environment variables and secrets. This reference documents all available CLI commands.
 
-See [installation](/getting-started/installation) for instructions on how to install Varlock.
+See [installation](/getting-started/installation) for instructions on how to install Varlock. You can also enable [shell completion](/guides/shell-completion/) for tab completion of commands and flags.
 
 
 ### Running commands in JS projects
@@ -55,9 +55,24 @@ While plugins cannot add additional CLI commands, they can extend varlock with a
 Starts an interactive onboarding process to help you get started. Will help create your `.env.schema` and install varlock as a dependency if necessary.
 
 ```bash
-varlock init
+varlock init [options]
 ```
 
+**Options:**
+- `--agent`: Run non-interactively for agent/automation workflows. Skips confirmation prompts and uses deterministic defaults for schema generation.
+
+**Examples:**
+```bash
+# Interactive setup wizard
+varlock init
+
+# Non-interactive setup for AI agents
+varlock init --agent
+```
+
+:::tip
+Install the Varlock agent skill with `npx skills add dmno-dev/varlock` or `gh skill install dmno-dev/varlock varlock`. See the [AI Tools guide](/guides/ai-tools/#install-the-varlock-skill) for more.
+:::
 
 </div>
 
@@ -74,6 +89,7 @@ varlock load [options]
 
 **Options:**
 - `--format`:     Format of output [pretty|json|env|shell|json-full]
+- `--agent`:      Agent-safe mode — defaults to JSON output and redacts sensitive values. Not compatible with `--format env` or `--format shell`.
 - `--compact`:    Compact output (json-full: no indentation, env/shell: skip undefined values)
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@currentEnv` in `.env.schema`
@@ -110,6 +126,9 @@ varlock load --path ./config/
 
 # Load from multiple directories (later paths take higher precedence)
 varlock load -p ./envs -p ./overrides
+
+# Agent-safe JSON output with sensitive values redacted
+varlock load --agent
 ```
 
 :::caution
@@ -489,6 +508,16 @@ You can also temporarily opt out by setting the `VARLOCK_TELEMETRY_DISABLED` env
 </div>
 
 <div>
+### `varlock generate-key` ||generate-key||
+
+Generates a random 256-bit encryption key for use with `_VARLOCK_ENV_KEY`. This key is used to encrypt the resolved env blob that gets baked into your build output on certain frameworks/platforms.
+
+```bash
+varlock generate-key
+```
+
+See the [Next.js](/integrations/nextjs/#encrypting-the-env-blob) and [Vite](/integrations/vite/#encrypting-the-env-blob) integration docs for setup instructions.
+
 ### `varlock help` ||help||
 
 Displays general help information, alias for `varlock --help`

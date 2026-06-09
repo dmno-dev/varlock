@@ -1,4 +1,5 @@
 import { cli, type Command } from 'gunshi';
+import completion from '@gunshi/plugin-completion';
 import { gracefulExit } from 'exit-hook';
 
 import { VARLOCK_BANNER_COLOR } from '../lib/ascii-art';
@@ -26,6 +27,7 @@ import { commandSpec as scanCommandSpec } from './commands/scan.command';
 import { commandSpec as typegenCommandSpec } from './commands/typegen.command';
 import { commandSpec as installPluginCommandSpec } from './commands/install-plugin.command';
 import { commandSpec as auditCommandSpec } from './commands/audit.command';
+import { commandSpec as generateKeyCommandSpec } from './commands/generate-key.command';
 // import { commandSpec as loginCommandSpec } from './commands/login.command';
 // import { commandSpec as pluginCommandSpec } from './commands/plugin.command';
 
@@ -66,6 +68,7 @@ subCommands.set('scan', buildLazyCommand(scanCommandSpec, async () => await impo
 subCommands.set('audit', buildLazyCommand(auditCommandSpec, async () => await import('./commands/audit.command')));
 subCommands.set('typegen', buildLazyCommand(typegenCommandSpec, async () => await import('./commands/typegen.command')));
 subCommands.set('install-plugin', buildLazyCommand(installPluginCommandSpec, async () => await import('./commands/install-plugin.command')));
+subCommands.set('generate-key', buildLazyCommand(generateKeyCommandSpec, async () => await import('./commands/generate-key.command')));
 // subCommands.set('login', buildLazyCommand(loginCommandSpec, async () => await import('./commands/login.command')));
 // subCommands.set('plugin', buildLazyCommand(pluginCommandSpec, async () => await import('./commands/plugin.command')));
 
@@ -82,6 +85,8 @@ subCommands.set('install-plugin', buildLazyCommand(installPluginCommandSpec, asy
     // TODO: remove this once we have a better way to re-trigger help
     if (args[0] === 'help') args = ['--help'];
 
+    const isCompletionInvoke = args[0] === 'complete';
+
     // track standalone installs via homebrew/curl
     if (__VARLOCK_SEA_BUILD__) {
       if (args[0] === '--post-install') {
@@ -97,8 +102,8 @@ subCommands.set('install-plugin', buildLazyCommand(installPluginCommandSpec, asy
     }
 
     // warn if standalone binary version differs from local node_modules install
-    // skip for --version/--help since those are quick informational commands
-    if (__VARLOCK_SEA_BUILD__ && args[0] !== '--version' && args[0] !== '--help') {
+    // skip for --version/--help/complete since those are quick informational commands
+    if (__VARLOCK_SEA_BUILD__ && args[0] !== '--version' && args[0] !== '--help' && !isCompletionInvoke) {
       const versionMismatchWarning = checkLocalVersionMismatch(packageJson.version);
       if (versionMismatchWarning) {
         console.warn(`\n⚠️  ${versionMismatchWarning}\n`);
@@ -115,6 +120,7 @@ subCommands.set('install-plugin', buildLazyCommand(installPluginCommandSpec, asy
       description: 'Encrypt and protect your env vars',
       version: versionId,
       subCommands,
+      plugins: [completion()],
       renderHeader: async (ctx) => {
         // do not show header if we are running a sub-command
         if (ctx.name) return '';
