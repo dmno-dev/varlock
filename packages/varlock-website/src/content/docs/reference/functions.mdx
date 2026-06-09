@@ -270,6 +270,7 @@ API_URL=if(isEmpty($CUSTOM_API_URL), "https://api.default.com", $CUSTOM_API_URL)
 
 These functions generate random values using cryptographically secure randomness (`node:crypto`). They are typically used with [`cache()`](#cache) to generate a value once and reuse it according to your active cache mode.
 
+<div class="reference-docs">
 <div>
 ### `randomNum()`
 
@@ -280,16 +281,16 @@ Generates a random number. **Integer by default**; if you pass `precision=N`, re
 - `precision=N` option switches to float mode (decimal places, 0-20)
 
 ```env-spec "randomNum"
-# Random port between 3000 and 4000 (integer)
+# Cached random port between 3000 and 4000 (integer)
 DEV_PORT=cache(randomNum(3000, 4000))
 
-# Random integer up to 1000
-SEED=cache(randomNum(1000))
+# One-off random integer up to 1000
+SEED=randomNum(1000)
 
 # Random float between 0 and 1 with 4 decimal places
-RATE=cache(randomNum(0, 1, precision=4))
+RATE=randomNum(0, 1, precision=4)
 
-# Random float between 10 and 20 with 4 decimal places
+# Cached random float between 10 and 20 with 4 decimal places
 THRESHOLD=cache(randomNum(10, 20, precision=4))
 ```
 </div>
@@ -300,8 +301,11 @@ THRESHOLD=cache(randomNum(10, 20, precision=4))
 Generates a random UUID v4.
 
 ```env-spec "randomUuid"
-# Unique identifier for this environment
+# Unique identifier for this environment (stable across runs)
 INSTANCE_ID=cache(randomUuid())
+
+# Per-run / per-evaluation ID
+REQUEST_ID=randomUuid()
 ```
 </div>
 
@@ -312,16 +316,19 @@ Generates a random hexadecimal string. By default the argument is the **characte
 
 ```env-spec "randomHex"
 # 32-character hex string (default)
+# @sensitive
 SESSION_SECRET=cache(randomHex())
-  @sensitive
 
 # 64-character hex string
+# @sensitive
 ENCRYPTION_KEY=cache(randomHex(64))
-  @sensitive
 
 # 32 bytes (= 64 hex chars) — byte-length mode
+# @sensitive
 HMAC_KEY=cache(randomHex(32, bytes=true))
-  @sensitive
+
+# Non-sensitive one-off value
+NONCE=randomHex(16)
 ```
 </div>
 
@@ -335,24 +342,25 @@ Generates a random alphanumeric string. Default length is `16` characters using 
 
 ```env-spec "randomString"
 # 32-character alphanumeric string
+# @sensitive
 API_SECRET=cache(randomString(32))
-  @sensitive
 
 # 8-character string from custom charset
 PIN_CODE=cache(randomString(8, charset="0123456789"))
+
+# One-off random string
+TEMP_LABEL=randomString(10)
 ```
+</div>
 </div>
 
 ## Caching
 
+<div class="reference-docs">
 <div>
 ### `cache()`
 
-Wraps any resolver to cache its result.
-
-- In `disk` cache mode, values persist across invocations and are encrypted at rest.
-- In `memory` cache mode, values are reused only within the current varlock process.
-- In `disabled` mode, `cache()` is effectively bypassed.
+Wraps any resolver to cache its result. See [caching guide](/guides/caching/) for more details.
 
 - First arg: the resolver to cache
 - `ttl=D` option: how long to cache (default: forever). Supports `s`, `m`, `h`, `d`, `w` suffixes, or `0` for forever.
@@ -388,6 +396,7 @@ For strategy recommendations and troubleshooting, see the [Caching guide](/guide
 :::tip
 Plugin authors can also use the cache API via `plugin.cache.get()` / `plugin.cache.set()` to cache expensive API calls. See the [Plugins guide](/guides/plugins/) for more information.
 :::
+</div>
 </div>
 
 ## Encryption

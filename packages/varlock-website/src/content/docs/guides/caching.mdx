@@ -3,47 +3,31 @@ title: Caching
 description: How varlock caching works, how to choose cache mode, and how to debug cache behavior
 ---
 
-Varlock supports caching for resolver results (via [`cache()`](/reference/functions/#cache)) and for plugin authors (via plugin cache APIs). Caching can improve performance and reduce external API calls, but the right mode depends on your environment and threat model.
+Varlock has a built-in caching system, secured by [local encryption](/guides/local-encryption/).
 
-## Quick mental model
+Rather than caching environment variables values, it is general key-value store, usable by plugins to cache arbitrary internal requests, or by an explicit [`cache()`](/reference/functions/#cache) function to cache any resolver.
 
-There are two broad caching patterns in the ecosystem:
+## Plugin cache behavior
 
-- **Varlock cache store**: used by `cache()` and plugin persistent cache APIs. This is controlled by global [`@cache`](/reference/root-decorators/#cache) mode.
-- **Plugin in-session memoization**: some plugins keep an internal in-memory map for a single resolution pass. This is plugin-specific and separate from `@cache`.
+Plugins have access to cache helpers that can be used to avoid repeated network round trips, or to hold short lived tokens. They will usually expose params (like `cacheTtl`) to let the user opt-into caching. This will still respect global cache mode and cli flags. Each plugin can decide how to cache things and it will often depend on the shape of the external API.
 
-## Global cache modes (`@cache`)
+## Common `cache()` use case: stable local-dev random values
 
-Set cache behavior globally in your file header:
+The most common explicit use of `cache()` is generating random values once for local development, then reusing them so they stay stable across restarts.
 
-```env-spec title=".env.schema"
-# @cache=auto
-# ---
+```env-spec title=".env.local"
+# Good for local-only generated values
+SESSION_SECRET=cache(randomHex(32))
+INSTANCE_ID=cache(randomUuid())
 ```
 
-Supported values:
+This allows a new development environment to generate values, while keeping them stable.
 
-- `auto` (default): varlock chooses mode automatically
-- `memory`: cache in-process only (not persisted)
-- `disk`: cache in encrypted disk storage (persists across invocations)
-- `disabled`: disable cache reads/writes globally
-- `true`: alias for `disk`
-- `false`: alias for `disabled`
+## Global cache disable
 
-Auto mode policy:
+Caching is mostly useful for local development, when there may be many invocations of varlock, and we have biometric encryption available. So default behavior is to disable caching in CI and when local encryption is using the basic file-based fallback.
 
-- Uses `memory` in CI
-- Uses `memory` when local encryption is using file-based fallback
-- Uses `disk` otherwise
-
-## Choosing a mode
-
-Recommended defaults:
-
-- **Local dev on trusted machine**: `@cache=auto` (usually ends up as `disk`)
-- **CI / ephemeral automation**: `@cache=memory` (or keep `auto`)
-- **Deployed env with file-based local-encryption fallback**: `@cache=memory`
-- **High-sensitivity workflows**: `@cache=disabled`
+However if you need to explcitly enable/disable caching, you can use the [`@cache`](/reference/root-decorators/#cache) root decorator.
 
 ## Per-invocation CLI controls
 
@@ -69,27 +53,6 @@ Notes:
 - This command manages disk cache entries only.
 - In `memory` mode, entries are process-local and are not visible via `varlock cache`.
 
-## Plugin cache behavior
-
-Plugins that expose cache TTL controls (for example, 1Password `cacheTtl`) still respect global cache mode:
-
-- `@cache=disk`: plugin cached values persist across runs
-- `@cache=memory`: plugin cached values are in-process only
-- `@cache=disabled` or `--skip-cache`: plugin persistent cache is bypassed
-
-Plugin-specific in-session memoization may still occur even when persistent caching is disabled.
-
-## Cache key guidance
-
-When using `cache(..., key="...")` or plugin cache keys:
-
-- Keep keys stable and deterministic
-- Avoid control characters
-- Keep keys reasonably short
-- Namespace keys (for example `org:service:token`) to avoid collisions
-
-Varlock validates cache keys and throws on invalid key text (for example empty strings, control chars, overly long keys).
-
 ## Troubleshooting
 
 ### "I changed a resolver but still see old values"
@@ -104,8 +67,3 @@ Varlock validates cache keys and throws on invalid key text (for example empty s
 ### "I want no cache artifacts on disk"
 
 - Use `@cache=memory` (or `@cache=disabled`) and avoid `disk` mode.
-
-### "I need deterministic fresh fetches in CI"
-
-- Run with `--skip-cache` for that job/stage.
-

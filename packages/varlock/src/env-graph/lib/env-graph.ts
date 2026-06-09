@@ -375,11 +375,7 @@ export class EnvGraph {
     if (cacheDec) {
       const cacheSetting = await cacheDec.resolve();
       let cacheMode: 'auto' | 'memory' | 'disk' | 'disabled' = 'auto';
-      if (cacheSetting === false) {
-        cacheMode = 'disabled';
-      } else if (cacheSetting === true) {
-        cacheMode = 'disk';
-      } else if (cacheSetting === 'auto' || cacheSetting === 'memory' || cacheSetting === 'disk' || cacheSetting === 'disabled') {
+      if (cacheSetting === 'auto' || cacheSetting === 'memory' || cacheSetting === 'disk' || cacheSetting === 'disabled') {
         cacheMode = cacheSetting;
       }
       if (cacheMode === 'disabled') {

@@ -185,7 +185,7 @@ describe('cache() resolver', () => {
       expect(g1.configSchema.A.resolvedValue).toBeDefined();
     });
 
-    it('supports global cache disable via @cache=false', async () => {
+    it('supports global cache disable via @cache=disabled', async () => {
       const store = createTestCacheStore();
       const loadWithGlobalCacheDisabled = async () => {
         const g = new EnvGraph();
@@ -195,7 +195,7 @@ describe('cache() resolver', () => {
         const source = new DotEnvFileDataSource('.env.schema', {
           overrideContents: outdent`
             # @defaultRequired=false
-            # @cache=false
+            # @cache=disabled
             # ---
             A=cache(random(), ttl="1h")
           `,

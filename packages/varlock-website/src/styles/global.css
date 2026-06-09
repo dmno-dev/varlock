@@ -55,8 +55,6 @@ h5 {
   /* font-family: var(--font-pixel);
   font-weight: var(--font-pixel-weight); */
 
-  display: flex;
-
   img {
     height: 1.2em;
 
@@ -65,7 +63,29 @@ h5 {
     }
   }
 
+}
+
+/* Only use flex layout for headings that actually include an image/icon */
+h2:has(img),
+h3:has(img),
+h4:has(img),
+h5:has(img) {
+  display: flex;
   gap: .4em;
+}
+
+/* Inline code in markdown headings should look like heading text, not a code chip */
+.sl-markdown-content :is(h1, h2, h3, h4, h5, h6) code {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+  font-family: var(--code-font);
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  padding: 0;
+  vertical-align: baseline;
 }
 
 img[src^="https://varlock-pixel-art.dmno.workers.dev/"] {
