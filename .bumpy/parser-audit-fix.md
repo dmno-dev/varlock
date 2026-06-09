@@ -1,5 +1,7 @@
 ---
-"@env-spec/parser": patch
+"@env-spec/parser": none
 ---
 
-remove npm-run-all to resolve bun audit vulnerability chain
+Resolved the Bun audit issue by removing `npm-run-all` from parser dev scripts.
+
+No runtime parser behavior changed in this PR (dev-command and release-config only), so no package release is needed.
