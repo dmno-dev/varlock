@@ -20,14 +20,14 @@
     }
   },
   "scripts": {
-    "dev": "bun run dev:grammar & bun run dev:ts & wait",
+    "dev": "bun run --parallel dev:grammar dev:ts",
     "dev:grammar": "bun run build:grammar:watch",
     "dev:ts": "tsup --watch",
     "build:grammar": "peggy -c peggy.config.cjs",
     "build:grammar:watch": "peggy -c peggy.config.cjs -w",
     "build:lib": "tsup",
     "build": "bun run build:grammar && bun run build:lib",
-    "test": "bun run build:grammar:watch & bun run _test:watch & wait",
+    "test": "bun run --parallel build:grammar:watch _test:watch",
     "_test:watch": "vitest",
     "test:ci": "bun run build:grammar && vitest --run",
     "typecheck": "tsc --noEmit"
