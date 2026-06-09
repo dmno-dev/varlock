@@ -146,12 +146,14 @@ To integrate varlock into a Next.js application, you must use our [`@varlock/nex
     import type { NextConfig } from "next";
     +import { varlockNextConfigPlugin } from '@varlock/nextjs-integration/plugin';
 
+    const withVarlock = varlockNextConfigPlugin();
+
     const nextConfig: NextConfig = {
       // your existing config...
     };
 
     -export default nextConfig;
-    +export default varlockNextConfigPlugin()(nextConfig);
+    +export default withVarlock(nextConfig);
     ```
 
 
