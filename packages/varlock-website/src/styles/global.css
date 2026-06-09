@@ -74,17 +74,21 @@ h5:has(img) {
   gap: .4em;
 }
 
-/* Inline code in markdown headings should look like heading text, not a code chip */
+/* Inline code in markdown headings should stay inline but retain subtle emphasis */
 .sl-markdown-content :is(h1, h2, h3, h4, h5, h6) code {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: .24em;
   color: inherit;
+  display: inline;
   font-family: var(--code-font);
-  font-size: inherit;
-  font-weight: inherit;
+  font-size: .82em;
+  font-weight: 600;
   line-height: inherit;
-  padding: 0;
+  padding: .08em .26em;
+  text-decoration: none;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
   vertical-align: baseline;
 }
 
