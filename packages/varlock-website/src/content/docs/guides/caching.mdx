@@ -11,27 +11,29 @@ Rather than caching environment variables values, it is general key-value store,
 
 Plugins have access to cache helpers that can be used to avoid repeated network round trips, or to hold short lived tokens. They will usually expose params (like `cacheTtl`) to let the user opt-into caching. This will still respect global cache mode and cli flags. Each plugin can decide how to cache things and it will often depend on the shape of the external API.
 
-## Common `cache()` use case: stable local-dev random values
+## Common `cache()` use case: stable generated values
 
-The most common explicit use of `cache()` is generating random values once for local development, then reusing them so they stay stable across restarts.
+The most common use case for `cache()` is to hold [generated random values](/reference/functions/#random-value-generators) stable across restarts for local development.
 
 ```env-spec title=".env.local"
 # Good for local-only generated values
-SESSION_SECRET=cache(randomHex(32))
-INSTANCE_ID=cache(randomUuid())
+INSTANCE_ID=cache(randomUuid(), ttl=1d)  # cache for 1 day
+TRACKING_ID=cache(randomUuid(), ttl=0)   # cache indefinitely / until cleared
+SESSION_SECRET=cache(randomHex(32))      # default is ttl=0
 ```
 
-This allows a new development environment to generate values, while keeping them stable.
+This allows a new environment to generate values, while keeping them stable.
 
+## TTL duration format (shared everywhere)
 
-## TTL format (shared everywhere)
+Both plugins and `cache()` use the same duration format and parser for TTLs - values like `"5m"`, `"1h"`, `"1d"`, `"500ms"`, or `0` (forever) - based on our [`duration` data type](/reference/data-types/#duration).
 
-All cache TTLs use the same duration format and parser:
+The format uses a number followed by units, and is very flexible. For example, minute accepts any of `m`, `min`, `mins`, `minute`, `minutes`.
 
-- plugin `cacheTtl` options (for example `@initOp(..., cacheTtl=1h)`)
+Use `0` to mean "cache until manually cleared".
+
+- `@initOp(..., cacheTtl=30m)`
 - `cache(someFunc(), ttl=1h)`
-
-You can use values like `"5m"`, `"1h"`, `"1d"`, `"500ms"`, or `0` (forever). For full duration syntax, see [`duration`](/reference/data-types/#duration).
 
 ## Global cache disable
 

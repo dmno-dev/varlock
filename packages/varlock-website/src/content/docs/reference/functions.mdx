@@ -268,7 +268,7 @@ API_URL=if(isEmpty($CUSTOM_API_URL), "https://api.default.com", $CUSTOM_API_URL)
 
 ## Random value generators
 
-These functions generate random values using cryptographically secure randomness (`node:crypto`). They are typically used with [`cache()`](#cache) to generate a value once and reuse it according to your active cache mode.
+These functions generate random values using cryptographically secure randomness (`node:crypto`). In ephemeral environments, it can be helpful to generate values that are unique per run/deployments. For local dev, the [`cache()`](#cache) function can be used to keep a value stable for a period of time.
 
 <div class="reference-docs">
 <div>
