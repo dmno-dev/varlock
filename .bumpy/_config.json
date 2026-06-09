@@ -21,6 +21,14 @@
     },
     "@varlock/cloudflare-integration": {
       "cascadeFrom": ["@varlock/vite-integration"]
+    },
+    "varlock": {
+      "cascadeFrom": {
+        "@env-spec/parser": {
+          "trigger": "patch",
+          "bumpAs": "patch"
+        }
+      }
     }
   }
 }
