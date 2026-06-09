@@ -543,14 +543,11 @@ plugin.registerResolverFunction({
 
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
       const cacheKey = `infisical:${instanceId}:${secretPath || ''}:${secretName}`;
-      const cached = await pluginCache.get(cacheKey);
-      if (cached !== undefined) {
-        debug('cache hit for %s', cacheKey);
-        return cached;
-      }
-      const secretValue = await selectedInstance.getSecret(secretName, secretPath);
-      await pluginCache.set(cacheKey, secretValue, selectedInstance.cacheTtl);
-      return secretValue;
+      return await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.getSecret(secretName, secretPath),
+      );
     }
 
     const secretValue = await selectedInstance.getSecret(secretName, secretPath);
@@ -629,15 +626,16 @@ plugin.registerResolverFunction({
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
       const tagsKey = tagSlugs?.join(',') || '';
       const cacheKey = `infisicalBulk:${instanceId}:${secretPath || ''}:${tagsKey}`;
-      const cached = await pluginCache.get(cacheKey);
-      if (cached !== undefined) {
-        debug('cache hit for %s', cacheKey);
-        if (typeof cached === 'string') return cached;
-        return JSON.stringify(cached);
+      const cachedOrFetched = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => JSON.parse(await selectedInstance.listSecrets(secretPath, tagSlugs)),
+      );
+      if (cachedOrFetched !== undefined) {
+        if (typeof cachedOrFetched === 'string') return cachedOrFetched;
+        return JSON.stringify(cachedOrFetched);
       }
-      const bulk = await selectedInstance.listSecrets(secretPath, tagSlugs);
-      await pluginCache.set(cacheKey, JSON.parse(bulk), selectedInstance.cacheTtl);
-      return bulk;
+      throw new ResolutionError('Expected Infisical bulk response object');
     }
 
     return await selectedInstance.listSecrets(secretPath, tagSlugs);

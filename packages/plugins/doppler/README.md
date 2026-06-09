@@ -40,7 +40,7 @@ Navigate to your project config in the Doppler dashboard → **Access** → **Se
 #   project=my-project,
 #   config=dev,
 #   serviceToken=$DOPPLER_TOKEN,
-#   cacheTtl="5m"
+#   cacheTtl="1h"
 # )
 # ---
 

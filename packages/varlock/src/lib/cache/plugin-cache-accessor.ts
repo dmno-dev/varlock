@@ -29,18 +29,35 @@ export class PluginCacheAccessor {
     return `plugin:${this.pluginName}:${key}`;
   }
 
+  private async recordCacheHit(cacheKey: string, cachedAt: number, expiresAt: number): Promise<void> {
+    try {
+      const { getResolutionContext } = await import('../../env-graph/lib/resolution-context');
+      const ctx = getResolutionContext();
+      ctx?.cacheHits.push({ cacheKey, cachedAt, expiresAt });
+    } catch {
+      // resolution context not available — that's fine
+    }
+  }
+
   async get(key: string): Promise<any | undefined> {
     const cacheKey = this.buildKey(key);
     const result = await this.cacheStore.get(cacheKey);
     if (result) {
-      // automatically record cache hit on the resolution context (if active)
-      try {
-        const { getResolutionContext } = await import('../../env-graph/lib/resolution-context');
-        const ctx = getResolutionContext();
-        ctx?.cacheHits.push({ cacheKey, cachedAt: result.cachedAt, expiresAt: result.expiresAt });
-      } catch {
-        // resolution context not available — that's fine
-      }
+      await this.recordCacheHit(cacheKey, result.cachedAt, result.expiresAt);
+    }
+    return result?.value;
+  }
+
+  async getOrSet(
+    key: string,
+    ttl: string | number,
+    producer: () => Promise<any> | any,
+  ): Promise<any | undefined> {
+    const cacheKey = this.buildKey(key);
+    const ttlMs = typeof ttl === 'string' ? parseTtl(ttl) : ttl;
+    const result = await this.cacheStore.getOrSet(cacheKey, ttlMs, producer);
+    if (result?.cacheHit) {
+      await this.recordCacheHit(cacheKey, result.cachedAt, result.expiresAt);
     }
     return result?.value;
   }

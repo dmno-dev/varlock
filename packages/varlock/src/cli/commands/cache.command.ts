@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import ansis from 'ansis';
 import { define } from 'gunshi';
 import { isCancel } from '@clack/prompts';
@@ -35,6 +36,35 @@ Examples:
 });
 
 type CacheEntry = { key: string; cachedAt: number; expiresAt: number };
+
+function formatResolverSourcePath(sourcePath: string): string {
+  const homeDir = process.env.HOME;
+  if (homeDir && sourcePath.startsWith(`${homeDir}/`)) {
+    return `~/${sourcePath.slice(homeDir.length + 1)}`;
+  }
+  const relToCwd = path.relative(process.cwd(), sourcePath);
+  if (relToCwd && !relToCwd.startsWith('..') && !path.isAbsolute(relToCwd)) {
+    return `./${relToCwd}`;
+  }
+  return sourcePath;
+}
+
+function getGroupLabel(prefix: string): string {
+  if (prefix.startsWith('plugin:')) {
+    return `${ansis.magenta(`[${prefix.replace('plugin:', '')}]`)} plugin cache`;
+  }
+
+  if (prefix === 'resolver:custom') {
+    return `${ansis.cyan('[resolver:custom]')} explicit keys`;
+  }
+
+  if (prefix.startsWith('resolver:')) {
+    const sourcePath = prefix.slice('resolver:'.length);
+    return `${ansis.cyan('[resolver]')} ${ansis.gray(formatResolverSourcePath(sourcePath))}`;
+  }
+
+  return prefix;
+}
 
 function formatEntryLabel(entry: CacheEntry): string {
   const ttlMs = entry.expiresAt - entry.cachedAt;
@@ -173,9 +203,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     const options: Array<{ value: string; label: string }> = [];
 
     for (const [prefix, items] of Object.entries(groups)) {
-      const label = prefix.startsWith('plugin:')
-        ? `${ansis.magenta(`[${prefix.replace('plugin:', '')}]`)} plugin cache`
-        : `${ansis.cyan('[resolver]')} cached values`;
+      const label = getGroupLabel(prefix);
       options.push({
         value: `group:${prefix}`,
         label: `${label} ${ansis.gray(`(${items.length} entries)`)}`,
@@ -205,9 +233,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
     if (typeof selected === 'string' && selected.startsWith('group:')) {
       const prefix = selected.replace('group:', '');
-      const groupLabel = prefix.startsWith('plugin:')
-        ? `${prefix.replace('plugin:', '')} plugin`
-        : 'resolver cache';
+      const groupLabel = getGroupLabel(prefix);
 
       // show all entries in the group with clear-all and delete options
       while (true) {

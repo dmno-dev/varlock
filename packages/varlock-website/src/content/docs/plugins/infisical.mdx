@@ -249,7 +249,7 @@ Initialize an Infisical plugin instance for accessing secrets.
 - `identityId` (optional): Machine identity ID for OIDC authentication (alternative to `clientId`/`clientSecret`)
 - `oidcToken` (optional): Explicit OIDC JWT token (auto-detected from platform if omitted)
 - `secretPath` (optional): Default secret path for all secrets (defaults to `/`)
-- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `0` for forever)
+- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `0` for forever). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 - `id` (optional): Instance identifier for multiple instances
 
 ```env-spec "@initInfisical"
@@ -258,7 +258,7 @@ Initialize an Infisical plugin instance for accessing secrets.
 #   environment=dev,
 #   clientId=$INFISICAL_CLIENT_ID,
 #   clientSecret=$INFISICAL_CLIENT_SECRET,
-#   cacheTtl="5m"
+#   cacheTtl="1h"
 # )
 # ---
 # @type=infisicalClientId
@@ -267,7 +267,6 @@ INFISICAL_CLIENT_ID=
 INFISICAL_CLIENT_SECRET=
 ```
 
-For global cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 </div>
 </div>
 

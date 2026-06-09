@@ -914,26 +914,22 @@ export const CacheResolver: typeof Resolver = createResolver({
       cacheKey = `resolver:${filePath}:${item?.key ?? 'unknown'}:${resolverText}`;
     }
 
-    if (cacheStore && !ctx?.skipCache) {
-      // try cache read (unless clear-cache mode)
-      if (!ctx?.clearCache) {
-        const cached = await cacheStore.get(cacheKey);
-        if (cached) {
-          ctx?.cacheHits.push({ cacheKey, cachedAt: cached.cachedAt, expiresAt: cached.expiresAt });
-          return cached.value;
-        }
+    if (cacheStore && !ctx?.skipCache && !ctx?.clearCache) {
+      const ttlMs = state.ttl != null ? parseTtl(state.ttl) : TTL_FOREVER;
+      const result = await cacheStore.getOrSet(cacheKey, ttlMs, async () => await childResolver.resolve());
+      if (!result) return undefined;
+      if (result.cacheHit) {
+        ctx?.cacheHits.push({ cacheKey, cachedAt: result.cachedAt, expiresAt: result.expiresAt });
       }
+      return result.value;
     }
 
-    // cache miss — resolve wrapped resolver
+    // clear-cache mode intentionally bypasses reads but still rewrites.
     const childValue = await childResolver.resolve();
-
-    // write to cache (even in clear-cache mode — that's the "rewrite" part)
     if (cacheStore && !ctx?.skipCache && childValue !== undefined) {
       const ttlMs = state.ttl != null ? parseTtl(state.ttl) : TTL_FOREVER;
       await cacheStore.set(cacheKey, childValue, ttlMs);
     }
-
     return childValue;
   },
 });

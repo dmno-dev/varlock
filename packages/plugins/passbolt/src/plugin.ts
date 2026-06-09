@@ -314,14 +314,11 @@ plugin.registerResolverFunction({
 
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
       const cacheKey = `passbolt:${instanceId}:resource:${resourceId}:${resolvedField || ''}`;
-      const cached = await pluginCache.get(cacheKey);
-      if (cached !== undefined) {
-        debug('cache hit for %s', cacheKey);
-        return cached;
-      }
-      const value = await selectedInstance.getResource(resourceId, resolvedField);
-      await pluginCache.set(cacheKey, value, selectedInstance.cacheTtl);
-      return value;
+      return await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.getResource(resourceId, resolvedField),
+      );
     }
 
     return await selectedInstance.getResource(resourceId, resolvedField);
@@ -369,15 +366,16 @@ plugin.registerResolverFunction({
 
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
       const cacheKey = `passboltBulk:${instanceId}:${folderPath}`;
-      const cached = await pluginCache.get(cacheKey);
-      if (cached !== undefined) {
-        debug('cache hit for %s', cacheKey);
-        if (typeof cached === 'string') return cached;
-        return JSON.stringify(cached);
+      const cachedOrFetched = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => JSON.parse(await selectedInstance.getBulkResources(folderPath)),
+      );
+      if (cachedOrFetched !== undefined) {
+        if (typeof cachedOrFetched === 'string') return cachedOrFetched;
+        return JSON.stringify(cachedOrFetched);
       }
-      const bulk = await selectedInstance.getBulkResources(folderPath);
-      await pluginCache.set(cacheKey, JSON.parse(bulk), selectedInstance.cacheTtl);
-      return bulk;
+      throw new ResolutionError('Expected Passbolt bulk response object');
     }
 
     return await selectedInstance.getBulkResources(folderPath);
@@ -404,15 +402,16 @@ plugin.registerResolverFunction({
 
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
       const cacheKey = `passboltCustomFields:${instanceId}:${resourceId}`;
-      const cached = await pluginCache.get(cacheKey);
-      if (cached !== undefined) {
-        debug('cache hit for %s', cacheKey);
-        if (typeof cached === 'string') return cached;
-        return JSON.stringify(cached);
+      const cachedOrFetched = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => JSON.parse(await selectedInstance.getCustomFieldObj(resourceId)),
+      );
+      if (cachedOrFetched !== undefined) {
+        if (typeof cachedOrFetched === 'string') return cachedOrFetched;
+        return JSON.stringify(cachedOrFetched);
       }
-      const customFields = await selectedInstance.getCustomFieldObj(resourceId);
-      await pluginCache.set(cacheKey, JSON.parse(customFields), selectedInstance.cacheTtl);
-      return customFields;
+      throw new ResolutionError('Expected Passbolt custom fields object');
     }
 
     return await selectedInstance.getCustomFieldObj(resourceId);

@@ -6,6 +6,10 @@ type InMemoryCacheEntry = {
 
 export class InMemoryCacheStore {
   private entries = new Map<string, InMemoryCacheEntry>();
+  private inFlight = new Map<
+    string,
+    Promise<{ value: any; cachedAt: number; expiresAt: number; cacheHit: boolean } | undefined>
+  >();
 
   async get(cacheKey: string): Promise<{ value: any; cachedAt: number; expiresAt: number } | undefined> {
     const entry = this.entries.get(cacheKey);
@@ -28,6 +32,49 @@ export class InMemoryCacheStore {
       cachedAt: now,
       expiresAt: Number.isFinite(ttlMs) ? now + ttlMs : now + 100 * 365.25 * 86_400_000,
     });
+  }
+
+  async getOrSet(
+    cacheKey: string,
+    ttlMs: number,
+    producer: () => Promise<any> | any,
+  ): Promise<{ value: any; cachedAt: number; expiresAt: number; cacheHit: boolean } | undefined> {
+    const existing = await this.get(cacheKey);
+    if (existing) {
+      return { ...existing, cacheHit: true };
+    }
+
+    const inFlight = this.inFlight.get(cacheKey);
+    if (inFlight) return await inFlight;
+
+    const pending = (async () => {
+      const latest = await this.get(cacheKey);
+      if (latest) return { ...latest, cacheHit: true };
+
+      const value = await producer();
+      if (value === undefined) return undefined;
+
+      await this.set(cacheKey, value, ttlMs);
+      const stored = await this.get(cacheKey);
+      if (stored) return { ...stored, cacheHit: false };
+
+      const now = Date.now();
+      return {
+        value,
+        cachedAt: now,
+        expiresAt: Number.isFinite(ttlMs) ? now + ttlMs : now + 100 * 365.25 * 86_400_000,
+        cacheHit: false,
+      };
+    })();
+
+    this.inFlight.set(cacheKey, pending);
+    try {
+      return await pending;
+    } finally {
+      if (this.inFlight.get(cacheKey) === pending) {
+        this.inFlight.delete(cacheKey);
+      }
+    }
   }
 
   delete(cacheKey: string): void {

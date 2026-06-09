@@ -170,7 +170,7 @@ Initialize a Doppler plugin instance for accessing secrets.
 - `project` (required): Doppler project name
 - `config` (required): Config name (e.g., `dev`, `stg`, `prd`, or a branch config)
 - `serviceToken` (required): Doppler service token. Should be a reference to a config item of type `dopplerServiceToken`.
-- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `0` for forever)
+- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `0` for forever). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 - `id` (optional): Instance identifier for multiple instances
 
 ```env-spec "@initDoppler"
@@ -178,14 +178,13 @@ Initialize a Doppler plugin instance for accessing secrets.
 #   project=my-project,
 #   config=dev,
 #   serviceToken=$DOPPLER_TOKEN,
-#   cacheTtl="5m"
+#   cacheTtl="1h"
 # )
 # ---
 # @type=dopplerServiceToken @sensitive
 DOPPLER_TOKEN=
 ```
 
-For global cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 </div>
 </div>
 

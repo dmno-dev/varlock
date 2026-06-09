@@ -63,6 +63,39 @@ describe('CacheStore', () => {
     });
   });
 
+  describe('getOrSet', () => {
+    it('returns existing cached value without calling producer', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:getOrSet', 'cached', 60_000);
+      const producer = vi.fn(async () => 'fresh');
+
+      const result = await store.getOrSet('plugin:test:getOrSet', 60_000, producer);
+
+      expect(result?.value).toBe('cached');
+      expect(result?.cacheHit).toBe(true);
+      expect(producer).not.toHaveBeenCalled();
+    });
+
+    it('deduplicates concurrent producers for the same key', async () => {
+      const store = new CacheStore();
+      const producer = vi.fn(async () => {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 30);
+        });
+        return 'shared-value';
+      });
+
+      const [a, b] = await Promise.all([
+        store.getOrSet('plugin:test:race', 60_000, producer),
+        store.getOrSet('plugin:test:race', 60_000, producer),
+      ]);
+
+      expect(producer).toHaveBeenCalledTimes(1);
+      expect(a?.value).toBe('shared-value');
+      expect(b?.value).toBe('shared-value');
+    });
+  });
+
   describe('expiry', () => {
     it('returns undefined for expired entry', async () => {
       const store = new CacheStore();

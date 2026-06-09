@@ -509,14 +509,11 @@ plugin.registerResolverFunction({
     // check cache if cacheTtl is configured and cache is available
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
       const cacheKey = `bw:${instanceId}:${secretId}`;
-      const cached = await pluginCache.get(cacheKey);
-      if (cached !== undefined) {
-        debug('cache hit for %s', cacheKey);
-        return cached;
-      }
-      const secretValue = await selectedInstance.getSecret(secretId);
-      await pluginCache.set(cacheKey, secretValue, selectedInstance.cacheTtl);
-      return secretValue;
+      return await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.getSecret(secretId),
+      );
     }
 
     return await selectedInstance.getSecret(secretId);

@@ -23,6 +23,16 @@ INSTANCE_ID=cache(randomUuid())
 
 This allows a new development environment to generate values, while keeping them stable.
 
+
+## TTL format (shared everywhere)
+
+All cache TTLs use the same duration format and parser:
+
+- plugin `cacheTtl` options (for example `@initOp(..., cacheTtl=1h)`)
+- `cache(someFunc(), ttl=1h)`
+
+You can use values like `"5m"`, `"1h"`, `"1d"`, `"500ms"`, or `0` (forever). For full duration syntax, see [`duration`](/reference/data-types/#duration).
+
 ## Global cache disable
 
 Caching is mostly useful for local development, when there may be many invocations of varlock, and we have biometric encryption available. So default behavior is to disable caching in CI and when local encryption is using the basic file-based fallback.

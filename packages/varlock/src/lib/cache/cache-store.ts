@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { getUserVarlockDir } from '../user-config-dir';
 import * as localEncrypt from '../local-encrypt';
 import { createDebug } from '../debug';
@@ -8,8 +9,12 @@ const debug = createDebug('varlock:cache');
 const LOCK_WAIT_MS = 25;
 const LOCK_TIMEOUT_MS = 5_000;
 const LOCK_STALE_MS = 30_000;
+const KEY_LOCK_WAIT_MS = 50;
+const KEY_LOCK_TIMEOUT_MS = 5 * 60_000;
+const KEY_LOCK_STALE_MS = 10 * 60_000;
 const MAX_CACHE_KEY_LENGTH = 2_048;
 const lockWaitBuffer = new Int32Array(new SharedArrayBuffer(4));
+const TTL_FOREVER_MS = 100 * 365.25 * 86_400_000;
 
 type CacheEntry = {
   /** encrypted value */
@@ -24,6 +29,11 @@ type CacheData = Record<string, CacheEntry>;
 
 export type CacheStoreLike = {
   get(cacheKey: string): Promise<{ value: any; cachedAt: number; expiresAt: number } | undefined>;
+  getOrSet(
+    cacheKey: string,
+    ttlMs: number,
+    producer: () => Promise<any> | any,
+  ): Promise<{ value: any; cachedAt: number; expiresAt: number; cacheHit: boolean } | undefined>;
   set(cacheKey: string, value: any, ttlMs: number): Promise<void>;
   delete(cacheKey: string): void;
   clearAll(): number;
@@ -85,6 +95,49 @@ export class CacheStore {
   }
 
   /**
+   * Atomically get a cache entry or compute+store it once per key.
+   *
+   * Uses a per-key lock so concurrent callers (including across processes)
+   * don't stampede the producer for the same cache key.
+   */
+  async getOrSet(
+    cacheKey: string,
+    ttlMs: number,
+    producer: () => Promise<any> | any,
+  ): Promise<{ value: any; cachedAt: number; expiresAt: number; cacheHit: boolean } | undefined> {
+    this.assertValidCacheKey(cacheKey);
+
+    const existing = await this.get(cacheKey);
+    if (existing) {
+      return { ...existing, cacheHit: true };
+    }
+
+    return await this.withKeyLock(cacheKey, async () => {
+      const latest = await this.get(cacheKey);
+      if (latest) {
+        return { ...latest, cacheHit: true };
+      }
+
+      const value = await producer();
+      if (value === undefined) return undefined;
+
+      await this.set(cacheKey, value, ttlMs);
+      const stored = await this.get(cacheKey);
+      if (stored) {
+        return { ...stored, cacheHit: false };
+      }
+
+      const now = Date.now();
+      return {
+        value,
+        cachedAt: now,
+        expiresAt: Number.isFinite(ttlMs) ? now + ttlMs : now + TTL_FOREVER_MS,
+        cacheHit: false,
+      };
+    });
+  }
+
+  /**
    * Encrypt and store a value with a TTL.
    * The value is JSON-stringified before encryption to preserve its type on retrieval.
    */
@@ -102,7 +155,7 @@ export class CacheStore {
           v: encrypted,
           c: now,
           // Infinity TTL → use a far-future expiry (~100 years)
-          e: Number.isFinite(ttlMs) ? now + ttlMs : now + 100 * 365.25 * 86_400_000,
+          e: Number.isFinite(ttlMs) ? now + ttlMs : now + TTL_FOREVER_MS,
         };
         this.saveFile(data);
       });
@@ -282,6 +335,58 @@ export class CacheStore {
 
     try {
       return fn();
+    } finally {
+      try {
+        fs.rmSync(lockPath, { recursive: true, force: true });
+      } catch {
+        // lock cleanup failure is non-fatal
+      }
+    }
+  }
+
+  private async withKeyLock<T>(cacheKey: string, fn: () => Promise<T>): Promise<T> {
+    const dir = path.dirname(this.filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    }
+
+    const keyLocksDir = `${this.filePath}.keylocks`;
+    if (!fs.existsSync(keyLocksDir)) {
+      fs.mkdirSync(keyLocksDir, { recursive: true, mode: 0o700 });
+    }
+
+    const keyHash = createHash('sha256').update(cacheKey).digest('hex');
+    const lockPath = path.join(keyLocksDir, `${keyHash}.lock`);
+    const deadline = Date.now() + KEY_LOCK_TIMEOUT_MS;
+
+    while (true) {
+      try {
+        fs.mkdirSync(lockPath, { mode: 0o700 });
+        break;
+      } catch (err: any) {
+        if (err?.code !== 'EEXIST') {
+          throw err;
+        }
+        try {
+          const stat = fs.statSync(lockPath);
+          if (Date.now() - stat.mtimeMs > KEY_LOCK_STALE_MS) {
+            fs.rmSync(lockPath, { recursive: true, force: true });
+            continue;
+          }
+        } catch {
+          // lock disappeared between checks; retry
+        }
+        if (Date.now() >= deadline) {
+          throw new Error(`Timed out waiting for cache key lock for ${cacheKey}`);
+        }
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, KEY_LOCK_WAIT_MS);
+        });
+      }
+    }
+
+    try {
+      return await fn();
     } finally {
       try {
         fs.rmSync(lockPath, { recursive: true, force: true });

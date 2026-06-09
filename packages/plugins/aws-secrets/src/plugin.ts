@@ -714,16 +714,14 @@ plugin.registerResolverFunction({
       // store the full secret payload, then apply jsonKey extraction per lookup.
       // This avoids cache collisions between awsSecret("x#foo") and awsSecret("x#bar").
       const cacheKey = `awsSecret:${instanceId}:${finalSecretId}`;
-      const cached = await pluginCache.get(cacheKey);
-      if (cached !== undefined) {
-        debug('cache hit for %s', cacheKey);
-        if (typeof cached !== 'string') {
-          throw new ResolutionError('Cached AWS secret value has unexpected type (expected string)');
-        }
-        return selectedInstance.extractJsonKeyFromSecret(cached, jsonKey);
+      const fullSecretValue = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.getSecret(finalSecretId),
+      );
+      if (typeof fullSecretValue !== 'string') {
+        throw new ResolutionError('Cached AWS secret value has unexpected type (expected string)');
       }
-      const fullSecretValue = await selectedInstance.getSecret(finalSecretId);
-      await pluginCache.set(cacheKey, fullSecretValue, selectedInstance.cacheTtl);
       return selectedInstance.extractJsonKeyFromSecret(fullSecretValue, jsonKey);
     }
 
@@ -851,16 +849,14 @@ plugin.registerResolverFunction({
       // store the full parameter payload, then apply jsonKey extraction per lookup.
       // This avoids cache collisions between awsParam("x#foo") and awsParam("x#bar").
       const cacheKey = `awsParam:${instanceId}:${finalParameterName}`;
-      const cached = await pluginCache.get(cacheKey);
-      if (cached !== undefined) {
-        debug('cache hit for %s', cacheKey);
-        if (typeof cached !== 'string') {
-          throw new ResolutionError('Cached AWS parameter value has unexpected type (expected string)');
-        }
-        return selectedInstance.extractJsonKeyFromParameter(cached, jsonKey);
+      const fullParameterValue = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.getParameter(finalParameterName),
+      );
+      if (typeof fullParameterValue !== 'string') {
+        throw new ResolutionError('Cached AWS parameter value has unexpected type (expected string)');
       }
-      const fullParameterValue = await selectedInstance.getParameter(finalParameterName);
-      await pluginCache.set(cacheKey, fullParameterValue, selectedInstance.cacheTtl);
       return selectedInstance.extractJsonKeyFromParameter(fullParameterValue, jsonKey);
     }
 

@@ -359,13 +359,13 @@ plugin.registerResolverFunction({
 
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
       const cacheKey = `doppler:${instanceId}:${selectedInstance.getCacheScope()}:bulk`;
-      const cached = await pluginCache.get(cacheKey);
-      let secrets: Record<string, string>;
-      if (cached !== undefined && typeof cached === 'object' && cached !== null) {
-        secrets = cached as Record<string, string>;
-      } else {
-        secrets = JSON.parse(await selectedInstance.listSecrets()) as Record<string, string>;
-        await pluginCache.set(cacheKey, secrets, selectedInstance.cacheTtl);
+      const secrets = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => JSON.parse(await selectedInstance.listSecrets()) as Record<string, string>,
+      );
+      if (!secrets || typeof secrets !== 'object') {
+        throw new ResolutionError('Cached Doppler bulk payload has unexpected type (expected object)');
       }
 
       if (!(secretName in secrets)) {
@@ -429,13 +429,15 @@ plugin.registerResolverFunction({
     const selectedInstance = pluginInstances[instanceId];
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
       const cacheKey = `doppler:${instanceId}:${selectedInstance.getCacheScope()}:bulk`;
-      const cached = await pluginCache.get(cacheKey);
-      if (cached !== undefined && typeof cached === 'object' && cached !== null) {
-        return JSON.stringify(cached);
+      const cachedOrFetched = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => JSON.parse(await selectedInstance.listSecrets()),
+      );
+      if (cachedOrFetched !== undefined && typeof cachedOrFetched === 'object' && cachedOrFetched !== null) {
+        return JSON.stringify(cachedOrFetched);
       }
-      const bulk = await selectedInstance.listSecrets();
-      await pluginCache.set(cacheKey, JSON.parse(bulk), selectedInstance.cacheTtl);
-      return bulk;
+      throw new ResolutionError('Cached Doppler bulk payload has unexpected type (expected object)');
     }
     return await selectedInstance.listSecrets();
   },

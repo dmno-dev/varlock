@@ -931,21 +931,16 @@ plugin.registerResolverFunction({
     // check cache if cacheTtl is configured and cache is available
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
       const cacheKey = `op:${instanceId}:${opReference}`;
-      const cached = await pluginCache.get(cacheKey);
-      if (cached !== undefined) {
-        debug('cache hit for %s', cacheKey);
-        return cached;
-      }
-      try {
-        const opValue = await selectedInstance.readItem(opReference);
-        await pluginCache.set(cacheKey, opValue, selectedInstance.cacheTtl);
-        return opValue;
-      } catch (err) {
-        if (shouldAllowMissing && isNotFoundError(err)) {
-          return undefined;
+      return await pluginCache.getOrSet(cacheKey, selectedInstance.cacheTtl, async () => {
+        try {
+          return await selectedInstance.readItem(opReference);
+        } catch (err) {
+          if (shouldAllowMissing && isNotFoundError(err)) {
+            return undefined;
+          }
+          throw err;
         }
-        throw err;
-      }
+      });
     }
 
     try {
@@ -1020,14 +1015,11 @@ plugin.registerResolverFunction({
     // check cache if cacheTtl is configured and cache is available
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
       const cacheKey = `opEnv:${instanceId}:${environmentId}`;
-      const cached = await pluginCache.get(cacheKey);
-      if (cached !== undefined) {
-        debug('cache hit for %s', cacheKey);
-        return cached;
-      }
-      const result = await selectedInstance.readEnvironment(environmentId);
-      await pluginCache.set(cacheKey, result, selectedInstance.cacheTtl);
-      return result;
+      return await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.readEnvironment(environmentId),
+      );
     }
 
     return await selectedInstance.readEnvironment(environmentId);
