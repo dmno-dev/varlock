@@ -246,7 +246,9 @@ describe('CLI Commands', () => {
         '--',
         'sh',
         '-c',
-        `SHARED_VAR=from-shell-inner node ${LOCAL_VARLOCK_CLI} load --format json --path ../overrides/.env.schema`,
+        // Forward-slash the (absolute, possibly Windows) path so it survives the sh string;
+        // backslashes would be eaten by the shell. node accepts `C:/...` on Windows.
+        `SHARED_VAR=from-shell-inner node "${LOCAL_VARLOCK_CLI.replace(/\\/g, '/')}" load --format json --path ../overrides/.env.schema`,
       ], {
         cwd: 'smoke-test-multi-path/base',
         captureOutput: true,
