@@ -20,10 +20,8 @@ The plugin uses base64-encoded configuration tokens for programmatic access to y
 - **Flexible secret access** - Fetch by record UID, title, `#field` selector, or [Keeper notation](https://docs.keeper.io/secrets-manager/secrets-manager/developer-sdk-library/javascript-sdk#notation)
 - **Standard and custom fields** - Access any field type including password, login, URL, notes, and custom fields
 - **Multiple instances** - Connect to different Keeper applications or vaults simultaneously
-- **Built-in secret caching** - Avoids redundant API calls within a single resolution pass
+- **Opt-in secret caching** via `cacheTtl` - see the [Caching guide](/guides/caching/)
 - **Comprehensive error handling** with helpful tips
-
-This caching is in-session plugin memoization. For global varlock cache modes and CLI controls, see the [Caching guide](/guides/caching/).
 
 ## Installation and setup
 
