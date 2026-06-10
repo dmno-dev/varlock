@@ -14,6 +14,11 @@ import { isCancel } from '@clack/prompts';
 import _ from '@env-spec/utils/my-dash';
 import { pathExists } from '@env-spec/utils/fs-utils';
 import { getUserVarlockDir } from '../../lib/user-config-dir';
+import { PluginCacheAccessor } from '../../lib/cache/plugin-cache-accessor';
+import { NoopCacheStore } from '../../lib/cache/noop-cache-store';
+import type { CacheStoreLike } from '../../lib/cache/cache-store';
+import { parseTtl } from '../../lib/cache/ttl-parser';
+import { resolveCacheTtl } from '../../lib/cache/resolve-cache-ttl';
 import { confirm } from '../../cli/helpers/prompts';
 
 
@@ -79,6 +84,8 @@ const varlockPluginLibExports = {
   SchemaError,
   ResolutionError,
   createDebug,
+  parseTtl,
+  resolveCacheTtl,
 };
 
 
@@ -208,6 +215,22 @@ export class VarlockPlugin {
     };
   }
 
+
+  // -- Cache API for plugin authors --
+  private _cacheAccessor?: PluginCacheAccessor;
+  /** @internal set by EnvGraph when plugins are loaded */
+  _cacheStore?: CacheStoreLike;
+
+  /**
+   * Scoped cache accessor for this plugin.
+   * Keys are automatically namespaced to prevent collisions between plugins.
+   */
+  get cache(): PluginCacheAccessor {
+    // when caching is unavailable (--skip-cache / @cache=disabled), hand out a
+    // no-op-backed accessor so plugin code doesn't need to special-case it
+    this._cacheAccessor ||= new PluginCacheAccessor(this.name, this._cacheStore ?? new NoopCacheStore());
+    return this._cacheAccessor;
+  }
 
   readonly dataTypes?: Array<Parameters<typeof createEnvGraphDataType>[0]> = [];
   registerDataType(dataTypeDef: Parameters<typeof createEnvGraphDataType>[0]) {
@@ -446,6 +469,11 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
 
   plugin.installDecoratorInstances.push(pluginDecorator);
   graph.plugins.push(plugin);
+
+  // propagate cache store so plugin.cache is available during module execution
+  if (graph._cacheStore) {
+    plugin._cacheStore = graph._cacheStore;
+  }
 
   // this finally executes the plugin code
   await plugin.executePluginModule();
@@ -769,4 +797,3 @@ export type VarlockPluginCtx = {
 };
 
 export type definePluginFn = (p: VarlockPlugin) => void;
-

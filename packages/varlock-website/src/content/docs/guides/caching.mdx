@@ -1,0 +1,108 @@
+---
+title: Caching
+description: How varlock caching works, how to choose cache mode, and how to debug cache behavior
+---
+
+Varlock has a built-in caching system, secured by [local encryption](/guides/local-encryption/).
+
+Rather than caching environment variable values, it is a general key-value store, usable by plugins to cache arbitrary internal requests, or by an explicit [`cache()`](/reference/functions/#cache) function to cache any resolver.
+
+## Plugin cache behavior
+
+Plugins have access to cache helpers that can be used to avoid repeated network round trips, or to hold short-lived tokens. They will usually expose params (like `cacheTtl`) to let the user opt into caching. This still respects global cache mode and CLI flags. Each plugin can decide how to cache things and it will often depend on the shape of the external API.
+
+`cacheTtl` can be set dynamically — for example `cacheTtl=forEnv(dev, "1h")` to cache only in development. Setting it to `false` (or an empty string) disables caching for that plugin instance.
+
+## Common `cache()` use case: stable generated values
+
+The most common use case for `cache()` is to hold [generated random values](/reference/functions/#random-value-generators) stable across restarts for local development.
+
+```env-spec title=".env.local"
+# Good for local-only generated values
+INSTANCE_ID=cache(randomUuid(), ttl=1d)       # cache for 1 day
+TRACKING_ID=cache(randomUuid(), ttl=forever)  # cache until manually cleared
+SESSION_SECRET=cache(randomHex(32))           # default is ttl=forever
+```
+
+This allows a new environment to generate values, while keeping them stable.
+
+## TTL duration format (shared everywhere)
+
+Both plugins and `cache()` use the same duration format and parser for TTLs - values like `"30s"`, `"5m"`, `"1h"`, `"500ms"`, or `"2days"` - based on our [`duration` data type](/reference/data-types/#duration).
+
+The format is a number followed by a unit (`ms`, `s`, `m`, `h`, `d`, `w`), with long forms and plurals also accepted. For example, minute accepts any of `m`, `min`, `mins`, `minute`, `minutes`. Bare numbers are interpreted as milliseconds, and must be plain decimals (no hex or exponent notation).
+
+Use the keyword `forever` to mean "cache until manually cleared". A TTL of `0` is rejected as ambiguous - use `forever` instead, or set `cacheTtl=false` to disable plugin caching.
+
+- `@initOp(..., cacheTtl=30m)`
+- `cache(someFunc(), ttl=1h)`
+- `cache(someFunc(), ttl=forever)`
+
+## Cache modes
+
+Caching is mostly useful for local development, where there may be many invocations of varlock and strong [local encryption](/guides/local-encryption/) (e.g., biometric-protected keys) is available. The default mode (`auto`) picks the most secure persistent option available:
+
+1. **disk** encrypted via local encryption - when a native encryption backend is available and not running in CI
+2. **disk** encrypted with `_VARLOCK_CACHE_KEY` - when that env var is set (see below)
+3. in-process **memory** caching otherwise (CI without a key, or the basic file-based encryption fallback)
+
+In memory mode, entries still avoid repeated work within a single invocation, but are not persisted across invocations.
+
+To explicitly set the cache mode (or disable caching entirely), use the [`@cache`](/reference/root-decorators/#cache) root decorator. Forcing `@cache=disk` in CI or while using the file-based encryption fallback is allowed, but emits a warning - with the file backend, the decryption key lives on the same disk as the cache, so encryption is obfuscation-only.
+
+## Disk caching in CI with `_VARLOCK_CACHE_KEY`
+
+Memory mode doesn't help when a CI job runs varlock in several separate processes. If the `_VARLOCK_CACHE_KEY` env var is set (a 256-bit hex key, typically provided as a CI secret), `auto` mode uses a **disk** cache encrypted with that key instead of falling back to memory. The key only ever lives in the environment - never on the runner's disk - so the persisted cache file is genuinely encrypted.
+
+This is deliberately a separate variable from `_VARLOCK_ENV_KEY` (used for [encrypted deployments](/guides/encrypted-deployments/)) - that one is auto-generated and ephemeral in some flows, which would silently defeat caching. The key format is the same though, so you can generate one with `varlock generate-key`.
+
+Each key gets its own cache file (named by key fingerprint), so rotating the key naturally invalidates the old cache. `varlock cache` also operates on the active key's cache file when `_VARLOCK_CACHE_KEY` is set.
+
+## Disk cache location and security
+
+The disk cache lives at `~/.config/varlock/cache/`, with one file per encryption key.
+
+A few things to keep in mind:
+
+- Only entry **values** are encrypted. Cache keys are stored in plaintext and include file paths, item names, and resolver source text.
+- The disk cache is per-OS-user and shared across all projects. This is intentional - projects often share config - but it means any env file you load can read and write it, so treat untrusted repos accordingly.
+- With the file-based encryption fallback, the decryption key sits on the same disk as the cache, so encryption is obfuscation-only (see warning above).
+
+## Per-invocation CLI controls
+
+[`varlock load`](/reference/cli-commands/#load), [`varlock run`](/reference/cli-commands/#run), and [`varlock printenv`](/reference/cli-commands/#printenv) support:
+
+- `--skip-cache`: disables cache reads and writes for that invocation (overrides `@cache`)
+- `--clear-cache`: clears the active cache store before resolving values
+
+If both are used, the cache is cleared first, then reads and writes are skipped for the rest of the run.
+
+## Inspecting and clearing cache
+
+Use [`varlock cache`](/reference/cli-commands/#cache) to inspect and clear the **disk cache**:
+
+```bash
+varlock cache status
+varlock cache clear --yes
+varlock cache clear --plugin 1password --yes
+```
+
+Notes:
+
+- This command manages disk cache entries only.
+- In `memory` mode, entries are process-local and are not visible via `varlock cache`.
+
+## Troubleshooting
+
+### "I changed a resolver but still see old values"
+
+- If you used a custom `key`, that key may intentionally pin the cache entry.
+- Run with `--clear-cache` or clear entries via `varlock cache clear`.
+
+### "`varlock cache` shows nothing, but caching seems active"
+
+- You are likely in `memory` mode (for example in CI or file-backend fallback mode).
+
+### "I want no cache artifacts on disk"
+
+- Use `@cache=memory` (or `@cache=disabled`) and avoid `disk` mode.

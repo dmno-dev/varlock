@@ -1,5 +1,8 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 import ky from 'ky';
+import { createHash } from 'node:crypto';
 import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;
@@ -7,6 +10,13 @@ const { SchemaError, ResolutionError } = plugin.ERRORS;
 plugin.name = 'akeyless';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
+// capture cache accessor while plugin proxy context is active
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache unavailable in this runtime context
+}
 plugin.standardVars = {
   initDecorator: '@initAkeyless',
   params: {
@@ -55,6 +65,8 @@ class AkeylessPluginInstance {
   private pathPrefix?: string;
   private cachedToken?: CachedToken;
   private secretCache = new Map<string, Promise<any>>();
+  /** optional cache TTL - when set, resolved static secret values are cached */
+  cacheTtl?: string | number;
 
   constructor(
     readonly id: string,
@@ -88,6 +100,17 @@ class AkeylessPluginInstance {
       'pathPrefix:',
       this.pathPrefix,
     );
+  }
+
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which Akeyless gateway/account is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    // the access id (or OIDC access id) identifies the account; it is hashed, never stored raw
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.apiUrl, this.accessId || this.oidcAccessId]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
   }
 
   applyPathPrefix(name: string): string {
@@ -247,8 +270,9 @@ class AkeylessPluginInstance {
     throw new ResolutionError(errorMessage, { tip: errorTip });
   }
 
-  async getStaticSecret(secretName: string, jsonKey?: string): Promise<string> {
-    const value = await this.cachedFetch(`static:${secretName}`, async () => {
+  /** fetch the raw static secret value (no JSON key extraction) */
+  fetchStaticSecret(secretName: string): Promise<string> {
+    return this.cachedFetch(`static:${secretName}`, async () => {
       const token = await this.authenticate();
       try {
         debug(`Fetching static secret: ${secretName}`);
@@ -275,20 +299,26 @@ class AkeylessPluginInstance {
         this.handleApiError(err, 'static', secretName);
       }
     });
+  }
 
+  /** extract a key from a JSON-encoded static secret value, or return the raw value if no key specified */
+  extractStaticJsonKey(value: string, jsonKey?: string): string {
     // For static secrets, JSON key extraction requires parsing the string value
-    if (jsonKey) {
-      try {
-        const parsed = JSON.parse(value);
-        return extractJsonKey(parsed, jsonKey, 'secret JSON');
-      } catch (err) {
-        if (err instanceof ResolutionError) throw err;
-        throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
-          tip: 'Ensure the secret value is valid JSON when extracting a specific key',
-        });
-      }
+    if (!jsonKey) return value;
+    try {
+      const parsed = JSON.parse(value);
+      return extractJsonKey(parsed, jsonKey, 'secret JSON');
+    } catch (err) {
+      if (err instanceof ResolutionError) throw err;
+      throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
+        tip: 'Ensure the secret value is valid JSON when extracting a specific key',
+      });
     }
-    return value;
+  }
+
+  async getStaticSecret(secretName: string, jsonKey?: string): Promise<string> {
+    const value = await this.fetchStaticSecret(secretName);
+    return this.extractStaticJsonKey(value, jsonKey);
   }
 
   async getDynamicSecret(secretName: string, jsonKey?: string): Promise<string> {
@@ -370,6 +400,7 @@ plugin.registerRootDecorator({
 
     return {
       id,
+      cacheTtlResolver: objArgs.cacheTtl,
       accessIdResolver: objArgs.accessId,
       accessKeyResolver: objArgs.accessKey,
       apiUrlResolver: objArgs.apiUrl,
@@ -379,7 +410,7 @@ plugin.registerRootDecorator({
     };
   },
   async execute({
-    id, accessIdResolver, accessKeyResolver, apiUrlResolver,
+    id, cacheTtlResolver, accessIdResolver, accessKeyResolver, apiUrlResolver,
     pathPrefixResolver, oidcAccessIdResolver, oidcTokenResolver,
   }) {
     const accessId = await accessIdResolver?.resolve();
@@ -389,6 +420,10 @@ plugin.registerRootDecorator({
     const oidcAccessId = await oidcAccessIdResolver?.resolve();
     const oidcToken = await oidcTokenResolver?.resolve();
     pluginInstances[id].setAuth(accessId, accessKey, apiUrl, pathPrefix, oidcAccessId, oidcToken);
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -558,12 +593,30 @@ plugin.registerResolverFunction({
     // Apply pathPrefix
     const finalSecretName = selectedInstance.applyPathPrefix(secretName);
 
+    // NOTE: dynamic and rotated secrets are designed to change per fetch and are never cached
     if (secretType === 'dynamic') {
       return await selectedInstance.getDynamicSecret(finalSecretName, jsonKey);
     }
     if (secretType === 'rotated') {
       return await selectedInstance.getRotatedSecret(finalSecretName, jsonKey);
     }
+
+    // check cache if cacheTtl is configured and cache is available (static secrets only)
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      // store the full secret value, then apply jsonKey extraction per lookup
+      // (avoids collisions between akeyless("x#foo") and akeyless("x#bar"))
+      const cacheKey = `akeyless:${instanceId}:${selectedInstance.cacheKeyIdentity}:${finalSecretName}`;
+      const fullValue = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.fetchStaticSecret(finalSecretName),
+      );
+      if (typeof fullValue !== 'string') {
+        throw new ResolutionError('Cached Akeyless secret value has unexpected type (expected string)');
+      }
+      return selectedInstance.extractStaticJsonKey(fullValue, jsonKey);
+    }
+
     return await selectedInstance.getStaticSecret(finalSecretName, jsonKey);
   },
 });

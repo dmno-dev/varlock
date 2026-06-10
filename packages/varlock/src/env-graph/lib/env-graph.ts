@@ -14,6 +14,7 @@ import {
 } from './decorators';
 import { getErrorLocation } from './error-location';
 import type { VarlockPlugin } from './plugins';
+import { runWithResolutionContext, getResolutionContext } from './resolution-context';
 import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
 import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
 import { buildOverrideProvenanceMetadata, type OverrideProvenanceMetadata } from '../../lib/injected-env-provenance';
@@ -67,6 +68,16 @@ export class EnvGraph {
   // (which would mean it's always through the lens of the current directory/package)
 
   basePath?: string;
+
+  // -- Cache --
+  /** @internal cache store instance, initialized during loading */
+  _cacheStore?: import('../../lib/cache/cache-store').CacheStoreLike;
+  /** @internal cache mode selected from CLI/loader auto policy */
+  _cacheMode: 'auto' | 'memory' | 'disk' | 'disabled' = 'auto';
+  /** @internal --clear-cache flag: clear cache then resolve + rewrite */
+  _clearCacheMode = false;
+  /** @internal --skip-cache flag: skip cache entirely */
+  _skipCacheMode = false;
 
   /** root data source (.env.schema) */
   rootDataSource?: EnvGraphDataSource;
@@ -358,6 +369,76 @@ export class EnvGraph {
       }
     }
 
+    // apply global cache policy early so plugin modules see the final setting
+    // when @plugin decorators execute below.
+    const cacheDec = this.getRootDec('cache');
+    if (cacheDec) {
+      const cacheSetting = await cacheDec.resolve();
+      let cacheMode: 'auto' | 'memory' | 'disk' | 'disabled' = 'auto';
+      if (cacheSetting === 'auto' || cacheSetting === 'memory' || cacheSetting === 'disk' || cacheSetting === 'disabled') {
+        cacheMode = cacheSetting;
+      } else if (cacheSetting !== undefined) {
+        // dynamic values are validated here (static ones already failed in process());
+        // undefined (e.g. forEnv with no match) falls back to auto
+        cacheDec._errors.push(new SchemaError(
+          `@cache resolved to an invalid value (${JSON.stringify(cacheSetting)}) — must be one of: "auto", "memory", "disk", "disabled"`,
+        ));
+      }
+      if (cacheMode === 'disabled') {
+        this._cacheMode = 'disabled';
+        this._skipCacheMode = true;
+        this._cacheStore = undefined;
+      } else if (!this._skipCacheMode) {
+        const { CacheStore, InMemoryCacheStore } = await import('../../lib/cache');
+        if (cacheMode === 'memory') {
+          this._cacheMode = 'memory';
+          this._cacheStore = new InMemoryCacheStore();
+        } else if (cacheMode === 'disk') {
+          // explicit disk mode overrides the auto policy's safety fallback — allowed, but warn
+          const localEncrypt = await import('../../lib/local-encrypt');
+          const { createEnvKeyCacheStore, getCacheEnvKey } = await import('../../lib/cache');
+          const envKey = getCacheEnvKey(this.processEnvOverride ?? process.env);
+          const backendIsFile = localEncrypt.getBackendInfo().type === 'file';
+
+          let diskStore: import('../../lib/cache/cache-store').CacheStoreLike | undefined;
+          if (backendIsFile && envKey) {
+            // env-provided key beats the file fallback — the key never touches disk
+            try {
+              diskStore = createEnvKeyCacheStore(envKey);
+            } catch (err) {
+              cacheDec._errors.push(new SchemaError(
+                `_VARLOCK_CACHE_KEY is set but invalid (${err instanceof Error ? err.message : err}) — falling back to file-based encryption`,
+                { isWarning: true },
+              ));
+            }
+          }
+          if (!diskStore) {
+            if (backendIsFile) {
+              cacheDec._errors.push(new SchemaError(
+                '@cache=disk with the file-based encryption fallback stores the decryption key on the same disk as the cache — encrypted values are only obfuscated',
+                { isWarning: true },
+              ));
+            } else if (this.ciEnvInfo.isCI) {
+              cacheDec._errors.push(new SchemaError(
+                '@cache=disk in CI persists encrypted values on the runner disk — make sure the runner is ephemeral or this is intended',
+                { isWarning: true },
+              ));
+            }
+            diskStore = new CacheStore();
+          }
+          this._cacheMode = 'disk';
+          this._cacheStore = diskStore;
+        } else if (cacheMode === 'auto') {
+          if (!this._cacheStore) {
+            if (this._cacheMode === 'memory') this._cacheStore = new InMemoryCacheStore();
+            else if (this._cacheMode === 'disk') this._cacheStore = new CacheStore();
+          }
+        }
+      }
+    } else if (this._skipCacheMode) {
+      this._cacheStore = undefined;
+    }
+
     // check declared standardVars against the environment
     // (runs after root decorator processing so decValueResolver.deps is available)
     for (const plugin of this.plugins) {
@@ -492,7 +573,18 @@ export class EnvGraph {
 
         // mark item as beginning to actually resolve
         itemsToResolveStatus[itemKey] = true; // true means in progress
-        await item.resolve();
+        await runWithResolutionContext({
+          cacheStore: this._cacheStore,
+          skipCache: this._skipCacheMode,
+          cacheHits: [],
+          currentItem: item,
+        }, async () => {
+          await item.resolve();
+          const ctx = getResolutionContext();
+          if (ctx?.cacheHits.length) {
+            item._cacheHits = ctx.cacheHits;
+          }
+        });
         markItemCompleted(itemKey);
       };
 
@@ -554,7 +646,8 @@ export class EnvGraph {
     for (const itemKey of this.sortedConfigKeys) {
       // _VARLOCK_ENV_KEY is used to encrypt/decrypt the blob itself — including it
       // would be redundant (the runtime already has it via process.env) and wasteful.
-      if (itemKey === '_VARLOCK_ENV_KEY') continue;
+      // _VARLOCK_CACHE_KEY encrypts the disk cache — it must never land in the blob.
+      if (itemKey === '_VARLOCK_ENV_KEY' || itemKey === '_VARLOCK_CACHE_KEY') continue;
       const item = this.configSchema[itemKey];
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,

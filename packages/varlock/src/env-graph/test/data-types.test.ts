@@ -195,3 +195,111 @@ describe('string data type - matches option', () => {
     expect(g.configSchema.MY_VAR.isValid).toBe(true);
   });
 });
+
+describe('duration data type', () => {
+  describe('output unit', () => {
+    it('defaults to milliseconds', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=duration
+        TIMEOUT=1h
+      `);
+      expect(g.configSchema.TIMEOUT.isValid).toBe(true);
+      expect(g.configSchema.TIMEOUT.resolvedValue).toBe(3_600_000);
+    });
+
+    it('supports seconds output', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=duration(output="seconds")
+        TIMEOUT=1h
+      `);
+      expect(g.configSchema.TIMEOUT.isValid).toBe(true);
+      expect(g.configSchema.TIMEOUT.resolvedValue).toBe(3600);
+    });
+
+    it('supports minutes output', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=duration(output="minutes")
+        TIMEOUT=2h
+      `);
+      expect(g.configSchema.TIMEOUT.resolvedValue).toBe(120);
+    });
+
+    it('supports days output for week input', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=duration(output="days")
+        EXPIRY=2w
+      `);
+      expect(g.configSchema.EXPIRY.resolvedValue).toBe(14);
+    });
+
+    it('rejects invalid output unit', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=duration(output="lightyears")
+        BAD=1h
+      `);
+      expect(g.configSchema.BAD.isValid).toBe(false);
+    });
+  });
+
+  describe('input formats', () => {
+    it('accepts long-form units', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=duration(output="minutes")
+        T=2hours
+      `);
+      expect(g.configSchema.T.resolvedValue).toBe(120);
+    });
+
+    it('accepts bare-number ms strings', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=duration
+        T=5000
+      `);
+      expect(g.configSchema.T.resolvedValue).toBe(5000);
+    });
+
+    it('rejects garbage', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=duration
+        T=banana
+      `);
+      expect(g.configSchema.T.isValid).toBe(false);
+    });
+  });
+
+  describe('min/max validation', () => {
+    it('enforces min', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=duration(min="5m")
+        T=1m
+      `);
+      expect(g.configSchema.T.isValid).toBe(false);
+    });
+
+    it('accepts value within bounds', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=duration(min="5m", max="1h")
+        T=10m
+      `);
+      expect(g.configSchema.T.isValid).toBe(true);
+    });
+
+    it('enforces max', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=duration(max="1h")
+        T=2h
+      `);
+      expect(g.configSchema.T.isValid).toBe(false);
+    });
+
+    it('compares bounds in the output unit', async () => {
+      // 1500ms input → output 1.5s, max 2s → should pass
+      const g = await loadAndResolve(outdent`
+        # @type=duration(output="seconds", max="2s")
+        T=1500ms
+      `);
+      expect(g.configSchema.T.isValid).toBe(true);
+      expect(g.configSchema.T.resolvedValue).toBe(1.5);
+    });
+  });
+});

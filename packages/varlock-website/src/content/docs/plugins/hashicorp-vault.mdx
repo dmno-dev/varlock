@@ -358,6 +358,7 @@ Initialize a HashiCorp Vault / OpenBao plugin instance.
 - `defaultPath` (optional): Default secret path when no path argument is given to `vaultSecret()`
 - `pathPrefix` (optional): Prefix automatically prepended to all secret paths
 - `id` (optional): Instance identifier for multiple instances
+- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 
 ```env-spec "@initHcpVault"
 # @initHcpVault(url="https://vault.example.com:8200", defaultPath=secret/myapp/config)

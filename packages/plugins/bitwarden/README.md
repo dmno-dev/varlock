@@ -123,6 +123,7 @@ Initialize a Bitwarden Secrets Manager plugin instance.
 - `accessToken: string` (required) - Machine account access token
 - `apiUrl?: string` - API URL for self-hosted Bitwarden (defaults to `https://api.bitwarden.com`)
 - `identityUrl?: string` - Identity service URL for self-hosted Bitwarden (defaults to `https://identity.bitwarden.com`)
+- `cacheTtl?: string | number` - Cache resolved values from `bitwarden()` for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### Functions

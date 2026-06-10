@@ -1,4 +1,6 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 
 import { GoogleAuth } from 'google-auth-library';
 import { getOidcToken } from '@env-spec/utils/oidc-tokens';
@@ -10,6 +12,14 @@ const GSM_ICON = 'devicon:googlecloud';
 plugin.name = 'gsm';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
+// capture cache accessor while the plugin proxy context is active
+// (the `plugin` proxy is only valid during module initialization, not during resolve())
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache not available (e.g., no encryption key)
+}
 plugin.icon = GSM_ICON;
 plugin.standardVars = {
   initDecorator: '@initGsm',
@@ -25,6 +35,8 @@ class GsmPluginInstance {
   private workloadIdentityProvider?: string;
   private serviceAccountEmail?: string;
   private oidcToken?: string;
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   constructor(
     readonly id: string,
@@ -175,6 +187,17 @@ class GsmPluginInstance {
     return `projects/${this.projectId}/secrets/${name}/versions/${version}`;
   }
 
+  /**
+   * Expand a secret ref to its full `projects/.../secrets/.../versions/...` path.
+   * Initializes the auth client first for short refs, since projectId may come from credentials JSON.
+   * Used to build cache keys so short and full refs to the same secret share an entry
+   * and different projects never collide.
+   */
+  async getFullSecretPath(secretRef: string): Promise<string> {
+    if (!secretRef.startsWith('projects/')) await this.initClient();
+    return this.buildSecretPath(secretRef);
+  }
+
   async readSecret(secretRef: string): Promise<string> {
     const auth = await this.initClient();
 
@@ -258,6 +281,7 @@ plugin.registerRootDecorator({
 
     return {
       id,
+      cacheTtlResolver: objArgs.cacheTtl,
       projectIdResolver: objArgs.projectId,
       credentialsResolver: objArgs.credentials,
       workloadIdentityProviderResolver: objArgs.workloadIdentityProvider,
@@ -266,7 +290,7 @@ plugin.registerRootDecorator({
     };
   },
   async execute({
-    id, projectIdResolver, credentialsResolver,
+    id, cacheTtlResolver, projectIdResolver, credentialsResolver,
     workloadIdentityProviderResolver, serviceAccountEmailResolver, oidcTokenResolver,
   }) {
     const projectId = await projectIdResolver?.resolve();
@@ -275,6 +299,10 @@ plugin.registerRootDecorator({
     const serviceAccountEmail = await serviceAccountEmailResolver?.resolve();
     const oidcToken = await oidcTokenResolver?.resolve();
     pluginInstances[id].setAuth(projectId, credentials, workloadIdentityProvider, serviceAccountEmail, oidcToken);
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -411,7 +439,19 @@ plugin.registerResolverFunction({
       throw new SchemaError('No secret reference provided');
     }
 
-    const secretValue = await selectedInstance.readSecret(secretRef);
-    return secretValue;
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      // key on the fully-expanded path (includes projectId) so different GCP projects
+      // never collide and short vs full refs to the same secret share an entry
+      const fullSecretPath = await selectedInstance.getFullSecretPath(secretRef);
+      const cacheKey = `gsm:${instanceId}:${fullSecretPath}`;
+      return await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.readSecret(secretRef),
+      );
+    }
+
+    return await selectedInstance.readSecret(secretRef);
   },
 });

@@ -29,6 +29,8 @@ The plugin uses Akeyless's REST API with API Key or [OIDC](/guides/oidc/) authen
 - Automatic token caching and renewal
 - Lightweight implementation using REST API (no SDK dependencies)
 
+For global cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
+
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/akeyless-plugin` package as a normal dependency.
@@ -229,6 +231,7 @@ Initialize an Akeyless plugin instance.
 - `apiUrl` (optional): Akeyless API URL (defaults to `https://api.akeyless.io`). Use this for self-hosted Akeyless Gateway.
 - `pathPrefix` (optional): Prefix automatically prepended to all secret paths
 - `id` (optional): Instance identifier for multiple instances
+- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/). Only `static` secrets are cached — `dynamic` and `rotated` secrets are designed to change per fetch and are never cached.
 
 ```env-spec "@initAkeyless"
 # @initAkeyless(accessId=$AKEYLESS_ACCESS_ID, accessKey=$AKEYLESS_ACCESS_KEY, pathPrefix="/MyApp")

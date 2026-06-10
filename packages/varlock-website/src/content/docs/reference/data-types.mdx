@@ -228,4 +228,30 @@ Validates and coerces JSON strings into objects.
 MY_OBJECT={"key": "value"}
 ```
 </div>
+
+<div>
+### `duration`
+
+Flexible duration type. Accepts human-readable strings (`"1h"`, `"30m"`, `"500ms"`, `"2days"`) or bare numbers (interpreted as milliseconds — plain decimals only, no hex/exponent/`Infinity` notation), and outputs a number in the unit you specify.
+
+**Options:**
+- `output` — output unit: `ms` (default), `seconds`, `minutes`, `hours`, `days`, or `weeks`
+- `min` / `max` — bounds in any duration format (e.g. `min="1s"`, `max="1d"`)
+
+```env-spec
+# Default: output is milliseconds
+# @type=duration
+REQUEST_TIMEOUT=30s
+
+# Output in seconds — typical for HTTP client configs
+# @type=duration(output="seconds")
+HTTP_TIMEOUT=1h
+
+# With min/max bounds
+# @type=duration(output="minutes", min="1m", max="1d")
+POLL_INTERVAL=15m
+```
+
+Same parser is used by `cache(..., ttl=...)` and the plugin `cacheTtl` option, so any string that works there also works here. For cache mode behavior and troubleshooting, see the [Caching guide](/guides/caching/).
+</div>
 </div>

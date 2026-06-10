@@ -2,6 +2,9 @@ import type { VarlockPlugin } from './env-graph/lib/plugins';
 import { pluginProxy } from './plugin-context';
 
 export type { Resolver } from './env-graph/lib/resolver';
+export type { PluginCacheAccessor } from './lib/cache/plugin-cache-accessor';
+export { parseTtl } from './lib/cache/ttl-parser';
+export { resolveCacheTtl } from './lib/cache/resolve-cache-ttl';
 export { createDebug, type Debugger } from './lib/debug';
 
 // Error classes exported directly so plugin authors can import them without

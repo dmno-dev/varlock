@@ -40,6 +40,7 @@ export default tseslint.config(
     ignores: [
       '**/dist',
       '**/dist-sea',
+      '**/dist-test',
       '**/node_modules',
       '**/.turbo',
       'packages/eslint-custom-rules',

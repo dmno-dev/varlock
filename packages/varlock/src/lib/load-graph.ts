@@ -30,6 +30,8 @@ function loadFromPaths(
     errorSuggestion: string,
     currentEnvFallback?: string,
     overrideValues?: Record<string, string | undefined>,
+    clearCache?: boolean,
+    skipCache?: boolean,
   },
 ) {
   const resolvedPaths = rawPaths.map((p) => path.resolve(p));
@@ -53,6 +55,8 @@ function loadFromPaths(
     entryFilePaths: resolvedPaths,
     overrideValues: config.overrideValues,
     processEnvOverride: config.overrideValues,
+    clearCache: config.clearCache,
+    skipCache: config.skipCache,
     afterInit: async (g) => {
       g.registerResolver(VarlockResolver);
       g.registerResolver(KeychainResolver);
@@ -64,6 +68,10 @@ export function loadVarlockEnvGraph(opts?: {
   currentEnvFallback?: string,
   /** Explicit entry file paths from --path flag(s) - overrides package.json config */
   entryFilePaths?: Array<string>,
+  /** Clear cache and re-resolve all values */
+  clearCache?: boolean,
+  /** Skip cache entirely for this invocation */
+  skipCache?: boolean,
 }) {
   const runtimeOverrideValues = getGraphEnvOverridesFromRuntimeEnv();
   const cliPaths = opts?.entryFilePaths?.filter(Boolean);
@@ -77,6 +85,8 @@ export function loadVarlockEnvGraph(opts?: {
       errorSuggestion: 'Use `--path` to specify a valid file or directory.',
       currentEnvFallback: opts?.currentEnvFallback,
       overrideValues: runtimeOverrideValues,
+      clearCache: opts?.clearCache,
+      skipCache: opts?.skipCache,
     });
   }
 
@@ -91,6 +101,8 @@ export function loadVarlockEnvGraph(opts?: {
       errorSuggestion: 'Update `varlock.loadPath` in your package.json to point to valid files or directories.',
       currentEnvFallback: opts?.currentEnvFallback,
       overrideValues: runtimeOverrideValues,
+      clearCache: opts?.clearCache,
+      skipCache: opts?.skipCache,
     });
   }
 
@@ -100,6 +112,8 @@ export function loadVarlockEnvGraph(opts?: {
     currentEnvFallback: opts?.currentEnvFallback,
     overrideValues: runtimeOverrideValues,
     processEnvOverride: runtimeOverrideValues,
+    clearCache: opts?.clearCache,
+    skipCache: opts?.skipCache,
     afterInit: async (g) => {
       g.registerResolver(VarlockResolver);
       g.registerResolver(KeychainResolver);

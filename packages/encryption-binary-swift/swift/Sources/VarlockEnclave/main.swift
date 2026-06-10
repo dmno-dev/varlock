@@ -83,7 +83,18 @@ case "key-exists":
 case "encrypt":
     let keyId = getArg("--key-id") ?? defaultKeyId
 
-    guard let dataB64 = getArg("--data") else {
+    let dataB64: String
+    if args.contains("--data-stdin") {
+        // read one line of base64 from stdin so plaintext never appears in argv
+        // (matches the rust binary's encrypt --data-stdin interface)
+        guard let line = readLine(strippingNewline: true)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !line.isEmpty else {
+            jsonError("Failed to read data from stdin")
+        }
+        dataB64 = line
+    } else if let dataArg = getArg("--data") {
+        dataB64 = dataArg
+    } else {
         jsonError("Missing --data argument (base64-encoded plaintext)")
     }
     guard let plaintext = Data(base64Encoded: dataB64) else {
@@ -416,6 +427,7 @@ case "help", "--help", "-h":
       list-keys                       List all Varlock Secure Enclave keys
       key-exists [--key-id <id>]      Check if a key exists
       encrypt --data <base64> [--key-id <id>]   Encrypt data (one-shot)
+      encrypt --data-stdin [--key-id <id>]      Encrypt data read from stdin
       decrypt --data <base64> [--key-id <id>]   Decrypt data (one-shot, testing)
       status                          Check Secure Enclave availability
       daemon --socket-path <path> [--pid-path <path>]   Start IPC daemon
@@ -423,6 +435,7 @@ case "help", "--help", "-h":
     OPTIONS:
       --key-id <id>       Key identifier (default: varlock-default)
       --data <base64>     Base64-encoded data
+      --data-stdin        Read base64 data from stdin (one line)
       --socket-path <path>  Unix socket path for daemon mode
       --pid-path <path>   PID file path for daemon mode
 

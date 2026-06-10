@@ -236,6 +236,40 @@ XYZ_API_KEY=op(op://api-prod/xyz/api-key) # new resolver
 
 
 <div>
+### `@cache`
+**Value type:** `"auto" | "memory" | "disk" | "disabled"`
+
+Sets global cache mode for [`cache()`](/reference/functions/#cache) and plugin cache APIs.
+
+**Modes:**
+- `memory`: cache only in-process (not persisted)
+- `disk`: cache to encrypted disk storage (persists across invocations)
+- `disabled`: disable caching globally
+- `auto` (default): uses `disk` when a native encryption backend is available outside CI; otherwise uses `disk` encrypted with `_VARLOCK_CACHE_KEY` if that env var is set, falling back to `memory` (see the [Caching guide](/guides/caching/))
+
+The value can also be set dynamically with a function — for example to change cache mode per environment. A function that resolves to no value falls back to `auto`.
+
+```env-spec
+# @cache=memory
+# ---
+SESSION_SECRET=cache(randomHex(32))
+```
+
+```env-spec
+# dynamic - only use disk caching in development
+# @cache=forEnv(dev, "disk")
+# ---
+```
+
+:::note
+`--skip-cache` on `varlock load` / `varlock run` / `varlock printenv` disables cache reads and writes for that invocation, regardless of `@cache`.
+:::
+
+See the [Caching guide](/guides/caching/) for mode selection guidance by environment.
+
+</div>
+
+<div>
 ### `@generateTypes()`
 **Arg types (key/value):**
 - `lang`: Language to generate types for (currently only `ts` / TypeScript is supported, with more languages planned)

@@ -20,7 +20,7 @@ The plugin uses base64-encoded configuration tokens for programmatic access to y
 - **Flexible secret access** - Fetch by record UID, title, `#field` selector, or [Keeper notation](https://docs.keeper.io/secrets-manager/secrets-manager/developer-sdk-library/javascript-sdk#notation)
 - **Standard and custom fields** - Access any field type including password, login, URL, notes, and custom fields
 - **Multiple instances** - Connect to different Keeper applications or vaults simultaneously
-- **Built-in secret caching** - Avoids redundant API calls within a single resolution pass
+- **Opt-in secret caching** via `cacheTtl` - see the [Caching guide](/guides/caching/)
 - **Comprehensive error handling** with helpful tips
 
 ## Installation and setup
@@ -183,6 +183,7 @@ Initialize a Keeper Secrets Manager plugin instance for accessing secrets.
 **Key/value args:**
 - `token` (required): Base64-encoded Secrets Manager config token. Should be a reference to a config item of type `keeperSmToken`.
 - `id` (optional): Instance identifier for multiple instances
+- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 
 ```env-spec "@initKeeper"
 # @initKeeper(token=$KSM_CONFIG)

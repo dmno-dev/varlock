@@ -1,5 +1,8 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 
+import { createHash } from 'node:crypto';
 import {
   SecretsManagerClient,
   GetSecretValueCommand,
@@ -22,6 +25,15 @@ plugin.name = 'aws';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = AWS_ICON;
+
+// capture cache accessor while the plugin proxy context is active
+// (the `plugin` proxy is only valid during module initialization, not during resolve())
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache not available (e.g., no encryption key)
+}
 
 plugin.standardVars = {
   initDecorator: '@initAws',
@@ -59,10 +71,22 @@ class AwsPluginInstance {
   private oidcSessionName?: string;
   private oidcToken?: string;
   private cachedOidcCredentials?: OidcCredentials;
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   constructor(
     readonly id: string,
   ) {
+  }
+
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which AWS account/region is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.region, this.profile, this.accessKeyId, this.oidcRoleArn]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
   }
 
   setAuth(
@@ -264,25 +288,7 @@ class AwsPluginInstance {
         throw new ResolutionError('Secret data is empty');
       }
 
-      // If a JSON key is specified, parse and extract it
-      if (jsonKey) {
-        try {
-          const parsed = JSON.parse(secretValue);
-          if (!(jsonKey in parsed)) {
-            throw new ResolutionError(`Key "${jsonKey}" not found in secret JSON`, {
-              tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
-            });
-          }
-          return String(parsed[jsonKey]);
-        } catch (err) {
-          if (err instanceof ResolutionError) throw err;
-          throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
-            tip: 'Ensure the secret value is valid JSON when extracting a specific key',
-          });
-        }
-      }
-
-      return secretValue;
+      return this.extractJsonKeyFromSecret(secretValue, jsonKey);
     } catch (err: any) {
       // Re-throw ResolutionError as-is
       if (err instanceof ResolutionError) {
@@ -383,26 +389,7 @@ class AwsPluginInstance {
       }
 
       const paramValue = response.Parameter.Value;
-
-      // If a JSON key is specified, parse and extract it
-      if (jsonKey) {
-        try {
-          const parsed = JSON.parse(paramValue);
-          if (!(jsonKey in parsed)) {
-            throw new ResolutionError(`Key "${jsonKey}" not found in parameter JSON`, {
-              tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
-            });
-          }
-          return String(parsed[jsonKey]);
-        } catch (err) {
-          if (err instanceof ResolutionError) throw err;
-          throw new ResolutionError(`Failed to parse parameter as JSON: ${err instanceof Error ? err.message : String(err)}`, {
-            tip: 'Ensure the parameter value is valid JSON when using the # syntax for key extraction',
-          });
-        }
-      }
-
-      return paramValue;
+      return this.extractJsonKeyFromParameter(paramValue, jsonKey);
     } catch (err: any) {
       // Re-throw ResolutionError as-is
       if (err instanceof ResolutionError) {
@@ -461,6 +448,42 @@ class AwsPluginInstance {
       });
     }
   }
+
+  extractJsonKeyFromSecret(secretValue: string, jsonKey?: string): string {
+    if (!jsonKey) return secretValue;
+    try {
+      const parsed = JSON.parse(secretValue);
+      if (!(jsonKey in parsed)) {
+        throw new ResolutionError(`Key "${jsonKey}" not found in secret JSON`, {
+          tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
+        });
+      }
+      return String(parsed[jsonKey]);
+    } catch (err) {
+      if (err instanceof ResolutionError) throw err;
+      throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
+        tip: 'Ensure the secret value is valid JSON when extracting a specific key',
+      });
+    }
+  }
+
+  extractJsonKeyFromParameter(paramValue: string, jsonKey?: string): string {
+    if (!jsonKey) return paramValue;
+    try {
+      const parsed = JSON.parse(paramValue);
+      if (!(jsonKey in parsed)) {
+        throw new ResolutionError(`Key "${jsonKey}" not found in parameter JSON`, {
+          tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
+        });
+      }
+      return String(parsed[jsonKey]);
+    } catch (err) {
+      if (err instanceof ResolutionError) throw err;
+      throw new ResolutionError(`Failed to parse parameter as JSON: ${err instanceof Error ? err.message : String(err)}`, {
+        tip: 'Ensure the parameter value is valid JSON when using the # syntax for key extraction',
+      });
+    }
+  }
 }
 
 const pluginInstances: Record<string, AwsPluginInstance> = {};
@@ -500,6 +523,7 @@ plugin.registerRootDecorator({
       oidcRoleArnResolver: objArgs.oidcRoleArn,
       oidcSessionNameResolver: objArgs.oidcSessionName,
       oidcTokenResolver: objArgs.oidcToken,
+      cacheTtlResolver: objArgs.cacheTtl,
     };
   },
   async execute({
@@ -513,6 +537,7 @@ plugin.registerRootDecorator({
     oidcRoleArnResolver,
     oidcSessionNameResolver,
     oidcTokenResolver,
+    cacheTtlResolver,
   }) {
     const region = await regionResolver.resolve();
     const accessKeyId = await accessKeyIdResolver?.resolve();
@@ -534,6 +559,10 @@ plugin.registerRootDecorator({
       oidcSessionName,
       oidcToken,
     );
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -691,6 +720,22 @@ plugin.registerResolverFunction({
     // Apply namePrefix
     const finalSecretId = selectedInstance.applyNamePrefix(secretId);
 
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      // store the full secret payload, then apply jsonKey extraction per lookup.
+      // This avoids cache collisions between awsSecret("x#foo") and awsSecret("x#bar").
+      const cacheKey = `awsSecret:${instanceId}:${selectedInstance.cacheKeyIdentity}:${finalSecretId}`;
+      const fullSecretValue = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.getSecret(finalSecretId),
+      );
+      if (typeof fullSecretValue !== 'string') {
+        throw new ResolutionError('Cached AWS secret value has unexpected type (expected string)');
+      }
+      return selectedInstance.extractJsonKeyFromSecret(fullSecretValue, jsonKey);
+    }
+
     const secretValue = await selectedInstance.getSecret(finalSecretId, jsonKey);
     return secretValue;
   },
@@ -809,6 +854,22 @@ plugin.registerResolverFunction({
 
     // Apply namePrefix
     const finalParameterName = selectedInstance.applyNamePrefix(parameterName);
+
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      // store the full parameter payload, then apply jsonKey extraction per lookup.
+      // This avoids cache collisions between awsParam("x#foo") and awsParam("x#bar").
+      const cacheKey = `awsParam:${instanceId}:${selectedInstance.cacheKeyIdentity}:${finalParameterName}`;
+      const fullParameterValue = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.getParameter(finalParameterName),
+      );
+      if (typeof fullParameterValue !== 'string') {
+        throw new ResolutionError('Cached AWS parameter value has unexpected type (expected string)');
+      }
+      return selectedInstance.extractJsonKeyFromParameter(fullParameterValue, jsonKey);
+    }
 
     const parameterValue = await selectedInstance.getParameter(finalParameterName, jsonKey);
     return parameterValue;

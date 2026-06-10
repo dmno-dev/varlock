@@ -181,6 +181,7 @@ Initialize an Akeyless plugin instance.
 - `oidcToken?: string` - Explicit OIDC JWT token (auto-detected from platform if not provided)
 - `apiUrl?: string` - Akeyless API URL (defaults to `https://api.akeyless.io`). Use this for self-hosted Akeyless Gateway.
 - `pathPrefix?: string` - Prefix automatically prepended to all secret paths
+- `cacheTtl?: string | number` - Cache resolved **static** secret values for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching. Caching applies to static secrets only — dynamic and rotated secrets are designed to change per fetch and are never cached.
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### Functions

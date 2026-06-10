@@ -152,6 +152,7 @@ Root decorator to initialize a Google Secret Manager plugin instance.
 - `workloadIdentityProvider?: string` - Full Workload Identity Provider resource name for OIDC federation
 - `serviceAccountEmail?: string` - Service account email for WIF impersonation
 - `oidcToken?: string` - Explicit OIDC JWT token (auto-detected from platform if not provided)
+- `cacheTtl?: string | number` - Cache resolved values from `gsm()` for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### `gsm()`

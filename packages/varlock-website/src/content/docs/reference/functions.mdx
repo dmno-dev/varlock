@@ -22,7 +22,7 @@ CONFIG=exec(`aws ssm get-parameter --name "/config/${APP_ENV}" --with-decryption
 ```
 
 
-There are built-in utility functions, encryption functions for device-local secrets, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
+There are built-in utility functions, [random value generators](#random-value-generators), a [`cache()`](#cache) function for reusing values according to your global cache mode, encryption functions for device-local secrets, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
 
 ## Core
 <div class="reference-docs">
@@ -264,6 +264,139 @@ API_URL=if(isEmpty($CUSTOM_API_URL), "https://api.default.com", $CUSTOM_API_URL)
 ```
 </div>
 
+</div>
+
+## Random value generators
+
+These functions generate random values using cryptographically secure randomness (`node:crypto`). In ephemeral environments, it can be helpful to generate values that are unique per run/deployment. For local dev, the [`cache()`](#cache) function can be used to keep a value stable for a period of time.
+
+<div class="reference-docs">
+<div>
+### `randomNum()`
+
+Generates a random number. **Integer by default**; if you pass `precision=N`, returns a float with `N` decimal places.
+
+- With 1 arg: generates between `0` and `max` (inclusive)
+- With 2 args: generates between `min` and `max` (inclusive)
+- `precision=N` option switches to float mode (decimal places, 0-20)
+
+```env-spec "randomNum"
+# Cached random port between 3000 and 4000 (integer)
+DEV_PORT=cache(randomNum(3000, 4000))
+
+# One-off random integer up to 1000
+SEED=randomNum(1000)
+
+# Random float between 0 and 1 with 4 decimal places
+RATE=randomNum(0, 1, precision=4)
+
+# Cached random float between 10 and 20 with 4 decimal places
+THRESHOLD=cache(randomNum(10, 20, precision=4))
+```
+</div>
+
+<div>
+### `randomUuid()`
+
+Generates a random UUID v4.
+
+```env-spec "randomUuid"
+# Unique identifier for this environment (stable across runs)
+INSTANCE_ID=cache(randomUuid())
+
+# Per-run / per-evaluation ID
+REQUEST_ID=randomUuid()
+```
+</div>
+
+<div>
+### `randomHex()`
+
+Generates a random hexadecimal string. By default the argument is the **character length** of the output. Pass `bytes=true` to interpret the argument as a byte count instead (where each byte = 2 hex characters). Default is `32` characters.
+
+```env-spec "randomHex"
+# 32-character hex string (default)
+# @sensitive
+SESSION_SECRET=cache(randomHex())
+
+# 64-character hex string
+# @sensitive
+ENCRYPTION_KEY=cache(randomHex(64))
+
+# 32 bytes (= 64 hex chars) — byte-length mode
+# @sensitive
+HMAC_KEY=cache(randomHex(32, bytes=true))
+
+# Non-sensitive one-off value
+NONCE=randomHex(16)
+```
+</div>
+
+<div>
+### `randomString()`
+
+Generates a random alphanumeric string. Default length is `16` characters using `A-Za-z0-9`.
+
+- First arg: character length (default: 16)
+- `charset=S` option: custom character set to draw from
+
+```env-spec "randomString"
+# 32-character alphanumeric string
+# @sensitive
+API_SECRET=cache(randomString(32))
+
+# 8-character string from custom charset
+PIN_CODE=cache(randomString(8, charset="0123456789"))
+
+# One-off random string
+TEMP_LABEL=randomString(10)
+```
+</div>
+</div>
+
+## Caching
+
+<div class="reference-docs">
+<div>
+### `cache()`
+
+Wraps any resolver to cache its result. See [caching guide](/guides/caching/) for more details.
+
+- First arg: the resolver to cache
+- `ttl=D` option: how long to cache (default: `forever`). Accepts duration strings with `ms`, `s`, `m`, `h`, `d`, `w` suffixes (long forms and plurals also work), bare numbers as milliseconds, or the keyword `forever` to cache until manually cleared.
+- `key=S` option: use an explicit cache key instead of the auto-generated one. Useful when the same cached value should be shared across files or when you want a stable key that doesn't change with resolver edits.
+  - Keys must be non-empty printable text (no control characters) and at most 2048 characters.
+
+The cache automatically invalidates when you change the wrapped resolver expression (unless using a custom `key`).
+
+```env-spec "cache"
+# Cache a random UUID forever (until manually cleared)
+INSTANCE_ID=cache(randomUuid())
+
+# Cache an API token for 1 hour
+AUTH_TOKEN=cache(exec(`get-token.sh`), ttl="1h")
+
+# Cache for 30 minutes
+TEMP_KEY=cache(randomHex(32), ttl="30m")
+
+# Use an explicit cache key (shared across files/projects)
+SHARED_TOKEN=cache(exec(`fetch-org-token.sh`), ttl="1d", key="org-auth-token")
+```
+
+Use the [`varlock cache`](/reference/cli-commands/#cache) CLI command to view or clear the **disk cache**.
+
+Use `--clear-cache` or `--skip-cache` flags on `varlock load` / `varlock run` / `varlock printenv` to control caching behavior for a single invocation.
+
+Global cache behavior is configured with the [`@cache` root decorator](/reference/root-decorators/#cache).
+
+In `memory` mode, `varlock cache` will not show in-memory entries from a running process.
+
+For strategy recommendations and troubleshooting, see the [Caching guide](/guides/caching/).
+
+:::tip
+Plugin authors can also use the cache API via `plugin.cache.getOrSet()` (or `get()` / `set()`) to cache expensive API calls. See the [Plugins guide](/guides/plugins/#plugin-caching) for more information.
+:::
+</div>
 </div>
 
 ## Encryption
