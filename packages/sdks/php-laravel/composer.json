@@ -1,0 +1,25 @@
+{
+    "name": "varlock/laravel",
+    "description": "Laravel integration for Varlock - env validation, secret resolution, and log redaction",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "varlock/php-core": "*",
+        "illuminate/support": "^11.0|^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Varlock\\Laravel\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Varlock\\Laravel\\VarlockServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

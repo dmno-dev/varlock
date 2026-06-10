@@ -1,0 +1,78 @@
+{
+    "version": "1.0.0",
+    "generatedAt": "2026-03-14T00:00:00Z",
+    "items": {
+        "APP_NAME": {
+            "type": "string",
+            "required": false,
+            "sensitive": false,
+            "default": "Varlock Demo"
+        },
+        "APP_ENV": {
+            "type": "string",
+            "required": true,
+            "sensitive": false,
+            "default": "local"
+        },
+        "APP_DEBUG": {
+            "type": "boolean",
+            "required": false,
+            "sensitive": false,
+            "default": "true"
+        },
+        "APP_KEY": {
+            "type": "string",
+            "required": true,
+            "sensitive": true,
+            "resolve": {
+                "plugin": "1password",
+                "endpoint": "http://localhost:9777/secrets",
+                "field": "APP_KEY"
+            }
+        },
+        "APP_SECRET": {
+            "type": "string",
+            "required": false,
+            "sensitive": true,
+            "resolve": {
+                "plugin": "1password",
+                "endpoint": "http://localhost:9777/secrets",
+                "field": "APP_SECRET"
+            }
+        },
+        "DB_HOST": {
+            "type": "string",
+            "required": true,
+            "sensitive": false,
+            "default": "127.0.0.1"
+        },
+        "DB_PORT": {
+            "type": "integer",
+            "required": false,
+            "sensitive": false,
+            "default": "3306"
+        },
+        "DB_DATABASE": {
+            "type": "string",
+            "required": true,
+            "sensitive": false,
+            "default": "varlock_demo"
+        },
+        "DB_PASSWORD": {
+            "type": "string",
+            "required": true,
+            "sensitive": true,
+            "resolve": {
+                "plugin": "1password",
+                "endpoint": "http://localhost:9777/secrets",
+                "field": "DB_PASSWORD"
+            }
+        },
+        "CACHE_TTL": {
+            "type": "number",
+            "required": false,
+            "sensitive": false,
+            "default": "3600"
+        }
+    }
+}
