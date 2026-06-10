@@ -1,10 +1,12 @@
 import crypto from 'node:crypto';
+import { existsSync } from 'node:fs';
 import {
   mkdir, readdir, readFile, rm, writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { getUserVarlockDir } from '../lib/user-config-dir';
+import { getAncestorPids } from './process-ancestry';
 import type { ProxyEgressMode } from './types';
 import {
   PROXY_CHILD_ENV_VAR,
@@ -183,11 +185,42 @@ export async function getProxySessionByToken(token: string): Promise<ProxySessio
   return direct;
 }
 
-export async function getProxyPlaceholderOverridesForEnv(env: NodeJS.ProcessEnv = process.env) {
-  if (env[PROXY_CHILD_ENV_VAR] !== '1') return undefined;
+/**
+ * Resolve the proxy session the current process is running under, if any.
+ *
+ * Tries the explicit env-injected session token first (fast path), then falls
+ * back to **process ancestry** — matching a running session's ownerPid/childPid
+ * against this process's parent chain. The ancestry check is what makes the
+ * guards robust: a child can't escape by clearing `__VARLOCK_PROXY_CHILD`,
+ * because its place in the proxy's process tree is not something it controls.
+ *
+ * Returns undefined cheaply when there are no active sessions (the common case),
+ * so the ancestry walk only runs when a proxy session actually exists.
+ */
+export async function resolveActiveProxySession(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ProxySessionRecord | undefined> {
+  // Fast exit for the common case (proxy never used): don't create or read the
+  // sessions dir on every varlock invocation.
+  if (!existsSync(SESSIONS_DIR)) return undefined;
+
+  const sessions = await listProxySessions();
+  if (!sessions.length) return undefined;
+
   const sessionToken = env[PROXY_SESSION_ID_ENV_VAR] ?? env[PROXY_SESSION_UUID_ENV_VAR];
-  if (!sessionToken) return undefined;
-  const session = await getProxySessionByToken(sessionToken);
+  if (sessionToken) {
+    const byToken = sessions.find((s) => s.uuid === sessionToken || s.id === sessionToken);
+    if (byToken) return byToken;
+  }
+
+  const ancestors = new Set(getAncestorPids());
+  return sessions.find(
+    (s) => ancestors.has(s.ownerPid) || (s.childPid !== undefined && ancestors.has(s.childPid)),
+  );
+}
+
+export async function getProxyPlaceholderOverridesForEnv(env: NodeJS.ProcessEnv = process.env) {
+  const session = await resolveActiveProxySession(env);
   if (!session?.placeholderOverrides) return undefined;
   return session.placeholderOverrides;
 }

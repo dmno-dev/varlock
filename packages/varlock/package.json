@@ -142,6 +142,7 @@
     "@env-spec/utils": "workspace:*",
     "@gunshi/plugin-completion": "^0.35.1",
     "@gunshi/plugin-i18n": "^0.35.1",
+    "@peculiar/x509": "^1",
     "@sindresorhus/is": "catalog:",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
@@ -157,6 +158,7 @@
     "is-unicode-supported": "^2.1.0",
     "is-wsl": "^3.1.0",
     "outdent": "catalog:",
+    "reflect-metadata": "^0.2.2",
     "semver": "^7.7.4",
     "tsup": "catalog:",
     "vitest": "catalog:"
