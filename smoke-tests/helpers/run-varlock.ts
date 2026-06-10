@@ -2,7 +2,12 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
 const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
-const LOCAL_VARLOCK_CLI = join(SMOKE_TESTS_DIR, '..', 'packages', 'varlock', 'bin', 'cli.js');
+// Invoke the *installed* varlock CLI from smoke-tests/node_modules rather than the source tree.
+// `varlock` is a direct dependency of smoke-tests, so pnpm always links it at node_modules/varlock:
+// in CI it's the packed .tgz (which bundles bin/ + dist/), locally it's the workspace link to
+// packages/varlock. Pointing at the source tree directly breaks CI because the smoke-test runner
+// never builds packages/varlock/dist.
+const LOCAL_VARLOCK_CLI = join(SMOKE_TESTS_DIR, 'node_modules', 'varlock', 'bin', 'cli.js');
 
 export function runVarlock(args: Array<string>, options?: {
   cwd?: string;
