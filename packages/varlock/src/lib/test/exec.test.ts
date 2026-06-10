@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Readable } from 'node:stream';
+import { stripVTControlCharacters } from 'node:util';
 import { exec } from '../exec.js';
 
 /**
@@ -31,7 +32,7 @@ describe('exec', () => {
 
     // All pipe data must be available once the Promise resolves (close event)
     const output = await stdoutData;
-    expect(output.trim()).toBe('2');
+    expect(stripVTControlCharacters(output).trim()).toBe('2');
   });
 
   it('should propagate non-zero exit code', async () => {

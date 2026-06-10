@@ -1,7 +1,8 @@
-import { execSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
 const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
+const LOCAL_VARLOCK_CLI = join(SMOKE_TESTS_DIR, '..', 'packages', 'varlock', 'bin', 'cli.js');
 
 export function runVarlock(args: Array<string>, options?: {
   cwd?: string;
@@ -10,46 +11,18 @@ export function runVarlock(args: Array<string>, options?: {
 }) {
   const cwd = options?.cwd ? join(SMOKE_TESTS_DIR, options.cwd) : SMOKE_TESTS_DIR;
   const env = { ...process.env, ...options?.env };
+  const result = spawnSync(process.execPath, [LOCAL_VARLOCK_CLI, ...args], {
+    cwd,
+    env,
+    encoding: 'utf-8',
+  });
 
-  if (options?.captureOutput) {
-    const result = spawnSync('pnpm', ['exec', 'varlock', ...args], {
-      cwd,
-      env,
-      encoding: 'utf-8',
-      // On Windows, shell is needed to invoke pnpm.cmd. On Unix, avoid shell so that
-      // argument strings like "process.exit(0)" are not misinterpreted as subshell syntax.
-      shell: process.platform === 'win32',
-    });
-
-    return {
-      stdout: result.stdout,
-      stderr: result.stderr,
-      exitCode: result.status ?? 1,
-      output: result.stdout + result.stderr,
-    };
-  }
-
-  try {
-    const output = execSync(`pnpm exec varlock ${args.join(' ')}`, {
-      cwd,
-      env,
-      encoding: 'utf-8',
-      stdio: 'pipe',
-    });
-    return {
-      stdout: output,
-      stderr: '',
-      exitCode: 0,
-      output,
-    };
-  } catch (error: any) {
-    return {
-      stdout: error.stdout || '',
-      stderr: error.stderr || '',
-      exitCode: error.status || 1,
-      output: (error.stdout || '') + (error.stderr || ''),
-    };
-  }
+  return {
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+    exitCode: result.status ?? 1,
+    output: (result.stdout ?? '') + (result.stderr ?? ''),
+  };
 }
 
 export function varlockLoad(options?: { cwd?: string; format?: string; paths?: Array<string> }) {

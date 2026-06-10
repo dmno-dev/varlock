@@ -163,6 +163,8 @@ describe('CLI Commands', () => {
   });
 
   describe('run command', () => {
+    const LOCAL_VARLOCK_CLI = '../../../packages/varlock/bin/cli.js';
+
     test('varlock run should forward child stdout', () => {
       const result = varlockRun(['node', '-p', '1+1'], { cwd: 'smoke-test-basic' });
       expect(result.exitCode).toBe(0);
@@ -183,6 +185,77 @@ describe('CLI Commands', () => {
       );
       expect(result.exitCode).toBe(0);
       expect(result.output).toContain('error-output');
+    });
+
+    test('nested varlock run does not treat injected vars as process.env overrides', () => {
+      const result = runVarlock([
+        'run',
+        '--inject',
+        'all',
+        '--',
+        'node',
+        LOCAL_VARLOCK_CLI,
+        'load',
+        '--format',
+        'json',
+        '--path',
+        '../overrides/.env.schema',
+      ], {
+        cwd: 'smoke-test-multi-path/base',
+        captureOutput: true,
+      });
+
+      expect(result.exitCode).toBe(0);
+      const vars = JSON.parse(result.stdout);
+      expect(vars.SHARED_VAR).toBe('from-overrides');
+    });
+
+    test('nested varlock run preserves real outer shell overrides', () => {
+      const result = runVarlock([
+        'run',
+        '--inject',
+        'all',
+        '--',
+        'node',
+        LOCAL_VARLOCK_CLI,
+        'load',
+        '--format',
+        'json',
+        '--path',
+        '../overrides/.env.schema',
+      ], {
+        cwd: 'smoke-test-multi-path/base',
+        captureOutput: true,
+        env: {
+          SHARED_VAR: 'from-shell',
+        },
+      });
+
+      expect(result.exitCode).toBe(0);
+      const vars = JSON.parse(result.stdout);
+      expect(vars.SHARED_VAR).toBe('from-shell');
+    });
+
+    test('nested varlock run keeps inner command-local overrides over outer shell overrides', () => {
+      const result = runVarlock([
+        'run',
+        '--inject',
+        'all',
+        '--',
+        'sh',
+        '-c',
+        `SHARED_VAR=from-shell-inner node ${LOCAL_VARLOCK_CLI} load --format json --path ../overrides/.env.schema`,
+      ], {
+        cwd: 'smoke-test-multi-path/base',
+        captureOutput: true,
+        env: {
+          SHARED_VAR: 'from-shell-outer',
+        },
+      });
+
+      expect(result.exitCode).toBe(0);
+      const vars = JSON.parse(result.stdout);
+      expect(vars.SHARED_VAR).toBe('from-shell-inner');
     });
   });
 

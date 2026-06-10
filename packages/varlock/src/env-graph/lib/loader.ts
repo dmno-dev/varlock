@@ -8,6 +8,10 @@ export async function loadEnvGraph(opts?: {
   basePath?: string,
   /** Entry file path(s) — accepts a single path or array of paths */
   entryFilePaths?: string | Array<string>,
+  /** Explicit process.env override values used for config item override precedence */
+  overrideValues?: Record<string, string | undefined>,
+  /** Explicit process.env values used by builtin var detection */
+  processEnvOverride?: Record<string, string | undefined>,
   relativePaths?: Array<string>,
   checkGitIgnored?: boolean,
   excludeDirs?: Array<string>,
@@ -15,6 +19,8 @@ export async function loadEnvGraph(opts?: {
   afterInit?: (graph: EnvGraph) => Promise<void>,
 }) {
   const graph = new EnvGraph();
+  if (opts?.overrideValues) graph.overrideValues = opts.overrideValues;
+  if (opts?.processEnvOverride) graph.processEnvOverride = opts.processEnvOverride;
 
   let rawPaths: Array<string> | undefined;
   if (opts?.entryFilePaths) {
@@ -54,4 +60,3 @@ export async function loadEnvGraph(opts?: {
 
   return graph;
 }
-

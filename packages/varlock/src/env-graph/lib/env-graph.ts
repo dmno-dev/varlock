@@ -16,6 +16,7 @@ import { getErrorLocation } from './error-location';
 import type { VarlockPlugin } from './plugins';
 import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
 import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
+import { buildOverrideProvenanceMetadata, type OverrideProvenanceMetadata } from '../../lib/injected-env-provenance';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -53,6 +54,8 @@ export type SerializedEnvGraph = {
     value: any;
     isSensitive: boolean;
   }>;
+  /** provenance metadata for process.env overrides across nested invocations */
+  __varlockOverrideMeta?: OverrideProvenanceMetadata;
   /** Present only when config has errors — consumers can check `if (data.errors)` */
   errors?: SerializedEnvGraphErrors;
 };
@@ -558,6 +561,7 @@ export class EnvGraph {
         isSensitive: item.isSensitive,
       };
     }
+    serializedGraph.__varlockOverrideMeta = buildOverrideProvenanceMetadata(Object.keys(this.overrideValues));
 
     // expose a few root level settings
     serializedGraph.settings.redactLogs = this.getRootDec('redactLogs')?.resolvedValue ?? true;
