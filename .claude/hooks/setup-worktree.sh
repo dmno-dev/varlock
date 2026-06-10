@@ -13,17 +13,27 @@ set -euo pipefail
 # Everything except the final path is redirected to stderr to keep stdout clean.
 # Mirrors .codex/scripts/setup-worktree.sh for parity with the Codex setup.
 #
+# stdin payload (observed from a real invocation, June 2026): session_id,
+# transcript_path, cwd, hook_event_name, name. The docs call the name field
+# `worktree_name`, so accept either. There is no path or base-commit field —
+# the hook picks the worktree path and base itself.
+#
 # Requires: jq, bun (both expected on a varlock dev machine).
 
 input="$(cat)"
-worktree_path="$(jq -r '.worktree_path' <<<"$input")"
-worktree_name="$(jq -r '.worktree_name' <<<"$input")"
-base_commit="$(jq -r '.base_commit' <<<"$input")"
+
+worktree_name="$(jq -r '.name // .worktree_name // empty' <<<"$input")"
+if [ -z "$worktree_name" ]; then
+  worktree_name="wt-$(jq -r '.session_id // empty' <<<"$input" | cut -c1-8)"
+fi
+
+repo_root="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
+worktree_path="$repo_root/.claude/worktrees/$worktree_name"
 
 # Create the worktree on a new branch, mirroring Claude's `claude/<name>` convention.
 # Fall back to a detached worktree if the branch already exists.
-git worktree add -b "claude/$worktree_name" "$worktree_path" "$base_commit" 1>&2 \
-  || git worktree add --detach "$worktree_path" "$base_commit" 1>&2
+git -C "$repo_root" worktree add -b "claude/$worktree_name" "$worktree_path" HEAD 1>&2 \
+  || git -C "$repo_root" worktree add --detach "$worktree_path" HEAD 1>&2
 
 # Project setup inside the new worktree (same as .codex/scripts/setup-worktree.sh).
 (
