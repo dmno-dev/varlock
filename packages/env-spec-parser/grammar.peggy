@@ -17,7 +17,8 @@ EnvSpecFile =
     ConfigItem
     / Divider
     / CommentBlock
-    / "\n" { return new ParsedEnvSpecBlankLine({ _location: location() }); }
+    / _ "\n" { return new ParsedEnvSpecBlankLine({ _location: location() }); }
+    / __ !. { return new ParsedEnvSpecBlankLine({ _location: location() }); }
   )*
   {
     return new ParsedEnvSpecFile(contents)
@@ -279,7 +280,9 @@ tripleBQuotedMultiLineString = // 3x backtick wrapped multi-line string
   "```"
   { return new ParsedEnvSpecStaticValue({ quote, isMultiLine: true, rawValue: text(), _location: location() }) }
 
-_n = "\n" / !.
+// line terminator — tolerates trailing horizontal whitespace before the newline / EOF
+// so a whitespace-only line (e.g. after a comment) does not dead-end the parse
+_n = _ ("\n" / !.)
 _ = [ \t]*
 __ = [ \t]+
 
