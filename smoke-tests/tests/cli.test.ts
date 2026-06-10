@@ -4,7 +4,7 @@ import {
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  varlockLoad, varlockRun, varlockPrintenv, runVarlock,
+  varlockLoad, varlockRun, varlockPrintenv, runVarlock, VARLOCK_CLI,
 } from '../helpers/run-varlock.js';
 
 const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
@@ -163,7 +163,9 @@ describe('CLI Commands', () => {
   });
 
   describe('run command', () => {
-    const LOCAL_VARLOCK_CLI = '../../../packages/varlock/bin/cli.js';
+    // Nested-varlock invocations use the installed CLI (absolute path), not the un-built
+    // source tree — `packages/varlock/bin/cli.js` imports ../dist which CI never builds.
+    const LOCAL_VARLOCK_CLI = VARLOCK_CLI;
 
     test('varlock run should forward child stdout', () => {
       const result = varlockRun(['node', '-p', '1+1'], { cwd: 'smoke-test-basic' });
@@ -244,7 +246,9 @@ describe('CLI Commands', () => {
         '--',
         'sh',
         '-c',
-        `SHARED_VAR=from-shell-inner node ${LOCAL_VARLOCK_CLI} load --format json --path ../overrides/.env.schema`,
+        // Forward-slash the (absolute, possibly Windows) path so it survives the sh string;
+        // backslashes would be eaten by the shell. node accepts `C:/...` on Windows.
+        `SHARED_VAR=from-shell-inner node "${LOCAL_VARLOCK_CLI.replace(/\\/g, '/')}" load --format json --path ../overrides/.env.schema`,
       ], {
         cwd: 'smoke-test-multi-path/base',
         captureOutput: true,
