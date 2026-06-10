@@ -53,7 +53,7 @@
     },
     "packages/env-spec-parser": {
       "name": "@env-spec/parser",
-      "version": "0.3.4",
+      "version": "0.3.5",
       "devDependencies": {
         "@types/node": "catalog:",
         "ansis": "catalog:",
@@ -81,7 +81,7 @@
     },
     "packages/integrations/cloudflare": {
       "name": "@varlock/cloudflare-integration",
-      "version": "1.1.5",
+      "version": "1.1.6",
       "bin": {
         "varlock-wrangler": "./bin/varlock-wrangler.js",
       },
@@ -89,13 +89,13 @@
         "@types/node": "catalog:",
         "@varlock/vite-integration": "workspace:^",
         "tsup": "catalog:",
-        "varlock": "workspace:^1.5.0",
+        "varlock": "workspace:^1.6.0",
         "vite": "^7.1.0",
         "vitest": "catalog:",
       },
       "peerDependencies": {
         "@cloudflare/vite-plugin": ">=1",
-        "varlock": "workspace:^1.5.0",
+        "varlock": "workspace:^1.6.0",
         "vite": ">=5",
         "wrangler": ">=3",
       },
@@ -154,7 +154,7 @@
     },
     "packages/plugins/1password": {
       "name": "@varlock/1password-plugin",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "devDependencies": {
         "@1password/sdk": "0.4.1-beta.1",
         "@1password/sdk-core": "0.4.1-beta.1",
@@ -172,7 +172,7 @@
     },
     "packages/plugins/akeyless": {
       "name": "@varlock/akeyless-plugin",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -187,7 +187,7 @@
     },
     "packages/plugins/aws-secrets": {
       "name": "@varlock/aws-secrets-plugin",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "devDependencies": {
         "@aws-sdk/client-secrets-manager": "^3.700.0",
         "@aws-sdk/client-ssm": "^3.700.0",
@@ -205,7 +205,7 @@
     },
     "packages/plugins/azure-key-vault": {
       "name": "@varlock/azure-key-vault-plugin",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "devDependencies": {
         "@azure/identity": "^4.13.0",
         "@azure/keyvault-secrets": "^4.10.0",
@@ -222,7 +222,7 @@
     },
     "packages/plugins/bitwarden": {
       "name": "@varlock/bitwarden-plugin",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -252,7 +252,7 @@
     },
     "packages/plugins/doppler": {
       "name": "@varlock/doppler-plugin",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -267,7 +267,7 @@
     },
     "packages/plugins/google-secret-manager": {
       "name": "@varlock/google-secret-manager-plugin",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -282,7 +282,7 @@
     },
     "packages/plugins/hashicorp-vault": {
       "name": "@varlock/hashicorp-vault-plugin",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -297,7 +297,7 @@
     },
     "packages/plugins/infisical": {
       "name": "@varlock/infisical-plugin",
-      "version": "1.1.1",
+      "version": "1.2.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@infisical/sdk": "^5.0.2",
@@ -329,7 +329,7 @@
     },
     "packages/plugins/keeper": {
       "name": "@varlock/keeper-plugin",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@keeper-security/secrets-manager-core": "17.4.0",
@@ -374,7 +374,7 @@
     },
     "packages/plugins/passbolt": {
       "name": "@varlock/passbolt-plugin",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "dependencies": {
         "openpgp": "6.3.0",
       },
@@ -394,7 +394,7 @@
     },
     "packages/plugins/proton-pass": {
       "name": "@varlock/proton-pass-plugin",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -424,7 +424,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "1.5.1",
+      "version": "1.6.0",
       "bin": {
         "varlock": "./bin/cli.js",
       },

@@ -3,6 +3,12 @@
 
 
 
+
+## 0.3.5
+<sub>2026-06-10</sub>
+
+- [#757](https://github.com/dmno-dev/varlock/pull/757)  *(patch)* Thanks [@yinjs](https://github.com/yinjs)! - fix: treat whitespace-only lines as blank lines instead of throwing a parse error
+
 ## 0.3.4
 <sub>2026-06-03</sub>
 
