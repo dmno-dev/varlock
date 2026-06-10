@@ -89,3 +89,47 @@ it('allows a whitespace-only line directly after a decorator comment', () => {
   const last = parsed.contents[parsed.contents.length - 1];
   expect(last).toBeInstanceOf(ParsedEnvSpecConfigItem);
 });
+
+// --- multi-line string interior whitespace ---
+// The whitespace-only-blank-line rules above operate only at file scope. A
+// multi-line string greedily consumes all of its interior content into its
+// value, so blank lines, whitespace-only lines, and trailing whitespace inside
+// a multi-line string must be preserved verbatim and never treated as blanks.
+
+it('preserves a blank line inside a triple-double-quoted multi-line string', generalTest({
+  input: 'FOO="""\nline1\n\nline2\n"""\nBAR=bar\n',
+  expected: {
+    FOO: '\nline1\n\nline2\n',
+    BAR: 'bar',
+  },
+}));
+
+it('preserves a whitespace-only line inside a triple-double-quoted multi-line string', generalTest({
+  input: 'FOO="""\nline1\n   \nline2\n"""\n',
+  expected: {
+    FOO: '\nline1\n   \nline2\n',
+  },
+}));
+
+it('preserves a whitespace-only line inside a triple-backtick multi-line string', generalTest({
+  input: 'FOO=```\nline1\n\t \nline2\n```\n',
+  expected: {
+    FOO: '\nline1\n\t \nline2\n',
+  },
+}));
+
+it('preserves a whitespace-only line inside a single-double-quoted multi-line string', generalTest({
+  input: 'FOO="line1\n  \nline2"\n',
+  expected: {
+    FOO: 'line1\n  \nline2',
+  },
+}));
+
+it('preserves trailing whitespace on lines inside a multi-line string', () => {
+  // assert on the raw value so the trailing-whitespace bytes are checked exactly
+  const parsed = parseEnvSpecDotEnvFile('FOO="""\nline1   \nline2\t\n"""\n');
+  const [item] = parsed.contents;
+  expect(item).toBeInstanceOf(ParsedEnvSpecConfigItem);
+  expect((item as ParsedEnvSpecConfigItem).value?.data?.rawValue)
+    .toBe('"""\nline1   \nline2\t\n"""');
+});
