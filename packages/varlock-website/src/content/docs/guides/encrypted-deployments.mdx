@@ -57,8 +57,13 @@ You must set `_VARLOCK_ENV_KEY` as an environment variable on your platform. The
     <Tabs>
       <TabItem label="Vercel">
       ```bash
-      varlock generate-key --plain | vercel env add _VARLOCK_ENV_KEY production preview development --sensitive
+      # set one key for preview
+      varlock generate-key --plain | vercel env add _VARLOCK_ENV_KEY preview --sensitive
+      # set one key for production
+      varlock generate-key --plain | vercel env add _VARLOCK_ENV_KEY production --sensitive
       ```
+
+      You can use the same key for both `preview` and `production`, but using separate keys is usually safer because it isolates environments and reduces blast radius if one key is exposed.
       </TabItem>
       <TabItem label="Netlify">
       ```bash
