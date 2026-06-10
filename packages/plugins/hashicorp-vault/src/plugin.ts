@@ -1,5 +1,8 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 import ky from 'ky';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +15,13 @@ const VAULT_ICON = 'simple-icons:vault';
 plugin.name = 'vault';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
+// capture cache accessor while plugin proxy context is active
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache unavailable in this runtime context
+}
 plugin.icon = VAULT_ICON;
 plugin.standardVars = {
   initDecorator: '@initHcpVault',
@@ -48,6 +58,8 @@ class VaultPluginInstance {
   private oidcToken?: string;
   private cachedToken?: CachedToken;
   private secretCache = new Map<string, Promise<Record<string, any>>>();
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   constructor(
     readonly id: string,
@@ -93,6 +105,18 @@ class VaultPluginInstance {
       'pathPrefix:',
       this.pathPrefix,
     );
+  }
+
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which Vault server/namespace is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    // the secret value at a path is determined by server + namespace
+    // (the token only affects authorization, not which value lives at the path)
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.url, this.namespace]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
   }
 
   private async getVaultToken(): Promise<string> {
@@ -277,7 +301,7 @@ class VaultPluginInstance {
     return basePath;
   }
 
-  private fetchSecretData(secretPath: string): Promise<Record<string, any>> {
+  fetchSecretData(secretPath: string): Promise<Record<string, any>> {
     // Deduplicate concurrent fetches for the same path
     const cached = this.secretCache.get(secretPath);
     if (cached) {
@@ -390,9 +414,8 @@ class VaultPluginInstance {
     }
   }
 
-  async getSecret(secretPath: string, jsonKey?: string): Promise<string> {
-    const secretData = await this.fetchSecretData(secretPath);
-
+  /** extract a value from fetched secret data - a specific key, the single value, or the full JSON blob */
+  extractValueFromSecretData(secretData: Record<string, any>, jsonKey?: string): string {
     // If a JSON key is specified, extract it
     if (jsonKey) {
       if (!(jsonKey in secretData)) {
@@ -409,6 +432,11 @@ class VaultPluginInstance {
       return String(secretData[keys[0]]);
     }
     return JSON.stringify(secretData);
+  }
+
+  async getSecret(secretPath: string, jsonKey?: string): Promise<string> {
+    const secretData = await this.fetchSecretData(secretPath);
+    return this.extractValueFromSecretData(secretData, jsonKey);
   }
 }
 
@@ -442,6 +470,7 @@ plugin.registerRootDecorator({
 
     return {
       id,
+      cacheTtlResolver: objArgs.cacheTtl,
       urlResolver: objArgs.url,
       namespaceResolver: objArgs.namespace,
       tokenResolver: objArgs.token,
@@ -456,6 +485,7 @@ plugin.registerRootDecorator({
   },
   async execute({
     id,
+    cacheTtlResolver,
     urlResolver,
     namespaceResolver,
     tokenResolver,
@@ -489,6 +519,10 @@ plugin.registerRootDecorator({
       jwtAuthPath,
       oidcToken,
     );
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -645,6 +679,22 @@ plugin.registerResolverFunction({
 
     // Build the full path using pathPrefix/defaultPath
     const fullPath = selectedInstance.buildPath(secretPath || undefined);
+
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      // store the full secret data object per path, then extract per lookup
+      // (avoids collisions between different #KEY lookups on the same path)
+      const cacheKey = `hcpVault:${instanceId}:${selectedInstance.cacheKeyIdentity}:${fullPath}`;
+      const secretData = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.fetchSecretData(fullPath),
+      );
+      if (!secretData || typeof secretData !== 'object') {
+        throw new ResolutionError('Cached Vault secret payload has unexpected type (expected object)');
+      }
+      return selectedInstance.extractValueFromSecretData(secretData, jsonKey);
+    }
 
     return await selectedInstance.getSecret(fullPath, jsonKey);
   },

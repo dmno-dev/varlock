@@ -1,5 +1,8 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 import ky from 'ky';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +16,13 @@ const AZURE_ICON = 'skill-icons:azure-dark';
 plugin.name = 'azure';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
+// capture cache accessor while plugin proxy context is active
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache unavailable in this runtime context
+}
 plugin.icon = AZURE_ICON;
 plugin.standardVars = {
   initDecorator: '@initAzure',
@@ -42,6 +52,8 @@ class AzurePluginInstance {
   private oidcToken?: string;
   private cachedToken?: CachedToken;
   private secretCache = new Map<string, Promise<string>>();
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   constructor(
     readonly id: string,
@@ -74,6 +86,17 @@ class AzurePluginInstance {
       'hasOidcToken:',
       !!this.oidcToken,
     );
+  }
+
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which Key Vault is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    // the vault URL globally identifies the vault; included as a hash for consistency with other plugins
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.vaultUrl]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
   }
 
   private async getAzureCliToken(): Promise<string | undefined> {
@@ -371,7 +394,7 @@ class AzurePluginInstance {
     }
   }
 
-  private fetchSecretValue(secretRef: string): Promise<string> {
+  fetchSecretValue(secretRef: string): Promise<string> {
     // Deduplicate concurrent fetches for the same ref
     const cached = this.secretCache.get(secretRef);
     if (cached) {
@@ -467,27 +490,29 @@ class AzurePluginInstance {
     }
   }
 
-  async getSecret(secretRef: string, jsonKey?: string): Promise<string> {
-    const rawValue = await this.fetchSecretValue(secretRef);
+  /** extract a key from a JSON-encoded secret value, or return the raw value if no key specified */
+  extractJsonKeyFromSecret(rawValue: string, jsonKey?: string): string {
+    if (!jsonKey) return rawValue;
 
-    if (jsonKey) {
-      try {
-        const parsed = JSON.parse(rawValue);
-        if (!(jsonKey in parsed)) {
-          throw new ResolutionError(`Key "${jsonKey}" not found in secret JSON`, {
-            tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
-          });
-        }
-        return String(parsed[jsonKey]);
-      } catch (err) {
-        if (err instanceof ResolutionError) throw err;
-        throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
-          tip: 'Ensure the secret value is valid JSON when extracting a specific key',
+    try {
+      const parsed = JSON.parse(rawValue);
+      if (!(jsonKey in parsed)) {
+        throw new ResolutionError(`Key "${jsonKey}" not found in secret JSON`, {
+          tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
         });
       }
+      return String(parsed[jsonKey]);
+    } catch (err) {
+      if (err instanceof ResolutionError) throw err;
+      throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
+        tip: 'Ensure the secret value is valid JSON when extracting a specific key',
+      });
     }
+  }
 
-    return rawValue;
+  async getSecret(secretRef: string, jsonKey?: string): Promise<string> {
+    const rawValue = await this.fetchSecretValue(secretRef);
+    return this.extractJsonKeyFromSecret(rawValue, jsonKey);
   }
 }
 
@@ -519,6 +544,7 @@ plugin.registerRootDecorator({
 
     return {
       id,
+      cacheTtlResolver: objArgs.cacheTtl,
       vaultUrlResolver: objArgs.vaultUrl,
       tenantIdResolver: objArgs.tenantId,
       clientIdResolver: objArgs.clientId,
@@ -528,6 +554,7 @@ plugin.registerRootDecorator({
   },
   async execute({
     id,
+    cacheTtlResolver,
     vaultUrlResolver,
     tenantIdResolver,
     clientIdResolver,
@@ -540,6 +567,10 @@ plugin.registerRootDecorator({
     const clientSecret = await clientSecretResolver?.resolve();
     const oidcToken = await oidcTokenResolver?.resolve();
     pluginInstances[id].setAuth(vaultUrl, tenantId, clientId, clientSecret, oidcToken);
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -705,6 +736,22 @@ plugin.registerResolverFunction({
       if (typeof version !== 'string') throw new SchemaError('Expected version to resolve to a string');
       // Strip any existing @version suffix before appending
       secretRef = `${secretRef.split('@')[0]}@${version}`;
+    }
+
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      // store the full secret value, then apply jsonKey extraction per lookup
+      // (avoids collisions between azureSecret("x#foo") and azureSecret("x#bar"))
+      const cacheKey = `azureSecret:${instanceId}:${selectedInstance.cacheKeyIdentity}:${secretRef}`;
+      const rawValue = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.fetchSecretValue(secretRef),
+      );
+      if (typeof rawValue !== 'string') {
+        throw new ResolutionError('Cached Azure Key Vault secret value has unexpected type (expected string)');
+      }
+      return selectedInstance.extractJsonKeyFromSecret(rawValue, jsonKey);
     }
 
     const secretValue = await selectedInstance.getSecret(secretRef, jsonKey);

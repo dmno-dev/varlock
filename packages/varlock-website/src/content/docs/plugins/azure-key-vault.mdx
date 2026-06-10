@@ -313,6 +313,7 @@ Initialize an Azure Key Vault plugin instance for accessing secrets.
 - `clientSecret` (optional): Service principal client secret (password)
 - `oidcToken` (optional): Explicit OIDC JWT token (auto-detected from platform if omitted)
 - `id` (optional): Instance identifier for multiple vaults
+- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 
 ```env-spec "@initAzure"
 # @initAzure(vaultUrl="https://my-vault.vault.azure.net/")

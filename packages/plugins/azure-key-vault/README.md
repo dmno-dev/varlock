@@ -172,6 +172,7 @@ Initialize an Azure Key Vault plugin instance.
 - `clientId?: string` - Service principal application (client) ID
 - `clientSecret?: string` - Service principal client secret (password)
 - `oidcToken?: string` - Explicit OIDC JWT token (auto-detected from platform if not provided)
+- `cacheTtl?: string | number` - Cache resolved values from `azureSecret()` for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching
 - `id?: string` - Instance identifier for multiple vaults (defaults to `_default`)
 
 ### Functions

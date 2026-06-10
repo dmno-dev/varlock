@@ -132,6 +132,7 @@ Initialize a Keeper Secrets Manager plugin instance.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `token` | string | yes | Base64-encoded Secrets Manager config (typically from `$KSM_CONFIG`) |
+| `cacheTtl` | string \| number | no | Cache resolved values from `keeper()` for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching |
 | `id` | string | no | Instance identifier for multiple configurations (defaults to `_default`) |
 
 ### Data types

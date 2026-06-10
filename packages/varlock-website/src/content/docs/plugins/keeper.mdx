@@ -185,6 +185,7 @@ Initialize a Keeper Secrets Manager plugin instance for accessing secrets.
 **Key/value args:**
 - `token` (required): Base64-encoded Secrets Manager config token. Should be a reference to a config item of type `keeperSmToken`.
 - `id` (optional): Instance identifier for multiple instances
+- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 
 ```env-spec "@initKeeper"
 # @initKeeper(token=$KSM_CONFIG)

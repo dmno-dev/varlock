@@ -6,8 +6,12 @@
 "@varlock/doppler-plugin": minor
 "@varlock/infisical-plugin": minor
 "@varlock/passbolt-plugin": minor
+"@varlock/akeyless-plugin": minor
+"@varlock/azure-key-vault-plugin": minor
+"@varlock/hashicorp-vault-plugin": minor
+"@varlock/keeper-plugin": minor
 ---
 
-Add opt-in disk caching via the `cacheTtl` init param (e.g. `cacheTtl="1h"`, `cacheTtl=forever`; falsy values disable caching). Cache keys include a hash of the account-identifying instance config (account, region, project, environment, etc.) so projects pointing the same plugin at different backends can never read each other's cached values from the shared per-user cache.
+Add opt-in disk caching via the `cacheTtl` init param (e.g. `cacheTtl="1h"`, `cacheTtl=forever`; setting it to `false` or an empty string disables caching). Cache keys include a hash of the account-identifying instance config (account, region, project, environment, etc.) so projects pointing the same plugin at different backends can never read each other's cached values from the shared per-user cache.
 
-Proton Pass is intentionally excluded — it reads from the local `pass-cli` vault, so there is no network round trip worth caching.
+Akeyless caches static secret values only — dynamic and rotated secrets are designed to change per fetch and are never cached.

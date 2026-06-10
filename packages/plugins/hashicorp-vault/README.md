@@ -238,6 +238,7 @@ Initialize a HashiCorp Vault plugin instance.
 - `jwtRole?: string` - JWT auth method role name (enables OIDC workload identity)
 - `jwtAuthPath?: string` - JWT auth method mount path (defaults to `jwt`)
 - `oidcToken?: string` - Explicit OIDC JWT token (auto-detected from platform if not provided)
+- `cacheTtl?: string | number` - Cache resolved values from `vaultSecret()` for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### Functions

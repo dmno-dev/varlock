@@ -1,4 +1,7 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
+import { createHash } from 'node:crypto';
 import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import {
   getSecrets,
@@ -17,6 +20,13 @@ const KEEPER_ICON = 'simple-icons:keeper';
 plugin.name = 'keeper';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
+// capture cache accessor while plugin proxy context is active
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache unavailable in this runtime context
+}
 plugin.icon = KEEPER_ICON;
 plugin.standardVars = {
   initDecorator: '@initKeeper',
@@ -47,6 +57,8 @@ function extractUidFromRef(ref: string): string | null {
 
 class KeeperPluginInstance {
   private configToken?: string;
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   constructor(
     readonly id: string,
@@ -55,6 +67,17 @@ class KeeperPluginInstance {
   setAuth(token: any) {
     if (token && typeof token === 'string') this.configToken = token;
     debug('keeper instance', this.id, 'set auth - hasToken:', !!this.configToken);
+  }
+
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which Keeper app/account is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    // the KSM config token encodes the app/account identity (it is hashed, never stored raw)
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.configToken]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
   }
 
   private sdkOptionsPromise: Promise<SecretManagerOptions> | undefined;
@@ -324,12 +347,17 @@ plugin.registerRootDecorator({
 
     return {
       id,
+      cacheTtlResolver: objArgs.cacheTtl,
       tokenResolver: objArgs.token,
     };
   },
-  async execute({ id, tokenResolver }) {
+  async execute({ id, cacheTtlResolver, tokenResolver }) {
     const token = await tokenResolver?.resolve();
     pluginInstances[id].setAuth(token);
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -433,13 +461,25 @@ plugin.registerResolverFunction({
       explicitField = secretRef.substring(hashIndex + 1);
     }
 
-    // If the ref contains a slash, treat as notation (uid/field/type format)
-    if (recordRef.includes('/')) {
-      return await selectedInstance.getSecretByNotation(secretRef);
+    const targetField = field || explicitField;
+
+    const fetchValue = async () => {
+      // If the ref contains a slash, treat as notation (uid/field/type format)
+      if (recordRef.includes('/')) {
+        return await selectedInstance.getSecretByNotation(secretRef);
+      }
+      // Otherwise use simple field access
+      return await selectedInstance.getSecretField(recordRef, targetField);
+    };
+
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      // cache per resolved value (ref + field) — the underlying SDK fetch is a dynamically
+      // composed batch, so individual values are the stable cache granularity
+      const cacheKey = `keeper:${instanceId}:${selectedInstance.cacheKeyIdentity}:${secretRef}:${field || ''}`;
+      return await pluginCache.getOrSet(cacheKey, selectedInstance.cacheTtl, fetchValue);
     }
 
-    // Otherwise use simple field access
-    const targetField = field || explicitField;
-    return await selectedInstance.getSecretField(recordRef, targetField);
+    return await fetchValue();
   },
 });
