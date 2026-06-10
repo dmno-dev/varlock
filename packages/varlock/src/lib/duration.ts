@@ -54,47 +54,52 @@ const UNIT_TO_MS: Record<DurationUnit, number> = {
  *
  * - `"30s"`, `"5m"`, `"1h"`, `"1d"`, `"1w"`, `"1500ms"` — with optional plurals/long forms
  * - Bare number → treated as milliseconds (e.g. `parseDuration(500) === 500`)
+ * - Bare number strings must be plain decimals — hex/exponent/Infinity notation is rejected
  *
- * Throws on negative, non-finite, or unparseable input. Zero is allowed and returned as-is.
+ * Throws on negative, non-finite, sub-millisecond, or unparseable input.
+ * Zero is allowed; any other duration must round to at least 1ms.
  */
 export function parseDuration(input: string | number): number {
+  let ms: number;
   if (typeof input === 'number') {
     if (!Number.isFinite(input) || input < 0) {
       throw new Error(`Invalid duration: ${input} — must be a non-negative finite number`);
     }
-    return input;
+    ms = input;
+  } else {
+    const trimmed = input.trim();
+    if (!trimmed) throw new Error('Duration string cannot be empty');
+
+    // bare number (ms) — plain decimal only, so "1e3"/"0x10"/"Infinity" are rejected
+    if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+      ms = parseFloat(trimmed);
+    } else {
+      const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*([a-z]+)$/i);
+      if (!match) {
+        throw new Error(
+          `Invalid duration: "${input}" — expected a number with a unit suffix (e.g. "1h", "30m", "500ms", "2days")`,
+        );
+      }
+
+      const value = parseFloat(match[1]);
+      const unit = match[2].toLowerCase();
+      const multiplier = MS_UNITS[unit];
+
+      if (!multiplier) {
+        throw new Error(
+          `Invalid duration unit: "${match[2]}" — valid units: ms, s, m, h, d, w (and long forms / plurals)`,
+        );
+      }
+
+      ms = value * multiplier;
+    }
   }
 
-  const trimmed = input.trim();
-  if (!trimmed) throw new Error('Duration string cannot be empty');
-
-  // bare number (ms)
-  const asNum = Number(trimmed);
-  if (!Number.isNaN(asNum)) {
-    if (asNum < 0) throw new Error(`Invalid duration: "${input}" — must be non-negative`);
-    return asNum;
+  const rounded = Math.round(ms);
+  if (ms > 0 && rounded === 0) {
+    throw new Error(`Invalid duration: "${input}" — durations under 1ms are not supported`);
   }
-
-  const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*([a-z]+)$/i);
-  if (!match) {
-    throw new Error(
-      `Invalid duration: "${input}" — expected a number with a unit suffix (e.g. "1h", "30m", "500ms", "2days")`,
-    );
-  }
-
-  const value = parseFloat(match[1]);
-  const unit = match[2].toLowerCase();
-  const multiplier = MS_UNITS[unit];
-
-  if (!multiplier) {
-    throw new Error(
-      `Invalid duration unit: "${match[2]}" — valid units: ms, s, m, h, d, w (and long forms / plurals)`,
-    );
-  }
-
-  if (value < 0) throw new Error(`Invalid duration: "${input}" — must be non-negative`);
-
-  return Math.round(value * multiplier);
+  return rounded;
 }
 
 /** Convert milliseconds to another unit. Always returns a plain number. */

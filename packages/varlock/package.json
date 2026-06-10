@@ -143,6 +143,7 @@
     "@types/node": "catalog:",
     "@types/semver": "^7.7.1",
     "@varlock/ci-env-info": "workspace:^",
+    "@vitest/coverage-v8": "^4.1.8",
     "ansis": "catalog:",
     "browser-or-node": "^3.0.0",
     "ci-info": "^4.3.1",

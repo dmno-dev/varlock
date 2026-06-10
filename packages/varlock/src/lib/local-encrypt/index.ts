@@ -257,22 +257,33 @@ function waitForWindowsDaemonFromWsl(binaryPath: string, timeoutMs: number = 12_
 
 // ── Native binary one-shot commands ────────────────────────────────────
 
-function runNativeBinary(args: Array<string>, opts?: { timeout?: number }): string {
+/** Hide the payload following --data so plaintext/ciphertext never lands in debug logs */
+function redactDataArg(args: Array<string>): Array<string> {
+  const out = [...args];
+  const i = out.indexOf('--data');
+  if (i >= 0 && i + 1 < out.length) out[i + 1] = '<redacted>';
+  return out;
+}
+
+function runNativeBinary(args: Array<string>, opts?: { timeout?: number; sensitiveOutput?: boolean }): string {
   const binaryPath = resolveNativeBinary();
   if (!binaryPath) {
     debug('runNativeBinary: no binary found');
     throw new Error('Native binary not found');
   }
-  debug(`runNativeBinary: ${binaryPath} ${args.join(' ')}`);
+  debug(`runNativeBinary: ${binaryPath} ${redactDataArg(args).join(' ')}`);
   const output = execFileSync(binaryPath, args, {
     encoding: 'utf-8',
     timeout: opts?.timeout ?? 30_000,
   }).trim();
-  debug(`runNativeBinary result: ${output.slice(0, 200)}`);
+  debug(`runNativeBinary result: ${opts?.sensitiveOutput ? `<${output.length} chars>` : output.slice(0, 200)}`);
   return output;
 }
 
-function runNativeBinaryJson<T = Record<string, unknown>>(args: Array<string>, opts?: { timeout?: number }): T {
+function runNativeBinaryJson<T = Record<string, unknown>>(
+  args: Array<string>,
+  opts?: { timeout?: number; sensitiveOutput?: boolean },
+): T {
   const output = runNativeBinary(args, opts);
   const parsed = JSON.parse(output);
   if (parsed.error) {
@@ -414,23 +425,21 @@ export async function encryptValue(plaintext: string, keyId: string = DEFAULT_KE
   if (backend.type === 'file') {
     return fileBackend.encryptValue(plaintext, keyId);
   }
-  // Native binary encrypt (one-shot, no biometric needed for encrypt)
+  // Native binary encrypt (one-shot, no biometric needed for encrypt).
+  // Plaintext is passed via stdin so it never appears in process listings
+  // (and on WSL2, to avoid arg mangling across the WSL/Windows boundary).
   const b64Input = Buffer.from(plaintext, 'utf-8').toString('base64');
-  if (isWSL()) {
-    // On WSL2, pass data via stdin to avoid arg mangling across the WSL/Windows boundary
-    const binaryPath = resolveNativeBinary();
-    if (!binaryPath) throw new Error('Native binary not found');
-    const proc = spawnSync(binaryPath, ['encrypt', '--key-id', keyId, '--data-stdin'], {
-      input: b64Input,
-      encoding: 'utf-8',
-      timeout: 30_000,
-    });
-    if (proc.error) throw proc.error;
-    const result = JSON.parse(proc.stdout.trim());
-    if (result.error) throw new Error(result.error);
-    return result.ciphertext;
-  }
-  const result = runNativeBinaryJson<{ ciphertext: string }>(['encrypt', '--key-id', keyId, '--data', b64Input]);
+  const binaryPath = resolveNativeBinary();
+  if (!binaryPath) throw new Error('Native binary not found');
+
+  const proc = spawnSync(binaryPath, ['encrypt', '--key-id', keyId, '--data-stdin'], {
+    input: b64Input,
+    encoding: 'utf-8',
+    timeout: 30_000,
+  });
+  if (proc.error) throw proc.error;
+  const result = JSON.parse(proc.stdout.trim());
+  if (result.error) throw new Error(result.error);
   return result.ciphertext;
 }
 
@@ -506,7 +515,7 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
 
       const result = JSON.parse(proc.stdout.trim());
       if (result.error) throw new Error(result.error);
-      debug(`decryptValue: WSL2 result: ${proc.stdout.trim().slice(0, 100)}`);
+      debug(`decryptValue: WSL2 decrypt ok (<${proc.stdout.trim().length} chars>)`);
       return result.plaintext;
     }
     debug('decryptValue: biometric decrypt via daemon client');
@@ -516,7 +525,10 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
 
   // Non-biometric native backend (e.g., Linux TPM without polkit) — one-shot
   debug('decryptValue: non-biometric one-shot decrypt');
-  const result = runNativeBinaryJson<{ plaintext: string }>(['decrypt', '--key-id', keyId, '--data', ciphertext]);
+  const result = runNativeBinaryJson<{ plaintext: string }>(
+    ['decrypt', '--key-id', keyId, '--data', ciphertext],
+    { sensitiveOutput: true },
+  );
   return result.plaintext;
 }
 

@@ -181,7 +181,7 @@ Initializes an instance of the Passbolt plugin — setting up authentication and
 **Key/value args:**
 - `accountKit` **(required)**: Passbolt account kit (base64-encoded). Should be a reference to a config item of type `passboltAccountKit`.
 - `passphrase` **(required)**: Passphrase to decrypt your private key. Should be a reference to a sensitive config item.
-- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `0` for forever). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
+- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 - `id` (optional): instance identifier for multiple instances
 
 ```env-spec "@initPassbolt"

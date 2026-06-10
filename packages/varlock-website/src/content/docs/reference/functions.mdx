@@ -268,7 +268,7 @@ API_URL=if(isEmpty($CUSTOM_API_URL), "https://api.default.com", $CUSTOM_API_URL)
 
 ## Random value generators
 
-These functions generate random values using cryptographically secure randomness (`node:crypto`). In ephemeral environments, it can be helpful to generate values that are unique per run/deployments. For local dev, the [`cache()`](#cache) function can be used to keep a value stable for a period of time.
+These functions generate random values using cryptographically secure randomness (`node:crypto`). In ephemeral environments, it can be helpful to generate values that are unique per run/deployment. For local dev, the [`cache()`](#cache) function can be used to keep a value stable for a period of time.
 
 <div class="reference-docs">
 <div>
@@ -363,7 +363,7 @@ TEMP_LABEL=randomString(10)
 Wraps any resolver to cache its result. See [caching guide](/guides/caching/) for more details.
 
 - First arg: the resolver to cache
-- `ttl=D` option: how long to cache (default: forever). Supports `s`, `m`, `h`, `d`, `w` suffixes, or `0` for forever.
+- `ttl=D` option: how long to cache (default: `forever`). Accepts duration strings with `ms`, `s`, `m`, `h`, `d`, `w` suffixes (long forms and plurals also work), bare numbers as milliseconds, or the keyword `forever` to cache until manually cleared.
 - `key=S` option: use an explicit cache key instead of the auto-generated one. Useful when the same cached value should be shared across files or when you want a stable key that doesn't change with resolver edits.
   - Keys must be non-empty printable text (no control characters) and at most 2048 characters.
 
@@ -385,7 +385,7 @@ SHARED_TOKEN=cache(exec(`fetch-org-token.sh`), ttl="1d", key="org-auth-token")
 
 Use the [`varlock cache`](/reference/cli-commands/#cache) CLI command to view or clear the **disk cache**.
 
-Use `--clear-cache` or `--skip-cache` flags on `varlock load` / `varlock run` to control caching behavior for a single invocation.
+Use `--clear-cache` or `--skip-cache` flags on `varlock load` / `varlock run` / `varlock printenv` to control caching behavior for a single invocation.
 
 Global cache behavior is configured with the [`@cache` root decorator](/reference/root-decorators/#cache).
 
@@ -394,7 +394,7 @@ In `memory` mode, `varlock cache` will not show in-memory entries from a running
 For strategy recommendations and troubleshooting, see the [Caching guide](/guides/caching/).
 
 :::tip
-Plugin authors can also use the cache API via `plugin.cache.get()` / `plugin.cache.set()` to cache expensive API calls. See the [Plugins guide](/guides/plugins/) for more information.
+Plugin authors can also use the cache API via `plugin.cache.getOrSet()` (or `get()` / `set()`) to cache expensive API calls. See the [Plugins guide](/guides/plugins/#plugin-caching) for more information.
 :::
 </div>
 </div>

@@ -1,6 +1,8 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { randomBytes, randomUUID, randomInt as cryptoRandomInt } from 'node:crypto';
+import {
+  createHash, randomBytes, randomUUID, randomInt as cryptoRandomInt,
+} from 'node:crypto';
 
 import _ from '@env-spec/utils/my-dash';
 import {
@@ -12,6 +14,7 @@ import { ConfigItem } from './config-item';
 import { SimpleQueue } from './simple-queue';
 import { ResolutionError, SchemaError, VarlockError } from './errors';
 import { parseTtl, TTL_FOREVER } from '../../lib/cache/ttl-parser';
+import { assertValidCacheKey, hasInvalidCacheKeyChars, MAX_CACHE_KEY_LENGTH } from '../../lib/cache/cache-store';
 import type { EnvGraphDataSource } from './data-source';
 import { DecoratorInstance } from './decorators';
 import { getErrorLocation } from './error-location';
@@ -877,6 +880,11 @@ export const CacheResolver: typeof Resolver = createResolver({
         throw new SchemaError('key must be a static string');
       }
       customKey = keyResolver.staticValue as string;
+      try {
+        assertValidCacheKey(customKey, 'cache key');
+      } catch (err) {
+        throw new SchemaError(err instanceof Error ? err.message : String(err));
+      }
     }
 
     // optional TTL
@@ -888,9 +896,13 @@ export const CacheResolver: typeof Resolver = createResolver({
       }
       const ttlVal = ttlResolver.staticValue;
       if (typeof ttlVal !== 'string' && typeof ttlVal !== 'number') {
-        throw new SchemaError('ttl must be a string like "1h" or a number (0 = forever)');
+        throw new SchemaError('ttl must be a duration string like "1h", "forever", or a number of milliseconds');
       }
-      parseTtl(ttlVal);
+      try {
+        parseTtl(ttlVal);
+      } catch (err) {
+        throw new SchemaError(err instanceof Error ? err.message : String(err));
+      }
       ttl = ttlVal;
     }
 
@@ -911,10 +923,20 @@ export const CacheResolver: typeof Resolver = createResolver({
     } else {
       const resolverText = this._parsedNode?.toString() ?? childResolver._parsedNode?.toString() ?? 'unknown';
       const filePath = (this.dataSource as any)?.fullPath ?? this.dataSource?.label ?? 'unknown';
-      cacheKey = `resolver:${filePath}:${item?.key ?? 'unknown'}:${resolverText}`;
+      const itemKey = item?.key ?? 'unknown';
+      cacheKey = `resolver:${filePath}:${itemKey}:${resolverText}`;
+      // auto keys must never hard-fail key validation — fall back to hashing when
+      // the resolver text is too long or contains characters a key can't hold
+      if (cacheKey.length > MAX_CACHE_KEY_LENGTH || hasInvalidCacheKeyChars(cacheKey)) {
+        const digest = createHash('sha256').update(cacheKey).digest('hex');
+        cacheKey = `resolver:${filePath}:${itemKey}:sha256:${digest.slice(0, 16)}`;
+        if (cacheKey.length > MAX_CACHE_KEY_LENGTH || hasInvalidCacheKeyChars(cacheKey)) {
+          cacheKey = `resolver:sha256:${digest}`;
+        }
+      }
     }
 
-    if (cacheStore && !ctx?.skipCache && !ctx?.clearCache) {
+    if (cacheStore && !ctx?.skipCache) {
       const ttlMs = state.ttl != null ? parseTtl(state.ttl) : TTL_FOREVER;
       const result = await cacheStore.getOrSet(cacheKey, ttlMs, async () => await childResolver.resolve());
       if (!result) return undefined;
@@ -924,13 +946,7 @@ export const CacheResolver: typeof Resolver = createResolver({
       return result.value;
     }
 
-    // clear-cache mode intentionally bypasses reads but still rewrites.
-    const childValue = await childResolver.resolve();
-    if (cacheStore && !ctx?.skipCache && childValue !== undefined) {
-      const ttlMs = state.ttl != null ? parseTtl(state.ttl) : TTL_FOREVER;
-      await cacheStore.set(cacheKey, childValue, ttlMs);
-    }
-    return childValue;
+    return await childResolver.resolve();
   },
 });
 

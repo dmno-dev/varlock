@@ -70,6 +70,24 @@ describe('parseDuration', () => {
     expect(() => parseDuration(Infinity)).toThrow();
     expect(() => parseDuration(NaN)).toThrow();
   });
+
+  it('rejects non-standard bare-number string formats', () => {
+    expect(() => parseDuration('1e3')).toThrow();
+    expect(() => parseDuration('0x10')).toThrow();
+    expect(() => parseDuration('Infinity')).toThrow();
+    expect(() => parseDuration('.5')).toThrow();
+  });
+
+  it('rejects sub-millisecond durations', () => {
+    expect(() => parseDuration('0.4')).toThrow(/under 1ms/);
+    expect(() => parseDuration(0.4)).toThrow(/under 1ms/);
+    expect(() => parseDuration('0.0001s')).toThrow(/under 1ms/);
+  });
+
+  it('rounds fractional milliseconds to integers', () => {
+    expect(parseDuration('1.5')).toBe(2);
+    expect(parseDuration(2.4)).toBe(2);
+  });
 });
 
 describe('convertDurationFromMs', () => {

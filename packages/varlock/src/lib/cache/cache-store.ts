@@ -1,20 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { getUserVarlockDir } from '../user-config-dir';
 import * as localEncrypt from '../local-encrypt';
 import { createDebug } from '../debug';
 
 const debug = createDebug('varlock:cache');
-const LOCK_WAIT_MS = 25;
-const LOCK_TIMEOUT_MS = 5_000;
-const LOCK_STALE_MS = 30_000;
-const KEY_LOCK_WAIT_MS = 50;
-const KEY_LOCK_TIMEOUT_MS = 5 * 60_000;
-const KEY_LOCK_STALE_MS = 10 * 60_000;
-const MAX_CACHE_KEY_LENGTH = 2_048;
-const lockWaitBuffer = new Int32Array(new SharedArrayBuffer(4));
-const TTL_FOREVER_MS = 100 * 365.25 * 86_400_000;
+
+const FILE_LOCK_OPTS = { waitMs: 25, timeoutMs: 5_000, staleMs: 30_000 };
+const KEY_LOCK_OPTS = { waitMs: 50, timeoutMs: 5 * 60_000, staleMs: 10 * 60_000 };
+
+export const MAX_CACHE_KEY_LENGTH = 2_048;
+/** "forever" TTLs are stored as a concrete far-future expiry (~100 years) */
+export const TTL_FOREVER_MS = 100 * 365.25 * 86_400_000;
 
 type CacheEntry = {
   /** encrypted value */
@@ -27,6 +25,14 @@ type CacheEntry = {
 
 type CacheData = Record<string, CacheEntry>;
 
+/** Pluggable per-value encryption for a CacheStore */
+export type CacheValueCodec = {
+  /** called before the first write — e.g. ensure a key exists / is valid */
+  ensureReady(): Promise<void> | void;
+  encrypt(plaintext: string): Promise<string> | string;
+  decrypt(ciphertext: string): Promise<string> | string;
+};
+
 export type CacheStoreLike = {
   get(cacheKey: string): Promise<{ value: any; cachedAt: number; expiresAt: number } | undefined>;
   getOrSet(
@@ -34,28 +40,145 @@ export type CacheStoreLike = {
     ttlMs: number,
     producer: () => Promise<any> | any,
   ): Promise<{ value: any; cachedAt: number; expiresAt: number; cacheHit: boolean } | undefined>;
-  set(cacheKey: string, value: any, ttlMs: number): Promise<void>;
-  delete(cacheKey: string): void;
-  clearAll(): number;
-  clearByPrefix(prefix: string): number;
-  getStats(): { total: number; expired: number; byPrefix: Record<string, number> };
-  listEntries(): Array<{ key: string; cachedAt: number; expiresAt: number }>;
-  getFilePath(): string;
+  set(cacheKey: string, value: any, ttlMs: number): Promise<{ cachedAt: number; expiresAt: number } | undefined>;
+  delete(cacheKey: string): Promise<void>;
+  clearAll(): Promise<number>;
 };
+
+/** Compute a concrete expiry timestamp from a TTL (Infinity → far-future) */
+export function expiryFromTtl(now: number, ttlMs: number): number {
+  return Number.isFinite(ttlMs) ? now + ttlMs : now + TTL_FOREVER_MS;
+}
+
+/**
+ * Group a cache key by its first two segments — e.g. `plugin:1password` or
+ * `resolver:/path/to/.env`. Used for stats and the interactive cache browser.
+ */
+export function groupKeyPrefix(key: string): string {
+  const firstColon = key.indexOf(':');
+  if (firstColon < 0) return key;
+  const secondColon = key.indexOf(':', firstColon + 1);
+  return secondColon >= 0 ? key.slice(0, secondColon) : key.slice(0, firstColon);
+}
+
+/** Cache keys must not contain control characters (file format + terminal display safety) */
+export function hasInvalidCacheKeyChars(key: string): boolean {
+  for (let i = 0; i < key.length; i++) {
+    const code = key.charCodeAt(i);
+    if (code < 32 || code === 127) return true;
+  }
+  return false;
+}
+
+export function assertValidCacheKey(key: string, label = 'cache key'): void {
+  if (typeof key !== 'string') {
+    throw new Error(`Invalid ${label}: must be a string`);
+  }
+  if (key.length === 0) {
+    throw new Error(`Invalid ${label}: cannot be empty`);
+  }
+  if (key.length > MAX_CACHE_KEY_LENGTH) {
+    throw new Error(`Invalid ${label}: exceeds max length (${MAX_CACHE_KEY_LENGTH})`);
+  }
+  if (hasInvalidCacheKeyChars(key)) {
+    throw new Error(`Invalid ${label}: contains control characters`);
+  }
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => {
+  setTimeout(resolve, ms);
+});
+
+/**
+ * Cross-process mutual exclusion via atomic `mkdir` of a lock directory.
+ *
+ * Stale locks are stolen via an atomic rename (so two waiters cannot both
+ * "remove and acquire"), and held locks have their mtime refreshed
+ * periodically so a long-running holder is not treated as stale.
+ */
+async function withDirLock<T>(
+  lockPath: string,
+  opts: { waitMs: number; timeoutMs: number; staleMs: number },
+  fn: () => Promise<T> | T,
+): Promise<T> {
+  const deadline = Date.now() + opts.timeoutMs;
+  while (true) {
+    try {
+      fs.mkdirSync(lockPath, { mode: 0o700 });
+      break;
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') {
+        // parent dir missing — create it (0700: keys can leak secret topology) and retry
+        fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+        continue;
+      }
+      if (err?.code !== 'EEXIST') {
+        throw err;
+      }
+      try {
+        const stat = fs.statSync(lockPath);
+        if (Date.now() - stat.mtimeMs > opts.staleMs) {
+          // steal stale lock atomically — only one waiter can win the rename
+          const graveyard = `${lockPath}.stale.${process.pid}.${randomBytes(4).toString('hex')}`;
+          fs.renameSync(lockPath, graveyard);
+          fs.rmSync(graveyard, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        // lock disappeared or another waiter won the steal; retry
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for cache lock at ${lockPath}`);
+      }
+      await sleep(opts.waitMs);
+    }
+  }
+
+  // refresh mtime while held so long operations don't get their lock stolen
+  const touchTimer = setInterval(() => {
+    try {
+      const now = new Date();
+      fs.utimesSync(lockPath, now, now);
+    } catch {
+      // lock dir gone (stolen/removed) — nothing useful to do
+    }
+  }, Math.max(1_000, Math.floor(opts.staleMs / 3)));
+  touchTimer.unref?.();
+
+  try {
+    return await fn();
+  } finally {
+    clearInterval(touchTimer);
+    try {
+      fs.rmSync(lockPath, { recursive: true, force: true });
+    } catch {
+      // lock cleanup failure is non-fatal
+    }
+  }
+}
 
 /**
  * JSON-file-based encrypted cache store.
  *
  * Stores one file per encryption key at `~/.config/varlock/cache/{keyId}.json`.
- * Each entry's value is individually encrypted via localEncrypt.
- * Cache keys are structured strings like `plugin:name:key` or `resolver:path:item:text`.
+ * Each entry's value is individually encrypted via localEncrypt, wrapped in an
+ * envelope that records its cache key so ciphertexts cannot be swapped between
+ * entries within the file. Cache keys are structured strings like
+ * `plugin:name:key` or `resolver:path:item:text`.
  */
 export class CacheStore {
   private filePath: string;
+  private codec: CacheValueCodec;
+  private static warnedWriteFailure = false;
 
-  constructor(private keyId: string = 'varlock-default') {
+  constructor(keyId: string = 'varlock-default', codec?: CacheValueCodec) {
     const cacheDir = path.join(getUserVarlockDir(), 'cache');
     this.filePath = path.join(cacheDir, `${keyId}.json`);
+    this.codec = codec ?? {
+      ensureReady: () => localEncrypt.ensureKey(keyId),
+      encrypt: (plaintext) => localEncrypt.encryptValue(plaintext, keyId),
+      decrypt: (ciphertext) => localEncrypt.decryptValue(ciphertext, keyId),
+    };
   }
 
   /**
@@ -63,33 +186,32 @@ export class CacheStore {
    * The value is JSON-parsed after decryption to preserve its original type (number, boolean, object, etc.).
    */
   async get(cacheKey: string): Promise<{ value: any; cachedAt: number; expiresAt: number } | undefined> {
-    this.assertValidCacheKey(cacheKey);
+    assertValidCacheKey(cacheKey);
     const data = this.loadFile();
     const entry = data[cacheKey];
     if (!entry) return undefined;
 
-    // check expiry
     if (Date.now() > entry.e) {
       debug('cache expired for %s', cacheKey);
-      this.withWriteLock(() => {
-        const latestData = this.loadFile();
-        delete latestData[cacheKey];
-        this.saveFile(latestData);
-      });
+      await this.bestEffortDelete(cacheKey);
       return undefined;
     }
 
     try {
-      const plaintext = await localEncrypt.decryptValue(entry.v, this.keyId);
-      return { value: JSON.parse(plaintext), cachedAt: entry.c, expiresAt: entry.e };
+      const plaintext = await this.codec.decrypt(entry.v);
+      const envelope = JSON.parse(plaintext);
+      // the envelope binds the ciphertext to its key — a swapped/replayed entry decrypts
+      // fine but fails this check
+      if (!envelope || typeof envelope !== 'object' || envelope.k !== cacheKey) {
+        debug('cache entry key mismatch for %s', cacheKey);
+        await this.bestEffortDelete(cacheKey);
+        return undefined;
+      }
+      return { value: envelope.v, cachedAt: entry.c, expiresAt: entry.e };
     } catch (err) {
       debug('cache decrypt failed for %s: %O', cacheKey, err);
       // corrupt or key mismatch — treat as cache miss
-      this.withWriteLock(() => {
-        const latestData = this.loadFile();
-        delete latestData[cacheKey];
-        this.saveFile(latestData);
-      });
+      await this.bestEffortDelete(cacheKey);
       return undefined;
     }
   }
@@ -105,14 +227,17 @@ export class CacheStore {
     ttlMs: number,
     producer: () => Promise<any> | any,
   ): Promise<{ value: any; cachedAt: number; expiresAt: number; cacheHit: boolean } | undefined> {
-    this.assertValidCacheKey(cacheKey);
+    assertValidCacheKey(cacheKey);
 
     const existing = await this.get(cacheKey);
     if (existing) {
       return { ...existing, cacheHit: true };
     }
 
-    return await this.withKeyLock(cacheKey, async () => {
+    const keyHash = createHash('sha256').update(cacheKey).digest('hex');
+    const lockPath = path.join(`${this.filePath}.keylocks`, `${keyHash}.lock`);
+
+    return await withDirLock(lockPath, KEY_LOCK_OPTS, async () => {
       const latest = await this.get(cacheKey);
       if (latest) {
         return { ...latest, cacheHit: true };
@@ -121,18 +246,15 @@ export class CacheStore {
       const value = await producer();
       if (value === undefined) return undefined;
 
-      await this.set(cacheKey, value, ttlMs);
-      const stored = await this.get(cacheKey);
+      const stored = await this.set(cacheKey, value, ttlMs);
       if (stored) {
-        return { ...stored, cacheHit: false };
+        return { value, ...stored, cacheHit: false };
       }
 
+      // cache write failed (e.g. encryption unavailable) — still return the computed value
       const now = Date.now();
       return {
-        value,
-        cachedAt: now,
-        expiresAt: Number.isFinite(ttlMs) ? now + ttlMs : now + TTL_FOREVER_MS,
-        cacheHit: false,
+        value, cachedAt: now, expiresAt: expiryFromTtl(now, ttlMs), cacheHit: false,
       };
     });
   }
@@ -140,38 +262,41 @@ export class CacheStore {
   /**
    * Encrypt and store a value with a TTL.
    * The value is JSON-stringified before encryption to preserve its type on retrieval.
+   * Returns the stored timestamps, or undefined if the write failed (caching is best-effort).
    */
-  async set(cacheKey: string, value: any, ttlMs: number): Promise<void> {
-    this.assertValidCacheKey(cacheKey);
+  async set(cacheKey: string, value: any, ttlMs: number): Promise<{ cachedAt: number; expiresAt: number } | undefined> {
+    assertValidCacheKey(cacheKey);
     const now = Date.now();
+    const expiresAt = expiryFromTtl(now, ttlMs);
 
     try {
-      await localEncrypt.ensureKey(this.keyId);
-      const serialized = JSON.stringify(value);
-      const encrypted = await localEncrypt.encryptValue(serialized, this.keyId);
-      this.withWriteLock(() => {
-        const data = this.loadFile();
-        data[cacheKey] = {
-          v: encrypted,
-          c: now,
-          // Infinity TTL → use a far-future expiry (~100 years)
-          e: Number.isFinite(ttlMs) ? now + ttlMs : now + TTL_FOREVER_MS,
-        };
+      await this.codec.ensureReady();
+      const serialized = JSON.stringify({ k: cacheKey, v: value });
+      const encrypted = await this.codec.encrypt(serialized);
+      await this.withFileLock(() => {
+        const data = this.pruneExpired(this.loadFile());
+        data[cacheKey] = { v: encrypted, c: now, e: expiresAt };
         this.saveFile(data);
       });
       debug('cache set %s (ttl=%dms)', cacheKey, ttlMs);
+      return { cachedAt: now, expiresAt };
     } catch (err) {
-      debug('cache encrypt failed for %s: %O', cacheKey, err);
-      // encryption failure is non-fatal — just skip caching
+      debug('cache write failed for %s: %O', cacheKey, err);
+      if (!CacheStore.warnedWriteFailure) {
+        CacheStore.warnedWriteFailure = true;
+        // eslint-disable-next-line no-console
+        console.error('varlock cache write failed — values will not be cached this run (set DEBUG=varlock:cache for details)');
+      }
+      return undefined;
     }
   }
 
   /**
    * Delete a specific cache entry.
    */
-  delete(cacheKey: string): void {
-    this.assertValidCacheKey(cacheKey);
-    this.withWriteLock(() => {
+  async delete(cacheKey: string): Promise<void> {
+    assertValidCacheKey(cacheKey);
+    await this.withFileLock(() => {
       const data = this.loadFile();
       if (cacheKey in data) {
         delete data[cacheKey];
@@ -183,13 +308,12 @@ export class CacheStore {
   /**
    * Clear all cache entries. Returns the count of cleared entries.
    */
-  clearAll(): number {
-    return this.withWriteLock(() => {
+  async clearAll(): Promise<number> {
+    return await this.withFileLock(() => {
       const data = this.loadFile();
       const count = Object.keys(data).length;
       if (count > 0) {
-        for (const key of Object.keys(data)) delete data[key];
-        this.saveFile(data);
+        this.saveFile({});
       }
       return count;
     });
@@ -199,9 +323,9 @@ export class CacheStore {
    * Clear entries matching a key prefix. Returns the count of cleared entries.
    * Example: `clearByPrefix("plugin:1password:")` clears all 1password plugin cache.
    */
-  clearByPrefix(prefix: string): number {
-    this.assertValidCacheKey(prefix, 'cache key prefix');
-    return this.withWriteLock(() => {
+  async clearByPrefix(prefix: string): Promise<number> {
+    assertValidCacheKey(prefix, 'cache key prefix');
+    return await this.withFileLock(() => {
       const data = this.loadFile();
       let count = 0;
       for (const key of Object.keys(data)) {
@@ -218,7 +342,7 @@ export class CacheStore {
   }
 
   /**
-   * Get cache statistics.
+   * Get cache statistics. `total` includes expired-but-not-yet-pruned entries.
    */
   getStats(): { total: number; expired: number; byPrefix: Record<string, number> } {
     const data = this.loadFile();
@@ -231,11 +355,7 @@ export class CacheStore {
         expired++;
         continue;
       }
-      // group by first two segments: "plugin:name" or "resolver"
-      const firstColon = key.indexOf(':');
-      const secondColon = firstColon >= 0 ? key.indexOf(':', firstColon + 1) : -1;
-      const prefix = secondColon >= 0 ? key.slice(0, secondColon) : key.slice(0, firstColon);
-      byPrefix[prefix] = (byPrefix[prefix] || 0) + 1;
+      byPrefix[groupKeyPrefix(key)] = (byPrefix[groupKeyPrefix(key)] || 0) + 1;
     }
 
     return {
@@ -272,27 +392,29 @@ export class CacheStore {
         return {};
       }
       const raw = fs.readFileSync(this.filePath, 'utf-8');
-      return this.cleanup(JSON.parse(raw) as CacheData);
+      return JSON.parse(raw) as CacheData;
     } catch (err) {
       debug('cache file load failed: %O', err);
       return {};
     }
   }
 
+  /** Throws on failure — callers decide whether a failed write is fatal. */
   private saveFile(data: CacheData): void {
+    // atomic write: exclusively create a temp file then rename over the target
+    const tmpPath = `${this.filePath}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600, flag: 'wx' });
     try {
-      // atomic write: write to temp file then rename
-      const tmpPath = `${this.filePath}.tmp.${process.pid}`;
-      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
       fs.renameSync(tmpPath, this.filePath);
-      // explicit chmod in case rename preserved an existing file's mode
-      fs.chmodSync(this.filePath, 0o600);
     } catch (err) {
-      debug('cache file save failed: %O', err);
+      fs.rmSync(tmpPath, { force: true });
+      throw err;
     }
+    // explicit chmod in case rename preserved an existing file's mode
+    fs.chmodSync(this.filePath, 0o600);
   }
 
-  private cleanup(data: CacheData): CacheData {
+  private pruneExpired(data: CacheData): CacheData {
     const now = Date.now();
     for (const key of Object.keys(data)) {
       if (now > data[key].e) delete data[key];
@@ -300,117 +422,32 @@ export class CacheStore {
     return data;
   }
 
-  private withWriteLock<T>(fn: () => T): T {
+  /** Delete used for internal housekeeping (expired/corrupt entries) — must not break reads */
+  private async bestEffortDelete(cacheKey: string): Promise<void> {
+    try {
+      await this.delete(cacheKey);
+    } catch (err) {
+      debug('cache cleanup delete failed for %s: %O', cacheKey, err);
+    }
+  }
+
+  private async withFileLock<T>(fn: () => Promise<T> | T): Promise<T> {
+    this.ensureCacheDir();
+    return await withDirLock(`${this.filePath}.lock`, FILE_LOCK_OPTS, fn);
+  }
+
+  private ensureCacheDir(): void {
     const dir = path.dirname(this.filePath);
     if (!fs.existsSync(dir)) {
       // 0700 — cache keys include file paths and resolver source text,
       // which can leak secret topology even though values are encrypted
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
-    const lockPath = `${this.filePath}.lock`;
-    const deadline = Date.now() + LOCK_TIMEOUT_MS;
-    while (true) {
-      try {
-        fs.mkdirSync(lockPath, { mode: 0o700 });
-        break;
-      } catch (err: any) {
-        if (err?.code !== 'EEXIST') {
-          throw err;
-        }
-        try {
-          const stat = fs.statSync(lockPath);
-          if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
-            fs.rmSync(lockPath, { recursive: true, force: true });
-            continue;
-          }
-        } catch {
-          // lock file disappeared between checks; retry
-        }
-        if (Date.now() >= deadline) {
-          throw new Error(`Timed out waiting for cache lock at ${lockPath}`);
-        }
-        Atomics.wait(lockWaitBuffer, 0, 0, LOCK_WAIT_MS);
-      }
-    }
-
     try {
-      return fn();
-    } finally {
-      try {
-        fs.rmSync(lockPath, { recursive: true, force: true });
-      } catch {
-        // lock cleanup failure is non-fatal
-      }
-    }
-  }
-
-  private async withKeyLock<T>(cacheKey: string, fn: () => Promise<T>): Promise<T> {
-    const dir = path.dirname(this.filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    }
-
-    const keyLocksDir = `${this.filePath}.keylocks`;
-    if (!fs.existsSync(keyLocksDir)) {
-      fs.mkdirSync(keyLocksDir, { recursive: true, mode: 0o700 });
-    }
-
-    const keyHash = createHash('sha256').update(cacheKey).digest('hex');
-    const lockPath = path.join(keyLocksDir, `${keyHash}.lock`);
-    const deadline = Date.now() + KEY_LOCK_TIMEOUT_MS;
-
-    while (true) {
-      try {
-        fs.mkdirSync(lockPath, { mode: 0o700 });
-        break;
-      } catch (err: any) {
-        if (err?.code !== 'EEXIST') {
-          throw err;
-        }
-        try {
-          const stat = fs.statSync(lockPath);
-          if (Date.now() - stat.mtimeMs > KEY_LOCK_STALE_MS) {
-            fs.rmSync(lockPath, { recursive: true, force: true });
-            continue;
-          }
-        } catch {
-          // lock disappeared between checks; retry
-        }
-        if (Date.now() >= deadline) {
-          throw new Error(`Timed out waiting for cache key lock for ${cacheKey}`);
-        }
-        await new Promise<void>((resolve) => {
-          setTimeout(resolve, KEY_LOCK_WAIT_MS);
-        });
-      }
-    }
-
-    try {
-      return await fn();
-    } finally {
-      try {
-        fs.rmSync(lockPath, { recursive: true, force: true });
-      } catch {
-        // lock cleanup failure is non-fatal
-      }
-    }
-  }
-
-  private assertValidCacheKey(key: string, label = 'cache key'): void {
-    if (typeof key !== 'string') {
-      throw new Error(`Invalid ${label}: must be a string`);
-    }
-    if (key.length === 0) {
-      throw new Error(`Invalid ${label}: cannot be empty`);
-    }
-    if (key.length > MAX_CACHE_KEY_LENGTH) {
-      throw new Error(`Invalid ${label}: exceeds max length (${MAX_CACHE_KEY_LENGTH})`);
-    }
-    for (let i = 0; i < key.length; i++) {
-      const code = key.charCodeAt(i);
-      if (code < 32 || code === 127) {
-        throw new Error(`Invalid ${label}: contains control characters`);
-      }
+      // re-enforce on every use in case the dir pre-existed with a looser mode
+      fs.chmodSync(dir, 0o700);
+    } catch {
+      // best-effort hardening only
     }
   }
 }

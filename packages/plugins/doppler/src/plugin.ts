@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { createHash } from 'node:crypto';
 import ky from 'ky';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;
@@ -53,8 +54,19 @@ class DopplerPluginInstance {
     debug('doppler instance', this.id, 'set auth - project:', project, 'config:', config);
   }
 
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which Doppler workplace/token is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    // the service token identifies the workplace/account (it is hashed, never stored raw)
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.serviceToken]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
+  }
+
   getCacheScope(): string {
-    return `${this.project || ''}:${this.config || ''}`;
+    return `${this.cacheKeyIdentity}:${this.project || ''}:${this.config || ''}`;
   }
 
   private getAuthHeaders(): Record<string, string> {

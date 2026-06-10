@@ -245,12 +245,24 @@ Sets global cache mode for [`cache()`](/reference/functions/#cache) and plugin c
 - `memory`: cache only in-process (not persisted)
 - `disk`: cache to encrypted disk storage (persists across invocations)
 - `disabled`: disable caching globally
-- `auto` (default): uses `memory` in CI, or when local encryption is using file-based fallback, uses `disk` otherwise
+- `auto` (default): uses `disk` when a native encryption backend is available outside CI; otherwise uses `disk` encrypted with `_VARLOCK_CACHE_KEY` if that env var is set, falling back to `memory` (see the [Caching guide](/guides/caching/))
 
-You can of course use functions to dynamically set cache mode based on environment or other config values.
+The value can also be set dynamically with a function — for example to change cache mode per environment. A function that resolves to no value falls back to `auto`.
+
+```env-spec
+# @cache=memory
+# ---
+SESSION_SECRET=cache(randomHex(32))
+```
+
+```env-spec
+# dynamic - only use disk caching in development
+# @cache=forEnv(dev, "disk")
+# ---
+```
 
 :::note
-`--skip-cache` on `varlock load` / `varlock run` disables cache reads and writes for that invocation, regardless of `@cache`.
+`--skip-cache` on `varlock load` / `varlock run` / `varlock printenv` disables cache reads and writes for that invocation, regardless of `@cache`.
 :::
 
 See the [Caching guide](/guides/caching/) for mode selection guidance by environment.

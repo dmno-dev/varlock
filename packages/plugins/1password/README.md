@@ -244,7 +244,7 @@ Initialize a 1Password plugin instance - setting up options and authentication. 
 - `connectToken?: string` - API token for the Connect server. Should be a reference to a config item of type `opConnectToken`. Required when `connectHost` is set.
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 - `allowMissing?: boolean` - When `true`, all `op()` calls for this instance will return `undefined` instead of throwing when the referenced item/field is not found. Can be a dynamic value (e.g., `allowMissing=forEnv(dev)` to only allow missing in dev). Other errors (auth failures, bad format, etc.) still throw.
-- `cacheTtl?: string | number` - Cache resolved values from `op()` / `opLoadEnvironment()` for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `0` for forever). Storage follows global `@cache` mode (`disk` or `memory`) and is disabled when caching is globally disabled or `--skip-cache` is used.
+- `cacheTtl?: string | number` - Cache resolved values from `op()` / `opLoadEnvironment()` for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared). Set to `false` (or an empty string) to disable caching. Storage follows global `@cache` mode (`disk` or `memory`) and is disabled when caching is globally disabled or `--skip-cache` is used.
 
 ### Functions
 

@@ -377,6 +377,12 @@ export class EnvGraph {
       let cacheMode: 'auto' | 'memory' | 'disk' | 'disabled' = 'auto';
       if (cacheSetting === 'auto' || cacheSetting === 'memory' || cacheSetting === 'disk' || cacheSetting === 'disabled') {
         cacheMode = cacheSetting;
+      } else if (cacheSetting !== undefined) {
+        // dynamic values are validated here (static ones already failed in process());
+        // undefined (e.g. forEnv with no match) falls back to auto
+        cacheDec._errors.push(new SchemaError(
+          `@cache resolved to an invalid value (${JSON.stringify(cacheSetting)}) — must be one of: "auto", "memory", "disk", "disabled"`,
+        ));
       }
       if (cacheMode === 'disabled') {
         this._cacheMode = 'disabled';
@@ -388,8 +394,40 @@ export class EnvGraph {
           this._cacheMode = 'memory';
           this._cacheStore = new InMemoryCacheStore();
         } else if (cacheMode === 'disk') {
+          // explicit disk mode overrides the auto policy's safety fallback — allowed, but warn
+          const localEncrypt = await import('../../lib/local-encrypt');
+          const { createEnvKeyCacheStore, getCacheEnvKey } = await import('../../lib/cache');
+          const envKey = getCacheEnvKey(this.processEnvOverride ?? process.env);
+          const backendIsFile = localEncrypt.getBackendInfo().type === 'file';
+
+          let diskStore: import('../../lib/cache/cache-store').CacheStoreLike | undefined;
+          if (backendIsFile && envKey) {
+            // env-provided key beats the file fallback — the key never touches disk
+            try {
+              diskStore = createEnvKeyCacheStore(envKey);
+            } catch (err) {
+              cacheDec._errors.push(new SchemaError(
+                `_VARLOCK_CACHE_KEY is set but invalid (${err instanceof Error ? err.message : err}) — falling back to file-based encryption`,
+                { isWarning: true },
+              ));
+            }
+          }
+          if (!diskStore) {
+            if (backendIsFile) {
+              cacheDec._errors.push(new SchemaError(
+                '@cache=disk with the file-based encryption fallback stores the decryption key on the same disk as the cache — encrypted values are only obfuscated',
+                { isWarning: true },
+              ));
+            } else if (this.ciEnvInfo.isCI) {
+              cacheDec._errors.push(new SchemaError(
+                '@cache=disk in CI persists encrypted values on the runner disk — make sure the runner is ephemeral or this is intended',
+                { isWarning: true },
+              ));
+            }
+            diskStore = new CacheStore();
+          }
           this._cacheMode = 'disk';
-          this._cacheStore = new CacheStore();
+          this._cacheStore = diskStore;
         } else if (cacheMode === 'auto') {
           if (!this._cacheStore) {
             if (this._cacheMode === 'memory') this._cacheStore = new InMemoryCacheStore();
@@ -538,7 +576,6 @@ export class EnvGraph {
         await runWithResolutionContext({
           cacheStore: this._cacheStore,
           skipCache: this._skipCacheMode,
-          clearCache: this._clearCacheMode,
           cacheHits: [],
           currentItem: item,
         }, async () => {
@@ -609,7 +646,8 @@ export class EnvGraph {
     for (const itemKey of this.sortedConfigKeys) {
       // _VARLOCK_ENV_KEY is used to encrypt/decrypt the blob itself — including it
       // would be redundant (the runtime already has it via process.env) and wasteful.
-      if (itemKey === '_VARLOCK_ENV_KEY') continue;
+      // _VARLOCK_CACHE_KEY encrypts the disk cache — it must never land in the blob.
+      if (itemKey === '_VARLOCK_ENV_KEY' || itemKey === '_VARLOCK_CACHE_KEY') continue;
       const item = this.configSchema[itemKey];
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,

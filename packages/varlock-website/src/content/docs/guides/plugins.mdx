@@ -111,3 +111,21 @@ Once installed, all decorators, data types, and resolver functions provided by t
 Some decorators or resolver functions may require the plugin to be initialized and will throw an error if not set up properly.
 
 Please refer to the specific plugin's documentation for details on usage.
+
+## Plugin caching
+
+Plugins can use varlock's built-in [cache](/guides/caching/) to avoid repeated API calls or hold short-lived tokens. Caching is opt-in - it is only active when the user enables it (typically via a `cacheTtl` init option) and the global cache mode allows it.
+
+Plugin authors get a scoped cache accessor on the plugin instance:
+
+```ts
+// primary API - atomic get-or-set
+const value = await plugin.cache.getOrSet('some-key', '1h', () => fetchFromApi());
+
+// lower-level helpers
+await plugin.cache.get('some-key');
+await plugin.cache.set('some-key', value, '1h');
+plugin.cache.delete('some-key');
+```
+
+Keys are automatically prefixed with `plugin:{name}:`, so plugins cannot collide with each other's cache entries.

@@ -4,7 +4,8 @@ import ansis from 'ansis';
 import { define } from 'gunshi';
 import { isCancel } from '@clack/prompts';
 
-import { CacheStore } from '../../lib/cache';
+import { CacheStore, createEnvKeyCacheStore, getCacheEnvKey } from '../../lib/cache';
+import { groupKeyPrefix } from '../../lib/cache/cache-store';
 import { formatTimeAgo, formatDuration } from '../../lib/formatting';
 import * as localEncrypt from '../../lib/local-encrypt';
 import { select, confirm } from '../helpers/prompts';
@@ -97,9 +98,7 @@ function formatEntryLabel(entry: CacheEntry): string {
 function groupEntries(entries: Array<CacheEntry>): Record<string, Array<CacheEntry>> {
   const groups: Record<string, Array<CacheEntry>> = {};
   for (const entry of entries) {
-    const firstColon = entry.key.indexOf(':');
-    const secondColon = firstColon >= 0 ? entry.key.indexOf(':', firstColon + 1) : -1;
-    const prefix = secondColon >= 0 ? entry.key.slice(0, secondColon) : entry.key.slice(0, firstColon);
+    const prefix = groupKeyPrefix(entry.key);
     groups[prefix] ??= [];
     groups[prefix].push(entry);
   }
@@ -132,12 +131,24 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const positionals = (ctx.positionals ?? []).slice(ctx.commandPath?.length ?? 0);
   const action = positionals[0];
 
-  if (!localEncrypt.keyExists()) {
-    console.log(ansis.gray('  No encryption key found — cache is not active.'));
-    return;
+  // when an env-provided key is active (e.g. CI), manage that key's cache file
+  const envKey = getCacheEnvKey();
+  let store: CacheStore;
+  if (envKey) {
+    try {
+      store = createEnvKeyCacheStore(envKey);
+    } catch (err) {
+      console.error(ansis.red(`_VARLOCK_CACHE_KEY is set but invalid: ${err instanceof Error ? err.message : err}`));
+      process.exitCode = 1;
+      return;
+    }
+  } else {
+    if (!localEncrypt.keyExists()) {
+      console.log(ansis.gray('  No encryption key found — cache is not active.'));
+      return;
+    }
+    store = new CacheStore();
   }
-
-  const store = new CacheStore();
 
   // explicit non-interactive status
   if (action === 'status') {
@@ -171,10 +182,15 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       }
     }
 
-    const count = pluginName
-      ? store.clearByPrefix(`plugin:${pluginName}:`)
-      : store.clearAll();
-    console.log(`  Cleared ${count} ${target}`);
+    try {
+      const count = pluginName
+        ? await store.clearByPrefix(`plugin:${pluginName}:`)
+        : await store.clearAll();
+      console.log(`  Cleared ${count} ${target}`);
+    } catch (err) {
+      console.error(ansis.red(`Failed to clear ${target}: ${err instanceof Error ? err.message : err}`));
+      process.exitCode = 1;
+    }
     return;
   }
 
@@ -226,7 +242,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         initialValue: false,
       });
       if (isCancel(confirmed) || !confirmed) continue;
-      const count = store.clearAll();
+      const count = await store.clearAll();
       console.log(`  Cleared ${count} entries`);
       return;
     }
@@ -237,13 +253,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
       // show all entries in the group with clear-all and delete options
       while (true) {
-        const current = store.listEntries().filter((e) => {
-          const k = e.key;
-          const fc = k.indexOf(':');
-          const sc = fc >= 0 ? k.indexOf(':', fc + 1) : -1;
-          const p = sc >= 0 ? k.slice(0, sc) : k.slice(0, fc);
-          return p === prefix;
-        });
+        const current = store.listEntries().filter((e) => groupKeyPrefix(e.key) === prefix);
         if (current.length === 0) {
           console.log(ansis.gray('  No entries remaining in this group.'));
           break;
@@ -271,7 +281,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
             initialValue: false,
           });
           if (isCancel(confirmed) || !confirmed) continue;
-          store.clearByPrefix(`${prefix}:`);
+          await store.clearByPrefix(`${prefix}:`);
           console.log(ansis.gray(`  Cleared ${current.length} entries`));
           break;
         }
@@ -282,7 +292,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
           initialValue: true,
         });
         if (isCancel(confirmed) || !confirmed) continue;
-        store.delete(entrySelected);
+        await store.delete(entrySelected);
         console.log(ansis.gray('  Deleted'));
       }
     }

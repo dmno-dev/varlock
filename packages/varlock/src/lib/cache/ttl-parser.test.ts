@@ -57,20 +57,22 @@ describe('parseTtl', () => {
     });
   });
 
-  describe('forever (0)', () => {
-    it('treats 0 as forever', () => {
-      expect(parseTtl(0)).toBe(Infinity);
+  describe('forever keyword', () => {
+    it('treats "forever" as forever', () => {
+      expect(parseTtl('forever')).toBe(Infinity);
     });
-    it('treats "0" string as forever', () => {
-      expect(parseTtl('0')).toBe(Infinity);
-    });
-    it('treats "0s" string as forever', () => {
-      // any zero-duration TTL is treated as "cache forever" for consistency
-      expect(parseTtl('0s')).toBe(Infinity);
+    it('is case-insensitive and trims whitespace', () => {
+      expect(parseTtl('FOREVER')).toBe(Infinity);
+      expect(parseTtl('  forever  ')).toBe(Infinity);
     });
   });
 
   describe('error cases', () => {
+    it('rejects 0 as ambiguous', () => {
+      expect(() => parseTtl(0)).toThrow(/ambiguous/);
+      expect(() => parseTtl('0')).toThrow(/ambiguous/);
+      expect(() => parseTtl('0s')).toThrow(/ambiguous/);
+    });
     it('rejects empty string', () => {
       expect(() => parseTtl('')).toThrow();
     });
@@ -85,6 +87,11 @@ describe('parseTtl', () => {
     });
     it('rejects negative numeric', () => {
       expect(() => parseTtl(-100)).toThrow();
+    });
+    it('rejects non-standard number formats', () => {
+      expect(() => parseTtl('1e3')).toThrow();
+      expect(() => parseTtl('0x10')).toThrow();
+      expect(() => parseTtl('Infinity')).toThrow();
     });
   });
 });

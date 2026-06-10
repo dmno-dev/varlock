@@ -15,6 +15,7 @@ import _ from '@env-spec/utils/my-dash';
 import { pathExists } from '@env-spec/utils/fs-utils';
 import { getUserVarlockDir } from '../../lib/user-config-dir';
 import { PluginCacheAccessor } from '../../lib/cache/plugin-cache-accessor';
+import { NoopCacheStore } from '../../lib/cache/noop-cache-store';
 import type { CacheStoreLike } from '../../lib/cache/cache-store';
 import { parseTtl } from '../../lib/cache/ttl-parser';
 import { resolveCacheTtl } from '../../lib/cache/resolve-cache-ttl';
@@ -225,10 +226,9 @@ export class VarlockPlugin {
    * Keys are automatically namespaced to prevent collisions between plugins.
    */
   get cache(): PluginCacheAccessor {
-    if (!this._cacheAccessor) {
-      if (!this._cacheStore) throw new Error('Cache not available — plugin accessed cache too early');
-      this._cacheAccessor = new PluginCacheAccessor(this.name, this._cacheStore);
-    }
+    // when caching is unavailable (--skip-cache / @cache=disabled), hand out a
+    // no-op-backed accessor so plugin code doesn't need to special-case it
+    this._cacheAccessor ||= new PluginCacheAccessor(this.name, this._cacheStore ?? new NoopCacheStore());
     return this._cacheAccessor;
   }
 

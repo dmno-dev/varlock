@@ -11,7 +11,6 @@ export type CacheHitInfo = {
 export type ResolutionContextData = {
   cacheStore?: CacheStoreLike;
   skipCache: boolean;
-  clearCache: boolean;
   /** Cache hits recorded during resolution of the current item */
   cacheHits: Array<CacheHitInfo>;
   /** The ConfigItem currently being resolved */

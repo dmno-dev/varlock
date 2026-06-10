@@ -3,7 +3,7 @@ import {
 } from 'varlock/plugin-lib';
 import ky from 'ky';
 import { Buffer } from 'node:buffer';
-import { webcrypto } from 'node:crypto';
+import { createHash, webcrypto } from 'node:crypto';
 import { deriveKeyFromAccessToken, decryptAes256CbcHmac } from './crypto-utils.js';
 
 const { subtle } = webcrypto;
@@ -74,6 +74,17 @@ class BitwardenPluginInstance {
   constructor(
     readonly id: string,
   ) {}
+
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which Bitwarden server/machine account is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    // the access token identifies the machine account/organization (it is hashed, never stored raw)
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.apiUrl, this.accessToken]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
+  }
 
   setAuth(
     accessToken: any,
@@ -508,7 +519,7 @@ plugin.registerResolverFunction({
 
     // check cache if cacheTtl is configured and cache is available
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
-      const cacheKey = `bw:${instanceId}:${secretId}`;
+      const cacheKey = `bw:${instanceId}:${selectedInstance.cacheKeyIdentity}:${secretId}`;
       return await pluginCache.getOrSet(
         cacheKey,
         selectedInstance.cacheTtl,

@@ -2,6 +2,7 @@ import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
 
+import { createHash } from 'node:crypto';
 import {
   SecretsManagerClient,
   GetSecretValueCommand,
@@ -76,6 +77,16 @@ class AwsPluginInstance {
   constructor(
     readonly id: string,
   ) {
+  }
+
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which AWS account/region is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.region, this.profile, this.accessKeyId, this.oidcRoleArn]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
   }
 
   setAuth(
@@ -713,7 +724,7 @@ plugin.registerResolverFunction({
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
       // store the full secret payload, then apply jsonKey extraction per lookup.
       // This avoids cache collisions between awsSecret("x#foo") and awsSecret("x#bar").
-      const cacheKey = `awsSecret:${instanceId}:${finalSecretId}`;
+      const cacheKey = `awsSecret:${instanceId}:${selectedInstance.cacheKeyIdentity}:${finalSecretId}`;
       const fullSecretValue = await pluginCache.getOrSet(
         cacheKey,
         selectedInstance.cacheTtl,
@@ -848,7 +859,7 @@ plugin.registerResolverFunction({
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
       // store the full parameter payload, then apply jsonKey extraction per lookup.
       // This avoids cache collisions between awsParam("x#foo") and awsParam("x#bar").
-      const cacheKey = `awsParam:${instanceId}:${finalParameterName}`;
+      const cacheKey = `awsParam:${instanceId}:${selectedInstance.cacheKeyIdentity}:${finalParameterName}`;
       const fullParameterValue = await pluginCache.getOrSet(
         cacheKey,
         selectedInstance.cacheTtl,

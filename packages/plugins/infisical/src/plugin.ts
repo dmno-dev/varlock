@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { createHash } from 'node:crypto';
 import { InfisicalSDK } from '@infisical/sdk';
 import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
@@ -50,6 +51,16 @@ class InfisicalPluginInstance {
   constructor(
     readonly id: string,
   ) {}
+
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which Infisical instance/project/environment is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.siteUrl, this.projectId, this.environment]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
+  }
 
   setAuth(
     projectId: any,
@@ -542,7 +553,7 @@ plugin.registerResolverFunction({
     }
 
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
-      const cacheKey = `infisical:${instanceId}:${secretPath || ''}:${secretName}`;
+      const cacheKey = `infisical:${instanceId}:${selectedInstance.cacheKeyIdentity}:${secretPath || ''}:${secretName}`;
       return await pluginCache.getOrSet(
         cacheKey,
         selectedInstance.cacheTtl,
@@ -625,7 +636,7 @@ plugin.registerResolverFunction({
 
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
       const tagsKey = tagSlugs?.join(',') || '';
-      const cacheKey = `infisicalBulk:${instanceId}:${secretPath || ''}:${tagsKey}`;
+      const cacheKey = `infisicalBulk:${instanceId}:${selectedInstance.cacheKeyIdentity}:${secretPath || ''}:${tagsKey}`;
       const cachedOrFetched = await pluginCache.getOrSet(
         cacheKey,
         selectedInstance.cacheTtl,

@@ -215,6 +215,7 @@ Initialize a Bitwarden Secrets Manager plugin instance for accessing secrets.
 - `accessToken` (required): Machine account access token. Should be a reference to a config item of type `bitwardenAccessToken`.
 - `apiUrl` (optional): API URL for self-hosted Bitwarden (defaults to `https://api.bitwarden.com`)
 - `identityUrl` (optional): Identity service URL for self-hosted Bitwarden (defaults to `https://identity.bitwarden.com`)
+- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 - `id` (optional): Instance identifier for multiple instances
 
 ```env-spec "@initBitwarden"

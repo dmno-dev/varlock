@@ -1,9 +1,15 @@
+import { expiryFromTtl } from './cache-store';
+
 type InMemoryCacheEntry = {
   value: any;
   cachedAt: number;
   expiresAt: number;
 };
 
+/**
+ * Process-local cache store used when persisting to disk is not appropriate
+ * (CI, file-based encryption fallback, or `@cache=memory`).
+ */
 export class InMemoryCacheStore {
   private entries = new Map<string, InMemoryCacheEntry>();
   private inFlight = new Map<
@@ -25,13 +31,11 @@ export class InMemoryCacheStore {
     };
   }
 
-  async set(cacheKey: string, value: any, ttlMs: number): Promise<void> {
+  async set(cacheKey: string, value: any, ttlMs: number): Promise<{ cachedAt: number; expiresAt: number }> {
     const now = Date.now();
-    this.entries.set(cacheKey, {
-      value,
-      cachedAt: now,
-      expiresAt: Number.isFinite(ttlMs) ? now + ttlMs : now + 100 * 365.25 * 86_400_000,
-    });
+    const expiresAt = expiryFromTtl(now, ttlMs);
+    this.entries.set(cacheKey, { value, cachedAt: now, expiresAt });
+    return { cachedAt: now, expiresAt };
   }
 
   async getOrSet(
@@ -54,17 +58,8 @@ export class InMemoryCacheStore {
       const value = await producer();
       if (value === undefined) return undefined;
 
-      await this.set(cacheKey, value, ttlMs);
-      const stored = await this.get(cacheKey);
-      if (stored) return { ...stored, cacheHit: false };
-
-      const now = Date.now();
-      return {
-        value,
-        cachedAt: now,
-        expiresAt: Number.isFinite(ttlMs) ? now + ttlMs : now + 100 * 365.25 * 86_400_000,
-        cacheHit: false,
-      };
+      const stored = await this.set(cacheKey, value, ttlMs);
+      return { value, ...stored, cacheHit: false };
     })();
 
     this.inFlight.set(cacheKey, pending);
@@ -77,56 +72,13 @@ export class InMemoryCacheStore {
     }
   }
 
-  delete(cacheKey: string): void {
+  async delete(cacheKey: string): Promise<void> {
     this.entries.delete(cacheKey);
   }
 
-  clearAll(): number {
+  async clearAll(): Promise<number> {
     const count = this.entries.size;
     this.entries.clear();
     return count;
-  }
-
-  clearByPrefix(prefix: string): number {
-    let count = 0;
-    for (const key of this.entries.keys()) {
-      if (key.startsWith(prefix)) {
-        this.entries.delete(key);
-        count++;
-      }
-    }
-    return count;
-  }
-
-  getStats(): { total: number; expired: number; byPrefix: Record<string, number> } {
-    const now = Date.now();
-    let expired = 0;
-    const byPrefix: Record<string, number> = {};
-    for (const [key, entry] of this.entries.entries()) {
-      if (now > entry.expiresAt) {
-        expired++;
-        continue;
-      }
-      const firstColon = key.indexOf(':');
-      const secondColon = firstColon >= 0 ? key.indexOf(':', firstColon + 1) : -1;
-      const prefix = secondColon >= 0 ? key.slice(0, secondColon) : key.slice(0, firstColon);
-      byPrefix[prefix] = (byPrefix[prefix] || 0) + 1;
-    }
-    return { total: this.entries.size, expired, byPrefix };
-  }
-
-  listEntries(): Array<{ key: string; cachedAt: number; expiresAt: number }> {
-    const now = Date.now();
-    const out: Array<{ key: string; cachedAt: number; expiresAt: number }> = [];
-    for (const [key, entry] of this.entries.entries()) {
-      if (now <= entry.expiresAt) {
-        out.push({ key, cachedAt: entry.cachedAt, expiresAt: entry.expiresAt });
-      }
-    }
-    return out;
-  }
-
-  getFilePath(): string {
-    return '[memory]';
   }
 }

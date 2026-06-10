@@ -92,7 +92,7 @@ See the [OIDC Workload Identity guide](https://varlock.dev/guides/oidc/) for ful
 - **`oidcToken`** (optional): Explicit OIDC JWT token (auto-detected from platform if not provided)
 - **`siteUrl`** (optional): Custom Infisical instance URL (defaults to `https://app.infisical.com`)
 - **`secretPath`** (optional): Default secret path for all secrets (defaults to `/`)
-- **`cacheTtl`** (optional): Cache resolved values for the specified duration (`"5m"`, `"1h"`, `"1d"`, or `0` for forever)
+- **`cacheTtl`** (optional): Cache resolved values for the specified duration (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching
 - **`id`** (optional): Instance identifier for using multiple instances
 
 ## Usage

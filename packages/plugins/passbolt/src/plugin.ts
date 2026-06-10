@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { createHash } from 'node:crypto';
 import { PassboltClient, type UUIDv4String } from './passbolt';
 import type { Resource } from './types';
 
@@ -34,6 +35,17 @@ class PassboltPluginInstance {
   cacheTtl?: string | number;
 
   constructor(readonly id: string) {}
+
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which Passbolt server/user is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    // the account kit encodes the server URL and user id (it is hashed, never stored raw)
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.accountKit]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
+  }
 
   setAuth(accountKit?: any, passphrase?: any) {
     this.accountKit = accountKit?.toString?.() ?? undefined;
@@ -313,7 +325,7 @@ plugin.registerResolverFunction({
     const resolvedField = field ?? await fieldResolver?.resolve();
 
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
-      const cacheKey = `passbolt:${instanceId}:resource:${resourceId}:${resolvedField || ''}`;
+      const cacheKey = `passbolt:${instanceId}:${selectedInstance.cacheKeyIdentity}:resource:${resourceId}:${resolvedField || ''}`;
       return await pluginCache.getOrSet(
         cacheKey,
         selectedInstance.cacheTtl,
@@ -365,7 +377,7 @@ plugin.registerResolverFunction({
     }
 
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
-      const cacheKey = `passboltBulk:${instanceId}:${folderPath}`;
+      const cacheKey = `passboltBulk:${instanceId}:${selectedInstance.cacheKeyIdentity}:${folderPath}`;
       const cachedOrFetched = await pluginCache.getOrSet(
         cacheKey,
         selectedInstance.cacheTtl,
@@ -401,7 +413,7 @@ plugin.registerResolverFunction({
     const { resourceId } = await resolveResourceId(resourceIdResolver);
 
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
-      const cacheKey = `passboltCustomFields:${instanceId}:${resourceId}`;
+      const cacheKey = `passboltCustomFields:${instanceId}:${selectedInstance.cacheKeyIdentity}:${resourceId}`;
       const cachedOrFetched = await pluginCache.getOrSet(
         cacheKey,
         selectedInstance.cacheTtl,

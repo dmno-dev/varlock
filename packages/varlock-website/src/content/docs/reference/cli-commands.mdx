@@ -94,7 +94,7 @@ varlock load [options]
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@currentEnv` in `.env.schema`
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point (overrides `varlock.loadPath` in `package.json`). Can be specified multiple times to load from multiple paths — later paths take higher precedence.
-- `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (writes new values back unless `--skip-cache` is also set)
+- `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (when combined with `--skip-cache`, the cache is cleared first, then reads and writes are skipped for the run)
 - `--skip-cache`: Skip cache entirely for this invocation (no reads or writes). This overrides `@cache=disk`/`@cache=memory`.
 
 **Examples:**
@@ -152,7 +152,7 @@ varlock run -- <command>
 - `--no-redact-stdout`: Disable stdout/stderr redaction to preserve TTY detection for interactive tools
 - `--no-inject-graph`: Disable injection of `__VARLOCK_ENV` serialized config graph into the child process environment
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
-- `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values
+- `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (when combined with `--skip-cache`, the cache is cleared first, then reads and writes are skipped for the run)
 - `--skip-cache`: Skip cache entirely for this invocation (no reads or writes). This overrides `@cache=disk`/`@cache=memory`.
 
 **Examples:**
@@ -217,6 +217,8 @@ varlock printenv <VAR_NAME> [options]
 
 **Options:**
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
+- `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (when combined with `--skip-cache`, the cache is cleared first, then reads and writes are skipped for the run)
+- `--skip-cache`: Skip cache entirely for this invocation (no reads or writes). This overrides `@cache=disk`/`@cache=memory`.
 
 **Examples:**
 ```bash

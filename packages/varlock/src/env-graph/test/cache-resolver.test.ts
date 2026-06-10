@@ -68,7 +68,11 @@ async function loadAndResolve(envContent: string, opts?: {
   g.registerResolver(RandomResolver);
   g.registerResolver(CounterResolver);
   if (opts?.cacheStore) g._cacheStore = opts.cacheStore;
-  if (opts?.clearCache) g._clearCacheMode = true;
+  if (opts?.clearCache) {
+    g._clearCacheMode = true;
+    // mirrors loadEnvGraph(): --clear-cache empties the store before resolution
+    await opts.cacheStore?.clearAll();
+  }
   if (opts?.skipCache) g._skipCacheMode = true;
   const source = new DotEnvFileDataSource('.env.schema', {
     overrideContents: outdent`
@@ -133,11 +137,35 @@ describe('cache() resolver', () => {
       expect(resolverWarnings.some((e) => e.message.includes('static value'))).toBe(true);
     });
 
-    it('accepts cache() with ttl=0 (forever)', async () => {
-      const g = await loadAndResolve('A=cache(random(), ttl=0)');
+    it('accepts cache() with ttl=forever', async () => {
+      const g = await loadAndResolve('A=cache(random(), ttl=forever)');
       const item = g.configSchema.A;
       expect(item.resolvedValue).toBeDefined();
       expect(item.errors.length).toBe(0);
+    });
+
+    it('rejects cache() with ttl=0 (ambiguous)', async () => {
+      const g = await loadAndResolve('A=cache(random(), ttl=0)');
+      const item = g.configSchema.A;
+      expect(item.errors.length).toBeGreaterThan(0);
+      expect(item.errors.some((e) => e.message.includes('ambiguous'))).toBe(true);
+    });
+
+    it('handles auto cache keys that exceed the max key length', async () => {
+      const store = createTestCacheStore();
+      // resolver text long enough that the auto key must be hashed instead of used raw
+      const longArg = 'x'.repeat(2_500);
+      const env = `A=cache(fallback(random(), "${longArg}"))`;
+
+      const g1 = await loadAndResolve(env, { cacheStore: store });
+      expect(g1.configSchema.A.errors.length).toBe(0);
+      const firstValue = g1.configSchema.A.resolvedValue;
+      expect(firstValue).toBeDefined();
+
+      // second resolution hits the hashed cache key
+      const g2 = await loadAndResolve(env, { cacheStore: store });
+      expect(g2.configSchema.A.resolvedValue).toBe(firstValue);
+      expect(calls.random).toBe(1);
     });
   });
 
@@ -183,6 +211,42 @@ describe('cache() resolver', () => {
       expect(g1._skipCacheMode).toBe(false);
       expect(g1._cacheStore).toBeInstanceOf(InMemoryCacheStore);
       expect(g1.configSchema.A.resolvedValue).toBeDefined();
+    });
+
+    it('supports dynamic @cache values (functions)', async () => {
+      const g = new EnvGraph();
+      g.registerResolver(RandomResolver);
+      const source = new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @defaultRequired=false
+          # @cache=fallback("", "memory")
+          # ---
+          A=cache(random(), ttl="1h")
+        `,
+      });
+      await g.setRootDataSource(source);
+      await g.finishLoad();
+      await g.resolveEnvValues();
+      expect(g._cacheStore).toBeInstanceOf(InMemoryCacheStore);
+      expect(g.configSchema.A.resolvedValue).toBeDefined();
+    });
+
+    it('errors when dynamic @cache resolves to an invalid value', async () => {
+      const g = new EnvGraph();
+      g.registerResolver(RandomResolver);
+      const source = new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @defaultRequired=false
+          # @cache=fallback("", "bogus")
+          # ---
+          A=random()
+        `,
+      });
+      await g.setRootDataSource(source);
+      await g.finishLoad();
+      const cacheDec = g.getRootDec('cache');
+      expect(cacheDec).toBeDefined();
+      expect(cacheDec!.errors.some((e) => e.message.includes('invalid value'))).toBe(true);
     });
 
     it('supports global cache disable via @cache=disabled', async () => {
@@ -251,7 +315,7 @@ describe('cache() resolver', () => {
       expect(g2.configSchema.A.isCacheHit).toBe(false);
     });
 
-    it('--clear-cache skips reading but rewrites', async () => {
+    it('--clear-cache clears the store, then resolves fresh and rewrites', async () => {
       const store = createTestCacheStore();
 
       // populate cache

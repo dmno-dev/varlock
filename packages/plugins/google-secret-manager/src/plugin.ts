@@ -187,6 +187,17 @@ class GsmPluginInstance {
     return `projects/${this.projectId}/secrets/${name}/versions/${version}`;
   }
 
+  /**
+   * Expand a secret ref to its full `projects/.../secrets/.../versions/...` path.
+   * Initializes the auth client first for short refs, since projectId may come from credentials JSON.
+   * Used to build cache keys so short and full refs to the same secret share an entry
+   * and different projects never collide.
+   */
+  async getFullSecretPath(secretRef: string): Promise<string> {
+    if (!secretRef.startsWith('projects/')) await this.initClient();
+    return this.buildSecretPath(secretRef);
+  }
+
   async readSecret(secretRef: string): Promise<string> {
     const auth = await this.initClient();
 
@@ -430,7 +441,10 @@ plugin.registerResolverFunction({
 
     // check cache if cacheTtl is configured and cache is available
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
-      const cacheKey = `gsm:${instanceId}:${secretRef}`;
+      // key on the fully-expanded path (includes projectId) so different GCP projects
+      // never collide and short vs full refs to the same secret share an entry
+      const fullSecretPath = await selectedInstance.getFullSecretPath(secretRef);
+      const cacheKey = `gsm:${instanceId}:${fullSecretPath}`;
       return await pluginCache.getOrSet(
         cacheKey,
         selectedInstance.cacheTtl,

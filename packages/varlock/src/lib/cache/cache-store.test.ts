@@ -94,6 +94,25 @@ describe('CacheStore', () => {
       expect(a?.value).toBe('shared-value');
       expect(b?.value).toBe('shared-value');
     });
+
+    it('propagates producer errors and releases the key lock', async () => {
+      const store = new CacheStore();
+      await expect(store.getOrSet('plugin:test:err', 60_000, () => {
+        throw new Error('boom');
+      })).rejects.toThrow('boom');
+
+      // lock must be released — a retry runs the producer immediately
+      const result = await store.getOrSet('plugin:test:err', 60_000, () => 'recovered');
+      expect(result?.value).toBe('recovered');
+      expect(result?.cacheHit).toBe(false);
+    });
+
+    it('does not store undefined producer results', async () => {
+      const store = new CacheStore();
+      const result = await store.getOrSet('plugin:test:undef', 60_000, () => undefined);
+      expect(result).toBeUndefined();
+      expect(await store.get('plugin:test:undef')).toBeUndefined();
+    });
   });
 
   describe('expiry', () => {
@@ -107,6 +126,38 @@ describe('CacheStore', () => {
       const result = await store.get('plugin:test:exp');
       expect(result).toBeUndefined();
     });
+
+    it('counts expired entries in stats and removes them on read', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:exp', 'val', 1);
+      await new Promise<void>((r) => {
+        setTimeout(r, 10);
+      });
+
+      // entry still occupies the file and shows up as expired in stats
+      let raw = JSON.parse(fs.readFileSync(store.getFilePath(), 'utf-8'));
+      expect(raw['plugin:test:exp']).toBeDefined();
+      const stats = store.getStats();
+      expect(stats.total).toBe(1);
+      expect(stats.expired).toBe(1);
+
+      // reading it removes it from the file
+      expect(await store.get('plugin:test:exp')).toBeUndefined();
+      raw = JSON.parse(fs.readFileSync(store.getFilePath(), 'utf-8'));
+      expect(raw['plugin:test:exp']).toBeUndefined();
+    });
+
+    it('prunes expired entries on writes', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:old', 'v', 1);
+      await new Promise<void>((r) => {
+        setTimeout(r, 10);
+      });
+      await store.set('plugin:test:new', 'v', 60_000);
+      const raw = JSON.parse(fs.readFileSync(store.getFilePath(), 'utf-8'));
+      expect(raw['plugin:test:old']).toBeUndefined();
+      expect(raw['plugin:test:new']).toBeDefined();
+    });
   });
 
   describe('delete', () => {
@@ -114,7 +165,7 @@ describe('CacheStore', () => {
       const store = new CacheStore();
       await store.set('plugin:test:a', 'va', 60_000);
       await store.set('plugin:test:b', 'vb', 60_000);
-      store.delete('plugin:test:a');
+      await store.delete('plugin:test:a');
       expect(await store.get('plugin:test:a')).toBeUndefined();
       expect((await store.get('plugin:test:b'))!.value).toBe('vb');
     });
@@ -125,15 +176,15 @@ describe('CacheStore', () => {
       const store = new CacheStore();
       await store.set('plugin:a:1', 'v1', 60_000);
       await store.set('plugin:b:2', 'v2', 60_000);
-      const count = store.clearAll();
+      const count = await store.clearAll();
       expect(count).toBe(2);
       expect(await store.get('plugin:a:1')).toBeUndefined();
       expect(await store.get('plugin:b:2')).toBeUndefined();
     });
 
-    it('returns 0 when empty', () => {
+    it('returns 0 when empty', async () => {
       const store = new CacheStore();
-      expect(store.clearAll()).toBe(0);
+      expect(await store.clearAll()).toBe(0);
     });
   });
 
@@ -145,7 +196,7 @@ describe('CacheStore', () => {
       await store.set('plugin:aws:c', 'v3', 60_000);
       await store.set('resolver:file:item:text', 'v4', 60_000);
 
-      const count = store.clearByPrefix('plugin:1password:');
+      const count = await store.clearByPrefix('plugin:1password:');
       expect(count).toBe(2);
       expect(await store.get('plugin:1password:a')).toBeUndefined();
       expect(await store.get('plugin:1password:b')).toBeUndefined();
@@ -215,15 +266,39 @@ describe('CacheStore', () => {
   });
 
   describe('encryption', () => {
-    it('stores encrypted JSON-serialized values in the file', async () => {
+    it('stores encrypted JSON envelopes (key + value) in the file', async () => {
       const store = new CacheStore();
       await store.set('plugin:test:enc', 'secret', 60_000);
 
       const raw = fs.readFileSync(store.getFilePath(), 'utf-8');
       const data = JSON.parse(raw);
-      // value should be encrypted JSON, not plaintext
-      expect(data['plugin:test:enc'].v).toBe('encrypted:"secret"');
+      // value should be an encrypted envelope binding the cache key, not plaintext
+      expect(data['plugin:test:enc'].v).toBe(`encrypted:${JSON.stringify({ k: 'plugin:test:enc', v: 'secret' })}`);
       expect(data['plugin:test:enc'].v).not.toBe('secret');
+    });
+
+    it('treats an entry moved to a different key as a miss (envelope binding)', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:original', 'bound-value', 60_000);
+
+      // simulate ciphertext swapped between entries within the file
+      const raw = JSON.parse(fs.readFileSync(store.getFilePath(), 'utf-8'));
+      raw['plugin:test:other'] = raw['plugin:test:original'];
+      fs.writeFileSync(store.getFilePath(), JSON.stringify(raw));
+
+      expect(await store.get('plugin:test:other')).toBeUndefined();
+      expect((await store.get('plugin:test:original'))!.value).toBe('bound-value');
+    });
+  });
+
+  describe('set return value', () => {
+    it('returns the stored timestamps', async () => {
+      const store = new CacheStore();
+      const before = Date.now();
+      const stored = await store.set('plugin:test:ret', 'v', 60_000);
+      expect(stored).toBeDefined();
+      expect(stored!.cachedAt).toBeGreaterThanOrEqual(before);
+      expect(stored!.expiresAt).toBe(stored!.cachedAt + 60_000);
     });
   });
 
@@ -232,16 +307,16 @@ describe('CacheStore', () => {
       const store = new CacheStore();
       await expect(store.get('')).rejects.toThrow('Invalid cache key');
       await expect(store.set('', 'v', 60_000)).rejects.toThrow('Invalid cache key');
-      expect(() => store.delete('')).toThrow('Invalid cache key');
-      expect(() => store.clearByPrefix('')).toThrow('Invalid cache key prefix');
+      await expect(store.delete('')).rejects.toThrow('Invalid cache key');
+      await expect(store.clearByPrefix('')).rejects.toThrow('Invalid cache key prefix');
     });
 
     it('rejects control characters in cache keys', async () => {
       const store = new CacheStore();
       await expect(store.get('plugin:test:\nkey')).rejects.toThrow('control characters');
       await expect(store.set('plugin:test:\u0000key', 'v', 60_000)).rejects.toThrow('control characters');
-      expect(() => store.delete('plugin:test:\rkey')).toThrow('control characters');
-      expect(() => store.clearByPrefix('plugin:test:\t')).toThrow('control characters');
+      await expect(store.delete('plugin:test:\rkey')).rejects.toThrow('control characters');
+      await expect(store.clearByPrefix('plugin:test:\t')).rejects.toThrow('control characters');
     });
   });
 

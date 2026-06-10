@@ -203,6 +203,7 @@ Initialize an AWS plugin instance.
 - `oidcRoleArn?: string` - ARN of IAM role to assume via OIDC (enables workload identity federation)
 - `oidcSessionName?: string` - Session name for the OIDC assumed role (defaults to `varlock-session`)
 - `oidcToken?: string` - Explicit OIDC JWT token (auto-detected from platform if not provided)
+- `cacheTtl?: string | number` - Cache resolved values from `awsSecret()` / `awsParam()` for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### Functions

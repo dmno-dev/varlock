@@ -2,6 +2,7 @@ import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
 
+import { createHash } from 'node:crypto';
 import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import { spawnAsync } from '@env-spec/utils/exec-helpers';
 import { Client, createClient } from '@1password/sdk';
@@ -290,6 +291,17 @@ class OpPluginInstance {
   constructor(
     readonly id: string,
   ) {
+  }
+
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which 1Password account/server is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    // the service account token is hashed (never stored raw) - it identifies the account when `account` is not set
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.account, this.connectHost, this.token]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
   }
 
   setAuth(
@@ -930,7 +942,7 @@ plugin.registerResolverFunction({
 
     // check cache if cacheTtl is configured and cache is available
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
-      const cacheKey = `op:${instanceId}:${opReference}`;
+      const cacheKey = `op:${instanceId}:${selectedInstance.cacheKeyIdentity}:${opReference}`;
       return await pluginCache.getOrSet(cacheKey, selectedInstance.cacheTtl, async () => {
         try {
           return await selectedInstance.readItem(opReference);
@@ -1014,7 +1026,7 @@ plugin.registerResolverFunction({
 
     // check cache if cacheTtl is configured and cache is available
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
-      const cacheKey = `opEnv:${instanceId}:${environmentId}`;
+      const cacheKey = `opEnv:${instanceId}:${selectedInstance.cacheKeyIdentity}:${environmentId}`;
       return await pluginCache.getOrSet(
         cacheKey,
         selectedInstance.cacheTtl,

@@ -12,7 +12,7 @@ Load secrets from [Doppler](https://www.doppler.com/) into your Varlock configur
 - ✅ Auto-infer secret names from variable names
 - ✅ Helpful error messages with resolution tips
 
-`cacheTtl` is optional and uses the same duration format as varlock `cache()` (e.g. `"5m"`, `"1h"`, `"1d"`, or `0` for forever).
+`cacheTtl` is optional and uses the same duration format as varlock `cache()` (e.g. `"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared). Set to `false` (or an empty string) to disable caching.
 
 ## Installation
 
