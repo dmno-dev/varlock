@@ -59,23 +59,28 @@ describe('proxy decorators', () => {
       EXPLICIT_KEY=sk_live_real_explicit
 
       # @proxy(domain="api.example.com")
-      # @example=ghp_ABCD1234WXYZ
-      EXAMPLE_KEY=ghp_REAL_SECRET
-
-      # @proxy(domain="api.example.com")
       # @type=string(startsWith=tok_, isLength=12)
       TYPE_KEY=tok_real_secret
+
+      # @proxy(domain="api.example.com")
+      NO_HINT_KEY=whatever_real_secret
     `);
 
     const managed = await graph.getProxyManagedItems();
     const byKey = Object.fromEntries(managed.map((item) => [item.key, item]));
 
+    // Explicit @placeholder wins; @type constraints derive a format-shaped placeholder.
     expect(byKey.EXPLICIT_KEY?.placeholder).toBe('sk_test_explicit');
-    expect(byKey.EXAMPLE_KEY?.placeholder).toBe('ghp_000000000000');
     expect(byKey.TYPE_KEY?.placeholder).toBe('tok_00000000');
+    expect(byKey.EXPLICIT_KEY?.placeholderIsGenericFallback).toBeFalsy();
+    expect(byKey.TYPE_KEY?.placeholderIsGenericFallback).toBeFalsy();
+
+    // No format hint → generic fallback, flagged so the CLI can warn.
+    expect(byKey.NO_HINT_KEY?.placeholder).toMatch(/^vlk_placeholder_NO_HINT_KEY_/);
+    expect(byKey.NO_HINT_KEY?.placeholderIsGenericFallback).toBe(true);
 
     expect(byKey.EXPLICIT_KEY?.realValue).toBe('sk_live_real_explicit');
-    expect(byKey.EXAMPLE_KEY?.realValue).toBe('ghp_REAL_SECRET');
     expect(byKey.TYPE_KEY?.realValue).toBe('tok_real_secret');
+    expect(byKey.NO_HINT_KEY?.realValue).toBe('whatever_real_secret');
   });
 });

@@ -217,6 +217,9 @@ function getRunCommandArgs(): Array<string> {
 async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<PreparedProxyPolicy> {
   const envGraph = await loadVarlockEnvGraph({
     entryFilePaths,
+    // The proxy command manages the session fingerprint itself; don't subject
+    // its own loads to the nested-context guard (would block `proxy refresh`).
+    skipProxyFingerprintGuard: true,
   });
   checkForSchemaErrors(envGraph);
   checkForNoEnvFiles(envGraph);
@@ -230,6 +233,20 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
   const schemaFingerprint = buildProxySchemaFingerprint(envGraph);
   const proxyManagedItems = await envGraph.getProxyManagedItems();
   const proxyRules = await envGraph.getProxyRules();
+
+  const genericPlaceholderKeys = proxyManagedItems
+    .filter((item) => item.placeholderIsGenericFallback)
+    .map((item) => item.key);
+  if (genericPlaceholderKeys.length) {
+    console.error(
+      `⚠️  Proxy items using a generic placeholder: ${genericPlaceholderKeys.join(', ')}`,
+    );
+    console.error(
+      '   A generic placeholder may fail an SDK\'s key-format validation (e.g. an `sk-…` prefix check) '
+        + 'at client construction. Add an explicit `@placeholder` or a data type with a known format.',
+    );
+  }
+
   const blockedSensitiveKeys = getBlockedSensitiveKeys(envGraph, proxyManagedItems);
   if (blockedSensitiveKeys.length) {
     throw new CliExitError(

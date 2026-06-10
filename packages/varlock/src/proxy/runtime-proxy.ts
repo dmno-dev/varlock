@@ -1,6 +1,5 @@
-import { execFileSync } from 'node:child_process';
 import {
-  mkdtemp, readFile, rm, writeFile,
+  mkdtemp, rm, writeFile,
 } from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
@@ -10,6 +9,7 @@ import path from 'node:path';
 import tls from 'node:tls';
 import { URL } from 'node:url';
 
+import { createEphemeralCa, createHostCert } from './cert-authority';
 import type { ProxyEgressMode, ProxyManagedItem, ProxyRule } from './types';
 
 const LOCALHOST = '127.0.0.1';
@@ -57,6 +57,29 @@ function domainMatches(domainPattern: string, host: string): boolean {
 
 function hostMatchesProxyRules(host: string, rules: Array<ProxyRule>): boolean {
   return rules.some((rule) => rule.domain.some((d) => domainMatches(d, host)));
+}
+
+/**
+ * Resolve the managed items that are in scope for a given host: only items
+ * referenced by a rule whose domain matches this host. This enforces per-item
+ * domain scoping — an item's secret is injected (and its real value redacted on
+ * the way back) only on the hosts its own rule applies to, never on every ruled
+ * host. Prevents a child from harvesting item B's real value by reflecting B's
+ * placeholder into a request to item A's host.
+ */
+function getHostScopedManagedItems(
+  host: string,
+  rules: Array<ProxyRule>,
+  managedItems: Array<ProxyManagedItem>,
+): Array<ProxyManagedItem> {
+  const allowedKeys = new Set<string>();
+  for (const rule of rules) {
+    if (rule.domain.some((d) => domainMatches(d, host))) {
+      for (const key of rule.itemKeys) allowedKeys.add(key);
+    }
+  }
+  if (allowedKeys.size === 0) return [];
+  return managedItems.filter((item) => allowedKeys.has(item.key));
 }
 
 function replacePlaceholdersWithReal(value: string, managedItems: Array<ProxyManagedItem>): string {
@@ -125,8 +148,30 @@ function isTextLikeResponse(headers: http.IncomingHttpHeaders): boolean {
     || contentType.includes('graphql');
 }
 
+// Only buffer-and-redact bounded, reasonably small text bodies. Anything we
+// can't size up front (SSE, chunked streams) or that's too large is streamed
+// straight through — buffering it would break streaming (e.g. LLM token-by-token
+// responses hang until complete) for a low-value protection: the injected secret
+// is in the request, not the response. Header redaction still applies regardless.
+const MAX_REDACT_BODY_BYTES = 2 * 1024 * 1024;
+
+function isStreamingResponse(headers: http.IncomingHttpHeaders): boolean {
+  const contentType = getHeaderValue(headers, 'content-type')?.toLowerCase() ?? '';
+  return contentType.includes('text/event-stream');
+}
+
+function isBoundedRedactableBody(headers: http.IncomingHttpHeaders): boolean {
+  const lenRaw = getHeaderValue(headers, 'content-length');
+  if (lenRaw === undefined) return false; // unknown size — treat as a stream, never buffer
+  const len = Number(lenRaw);
+  return Number.isFinite(len) && len >= 0 && len <= MAX_REDACT_BODY_BYTES;
+}
+
 function shouldRedactResponseBody(headers: http.IncomingHttpHeaders): boolean {
-  return isUncompressedResponse(headers) && isTextLikeResponse(headers);
+  return isUncompressedResponse(headers)
+    && isTextLikeResponse(headers)
+    && !isStreamingResponse(headers)
+    && isBoundedRedactableBody(headers);
 }
 
 function redactOutgoingHeaders(
@@ -181,114 +226,6 @@ function forwardUpstreamResponseWithRedaction(
   });
 }
 
-function sanitizeHostForFilename(host: string): string {
-  return host.replaceAll(/[^a-zA-Z0-9.-]/g, '_');
-}
-
-function runOpenssl(args: Array<string>) {
-  execFileSync('openssl', args, {
-    stdio: 'ignore',
-  });
-}
-
-async function createProxyCa(certsDir: string): Promise<{
-  caKeyPath: string;
-  caCertPath: string;
-  combinedCaPath: string;
-}> {
-  const caKeyPath = path.join(certsDir, 'ca-key.pem');
-  const caCertPath = path.join(certsDir, 'ca-cert.pem');
-  const combinedCaPath = path.join(certsDir, 'combined-ca.pem');
-
-  runOpenssl([
-    'req',
-    '-x509',
-    '-newkey',
-    'rsa:2048',
-    '-sha256',
-    '-nodes',
-    '-days',
-    '3',
-    '-keyout',
-    caKeyPath,
-    '-out',
-    caCertPath,
-    '-subj',
-    '/CN=varlock-proxy-ca',
-  ]);
-
-  const [caCertContents] = await Promise.all([readFile(caCertPath, 'utf8')]);
-  const combined = `${caCertContents}\n${tls.rootCertificates.join('\n')}\n`;
-  await writeFile(combinedCaPath, combined, 'utf8');
-
-  return { caKeyPath, caCertPath, combinedCaPath };
-}
-
-async function createHostCert(
-  certsDir: string,
-  host: string,
-  caKeyPath: string,
-  caCertPath: string,
-): Promise<{
-  key: Buffer;
-  cert: Buffer;
-  context: tls.SecureContext;
-}> {
-  const safeHost = sanitizeHostForFilename(host);
-  const hostKeyPath = path.join(certsDir, `${safeHost}.key.pem`);
-  const hostCsrPath = path.join(certsDir, `${safeHost}.csr.pem`);
-  const hostCertPath = path.join(certsDir, `${safeHost}.cert.pem`);
-  const extPath = path.join(certsDir, `${safeHost}.ext.cnf`);
-  const serialPath = path.join(certsDir, 'ca.srl');
-
-  await writeFile(extPath, `subjectAltName=DNS:${host}\n`, 'utf8');
-
-  runOpenssl([
-    'req',
-    '-new',
-    '-newkey',
-    'rsa:2048',
-    '-nodes',
-    '-keyout',
-    hostKeyPath,
-    '-out',
-    hostCsrPath,
-    '-subj',
-    `/CN=${host}`,
-  ]);
-
-  runOpenssl([
-    'x509',
-    '-req',
-    '-in',
-    hostCsrPath,
-    '-CA',
-    caCertPath,
-    '-CAkey',
-    caKeyPath,
-    '-CAserial',
-    serialPath,
-    '-CAcreateserial',
-    '-out',
-    hostCertPath,
-    '-days',
-    '3',
-    '-sha256',
-    '-extfile',
-    extPath,
-  ]);
-
-  const [key, cert] = await Promise.all([
-    readFile(hostKeyPath),
-    readFile(hostCertPath),
-  ]);
-  return {
-    key,
-    cert,
-    context: tls.createSecureContext({ key, cert }),
-  };
-}
-
 async function readBody(req: http.IncomingMessage): Promise<Buffer> {
   const chunks: Array<Buffer> = [];
   for await (const chunk of req) {
@@ -311,8 +248,14 @@ export async function startLocalProxyRuntime({
   egressMode,
   onActivity,
 }: StartLocalProxyRuntimeInput): Promise<ProxyRuntimeContext> {
+  // Only the public CA cert is written to disk (for child trust). Private keys
+  // — the CA's and every per-host leaf's — stay in memory; see cert-authority.ts.
   const certsDir = await mkdtemp(path.join(os.tmpdir(), 'varlock-proxy-certs-'));
-  const { caKeyPath, caCertPath, combinedCaPath } = await createProxyCa(certsDir);
+  const ca = await createEphemeralCa();
+  const caCertPath = path.join(certsDir, 'ca-cert.pem');
+  const combinedCaPath = path.join(certsDir, 'combined-ca.pem');
+  await writeFile(caCertPath, ca.certPem, 'utf8');
+  await writeFile(combinedCaPath, `${ca.certPem}\n${tls.rootCertificates.join('\n')}\n`, 'utf8');
 
   const handleInterceptRequest = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     const hostHeader = req.headers.host ?? '';
@@ -338,25 +281,26 @@ export async function startLocalProxyRuntime({
       matched: shouldRewrite,
       blocked: false,
     });
+    const hostItems = shouldRewrite ? getHostScopedManagedItems(hostInfo.host, rules, managedItems) : [];
     const body = await readBody(req);
-    const bodyString = body.toString('utf8');
-    const rewrittenBody = shouldRewrite ? replacePlaceholdersWithReal(bodyString, managedItems) : bodyString;
+    const rewrittenBody = shouldRewrite
+      ? Buffer.from(replacePlaceholdersWithReal(body.toString('utf8'), hostItems), 'utf8')
+      : body;
 
     const upstreamHeaders = transformHeaders(
       req.headers,
       shouldRewrite
-        ? (value) => replacePlaceholdersWithReal(value, managedItems)
+        ? (value) => replacePlaceholdersWithReal(value, hostItems)
         : (value) => value,
     );
     delete upstreamHeaders['proxy-connection'];
     delete upstreamHeaders.connection;
-
     const rewrittenPath = shouldRewrite
-      ? buildPathnameAndQuery(req.url ?? '/', managedItems)
+      ? buildPathnameAndQuery(req.url ?? '/', hostItems)
       : (req.url ?? '/');
 
-    if (rewrittenBody.length !== body.length) {
-      upstreamHeaders['content-length'] = String(Buffer.byteLength(rewrittenBody));
+    if (rewrittenBody.byteLength !== body.byteLength) {
+      upstreamHeaders['content-length'] = String(rewrittenBody.byteLength);
     }
 
     const upstreamReq = https.request({
@@ -370,7 +314,7 @@ export async function startLocalProxyRuntime({
       forwardUpstreamResponseWithRedaction(
         upstreamRes,
         res,
-        managedItems,
+        hostItems,
         shouldRewrite,
       );
     });
@@ -388,10 +332,10 @@ export async function startLocalProxyRuntime({
     const cached = hostMitmServers.get(normalized);
     if (cached) return cached;
 
-    const hostCert = await createHostCert(certsDir, normalized, caKeyPath, caCertPath);
+    const hostCert = await createHostCert(ca, normalized);
     const server = https.createServer({
-      key: hostCert.key,
-      cert: hostCert.cert,
+      key: hostCert.keyPem,
+      cert: hostCert.certPem,
       ALPNProtocols: ['http/1.1'],
     }, (req, res) => {
       handleInterceptRequest(req, res).catch(() => {
@@ -452,27 +396,28 @@ export async function startLocalProxyRuntime({
       blocked: false,
     });
     const isHttps = destination.protocol === 'https:';
+    const hostItems = shouldRewrite ? getHostScopedManagedItems(destination.hostname, rules, managedItems) : [];
 
     const body = await readBody(clientReq);
-    const bodyString = body.toString('utf8');
-    const rewrittenBody = shouldRewrite ? replacePlaceholdersWithReal(bodyString, managedItems) : bodyString;
+    const rewrittenBody = shouldRewrite
+      ? Buffer.from(replacePlaceholdersWithReal(body.toString('utf8'), hostItems), 'utf8')
+      : body;
 
     const rewrittenPath = shouldRewrite
-      ? buildPathnameAndQuery(`${destination.pathname}${destination.search}`, managedItems)
+      ? buildPathnameAndQuery(`${destination.pathname}${destination.search}`, hostItems)
       : `${destination.pathname}${destination.search}`;
 
     const upstreamHeaders = transformHeaders(
       clientReq.headers,
       shouldRewrite
-        ? (value) => replacePlaceholdersWithReal(value, managedItems)
+        ? (value) => replacePlaceholdersWithReal(value, hostItems)
         : (value) => value,
     );
     delete upstreamHeaders['proxy-connection'];
     delete upstreamHeaders.connection;
     upstreamHeaders.host = destination.host;
-
-    if (rewrittenBody.length !== body.length) {
-      upstreamHeaders['content-length'] = String(Buffer.byteLength(rewrittenBody));
+    if (rewrittenBody.byteLength !== body.byteLength) {
+      upstreamHeaders['content-length'] = String(rewrittenBody.byteLength);
     }
 
     const upstream = (isHttps ? https : http).request({
@@ -486,7 +431,7 @@ export async function startLocalProxyRuntime({
       forwardUpstreamResponseWithRedaction(
         upstreamRes,
         clientRes,
-        managedItems,
+        hostItems,
         shouldRewrite,
       );
     });
@@ -513,7 +458,10 @@ export async function startLocalProxyRuntime({
         matched: shouldRewrite,
         blocked: true,
       });
-      clientSocket.write('HTTP/1.1 403 Forbidden\r\nContent-Length: 34\r\nConnection: close\r\n\r\nProxy egress blocked by strict mode');
+      const blockedBody = 'Proxy egress blocked by strict mode';
+      clientSocket.write(
+        `HTTP/1.1 403 Forbidden\r\nContent-Length: ${Buffer.byteLength(blockedBody)}\r\nConnection: close\r\n\r\n${blockedBody}`,
+      );
       clientSocket.destroy();
       return;
     }

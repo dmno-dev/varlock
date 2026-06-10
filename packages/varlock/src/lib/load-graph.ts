@@ -8,6 +8,7 @@ import { runWithWorkspaceInfo } from './workspace-utils';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { createDebug } from './debug';
 import { getProxyPlaceholderOverridesForEnv } from '../proxy/session-registry';
+import { enforceProxySchemaFingerprint } from '../cli/helpers/proxy-schema-fingerprint';
 
 const debug = createDebug('varlock:load');
 
@@ -62,6 +63,13 @@ export async function loadVarlockEnvGraph(opts?: {
   currentEnvFallback?: string,
   /** Explicit entry file paths from --path flag(s) - overrides package.json config */
   entryFilePaths?: Array<string>,
+  /**
+   * Skip the proxy schema-fingerprint guard for this load. Used by the `proxy`
+   * command itself (it manages the session fingerprint directly), so that
+   * `proxy refresh` can re-approve a schema change without being blocked by the
+   * very guard it exists to clear.
+   */
+  skipProxyFingerprintGuard?: boolean,
 }) {
   const proxyPlaceholderOverrides = await getProxyPlaceholderOverridesForEnv().catch(() => undefined);
   if (proxyPlaceholderOverrides) {
@@ -70,45 +78,52 @@ export async function loadVarlockEnvGraph(opts?: {
 
   const cliPaths = opts?.entryFilePaths?.filter(Boolean);
 
-  // If --path flag(s) provided, they take precedence over package.json config
-  if (cliPaths && cliPaths.length > 0) {
-    // Return early and ignore pkgLoadPaths
-    return loadFromPaths(cliPaths, {
-      source: '--path flag',
-      errorPrefix: 'The --path value does not exist',
-      errorSuggestion: 'Use `--path` to specify a valid file or directory.',
+  const graph = await (async () => {
+    // If --path flag(s) provided, they take precedence over package.json config
+    if (cliPaths && cliPaths.length > 0) {
+      return loadFromPaths(cliPaths, {
+        source: '--path flag',
+        errorPrefix: 'The --path value does not exist',
+        errorSuggestion: 'Use `--path` to specify a valid file or directory.',
+        currentEnvFallback: opts?.currentEnvFallback,
+        proxyPlaceholderOverrides,
+      });
+    }
+
+    // Fall back to package.json varlock.loadPath
+    const pkgLoadPath = readVarlockPackageJsonConfig()?.loadPath;
+    const pkgLoadPaths = pkgLoadPath ? normalizePkgLoadPath(pkgLoadPath) : undefined;
+
+    if (pkgLoadPaths) {
+      return loadFromPaths(pkgLoadPaths, {
+        source: 'package.json varlock.loadPath',
+        errorPrefix: 'A path in `varlock.loadPath` configured in package.json does not exist',
+        errorSuggestion: 'Update `varlock.loadPath` in your package.json to point to valid files or directories.',
+        currentEnvFallback: opts?.currentEnvFallback,
+        proxyPlaceholderOverrides,
+      });
+    }
+
+    debug('no path configured, using cwd: %s', process.cwd());
+
+    return runWithWorkspaceInfo(() => loadEnvGraph({
       currentEnvFallback: opts?.currentEnvFallback,
-      proxyPlaceholderOverrides,
-    });
+      afterInit: async (g) => {
+        g.registerResolver(VarlockResolver);
+        g.registerResolver(KeychainResolver);
+        if (proxyPlaceholderOverrides) {
+          g.overrideValues = {
+            ...g.overrideValues,
+            ...proxyPlaceholderOverrides,
+          };
+        }
+      },
+    }));
+  })();
+
+  if (!opts?.skipProxyFingerprintGuard) {
+    await enforceProxySchemaFingerprint(graph);
   }
 
-  // Fall back to package.json varlock.loadPath
-  const pkgLoadPath = readVarlockPackageJsonConfig()?.loadPath;
-  const pkgLoadPaths = pkgLoadPath ? normalizePkgLoadPath(pkgLoadPath) : undefined;
-
-  if (pkgLoadPaths) {
-    return loadFromPaths(pkgLoadPaths, {
-      source: 'package.json varlock.loadPath',
-      errorPrefix: 'A path in `varlock.loadPath` configured in package.json does not exist',
-      errorSuggestion: 'Update `varlock.loadPath` in your package.json to point to valid files or directories.',
-      currentEnvFallback: opts?.currentEnvFallback,
-      proxyPlaceholderOverrides,
-    });
-  }
-
-  debug('no path configured, using cwd: %s', process.cwd());
-
-  return runWithWorkspaceInfo(() => loadEnvGraph({
-    currentEnvFallback: opts?.currentEnvFallback,
-    afterInit: async (g) => {
-      g.registerResolver(VarlockResolver);
-      g.registerResolver(KeychainResolver);
-      if (proxyPlaceholderOverrides) {
-        g.overrideValues = {
-          ...g.overrideValues,
-          ...proxyPlaceholderOverrides,
-        };
-      }
-    },
-  }));
+  return graph;
 }

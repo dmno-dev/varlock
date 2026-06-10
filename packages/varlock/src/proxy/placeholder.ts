@@ -6,24 +6,6 @@ function shortHash(input: string) {
   return createHash('sha256').update(input).digest('hex').slice(0, 8);
 }
 
-function fromExampleTemplate(example: string): string {
-  const lastUnderscoreIdx = example.lastIndexOf('_');
-  if (lastUnderscoreIdx >= 0) {
-    const prefix = example.slice(0, lastUnderscoreIdx + 1);
-    const suffix = example.slice(lastUnderscoreIdx + 1).replace(/[A-Za-z0-9]/g, '0');
-    return `${prefix}${suffix}`;
-  }
-
-  const firstDigitIdx = example.search(/\d/);
-  if (firstDigitIdx > 0) {
-    const prefix = example.slice(0, firstDigitIdx);
-    const suffix = example.slice(firstDigitIdx).replace(/[A-Za-z0-9]/g, '0');
-    return `${prefix}${suffix}`;
-  }
-
-  return example.replace(/[A-Za-z0-9]/g, '0');
-}
-
 function fromTypeSettings(item: ConfigItem): string | undefined {
   const typeDecParsedValue = item.getDec('type')?.parsedDecorator.value;
   if (!typeDecParsedValue || !('simplifiedArgs' in typeDecParsedValue)) return undefined;
@@ -70,35 +52,51 @@ function ensureUnique(placeholder: string, usedPlaceholders: Set<string>) {
   }
 }
 
+export type GeneratedProxyPlaceholder = {
+  placeholder: string;
+  /**
+   * True when we fell back to the generic `vlk_placeholder_*` form because the
+   * item gave us no format hint. That placeholder will fail any SDK that
+   * validates key shape (e.g. an `sk-…` prefix check) at client construction,
+   * so callers should warn the author to add an explicit `@placeholder` or a
+   * data type that knows the real format.
+   */
+  isGenericFallback: boolean;
+};
+
+/**
+ * Derive a proxy placeholder for an item, in priority order:
+ *  1. explicit `@placeholder` — the author's exact value
+ *  2. data-type `generatePlaceholder()` — the blessed source: it encodes the
+ *     provider's real format, so it's the one most likely to pass SDK validation
+ *  3. `@type` startsWith/isLength constraints — deterministic, but only honors
+ *     the declared validation rules, which may not match the SDK's real checks
+ *  4. generic fallback — guaranteed-unique but format-agnostic (flagged)
+ *
+ * Deriving from `@example` was intentionally removed: a documentation field
+ * shouldn't double as a functional, validation-critical placeholder.
+ */
 export async function generateProxyPlaceholderForItem(
   item: ConfigItem,
   usedPlaceholders: Set<string>,
-): Promise<string> {
+): Promise<GeneratedProxyPlaceholder> {
   const placeholderDec = item.getDec('placeholder');
   if (placeholderDec) {
     const explicitPlaceholder = await placeholderDec.resolve();
     if (_.isString(explicitPlaceholder) && explicitPlaceholder.length > 0) {
-      return ensureUnique(explicitPlaceholder, usedPlaceholders);
+      return { placeholder: ensureUnique(explicitPlaceholder, usedPlaceholders), isGenericFallback: false };
     }
   }
 
   const generatedByType = item.dataType?.generatePlaceholder(item.resolvedValue);
   if (_.isString(generatedByType) && generatedByType.length > 0) {
-    return ensureUnique(generatedByType, usedPlaceholders);
-  }
-
-  const exampleDec = item.getDec('example');
-  if (exampleDec) {
-    const exampleValue = await exampleDec.resolve();
-    if (_.isString(exampleValue) && exampleValue.length > 0) {
-      return ensureUnique(fromExampleTemplate(exampleValue), usedPlaceholders);
-    }
+    return { placeholder: ensureUnique(generatedByType, usedPlaceholders), isGenericFallback: false };
   }
 
   const fromType = fromTypeSettings(item);
   if (fromType) {
-    return ensureUnique(fromType, usedPlaceholders);
+    return { placeholder: ensureUnique(fromType, usedPlaceholders), isGenericFallback: false };
   }
 
-  return ensureUnique(buildFallbackPlaceholder(item.key), usedPlaceholders);
+  return { placeholder: ensureUnique(buildFallbackPlaceholder(item.key), usedPlaceholders), isGenericFallback: true };
 }
