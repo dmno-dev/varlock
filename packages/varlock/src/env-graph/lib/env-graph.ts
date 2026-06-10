@@ -895,11 +895,12 @@ export class EnvGraph {
       }
       if (!_.isString(item.resolvedValue) || item.resolvedValue.length === 0) continue;
 
-      const placeholder = await generateProxyPlaceholderForItem(item, usedPlaceholders);
+      const { placeholder, isGenericFallback } = await generateProxyPlaceholderForItem(item, usedPlaceholders);
       managedItems.push({
         key,
         placeholder,
         realValue: item.resolvedValue,
+        ...(isGenericFallback ? { placeholderIsGenericFallback: true } : {}),
       });
     }
 
