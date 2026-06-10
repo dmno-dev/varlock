@@ -235,6 +235,28 @@ describe('CLI Commands', () => {
       const vars = JSON.parse(result.stdout);
       expect(vars.SHARED_VAR).toBe('from-shell');
     });
+
+    test('nested varlock run keeps inner command-local overrides over outer shell overrides', () => {
+      const result = runVarlock([
+        'run',
+        '--inject',
+        'all',
+        '--',
+        'sh',
+        '-c',
+        `SHARED_VAR=from-shell-inner node ${LOCAL_VARLOCK_CLI} load --format json --path ../overrides/.env.schema`,
+      ], {
+        cwd: 'smoke-test-multi-path/base',
+        captureOutput: true,
+        env: {
+          SHARED_VAR: 'from-shell-outer',
+        },
+      });
+
+      expect(result.exitCode).toBe(0);
+      const vars = JSON.parse(result.stdout);
+      expect(vars.SHARED_VAR).toBe('from-shell-inner');
+    });
   });
 
   describe('type generation', () => {
