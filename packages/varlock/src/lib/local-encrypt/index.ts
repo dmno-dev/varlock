@@ -351,11 +351,6 @@ export function getBackendInfo(): BackendInfo {
     }
   } else {
     debug(`getBackendInfo: using file backend (type=${type}, binaryPath=${binaryPath ?? 'none'}, isFileFallback=${isFileFallback})`);
-    if (isFileFallback && !process.env._VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK) {
-      process.stderr.write(
-        '[varlock] Warning: native encryption binary not found, falling back to file-based encryption (not hardware-backed)\n',
-      );
-    }
     cachedBackendInfo = {
       type,
       platform: process.platform,
@@ -379,6 +374,18 @@ export function getDaemonClient(): DaemonClient {
   return daemonClient;
 }
 
+// getBackendInfo() is called as a passive capability probe on every load (cache
+// auto-policy), so the fallback warning only fires when crypto ops actually run
+let warnedFileFallback = false;
+function warnIfFileFallback(backend: BackendInfo) {
+  if (warnedFileFallback || !backend.isFileFallback) return;
+  if (process.env._VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK) return;
+  warnedFileFallback = true;
+  process.stderr.write(
+    '[varlock] Warning: native encryption binary not found, falling back to file-based encryption (not hardware-backed)\n',
+  );
+}
+
 // ── Key management ─────────────────────────────────────────────────────
 
 /** Check if a key exists. */
@@ -400,6 +407,7 @@ export function keyExists(keyId: string = DEFAULT_KEY_ID): boolean {
 export async function generateKey(keyId: string = DEFAULT_KEY_ID): Promise<{ keyId: string; publicKey: string }> {
   const backend = getBackendInfo();
   if (backend.type === 'file') {
+    warnIfFileFallback(backend);
     return fileBackend.generateKey(keyId);
   }
   return runNativeBinaryJson<{ keyId: string; publicKey: string }>(['generate-key', '--key-id', keyId]);
@@ -423,6 +431,7 @@ export async function ensureKey(keyId: string = DEFAULT_KEY_ID): Promise<void> {
 export async function encryptValue(plaintext: string, keyId: string = DEFAULT_KEY_ID): Promise<string> {
   const backend = getBackendInfo();
   if (backend.type === 'file') {
+    warnIfFileFallback(backend);
     return fileBackend.encryptValue(plaintext, keyId);
   }
   // Native binary encrypt (one-shot, no biometric needed for encrypt).
@@ -454,6 +463,7 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
   const backend = getBackendInfo();
   if (backend.type === 'file') {
     debug('decryptValue: using file backend');
+    warnIfFileFallback(backend);
     return fileBackend.decryptValue(ciphertext, keyId);
   }
 
