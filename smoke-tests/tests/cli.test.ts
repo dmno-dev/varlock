@@ -4,7 +4,7 @@ import {
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  varlockLoad, varlockRun, varlockPrintenv, runVarlock,
+  varlockLoad, varlockRun, varlockPrintenv, runVarlock, VARLOCK_CLI,
 } from '../helpers/run-varlock.js';
 
 const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
@@ -163,7 +163,9 @@ describe('CLI Commands', () => {
   });
 
   describe('run command', () => {
-    const LOCAL_VARLOCK_CLI = '../../../packages/varlock/bin/cli.js';
+    // Nested-varlock invocations use the installed CLI (absolute path), not the un-built
+    // source tree — `packages/varlock/bin/cli.js` imports ../dist which CI never builds.
+    const LOCAL_VARLOCK_CLI = VARLOCK_CLI;
 
     test('varlock run should forward child stdout', () => {
       const result = varlockRun(['node', '-p', '1+1'], { cwd: 'smoke-test-basic' });
