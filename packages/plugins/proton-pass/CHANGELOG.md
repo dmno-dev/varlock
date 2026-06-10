@@ -2,6 +2,12 @@
 
 
 
+
+## 1.0.2
+<sub>2026-06-10</sub>
+
+- [#759](https://github.com/dmno-dev/varlock/pull/759)  *(patch)* - Reduce extra Proton Pass auth prompts by removing preflight info checks and using auth-retry reads.
+
 ## 1.0.1
 <sub>2026-06-05</sub>
 
