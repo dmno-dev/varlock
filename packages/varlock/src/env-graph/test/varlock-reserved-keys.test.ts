@@ -19,25 +19,66 @@ describe('isVarlockReservedKey', () => {
 });
 
 describe('serialized graph excludes reserved _VARLOCK_ keys', () => {
-  async function buildSerializedConfig(envFile: string) {
+  async function buildGraph(envFile: string, overrideValues?: Record<string, string | undefined>) {
     const g = new EnvGraph();
+    if (overrideValues) g.overrideValues = overrideValues;
     await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', { overrideContents: envFile }));
     await g.finishLoad();
     await g.resolveEnvValues();
-    return g.getSerializedGraph().config;
+    return g;
   }
 
   it('keeps normal keys but drops any _VARLOCK_* key a user defines', async () => {
-    const config = await buildSerializedConfig(outdent`
+    const g = await buildGraph(outdent`
       # @defaultSensitive=false
       # ---
       FOO=bar
       _VARLOCK_ENV_KEY=should-not-leak
       _VARLOCK_REDACT_STDOUT=true
     `);
+    const config = g.getSerializedGraph().config;
 
     expect(Object.keys(config)).toContain('FOO');
     expect(Object.keys(config)).not.toContain('_VARLOCK_ENV_KEY');
     expect(Object.keys(config)).not.toContain('_VARLOCK_REDACT_STDOUT');
+  });
+
+  it('omits reserved keys from the override provenance metadata', async () => {
+    const g = await buildGraph(
+      outdent`
+        # @defaultSensitive=false
+        # ---
+        FOO=bar
+      `,
+      { FOO: 'from-env', _VARLOCK_REDACT_STDOUT: 'true', _VARLOCK_ENV_KEY: 'key' },
+    );
+    const overrideKeys = g.getSerializedGraph().__varlockOverrideMeta?.overrideKeys ?? [];
+
+    expect(overrideKeys).toContain('FOO');
+    expect(overrideKeys.some((k) => k.startsWith('_VARLOCK_'))).toBe(false);
+  });
+
+  it('warns (non-fatally) when a user defines a reserved _VARLOCK_ key', async () => {
+    const g = await buildGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      FOO=bar
+      _VARLOCK_REDACT_STDOUT=true
+    `);
+
+    const warnings = g.sortedDataSources.flatMap((s) => s.errors).filter((e) => e.isWarning);
+    expect(warnings.some((w) => w.message.includes('_VARLOCK_REDACT_STDOUT'))).toBe(true);
+    // a warning must not invalidate the source
+    expect(g.sortedDataSources.every((s) => s.isValid)).toBe(true);
+  });
+
+  it('does not warn for normal keys', async () => {
+    const g = await buildGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      FOO=bar
+    `);
+    const warnings = g.sortedDataSources.flatMap((s) => s.errors).filter((e) => e.isWarning);
+    expect(warnings.some((w) => w.message.includes('reserved'))).toBe(false);
   });
 });

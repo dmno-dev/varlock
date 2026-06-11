@@ -359,6 +359,24 @@ export class EnvGraph {
       if (isBuiltinVar(key)) this.registerBuiltinVar(key);
     }
 
+    // Warn about items defined with varlock's reserved _VARLOCK_ prefix. These keys are
+    // excluded from the injected env blob and generated types, so a user-defined one is
+    // almost certainly a mistake (or a typo'd internal var that won't behave as expected).
+    for (const source of this.sortedDataSources) {
+      if (source.disabled) continue;
+      for (const itemKey of Object.keys(source.configItemDefs)) {
+        if (isVarlockReservedKey(itemKey)) {
+          source._errors.push(new SchemaError(
+            `"${itemKey}" uses varlock's reserved _VARLOCK_ prefix`,
+            {
+              isWarning: true,
+              tip: 'Keys starting with _VARLOCK_ are reserved for configuring varlock itself and are excluded from the injected env and generated types. Rename this item unless that exclusion is intended.',
+            },
+          ));
+        }
+      }
+    }
+
     // process root decorators
     let hasErrors = false;
     for (const source of this.sortedDataSources) {
@@ -655,7 +673,11 @@ export class EnvGraph {
         isSensitive: item.isSensitive,
       };
     }
-    serializedGraph.__varlockOverrideMeta = buildOverrideProvenanceMetadata(Object.keys(this.overrideValues));
+    // _VARLOCK_* keys configure varlock itself and are never user overrides, so keep them
+    // out of the override provenance list (which otherwise mirrors every process.env key)
+    serializedGraph.__varlockOverrideMeta = buildOverrideProvenanceMetadata(
+      Object.keys(this.overrideValues).filter((k) => !isVarlockReservedKey(k)),
+    );
 
     // expose a few root level settings
     serializedGraph.settings.redactLogs = this.getRootDec('redactLogs')?.resolvedValue ?? true;
