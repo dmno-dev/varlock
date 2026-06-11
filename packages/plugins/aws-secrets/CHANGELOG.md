@@ -3,6 +3,12 @@
 
 
 
+
+## 1.2.1
+<sub>2026-06-11</sub>
+
+- [#773](https://github.com/dmno-dev/varlock/pull/773)  *(patch)* - fix: resolve named AWS profiles via the full node provider chain so credential_source entries (e.g. EcsContainer) work
+
 ## 1.2.0
 <sub>2026-06-10</sub>
 
