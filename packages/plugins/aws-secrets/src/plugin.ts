@@ -14,7 +14,7 @@ import {
   type GetParameterCommandOutput,
 } from '@aws-sdk/client-ssm';
 import { STSClient, AssumeRoleWithWebIdentityCommand } from '@aws-sdk/client-sts';
-import { fromIni } from '@aws-sdk/credential-providers';
+import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
@@ -200,8 +200,13 @@ class AwsPluginInstance {
     }
 
     if (this.profile) {
+      // Use the full node provider chain (scoped to the named profile) rather than `fromIni` alone.
+      // `fromIni` does not fully resolve `credential_source` entries (e.g. `EcsContainer` /
+      // `Ec2InstanceMetadata`) used by container/instance roles, whereas the node provider chain
+      // delegates to the appropriate container/instance-metadata providers - matching the behavior
+      // of the AWS CLI and the SDK's default credential resolution.
       return {
-        credentials: fromIni({ profile: this.profile }),
+        credentials: fromNodeProviderChain({ profile: this.profile }),
         credentialDescription: `AWS profile: ${this.profile}`,
       };
     }
