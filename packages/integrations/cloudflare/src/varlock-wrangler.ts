@@ -94,31 +94,32 @@ function createServingTempFile(prefix: string) {
    * Start serving content via the FIFO (or write a regular file on Windows).
    *
    * On Unix: spawns a child process that writes the content to the FIFO exactly
-   * once, then exits. A FIFO is an unframed byte stream and the reader
-   * (`fs.readFileSync`) reads until EOF — which only occurs once *no* writer has
-   * the pipe open. Serving in a loop (re-opening a writer immediately) means a
-   * reader can read several concatenated copies before it ever sees EOF, which
-   * surfaced as wrangler reporting `--secrets-file` contents as invalid JSON in
-   * Linux CI (intermittent, scheduling-dependent). Writing one copy then closing
-   * guarantees a clean EOF after exactly one copy.
+   * once, then exits ("single-shot"). A FIFO is an unframed byte stream and the
+   * reader (`fs.readFileSync`) reads until EOF — which only occurs once *no*
+   * writer has the pipe open. Serving in a loop (re-opening a writer immediately)
+   * means a reader can read several concatenated copies before it ever sees EOF,
+   * which surfaced as wrangler reporting `--secrets-file` contents as invalid
+   * JSON in Linux CI (intermittent, scheduling-dependent). Writing one copy then
+   * closing guarantees a clean EOF after exactly one copy.
+   *
+   * Once that copy is consumed (the writer exits cleanly), a fresh single-shot
+   * writer is re-armed so the next reader has content. This is required because
+   * wrangler reads these files more than once — `wrangler types` re-reads the
+   * `--env-file`, and deploy/upload can re-read the `--secrets-file` — so a
+   * pure one-shot writer would leave the second read hanging. Only ever one
+   * writer is armed at a time, so copies never overlap (no concatenation). The
+   * FIFO is kept (rather than a temp file) so resolved secrets never exist as a
+   * file at rest — a failed/aborted deploy leaves no plaintext secrets on disk.
    *
    * Using a child process means the blocked libuv thread (the FIFO open() blocks
    * until a reader appears) lives in the child — killing it cleanly releases it.
-   *
-   * `options.autoRearm` (used by `dev`, where wrangler may re-read the env file
-   * across hot-reloads/restarts): once a writer's single copy is consumed and it
-   * exits, a fresh single-shot writer is spawned so the next reader has content
-   * available. Only ever one writer is armed at a time, so copies never overlap.
    *
    * On Windows: writes a regular file, with update() to refresh it.
    *
    * Returns a promise that resolves once the FIFO server is ready to accept a
    * reader — this prevents racing with downstream consumers (e.g. wrangler).
    */
-  async function startServing(
-    getContent: () => string,
-    options: { autoRearm?: boolean } = {},
-  ): Promise<ServingHandle> {
+  async function startServing(getContent: () => string): Promise<ServingHandle> {
     if (isWindows) {
       writeFileSync(filePath, getContent());
       return {
@@ -129,7 +130,6 @@ function createServingTempFile(prefix: string) {
       };
     }
 
-    const autoRearm = options.autoRearm ?? false;
     let stopped = false;
     // bumped on update()/stop() to invalidate any in-flight re-arm chain
     let generation = 0;
@@ -180,16 +180,14 @@ function createServingTempFile(prefix: string) {
       // re-arm: when this writer's single copy is consumed (clean exit), spawn a
       // fresh writer so the next reader has content. guarded by generation so a
       // stale chain from before an update()/stop() doesn't resurrect a writer.
-      if (autoRearm) {
-        child.once('exit', (code) => {
-          if (stopped || code !== 0 || gen !== generation) return;
-          currentChild = undefined;
-          spawnWriter(getContentFn(), gen).then((c) => {
-            if (stopped || gen !== generation) c.kill();
-            else currentChild = c;
-          }).catch(() => { /* surfaced via stderr/control pipe */ });
-        });
-      }
+      child.once('exit', (code) => {
+        if (stopped || code !== 0 || gen !== generation) return;
+        currentChild = undefined;
+        spawnWriter(getContentFn(), gen).then((c) => {
+          if (stopped || gen !== generation) c.kill();
+          else currentChild = c;
+        }).catch(() => { /* surfaced via stderr/control pipe */ });
+      });
 
       // surface any control-pipe messages (errors after readiness)
       const controlPipe = (child.stdio as Array<any>)[3] as NodeJS.ReadableStream;
@@ -552,9 +550,7 @@ async function handleDev(args: Array<string>) {
   const watchers: Array<ReturnType<typeof watch>> = [];
 
   debug('dev: starting FIFO serve');
-  // dev re-reads the env file across hot-reloads/restarts, so re-arm a fresh
-  // single-shot writer after each read instead of serving just once.
-  const handle = await tmp.startServing(() => cachedContent, { autoRearm: true });
+  const handle = await tmp.startServing(() => cachedContent);
   debug('dev: FIFO serve ready');
 
   function cleanup() {
