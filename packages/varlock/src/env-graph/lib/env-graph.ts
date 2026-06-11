@@ -673,10 +673,15 @@ export class EnvGraph {
         isSensitive: item.isSensitive,
       };
     }
-    // _VARLOCK_* keys configure varlock itself and are never user overrides, so keep them
-    // out of the override provenance list (which otherwise mirrors every process.env key)
+    // Only process.env keys that correspond to a config item can actually act as overrides.
+    // overrideValues defaults to the entire process.env, so without this filter the provenance
+    // list would mirror every env var (PATH, HOME, ...) — pure noise that also leaks the
+    // caller's full env var name list into the blob. Reserved _VARLOCK_* keys configure
+    // varlock itself and are never overrides, so exclude them even if defined in the schema.
     serializedGraph.__varlockOverrideMeta = buildOverrideProvenanceMetadata(
-      Object.keys(this.overrideValues).filter((k) => !isVarlockReservedKey(k)),
+      Object.keys(this.overrideValues).filter(
+        (k) => k in this.configSchema && !isVarlockReservedKey(k),
+      ),
     );
 
     // expose a few root level settings

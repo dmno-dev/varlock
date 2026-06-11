@@ -43,18 +43,23 @@ describe('serialized graph excludes reserved _VARLOCK_ keys', () => {
     expect(Object.keys(config)).not.toContain('_VARLOCK_REDACT_STDOUT');
   });
 
-  it('omits reserved keys from the override provenance metadata', async () => {
+  it('only records schema config keys in override provenance (not arbitrary env vars or reserved keys)', async () => {
     const g = await buildGraph(
       outdent`
         # @defaultSensitive=false
         # ---
         FOO=bar
       `,
-      { FOO: 'from-env', _VARLOCK_REDACT_STDOUT: 'true', _VARLOCK_ENV_KEY: 'key' },
+      {
+        FOO: 'from-env', // matches a config item → a real override
+        PATH: '/usr/bin', // arbitrary env var → must not be recorded
+        _VARLOCK_REDACT_STDOUT: 'true', // reserved infra key → must not be recorded
+      },
     );
     const overrideKeys = g.getSerializedGraph().__varlockOverrideMeta?.overrideKeys ?? [];
 
     expect(overrideKeys).toContain('FOO');
+    expect(overrideKeys).not.toContain('PATH');
     expect(overrideKeys.some((k) => k.startsWith('_VARLOCK_'))).toBe(false);
   });
 
