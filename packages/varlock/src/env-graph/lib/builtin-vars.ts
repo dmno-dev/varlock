@@ -131,3 +131,18 @@ export const BUILTIN_VARS: Record<string, BuiltinVarDef> = {
 export function isBuiltinVar(key: string): boolean {
   return key in BUILTIN_VARS;
 }
+
+/**
+ * Prefix reserved for env vars that configure varlock's own behavior
+ * (e.g. `_VARLOCK_ENV_KEY`, `_VARLOCK_CACHE_KEY`, `_VARLOCK_REDACT_STDOUT`).
+ */
+export const VARLOCK_RESERVED_KEY_PREFIX = '_VARLOCK_';
+
+/**
+ * Check if a config item key is reserved for varlock infrastructure. These are
+ * never exposed via the ENV proxy, serialized into the injected env blob, or
+ * included in generated types — even if a user happens to define one in their schema.
+ */
+export function isVarlockReservedKey(key: string): boolean {
+  return key.startsWith(VARLOCK_RESERVED_KEY_PREFIX);
+}

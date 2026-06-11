@@ -16,7 +16,7 @@ import { getErrorLocation } from './error-location';
 import type { VarlockPlugin } from './plugins';
 import { runWithResolutionContext, getResolutionContext } from './resolution-context';
 import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
-import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
+import { BUILTIN_VARS, isBuiltinVar, isVarlockReservedKey } from './builtin-vars';
 import { buildOverrideProvenanceMetadata, type OverrideProvenanceMetadata } from '../../lib/injected-env-provenance';
 
 const processExists = !!globalThis.process;
@@ -644,10 +644,11 @@ export class EnvGraph {
       });
     }
     for (const itemKey of this.sortedConfigKeys) {
-      // _VARLOCK_ENV_KEY is used to encrypt/decrypt the blob itself — including it
-      // would be redundant (the runtime already has it via process.env) and wasteful.
-      // _VARLOCK_CACHE_KEY encrypts the disk cache — it must never land in the blob.
-      if (itemKey === '_VARLOCK_ENV_KEY' || itemKey === '_VARLOCK_CACHE_KEY') continue;
+      // _VARLOCK_* keys configure varlock's own behavior and must never land in the blob:
+      // e.g. _VARLOCK_ENV_KEY encrypts the blob itself (the runtime already has it via
+      // process.env) and _VARLOCK_CACHE_KEY encrypts the disk cache. Skip the whole
+      // reserved prefix so any current/future infra var is excluded automatically.
+      if (isVarlockReservedKey(itemKey)) continue;
       const item = this.configSchema[itemKey];
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,
