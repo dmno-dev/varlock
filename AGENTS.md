@@ -55,7 +55,8 @@ This is a monorepo managed with bun workspaces and Turborepo:
 
 - Branch names must be meaningful — a short kebab-case description of the change (e.g. `fix-cf-fifo-secret-concat`, `vite-plugin-hmr`). Never push an auto-generated session/worktree branch name (e.g. `claude/dreamy-jones-a79c22`); rename it first with `git branch -m <meaningful-name>`
 - Do **not** add AI attribution to PRs or commits — no "Authored by Claude" / "Generated with Claude Code" lines in PR descriptions, and no `Co-Authored-By: Claude` commit trailers
-- Keep PR descriptions concise: what changed and why
+- Keep PR descriptions concise: what changed and why. Don't mention linting passing or bump files being added — those are enforced by hooks and expected, not news
+- When pushing new commits to an open PR, update the PR description if the changes alter what it says
 - If a change affects user-facing behavior, update the docs in `packages/varlock-website/src/content/docs/` (guides and/or reference) in the same PR
 
 ## Linting
