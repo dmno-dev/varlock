@@ -45,7 +45,6 @@ jobs:
     uses: ./.github/workflows/build-native-macos.yaml
     with:
       mode: release
-      version: ${{ needs.debug.outputs.version }}
       artifact-name: native-bin-macos-signed
     secrets:
       OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}

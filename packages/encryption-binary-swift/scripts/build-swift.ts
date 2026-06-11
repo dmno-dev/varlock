@@ -15,7 +15,6 @@
  *   bun run scripts/build-swift.ts --universal        # universal binary (CI)
  *   bun run scripts/build-swift.ts --mode release     # production bundle metadata
  *   bun run scripts/build-swift.ts --sign "Developer ID Application: ..."
- *   bun run scripts/build-swift.ts --version 1.2.3    # set bundle version
  */
 
 import { execSync } from 'node:child_process';
@@ -36,17 +35,13 @@ function getArg(flag: string): string | undefined {
 const universal = args.includes('--universal');
 const signingIdentity = getArg('--sign');
 const mode = (getArg('--mode') ?? 'dev') as 'dev' | 'preview' | 'release';
-const version = getArg('--version') ?? (() => {
-  // Read the version from varlock's package.json so the .app bundle
-  // has a meaningful CFBundleVersion even when --version is not passed
-  try {
-    const pkgPath = path.resolve(import.meta.dir, '..', '..', 'varlock', 'package.json');
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-    return pkg.version ?? '0.0.0-dev';
-  } catch {
-    return '0.0.0-dev';
-  }
-})();
+// The bundle version is intentionally a FIXED CONSTANT, not the varlock npm
+// version. Nothing reads CFBundleVersion at runtime — not the Swift binary, the
+// Rust binary, the varlock CLI, or notarization — so coupling it to a
+// per-release version served no purpose, and it actively broke binary reuse:
+// CI caches and reuses the signed/notarized .app keyed by source hash, which
+// only holds if the bundle is byte-stable across releases. Keep this constant.
+const version = '1.0.0';
 
 // ── Paths ───────────────────────────────────────────────────────
 

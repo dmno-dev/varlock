@@ -67,10 +67,10 @@ jobs:
       # salt forces a full rebuild when something hashFiles can't see changes
       # (runner image / Xcode / Rust / UPX toolchain) — bump it to invalidate.
       #
-      # Note: the release path does not pass a --version to the macOS build, so
-      # the .app bundle embeds a constant placeholder version (not the npm
-      # version). That keeps the notarized bundle byte-stable across releases,
-      # which is what makes cross-release reuse valid.
+      # Note: the macOS .app bundle embeds a fixed constant version (hardcoded in
+      # build-swift.ts, not the npm version), so the notarized bundle is
+      # byte-stable across releases — which is what makes cross-release reuse
+      # valid. Do not reintroduce a per-release version there.
       - id: keys
         run: |
           MACOS_HASH=${{ hashFiles('packages/encryption-binary-swift/swift/**', 'packages/encryption-binary-swift/scripts/**', 'packages/encryption-binary-swift/package.json', '.github/workflows/build-native-macos.yaml', '.github/workflows/notarize-native-macos.yaml') }}
