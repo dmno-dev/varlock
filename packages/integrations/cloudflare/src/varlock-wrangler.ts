@@ -92,15 +92,33 @@ function createServingTempFile(prefix: string) {
 
   /**
    * Start serving content via the FIFO (or write a regular file on Windows).
-   * On Unix: spawns a child process that writes to the FIFO in a loop.
-   * Using a child process means the blocked libuv thread lives in the child —
-   * killing the child cleanly releases it, allowing our main process to exit.
-   * On Windows: writes a regular file, with refresh() to update it.
    *
-   * Returns a promise that resolves once the FIFO server is ready to accept
-   * a reader — this prevents racing with downstream consumers (e.g. wrangler).
+   * On Unix: spawns a child process that writes the content to the FIFO exactly
+   * once, then exits. A FIFO is an unframed byte stream and the reader
+   * (`fs.readFileSync`) reads until EOF — which only occurs once *no* writer has
+   * the pipe open. Serving in a loop (re-opening a writer immediately) means a
+   * reader can read several concatenated copies before it ever sees EOF, which
+   * surfaced as wrangler reporting `--secrets-file` contents as invalid JSON in
+   * Linux CI (intermittent, scheduling-dependent). Writing one copy then closing
+   * guarantees a clean EOF after exactly one copy.
+   *
+   * Using a child process means the blocked libuv thread (the FIFO open() blocks
+   * until a reader appears) lives in the child — killing it cleanly releases it.
+   *
+   * `options.autoRearm` (used by `dev`, where wrangler may re-read the env file
+   * across hot-reloads/restarts): once a writer's single copy is consumed and it
+   * exits, a fresh single-shot writer is spawned so the next reader has content
+   * available. Only ever one writer is armed at a time, so copies never overlap.
+   *
+   * On Windows: writes a regular file, with update() to refresh it.
+   *
+   * Returns a promise that resolves once the FIFO server is ready to accept a
+   * reader — this prevents racing with downstream consumers (e.g. wrangler).
    */
-  async function startServing(getContent: () => string): Promise<ServingHandle> {
+  async function startServing(
+    getContent: () => string,
+    options: { autoRearm?: boolean } = {},
+  ): Promise<ServingHandle> {
     if (isWindows) {
       writeFileSync(filePath, getContent());
       return {
@@ -111,88 +129,115 @@ function createServingTempFile(prefix: string) {
       };
     }
 
-    // spawn a child process to serve the FIFO
-    // the child reads content from stdin, then writes it to the FIFO in a loop
-    // fd 3 is a control pipe: child writes 'ready\n' once it has buffered the
-    // content and is about to begin serving, and writes 'err:<message>\n' on
-    // any write failure so the parent can surface it instead of dying silently.
-    const fifoServer = spawn(process.execPath, [
-      '-e', `
-      const fs = require('fs');
-      const path = ${JSON.stringify(filePath)};
-      const ctrl = fs.createWriteStream(null, { fd: 3 });
-      const chunks = [];
-      process.stdin.on('data', d => chunks.push(d));
-      process.stdin.on('end', () => {
-        // concat Buffers once at end — '+=' on a Buffer corrupts split UTF-8
-        const content = Buffer.concat(chunks).toString('utf8');
-        // signal readiness *before* the first (blocking) FIFO open so the
-        // parent knows it's safe to spawn the reader (e.g. wrangler).
-        ctrl.write('ready\\n');
-        let iter = 0;
-        (function serve() {
-          iter++;
-          try { fs.writeFileSync(path, content); setImmediate(serve); }
-          catch (e) {
-            try { ctrl.write('err:iter=' + iter + ' ' + (e && e.code || '') + ' ' + (e && e.message || String(e)) + '\\n'); } catch {}
-            try { process.stderr.write('[varlock-wrangler:fifo-server] write failed (iter=' + iter + '): ' + (e && e.stack || e) + '\\n'); } catch {}
+    const autoRearm = options.autoRearm ?? false;
+    let stopped = false;
+    // bumped on update()/stop() to invalidate any in-flight re-arm chain
+    let generation = 0;
+    let currentChild: ReturnType<typeof spawn> | undefined;
+    let getContentFn = getContent;
+
+    // spawn a single-shot writer: buffer content from stdin, signal 'ready',
+    // write exactly one copy to the FIFO, then exit. fd 3 is a control pipe:
+    // 'ready\n' once buffered and about to open the FIFO, 'err:<message>\n' on
+    // write failure so the parent can surface it instead of dying silently.
+    function spawnWriter(content: string, gen: number): Promise<ReturnType<typeof spawn>> {
+      const child = spawn(process.execPath, [
+        '-e', `
+        const fs = require('fs');
+        const path = ${JSON.stringify(filePath)};
+        const ctrl = fs.createWriteStream(null, { fd: 3 });
+        const chunks = [];
+        process.stdin.on('data', d => chunks.push(d));
+        process.stdin.on('end', () => {
+          // concat Buffers once at end — '+=' on a Buffer corrupts split UTF-8
+          const content = Buffer.concat(chunks).toString('utf8');
+          // signal readiness *before* the blocking FIFO open so the parent
+          // knows it's safe to spawn the reader (e.g. wrangler).
+          ctrl.write('ready\\n');
+          try {
+            // write exactly one copy then exit — closing the fd delivers a
+            // clean EOF after one copy (no concatenation race).
+            fs.writeFileSync(path, content);
+            process.exit(0);
+          } catch (e) {
+            try { ctrl.write('err:' + (e && e.code || '') + ' ' + (e && e.message || String(e)) + '\\n'); } catch {}
+            try { process.stderr.write('[varlock-wrangler:fifo-server] write failed: ' + (e && e.stack || e) + '\\n'); } catch {}
             process.exit(1);
           }
-        })();
+        });
+      `,
+      ], {
+        // stdio: stdin=pipe (content), stdout=ignored, stderr=piped (forwarded),
+        // fd 3 = control pipe for ready/error signals
+        stdio: ['pipe', 'ignore', 'pipe', 'pipe'],
       });
-    `,
-    ], {
-      // stdio: stdin=pipe (content), stdout=ignored, stderr=piped (forwarded),
-      // fd 3 = control pipe for ready/error signals
-      stdio: ['pipe', 'ignore', 'pipe', 'pipe'],
-    });
-    fifoServer.stdin!.write(getContent());
-    fifoServer.stdin!.end();
+      child.stdin!.write(content);
+      child.stdin!.end();
 
-    // forward child stderr so we don't lose diagnostic output on crashes
-    fifoServer.stderr?.on('data', (d) => process.stderr.write(d));
+      // forward child stderr so we don't lose diagnostic output on crashes
+      child.stderr?.on('data', (d) => process.stderr.write(d));
 
-    // surface any control-pipe messages (errors after readiness)
-    const controlPipe = (fifoServer.stdio as Array<any>)[3] as NodeJS.ReadableStream;
+      // re-arm: when this writer's single copy is consumed (clean exit), spawn a
+      // fresh writer so the next reader has content. guarded by generation so a
+      // stale chain from before an update()/stop() doesn't resurrect a writer.
+      if (autoRearm) {
+        child.once('exit', (code) => {
+          if (stopped || code !== 0 || gen !== generation) return;
+          currentChild = undefined;
+          spawnWriter(getContentFn(), gen).then((c) => {
+            if (stopped || gen !== generation) c.kill();
+            else currentChild = c;
+          }).catch(() => { /* surfaced via stderr/control pipe */ });
+        });
+      }
 
-    // wait for child to signal it's ready (i.e. has buffered the content
-    // and is about to begin serving). without this, the parent can race
-    // ahead and spawn wrangler before the child even starts.
-    await new Promise<void>((resolve, reject) => {
-      let buf = '';
-      const onData = (d: Buffer) => {
-        buf += d.toString('utf8');
-        if (buf.includes('ready\n')) {
-          controlPipe.off('data', onData);
-          // keep listening for post-ready error messages
-          controlPipe.on('data', (more: Buffer) => {
-            const msg = more.toString('utf8').trim();
-            if (msg) process.stderr.write(`[varlock-wrangler] fifo-server: ${msg}\n`);
-          });
-          resolve();
-        } else if (buf.startsWith('err:')) {
-          reject(new Error(`fifo-server failed before ready: ${buf.trim()}`));
-        }
-      };
-      controlPipe.on('data', onData);
-      fifoServer.once('exit', (code, signal) => {
-        if (!buf.includes('ready\n')) {
-          reject(new Error(`fifo-server exited before ready (code=${code}, signal=${signal})`));
-        }
+      // surface any control-pipe messages (errors after readiness)
+      const controlPipe = (child.stdio as Array<any>)[3] as NodeJS.ReadableStream;
+
+      // wait for child to signal it's ready (i.e. has buffered the content and
+      // is about to open the FIFO). without this, the parent can race ahead and
+      // spawn wrangler before the child even starts.
+      return new Promise<ReturnType<typeof spawn>>((resolve, reject) => {
+        let buf = '';
+        const onData = (d: Buffer) => {
+          buf += d.toString('utf8');
+          if (buf.includes('ready\n')) {
+            controlPipe.off('data', onData);
+            // keep listening for post-ready error messages
+            controlPipe.on('data', (more: Buffer) => {
+              const msg = more.toString('utf8').trim();
+              if (msg) process.stderr.write(`[varlock-wrangler] fifo-server: ${msg}\n`);
+            });
+            resolve(child);
+          } else if (buf.startsWith('err:')) {
+            reject(new Error(`fifo-server failed before ready: ${buf.trim()}`));
+          }
+        };
+        controlPipe.on('data', onData);
+        child.once('exit', (code, signal) => {
+          if (!buf.includes('ready\n')) {
+            reject(new Error(`fifo-server exited before ready (code=${code}, signal=${signal})`));
+          }
+        });
       });
-    });
+    }
+
+    currentChild = await spawnWriter(getContentFn(), generation);
 
     const handle: ServingHandle = {
-      /** Kill and respawn the FIFO server with new content */
+      /** Swap the served content and re-arm a fresh writer with it */
       async update(content: string) {
-        fifoServer.kill();
-        const replacement: ServingHandle = await startServing(() => content);
-        // swap the stop/update methods on this handle
-        handle.stop = replacement.stop;
-        handle.update = replacement.update;
+        getContentFn = () => content;
+        generation++; // invalidate the previous re-arm chain
+        const previous = currentChild;
+        currentChild = undefined;
+        previous?.kill();
+        currentChild = await spawnWriter(content, generation);
       },
       stop() {
-        fifoServer.kill();
+        stopped = true;
+        generation++; // stop any in-flight re-arm
+        currentChild?.kill();
       },
     };
     return handle;
@@ -507,7 +552,9 @@ async function handleDev(args: Array<string>) {
   const watchers: Array<ReturnType<typeof watch>> = [];
 
   debug('dev: starting FIFO serve');
-  const handle = await tmp.startServing(() => cachedContent);
+  // dev re-reads the env file across hot-reloads/restarts, so re-arm a fresh
+  // single-shot writer after each read instead of serving just once.
+  const handle = await tmp.startServing(() => cachedContent, { autoRearm: true });
   debug('dev: FIFO serve ready');
 
   function cleanup() {
