@@ -8,6 +8,8 @@ pre-commit:
 
 pre-push:
   jobs:
+    - name: branch-name
+      run: bun run scripts/check-branch-name.ts
     - name: typecheck
       run: bun run typecheck:all
     - name: bumpy
