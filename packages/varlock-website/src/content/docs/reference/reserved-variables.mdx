@@ -36,9 +36,13 @@ Overrides [`varlock run`](/reference/cli-commands/#run) output redaction:
 
 The `--redact-stdout` / `--no-redact-stdout` flags take precedence over this env var. Useful when you can't easily change the command being run — for example in a wrapper script or CI config.
 
-### `_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK`
+{/*
+  Intentionally NOT documented for end users — internal/testing only.
+  Kept here (and in VARLOCK_CONFIG_ENV_VARS with internal:true) for maintainer reference.
 
-**Internal / testing.** Forces the file-based local encryption fallback instead of the native binary. Not intended for normal use.
+  ### `_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK`
+  Forces the file-based local encryption fallback instead of the native binary.
+*/}
 
 ## Internal variables (`__VARLOCK_*`)
 
