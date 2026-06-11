@@ -13,8 +13,7 @@
       "Bash(bun run --filter varlock build*)",
       "Bash(bun run repack)",
       "Bash(bun run bumpy:add)",
-      "Bash(bunx @varlock/bumpy add*)",
-      "mcp__varlock-docs-mcp__varlock_docs"
+      "Bash(bunx @varlock/bumpy add*)"
     ]
   },
   "attribution": {

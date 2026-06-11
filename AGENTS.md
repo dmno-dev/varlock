@@ -10,6 +10,7 @@ This is a monorepo managed with bun workspaces and Turborepo:
 - `packages/vscode-plugin` — VSCode extension for @env-spec language support
 - `packages/integrations/*` — framework integrations (nextjs, vite, astro, ...)
 - `packages/utils`, `packages/plugins` — shared internals
+- `packages/varlock-docs-mcp` — docs MCP server for external varlock users; do **not** use it to look things up while working on this repo — read the docs source directly
 
 ## Package manager
 
