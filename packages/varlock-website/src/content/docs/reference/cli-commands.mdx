@@ -149,7 +149,7 @@ varlock run -- <command>
 ```
 
 **Options:**
-- `--no-redact-stdout`: Disable stdout/stderr redaction to preserve TTY detection for interactive tools
+- `--redact-stdout` / `--no-redact-stdout`: Override automatic stdout/stderr redaction. `--redact-stdout` forces redaction of piped/redirected output (e.g., to override `@redactLogs=false`) and errors if output is attached to an interactive terminal, where redaction is not possible without breaking TTY behavior. `--no-redact-stdout` disables redaction entirely.
 - `--no-inject-graph`: Disable injection of `__VARLOCK_ENV` serialized config graph into the child process environment
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
 - `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (when combined with `--skip-cache`, the cache is cleared first, then reads and writes are skipped for the run)
@@ -179,15 +179,23 @@ varlock run -- sh -c 'echo $MY_VAR' # ✅ will work
 :::
 
 :::note[Interactive tools and TTY detection]
-By default, `varlock run` pipes stdout/stderr through a redaction filter. To preserve color output, varlock automatically injects `FORCE_COLOR` into the child process environment when the parent terminal is a TTY. This means most CLI tools that use color libraries (chalk, kleur, etc.) will still display colors while redaction remains active.
+`varlock run` automatically detects where each output stream is going:
 
-For tools that require a fully connected TTY (e.g., interactive tools like `psql` or `claude` that use raw terminal features), use `--no-redact-stdout` to bypass piping entirely:
+- **Interactive terminal (TTY)**: output passes straight through, preserving raw TTY behavior — interactive tools like `psql` and `claude` just work, with no flags needed. A human at the terminal already has access to the secrets, so redaction adds little there.
+- **Piped or redirected output** (CI logs, files, `| tee`, etc.): output is piped through a redaction filter, since that's where leaked secrets would persist.
+
+Detection is per stream — for example `varlock run -- node app.js | tee log.txt` redacts stdout (piped) while stderr (still attached to your terminal) passes through.
+
+To override the auto-detection:
 ```bash
-varlock run --no-redact-stdout -- claude --env development
-varlock run --no-redact-stdout -- bash -c 'psql $DATABASE_URL'
+# force-disable redaction even when output is piped/redirected
+varlock run --no-redact-stdout -- node app.js | tee log.txt
+
+# force redaction of piped output even when @redactLogs=false is set
+varlock run --redact-stdout -- node app.js > log.txt
 ```
 
-Note: `--no-redact-stdout` disables stdout/stderr redaction entirely. Use it only when a tool needs true TTY pass-through.
+Redacting a TTY-attached stream is not possible without piping it (which would break interactive tools), so `--redact-stdout` errors if output is attached to an interactive terminal rather than silently degrading the experience.
 :::
 
 :::note[Preventing sensitive value exposure via env inspection]

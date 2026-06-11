@@ -16,9 +16,10 @@ export const commandSpec = define({
     //   short: 'w',
     //   description: 'Watch mode',
     // },
-    'no-redact-stdout': {
+    'redact-stdout': {
       type: 'boolean',
-      description: 'Disable stdout/stderr redaction and use stdio inherit for full TTY pass-through (use for interactive tools that require raw TTY)',
+      negatable: true,
+      description: 'Override automatic stdout/stderr redaction: --redact-stdout forces redaction of piped/redirected output (e.g., to override @redactLogs=false) and errors if attached to an interactive terminal; --no-redact-stdout disables redaction entirely',
     },
     inject: {
       type: 'string',
@@ -52,7 +53,6 @@ Examples:
   varlock run -- node app.js                    # Run a Node.js application
   varlock run -- python script.py               # Run a Python script
   varlock run -- sh -c 'echo $MY_VAR'           # Use shell expansion for env vars
-  varlock run --no-redact-stdout -- psql        # Preserve TTY for interactive tools
   varlock run --inject vars -- sh               # Inject only individual vars, no blob
   varlock run --inject blob -- node app.js      # Inject only the blob, no individual vars
   varlock run --path .env.prod -- node app.js   # Use a specific .env file
@@ -62,7 +62,10 @@ Examples:
 📍 Important: Use -- to separate varlock options from your command
 
 💡 Tip: For shell expansion of env vars, use: sh -c 'your command here'
-💡 Tip: Use --no-redact-stdout for interactive tools that require raw TTY (e.g., psql, claude)
+💡 Tip: Output redaction applies automatically when output is piped/redirected (e.g., CI logs);
+   interactive terminals get raw TTY pass-through, so tools like psql and claude just work.
+   Use --no-redact-stdout to disable redaction for piped output, or --redact-stdout to
+   force it (e.g., to override @redactLogs=false).
 💡 Tip: Use --inject vars to prevent __VARLOCK_ENV from being visible in child process env
 💡 Tip: Use --inject blob when your app uses the ENV proxy and doesn't need individual process.env vars
   `.trim(),
@@ -112,7 +115,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   const resolvedEnv = envGraph.getResolvedEnvObject();
   const serializedGraph = envGraph.getSerializedGraph();
-  const { resetRedactionMap, redactSensitiveConfig } = await import('../../runtime/env');
+  const { resetRedactionMap } = await import('../../runtime/env');
+  const { createRedactedStreamWriter } = await import('../../runtime/lib/redact-stream');
   // console.log(resolvedEnv);
 
   // handle deprecated --no-inject-graph flag
@@ -143,57 +147,59 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   const redactLogs = serializedGraph.settings?.redactLogs ?? true;
-  const noRedactStdout = ctx.values['no-redact-stdout'] ?? false;
+  // tri-state override: true (--redact-stdout), false (--no-redact-stdout), undefined (auto)
+  const redactOverride = ctx.values['redact-stdout'];
+  const forceRedact = redactOverride === true;
+  const forceNoRedact = redactOverride === false;
 
-  // Initialize the redaction map if redaction is enabled
-  if (redactLogs) {
-    resetRedactionMap(serializedGraph);
+  // redacting a TTY-attached stream is not possible without piping it, which breaks
+  // interactive/TTY-dependent tools - so we fail loudly rather than silently degrade
+  if (forceRedact && (process.stdout.isTTY || process.stderr.isTTY)) {
+    throw new CliExitError('Cannot force redaction while output is attached to an interactive terminal', {
+      details: [
+        'Redaction requires piping stdout/stderr, which breaks tools that need a raw TTY (e.g., claude, psql).',
+        'Redaction is applied automatically whenever output is piped or redirected, so you can likely just drop the --redact-stdout flag.',
+      ],
+    });
   }
 
-  // When --no-redact-stdout is set, use stdio: 'inherit' to preserve TTY detection
-  // Otherwise, pipe stdout/stderr through redaction
-  if (noRedactStdout) {
+  // Explicit flags force redaction on/off; otherwise we auto-detect per stream:
+  // streams attached to an interactive terminal are inherited directly, preserving raw TTY
+  // behavior for interactive tools (psql, claude, etc.) — a human at the terminal already
+  // has access to the secrets. Piped/redirected streams (CI logs, files, pipes) are where
+  // leaked output persists, so those are piped through redaction.
+  const redactionEnabled = !forceNoRedact && (redactLogs || forceRedact);
+  const redactStdout = redactionEnabled && (forceRedact || !process.stdout.isTTY);
+  const redactStderr = redactionEnabled && (forceRedact || !process.stderr.isTTY);
+
+  if (!redactStdout && !redactStderr) {
+    // full stdio inherit - no redaction needed on any stream
     commandProcess = exec(rawCommand, commandArgsOnly, {
       stdio: 'inherit',
       env: fullInjectedEnv,
     });
   } else {
-    // When piping for redaction, preserve color support by injecting FORCE_COLOR if the
-    // parent stdout is a TTY and colors are not explicitly disabled. This allows tools
-    // that respect FORCE_COLOR (chalk, kleur, etc.) to still output colors even when piped.
-    // We read terminal env vars (NO_COLOR, FORCE_COLOR, COLORTERM, TERM) from process.env
-    // since these are set by the parent shell/terminal, not by varlock config.
-    let redactEnv: NodeJS.ProcessEnv = fullInjectedEnv;
-    if (
-      process.stdout.isTTY
-      && process.env.NO_COLOR === undefined
-      && process.env.FORCE_COLOR === undefined
-    ) {
-      let forceColorLevel = '1';
-      if (process.env.COLORTERM === 'truecolor' || process.env.COLORTERM === '24bit') {
-        forceColorLevel = '3';
-      } else if (process.env.TERM?.includes('256color') || process.env.TERM_PROGRAM === 'iTerm.app') {
-        forceColorLevel = '2';
-      }
-      redactEnv = { ...fullInjectedEnv, FORCE_COLOR: forceColorLevel };
-    }
-
-    // Helper to redact and write output
-    const writeRedacted = (stream: NodeJS.WriteStream, chunk: Buffer | string) => {
-      const str = chunk.toString();
-      stream.write(redactLogs ? redactSensitiveConfig(str) : str);
-    };
+    resetRedactionMap(serializedGraph);
 
     commandProcess = exec(rawCommand, commandArgsOnly, {
       stdin: 'inherit',
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: redactEnv,
+      stdout: redactStdout ? 'pipe' : 'inherit',
+      stderr: redactStderr ? 'pipe' : 'inherit',
+      env: fullInjectedEnv,
     });
 
-    // Pipe stdout and stderr through redaction
-    commandProcess.stdout?.on('data', (chunk: Buffer | string) => writeRedacted(process.stdout, chunk));
-    commandProcess.stderr?.on('data', (chunk: Buffer | string) => writeRedacted(process.stderr, chunk));
+    // pipe output through redaction writers, which buffer possible partial secrets
+    // at chunk boundaries so split secrets are still redacted
+    if (redactStdout && commandProcess.stdout) {
+      const stdoutWriter = createRedactedStreamWriter(process.stdout);
+      commandProcess.stdout.on('data', stdoutWriter.write);
+      commandProcess.stdout.on('close', stdoutWriter.flush);
+    }
+    if (redactStderr && commandProcess.stderr) {
+      const stderrWriter = createRedactedStreamWriter(process.stderr);
+      commandProcess.stderr.on('data', stderrWriter.write);
+      commandProcess.stderr.on('close', stderrWriter.flush);
+    }
   }
   // console.log('PARENT PID = ', process.pid);
   // console.log('CHILD PID = ', commandProcess.pid);

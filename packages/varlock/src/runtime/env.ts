@@ -81,6 +81,31 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
   state.redactorFindReplace = { find: findRegex, replace: replaceFn };
 }
 
+/**
+ * Returns the length of the longest suffix of `str` that is a partial match (proper prefix)
+ * of a sensitive value. Used by streaming redaction to hold back trailing characters that
+ * may be the beginning of a secret split across chunk boundaries.
+ */
+export function getRedactionHoldbackLength(str: string): number {
+  const { sensitiveSecretsMap } = getRedactionState();
+  const sensitiveValues = Object.keys(sensitiveSecretsMap);
+  if (!sensitiveValues.length || !str.length) return 0;
+  let longestValueLength = 0;
+  for (const v of sensitiveValues) {
+    if (v.length > longestValueLength) longestValueLength = v.length;
+  }
+  // longest suffix worth checking is one char short of a full secret
+  // (a full secret at the end of `str` will be caught by normal redaction)
+  const maxCheckLength = Math.min(str.length, longestValueLength - 1);
+  for (let len = maxCheckLength; len > 0; len--) {
+    const suffix = str.slice(str.length - len);
+    for (const v of sensitiveValues) {
+      if (v.length > len && v.startsWith(suffix)) return len;
+    }
+  }
+  return 0;
+}
+
 /** Returns diagnostic info about the current redaction state (safe to expose — no secrets) */
 export function getRedactionMapInfo() {
   const state = getRedactionState();
