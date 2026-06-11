@@ -1,5 +1,16 @@
 # Project conventions
 
+## Repo structure
+
+This is a monorepo managed with bun workspaces and Turborepo:
+
+- `packages/env-spec-parser` — parser for the @env-spec language (PEG.js grammar in `grammar.peggy`)
+- `packages/varlock` — the main package: CLI + library for loading/validating `.env` files
+- `packages/varlock-website` — docs site (Astro); docs content lives in `src/content/docs/`
+- `packages/vscode-plugin` — VSCode extension for @env-spec language support
+- `packages/integrations/*` — framework integrations (nextjs, vite, astro, ...)
+- `packages/utils`, `packages/plugins` — shared internals
+
 ## Package manager
 
 - This repo uses **Bun** as the package manager (`bun install`, `bun run`, etc.)
@@ -37,6 +48,14 @@
 - Standard bump types: `major`, `minor`, `patch`
 - Non-interactive changeset creation (for CI/AI): `bumpy add --packages "pkg:minor" --message "description" --name "changeset-name"`
 - Bump files are only required when publishable packages have changed (based on `changedFilePatterns` in `.bumpy/_config.json`). Changes to CI workflows, root config files, scripts, docs, etc. do **not** require a bump file — bumpy's pre-push hook will not block in that case.
+- Write changeset descriptions for end users, and keep them short
+
+## Branches & pull requests
+
+- Branch names must be meaningful — a short kebab-case description of the change (e.g. `fix-cf-fifo-secret-concat`, `vite-plugin-hmr`). Never push an auto-generated session/worktree branch name (e.g. `claude/dreamy-jones-a79c22`); rename it first with `git branch -m <meaningful-name>`
+- Do **not** add AI attribution to PRs or commits — no "Authored by Claude" / "Generated with Claude Code" lines in PR descriptions, and no `Co-Authored-By: Claude` commit trailers
+- Keep PR descriptions concise: what changed and why
+- If a change affects user-facing behavior, update the docs in `packages/varlock-website/src/content/docs/` (guides and/or reference) in the same PR
 
 ## Linting
 

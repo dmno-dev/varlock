@@ -1,9 +1,38 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(bun run test*)",
+      "Bash(bunx vitest run *)",
+      "Bash(bun run lint)",
+      "Bash(bun run --filter varlock typecheck)",
+      "Bash(bun run typecheck*)",
+      "Bash(bun run --filter varlock test*)",
+      "Bash(bunx tsc --noEmit *)",
+      "Bash(bun run lint:fix)",
+      "Bash(bun run build*)",
+      "Bash(bun run --filter varlock build*)",
+      "Bash(bun run repack)",
+      "Bash(bun run bumpy:add)",
+      "Bash(bunx @varlock/bumpy add*)",
+      "mcp__varlock-docs-mcp__varlock_docs"
+    ]
+  },
   "attribution": {
     "commit": "",
     "pr": ""
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/check-branch-name.sh"
+          }
+        ]
+      }
+    ],
     "WorktreeCreate": [
       {
         "hooks": [

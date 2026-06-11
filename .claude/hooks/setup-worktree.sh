@@ -38,6 +38,10 @@ git -C "$repo_root" worktree add -b "claude/$worktree_name" "$worktree_path" HEA
 # Project setup inside the new worktree (same as .codex/scripts/setup-worktree.sh).
 (
   cd "$worktree_path"
+  # Share the main repo's turbo cache so build:libs is mostly cache hits
+  # instead of a cold build on every new worktree.
+  mkdir -p "$repo_root/.turbo/cache" .turbo
+  ln -sfn "$repo_root/.turbo/cache" .turbo/cache
   bun install
   bun run build:libs
 ) 1>&2
