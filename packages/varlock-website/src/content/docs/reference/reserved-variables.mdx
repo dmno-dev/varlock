@@ -1,0 +1,57 @@
+---
+title: "Reserved variables"
+description: "varlock's reserved _VARLOCK_* and __VARLOCK_* environment variables — what they do and how the reserved namespace behaves"
+---
+
+varlock reserves a couple of environment variable namespaces for its own use. Knowing them helps you avoid surprises and understand how varlock passes state between processes.
+
+| Prefix | Example | Who sets it |
+| --- | --- | --- |
+| `VARLOCK_*` (no underscore) | `VARLOCK_ENV` | varlock (computed) — see [Builtin variables](/reference/builtin-variables/) |
+| `_VARLOCK_*` (single underscore) | `_VARLOCK_ENV_KEY` | **you** — to configure varlock's behavior |
+| `__VARLOCK_*` (double underscore) | `__VARLOCK_ENV` | varlock internals — injected automatically, never set these yourself |
+
+:::caution[The `_VARLOCK_` prefix is reserved]
+Config items whose key starts with `_VARLOCK_` are reserved for varlock. They are **excluded** from the injected env blob, generated types, and override provenance — even if you define one in your `.env.schema`. varlock emits a warning if you do, since such an item won't behave like a normal config value. Don't name your own variables with this prefix.
+:::
+
+## Configuration variables (`_VARLOCK_*`)
+
+Set these in your shell, CI, or deploy environment to configure varlock's behavior.
+
+### `_VARLOCK_ENV_KEY`
+
+Encryption key used to decrypt the injected env blob and any `encrypted()` values at runtime. Typically set in deploy environments. See [Encrypted deployments](/guides/encrypted-deployments/).
+
+### `_VARLOCK_CACHE_KEY`
+
+Encryption key for the on-disk resolved-value cache. When set (e.g. as a CI secret), it enables the disk cache in environments without OS keychain access. See [Caching](/guides/caching/).
+
+### `_VARLOCK_REDACT_STDOUT`
+
+Overrides [`varlock run`](/reference/cli-commands/#run) output redaction:
+
+- `true` / `1` — force redaction on (only applies to piped/redirected output; errors if attached to an interactive terminal)
+- `false` / `0` — disable redaction entirely
+
+The `--redact-stdout` / `--no-redact-stdout` flags take precedence over this env var. Useful when you can't easily change the command being run — for example in a wrapper script or CI config.
+
+{/*
+  Intentionally NOT documented for end users — internal/testing only.
+  Kept here (and in VARLOCK_CONFIG_ENV_VARS with internal:true) for maintainer reference.
+
+  ### `_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK`
+  Forces the file-based local encryption fallback instead of the native binary.
+*/}
+
+## Internal variables (`__VARLOCK_*`)
+
+These are injected automatically so that varlock state survives across process boundaries. You should never set them yourself — they're documented here only so you recognize them if you see them in a process environment.
+
+### `__VARLOCK_ENV`
+
+The serialized env graph (resolved config values plus metadata) injected by [`varlock run`](/reference/cli-commands/#run) and build-time integrations, so the runtime can load your config without re-invoking the CLI.
+
+### `__VARLOCK_RUN`
+
+A marker set so a child process can detect that it is running under `varlock run`.

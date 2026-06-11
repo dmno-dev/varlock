@@ -17,6 +17,7 @@ import type { VarlockPlugin } from './plugins';
 import { runWithResolutionContext, getResolutionContext } from './resolution-context';
 import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
 import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
+import { isVarlockReservedKey } from './reserved-vars';
 import { buildOverrideProvenanceMetadata, type OverrideProvenanceMetadata } from '../../lib/injected-env-provenance';
 
 const processExists = !!globalThis.process;
@@ -359,6 +360,24 @@ export class EnvGraph {
       if (isBuiltinVar(key)) this.registerBuiltinVar(key);
     }
 
+    // Warn about items defined with varlock's reserved _VARLOCK_ prefix. These keys are
+    // excluded from the injected env blob and generated types, so a user-defined one is
+    // almost certainly a mistake (or a typo'd internal var that won't behave as expected).
+    for (const source of this.sortedDataSources) {
+      if (source.disabled) continue;
+      for (const itemKey of Object.keys(source.configItemDefs)) {
+        if (isVarlockReservedKey(itemKey)) {
+          source._errors.push(new SchemaError(
+            `"${itemKey}" uses varlock's reserved _VARLOCK_ prefix`,
+            {
+              isWarning: true,
+              tip: 'Keys starting with _VARLOCK_ are reserved for configuring varlock itself and are excluded from the injected env and generated types. Rename this item unless that exclusion is intended.',
+            },
+          ));
+        }
+      }
+    }
+
     // process root decorators
     let hasErrors = false;
     for (const source of this.sortedDataSources) {
@@ -644,17 +663,27 @@ export class EnvGraph {
       });
     }
     for (const itemKey of this.sortedConfigKeys) {
-      // _VARLOCK_ENV_KEY is used to encrypt/decrypt the blob itself — including it
-      // would be redundant (the runtime already has it via process.env) and wasteful.
-      // _VARLOCK_CACHE_KEY encrypts the disk cache — it must never land in the blob.
-      if (itemKey === '_VARLOCK_ENV_KEY' || itemKey === '_VARLOCK_CACHE_KEY') continue;
+      // _VARLOCK_* keys configure varlock's own behavior and must never land in the blob:
+      // e.g. _VARLOCK_ENV_KEY encrypts the blob itself (the runtime already has it via
+      // process.env) and _VARLOCK_CACHE_KEY encrypts the disk cache. Skip the whole
+      // reserved prefix so any current/future infra var is excluded automatically.
+      if (isVarlockReservedKey(itemKey)) continue;
       const item = this.configSchema[itemKey];
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,
         isSensitive: item.isSensitive,
       };
     }
-    serializedGraph.__varlockOverrideMeta = buildOverrideProvenanceMetadata(Object.keys(this.overrideValues));
+    // Only process.env keys that correspond to a config item can actually act as overrides.
+    // overrideValues defaults to the entire process.env, so without this filter the provenance
+    // list would mirror every env var (PATH, HOME, ...) — pure noise that also leaks the
+    // caller's full env var name list into the blob. Reserved _VARLOCK_* keys configure
+    // varlock itself and are never overrides, so exclude them even if defined in the schema.
+    serializedGraph.__varlockOverrideMeta = buildOverrideProvenanceMetadata(
+      Object.keys(this.overrideValues).filter(
+        (k) => k in this.configSchema && !isVarlockReservedKey(k),
+      ),
+    );
 
     // expose a few root level settings
     serializedGraph.settings.redactLogs = this.getRootDec('redactLogs')?.resolvedValue ?? true;
