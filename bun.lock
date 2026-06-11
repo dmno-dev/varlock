@@ -81,7 +81,7 @@
     },
     "packages/integrations/cloudflare": {
       "name": "@varlock/cloudflare-integration",
-      "version": "1.1.6",
+      "version": "1.1.7",
       "bin": {
         "varlock-wrangler": "./bin/varlock-wrangler.js",
       },
@@ -187,7 +187,7 @@
     },
     "packages/plugins/aws-secrets": {
       "name": "@varlock/aws-secrets-plugin",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "devDependencies": {
         "@aws-sdk/client-secrets-manager": "^3.700.0",
         "@aws-sdk/client-ssm": "^3.700.0",
