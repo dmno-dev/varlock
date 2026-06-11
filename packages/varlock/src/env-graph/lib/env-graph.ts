@@ -16,7 +16,8 @@ import { getErrorLocation } from './error-location';
 import type { VarlockPlugin } from './plugins';
 import { runWithResolutionContext, getResolutionContext } from './resolution-context';
 import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
-import { BUILTIN_VARS, isBuiltinVar, isVarlockReservedKey } from './builtin-vars';
+import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
+import { isVarlockReservedKey } from './reserved-vars';
 import { buildOverrideProvenanceMetadata, type OverrideProvenanceMetadata } from '../../lib/injected-env-provenance';
 
 const processExists = !!globalThis.process;

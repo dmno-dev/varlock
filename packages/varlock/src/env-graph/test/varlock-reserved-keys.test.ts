@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import outdent from 'outdent';
 import { EnvGraph, DotEnvFileDataSource } from '../index';
-import { isVarlockReservedKey, VARLOCK_RESERVED_KEY_PREFIX } from '../lib/builtin-vars';
+import {
+  isVarlockReservedKey,
+  VARLOCK_RESERVED_KEY_PREFIX,
+  VARLOCK_CONFIG_ENV_VARS,
+  VARLOCK_INTERNAL_ENV_VARS,
+} from '../lib/reserved-vars';
 
 describe('isVarlockReservedKey', () => {
   it('matches keys with the reserved _VARLOCK_ prefix', () => {
@@ -15,6 +20,27 @@ describe('isVarlockReservedKey', () => {
     expect(isVarlockReservedKey('FOO')).toBe(false);
     expect(isVarlockReservedKey('VARLOCK_ENV')).toBe(false); // no leading underscore
     expect(isVarlockReservedKey('MY__VARLOCK_THING')).toBe(false); // prefix must be at the start
+  });
+});
+
+describe('reserved var registry', () => {
+  it('config env vars all use the single-underscore reserved prefix', () => {
+    for (const v of VARLOCK_CONFIG_ENV_VARS) {
+      expect(v.name.startsWith(VARLOCK_RESERVED_KEY_PREFIX), `${v.name} should start with ${VARLOCK_RESERVED_KEY_PREFIX}`).toBe(true);
+      expect(v.name.startsWith('__'), `${v.name} should not be a double-underscore internal var`).toBe(false);
+    }
+  });
+
+  it('internal env vars use the double-underscore prefix and are marked internal', () => {
+    for (const v of VARLOCK_INTERNAL_ENV_VARS) {
+      expect(v.name.startsWith('__VARLOCK_'), `${v.name} should start with __VARLOCK_`).toBe(true);
+      expect(v.internal).toBe(true);
+    }
+  });
+
+  it('has no duplicate names across both registries', () => {
+    const names = [...VARLOCK_CONFIG_ENV_VARS, ...VARLOCK_INTERNAL_ENV_VARS].map((v) => v.name);
+    expect(new Set(names).size).toBe(names.length);
   });
 });
 

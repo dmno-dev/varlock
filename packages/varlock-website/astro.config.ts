@@ -214,6 +214,7 @@ export default defineConfig({
             { label: '> @type data types', slug: 'reference/data-types' },
             { label: 'Resolver functions', slug: 'reference/functions' },
             { label: 'Builtin variables', slug: 'reference/builtin-variables' },
+            { label: 'Reserved variables', slug: 'reference/reserved-variables' },
           ],
         },
         {

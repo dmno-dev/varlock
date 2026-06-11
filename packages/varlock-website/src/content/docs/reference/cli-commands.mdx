@@ -197,7 +197,7 @@ varlock run --redact-stdout -- node app.js > log.txt
 
 Redacting a TTY-attached stream is not possible without piping it (which would break interactive tools), so `--redact-stdout` errors if output is attached to an interactive terminal rather than silently degrading the experience.
 
-The same override can be set via the `_VARLOCK_REDACT_STDOUT` environment variable (`true`/`1` to force on, `false`/`0` to force off), which is handy when you can't easily change the command being run — for example in a wrapper script or CI config. The CLI flag always takes precedence over the env var.
+The same override can be set via the [`_VARLOCK_REDACT_STDOUT`](/reference/reserved-variables/#_varlock_redact_stdout) environment variable (`true`/`1` to force on, `false`/`0` to force off), which is handy when you can't easily change the command being run — for example in a wrapper script or CI config. The CLI flag always takes precedence over the env var.
 :::
 
 :::note[Preventing sensitive value exposure via env inspection]
