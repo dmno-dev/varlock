@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { varlockRun } from '../helpers/run-varlock.js';
+import { varlockRun, runVarlock } from '../helpers/run-varlock.js';
 
 describe('Log Redaction', () => {
   test('should load env vars correctly', () => {
@@ -44,5 +44,32 @@ describe('Log Redaction', () => {
     expect(result.output).toContain('stdin.isTTY');
     expect(result.output).toContain('stdin.readable');
     expect(result.output).not.toContain('super-secret-token-12345');
+  });
+
+  test('_VARLOCK_REDACT_STDOUT=false disables redaction', () => {
+    const result = varlockRun(['node', 'test-script.js'], {
+      cwd: 'smoke-test-basic',
+      env: { _VARLOCK_REDACT_STDOUT: 'false' },
+    });
+
+    // with redaction explicitly disabled via env var, the secret appears in plain text
+    expect(result.output).toContain('super-secret-token-12345');
+  });
+
+  test('--no-redact-stdout flag overrides _VARLOCK_REDACT_STDOUT=true', () => {
+    const result = varlockRun(['node', 'test-script.js'], {
+      cwd: 'smoke-test-basic',
+      env: { _VARLOCK_REDACT_STDOUT: 'true' },
+    });
+    // the env var alone keeps redaction on (output is captured/non-TTY)
+    expect(result.output).not.toContain('super-secret-token-12345');
+
+    const overridden = runVarlock(['run', '--no-redact-stdout', '--', 'node', 'test-script.js'], {
+      cwd: 'smoke-test-basic',
+      env: { _VARLOCK_REDACT_STDOUT: 'true' },
+      captureOutput: true,
+    });
+    // the flag takes precedence over the env var, so the secret is shown
+    expect(overridden.output).toContain('super-secret-token-12345');
   });
 });

@@ -19,7 +19,7 @@ export const commandSpec = define({
     'redact-stdout': {
       type: 'boolean',
       negatable: true,
-      description: 'Override automatic stdout/stderr redaction: --redact-stdout forces redaction of piped/redirected output (e.g., to override @redactLogs=false) and errors if attached to an interactive terminal; --no-redact-stdout disables redaction entirely',
+      description: 'Override automatic stdout/stderr redaction: --redact-stdout forces redaction of piped/redirected output (e.g., to override @redactLogs=false) and errors if attached to an interactive terminal; --no-redact-stdout disables redaction entirely. Can also be set via the _VARLOCK_REDACT_STDOUT env var (the flag takes precedence)',
     },
     inject: {
       type: 'string',
@@ -70,6 +70,19 @@ Examples:
 💡 Tip: Use --inject blob when your app uses the ENV proxy and doesn't need individual process.env vars
   `.trim(),
 });
+
+/**
+ * Parse a tri-state boolean toggle from an env var value.
+ * Returns true/false for recognized truthy/falsy values, or undefined when unset
+ * or unrecognized (so it can fall through to other logic via `??`).
+ */
+function parseEnvToggle(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === '1' || normalized === 'true') return true;
+  if (normalized === '0' || normalized === 'false') return false;
+  return undefined;
+}
 
 let commandProcess: ReturnType<typeof exec> | undefined;
 let childCommandKilledFromRestart = false;
@@ -147,8 +160,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   const redactLogs = serializedGraph.settings?.redactLogs ?? true;
-  // tri-state override: true (--redact-stdout), false (--no-redact-stdout), undefined (auto)
-  const redactOverride = ctx.values['redact-stdout'];
+  // tri-state override (true = force on, false = force off, undefined = auto-detect):
+  // the --redact-stdout / --no-redact-stdout flag takes precedence, falling back to the
+  // _VARLOCK_REDACT_STDOUT env var, otherwise we auto-detect per stream below
+  const redactOverride = ctx.values['redact-stdout'] ?? parseEnvToggle(process.env._VARLOCK_REDACT_STDOUT);
   const forceRedact = redactOverride === true;
   const forceNoRedact = redactOverride === false;
 
