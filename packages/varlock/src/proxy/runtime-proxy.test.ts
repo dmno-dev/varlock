@@ -69,68 +69,14 @@ describe('startLocalProxyRuntime', () => {
     await runtime.stop();
   });
 
-  test('redacts matched response headers and body', async () => {
-    const secret = 'real-secret-value';
-    const placeholder = 'placeholder-value';
-    const upstream = http.createServer((_req, res) => {
-      res.statusCode = 200;
-      res.setHeader('content-type', 'application/json');
-      res.setHeader('x-upstream-secret', `token=${secret}`);
-      res.end(JSON.stringify({
-        ok: true,
-        apiKey: secret,
-      }));
-    });
-
-    await new Promise<void>((resolve) => {
-      upstream.listen(0, '127.0.0.1', () => resolve());
-    });
-    const addr = upstream.address();
-    if (!addr || typeof addr === 'string') throw new Error('Failed to start test upstream');
-
-    const runtime = await startLocalProxyRuntime({
-      managedItems: [
-        {
-          key: 'API_KEY',
-          placeholder,
-          realValue: secret,
-        },
-      ],
-      rules: [
-        {
-          source: 'attached',
-          domain: ['127.0.0.1'],
-          itemKeys: ['API_KEY'],
-        },
-      ],
-      egressMode: 'permissive',
-    });
-
-    const response = await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}/`);
-
-    expect(response.statusCode).toBe(200);
-    expect(response.body).toContain(placeholder);
-    expect(response.body).not.toContain(secret);
-    expect(String(response.headers['x-upstream-secret'])).toContain(placeholder);
-    expect(String(response.headers['x-upstream-secret'])).not.toContain(secret);
-
-    await runtime.stop();
-    await new Promise<void>((resolve) => {
-      upstream.close(() => {
-        resolve();
-      });
-    });
-  });
-
-  test('only injects an item on hosts its own rule matches (per-item domain scoping)', async () => {
-    // Capture exactly what the upstream receives, so we can see what the proxy
-    // forwarded (the response gets re-redacted, so it can't be observed there).
-    let receivedXTest = '';
+  test('refuses to inject a secret into a cleartext (http) connection (Invariant #2)', async () => {
+    let upstreamGotRequest = false;
+    let upstreamAuth = '';
     const upstream = http.createServer((req, res) => {
-      receivedXTest = String(req.headers['x-test'] ?? '');
+      upstreamGotRequest = true;
+      upstreamAuth = String(req.headers.authorization ?? '');
       res.statusCode = 200;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ ok: true }));
+      res.end('ok');
     });
     await new Promise<void>((resolve) => {
       upstream.listen(0, '127.0.0.1', () => resolve());
@@ -139,28 +85,21 @@ describe('startLocalProxyRuntime', () => {
     if (!addr || typeof addr === 'string') throw new Error('Failed to start test upstream');
 
     const runtime = await startLocalProxyRuntime({
-      managedItems: [
-        { key: 'ITEM_A', placeholder: 'PH_A_xxxxx', realValue: 'REAL_A_secret' },
-        { key: 'ITEM_B', placeholder: 'PH_B_xxxxx', realValue: 'REAL_B_secret' },
-      ],
-      rules: [
-        // ITEM_A is scoped to the request host; ITEM_B to a different host.
-        { source: 'attached', domain: ['127.0.0.1'], itemKeys: ['ITEM_A'] },
-        { source: 'attached', domain: ['other-host.example'], itemKeys: ['ITEM_B'] },
-      ],
+      managedItems: [{ key: 'API_KEY', placeholder: 'PH_placeholder', realValue: 'sk-REAL-secret' }],
+      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: ['API_KEY'] }],
       egressMode: 'permissive',
     });
 
-    await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}/`, {
-      'x-test': 'a=PH_A_xxxxx;b=PH_B_xxxxx',
+    const response = await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}/`, {
+      authorization: 'Bearer PH_placeholder',
     });
 
-    // ITEM_A's rule matches this host → its placeholder is swapped for the real value.
-    expect(receivedXTest).toContain('REAL_A_secret');
-    // ITEM_B's rule is for a different host → its placeholder must pass through
-    // untouched, never substituted with the real value (no cross-credential leak).
-    expect(receivedXTest).toContain('PH_B_xxxxx');
-    expect(receivedXTest).not.toContain('REAL_B_secret');
+    // Fail closed: a ruled item over a cleartext connection is refused, and the
+    // real secret never reaches the (un-TLS'd) upstream.
+    expect(response.statusCode).toBe(403);
+    expect(response.body).toContain('cleartext');
+    expect(upstreamGotRequest).toBe(false);
+    expect(upstreamAuth).not.toContain('sk-REAL-secret');
 
     await runtime.stop();
     await new Promise<void>((resolve) => {
@@ -183,8 +122,10 @@ describe('startLocalProxyRuntime', () => {
     if (!addr || typeof addr === 'string') throw new Error('Failed to start test upstream');
 
     const runtime = await startLocalProxyRuntime({
-      managedItems: [{ key: 'API_KEY', placeholder: 'PH', realValue: 'secret' }],
-      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: ['API_KEY'] }],
+      // No injected items — these tests exercise forwarding/streaming behavior,
+      // not injection (which now requires TLS, see proxy-tls.test.ts).
+      managedItems: [],
+      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: [] }],
       egressMode: 'permissive',
     });
 
@@ -221,8 +162,10 @@ describe('startLocalProxyRuntime', () => {
     if (!addr || typeof addr === 'string') throw new Error('Failed to start test upstream');
 
     const runtime = await startLocalProxyRuntime({
-      managedItems: [{ key: 'API_KEY', placeholder: 'PH', realValue: 'secret' }],
-      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: ['API_KEY'] }],
+      // No injected items — these tests exercise forwarding/streaming behavior,
+      // not injection (which now requires TLS, see proxy-tls.test.ts).
+      managedItems: [],
+      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: [] }],
       egressMode: 'permissive',
     });
 
