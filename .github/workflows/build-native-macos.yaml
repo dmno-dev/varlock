@@ -5,7 +5,7 @@ name: Build macOS native binary
 #
 # The Swift .build directory is cached by source hash, so the compile
 # step (~minutes) is near-instant on cache hit. The .app bundle wrapping
-# (plist, icon, signing) always runs since it varies by mode/version.
+# (plist, icon, signing) always runs since it varies by mode.
 #
 # Notarization is intentionally NOT included here — it's a separate
 # workflow for production releases.
@@ -20,10 +20,6 @@ on:
         description: 'Build mode: dev, preview, or release (affects bundle metadata)'
         type: string
         default: 'preview'
-      version:
-        description: 'Bundle version string (e.g. 1.2.3)'
-        type: string
-        default: '0.0.0-preview'
       artifact-name:
         description: 'Name for the uploaded artifact'
         type: string
@@ -103,7 +99,7 @@ jobs:
       - name: Build, bundle, and sign
         run: |
           bun run --filter @varlock/encryption-binary-swift build:universal \
-            -- --mode ${{ inputs.mode }} --version ${{ inputs.version }} --sign "$APPLE_SIGNING_IDENTITY"
+            -- --mode ${{ inputs.mode }} --sign "$APPLE_SIGNING_IDENTITY"
 
       - name: Verify binary
         run: |

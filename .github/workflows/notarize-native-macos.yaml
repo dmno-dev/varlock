@@ -18,6 +18,10 @@ on:
         description: 'Name for the notarized artifact'
         type: string
         default: 'native-bin-macos-notarized'
+      cache-key:
+        description: 'If set, the notarized .app is saved to the Actions cache under this key for cross-run reuse'
+        type: string
+        default: ''
     secrets:
       OP_CI_TOKEN:
         required: true
@@ -89,3 +93,23 @@ jobs:
           name: ${{ inputs.artifact-name }}
           path: VarlockEnclave.app
           retention-days: 7
+
+      # Stage the notarized bundle at the canonical path and cache it so future
+      # releases with unchanged source can reuse it (skipping build + notarize).
+      # ditto preserves the bundle's signature and stapled notarization ticket.
+      # The cache key is content-addressed (source + scripts + workflows), so a
+      # restored bundle always corresponds to the source that produced it; the
+      # release re-verifies it on macOS before publishing.
+      - name: Stage notarized .app for caching
+        if: inputs.cache-key != ''
+        run: |
+          mkdir -p packages/varlock/native-bins/darwin
+          rm -rf packages/varlock/native-bins/darwin/VarlockEnclave.app
+          ditto VarlockEnclave.app packages/varlock/native-bins/darwin/VarlockEnclave.app
+      - name: Cache notarized .app for cross-run reuse
+        if: inputs.cache-key != ''
+        uses: actions/cache/save@v5
+        continue-on-error: true  # immutable key; harmless if a concurrent run saved it first
+        with:
+          path: packages/varlock/native-bins/darwin/VarlockEnclave.app
+          key: ${{ inputs.cache-key }}
