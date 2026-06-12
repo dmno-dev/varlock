@@ -129,7 +129,7 @@ DATABASE_PASSWORD=bwp("Production DB")
 DATABASE_USER=bwp("Production DB", field=username)
 ```
 
-The cached session token lives in varlock's encrypted cache for `sessionTtl` (default `15m`). For CI / non-interactive use, pass a pre-obtained token (`@initBwp(sessionToken=$BWP_SESSION)`) or a master password (`@initBwp(masterPassword=$BW_MASTER_PASSWORD)`). See the [full docs](https://varlock.dev/plugins/bitwarden/#password-manager--vaultwarden) for all options.
+The cached session token lives in varlock's encrypted cache (biometric-gated on platforms with a secure enclave) and by default is reused until your bw vault locks (`sessionTtl="forever"`); set a shorter `sessionTtl` to force periodic master-password re-auth. For CI / non-interactive use, pass a pre-obtained token (`@initBwp(sessionToken=$BWP_SESSION)`) or a master password (`@initBwp(masterPassword=$BW_MASTER_PASSWORD)`). See the [full docs](https://varlock.dev/plugins/bitwarden/#password-manager--vaultwarden) for all options.
 
 ---
 

@@ -207,7 +207,9 @@ This approach makes it easier to manage access to multiple secrets at once.
 
 Separate from Secrets Manager, you can also load values from your personal or team **Bitwarden Password Manager** vault — or a self-hosted **Vaultwarden** server. This path uses the Bitwarden [`bw` CLI](https://bitwarden.com/help/cli/) rather than the REST API, so it's best suited to local development.
 
-varlock acquires and caches a CLI **session token** for you: on first load it runs `bw unlock` (prompting for your master password), then caches the token — encrypted, with a configurable TTL — and reuses it on subsequent loads. You no longer need to manually unlock and paste a session token into a `.env` file.
+varlock acquires and caches a CLI **session token** for you: on first load it runs `bw unlock` (prompting for your master password), then caches the token in varlock's encrypted cache and reuses it on subsequent loads. You no longer need to manually unlock and paste a session token into a `.env` file.
+
+By default the token is cached until your Bitwarden vault locks (`sessionTtl="forever"`). This is safe because the cached token is encrypted at rest with varlock's local key — biometric-gated (Touch ID / Windows Hello) on platforms with a secure enclave — so reading it requires *you*, and Bitwarden's own vault-timeout still governs when a fresh master-password unlock is required (when the vault locks, the next load re-unlocks automatically). Set a shorter `sessionTtl` if you want varlock to force periodic master-password re-auth on top of that.
 
 ### Prerequisites
 
@@ -254,7 +256,7 @@ varlock acquires and caches a CLI **session token** for you: on first load it ru
 DATABASE_PASSWORD=bwp("Production DB")
 ```
 
-On the first `varlock load`, you'll be prompted for your master password once; the resulting session token is cached and reused until it expires (`sessionTtl`, default `15m`).
+On the first `varlock load`, you'll be prompted for your master password once; the resulting session token is cached and reused until your vault locks (`sessionTtl`, default `forever`).
 
 :::note[`bw unlock` invalidates other sessions]
 Each `bw unlock` issues a new session key and invalidates any previously issued ones. If you also keep a `BW_SESSION` exported in your shell, varlock unlocking will invalidate it (and vice-versa). Caching keeps this to at most once per `sessionTtl`.
@@ -278,7 +280,7 @@ STRIPE_KEY=bwp("Stripe", field="secret-key")
 # @initBwp(sessionTtl="1h", cacheTtl="5m")
 ```
 
-- `sessionTtl` (default `15m`) — how long the unlocked CLI session token is cached before varlock re-unlocks (prompting again).
+- `sessionTtl` (default `forever`) — how long the unlocked CLI session token is cached before varlock forces a fresh `bw unlock`. `forever` means "until the bw vault locks" (re-unlock then happens automatically); set e.g. `"1h"` to force periodic master-password re-auth.
 - `cacheTtl` (optional) — additionally cache the **resolved item values**, avoiding a `bw` invocation per value within the window. See the [Caching guide](/guides/caching/).
 
 ### CI / non-interactive use
@@ -347,7 +349,7 @@ Initialize a Password Manager / Vaultwarden instance accessed via the `bw` CLI. 
 **Key/value args (all optional):**
 - `sessionToken`: a pre-obtained CLI session token (e.g. `$BWP_SESSION`). When provided and non-empty, it's used as-is instead of auto-unlocking.
 - `masterPassword`: master password used to unlock the vault non-interactively (e.g. in CI). Reference a `@sensitive` config item.
-- `sessionTtl`: how long the auto-unlocked session token is cached before re-unlock (default `"15m"`; e.g. `"1h"`, or `forever`).
+- `sessionTtl`: how long the auto-unlocked session token is cached before a fresh `bw unlock` (default `forever` — i.e. until the bw vault locks; e.g. `"1h"` to force periodic master-password re-auth).
 - `cacheTtl`: cache resolved item values for the specified duration. See the [Caching guide](/guides/caching/).
 - `id`: instance identifier for multiple instances.
 

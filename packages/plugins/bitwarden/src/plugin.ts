@@ -542,7 +542,8 @@ plugin.registerResolverFunction({
 // running `bw unlock` (interactively, or non-interactively with a master
 // password) and caches it — so the user no longer has to manually unlock and
 // paste a token. Each `bw unlock` invalidates prior session keys, so the
-// cached token is reused until it expires (sessionTtl, default 15m).
+// cached token is reused (sessionTtl, default `forever`) until the bw vault
+// itself locks, which the re-unlock retry in getSecret then heals.
 // ──────────────────────────────────────────────────────────────
 
 /**
@@ -603,8 +604,16 @@ class BitwardenPasswordManagerInstance {
   sessionTokenResolver?: Resolver;
   /** optional master password for non-interactive unlock (CI / keychain) */
   masterPasswordResolver?: Resolver;
-  /** how long an auto-unlocked session token is cached before re-unlock */
-  sessionTtl: string | number = '15m';
+  /**
+   * How long an auto-unlocked session token is cached before re-unlock.
+   * Defaults to `forever`: the token lives in varlock's encrypted cache (biometric-
+   * gated on platforms with a secure enclave) until the bw vault locks / logs out —
+   * at which point `bw get` fails and the re-unlock retry in `getSecret` prompts
+   * again. So the real lifetime is governed by Bitwarden's own vault-timeout, not a
+   * redundant varlock-side timer; set a shorter `sessionTtl` to force periodic
+   * master-password re-auth on top of that.
+   */
+  sessionTtl: string | number = 'forever';
   /** optional TTL for caching resolved item field values */
   cacheTtl?: string | number;
 
