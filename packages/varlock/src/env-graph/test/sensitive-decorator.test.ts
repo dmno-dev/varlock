@@ -4,7 +4,7 @@ import {
 import path from 'node:path';
 import outdent from 'outdent';
 import { envFilesTest } from './helpers/generic-test';
-import { EnvGraph, DotEnvFileDataSource } from '../index';
+import { EnvGraph, DotEnvFileDataSource, SchemaError } from '../index';
 import { createEnvGraphDataType } from '../lib/data-types';
 
 describe('@sensitive and @defaultSensitive tests', () => {
@@ -363,4 +363,70 @@ describe('@redactLogs and @preventLeaks', () => {
       },
     },
   }));
+});
+
+describe('per-item @sensitive={preventLeaks=false}', () => {
+  test('opts an item out of leak detection while keeping it sensitive', envFilesTest({
+    envFile: outdent`
+      LEAKY=val      # @sensitive={preventLeaks=false}
+      NORMAL=val     # @sensitive
+    `,
+    expectSensitive: { LEAKY: true, NORMAL: true },
+    expectSerializedMatches: {
+      config: {
+        // opted-out item carries the flag so the runtime scanner can skip it
+        LEAKY: { isSensitive: true, preventLeaks: false },
+      },
+    },
+  }));
+
+  test('preventLeaks=true is the default and is not emitted in the serialized graph', envFilesTest({
+    envFile: outdent`
+      A=val   # @sensitive={preventLeaks=true}
+      B=val   # @sensitive
+    `,
+    expectSensitive: { A: true, B: true },
+    expectSerializedMatches: {
+      config: {
+        A: { isSensitive: true },
+        B: { isSensitive: true },
+      },
+    },
+  }));
+
+  test('@public does not accept options', envFilesTest({
+    envFile: 'FOO=val   # @public={preventLeaks=false}',
+    expectValues: { FOO: SchemaError },
+  }));
+
+  test('unknown options are rejected', envFilesTest({
+    envFile: 'FOO=val   # @sensitive={redactLogs=false}',
+    expectValues: { FOO: SchemaError },
+  }));
+
+  test('non-boolean preventLeaks is rejected', envFilesTest({
+    envFile: 'FOO=val   # @sensitive={preventLeaks=nope}',
+    expectValues: { FOO: SchemaError },
+  }));
+
+  test('an array literal is rejected (options must be an object)', envFilesTest({
+    envFile: 'FOO=val   # @sensitive=[preventLeaks]',
+    expectValues: { FOO: SchemaError },
+  }));
+
+  test('bare fn-call form @sensitive(...) is rejected (reserved for repeatable decorators)', envFilesTest({
+    envFile: 'FOO=val   # @sensitive(preventLeaks=false)',
+    expectValues: { FOO: SchemaError },
+  }));
+
+  test('the bare fn-call error points users to the object value form', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: 'FOO=val   # @sensitive(preventLeaks=false)',
+    }));
+    await g.finishLoad();
+    await g.resolveEnvValues();
+    const messages = g.configSchema.FOO.errors.map((e) => e.message);
+    expect(messages.some((m) => m.includes('@sensitive={preventLeaks=false}'))).toBe(true);
+  });
 });

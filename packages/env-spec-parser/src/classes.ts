@@ -68,7 +68,8 @@ export class ParsedEnvSpecStaticValue {
 export class ParsedEnvSpecKeyValuePair {
   constructor(public data: {
     key: string;
-    val: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall,
+    val: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
+      | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral,
   }) {}
 
   get key() {
@@ -79,7 +80,7 @@ export class ParsedEnvSpecKeyValuePair {
     return this.data.val;
   }
 
-  toString() {
+  toString(): string {
     return `${this.key}=${this.data.val.toString()}`;
   }
 }
@@ -150,14 +151,70 @@ export class ParsedEnvSpecFunctionCall {
 }
 
 
+// A standalone object literal `{ key=value, ... }` used as a value (e.g. `@sensitive={preventLeaks=false}`)
+export class ParsedEnvSpecObjectLiteral {
+  constructor(public data: {
+    values: Array<ParsedEnvSpecKeyValuePair>;
+    _location?: any;
+  }) {}
+
+  get values() {
+    return this.data.values;
+  }
+
+  /** the object as plain JS, for entries with statically-known values */
+  get simplifiedValue(): Record<string, any> {
+    const obj = {} as Record<string, any>;
+    for (const kv of this.data.values) {
+      if (kv.value instanceof ParsedEnvSpecStaticValue) {
+        obj[kv.key] = kv.value.value;
+      // eslint-disable-next-line no-use-before-define
+      } else if (kv.value instanceof ParsedEnvSpecObjectLiteral || kv.value instanceof ParsedEnvSpecArrayLiteral) {
+        obj[kv.key] = kv.value.simplifiedValue;
+      }
+    }
+    return obj;
+  }
+
+  toString(): string {
+    return `{${this.data.values.map((v) => v.toString()).join(', ')}}`;
+  }
+}
+
+// A standalone array literal `[ value, ... ]` used as a value
+export class ParsedEnvSpecArrayLiteral {
+  constructor(public data: {
+    values: Array<ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
+      | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral>;
+    _location?: any;
+  }) {}
+
+  get values() {
+    return this.data.values;
+  }
+
+  /** the array as plain JS, for entries with statically-known values */
+  get simplifiedValue(): Array<any> {
+    return this.data.values.map((v) => {
+      if (v instanceof ParsedEnvSpecStaticValue) return v.value;
+      if (v instanceof ParsedEnvSpecObjectLiteral || v instanceof ParsedEnvSpecArrayLiteral) return v.simplifiedValue;
+      return undefined;
+    });
+  }
+
+  toString(): string {
+    return `[${this.data.values.map((v) => v.toString()).join(', ')}]`;
+  }
+}
+
 export class ParsedEnvSpecDecorator {
   value?: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
-    | ParsedEnvSpecFunctionArgs;
+    | ParsedEnvSpecFunctionArgs | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral;
 
   constructor(public data: {
     name: string;
     value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
-      | ParsedEnvSpecFunctionArgs | undefined;
+      | ParsedEnvSpecFunctionArgs | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral | undefined;
     isBareFnCall?: boolean; // true if decorator is a bare fn call (eg: @import(...))
     strayText?: string; // unexpected text found after this decorator
     _location?: any;
@@ -336,6 +393,8 @@ export class ParsedEnvSpecConfigItem {
         throw new Error('Nested key-value pair found in config item');
       } else if (expanded instanceof ParsedEnvSpecFunctionArgs) {
         throw new Error('Top-level config item cannot be a bare function args');
+      } else if (expanded instanceof ParsedEnvSpecObjectLiteral || expanded instanceof ParsedEnvSpecArrayLiteral) {
+        throw new Error('Top-level config item value cannot be a bare object or array literal');
       }
       this.value = expanded;
     }

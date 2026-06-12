@@ -21,7 +21,8 @@ const UNMASK_STR = '👁';
 // Without this, the module instance that patches console.log may have an empty map
 // while a different instance has the populated one.
 type RedactionState = {
-  sensitiveSecretsMap: Record<string, { key: string, redacted: string }>,
+  // `preventLeaks: false` means the value is still redacted in logs but skipped by the leak scanner
+  sensitiveSecretsMap: Record<string, { key: string, redacted: string, preventLeaks: boolean }>,
   redactorFindReplace: undefined | { find: RegExp, replace: ReplaceFn },
 };
 type ReplaceFn = (match: string, pre: string, val: string, post: string) => string;
@@ -46,7 +47,13 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
     if (item.isSensitive && item.value && isString(item.value)) {
       // TODO: we want to respect masking settings from the schema (once added)
       const redacted = redactString(item.value);
-      if (redacted) state.sensitiveSecretsMap[item.value] = { key: itemKey, redacted };
+      // preventLeaks defaults to true; `@sensitive={preventLeaks=false}` opts the item
+      // out of leak scanning while still keeping it redacted in logs
+      if (redacted) {
+        state.sensitiveSecretsMap[item.value] = {
+          key: itemKey, redacted, preventLeaks: item.preventLeaks !== false,
+        };
+      }
     }
   }
   // if no sensitive items exist, we dont need to do any redaction, but the redact fn is checking for undefined
@@ -185,6 +192,8 @@ export function scanForLeaks(
 
     // TODO: probably should use a single regex
     for (const sensitiveValue in sensitiveSecretsMap) {
+      // items opted out via `@sensitive={preventLeaks=false}` are skipped by the scanner
+      if (!sensitiveSecretsMap[sensitiveValue].preventLeaks) continue;
       if (strToScan.includes(sensitiveValue)) {
         const itemKey = sensitiveSecretsMap[sensitiveValue].key;
 

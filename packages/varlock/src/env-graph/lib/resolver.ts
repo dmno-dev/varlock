@@ -7,7 +7,7 @@ import {
 import _ from '@env-spec/utils/my-dash';
 import {
   ParsedEnvSpecFunctionArgs, ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair,
-  ParsedEnvSpecStaticValue,
+  ParsedEnvSpecStaticValue, ParsedEnvSpecObjectLiteral, ParsedEnvSpecArrayLiteral,
 } from '@env-spec/parser';
 
 import { ConfigItem } from './config-item';
@@ -67,7 +67,7 @@ export class Resolver {
   inferredType?: string;
   /** reference to the parsed node that created this resolver, used for error location tracking */
   _parsedNode?: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
-    | ParsedEnvSpecFunctionArgs;
+    | ParsedEnvSpecFunctionArgs | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral;
   _errors: Array<SchemaError> = [];
   private _depsObj: Record<string, boolean> = {};
 
@@ -299,6 +299,47 @@ export class FunctionArgsResolver extends Resolver {
       arr: resolvedArrayArgs,
       obj: resolvedObjArgs,
     };
+  }
+}
+
+// resolver for a standalone object literal `{ k=v, ... }` — resolves to a plain object
+export class ObjectLiteralResolver extends Resolver {
+  static def = {
+    name: '\0objectLiteral', // used internally, so we add the extra \0
+    label: 'object literal',
+    icon: 'bi:braces',
+    resolve() { return undefined; },
+  };
+  get isStatic() {
+    // static when every value is static
+    return Object.values(this.objArgs ?? {}).every((r) => r.isStatic);
+  }
+  async resolve() {
+    const obj = {} as Record<string, any>;
+    for (const key in this.objArgs) {
+      obj[key] = await this.objArgs[key].resolve();
+    }
+    return obj;
+  }
+}
+
+// resolver for a standalone array literal `[ v, ... ]` — resolves to a plain array
+export class ArrayLiteralResolver extends Resolver {
+  static def = {
+    name: '\0arrayLiteral', // used internally, so we add the extra \0
+    label: 'array literal',
+    icon: 'bi:bracket',
+    resolve() { return undefined; },
+  };
+  get isStatic() {
+    return (this.arrArgs ?? []).every((r) => r.isStatic);
+  }
+  async resolve() {
+    const arr = [] as Array<any>;
+    for (const arg of this.arrArgs ?? []) {
+      arr.push(await arg.resolve());
+    }
+    return arr;
   }
 }
 
@@ -1003,7 +1044,7 @@ export const BaseResolvers: Array<ResolverChildClass> = [
 
 export function convertParsedValueToResolvers(
   value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
-    | ParsedEnvSpecFunctionArgs | undefined,
+    | ParsedEnvSpecFunctionArgs | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral | undefined,
   dataSource: EnvGraphDataSource | undefined,
   registeredResolvers: Record<string, ResolverChildClass>,
 ): Resolver | undefined {
@@ -1011,6 +1052,25 @@ export function convertParsedValueToResolvers(
     return undefined;
   } else if (value instanceof ParsedEnvSpecStaticValue) {
     return new StaticValueResolver(value.unescapedValue);
+  } else if (value instanceof ParsedEnvSpecObjectLiteral) {
+    const objArgs: Record<string, Resolver> = {};
+    for (const kv of value.values) {
+      const valResolver = convertParsedValueToResolvers(kv.value, dataSource, registeredResolvers);
+      if (!valResolver) throw new Error('Did not expect to find undefined resolver in object literal');
+      objArgs[kv.key] = valResolver;
+    }
+    const resolver = new ObjectLiteralResolver(undefined, objArgs, dataSource);
+    resolver._parsedNode = value;
+    return resolver;
+  } else if (value instanceof ParsedEnvSpecArrayLiteral) {
+    const arrArgs = value.values.map((v) => {
+      const argResolver = convertParsedValueToResolvers(v, dataSource, registeredResolvers);
+      if (!argResolver) throw new Error('Did not expect to find undefined resolver in array literal');
+      return argResolver;
+    });
+    const resolver = new ArrayLiteralResolver(arrArgs, undefined, dataSource);
+    resolver._parsedNode = value;
+    return resolver;
   } else if (
     value instanceof ParsedEnvSpecFunctionCall
     // this is used only for bare decorator fn calls `@fn(arr1, arr2, k1=v1)`

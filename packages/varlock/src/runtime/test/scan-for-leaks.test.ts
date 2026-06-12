@@ -1,7 +1,7 @@
 import {
   describe, it, expect, beforeEach,
 } from 'vitest';
-import { scanForLeaks, resetRedactionMap } from '../env';
+import { scanForLeaks, resetRedactionMap, redactSensitiveConfig } from '../env';
 import type { SerializedEnvGraph } from '../../env-graph';
 
 /** helper to set up redaction state with a known secret */
@@ -88,5 +88,33 @@ describe('scanForLeaks', () => {
   // --- null / undefined ---
   it('returns null for null input', () => {
     expect(scanForLeaks(null)).toBeNull();
+  });
+});
+
+describe('scanForLeaks with per-item preventLeaks opt-out', () => {
+  const LEAKY_VALUE = 'allowed-to-leave-67890';
+  const NORMAL_VALUE = 'still-protected-12345';
+
+  beforeEach(() => {
+    resetRedactionMap({
+      config: {
+        LEAKY: { isSensitive: true, value: LEAKY_VALUE, preventLeaks: false },
+        NORMAL: { isSensitive: true, value: NORMAL_VALUE },
+      },
+    } as unknown as SerializedEnvGraph);
+  });
+
+  it('does not throw when an opted-out secret appears in output', () => {
+    const out = `response body contains ${LEAKY_VALUE}`;
+    expect(scanForLeaks(out)).toBe(out);
+  });
+
+  it('still throws for other sensitive values that did not opt out', () => {
+    expect(() => scanForLeaks(`oops ${NORMAL_VALUE}`))
+      .toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+  });
+
+  it('still redacts the opted-out secret in logs (opt-out is leak-detection only)', () => {
+    expect(redactSensitiveConfig(`logging ${LEAKY_VALUE}`)).not.toContain(LEAKY_VALUE);
   });
 });

@@ -351,6 +351,8 @@ _Only applies in JavaScript based projects where varlock runtime code is importe
 SECRET_KEY=my-secret-value # @sensitive
 ```
 
+To opt out leak detection for a _single_ item (for example a secret an endpoint legitimately returns to another system) while keeping it enabled everywhere else, use the [`@sensitive` options form](/reference/item-decorators/#sensitive): `@sensitive={preventLeaks=false}`. The value is still redacted in logs.
+
 ![Leak prevention](../../../assets/demo-images/leak.png)
 _a sample leak detection warning in an [Astro project](/integrations/astro/)_
 
