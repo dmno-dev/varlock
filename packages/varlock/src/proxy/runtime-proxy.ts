@@ -6,6 +6,8 @@ import https from 'node:https';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { Transform } from 'node:stream';
+import { StringDecoder } from 'node:string_decoder';
 import tls from 'node:tls';
 import { URL } from 'node:url';
 
@@ -57,6 +59,56 @@ function domainMatches(domainPattern: string, host: string): boolean {
 
 function hostMatchesProxyRules(host: string, rules: Array<ProxyRule>): boolean {
   return rules.some((rule) => rule.domain.some((d) => domainMatches(d, host)));
+}
+
+function normalizeFingerprint(fingerprint: string): string {
+  return fingerprint.replace(/:/g, '').toLowerCase();
+}
+
+function getCertPinsForHost(host: string, rules: Array<ProxyRule>): Set<string> {
+  const pins = new Set<string>();
+  for (const rule of rules) {
+    if (!rule.pin?.length) continue;
+    if (rule.domain.some((d) => domainMatches(d, host))) {
+      for (const pin of rule.pin) pins.add(normalizeFingerprint(pin));
+    }
+  }
+  return pins;
+}
+
+/**
+ * Invariant #1 (+ #4): bind secret injection to the *verified upstream TLS
+ * identity*, not the requested name. Returns TLS options for the secret-bearing
+ * upstream request that (a) require validation against the public PKI
+ * (`rejectUnauthorized`), (b) confirm the cert identity matches the host we
+ * dialed (which is the rule-matched host), and (c) enforce any per-rule cert
+ * pinning. On any mismatch the handshake fails, so the already-substituted
+ * request is never transmitted — a poisoned DNS/Host name causes a failed
+ * connection, never a leaked secret.
+ */
+function buildVerifiedUpstreamOptions(host: string, rules: Array<ProxyRule>): {
+  rejectUnauthorized: true;
+  checkServerIdentity: (servername: string, cert: tls.PeerCertificate) => Error | undefined;
+} {
+  const pins = getCertPinsForHost(host, rules);
+  // Deliberately do NOT set `servername` — Node derives it from the request
+  // hostname (SNI for DNS names; omitted for IP literals, where setting it
+  // throws) and still passes the host to checkServerIdentity, so identity is
+  // verified against the host we dialed (= the rule-matched host) either way.
+  return {
+    rejectUnauthorized: true,
+    checkServerIdentity: (servername, cert) => {
+      const identityError = tls.checkServerIdentity(servername, cert);
+      if (identityError) return identityError;
+      if (pins.size) {
+        const actual = normalizeFingerprint(String(cert.fingerprint256 ?? ''));
+        if (!actual || !pins.has(actual)) {
+          return new Error(`Upstream certificate for ${servername} did not match a pinned fingerprint`);
+        }
+      }
+      return undefined;
+    },
+  };
 }
 
 /**
@@ -184,6 +236,58 @@ function redactOutgoingHeaders(
   );
 }
 
+/** Returns the first managed item whose real value still appears in `text` (a leak), if any. */
+function findRealLeak(text: string, managedItems: Array<ProxyManagedItem>): ProxyManagedItem | undefined {
+  return managedItems.find((item) => item.realValue.length > 0 && text.includes(item.realValue));
+}
+
+/**
+ * Length of the longest suffix of `text` that is a strict prefix of some real
+ * value — i.e. a partial real value that might complete in the next chunk and
+ * so must be held back. Returns 0 (emit everything) when the text doesn't end
+ * mid-secret, which keeps streaming responsive instead of buffering a fixed
+ * window every chunk.
+ */
+function pendingRealPrefixLen(text: string, managedItems: Array<ProxyManagedItem>): number {
+  let best = 0;
+  for (const item of managedItems) {
+    const real = item.realValue;
+    if (!real) continue;
+    const maxK = Math.min(real.length - 1, text.length);
+    for (let k = maxK; k > best; k -= 1) {
+      if (text.endsWith(real.slice(0, k))) {
+        best = k;
+        break;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Scrub real values back to placeholders on an *unbounded text stream* (e.g.
+ * SSE), chunk by chunk, so a reflected secret in a streamed response is still
+ * replaced for the child without buffering the whole stream. A StringDecoder
+ * keeps multi-byte UTF-8 chars intact across chunks; only a trailing *partial*
+ * real value is held back, so complete chunks flow through immediately.
+ */
+function createScrubbingTransform(managedItems: Array<ProxyManagedItem>): Transform {
+  const decoder = new StringDecoder('utf8');
+  let carry = '';
+  return new Transform({
+    transform(chunk, _enc, cb) {
+      const scrubbed = replaceRealWithPlaceholders(carry + decoder.write(chunk as Buffer), managedItems);
+      const hold = pendingRealPrefixLen(scrubbed, managedItems);
+      const emitLen = scrubbed.length - hold;
+      carry = scrubbed.slice(emitLen);
+      cb(null, Buffer.from(scrubbed.slice(0, emitLen), 'utf8'));
+    },
+    flush(cb) {
+      cb(null, Buffer.from(replaceRealWithPlaceholders(carry + decoder.end(), managedItems), 'utf8'));
+    },
+  });
+}
+
 function forwardUpstreamResponseWithRedaction(
   upstreamRes: http.IncomingMessage,
   clientRes: http.ServerResponse,
@@ -196,8 +300,23 @@ function forwardUpstreamResponseWithRedaction(
     : { ...upstreamRes.headers };
 
   if (!shouldRedact || !shouldRedactResponseBody(upstreamRes.headers)) {
+    // Scrub unbounded uncompressed text streams (e.g. SSE) chunk-by-chunk so a
+    // reflected secret is still replaced. Bodies with a content-length take the
+    // buffered path below; compressed/binary bodies can't be scanned without
+    // decompressing and pass through unchanged.
+    const hasContentLength = getHeaderValue(upstreamRes.headers, 'content-length') !== undefined;
+    const canScrubStream = shouldRedact
+      && managedItems.length > 0
+      && !hasContentLength
+      && isUncompressedResponse(upstreamRes.headers)
+      && isTextLikeResponse(upstreamRes.headers);
+
     clientRes.writeHead(statusCode, outgoingHeaders);
-    upstreamRes.pipe(clientRes);
+    if (canScrubStream) {
+      upstreamRes.pipe(createScrubbingTransform(managedItems)).pipe(clientRes);
+    } else {
+      upstreamRes.pipe(clientRes);
+    }
     return;
   }
 
@@ -209,6 +328,18 @@ function forwardUpstreamResponseWithRedaction(
   upstreamRes.on('end', () => {
     const originalBody = Buffer.concat(chunks).toString('utf8');
     const redactedBody = replaceRealWithPlaceholders(originalBody, managedItems);
+
+    // Fail-safe (Invariant #6): if a real value somehow survived scrubbing, do
+    // NOT forward it — fail closed rather than leak a secret to the child.
+    if (findRealLeak(redactedBody, managedItems)) {
+      if (!clientRes.headersSent) {
+        clientRes.writeHead(502, { 'content-type': 'text/plain', connection: 'close' });
+      }
+      clientRes.end('Response withheld: a sensitive value could not be redacted');
+      clientRes.socket?.destroy();
+      return;
+    }
+
     const redactedBuffer = Buffer.from(redactedBody, 'utf8');
 
     const headersForWrite = { ...outgoingHeaders };
@@ -310,6 +441,7 @@ export async function startLocalProxyRuntime({
       method: req.method,
       path: rewrittenPath,
       headers: upstreamHeaders,
+      ...buildVerifiedUpstreamOptions(hostInfo.host, rules),
     }, (upstreamRes) => {
       forwardUpstreamResponseWithRedaction(
         upstreamRes,
@@ -320,8 +452,16 @@ export async function startLocalProxyRuntime({
     });
 
     upstreamReq.on('error', () => {
-      if (!res.headersSent) res.statusCode = 502;
-      res.end('Upstream MITM request failed');
+      // Fail closed: the upstream identity could not be verified (or the
+      // connection failed), so the secret was never transmitted. Tear the
+      // client connection down rather than risk a half-delivered response.
+      if (!res.headersSent) {
+        try {
+          res.writeHead(502, { 'content-type': 'text/plain', connection: 'close' });
+          res.end('Upstream MITM request failed');
+        } catch { /* response may already be gone */ }
+      }
+      res.socket?.destroy();
     });
     upstreamReq.end(rewrittenBody);
   };
@@ -398,6 +538,15 @@ export async function startLocalProxyRuntime({
     const isHttps = destination.protocol === 'https:';
     const hostItems = shouldRewrite ? getHostScopedManagedItems(destination.hostname, rules, managedItems) : [];
 
+    // Invariant #2/#5: never inject a secret into a cleartext (non-TLS)
+    // connection — no cert means no verifiable identity. Fail closed.
+    if (hostItems.length > 0 && !isHttps) {
+      onActivity?.({ matched: true, blocked: true });
+      clientRes.statusCode = 403;
+      clientRes.end('Refusing to inject secrets into a cleartext (non-TLS) connection');
+      return;
+    }
+
     const body = await readBody(clientReq);
     const rewrittenBody = shouldRewrite
       ? Buffer.from(replacePlaceholdersWithReal(body.toString('utf8'), hostItems), 'utf8')
@@ -427,6 +576,7 @@ export async function startLocalProxyRuntime({
       method: clientReq.method,
       path: rewrittenPath,
       headers: upstreamHeaders,
+      ...(isHttps ? buildVerifiedUpstreamOptions(destination.hostname, rules) : {}),
     }, (upstreamRes) => {
       forwardUpstreamResponseWithRedaction(
         upstreamRes,
