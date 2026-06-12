@@ -1,0 +1,113 @@
+import type { ProxyManagedItem, ProxyRule } from './types';
+
+/**
+ * Normalized facts extracted from a request, the input to every policy
+ * decision. Kept deliberately generic (a "fact bag") so non-HTTP protocols and
+ * domain plugins can enrich it later without changing the evaluation interface.
+ */
+export type RequestFacts = {
+  host: string;
+  method: string;
+  /** Path only (no query string), e.g. `/v1/customers/42`. */
+  path: string;
+};
+
+export type PolicyVerdict = 'allow' | 'deny' | 'require-approval';
+
+export type PolicyDecision = {
+  verdict: PolicyVerdict;
+  matchedRule?: ProxyRule;
+  reason?: string;
+};
+
+function normalizeHost(host: string): string {
+  return host.toLowerCase().trim();
+}
+
+function domainMatches(domainPattern: string, host: string): boolean {
+  const pattern = normalizeHost(domainPattern);
+  const normalizedHost = normalizeHost(host);
+  if (pattern.startsWith('*.')) {
+    const suffix = pattern.slice(2);
+    return normalizedHost === suffix || normalizedHost.endsWith(`.${suffix}`);
+  }
+  return normalizedHost === pattern;
+}
+
+/**
+ * Glob path match: `*` matches within a single path segment, `**` matches
+ * across segments. Everything else is literal. `pathRegex` (a future option)
+ * would be the escape hatch for anything globs can't express.
+ */
+function pathMatches(pattern: string, path: string): boolean {
+  const re = pattern
+    .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+    // `**` → cross-segment, `*` → within-segment (alternation matches `**` first)
+    .replace(/\*\*|\*/g, (match) => (match === '**' ? '.*' : '[^/]*'));
+  return new RegExp(`^${re}$`).test(path);
+}
+
+function methodMatches(ruleMethod: string, method: string): boolean {
+  const allowed = ruleMethod.split(',').map((m) => m.trim().toUpperCase()).filter(Boolean);
+  return allowed.length === 0 || allowed.includes(method.toUpperCase());
+}
+
+/** Whether a rule's match constraints (domain + optional path + optional method) all hold for the facts. */
+export function ruleMatchesFacts(rule: ProxyRule, facts: RequestFacts): boolean {
+  if (!rule.domain.some((d) => domainMatches(d, facts.host))) return false;
+  if (rule.path !== undefined && !pathMatches(rule.path, facts.path)) return false;
+  if (rule.method !== undefined && !methodMatches(rule.method, facts.method)) return false;
+  return true;
+}
+
+/** A rule with path/method constraints is more specific than a domain-only rule. */
+function ruleSpecificity(rule: ProxyRule): number {
+  return (rule.path !== undefined ? 2 : 0) + (rule.method !== undefined ? 1 : 0);
+}
+
+/**
+ * Evaluate the policy for a request. Precedence:
+ *   1. any matching `block` rule wins → deny
+ *   2. otherwise allow (injection scoping is handled separately, so an
+ *      allow verdict doesn't imply a secret is injected)
+ *
+ * `require-approval` is part of the verdict space so the approval layer drops in
+ * here later without changing callers; no rule produces it yet.
+ */
+export function evaluateProxyPolicy(facts: RequestFacts, rules: Array<ProxyRule>): PolicyDecision {
+  const matching = rules.filter((rule) => ruleMatchesFacts(rule, facts));
+
+  const blockRule = matching
+    .filter((rule) => rule.block)
+    .sort((a, b) => ruleSpecificity(b) - ruleSpecificity(a))[0];
+  if (blockRule) {
+    return { verdict: 'deny', matchedRule: blockRule, reason: 'blocked by @proxy(block=true) rule' };
+  }
+
+  const allowRule = matching
+    .filter((rule) => !rule.block)
+    .sort((a, b) => ruleSpecificity(b) - ruleSpecificity(a))[0];
+  return { verdict: 'allow', matchedRule: allowRule };
+}
+
+/**
+ * The managed items in scope for a specific request: items referenced by a
+ * non-block rule whose full match (domain + path + method) holds for the facts.
+ * This extends per-item domain scoping with path/method scoping, so a credential
+ * can be limited to specific endpoints/methods, not just a host.
+ */
+export function getRequestScopedManagedItems(
+  facts: RequestFacts,
+  rules: Array<ProxyRule>,
+  managedItems: Array<ProxyManagedItem>,
+): Array<ProxyManagedItem> {
+  const allowedKeys = new Set<string>();
+  for (const rule of rules) {
+    if (rule.block) continue;
+    if (ruleMatchesFacts(rule, facts)) {
+      for (const key of rule.itemKeys) allowedKeys.add(key);
+    }
+  }
+  if (allowedKeys.size === 0) return [];
+  return managedItems.filter((item) => allowedKeys.has(item.key));
+}
