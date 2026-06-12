@@ -5,6 +5,9 @@ import ky from 'ky';
 import { Buffer } from 'node:buffer';
 import { createHash, webcrypto } from 'node:crypto';
 import { deriveKeyFromAccessToken, decryptAes256CbcHmac } from './crypto-utils.js';
+import {
+  type BwItem, execBwCliCommand, unlockVault, isInvalidSessionMessage,
+} from './bw-pm-cli-helper.js';
 
 const { subtle } = webcrypto;
 
@@ -528,5 +531,320 @@ plugin.registerResolverFunction({
     }
 
     return await selectedInstance.getSecret(secretId);
+  },
+});
+
+// ──────────────────────────────────────────────────────────────
+// Bitwarden Password Manager / Vaultwarden  (bwp)
+//
+// Unlike Secrets Manager (above, HTTP API), the Password Manager is only
+// reachable via the `bw` CLI. varlock acquires a session token itself by
+// running `bw unlock` (interactively, or non-interactively with a master
+// password) and caches it — so the user no longer has to manually unlock and
+// paste a token. Each `bw unlock` invalidates prior session keys, so the
+// cached token is reused until it expires (sessionTtl, default 15m).
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * Extract a named field from a Bitwarden vault item JSON object.
+ * Standard fields: password, username, notes, totp, uri
+ * Falls back to searching the `fields` array for custom fields.
+ */
+function extractBwItemField(item: BwItem, field: string): string {
+  switch (field) {
+    case 'password':
+      if (item.login?.password != null) return item.login.password;
+      throw new ResolutionError(`Item "${item.name}" has no password field`);
+    case 'username':
+      if (item.login?.username != null) return item.login.username;
+      throw new ResolutionError(`Item "${item.name}" has no username field`);
+    case 'notes':
+      if (item.notes != null) return item.notes;
+      throw new ResolutionError(`Item "${item.name}" has no notes`);
+    case 'totp':
+      if (item.login?.totp != null) return item.login.totp;
+      throw new ResolutionError(`Item "${item.name}" has no TOTP field`);
+    case 'uri':
+      if (item.login?.uris?.[0]?.uri != null) return item.login.uris[0].uri;
+      throw new ResolutionError(`Item "${item.name}" has no URI field`);
+    default: {
+      // Try custom fields (case-insensitive match)
+      const customField = item.fields?.find(
+        (f) => f.name.toLowerCase() === field.toLowerCase(),
+      );
+      if (customField != null) return customField.value ?? '';
+      throw new ResolutionError(`Field "${field}" not found in item "${item.name}"`, {
+        tip: [
+          'Available standard fields: password, username, notes, totp, uri',
+          `Custom fields on this item: ${item.fields?.map((f) => f.name).join(', ') || 'none'}`,
+        ].join('\n'),
+      });
+    }
+  }
+}
+
+/** an error indicating the session token is no longer valid (so a re-unlock may help) */
+function isInvalidSessionError(err: unknown): boolean {
+  return isInvalidSessionMessage((err as Error)?.message ?? '');
+}
+
+// The `bw` CLI has a single global logged-in account, so all PM instances share
+// one cached session token (the plugin cache is already namespaced per-plugin).
+const SESSION_CACHE_KEY = 'bwp-session';
+
+// Dedupe concurrent unlocks. Because each `bw unlock` invalidates prior session
+// keys, parallel resolutions must share a single unlock rather than racing. Kept
+// for the process lifetime so repeated resolutions reuse the same token even when
+// the persistent cache is unavailable; cleared on failure and on forced refresh.
+let sessionUnlockInFlight: Promise<string> | undefined;
+
+class BitwardenPasswordManagerInstance {
+  /** optional manually-supplied session token (e.g. sessionToken=$BWP_SESSION) */
+  sessionTokenResolver?: Resolver;
+  /** optional master password for non-interactive unlock (CI / keychain) */
+  masterPasswordResolver?: Resolver;
+  /** how long an auto-unlocked session token is cached before re-unlock */
+  sessionTtl: string | number = '15m';
+  /** optional TTL for caching resolved item field values */
+  cacheTtl?: string | number;
+
+  constructor(readonly id: string) {}
+
+  /** resolve the manual session token, if one was configured and is non-empty */
+  private async resolveManualToken(): Promise<string | undefined> {
+    if (!this.sessionTokenResolver) return undefined;
+    const val = await this.sessionTokenResolver.resolve();
+    return (typeof val === 'string' && val) ? val : undefined;
+  }
+
+  /**
+   * Acquire a session token by unlocking the vault, caching the result.
+   * `bw unlock` itself errors clearly when the user isn't logged in, and a stale
+   * cached token is self-healed by the re-unlock retry in `getSecret`, so no
+   * separate `bw status` / login probe is needed here.
+   */
+  async autoUnlock(opts: { forceFresh?: boolean } = {}): Promise<string> {
+    if (opts.forceFresh) {
+      sessionUnlockInFlight = undefined;
+      pluginCache?.delete(SESSION_CACHE_KEY);
+    }
+
+    sessionUnlockInFlight ||= (async () => {
+      const produce = async () => {
+        const masterPassword = await this.resolveMasterPassword();
+        if (masterPassword === undefined && !process.stdin.isTTY) {
+          throw new ResolutionError('Cannot unlock the Bitwarden vault without an interactive terminal', {
+            tip: [
+              'No cached session token is available and stdin is not a TTY',
+              'Provide a token via sessionToken=$BWP_SESSION,',
+              'or supply masterPassword= to unlock non-interactively (e.g. in CI)',
+            ].join('\n'),
+          });
+        }
+        return await unlockVault({ masterPassword });
+      };
+      if (pluginCache) {
+        return await pluginCache.getOrSet(SESSION_CACHE_KEY, this.sessionTtl, produce);
+      }
+      return await produce();
+    })();
+
+    try {
+      return await sessionUnlockInFlight;
+    } catch (err) {
+      // let a later resolution retry after a failed unlock
+      sessionUnlockInFlight = undefined;
+      throw err;
+    }
+  }
+
+  private async resolveMasterPassword(): Promise<string | undefined> {
+    if (!this.masterPasswordResolver) return undefined;
+    const val = await this.masterPasswordResolver.resolve();
+    if (typeof val !== 'string' || !val) {
+      throw new SchemaError('masterPassword resolved to an empty value');
+    }
+    return val;
+  }
+
+  async getSecret(itemQuery: string, field: string = 'password'): Promise<string> {
+    const manualToken = await this.resolveManualToken();
+    const token = manualToken ?? await this.autoUnlock();
+
+    try {
+      return await this.fetchField(itemQuery, field, token);
+    } catch (err) {
+      // if we manage the token ourselves and it went stale, re-unlock once and retry
+      if (!manualToken && isInvalidSessionError(err)) {
+        debug('cached bw session invalid — re-unlocking');
+        const freshToken = await this.autoUnlock({ forceFresh: true });
+        return await this.fetchField(itemQuery, field, freshToken);
+      }
+      throw err;
+    }
+  }
+
+  private async fetchField(itemQuery: string, field: string, token: string): Promise<string> {
+    const raw = await execBwCliCommand(['get', 'item', itemQuery, '--nointeraction'], token);
+    let item: BwItem;
+    try {
+      item = JSON.parse(raw);
+    } catch {
+      throw new ResolutionError(`Failed to parse Bitwarden CLI response for item "${itemQuery}"`, {
+        tip: 'Make sure the `bw` CLI is working correctly and the item is a login/secure-note item',
+      });
+    }
+    return extractBwItemField(item, field);
+  }
+}
+
+const bwpPluginInstances: Record<string, BitwardenPasswordManagerInstance> = {};
+
+plugin.registerRootDecorator({
+  name: 'initBwp',
+  description: 'Initialize a Bitwarden Password Manager (or Vaultwarden) plugin instance via the `bw` CLI',
+  isFunction: true,
+  async process(argsVal) {
+    // all args are optional — `@initBwp()` with no args is the primary (auto-unlock) form
+    const objArgs = argsVal.objArgs ?? {};
+
+    // id (optional, static)
+    if (objArgs.id && !objArgs.id.isStatic) {
+      throw new SchemaError('Expected id to be static');
+    }
+    const id = String(objArgs?.id?.staticValue || '_default');
+
+    if (bwpPluginInstances[id]) {
+      throw new SchemaError(`Bitwarden PM instance with id "${id}" already initialized`);
+    }
+
+    bwpPluginInstances[id] = new BitwardenPasswordManagerInstance(id);
+
+    return {
+      id,
+      sessionTokenResolver: objArgs.sessionToken,
+      masterPasswordResolver: objArgs.masterPassword,
+      sessionTtlResolver: objArgs.sessionTtl,
+      cacheTtlResolver: objArgs.cacheTtl,
+    };
+  },
+  async execute({
+    id,
+    sessionTokenResolver,
+    masterPasswordResolver,
+    sessionTtlResolver,
+    cacheTtlResolver,
+  }) {
+    const instance = bwpPluginInstances[id];
+    // store resolvers (not resolved values) so auth is resolved lazily — a fully
+    // value-cached load never needs to unlock
+    instance.sessionTokenResolver = sessionTokenResolver;
+    instance.masterPasswordResolver = masterPasswordResolver;
+
+    const sessionTtl = await resolveCacheTtl(sessionTtlResolver);
+    if (sessionTtl !== undefined) instance.sessionTtl = sessionTtl;
+
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) instance.cacheTtl = cacheTtl;
+  },
+});
+
+plugin.registerDataType({
+  name: 'bwSessionToken',
+  sensitive: true,
+  typeDescription: 'Bitwarden CLI session token (output of `bw unlock`)',
+  icon: BITWARDEN_ICON,
+  docs: [
+    {
+      description: 'Bitwarden CLI authentication',
+      url: 'https://bitwarden.com/help/cli/#unlock',
+    },
+  ],
+  async validate(val) {
+    if (typeof val !== 'string' || val.length === 0) {
+      throw new ValidationError('Bitwarden session token must be a non-empty string');
+    }
+  },
+});
+
+plugin.registerResolverFunction({
+  name: 'bwp',
+  label: 'Fetch a field from a Bitwarden Password Manager / Vaultwarden vault item via the `bw` CLI',
+  icon: BITWARDEN_ICON,
+  argsSchema: {
+    type: 'mixed',
+    arrayMinLength: 1,
+    arrayMaxLength: 2,
+  },
+  process() {
+    let instanceId = '_default';
+    let itemQueryResolver: Resolver | undefined;
+    const fieldResolver = this.objArgs?.field;
+
+    const arrArgs = this.arrArgs ?? [];
+    const argCount = arrArgs.length;
+
+    if (argCount === 1) {
+      itemQueryResolver = arrArgs[0];
+    } else if (argCount === 2) {
+      if (!arrArgs[0].isStatic) {
+        throw new SchemaError('Expected instance id (first argument) to be a static value');
+      }
+      instanceId = String(arrArgs[0].staticValue);
+      itemQueryResolver = arrArgs[1];
+    } else {
+      throw new SchemaError('Expected 1 or 2 positional arguments: bwp("item") or bwp(instanceId, "item")');
+    }
+
+    if (!Object.keys(bwpPluginInstances).length) {
+      throw new SchemaError('No Bitwarden PM plugin instances found', {
+        tip: 'Initialize at least one instance using the @initBwp() root decorator',
+      });
+    }
+
+    const selectedInstance = bwpPluginInstances[instanceId];
+    if (!selectedInstance) {
+      if (instanceId === '_default') {
+        throw new SchemaError('Bitwarden PM plugin instance (without id) not found', {
+          tip: [
+            'Either remove the `id` param from your @initBwp call',
+            'or use `bwp(id, "item")` to select an instance by id',
+            `Available ids: ${Object.keys(bwpPluginInstances).join(', ')}`,
+          ].join('\n'),
+        });
+      } else {
+        throw new SchemaError(`Bitwarden PM plugin instance id "${instanceId}" not found`, {
+          tip: `Available ids: ${Object.keys(bwpPluginInstances).join(', ')}`,
+        });
+      }
+    }
+
+    return { instanceId, itemQueryResolver, fieldResolver };
+  },
+  async resolve({ instanceId, itemQueryResolver, fieldResolver }) {
+    const selectedInstance = bwpPluginInstances[instanceId];
+
+    const itemQuery = await itemQueryResolver.resolve();
+    if (typeof itemQuery !== 'string' || !itemQuery) {
+      throw new SchemaError('Expected item name/id to resolve to a non-empty string');
+    }
+
+    let field = 'password';
+    if (fieldResolver) {
+      const resolvedField = await fieldResolver.resolve();
+      if (typeof resolvedField === 'string' && resolvedField) field = resolvedField;
+    }
+
+    // cache resolved values too, if cacheTtl is configured and caching is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `bwp:${instanceId}:${itemQuery}:${field}`;
+      return await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.getSecret(itemQuery, field),
+      );
+    }
+
+    return await selectedInstance.getSecret(itemQuery, field);
   },
 });
