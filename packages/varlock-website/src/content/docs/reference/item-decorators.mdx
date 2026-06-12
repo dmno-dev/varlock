@@ -76,6 +76,15 @@ SERVICE_X_PRIVATE_KEY=
 # @sensitive=false
 SERVICE_X_CLIENT_ID=
 ```
+
+**Per-item options:** pass an object value to tune runtime protection for a single sensitive item:
+
+- `preventLeaks` (`boolean`, default `true`) — when `false`, this item's value is excluded from [leak detection](/reference/root-decorators/#preventleaks), so it will _not_ trigger an error if it appears in a response. Useful when an endpoint legitimately returns a secret to another system. The value is still redacted in logs. Using the options form implies `@sensitive=true`.
+
+```env-spec
+# @sensitive={preventLeaks=false}
+TOKEN_FORWARDED_TO_PARTNER=
+```
 </div>
 
 <div>

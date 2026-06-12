@@ -55,6 +55,8 @@ export type SerializedEnvGraph = {
   config: Record<string, {
     value: any;
     isSensitive: boolean;
+    /** false = opted out of runtime leak detection (still redacted in logs). Omitted when true (the default). */
+    preventLeaks?: boolean;
   }>;
   /** provenance metadata for process.env overrides across nested invocations */
   __varlockOverrideMeta?: OverrideProvenanceMetadata;
@@ -672,6 +674,8 @@ export class EnvGraph {
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,
         isSensitive: item.isSensitive,
+        // only emit when opted out — keeps the common-case blob smaller
+        ...item.isSensitive && !item.preventLeaks ? { preventLeaks: false } : {},
       };
     }
     // Only process.env keys that correspond to a config item can actually act as overrides.

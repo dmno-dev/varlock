@@ -1,6 +1,7 @@
 import _ from '@env-spec/utils/my-dash';
 import {
-  ParsedEnvSpecDecorator, ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue,
+  ParsedEnvSpecDecorator, ParsedEnvSpecArrayLiteral, ParsedEnvSpecObjectLiteral,
+  ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue,
 } from '@env-spec/parser';
 
 import { EnvGraphDataType } from './data-types';
@@ -433,6 +434,18 @@ export class ConfigItem {
   get isSensitive(): boolean {
     return this._isSensitive;
   }
+
+  /**
+   * Whether runtime leak detection scans output (responses, etc.) for this item's value.
+   * Defaults to true for sensitive items; can be disabled per-item via
+   * `@sensitive={preventLeaks=false}` for secrets that legitimately leave the system
+   * (e.g. an API endpoint that returns a secret to another service).
+   * Note: this only opts out of leak detection — the value is still redacted in logs.
+   */
+  _preventLeaks: boolean = true;
+  get preventLeaks(): boolean {
+    return this._preventLeaks;
+  }
   private async processSensitive() {
     const sensitiveFromDataType = this.dataType?.isSensitive;
 
@@ -443,10 +456,32 @@ export class ConfigItem {
       if (!sensitiveDec) continue;
 
       const usingPublic = sensitiveDec.name === 'public';
+
+      // options-object form: `@sensitive={preventLeaks=false}` — implies sensitive=true
+      // and carries per-item runtime-protection options
+      if (sensitiveDec.parsedDecorator.value instanceof ParsedEnvSpecObjectLiteral) {
+        if (usingPublic) {
+          this._schemaErrors.push(new SchemaError('@public does not accept options - use @sensitive={...} on sensitive items'));
+          return;
+        }
+        const resolved = await sensitiveDec.resolve() as Record<string, any> | undefined;
+        if (sensitiveDec.schemaErrors.some((e) => !e.isWarning)) return;
+        this.applySensitiveOptions(resolved ?? {});
+        this._isSensitive = true;
+        this._sensitiveExplicitlySet = true;
+        return;
+      }
+      // an array literal is never valid here — guide toward the object form
+      if (sensitiveDec.parsedDecorator.value instanceof ParsedEnvSpecArrayLiteral) {
+        this._schemaErrors.push(new SchemaError('@sensitive expects options as an object, e.g. @sensitive={preventLeaks=false}'));
+        return;
+      }
+
       const sensitiveDecValue = await sensitiveDec.resolve();
       if (sensitiveDec.schemaErrors.some((e) => !e.isWarning)) return;
       if (![true, false, undefined].includes(sensitiveDecValue)) {
-        throw new SchemaError('@sensitive/@public must resolve to a boolean or undefined');
+        this._schemaErrors.push(new SchemaError('@sensitive/@public must resolve to a boolean or undefined'));
+        return;
       }
       if (sensitiveDecValue !== undefined) {
         this._isSensitive = usingPublic ? !sensitiveDecValue : sensitiveDecValue;
@@ -483,6 +518,21 @@ export class ConfigItem {
     }
 
     if (sensitiveFromDataType !== undefined) this._isSensitive = sensitiveFromDataType;
+  }
+
+  /** apply named options from the `@sensitive={...}` options-object form */
+  private applySensitiveOptions(opts: Record<string, any>) {
+    for (const optKey of Object.keys(opts)) {
+      if (optKey === 'preventLeaks') {
+        if (typeof opts[optKey] !== 'boolean') {
+          this._schemaErrors.push(new SchemaError('@sensitive preventLeaks option must be a boolean'));
+          continue;
+        }
+        this._preventLeaks = opts[optKey];
+      } else {
+        this._schemaErrors.push(new SchemaError(`@sensitive: unknown option "${optKey}". Valid options: preventLeaks`));
+      }
+    }
   }
 
 

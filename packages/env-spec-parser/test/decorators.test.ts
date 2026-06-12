@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import outdent from 'outdent';
 import {
   ParsedEnvSpecFunctionCall, ParsedEnvSpecFunctionArgs, ParsedEnvSpecStaticValue,
+  ParsedEnvSpecObjectLiteral, ParsedEnvSpecArrayLiteral,
   parseEnvSpecDotEnvFile,
 } from '../src';
 import { expectInstanceOf } from './test-utils';
@@ -94,6 +95,35 @@ describe('decorator parsing', () => {
     ['# @enableFoo(bar)', { enableFoo: { fnName: undefined, fnArgs: ['bar'] } }],
     ['# @import(../some/path)', { import: { fnName: undefined, fnArgs: ['../some/path'] } }],
   ]));
+
+  describe('object/array literal values `@dec={k=v}` / `@dec=[a,b]`', () => {
+    it('parses `{k=v}` as an object literal (not a bare fn call)', () => {
+      const result = parseEnvSpecDotEnvFile('# @sensitive={preventLeaks=false}\nVAL=');
+      const dec = result.configItems[0].decoratorsObject.sensitive;
+      expect(dec.isBareFnCall).toBe(false);
+      expectInstanceOf(dec.value, ParsedEnvSpecObjectLiteral);
+      expect((dec.value as ParsedEnvSpecObjectLiteral).simplifiedValue).toEqual({ preventLeaks: false });
+    });
+
+    it('parses `[a, b, c]` as an array literal', () => {
+      const result = parseEnvSpecDotEnvFile('# @dec=[a, b, c]\nVAL=');
+      const dec = result.configItems[0].decoratorsObject.dec;
+      expectInstanceOf(dec.value, ParsedEnvSpecArrayLiteral);
+      expect((dec.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['a', 'b', 'c']);
+    });
+
+    it('supports nesting inside function args', () => {
+      const result = parseEnvSpecDotEnvFile('# @dec=fn(opts={x=1}, items=[1, 2])\nVAL=');
+      const dec = result.configItems[0].decoratorsObject.dec;
+      expectInstanceOf(dec.value, ParsedEnvSpecFunctionCall);
+      expect(dec.toString()).toBe('@dec=fn(opts={x=1}, items=[1, 2])');
+    });
+
+    it('round-trips via toString()', () => {
+      const result = parseEnvSpecDotEnvFile('# @sensitive={preventLeaks=false}\nVAL=');
+      expect(result.configItems[0].decoratorsObject.sensitive.toString()).toBe('@sensitive={preventLeaks=false}');
+    });
+  });
 
   describe('multi-line function calls', basicDecoratorTests([
     {

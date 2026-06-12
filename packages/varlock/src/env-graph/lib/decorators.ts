@@ -112,6 +112,17 @@ export abstract class DecoratorInstance {
         );
       }
       if (!this.decoratorDef.isFunction && this.isFunctionCall) {
+        // bare fn-call syntax `@name(...)` is reserved for repeatable decorators (e.g. @docs()).
+        // @sensitive is single-use but accepts an options-object value — guide users who tried
+        // to pass options as a bare call toward the object form `@sensitive={...}`.
+        if (this.name === 'sensitive') {
+          const optsStr = this.parsedDecorator.bareFnArgs
+            ? `{${this.parsedDecorator.bareFnArgs.values.map((v) => v.toString()).join(', ')}}`
+            : '{preventLeaks=false}';
+          throw new SchemaError(
+            `@sensitive is single-use and cannot be called like @sensitive(...). To pass options, use an object value: @sensitive=${optsStr}`,
+          );
+        }
         throw new SchemaError(
           `@${this.name} cannot be used as a function call - use @${this.name}=value instead of @${this.name}(...)`,
         );

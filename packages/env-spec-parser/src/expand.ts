@@ -1,6 +1,6 @@
 import {
   ParsedEnvSpecFunctionArgs, ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair,
-  ParsedEnvSpecStaticValue,
+  ParsedEnvSpecStaticValue, ParsedEnvSpecObjectLiteral, ParsedEnvSpecArrayLiteral,
 } from './classes';
 
 // const EXPAND_VAR_REGEX_WITH_SIMPLE = /\$({([a-zA-Z_][a-zA-Z0-9_.]*)}|([a-zA-Z_][a-zA-Z0-9_]*))/g;
@@ -123,7 +123,8 @@ function expandRefs(staticVal: ParsedEnvSpecStaticValue, mode: 'simple' | 'brack
 
 
 type ParsedEnvSpecValueNode = ParsedEnvSpecStaticValue
-| ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs | ParsedEnvSpecKeyValuePair;
+| ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs | ParsedEnvSpecKeyValuePair
+| ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral;
 
 /**
  * helper used by expansion to recursively expand values
@@ -164,6 +165,20 @@ function expandHelper(
     const newArgs = val.data.values.map((v) => expandHelper(v, expandStaticFn));
     return new ParsedEnvSpecFunctionArgs({
       values: newArgs as any,
+      _location: val.data._location,
+    });
+  } else if (val instanceof ParsedEnvSpecObjectLiteral) {
+    // expand each entry's value
+    const newValues = val.data.values.map((v) => expandHelper(v, expandStaticFn));
+    return new ParsedEnvSpecObjectLiteral({
+      values: newValues as any,
+      _location: val.data._location,
+    });
+  } else if (val instanceof ParsedEnvSpecArrayLiteral) {
+    // expand each element
+    const newValues = val.data.values.map((v) => expandHelper(v, expandStaticFn));
+    return new ParsedEnvSpecArrayLiteral({
+      values: newValues as any,
       _location: val.data._location,
     });
   // if key-value pair, expand value
