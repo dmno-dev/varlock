@@ -323,6 +323,45 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     await upstream.close();
   });
 
+  test('denies a request matched by a block rule, never reaching upstream (static authz)', async () => {
+    let upstreamGotRequest = false;
+    const upstream = await startUpstream((_req, res) => {
+      upstreamGotRequest = true;
+      res.statusCode = 200;
+      res.end('ok');
+    });
+
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
+      rules: [
+        { source: 'attached', domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] },
+        {
+          source: 'detached', domain: [UPSTREAM_HOST], path: '/v1/charges', method: 'POST', itemKeys: [], block: true,
+        },
+      ],
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    // Denied request fails closed (best-effort 403, then connection torn down),
+    // so assert the security guarantee on the upstream side.
+    tlsSocket.on('error', () => { /* expected: connection torn down */ });
+    tlsSocket.write(
+      `POST /v1/charges HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
+    );
+    await new Promise((resolve) => {
+      setTimeout(resolve, 500);
+    });
+
+    // The blocked endpoint never reached the upstream — static per-call authorization.
+    expect(upstreamGotRequest).toBe(false);
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
   test('only injects an item on hosts its own rule matches (per-item domain scoping)', async () => {
     let receivedXTest = '';
     const upstream = await startUpstream((req, res) => {

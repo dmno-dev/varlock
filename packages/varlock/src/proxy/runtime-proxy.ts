@@ -12,6 +12,9 @@ import tls from 'node:tls';
 import { URL } from 'node:url';
 
 import { createEphemeralCa, createHostCert } from './cert-authority';
+import {
+  evaluateProxyPolicy, getRequestScopedManagedItems, type RequestFacts,
+} from './policy';
 import type { ProxyEgressMode, ProxyManagedItem, ProxyRule } from './types';
 
 const LOCALHOST = '127.0.0.1';
@@ -109,29 +112,6 @@ function buildVerifiedUpstreamOptions(host: string, rules: Array<ProxyRule>): {
       return undefined;
     },
   };
-}
-
-/**
- * Resolve the managed items that are in scope for a given host: only items
- * referenced by a rule whose domain matches this host. This enforces per-item
- * domain scoping — an item's secret is injected (and its real value redacted on
- * the way back) only on the hosts its own rule applies to, never on every ruled
- * host. Prevents a child from harvesting item B's real value by reflecting B's
- * placeholder into a request to item A's host.
- */
-function getHostScopedManagedItems(
-  host: string,
-  rules: Array<ProxyRule>,
-  managedItems: Array<ProxyManagedItem>,
-): Array<ProxyManagedItem> {
-  const allowedKeys = new Set<string>();
-  for (const rule of rules) {
-    if (rule.domain.some((d) => domainMatches(d, host))) {
-      for (const key of rule.itemKeys) allowedKeys.add(key);
-    }
-  }
-  if (allowedKeys.size === 0) return [];
-  return managedItems.filter((item) => allowedKeys.has(item.key));
 }
 
 function replacePlaceholdersWithReal(value: string, managedItems: Array<ProxyManagedItem>): string {
@@ -408,11 +388,30 @@ export async function startLocalProxyRuntime({
       res.end('Proxy egress blocked by strict mode');
       return;
     }
+    // Per-call policy (Invariant: static authorization). Evaluate host + method
+    // + path against the rules; a matching `block` rule denies the request.
+    const facts: RequestFacts = {
+      host: hostInfo.host,
+      method: req.method ?? 'GET',
+      path: (req.url ?? '/').split('?')[0] ?? '/',
+    };
+    if (shouldRewrite && evaluateProxyPolicy(facts, rules).verdict === 'deny') {
+      onActivity?.({ matched: true, blocked: true });
+      // Fail closed: the request is denied and never reaches upstream. Best-effort
+      // 403, then tear down (short MITM-tunnel responses don't reliably flush).
+      try {
+        res.writeHead(403, { 'content-type': 'text/plain', connection: 'close' });
+        res.end('Blocked by proxy policy');
+      } catch { /* response may already be gone */ }
+      res.socket?.destroy();
+      return;
+    }
+
     onActivity?.({
       matched: shouldRewrite,
       blocked: false,
     });
-    const hostItems = shouldRewrite ? getHostScopedManagedItems(hostInfo.host, rules, managedItems) : [];
+    const hostItems = shouldRewrite ? getRequestScopedManagedItems(facts, rules, managedItems) : [];
     const body = await readBody(req);
     const rewrittenBody = shouldRewrite
       ? Buffer.from(replacePlaceholdersWithReal(body.toString('utf8'), hostItems), 'utf8')
@@ -531,12 +530,24 @@ export async function startLocalProxyRuntime({
       clientRes.end('Proxy egress blocked by strict mode');
       return;
     }
+    const facts: RequestFacts = {
+      host: destination.hostname,
+      method: clientReq.method ?? 'GET',
+      path: destination.pathname,
+    };
+    if (shouldRewrite && evaluateProxyPolicy(facts, rules).verdict === 'deny') {
+      onActivity?.({ matched: true, blocked: true });
+      clientRes.statusCode = 403;
+      clientRes.end('Blocked by proxy policy');
+      return;
+    }
+
     onActivity?.({
       matched: shouldRewrite,
       blocked: false,
     });
     const isHttps = destination.protocol === 'https:';
-    const hostItems = shouldRewrite ? getHostScopedManagedItems(destination.hostname, rules, managedItems) : [];
+    const hostItems = shouldRewrite ? getRequestScopedManagedItems(facts, rules, managedItems) : [];
 
     // Invariant #2/#5: never inject a secret into a cleartext (non-TLS)
     // connection — no cert means no verifiable identity. Fail closed.
