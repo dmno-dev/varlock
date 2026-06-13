@@ -11,6 +11,9 @@ import { StringDecoder } from 'node:string_decoder';
 import tls from 'node:tls';
 import { URL } from 'node:url';
 
+import {
+  createApprovalRequest, isApprovalValid, type ApprovalProvider,
+} from './approval';
 import type { ProxyActivity } from './audit';
 import { createEphemeralCa, createHostCert } from './cert-authority';
 import {
@@ -30,6 +33,11 @@ export type StartLocalProxyRuntimeInput = {
   rules: Array<ProxyRule>;
   egressMode: ProxyEgressMode;
   onActivity?: (activity: ProxyActivity) => void;
+  /**
+   * Called when a request matches a `require-approval` rule. Must fail closed
+   * (deny on timeout/error). Absent ⇒ require-approval requests are denied.
+   */
+  approvalProvider?: ApprovalProvider;
 };
 
 type HostInfo = { host: string, port: number };
@@ -83,6 +91,38 @@ function buildVerifiedUpstreamOptions(): {
     rejectUnauthorized: true,
     checkServerIdentity: (servername, cert) => tls.checkServerIdentity(servername, cert),
   };
+}
+
+/**
+ * Run the request-bound approval gate (Invariant #8). Builds an ApprovalRequest
+ * committed to this exact request, asks the provider, and returns whether the
+ * decision actually authorizes it. Fails closed: no provider, a throwing
+ * provider, a nonce mismatch, or an expired/denied decision all return false.
+ */
+async function runApprovalGate(input: {
+  approvalProvider: ApprovalProvider | undefined;
+  method: string;
+  host: string;
+  path: string;
+  body: Buffer;
+  ruleId?: string;
+  injectedKeys: Array<string>;
+}): Promise<boolean> {
+  if (!input.approvalProvider) return false;
+  const request = createApprovalRequest({
+    method: input.method,
+    host: input.host,
+    path: input.path,
+    body: input.body,
+    ruleId: input.ruleId,
+    injectedKeys: input.injectedKeys,
+  });
+  try {
+    const decision = await input.approvalProvider.requestApproval(request);
+    return isApprovalValid(request, decision);
+  } catch {
+    return false;
+  }
 }
 
 function replacePlaceholdersWithReal(value: string, managedItems: Array<ProxyManagedItem>): string {
@@ -343,6 +383,7 @@ export async function startLocalProxyRuntime({
   rules,
   egressMode,
   onActivity,
+  approvalProvider,
 }: StartLocalProxyRuntimeInput): Promise<ProxyRuntimeContext> {
   // Only the public CA cert is written to disk (for child trust). Private keys
   // — the CA's and every per-host leaf's — stay in memory; see cert-authority.ts.
@@ -383,7 +424,8 @@ export async function startLocalProxyRuntime({
     // + path against the rules; a matching `block` rule denies the request.
     const facts: RequestFacts = { host: hostInfo.host, method, path: pathOnly };
     const policyDecision = shouldRewrite ? evaluateProxyPolicy(facts, rules) : undefined;
-    const ruleId = policyDecision?.matchedRule ? { ruleId: describeRule(policyDecision.matchedRule) } : {};
+    const ruleIdStr = policyDecision?.matchedRule ? describeRule(policyDecision.matchedRule) : undefined;
+    const ruleId = ruleIdStr ? { ruleId: ruleIdStr } : {};
     if (policyDecision?.verdict === 'deny') {
       onActivity?.({
         ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'deny',
@@ -403,12 +445,32 @@ export async function startLocalProxyRuntime({
     const injectedKeys = shouldRewrite
       ? detectInjectedKeys([rawUrl, JSON.stringify(req.headers), body.toString('utf8')], hostItems)
       : [];
+
+    // Invariant #8: a require-approval rule holds the request for an out-of-band,
+    // request-bound decision. Fail closed (deny) unless explicitly approved.
+    if (policyDecision?.verdict === 'require-approval') {
+      const approved = await runApprovalGate({
+        approvalProvider, method, host: hostInfo.host, path: pathOnly, body, ruleId: ruleIdStr, injectedKeys,
+      });
+      if (!approved) {
+        onActivity?.({
+          ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'approval-denied',
+        });
+        try {
+          res.writeHead(403, { 'content-type': 'text/plain', connection: 'close' });
+          res.end('Request denied: approval not granted');
+        } catch { /* response may already be gone */ }
+        res.socket?.destroy();
+        return;
+      }
+    }
+
     onActivity?.({
       ...baseActivity,
       ...ruleId,
       matched: shouldRewrite,
       blocked: false,
-      decision: 'allow',
+      decision: policyDecision?.verdict === 'require-approval' ? 'approval-granted' : 'allow',
       ...(injectedKeys.length ? { injectedKeys } : {}),
     });
 
@@ -537,7 +599,8 @@ export async function startLocalProxyRuntime({
     }
     const facts: RequestFacts = { host: destination.hostname, method, path: pathOnly };
     const policyDecision = shouldRewrite ? evaluateProxyPolicy(facts, rules) : undefined;
-    const ruleId = policyDecision?.matchedRule ? { ruleId: describeRule(policyDecision.matchedRule) } : {};
+    const ruleIdStr = policyDecision?.matchedRule ? describeRule(policyDecision.matchedRule) : undefined;
+    const ruleId = ruleIdStr ? { ruleId: ruleIdStr } : {};
     if (policyDecision?.verdict === 'deny') {
       onActivity?.({
         ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'deny',
@@ -565,12 +628,29 @@ export async function startLocalProxyRuntime({
     const injectedKeys = shouldRewrite
       ? detectInjectedKeys([url, JSON.stringify(clientReq.headers), body.toString('utf8')], hostItems)
       : [];
+
+    // Invariant #8: require-approval holds the request for an out-of-band,
+    // request-bound decision. Fail closed (deny) unless explicitly approved.
+    if (policyDecision?.verdict === 'require-approval') {
+      const approved = await runApprovalGate({
+        approvalProvider, method, host: destination.hostname, path: pathOnly, body, ruleId: ruleIdStr, injectedKeys,
+      });
+      if (!approved) {
+        onActivity?.({
+          ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'approval-denied',
+        });
+        clientRes.statusCode = 403;
+        clientRes.end('Request denied: approval not granted');
+        return;
+      }
+    }
+
     onActivity?.({
       ...baseActivity,
       ...ruleId,
       matched: shouldRewrite,
       blocked: false,
-      decision: 'allow',
+      decision: policyDecision?.verdict === 'require-approval' ? 'approval-granted' : 'allow',
       ...(injectedKeys.length ? { injectedKeys } : {}),
     });
 

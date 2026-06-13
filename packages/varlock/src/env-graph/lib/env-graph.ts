@@ -851,6 +851,7 @@ export class EnvGraph {
         ...(_.isString(resolved?.obj?.path) ? { path: resolved.obj.path } : {}),
         ...(_.isString(resolved?.obj?.method) ? { method: resolved.obj.method } : {}),
         ...(_.isBoolean(resolved?.obj?.block) ? { block: resolved.obj.block } : {}),
+        ...(_.isBoolean(resolved?.obj?.approve) ? { approve: resolved.obj.approve } : {}),
       });
     }
 
@@ -871,6 +872,7 @@ export class EnvGraph {
           ...(_.isString(resolved?.obj?.path) ? { path: resolved.obj.path } : {}),
           ...(_.isString(resolved?.obj?.method) ? { method: resolved.obj.method } : {}),
           ...(_.isBoolean(resolved?.obj?.block) ? { block: resolved.obj.block } : {}),
+          ...(_.isBoolean(resolved?.obj?.approve) ? { approve: resolved.obj.approve } : {}),
         });
       }
     }

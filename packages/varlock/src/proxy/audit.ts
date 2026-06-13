@@ -9,7 +9,9 @@ import { getUserVarlockDir } from '../lib/user-config-dir';
 export type ProxyAuditDecision = | 'allow' // forwarded upstream (a secret may or may not have been injected)
   | 'deny' // matched a `block` rule — never reached upstream
   | 'blocked-egress' // strict egress mode rejected a non-allowlisted host
-  | 'blocked-cleartext'; // refused to inject a secret into a non-TLS connection
+  | 'blocked-cleartext' // refused to inject a secret into a non-TLS connection
+  | 'approval-granted' // require-approval rule matched and the approver allowed it
+  | 'approval-denied'; // require-approval rule matched and approval was denied/timed-out
 
 /**
  * Structured per-request activity emitted by the proxy runtime. It carries

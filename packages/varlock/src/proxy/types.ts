@@ -9,6 +9,8 @@ export type ProxyRule = {
   path?: string;
   method?: string;
   block?: boolean;
+  /** Require out-of-band approval before this request is forwarded (Invariant #8). */
+  approve?: boolean;
 };
 
 export type ProxyManagedItem = {
