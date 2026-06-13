@@ -169,21 +169,27 @@ function createSessionStatsWriter(sessionUuid: string, initial?: ProxySessionSta
   };
 }
 
-export function getBlockedSensitiveKeys(
+/**
+ * Sensitive items that are withheld (omitted) from the proxied child by default:
+ * those with a resolved value that are neither `@proxy`-managed (placeholder
+ * injected) nor `@proxyPassthrough` (real value injected). Least-privilege: the
+ * agent never sees a secret you didn't explicitly route or pass through.
+ */
+export function getOmittedSensitiveKeys(
   envGraph: Awaited<ReturnType<typeof loadVarlockEnvGraph>>,
   proxyManagedItems: Array<ProxyManagedItem>,
 ): Array<string> {
   const managedKeys = new Set(proxyManagedItems.map((item) => item.key));
-  const blockedKeys: Array<string> = [];
+  const omittedKeys: Array<string> = [];
   for (const key of envGraph.sortedConfigKeys) {
     const item = envGraph.configSchema[key];
     if (!item?.isSensitive) continue;
     if (item.resolvedValue === undefined) continue;
     if (managedKeys.has(key)) continue;
     if (item.getDec('proxyPassthrough')) continue;
-    blockedKeys.push(key);
+    omittedKeys.push(key);
   }
-  return blockedKeys;
+  return omittedKeys;
 }
 
 function quoteForShell(value: string): string {
@@ -259,16 +265,21 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
     );
   }
 
-  const blockedSensitiveKeys = getBlockedSensitiveKeys(envGraph, proxyManagedItems);
-  if (blockedSensitiveKeys.length) {
-    throw new CliExitError(
-      [
-        'Proxy session blocked: found sensitive items without proxy handling.',
-        `Keys: ${blockedSensitiveKeys.join(', ')}`,
-      ].join('\n'),
-      {
-        suggestion: 'Attach @proxy(...) to manage these values, or add @proxyPassthrough for explicit passthrough.',
-      },
+  // Default-omit (least privilege): a sensitive item with no @proxy rule and no
+  // @proxyPassthrough is withheld from the child entirely — dropped from both the
+  // individual vars and the injected blob, so the agent never sees it.
+  const omittedSensitiveKeys = getOmittedSensitiveKeys(envGraph, proxyManagedItems);
+  if (omittedSensitiveKeys.length) {
+    for (const key of omittedSensitiveKeys) {
+      delete resolvedEnv[key];
+      delete serializedGraph.config[key];
+    }
+    console.error(
+      `ℹ️  Omitting ${omittedSensitiveKeys.length} sensitive item(s) from the proxied child: ${omittedSensitiveKeys.join(', ')}`,
+    );
+    console.error(
+      '   Add @proxy(...) to route a value through the proxy (agent sees a placeholder), '
+        + 'or @proxyPassthrough to inject the real value.',
     );
   }
 
