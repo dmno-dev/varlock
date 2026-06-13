@@ -49,6 +49,22 @@ describe('getOmittedSensitiveKeys', () => {
     expect(getOmittedSensitiveKeys(graph, managedItems)).toEqual([]);
   });
 
+  test('does not omit varlock-reserved (_VARLOCK_*) keys — they are internal infra', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @sensitive
+      _VARLOCK_ENV_KEY=deadbeef
+
+      # @sensitive
+      USER_SECRET=some-secret
+    `);
+
+    const managedItems = await graph.getProxyManagedItems();
+    // _VARLOCK_ENV_KEY is internal plumbing, not a user secret needing a policy.
+    expect(getOmittedSensitiveKeys(graph, managedItems)).toEqual(['USER_SECRET']);
+  });
+
   test('does not omit non-sensitive keys', async () => {
     const graph = await loadGraph(outdent`
       # @defaultSensitive=false

@@ -31,6 +31,7 @@ import {
   PROXY_PARENT_PID_ENV_VAR,
 } from '../../proxy/env-vars';
 import type { ProxyManagedItem, ProxyRule } from '../../proxy/types';
+import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { resetRedactionMap, redactSensitiveConfig } from '../../runtime/env';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
@@ -182,6 +183,10 @@ export function getOmittedSensitiveKeys(
   const managedKeys = new Set(proxyManagedItems.map((item) => item.key));
   const omittedKeys: Array<string> = [];
   for (const key of envGraph.sortedConfigKeys) {
+    // `_VARLOCK_*` keys are varlock's own internal plumbing (e.g. the env key),
+    // not user secrets — they're outside the proxy policy model entirely, so
+    // never treat them as omitted/needing a rule.
+    if (isVarlockReservedKey(key)) continue;
     const item = envGraph.configSchema[key];
     if (!item?.isSensitive) continue;
     if (item.resolvedValue === undefined) continue;
