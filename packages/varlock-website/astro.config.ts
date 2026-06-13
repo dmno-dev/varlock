@@ -158,6 +158,7 @@ export default defineConfig({
             { label: 'Telemetry', slug: 'guides/telemetry' },
             { label: 'MCP', slug: 'guides/mcp' },
             { label: 'AI Tools', slug: 'guides/ai-tools' },
+            { label: 'Apple container sandbox', slug: 'guides/apple-container-sandbox', badge: 'new' },
           ],
         },
         {
