@@ -62,53 +62,26 @@ function hostMatchesProxyRules(host: string, rules: Array<ProxyRule>): boolean {
   return rules.some((rule) => rule.domain.some((d) => domainMatches(d, host)));
 }
 
-function normalizeFingerprint(fingerprint: string): string {
-  return fingerprint.replace(/:/g, '').toLowerCase();
-}
-
-function getCertPinsForHost(host: string, rules: Array<ProxyRule>): Set<string> {
-  const pins = new Set<string>();
-  for (const rule of rules) {
-    if (!rule.pin?.length) continue;
-    if (rule.domain.some((d) => domainMatches(d, host))) {
-      for (const pin of rule.pin) pins.add(normalizeFingerprint(pin));
-    }
-  }
-  return pins;
-}
-
 /**
- * Invariant #1 (+ #4): bind secret injection to the *verified upstream TLS
- * identity*, not the requested name. Returns TLS options for the secret-bearing
- * upstream request that (a) require validation against the public PKI
- * (`rejectUnauthorized`), (b) confirm the cert identity matches the host we
- * dialed (which is the rule-matched host), and (c) enforce any per-rule cert
- * pinning. On any mismatch the handshake fails, so the already-substituted
- * request is never transmitted — a poisoned DNS/Host name causes a failed
- * connection, never a leaked secret.
+ * Invariant #1: bind secret injection to the *verified upstream TLS identity*,
+ * not the requested name. Returns TLS options for the secret-bearing upstream
+ * request that (a) require validation against the public PKI
+ * (`rejectUnauthorized`) and (b) confirm the cert identity matches the host we
+ * dialed (which is the rule-matched host). On any mismatch the handshake fails,
+ * so the already-substituted request is never transmitted — a poisoned
+ * DNS/Host name causes a failed connection, never a leaked secret.
  */
-function buildVerifiedUpstreamOptions(host: string, rules: Array<ProxyRule>): {
+function buildVerifiedUpstreamOptions(): {
   rejectUnauthorized: true;
   checkServerIdentity: (servername: string, cert: tls.PeerCertificate) => Error | undefined;
 } {
-  const pins = getCertPinsForHost(host, rules);
   // Deliberately do NOT set `servername` — Node derives it from the request
   // hostname (SNI for DNS names; omitted for IP literals, where setting it
   // throws) and still passes the host to checkServerIdentity, so identity is
   // verified against the host we dialed (= the rule-matched host) either way.
   return {
     rejectUnauthorized: true,
-    checkServerIdentity: (servername, cert) => {
-      const identityError = tls.checkServerIdentity(servername, cert);
-      if (identityError) return identityError;
-      if (pins.size) {
-        const actual = normalizeFingerprint(String(cert.fingerprint256 ?? ''));
-        if (!actual || !pins.has(actual)) {
-          return new Error(`Upstream certificate for ${servername} did not match a pinned fingerprint`);
-        }
-      }
-      return undefined;
-    },
+    checkServerIdentity: (servername, cert) => tls.checkServerIdentity(servername, cert),
   };
 }
 
@@ -466,7 +439,7 @@ export async function startLocalProxyRuntime({
       method: req.method,
       path: rewrittenPath,
       headers: upstreamHeaders,
-      ...buildVerifiedUpstreamOptions(hostInfo.host, rules),
+      ...buildVerifiedUpstreamOptions(),
     }, (upstreamRes) => {
       forwardUpstreamResponseWithRedaction(
         upstreamRes,
@@ -629,7 +602,7 @@ export async function startLocalProxyRuntime({
       method: clientReq.method,
       path: rewrittenPath,
       headers: upstreamHeaders,
-      ...(isHttps ? buildVerifiedUpstreamOptions(destination.hostname, rules) : {}),
+      ...(isHttps ? buildVerifiedUpstreamOptions() : {}),
     }, (upstreamRes) => {
       forwardUpstreamResponseWithRedaction(
         upstreamRes,

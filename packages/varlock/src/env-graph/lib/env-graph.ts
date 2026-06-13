@@ -914,8 +914,6 @@ export class EnvGraph {
         ...(_.isString(resolved?.obj?.path) ? { path: resolved.obj.path } : {}),
         ...(_.isString(resolved?.obj?.method) ? { method: resolved.obj.method } : {}),
         ...(_.isBoolean(resolved?.obj?.block) ? { block: resolved.obj.block } : {}),
-        ...(_.isString(resolved?.obj?.sign) ? { sign: resolved.obj.sign } : {}),
-        ...(_.isString(resolved?.obj?.transform) ? { transform: resolved.obj.transform } : {}),
       });
     }
 
@@ -936,8 +934,6 @@ export class EnvGraph {
           ...(_.isString(resolved?.obj?.path) ? { path: resolved.obj.path } : {}),
           ...(_.isString(resolved?.obj?.method) ? { method: resolved.obj.method } : {}),
           ...(_.isBoolean(resolved?.obj?.block) ? { block: resolved.obj.block } : {}),
-          ...(_.isString(resolved?.obj?.sign) ? { sign: resolved.obj.sign } : {}),
-          ...(_.isString(resolved?.obj?.transform) ? { transform: resolved.obj.transform } : {}),
         });
       }
     }
