@@ -4,7 +4,7 @@ varlock: patch
 
 Add proxy guardrails and strict egress enforcement for run --proxy.
 
-Verified-upstream-identity binding (Invariant #1): secrets are injected only onto upstream TLS connections that validate against the public PKI AND whose cert identity matches the rule-targeted host (with optional per-rule cert pinning). A DNS-poisoned / rebound host can't present a valid cert for the target, so it causes a failed connection, never a leaked secret. Cleartext guard (Invariant #2): refuse to inject a secret into a non-TLS (http://) connection; fail closed. Upstream-error path now fails closed (tears down the client connection) rather than half-delivering.
+Verified-upstream-identity binding (Invariant #1): secrets are injected only onto upstream TLS connections that validate against the public PKI AND whose cert identity matches the rule-targeted host. A DNS-poisoned / rebound host can't present a valid cert for the target, so it causes a failed connection, never a leaked secret. Cleartext guard (Invariant #2): refuse to inject a secret into a non-TLS (http://) connection; fail closed. Upstream-error path now fails closed (tears down the client connection) rather than half-delivering.
 
 Response scrubbing (Invariant #6): real values reflected in responses are replaced back to placeholders — now including streamed (SSE/chunked) text responses, scrubbed chunk-by-chunk without buffering (so a secret echoed in a stream never reaches the child while streaming still works). Bounded responses gain a post-scrub fail-safe: if a real value somehow survives redaction, the response is withheld rather than leaked. Compressed/binary bodies still pass through unscanned (documented residual).
 
