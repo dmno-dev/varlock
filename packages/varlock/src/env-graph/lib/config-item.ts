@@ -320,6 +320,16 @@ export class ConfigItem {
       }
     }
 
+    // A dual-form decorator (function OR value, e.g. @proxy) is mutually exclusive
+    // per item: you can't both route with @proxy(...) and set @proxy=passthrough.
+    for (const [name, valueDec] of Object.entries(this.effectiveDecorators)) {
+      if (valueDec.isFunctionOrValue && this.effectiveDecoratorFns[name]?.length) {
+        valueDec._errors.push(new SchemaError(
+          `@${name} cannot be used as both a value (@${name}=...) and a function (@${name}(...)) on the same item`,
+        ));
+      }
+    }
+
     const typeDec = this.getDec('type');
     let dataTypeName: string | undefined;
     let dataTypeArgs: any;

@@ -54,6 +54,9 @@ export abstract class DecoratorInstance {
   get incompatibleWith() {
     return this.decoratorDef?.incompatibleWith;
   }
+  get isFunctionOrValue() {
+    return !!(this.decoratorDef as ItemDecoratorDef | undefined)?.isFunctionOrValue;
+  }
 
   private processed = false;
   private processedData: any;
@@ -106,27 +109,31 @@ export abstract class DecoratorInstance {
         ));
       }
 
-      // validate function-call vs value syntax
-      if (this.decoratorDef.isFunction && !this.isFunctionCall) {
-        throw new SchemaError(
-          `@${this.name} must be used as a function call - use @${this.name}(...) instead of @${this.name}=value`,
-        );
-      }
-      if (!this.decoratorDef.isFunction && this.isFunctionCall) {
-        // bare fn-call syntax `@name(...)` is reserved for repeatable decorators (e.g. @docs()).
-        // @sensitive is single-use but accepts an options-object value — guide users who tried
-        // to pass options as a bare call toward the object form `@sensitive={...}`.
-        if (this.name === 'sensitive') {
-          const optsStr = this.parsedDecorator.bareFnArgs
-            ? `{${this.parsedDecorator.bareFnArgs.values.map((v) => v.toString()).join(', ')}}`
-            : '{preventLeaks=false}';
+      // validate function-call vs value syntax. A decorator marked
+      // `isFunctionOrValue` accepts either form (e.g. @proxy(...) or @proxy=x);
+      // the two are kept mutually exclusive per item in ConfigItem.process.
+      if (!(this.decoratorDef as ItemDecoratorDef).isFunctionOrValue) {
+        if (this.decoratorDef.isFunction && !this.isFunctionCall) {
           throw new SchemaError(
-            `@sensitive is single-use and cannot be called like @sensitive(...). To pass options, use an object value: @sensitive=${optsStr}`,
+            `@${this.name} must be used as a function call - use @${this.name}(...) instead of @${this.name}=value`,
           );
         }
-        throw new SchemaError(
-          `@${this.name} cannot be used as a function call - use @${this.name}=value instead of @${this.name}(...)`,
-        );
+        if (!this.decoratorDef.isFunction && this.isFunctionCall) {
+          // bare fn-call syntax `@name(...)` is reserved for repeatable decorators (e.g. @docs()).
+          // @sensitive is single-use but accepts an options-object value — guide users who tried
+          // to pass options as a bare call toward the object form `@sensitive={...}`.
+          if (this.name === 'sensitive') {
+            const optsStr = this.parsedDecorator.bareFnArgs
+              ? `{${this.parsedDecorator.bareFnArgs.values.map((v) => v.toString()).join(', ')}}`
+              : '{preventLeaks=false}';
+            throw new SchemaError(
+              `@sensitive is single-use and cannot be called like @sensitive(...). To pass options, use an object value: @sensitive=${optsStr}`,
+            );
+          }
+          throw new SchemaError(
+            `@${this.name} cannot be used as a function call - use @${this.name}=value instead of @${this.name}(...)`,
+          );
+        }
       }
 
       // this is so we can deal with @type, where each data type is not a real resolver
@@ -536,6 +543,14 @@ export type ItemDecoratorDef<T = any> = {
   name: string,
   incompatibleWith?: Array<string>;
   isFunction?: boolean;
+  /**
+   * Allow BOTH the function form (`@name(...)`) and the value form (`@name=x`).
+   * The two forms are mutually exclusive on a single item (see ConfigItem.process).
+   * Used by `@proxy`: `@proxy(domain=...)` routes, `@proxy=passthrough|omit` are
+   * value-form modes. The `process` callback must handle both (discriminate on
+   * `decoratorValue.isStatic`).
+   */
+  isFunctionOrValue?: boolean;
   deprecated?: boolean | string;
   process?: (decoratorValue: Resolver) => T | Promise<T>;
   execute?: (executeInput: T) => void | Promise<void>;
@@ -595,22 +610,31 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
   {
     name: 'proxy',
     isFunction: true,
+    isFunctionOrValue: true,
     useFnArgsResolver: true,
-    process: (argsVal) => {
-      const domainResolver = argsVal.objArgs?.domain;
+    process: (decVal) => {
+      // Value form: @proxy=passthrough (inject the real value) or @proxy=omit
+      // (explicitly withhold from the proxied child).
+      if (decVal.isStatic) {
+        const mode = decVal.staticValue;
+        if (mode !== 'passthrough' && mode !== 'omit') {
+          throw new SchemaError(
+            '@proxy value must be "passthrough" or "omit" — or use @proxy(domain=...) to route a value through the proxy',
+          );
+        }
+        return;
+      }
+      // Function form: @proxy(domain=..., [path], [method], [block], [approve], $REFS)
+      const domainResolver = decVal.objArgs?.domain;
       if (!domainResolver) {
         throw new SchemaError('@proxy: missing required "domain" option');
       }
-
-      for (const arg of argsVal.arrArgs || []) {
+      for (const arg of decVal.arrArgs || []) {
         if (arg.fnName !== 'ref') {
           throw new SchemaError('@proxy: positional args must be item refs like $API_KEY');
         }
       }
     },
-  },
-  {
-    name: 'proxyPassthrough',
   },
 
   // test-only decorators — dropped in release builds

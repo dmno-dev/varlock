@@ -170,31 +170,43 @@ function createSessionStatsWriter(sessionUuid: string, initial?: ProxySessionSta
   };
 }
 
+/** The value-form `@proxy` mode for an item: `@proxy=passthrough` / `@proxy=omit` (or undefined). */
+function getProxyValueMode(
+  item: { getDec: (name: string) => { resolvedValue?: any } | undefined },
+): 'passthrough' | 'omit' | undefined {
+  const mode = item.getDec('proxy')?.resolvedValue;
+  return mode === 'passthrough' || mode === 'omit' ? mode : undefined;
+}
+
 /**
- * Sensitive items that are withheld (omitted) from the proxied child by default:
- * those with a resolved value that are neither `@proxy`-managed (placeholder
- * injected) nor `@proxyPassthrough` (real value injected). Least-privilege: the
- * agent never sees a secret you didn't explicitly route or pass through.
+ * Keys withheld (omitted) from the proxied child. An item is omitted when it's
+ * not `@proxy`-managed (placeholder) and not `@proxy=passthrough` (real value),
+ * and is either sensitive (omitted by default — least privilege) or explicitly
+ * marked `@proxy=omit`. `_VARLOCK_*` reserved keys are internal infra, never
+ * omitted. Returns `{ explicit }` so the caller can warn only about implicit
+ * omits ("no proxy policy set").
  */
-export function getOmittedSensitiveKeys(
+export function getProxyOmittedKeys(
   envGraph: Awaited<ReturnType<typeof loadVarlockEnvGraph>>,
   proxyManagedItems: Array<ProxyManagedItem>,
-): Array<string> {
+): Array<{ key: string; explicit: boolean }> {
   const managedKeys = new Set(proxyManagedItems.map((item) => item.key));
-  const omittedKeys: Array<string> = [];
+  const omitted: Array<{ key: string; explicit: boolean }> = [];
   for (const key of envGraph.sortedConfigKeys) {
-    // `_VARLOCK_*` keys are varlock's own internal plumbing (e.g. the env key),
-    // not user secrets — they're outside the proxy policy model entirely, so
-    // never treat them as omitted/needing a rule.
     if (isVarlockReservedKey(key)) continue;
     const item = envGraph.configSchema[key];
-    if (!item?.isSensitive) continue;
-    if (item.resolvedValue === undefined) continue;
+    if (!item || item.resolvedValue === undefined) continue;
     if (managedKeys.has(key)) continue;
-    if (item.getDec('proxyPassthrough')) continue;
-    omittedKeys.push(key);
+    const mode = getProxyValueMode(item);
+    if (mode === 'passthrough') continue; // inject the real value
+    if (mode === 'omit') {
+      omitted.push({ key, explicit: true });
+      continue;
+    }
+    if (!item.isSensitive) continue; // non-sensitive with no policy → injected normally
+    omitted.push({ key, explicit: false }); // sensitive default → omit (and warn)
   }
-  return omittedKeys;
+  return omitted;
 }
 
 function quoteForShell(value: string): string {
@@ -270,22 +282,27 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
     );
   }
 
-  // Default-omit (least privilege): a sensitive item with no @proxy rule and no
-  // @proxyPassthrough is withheld from the child entirely — dropped from both the
-  // individual vars and the injected blob, so the agent never sees it.
-  const omittedSensitiveKeys = getOmittedSensitiveKeys(envGraph, proxyManagedItems);
-  if (omittedSensitiveKeys.length) {
-    for (const key of omittedSensitiveKeys) {
+  // Default-omit (least privilege): a sensitive item with no @proxy policy (and no
+  // @proxy=passthrough) is withheld from the child entirely — dropped from both
+  // the individual vars and the injected blob, so the agent never sees it.
+  const omittedKeys = getProxyOmittedKeys(envGraph, proxyManagedItems);
+  if (omittedKeys.length) {
+    for (const { key } of omittedKeys) {
       delete resolvedEnv[key];
       delete serializedGraph.config[key];
     }
-    console.error(
-      `⚠️  The following sensitive var(s) were omitted from the proxied child because no proxy policy is set for them: ${omittedSensitiveKeys.join(', ')}`,
-    );
-    console.error(
-      '   Add @proxy(...) to route a value through the proxy (agent sees a placeholder), '
-        + 'or @proxyPassthrough to inject the real value.',
-    );
+    // Only warn about items omitted by default — items explicitly marked
+    // @proxy=omit were an intentional choice and don't need a warning.
+    const warnKeys = omittedKeys.filter((o) => !o.explicit).map((o) => o.key);
+    if (warnKeys.length) {
+      console.error(
+        `⚠️  The following sensitive var(s) were omitted from the proxied child because no proxy policy is set for them: ${warnKeys.join(', ')}`,
+      );
+      console.error(
+        '   Add @proxy(...) to route a value through the proxy (agent sees a placeholder), '
+          + '@proxy=passthrough to inject the real value, or @proxy=omit to omit it explicitly.',
+      );
+    }
   }
 
   for (const managedItem of proxyManagedItems) {
