@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import http from 'node:http';
 import { URL } from 'node:url';
 
+import type { ProxyActivity } from './audit';
 import { startLocalProxyRuntime } from './runtime-proxy';
 
 async function requestViaProxy(proxyUrl: string, targetUrl: string, headers?: Record<string, string>) {
@@ -136,6 +137,128 @@ describe('startLocalProxyRuntime', () => {
     // The proxy no longer forces identity (avoids the bandwidth/compat cost for
     // a low-value protection); the client's encoding preference is preserved.
     expect(receivedAcceptEncoding).toBe('gzip, br, deflate');
+
+    await runtime.stop();
+    await new Promise<void>((resolve) => {
+      upstream.close(() => resolve());
+    });
+  });
+
+  test('emits a blocked-egress activity in strict mode (no secrets in the activity)', async () => {
+    const activities: Array<ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [],
+      rules: [],
+      egressMode: 'strict',
+      onActivity: (a) => activities.push(a),
+    });
+
+    await requestViaProxy(runtime.env.HTTP_PROXY!, 'http://example.com/some/path');
+
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      decision: 'blocked-egress', host: 'example.com', method: 'GET', path: '/some/path', matched: false, blocked: true,
+    });
+    expect(activities[0]!.injectedKeys).toBeUndefined();
+
+    await runtime.stop();
+  });
+
+  test('emits a deny activity (block rule) that never reaches upstream', async () => {
+    let upstreamHit = false;
+    const upstream = http.createServer((_req, res) => {
+      upstreamHit = true;
+      res.end('ok');
+    });
+    await new Promise<void>((resolve) => {
+      upstream.listen(0, '127.0.0.1', () => resolve());
+    });
+    const addr = upstream.address();
+    if (!addr || typeof addr === 'string') throw new Error('Failed to start test upstream');
+
+    const activities: Array<ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [],
+      rules: [
+        {
+          source: 'attached', domain: ['127.0.0.1'], itemKeys: [], block: true,
+        },
+      ],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+    });
+
+    const response = await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}/charge`);
+    expect(response.statusCode).toBe(403);
+    expect(upstreamHit).toBe(false);
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      decision: 'deny', host: '127.0.0.1', path: '/charge', matched: true, blocked: true,
+    });
+    expect(activities[0]!.ruleId).toContain('block');
+
+    await runtime.stop();
+    await new Promise<void>((resolve) => {
+      upstream.close(() => resolve());
+    });
+  });
+
+  test('emits a single blocked-cleartext activity (not allow-then-block) and no secret', async () => {
+    const upstream = http.createServer((_req, res) => res.end('ok'));
+    await new Promise<void>((resolve) => {
+      upstream.listen(0, '127.0.0.1', () => resolve());
+    });
+    const addr = upstream.address();
+    if (!addr || typeof addr === 'string') throw new Error('Failed to start test upstream');
+
+    const activities: Array<ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [{ key: 'API_KEY', placeholder: 'PH_placeholder', realValue: 'sk-REAL-secret' }],
+      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: ['API_KEY'] }],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+    });
+
+    await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}/`, {
+      authorization: 'Bearer PH_placeholder',
+    });
+
+    expect(activities).toHaveLength(1);
+    expect(activities[0]!.decision).toBe('blocked-cleartext');
+    expect(JSON.stringify(activities)).not.toContain('sk-REAL-secret');
+
+    await runtime.stop();
+    await new Promise<void>((resolve) => {
+      upstream.close(() => resolve());
+    });
+  });
+
+  test('emits an allow activity for a forwarded (non-injected) request', async () => {
+    const upstream = http.createServer((_req, res) => res.end('ok'));
+    await new Promise<void>((resolve) => {
+      upstream.listen(0, '127.0.0.1', () => resolve());
+    });
+    const addr = upstream.address();
+    if (!addr || typeof addr === 'string') throw new Error('Failed to start test upstream');
+
+    const activities: Array<ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [],
+      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: [] }],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+    });
+
+    await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}/list?page=2`);
+
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      decision: 'allow', host: '127.0.0.1', path: '/list', matched: true, blocked: false,
+    });
+    // path excludes the query; the full url is carried separately for the hash
+    expect(activities[0]!.path).toBe('/list');
+    expect(activities[0]!.url).toBe('/list?page=2');
+    expect(activities[0]!.injectedKeys).toBeUndefined();
 
     await runtime.stop();
     await new Promise<void>((resolve) => {
