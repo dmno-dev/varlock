@@ -16,6 +16,11 @@ import {
   type ApprovalProvider,
 } from '../../proxy/approval';
 import {
+  createApprovalGrantStore,
+  createGrantingApprovalProvider,
+  type ApprovalGrantStore,
+} from '../../proxy/approval-grants';
+import {
   cleanupStaleProxySessions,
   createProxySessionRecord,
   deleteProxySessionRecord,
@@ -327,14 +332,24 @@ async function createRuntimeAndSession(opts: {
   entryPaths?: Array<string>;
   command?: Array<string>;
   approvalProvider: ApprovalProvider;
+  /** Persist session/duration approval scopes as standing grants (interactive sessions only). */
+  enableApprovalGrants?: boolean;
 }): Promise<{
   runtime: Awaited<ReturnType<typeof startLocalProxyRuntime>>;
   session: ProxySessionRecord;
   statsWriter: ReturnType<typeof createSessionStatsWriter>;
   auditLog: ProxyAuditLog;
+  grantStore?: ApprovalGrantStore;
 }> {
   const identity = await reserveProxySessionIdentity();
   const statsWriter = createSessionStatsWriter(identity.uuid, EMPTY_PROXY_SESSION_STATS);
+  // When grants are enabled, a session/duration approval is remembered so future
+  // matching requests auto-approve without re-prompting (the seam the phone
+  // approver reuses). Keyed to this session's uuid; torn down on stop.
+  const grantStore = opts.enableApprovalGrants ? createApprovalGrantStore(identity.uuid) : undefined;
+  const approvalProvider = grantStore
+    ? createGrantingApprovalProvider({ inner: opts.approvalProvider, store: grantStore })
+    : opts.approvalProvider;
   const now = new Date().toISOString();
   // Append-only audit log (Invariant #7): one entry per request decision, no
   // secret values. Persists after the session record is deleted on cleanup.
@@ -350,7 +365,7 @@ async function createRuntimeAndSession(opts: {
     managedItems: opts.policy.proxyManagedItems,
     rules: opts.policy.proxyRules,
     egressMode: opts.policy.egressMode,
-    approvalProvider: opts.approvalProvider,
+    approvalProvider,
     onActivity: (activity) => {
       statsWriter.onActivity(activity);
       auditLog.record(activity);
@@ -376,7 +391,7 @@ async function createRuntimeAndSession(opts: {
   });
 
   return {
-    runtime, session, statsWriter, auditLog,
+    runtime, session, statsWriter, auditLog, grantStore,
   };
 }
 
@@ -579,13 +594,15 @@ async function runAction(ctx: any) {
 async function startAction(ctx: any) {
   const policy = await prepareProxyPolicy(ctx.values.path);
   const {
-    runtime, session, statsWriter, auditLog,
+    runtime, session, statsWriter, auditLog, grantStore,
   } = await createRuntimeAndSession({
     policy,
     entryPaths: ctx.values.path,
     // The proxy owns this terminal (the agent runs elsewhere and routes through
-    // it), so require-approval requests can prompt here.
+    // it), so require-approval requests can prompt here — and session/duration
+    // approvals can be remembered as standing grants.
     approvalProvider: createTtyApprovalProvider(),
+    enableApprovalGrants: true,
   });
 
   console.log(`Started proxy session ${session.id} (${session.uuid})`);
@@ -600,6 +617,7 @@ async function startAction(ctx: any) {
     statsWriter.stop();
     await runtime.stop().catch(() => undefined);
     await auditLog.flush().catch(() => undefined);
+    await grantStore?.destroy().catch(() => undefined);
     await deleteProxySessionRecord(session.uuid).catch(() => undefined);
   };
 
