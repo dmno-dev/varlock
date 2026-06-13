@@ -58,7 +58,7 @@ describe('proxy decorators', () => {
     const graph = await loadGraph(outdent`
       # @enableProxy(egress="strict")
       # @proxy(domain="api.a.com")
-      # @proxy(domain="api.b.com", path="/admin/**", approve=true)
+      # @proxy(domain="api.b.com", path="/admin/**", approval=true)
       # ---
       BASELINE=1
     `);
@@ -73,9 +73,41 @@ describe('proxy decorators', () => {
     expect(rules).toMatchObject([
       { source: 'detached', domain: ['api.a.com'] },
       {
-        source: 'detached', domain: ['api.b.com'], path: '/admin/**', approve: true,
+        source: 'detached', domain: ['api.b.com'], path: '/admin/**', approval: true,
       },
     ]);
+  });
+
+  test('approval config: approvalEach + approvalMaxDuration parse onto the rule', async () => {
+    const graph = await loadGraph(outdent`
+      # @enableProxy(egress="strict")
+      # @proxy(domain="api.a.com", approval=true)
+      # @proxy(domain="api.b.com", approvalEach="request", approvalMaxDuration="15m")
+      # @proxy(domain="api.c.com", approvalEach="host", approvalMaxDuration=0)
+      # ---
+      BASELINE=1
+    `);
+
+    expect(await graph.getProxyRules()).toMatchObject([
+      { domain: ['api.a.com'], approval: true },
+      {
+        domain: ['api.b.com'], approval: true, approvalEach: 'request', approvalMaxDurationMs: 900_000,
+      },
+      {
+        domain: ['api.c.com'], approval: true, approvalEach: 'host', approvalMaxDurationMs: 0,
+      },
+    ]);
+  });
+
+  test('approval config: a bad approvalEach is rejected', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", approvalEach="bogus")
+      API_KEY=secret
+    `);
+    const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
+    expect(errors.some((e) => /approvalEach must be one of/.test(e.message))).toBe(true);
   });
 
   test('@proxy=passthrough / =omit parse as value-form modes (no rule created)', async () => {

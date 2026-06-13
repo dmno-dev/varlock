@@ -75,22 +75,22 @@ export function describeRule(rule: ProxyRule): string {
   if (rule.method !== undefined) parts.push(rule.method.toUpperCase());
   if (rule.path !== undefined) parts.push(rule.path);
   if (rule.block) parts.push('block');
-  if (rule.approve) parts.push('approve');
+  if (rule.approval) parts.push('approval');
   return parts.join(' ');
 }
 
 /**
  * Evaluate the policy for a request. Precedence (most restrictive wins):
  *   1. any matching `block` rule → deny
- *   2. else the most-specific tier of non-block rules decides: an `approve` rule
+ *   2. else the most-specific tier of non-block rules decides: an `approval` rule
  *      in that tier → require-approval, otherwise allow
  *   3. no matching rule → allow (injection scoping is handled separately, so an
  *      allow verdict doesn't imply a secret is injected)
  *
  * Tie-break is deliberately conservative: within the most-specific tier an
- * `approve` rule beats a plain allow, so a broad allow can't silently downgrade a
+ * `approval` rule beats a plain allow, so a broad allow can't silently downgrade a
  * specific require-approval, and a specific allow can still exempt a safe path
- * from a broad approve.
+ * from a broad approval.
  */
 export function evaluateProxyPolicy(facts: RequestFacts, rules: Array<ProxyRule>): PolicyDecision {
   const matching = rules.filter((rule) => ruleMatchesFacts(rule, facts));
@@ -108,12 +108,12 @@ export function evaluateProxyPolicy(facts: RequestFacts, rules: Array<ProxyRule>
   }
   const maxSpecificity = Math.max(...nonBlock.map(ruleSpecificity));
   const topTier = nonBlock.filter((rule) => ruleSpecificity(rule) === maxSpecificity);
-  const approveRule = topTier.find((rule) => rule.approve);
-  if (approveRule) {
+  const approvalRule = topTier.find((rule) => rule.approval);
+  if (approvalRule) {
     return {
       verdict: 'require-approval',
-      matchedRule: approveRule,
-      reason: 'requires approval per @proxy(approve=true) rule',
+      matchedRule: approvalRule,
+      reason: 'requires approval per @proxy(approval=...) rule',
     };
   }
   return { verdict: 'allow', matchedRule: topTier[0] };
