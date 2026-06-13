@@ -2,6 +2,7 @@ import { PassThrough } from 'node:stream';
 import { describe, expect, test } from 'vitest';
 
 import {
+  clampLifetime,
   createApprovalRequest,
   createAutoDenyApprovalProvider,
   createTtyApprovalProvider,
@@ -48,6 +49,21 @@ describe('isApprovalValid', () => {
   });
 });
 
+describe('clampLifetime (schema ceiling)', () => {
+  test('maxDuration=0 forces once (always ask)', () => {
+    expect(clampLifetime({ kind: 'session' }, 0)).toEqual({ kind: 'once' });
+    expect(clampLifetime({ kind: 'duration', durationMs: 60_000 }, 0)).toEqual({ kind: 'once' });
+  });
+  test('no cap (undefined) leaves the lifetime untouched', () => {
+    expect(clampLifetime({ kind: 'session' }, undefined)).toEqual({ kind: 'session' });
+  });
+  test('a finite cap turns session into a bounded duration and shortens longer ones', () => {
+    expect(clampLifetime({ kind: 'session' }, 60_000)).toEqual({ kind: 'duration', durationMs: 60_000 });
+    expect(clampLifetime({ kind: 'duration', durationMs: 120_000 }, 60_000)).toEqual({ kind: 'duration', durationMs: 60_000 });
+    expect(clampLifetime({ kind: 'duration', durationMs: 30_000 }, 60_000)).toEqual({ kind: 'duration', durationMs: 30_000 });
+  });
+});
+
 describe('createAutoDenyApprovalProvider', () => {
   test('always denies, echoing the nonce', async () => {
     const r = req();
@@ -73,7 +89,7 @@ describe('createTtyApprovalProvider', () => {
     input.write('y\n');
     const decision = await pending;
     expect(decision.approved).toBe(true);
-    expect(decision.scope).toEqual({ kind: 'once' });
+    expect(decision.lifetime).toEqual({ kind: 'once' });
     expect(isApprovalValid(r, decision)).toBe(true);
   });
 
@@ -82,7 +98,7 @@ describe('createTtyApprovalProvider', () => {
     const sProvider = createTtyApprovalProvider({ input: sInput, output: new PassThrough() });
     const sPending = sProvider.requestApproval(req());
     sInput.write('s\n');
-    expect((await sPending).scope).toEqual({ kind: 'session' });
+    expect((await sPending).lifetime).toEqual({ kind: 'session' });
 
     const mInput = ttyInput();
     const mProvider = createTtyApprovalProvider({ input: mInput, output: new PassThrough() });
@@ -90,7 +106,7 @@ describe('createTtyApprovalProvider', () => {
     mInput.write('m\n');
     const mDecision = await mPending;
     expect(mDecision.approved).toBe(true);
-    expect(mDecision.scope).toMatchObject({ kind: 'duration' });
+    expect(mDecision.lifetime).toMatchObject({ kind: 'duration' });
   });
 
   test('denies on "n" (and anything that is not yes)', async () => {
@@ -116,6 +132,23 @@ describe('createTtyApprovalProvider', () => {
     await pending;
     expect(prompt).toContain('POST https://api.stripe.com/v1/refunds');
     expect(prompt).toContain('STRIPE_KEY'); // key name shown
+  });
+
+  test('always-ask (maxDurationMs=0) offers only once/no, and "s"/"m" are denied', async () => {
+    const input = ttyInput();
+    const output = new PassThrough();
+    let prompt = '';
+    output.on('data', (c: Buffer) => {
+      prompt += c.toString('utf8');
+    });
+    const provider = createTtyApprovalProvider({ input, output });
+    const pending = provider.requestApproval(req({ maxDurationMs: 0 }));
+    input.write('s\n'); // session not offered → should be denied
+    const decision = await pending;
+    expect(prompt).toContain('[y] once');
+    expect(prompt).not.toContain('this session');
+    expect(prompt).not.toContain('min');
+    expect(decision.approved).toBe(false);
   });
 
   test('fails closed when there is no TTY', async () => {

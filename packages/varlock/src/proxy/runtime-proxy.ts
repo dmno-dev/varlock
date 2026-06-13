@@ -19,7 +19,9 @@ import { createEphemeralCa, createHostCert } from './cert-authority';
 import {
   describeRule, evaluateProxyPolicy, getRequestScopedManagedItems, type RequestFacts,
 } from './policy';
-import type { ProxyEgressMode, ProxyManagedItem, ProxyRule } from './types';
+import type {
+  ProxyApprovalEach, ProxyEgressMode, ProxyManagedItem, ProxyRule,
+} from './types';
 
 const LOCALHOST = '127.0.0.1';
 
@@ -106,6 +108,8 @@ async function runApprovalGate(input: {
   path: string;
   body: Buffer;
   ruleId?: string;
+  each?: ProxyApprovalEach;
+  maxDurationMs?: number;
   injectedKeys: Array<string>;
 }): Promise<boolean> {
   if (!input.approvalProvider) return false;
@@ -115,6 +119,8 @@ async function runApprovalGate(input: {
     path: input.path,
     body: input.body,
     ruleId: input.ruleId,
+    each: input.each,
+    maxDurationMs: input.maxDurationMs,
     injectedKeys: input.injectedKeys,
   });
   try {
@@ -450,7 +456,15 @@ export async function startLocalProxyRuntime({
     // request-bound decision. Fail closed (deny) unless explicitly approved.
     if (policyDecision?.verdict === 'require-approval') {
       const approved = await runApprovalGate({
-        approvalProvider, method, host: hostInfo.host, path: pathOnly, body, ruleId: ruleIdStr, injectedKeys,
+        approvalProvider,
+        method,
+        host: hostInfo.host,
+        path: pathOnly,
+        body,
+        ruleId: ruleIdStr,
+        each: policyDecision.matchedRule?.approvalEach,
+        maxDurationMs: policyDecision.matchedRule?.approvalMaxDurationMs,
+        injectedKeys,
       });
       if (!approved) {
         onActivity?.({
@@ -633,7 +647,15 @@ export async function startLocalProxyRuntime({
     // request-bound decision. Fail closed (deny) unless explicitly approved.
     if (policyDecision?.verdict === 'require-approval') {
       const approved = await runApprovalGate({
-        approvalProvider, method, host: destination.hostname, path: pathOnly, body, ruleId: ruleIdStr, injectedKeys,
+        approvalProvider,
+        method,
+        host: destination.hostname,
+        path: pathOnly,
+        body,
+        ruleId: ruleIdStr,
+        each: policyDecision.matchedRule?.approvalEach,
+        maxDurationMs: policyDecision.matchedRule?.approvalMaxDurationMs,
+        injectedKeys,
       });
       if (!approved) {
         onActivity?.({
