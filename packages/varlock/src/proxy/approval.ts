@@ -27,10 +27,21 @@ export type ApprovalRequest = {
   injectedKeys?: Array<string>;
 };
 
+/**
+ * How long an approval lasts. `once` (default) authorizes only this request; the
+ * others authorize future requests matching the same rule (a standing grant —
+ * see approval-grants.ts) until the session ends or the window elapses.
+ */
+export type ApprovalScope = | { kind: 'once' }
+  | { kind: 'session' }
+  | { kind: 'duration'; durationMs: number };
+
 export type ApprovalDecision = {
   approved: boolean;
   /** Echoes the request nonce the approver acted on; must match to be honored. */
   nonce: string;
+  /** How long this approval lasts. Absent ⇒ `once`. */
+  scope?: ApprovalScope;
   reason?: string;
 };
 
@@ -87,11 +98,35 @@ export function createAutoDenyApprovalProvider(): ApprovalProvider {
   };
 }
 
+/** Default window for a "for a while" (`m`) terminal approval. */
+export const DEFAULT_GRANT_DURATION_MS = 15 * 60_000;
+
+/** Maps a single-key terminal answer to a decision + scope. Anything not an explicit yes denies. */
+function parseTtyAnswer(answer: string, nonce: string): ApprovalDecision {
+  const a = answer.trim().toLowerCase();
+  if (a === 'y' || a === 'yes' || a === 'o') {
+    return {
+      approved: true, nonce, scope: { kind: 'once' }, reason: 'approved once at terminal',
+    };
+  }
+  if (a === 's') {
+    return {
+      approved: true, nonce, scope: { kind: 'session' }, reason: 'approved for session at terminal',
+    };
+  }
+  if (a === 'm') {
+    return {
+      approved: true, nonce, scope: { kind: 'duration', durationMs: DEFAULT_GRANT_DURATION_MS }, reason: 'approved for a window at terminal',
+    };
+  }
+  return { approved: false, nonce, reason: 'denied at terminal' };
+}
+
 /**
  * Prompts for approval on the proxy process's controlling terminal. Suited to
  * `varlock proxy start`, where the agent runs elsewhere and the proxy owns the
- * TTY. Fails closed: denies on a non-TTY, timeout, EOF, or any answer other than
- * an explicit yes.
+ * TTY. Offers scope choices (once / session / window) and fails closed: denies on
+ * a non-TTY, timeout, EOF, or any answer other than an explicit yes.
  */
 export function createTtyApprovalProvider(opts?: {
   input?: Readable & { isTTY?: boolean };
@@ -101,6 +136,7 @@ export function createTtyApprovalProvider(opts?: {
   const input = opts?.input ?? process.stdin;
   const output = opts?.output ?? process.stderr;
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_TTL_MS;
+  const minutes = Math.round(DEFAULT_GRANT_DURATION_MS / 60_000);
 
   return {
     async requestApproval(req) {
@@ -112,7 +148,7 @@ export function createTtyApprovalProvider(opts?: {
       const prompt = '\n🔐 varlock proxy — approval required\n'
         + `   ${req.method} https://${req.host}${req.path}${inj}\n${
           req.ruleId ? `   rule: ${req.ruleId}\n` : ''
-        }   Approve this request? [y/N] `;
+        }   Approve? [y] once  [s] this session  [m] ${minutes} min  [n] no `;
 
       const rl = readline.createInterface({ input, output });
       const answer = await new Promise<string>((resolve) => {
@@ -132,12 +168,7 @@ export function createTtyApprovalProvider(opts?: {
       });
       rl.close();
 
-      const approved = /^y(es)?$/i.test(answer.trim());
-      return {
-        approved,
-        nonce: req.nonce,
-        reason: approved ? 'approved at terminal' : 'denied at terminal',
-      };
+      return parseTtyAnswer(answer, req.nonce);
     },
   };
 }

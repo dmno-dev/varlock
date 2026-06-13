@@ -73,7 +73,24 @@ describe('createTtyApprovalProvider', () => {
     input.write('y\n');
     const decision = await pending;
     expect(decision.approved).toBe(true);
+    expect(decision.scope).toEqual({ kind: 'once' });
     expect(isApprovalValid(r, decision)).toBe(true);
+  });
+
+  test('"s" approves for the session, "m" for a duration window', async () => {
+    const sInput = ttyInput();
+    const sProvider = createTtyApprovalProvider({ input: sInput, output: new PassThrough() });
+    const sPending = sProvider.requestApproval(req());
+    sInput.write('s\n');
+    expect((await sPending).scope).toEqual({ kind: 'session' });
+
+    const mInput = ttyInput();
+    const mProvider = createTtyApprovalProvider({ input: mInput, output: new PassThrough() });
+    const mPending = mProvider.requestApproval(req());
+    mInput.write('m\n');
+    const mDecision = await mPending;
+    expect(mDecision.approved).toBe(true);
+    expect(mDecision.scope).toMatchObject({ kind: 'duration' });
   });
 
   test('denies on "n" (and anything that is not yes)', async () => {
