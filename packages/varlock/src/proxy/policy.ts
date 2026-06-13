@@ -66,6 +66,19 @@ function ruleSpecificity(rule: ProxyRule): number {
 }
 
 /**
+ * A stable, human-readable identifier for a rule, derived from its match
+ * constraints (rules have no explicit id). Used as the audit log's `ruleId` so
+ * a logged decision can be traced back to the rule that produced it.
+ */
+export function describeRule(rule: ProxyRule): string {
+  const parts = [rule.domain.join('|')];
+  if (rule.method !== undefined) parts.push(rule.method.toUpperCase());
+  if (rule.path !== undefined) parts.push(rule.path);
+  if (rule.block) parts.push('block');
+  return parts.join(' ');
+}
+
+/**
  * Evaluate the policy for a request. Precedence:
  *   1. any matching `block` rule wins → deny
  *   2. otherwise allow (injection scoping is handled separately, so an
