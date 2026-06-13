@@ -275,7 +275,7 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
       delete serializedGraph.config[key];
     }
     console.error(
-      `ℹ️  Omitting ${omittedSensitiveKeys.length} sensitive item(s) from the proxied child: ${omittedSensitiveKeys.join(', ')}`,
+      `⚠️  The following sensitive var(s) were omitted from the proxied child because no proxy policy is set for them: ${omittedSensitiveKeys.join(', ')}`,
     );
     console.error(
       '   Add @proxy(...) to route a value through the proxy (agent sees a placeholder), '
