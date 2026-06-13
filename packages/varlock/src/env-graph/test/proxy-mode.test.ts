@@ -46,6 +46,35 @@ describe('proxy decorators', () => {
         domain: ['api.example.com'],
         itemKeys: [],
       },
+      {
+        source: 'attached',
+        domain: ['api.stripe.com'],
+        itemKeys: ['STRIPE_KEY'],
+      },
+    ]);
+  });
+
+  test('a header-level (detached) @proxy is not rejected as a misplaced item decorator', async () => {
+    const graph = await loadGraph(outdent`
+      # @enableProxy(egress="strict")
+      # @proxy(domain="api.a.com")
+      # @proxy(domain="api.b.com", path="/admin/**", approve=true)
+      # ---
+      BASELINE=1
+    `);
+
+    // @proxy is registered as both a root and item decorator; using it in the
+    // header must NOT raise "Item decorator @proxy cannot be used in the file header".
+    const errors = graph.sortedDataSources.flatMap((s) => s.errors).filter((e) => !e.isWarning);
+    expect(errors).toEqual([]);
+
+    // ...and both detached rules are collected, including the approve rule.
+    const rules = await graph.getProxyRules();
+    expect(rules).toMatchObject([
+      { source: 'detached', domain: ['api.a.com'] },
+      {
+        source: 'detached', domain: ['api.b.com'], path: '/admin/**', approve: true,
+      },
     ]);
   });
 
