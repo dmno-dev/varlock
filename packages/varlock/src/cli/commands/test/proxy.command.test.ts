@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../../../env-graph';
-import { getOmittedSensitiveKeys } from '../proxy.command.js';
+import { getProxyOmittedKeys } from '../proxy.command.js';
 
 async function loadGraph(envFile: string) {
   const graph = new EnvGraph();
@@ -12,8 +12,13 @@ async function loadGraph(envFile: string) {
   return graph;
 }
 
-describe('getOmittedSensitiveKeys', () => {
-  test('omits unmanaged sensitive keys by default', async () => {
+async function omittedKeys(graph: EnvGraph) {
+  const managedItems = await graph.getProxyManagedItems();
+  return getProxyOmittedKeys(graph, managedItems);
+}
+
+describe('getProxyOmittedKeys', () => {
+  test('omits an unmanaged sensitive key by default (implicit — warned)', async () => {
     const graph = await loadGraph(outdent`
       # @defaultSensitive=false
       # ---
@@ -26,27 +31,37 @@ describe('getOmittedSensitiveKeys', () => {
       UNMANAGED_SECRET=secret-unmanaged
     `);
 
-    const managedItems = await graph.getProxyManagedItems();
-    // unmanaged + sensitive + no passthrough → omitted from the child
-    expect(getOmittedSensitiveKeys(graph, managedItems)).toEqual(['UNMANAGED_SECRET']);
+    expect(await omittedKeys(graph)).toEqual([{ key: 'UNMANAGED_SECRET', explicit: false }]);
   });
 
-  test('does not omit an unmanaged sensitive key marked @proxyPassthrough', async () => {
+  test('does not omit a sensitive key marked @proxy=passthrough', async () => {
     const graph = await loadGraph(outdent`
       # @defaultSensitive=false
       # ---
-      BASELINE=1
-
-      # @proxy(domain="api.example.com")
-      PROXIED_SECRET=secret-proxied
-
       # @sensitive
-      # @proxyPassthrough
-      UNMANAGED_ALLOWED=secret-allowed
+      # @proxy=passthrough
+      PASS_SECRET=secret-allowed
     `);
 
-    const managedItems = await graph.getProxyManagedItems();
-    expect(getOmittedSensitiveKeys(graph, managedItems)).toEqual([]);
+    expect(await omittedKeys(graph)).toEqual([]);
+  });
+
+  test('omits a key marked @proxy=omit explicitly (regardless of sensitivity)', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy=omit
+      PLAIN_BUT_OMITTED=whatever
+
+      # @sensitive
+      # @proxy=omit
+      SECRET_OMITTED=secret
+    `);
+
+    expect(await omittedKeys(graph)).toEqual([
+      { key: 'PLAIN_BUT_OMITTED', explicit: true },
+      { key: 'SECRET_OMITTED', explicit: true },
+    ]);
   });
 
   test('does not omit varlock-reserved (_VARLOCK_*) keys — they are internal infra', async () => {
@@ -60,12 +75,10 @@ describe('getOmittedSensitiveKeys', () => {
       USER_SECRET=some-secret
     `);
 
-    const managedItems = await graph.getProxyManagedItems();
-    // _VARLOCK_ENV_KEY is internal plumbing, not a user secret needing a policy.
-    expect(getOmittedSensitiveKeys(graph, managedItems)).toEqual(['USER_SECRET']);
+    expect(await omittedKeys(graph)).toEqual([{ key: 'USER_SECRET', explicit: false }]);
   });
 
-  test('does not omit non-sensitive keys', async () => {
+  test('does not omit non-sensitive keys with no policy', async () => {
     const graph = await loadGraph(outdent`
       # @defaultSensitive=false
       # ---
@@ -76,7 +89,6 @@ describe('getOmittedSensitiveKeys', () => {
       PROXIED_SECRET=secret-proxied
     `);
 
-    const managedItems = await graph.getProxyManagedItems();
-    expect(getOmittedSensitiveKeys(graph, managedItems)).toEqual([]);
+    expect(await omittedKeys(graph)).toEqual([]);
   });
 });
