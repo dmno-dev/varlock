@@ -752,7 +752,10 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
     // check for item decorators in the header, and duplicate non-fn root decorators
     const seenRootDecs = new Set<string>();
     for (const dec of parsedFile.decoratorsArray) {
-      if (dec.name in this.graph!.itemDecoratorsRegistry) {
+      // A name registered as BOTH an item and a root decorator (e.g. @proxy:
+      // item-level "attached" rules + header-level "detached" rules) is valid in
+      // the header — only reject names that are item-decorators and nothing else.
+      if (dec.name in this.graph!.itemDecoratorsRegistry && !(dec.name in this.graph!.rootDecoratorsRegistry)) {
         this._errors.push(new SchemaError(
           `Item decorator @${dec.name} cannot be used in the file header - it must be attached to a config item`,
           { location: this._locationFromParsed(dec) },
