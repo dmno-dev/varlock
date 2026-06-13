@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../../../env-graph';
-import { getBlockedSensitiveKeys } from '../proxy.command.js';
+import { getOmittedSensitiveKeys } from '../proxy.command.js';
 
 async function loadGraph(envFile: string) {
   const graph = new EnvGraph();
@@ -12,8 +12,8 @@ async function loadGraph(envFile: string) {
   return graph;
 }
 
-describe('getBlockedSensitiveKeys', () => {
-  test('blocks unmanaged sensitive keys by default', async () => {
+describe('getOmittedSensitiveKeys', () => {
+  test('omits unmanaged sensitive keys by default', async () => {
     const graph = await loadGraph(outdent`
       # @defaultSensitive=false
       # ---
@@ -27,10 +27,11 @@ describe('getBlockedSensitiveKeys', () => {
     `);
 
     const managedItems = await graph.getProxyManagedItems();
-    expect(getBlockedSensitiveKeys(graph, managedItems)).toEqual(['UNMANAGED_SECRET']);
+    // unmanaged + sensitive + no passthrough → omitted from the child
+    expect(getOmittedSensitiveKeys(graph, managedItems)).toEqual(['UNMANAGED_SECRET']);
   });
 
-  test('allows unmanaged sensitive key when @proxyPassthrough is present', async () => {
+  test('does not omit an unmanaged sensitive key marked @proxyPassthrough', async () => {
     const graph = await loadGraph(outdent`
       # @defaultSensitive=false
       # ---
@@ -45,6 +46,21 @@ describe('getBlockedSensitiveKeys', () => {
     `);
 
     const managedItems = await graph.getProxyManagedItems();
-    expect(getBlockedSensitiveKeys(graph, managedItems)).toEqual([]);
+    expect(getOmittedSensitiveKeys(graph, managedItems)).toEqual([]);
+  });
+
+  test('does not omit non-sensitive keys', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      PLAIN=just-a-value
+
+      # @sensitive
+      # @proxy(domain="api.example.com")
+      PROXIED_SECRET=secret-proxied
+    `);
+
+    const managedItems = await graph.getProxyManagedItems();
+    expect(getOmittedSensitiveKeys(graph, managedItems)).toEqual([]);
   });
 });
