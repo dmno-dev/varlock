@@ -266,6 +266,90 @@ describe('startLocalProxyRuntime', () => {
     });
   });
 
+  test('require-approval: a denied request never reaches upstream (fail closed)', async () => {
+    let upstreamHit = false;
+    const upstream = http.createServer((_req, res) => {
+      upstreamHit = true;
+      res.end('ok');
+    });
+    await new Promise<void>((resolve) => {
+      upstream.listen(0, '127.0.0.1', () => resolve());
+    });
+    const addr = upstream.address();
+    if (!addr || typeof addr === 'string') throw new Error('Failed to start test upstream');
+
+    const activities: Array<ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [],
+      rules: [
+        {
+          source: 'attached', domain: ['127.0.0.1'], itemKeys: [], approve: true,
+        },
+      ],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+      approvalProvider: { async requestApproval(r) { return { approved: false, nonce: r.nonce }; } },
+    });
+
+    const response = await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}/v1/refunds`);
+    expect(response.statusCode).toBe(403);
+    expect(upstreamHit).toBe(false);
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ decision: 'approval-denied', blocked: true, path: '/v1/refunds' });
+
+    await runtime.stop();
+    await new Promise<void>((resolve) => {
+      upstream.close(() => resolve());
+    });
+  });
+
+  test('require-approval: an approved request is forwarded and audited as approval-granted', async () => {
+    let upstreamHit = false;
+    const upstream = http.createServer((_req, res) => {
+      upstreamHit = true;
+      res.statusCode = 200;
+      res.end('ok');
+    });
+    await new Promise<void>((resolve) => {
+      upstream.listen(0, '127.0.0.1', () => resolve());
+    });
+    const addr = upstream.address();
+    if (!addr || typeof addr === 'string') throw new Error('Failed to start test upstream');
+
+    const seen: Array<{ method: string; path: string; bodyHash: string }> = [];
+    const activities: Array<ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [],
+      rules: [
+        {
+          source: 'attached', domain: ['127.0.0.1'], itemKeys: [], approve: true,
+        },
+      ],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+      approvalProvider: {
+        async requestApproval(r) {
+          // the provider is handed the request-bound details (Invariant #8)
+          seen.push({ method: r.method, path: r.path, bodyHash: r.bodyHash });
+          return { approved: true, nonce: r.nonce };
+        },
+      },
+    });
+
+    const response = await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}/v1/refunds`);
+    expect(response.statusCode).toBe(200);
+    expect(upstreamHit).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ method: 'GET', path: '/v1/refunds' });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]!.decision).toBe('approval-granted');
+
+    await runtime.stop();
+    await new Promise<void>((resolve) => {
+      upstream.close(() => resolve());
+    });
+  });
+
   test('streams text/event-stream responses through incrementally (no buffering)', async () => {
     const INTER_CHUNK_DELAY = 200;
     const upstream = http.createServer((_req, res) => {

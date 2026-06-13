@@ -75,17 +75,22 @@ export function describeRule(rule: ProxyRule): string {
   if (rule.method !== undefined) parts.push(rule.method.toUpperCase());
   if (rule.path !== undefined) parts.push(rule.path);
   if (rule.block) parts.push('block');
+  if (rule.approve) parts.push('approve');
   return parts.join(' ');
 }
 
 /**
- * Evaluate the policy for a request. Precedence:
- *   1. any matching `block` rule wins → deny
- *   2. otherwise allow (injection scoping is handled separately, so an
+ * Evaluate the policy for a request. Precedence (most restrictive wins):
+ *   1. any matching `block` rule → deny
+ *   2. else the most-specific tier of non-block rules decides: an `approve` rule
+ *      in that tier → require-approval, otherwise allow
+ *   3. no matching rule → allow (injection scoping is handled separately, so an
  *      allow verdict doesn't imply a secret is injected)
  *
- * `require-approval` is part of the verdict space so the approval layer drops in
- * here later without changing callers; no rule produces it yet.
+ * Tie-break is deliberately conservative: within the most-specific tier an
+ * `approve` rule beats a plain allow, so a broad allow can't silently downgrade a
+ * specific require-approval, and a specific allow can still exempt a safe path
+ * from a broad approve.
  */
 export function evaluateProxyPolicy(facts: RequestFacts, rules: Array<ProxyRule>): PolicyDecision {
   const matching = rules.filter((rule) => ruleMatchesFacts(rule, facts));
@@ -97,10 +102,21 @@ export function evaluateProxyPolicy(facts: RequestFacts, rules: Array<ProxyRule>
     return { verdict: 'deny', matchedRule: blockRule, reason: 'blocked by @proxy(block=true) rule' };
   }
 
-  const allowRule = matching
-    .filter((rule) => !rule.block)
-    .sort((a, b) => ruleSpecificity(b) - ruleSpecificity(a))[0];
-  return { verdict: 'allow', matchedRule: allowRule };
+  const nonBlock = matching.filter((rule) => !rule.block);
+  if (nonBlock.length === 0) {
+    return { verdict: 'allow' };
+  }
+  const maxSpecificity = Math.max(...nonBlock.map(ruleSpecificity));
+  const topTier = nonBlock.filter((rule) => ruleSpecificity(rule) === maxSpecificity);
+  const approveRule = topTier.find((rule) => rule.approve);
+  if (approveRule) {
+    return {
+      verdict: 'require-approval',
+      matchedRule: approveRule,
+      reason: 'requires approval per @proxy(approve=true) rule',
+    };
+  }
+  return { verdict: 'allow', matchedRule: topTier[0] };
 }
 
 /**

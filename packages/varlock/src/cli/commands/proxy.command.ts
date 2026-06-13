@@ -11,6 +11,11 @@ import {
   type ProxyAuditLog,
 } from '../../proxy/audit';
 import {
+  createAutoDenyApprovalProvider,
+  createTtyApprovalProvider,
+  type ApprovalProvider,
+} from '../../proxy/approval';
+import {
   cleanupStaleProxySessions,
   createProxySessionRecord,
   deleteProxySessionRecord,
@@ -288,6 +293,7 @@ async function createRuntimeAndSession(opts: {
   policy: PreparedProxyPolicy;
   entryPaths?: Array<string>;
   command?: Array<string>;
+  approvalProvider: ApprovalProvider;
 }): Promise<{
   runtime: Awaited<ReturnType<typeof startLocalProxyRuntime>>;
   session: ProxySessionRecord;
@@ -311,6 +317,7 @@ async function createRuntimeAndSession(opts: {
     managedItems: opts.policy.proxyManagedItems,
     rules: opts.policy.proxyRules,
     egressMode: opts.policy.egressMode,
+    approvalProvider: opts.approvalProvider,
     onActivity: (activity) => {
       statsWriter.onActivity(activity);
       auditLog.record(activity);
@@ -406,6 +413,10 @@ async function runAction(ctx: any) {
     policy,
     entryPaths: ctx.values.path,
     command: commandToRunAsArgs,
+    // The child owns this terminal's stdio, so we can't safely prompt here —
+    // require-approval requests fail closed. Use `proxy start` for interactive
+    // approval (the proxy owns the terminal there).
+    approvalProvider: createAutoDenyApprovalProvider(),
   });
   console.error(`Proxy session ${session.id} active. Monitor with \`varlock proxy status --session ${session.id} --watch\`.`);
 
@@ -539,6 +550,9 @@ async function startAction(ctx: any) {
   } = await createRuntimeAndSession({
     policy,
     entryPaths: ctx.values.path,
+    // The proxy owns this terminal (the agent runs elsewhere and routes through
+    // it), so require-approval requests can prompt here.
+    approvalProvider: createTtyApprovalProvider(),
   });
 
   console.log(`Started proxy session ${session.id} (${session.uuid})`);
