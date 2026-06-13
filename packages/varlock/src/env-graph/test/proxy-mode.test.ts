@@ -78,6 +78,51 @@ describe('proxy decorators', () => {
     ]);
   });
 
+  test('@proxy=passthrough / =omit parse as value-form modes (no rule created)', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @sensitive
+      # @proxy=passthrough
+      PASS_KEY=real-value
+
+      # @sensitive
+      # @proxy=omit
+      OMIT_KEY=real-value
+    `);
+
+    expect(graph.configSchema.PASS_KEY.getDec('proxy')?.resolvedValue).toBe('passthrough');
+    expect(graph.configSchema.OMIT_KEY.getDec('proxy')?.resolvedValue).toBe('omit');
+    // value-form @proxy does not create a routing rule
+    expect(await graph.getProxyRules()).toEqual([]);
+  });
+
+  test('mixing @proxy=value and @proxy(...) on one item is an error', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @sensitive
+      # @proxy=passthrough
+      # @proxy(domain="api.x.com")
+      MIXED=secret
+    `);
+
+    const errors = graph.configSchema.MIXED.decoratorSchemaErrors;
+    expect(errors.some((e) => /both a value .* and a function/.test(e.message))).toBe(true);
+  });
+
+  test('@proxy=<invalid> is rejected', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy=nonsense
+      BAD=secret
+    `);
+
+    const errors = graph.configSchema.BAD.decoratorSchemaErrors;
+    expect(errors.some((e) => /must be "passthrough" or "omit"/.test(e.message))).toBe(true);
+  });
+
   test('proxy managed items generate placeholders by priority', async () => {
     const graph = await loadGraph(outdent`
       # ---
