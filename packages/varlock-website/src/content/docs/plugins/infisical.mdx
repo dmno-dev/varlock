@@ -53,9 +53,10 @@ INFISICAL_CLIENT_ID=
 # @type=infisicalClientSecret @sensitive
 INFISICAL_CLIENT_SECRET=
 ```
-:::caution[Note for EU users] Infisical default `siteUrl` is `https://app.infisical.com`.
-If you are using the Infisical EU Cloud, you need to pass to `@initFisical` also the `siteUrl` param with the value `https://eu.infisical.com`
-[Infisical Universal Auth Documentation](https://infisical.com/docs/documentation/platform/identities/universal-auth)
+:::caution[Note for EU users]
+If you are using the Infisical EU Cloud, you must set `@initFisical(siteUrl=https://eu.infisical.com)`
+
+(See [Universal Auth Documentation](https://infisical.com/docs/documentation/platform/identities/universal-auth))
 :::
 
 ### Machine identity setup
