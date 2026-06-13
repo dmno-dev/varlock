@@ -119,10 +119,12 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
       res.end(JSON.stringify({ ok: true }));
     });
 
+    const activities: Array<import('./audit').ProxyActivity> = [];
     const runtime = await startLocalProxyRuntime({
       managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
       rules: [{ source: 'attached', domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
       egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
     });
     const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
 
@@ -151,6 +153,13 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     // The proxy swapped the placeholder for the real key before the upstream saw it.
     expect(upstreamAuthHeader).toBe('Bearer sk-stub-REALKEY');
     expect(upstreamAuthHeader).not.toContain('PLACEHOLDER');
+
+    // The audit activity records the injected item by KEY, with the real
+    // decision, and never carries the real (or placeholder) secret value.
+    const allow = activities.find((a) => a.decision === 'allow');
+    expect(allow).toBeDefined();
+    expect(allow).toMatchObject({ host: UPSTREAM_HOST, method: 'GET', injectedKeys: ['API_KEY'] });
+    expect(JSON.stringify(activities)).not.toContain('sk-stub-REALKEY');
 
     tlsSocket.destroy();
     await runtime.stop();

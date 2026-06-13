@@ -5,6 +5,12 @@ import { exec } from '../../lib/exec';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { startLocalProxyRuntime } from '../../proxy/runtime-proxy';
 import {
+  createProxyAuditLog,
+  readProxyAuditLines,
+  type ProxyAuditEntry,
+  type ProxyAuditLog,
+} from '../../proxy/audit';
+import {
   cleanupStaleProxySessions,
   createProxySessionRecord,
   deleteProxySessionRecord,
@@ -46,7 +52,7 @@ export const commandSpec = define({
     format: {
       type: 'string',
       short: 'f',
-      description: 'Output format (used by `proxy env`): shell (default) or json',
+      description: 'Output format: `proxy env` → shell (default) or json; `proxy audit` → text (default) or json',
     },
     watch: {
       type: 'boolean',
@@ -78,6 +84,7 @@ Proxy command surface:
   varlock proxy start
   varlock proxy env --session abc12
   varlock proxy status
+  varlock proxy audit --session abc12
   varlock proxy refresh --session abc12
   varlock proxy stop --session abc12
   varlock proxy stop --all
@@ -191,7 +198,7 @@ function getAction(ctx: any): string {
   if (!action) {
     throw new CliExitError(
       'Missing proxy action.',
-      { suggestion: 'Use one of: run, start, env, status, refresh, stop' },
+      { suggestion: 'Use one of: run, start, env, status, audit, refresh, stop' },
     );
   }
   return action;
@@ -285,16 +292,30 @@ async function createRuntimeAndSession(opts: {
   runtime: Awaited<ReturnType<typeof startLocalProxyRuntime>>;
   session: ProxySessionRecord;
   statsWriter: ReturnType<typeof createSessionStatsWriter>;
+  auditLog: ProxyAuditLog;
 }> {
   const identity = await reserveProxySessionIdentity();
   const statsWriter = createSessionStatsWriter(identity.uuid, EMPTY_PROXY_SESSION_STATS);
+  const now = new Date().toISOString();
+  // Append-only audit log (Invariant #7): one entry per request decision, no
+  // secret values. Persists after the session record is deleted on cleanup.
+  const auditLog = createProxyAuditLog(identity.uuid, {
+    ts: now,
+    id: identity.id,
+    uuid: identity.uuid,
+    cwd: process.cwd(),
+    egressMode: opts.policy.egressMode,
+    ...(opts.command?.length ? { command: opts.command } : {}),
+  });
   const runtime = await startLocalProxyRuntime({
     managedItems: opts.policy.proxyManagedItems,
     rules: opts.policy.proxyRules,
     egressMode: opts.policy.egressMode,
-    onActivity: statsWriter.onActivity,
+    onActivity: (activity) => {
+      statsWriter.onActivity(activity);
+      auditLog.record(activity);
+    },
   });
-  const now = new Date().toISOString();
   const session = await createProxySessionRecord({
     id: identity.id,
     uuid: identity.uuid,
@@ -314,7 +335,9 @@ async function createRuntimeAndSession(opts: {
     ...(opts.command?.length ? { command: opts.command } : {}),
   });
 
-  return { runtime, session, statsWriter };
+  return {
+    runtime, session, statsWriter, auditLog,
+  };
 }
 
 function applyInjectModeFromFlags(ctx: any): {
@@ -377,7 +400,9 @@ async function runAction(ctx: any) {
   const commandToRunStr = commandToRunAsArgs.join(' ');
 
   const policy = await prepareProxyPolicy(ctx.values.path);
-  const { runtime, session, statsWriter } = await createRuntimeAndSession({
+  const {
+    runtime, session, statsWriter, auditLog,
+  } = await createRuntimeAndSession({
     policy,
     entryPaths: ctx.values.path,
     command: commandToRunAsArgs,
@@ -407,6 +432,7 @@ async function runAction(ctx: any) {
     await statsWriter.flushNow();
     statsWriter.stop();
     await runtime.stop().catch(() => undefined);
+    await auditLog.flush().catch(() => undefined);
     await deleteProxySessionRecord(session.uuid).catch(() => undefined);
   };
 
@@ -508,7 +534,9 @@ async function runAction(ctx: any) {
 
 async function startAction(ctx: any) {
   const policy = await prepareProxyPolicy(ctx.values.path);
-  const { runtime, session, statsWriter } = await createRuntimeAndSession({
+  const {
+    runtime, session, statsWriter, auditLog,
+  } = await createRuntimeAndSession({
     policy,
     entryPaths: ctx.values.path,
   });
@@ -524,6 +552,7 @@ async function startAction(ctx: any) {
     await statsWriter.flushNow();
     statsWriter.stop();
     await runtime.stop().catch(() => undefined);
+    await auditLog.flush().catch(() => undefined);
     await deleteProxySessionRecord(session.uuid).catch(() => undefined);
   };
 
@@ -676,6 +705,52 @@ async function stopAction(ctx: any) {
   }
 }
 
+function formatAuditEntry(entry: ProxyAuditEntry): string {
+  const injected = entry.injected && entry.injectedKeys?.length
+    ? ` injected=${entry.injectedKeys.join(',')}`
+    : '';
+  const rule = entry.ruleId ? ` rule="${entry.ruleId}"` : '';
+  return `${entry.ts} ${entry.decision.padEnd(16)} ${entry.method.padEnd(7)} ${entry.host}${entry.path}${injected}${rule}`;
+}
+
+async function auditAction(ctx: any) {
+  const format = (ctx.values.format ?? 'text').toLowerCase();
+  if (format !== 'text' && format !== 'json') {
+    throw new CliExitError('Invalid --format for `proxy audit`. Use "text" or "json".');
+  }
+
+  // Resolve the session uuid. Prefer the live registry (accepts short ids and
+  // ancestry), but fall back to treating an explicit value as a uuid, since the
+  // audit log outlives the (deleted-on-stop) session record.
+  let uuid: string;
+  try {
+    const session = await resolveProxySessionForCommand({
+      explicitSession: ctx.values.session,
+      env: process.env,
+      defaultToSingleActive: true,
+    });
+    uuid = session.uuid;
+  } catch (error) {
+    if (!ctx.values.session) throw new CliExitError((error as Error).message);
+    uuid = ctx.values.session;
+  }
+
+  const lines = await readProxyAuditLines(uuid);
+  if (format === 'json') {
+    console.log(JSON.stringify(lines, null, 2));
+    return;
+  }
+
+  const entries = lines.filter((line): line is ProxyAuditEntry => line.type === 'request');
+  if (!entries.length) {
+    console.log('No audit entries for this session.');
+    return;
+  }
+  for (const entry of entries) {
+    console.log(formatAuditEntry(entry));
+  }
+}
+
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const action = getAction(ctx);
 
@@ -688,6 +763,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       return await envAction(ctx);
     case 'status':
       return await statusAction(ctx);
+    case 'audit':
+      return await auditAction(ctx);
     case 'refresh':
       return await refreshAction(ctx);
     case 'stop':
@@ -695,7 +772,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     default:
       throw new CliExitError(
         `Unknown proxy action "${action}".`,
-        { suggestion: 'Use one of: run, start, env, status, refresh, stop' },
+        { suggestion: 'Use one of: run, start, env, status, audit, refresh, stop' },
       );
   }
 };

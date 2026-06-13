@@ -11,9 +11,10 @@ import { StringDecoder } from 'node:string_decoder';
 import tls from 'node:tls';
 import { URL } from 'node:url';
 
+import type { ProxyActivity } from './audit';
 import { createEphemeralCa, createHostCert } from './cert-authority';
 import {
-  evaluateProxyPolicy, getRequestScopedManagedItems, type RequestFacts,
+  describeRule, evaluateProxyPolicy, getRequestScopedManagedItems, type RequestFacts,
 } from './policy';
 import type { ProxyEgressMode, ProxyManagedItem, ProxyRule } from './types';
 
@@ -28,10 +29,7 @@ export type StartLocalProxyRuntimeInput = {
   managedItems: Array<ProxyManagedItem>;
   rules: Array<ProxyRule>;
   egressMode: ProxyEgressMode;
-  onActivity?: (activity: {
-    matched: boolean;
-    blocked: boolean;
-  }) => void;
+  onActivity?: (activity: ProxyActivity) => void;
 };
 
 type HostInfo = { host: string, port: number };
@@ -122,6 +120,20 @@ function replacePlaceholdersWithReal(value: string, managedItems: Array<ProxyMan
     }
   }
   return next;
+}
+
+/**
+ * Which managed items' placeholders actually appear in this request — i.e. the
+ * secrets that will really be injected. Used for the audit log so it records
+ * what was injected (keys only), not merely what was in scope.
+ */
+function detectInjectedKeys(parts: Array<string>, hostItems: Array<ProxyManagedItem>): Array<string> {
+  const keys: Array<string> = [];
+  for (const item of hostItems) {
+    if (!item.placeholder) continue;
+    if (parts.some((part) => part.includes(item.placeholder))) keys.push(item.key);
+  }
+  return keys;
 }
 
 function replaceRealWithPlaceholders(value: string, managedItems: Array<ProxyManagedItem>): string {
@@ -377,12 +389,18 @@ export async function startLocalProxyRuntime({
       return;
     }
 
+    const method = req.method ?? 'GET';
+    const rawUrl = req.url ?? '/';
+    const pathOnly = rawUrl.split('?')[0] ?? '/';
+    const baseActivity = {
+      host: hostInfo.host, method, path: pathOnly, url: rawUrl,
+    };
+
     const shouldRewrite = hostMatchesProxyRules(hostInfo.host, rules);
     const shouldAllowEgress = egressMode === 'permissive' || shouldRewrite;
     if (!shouldAllowEgress) {
       onActivity?.({
-        matched: shouldRewrite,
-        blocked: true,
+        ...baseActivity, matched: shouldRewrite, blocked: true, decision: 'blocked-egress',
       });
       res.statusCode = 403;
       res.end('Proxy egress blocked by strict mode');
@@ -390,13 +408,13 @@ export async function startLocalProxyRuntime({
     }
     // Per-call policy (Invariant: static authorization). Evaluate host + method
     // + path against the rules; a matching `block` rule denies the request.
-    const facts: RequestFacts = {
-      host: hostInfo.host,
-      method: req.method ?? 'GET',
-      path: (req.url ?? '/').split('?')[0] ?? '/',
-    };
-    if (shouldRewrite && evaluateProxyPolicy(facts, rules).verdict === 'deny') {
-      onActivity?.({ matched: true, blocked: true });
+    const facts: RequestFacts = { host: hostInfo.host, method, path: pathOnly };
+    const policyDecision = shouldRewrite ? evaluateProxyPolicy(facts, rules) : undefined;
+    const ruleId = policyDecision?.matchedRule ? { ruleId: describeRule(policyDecision.matchedRule) } : {};
+    if (policyDecision?.verdict === 'deny') {
+      onActivity?.({
+        ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'deny',
+      });
       // Fail closed: the request is denied and never reaches upstream. Best-effort
       // 403, then tear down (short MITM-tunnel responses don't reliably flush).
       try {
@@ -407,12 +425,20 @@ export async function startLocalProxyRuntime({
       return;
     }
 
-    onActivity?.({
-      matched: shouldRewrite,
-      blocked: false,
-    });
     const hostItems = shouldRewrite ? getRequestScopedManagedItems(facts, rules, managedItems) : [];
     const body = await readBody(req);
+    const injectedKeys = shouldRewrite
+      ? detectInjectedKeys([rawUrl, JSON.stringify(req.headers), body.toString('utf8')], hostItems)
+      : [];
+    onActivity?.({
+      ...baseActivity,
+      ...ruleId,
+      matched: shouldRewrite,
+      blocked: false,
+      decision: 'allow',
+      ...(injectedKeys.length ? { injectedKeys } : {}),
+    });
+
     const rewrittenBody = shouldRewrite
       ? Buffer.from(replacePlaceholdersWithReal(body.toString('utf8'), hostItems), 'utf8')
       : body;
@@ -426,8 +452,8 @@ export async function startLocalProxyRuntime({
     delete upstreamHeaders['proxy-connection'];
     delete upstreamHeaders.connection;
     const rewrittenPath = shouldRewrite
-      ? buildPathnameAndQuery(req.url ?? '/', hostItems)
-      : (req.url ?? '/');
+      ? buildPathnameAndQuery(rawUrl, hostItems)
+      : rawUrl;
 
     if (rewrittenBody.byteLength !== body.byteLength) {
       upstreamHeaders['content-length'] = String(rewrittenBody.byteLength);
@@ -519,46 +545,62 @@ export async function startLocalProxyRuntime({
       return;
     }
 
+    const method = clientReq.method ?? 'GET';
+    const pathOnly = destination.pathname;
+    const url = `${destination.pathname}${destination.search}`;
+    const baseActivity = {
+      host: destination.hostname, method, path: pathOnly, url,
+    };
+
     const shouldRewrite = hostMatchesProxyRules(destination.hostname, rules);
     const shouldAllowEgress = egressMode === 'permissive' || shouldRewrite;
     if (!shouldAllowEgress) {
       onActivity?.({
-        matched: shouldRewrite,
-        blocked: true,
+        ...baseActivity, matched: shouldRewrite, blocked: true, decision: 'blocked-egress',
       });
       clientRes.statusCode = 403;
       clientRes.end('Proxy egress blocked by strict mode');
       return;
     }
-    const facts: RequestFacts = {
-      host: destination.hostname,
-      method: clientReq.method ?? 'GET',
-      path: destination.pathname,
-    };
-    if (shouldRewrite && evaluateProxyPolicy(facts, rules).verdict === 'deny') {
-      onActivity?.({ matched: true, blocked: true });
+    const facts: RequestFacts = { host: destination.hostname, method, path: pathOnly };
+    const policyDecision = shouldRewrite ? evaluateProxyPolicy(facts, rules) : undefined;
+    const ruleId = policyDecision?.matchedRule ? { ruleId: describeRule(policyDecision.matchedRule) } : {};
+    if (policyDecision?.verdict === 'deny') {
+      onActivity?.({
+        ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'deny',
+      });
       clientRes.statusCode = 403;
       clientRes.end('Blocked by proxy policy');
       return;
     }
 
-    onActivity?.({
-      matched: shouldRewrite,
-      blocked: false,
-    });
     const isHttps = destination.protocol === 'https:';
     const hostItems = shouldRewrite ? getRequestScopedManagedItems(facts, rules, managedItems) : [];
 
     // Invariant #2/#5: never inject a secret into a cleartext (non-TLS)
     // connection — no cert means no verifiable identity. Fail closed.
     if (hostItems.length > 0 && !isHttps) {
-      onActivity?.({ matched: true, blocked: true });
+      onActivity?.({
+        ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-cleartext',
+      });
       clientRes.statusCode = 403;
       clientRes.end('Refusing to inject secrets into a cleartext (non-TLS) connection');
       return;
     }
 
     const body = await readBody(clientReq);
+    const injectedKeys = shouldRewrite
+      ? detectInjectedKeys([url, JSON.stringify(clientReq.headers), body.toString('utf8')], hostItems)
+      : [];
+    onActivity?.({
+      ...baseActivity,
+      ...ruleId,
+      matched: shouldRewrite,
+      blocked: false,
+      decision: 'allow',
+      ...(injectedKeys.length ? { injectedKeys } : {}),
+    });
+
     const rewrittenBody = shouldRewrite
       ? Buffer.from(replacePlaceholdersWithReal(body.toString('utf8'), hostItems), 'utf8')
       : body;
@@ -615,9 +657,16 @@ export async function startLocalProxyRuntime({
     const shouldRewrite = hostMatchesProxyRules(hostInfo.host, rules);
     const shouldAllowEgress = egressMode === 'permissive' || shouldRewrite;
     if (!shouldAllowEgress) {
+      // CONNECT only exposes host:port; the per-request audit entry (method/path)
+      // comes later from the MITM handler for allowed hosts. Here we record the
+      // host-level egress denial.
       onActivity?.({
+        host: hostInfo.host,
+        method: 'CONNECT',
+        path: '/',
         matched: shouldRewrite,
         blocked: true,
+        decision: 'blocked-egress',
       });
       const blockedBody = 'Proxy egress blocked by strict mode';
       clientSocket.write(
