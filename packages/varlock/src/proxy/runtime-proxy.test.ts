@@ -55,6 +55,41 @@ describe('startLocalProxyRuntime', () => {
     expect(runtime.env.CURL_CA_BUNDLE).toBeDefined();
     expect(runtime.env.GIT_SSL_CAINFO).toBeDefined();
 
+    expect(new URL(runtime.env.HTTP_PROXY!).hostname).toBe('127.0.0.1');
+
+    await runtime.stop();
+  });
+
+  test('advertises the bound host in the proxy url and serves over it', async () => {
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [],
+      rules: [],
+      egressMode: 'permissive',
+      listen: { host: '127.0.0.1' },
+    });
+
+    const url = new URL(runtime.env.HTTP_PROXY!);
+    expect(url.hostname).toBe('127.0.0.1');
+    expect(Number(url.port)).toBeGreaterThan(0);
+
+    // The advertised address is actually listening (proves bind host == advertised host).
+    const response = await requestViaProxy(runtime.env.HTTP_PROXY!, 'http://example.com/');
+    expect(response.statusCode).toBeGreaterThan(0);
+
+    await runtime.stop();
+  });
+
+  test('falls back to loopback advertise host when binding to a wildcard', async () => {
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [],
+      rules: [],
+      egressMode: 'permissive',
+      listen: { host: '0.0.0.0' },
+    });
+
+    // A wildcard bind isn't routable as a URL, so the advertised host is loopback.
+    expect(new URL(runtime.env.HTTP_PROXY!).hostname).toBe('127.0.0.1');
+
     await runtime.stop();
   });
 
@@ -283,7 +318,7 @@ describe('startLocalProxyRuntime', () => {
       managedItems: [],
       rules: [
         {
-          source: 'attached', domain: ['127.0.0.1'], itemKeys: [], approve: true,
+          source: 'attached', domain: ['127.0.0.1'], itemKeys: [], approval: true,
         },
       ],
       egressMode: 'permissive',
@@ -322,7 +357,7 @@ describe('startLocalProxyRuntime', () => {
       managedItems: [],
       rules: [
         {
-          source: 'attached', domain: ['127.0.0.1'], itemKeys: [], approve: true,
+          source: 'attached', domain: ['127.0.0.1'], itemKeys: [], approval: true,
         },
       ],
       egressMode: 'permissive',

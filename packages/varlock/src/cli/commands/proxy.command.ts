@@ -16,6 +16,11 @@ import {
   type ApprovalProvider,
 } from '../../proxy/approval';
 import {
+  createApprovalGrantStore,
+  createGrantingApprovalProvider,
+  type ApprovalGrantStore,
+} from '../../proxy/approval-grants';
+import {
   cleanupStaleProxySessions,
   createProxySessionRecord,
   deleteProxySessionRecord,
@@ -31,6 +36,11 @@ import {
   PROXY_PARENT_PID_ENV_VAR,
 } from '../../proxy/env-vars';
 import type { ProxyManagedItem, ProxyRule } from '../../proxy/types';
+import {
+  buildSandboxWiring,
+  formatAppleContainerRunFlags,
+  parseBindAddress,
+} from '../../proxy/sandbox-wiring';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { resetRedactionMap, redactSensitiveConfig } from '../../runtime/env';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
@@ -58,7 +68,7 @@ export const commandSpec = define({
     format: {
       type: 'string',
       short: 'f',
-      description: 'Output format: `proxy env` → shell (default) or json; `proxy audit` → text (default) or json',
+      description: 'Output format: `proxy env` → shell (default), json, or apple-container; `proxy audit` → text (default) or json',
     },
     watch: {
       type: 'boolean',
@@ -82,6 +92,10 @@ export const commandSpec = define({
       type: 'string',
       short: 'i',
       description: 'Control what gets injected into child env for `proxy run`: "all" (default), "vars", or "blob"',
+    },
+    bind: {
+      type: 'string',
+      description: 'For `proxy start`: bind the proxy to host[:port] so a sandboxed guest can reach it (e.g. a `container` network gateway). Default: 127.0.0.1 on a random port.',
     },
   },
   examples: `
@@ -327,14 +341,26 @@ async function createRuntimeAndSession(opts: {
   entryPaths?: Array<string>;
   command?: Array<string>;
   approvalProvider: ApprovalProvider;
+  /** Persist session/duration approval scopes as standing grants (interactive sessions only). */
+  enableApprovalGrants?: boolean;
+  /** Bind the front proxy to a reachable address (sandbox gateway) instead of loopback. */
+  listen?: { host?: string; port?: number };
 }): Promise<{
   runtime: Awaited<ReturnType<typeof startLocalProxyRuntime>>;
   session: ProxySessionRecord;
   statsWriter: ReturnType<typeof createSessionStatsWriter>;
   auditLog: ProxyAuditLog;
+  grantStore?: ApprovalGrantStore;
 }> {
   const identity = await reserveProxySessionIdentity();
   const statsWriter = createSessionStatsWriter(identity.uuid, EMPTY_PROXY_SESSION_STATS);
+  // When grants are enabled, a session/duration approval is remembered so future
+  // matching requests auto-approve without re-prompting (the seam the phone
+  // approver reuses). Keyed to this session's uuid; torn down on stop.
+  const grantStore = opts.enableApprovalGrants ? createApprovalGrantStore(identity.uuid) : undefined;
+  const approvalProvider = grantStore
+    ? createGrantingApprovalProvider({ inner: opts.approvalProvider, store: grantStore })
+    : opts.approvalProvider;
   const now = new Date().toISOString();
   // Append-only audit log (Invariant #7): one entry per request decision, no
   // secret values. Persists after the session record is deleted on cleanup.
@@ -350,11 +376,12 @@ async function createRuntimeAndSession(opts: {
     managedItems: opts.policy.proxyManagedItems,
     rules: opts.policy.proxyRules,
     egressMode: opts.policy.egressMode,
-    approvalProvider: opts.approvalProvider,
+    approvalProvider,
     onActivity: (activity) => {
       statsWriter.onActivity(activity);
       auditLog.record(activity);
     },
+    ...(opts.listen ? { listen: opts.listen } : {}),
   });
   const session = await createProxySessionRecord({
     id: identity.id,
@@ -376,7 +403,7 @@ async function createRuntimeAndSession(opts: {
   });
 
   return {
-    runtime, session, statsWriter, auditLog,
+    runtime, session, statsWriter, auditLog, grantStore,
   };
 }
 
@@ -577,18 +604,31 @@ async function runAction(ctx: any) {
 }
 
 async function startAction(ctx: any) {
+  let listen: { host?: string; port?: number } | undefined;
+  if (ctx.values.bind) {
+    const bind = parseBindAddress(ctx.values.bind);
+    listen = { host: bind.host, ...(bind.port ? { port: bind.port } : {}) };
+  }
+
   const policy = await prepareProxyPolicy(ctx.values.path);
   const {
-    runtime, session, statsWriter, auditLog,
+    runtime, session, statsWriter, auditLog, grantStore,
   } = await createRuntimeAndSession({
     policy,
     entryPaths: ctx.values.path,
     // The proxy owns this terminal (the agent runs elsewhere and routes through
-    // it), so require-approval requests can prompt here.
+    // it), so require-approval requests can prompt here — and session/duration
+    // approvals can be remembered as standing grants.
     approvalProvider: createTtyApprovalProvider(),
+    enableApprovalGrants: true,
+    ...(listen ? { listen } : {}),
   });
 
   console.log(`Started proxy session ${session.id} (${session.uuid})`);
+  if (listen?.host && listen.host !== '127.0.0.1' && listen.host !== 'localhost') {
+    console.log(`Proxy bound to ${session.env.HTTPS_PROXY} — reachable from a sandbox guest on that network.`);
+    console.log(`Use \`varlock proxy env --session ${session.id} --format apple-container\` for container-run flags.`);
+  }
   console.log(`Use \`varlock proxy env --session ${session.id}\` to print env exports.`);
   console.log(`Use \`varlock proxy status --session ${session.id} --watch\` to monitor activity.`);
 
@@ -600,6 +640,7 @@ async function startAction(ctx: any) {
     statsWriter.stop();
     await runtime.stop().catch(() => undefined);
     await auditLog.flush().catch(() => undefined);
+    await grantStore?.destroy().catch(() => undefined);
     await deleteProxySessionRecord(session.uuid).catch(() => undefined);
   };
 
@@ -613,6 +654,26 @@ async function startAction(ctx: any) {
   });
 }
 
+/**
+ * Emit the env + CA bind-mount a `container` (Apple) guest needs to route egress
+ * through this proxy session. Pair with a `--internal` network and a proxy bound
+ * to that network's gateway (`proxy start --bind <gateway>:<port>`).
+ */
+function printAppleContainerEnv(session: ProxySessionRecord) {
+  const wiring = buildSandboxWiring(session);
+  if (wiring.proxyIsLoopback) {
+    console.error(
+      'Warning: this proxy session is bound to loopback, so a container guest cannot reach it.\n'
+      + 'Restart it bound to your network gateway, e.g. `varlock proxy start --bind 192.168.64.1:8888`.',
+    );
+  }
+  console.log('# `container run` flags for this proxy session. Wrap with your network/image/command:');
+  console.log('#   container run --network <internal-net> \\');
+  console.log('#     <flags below> \\');
+  console.log('#     <image> <command>');
+  console.log(formatAppleContainerRunFlags(wiring));
+}
+
 async function envAction(ctx: any) {
   const session = await resolveProxySessionForCommand({
     explicitSession: ctx.values.session,
@@ -623,8 +684,13 @@ async function envAction(ctx: any) {
   });
 
   const format = (ctx.values.format ?? 'shell').toLowerCase();
-  if (format !== 'shell' && format !== 'json') {
-    throw new CliExitError('Invalid --format for `proxy env`. Use "shell" or "json".');
+  if (format !== 'shell' && format !== 'json' && format !== 'apple-container') {
+    throw new CliExitError('Invalid --format for `proxy env`. Use "shell", "json", or "apple-container".');
+  }
+
+  if (format === 'apple-container') {
+    printAppleContainerEnv(session);
+    return;
   }
 
   const env = getProxySessionExportEnv(session);

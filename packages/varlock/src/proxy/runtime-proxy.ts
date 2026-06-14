@@ -19,7 +19,9 @@ import { createEphemeralCa, createHostCert } from './cert-authority';
 import {
   describeRule, evaluateProxyPolicy, getRequestScopedManagedItems, type RequestFacts,
 } from './policy';
-import type { ProxyEgressMode, ProxyManagedItem, ProxyRule } from './types';
+import type {
+  ProxyApprovalEach, ProxyEgressMode, ProxyManagedItem, ProxyRule,
+} from './types';
 
 const LOCALHOST = '127.0.0.1';
 
@@ -38,6 +40,18 @@ export type StartLocalProxyRuntimeInput = {
    * (deny on timeout/error). Absent ⇒ require-approval requests are denied.
    */
   approvalProvider?: ApprovalProvider;
+  /**
+   * Where the front proxy server listens. Defaults to loopback on an ephemeral
+   * port. Bind a reachable address (e.g. a sandbox network's gateway IP) so a
+   * sandboxed guest can route its egress through the proxy. The internal MITM
+   * TLS servers always stay on loopback regardless of this setting.
+   */
+  listen?: {
+    host?: string;
+    port?: number;
+    /** Host to advertise in the injected proxy URL. Defaults to `host` (or loopback when `host` is a wildcard). */
+    advertiseHost?: string;
+  };
 };
 
 type HostInfo = { host: string, port: number };
@@ -106,6 +120,8 @@ async function runApprovalGate(input: {
   path: string;
   body: Buffer;
   ruleId?: string;
+  each?: ProxyApprovalEach;
+  maxDurationMs?: number;
   injectedKeys: Array<string>;
 }): Promise<boolean> {
   if (!input.approvalProvider) return false;
@@ -115,6 +131,8 @@ async function runApprovalGate(input: {
     path: input.path,
     body: input.body,
     ruleId: input.ruleId,
+    each: input.each,
+    maxDurationMs: input.maxDurationMs,
     injectedKeys: input.injectedKeys,
   });
   try {
@@ -384,7 +402,14 @@ export async function startLocalProxyRuntime({
   egressMode,
   onActivity,
   approvalProvider,
+  listen,
 }: StartLocalProxyRuntimeInput): Promise<ProxyRuntimeContext> {
+  const listenHost = listen?.host ?? LOCALHOST;
+  const listenPort = listen?.port ?? 0;
+  const isWildcardHost = listenHost === '0.0.0.0' || listenHost === '::';
+  // What the guest/child connects to. A wildcard bind isn't routable as a URL,
+  // so fall back to loopback for the advertised address in that case.
+  const advertiseHost = listen?.advertiseHost ?? (isWildcardHost ? LOCALHOST : listenHost);
   // Only the public CA cert is written to disk (for child trust). Private keys
   // — the CA's and every per-host leaf's — stay in memory; see cert-authority.ts.
   const certsDir = await mkdtemp(path.join(os.tmpdir(), 'varlock-proxy-certs-'));
@@ -450,7 +475,15 @@ export async function startLocalProxyRuntime({
     // request-bound decision. Fail closed (deny) unless explicitly approved.
     if (policyDecision?.verdict === 'require-approval') {
       const approved = await runApprovalGate({
-        approvalProvider, method, host: hostInfo.host, path: pathOnly, body, ruleId: ruleIdStr, injectedKeys,
+        approvalProvider,
+        method,
+        host: hostInfo.host,
+        path: pathOnly,
+        body,
+        ruleId: ruleIdStr,
+        each: policyDecision.matchedRule?.approvalEach,
+        maxDurationMs: policyDecision.matchedRule?.approvalMaxDurationMs,
+        injectedKeys,
       });
       if (!approved) {
         onActivity?.({
@@ -633,7 +666,15 @@ export async function startLocalProxyRuntime({
     // request-bound decision. Fail closed (deny) unless explicitly approved.
     if (policyDecision?.verdict === 'require-approval') {
       const approved = await runApprovalGate({
-        approvalProvider, method, host: destination.hostname, path: pathOnly, body, ruleId: ruleIdStr, injectedKeys,
+        approvalProvider,
+        method,
+        host: destination.hostname,
+        path: pathOnly,
+        body,
+        ruleId: ruleIdStr,
+        each: policyDecision.matchedRule?.approvalEach,
+        maxDurationMs: policyDecision.matchedRule?.approvalMaxDurationMs,
+        injectedKeys,
       });
       if (!approved) {
         onActivity?.({
@@ -765,7 +806,7 @@ export async function startLocalProxyRuntime({
 
   await new Promise<void>((resolve, reject) => {
     proxyServer.once('error', reject);
-    proxyServer.listen(0, LOCALHOST, () => {
+    proxyServer.listen(listenPort, listenHost, () => {
       proxyServer.off('error', reject);
       resolve();
     });
@@ -778,7 +819,7 @@ export async function startLocalProxyRuntime({
     });
     throw new Error('Failed to start local proxy runtime');
   }
-  const proxyUrl = `http://${LOCALHOST}:${address.port}`;
+  const proxyUrl = `http://${advertiseHost}:${address.port}`;
 
   return {
     env: {

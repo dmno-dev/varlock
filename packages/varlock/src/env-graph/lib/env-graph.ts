@@ -24,7 +24,10 @@ import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
 import { isVarlockReservedKey } from './reserved-vars';
 import { buildOverrideProvenanceMetadata, type OverrideProvenanceMetadata } from '../../lib/injected-env-provenance';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
-import type { ProxyEgressMode, ProxyManagedItem, ProxyRule } from '../../proxy/types';
+import type {
+  ProxyApprovalEach, ProxyEgressMode, ProxyManagedItem, ProxyRule,
+} from '../../proxy/types';
+import { parseDuration } from '../../lib/duration';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -835,6 +838,23 @@ export class EnvGraph {
     return itemKeys;
   }
 
+  /**
+   * Approval fields for a rule, from a resolved `@proxy(...)` arg object.
+   * Approval is required if `approval=true` or any approval config prop is set.
+   */
+  private static buildProxyApprovalFields(obj: any): Partial<ProxyRule> {
+    const approvalEach = _.isString(obj?.approvalEach) ? (obj.approvalEach as ProxyApprovalEach) : undefined;
+    const approvalMaxDurationMs = obj?.approvalMaxDuration !== undefined
+      ? parseDuration(obj.approvalMaxDuration)
+      : undefined;
+    const required = obj?.approval === true || approvalEach !== undefined || approvalMaxDurationMs !== undefined;
+    return {
+      ...(required ? { approval: true } : {}),
+      ...(approvalEach ? { approvalEach } : {}),
+      ...(approvalMaxDurationMs !== undefined ? { approvalMaxDurationMs } : {}),
+    };
+  }
+
   async getProxyRules(): Promise<Array<ProxyRule>> {
     const rules: Array<ProxyRule> = [];
 
@@ -851,7 +871,7 @@ export class EnvGraph {
         ...(_.isString(resolved?.obj?.path) ? { path: resolved.obj.path } : {}),
         ...(_.isString(resolved?.obj?.method) ? { method: resolved.obj.method } : {}),
         ...(_.isBoolean(resolved?.obj?.block) ? { block: resolved.obj.block } : {}),
-        ...(_.isBoolean(resolved?.obj?.approve) ? { approve: resolved.obj.approve } : {}),
+        ...EnvGraph.buildProxyApprovalFields(resolved?.obj),
       });
     }
 
@@ -872,7 +892,7 @@ export class EnvGraph {
           ...(_.isString(resolved?.obj?.path) ? { path: resolved.obj.path } : {}),
           ...(_.isString(resolved?.obj?.method) ? { method: resolved.obj.method } : {}),
           ...(_.isBoolean(resolved?.obj?.block) ? { block: resolved.obj.block } : {}),
-          ...(_.isBoolean(resolved?.obj?.approve) ? { approve: resolved.obj.approve } : {}),
+          ...EnvGraph.buildProxyApprovalFields(resolved?.obj),
         });
       }
     }

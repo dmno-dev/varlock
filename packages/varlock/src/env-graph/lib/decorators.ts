@@ -10,6 +10,8 @@ import type { ConfigItem } from './config-item';
 import { StaticValueResolver, type Resolver, convertParsedValueToResolvers } from './resolver';
 import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
+import { parseDuration } from '../../lib/duration';
+import { PROXY_APPROVAL_EACH_VALUES } from '../../proxy/types';
 
 
 export abstract class DecoratorInstance {
@@ -596,7 +598,7 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
         }
         return;
       }
-      // Function form: @proxy(domain=..., [path], [method], [block], [approve], $REFS)
+      // Function form: @proxy(domain=..., [path], [method], [block], [approval], [approvalEach], [approvalMaxDuration], $REFS)
       const domainResolver = decVal.objArgs?.domain;
       if (!domainResolver) {
         throw new SchemaError('@proxy: missing required "domain" option');
@@ -604,6 +606,22 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
       for (const arg of decVal.arrArgs || []) {
         if (arg.fnName !== 'ref') {
           throw new SchemaError('@proxy: positional args must be item refs like $API_KEY');
+        }
+      }
+      const eachResolver = decVal.objArgs?.approvalEach;
+      if (eachResolver?.isStatic) {
+        const eachVal = eachResolver.staticValue;
+        if (typeof eachVal !== 'string' || !PROXY_APPROVAL_EACH_VALUES.includes(eachVal as any)) {
+          throw new SchemaError(`@proxy: approvalEach must be one of ${PROXY_APPROVAL_EACH_VALUES.join(', ')}`);
+        }
+      }
+      const maxDurResolver = decVal.objArgs?.approvalMaxDuration;
+      if (maxDurResolver?.isStatic) {
+        const maxVal = maxDurResolver.staticValue;
+        try {
+          parseDuration(maxVal as string | number);
+        } catch {
+          throw new SchemaError('@proxy: approvalMaxDuration must be a duration like "15m" or 0 (always ask)');
         }
       }
     },

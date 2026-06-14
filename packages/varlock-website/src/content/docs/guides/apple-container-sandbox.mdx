@@ -1,0 +1,176 @@
+---
+title: Apple container sandbox
+description: Route a sandboxed agent's egress through the varlock proxy using Apple's container runtime
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The varlock proxy lets a process run with **placeholders instead of real secrets**: the agent (or any
+program) sees `vlk_placeholder_…` values, and the proxy swaps them for the real secret only on
+outbound TLS requests to the domains you allow. For that to be a real security boundary — not just a
+convenience — the sandbox must be unable to reach the network *except* through the proxy.
+
+Apple's [`container`](https://github.com/apple/container) runtime gives you exactly that, for free,
+with a built-in **`--internal` (host-only) network**: a container on it can reach *only* the host
+gateway, so a proxy bound there becomes its sole way out. Raw sockets to the internet fail closed.
+
+<Aside type="note">
+Requires macOS 26+ on Apple silicon and `container` ≥ 1.0 (`container system start`). This is a
+macOS-only runtime; for other setups see the per-tool sandbox guides.
+</Aside>
+
+## How it fits together
+
+```
+┌─ host ───────────────────────────────────────────────┐
+│  varlock proxy  ── bound to ─▶ 192.168.x.1:8888       │
+│        ▲ real secrets, MITM CA, audit log             │
+│        │ (sole egress)                                 │
+│  ┌─ container (──internal / host-only network) ──────┐ │
+│  │  agent sees placeholders + HTTPS_PROXY + CA        │ │
+│  │  raw egress → BLOCKED   proxy egress → ALLOWED      │ │
+│  └────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────┘
+```
+
+## 1. Create a host-only network
+
+```bash
+container network create --internal varlock-sandbox
+
+# the gateway IP is the only host address the container can reach
+GATEWAY=$(container network inspect varlock-sandbox \
+  | grep -oE '"ipv4Gateway":"[0-9.]+"' | grep -oE '[0-9]+(\.[0-9]+){3}')
+echo "$GATEWAY"   # e.g. 192.168.64.1
+```
+
+<Aside type="caution" title="Bring the bridge up before binding">
+The gateway IP only exists on the host once a container is attached to the network. Start your
+agent container (or any throwaway container) on `varlock-sandbox` **before** running
+`proxy start --bind`, otherwise the bind fails with `EADDRNOTAVAIL`.
+</Aside>
+
+## 2. Start the proxy bound to the gateway
+
+Run this in a **trusted host context** (it holds the real secrets and the approval prompt):
+
+```bash
+varlock proxy start --bind "$GATEWAY:8888"
+```
+
+Your schema declares which secrets are proxied and to which domains:
+
+```env-spec title=".env.schema"
+# @proxy(domain="api.openai.com")
+OPENAI_API_KEY=encrypted(…)
+```
+
+The proxy prints a session id. Leave it running.
+
+## 3. Generate the container wiring
+
+```bash
+varlock proxy env --session <id> --format apple-container
+```
+
+This emits a ready-to-paste block: a read-only mount for the proxy's CA directory, the
+`HTTPS_PROXY`/CA environment pointed at the in-guest paths, and the placeholder values for your
+`@proxy` secrets.
+
+```bash
+--mount type=bind,source=/var/folders/…/varlock-proxy-certs-XXXX,target=/etc/varlock/proxy-certs,readonly \
+  -e 'HTTPS_PROXY=http://192.168.64.1:8888' \
+  -e 'CURL_CA_BUNDLE=/etc/varlock/proxy-certs/combined-ca.pem' \
+  -e 'NODE_EXTRA_CA_CERTS=/etc/varlock/proxy-certs/combined-ca.pem' \
+  -e 'OPENAI_API_KEY=vlk_placeholder_OPENAI_API_KEY_…'
+```
+
+<Aside type="note">
+Apple `container` bind mounts must target a **directory**, so varlock mounts the whole certs
+directory — which contains only public certificates (private keys never touch disk).
+</Aside>
+
+## 4. Run the agent
+
+Wrap the emitted flags with your network, image and command:
+
+```bash
+container run --rm --network varlock-sandbox \
+  <flags from step 3> \
+  your-agent-image your-agent-command
+```
+
+Inside the container the agent uses the placeholder values; the proxy substitutes the real secret
+on requests to the allowed domains and logs every decision (`varlock proxy audit --session <id>`).
+
+## Verify the boundary
+
+```bash
+# raw egress — blocked (no route to the internet)
+container run --rm --network varlock-sandbox curlimages/curl \
+  curl -s -m6 --noproxy '*' https://api.ipify.org   # fails
+
+# through the proxy — works, and shows up in the audit log
+container run --rm --network varlock-sandbox \
+  --mount type=bind,source=<certs-dir>,target=/etc/varlock/proxy-certs,readonly \
+  -e HTTPS_PROXY=http://$GATEWAY:8888 \
+  -e CURL_CA_BUNDLE=/etc/varlock/proxy-certs/combined-ca.pem \
+  curlimages/curl curl -s https://api.ipify.org      # succeeds
+```
+
+## Running a coding agent against your project
+
+A common goal is to run an agent (and the dependency installs and commands it triggers) *inside* the
+sandbox, while still editing your code in your usual IDE on the host. The key thing to internalize:
+**you don't edit files "inside" the container.** A bind mount projects your host directory into the
+guest read-write — same bytes, both directions — so you edit on the host and the agent reads/writes
+the same files.
+
+```bash
+# --mount (bind): your project, read-write, shared live with the host IDE
+# --mount (volume): keep node_modules container-only (see below)
+container run --rm --network varlock-sandbox \
+  --mount type=bind,source=$PWD,target=/workspace \
+  --mount type=volume,source=proj-node-modules,target=/workspace/node_modules \
+  -w /workspace \
+  <flags from step 3> \
+  node:22 your-agent-command
+```
+
+- **Edit on host, execute in the box.** Your IDE edits the host files; the agent reads them on the
+  next read (no watcher needed). The agent's edits flow back to your host files and your IDE picks
+  them up — file-change notifications *do* propagate guest→host.
+- **`node_modules` is the exception — keep it in a container-only volume**, as shown above. A host
+  `node_modules` is built for macOS/arm64 and its native binaries (esbuild, swc, sharp, …) won't run
+  in the Linux guest. Mounting a named volume over `node_modules` lets the agent run `npm install`
+  inside the sandbox without leaking the host copy in (and you never edit `node_modules` anyway).
+- **Installs are egress too.** `npm install` / `pip install` reach a package registry, so in strict
+  egress mode add the registry to your schema (e.g. a `@proxy(domain="registry.npmjs.org")` rule),
+  or run installs in a separate step with open egress and lock down only at runtime.
+
+<Aside type="caution" title="Hot reload needs polling">
+File-change notifications do **not** propagate host→guest: a watcher running *inside* the container
+(a dev server's HMR) won't see your host edits. If you run a watching dev server in the sandbox, use
+polling — `CHOKIDAR_USEPOLLING=true`, or Vite `server.watch.usePolling = true`. The reverse
+direction (the agent's edits showing up in your host IDE) works fine, so the agent loop itself is
+unaffected.
+</Aside>
+
+<Aside type="note" title="Viewing a dev server is awkward on host-only networks">
+A `--internal` network blocks host→container ingress too, so you can't browse a dev server running
+in the sandbox (even `--publish` won't route). The host-only network is the right choice for an
+agent that only needs *outbound* access through the proxy; serving a UI back to your browser from
+inside the sandbox is a separate, not-yet-smooth path.
+</Aside>
+
+## Notes & limits
+
+- **Bind to the gateway, not `0.0.0.0`.** Binding all interfaces would expose the secret-injecting
+  proxy on your LAN. The gateway IP keeps it reachable only from the sandbox network.
+- **DNS:** a host-only network has no DNS, but the proxy resolves request targets host-side, so
+  proxied HTTPS works. The in-guest client must honor `HTTPS_PROXY` (curl, Node, Python `requests`
+  do; BusyBox `wget` resolves locally and will fail).
+- **Approvals** (`@proxy` rules with `approval`) prompt in the host terminal that owns
+  `proxy start`. Keep it interactive.
+- **`$HOME`/`~/.varlock` stay on the host.** Never mount your home directory or the varlock keystore
+  into the sandbox — the guest only needs the project workspace plus the wiring above.
