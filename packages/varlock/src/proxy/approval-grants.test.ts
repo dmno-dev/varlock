@@ -15,7 +15,7 @@ import {
   createApprovalRequest, type ApprovalLifetime, type ApprovalProvider,
 } from './approval';
 
-// Redirect the grants dir into a throwaway XDG_CONFIG_HOME (grantsDir resolves lazily).
+// Redirect the grants dir into a throwaway XDG_CONFIG_HOME (the path resolves lazily).
 let tmpDir: string;
 let prevXdg: string | undefined;
 
@@ -76,13 +76,13 @@ describe('approval grant store', () => {
     expect(await b.findMatch(KEY)).toBeUndefined();
   });
 
-  test('destroy removes the grant file', async () => {
+  test('grants live in the session directory as part of its durable record', async () => {
     const store = createApprovalGrantStore('sess-x');
     await store.add(grant());
     expect(existsSync(store.filePath)).toBe(true);
-    await store.destroy();
-    expect(existsSync(store.filePath)).toBe(false);
-    expect(await store.findMatch(KEY)).toBeUndefined();
+    // Co-located with the session record (proxy/sessions/<uuid>/grants.jsonl), not
+    // a separate grants/ tree — and not destroyed on stop.
+    expect(store.filePath).toMatch(/[/\\]proxy[/\\]sessions[/\\]sess-x[/\\]grants\.jsonl$/);
   });
 });
 

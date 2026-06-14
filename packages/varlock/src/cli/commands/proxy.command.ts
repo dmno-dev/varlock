@@ -25,7 +25,7 @@ import {
 import {
   cleanupStaleProxySessions,
   createProxySessionRecord,
-  deleteProxySessionRecord,
+  markProxySessionEnded,
   getProxySessionExportEnv,
   listProxySessions,
   reserveProxySessionIdentity,
@@ -423,9 +423,10 @@ function formatSessionStatus(session: ProxySessionRecord): string {
   const child = session.childPid ? ` child=${session.childPid}` : '';
   const stats = session.stats ?? EMPTY_PROXY_SESSION_STATS;
   const last = stats.lastActivityAt ? ` last=${stats.lastActivityAt}` : '';
+  const state = session.endedAt ? ` ended=${session.endedAt}` : '';
   return `[${session.id}] ${session.uuid} pid=${session.ownerPid}${child} egress=${session.egressMode} `
     + `cwd=${session.cwd} req=${stats.totalRequests} matched=${stats.matchedRequests} `
-    + `blocked=${stats.blockedRequests}${last}`;
+    + `blocked=${stats.blockedRequests}${last}${state}`;
 }
 
 function printSessionStatus(session: ProxySessionRecord) {
@@ -453,7 +454,9 @@ async function collectStatusSessions(ctx: any): Promise<Array<ProxySessionRecord
     return [session];
   }
 
-  return await listProxySessions();
+  // `proxy status` shows active sessions by default; `--all` also includes the
+  // durable records of ended sessions.
+  return await listProxySessions({ includeEnded: !!ctx.values.all });
 }
 
 /** True when `cwd` is the session's directory or a subdirectory of it. */
@@ -552,7 +555,7 @@ async function runAction(ctx: any) {
       created.statsWriter.stop();
       await created.runtime.stop().catch(() => undefined);
       await created.auditLog.flush().catch(() => undefined);
-      await deleteProxySessionRecord(session.uuid).catch(() => undefined);
+      await markProxySessionEnded(session.uuid).catch(() => undefined);
     };
   }
 
@@ -674,7 +677,7 @@ async function runAction(ctx: any) {
 async function startAction(ctx: any) {
   const policy = await prepareProxyPolicy(ctx.values.path);
   const {
-    runtime, session, statsWriter, auditLog, grantStore,
+    runtime, session, statsWriter, auditLog,
   } = await createRuntimeAndSession({
     policy,
     entryPaths: ctx.values.path,
@@ -697,8 +700,8 @@ async function startAction(ctx: any) {
     statsWriter.stop();
     await runtime.stop().catch(() => undefined);
     await auditLog.flush().catch(() => undefined);
-    await grantStore?.destroy().catch(() => undefined);
-    await deleteProxySessionRecord(session.uuid).catch(() => undefined);
+    // Grants stay as part of the session's durable record — not destroyed on stop.
+    await markProxySessionEnded(session.uuid).catch(() => undefined);
   };
 
   await new Promise<void>((resolve) => {
@@ -827,7 +830,7 @@ async function stopAction(ctx: any) {
         process.kill(session.ownerPid, 'SIGTERM');
         console.log(`Sent SIGTERM to proxy session ${session.id} (pid ${session.ownerPid}).`);
       } catch {
-        await deleteProxySessionRecord(session.uuid);
+        await markProxySessionEnded(session.uuid);
       }
     }
     return;
@@ -845,8 +848,8 @@ async function stopAction(ctx: any) {
     process.kill(session.ownerPid, 'SIGTERM');
     console.log(`Sent SIGTERM to proxy session ${session.id} (pid ${session.ownerPid}).`);
   } catch {
-    await deleteProxySessionRecord(session.uuid);
-    console.log(`Removed stale proxy session ${session.id}.`);
+    await markProxySessionEnded(session.uuid);
+    console.log(`Marked stale proxy session ${session.id} ended.`);
   }
 }
 
@@ -865,8 +868,9 @@ async function auditAction(ctx: any) {
   }
 
   // Resolve the session uuid. Prefer the live registry (accepts short ids and
-  // ancestry), but fall back to treating an explicit value as a uuid, since the
-  // audit log outlives the (deleted-on-stop) session record.
+  // ancestry), but fall back to treating an explicit value as a uuid, since an
+  // ended session is excluded from the active registry while its audit log
+  // remains in the session's directory.
   let uuid: string;
   try {
     const session = await resolveProxySessionForCommand({

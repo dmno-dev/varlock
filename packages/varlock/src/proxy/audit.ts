@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
-import { getUserVarlockDir } from '../lib/user-config-dir';
+import { getProxySessionDir } from './session-registry';
 
 /** The security decision the proxy reached for a single request. */
 export type ProxyAuditDecision = | 'allow' // forwarded upstream (a secret may or may not have been injected)
@@ -68,13 +68,10 @@ export type ProxyAuditEntry = {
 export type ProxyAuditLine = ProxyAuditHeader | ProxyAuditEntry;
 
 // Resolved lazily (not a module-load const) so it honors the active
-// XDG_CONFIG_HOME / legacy-dir resolution at call time.
-export function getProxyAuditDir(): string {
-  return join(getUserVarlockDir(), 'proxy', 'audit');
-}
-
+// XDG_CONFIG_HOME / legacy-dir resolution at call time. Co-located in the
+// session's directory so a session's audit travels with its record.
 export function getProxyAuditFilePath(uuid: string): string {
-  return join(getProxyAuditDir(), `${uuid}.jsonl`);
+  return join(getProxySessionDir(uuid), 'audit.jsonl');
 }
 
 /** Stable request fingerprint. Inputs are placeholder-form, so this hashes no secret. */
@@ -114,7 +111,7 @@ export function createProxyAuditLog(uuid: string, header?: Omit<ProxyAuditHeader
     chain = chain.then(async () => {
       if (disabled) return;
       try {
-        await mkdir(getProxyAuditDir(), { recursive: true, mode: 0o700 });
+        await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
         await appendFile(filePath, `${JSON.stringify(line)}\n`, { mode: 0o600 });
       } catch {
         disabled = true; // never let audit I/O break the proxy
