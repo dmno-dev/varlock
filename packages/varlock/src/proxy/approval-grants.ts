@@ -1,20 +1,19 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import {
-  appendFile, mkdir, readFile, rm,
-} from 'node:fs/promises';
-import { join } from 'node:path';
+import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
-import { getUserVarlockDir } from '../lib/user-config-dir';
+import { getProxySessionDir } from './session-registry';
 import { clampLifetime, type ApprovalProvider } from './approval';
 
 /**
  * A standing approval grant: the approver's choice to extend an interactive
  * approval to *future* requests with the same grant key, for a lifetime. Holds
- * no secret values. Stored per session so it can't outlive its session and
- * cleans up trivially. The file is the source of truth (read on each
- * require-approval), which is what lets an external approver (the future phone /
- * native app) write a grant the proxy immediately honors.
+ * no secret values. Stored in the session's directory as part of its durable
+ * record (session-bound, so a grant can't be honored once the session is gone).
+ * The file is the source of truth (read on each require-approval), which is what
+ * lets an external approver (the future phone / native app) write a grant the
+ * proxy immediately honors.
  */
 export type ApprovalGrant = {
   id: string;
@@ -32,12 +31,8 @@ export type ApprovalGrant = {
   grantedBy: string;
 };
 
-function grantsDir(): string {
-  return join(getUserVarlockDir(), 'proxy', 'grants');
-}
-
 export function getGrantFilePath(sessionUuid: string): string {
-  return join(grantsDir(), `${sessionUuid}.jsonl`);
+  return join(getProxySessionDir(sessionUuid), 'grants.jsonl');
 }
 
 function isGrantValid(grant: ApprovalGrant, now: number): boolean {
@@ -82,7 +77,7 @@ export function createApprovalGrantStore(sessionUuid: string) {
         ...(grant.expiresAt !== undefined ? { expiresAt: grant.expiresAt } : {}),
       };
       try {
-        await mkdir(grantsDir(), { recursive: true, mode: 0o700 });
+        await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
         await appendFile(filePath, `${JSON.stringify(full)}\n`, { mode: 0o600 });
       } catch {
         // best-effort
@@ -93,10 +88,6 @@ export function createApprovalGrantStore(sessionUuid: string) {
     async findMatch(grantKey: string): Promise<ApprovalGrant | undefined> {
       const now = Date.now();
       return (await list()).find((g) => g.grantKey === grantKey && isGrantValid(g, now));
-    },
-    /** Remove the session's grant file (called on session stop). */
-    async destroy(): Promise<void> {
-      await rm(filePath, { force: true }).catch(() => undefined);
     },
   };
 }

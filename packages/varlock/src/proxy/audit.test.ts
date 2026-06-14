@@ -19,7 +19,7 @@ import {
 import { startLocalProxyRuntime } from './runtime-proxy';
 
 // Redirect the audit dir into a throwaway XDG_CONFIG_HOME so we never touch the
-// real user config dir. getProxyAuditDir() resolves lazily, so this takes effect.
+// real user config dir. The path resolves lazily, so this takes effect.
 let tmpDir: string;
 let prevXdg: string | undefined;
 

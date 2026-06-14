@@ -23,6 +23,8 @@ export type ProxySessionRecord = {
   cwd: string;
   startedAt: string;
   updatedAt: string;
+  /** Set once the session's process has stopped. A session dir is a durable record; it's marked ended, not deleted. */
+  endedAt?: string;
   egressMode: ProxyEgressMode;
   schemaFingerprint?: string;
   placeholderOverrides?: Record<string, string>;
@@ -39,14 +41,28 @@ export type ProxySessionStats = {
   lastActivityAt?: string;
 };
 
-const SESSIONS_DIR = join(getUserVarlockDir(), 'proxy', 'sessions');
+// Resolved lazily (not a module-load const) so it honors the active
+// XDG_CONFIG_HOME / legacy-dir resolution at call time — tests redirect it.
+function getSessionsDir(): string {
+  return join(getUserVarlockDir(), 'proxy', 'sessions');
+}
 
 async function ensureSessionsDir() {
-  await mkdir(SESSIONS_DIR, { recursive: true, mode: 0o700 });
+  await mkdir(getSessionsDir(), { recursive: true, mode: 0o700 });
+}
+
+/**
+ * Per-session directory: the durable record of one run, holding `session.json`
+ * plus its co-located `audit.jsonl` and `grants.jsonl`. The audit and grant
+ * modules build their paths off this so everything for a session lives together
+ * and survives the process (cleaned up deliberately, never on stop).
+ */
+export function getProxySessionDir(uuid: string): string {
+  return join(getSessionsDir(), uuid);
 }
 
 function getSessionFilePath(uuid: string): string {
-  return join(SESSIONS_DIR, `${uuid}.json`);
+  return join(getProxySessionDir(uuid), 'session.json');
 }
 
 function nowIso(): string {
@@ -79,6 +95,7 @@ function parseSessionRecord(raw: string, filePath: string): ProxySessionRecord |
       cwd: String(parsed.cwd),
       startedAt: String(parsed.startedAt),
       updatedAt: String(parsed.updatedAt),
+      ...(parsed.endedAt ? { endedAt: String(parsed.endedAt) } : {}),
       egressMode: parsed.egressMode as ProxyEgressMode,
       ...(parsed.schemaFingerprint ? { schemaFingerprint: String(parsed.schemaFingerprint) } : {}),
       ...(parsed.placeholderOverrides && typeof parsed.placeholderOverrides === 'object'
@@ -127,27 +144,32 @@ export function isProcessRunning(pid: number): boolean {
   }
 }
 
+/**
+ * List proxy session records. By default returns only **active** sessions —
+ * not ended and with a live owner process. Pass `{ includeEnded: true }` to
+ * include the durable records of stopped sessions (e.g. `proxy status --all`).
+ */
 export async function listProxySessions(opts?: {
-  cleanupStale?: boolean;
+  includeEnded?: boolean;
 }): Promise<Array<ProxySessionRecord>> {
   await ensureSessionsDir();
 
-  const files = await readdir(SESSIONS_DIR);
+  const sessionsDir = getSessionsDir();
+  const dirEntries = await readdir(sessionsDir, { withFileTypes: true });
   const sessions: Array<ProxySessionRecord> = [];
 
-  for (const fileName of files) {
-    if (!fileName.endsWith('.json')) continue;
-    const filePath = join(SESSIONS_DIR, fileName);
+  for (const dirEntry of dirEntries) {
+    if (!dirEntry.isDirectory()) continue;
+    const filePath = join(sessionsDir, dirEntry.name, 'session.json');
     const raw = await readFile(filePath, 'utf8').catch(() => undefined);
     if (!raw) continue;
 
     const parsed = parseSessionRecord(raw, filePath);
     if (!parsed) continue;
 
-    const running = isProcessRunning(parsed.ownerPid);
-    if (!running && opts?.cleanupStale) {
-      await rm(filePath, { force: true });
-      continue;
+    if (!opts?.includeEnded) {
+      if (parsed.endedAt) continue;
+      if (!isProcessRunning(parsed.ownerPid)) continue;
     }
 
     sessions.push(parsed);
@@ -156,8 +178,35 @@ export async function listProxySessions(opts?: {
   return sessions.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 }
 
+/**
+ * Mark a session ended (stamp `endedAt`) while keeping its directory and the
+ * co-located audit/grants as a durable record. Idempotent: a session already
+ * marked ended is left as-is. Reads the file directly by uuid so it works even
+ * after the owner process has died (when the active-only listing wouldn't find it).
+ */
+export async function markProxySessionEnded(uuid: string) {
+  const filePath = getSessionFilePath(uuid);
+  const raw = await readFile(filePath, 'utf8').catch(() => undefined);
+  if (!raw) return;
+  const existing = parseSessionRecord(raw, filePath);
+  if (!existing || existing.endedAt) return;
+  const ts = nowIso();
+  const next: ProxySessionRecord = { ...existing, endedAt: ts, updatedAt: ts };
+  await writeFile(filePath, JSON.stringify(next, null, 2), { mode: 0o600 });
+}
+
+/**
+ * Mark any session whose owner process has died (but wasn't marked ended — e.g.
+ * a hard kill that skipped the graceful cleanup) as ended, so the active list
+ * stays accurate. The record and its co-located audit/grants are kept.
+ */
 export async function cleanupStaleProxySessions() {
-  await listProxySessions({ cleanupStale: true });
+  const all = await listProxySessions({ includeEnded: true });
+  for (const session of all) {
+    if (!session.endedAt && !isProcessRunning(session.ownerPid)) {
+      await markProxySessionEnded(session.uuid);
+    }
+  }
 }
 
 export async function reserveProxySessionIdentity(): Promise<{ id: string; uuid: string }> {
@@ -170,7 +219,7 @@ export async function reserveProxySessionIdentity(): Promise<{ id: string; uuid:
 }
 
 export async function createProxySessionRecord(session: Omit<ProxySessionRecord, 'updatedAt'>) {
-  await ensureSessionsDir();
+  await mkdir(getProxySessionDir(session.uuid), { recursive: true, mode: 0o700 });
   const next: ProxySessionRecord = {
     ...session,
     updatedAt: nowIso(),
@@ -202,7 +251,7 @@ export async function resolveActiveProxySession(
 ): Promise<ProxySessionRecord | undefined> {
   // Fast exit for the common case (proxy never used): don't create or read the
   // sessions dir on every varlock invocation.
-  if (!existsSync(SESSIONS_DIR)) return undefined;
+  if (!existsSync(getSessionsDir())) return undefined;
 
   const sessions = await listProxySessions();
   if (!sessions.length) return undefined;
@@ -238,10 +287,6 @@ export async function updateProxySessionRecord(
   };
   await writeFile(getSessionFilePath(existing.uuid), JSON.stringify(next, null, 2), { mode: 0o600 });
   return next;
-}
-
-export async function deleteProxySessionRecord(uuid: string) {
-  await rm(getSessionFilePath(uuid), { force: true });
 }
 
 export async function resolveProxySessionForCommand(opts?: {
