@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../../../env-graph';
-import { getProxyOmittedKeys } from '../proxy.command.js';
+import { getProxyOmittedKeys, isCwdWithin } from '../proxy.command.js';
 
 async function loadGraph(envFile: string) {
   const graph = new EnvGraph();
@@ -90,5 +90,15 @@ describe('getProxyOmittedKeys', () => {
     `);
 
     expect(await omittedKeys(graph)).toEqual([]);
+  });
+});
+
+describe('isCwdWithin (proxy run attach matching)', () => {
+  test('matches the same dir and subdirectories, not siblings or ancestors', () => {
+    expect(isCwdWithin('/a/b', '/a/b')).toBe(true); // same
+    expect(isCwdWithin('/a/b/c', '/a/b')).toBe(true); // subdir
+    expect(isCwdWithin('/a', '/a/b')).toBe(false); // ancestor
+    expect(isCwdWithin('/a/bcd', '/a/b')).toBe(false); // sibling sharing a prefix
+    expect(isCwdWithin('/x/y', '/a/b')).toBe(false); // unrelated
   });
 });

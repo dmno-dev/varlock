@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
@@ -88,10 +90,16 @@ export const commandSpec = define({
       short: 'i',
       description: 'Control what gets injected into child env for `proxy run`: "all" (default), "vars", or "blob"',
     },
+    new: {
+      type: 'boolean',
+      description: 'For `proxy run`: start a fresh proxy instead of attaching to a running one for this directory',
+    },
   },
   examples: `
 Proxy command surface:
-  varlock proxy run -- claude
+  varlock proxy run -- claude                   # attaches to a running proxy for this dir, else starts one
+  varlock proxy run --session abc12 -- claude   # attach to a specific session (approvals prompt in its terminal)
+  varlock proxy run --new -- claude             # force a fresh, separate proxy
   varlock proxy start
   varlock proxy env --session abc12
   varlock proxy status
@@ -448,6 +456,57 @@ async function collectStatusSessions(ctx: any): Promise<Array<ProxySessionRecord
   return await listProxySessions();
 }
 
+/** True when `cwd` is the session's directory or a subdirectory of it. */
+export function isCwdWithin(cwd: string, sessionCwd: string): boolean {
+  if (cwd === sessionCwd) return true;
+  const rel = path.relative(sessionCwd, cwd);
+  return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+/**
+ * Resolve the running proxy session to attach `proxy run` to: an explicit
+ * `--session`, else the single session whose cwd contains this one. Returns
+ * undefined (→ start a fresh proxy) when nothing matches. Validates the schema
+ * fingerprint and fails loudly on drift, so an attached command can't route
+ * through a proxy started with a different `.env.schema`.
+ */
+async function resolveAttachSession(ctx: any, schemaFingerprint: string): Promise<ProxySessionRecord | undefined> {
+  await cleanupStaleProxySessions();
+
+  let candidate: ProxySessionRecord | undefined;
+  if (ctx.values.session) {
+    candidate = await resolveProxySessionForCommand({
+      explicitSession: ctx.values.session,
+      env: process.env,
+      defaultToSingleActive: false,
+    }).catch((error) => {
+      throw new CliExitError((error as Error).message);
+    });
+  } else {
+    const cwd = process.cwd();
+    const matches = (await listProxySessions()).filter((s) => isCwdWithin(cwd, s.cwd));
+    if (matches.length === 0) return undefined; // → start a fresh proxy
+    if (matches.length > 1) {
+      throw new CliExitError(
+        `Multiple proxy sessions match this directory: ${matches.map((s) => s.id).join(', ')}.`,
+        { suggestion: 'Pass --session <id> to choose one, or --new to start a separate proxy.' },
+      );
+    }
+    [candidate] = matches;
+  }
+
+  if (candidate.schemaFingerprint && candidate.schemaFingerprint !== schemaFingerprint) {
+    throw new CliExitError(
+      `The running proxy session ${candidate.id} was started with a different .env.schema.`,
+      {
+        details: "Its placeholders and rules no longer match this directory's schema.",
+        suggestion: 'Restart it (or run `varlock proxy refresh`), or use --new to start a separate proxy.',
+      },
+    );
+  }
+  return candidate;
+}
+
 async function runAction(ctx: any) {
   const commandToRunAsArgs = getRunCommandArgs();
   const rawCommand = commandToRunAsArgs[0]!;
@@ -455,18 +514,47 @@ async function runAction(ctx: any) {
   const commandToRunStr = commandToRunAsArgs.join(' ');
 
   const policy = await prepareProxyPolicy(ctx.values.path);
-  const {
-    runtime, session, statsWriter, auditLog,
-  } = await createRuntimeAndSession({
-    policy,
-    entryPaths: ctx.values.path,
-    command: commandToRunAsArgs,
-    // The child owns this terminal's stdio, so we can't safely prompt here —
-    // require-approval requests fail closed. Use `proxy start` for interactive
-    // approval (the proxy owns the terminal there).
-    approvalProvider: createAutoDenyApprovalProvider(),
-  });
-  console.error(`Proxy session ${session.id} active. Monitor with \`varlock proxy status --session ${session.id} --watch\`.`);
+
+  // Attach to a running proxy for this directory (a `proxy start` daemon) when
+  // possible — its terminal handles approvals — instead of a new auto-deny proxy.
+  // --new forces a fresh proxy.
+  const attachSession = ctx.values.new ? undefined : await resolveAttachSession(ctx, policy.schemaFingerprint);
+
+  let session: ProxySessionRecord;
+  let statsWriter: ReturnType<typeof createSessionStatsWriter> | undefined;
+  let cleanup: () => Promise<void>;
+
+  if (attachSession) {
+    // Use the daemon's authoritative placeholders so the child's values are
+    // exactly what the running proxy expects to substitute.
+    for (const [key, placeholder] of Object.entries(attachSession.placeholderOverrides ?? {})) {
+      policy.resolvedEnv[key] = placeholder;
+      if (policy.serializedGraph.config[key]) policy.serializedGraph.config[key].value = placeholder;
+    }
+    session = attachSession;
+    console.error(`Attached to proxy session ${session.id}. Approval prompts (if any) appear in its terminal.`);
+    cleanup = async () => undefined; // nothing to tear down — the session is the daemon's
+  } else {
+    const created = await createRuntimeAndSession({
+      policy,
+      entryPaths: ctx.values.path,
+      command: commandToRunAsArgs,
+      // The child owns this terminal's stdio, so we can't safely prompt here —
+      // require-approval requests fail closed. Use `proxy start` (or attach to one)
+      // for interactive approval.
+      approvalProvider: createAutoDenyApprovalProvider(),
+    });
+    session = created.session;
+    statsWriter = created.statsWriter;
+    console.error(`Proxy session ${session.id} active. Monitor with \`varlock proxy status --session ${session.id} --watch\`.`);
+    cleanup = async () => {
+      await created.statsWriter.flushNow();
+      created.statsWriter.stop();
+      await created.runtime.stop().catch(() => undefined);
+      await created.auditLog.flush().catch(() => undefined);
+      await deleteProxySessionRecord(session.uuid).catch(() => undefined);
+    };
+  }
 
   const { injectVars, injectBlob } = applyInjectModeFromFlags(ctx);
   const sessionEnv = getProxySessionExportEnv(session);
@@ -484,16 +572,6 @@ async function runAction(ctx: any) {
   }
 
   let commandProcess: ReturnType<typeof exec> | undefined;
-  let cleanedUp = false;
-  const cleanup = async () => {
-    if (cleanedUp) return;
-    cleanedUp = true;
-    await statsWriter.flushNow();
-    statsWriter.stop();
-    await runtime.stop().catch(() => undefined);
-    await auditLog.flush().catch(() => undefined);
-    await deleteProxySessionRecord(session.uuid).catch(() => undefined);
-  };
 
   const redactLogs = policy.serializedGraph.settings?.redactLogs ?? true;
   const noRedactStdout = ctx.values['no-redact-stdout'] ?? false;
@@ -553,7 +631,7 @@ async function runAction(ctx: any) {
     commandProcess.stderr?.on('data', (chunk: Buffer | string) => writeRedacted(process.stderr, chunk));
   }
 
-  if (commandProcess.pid) {
+  if (commandProcess.pid && !attachSession) {
     await updateProxySessionRecord(session.uuid, { childPid: commandProcess.pid });
   }
 
@@ -584,8 +662,10 @@ async function runAction(ctx: any) {
     }
   } finally {
     await cleanup();
-    const stats = statsWriter.stats;
-    console.error(`Proxy session ${session.id} summary: req=${stats.totalRequests} matched=${stats.matchedRequests} blocked=${stats.blockedRequests}`);
+    if (statsWriter) {
+      const stats = statsWriter.stats;
+      console.error(`Proxy session ${session.id} summary: req=${stats.totalRequests} matched=${stats.matchedRequests} blocked=${stats.blockedRequests}`);
+    }
   }
 
   return gracefulExit(exitCode);
