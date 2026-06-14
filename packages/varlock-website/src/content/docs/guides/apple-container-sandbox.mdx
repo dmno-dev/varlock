@@ -118,6 +118,51 @@ container run --rm --network varlock-sandbox \
   curlimages/curl curl -s https://api.ipify.org      # succeeds
 ```
 
+## Running a coding agent against your project
+
+A common goal is to run an agent (and the dependency installs and commands it triggers) *inside* the
+sandbox, while still editing your code in your usual IDE on the host. The key thing to internalize:
+**you don't edit files "inside" the container.** A bind mount projects your host directory into the
+guest read-write — same bytes, both directions — so you edit on the host and the agent reads/writes
+the same files.
+
+```bash
+# --mount (bind): your project, read-write, shared live with the host IDE
+# --mount (volume): keep node_modules container-only (see below)
+container run --rm --network varlock-sandbox \
+  --mount type=bind,source=$PWD,target=/workspace \
+  --mount type=volume,source=proj-node-modules,target=/workspace/node_modules \
+  -w /workspace \
+  <flags from step 3> \
+  node:22 your-agent-command
+```
+
+- **Edit on host, execute in the box.** Your IDE edits the host files; the agent reads them on the
+  next read (no watcher needed). The agent's edits flow back to your host files and your IDE picks
+  them up — file-change notifications *do* propagate guest→host.
+- **`node_modules` is the exception — keep it in a container-only volume**, as shown above. A host
+  `node_modules` is built for macOS/arm64 and its native binaries (esbuild, swc, sharp, …) won't run
+  in the Linux guest. Mounting a named volume over `node_modules` lets the agent run `npm install`
+  inside the sandbox without leaking the host copy in (and you never edit `node_modules` anyway).
+- **Installs are egress too.** `npm install` / `pip install` reach a package registry, so in strict
+  egress mode add the registry to your schema (e.g. a `@proxy(domain="registry.npmjs.org")` rule),
+  or run installs in a separate step with open egress and lock down only at runtime.
+
+<Aside type="caution" title="Hot reload needs polling">
+File-change notifications do **not** propagate host→guest: a watcher running *inside* the container
+(a dev server's HMR) won't see your host edits. If you run a watching dev server in the sandbox, use
+polling — `CHOKIDAR_USEPOLLING=true`, or Vite `server.watch.usePolling = true`. The reverse
+direction (the agent's edits showing up in your host IDE) works fine, so the agent loop itself is
+unaffected.
+</Aside>
+
+<Aside type="note" title="Viewing a dev server is awkward on host-only networks">
+A `--internal` network blocks host→container ingress too, so you can't browse a dev server running
+in the sandbox (even `--publish` won't route). The host-only network is the right choice for an
+agent that only needs *outbound* access through the proxy; serving a UI back to your browser from
+inside the sandbox is a separate, not-yet-smooth path.
+</Aside>
+
 ## Notes & limits
 
 - **Bind to the gateway, not `0.0.0.0`.** Binding all interfaces would expose the secret-injecting
