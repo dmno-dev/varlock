@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto';
 
+import {
+  ParsedEnvSpecFunctionArgs,
+  ParsedEnvSpecFunctionCall,
+  ParsedEnvSpecKeyValuePair,
+  ParsedEnvSpecStaticValue,
+} from '@env-spec/parser';
+
 import type { EnvGraph } from '../../env-graph';
 import { CliExitError } from './exit-error';
 import { getProxySessionByToken } from '../../proxy/session-registry';
@@ -11,27 +18,63 @@ import {
 } from '../../proxy/env-vars';
 
 /**
- * Build a deterministic fingerprint for schema-level safety controls.
- * Phase 1 focuses on preventing sensitivity downgrades from taking effect
- * mid-proxy-run, so we hash item keys + sensitivity/required/type metadata.
+ * Canonical, pre-resolution string for a parsed value/arg node. Hashes the
+ * *definition* (resolver expression, decorator args), never the resolved value —
+ * so no secrets, no I/O, deterministic. Named args are sorted so authoring order
+ * doesn't matter; positional args (e.g. `$REF`s) keep order.
+ */
+function canonicalParsed(node: unknown): string {
+  if (node === undefined || node === null) return '∅';
+  if (node instanceof ParsedEnvSpecStaticValue) return JSON.stringify(node.value ?? null);
+  if (node instanceof ParsedEnvSpecKeyValuePair) return `${node.key}=${canonicalParsed(node.value)}`;
+  if (node instanceof ParsedEnvSpecFunctionCall) return `${node.name}${canonicalParsed(node.data.args)}`;
+  if (node instanceof ParsedEnvSpecFunctionArgs) {
+    const positional: Array<string> = [];
+    const named: Array<string> = [];
+    for (const val of node.values) {
+      if (val instanceof ParsedEnvSpecKeyValuePair) named.push(`${val.key}=${canonicalParsed(val.value)}`);
+      else positional.push(canonicalParsed(val));
+    }
+    named.sort();
+    return `(${[...positional, ...named].join(',')})`;
+  }
+  return '?';
+}
+
+function canonicalDecorator(dec: { name: string; parsedDecorator: { value?: unknown } }): string {
+  return `@${dec.name}=${canonicalParsed(dec.parsedDecorator.value)}`;
+}
+
+/**
+ * Build a deterministic fingerprint of the schema *definition*: per config key,
+ * the value-source definitions (pre-resolution) plus every non-`inert`
+ * decorator, plus all non-`inert` root decorators (egress, detached `@proxy`,
+ * `@defaultSensitive`, …). Captures everything behavioral — proxy rules,
+ * sensitivity, types, placeholders, value sources — while ignoring cosmetic
+ * decorators (`@example`, `@docs`, `@icon`, …) and formatting.
  *
- * Intentionally location-independent (no basePath): the security-relevant
- * invariant is the schema *shape*, and including the base path would cause
- * false-positive mismatches when a nested command resolves the schema from a
- * different working directory than the session was started in.
+ * Intentionally location-independent (no basePath, only parsed expressions): a
+ * nested/attached command resolving the schema from a different cwd must produce
+ * the same fingerprint as the session that started the proxy.
  */
 export function buildProxySchemaFingerprint(envGraph: EnvGraph): string {
-  const schemaShape = envGraph.sortedConfigKeys.map((key) => {
+  const rootDecorators = envGraph.sortedDataSources
+    .flatMap((source) => source.rootDecorators)
+    .filter((dec) => !dec.isInert)
+    .map((dec) => canonicalDecorator(dec))
+    .sort();
+
+  const items = envGraph.sortedConfigKeys.map((key) => {
     const item = envGraph.configSchema[key];
-    return {
-      key,
-      isSensitive: item.isSensitive,
-      isRequired: item.isRequired,
-      dataType: item.dataType?.name ?? null,
-    };
+    const valueDefs = item.defs.map((def) => canonicalParsed(def.itemDef.parsedValue));
+    const decorators = item.allDecorators
+      .filter((dec) => !dec.isInert)
+      .map((dec) => canonicalDecorator(dec))
+      .sort();
+    return { key, valueDefs, decorators };
   });
 
-  const input = JSON.stringify({ schemaShape });
+  const input = JSON.stringify({ rootDecorators, items });
 
   return createHash('sha256').update(input).digest('hex');
 }

@@ -59,6 +59,10 @@ export abstract class DecoratorInstance {
   get isFunctionOrValue() {
     return !!(this.decoratorDef as ItemDecoratorDef | undefined)?.isFunctionOrValue;
   }
+  /** Purely informational — excluded from the schema fingerprint (see `inert`). */
+  get isInert() {
+    return !!this.decoratorDef?.inert;
+  }
 
   private processed = false;
   private processedData: any;
@@ -291,6 +295,8 @@ export type RootDecoratorDef<Processed = any> = {
   name: string,
   description?: string;
   isFunction?: boolean;
+  /** Purely informational (no effect on resolved values/behavior) → excluded from the schema fingerprint. */
+  inert?: boolean;
   deprecated?: boolean | string;
   incompatibleWith?: Array<string>;
   process?: (decoratorValue: Resolver) => (Processed | Promise<Processed>);
@@ -545,6 +551,8 @@ export type ItemDecoratorDef<T = any> = {
   name: string,
   incompatibleWith?: Array<string>;
   isFunction?: boolean;
+  /** Purely informational (no effect on resolved values/behavior) → excluded from the schema fingerprint. */
+  inert?: boolean;
   /**
    * Allow BOTH the function form (`@name(...)`) and the value form (`@name=x`).
    * The two forms are mutually exclusive on a single item (see ConfigItem.process).
@@ -583,20 +591,25 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
   },
   {
     name: 'example',
+    inert: true,
   },
   {
     name: 'docsUrl',
     deprecated: 'use `docs()` instead',
+    inert: true,
   },
   {
     name: 'docs',
     isFunction: true,
+    inert: true,
   },
   {
     name: 'icon',
+    inert: true,
   },
   {
     name: 'deprecated',
+    inert: true,
   },
   {
     name: 'auditIgnore',
