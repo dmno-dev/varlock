@@ -12,6 +12,7 @@ import {
 } from './resolver';
 import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
+import { globToRegExp } from './glob';
 
 
 export abstract class DecoratorInstance {
@@ -219,17 +220,6 @@ export class RootDecoratorInstance extends DecoratorInstance {
 
 function detectBulkFormat(data: string): 'json' | 'env' {
   return data.trimStart().startsWith('{') ? 'json' : 'env';
-}
-
-// Compile a simple glob pattern into an anchored regex. Supports `*` (any run of chars)
-// and `?` (single char); all other characters are matched literally. Used by @setValuesBulk
-// pick/omit filters. Matching is case-sensitive (env keys are case-sensitive).
-function globToRegExp(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex specials (leaving * and ?)
-    .replace(/\*/g, '.*')
-    .replace(/\?/g, '.');
-  return new RegExp(`^${escaped}$`);
 }
 
 function parseJsonBulkValues(data: string): Record<string, { value: string | number | boolean }> {

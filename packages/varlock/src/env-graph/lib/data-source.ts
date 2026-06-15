@@ -18,6 +18,29 @@ import { pathExists } from '@env-spec/utils/fs-utils';
 import { processPluginInstallDecorators } from './plugins';
 import { RootDecoratorInstance } from './decorators';
 import { isBuiltinVar } from './builtin-vars';
+import { globToRegExp } from './glob';
+
+/** A `@import` key filter — `pick` is an allowlist, `omit` a denylist. Patterns support globs. */
+export type ImportFilter = { mode: 'pick' | 'omit', patterns: Array<string> };
+
+/**
+ * Whether `key` passes a single import's filter — the deprecated positional allowlist
+ * (`importKeys`, exact match) and/or a pick/omit filter (glob-aware). Returns true when
+ * no filter is set.
+ */
+export function keyPassesImportFilter(
+  key: string,
+  importKeys?: Array<string>,
+  importFilter?: ImportFilter,
+): boolean {
+  if (importKeys?.length && !importKeys.includes(key)) return false;
+  if (importFilter) {
+    const matched = importFilter.patterns.some((p) => globToRegExp(p).test(key));
+    if (importFilter.mode === 'pick' && !matched) return false;
+    if (importFilter.mode === 'omit' && matched) return false;
+  }
+  return true;
+}
 
 const DATA_SOURCE_TYPES = Object.freeze({
   schema: {
@@ -57,32 +80,41 @@ export abstract class EnvGraphDataSource {
    * */
   importMeta?: {
     isImport?: boolean,
+    /** deprecated positional allowlist (exact match) - prefer `importFilter` */
     importKeys?: Array<string>,
+    /** pick/omit key filter (glob-aware) */
+    importFilter?: ImportFilter,
     /** true when the @import had a non-static `enabled` parameter (e.g. `enabled=forEnv("dev")`) */
     isConditionallyEnabled?: boolean,
   };
   get isImport(): boolean {
     return !!this.importMeta?.isImport || !!this.parent?.isImport;
   }
-  get isPartialImport() {
-    return (this.importKeys || []).length > 0;
-  }
-  get importKeys(): Array<string> | undefined {
-    const importKeysArrays = [];
+  /** true when any import in this source's chain restricts which keys are brought in */
+  get isPartialImport(): boolean {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     let currentSource: EnvGraphDataSource | undefined = this;
     while (currentSource) {
-      if (currentSource.importMeta?.importKeys && currentSource.importMeta.importKeys.length) {
-        importKeysArrays.push(currentSource.importMeta.importKeys);
+      if (currentSource.importMeta?.importKeys?.length || currentSource.importMeta?.importFilter) {
+        return true;
       }
       currentSource = currentSource.parent;
     }
-
-    // in most cases we import all keys, but if there have been specific keys imported we walk up the chain
-    if (importKeysArrays.length) {
-      const keysToImport = _.intersection(...importKeysArrays);
-      return keysToImport;
+    return false;
+  }
+  /**
+   * Whether `key` is visible through this source's full import chain. A key must pass every
+   * import filter between this source and the root (nested imports intersect).
+   */
+  isKeyImported(key: string): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    let currentSource: EnvGraphDataSource | undefined = this;
+    while (currentSource) {
+      const meta = currentSource.importMeta;
+      if (meta && !keyPassesImportFilter(key, meta.importKeys, meta.importFilter)) return false;
+      currentSource = currentSource.parent;
     }
+    return true;
   }
 
   /** shared child-setup logic: wire up parent/graph refs, finishInit (but no import processing) */
@@ -222,7 +254,8 @@ export abstract class EnvGraphDataSource {
     if (this.disabled) return;
 
     // create config items, or add additional definitions if they already exist
-    for (const itemKey of this.importKeys || _.keys(this.configItemDefs)) {
+    for (const itemKey of _.keys(this.configItemDefs)) {
+      if (!this.isKeyImported(itemKey)) continue;
       const itemDef = this.configItemDefs[itemKey];
       if (!itemDef) continue;
 
@@ -270,7 +303,7 @@ export abstract class EnvGraphDataSource {
           // If this is a partial import and the ref target is not importable, skip processing
           // but still set the envFlagKey so directories can check it
           // For files, @currentEnv won't take effect and forEnv will fall back to parent's env setting
-          if (this.isPartialImport && !this.importKeys?.includes(envFlagItemKey)) {
+          if (this.isPartialImport && !this.isKeyImported(envFlagItemKey)) {
             skipCurrentEnvProcessing = true;
           }
         }
@@ -355,9 +388,36 @@ export abstract class EnvGraphDataSource {
 
           const importArgs = await importDec.resolve();
           const importPath = importArgs.arr[0];
-          const importKeys = importArgs.arr.slice(1);
-          if (!importKeys.every(_.isString)) {
+          const positionalKeys = importArgs.arr.slice(1);
+          if (!positionalKeys.every(_.isString)) {
             throw new Error('expected @import keys to all be strings');
+          }
+
+          // build the key filter: positional keys (deprecated) or pick/omit (preferred)
+          const pickVal = importArgs.obj.pick;
+          const omitVal = importArgs.obj.omit;
+          if (pickVal !== undefined && omitVal !== undefined) {
+            throw new Error('@import: cannot use both pick and omit - choose one');
+          }
+          if ((pickVal !== undefined || omitVal !== undefined) && positionalKeys.length) {
+            throw new Error('@import: cannot combine positional keys with pick/omit - put all keys in pick=[...]');
+          }
+          let importFilter: ImportFilter | undefined;
+          let importKeys: Array<string> | undefined;
+          if (pickVal !== undefined || omitVal !== undefined) {
+            const mode = pickVal !== undefined ? 'pick' : 'omit';
+            const patterns = pickVal !== undefined ? pickVal : omitVal;
+            if (!Array.isArray(patterns) || !patterns.length || !patterns.every(_.isString)) {
+              throw new Error(`@import: ${mode} must be a non-empty array of key names, e.g. ${mode}=[API_KEY, DB_*]`);
+            }
+            importFilter = { mode, patterns };
+          } else if (positionalKeys.length) {
+            this._errors.push(new SchemaError(
+              'Listing @import keys as positional args is deprecated - use pick=[...] instead'
+              + ` (e.g. @import("${importPath}", pick=[${positionalKeys.join(', ')}]))`,
+              { isWarning: true },
+            ));
+            importKeys = positionalKeys;
           }
 
           // determine the full import path based on path type
@@ -390,6 +450,10 @@ export abstract class EnvGraphDataSource {
           const enabledResolver = importDec.decValueResolver?.objArgs?.enabled;
           const isConditionallyEnabled = !!enabledResolver && !enabledResolver.isStatic;
 
+          const importMeta = {
+            isImport: true, importKeys, importFilter, isConditionallyEnabled,
+          };
+
           // Check if missing imports should be allowed (defaults to false if not specified)
           const allowMissing = importArgs.obj.allowMissing ?? false;
           if (!_.isBoolean(allowMissing)) {
@@ -405,10 +469,8 @@ export abstract class EnvGraphDataSource {
             const existingSource = this.graph.getLoadedImportSource(fullImportPath);
             if (existingSource) {
               // eslint-disable-next-line no-use-before-define
-              await this.addChild(new ImportAliasSource(existingSource), {
-                isImport: true, importKeys, isConditionallyEnabled,
-              });
-              this.graph.registerItemsForImport(existingSource, this, importKeys);
+              await this.addChild(new ImportAliasSource(existingSource), importMeta);
+              this.graph.registerItemsForImport(existingSource, this, importMeta);
               continue;
             }
 
@@ -422,9 +484,7 @@ export abstract class EnvGraphDataSource {
                 }
                 // eslint-disable-next-line no-use-before-define
                 const dirChild = new DirectoryDataSource(fullImportPath);
-                await this.addChild(dirChild, {
-                  isImport: true, importKeys, isConditionallyEnabled,
-                });
+                await this.addChild(dirChild, importMeta);
                 this.graph.recordLoadedImportPath(fullImportPath, dirChild);
               } else {
                 const fileExists = this.graph.virtualImports[fullImportPath];
@@ -437,7 +497,7 @@ export abstract class EnvGraphDataSource {
                 const fileChild = new DotEnvFileDataSource(fullImportPath, {
                   overrideContents: this.graph.virtualImports[fullImportPath],
                 });
-                await this.addChild(fileChild, { isImport: true, importKeys, isConditionallyEnabled });
+                await this.addChild(fileChild, importMeta);
                 this.graph.recordLoadedImportPath(fullImportPath, fileChild);
               }
             } else {
@@ -476,9 +536,7 @@ export abstract class EnvGraphDataSource {
                 // TODO: once we have more file types, here we would detect the type and import it correctly
                 // eslint-disable-next-line no-use-before-define
                 const fileChild = new DotEnvFileDataSource(fullImportPath);
-                await this.addChild(fileChild, {
-                  isImport: true, importKeys, isConditionallyEnabled,
-                });
+                await this.addChild(fileChild, importMeta);
                 this.graph.recordLoadedImportPath(fullImportPath, fileChild);
               }
             }
@@ -859,7 +917,7 @@ export class DirectoryDataSource extends EnvGraphDataSource {
       const envFlagKey = this.schemaDataSource._envFlagKey;
       // Check if this is a partial import that forgot to include the env flag key
       // (only for directories - files can fall back to parent's env setting for forEnv)
-      if (this.isPartialImport && !this.importKeys?.includes(envFlagKey)) {
+      if (this.isPartialImport && !this.isKeyImported(envFlagKey)) {
         this._errors.push(new LoadingError(
           `Imported directory has @currentEnv set to $${envFlagKey}, `
           + `but "${envFlagKey}" is not included in the import list. `

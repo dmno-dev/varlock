@@ -131,8 +131,8 @@ FOO=bar  # will be ignored
 
 <div>
 ### `@import()`
-**Arg types:** `[ path: string, ...keys?: string[] ]`  
-**Named args:** `enabled?: boolean`, `allowMissing?: boolean`
+**Arg types:** `[ path: string ]`  
+**Named args:** `enabled?: boolean`, `allowMissing?: boolean`, `pick?: string[]`, `omit?: string[]`
 
 Imports other `.env` file(s) - useful for sharing config across monorepos and splitting up large schemas. _Can be called multiple times._
 
@@ -142,11 +142,19 @@ The optional `enabled` parameter allows conditional imports based on boolean exp
 
 The optional `allowMissing` parameter makes the import optional - if set to `true`, the import will be silently skipped if the file or directory doesn't exist instead of causing a loading error. It defaults to `false` if not specified.
 
+**Filtering keys:** by default every key from the imported file(s) is brought in. Use `pick` to import only an allowlist of keys, or `omit` to import everything except a denylist. You can't use both in one import, and both accept simple globs (`*`, `?`). Across nested imports, filters intersect — a key must pass every filter in the chain.
+
+:::caution[Positional keys are deprecated]
+Listing keys as positional args (`@import(./.env.other, KEY1, KEY2)`) is **deprecated** — use `pick=[KEY1, KEY2]` instead. The positional form still works (exact-match only, no globs) but will warn.
+:::
+
 See the [imports guide](/guides/import/) for more details and advanced usage.
 
 ```env-spec
 # @import(./.env.imported)                        # import a specific file
-# @import(./.env.other, KEY1, KEY2)               # import specific keys
+# @import(./.env.other, pick=[KEY1, KEY2])        # import only these keys (allowlist)
+# @import(./.env.other, pick=[API_*])             # globs are supported
+# @import(./.env.other, omit=[SECRET])            # import everything except these (denylist)
 # @import(../shared-env/)                         # import a directory
 # @import(~/.env.shared)                          # import from home directory
 # @import(./.env.dev, enabled=eq($ENV, "dev"))    # conditional import

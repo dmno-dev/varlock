@@ -84,10 +84,10 @@ export class ConfigItem {
     // we may want to cache the definition list at some point when loading is complete
     // although we need it to be dynamic during the loading process when doing any early resolution of the envFlag
     const defs: Array<ConfigItemDefAndSource> = [];
-    for (const { source, importKeys } of this.envGraph.sortedDefinitionSources) {
+    for (const { source, filterNode } of this.envGraph.sortedDefinitionSources) {
       if (!source.configItemDefs[this.key]) continue;
       if (source.disabled) continue;
-      if (importKeys && !importKeys.includes(this.key)) continue;
+      if (filterNode && !filterNode.isKeyImported(this.key)) continue;
       defs.push({ itemDef: source.configItemDefs[this.key], source });
     }
     defs.push(...this._internalDefs);

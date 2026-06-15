@@ -82,7 +82,7 @@ export const ROOT_DECORATORS: Array<DecoratorInfo> = [
     name: 'import',
     scope: 'root',
     summary: 'Imports schema and values from another file or directory.',
-    documentation: 'Takes a path as the first positional arg. Optional named args include `enabled` and `allowMissing`.',
+    documentation: 'Takes a path as the first positional arg. Optional named args include `enabled`, `allowMissing`, and `pick`/`omit` to filter imported keys (globs supported).',
     insertText: '@import(${1:./.env.shared})',
     isFunction: true,
   },
