@@ -18,28 +18,20 @@ import { pathExists } from '@env-spec/utils/fs-utils';
 import { processPluginInstallDecorators } from './plugins';
 import { RootDecoratorInstance } from './decorators';
 import { isBuiltinVar } from './builtin-vars';
-import { globToRegExp } from './glob';
-
-/** A `@import` key filter — `pick` is an allowlist, `omit` a denylist. Patterns support globs. */
-export type ImportFilter = { mode: 'pick' | 'omit', patterns: Array<string> };
+import { type KeyFilter, keyMatchesFilter, parseKeyFilterArgs } from './key-filter';
 
 /**
  * Whether `key` passes a single import's filter — the deprecated positional allowlist
- * (`importKeys`, exact match) and/or a pick/omit filter (glob-aware). Returns true when
- * no filter is set.
+ * (`importKeys`, exact match) and/or a pick/omit {@link KeyFilter} (glob-aware). Returns
+ * true when no filter is set.
  */
 export function keyPassesImportFilter(
   key: string,
   importKeys?: Array<string>,
-  importFilter?: ImportFilter,
+  importFilter?: KeyFilter,
 ): boolean {
   if (importKeys?.length && !importKeys.includes(key)) return false;
-  if (importFilter) {
-    const matched = importFilter.patterns.some((p) => globToRegExp(p).test(key));
-    if (importFilter.mode === 'pick' && !matched) return false;
-    if (importFilter.mode === 'omit' && matched) return false;
-  }
-  return true;
+  return keyMatchesFilter(key, importFilter);
 }
 
 const DATA_SOURCE_TYPES = Object.freeze({
@@ -83,7 +75,7 @@ export abstract class EnvGraphDataSource {
     /** deprecated positional allowlist (exact match) - prefer `importFilter` */
     importKeys?: Array<string>,
     /** pick/omit key filter (glob-aware) */
-    importFilter?: ImportFilter,
+    importFilter?: KeyFilter,
     /** true when the @import had a non-static `enabled` parameter (e.g. `enabled=forEnv("dev")`) */
     isConditionallyEnabled?: boolean,
   };
@@ -393,25 +385,17 @@ export abstract class EnvGraphDataSource {
             throw new Error('expected @import keys to all be strings');
           }
 
-          // build the key filter: positional keys (deprecated) or pick/omit (preferred)
-          const pickVal = importArgs.obj.pick;
-          const omitVal = importArgs.obj.omit;
-          if (pickVal !== undefined && omitVal !== undefined) {
-            throw new Error('@import: cannot use both pick and omit - choose one');
-          }
-          if ((pickVal !== undefined || omitVal !== undefined) && positionalKeys.length) {
+          // build the key filter: pick/omit (preferred) or positional keys (deprecated)
+          const importFilter = parseKeyFilterArgs(
+            importDec.decValueResolver?.objArgs?.pick,
+            importDec.decValueResolver?.objArgs?.omit,
+            '@import',
+          );
+          let importKeys: Array<string> | undefined;
+          if (importFilter && positionalKeys.length) {
             throw new Error('@import: cannot combine positional keys with pick/omit - put all keys in pick=[...]');
           }
-          let importFilter: ImportFilter | undefined;
-          let importKeys: Array<string> | undefined;
-          if (pickVal !== undefined || omitVal !== undefined) {
-            const mode = pickVal !== undefined ? 'pick' : 'omit';
-            const patterns = pickVal !== undefined ? pickVal : omitVal;
-            if (!Array.isArray(patterns) || !patterns.length || !patterns.every(_.isString)) {
-              throw new Error(`@import: ${mode} must be a non-empty array of key names, e.g. ${mode}=[API_KEY, DB_*]`);
-            }
-            importFilter = { mode, patterns };
-          } else if (positionalKeys.length) {
+          if (!importFilter && positionalKeys.length) {
             this._errors.push(new SchemaError(
               'Listing @import keys as positional args is deprecated - use pick=[...] instead'
               + ` (e.g. @import("${importPath}", pick=[${positionalKeys.join(', ')}]))`,

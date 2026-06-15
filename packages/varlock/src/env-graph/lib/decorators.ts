@@ -7,12 +7,10 @@ import {
 } from '@env-spec/parser';
 import { EnvGraphDataSource } from './data-source';
 import type { ConfigItem } from './config-item';
-import {
-  StaticValueResolver, ArrayLiteralResolver, type Resolver, convertParsedValueToResolvers,
-} from './resolver';
+import { StaticValueResolver, type Resolver, convertParsedValueToResolvers } from './resolver';
 import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
-import { globToRegExp } from './glob';
+import { parseKeyFilterArgs, applyKeyFilter, type KeyFilter } from './key-filter';
 
 
 export abstract class DecoratorInstance {
@@ -405,49 +403,24 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
         }
       }
 
-      // key filters: `pick=[...]` is an allowlist, `omit=[...]` a denylist. Default (neither)
-      // injects every key. The two can't be combined. Patterns support simple globs (`*`, `?`).
-      const pickResolver = argsVal.objArgs?.pick;
-      const omitResolver = argsVal.objArgs?.omit;
-      if (pickResolver && omitResolver) {
-        throw new SchemaError('@setValuesBulk: cannot use both pick and omit - choose one');
-      }
-      let filterMode: 'pick' | 'omit' | undefined;
-      let filterPatterns: Array<string> | undefined;
-      const filterResolver = pickResolver ?? omitResolver;
-      if (filterResolver) {
-        filterMode = pickResolver ? 'pick' : 'omit';
-        if (!(filterResolver instanceof ArrayLiteralResolver)) {
-          throw new SchemaError(`@setValuesBulk: ${filterMode} must be an array literal, e.g. ${filterMode}=[API_KEY, DB_*]`);
-        }
-        filterPatterns = (filterResolver.arrArgs ?? []).map((el) => {
-          if (!el.isStatic || typeof el.staticValue !== 'string' || !el.staticValue.trim()) {
-            throw new SchemaError(`@setValuesBulk: ${filterMode} entries must be non-empty static key names or globs`);
-          }
-          return el.staticValue.trim();
-        });
-        if (!filterPatterns.length) {
-          throw new SchemaError(`@setValuesBulk: ${filterMode} list cannot be empty`);
-        }
-      }
+      // key filters: `pick=[...]` (allowlist) / `omit=[...]` (denylist). Default injects every key.
+      const keyFilter = parseKeyFilterArgs(argsVal.objArgs?.pick, argsVal.objArgs?.omit, '@setValuesBulk');
 
       return {
         graph: argsVal.dataSource!.graph!,
         dataSource: argsVal.dataSource!,
         argsResolver: argsVal,
-        filterMode,
-        filterPatterns,
+        keyFilter,
       };
     },
     async execute(processedData) {
       const {
-        graph, dataSource, argsResolver, filterMode, filterPatterns,
+        graph, dataSource, argsResolver, keyFilter,
       } = processedData as {
         graph: EnvGraph;
         dataSource: EnvGraphDataSource;
         argsResolver: Resolver;
-        filterMode?: 'pick' | 'omit';
-        filterPatterns?: Array<string>;
+        keyFilter?: KeyFilter;
       };
 
       // check enabled before resolving data - important so disabled sources don't trigger data fetching
@@ -485,16 +458,8 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
         entries = parseEnvBulkValues(dataString);
       }
 
-      // apply key filters - pick keeps only matching keys, omit drops them.
-      // patterns support simple globs (`*`, `?`); no filter means inject everything.
-      if (filterMode && filterPatterns) {
-        const matchers = filterPatterns.map(globToRegExp);
-        const matches = (key: string) => matchers.some((re) => re.test(key));
-        for (const key of Object.keys(entries)) {
-          const keep = filterMode === 'pick' ? matches(key) : !matches(key);
-          if (!keep) delete entries[key];
-        }
-      }
+      // apply pick/omit key filter (no filter means inject everything)
+      applyKeyFilter(entries, keyFilter);
 
       // dynamic import to avoid circular dependency
       const { ConfigItem } = await import('./config-item');

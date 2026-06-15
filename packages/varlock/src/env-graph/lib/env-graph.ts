@@ -3,8 +3,9 @@ import path from 'node:path';
 import { ConfigItem } from './config-item';
 import {
   EnvGraphDataSource, FileBasedDataSource, ImportAliasSource,
-  keyPassesImportFilter, type ImportFilter,
+  keyPassesImportFilter,
 } from './data-source';
+import { type KeyFilter } from './key-filter';
 
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
@@ -124,7 +125,7 @@ export class EnvGraph {
   registerItemsForImport(
     source: EnvGraphDataSource,
     importSite: EnvGraphDataSource,
-    importMeta?: { importKeys?: Array<string>, importFilter?: ImportFilter },
+    importMeta?: { importKeys?: Array<string>, importFilter?: KeyFilter },
   ) {
     // A key is visible only if it passes both this import's own filter and the
     // importSite's full import chain (nested imports intersect).
