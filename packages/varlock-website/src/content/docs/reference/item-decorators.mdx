@@ -90,6 +90,10 @@ TOKEN_FORWARDED_TO_PARTNER=
 # @sensitive={enabled=forEnv(production), preventLeaks=false}
 PARTNER_TOKEN=
 ```
+
+:::caution[Use `preventLeaks=false` sparingly]
+Leak detection is a safety net that stops a secret from accidentally being sent in a response. Setting `preventLeaks=false` removes that net for this item, so only use it when a secret is _deliberately_ meant to leave the system (e.g. an endpoint forwarding a token to another service) — never just to silence a leak-detection error. Prefer disabling it for a single item like this over turning off [`@preventLeaks`](/reference/root-decorators/#preventleaks) globally.
+:::
 </div>
 
 <div>
