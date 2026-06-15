@@ -166,6 +166,130 @@ describe('@setValuesBulk() root decorator', () => {
     }));
   });
 
+  describe('key filters', () => {
+    test('no filter args injects every key', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"API_KEY":"from-bulk","OTHER":"from-bulk"}', format=json)
+        # ---
+        API_KEY=from-schema
+        OTHER=from-schema
+      `,
+      expectValues: {
+        API_KEY: 'from-bulk',
+        OTHER: 'from-bulk',
+      },
+    }));
+
+    test('pick (allowlist) only injects listed keys', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"API_KEY":"from-bulk","OTHER":"from-bulk"}', format=json, pick=[API_KEY])
+        # ---
+        API_KEY=from-schema
+        OTHER=from-schema
+      `,
+      expectValues: {
+        API_KEY: 'from-bulk',
+        OTHER: 'from-schema',
+      },
+    }));
+
+    test('pick with multiple keys', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"A":"bulk","B":"bulk","C":"bulk"}', format=json, pick=[A, C])
+        # ---
+        A=schema
+        B=schema
+        C=schema
+      `,
+      expectValues: {
+        A: 'bulk',
+        B: 'schema',
+        C: 'bulk',
+      },
+    }));
+
+    test('omit (denylist) injects everything except listed keys', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"API_KEY":"from-bulk","OTHER":"from-bulk"}', format=json, omit=[OTHER])
+        # ---
+        API_KEY=from-schema
+        OTHER=from-schema
+      `,
+      expectValues: {
+        API_KEY: 'from-bulk',
+        OTHER: 'from-schema',
+      },
+    }));
+
+    test('pick supports glob patterns', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"API_KEY":"bulk","API_URL":"bulk","DB_HOST":"bulk"}', format=json, pick=[API_*])
+        # ---
+        API_KEY=schema
+        API_URL=schema
+        DB_HOST=schema
+      `,
+      expectValues: {
+        API_KEY: 'bulk',
+        API_URL: 'bulk',
+        DB_HOST: 'schema',
+      },
+    }));
+
+    test('omit supports glob patterns', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"API_KEY":"bulk","DEBUG_A":"bulk","DEBUG_B":"bulk"}', format=json, omit=[DEBUG_*])
+        # ---
+        API_KEY=schema
+        DEBUG_A=schema
+        DEBUG_B=schema
+      `,
+      expectValues: {
+        API_KEY: 'bulk',
+        DEBUG_A: 'schema',
+        DEBUG_B: 'schema',
+      },
+    }));
+
+    test('pick combines with createMissing', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"A":"bulk","B":"bulk"}', format=json, createMissing=true, pick=[A])
+        # ---
+      `,
+      expectValues: {
+        A: 'bulk',
+      },
+      expectNotInSchema: ['B'],
+    }));
+
+    test('using both pick and omit is an error', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"A":"bulk"}', format=json, pick=[A], omit=[B])
+        # ---
+        A=schema
+      `,
+      expectError: true,
+    }));
+
+    test('empty pick list is an error', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"A":"bulk"}', format=json, pick=[])
+        # ---
+        A=schema
+      `,
+      expectError: true,
+    }));
+
+    test('non-array pick is an error', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"A":"bulk"}', format=json, pick=A)
+        # ---
+        A=schema
+      `,
+      expectError: true,
+    }));
+  });
+
   describe('error cases', () => {
     test('no arguments', envFilesTest({
       envFile: outdent`

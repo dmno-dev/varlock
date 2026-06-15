@@ -112,8 +112,8 @@ export const ROOT_DECORATORS: Array<DecoratorInfo> = [
     name: 'setValuesBulk',
     scope: 'root',
     summary: 'Injects many config values from a single data source.',
-    documentation: 'Common usage: `# @setValuesBulk(exec("vault kv get ..."), format=json)`.',
-    insertText: '@setValuesBulk(${1:exec("command")}, format=${2|json,env|})',
+    documentation: 'Common usage: `# @setValuesBulk(opLoadEnvironment(env-id))`. Filter keys with `pick=[API_*]` (allowlist) or `omit=[LEGACY_*]` (denylist); globs supported.',
+    insertText: '@setValuesBulk(${1:opLoadEnvironment(env-id)})',
     isFunction: true,
   },
   {
