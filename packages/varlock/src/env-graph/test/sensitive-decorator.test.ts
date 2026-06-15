@@ -394,6 +394,40 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     },
   }));
 
+  test('enabled=false toggles the item to not sensitive', envFilesTest({
+    envFile: outdent`
+      OFF=val   # @sensitive={enabled=false}
+      ON=val    # @sensitive={enabled=true, preventLeaks=false}
+    `,
+    expectSensitive: { OFF: false, ON: true },
+    expectSerializedMatches: {
+      config: {
+        ON: { isSensitive: true, preventLeaks: false },
+      },
+    },
+  }));
+
+  test('enabled can be a function for dynamic sensitivity (forEnv)', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # ---
+        APP_ENV=production
+        SENSITIVE_IN_PROD=  # @sensitive={enabled=forEnv(production), preventLeaks=false}
+        SENSITIVE_IN_DEV=   # @sensitive={enabled=forEnv(dev)}
+      `,
+    },
+    expectSensitive: {
+      SENSITIVE_IN_PROD: true,
+      SENSITIVE_IN_DEV: false,
+    },
+  }));
+
+  test('non-boolean enabled is rejected', envFilesTest({
+    envFile: 'FOO=val   # @sensitive={enabled=nope}',
+    expectValues: { FOO: SchemaError },
+  }));
+
   test('@public does not accept options', envFilesTest({
     envFile: 'FOO=val   # @public={preventLeaks=false}',
     expectValues: { FOO: SchemaError },

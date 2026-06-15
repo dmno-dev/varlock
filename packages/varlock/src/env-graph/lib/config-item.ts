@@ -457,8 +457,9 @@ export class ConfigItem {
 
       const usingPublic = sensitiveDec.name === 'public';
 
-      // options-object form: `@sensitive={preventLeaks=false}` — implies sensitive=true
-      // and carries per-item runtime-protection options
+      // options-object form: `@sensitive={preventLeaks=false}` — carries per-item
+      // runtime-protection options. `enabled` toggles sensitivity itself (defaults to
+      // true, and may be a function for dynamic control, e.g. enabled=forEnv(prod)).
       if (sensitiveDec.parsedDecorator.value instanceof ParsedEnvSpecObjectLiteral) {
         if (usingPublic) {
           this._schemaErrors.push(new SchemaError('@public does not accept options - use @sensitive={...} on sensitive items'));
@@ -466,8 +467,7 @@ export class ConfigItem {
         }
         const resolved = await sensitiveDec.resolve() as Record<string, any> | undefined;
         if (sensitiveDec.schemaErrors.some((e) => !e.isWarning)) return;
-        this.applySensitiveOptions(resolved ?? {});
-        this._isSensitive = true;
+        this._isSensitive = this.applySensitiveOptions(resolved ?? {});
         this._sensitiveExplicitlySet = true;
         return;
       }
@@ -520,19 +520,31 @@ export class ConfigItem {
     if (sensitiveFromDataType !== undefined) this._isSensitive = sensitiveFromDataType;
   }
 
-  /** apply named options from the `@sensitive={...}` options-object form */
-  private applySensitiveOptions(opts: Record<string, any>) {
+  /**
+   * Apply named options from the `@sensitive={...}` form.
+   * Returns whether the item is sensitive (the `enabled` option, defaulting to true) —
+   * `enabled` may be static or a function, allowing dynamic control of sensitivity.
+   */
+  private applySensitiveOptions(opts: Record<string, any>): boolean {
+    let enabled = true;
     for (const optKey of Object.keys(opts)) {
-      if (optKey === 'preventLeaks') {
+      if (optKey === 'enabled') {
+        if (typeof opts[optKey] !== 'boolean') {
+          this._schemaErrors.push(new SchemaError('@sensitive enabled option must resolve to a boolean'));
+          continue;
+        }
+        enabled = opts[optKey];
+      } else if (optKey === 'preventLeaks') {
         if (typeof opts[optKey] !== 'boolean') {
           this._schemaErrors.push(new SchemaError('@sensitive preventLeaks option must be a boolean'));
           continue;
         }
         this._preventLeaks = opts[optKey];
       } else {
-        this._schemaErrors.push(new SchemaError(`@sensitive: unknown option "${optKey}". Valid options: preventLeaks`));
+        this._schemaErrors.push(new SchemaError(`@sensitive: unknown option "${optKey}". Valid options: enabled, preventLeaks`));
       }
     }
+    return enabled;
   }
 
 
