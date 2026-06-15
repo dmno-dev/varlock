@@ -141,6 +141,50 @@ console.log(ENV.SOMEVAR);             // ✨ recommended
 - Better error messages for invalid or unavailable keys
 - Enables future DX improvements and tighter control over what is bundled
 
+## Dynamic+public config recipe
+
+Use `@dynamic` for public values that must be resolved at runtime instead of inlined at build time:
+For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
+
+```env-spec title=".env.schema"
+# @defaultSensitive=inferFromPrefix('VITE_')
+# @defaultDynamic=sensitive
+# ---
+VITE_STATIC_FLAG=enabled
+VITE_RUNTIME_FLAG=enabled # @dynamic
+```
+
+### Server-side rendering
+
+In SSR code, keep using `ENV.KEY` directly.
+
+### Client-side rendering
+
+For browser code, expose an endpoint that returns `getPublicDynamicEnv()` and then hydrate with `loadPublicDynamicEnv()`:
+
+```ts title="server route example"
+import { getPublicDynamicEnv } from 'varlock/env';
+
+export function GET() {
+  return Response.json(getPublicDynamicEnv(), {
+    headers: { 'cache-control': 'no-store' },
+  });
+}
+```
+
+```ts title="client entry example"
+import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+
+await loadPublicDynamicEnv({ endpoint: '/__varlock/public-env' });
+console.log(ENV.VITE_RUNTIME_FLAG);
+```
+
+If you only need a subset, return `getPublicDynamicEnv(['VITE_RUNTIME_FLAG'])`.
+
+:::note[No automatic endpoint in plain Vite]
+The Vite integration does not inject a route automatically. Framework integrations may add this for you (for example, Astro can auto-inject one in SSR mode).
+:::
+
 ### Within `vite.config.*`
 It's often useful to be able to access env vars in your Vite config. Without varlock, it's a bit awkward, but varlock makes it dead simple - in fact it's already available! Just import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
 

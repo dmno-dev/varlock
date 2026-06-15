@@ -93,7 +93,7 @@ function valueToNode(t: BabelAPI['types'], value: unknown): object {
  * Babel plugin for Expo/React Native projects that integrates varlock.
  *
  * Replaces `ENV.xxx` member expressions with their static values at compile time
- * for non-sensitive config items. Sensitive items are NOT inlined and are only
+ * for non-dynamic config items. Dynamic items are NOT inlined and are only
  * accessible at runtime in Expo server routes (+api files) via the ENV proxy.
  * Accessing a sensitive value in native code will emit a build-time warning.
  *
@@ -121,16 +121,18 @@ export default function varlockExpoBabelPlugin(api: BabelAPI) {
   const { config } = varlockLoadedEnv;
   const t = api.types;
 
-  // Build the set of non-sensitive keys that can be statically replaced
+  // Build the set of non-dynamic keys that can be statically replaced
   const warnedSensitiveKeys = new Set<string>();
-  const nonSensitiveKeys = new Set<string>();
+  const staticKeys = new Set<string>();
   for (const itemKey in config) {
-    if (!config[itemKey].isSensitive) {
-      nonSensitiveKeys.add(itemKey);
+    const item = config[itemKey];
+    const isDynamic = item.isDynamic ?? item.isSensitive;
+    if (!isDynamic) {
+      staticKeys.add(itemKey);
     }
   }
 
-  debug('static replacements keys', [...nonSensitiveKeys]);
+  debug('static replacements keys', [...staticKeys]);
 
   return {
     name: 'varlock-expo-integration',
@@ -147,14 +149,16 @@ export default function varlockExpoBabelPlugin(api: BabelAPI) {
         ) {
           const key = node.property.name as string;
 
-          if (nonSensitiveKeys.has(key)) {
+          if (staticKeys.has(key)) {
             const item = config[key];
             nodePath.replaceWith(valueToNode(t, item.value));
             debug(`replaced ENV.${key} with static value`);
-          } else if (config[key]?.isSensitive) {
-            debug(`ENV.${key} is sensitive - skipping static replacement`);
+          } else if (config[key]) {
+            const isDynamic = config[key].isDynamic ?? config[key].isSensitive;
+            if (!isDynamic) return;
+            debug(`ENV.${key} is dynamic - skipping static replacement`);
 
-            if (!isServerFile(state.filename) && !warnedSensitiveKeys.has(key)) {
+            if (config[key].isSensitive && !isServerFile(state.filename) && !warnedSensitiveKeys.has(key)) {
               warnedSensitiveKeys.add(key);
               // eslint-disable-next-line no-console
               console.warn([

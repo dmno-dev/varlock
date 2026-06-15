@@ -111,6 +111,26 @@ OTHER_BAR=  # not sensitive (explicit)
 </div>
 
 <div>
+### `@defaultDynamic`
+**Value type:** `boolean | "sensitive"`
+
+Sets the default state of each item being treated as _dynamic_ (runtime-resolved) vs _static_ (eligible for build-time replacement). Only applied to items that have a definition within the same file. Can be overridden on individual items using [`@dynamic`](/reference/item-decorators/#dynamic)/[`@static`](/reference/item-decorators/#static).
+
+- `"sensitive"` (default): Dynamic behavior follows sensitivity.
+- `true`: All items are dynamic unless explicitly marked static.
+- `false`: All items are static unless explicitly marked dynamic.
+
+```env-spec
+# @defaultSensitive=inferFromPrefix(PUBLIC_)
+# @defaultDynamic=sensitive
+# ---
+
+PUBLIC_FOO= # static by default (public)
+SECRET_BAR= # dynamic by default (sensitive)
+```
+</div>
+
+<div>
 ### `@disable`
 **Value type:** `boolean`
 

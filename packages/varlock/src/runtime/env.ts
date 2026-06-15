@@ -295,6 +295,8 @@ export function initVarlockEnv(opts?: {
   resetRedactionMap(serializedEnvData);
 
   const setProcessEnv = processExists && !serializedEnvData.settings?.disableProcessEnvInjection;
+  const dynamicKeys: Array<string> = [];
+  const dynamicPublicKeys: Array<string> = [];
 
   // if we've already injected process.env vars in the past, we'll reset those now
   if (setProcessEnv) {
@@ -306,7 +308,13 @@ export function initVarlockEnv(opts?: {
   }
 
   for (const itemKey in serializedEnvData.config) {
-    const itemValue = serializedEnvData.config[itemKey].value;
+    const itemData = serializedEnvData.config[itemKey];
+    const itemValue = itemData.value;
+    const isDynamic = itemData.isDynamic;
+    if (isDynamic) {
+      dynamicKeys.push(itemKey);
+      if (!itemData.isSensitive) dynamicPublicKeys.push(itemKey);
+    }
     envValues[itemKey] = itemValue;
     if (setProcessEnv) {
       varlockInjectedProcessEnvKeys?.push(itemKey);
@@ -315,6 +323,8 @@ export function initVarlockEnv(opts?: {
       process.env[itemKey] = itemValue === undefined ? '' : String(itemValue);
     }
   }
+  (globalThis as any).__varlockDynamicKeys = dynamicKeys;
+  (globalThis as any).__varlockDynamicPublicKeys = dynamicPublicKeys;
   initializedEnv = true;
 }
 
@@ -349,6 +359,183 @@ const IGNORED_PROXY_KEYS = [
 // but TS wont let us, so instead we start with it being empty, which will cause type errors
 // unless type generation is enabled
 export interface TypedEnvSchema {}
+export interface PublicTypedEnvSchema {}
+type DynamicConfigAccessMeta = {
+  key: string,
+  isPublic: boolean,
+};
+
+function getStringArrayGlobal(name: string): Array<string> {
+  const val = (globalThis as any)[name];
+  if (!Array.isArray(val)) return [];
+  return val.filter((k) => typeof k === 'string');
+}
+
+export function getDynamicConfigKeys(): Array<string> {
+  return getStringArrayGlobal('__varlockDynamicKeys');
+}
+
+export function getDynamicPublicConfigKeys(): Array<string> {
+  return getStringArrayGlobal('__varlockDynamicPublicKeys');
+}
+
+function getDynamicPublicKeys(): Array<string> {
+  return getDynamicPublicConfigKeys();
+}
+
+function resolvePublicDynamicKeys(keys?: Array<string>): Array<string> {
+  const allowedKeys = getDynamicPublicKeys();
+  if (!keys?.length) return allowedKeys;
+  if (!allowedKeys.length) return keys;
+  const allowedSet = new Set(allowedKeys);
+  return keys.filter((k) => allowedSet.has(k));
+}
+
+function getVarlockExecutionPhase() {
+  if ((globalThis as any).__varlockExecutionPhase) return (globalThis as any).__varlockExecutionPhase as string;
+  return globalThis.process?.env?._VARLOCK_EXECUTION_PHASE;
+}
+
+function getDynamicBuildAccessMode() {
+  const mode = (globalThis as any).__varlockDynamicBuildAccessMode
+    ?? globalThis.process?.env?._VARLOCK_DYNAMIC_BUILD_ACCESS_MODE
+    ?? 'error';
+  return mode === 'warn' ? 'warn' : 'error';
+}
+
+function shouldGuardDynamicAccessDuringBuild() {
+  const phase = getVarlockExecutionPhase();
+  return phase === 'build' || phase === 'prerender';
+}
+
+function notifyDynamicConfigAccess(meta: DynamicConfigAccessMeta) {
+  const onDynamicConfigAccess = (globalThis as any).__varlockOnDynamicConfigAccess;
+  if (typeof onDynamicConfigAccess !== 'function') {
+    debug(`[dynamic-access] no hook installed for ENV.${meta.key}`);
+    return;
+  }
+  debug(`[dynamic-access] notifying hook for ENV.${meta.key} (isPublic=${meta.isPublic})`);
+  onDynamicConfigAccess(meta);
+}
+
+const dynamicBuildAccessWarnedKeys = new Set<string>();
+const DEFAULT_PUBLIC_DYNAMIC_ENV_ENDPOINT = '/__varlock/public-env';
+let dynamicPublicEnvLoadPromise: Promise<Partial<PublicTypedEnvSchema>> | undefined;
+let hasLoadedDynamicPublicEnv = false;
+let lastLoadedDynamicPublicEnv = {} as Record<string, unknown>;
+
+function hasHydratedDynamicPublicEnv() {
+  const dynamicPublicKeys = getDynamicPublicKeys();
+  if (!dynamicPublicKeys.length) return false;
+  return dynamicPublicKeys.every((key) => key in envValues);
+}
+
+/**
+ * Hydrate dynamic+public env values at runtime (typically in the browser),
+ * while keeping the same `ENV.KEY` access pattern.
+ */
+export function setDynamicPublicEnv(
+  values: Partial<PublicTypedEnvSchema> | Record<string, unknown>,
+) {
+  initializedEnv = true;
+  for (const [key, value] of Object.entries(values || {})) {
+    envValues[key] = value;
+  }
+}
+
+/**
+ * Returns the currently hydrated dynamic+public values from the ENV proxy store.
+ */
+export function getDynamicPublicEnv(): Partial<PublicTypedEnvSchema> {
+  const out: Record<string, unknown> = {};
+  for (const key of resolvePublicDynamicKeys()) {
+    if (key in envValues) out[key] = envValues[key];
+  }
+  return out as Partial<PublicTypedEnvSchema>;
+}
+
+/**
+ * Returns dynamic+public env values as an object.
+ * Optionally pass a key list to limit which values are included.
+ */
+export function getPublicDynamicEnv(keys?: Array<string>): Partial<PublicTypedEnvSchema> {
+  const out: Record<string, unknown> = {};
+  for (const key of resolvePublicDynamicKeys(keys)) {
+    if (key in envValues) out[key] = envValues[key];
+  }
+  return out as Partial<PublicTypedEnvSchema>;
+}
+
+/**
+ * Clears hydrated dynamic+public values from the ENV proxy store.
+ */
+export function clearDynamicPublicEnv(keys?: Array<string>) {
+  for (const key of resolvePublicDynamicKeys(keys)) {
+    delete envValues[key];
+  }
+  hasLoadedDynamicPublicEnv = false;
+  lastLoadedDynamicPublicEnv = {};
+}
+
+/**
+ * Loads dynamic+public env values from a server endpoint and hydrates the ENV proxy.
+ * The server endpoint controls which keys are returned.
+ */
+export async function loadPublicDynamicEnv(opts?: {
+  endpoint?: string,
+  fetch?: (input: string | URL, init?: RequestInit) => Promise<Response>,
+  force?: boolean,
+  requestInit?: RequestInit,
+}): Promise<Partial<PublicTypedEnvSchema>> {
+  if (!opts?.force) {
+    if (hasHydratedDynamicPublicEnv()) return getDynamicPublicEnv();
+    if (hasLoadedDynamicPublicEnv) return lastLoadedDynamicPublicEnv as Partial<PublicTypedEnvSchema>;
+    if (dynamicPublicEnvLoadPromise) return dynamicPublicEnvLoadPromise;
+  }
+
+  const endpoint = opts?.endpoint
+    ?? (globalThis as any).__varlockPublicDynamicEnvEndpoint
+    ?? DEFAULT_PUBLIC_DYNAMIC_ENV_ENDPOINT;
+
+  const fetchImpl = opts?.fetch ?? globalThis.fetch?.bind(globalThis);
+  if (!fetchImpl) {
+    throw new Error(
+      '[varlock] loadPublicDynamicEnv requires fetch. '
+      + 'Pass opts.fetch or call it in an environment with global fetch.',
+    );
+  }
+
+  dynamicPublicEnvLoadPromise = (async () => {
+    const response = await fetchImpl(endpoint, {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'same-origin',
+      ...opts?.requestInit,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `[varlock] Failed to load dynamic public env (${response.status}) from ${endpoint}`,
+      );
+    }
+
+    const payload = await response.json() as unknown;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new Error('[varlock] loadPublicDynamicEnv expected a JSON object payload');
+    }
+    const payloadObj = payload as Record<string, unknown>;
+
+    setDynamicPublicEnv(payloadObj);
+    hasLoadedDynamicPublicEnv = true;
+    lastLoadedDynamicPublicEnv = payloadObj;
+    return payloadObj as Partial<PublicTypedEnvSchema>;
+  })();
+
+  try {
+    return await dynamicPublicEnvLoadPromise;
+  } finally {
+    dynamicPublicEnvLoadPromise = undefined;
+  }
+}
 
 const EnvProxy = new Proxy<TypedEnvSchema>({}, {
   get(target, prop) {
@@ -370,8 +557,48 @@ const EnvProxy = new Proxy<TypedEnvSchema>({}, {
       return undefined;
     }
 
-    if (prop in envValues) return envValues[prop];
+    const dynamicKeys = getDynamicConfigKeys();
+    if (prop in envValues) {
+      const isDynamic = dynamicKeys.includes(prop);
+      if (isDynamic) {
+        debug(`[dynamic-access] detected dynamic access for ENV.${prop}`);
+      }
+      if (isDynamic) {
+        notifyDynamicConfigAccess({
+          key: prop,
+          isPublic: getDynamicPublicKeys().includes(prop),
+        });
+      }
+      if (isDynamic && shouldGuardDynamicAccessDuringBuild()) {
+        const msg = [
+          `[varlock] dynamic config \`ENV.${prop}\` was accessed during ${getVarlockExecutionPhase()}.`,
+          'Dynamic values cannot be safely inlined during static build/prerender.',
+          'Use runtime SSR access (non-prerender) or load/hydrate dynamic public values at runtime.',
+        ].join(' ');
+        if (getDynamicBuildAccessMode() === 'warn') {
+          if (!dynamicBuildAccessWarnedKeys.has(prop)) {
+            dynamicBuildAccessWarnedKeys.add(prop);
+            // eslint-disable-next-line no-console
+            console.warn(msg);
+          }
+        } else {
+          throw new Error(msg);
+        }
+      }
+      return envValues[prop];
+    }
     if ((globalThis as any).__varlockThrowOnMissingKeys) {
+      if (dynamicKeys.includes(prop)) {
+        if (getDynamicPublicKeys().includes(prop)) {
+          throw new Error(
+            `\`ENV.${prop}\` is dynamic+public and has not been hydrated yet. `
+            + 'Load dynamic public env first, then access it via ENV.',
+          );
+        }
+        throw new Error(
+          `\`ENV.${prop}\` is dynamic and is not available in this environment.`,
+        );
+      }
       // during development, we can feed in extra metadata and show more helpful errors
       if ((globalThis as any).__varlockValidKeys && (globalThis as any).__varlockValidKeys.includes(prop)) {
         throw new Error(`\`ENV.${prop}\` exists, but is not available in this environment`);

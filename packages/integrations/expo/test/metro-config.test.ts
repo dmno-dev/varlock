@@ -28,8 +28,8 @@ const FAKE_ENV_GRAPH = {
   sources: [],
   settings: {},
   config: {
-    API_URL: { value: 'https://api.example.com', isSensitive: false },
-    SECRET_KEY: { value: 's3cr3t', isSensitive: true },
+    API_URL: { value: 'https://api.example.com', isSensitive: false, isDynamic: false },
+    SECRET_KEY: { value: 's3cr3t', isSensitive: true, isDynamic: true },
   },
 };
 

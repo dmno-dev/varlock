@@ -55,6 +55,7 @@ export type SerializedEnvGraph = {
   config: Record<string, {
     value: any;
     isSensitive: boolean;
+    isDynamic: boolean;
   }>;
   /** provenance metadata for process.env overrides across nested invocations */
   __varlockOverrideMeta?: OverrideProvenanceMetadata;
@@ -311,6 +312,7 @@ export class EnvGraph {
       // internal def has no decorators and no source with root-level defaults.
       item._isRequired = false;
       item._isSensitive = false;
+      item._isDynamic = false;
       // Set dataType directly since registerBuiltinVar is called synchronously
       // during resolver processing, and the item may not get a process() call
       // from the finishLoad loop (for...in doesn't reliably visit new keys).
@@ -672,6 +674,7 @@ export class EnvGraph {
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,
         isSensitive: item.isSensitive,
+        isDynamic: item.isDynamic,
       };
     }
     // Only process.env keys that correspond to a config item can actually act as overrides.

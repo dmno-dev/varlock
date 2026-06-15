@@ -485,6 +485,55 @@ export class ConfigItem {
     if (sensitiveFromDataType !== undefined) this._isSensitive = sensitiveFromDataType;
   }
 
+  _isDynamic: boolean = true;
+  get isDynamic(): boolean {
+    return this._isDynamic;
+  }
+  private async processDynamic() {
+    try {
+      // Pass 1: explicit per-item @dynamic / @static decorators take highest priority
+      for (const def of this.defs) {
+        const dynamicDecs = def.itemDef.decorators?.filter((d) => d.name === 'dynamic' || d.name === 'static') || [];
+        const dynamicDec = dynamicDecs[0];
+        if (!dynamicDec) continue;
+
+        const usingStatic = dynamicDec.name === 'static';
+        const dynamicDecValue = await dynamicDec.resolve();
+        if (dynamicDec.schemaErrors.some((e) => !e.isWarning)) return;
+        if (![true, false, undefined].includes(dynamicDecValue)) {
+          throw new SchemaError('@dynamic/@static must resolve to a boolean or undefined');
+        }
+        if (dynamicDecValue !== undefined) {
+          this._isDynamic = usingStatic ? !dynamicDecValue : dynamicDecValue;
+          return;
+        }
+      }
+
+      // Pass 2: @defaultDynamic from source files
+      for (const def of this.defs) {
+        const defaultDynamicDec = def.source?.getRootDec('defaultDynamic');
+        if (!defaultDynamicDec) continue;
+
+        const defaultDynamicVal = await defaultDynamicDec.resolve();
+        if (_.isBoolean(defaultDynamicVal)) {
+          this._isDynamic = defaultDynamicVal;
+          return;
+        }
+        if (defaultDynamicVal === 'sensitive') {
+          this._isDynamic = this._isSensitive;
+          return;
+        }
+        throw new SchemaError('@defaultDynamic must resolve to true, false, or "sensitive"');
+      }
+    } catch (err) {
+      this._schemaErrors.push(err instanceof SchemaError ? err : new SchemaError(err as Error));
+      return;
+    }
+
+    // Default behavior: dynamic state follows sensitivity.
+    this._isDynamic = this._isSensitive;
+  }
+
 
   get errors() {
     return _.compact([
@@ -557,6 +606,7 @@ export class ConfigItem {
         }
       }
     }
+    await this.processDynamic();
 
     if (!this.valueResolver) {
       this.isResolved = true;
@@ -774,6 +824,51 @@ export class ConfigItem {
       // on error, fall back to default (sensitive=true, safe default)
     }
 
+    // isDynamic - mirrors processDynamic() logic
+    let isDynamic = isSensitive;
+    try {
+      let foundDynamic = false;
+      for (const def of defs) {
+        const dynamicDecs = def.itemDef.decorators?.filter((d) => d.name === 'dynamic' || d.name === 'static') || [];
+        const dynamicDec = dynamicDecs[0];
+
+        if (dynamicDec) {
+          const usingStatic = dynamicDec.name === 'static';
+          // Skip dynamic decorators to avoid caching a stale result
+          if (dynamicDec.decValueResolver?.fnName !== '\0static') break;
+          const dynamicDecValue = await dynamicDec.resolve();
+          if (dynamicDec.schemaErrors.some((e) => !e.isWarning)) break;
+          if (![true, false, undefined].includes(dynamicDecValue)) break;
+          if (dynamicDecValue !== undefined) {
+            isDynamic = usingStatic ? !dynamicDecValue : dynamicDecValue;
+            foundDynamic = true;
+            break;
+          }
+        }
+
+        const defaultDynamicDec = def.source?.getRootDec('defaultDynamic');
+        if (!defaultDynamicDec) continue;
+
+        const defaultDynamicVal = await defaultDynamicDec.resolve();
+        if (_.isBoolean(defaultDynamicVal)) {
+          isDynamic = defaultDynamicVal;
+          foundDynamic = true;
+          break;
+        }
+        if (defaultDynamicVal === 'sensitive') {
+          isDynamic = isSensitive;
+          foundDynamic = true;
+          break;
+        }
+      }
+      if (!foundDynamic) {
+        isDynamic = isSensitive;
+      }
+    } catch {
+      // on error, fall back to default linkage (dynamic follows sensitivity)
+      isDynamic = isSensitive;
+    }
+
     // icon - resolve from filtered defs' decorators
     let icon: string | undefined;
     for (const def of defs) {
@@ -829,6 +924,7 @@ export class ConfigItem {
       isRequired,
       isRequiredDynamic,
       isSensitive,
+      isDynamic,
       icon,
       docsLinks,
       isDeprecated: this.isDeprecated,
@@ -845,6 +941,7 @@ export type TypeGenItemInfo = {
   isRequired: boolean;
   isRequiredDynamic: boolean;
   isSensitive: boolean;
+  isDynamic: boolean;
   icon?: string;
   docsLinks: Array<{ url: string, description?: string }>;
   isDeprecated: boolean;

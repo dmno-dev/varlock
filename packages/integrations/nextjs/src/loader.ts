@@ -46,11 +46,11 @@ function prependAfterDirectives(source: string, codeToPrepend: string): string {
 /**
  * Webpack/Turbopack loader that:
  * 1. Injects resolved env config into instrumentation and proxy files.
- * 2. Replaces `ENV.KEY` references for non-sensitive vars with literal JSON values.
+ * 2. Replaces `ENV.KEY` references for static vars with literal JSON values.
  *
- * SECURITY: Sensitive env values are ONLY embedded into server-side files
- * (never client components). The static ENV.KEY replacements explicitly skip
- * sensitive vars.
+ * SECURITY: Dynamic env values are not embedded at build time, and sensitive
+ * values are expected to stay dynamic by default. The static ENV.KEY
+ * replacements explicitly skip dynamic vars.
  */
 function webpackLoader(this: LoaderContext, source: string) {
   // only transform files within the project root
@@ -105,7 +105,7 @@ function webpackLoader(this: LoaderContext, source: string) {
       // is handled by the runtime file injection (processAssets hook).
       initGuard = 'if(globalThis.__varlockPatchConsole)globalThis.__varlockPatchConsole();';
     } else {
-      initGuard = 'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;require(\'varlock/env\').initVarlockEnv();require(\'varlock/patch-console\').patchGlobalConsole();}';
+      initGuard = 'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;require(\'varlock/env\').initVarlockEnv();require(\'varlock/patch-console\').patchGlobalConsole();require(\'@varlock/nextjs-integration/dynamic-access\').initVarlockNextDynamicAccess();}';
       // When used from webpack, React wraps console for RSC dev replay AFTER our initial
       // patch in the runtime file. Re-patching outside the once-guard ensures our redaction
       // wraps React's wrapper so secrets are redacted before React captures them.
@@ -117,13 +117,41 @@ function webpackLoader(this: LoaderContext, source: string) {
     result = prependAfterDirectives(result, initGuard);
   }
 
-  // static replacements for non-sensitive env vars
+  if (!isClientComponent && source.includes('ENV.')) {
+    const dynamicKeys = Object.entries(envGraph.config)
+      .filter(([, item]) => (item.isDynamic ?? item.isSensitive))
+      .map(([key]) => key);
+
+    if (dynamicKeys.length) {
+      const markerFn = '__varlockMarkDynamicAccess';
+      const markerImport = '__varlockHeadersForDynamicAccess';
+      let hasDynamicRewrites = false;
+
+      for (const key of dynamicKeys) {
+        const pattern = new RegExp(`\\bENV\\.${escapeRegExp(key)}(?![\\w$])`, 'g');
+        if (!pattern.test(result)) continue;
+        hasDynamicRewrites = true;
+        result = result.replace(pattern, `(${markerFn}(), ENV.${key})`);
+      }
+
+      if (hasDynamicRewrites && !result.includes(`const ${markerFn} =`)) {
+        const dynamicAccessPrelude = [
+          `import { headers as ${markerImport} } from 'next/headers';`,
+          `const ${markerFn} = () => { ${markerImport}(); };`,
+        ].join('\n');
+        result = prependAfterDirectives(result, dynamicAccessPrelude);
+      }
+    }
+  }
+
+  // static replacements for non-dynamic env vars
   // webpack uses DefinePlugin for this, so only needed for turbopack
   if (isTurbopack && source.includes('ENV.')) {
     // disable caching only for files that reference ENV — their output depends on env values
     this.cacheable(false);
     for (const [key, item] of Object.entries(envGraph.config)) {
-      if (item.isSensitive) continue;
+      const isDynamic = item.isDynamic ?? item.isSensitive;
+      if (isDynamic) continue;
 
       // TODO: smarter replacement (vite version uses AST?)
 

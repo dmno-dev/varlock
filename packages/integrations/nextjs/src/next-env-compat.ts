@@ -419,6 +419,7 @@ type LoadedEnvConfig = {
 
 let loadCount = 0;
 let suppressSkipLogUntil = 0;
+let hasLoadedEnvInThisProcess = false;
 
 export function loadEnvConfig(
   dir: string,
@@ -459,7 +460,10 @@ export function loadEnvConfig(
     lastLoadedSourceStateHash = computeSourceStateHash(varlockLoadedEnv.sources, varlockLoadedEnv.basePath);
   }
 
-  let useCachedEnv = !!process.env.__VARLOCK_ENV;
+  let useCachedEnv = !!process.env.__VARLOCK_ENV && hasLoadedEnvInThisProcess;
+  if (!useCachedEnv && process.env.__VARLOCK_ENV && !hasLoadedEnvInThisProcess) {
+    debug('ignoring inherited __VARLOCK_ENV cache on first process load');
+  }
   if (forceReload) {
     // Throttle reloads to at most once per second to avoid spinning during
     // rapid file-change bursts (Next.js may fire multiple events per edit)
@@ -508,6 +512,7 @@ export function loadEnvConfig(
     if (dev) enableExtraFileWatchers(varlockLoadedEnv.sources, varlockLoadedEnv.basePath);
 
     debug('>> USING CACHED ENV');
+    hasLoadedEnvInThisProcess = true;
 
     return { combinedEnv, parsedEnv, loadedEnvFiles };
   }
@@ -531,6 +536,7 @@ export function loadEnvConfig(
     const { stdout } = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
       fullResult: true,
       env: cleanEnv as any,
+      cwd: rootDir || dir,
     });
     if (loadCount >= 2 && forceReload) {
       const envChanged = stdout !== previousSerializedEnv;
@@ -617,6 +623,8 @@ export function loadEnvConfig(
       enableExtraFileWatchers(varlockLoadedEnv.sources, varlockLoadedEnv.basePath);
     }
 
+    hasLoadedEnvInThisProcess = true;
+
     return { combinedEnv: { ...initialEnv }, parsedEnv: {}, loadedEnvFiles: [] };
   }
 
@@ -644,6 +652,7 @@ export function loadEnvConfig(
   // pre-resolved env values at runtime (they don't re-run @next/env on boot)
   // TODO: re-enable once we verify instrumentation approach works for prod
   // if (!dev) writeResolvedEnvFile();
+  hasLoadedEnvInThisProcess = true;
 
   return { combinedEnv, parsedEnv, loadedEnvFiles };
 }

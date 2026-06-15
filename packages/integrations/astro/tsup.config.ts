@@ -3,7 +3,7 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: [ // Entry point(s)
     'src/index.ts',
-    'src/astro-middleware.ts',
+    'src/public-dynamic-env-route.ts',
   ],
 
   dts: true,
