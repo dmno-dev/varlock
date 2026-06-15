@@ -76,6 +76,24 @@ SERVICE_X_PRIVATE_KEY=
 # @sensitive=false
 SERVICE_X_CLIENT_ID=
 ```
+
+**Per-item options:** pass an object value to tune protection for a single sensitive item:
+
+- `enabled` (`boolean`, default `true`) — whether the item is sensitive. Lets you keep options while toggling sensitivity, including dynamically via a function (e.g. `enabled=forEnv(production)`). `@sensitive={enabled=false}` is equivalent to `@sensitive=false`.
+- `preventLeaks` (`boolean`, default `true`) — when `false`, this item's value is excluded from [leak detection](/reference/root-decorators/#preventleaks), so it will _not_ trigger an error if it appears in a response. Useful when an endpoint legitimately returns a secret to another system. The value is still redacted in logs.
+
+```env-spec
+# @sensitive={preventLeaks=false}
+TOKEN_FORWARDED_TO_PARTNER=
+
+# sensitive only in production, and allowed to leave the system
+# @sensitive={enabled=forEnv(production), preventLeaks=false}
+PARTNER_TOKEN=
+```
+
+:::caution[Use `preventLeaks=false` sparingly]
+Leak detection is a safety net that stops a secret from accidentally being sent in a response. Setting `preventLeaks=false` removes that net for this item, so only use it when a secret is _deliberately_ meant to leave the system (e.g. an endpoint forwarding a token to another service) — never just to silence a leak-detection error. Prefer disabling it for a single item like this over turning off [`@preventLeaks`](/reference/root-decorators/#preventleaks) globally.
+:::
 </div>
 
 <div>

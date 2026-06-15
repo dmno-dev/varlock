@@ -9,6 +9,7 @@ import {
   ParsedEnvSpecDivider, ParsedEnvSpecDecoratorComment, ParsedEnvSpecComment,
   ParsedEnvSpecDecorator, ParsedEnvSpecStaticValue, ParsedEnvSpecFunctionCall,
   ParsedEnvSpecBlankLine, ParsedEnvSpecFunctionArgs, ParsedEnvSpecKeyValuePair,
+  ParsedEnvSpecObjectLiteral, ParsedEnvSpecArrayLiteral,
 } from './classes';
 }}
 
@@ -125,7 +126,9 @@ Decorator =
 // except characters that have syntactic meaning (=, (, ), #, @).
 // Invalid names are flagged downstream as warnings.
 DecoratorName = $([a-zA-Z] [^ \t\n=()#@]*)
-DecoratorValue = DecoratorFunctionCall / quotedString / unquotedStringWithoutSpaces
+// ObjectLiteral / ArrayLiteral must come first so a value starting with `{` or `[`
+// parses as a literal rather than an unquoted string.
+DecoratorValue = ObjectLiteral / ArrayLiteral / DecoratorFunctionCall / quotedString / unquotedStringWithoutSpaces
 
 // Decorator-specific function call (supports multi-line with # continuation)
 DecoratorFunctionCall =
@@ -158,12 +161,55 @@ DecoratorFunctionArgs =
   }
 
 DecoratorFunctionArgValue =
-  DecoratorFunctionCall
+  ObjectLiteral
+  / ArrayLiteral
+  / DecoratorFunctionCall
   / quotedString
   / $([^ \n,)]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
 
 // Whitespace within decorator function args - allows newline followed by # continuation
 _decWs = ([ \t] / "\n" [ \t]* "#" [ \t]*)*
+
+// Standalone object/array literals — usable as decorator/function-arg values.
+// `{ key=value, ... }` is an object, `[ value, ... ]` is an array.
+// Single-line only for now (no multi-line `#` continuation inside the brackets).
+//
+// DESIGN NOTE: only reach for these where there is no function-call `()` already
+// carrying the structure — i.e. (1) the value of a non-function decorator
+// (`@sensitive={preventLeaks=false}`), or (2) a nested object/list passed as one
+// argument among others (`fn(retry={count=3})`). Do NOT wrap a function's own named
+// args in a literal (`string({minLength=3})`); the parens are already the options bag.
+// Prefer positional forms for ordered pairs (`remap`, `ifs`) and value lists (`enum`) —
+// remap match keys can be regexes/non-identifier strings that can't be object keys.
+// See docs: env-spec/reference "When to reach for a literal".
+ObjectLiteral =
+  "{" _
+  values:(
+    (key:FunctionArgKeyName _ "=" _ val:LiteralElementValue { return new ParsedEnvSpecKeyValuePair({ key, val }) })
+    |0.., _ "," _|
+  )
+  (_ ",")?
+  _ "}"
+  {
+    return new ParsedEnvSpecObjectLiteral({ values, _location: location() });
+  }
+
+ArrayLiteral =
+  "[" _
+  values:( LiteralElementValue |0.., _ "," _| )
+  (_ ",")?
+  _ "]"
+  {
+    return new ParsedEnvSpecArrayLiteral({ values, _location: location() });
+  }
+
+// Values inside `{}`/`[]` — like function-arg values but must also stop at `}`/`]`
+LiteralElementValue =
+  ObjectLiteral
+  / ArrayLiteral
+  / FunctionCall
+  / quotedString
+  / $([^ \n,)}\]]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
 
 
 FunctionCall =
@@ -201,7 +247,9 @@ FunctionArgs =
 
 FunctionArgKeyName = $([a-zA-Z] [a-zA-Z0-9_]*)
 FunctionArgValue =
-  FunctionCall
+  ObjectLiteral
+  / ArrayLiteral
+  / FunctionCall
   / quotedString
   // slightly different here - can contain "#", cannot contain ")" or "," or newline
   / $([^ \n,)]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
