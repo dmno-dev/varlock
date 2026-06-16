@@ -84,6 +84,33 @@ describe('Expo Integration', () => {
     });
   });
 
+  describe('React Native CLI screen', () => {
+    expoEnv.describeScenario('warns about sensitive var in src/screens path', {
+      command: 'node build-rn-screen.mjs',
+      templateFiles: {
+        'src/screens/Home.tsx': 'pages/leaky-page.tsx',
+      },
+      fileAssertions: [
+        {
+          description: 'sensitive var is NOT inlined in RN screen',
+          filePath: 'dist/Home.js',
+          shouldNotContain: ['super-secret-key-12345'],
+        },
+        {
+          description: 'sensitive var reference is preserved in RN screen',
+          filePath: 'dist/Home.js',
+          shouldContain: ['ENV.SECRET_KEY'],
+        },
+      ],
+      outputAssertions: [
+        {
+          description: 'build warns about sensitive var in RN screen file',
+          shouldContain: ['@sensitive', 'src/screens/Home.tsx'],
+        },
+      ],
+    });
+  });
+
   describe('mixed client + server build', () => {
     expoEnv.describeScenario('warns only for client file, not server route', {
       command: 'node build.mjs',
