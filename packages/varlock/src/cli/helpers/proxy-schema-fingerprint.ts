@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 
 import {
+  ParsedEnvSpecArrayLiteral,
   ParsedEnvSpecFunctionArgs,
   ParsedEnvSpecFunctionCall,
   ParsedEnvSpecKeyValuePair,
+  ParsedEnvSpecObjectLiteral,
   ParsedEnvSpecStaticValue,
 } from '@env-spec/parser';
 
@@ -37,6 +39,15 @@ function canonicalParsed(node: unknown): string {
     }
     named.sort();
     return `(${[...positional, ...named].join(',')})`;
+  }
+  if (node instanceof ParsedEnvSpecArrayLiteral) {
+    // Array order is significant (e.g. domain/method lists) — keep it.
+    return `[${node.values.map((v) => canonicalParsed(v)).join(',')}]`;
+  }
+  if (node instanceof ParsedEnvSpecObjectLiteral) {
+    const entries = node.values.map((kv) => `${kv.key}=${canonicalParsed(kv.value)}`);
+    entries.sort();
+    return `{${entries.join(',')}}`;
   }
   return '?';
 }

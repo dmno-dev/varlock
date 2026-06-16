@@ -79,24 +79,28 @@ A `@proxy(...)` rule supports more than just a domain:
 
 | Option | Meaning |
 |---|---|
-| `domain` | **(required)** Target host to match. Supports globs, e.g. `*.example.com`. |
+| `domain` | **(required)** Host to match — a single host or an array list. Supports globs, e.g. `*.example.com`. |
 | `path` | Restrict to matching URL paths (glob), e.g. `path="/v1/**"`. |
-| `method` | Restrict to an HTTP method, e.g. `method="POST"`. |
+| `method` | Restrict to one or more HTTP methods, e.g. `method=[GET, POST]`. |
 | `block` | `block=true` denies matching requests outright (fail closed). |
+| `keys` | Array of additional item names to inject for this rule, e.g. `keys=[STRIPE_KEY, WEBHOOK_SECRET]`. |
+
+`domain` and `method` take either a single value or an **array literal** for lists:
 
 ```env-spec title=".env.schema"
 # @enableProxy(egress="strict")
 # Block a dangerous endpoint entirely (detached rule — no injection):
-# @proxy(domain="api.stripe.com", path="/v1/refunds/**", method="POST", block=true)
+# @proxy(domain="api.stripe.com", path="/v1/refunds/**", method=[POST, DELETE], block=true)
 # ---
-# @proxy(domain="api.stripe.com")
+# Match either host, any method:
+# @proxy(domain=[api.stripe.com, api.stripe-test.com])
 STRIPE_SECRET_KEY=sk_live_...
 ```
 
 ### Attached vs detached rules
 
-- **Attached rule** — `@proxy` on an item. Injects that item's secret into matching requests. (You can attach extra items by passing refs: `@proxy(domain="api.x.com", $OTHER_KEY)`.)
-- **Detached rule** — `@proxy` in the header. A policy-only rule (match, `block`, or `approval`) for a domain, with no secret injected.
+- **Attached rule** — `@proxy` on an item. Injects that item's secret into matching requests. (Attach extra items with the `keys` array: `@proxy(domain="api.x.com", keys=[OTHER_KEY])`.)
+- **Detached rule** — `@proxy` in the header. A policy-only rule (match, `block`, or `approval`) for a domain. It injects nothing on its own, but can inject named items with `keys=[...]`.
 
 ### Egress modes
 

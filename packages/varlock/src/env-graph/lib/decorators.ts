@@ -7,7 +7,9 @@ import {
 } from '@env-spec/parser';
 import { EnvGraphDataSource } from './data-source';
 import type { ConfigItem } from './config-item';
-import { StaticValueResolver, type Resolver, convertParsedValueToResolvers } from './resolver';
+import {
+  StaticValueResolver, ArrayLiteralResolver, type Resolver, convertParsedValueToResolvers,
+} from './resolver';
 import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
 import { parseKeyFilterArgs, applyKeyFilter, type KeyFilter } from './key-filter';
@@ -304,6 +306,70 @@ export type RootDecoratorDef<Processed = any> = {
   useFnArgsResolver?: boolean,
 };
 
+/**
+ * Validate that a `@proxy` list option (`domain`/`method`/`keys`) is either a
+ * single string value or an array literal of non-empty static strings. When
+ * `requireArray` is set the single form is rejected (used for `keys`, which is
+ * always a list). Single non-array values are accepted as-is and validated at
+ * resolve time, so dynamic expressions (e.g. `domain=concat(...)`) still work.
+ */
+function assertProxyStringListArg(
+  resolver: Resolver | undefined,
+  option: string,
+  requireArray: boolean,
+): void {
+  if (!resolver) return;
+  if (resolver instanceof ArrayLiteralResolver) {
+    const els = resolver.arrArgs ?? [];
+    if (!els.length) throw new SchemaError(`@proxy: ${option} array cannot be empty`);
+    for (const el of els) {
+      if (!el.isStatic || typeof el.staticValue !== 'string' || !el.staticValue.trim()) {
+        throw new SchemaError(`@proxy: ${option} entries must be non-empty strings`);
+      }
+    }
+    return;
+  }
+  if (requireArray) {
+    throw new SchemaError(`@proxy: ${option} must be an array literal, e.g. ${option}=[ITEM_A, ITEM_B]`);
+  }
+}
+
+/**
+ * Shared validation for the function form of `@proxy(...)` — used by both the
+ * root (detached) and item (attached) registrations so their rules stay
+ * consistent. Requires `domain`; accepts `domain`/`method` as a string or array
+ * literal and `keys` as an array literal; rejects positional args; validates the
+ * approval options.
+ */
+function validateProxyFunctionArgs(argsVal: Resolver): void {
+  if (!argsVal.objArgs?.domain) {
+    throw new SchemaError('@proxy: missing required "domain" option');
+  }
+  assertProxyStringListArg(argsVal.objArgs.domain, 'domain', false);
+  assertProxyStringListArg(argsVal.objArgs?.method, 'method', false);
+  assertProxyStringListArg(argsVal.objArgs?.keys, 'keys', true);
+
+  if (argsVal.arrArgs?.length) {
+    throw new SchemaError('@proxy: positional args are not supported - use keys=[ITEM_A, ITEM_B] to attach items');
+  }
+
+  const eachResolver = argsVal.objArgs?.approvalEach;
+  if (eachResolver?.isStatic) {
+    const eachVal = eachResolver.staticValue;
+    if (typeof eachVal !== 'string' || !PROXY_APPROVAL_EACH_VALUES.includes(eachVal as any)) {
+      throw new SchemaError(`@proxy: approvalEach must be one of ${PROXY_APPROVAL_EACH_VALUES.join(', ')}`);
+    }
+  }
+  const maxDurResolver = argsVal.objArgs?.approvalMaxDuration;
+  if (maxDurResolver?.isStatic) {
+    try {
+      parseDuration(maxDurResolver.staticValue as string | number);
+    } catch {
+      throw new SchemaError('@proxy: approvalMaxDuration must be a duration like "15m" or 0 (always ask)');
+    }
+  }
+}
+
 // root decorators
 export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
   {
@@ -399,18 +465,7 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     name: 'proxy',
     isFunction: true,
     useFnArgsResolver: true,
-    process: (argsVal) => {
-      const domainResolver = argsVal.objArgs?.domain;
-      if (!domainResolver) {
-        throw new SchemaError('@proxy: missing required "domain" option');
-      }
-
-      for (const arg of argsVal.arrArgs || []) {
-        if (arg.fnName !== 'ref') {
-          throw new SchemaError('@proxy: positional args must be item refs like $API_KEY');
-        }
-      }
-    },
+    process: (argsVal) => validateProxyFunctionArgs(argsVal),
   },
   {
     name: 'auditIgnorePaths',
@@ -639,32 +694,8 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
         }
         return;
       }
-      // Function form: @proxy(domain=..., [path], [method], [block], [approval], [approvalEach], [approvalMaxDuration], $REFS)
-      const domainResolver = decVal.objArgs?.domain;
-      if (!domainResolver) {
-        throw new SchemaError('@proxy: missing required "domain" option');
-      }
-      for (const arg of decVal.arrArgs || []) {
-        if (arg.fnName !== 'ref') {
-          throw new SchemaError('@proxy: positional args must be item refs like $API_KEY');
-        }
-      }
-      const eachResolver = decVal.objArgs?.approvalEach;
-      if (eachResolver?.isStatic) {
-        const eachVal = eachResolver.staticValue;
-        if (typeof eachVal !== 'string' || !PROXY_APPROVAL_EACH_VALUES.includes(eachVal as any)) {
-          throw new SchemaError(`@proxy: approvalEach must be one of ${PROXY_APPROVAL_EACH_VALUES.join(', ')}`);
-        }
-      }
-      const maxDurResolver = decVal.objArgs?.approvalMaxDuration;
-      if (maxDurResolver?.isStatic) {
-        const maxVal = maxDurResolver.staticValue;
-        try {
-          parseDuration(maxVal as string | number);
-        } catch {
-          throw new SchemaError('@proxy: approvalMaxDuration must be a duration like "15m" or 0 (always ask)');
-        }
-      }
+      // Function form: @proxy(domain=..., [path], [method], [block], [approval], [approvalEach], [approvalMaxDuration], [keys=[...]])
+      validateProxyFunctionArgs(decVal);
     },
   },
 

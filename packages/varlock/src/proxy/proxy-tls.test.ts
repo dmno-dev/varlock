@@ -345,7 +345,7 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
       rules: [
         { source: 'attached', domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] },
         {
-          source: 'detached', domain: [UPSTREAM_HOST], path: '/v1/charges', method: 'POST', itemKeys: [], block: true,
+          source: 'detached', domain: [UPSTREAM_HOST], path: '/v1/charges', method: ['POST'], itemKeys: [], block: true,
         },
       ],
       egressMode: 'permissive',
