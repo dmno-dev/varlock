@@ -10,6 +10,16 @@
 
 
 
+
+## 1.7.0
+<sub>2026-06-16</sub>
+
+- [#783](https://github.com/dmno-dev/varlock/pull/783)  *(minor)* - Add per-item leak-detection opt-out via `@sensitive={preventLeaks=false}`. Secrets that legitimately leave the system (e.g. an API endpoint that returns a secret to another service) can be excluded from runtime leak detection while still being redacted in logs. The options form also accepts `enabled` to toggle sensitivity (including dynamically, e.g. `@sensitive={enabled=forEnv(production)}`).
+  Adds standalone object (`{key=value}`) and array (`[a, b, c]`) literals to the env-spec grammar, usable as decorator values and function-call arguments (including nested). `()` remains reserved for function calls.
+- [#786](https://github.com/dmno-dev/varlock/pull/786)  *(minor)* - `@setValuesBulk` and `@import` support `pick`/`omit` key filters.
+  Filter which keys are brought in with `pick` (allowlist) or `omit` (denylist) array args — e.g. `@setValuesBulk(opLoadEnvironment(env-id), pick=[API_KEY, DB_*])` or `@import(./.env.shared, omit=[LEGACY_TOKEN])`. By default every key is included; `pick` and `omit` can't be combined, and both accept simple globs (`*`, `?`).
+  For `@import`, listing keys as positional args (`@import(./.env.shared, KEY1, KEY2)`) is now deprecated in favor of `pick=[...]` — it still works but warns.
+
 ## 1.6.1
 <sub>2026-06-11</sub>
 
