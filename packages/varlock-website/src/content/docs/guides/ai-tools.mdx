@@ -270,7 +270,7 @@ We also have a docs MCP server that allows you to search the Varlock docs. See m
 
 ## Global config for agent tools
 
-AI CLI tools are often launched from arbitrary directories and need the same API keys on every machine — without duplicating secrets into each project's `.env.schema`.
+AI CLI tools are often launched from arbitrary directories and need the same API keys on every machine, without duplicating secrets into each project's `.env.schema`.
 
 Varlock does not auto-load a global schema (that would make two developers' machines behave differently for the same repo). Instead, **opt in** when wrapping agent commands with [`varlock run`](/reference/cli-commands/#run) and an extra [`--path`](/reference/cli-commands/#run) entry point.
 
@@ -367,5 +367,4 @@ If you prefer project-scoped setup, you can [`@import()`](/guides/import/) a hom
 # ---
 ```
 
-That keeps global vars available in the project without requiring a wrapper alias, at the cost of a one-line import per repo. A future `-g` shorthand for `--path ~/.env.global` may simplify the alias pattern further.
-
+That keeps global vars available in the project without requiring a wrapper alias, at the cost of a one-line import per repo.

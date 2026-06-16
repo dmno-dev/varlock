@@ -29,7 +29,7 @@ Use varlock in your pipeline to catch schema errors before deploy. Your producti
       -v ${{ github.workspace }}:/work \
       -w /work \
       -e PWD=/work \
-      ghcr.io/dmno-dev/varlock:1.6.0 load
+      ghcr.io/dmno-dev/varlock:1.0.2 load
 ```
 
 See also the [GitHub Action](/integrations/github-action/) for a native Actions integration.

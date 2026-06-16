@@ -332,16 +332,8 @@ jobs:
 
 For supported secret providers, varlock can authenticate with **short-lived OIDC tokens** from your CI platform instead of long-lived API keys. Configure federated credentials on the provider side, then let varlock auto-detect the token — see the [OIDC workload identity guide](/guides/oidc/).
 
-| Provider | Federated auth |
-|----------|----------------|
-| [AWS Secrets Manager](/plugins/aws-secrets/) | STS `AssumeRoleWithWebIdentity` |
-| [Azure Key Vault](/plugins/azure-key-vault/) | Federated credential (JWT assertion) |
-| [Google Secret Manager](/plugins/google-secret-manager/) | Workload Identity Federation |
-| [HashiCorp Vault](/plugins/hashicorp-vault/) | JWT/OIDC auth method |
-| [Infisical](/plugins/infisical/) | OIDC machine identity |
-
 :::tip[Validate before deploy]
-Run `varlock load --agent` in an earlier CI step to fail fast on schema errors without exposing secret values in logs. See [Python & other languages](/integrations/other-languages/#ci-with-varlock-load-agent) for the same pattern outside JavaScript projects.
+Run `varlock load` in an earlier CI step to fail fast on schema errors without exposing secret values in logs.
 :::
 
 ### Encrypted `__VARLOCK_ENV` at deploy time

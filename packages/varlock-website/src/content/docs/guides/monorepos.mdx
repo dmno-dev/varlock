@@ -13,7 +13,7 @@ There are two common starting points. Pick one (or combine them) based on how mu
 
 ### Root `.env.schema` with shared values
 
-Put cross-cutting config at the repo root — database URLs used by many services, shared feature flags, platform identifiers, and your environment flag (`APP_ENV`). Each app still loads from its own working directory by default, so you usually **import** the root schema rather than duplicating keys.
+Put cross-cutting config at the repo root: database URLs used by many services, shared feature flags, platform identifiers, and your environment flag (`APP_ENV`). Each app still loads from its own working directory by default, so you usually **import** the root schema rather than duplicating keys.
 
 ```env-spec title="apps/web/.env.schema"
 # @import(../../.env.schema)
@@ -92,8 +92,6 @@ You do not need to migrate every package at once. A practical order:
 3. **Expand shared config** — extract common keys to a root or shared schema and `@import()` them from apps as you go.
 4. **Leave untouched apps alone** — packages without a `.env.schema` should keep using their existing env loading until you migrate them.
 
-For Next.js monorepos specifically, the root `@next/env` override is the main footgun: once it is installed, **every** Next.js app in the repo goes through varlock's env loader. Apps without a `.env.schema` may fail at dev or build time (for example, `process.env.__VARLOCK_ENV is not set`). See [Next.js in a monorepo](/integrations/nextjs/#monorepos) for override setup and [Next.js troubleshooting](/integrations/nextjs/#troubleshooting) if you hit that error.
-
 :::tip[CLI-only services]
 Services that do not need a framework integration can start with [`varlock run`](/reference/cli-commands/#run) and a local `.env.schema` without changing root dependency overrides.
 :::
@@ -105,20 +103,6 @@ Monorepos often combine Node apps with Python, Go, or other runtimes. Varlock's 
 <ExecCommandWidget command="varlock run -- python manage.py runserver" showBinary={false} />
 
 Run the command from the service directory (or pass `--path` to its env folder). Each language can keep its own `.env.schema`; there is no requirement to share a single root file. For more detail, see [Other languages](/integrations/other-languages/).
-
-## CI validation
-
-Validate schemas in CI so misconfiguration is caught before deploy — especially for environments you cannot reproduce locally.
-
-**Manual check** — from the monorepo root, target each app:
-
-<ExecCommandWidget command="varlock load --path apps/web/ --env production" showBinary={false} />
-
-**GitHub Actions** — use the [Varlock GitHub Action](/integrations/github-action/) to validate (and optionally export) env for a job. Point it at the correct working directory or pass paths so each package's schema is checked. You can also run validation in Docker; see the [Docker guide](/guides/docker/).
-
-:::note[Validate per package]
-In a monorepo, run `varlock load` (or the action) once per app/schema root, or use `--path` / `loadPath` so CI exercises the same entry point your app uses in production.
-:::
 
 ## Container builds
 
