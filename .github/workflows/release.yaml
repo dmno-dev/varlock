@@ -312,7 +312,7 @@ jobs:
           BUILD_TYPE: release
 
       # Resolve the Azure identity ids from 1Password via varlock (schema lives in
-      # packages/vscode-plugin/.env.schema). Only OP_TOKEN is injected here; the
+      # packages/vscode-plugin/.env.schema). Only OP_CI_TOKEN is injected here; the
       # AZURE_CLIENT_ID / AZURE_TENANT_ID values come from the VarlockCI vault and
       # are exported to the job environment for the azure/login step below.
       # (build:libs above provides the local varlock the action uses.)
@@ -322,7 +322,7 @@ jobs:
         with:
           working-directory: packages/vscode-plugin
         env:
-          OP_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+          OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
 
       # Authenticate to Azure via GitHub OIDC (workload identity federation) so the
       # VS Code Marketplace publish (`vsce publish --azure-credential`) can mint a
