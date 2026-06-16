@@ -26,7 +26,7 @@ No CLI command wrapping is needed — env loads when Metro/Babel start. Run `exp
 
 ## Setup
 
-<Tabs syncKey="expo-rn-requirements">
+<Tabs syncKey="expo-rn">
   <TabItem label="Expo">
     :::caution[Requirements]
     - Node.js v22 or higher
@@ -54,7 +54,7 @@ No CLI command wrapping is needed — env loads when Metro/Babel start. Run `exp
 
 1. **Add the Babel plugin to your `babel.config.js`**
 
-    <Tabs syncKey="expo-rn-babel">
+    <Tabs syncKey="expo-rn">
       <TabItem label="Expo">
         ```diff lang="js" title="babel.config.js"
         module.exports = {
@@ -81,7 +81,7 @@ No CLI command wrapping is needed — env loads when Metro/Babel start. Run `exp
 
     Wrap your Metro config with `withVarlockMetroConfig`. This automatically configures Metro to resolve varlock's subpath exports (e.g. `varlock/env`) and initializes the `ENV` proxy in the main Metro process.
 
-    <Tabs syncKey="expo-rn-metro">
+    <Tabs syncKey="expo-rn">
       <TabItem label="Expo">
         ```diff lang="js" title="metro.config.js"
         const { getDefaultConfig } = require('expo/metro-config');
@@ -176,7 +176,7 @@ Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.devel
 
 Usually this env var will be defaulted to something like `development` in your `.env.schema` file, and you can override it when running commands.
 
-<Tabs syncKey="expo-rn-multienv">
+<Tabs syncKey="expo-rn">
   <TabItem label="Expo">
     For Expo projects, set it in your `package.json` scripts or via [EAS environment variables](https://docs.expo.dev/eas/environment-variables/):
 
