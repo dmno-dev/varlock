@@ -185,6 +185,7 @@ export default defineConfig({
           collapsed: true,
           items: [
             { label: 'Overview', slug: 'plugins/overview' },
+            { label: 'Authoring plugins', slug: 'plugins/authoring' },
             { label: '1Password', slug: 'plugins/1password' },
             { label: 'Akeyless', slug: 'plugins/akeyless' },
             { label: 'AWS SSM/SM', slug: 'plugins/aws-secrets' },

@@ -46,7 +46,7 @@ This is a monorepo managed with bun workspaces and Turborepo:
 
 - First-party plugins live in `packages/plugins/*`
 - When adding a new plugin to the monorepo, register a `plugin:<name>` label for it in `.github/config/labeler.yaml` (one entry per plugin, globbing `packages/plugins/<name>/**`)
-- See the plugin authoring guide (`packages/varlock-website/src/content/docs/guides/plugins.mdx`) for the API surface and design conventions
+- See the plugin authoring guide (`packages/varlock-website/src/content/docs/plugins/authoring.mdx`) and the Plugin API reference (`.../reference/plugin-api.mdx`) for design conventions and the API surface
 
 ## Versioning & releases
 
