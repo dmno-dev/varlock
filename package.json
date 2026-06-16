@@ -25,7 +25,7 @@
     "dev": "turbo run dev --concurrency=40 --parallel --filter=\"!smoke-test-*\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "audit:changed": "bun run scripts/audit-changed-packages.ts --audit-level=moderate",
+    "audit:changed": "bun run scripts/audit-changed-packages.ts --audit-level=critical",
     "audit:full": "bun audit --audit-level=moderate",
     "bumpy:add": "bumpy add",
     "release:create-missing-tags": "node scripts/create-missing-release-tags.js",

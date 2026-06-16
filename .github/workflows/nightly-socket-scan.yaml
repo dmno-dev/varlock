@@ -1,0 +1,28 @@
+name: Nightly Socket supply-chain scan
+on:
+  schedule:
+    # 07:45 UTC — offset from the nightly dependency audit (07:15)
+    - cron: '45 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  socket-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.x"
+      # Socket reads manifests + lockfiles directly and queries the Socket API,
+      # so no `bun install` is needed. Run the CLI via bunx to avoid pulling a
+      # third-party marketplace Action into our trusted set.
+      - name: Socket scan
+        run: bunx socket ci
+        env:
+          SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}
