@@ -12,7 +12,7 @@ const facts = (host: string, method: string, path: string): RequestFacts => ({ h
 
 describe('proxy policy matching', () => {
   test('matches on domain + path glob + method', () => {
-    const r = rule({ domain: ['api.x.com'], path: '/v1/customers/*', method: 'GET' });
+    const r = rule({ domain: ['api.x.com'], path: '/v1/customers/*', method: ['GET'] });
     expect(ruleMatchesFacts(r, facts('api.x.com', 'GET', '/v1/customers/42'))).toBe(true);
     // method mismatch
     expect(ruleMatchesFacts(r, facts('api.x.com', 'POST', '/v1/customers/42'))).toBe(false);
@@ -22,9 +22,9 @@ describe('proxy policy matching', () => {
     expect(ruleMatchesFacts(r, facts('evil.com', 'GET', '/v1/customers/42'))).toBe(false);
   });
 
-  test('`**` matches across segments; comma methods; domain-only matches any path/method', () => {
+  test('`**` matches across segments; method lists; domain-only matches any path/method', () => {
     expect(ruleMatchesFacts(rule({ domain: ['api.x.com'], path: '/v1/**' }), facts('api.x.com', 'GET', '/v1/a/b/c'))).toBe(true);
-    expect(ruleMatchesFacts(rule({ domain: ['api.x.com'], method: 'GET,POST' }), facts('api.x.com', 'POST', '/any'))).toBe(true);
+    expect(ruleMatchesFacts(rule({ domain: ['api.x.com'], method: ['GET', 'POST'] }), facts('api.x.com', 'POST', '/any'))).toBe(true);
     expect(ruleMatchesFacts(rule({ domain: ['api.x.com'] }), facts('api.x.com', 'DELETE', '/whatever'))).toBe(true);
   });
 });
@@ -33,7 +33,7 @@ describe('evaluateProxyPolicy', () => {
   const rules = [
     rule({ domain: ['api.stripe.com'], itemKeys: ['STRIPE_KEY'] }),
     rule({
-      domain: ['api.stripe.com'], path: '/v1/charges', method: 'POST', block: true,
+      domain: ['api.stripe.com'], path: '/v1/charges', method: ['POST'], block: true,
     }),
   ];
 
@@ -92,7 +92,7 @@ describe('getRequestScopedManagedItems', () => {
   test('injects only when domain + path + method all match', () => {
     const rules = [
       rule({
-        domain: ['api.x.com'], path: '/v1/read/*', method: 'GET', itemKeys: ['K'],
+        domain: ['api.x.com'], path: '/v1/read/*', method: ['GET'], itemKeys: ['K'],
       }),
     ];
     expect(getRequestScopedManagedItems(facts('api.x.com', 'GET', '/v1/read/1'), rules, items).map((i) => i.key)).toEqual(['K']);

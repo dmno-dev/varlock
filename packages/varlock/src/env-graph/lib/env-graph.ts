@@ -15,7 +15,6 @@ import { generateTypes } from './type-generation';
 
 import {
   builtInItemDecorators, builtInRootDecorators,
-  ItemDecoratorInstance,
   RootDecoratorInstance,
   type ItemDecoratorDef,
   type RootDecoratorDef,
@@ -880,25 +879,17 @@ export class EnvGraph {
   /** plugins installed globally in the graph */
   plugins: Array<VarlockPlugin> = [];
 
-  private static normalizeDomainList(domainValue: unknown): Array<string> {
-    if (!_.isString(domainValue)) return [];
-    return domainValue
-      .split(',')
-      .map((d) => d.trim())
+  /**
+   * Normalize a `@proxy` list option (`domain`, `method`, `keys`) into a string
+   * array. Accepts a single string (`domain="api.x.com"`) or an array literal
+   * (`domain=[a.com, b.com]`); trims and drops empties.
+   */
+  private static normalizeStringList(value: unknown): Array<string> {
+    const raw = Array.isArray(value) ? value : [value];
+    return raw
+      .filter((v): v is string => _.isString(v))
+      .map((v) => v.trim())
       .filter(Boolean);
-  }
-
-  private static collectRefItemKeysFromResolverArgs(dec: RootDecoratorInstance | ItemDecoratorInstance): Array<string> {
-    const arrArgs = dec?.decValueResolver?.arrArgs;
-    if (!arrArgs) return [];
-
-    const itemKeys: Array<string> = [];
-    for (const arg of arrArgs) {
-      if (arg.fnName === 'ref' && _.isString(arg.arrArgs?.[0]?.staticValue)) {
-        itemKeys.push(arg.arrArgs[0].staticValue);
-      }
-    }
-    return itemKeys;
   }
 
   /**
@@ -924,15 +915,16 @@ export class EnvGraph {
     // detached rules from root-level @proxy(...)
     for (const rootProxyDec of this.getRootDecFns('proxy')) {
       const resolved = await rootProxyDec.resolve();
-      const domain = EnvGraph.normalizeDomainList(resolved?.obj?.domain);
+      const domain = EnvGraph.normalizeStringList(resolved?.obj?.domain);
       if (domain.length === 0) continue;
 
+      const method = EnvGraph.normalizeStringList(resolved?.obj?.method);
       rules.push({
         source: 'detached',
         domain,
-        itemKeys: EnvGraph.collectRefItemKeysFromResolverArgs(rootProxyDec),
+        itemKeys: EnvGraph.normalizeStringList(resolved?.obj?.keys),
         ...(_.isString(resolved?.obj?.path) ? { path: resolved.obj.path } : {}),
-        ...(_.isString(resolved?.obj?.method) ? { method: resolved.obj.method } : {}),
+        ...(method.length ? { method } : {}),
         ...(_.isBoolean(resolved?.obj?.block) ? { block: resolved.obj.block } : {}),
         ...EnvGraph.buildProxyApprovalFields(resolved?.obj),
       });
@@ -943,17 +935,18 @@ export class EnvGraph {
       const item = this.configSchema[itemKey];
       for (const itemProxyDec of item.getDecFns('proxy')) {
         const resolved = await itemProxyDec.resolve();
-        const domain = EnvGraph.normalizeDomainList(resolved?.obj?.domain);
+        const domain = EnvGraph.normalizeStringList(resolved?.obj?.domain);
         if (domain.length === 0) continue;
 
-        const detachedItemKeys = EnvGraph.collectRefItemKeysFromResolverArgs(itemProxyDec);
-        const itemKeys = _.uniq([itemKey, ...detachedItemKeys]);
+        const method = EnvGraph.normalizeStringList(resolved?.obj?.method);
+        const extraKeys = EnvGraph.normalizeStringList(resolved?.obj?.keys);
+        const itemKeys = _.uniq([itemKey, ...extraKeys]);
         rules.push({
           source: 'attached',
           domain,
           itemKeys,
           ...(_.isString(resolved?.obj?.path) ? { path: resolved.obj.path } : {}),
-          ...(_.isString(resolved?.obj?.method) ? { method: resolved.obj.method } : {}),
+          ...(method.length ? { method } : {}),
           ...(_.isBoolean(resolved?.obj?.block) ? { block: resolved.obj.block } : {}),
           ...EnvGraph.buildProxyApprovalFields(resolved?.obj),
         });

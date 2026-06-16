@@ -47,8 +47,8 @@ function pathMatches(pattern: string, path: string): boolean {
   return new RegExp(`^${re}$`).test(path);
 }
 
-function methodMatches(ruleMethod: string, method: string): boolean {
-  const allowed = ruleMethod.split(',').map((m) => m.trim().toUpperCase()).filter(Boolean);
+function methodMatches(ruleMethods: Array<string>, method: string): boolean {
+  const allowed = ruleMethods.map((m) => m.trim().toUpperCase()).filter(Boolean);
   return allowed.length === 0 || allowed.includes(method.toUpperCase());
 }
 
@@ -72,7 +72,7 @@ function ruleSpecificity(rule: ProxyRule): number {
  */
 export function describeRule(rule: ProxyRule): string {
   const parts = [rule.domain.join('|')];
-  if (rule.method !== undefined) parts.push(rule.method.toUpperCase());
+  if (rule.method !== undefined) parts.push(rule.method.map((m) => m.toUpperCase()).join('|'));
   if (rule.path !== undefined) parts.push(rule.path);
   if (rule.block) parts.push('block');
   if (rule.approval) parts.push('approval');

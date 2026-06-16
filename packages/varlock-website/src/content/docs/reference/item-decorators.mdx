@@ -256,19 +256,20 @@ OPENAI_API_KEY=sk-proj-...
 
 Routes an item's secret through the [credential proxy](/guides/proxy/) so an untrusted child process only ever sees a placeholder, while the real value is injected into matching outbound requests at the network boundary. Requires [`@enableProxy`](/reference/root-decorators/#enableproxy) in the header. Using `@proxy(...)` on an item implies [`@sensitive`](#sensitive).
 
-**Function form** — `@proxy(domain=..., [path], [method], [block], [approval], [approvalEach], [approvalMaxDuration], $REFS)`:
+**Function form** — `@proxy(domain=..., [path], [method], [block], [keys], [approval], [approvalEach], [approvalMaxDuration])`:
 
 | Option | Meaning |
 |---|---|
-| `domain` | **(required)** Host to match; supports globs (`*.example.com`). |
+| `domain` | **(required)** Host to match — a single host or an array (`[a.com, b.com]`); supports globs (`*.example.com`). |
 | `path` | Restrict to matching URL paths (glob), e.g. `"/v1/**"`. |
-| `method` | Restrict to an HTTP method, e.g. `"POST"`. |
+| `method` | Restrict to one or more HTTP methods, e.g. `[GET, POST]`. |
 | `block` | `block=true` denies matching requests outright. |
+| `keys` | Array of additional item names to inject for this rule, e.g. `keys=[OTHER_KEY]`. |
 | `approval` _(experimental)_ | `approval=true` holds matching requests for interactive approval. |
 | `approvalEach` _(experimental)_ | What one approval covers: `host`｜`endpoint`｜`request`. |
 | `approvalMaxDuration` _(experimental)_ | Ceiling on how long a "yes" is remembered (`"15m"`, `0` = always ask). |
 
-Positional `$REF`s attach additional items to the rule. The same decorator in the **header** creates a _detached_ policy rule (no injection).
+The same decorator in the **header** creates a _detached_ policy rule (no injection unless it lists `keys`).
 
 **Value form** — `@proxy=passthrough` injects the real value into the child (escape hatch); `@proxy=omit` explicitly withholds it. The value and function forms are mutually exclusive on one item.
 

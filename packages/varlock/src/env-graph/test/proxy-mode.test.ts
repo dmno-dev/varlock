@@ -54,6 +54,65 @@ describe('proxy decorators', () => {
     ]);
   });
 
+  test('domain and method accept array literals (lists)', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain=[api.a.com, api.b.com], method=[GET, POST])
+      API_KEY=secret
+    `);
+
+    expect(await graph.getProxyRules()).toMatchObject([
+      {
+        source: 'attached',
+        domain: ['api.a.com', 'api.b.com'],
+        method: ['GET', 'POST'],
+        itemKeys: ['API_KEY'],
+      },
+    ]);
+  });
+
+  test('detached rule attaches extra items via keys=[...] array literal', async () => {
+    const graph = await loadGraph(outdent`
+      # @enableProxy(egress="strict")
+      # @proxy(domain="api.example.com", keys=[STRIPE_KEY, WEBHOOK_SECRET])
+      # ---
+      # @sensitive
+      STRIPE_KEY=sk_live_real
+
+      # @sensitive
+      WEBHOOK_SECRET=whsec_real
+    `);
+
+    const rules = await graph.getProxyRules();
+    expect(rules).toMatchObject([{ source: 'detached', domain: ['api.example.com'], itemKeys: ['STRIPE_KEY', 'WEBHOOK_SECRET'] }]);
+    // and those keys become managed (placeholders injected)
+    const managed = await graph.getProxyManagedItems();
+    expect(managed.map((i) => i.key).sort()).toEqual(['STRIPE_KEY', 'WEBHOOK_SECRET']);
+  });
+
+  test('positional args are rejected with a pointer to keys=[...]', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(OTHER_KEY, domain="api.a.com")
+      API_KEY=secret
+    `);
+    const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
+    expect(errors.some((e) => /positional args are not supported.*keys=\[/.test(e.message))).toBe(true);
+  });
+
+  test('keys must be an array literal, not a bare value', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", keys=OTHER)
+      API_KEY=secret
+    `);
+    const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
+    expect(errors.some((e) => /keys must be an array literal/.test(e.message))).toBe(true);
+  });
+
   test('a header-level (detached) @proxy is not rejected as a misplaced item decorator', async () => {
     const graph = await loadGraph(outdent`
       # @enableProxy(egress="strict")

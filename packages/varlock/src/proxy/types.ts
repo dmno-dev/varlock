@@ -15,7 +15,8 @@ export type ProxyRule = {
   domain: Array<string>;
   itemKeys: Array<string>;
   path?: string;
-  method?: string;
+  /** Allowed HTTP methods (uppercased). Omitted = any method. */
+  method?: Array<string>;
   block?: boolean;
   /** Require out-of-band approval before this request is forwarded (Invariant #8). */
   approval?: boolean;
