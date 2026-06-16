@@ -176,6 +176,7 @@ export default defineConfig({
             { label: 'Expo / React Native', slug: 'integrations/expo' },
             { label: 'Docker', slug: 'guides/docker' },
             { label: 'GitHub Actions', slug: 'integrations/github-action' },
+            { label: 'mise', slug: 'integrations/mise' },
             { label: 'direnv', slug: 'integrations/direnv' },
             { label: 'Other languages', slug: 'integrations/other-languages' },
           ],
