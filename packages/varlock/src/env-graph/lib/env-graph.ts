@@ -293,6 +293,12 @@ export class EnvGraph {
     const BuiltinVarResolver = createResolver({
       name: `\0builtin:${key}`,
       description: builtinDef.description,
+      // Advertise the builtin's declared type so that if the item gets a
+      // process() call (e.g. when registered early via a root-decorator
+      // reference), config-item type inference preserves it instead of
+      // defaulting back to 'string' — which would stringify a boolean/number
+      // builtin (e.g. VARLOCK_IS_CI false -> "false", breaking not()/if()).
+      inferredType: builtinType,
       async resolve() {
         return builtinDef.resolver(graph.ciEnvInfo, graph.processEnvForBuiltins);
       },
