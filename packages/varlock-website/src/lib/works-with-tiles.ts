@@ -157,7 +157,7 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
   },
   {
     id: 'expo',
-    title: 'Expo / React Native',
+    title: 'Expo & React Native CLI',
     icon: 'simple-icons:expo',
     href: '/integrations/expo/',
     category: 'frameworks',

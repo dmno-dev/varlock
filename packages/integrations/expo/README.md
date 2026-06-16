@@ -1,8 +1,8 @@
 # @varlock/expo-integration
 
-This package helps you integrate [varlock](https://varlock.dev) into an [Expo](https://expo.dev) / React Native project.
+This package helps you integrate [varlock](https://varlock.dev) into an [Expo](https://expo.dev) or [React Native CLI](https://github.com/react-native-community/cli) project.
 
-It provides a **Babel plugin** for compile-time replacement of `ENV.xxx` references, and a **Metro config wrapper** that initializes the `ENV` proxy at runtime for server routes.
+It provides a **Babel plugin** for compile-time replacement of `ENV.xxx` references, and a **Metro config wrapper** that initializes the `ENV` proxy at runtime for server routes (Expo Router `+api` files).
 
 Compared to the default Expo behavior, this package provides:
 
@@ -27,11 +27,14 @@ bun add --dev @varlock/expo-integration varlock
 
 ## Setup
 
-### 1. Babel plugin
+Both Expo and React Native CLI projects use the same Babel plugin and Metro wrapper — only the Babel preset and Metro base config differ.
 
-Add the Babel plugin to your `babel.config.js`:
+### Expo
+
+#### Babel plugin
 
 ```js
+// babel.config.js
 module.exports = {
   presets: ['babel-preset-expo'],
   plugins: [
@@ -40,11 +43,7 @@ module.exports = {
 };
 ```
 
-This handles compile-time replacement of non-sensitive `ENV.xxx` references with their resolved values, similar to how Vite/webpack replace `import.meta.env.xxx` or `process.env.xxx`.
-
-### 2. Metro config
-
-Wrap your Metro config with `withVarlockMetroConfig`:
+#### Metro config
 
 ```js
 // metro.config.js
@@ -56,7 +55,33 @@ const config = getDefaultConfig(__dirname);
 module.exports = withVarlockMetroConfig(config);
 ```
 
-This wrapper automatically:
+### React Native CLI
+
+#### Babel plugin
+
+```js
+// babel.config.js
+module.exports = {
+  presets: ['module:@react-native/babel-preset'],
+  plugins: [
+    require('@varlock/expo-integration/babel-plugin'),
+  ],
+};
+```
+
+#### Metro config
+
+```js
+// metro.config.js
+const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
+const { withVarlockMetroConfig } = require('@varlock/expo-integration/metro-config');
+
+const config = mergeConfig(getDefaultConfig(__dirname), {});
+
+module.exports = withVarlockMetroConfig(config);
+```
+
+The Metro wrapper automatically:
 
 - Installs a custom resolver so that `import { ENV } from 'varlock/env'` works (Metro doesn't support `package.json` `"exports"` subpaths by default).
 - Initializes the varlock `ENV` proxy in the main Metro process so that sensitive values are available at runtime in [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/) (`+api` files).
@@ -74,7 +99,7 @@ import { ENV } from 'varlock/env';
 const apiUrl = ENV.API_URL;
 ```
 
-In server routes (`+api` files), both sensitive and non-sensitive values are accessible:
+In Expo Router server routes (`+api` files), both sensitive and non-sensitive values are accessible:
 
 ```ts
 // app/secret+api.ts
@@ -101,11 +126,11 @@ Values marked with `@sensitive` in your `.env.schema` are **never** inlined into
 
 Sensitive values are **not available** in native app code. React Native apps run entirely on the device — there is no server to keep secrets safe. Accessing a sensitive value in native code will **throw at runtime**.
 
-The Babel plugin also emits a **build-time warning** when it detects a sensitive `ENV.xxx` reference in a non-server file, so you can catch these issues before they reach production.
+The Babel plugin also emits a **build-time warning** when it detects a sensitive `ENV.xxx` reference in a non-server file, so you can catch these issues before they reach production. In React Native CLI projects, **all** app code is client-side — there are no server routes where sensitive values can be accessed at runtime.
 
 If you need a value in native code, reconsider whether it should be marked `@sensitive`. API keys for public services (e.g. a Maps API key) are typically non-sensitive and can be safely inlined.
 
-### In server routes (+api files)
+### In server routes (+api files, Expo only)
 
 Sensitive values **are** accessible at runtime via the `ENV` proxy in [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/). These files run server-side in the Metro process where `withVarlockMetroConfig` has initialized the environment.
 
