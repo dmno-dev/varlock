@@ -234,4 +234,55 @@ Suppresses "unused in schema" warnings from [`varlock audit`](/reference/cli-com
 CI_DEPLOY_TOKEN=
 ```
 </div>
+
+<div>
+### `@placeholder`
+**Value type:** `string`
+
+Sets an explicit placeholder string for the item, used in place of the real value when the item is routed through the [credential proxy](/guides/proxy/). A placeholder is what an untrusted child process (e.g. an AI agent) sees instead of the secret.
+
+Without an explicit `@placeholder`, varlock derives one from the item's [`@type`](#type) format, falling back to a generic value. Set this when a generic placeholder would fail a client's key-format validation (e.g. an `sk-…` prefix check).
+
+```env-spec
+# @proxy(domain="api.openai.com")
+# @placeholder=sk-proj-000000000000000000000000
+OPENAI_API_KEY=sk-proj-...
+```
+</div>
+
+<div>
+### `@proxy`
+**Value type:** function `@proxy(domain=..., ...)` _or_ value `@proxy=passthrough｜omit`
+
+Routes an item's secret through the [credential proxy](/guides/proxy/) so an untrusted child process only ever sees a placeholder, while the real value is injected into matching outbound requests at the network boundary. Requires [`@enableProxy`](/reference/root-decorators/#enableproxy) in the header. Using `@proxy(...)` on an item implies [`@sensitive`](#sensitive).
+
+**Function form** — `@proxy(domain=..., [path], [method], [block], [approval], [approvalEach], [approvalMaxDuration], $REFS)`:
+
+| Option | Meaning |
+|---|---|
+| `domain` | **(required)** Host to match; supports globs (`*.example.com`). |
+| `path` | Restrict to matching URL paths (glob), e.g. `"/v1/**"`. |
+| `method` | Restrict to an HTTP method, e.g. `"POST"`. |
+| `block` | `block=true` denies matching requests outright. |
+| `approval` _(experimental)_ | `approval=true` holds matching requests for interactive approval. |
+| `approvalEach` _(experimental)_ | What one approval covers: `host`｜`endpoint`｜`request`. |
+| `approvalMaxDuration` _(experimental)_ | Ceiling on how long a "yes" is remembered (`"15m"`, `0` = always ask). |
+
+Positional `$REF`s attach additional items to the rule. The same decorator in the **header** creates a _detached_ policy rule (no injection).
+
+**Value form** — `@proxy=passthrough` injects the real value into the child (escape hatch); `@proxy=omit` explicitly withholds it. The value and function forms are mutually exclusive on one item.
+
+```env-spec
+# @enableProxy(egress="strict")
+# ---
+# @proxy(domain="api.stripe.com", path="/v1/**")
+STRIPE_SECRET_KEY=sk_live_...
+
+# @sensitive
+# @proxy=passthrough
+LEGACY_TOKEN=...
+```
+
+See the [credential proxy guide](/guides/proxy/) for the full workflow.
+</div>
 </div>

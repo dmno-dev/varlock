@@ -485,4 +485,42 @@ API_KEY=
 ```
 </div>
 
+<div>
+### `@enableProxy()`
+**Arg types:** `(egress?: "permissive" | "strict")`
+
+Enables the [credential proxy](/guides/proxy/), which lets you run an untrusted child process (e.g. an AI agent) that only ever sees placeholder secrets while real values are injected at the network boundary.
+
+The `egress` option controls requests that don't match any [`@proxy`](#proxy) rule:
+- `permissive` _(default)_ — unmatched hosts pass through untouched.
+- `strict` — only requests matching a `@proxy` rule are allowed; everything else is blocked.
+
+```env-spec
+# @enableProxy(egress="strict")
+# ---
+# @proxy(domain="api.openai.com")
+OPENAI_API_KEY=sk-...
+```
+
+See the [credential proxy guide](/guides/proxy/) for the full workflow.
+</div>
+
+<div>
+### `@proxy()`
+**Arg types:** `(domain: string, path?, method?, block?, approval?, ...)`
+
+Defines a **detached** [credential proxy](/guides/proxy/) rule — a domain-level policy (match, `block`, or `approval`) that injects **no** secret. Requires [`@enableProxy`](#enableproxy).
+
+This is the header (root) form of the decorator. To inject a specific secret into requests for a domain, put [`@proxy`](/reference/item-decorators/#proxy) on the **item** instead (an _attached_ rule). The two forms share the same options — see the [item decorator reference](/reference/item-decorators/#proxy).
+
+```env-spec
+# @enableProxy(egress="permissive")
+# Block a dangerous endpoint regardless of which key would be used:
+# @proxy(domain="api.stripe.com", path="/v1/refunds/**", method="POST", block=true)
+# ---
+# @proxy(domain="api.stripe.com")
+STRIPE_SECRET_KEY=sk_live_...
+```
+</div>
+
 </div>
