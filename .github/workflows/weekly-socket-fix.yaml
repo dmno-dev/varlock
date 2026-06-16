@@ -1,0 +1,36 @@
+name: Weekly Socket remediation PRs
+on:
+  schedule:
+    # Mondays 08:00 UTC — weekly, offset from the nightly scans
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+# socket fix opens PRs, so it needs write scope. This is the ONLY Socket job
+# that carries write permissions — detection (nightly-socket-scan) stays read-only.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  socket-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.x"
+      - name: Install js deps (w/ bun)
+        run: bun install
+      # No --autopilot: Socket opens remediation PRs but never merges them.
+      # A human reviews the actual dep diff before it lands — deliberate, given
+      # we publish to npm.
+      - name: Socket fix
+        run: bunx socket fix --pr-limit 10
+        env:
+          SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOCKET_CLI_GIT_USER_NAME: 'socket-fix[bot]'
+          SOCKET_CLI_GIT_USER_EMAIL: 'socket-fix@users.noreply.github.com'
