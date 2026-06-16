@@ -215,6 +215,7 @@ export default defineConfig({
             { label: 'Resolver functions', slug: 'reference/functions' },
             { label: 'Builtin variables', slug: 'reference/builtin-variables' },
             { label: 'Reserved variables', slug: 'reference/reserved-variables' },
+            { label: 'Plugin API', slug: 'reference/plugin-api' },
           ],
         },
         {
