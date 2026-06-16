@@ -52,7 +52,7 @@ varlock run -- <your-cli-command>
 
 Here's how to configure and run popular AI coding CLI tools with varlock:
 
-<Tabs>
+<Tabs syncKey="ai-tool">
   <TabItem label="Claude">
     [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) is Anthropic's CLI tool for AI-assisted coding.
 
@@ -267,4 +267,105 @@ This is especially valuable when working with AI coding tools — the scan comma
 ## Varlock Docs MCP
 
 We also have a docs MCP server that allows you to search the Varlock docs. See more details [here](/guides/mcp/#docs-mcp).
+
+## Global config for agent tools
+
+AI CLI tools are often launched from arbitrary directories and need the same API keys on every machine — without duplicating secrets into each project's `.env.schema`.
+
+Varlock does not auto-load a global schema (that would make two developers' machines behave differently for the same repo). Instead, **opt in** when wrapping agent commands with [`varlock run`](/reference/cli-commands/#run) and an extra [`--path`](/reference/cli-commands/#run) entry point.
+
+Keep a personal schema in your home directory (for example `~/.env.claude`), then pass it with `-p` when you run the tool. Project-local definitions from the current directory still take precedence when the same key exists in both places.
+
+<Tabs syncKey="ai-tool">
+  <TabItem label="Claude">
+    [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) is Anthropic's CLI tool for AI-assisted coding.
+
+    **Personal schema** — `~/.env.claude`:
+
+    ```env-spec title="~/.env.claude"
+    # @sensitive @required
+    ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
+    ```
+
+    **Run from any directory:**
+
+    ```bash
+    varlock run -p ~/.env.claude -- claude
+    ```
+
+    **Shell alias** (optional):
+
+    ```bash
+    alias vclaude='varlock run -p ~/.env.claude --no-redact-stdout -- claude'
+    ```
+
+    `--no-redact-stdout` keeps Claude's own terminal output unredacted while secrets stay out of your shell history.
+  </TabItem>
+
+  <TabItem label="Opencode">
+    [Opencode](https://opencode.ai/) is a provider-agnostic AI coding assistant that works in your terminal.
+
+    **Personal schema** — `~/.env.opencode`:
+
+    ```env-spec title="~/.env.opencode"
+    # @sensitive @required
+    ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
+
+    # @sensitive
+    OPENAI_API_KEY=exec('op read "op://api-local/openai/api-key"')
+    ```
+
+    Point Opencode auth at env references (see [Opencode setup above](#popular-ai-cli-tool-examples)), then run:
+
+    ```bash
+    varlock run -p ~/.env.opencode -- opencode
+
+    # or with a specific model
+    varlock run -p ~/.env.opencode -- opencode --model claude-3-5-sonnet
+    ```
+
+    **Shell alias** (optional):
+
+    ```bash
+    alias vopencode='varlock run -p ~/.env.opencode --no-redact-stdout -- opencode'
+    ```
+  </TabItem>
+
+  <TabItem label="Gemini">
+    [Gemini CLI](https://github.com/google-gemini/gemini-cli) is Google's open source AI agent.
+
+    **Personal schema** — `~/.env.gemini`:
+
+    ```env-spec title="~/.env.gemini"
+    # @sensitive @required
+    GOOGLE_CLOUD_PROJECT=exec('op read "op://api-local/google/cloud-project"')
+
+    # @sensitive @required
+    GOOGLE_API_KEY=exec('op read "op://api-local/google/api-key"')
+    ```
+
+    **Run from any directory:**
+
+    ```bash
+    varlock run -p ~/.env.gemini -- gemini
+    ```
+
+    **Shell alias** (optional):
+
+    ```bash
+    alias vgemini='varlock run -p ~/.env.gemini --no-redact-stdout -- gemini'
+    ```
+  </TabItem>
+</Tabs>
+
+### Importing global config into a project
+
+If you prefer project-scoped setup, you can [`@import()`](/guides/import/) a home-directory file from each repo's `.env.schema` instead of passing `-p` every time:
+
+```env-spec title=".env.schema"
+# @import(~/.env.shared, allowMissing=true)
+# ---
+```
+
+That keeps global vars available in the project without requiring a wrapper alias, at the cost of a one-line import per repo. A future `-g` shorthand for `--path ~/.env.global` may simplify the alias pattern further.
 

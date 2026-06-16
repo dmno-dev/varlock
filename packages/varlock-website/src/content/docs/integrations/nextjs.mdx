@@ -140,7 +140,6 @@ To integrate varlock into a Next.js application, you must use our [`@varlock/nex
       ]}
     />
 
-
 1. **Enable the Next.js config plugin**
 
     At this point, varlock will now load your .env files into `process.env`.
@@ -176,6 +175,16 @@ To integrate varlock into a Next.js application, you must use our [`@varlock/nex
     :::
 
 </Steps>
+
+---
+
+## Monorepos
+
+In a monorepo, the `@next/env` override from setup step 3 must live at the **workspace root** so every Next.js app resolves the same replacement. Package-manager overrides apply to **all** Next.js packages in the workspace — only add the override once each app you run has its own `.env.schema` and `varlockNextConfigPlugin`.
+
+:::caution[Root override applies to every Next.js app]
+Apps without a `.env.schema` may fail at dev or build time (for example, `process.env.__VARLOCK_ENV is not set`). See the [Monorepos guide](/guides/monorepos/) for schema layout, incremental adoption, Turborepo, CI, and Docker patterns.
+:::
 
 ---
 

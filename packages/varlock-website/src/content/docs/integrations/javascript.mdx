@@ -82,5 +82,41 @@ The `varlock/env` module is designed to be imported on both the client and serve
 If you are using a tool/framework that is not listed here, and you'd like to see support for it, or collaborate on building it, we'd love to hear from you. Please hop into our <a href={process.env.PUBLIC_DISCORD_URL}>Discord</a>!
 :::
 
+----
 
+## When things go wrong
+
+### `Unable to find varlock executable` in a monorepo sub-package
+
+`varlock/auto-load` calls the CLI via `execSync` during module initialization. It searches for `node_modules/.bin/varlock` starting from the installed `varlock` package directory (not just `process.cwd()`), so sub-packages like `apps/web` can find a dependency installed locally even when your shell cwd is the workspace root.
+
+If you still see `Unable to find varlock executable`:
+
+- Ensure `varlock` is a dependency of the package that imports `varlock/auto-load`, not only at the monorepo root
+- Run the app via your package manager (`pnpm --filter web dev`) so `node_modules/.bin` is on `PATH`, or boot via [`varlock run`](/reference/cli-commands/#run) instead
+- Install the [standalone binary](/getting-started/installation/#as-a-standalone-binary) globally as a fallback
+
+### `varlock/auto-load` fails on Vercel / serverless
+
+Serverless bundlers often trace `node_modules/varlock/dist` without including `node_modules/.bin/varlock`. During cold start, `auto-load` then fails before your handler runs with `Unable to find varlock executable`.
+
+Recent varlock releases include a package-local CLI fallback so `auto-load` can run the CLI entry bundled inside the `varlock` package itself, without depending on `.bin` being present. Upgrade to the latest varlock if you hit this on an older version.
+
+**Workarounds if you still see this error:**
+
+- Prefer [`varlock run`](/reference/cli-commands/#run) or a framework integration that loads env at build/deploy time instead of `auto-load` at runtime
+- Ensure your bundler includes `node_modules/.bin/varlock` if you must use `auto-load` in serverless
+
+### When to use `varlock run` vs `varlock/auto-load`
+
+| | `import 'varlock/auto-load'` | `varlock run -- <command>` |
+|---|---|---|
+| **Runtime features** | `ENV` object, log redaction, leak detection | Env vars only — no runtime patches |
+| **Node.js version** | Requires Node 22+ | Any process varlock can spawn |
+| **Best for** | Long-running Node apps where you want the full runtime | CLI tools, migrations, non-JS/TS apps, serverless, or one-off scripts |
+| **Monorepo / bundler edge cases** | Depends on finding or bundling the CLI at import time | Uses the `varlock` binary you invoke directly |
+
+Use **`auto-load`** when you want varlock's runtime in your Node process and you control how the app is started (local dev, containers, traditional servers).
+
+Use **`varlock run`** when you only need resolved env vars injected into a child process, when `auto-load` cannot find or bundle the CLI, or when you are wrapping external tools that read `process.env`.
 

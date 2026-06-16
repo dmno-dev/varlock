@@ -60,3 +60,17 @@ See the [`varlock encrypt` CLI Reference](/reference/cli-commands/#encrypt) and 
 Securely view or copy decrypted values of `@sensitive` environment variables. Values are shown in an alternate screen buffer to prevent scrollback capture.
 
 See the [`varlock reveal` CLI Reference](/reference/cli-commands/#reveal) for more information.
+
+## Understanding `varlock load` output
+
+By default, `varlock load` prints a human-readable summary to **stdout**. Schema and validation errors go to **stderr** first; if loading succeeds, you will see a `-- Resolved config --` header followed by one block per item.
+
+Each item line shows:
+
+- A status icon (`✅` valid, or an error/warning icon if something failed)
+- The key name, with `*` if [`@required`](/reference/item-decorators/#required)
+- `🔐 sensitive` when the item is marked [`@sensitive`](/reference/item-decorators/#sensitive) — values are redacted in the summary
+- The resolved value (quoted strings, colored booleans/numbers)
+- Inline hints such as `📦` (cached), `🟡 process.env` (overridden by the shell), or `< coerced from ...` when a value was coerced
+
+When validation fails, only failing items are shown unless you pass [`--show-all`](/reference/cli-commands/#load). Use [`--format json`](/reference/cli-commands/#load) or [`--format json-full`](/reference/cli-commands/#load) for machine-readable output. For example, in CI or when piping to other tools.

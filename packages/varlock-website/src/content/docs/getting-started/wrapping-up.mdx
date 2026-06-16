@@ -44,7 +44,7 @@ Depending on the [AI Tools](/guides/ai-tools/) you use, you may need to add a si
 
 ### Monorepos
 
-Consider how you can reuse and modularize your schema if you have a monorepo or multi-service setup. See the [Imports](/guides/import/) guide for more information.
+Consider how you can reuse and modularize your schema if you have a monorepo or multi-service setup. Use [`@import()`](/guides/import/) to share config across packages, and see the [Monorepos](/guides/monorepos/) guide for layout patterns, Turborepo setup, incremental adoption, CI, and container builds.
 
 ## Deployment
 
@@ -67,3 +67,5 @@ APP_ENV=production varlock run -- your-production-command
 ```
 
 If you're not using your deployment platform's environment variable management, you may consider using one of our [plugins](/plugins/overview/) to securely load environment variables from a secret storage system such as [1Password](/plugins/1password/).
+
+For **container** deployments (Docker, Docker Compose, Kubernetes), see the [Docker guide](/guides/docker/). It covers CI-only validation vs runtime injection, multi-stage builds, monorepo import workarounds, and when not to ship the CLI in your production image.
