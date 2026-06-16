@@ -125,6 +125,139 @@ describe('decorator parsing', () => {
     });
   });
 
+  describe('multi-line object/array literals (`#` continuation)', () => {
+    it('parses a multi-line array literal', () => {
+      const result = parseEnvSpecDotEnvFile(outdent`
+        # @dec=[
+        #   a,
+        #   b,
+        #   c,
+        # ]
+        VAL=
+      `);
+      const dec = result.configItems[0].decoratorsObject.dec;
+      expectInstanceOf(dec.value, ParsedEnvSpecArrayLiteral);
+      expect((dec.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['a', 'b', 'c']);
+    });
+
+    it('parses a multi-line array without a trailing comma', () => {
+      const result = parseEnvSpecDotEnvFile(outdent`
+        # @dec=[
+        #   a,
+        #   b
+        # ]
+        VAL=
+      `);
+      const dec = result.configItems[0].decoratorsObject.dec;
+      expect((dec.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['a', 'b']);
+    });
+
+    it('parses a multi-line object literal', () => {
+      const result = parseEnvSpecDotEnvFile(outdent`
+        # @sensitive={
+        #   preventLeaks=false,
+        #   foo=bar,
+        # }
+        VAL=
+      `);
+      const dec = result.configItems[0].decoratorsObject.sensitive;
+      expectInstanceOf(dec.value, ParsedEnvSpecObjectLiteral);
+      expect((dec.value as ParsedEnvSpecObjectLiteral).simplifiedValue).toEqual({ preventLeaks: false, foo: 'bar' });
+    });
+
+    it('parses a multi-line array passed as a function arg (e.g. `@import(..., pick=[...])`)', () => {
+      const result = parseEnvSpecDotEnvFile(outdent`
+        # @import(
+        #   ./.env.shared,
+        #   pick=[
+        #     KEY1,
+        #     KEY2,
+        #     KEY3,
+        #   ],
+        # )
+        VAL=
+      `);
+      const dec = result.configItems[0].decoratorsObject.import;
+      expect(dec.isBareFnCall).toBe(true);
+      const args = dec.bareFnArgs!;
+      expectInstanceOf(args.values[0], ParsedEnvSpecStaticValue);
+      expect((args.values[0] as ParsedEnvSpecStaticValue).value).toBe('./.env.shared');
+      const pick = args.values[1] as any;
+      expect(pick.key).toBe('pick');
+      expectInstanceOf(pick.value, ParsedEnvSpecArrayLiteral);
+      expect((pick.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['KEY1', 'KEY2', 'KEY3']);
+    });
+
+    it('parses nested multi-line literals', () => {
+      const result = parseEnvSpecDotEnvFile(outdent`
+        # @dec={
+        #   items=[
+        #     1,
+        #     2,
+        #   ],
+        #   opts={
+        #     retry=true,
+        #   },
+        # }
+        VAL=
+      `);
+      const dec = result.configItems[0].decoratorsObject.dec;
+      expect((dec.value as ParsedEnvSpecObjectLiteral).simplifiedValue).toEqual({
+        items: [1, 2],
+        opts: { retry: true },
+      });
+    });
+
+    it('round-trips a multi-line literal to a single-line toString()', () => {
+      const result = parseEnvSpecDotEnvFile(outdent`
+        # @dec=[
+        #   a,
+        #   b,
+        # ]
+        VAL=
+      `);
+      expect(result.configItems[0].decoratorsObject.dec.toString()).toBe('@dec=[a, b]');
+    });
+
+    it('skips commented-out entries and trailing post-comments inside a multi-line literal', () => {
+      const result = parseEnvSpecDotEnvFile(outdent`
+        # @dec=[
+        #   VAL1,
+        # # COMMENTED_VAL,
+        #   VAL3, # post comment
+        # ]
+        VAL=
+      `);
+      const dec = result.configItems[0].decoratorsObject.dec;
+      expect((dec.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['VAL1', 'VAL3']);
+    });
+
+    it('skips comments inside a multi-line object literal', () => {
+      const result = parseEnvSpecDotEnvFile(outdent`
+        # @sensitive={
+        #   preventLeaks=false, # leaves the system intentionally
+        #   # enabled=false,
+        # }
+        VAL=
+      `);
+      const dec = result.configItems[0].decoratorsObject.sensitive;
+      expect((dec.value as ParsedEnvSpecObjectLiteral).simplifiedValue).toEqual({ preventLeaks: false });
+    });
+
+    it('does not swallow following config items when continuation lines omit `#`', () => {
+      // a `[` without `#`-prefixed continuation lines can't form a multi-line array,
+      // so it falls back to a plain string value and the following lines remain
+      // independent config items rather than being absorbed into the literal.
+      const result = parseEnvSpecDotEnvFile(outdent`
+        # @dec=[
+        KEY1=v1
+        KEY2=v2
+        VAL=
+      `);
+      expect(result.configItems.map((i) => i.key)).toEqual(['KEY1', 'KEY2', 'VAL']);
+    });
+  });
+
   describe('multi-line function calls', basicDecoratorTests([
     {
       label: 'multi-line @dec() call',
@@ -200,7 +333,7 @@ describe('decorator parsing', () => {
       expected: new Error(),
     },
     {
-      label: 'multi-line dec fn with commented interior line',
+      label: 'multi-line dec fn skips a commented-out interior line',
       comments: outdent`
         # @import(
         #   ./.env.import,
@@ -208,7 +341,18 @@ describe('decorator parsing', () => {
         #   ITEM2,
         # )
       `,
-      expected: new Error(),
+      expected: { import: { fnName: undefined, fnArgs: ['./.env.import', 'ITEM2'] } },
+    },
+    {
+      label: 'multi-line dec fn skips a trailing post-comment on an arg',
+      comments: outdent`
+        # @import(
+        #   ./.env.import,
+        #   ITEM1, # primary
+        #   ITEM2,
+        # )
+      `,
+      expected: { import: { fnName: undefined, fnArgs: ['./.env.import', 'ITEM1', 'ITEM2'] } },
     },
   ]));
 

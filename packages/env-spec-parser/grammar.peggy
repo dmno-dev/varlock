@@ -128,7 +128,7 @@ Decorator =
 DecoratorName = $([a-zA-Z] [^ \t\n=()#@]*)
 // ObjectLiteral / ArrayLiteral must come first so a value starting with `{` or `[`
 // parses as a literal rather than an unquoted string.
-DecoratorValue = ObjectLiteral / ArrayLiteral / DecoratorFunctionCall / quotedString / unquotedStringWithoutSpaces
+DecoratorValue = DecoratorObjectLiteral / DecoratorArrayLiteral / DecoratorFunctionCall / quotedString / unquotedStringWithoutSpaces
 
 // Decorator-specific function call (supports multi-line with # continuation)
 DecoratorFunctionCall =
@@ -161,18 +161,33 @@ DecoratorFunctionArgs =
   }
 
 DecoratorFunctionArgValue =
-  ObjectLiteral
-  / ArrayLiteral
+  DecoratorObjectLiteral
+  / DecoratorArrayLiteral
   / DecoratorFunctionCall
   / quotedString
   / $([^ \n,)]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
 
-// Whitespace within decorator function args - allows newline followed by # continuation
-_decWs = ([ \t] / "\n" [ \t]* "#" [ \t]*)*
+// Whitespace within decorator function args / literals - allows newline + `#`
+// continuation. A `#` after content (or a continuation line whose content is itself
+// `#`-prefixed) is treated as a comment to end-of-line and skipped, so entries can be
+// commented out (`# # OLD_KEY,`) or annotated (`# KEY, # note`). Continuation across a
+// newline still REQUIRES the leading `#` (so a missing `#` can't silently swallow lines).
+_decWs = ([ \t] / ("#" [^\n]*)? "\n" [ \t]* "#" [ \t]*)*
 
 // Standalone object/array literals — usable as decorator/function-arg values.
 // `{ key=value, ... }` is an object, `[ value, ... ]` is an array.
-// Single-line only for now (no multi-line `#` continuation inside the brackets).
+//
+// Multi-line is supported, and (like function args) the continuation convention
+// depends on context: literals on item-value lines use plain newlines, while
+// literals inside decorator comments require a leading `#` on each line. There are
+// therefore two parallel rule sets — `ObjectLiteral`/`ArrayLiteral` (value context,
+// `_valWs`) and `DecoratorObjectLiteral`/`DecoratorArrayLiteral` (decorator context,
+// `_decWs`) — mirroring `FunctionArgs` vs `DecoratorFunctionArgs`.
+//
+//   KEY=fn([          # @import(./.env, pick=[
+//     a,              #   KEY1,
+//     b,              #   KEY2,
+//   ])                # ])
 //
 // DESIGN NOTE: only reach for these where there is no function-call `()` already
 // carrying the structure — i.e. (1) the value of a non-function decorator
@@ -182,23 +197,25 @@ _decWs = ([ \t] / "\n" [ \t]* "#" [ \t]*)*
 // Prefer positional forms for ordered pairs (`remap`, `ifs`) and value lists (`enum`) —
 // remap match keys can be regexes/non-identifier strings that can't be object keys.
 // See docs: env-spec/reference "When to reach for a literal".
+
+// ~ value-context literals (multi-line via plain newlines, like FunctionArgs) ~
 ObjectLiteral =
-  "{" _
+  "{" _valWs
   values:(
     (key:FunctionArgKeyName _ "=" _ val:LiteralElementValue { return new ParsedEnvSpecKeyValuePair({ key, val }) })
-    |0.., _ "," _|
+    |0.., _valWs "," _valWs|
   )
-  (_ ",")?
-  _ "}"
+  (_valWs ",")?
+  _valWs "}"
   {
     return new ParsedEnvSpecObjectLiteral({ values, _location: location() });
   }
 
 ArrayLiteral =
-  "[" _
-  values:( LiteralElementValue |0.., _ "," _| )
-  (_ ",")?
-  _ "]"
+  "[" _valWs
+  values:( LiteralElementValue |0.., _valWs "," _valWs| )
+  (_valWs ",")?
+  _valWs "]"
   {
     return new ParsedEnvSpecArrayLiteral({ values, _location: location() });
   }
@@ -208,6 +225,35 @@ LiteralElementValue =
   ObjectLiteral
   / ArrayLiteral
   / FunctionCall
+  / quotedString
+  / $([^ \n,)}\]]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
+
+// ~ decorator-context literals (multi-line via `#` continuation, like DecoratorFunctionArgs) ~
+DecoratorObjectLiteral =
+  "{" _decWs
+  values:(
+    (key:FunctionArgKeyName _ "=" _ val:DecoratorLiteralElementValue { return new ParsedEnvSpecKeyValuePair({ key, val }) })
+    |0.., _decWs "," _decWs|
+  )
+  (_decWs ",")?
+  _decWs "}"
+  {
+    return new ParsedEnvSpecObjectLiteral({ values, _location: location() });
+  }
+
+DecoratorArrayLiteral =
+  "[" _decWs
+  values:( DecoratorLiteralElementValue |0.., _decWs "," _decWs| )
+  (_decWs ",")?
+  _decWs "]"
+  {
+    return new ParsedEnvSpecArrayLiteral({ values, _location: location() });
+  }
+
+DecoratorLiteralElementValue =
+  DecoratorObjectLiteral
+  / DecoratorArrayLiteral
+  / DecoratorFunctionCall
   / quotedString
   / $([^ \n,)}\]]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
 
@@ -254,8 +300,9 @@ FunctionArgValue =
   // slightly different here - can contain "#", cannot contain ")" or "," or newline
   / $([^ \n,)]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
 
-// Whitespace within item value function args - allows plain newlines
-_valWs = [ \t\n]*
+// Whitespace within item-value function args / literals - allows plain newlines, plus
+// `#` comments (full-line entries and trailing post-comments) which are skipped.
+_valWs = ([ \t\n] / "#" [^\n]*)*
 
 Divider =
   "#" leadingSpace:$_ contents:$([-=*#]|3..| [^\n]*) _n

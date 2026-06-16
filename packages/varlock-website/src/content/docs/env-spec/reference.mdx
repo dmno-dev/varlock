@@ -214,7 +214,7 @@ Standalone objects and arrays use distinct brackets, keeping them unambiguous fr
 - `{ key=value, ... }` is an **object** — keys use `=` (as elsewhere in the spec), not `:`
 - `[ value, ... ]` is an **array**
 - they may be nested, and used as decorator values or as function-call arguments
-- they are parsed using the common value-handling rules; currently single-line only
+- they are parsed using the common value-handling rules, and may span multiple lines (see [Multi-line literals](#multi-line-literals) below)
 - they are **not yet supported as standalone config item values** (e.g. `ITEM={...}`) — for now an item value that starts with `{`/`[` is still treated as a string
 
 ```env-spec
@@ -246,7 +246,58 @@ Also prefer the existing positional/comma forms for:
 - **ordered pairs** — `ifs(cond1, val1, cond2, val2, default)` and `remap($VAR, match1, result1, ...)` read like a spreadsheet `IFS()`/lookup and stay flat. Crucially, `remap` match keys may be **regexes or non-identifier strings**, which cannot be object keys (keys must match `/[a-zA-Z][a-zA-Z0-9_]*/`), so an object would be strictly less expressive.
 - **value lists** — `@type=enum(dev, staging, prod)` already reads as a list; `enum([...])` only adds brackets.
 
-(There is also no multi-line literal support yet, so anything that would want to span lines should stay a function call.)
+#### Multi-line literals
+
+Object and array literals may span multiple lines, which is handy for long key lists
+(e.g. picking many keys to import). The continuation convention matches function calls
+and depends on where the literal lives:
+
+- **Inside a decorator** (which lives in a `#` comment), every continuation line must
+  start with `#`:
+
+  ```env-spec
+  # @import(./.env.shared, pick=[
+  #   DATABASE_URL,
+  #   REDIS_URL,
+  #   STRIPE_KEY,
+  # ])
+  DATABASE_URL=
+  ```
+
+  ```env-spec
+  # @sensitive={
+  #   preventLeaks=false,
+  # }
+  SECRET=
+  ```
+
+- **On an item value line**, where the literal is nested in a function call, plain
+  newlines are used (no `#`):
+
+  ```env-spec
+  ALLOWED=fn([
+    dev,
+    staging,
+    prod,
+  ])
+  ```
+
+A trailing comma is allowed. If a `#`-prefixed continuation is omitted in a decorator,
+the bracket simply falls back to a plain string value and the following lines remain
+independent config items — they are never silently absorbed into the literal.
+
+Within a multi-line literal (or function call), `#` introduces a comment that runs to the
+end of the line, so entries can be commented out or annotated. This applies the same way
+to multi-line function-call arguments.
+
+```env-spec
+# @import(./.env.shared, pick=[
+#   DATABASE_URL,
+#   # REDIS_URL,        ← commented out, skipped
+#   STRIPE_KEY, # primary payment key
+# ])
+DATABASE_URL=
+```
 
 ### String expansion ||expansion||
 While the parser itself does not include any implemention of specific functions, it does handle _expansion_ of strings - and it uses several function calls under the hood to do so. This means a few basic function calls, while not implemented, have specific inherent meaning and must be implemented similarly across all tools that support this spec.
