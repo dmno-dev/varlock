@@ -49,6 +49,25 @@ describe('buildProxySchemaFingerprint', () => {
     expect(await fp(BASE.replace('api.x.com', 'api.y.com'))).not.toBe(await fp(BASE));
   });
 
+  test('a single value and a single-element array are identical (domain=a ≡ domain=[a])', async () => {
+    const single = outdent`
+      # @enableProxy(egress="strict")
+      # ---
+      # @sensitive @proxy(domain="api.x.com")
+      SECRET=abc
+    `;
+    const arrayOfOne = outdent`
+      # @enableProxy(egress="strict")
+      # ---
+      # @sensitive @proxy(domain=["api.x.com"])
+      SECRET=abc
+    `;
+    expect(await fp(arrayOfOne)).toBe(await fp(single));
+    // but a real multi-element list is still distinct
+    const arrayOfTwo = single.replace('domain="api.x.com"', 'domain=[api.x.com, api.y.com]');
+    expect(await fp(arrayOfTwo)).not.toBe(await fp(single));
+  });
+
   test('changing approval config changes it', async () => {
     const capped = BASE.replace('approval=true', 'approval=true, approvalMaxDuration="15m"');
     expect(await fp(capped)).not.toBe(await fp(BASE));
