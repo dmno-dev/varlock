@@ -1,0 +1,244 @@
+---
+title: Credential proxy
+description: Run AI agents and untrusted tools through a local proxy so they only ever see placeholder secrets, while real values are injected at the network boundary.
+---
+
+The credential proxy lets you run an AI agent (or any untrusted tool) so that it **never sees your real secrets** — it only ever has placeholders in its environment. The real values are injected into outbound requests at the network boundary, against a cryptographically verified upstream, and every request is logged.
+
+This is useful any time a process you don't fully trust needs to _use_ a secret without being allowed to _read_ it — coding agents, MCP servers, third-party CLIs, or scripts.
+
+```env-spec title=".env.schema"
+# @enableProxy(egress="permissive")
+# ---
+# @proxy(domain="api.openai.com")
+OPENAI_API_KEY=sk-...
+```
+
+```bash
+varlock proxy run -- claude
+```
+
+The agent launched above sees `OPENAI_API_KEY=vlk_placeholder_…` (or a format-shaped placeholder). When it makes a request to `api.openai.com`, the proxy swaps the placeholder for the real key on the wire. If the agent prints the variable, exfiltrates its env, or sends it anywhere else, all it has is a useless placeholder.
+
+:::note[Approvals are not part of this release]
+The proxy supports an experimental, interactive **approval** step (`approval=true`), but it is TTY-only and still being built out. The core protection described in this guide — placeholder isolation, wire-level injection, egress control, and auditing — does not depend on it. See [Approvals (experimental)](#approvals-experimental) at the end.
+:::
+
+## How it works
+
+1. You mark which secrets are proxied with [`@proxy(domain=...)`](/reference/item-decorators/#proxy).
+2. The child process is launched with **placeholders** in place of those secrets, plus the standard proxy/CA environment variables pointing at a local proxy.
+3. The proxy intercepts HTTPS traffic. For a request that matches a rule, it verifies the upstream's real TLS identity, then substitutes the placeholder for the real secret **only on that connection**.
+4. Responses are scrubbed so real values can't leak back into the child's output, and every request is recorded to an [audit log](#auditing).
+
+Secrets and the proxy's signing key live only in memory on your machine — they are never written to disk and never handed to the child.
+
+## Quick start
+
+#### 1. Enable the proxy
+
+Add the [`@enableProxy`](/reference/root-decorators/#enableproxy) root decorator to your schema header:
+
+```env-spec title=".env.schema"
+# @enableProxy(egress="permissive")
+# ---
+```
+
+#### 2. Route a secret through the proxy
+
+Add [`@proxy(domain=...)`](/reference/item-decorators/#proxy) **to the item** you want to protect. This both marks the item [`@sensitive`](/reference/item-decorators/#sensitive) and tells the proxy to inject its real value into requests to that host:
+
+```env-spec title=".env.schema"
+# @enableProxy(egress="permissive")
+# ---
+# @proxy(domain="api.openai.com")
+OPENAI_API_KEY=sk-...
+
+# @proxy(domain="api.stripe.com")
+STRIPE_SECRET_KEY=sk_live_...
+```
+
+#### 3. Run your agent through it
+
+```bash
+varlock proxy run -- claude
+# or any command:
+varlock proxy run -- node agent.js
+varlock proxy run -- python tool.py
+```
+
+That's it — the child inherits everything it needs (proxy address + CA trust) automatically.
+
+:::caution[Put `@proxy` on the item, not in the header]
+`@proxy(domain=...)` on a **config item** routes _that item's_ secret to the domain. The same decorator in the **header** creates a _detached_ policy rule for a domain with **no** secret injection (useful for `block`/`approval` rules). A common mistake is to write `@proxy` in the header and expect a separate item to be injected — it won't be. See [Routing rules](#routing-rules).
+:::
+
+## Routing rules
+
+A `@proxy(...)` rule supports more than just a domain:
+
+| Option | Meaning |
+|---|---|
+| `domain` | **(required)** Target host to match. Supports globs, e.g. `*.example.com`. |
+| `path` | Restrict to matching URL paths (glob), e.g. `path="/v1/**"`. |
+| `method` | Restrict to an HTTP method, e.g. `method="POST"`. |
+| `block` | `block=true` denies matching requests outright (fail closed). |
+
+```env-spec title=".env.schema"
+# @enableProxy(egress="strict")
+# Block a dangerous endpoint entirely (detached rule — no injection):
+# @proxy(domain="api.stripe.com", path="/v1/refunds/**", method="POST", block=true)
+# ---
+# @proxy(domain="api.stripe.com")
+STRIPE_SECRET_KEY=sk_live_...
+```
+
+### Attached vs detached rules
+
+- **Attached rule** — `@proxy` on an item. Injects that item's secret into matching requests. (You can attach extra items by passing refs: `@proxy(domain="api.x.com", $OTHER_KEY)`.)
+- **Detached rule** — `@proxy` in the header. A policy-only rule (match, `block`, or `approval`) for a domain, with no secret injected.
+
+### Egress modes
+
+`@enableProxy(egress=...)` controls what happens to requests that **don't** match any rule:
+
+- `permissive` _(default)_ — unmatched hosts pass through untouched (no injection, no blocking). Good for getting started.
+- `strict` — only requests matching a `@proxy` rule are allowed; everything else is blocked. This is the recommended posture once your rules are dialed in, since it prevents the agent from reaching arbitrary hosts.
+
+## Controlling what the agent sees
+
+By default, varlock applies **least privilege** to the proxied child:
+
+- A `@proxy(domain=...)` item → the agent sees a **placeholder**; the real value is injected at the wire.
+- A [`@sensitive`](/reference/item-decorators/#sensitive) item with **no** proxy policy → **omitted entirely** from the child (you'll see a warning). The agent gets neither the real value nor a placeholder.
+- Non-sensitive items → passed through normally.
+
+To override the default for an item, use the value form of `@proxy`:
+
+```env-spec title=".env.schema"
+# @sensitive
+# @proxy=passthrough   # inject the REAL value into the child (escape hatch)
+LEGACY_TOKEN=...
+
+# @proxy=omit          # explicitly withhold from the child (no warning)
+UNUSED_SECRET=...
+```
+
+`@proxy=passthrough` and `@proxy=omit` are the **value form** of the decorator and cannot be combined with the function form (`@proxy(...)`) on the same item.
+
+### Placeholders
+
+The placeholder the agent sees is chosen in priority order:
+
+1. An explicit [`@placeholder`](/reference/item-decorators/#placeholder) value — always wins.
+2. A format derived from the item's [`@type`](/reference/item-decorators/#type) — e.g. `@type=string(startsWith=sk-, isLength=20)` yields an `sk-`-shaped placeholder.
+3. A generic fallback (`vlk_placeholder_<KEY>_…`) — varlock **warns** about these, because a generic placeholder can fail an SDK's client-side key-format check (e.g. an `sk-…` prefix assertion) before the request is ever made.
+
+If you see the generic-placeholder warning, add an `@placeholder` or a typed format so the placeholder looks valid to the client:
+
+```env-spec title=".env.schema"
+# @proxy(domain="api.openai.com")
+# @placeholder=sk-proj-000000000000000000000000
+OPENAI_API_KEY=sk-proj-...
+```
+
+## Running modes
+
+There are three ways to drive the proxy, trading convenience for interactivity.
+
+### One-shot: `proxy run`
+
+```bash
+varlock proxy run -- <command>
+```
+
+Starts a proxy, runs the command through it, and tears down when the command exits. The single most common way to use the feature. If a `proxy start` daemon is already running for this directory, `proxy run` **attaches** to it (so its terminal can handle approval prompts); otherwise it runs a self-contained proxy. Pass `--new` to force a fresh, separate proxy.
+
+### Daemon + attach: `proxy start`
+
+```bash
+# Terminal 1 — owns the proxy and any approval prompts
+varlock proxy start
+
+# Terminal 2 — attaches automatically
+varlock proxy run -- claude
+```
+
+`proxy start` is a long-lived session that owns its terminal. This is the mode to use if you want interactive [approvals](#approvals-experimental), since the prompt appears in the daemon's terminal rather than competing with the agent's stdio.
+
+### Manual env: `proxy start` + `proxy env`
+
+```bash
+varlock proxy start                 # in one terminal
+eval "$(varlock proxy env)"         # in another shell
+node agent.js                       # now routed through the proxy
+```
+
+`proxy env` prints the proxy + CA environment for an existing session so you can source it into any shell or tool.
+
+## How the child is wired
+
+`proxy run` (and `proxy env`) inject a standard set of environment variables into the child so common HTTP clients trust the proxy with no manual setup:
+
+- **Proxy address:** `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` (and lowercase), with `NO_PROXY` excluding localhost.
+- **CA trust:** `NODE_EXTRA_CA_CERTS` (Node.js), `REQUESTS_CA_BUNDLE` (Python `requests`), `CURL_CA_BUNDLE` (curl), `GIT_SSL_CAINFO` (git), and `SSL_CERT_FILE` (OpenSSL-based tools).
+
+The proxy uses an **ephemeral, in-memory certificate authority** generated per run; only its public certificate is written to a temp file for the child to trust. The CA private key and all per-host certificates never leave memory.
+
+:::note[Clients that don't read these env vars]
+Tools that ignore the standard proxy/CA environment variables — many GUI apps, browsers, and some language runtimes with their own trust stores — won't be transparently proxied. The target here is CLI tools and agents, which generally do respect them.
+:::
+
+## Auditing
+
+Every request through the proxy is appended to a per-session, secrets-free audit log (host, method, path, a request hash, the matched rule, the decision, and which key names were injected — never any values).
+
+```bash
+varlock proxy audit                       # current/most-recent session
+varlock proxy audit --session <id>        # a specific session
+varlock proxy audit --format json         # machine-readable
+```
+
+Sessions are kept as durable records after they end. List them with:
+
+```bash
+varlock proxy status            # active sessions
+varlock proxy status --all      # include ended sessions
+varlock proxy status --watch    # live updates
+```
+
+## Editing the schema while a session is running
+
+For safety, a proxied command refuses to run if your `.env.schema` has changed since the proxy session started (this prevents an agent from editing the schema to downgrade `@sensitive` and recover real values). After an intentional edit, re-approve it from a trusted shell:
+
+```bash
+varlock proxy refresh --session <id>
+```
+
+## Approvals (experimental)
+
+:::caution[Experimental — TTY only]
+Approvals work today only via an interactive `varlock proxy start` terminal. There is no phone/native approver yet, and running an approval-gated schema through a non-interactive `proxy run` (with no daemon to attach to) will **deny** the held requests. Treat this as a preview.
+:::
+
+A rule can require explicit, out-of-band approval before each matching request is forwarded:
+
+```env-spec title=".env.schema"
+# @enableProxy(egress="strict")
+# @proxy(domain="api.stripe.com", path="/v1/refunds/**", approval=true)
+# ---
+# @proxy(domain="api.stripe.com")
+STRIPE_SECRET_KEY=sk_live_...
+```
+
+When matched under `proxy start`, the request is held and you're prompted to approve it (once, for the session, or for a time window). Two knobs tune this:
+
+- `approvalEach` — what one approval covers: `host`, `endpoint` (method + path, the default), or `request` (also binds the body).
+- `approvalMaxDuration` — a ceiling on how long a "yes" is remembered: a duration like `"15m"`, `0` for always-ask, or unset for the whole session. The ceiling is enforced by the proxy, not just the prompt.
+
+## Reference
+
+- [`@enableProxy`](/reference/root-decorators/#enableproxy) and [`@proxy`](/reference/root-decorators/#proxy) root decorators
+- [`@proxy`](/reference/item-decorators/#proxy) item decorator
+- [`varlock proxy`](/reference/cli-commands/#proxy) CLI commands
+- [AI Tools guide](/guides/ai-tools/)

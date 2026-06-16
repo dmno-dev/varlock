@@ -637,6 +637,50 @@ You can also temporarily opt out by setting the `VARLOCK_TELEMETRY_DISABLED` env
 </div>
 
 <div>
+### `varlock proxy` ||proxy||
+
+Manages [credential proxy](/guides/proxy/) sessions — running an untrusted child process so it only sees placeholder secrets while real values are injected at the network boundary. Requires [`@enableProxy`](/reference/root-decorators/#enableproxy) in your schema.
+
+```bash
+varlock proxy <subcommand> [options]
+```
+
+**Subcommands:**
+- `run -- <command>`: Start a proxy, run `<command>` through it, and tear down on exit. Attaches to a running `proxy start` session for this directory if one exists; otherwise runs self-contained.
+- `start`: Start a long-lived proxy session that owns the terminal (interactive approval prompts appear here). Stop with `Ctrl+C`.
+- `env`: Print the proxy + CA environment for a session, to source into another shell (`eval "$(varlock proxy env)"`).
+- `status`: List active proxy sessions.
+- `audit`: Print a session's request audit log (no secret values).
+- `refresh`: Re-validate and reload the schema into a running session after an intentional edit.
+- `stop`: Stop a session.
+
+**Options:**
+- `--session <id>`: Target a specific session by id.
+- `--new`: For `run`, force a fresh proxy instead of attaching to a running one.
+- `--all`: For `status`/`stop`, include all sessions (`status` also shows ended sessions).
+- `--inject <all｜vars｜blob>`: For `run`, control what is injected into the child env (default `all`).
+- `--no-redact-stdout`: For `run`, disable stdout/stderr redaction (full TTY pass-through).
+- `--watch`: For `status`, continuously refresh.
+- `--format <text｜json>`: Output format for `audit` (text/json) and `env` (shell/json).
+
+**Examples:**
+```bash
+# Run an agent through the proxy
+varlock proxy run -- claude
+
+# Daemon in one terminal, attach from another (enables interactive approvals)
+varlock proxy start
+varlock proxy run -- node agent.js
+
+# Inspect activity
+varlock proxy status
+varlock proxy audit --format json
+```
+
+See the [credential proxy guide](/guides/proxy/) for the full workflow.
+</div>
+
+<div>
 ### `varlock generate-key` ||generate-key||
 
 Generates a random 256-bit encryption key for use with `_VARLOCK_ENV_KEY`. This key is used to encrypt the resolved env blob that gets baked into your build output on certain frameworks/platforms.
