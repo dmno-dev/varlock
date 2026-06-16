@@ -145,6 +145,139 @@ describe('@import', () => {
     }));
   });
 
+  describe('pick / omit filters', () => {
+    test('pick=[...] only imports listed keys', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, pick=[IMPORTED1, IMPORTED2])
+          # ---
+        `,
+        '.env.import': outdent`
+          IMPORTED1=a
+          IMPORTED2=b
+          SKIP=c
+        `,
+      },
+      expectValues: { IMPORTED1: 'a', IMPORTED2: 'b' },
+      expectNotInSchema: ['SKIP'],
+    }));
+
+    test('omit=[...] imports everything except listed keys', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, omit=[SECRET])
+          # ---
+        `,
+        '.env.import': outdent`
+          IMPORTED1=a
+          IMPORTED2=b
+          SECRET=c
+        `,
+      },
+      expectValues: { IMPORTED1: 'a', IMPORTED2: 'b' },
+      expectNotInSchema: ['SECRET'],
+    }));
+
+    test('pick supports globs', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, pick=[API_*])
+          # ---
+        `,
+        '.env.import': outdent`
+          API_KEY=a
+          API_URL=b
+          DB_HOST=c
+        `,
+      },
+      expectValues: { API_KEY: 'a', API_URL: 'b' },
+      expectNotInSchema: ['DB_HOST'],
+    }));
+
+    test('omit supports globs', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, omit=[DEBUG_*])
+          # ---
+        `,
+        '.env.import': outdent`
+          API_KEY=a
+          DEBUG_A=b
+          DEBUG_B=c
+        `,
+      },
+      expectValues: { API_KEY: 'a' },
+      expectNotInSchema: ['DEBUG_A', 'DEBUG_B'],
+    }));
+
+    test('pick intersects across nested imports', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, pick=[ITEM1])
+          # ---
+        `,
+        '.env.import': outdent`
+          # @import(./.env.import2, pick=[ITEM1, ITEM2])
+          # ---
+        `,
+        '.env.import2': outdent`
+          ITEM1=a
+          ITEM2=b
+        `,
+      },
+      expectValues: { ITEM1: 'a' },
+      expectNotInSchema: ['ITEM2'],
+    }));
+
+    test('deprecated positional keys still work', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, IMPORTED1)
+          # ---
+        `,
+        '.env.import': outdent`
+          IMPORTED1=a
+          SKIP=b
+        `,
+      },
+      expectValues: { IMPORTED1: 'a' },
+      expectNotInSchema: ['SKIP'],
+    }));
+
+    test('using both pick and omit is an error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, pick=[A], omit=[B])
+          # ---
+        `,
+        '.env.import': 'A=1\nB=2',
+      },
+      expectError: true,
+    }));
+
+    test('combining positional keys with pick is an error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, A, pick=[B])
+          # ---
+        `,
+        '.env.import': 'A=1\nB=2',
+      },
+      expectError: true,
+    }));
+
+    test('non-array pick is an error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, pick=A)
+          # ---
+        `,
+        '.env.import': 'A=1',
+      },
+      expectError: true,
+    }));
+  });
+
   describe('errors', () => {
     test('importing non .env.* file triggers an error', envFilesTest({
       files: {

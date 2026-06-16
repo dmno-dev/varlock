@@ -131,8 +131,8 @@ FOO=bar  # will be ignored
 
 <div>
 ### `@import()`
-**Arg types:** `[ path: string, ...keys?: string[] ]`  
-**Named args:** `enabled?: boolean`, `allowMissing?: boolean`
+**Arg types:** `[ path: string ]`  
+**Named args:** `enabled?: boolean`, `allowMissing?: boolean`, `pick?: string[]`, `omit?: string[]`
 
 Imports other `.env` file(s) - useful for sharing config across monorepos and splitting up large schemas. _Can be called multiple times._
 
@@ -142,11 +142,19 @@ The optional `enabled` parameter allows conditional imports based on boolean exp
 
 The optional `allowMissing` parameter makes the import optional - if set to `true`, the import will be silently skipped if the file or directory doesn't exist instead of causing a loading error. It defaults to `false` if not specified.
 
+**Filtering keys:** by default every key from the imported file(s) is brought in. Use `pick` to import only an allowlist of keys, or `omit` to import everything except a denylist. You can't use both in one import, and both accept simple globs (`*`, `?`). Across nested imports, filters intersect — a key must pass every filter in the chain.
+
+:::caution[Positional keys are deprecated]
+Listing keys as positional args (`@import(./.env.other, KEY1, KEY2)`) is **deprecated** — use `pick=[KEY1, KEY2]` instead. The positional form still works (exact-match only, no globs) but will warn.
+:::
+
 See the [imports guide](/guides/import/) for more details and advanced usage.
 
 ```env-spec
 # @import(./.env.imported)                        # import a specific file
-# @import(./.env.other, KEY1, KEY2)               # import specific keys
+# @import(./.env.other, pick=[KEY1, KEY2])        # import only these keys (allowlist)
+# @import(./.env.other, pick=[API_*])             # globs are supported
+# @import(./.env.other, omit=[SECRET])            # import everything except these (denylist)
 # @import(../shared-env/)                         # import a directory
 # @import(~/.env.shared)                          # import from home directory
 # @import(./.env.dev, enabled=eq($ENV, "dev"))    # conditional import
@@ -161,9 +169,9 @@ IMPORTED_ITEM=overridden-value
 <div>
 ### `@setValuesBulk()`
 **Arg types:** `[ data: string ]`
-**Named args:** `format?: "json" | "env"`, `createMissing?: boolean`, `enabled?: boolean`
+**Named args:** `format?: "json" | "env"`, `createMissing?: boolean`, `enabled?: boolean`, `pick?: string[]`, `omit?: string[]`
 
-Injects multiple config values at once from an external data source. The first argument is a resolver that produces a string (e.g., `exec()` calling a secrets manager), which is parsed and injected as definitions within the file containing the decorator.
+Injects multiple config values at once from an external data source. The first argument is a resolver that produces a string — typically a bulk resolver from a [secrets provider plugin](/plugins/overview/) such as [`opLoadEnvironment()`](/plugins/1password/#oploadenvironment) (1Password), [`infisicalBulk()`](/plugins/infisical/), or [`vaultSecret(…, raw=true)`](/plugins/hashicorp-vault/) (HashiCorp Vault) — which is parsed and injected as definitions within the file containing the decorator.
 
 Bulk values participate in the normal file override chain — `process.env` still overrides everything, higher-precedence files (`.env.local`, `.env.production`, etc.) override bulk values, and bulk values override schema-defined defaults in the same file. You control precedence by choosing which file to put `@setValuesBulk` in.
 
@@ -171,37 +179,60 @@ Bulk values participate in the normal file override chain — `process.env` stil
 - `format`: How to parse the data string. `json` expects a flat JSON object, `env` expects `.env` file format. If not specified, auto-detected by checking if the string starts with `{`.
 - `createMissing`: If `true`, keys in the bulk data that don't already exist in your schema will be created as new config items. Defaults to `false` (unknown keys are silently skipped).
 - `enabled`: If `false`, the bulk data resolver is skipped entirely. Accepts any boolean expression, including dynamic references to other config items. Defaults to `true`.
+- `pick`: An array of key names to inject — an **allowlist**. Only matching keys are injected; everything else from the source is ignored.
+- `omit`: An array of key names to skip — a **denylist**. Every key _except_ the matches is injected.
+
+By default (neither `pick` nor `omit`) every key from the source is injected. You can't use `pick` and `omit` together. Both accept simple glob patterns — `*` matches any run of characters and `?` matches a single character (e.g. `pick=[API_*]`).
 
 _Can be called multiple times — later calls overwrite earlier ones for the same keys._
 
 ```env-spec title=".env.schema"
-# Inject secrets from a vault as JSON
-# @setValuesBulk(exec("vault kv get -format=json secret/myapp"), format=json)
+# Load all values from a 1Password environment
+# @plugin(@varlock/1password-plugin)
+# @initOp(token=$OP_TOKEN, allowAppAuth=forEnv(dev))
+# @setValuesBulk(opLoadEnvironment(your-environment-id))
+# ---
+# @type=opServiceAccountToken @sensitive
+OP_TOKEN=
+API_KEY=
+DB_PASSWORD=
+```
+
+```env-spec title=".env.schema"
+# Inject from a .env-style blob stored in a single 1Password field
+# @setValuesBulk(op("op://vault/app-secrets/dotenv"), format=env)
 # ---
 API_KEY=
 DB_PASSWORD=
 ```
 
 ```env-spec title=".env.schema"
-# Inject from a secrets file as .env format
-# @setValuesBulk(exec("cat /run/secrets/env"), format=env)
+# Allowlist — only inject these keys (globs allowed, e.g. API_*)
+# @setValuesBulk(opLoadEnvironment(your-environment-id), pick=[API_KEY, DB_PASSWORD])
 # ---
 API_KEY=
 DB_PASSWORD=
+```
+
+```env-spec title=".env.schema"
+# Denylist — inject everything except these keys
+# @setValuesBulk(infisicalBulk(), omit=[LEGACY_TOKEN, DEBUG_*])
 ```
 
 ```env-spec title=".env.schema"
 # Create items not already in the schema
-# @setValuesBulk(exec("vault kv get -format=json secret/myapp"), format=json, createMissing=true)
+# @setValuesBulk(infisicalBulk(), createMissing=true)
 ```
 
 ```env-spec title=".env.schema"
-# Only fetch from the vault in non-production environments
-# @setValuesBulk(exec("vault kv get -format=json secret/dev"), format=json, enabled=eq($APP_ENV, "dev"))
+# Only fetch from the source in non-production environments
+# @setValuesBulk(opLoadEnvironment(dev-environment-id), enabled=eq($APP_ENV, "dev"))
 # ---
 API_KEY=
 APP_ENV=dev
 ```
+
+If a plugin doesn't exist for your provider, any CLI tool works via [`exec()`](/reference/functions/#exec) — e.g. `@setValuesBulk(exec("vault kv get -format=json secret/myapp"), format=json)`.
 
 :::note
 When using `format=env`, function calls like `$VAR` references in unquoted values are not supported and will cause an error. Use single quotes for literal `$` signs (e.g., `'$LITERAL'`) or use `format=json` instead.

@@ -7,10 +7,10 @@ The [`@import()` root decorator](/reference/root-decorators/#import) allows you 
 
 **Basic examples:**
 ```env-spec
-# @import(./.env.imported)              # import specific file
-# @import(./env-dir/)                   # import directory
-# @import(./.env.partial, KEY1, KEY2)   # import specific keys
-# @import(~/.env.shared)                # import from home directory
+# @import(./.env.imported)                 # import specific file
+# @import(./env-dir/)                      # import directory
+# @import(./.env.partial, pick=[K1, K2])   # import specific keys
+# @import(~/.env.shared)                   # import from home directory
 ```
 
 ## Import source types
@@ -70,13 +70,22 @@ A registry (npm, jsr, etc.), package name, version, and path can be used to impo
 
 ## Partial imports
 
-By default, all items will be imported, but you may add a list of specific keys to import as additional args after the first.
+By default, all items will be imported, but you can restrict which keys are brought in:
 
-- If there is a chain of imports, an item is only imported if every ancestor import includes it (or imports all items)
+- `pick=[...]` imports only an allowlist of keys
+- `omit=[...]` imports everything except a denylist of keys
+- You can't use both in one import, and both accept simple globs (`*`, `?`)
+- If there is a chain of imports, an item is only imported if every ancestor import includes it (filters intersect)
 
 ```env-spec
-# @import(./.env.imported, KEY1, KEY2)
+# @import(./.env.imported, pick=[KEY1, KEY2])   # allowlist
+# @import(./.env.imported, pick=[API_*])        # globs work too
+# @import(./.env.imported, omit=[SECRET])       # denylist
 ```
+
+:::caution[Positional keys are deprecated]
+Older docs and configs list keys as positional args (`@import(./.env.imported, KEY1, KEY2)`). This still works but is deprecated and will warn — use `pick=[KEY1, KEY2]` instead.
+:::
 
 ## Conditional imports
 
@@ -87,7 +96,7 @@ The `enabled` parameter accepts any expression that evaluates to a boolean. It c
 **Example:**
 ```env-spec title=".env.schema" /\(enabled=.*\)\\)/
 # Combine with partial imports
-# @import(./.env.features, FEATURE_X, enabled=eq($ENABLE_X, "true"))
+# @import(./.env.features, pick=[FEATURE_X], enabled=eq($ENABLE_X, "true"))
 # ---
 ENABLE_X=true
 ```
@@ -107,7 +116,7 @@ The `allowMissing` parameter accepts a boolean value (defaults to `false`). It c
 **Combine with other parameters:**
 ```env-spec title=".env.schema"
 # Optional partial import with conditional loading
-# @import(./.env.features, FEATURE_X, enabled=true, allowMissing=true)
+# @import(./.env.features, pick=[FEATURE_X], enabled=true, allowMissing=true)
 ```
 
 ## Import precedence and merging multiple sources

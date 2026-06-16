@@ -10,6 +10,7 @@ import type { ConfigItem } from './config-item';
 import { StaticValueResolver, type Resolver, convertParsedValueToResolvers } from './resolver';
 import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
+import { parseKeyFilterArgs, applyKeyFilter, type KeyFilter } from './key-filter';
 
 
 export abstract class DecoratorInstance {
@@ -372,13 +373,16 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
         throw new SchemaError('@setValuesBulk requires at least one argument - the data resolver');
       }
       if (argsVal.arrArgs.length > 1) {
-        throw new SchemaError('@setValuesBulk expects only one positional argument - the data resolver');
+        throw new SchemaError(
+          '@setValuesBulk expects only one positional argument - the data resolver.'
+          + ' Use pick=[...] / omit=[...] to filter keys.',
+        );
       }
       if (argsVal.objArgs) {
-        const validOptions = new Set(['format', 'createMissing', 'enabled']);
+        const validOptions = new Set(['format', 'createMissing', 'enabled', 'pick', 'omit']);
         for (const key of Object.keys(argsVal.objArgs)) {
           if (!validOptions.has(key)) {
-            throw new SchemaError(`@setValuesBulk: unknown option "${key}". Valid options: format, createMissing, enabled`);
+            throw new SchemaError(`@setValuesBulk: unknown option "${key}". Valid options: format, createMissing, enabled, pick, omit`);
           }
         }
         // validate format option if static
@@ -399,17 +403,24 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
         }
       }
 
+      // key filters: `pick=[...]` (allowlist) / `omit=[...]` (denylist). Default injects every key.
+      const keyFilter = parseKeyFilterArgs(argsVal.objArgs?.pick, argsVal.objArgs?.omit, '@setValuesBulk');
+
       return {
         graph: argsVal.dataSource!.graph!,
         dataSource: argsVal.dataSource!,
         argsResolver: argsVal,
+        keyFilter,
       };
     },
     async execute(processedData) {
-      const { graph, dataSource, argsResolver } = processedData as {
+      const {
+        graph, dataSource, argsResolver, keyFilter,
+      } = processedData as {
         graph: EnvGraph;
         dataSource: EnvGraphDataSource;
         argsResolver: Resolver;
+        keyFilter?: KeyFilter;
       };
 
       // check enabled before resolving data - important so disabled sources don't trigger data fetching
@@ -446,6 +457,9 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
       } else {
         entries = parseEnvBulkValues(dataString);
       }
+
+      // apply pick/omit key filter (no filter means inject everything)
+      applyKeyFilter(entries, keyFilter);
 
       // dynamic import to avoid circular dependency
       const { ConfigItem } = await import('./config-item');

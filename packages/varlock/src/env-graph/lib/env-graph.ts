@@ -1,7 +1,11 @@
 import _ from '@env-spec/utils/my-dash';
 import path from 'node:path';
 import { ConfigItem } from './config-item';
-import { EnvGraphDataSource, FileBasedDataSource, ImportAliasSource } from './data-source';
+import {
+  EnvGraphDataSource, FileBasedDataSource, ImportAliasSource,
+  keyPassesImportFilter,
+} from './data-source';
+import { type KeyFilter } from './key-filter';
 
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
@@ -30,12 +34,12 @@ export type SerializedEnvGraphErrors = {
   root?: Array<string>;
 };
 
-/** Entry in the sorted definition sources list — pairs a data source with the importKeys
- * filter that applies at that specific position in the precedence chain */
+/** Entry in the sorted definition sources list — pairs a data source with the node whose
+ * import chain filters which keys are visible at that specific position in the precedence chain */
 export type DefinitionSourceEntry = {
   source: EnvGraphDataSource;
-  /** importKeys filter for this position (undefined = all keys visible) */
-  importKeys?: Array<string>;
+  /** node whose import chain decides key visibility for this position (undefined = all keys visible) */
+  filterNode?: EnvGraphDataSource;
 };
 
 export type SerializedEnvGraph = {
@@ -121,24 +125,14 @@ export class EnvGraph {
   registerItemsForImport(
     source: EnvGraphDataSource,
     importSite: EnvGraphDataSource,
-    importKeys?: Array<string>,
+    importMeta?: { importKeys?: Array<string>, importFilter?: KeyFilter },
   ) {
-    // Compute effective importKeys: intersection of import filter and importSite's parent chain
-    const siteKeys = importSite.importKeys;
-    let effectiveKeys: Array<string> | undefined;
-    const hasFilter = importKeys && importKeys.length > 0;
-    if (hasFilter && siteKeys?.length) {
-      effectiveKeys = importKeys.filter((k) => siteKeys.includes(k));
-    } else if (hasFilter) {
-      effectiveKeys = importKeys;
-    } else {
-      effectiveKeys = siteKeys;
-    }
-
+    // A key is visible only if it passes both this import's own filter and the
+    // importSite's full import chain (nested imports intersect).
     for (const s of this._getDescendants(source)) {
-      const keys = effectiveKeys || _.keys(s.configItemDefs);
-      for (const itemKey of keys) {
-        if (!s.configItemDefs[itemKey]) continue;
+      for (const itemKey of _.keys(s.configItemDefs)) {
+        if (importMeta && !keyPassesImportFilter(itemKey, importMeta.importKeys, importMeta.importFilter)) continue;
+        if (!importSite.isKeyImported(itemKey)) continue;
         this.configSchema[itemKey] ??= new ConfigItem(this, itemKey);
       }
     }
@@ -186,14 +180,13 @@ export class EnvGraph {
 
     for (const source of this.sortedDataSources) {
       if (source instanceof ImportAliasSource) {
-        // Alias: expand to the original source's subtree at this position,
-        // using the alias's importKeys (derived from its own parent chain)
-        const importKeys = source.importKeys;
+        // Alias: expand to the original source's subtree at this position, applying the
+        // alias node's import chain (its own filter + the importing context) for visibility.
         for (const descendant of this._getDescendants(source.original)) {
-          result.push({ source: descendant, importKeys });
+          result.push({ source: descendant, filterNode: source });
         }
       } else {
-        result.push({ source, importKeys: source.importKeys });
+        result.push({ source, filterNode: source });
       }
     }
 
