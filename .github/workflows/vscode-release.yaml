@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write # required for Azure OIDC login
     steps:
       - uses: actions/checkout@v6
       - name: Setup Bun
@@ -21,6 +22,27 @@ jobs:
       - name: Install node deps
         run: bun install
 
+      # Build varlock so the action can resolve secrets from 1Password
+      - name: Build libraries
+        run: bun run build:libs
+
+      # Resolve publishing secrets from 1Password via varlock: AZURE_CLIENT_ID /
+      # AZURE_TENANT_ID (for Marketplace OIDC) and OVSX_PAT (for Open VSX).
+      - name: Load extension publishing secrets from 1Password
+        uses: dmno-dev/varlock-action@v1.0.1
+        with:
+          working-directory: packages/vscode-plugin
+        env:
+          OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
+      # OIDC login so `vsce publish --azure-credential` can mint a short-lived token
+      - name: Azure login (OIDC) for Marketplace publishing
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
       - name: Build and package extension
         working-directory: packages/vscode-plugin
         run: bun run package
@@ -28,12 +50,8 @@ jobs:
       - name: Publish to VS Code Marketplace
         working-directory: packages/vscode-plugin
         run: bun run publish:vsce
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
+      # OVSX_PAT was exported to the job env by the varlock step above
       - name: Publish to Open VSX
         working-directory: packages/vscode-plugin
         run: bun run publish:ovsx
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
-
