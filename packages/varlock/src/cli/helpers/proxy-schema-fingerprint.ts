@@ -41,7 +41,10 @@ function canonicalParsed(node: unknown): string {
     return `(${[...positional, ...named].join(',')})`;
   }
   if (node instanceof ParsedEnvSpecArrayLiteral) {
-    // Array order is significant (e.g. domain/method lists) — keep it.
+    // A single-element array is treated as identical to the bare value, so e.g.
+    // `domain=a` and `domain=[a]` (semantically equal) fingerprint the same.
+    if (node.values.length === 1) return canonicalParsed(node.values[0]);
+    // Otherwise array order is significant (e.g. domain/method lists) — keep it.
     return `[${node.values.map((v) => canonicalParsed(v)).join(',')}]`;
   }
   if (node instanceof ParsedEnvSpecObjectLiteral) {
