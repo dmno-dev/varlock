@@ -48,6 +48,7 @@ jobs:
     outputs:
       mode: ${{ steps.plan.outputs.mode }}
       includes-varlock: ${{ contains(fromJSON(steps.plan.outputs.json).packageNames, 'varlock') }}
+      includes-vscode: ${{ contains(fromJSON(steps.plan.outputs.json).packageNames, 'env-spec-language') }}
       macos-cache-key: ${{ steps.keys.outputs.macos-cache-key }}
       rust-source-hash: ${{ steps.keys.outputs.rust-source-hash }}
       macos-cache-hit: ${{ steps.macos-cache.outputs.cache-hit }}
@@ -310,6 +311,32 @@ jobs:
         env:
           BUILD_TYPE: release
 
+      # Resolve the Azure identity ids from 1Password via varlock (schema lives in
+      # packages/vscode-plugin/.env.schema). Only OP_TOKEN is injected here; the
+      # AZURE_CLIENT_ID / AZURE_TENANT_ID values come from the VarlockCI vault and
+      # are exported to the job environment for the azure/login step below.
+      # (build:libs above provides the local varlock the action uses.)
+      - name: Load Azure identity from 1Password
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-vscode == 'true'
+        uses: dmno-dev/varlock-action@v1.0.1
+        with:
+          working-directory: packages/vscode-plugin
+        env:
+          OP_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
+      # Authenticate to Azure via GitHub OIDC (workload identity federation) so the
+      # VS Code Marketplace publish (`vsce publish --azure-credential`) can mint a
+      # short-lived token instead of a long-lived VSCE_PAT. The federated credential
+      # on the Azure side is scoped to this repo's main branch; see docs below.
+      # Open VSX (ovsx) is a separate registry and still uses OVSX_PAT.
+      - name: Azure login (OIDC) for Marketplace publishing
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-vscode == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
       - name: Create Release PR / Publish
         run: bunx @varlock/bumpy ci release
         env:
@@ -318,8 +345,8 @@ jobs:
           # (see https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow#triggering-a-workflow-from-a-workflow)
           BUMPY_GH_TOKEN: ${{ secrets.BUMPY_GH_TOKEN }}
           GH_TOKEN: ${{ github.token }}
-          # these are needed for vscode extension publishing
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          # VS Code Marketplace auth comes from the Azure OIDC login step above
+          # (vsce publish --azure-credential). Open VSX still needs a token.
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
       # TODO: send notifications?

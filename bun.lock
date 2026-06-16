@@ -501,9 +501,11 @@
       "devDependencies": {
         "@types/node": "catalog:",
         "@types/vscode": "^1.99.0",
+        "@varlock/1password-plugin": "workspace:*",
         "@vscode/vsce": "^3.6.2",
         "ovsx": "^0.10.6",
         "tsup": "catalog:",
+        "varlock": "workspace:*",
         "vitest": "catalog:",
         "vscode-tmgrammar-test": "^0.1.3",
       },
