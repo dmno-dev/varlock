@@ -1,0 +1,137 @@
+---
+title: mise
+description: Install varlock with mise and wire validated env vars into your tasks
+---
+
+import { Steps, Tabs, TabItem } from "@astrojs/starlight/components";
+
+[mise](https://mise.jdx.dev/) (mise-en-place) is a polyglot tool manager, environment manager, and task runner. You can use it to install the `varlock` CLI itself, and to wire varlock into the commands you run during development.
+
+:::tip[Inject into commands, not your shell]
+mise can load environment variables into your shell session (via `[env]`), but we **don't recommend** loading your varlock-managed env — especially secrets — that way. Once values live in your shell, every process inherits them, they show up in `env`, and varlock's [log redaction](/guides/secrets/#redaction-in-varlock-run) is bypassed.
+
+Instead, wire varlock into [individual tasks](#recommended-wire-varlock-into-your-tasks) with [`varlock run`](/reference/cli-commands/#run). Secrets are resolved only for that one command, kept to its lifetime, and its output is redacted. See [Loading into your shell](#loading-env-vars-into-your-shell-advanced) for the narrow cases where shell injection makes sense.
+:::
+
+## Install varlock with mise
+
+mise can install and version-manage the `varlock` CLI alongside the rest of your toolchain.
+
+:::note[Already using varlock in a JS project?]
+If varlock is already a dependency of your JavaScript/TypeScript project, you **don't need any mise integration to install it** — keep installing it with your package manager (`npm`/`pnpm`/`yarn`/`bun`) and run it via `npx varlock` / `bun run varlock` as usual. mise's job there is just managing your runtime (e.g. `node` or `bun`) and, optionally, [running your scripts as tasks](#recommended-wire-varlock-into-your-tasks). The backends below are for installing the standalone `varlock` CLI itself — useful for non-JS projects, or for sharing one varlock version across a team's machines.
+:::
+
+<Tabs>
+<TabItem label="Standalone binary (recommended)">
+
+The `github` backend installs varlock's prebuilt, self-contained binary directly from our GitHub releases. It needs **no runtime** (no Node or Bun) and mise verifies the download's checksum and build attestations automatically.
+
+```toml title="mise.toml"
+[tools]
+"github:dmno-dev/varlock" = "latest"
+```
+
+```bash
+mise install
+varlock --version
+```
+
+Or try it without a config file:
+
+```bash
+mise exec github:dmno-dev/varlock@latest -- varlock --version
+```
+
+:::note[`latest` can lag a fresh release by ~24h]
+mise applies a default 24-hour `minimum_release_age` delay to releases as a supply-chain safeguard, so a brand-new version may be temporarily hidden from `latest`. To get a release immediately, pin the exact version:
+
+```toml title="mise.toml"
+[tools]
+"github:dmno-dev/varlock" = "1.7.0"
+```
+:::
+
+</TabItem>
+<TabItem label="npm package">
+
+The `npm` backend installs varlock from npm. This **requires a Node.js runtime** — mise uses Node's `npm` under the hood, so declare `node` in the same `[tools]` table (mise will not provide it automatically):
+
+```toml title="mise.toml"
+[tools]
+node = "lts"
+"npm:varlock" = "latest"
+```
+
+```bash
+mise install
+varlock --version
+```
+
+Prefer the standalone binary above when you only need the CLI — it avoids the Node dependency and starts faster.
+
+:::note[Using Bun?]
+mise's `npm` backend can't be driven by Bun alone (it still needs Node for `npm`). If your project uses Bun or Node already, you typically wouldn't install varlock as a mise *tool* at all — add it as a project dependency and run it through [tasks](#recommended-wire-varlock-into-your-tasks) with your project's runtime. See the [Bun](/integrations/bun/) and [JavaScript / Node.js](/integrations/javascript/) integrations.
+:::
+
+</TabItem>
+</Tabs>
+
+## Recommended: wire varlock into your tasks
+
+The cleanest way to use varlock with mise is to define [tasks](https://mise.jdx.dev/tasks/) that wrap your commands in [`varlock run`](/reference/cli-commands/#run). varlock resolves and validates your env, injects it into that single subprocess, and redacts secrets from its output — your shell session never holds the values.
+
+```toml title="mise.toml"
+[tools]
+"github:dmno-dev/varlock" = "latest"
+
+[tasks.dev]
+run = "varlock run -- npm run dev"
+
+[tasks.build]
+run = "varlock run -- npm run build"
+
+[tasks.migrate]
+run = "varlock run -- ./scripts/migrate.sh"
+```
+
+```bash
+mise run dev
+```
+
+Because varlock is declared in `[tools]`, mise ensures it's installed and on `PATH` before the task runs. Each task gets a freshly resolved, validated environment, and validation errors stop the task before your command runs.
+
+If varlock is instead a dependency of your JS project (rather than a mise tool), call it through your package manager so the task uses the project-local version — e.g. `run = "npx varlock run -- npm run dev"` or `run = "bun run varlock run -- bun run dev"` — and drop varlock from `[tools]`.
+
+## Loading env vars into your shell (advanced)
+
+Sometimes you genuinely want a value available to any command you type in the terminal — typically **non-secret** config like `NODE_ENV` or a public base URL. You can do this without a plugin using mise's `env._.source`, which captures variables exported by a script.
+
+Create a small script that emits varlock's resolved env in shell format:
+
+```bash title=".mise/load-env.sh"
+varlock load --format shell --compact
+```
+
+Then source it from your config:
+
+```toml title="mise.toml"
+[env]
+_.source = "./.mise/load-env.sh"
+```
+
+`varlock load --format shell` outputs `export KEY='value'` lines; `--compact` skips undefined optional values.
+
+:::caution[This puts values in your shell]
+Anything loaded this way lives in your shell session and is inherited by every process you launch — and varlock's [log redaction](/guides/secrets/#redaction-in-varlock-run) does **not** apply, since it only protects the output of `varlock run`. Scope a dedicated file to just the non-secret values you want ambient (and keep secrets in [tasks](#recommended-wire-varlock-into-your-tasks)), or use [direnv](/integrations/direnv/) if you specifically want enter/leave shell loading.
+:::
+
+## Validate when entering a project
+
+If you just want a fast failure when a project's environment is missing or invalid — without injecting anything into your shell — use a [hook](https://mise.jdx.dev/hooks.html) instead of `[env]`:
+
+```toml title="mise.toml"
+[hooks]
+enter = "varlock load > /dev/null"
+```
+
+`varlock load` exits non-zero on a validation error, so you'll see the problem as soon as you `cd` in. Run `varlock load` directly to see the full colorized error output.
