@@ -10,7 +10,9 @@ import { Steps, Tabs, TabItem } from "@astrojs/starlight/components";
 :::tip[Inject into commands, not your shell]
 mise can load environment variables into your shell session (via `[env]`), but we **don't recommend** loading your varlock-managed env — especially secrets — that way. Once values live in your shell, every process inherits them, they show up in `env`, and varlock's [log redaction](/guides/secrets/#redaction-in-varlock-run) is bypassed.
 
-Instead, wire varlock into [individual tasks](#recommended-wire-varlock-into-your-tasks) with [`varlock run`](/reference/cli-commands/#run). Secrets are resolved only for that one command, kept to its lifetime, and its output is redacted. See [Loading into your shell](#loading-env-vars-into-your-shell-advanced) for the narrow cases where shell injection makes sense.
+Instead, integrate varlock at the point where each program runs — either by wrapping the command with [`varlock run`](/reference/cli-commands/#run) (works for anything), or with one of varlock's [framework/runtime integrations](/integrations/overview/) (for JS/TS apps). Both approaches let you load env vars in different configurations per context — a different [environment](/guides/environments/) per command, build-time vs. runtime resolution, redacted output, leak protection — rather than forcing one global set into the shell where everything sees the same thing.
+
+See [Loading into your shell](#loading-env-vars-into-your-shell-advanced) for the narrow cases where shell injection still makes sense.
 :::
 
 ## Install varlock with mise
@@ -79,6 +81,8 @@ mise's `npm` backend can't be driven by Bun alone (it still needs Node for `npm`
 ## Recommended: wire varlock into your tasks
 
 The cleanest way to use varlock with mise is to define [tasks](https://mise.jdx.dev/tasks/) that wrap your commands in [`varlock run`](/reference/cli-commands/#run). varlock resolves and validates your env, injects it into that single subprocess, and redacts secrets from its output — your shell session never holds the values.
+
+For a JS/TS app, you can instead lean on a [framework or runtime integration](/integrations/overview/) (Next.js, Vite, Astro, Node, etc.) so validation, build-time replacement, and leak protection are wired directly into the app — and just use the mise task to launch it. Either way, env loading stays scoped to the program rather than your shell.
 
 ```toml title="mise.toml"
 [tools]
