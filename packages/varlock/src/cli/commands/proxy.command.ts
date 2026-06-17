@@ -39,6 +39,14 @@ import {
 import {
   PROXY_PARENT_PID_ENV_VAR,
 } from '../../proxy/env-vars';
+import {
+  newReloadRequestId,
+  readReloadRequest,
+  readReloadResult,
+  writeReloadRequest,
+  writeReloadResult,
+  type ProxyReloadResult,
+} from '../../proxy/reload-channel';
 import type { ProxyManagedItem, ProxyRule } from '../../proxy/types';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { resetRedactionMap, redactSensitiveConfig } from '../../runtime/env';
@@ -515,6 +523,93 @@ async function resolveAttachSession(ctx: any, schemaFingerprint: string): Promis
   return candidate;
 }
 
+/** How often a proxy owner polls for a reload request. */
+const RELOAD_POLL_INTERVAL_MS = 500;
+/** How often `proxy refresh` polls for its result, and how long it waits. */
+const REFRESH_POLL_INTERVAL_MS = 250;
+const REFRESH_TIMEOUT_MS = 15 * 60_000;
+
+/**
+ * Poll the session's reload-request file and, when a new request appears,
+ * hot-reload the live runtime: re-resolve the schema in this (trusted) process,
+ * swap the policy via `runtime.reconfigure`, update the session record, and write
+ * a result the blocking `proxy refresh` reads. Returns `stop()` to clear the poller.
+ *
+ * No approval step yet — the reload is applied directly. When the native/phone
+ * approver lands it inserts a gate at the marked point (the out-of-band approver
+ * is the real trust boundary; see notes.ignore/proxy-refresh-reload-design.md).
+ */
+function startReloadServicer(opts: {
+  session: ProxySessionRecord;
+  runtime: Awaited<ReturnType<typeof startLocalProxyRuntime>>;
+  defaultEntryPaths?: Array<string>;
+  log: (message: string) => void;
+}): { stop: () => void } {
+  let lastRequestId: string | undefined;
+  let initialized = false;
+  let busy = false;
+
+  const apply = async (requestId: string, entryPaths?: Array<string>): Promise<ProxyReloadResult> => {
+    const completedAt = new Date().toISOString();
+    try {
+      const latest = await getProxySessionByToken(opts.session.uuid).catch(() => undefined);
+      const paths = entryPaths ?? latest?.entryPaths ?? opts.defaultEntryPaths;
+      // TODO(approval): when a native/phone approver exists, request approval for
+      // this schema change here and return status 'denied' if refused. Today the
+      // reload is applied directly.
+      const next = await prepareProxyPolicy(paths);
+      opts.runtime.reconfigure({
+        managedItems: next.proxyManagedItems,
+        rules: next.proxyRules,
+        egressMode: next.egressMode,
+      });
+      await updateProxySessionRecord(opts.session.uuid, {
+        schemaFingerprint: next.schemaFingerprint,
+        egressMode: next.egressMode,
+        placeholderOverrides: Object.fromEntries(
+          next.proxyManagedItems.map((item) => [item.key, item.placeholder]),
+        ),
+      });
+      opts.log(`Reloaded proxy session ${opts.session.id} from schema (${next.proxyManagedItems.length} managed item(s)).`);
+      return {
+        requestId, status: 'done', completedAt, managedItemCount: next.proxyManagedItems.length,
+      };
+    } catch (error) {
+      opts.log(`Proxy reload failed: ${(error as Error).message}`);
+      return {
+        requestId, status: 'error', completedAt, error: (error as Error).message,
+      };
+    }
+  };
+
+  const tick = async () => {
+    if (busy || !initialized) return;
+    const request = await readReloadRequest(opts.session.uuid);
+    if (!request || request.requestId === lastRequestId) return;
+    lastRequestId = request.requestId;
+    busy = true;
+    try {
+      const result = await apply(request.requestId, request.entryPaths);
+      await writeReloadResult(opts.session.uuid, result).catch(() => undefined);
+    } finally {
+      busy = false;
+    }
+  };
+
+  const timer = setInterval(() => {
+    tick().catch(() => undefined);
+  }, RELOAD_POLL_INTERVAL_MS);
+  timer.unref?.();
+  // Ignore a request file left over from a previous run of this session uuid:
+  // seed lastRequestId before the first tick can fire.
+  readReloadRequest(opts.session.uuid)
+    .then((existing) => { lastRequestId = existing?.requestId; })
+    .catch(() => undefined)
+    .finally(() => { initialized = true; });
+
+  return { stop: () => clearInterval(timer) };
+}
+
 async function runAction(ctx: any) {
   const commandToRunAsArgs = getRunCommandArgs();
   const rawCommand = commandToRunAsArgs[0]!;
@@ -551,11 +646,21 @@ async function runAction(ctx: any) {
       // require-approval requests fail closed. Use `proxy start` (or attach to one)
       // for interactive approval.
       approvalProvider: createAutoDenyApprovalProvider(),
+      reloadable: true,
     });
     session = created.session;
     statsWriter = created.statsWriter;
     console.error(`Proxy session ${session.id} active. Monitor with \`varlock proxy status --session ${session.id} --watch\`.`);
+    // This run owns its proxy, so it services its own `proxy refresh` reloads.
+    // Notices go to stderr (the child owns stdout).
+    const reloadServicer = startReloadServicer({
+      session,
+      runtime: created.runtime,
+      defaultEntryPaths: ctx.values.path,
+      log: (message) => console.error(message),
+    });
     cleanup = async () => {
+      reloadServicer.stop();
       await created.statsWriter.flushNow();
       created.statsWriter.stop();
       await created.runtime.stop().catch(() => undefined);
@@ -699,39 +804,20 @@ async function startAction(ctx: any) {
   console.log(`Use \`varlock proxy status --session ${session.id} --watch\` to monitor activity.`);
   console.log(`Use \`varlock proxy refresh --session ${session.id}\` to reload after editing your schema.`);
 
-  // Hot-reload on SIGHUP (sent by `proxy refresh`): re-resolve the schema in this
-  // trusted process and swap the live runtime's policy without dropping the proxy.
-  // Serialized so overlapping refreshes can't interleave. Entry paths are re-read
-  // from the session record each time, so `proxy refresh --path` is honored.
-  let reloading: Promise<void> | undefined;
-  const reload = async () => {
-    const latest = await getProxySessionByToken(session.uuid).catch(() => undefined);
-    const paths = latest?.entryPaths ?? ctx.values.path;
-    const next = await prepareProxyPolicy(paths);
-    runtime.reconfigure({
-      managedItems: next.proxyManagedItems,
-      rules: next.proxyRules,
-      egressMode: next.egressMode,
-    });
-    await updateProxySessionRecord(session.uuid, {
-      schemaFingerprint: next.schemaFingerprint,
-      egressMode: next.egressMode,
-      placeholderOverrides: Object.fromEntries(
-        next.proxyManagedItems.map((item) => [item.key, item.placeholder]),
-      ),
-    });
-    console.log(`Reloaded proxy session ${session.id} from schema (${next.proxyManagedItems.length} managed item(s)).`);
-  };
-  process.on('SIGHUP', () => {
-    reloading = (reloading ?? Promise.resolve())
-      .then(reload)
-      .catch((error) => console.error(`Proxy reload failed: ${(error as Error).message}`));
+  // Service `proxy refresh` requests: hot-reload the live policy without dropping
+  // the proxy. The daemon owns this terminal, so reload notices print here.
+  const reloadServicer = startReloadServicer({
+    session,
+    runtime,
+    defaultEntryPaths: ctx.values.path,
+    log: (message) => console.log(message),
   });
 
   let cleanedUp = false;
   const cleanup = async () => {
     if (cleanedUp) return;
     cleanedUp = true;
+    reloadServicer.stop();
     await statsWriter.flushNow();
     statsWriter.stop();
     await runtime.stop().catch(() => undefined);
@@ -836,32 +922,80 @@ async function refreshAction(ctx: any) {
     throw new CliExitError((error as Error).message);
   });
 
-  // Only a `proxy start` daemon owns a long-lived runtime that can hot-reload.
-  // A one-shot `proxy run` captures the schema fresh each invocation, so there's
-  // nothing to refresh (and SIGHUP would just kill it).
+  // Only a session that owns a live runtime (`proxy start`, or a self-owned
+  // `proxy run`) can hot-reload. An attached run has no runtime of its own — it
+  // routes through a daemon, which is the session resolved here anyway.
   if (!session.reloadable) {
     throw new CliExitError(
-      `Proxy session ${session.id} is not a reloadable daemon.`,
-      { suggestion: 'Only `varlock proxy start` sessions can be refreshed. A `proxy run` picks up schema changes on its next invocation.' },
+      `Proxy session ${session.id} is not reloadable.`,
+      { suggestion: 'Refresh applies to a `proxy start` daemon (or a self-owned `proxy run`).' },
     );
   }
   if (!isProcessRunning(session.ownerPid)) {
     throw new CliExitError(`Proxy session ${session.id} is no longer running.`);
   }
 
-  // Validate the new schema here (in this trusted context) so an obviously broken
-  // edit fails loudly at the call site instead of only in the daemon's terminal.
+  // Validate the new schema here (in this context) so an obviously broken edit
+  // fails loudly at the call site, not only in the owner's logs.
   const refreshPaths = ctx.values.path ?? session.entryPaths;
-  await prepareProxyPolicy(refreshPaths);
+  await prepareProxyPolicy(refreshPaths).catch((error) => {
+    throw new CliExitError(`Schema does not resolve: ${(error as Error).message}`);
+  });
 
-  // Persist any changed entry paths so the daemon reloads from them, then signal
-  // it to re-resolve and hot-swap its live policy (rules, managed items, egress).
-  if (ctx.values.path?.length) {
-    await updateProxySessionRecord(session.uuid, { entryPaths: ctx.values.path });
+  // Hand the reload to the process that owns the runtime via the file channel,
+  // then block until it reports a result. (When the native/phone approver lands,
+  // the wait also spans the approval step — same blocking contract.)
+  const requestId = newReloadRequestId();
+  await writeReloadRequest(session.uuid, {
+    requestId,
+    requestedAt: new Date().toISOString(),
+    ...(ctx.values.path?.length ? { entryPaths: ctx.values.path } : {}),
+  });
+
+  let interrupted = false;
+  const onInterrupt = () => {
+    interrupted = true;
+  };
+  process.on('SIGINT', onInterrupt);
+  process.on('SIGTERM', onInterrupt);
+
+  const deadline = Date.now() + REFRESH_TIMEOUT_MS;
+  let result: ProxyReloadResult | undefined;
+  try {
+    console.log(`Requested reload of proxy session ${session.id}; waiting…`);
+    while (!interrupted) {
+      const latest = await readReloadResult(session.uuid);
+      if (latest?.requestId === requestId && latest.status !== 'reloading') {
+        result = latest;
+        break;
+      }
+      if (Date.now() > deadline) break;
+      if (!isProcessRunning(session.ownerPid)) {
+        throw new CliExitError(`Proxy session ${session.id} stopped before the reload completed.`);
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, REFRESH_POLL_INTERVAL_MS);
+      });
+    }
+  } finally {
+    process.off('SIGINT', onInterrupt);
+    process.off('SIGTERM', onInterrupt);
   }
-  process.kill(session.ownerPid, 'SIGHUP');
 
-  console.log(`Requested reload of proxy session ${session.id}. Watch its terminal (or \`varlock proxy status\`) to confirm.`);
+  if (interrupted) {
+    console.log('Stopped waiting for the reload (it may still complete).');
+    return;
+  }
+  if (!result) {
+    throw new CliExitError(`Timed out waiting for proxy session ${session.id} to reload.`);
+  }
+  if (result.status === 'error') {
+    throw new CliExitError(`Proxy reload failed: ${result.error ?? 'unknown error'}`);
+  }
+
+  console.log(`✓ Schema change reloaded for proxy session ${session.id}.`);
+  console.log('  • Commands run via `varlock run -- …` now use the updated variables.');
+  console.log('  • Run `varlock load` to see the current variable set (placeholders).');
 }
 
 async function stopAction(ctx: any) {
