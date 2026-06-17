@@ -188,6 +188,24 @@ describe('decorator parsing', () => {
       expect((pick.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['KEY1', 'KEY2', 'KEY3']);
     });
 
+    it('skips comments inside a multi-line array nested in a decorator fn call (`@import(pick=[...])`)', () => {
+      const result = parseEnvSpecDotEnvFile(outdent`
+        # @import(
+        #   ./.env.shared,
+        #   pick=[
+        #     KEY1,
+        #     # KEY2 disabled for now,
+        #     KEY3, # primary
+        #   ],
+        # )
+        VAL=
+      `);
+      const args = result.configItems[0].decoratorsObject.import.bareFnArgs!;
+      const pick = args.values[1] as any;
+      expect(pick.key).toBe('pick');
+      expect((pick.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['KEY1', 'KEY3']);
+    });
+
     it('parses nested multi-line literals', () => {
       const result = parseEnvSpecDotEnvFile(outdent`
         # @dec={

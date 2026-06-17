@@ -2,6 +2,9 @@
 import { describe, it, expect } from 'vitest';
 import outdent from 'outdent';
 import { parseEnvSpecDotEnvFile } from '../src';
+import {
+  ParsedEnvSpecFunctionCall, ParsedEnvSpecArrayLiteral, ParsedEnvSpecObjectLiteral,
+} from '../src/classes';
 import { simpleResolver } from '../src/simple-resolver';
 
 function functionValueTests(
@@ -251,4 +254,84 @@ describe('multi-line function calls in values', functionValueTests({
     `,
     expected: { ITEM1: 'ab', ITEM2: 'simple' },
   },
+  'multi-line with a commented-out arg and trailing post-comments': {
+    input: outdent`
+      ITEM=concat(
+        "a", # first part
+        # "b" is disabled,
+        "c",
+      )
+    `,
+    expected: { ITEM: 'ac' },
+  },
+  'commented-out arg via double hash': {
+    input: outdent`
+      ITEM=concat(
+        "x",
+        ## "y",
+        "z"
+      )
+    `,
+    expected: { ITEM: 'xz' },
+  },
 }));
+
+// Object/array literals inside item values use plain-newline continuation (NOT `#`),
+// and `#` introduces a comment to end-of-line. These assert the parsed AST directly
+// since the test resolver has no built-in function that consumes a literal.
+describe('object/array literals in item values (multi-line + comments)', () => {
+  function literalArg(input: string) {
+    const file = parseEnvSpecDotEnvFile(input);
+    const fn = file.configItems[0].value as ParsedEnvSpecFunctionCall;
+    expect(fn).toBeInstanceOf(ParsedEnvSpecFunctionCall);
+    return fn.data.args.values[0];
+  }
+
+  it('array literal: skips a commented-out entry and a trailing post-comment', () => {
+    const arg = literalArg(outdent`
+      ITEM=fn([
+        ALPHA,
+        # BETA disabled,
+        GAMMA, # primary
+      ])
+    `);
+    expect(arg).toBeInstanceOf(ParsedEnvSpecArrayLiteral);
+    expect((arg as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['ALPHA', 'GAMMA']);
+  });
+
+  it('object literal: skips a commented-out entry and a trailing post-comment', () => {
+    const arg = literalArg(outdent`
+      ITEM=fn({
+        count=3, # retries
+        # backoff=2,
+        timeout=30,
+      })
+    `);
+    expect(arg).toBeInstanceOf(ParsedEnvSpecObjectLiteral);
+    expect((arg as ParsedEnvSpecObjectLiteral).simplifiedValue).toEqual({ count: 3, timeout: 30 });
+  });
+
+  it('comment-only and blank interior lines do not break the array', () => {
+    const arg = literalArg(outdent`
+      ITEM=fn([
+        ONE,
+        # just a comment
+        TWO,
+      ])
+    `);
+    expect((arg as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['ONE', 'TWO']);
+  });
+
+  it('nested literal inside a multi-line literal, with comments', () => {
+    const arg = literalArg(outdent`
+      ITEM=fn({
+        items=[
+          1,
+          # 2 disabled,
+          3,
+        ], # the list
+      })
+    `);
+    expect((arg as ParsedEnvSpecObjectLiteral).simplifiedValue).toEqual({ items: [1, 3] });
+  });
+});

@@ -439,8 +439,8 @@
           "comment": "Shared inner patterns for object/array literals (both contexts)",
           "patterns": [
             {
-              "comment": "structural # continuation marker (decorator context)",
-              "match": "^\\s*#\\s*",
+              "comment": "structural # continuation marker (decorator context); only a column-0 #, so indented item-value comment lines fall through to the comment rule below",
+              "match": "^\\s?#\\s*",
               "name": "comment.line.env-spec punctuation.definition.comment"
             },
             {

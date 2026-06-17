@@ -157,6 +157,23 @@ KEYS=fn([a, b])
 #            ^ punctuation.definition.array.end.env-spec
 #             ^ punctuation.definition.parameters.end.env-spec
 
+
+# Item-value array (plain-newline continuation) with comments
+LIST_ML=fn([
+#          ^ punctuation.definition.array.begin.env-spec
+  ONE,
+# ^^^ string.unquoted.env-spec
+  # TWO disabled
+# ^^^^^^^^^^^^^^ comment.line.env-spec
+  THREE, # last
+# ^^^^^ string.unquoted.env-spec
+#        ^^^^^^ comment.line.env-spec
+])
+# <- punctuation.definition.array.end.env-spec
+#^ punctuation.definition.parameters.end.env-spec
+AFTER_LIST=ok
+#^^^^^^^^^ entity.name.tag.env-spec
+
 # @import(pick=[
 #   ALPHA,
 #   ^^^^^ string.unquoted.env-spec
