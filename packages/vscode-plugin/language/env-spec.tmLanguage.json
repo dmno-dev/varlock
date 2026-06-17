@@ -621,6 +621,7 @@
             { "include": "#literal-value" },
             { "include": "#quoted-value" },
             { "include": "#key-value-pair" },
+            { "include": "#decorator-fn-call-value" },
             { "include": "#expansion" },
             { "include": "#unquoted-string-within-fn-call" },
             {
