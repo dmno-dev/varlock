@@ -74,8 +74,8 @@ export const ROOT_DECORATORS: Array<DecoratorInfo> = [
     name: 'generateTypes',
     scope: 'root',
     summary: 'Generates types from the schema.',
-    documentation: 'Common usage: `# @generateTypes(lang=ts, path=./env.d.ts)`.',
-    insertText: '@generateTypes(lang=${1:ts}, path=${2:./env.d.ts})',
+    documentation: 'Supported langs: ts, py, rs, go, php. Example: `# @generateTypes(lang=ts, path=./env.d.ts)`.',
+    insertText: '@generateTypes(lang=${1|ts,py,rs,go,php|}, path=${2:./env.d.ts})',
     isFunction: true,
   },
   {

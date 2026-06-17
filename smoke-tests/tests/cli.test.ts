@@ -1,10 +1,10 @@
 import {
   describe, test, expect, beforeEach,
 } from 'vitest';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  varlockLoad, varlockRun, varlockPrintenv, runVarlock, VARLOCK_CLI,
+  varlockLoad, varlockRun, varlockPrintenv, varlockTypegen, runVarlock, VARLOCK_CLI,
 } from '../helpers/run-varlock.js';
 
 const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
@@ -299,6 +299,24 @@ describe('CLI Commands', () => {
       const result = varlockRun(['node', '-e', 'process.exit(0)'], { cwd: 'smoke-test-typegen-auto' });
       expect(result.exitCode).toBe(0);
       expect(existsSync(typeFilePathAutoFalse)).toBe(false);
+    });
+
+    test('varlock typegen generates Python types when lang=py', () => {
+      const pythonTypeFilePath = join(SMOKE_TESTS_DIR, 'smoke-test-typegen-py', 'env_types.py');
+      if (existsSync(pythonTypeFilePath)) rmSync(pythonTypeFilePath);
+
+      const result = varlockTypegen({ cwd: 'smoke-test-typegen-py' });
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(pythonTypeFilePath)).toBe(true);
+
+      const src = readFileSync(pythonTypeFilePath, 'utf-8');
+      expect(src).toContain('class CoercedEnvSchema(TypedDict):');
+      expect(src).toContain('class EnvSchemaAsStrings(TypedDict):');
+      expect(src).toContain('PUBLIC_VAR: str');
+
+      const publicSection = src.split('class PublicCoercedEnvSchema')[1]?.split('class EnvSchemaAsStrings')[0] ?? '';
+      expect(publicSection).toContain('PUBLIC_VAR: str');
+      expect(publicSection).not.toContain('SECRET_TOKEN');
     });
   });
 

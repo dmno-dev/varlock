@@ -15,7 +15,49 @@ varlock run -- <your-command>
 
 We are working on language-specific helper libraries, that will make this integration better, and provide additional security features like we do in JavaScript.
 
-We will also be implementing automatic type-generation based on your schema for various languages.
+## Type generation
+
+Varlock can generate static type definitions from your schema for several languages via the [`@generateTypes`](/reference/root-decorators/#generatetypes) root decorator. Add one decorator per language/output file you need:
+
+```env-spec
+# @generateTypes(lang=py, path=env_types.py)
+# @generateTypes(lang=rs, path=src/env_types.rs)
+# @generateTypes(lang=go, path=env_types.go)
+# @generateTypes(lang=php, path=env_types.php)
+```
+
+Each emitter produces two layers of types:
+
+- **Coerced schema** — types matching varlock's coercion (`CoercedEnvSchema` / equivalent)
+- **Raw string schema** — types for values read directly from the process environment (`EnvSchemaAsStrings` / equivalent)
+
+Non-sensitive keys are also emitted as a public coerced type (for example `PublicCoercedEnvSchema` in Python).
+
+Types are generated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly via [`varlock typegen`](/reference/cli-commands/#typegen).
+
+### Python example
+
+Add to your `.env.schema`:
+
+```env-spec
+# @generateTypes(lang=py, path=env_types.py)
+```
+
+Then import the generated `TypedDict` definitions in your application (Python 3.11+ for `NotRequired`):
+
+```python
+from env_types import CoercedEnvSchema, EnvSchemaAsStrings
+import os
+
+raw: EnvSchemaAsStrings = {
+    "DB_HOST": os.environ["DB_HOST"],
+}
+```
+
+Run your app through varlock so env vars are loaded and validated first:
+
+```bash
+varlock run -- python main.py
+```
 
 **Want to help us build these integrations? Join our <a href={process.env.PUBLIC_DISCORD_URL}>Discord</a>.**
-

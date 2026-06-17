@@ -6,7 +6,14 @@ import path from 'node:path';
 
 import {
   EnvGraph, DirectoryDataSource, DotEnvFileDataSource,
+  generateGoTypesSrc,
+  generatePhpTypesSrc,
+  generatePythonTypesSrc,
+  generateRustTypesSrc,
   generateTsTypesSrc,
+  generateTypes,
+  resolveFieldType,
+  resolveFieldTypes,
   type TypeGenItemInfo,
 } from '../index';
 
@@ -724,6 +731,172 @@ describe('type generation', () => {
       expect(infos.DB_HOST.isSensitive).toBe(false);
       expect(infos.DB_PORT.isRequired).toBe(false);
       expect(infos.SECRET.isSensitive).toBe(true);
+    });
+  });
+
+  describe('shared field type mapping', () => {
+    test('maps coerced and raw string types consistently', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultSensitive=false
+          # ---
+          STR=hello                 # @type=string @public
+          NUM=1                     # @type=number @public
+          FLAG=true                 # @type=boolean @public
+          # @type=enum(dev, staging, prod)
+          APP_ENV=dev               # @public
+          # @type=simple-object
+          CONFIG={}                 # @public
+        `,
+      });
+
+      const strField = resolveFieldType(await g.configSchema.STR.getTypeGenInfo());
+      const numField = resolveFieldType(await g.configSchema.NUM.getTypeGenInfo());
+      const flagField = resolveFieldType(await g.configSchema.FLAG.getTypeGenInfo());
+      const configField = resolveFieldType(await g.configSchema.CONFIG.getTypeGenInfo());
+      const appEnvField = resolveFieldType(await g.configSchema.APP_ENV.getTypeGenInfo());
+
+      expect(strField.coerced).toBe('string');
+      expect(numField.coerced).toBe('number');
+      expect(flagField.coerced).toBe('boolean');
+      expect(configField.coerced).toBe('object');
+      expect(appEnvField.coerced).toEqual({ enum: ['dev', 'staging', 'prod'] });
+      expect(appEnvField.rawString).toEqual({ enum: ['dev', 'staging', 'prod'] });
+      expect(flagField.rawString).toEqual({ boolean: true });
+      expect(numField.rawString).toBe('string');
+    });
+  });
+
+  describe('generatePythonTypesSrc output', () => {
+    async function loadStandardFixtureItems() {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultSensitive=false
+          # ---
+          # the database host
+          # @type=string
+          DB_HOST=localhost     # @required @public
+          # database port
+          # @type=port
+          DB_PORT=5432          # @optional @public
+          # secret key
+          DB_PASSWORD=          # @required @sensitive
+          # @type=boolean
+          DEBUG=false           # @optional @public
+          # @type=enum(dev, staging, prod)
+          APP_ENV=dev           # @required @public
+        `,
+      });
+
+      const items: Array<TypeGenItemInfo> = [];
+      for (const key of g.sortedConfigKeys) {
+        items.push(await g.configSchema[key].getTypeGenInfo());
+      }
+      return { g, items, fields: resolveFieldTypes(items) };
+    }
+
+    test('generates valid Python source from TypeGenItemInfo', async () => {
+      const { fields } = await loadStandardFixtureItems();
+      const src = generatePythonTypesSrc(fields);
+
+      expect(src).toContain('class CoercedEnvSchema(TypedDict):');
+      expect(src).toContain('class PublicCoercedEnvSchema(TypedDict):');
+      expect(src).toContain('class EnvSchemaAsStrings(TypedDict):');
+      expect(src).toContain('DB_HOST: str');
+      expect(src).toContain('DB_PORT: NotRequired[int]');
+      expect(src).toContain('DB_PASSWORD: str');
+      expect(src).toContain('DEBUG: NotRequired[bool]');
+      expect(src).toContain('APP_ENV: Literal["dev"] | Literal["staging"] | Literal["prod"]');
+      expect(src).toContain('DEBUG: NotRequired[Literal["true", "false"]]');
+
+      const publicSection = src.split('class PublicCoercedEnvSchema')[1]?.split('class EnvSchemaAsStrings')[0] ?? '';
+      expect(publicSection).toContain('DB_HOST: str');
+      expect(publicSection).not.toContain('DB_PASSWORD');
+    });
+
+    test('description containing triple quotes is escaped safely', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultSensitive=false
+          # ---
+          # value with """ quotes inside
+          QUOTED=val   # @public @required
+        `,
+      });
+
+      const items = [await g.configSchema.QUOTED.getTypeGenInfo()];
+      const src = generatePythonTypesSrc(resolveFieldTypes(items));
+
+      expect(src).toContain('QUOTED: str');
+      expect(src).toContain('\\"\\"\\"');
+      expect(src).not.toMatch(/value with """ quotes/);
+    });
+  });
+
+  describe('other language emitters', () => {
+    test('generates Rust, Go, and PHP sources', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultSensitive=false
+          # ---
+          DB_HOST=localhost     # @required @public
+          DEBUG=false           # @type=boolean @optional @public
+        `,
+      });
+
+      const items = [await g.configSchema.DB_HOST.getTypeGenInfo(), await g.configSchema.DEBUG.getTypeGenInfo()];
+      const fields = resolveFieldTypes(items);
+
+      const rustSrc = generateRustTypesSrc(fields);
+      expect(rustSrc).toContain('pub struct CoercedEnvSchema');
+      expect(rustSrc).toContain('pub db_host: String');
+      expect(rustSrc).toContain('pub debug: Option<bool>');
+
+      const goSrc = generateGoTypesSrc(fields);
+      expect(goSrc).toContain('type CoercedEnvSchema struct');
+      expect(goSrc).toContain('DbHost string');
+      expect(goSrc).toContain('Debug *bool');
+
+      const phpSrc = generatePhpTypesSrc(fields);
+      expect(phpSrc).toContain('@phpstan-type CoercedEnvSchema');
+      expect(phpSrc).toContain('DB_HOST: string');
+      expect(phpSrc).toContain('DEBUG?: bool');
+    });
+  });
+
+  describe('generateTypes lang dispatch', () => {
+    test('rejects unsupported languages with actionable error', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          ITEM=val
+        `,
+      });
+
+      await expect(generateTypes(g, 'ruby', '/tmp/env_types.rb')).rejects.toThrow(
+        'Unsupported @generateTypes lang: ruby. Supported languages: ts, py, rs, go, php',
+      );
+    });
+
+    test('writes Python types file for lang=py', async () => {
+      const currentDir = path.dirname(expect.getState().testPath!);
+      const outputPath = path.join(currentDir, '.tmp-env-types.py');
+
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultSensitive=false
+          # ---
+          PUBLIC=hello   # @public @required
+        `,
+      });
+
+      try {
+        await generateTypes(g, 'py', outputPath);
+        const src = await import('node:fs').then((fs) => fs.promises.readFile(outputPath, 'utf-8'));
+        expect(src).toContain('class CoercedEnvSchema(TypedDict):');
+        expect(src).toContain('PUBLIC: str');
+      } finally {
+        await import('node:fs').then((fs) => fs.promises.rm(outputPath, { force: true }));
+      }
     });
   });
 });

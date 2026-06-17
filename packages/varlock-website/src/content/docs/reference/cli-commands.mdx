@@ -528,6 +528,8 @@ See the [Caching guide](/guides/caching/) for cache mode strategy and troublesho
 
 Generates type files according to [`@generateTypes`](/reference/root-decorators/#generatetypes) and your config schema. Uses only non-environment-specific schema info, so output is deterministic regardless of which environment is active.
 
+Supported `lang` values: `ts`, `py`, `rs`, `go`, and `php`. Each `@generateTypes` decorator in your schema generates its own output file.
+
 This command is particularly useful when you have set `auto=false` on the [`@generateTypes`](/reference/root-decorators/#generatetypes) decorator to disable automatic type generation during `varlock load` or `varlock run`.
 
 ```bash
@@ -547,6 +549,10 @@ varlock typegen --path .env.prod
 
 # Generate types from multiple directories
 varlock typegen -p ./envs -p ./overrides
+
+# Generate Python TypedDict definitions
+# (requires @generateTypes(lang=py, path=env_types.py) in your schema)
+varlock typegen
 ```
 
 </div>

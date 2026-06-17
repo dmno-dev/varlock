@@ -11,7 +11,7 @@ import { BaseResolvers, createResolver, type ResolverChildClass } from './resolv
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, getTransitiveDeps, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
-import { generateTypes } from './type-generation';
+import { generateTypes, isSupportedTypeGenLang, SUPPORTED_TYPEGEN_LANGS } from './type-generation';
 
 import {
   builtInItemDecorators, builtInRootDecorators, RootDecoratorInstance, type ItemDecoratorDef, type RootDecoratorDef,
@@ -760,7 +760,9 @@ export class EnvGraph {
       if (typeGenSettings.obj.auto === false && !opts?.ignoreAutoFalse) continue;
 
       if (!typeGenSettings.obj.lang) throw new Error('@generateTypes - must set `lang` arg');
-      if (typeGenSettings.obj.lang !== 'ts') throw new Error(`@generateTypes - unsupported language: ${typeGenSettings.obj.lang}`);
+      if (!isSupportedTypeGenLang(typeGenSettings.obj.lang)) {
+        throw new Error(`@generateTypes - unsupported language: ${typeGenSettings.obj.lang}. Supported languages: ${SUPPORTED_TYPEGEN_LANGS.join(', ')}`);
+      }
       if (!typeGenSettings.obj.path) throw new Error('@generateTypes - must set `path` arg');
       if (!_.isString(typeGenSettings.obj.path)) throw new Error('@generateTypes - `path` arg must be a string');
 
