@@ -82,6 +82,7 @@
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
+    "install:local": "bun run build && bun run scripts/install-local.ts",
     "test": "vitest",
     "test:grammar": "vscode-tmgrammar-test -g ./language/env-spec.tmLanguage.json ./test/grammar.test.txt",
     "test:ci": "vitest --run && bun run test:grammar",

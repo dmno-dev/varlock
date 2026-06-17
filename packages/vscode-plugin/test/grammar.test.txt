@@ -75,6 +75,45 @@ DOCS_FRAGMENT_VAR=test
 # ^ punctuation.section.parens.end.env-spec
 MULTI_DEC_VAR=test
 
+# @dec(fn())
+#     ^ punctuation.section.parens.begin.env-spec
+#      ^^ variable.function.env-spec
+#        ^ punctuation.section.parens.begin.env-spec
+#         ^ punctuation.section.parens.end.env-spec
+#          ^ punctuation.section.parens.end.env-spec
+NESTED_FN_DEC_VAR=test
+
+# @dec(fn(arg))
+#     ^ punctuation.section.parens.begin.env-spec
+#      ^^ variable.function.env-spec
+#        ^ punctuation.section.parens.begin.env-spec
+#         ^^^ string.unquoted.env-spec
+#            ^ punctuation.section.parens.end.env-spec
+#             ^ punctuation.section.parens.end.env-spec
+NESTED_FN_ARG_DEC_VAR=test
+
+# @dec(key=fn())
+#     ^ punctuation.section.parens.begin.env-spec
+#      ^^^ entity.other.attribute-name.env-spec
+#         ^ keyword.operator.assignment.env-spec
+#          ^^ variable.function.env-spec
+#            ^ punctuation.definition.parameters.begin.env-spec
+#             ^ punctuation.definition.parameters.end.env-spec
+#              ^ punctuation.section.parens.end.env-spec
+KWARG_FN_DEC_VAR=test
+
+# @dec(a, fn(), b)
+#     ^ punctuation.section.parens.begin.env-spec
+#      ^ string.unquoted.env-spec
+#       ^ punctuation.separator.comma.env-spec
+#         ^^ variable.function.env-spec
+#           ^ punctuation.section.parens.begin.env-spec
+#            ^ punctuation.section.parens.end.env-spec
+#             ^ punctuation.separator.comma.env-spec
+#               ^ string.unquoted.env-spec
+#                ^ punctuation.section.parens.end.env-spec
+MULTI_ARG_FN_DEC_VAR=test
+
 # ======================
 # Variable expansion
 # ======================

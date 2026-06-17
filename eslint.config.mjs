@@ -173,6 +173,7 @@ export default tseslint.config(
       'framework-tests/**',
       'packages/encryption-binary-swift/scripts/**',
       'packages/encryption-binary-rust/scripts/**',
+      'packages/vscode-plugin/scripts/**',
     ],
     rules: {
       'no-console': 0,
