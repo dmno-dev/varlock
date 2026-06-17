@@ -25,8 +25,21 @@ import type {
 
 const LOCALHOST = '127.0.0.1';
 
+export type ProxyReconfigureInput = {
+  managedItems: Array<ProxyManagedItem>;
+  rules: Array<ProxyRule>;
+  egressMode: ProxyEgressMode;
+};
+
 export type ProxyRuntimeContext = {
   env: NodeJS.ProcessEnv;
+  /**
+   * Hot-swap the policy a running proxy enforces (rules, managed items, egress
+   * mode) without restarting — used by `proxy refresh` to apply schema edits to
+   * a live daemon. Takes effect on the next request; in-flight requests keep the
+   * snapshot they already resolved. The proxy address and CA are unchanged.
+   */
+  reconfigure: (next: ProxyReconfigureInput) => void;
   stop: () => Promise<void>;
 };
 
@@ -385,12 +398,18 @@ function buildPathnameAndQuery(input: string, managedItems: Array<ProxyManagedIt
  * Rewrites placeholder values to real values for requests matching @proxy domains.
  */
 export async function startLocalProxyRuntime({
-  managedItems,
-  rules,
-  egressMode,
+  managedItems: initialManagedItems,
+  rules: initialRules,
+  egressMode: initialEgressMode,
   onActivity,
   approvalProvider,
 }: StartLocalProxyRuntimeInput): Promise<ProxyRuntimeContext> {
+  // Mutable so `reconfigure` can hot-swap the enforced policy on a live proxy.
+  // The request handlers below close over these bindings, so reassigning them
+  // changes behavior on the next request (in-flight requests already snapshotted).
+  let managedItems = initialManagedItems;
+  let rules = initialRules;
+  let egressMode = initialEgressMode;
   // Only the public CA cert is written to disk (for child trust). Private keys
   // — the CA's and every per-host leaf's — stay in memory; see cert-authority.ts.
   const certsDir = await mkdtemp(path.join(os.tmpdir(), 'varlock-proxy-certs-'));
@@ -817,6 +836,11 @@ export async function startLocalProxyRuntime({
       REQUESTS_CA_BUNDLE: combinedCaPath,
       CURL_CA_BUNDLE: combinedCaPath,
       GIT_SSL_CAINFO: combinedCaPath,
+    },
+    reconfigure: (next) => {
+      managedItems = next.managedItems;
+      rules = next.rules;
+      egressMode = next.egressMode;
     },
     stop: async () => {
       await Promise.all([

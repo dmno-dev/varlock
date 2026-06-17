@@ -25,6 +25,8 @@ export type ProxySessionRecord = {
   updatedAt: string;
   /** Set once the session's process has stopped. A session dir is a durable record; it's marked ended, not deleted. */
   endedAt?: string;
+  /** A long-lived `proxy start` daemon that can hot-reload its policy on `proxy refresh` (via SIGHUP). One-shot `proxy run` sessions are not reloadable. */
+  reloadable?: boolean;
   egressMode: ProxyEgressMode;
   schemaFingerprint?: string;
   placeholderOverrides?: Record<string, string>;
@@ -96,6 +98,7 @@ function parseSessionRecord(raw: string, filePath: string): ProxySessionRecord |
       startedAt: String(parsed.startedAt),
       updatedAt: String(parsed.updatedAt),
       ...(parsed.endedAt ? { endedAt: String(parsed.endedAt) } : {}),
+      ...(parsed.reloadable ? { reloadable: true } : {}),
       egressMode: parsed.egressMode as ProxyEgressMode,
       ...(parsed.schemaFingerprint ? { schemaFingerprint: String(parsed.schemaFingerprint) } : {}),
       ...(parsed.placeholderOverrides && typeof parsed.placeholderOverrides === 'object'

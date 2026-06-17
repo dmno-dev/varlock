@@ -51,6 +51,14 @@ describe('proxy session registry (session-as-record)', () => {
     expect(existsSync(join(getProxySessionDir('uuid-1'), 'session.json'))).toBe(true);
   });
 
+  test('round-trips the reloadable flag (daemon vs one-shot)', async () => {
+    await createProxySessionRecord(record({ uuid: 'uuid-daemon', reloadable: true }));
+    await createProxySessionRecord(record({ uuid: 'uuid-run' }));
+    const byUuid = Object.fromEntries((await listProxySessions()).map((s) => [s.uuid, s]));
+    expect(byUuid['uuid-daemon']!.reloadable).toBe(true);
+    expect(byUuid['uuid-run']!.reloadable).toBeUndefined();
+  });
+
   test('listProxySessions returns only active sessions by default', async () => {
     await createProxySessionRecord(record());
     const active = await listProxySessions();
