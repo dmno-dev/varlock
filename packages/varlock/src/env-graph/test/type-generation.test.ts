@@ -1,55 +1,17 @@
 import {
-  describe, expect, test, vi,
+  describe, expect, test,
 } from 'vitest';
 import outdent from 'outdent';
 import path from 'node:path';
 
 import {
-  EnvGraph, DirectoryDataSource, DotEnvFileDataSource,
-  generateGoTypesSrc,
-  generatePhpTypesSrc,
-  generatePythonTypesSrc,
-  generateRustTypesSrc,
+  EnvGraph, DotEnvFileDataSource,
   generateTsTypesSrc,
   generateTypes,
   resolveFieldType,
-  resolveFieldTypes,
   type TypeGenItemInfo,
 } from '../index';
-
-
-/** Helper to create a loaded graph from virtual files (finishLoad only, no resolveEnvValues) */
-async function loadGraph(spec: {
-  envFile?: string;
-  files?: Record<string, string>;
-  overrideValues?: Record<string, string>;
-  fallbackEnv?: string;
-}) {
-  const currentDir = path.dirname(expect.getState().testPath!);
-  vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
-
-  const g = new EnvGraph();
-  if (spec.overrideValues) g.overrideValues = spec.overrideValues;
-  if (spec.fallbackEnv) g.envFlagFallback = spec.fallbackEnv;
-
-  if (spec.files) {
-    g.setVirtualImports(currentDir, spec.files);
-    await g.setRootDataSource(new DirectoryDataSource(currentDir));
-  } else if (spec.envFile) {
-    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', { overrideContents: spec.envFile }));
-  }
-  await g.finishLoad();
-  return g;
-}
-
-/** Helper to get TypeGenItemInfo for all items in the graph */
-async function getTypeGenInfoMap(g: EnvGraph) {
-  const infos: Record<string, TypeGenItemInfo> = {};
-  for (const key of g.sortedConfigKeys) {
-    infos[key] = await g.configSchema[key].getTypeGenInfo();
-  }
-  return infos;
-}
+import { getTypeGenInfoMap, loadGraph } from './type-generation/helpers';
 
 describe('type generation', () => {
   describe('isEnvSpecific on data sources', () => {
@@ -767,103 +729,6 @@ describe('type generation', () => {
     });
   });
 
-  describe('generatePythonTypesSrc output', () => {
-    async function loadStandardFixtureItems() {
-      const g = await loadGraph({
-        envFile: outdent`
-          # @defaultSensitive=false
-          # ---
-          # the database host
-          # @type=string
-          DB_HOST=localhost     # @required @public
-          # database port
-          # @type=port
-          DB_PORT=5432          # @optional @public
-          # secret key
-          DB_PASSWORD=          # @required @sensitive
-          # @type=boolean
-          DEBUG=false           # @optional @public
-          # @type=enum(dev, staging, prod)
-          APP_ENV=dev           # @required @public
-        `,
-      });
-
-      const items: Array<TypeGenItemInfo> = [];
-      for (const key of g.sortedConfigKeys) {
-        items.push(await g.configSchema[key].getTypeGenInfo());
-      }
-      return { g, items, fields: resolveFieldTypes(items) };
-    }
-
-    test('generates valid Python source from TypeGenItemInfo', async () => {
-      const { fields } = await loadStandardFixtureItems();
-      const src = generatePythonTypesSrc(fields);
-
-      expect(src).toContain('class CoercedEnvSchema(TypedDict):');
-      expect(src).toContain('class PublicCoercedEnvSchema(TypedDict):');
-      expect(src).toContain('class EnvSchemaAsStrings(TypedDict):');
-      expect(src).toContain('DB_HOST: str');
-      expect(src).toContain('DB_PORT: NotRequired[int]');
-      expect(src).toContain('DB_PASSWORD: str');
-      expect(src).toContain('DEBUG: NotRequired[bool]');
-      expect(src).toContain('APP_ENV: Literal["dev"] | Literal["staging"] | Literal["prod"]');
-      expect(src).toContain('DEBUG: NotRequired[Literal["true", "false"]]');
-
-      const publicSection = src.split('class PublicCoercedEnvSchema')[1]?.split('class EnvSchemaAsStrings')[0] ?? '';
-      expect(publicSection).toContain('DB_HOST: str');
-      expect(publicSection).not.toContain('DB_PASSWORD');
-    });
-
-    test('description containing triple quotes is escaped safely', async () => {
-      const g = await loadGraph({
-        envFile: outdent`
-          # @defaultSensitive=false
-          # ---
-          # value with """ quotes inside
-          QUOTED=val   # @public @required
-        `,
-      });
-
-      const items = [await g.configSchema.QUOTED.getTypeGenInfo()];
-      const src = generatePythonTypesSrc(resolveFieldTypes(items));
-
-      expect(src).toContain('QUOTED: str');
-      expect(src).toContain('\\"\\"\\"');
-      expect(src).not.toMatch(/value with """ quotes/);
-    });
-  });
-
-  describe('other language emitters', () => {
-    test('generates Rust, Go, and PHP sources', async () => {
-      const g = await loadGraph({
-        envFile: outdent`
-          # @defaultSensitive=false
-          # ---
-          DB_HOST=localhost     # @required @public
-          DEBUG=false           # @type=boolean @optional @public
-        `,
-      });
-
-      const items = [await g.configSchema.DB_HOST.getTypeGenInfo(), await g.configSchema.DEBUG.getTypeGenInfo()];
-      const fields = resolveFieldTypes(items);
-
-      const rustSrc = generateRustTypesSrc(fields);
-      expect(rustSrc).toContain('pub struct CoercedEnvSchema');
-      expect(rustSrc).toContain('pub db_host: String');
-      expect(rustSrc).toContain('pub debug: Option<bool>');
-
-      const goSrc = generateGoTypesSrc(fields);
-      expect(goSrc).toContain('type CoercedEnvSchema struct');
-      expect(goSrc).toContain('DbHost string');
-      expect(goSrc).toContain('Debug *bool');
-
-      const phpSrc = generatePhpTypesSrc(fields);
-      expect(phpSrc).toContain('@phpstan-type CoercedEnvSchema');
-      expect(phpSrc).toContain('DB_HOST: string');
-      expect(phpSrc).toContain('DEBUG?: bool');
-    });
-  });
-
   describe('generateTypes lang dispatch', () => {
     test('rejects unsupported languages with actionable error', async () => {
       const g = await loadGraph({
@@ -877,23 +742,32 @@ describe('type generation', () => {
       );
     });
 
-    test('writes Python types file for lang=py', async () => {
+    test.each([
+      ['py', 'class CoercedEnvSchema(TypedDict):', 'DEBUG: NotRequired[bool]'],
+      ['rs', 'pub struct CoercedEnvSchema', 'pub debug: Option<bool>,'],
+      ['go', 'type CoercedEnvSchema struct', 'Debug *bool'],
+      ['php', '@phpstan-type CoercedEnvSchema', 'DEBUG?: bool'],
+    ] as const)('writes %s types file with non-string fields', async (lang, marker, nonStringMarker) => {
       const currentDir = path.dirname(expect.getState().testPath!);
-      const outputPath = path.join(currentDir, '.tmp-env-types.py');
+      const outputPath = path.join(currentDir, `.tmp-env-types.${lang}`);
 
       const g = await loadGraph({
         envFile: outdent`
           # @defaultSensitive=false
           # ---
-          PUBLIC=hello   # @public @required
+          # @type=boolean
+          DEBUG=false           # @optional @public
+          # @type=port
+          DB_PORT=5432          # @optional @public
         `,
       });
 
       try {
-        await generateTypes(g, 'py', outputPath);
-        const src = await import('node:fs').then((fs) => fs.promises.readFile(outputPath, 'utf-8'));
-        expect(src).toContain('class CoercedEnvSchema(TypedDict):');
-        expect(src).toContain('PUBLIC: str');
+        await generateTypes(g, lang, outputPath);
+        const fs = await import('node:fs');
+        const src = await fs.promises.readFile(outputPath, 'utf-8');
+        expect(src).toContain(marker);
+        expect(src).toContain(nonStringMarker);
       } finally {
         await import('node:fs').then((fs) => fs.promises.rm(outputPath, { force: true }));
       }
