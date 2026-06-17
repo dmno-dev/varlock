@@ -1,6 +1,6 @@
 ---
 "@env-spec/parser": minor
-varlock: minor
+varlock: patch
 env-spec-language: patch
 ---
 
