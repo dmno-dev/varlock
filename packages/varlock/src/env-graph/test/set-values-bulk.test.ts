@@ -208,6 +208,24 @@ describe('@setValuesBulk() root decorator', () => {
       },
     }));
 
+    test('pick accepts a multi-line array literal', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"A":"bulk","B":"bulk","C":"bulk"}', format=json, pick=[
+        #   A,
+        #   C,
+        # ])
+        # ---
+        A=schema
+        B=schema
+        C=schema
+      `,
+      expectValues: {
+        A: 'bulk',
+        B: 'schema',
+        C: 'bulk',
+      },
+    }));
+
     test('omit (denylist) injects everything except listed keys', envFilesTest({
       envFile: outdent`
         # @setValuesBulk('{"API_KEY":"from-bulk","OTHER":"from-bulk"}', format=json, omit=[OTHER])

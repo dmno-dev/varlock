@@ -129,6 +129,66 @@ UNDEFINED_VAL=undefined
 #             ^^^^^^^^^ constant.language.undefined.env-spec
 
 # ======================
+# Object & array literals
+# ======================
+
+# @dec=[a, b]
+#      ^ punctuation.definition.array.begin.env-spec
+#       ^ string.unquoted.env-spec
+#          ^ string.unquoted.env-spec
+#           ^ punctuation.definition.array.end.env-spec
+
+ARR_DEC=test
+#^^^^^^ entity.name.tag.env-spec
+
+# @sensitive={ preventLeaks=false }
+#            ^ punctuation.definition.dictionary.begin.env-spec
+#              ^^^^^^^^^^^^ entity.other.attribute-name.env-spec
+#                          ^ keyword.operator.assignment.env-spec
+#                           ^^^^^ constant.language.boolean.env-spec
+#                                 ^ punctuation.definition.dictionary.end.env-spec
+
+OBJ_DEC=test
+#^^^^^^ entity.name.tag.env-spec
+
+KEYS=fn([a, b])
+#       ^ punctuation.definition.array.begin.env-spec
+#        ^ string.unquoted.env-spec
+#            ^ punctuation.definition.array.end.env-spec
+#             ^ punctuation.definition.parameters.end.env-spec
+
+
+# Item-value array (plain-newline continuation) with comments
+LIST_ML=fn([
+#          ^ punctuation.definition.array.begin.env-spec
+  ONE,
+# ^^^ string.unquoted.env-spec
+  # TWO disabled
+# ^^^^^^^^^^^^^^ comment.line.env-spec
+  THREE, # last
+# ^^^^^ string.unquoted.env-spec
+#        ^^^^^^ comment.line.env-spec
+])
+# <- punctuation.definition.array.end.env-spec
+#^ punctuation.definition.parameters.end.env-spec
+AFTER_LIST=ok
+#^^^^^^^^^ entity.name.tag.env-spec
+
+# @import(pick=[
+#   ALPHA,
+#   ^^^^^ string.unquoted.env-spec
+#   # disabled,
+#   ^^^^^^^^^^^ comment.line.env-spec
+#   BETA, # primary
+#   ^^^^ string.unquoted.env-spec
+#         ^^^^^^^^^ comment.line.env-spec
+# ])
+# ^ punctuation.definition.array.end.env-spec
+#  ^ punctuation.section.parens.end.env-spec
+IMPORT_ML=test
+#^^^^^^^^ entity.name.tag.env-spec
+
+# ======================
 # Edge cases
 # ======================
 

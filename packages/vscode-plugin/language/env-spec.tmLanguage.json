@@ -283,6 +283,12 @@
       "end": "$",
       "name": "meta.function-call.env-spec",
       "patterns": [
+        {
+          "comment": "comment inside a multi-line item-value fn call / literal",
+          "match": "#.*$",
+          "name": "comment.line.env-spec"
+        },
+        { "include": "#bracket-literal" },
         { "include": "#literal-value" },
         { "include": "#quoted-value" },
         { "include": "#key-value-pair" },
@@ -390,8 +396,87 @@
         },
         "literal-value--numeric": {
           "comment": "Numeric item value",
-          "match": "[0-9]+(\\.[0-9]+)?(?=[\n ,)])",
+          "match": "[0-9]+(\\.[0-9]+)?(?=[\n ,)\\]}])",
           "name": "constant.numeric.env-spec"
+        }
+      }
+    },
+
+    "bracket-literal": {
+      "comment": "Object `{...}` and array `[...]` literals — multi-line and comment-aware",
+      "patterns": [
+        { "include": "#bracket-literal--object" },
+        { "include": "#bracket-literal--array" }
+      ],
+      "repository": {
+        "bracket-literal--object": {
+          "comment": "Object literal { key=value, ... }",
+          "begin": "(\\{)",
+          "end": "(\\})",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.dictionary.begin.env-spec" }
+          },
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.dictionary.end.env-spec" }
+          },
+          "name": "meta.structure.dictionary.env-spec",
+          "patterns": [{ "include": "#bracket-literal--contents" }]
+        },
+        "bracket-literal--array": {
+          "comment": "Array literal [ value, ... ]",
+          "begin": "(\\[)",
+          "end": "(\\])",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.array.begin.env-spec" }
+          },
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.array.end.env-spec" }
+          },
+          "name": "meta.structure.array.env-spec",
+          "patterns": [{ "include": "#bracket-literal--contents" }]
+        },
+        "bracket-literal--contents": {
+          "comment": "Shared inner patterns for object/array literals (both contexts)",
+          "patterns": [
+            {
+              "comment": "structural # continuation marker (decorator context); only a column-0 #, so indented item-value comment lines fall through to the comment rule below",
+              "match": "^\\s?#\\s*",
+              "name": "comment.line.env-spec punctuation.definition.comment"
+            },
+            {
+              "comment": "comment inside a literal (commented-out entry or trailing note)",
+              "match": "#.*$",
+              "name": "comment.line.env-spec"
+            },
+            { "include": "#bracket-literal" },
+            { "include": "#key-value-pair" },
+            { "include": "#env-item-value-fn-call" },
+            { "include": "#quoted-value" },
+            { "include": "#expansion" },
+            { "include": "#literal-value" },
+            { "include": "#unquoted-string-within-literal" },
+            {
+              "comment": "extra $",
+              "match": "\\$",
+              "name": "string.unquoted.env-spec"
+            },
+            {
+              "comment": "literal element separator",
+              "match": "\\s*,\\s*",
+              "name": "punctuation.separator.comma.env-spec"
+            }
+          ]
+        }
+      }
+    },
+
+    "unquoted-string-within-literal": {
+      "comment": "unquoted value within a {}/[] literal (stops at , ) } ] and whitespace)",
+      "match": "([^ \n,)$\\]}]+)",
+      "name": "string.unquoted.env-spec",
+      "captures": {
+        "1": {
+          "patterns": [{ "include": "#escape-characters" }]
         }
       }
     },
@@ -527,6 +612,12 @@
               "match": "^\\s*#\\s*",
               "name": "comment.line.env-spec punctuation.definition.comment"
             },
+            {
+              "comment": "comment inside a multi-line decorator fn call (commented-out arg or trailing note)",
+              "match": "#.*$",
+              "name": "comment.line.env-spec"
+            },
+            { "include": "#bracket-literal" },
             { "include": "#literal-value" },
             { "include": "#quoted-value" },
             { "include": "#key-value-pair" },
@@ -559,6 +650,7 @@
             { "include": "#literal-value" },
             { "include": "#quoted-value" },
             { "include": "#decorator-fn-call-value" },
+            { "include": "#bracket-literal" },
             {
               "comment": "unquoted decorator value",
               "match": "([^ \n#]+)",
@@ -609,6 +701,12 @@
           "match": "^\\s*#\\s*",
           "name": "comment.line.env-spec punctuation.definition.comment"
         },
+        {
+          "comment": "comment inside a multi-line decorator fn call (commented-out arg or trailing note)",
+          "match": "#.*$",
+          "name": "comment.line.env-spec"
+        },
+        { "include": "#bracket-literal" },
         { "include": "#literal-value" },
         { "include": "#quoted-value" },
         { "include": "#key-value-pair" },
@@ -640,7 +738,7 @@
 
     "key-value-pair": {
       "begin": "([a-zA-Z][a-zA-Z0-9]+)(=)",
-      "end": "(?=[,\n#)])",
+      "end": "(?=[,\n#)\\]}])",
       "beginCaptures": {
         "1": {
           "name": "entity.other.attribute-name.env-spec"
@@ -650,6 +748,7 @@
         }
       },
       "patterns": [
+        { "include": "#bracket-literal" },
         { "include": "#env-item-value-fn-call" },
         { "include": "#literal-value" },
         { "include": "#quoted-value" },
@@ -693,6 +792,7 @@
     "env-item-value-fn-call-arg": {
       "comment": "env item value fn call arg",
       "patterns": [
+        { "include": "#bracket-literal" },
         { "include": "#literal-value" },
         { "include": "#key-value-pair" },
         { "include": "#env-item-value-fn-call" },
