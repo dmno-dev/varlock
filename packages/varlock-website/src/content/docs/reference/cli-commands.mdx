@@ -651,7 +651,7 @@ varlock proxy <subcommand> [options]
 - `env`: Print the proxy + CA environment for a session, to source into another shell (`eval "$(varlock proxy env)"`).
 - `status`: List active proxy sessions.
 - `audit`: Print a session's request audit log (no secret values).
-- `refresh`: Re-validate and reload the schema into a running session after an intentional edit.
+- `refresh`: Hot-reload a running `proxy start` daemon after an intentional schema edit — re-resolves and swaps the live policy (rules, injected secrets, egress) without restarting.
 - `stop`: Stop a session.
 
 **Options:**

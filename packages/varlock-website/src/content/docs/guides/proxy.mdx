@@ -213,11 +213,13 @@ varlock proxy status --watch    # live updates
 
 ## Editing the schema while a session is running
 
-For safety, a proxied command refuses to run if your `.env.schema` has changed since the proxy session started (this prevents an agent from editing the schema to downgrade `@sensitive` and recover real values). After an intentional edit, re-approve it from a trusted shell:
+For safety, a proxied command refuses to run if your `.env.schema` has changed since the proxy session started (this prevents an agent from editing the schema to downgrade `@sensitive` and recover real values). After an intentional edit, re-approve it from a **trusted (non-proxied) shell**:
 
 ```bash
 varlock proxy refresh --session <id>
 ```
+
+For a `proxy start` daemon this **hot-reloads** the running proxy — it re-resolves your schema in the daemon's trusted context and swaps the live policy (rules, injected secrets, egress mode) without dropping the proxy or restarting your agent. The daemon's terminal prints a confirmation. (A one-shot `proxy run` isn't reloadable — it already re-reads the schema on its next invocation.)
 
 ## Approvals (experimental)
 

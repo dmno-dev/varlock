@@ -70,6 +70,39 @@ describe('startLocalProxyRuntime', () => {
     await runtime.stop();
   });
 
+  test('reconfigure() hot-swaps rules/egress on a live runtime', async () => {
+    const upstream = http.createServer((_req, res) => res.end('ok'));
+    await new Promise<void>((resolve) => {
+      upstream.listen(0, '127.0.0.1', () => resolve());
+    });
+    const addr = upstream.address();
+    if (!addr || typeof addr === 'string') throw new Error('failed to start upstream');
+    const target = `http://127.0.0.1:${addr.port}/`;
+
+    // Strict + no rules → the upstream host is not allowlisted → blocked.
+    const runtime = await startLocalProxyRuntime({ managedItems: [], rules: [], egressMode: 'strict' });
+    expect((await requestViaProxy(runtime.env.HTTP_PROXY!, target)).statusCode).toBe(403);
+
+    // Reconfigure to allow 127.0.0.1 → the same request now reaches the upstream.
+    runtime.reconfigure({
+      managedItems: [],
+      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: [] }],
+      egressMode: 'strict',
+    });
+    const allowed = await requestViaProxy(runtime.env.HTTP_PROXY!, target);
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.body).toBe('ok');
+
+    // Reconfigure back to no rules → blocked again (proves it's not one-way).
+    runtime.reconfigure({ managedItems: [], rules: [], egressMode: 'strict' });
+    expect((await requestViaProxy(runtime.env.HTTP_PROXY!, target)).statusCode).toBe(403);
+
+    await runtime.stop();
+    await new Promise<void>((resolve) => {
+      upstream.close(() => resolve());
+    });
+  });
+
   test('refuses to inject a secret into a cleartext (http) connection (Invariant #2)', async () => {
     let upstreamGotRequest = false;
     let upstreamAuth = '';

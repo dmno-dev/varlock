@@ -26,7 +26,9 @@ import {
   cleanupStaleProxySessions,
   createProxySessionRecord,
   markProxySessionEnded,
+  getProxySessionByToken,
   getProxySessionExportEnv,
+  isProcessRunning,
   listProxySessions,
   reserveProxySessionIdentity,
   resolveProxySessionForCommand,
@@ -342,6 +344,8 @@ async function createRuntimeAndSession(opts: {
   approvalProvider: ApprovalProvider;
   /** Persist session/duration approval scopes as standing grants (interactive sessions only). */
   enableApprovalGrants?: boolean;
+  /** Mark the session as a hot-reloadable daemon (so `proxy refresh` can reload it). */
+  reloadable?: boolean;
 }): Promise<{
   runtime: Awaited<ReturnType<typeof startLocalProxyRuntime>>;
   session: ProxySessionRecord;
@@ -396,6 +400,7 @@ async function createRuntimeAndSession(opts: {
     ),
     ...(opts.entryPaths?.length ? { entryPaths: opts.entryPaths } : {}),
     ...(opts.command?.length ? { command: opts.command } : {}),
+    ...(opts.reloadable ? { reloadable: true } : {}),
   });
 
   return {
@@ -686,11 +691,42 @@ async function startAction(ctx: any) {
     // approvals can be remembered as standing grants.
     approvalProvider: createTtyApprovalProvider(),
     enableApprovalGrants: true,
+    reloadable: true,
   });
 
   console.log(`Started proxy session ${session.id} (${session.uuid})`);
   console.log(`Use \`varlock proxy env --session ${session.id}\` to print env exports.`);
   console.log(`Use \`varlock proxy status --session ${session.id} --watch\` to monitor activity.`);
+  console.log(`Use \`varlock proxy refresh --session ${session.id}\` to reload after editing your schema.`);
+
+  // Hot-reload on SIGHUP (sent by `proxy refresh`): re-resolve the schema in this
+  // trusted process and swap the live runtime's policy without dropping the proxy.
+  // Serialized so overlapping refreshes can't interleave. Entry paths are re-read
+  // from the session record each time, so `proxy refresh --path` is honored.
+  let reloading: Promise<void> | undefined;
+  const reload = async () => {
+    const latest = await getProxySessionByToken(session.uuid).catch(() => undefined);
+    const paths = latest?.entryPaths ?? ctx.values.path;
+    const next = await prepareProxyPolicy(paths);
+    runtime.reconfigure({
+      managedItems: next.proxyManagedItems,
+      rules: next.proxyRules,
+      egressMode: next.egressMode,
+    });
+    await updateProxySessionRecord(session.uuid, {
+      schemaFingerprint: next.schemaFingerprint,
+      egressMode: next.egressMode,
+      placeholderOverrides: Object.fromEntries(
+        next.proxyManagedItems.map((item) => [item.key, item.placeholder]),
+      ),
+    });
+    console.log(`Reloaded proxy session ${session.id} from schema (${next.proxyManagedItems.length} managed item(s)).`);
+  };
+  process.on('SIGHUP', () => {
+    reloading = (reloading ?? Promise.resolve())
+      .then(reload)
+      .catch((error) => console.error(`Proxy reload failed: ${(error as Error).message}`));
+  });
 
   let cleanedUp = false;
   const cleanup = async () => {
@@ -800,19 +836,32 @@ async function refreshAction(ctx: any) {
     throw new CliExitError((error as Error).message);
   });
 
+  // Only a `proxy start` daemon owns a long-lived runtime that can hot-reload.
+  // A one-shot `proxy run` captures the schema fresh each invocation, so there's
+  // nothing to refresh (and SIGHUP would just kill it).
+  if (!session.reloadable) {
+    throw new CliExitError(
+      `Proxy session ${session.id} is not a reloadable daemon.`,
+      { suggestion: 'Only `varlock proxy start` sessions can be refreshed. A `proxy run` picks up schema changes on its next invocation.' },
+    );
+  }
+  if (!isProcessRunning(session.ownerPid)) {
+    throw new CliExitError(`Proxy session ${session.id} is no longer running.`);
+  }
+
+  // Validate the new schema here (in this trusted context) so an obviously broken
+  // edit fails loudly at the call site instead of only in the daemon's terminal.
   const refreshPaths = ctx.values.path ?? session.entryPaths;
-  const policy = await prepareProxyPolicy(refreshPaths);
+  await prepareProxyPolicy(refreshPaths);
 
-  await updateProxySessionRecord(session.uuid, {
-    schemaFingerprint: policy.schemaFingerprint,
-    egressMode: policy.egressMode,
-    placeholderOverrides: Object.fromEntries(
-      policy.proxyManagedItems.map((item) => [item.key, item.placeholder]),
-    ),
-    ...(refreshPaths?.length ? { entryPaths: refreshPaths } : {}),
-  });
+  // Persist any changed entry paths so the daemon reloads from them, then signal
+  // it to re-resolve and hot-swap its live policy (rules, managed items, egress).
+  if (ctx.values.path?.length) {
+    await updateProxySessionRecord(session.uuid, { entryPaths: ctx.values.path });
+  }
+  process.kill(session.ownerPid, 'SIGHUP');
 
-  console.log(`Refreshed proxy session ${session.id}.`);
+  console.log(`Requested reload of proxy session ${session.id}. Watch its terminal (or \`varlock proxy status\`) to confirm.`);
 }
 
 async function stopAction(ctx: any) {
