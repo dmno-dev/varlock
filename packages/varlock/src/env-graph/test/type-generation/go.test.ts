@@ -8,6 +8,7 @@ describe('generateGoTypesSrc', () => {
     const { fields } = await loadFixtureFields();
     const src = generateGoTypesSrc(fields);
 
+    expect(src).toContain('//go:build ignore');
     expect(src).toContain('type CoercedEnvSchema struct');
     expect(src).toContain('type PublicCoercedEnvSchema struct');
     expect(src).toContain('type EnvSchemaAsStrings struct');
