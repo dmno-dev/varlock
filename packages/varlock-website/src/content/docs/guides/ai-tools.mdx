@@ -280,7 +280,7 @@ Drop the `--agent` flag when you need human-readable output to show the user dir
 When an agent needs to consume varlock output rather than show it to a user, prefer machine-readable formats and branch on exit codes:
 
 - **`varlock load --agent`** — flat `{ "KEY": value }` JSON on stdout with `@sensitive` values redacted. Safe to keep in a transcript.
-- **`varlock load --format json-full`** — the full serialized graph (sources, per-item validation state, sensitivity) when you need to reason about *why* something is invalid, not just the values.
+- **`varlock load --agent --format json-full`** — the full serialized graph (sources, per-item validation state, sensitivity) with sensitive values redacted, for when you need to reason about *why* something is invalid, not just the values. Always keep `--agent` here: plain `--format json-full` emits **raw secret values** and must not go into an agent transcript.
 - **Exit codes** — `varlock load` exits non-zero when config is invalid, `varlock run` forwards the child command's exit code, and `varlock scan` exits `1` when it finds a leaked secret. Check the code instead of parsing prose.
 - **stdout vs stderr** — pass `--summary-stderr` (or `--summary-file`) so the redacted human summary goes to stderr while stdout stays clean JSON for parsing.
 

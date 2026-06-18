@@ -139,8 +139,8 @@ varlock load --agent
 
 **Output formats (for scripts & agents):**
 - `--format json` — a flat `{ "KEY": value }` map of resolved values on stdout
-- `--agent` — the same flat map, but `@sensitive` values are redacted (e.g. `"su▒▒▒▒▒"`), so it is safe to print in logs or agent transcripts. Implies JSON output; not compatible with `--format env`/`shell`.
-- `--format json-full` — the full serialized graph: top-level `basePath`, `sources`, `config` (per-item metadata including resolved value, validation state, and sensitivity), `settings`. Use this when you need per-item validation/error detail rather than just values.
+- `--agent` — the same flat map, but `@sensitive` values are redacted (e.g. `"su▒▒▒▒▒"`), so it is safe to print in logs or agent transcripts. Implies JSON output; not compatible with `--format env`/`shell`. Combine with `--agent --format json-full` to get the redacted full graph.
+- `--format json-full` — the full serialized graph: top-level `basePath`, `sources`, `config` (per-item metadata including resolved value, validation state, and sensitivity), `settings`. Use this when you need per-item validation/error detail rather than just values. ⚠️ This includes **raw resolved secret values** — add `--agent` (`--agent --format json-full`) to redact them before logging or feeding to an agent.
 - `--format env` / `--format shell` — dotenv lines / shell `export` statements with **raw** values. Never pipe these somewhere that gets logged when secrets are involved.
 
 When emitting machine-readable output, add `--summary-stderr` (or `--summary-file`) to get a human-readable, redacted summary on **stderr** while keeping clean JSON on **stdout** — handy for agents and CI.
