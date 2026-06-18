@@ -1,6 +1,6 @@
 export { loadEnvGraph } from './lib/loader';
 
-export { EnvGraph, type SerializedEnvGraph } from './lib/env-graph';
+export { EnvGraph, type SerializedEnvGraph, type ProxyResolutionView } from './lib/env-graph';
 export {
   FileBasedDataSource, DotEnvFileDataSource, DirectoryDataSource, MultiplePathsContainerDataSource,
 } from './lib/data-source';

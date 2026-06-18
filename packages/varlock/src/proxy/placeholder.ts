@@ -6,29 +6,49 @@ function shortHash(input: string) {
   return createHash('sha256').update(input).digest('hex').slice(0, 8);
 }
 
-function fromTypeSettings(item: ConfigItem): string | undefined {
+/**
+ * A unique, format-safe seed for an item's placeholder: lowercase alphanumerics
+ * and hyphens only, so it embeds cleanly in a hostname / email local-part / etc.
+ * The key hash keeps distinct items distinct (required so wire scrubbing can't
+ * confuse two secrets).
+ */
+function buildPlaceholderSeed(itemKey: string): string {
+  const slug = itemKey.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return `vlk-placeholder-${slug}-${shortHash(itemKey)}`;
+}
+
+/**
+ * Best-effort placeholder honoring a string `@type`'s startsWith/endsWith/isLength
+ * settings, while embedding the unique seed so distinct items stay distinct.
+ * Returns undefined when the item has none of those settings.
+ */
+function fromTypeSettings(item: ConfigItem, seed: string): string | undefined {
   const typeDecParsedValue = item.getDec('type')?.parsedDecorator.value;
   if (!typeDecParsedValue || !('simplifiedArgs' in typeDecParsedValue)) return undefined;
 
   const simplifiedArgs = typeDecParsedValue.simplifiedArgs;
   if (!_.isPlainObject(simplifiedArgs)) return undefined;
 
-  const startsWith = _.isString(simplifiedArgs.startsWith)
-    ? simplifiedArgs.startsWith
-    : '';
-  const isLength = _.isNumber(simplifiedArgs.isLength)
-    ? simplifiedArgs.isLength
-    : undefined;
+  const startsWith = _.isString(simplifiedArgs.startsWith) ? simplifiedArgs.startsWith : '';
+  const endsWith = _.isString(simplifiedArgs.endsWith) ? simplifiedArgs.endsWith : '';
+  const isLength = _.isNumber(simplifiedArgs.isLength) ? simplifiedArgs.isLength : undefined;
 
-  if (!startsWith && !isLength) return undefined;
+  if (!startsWith && !endsWith && isLength === undefined) return undefined;
 
   if (isLength !== undefined) {
     if (isLength <= 0) return '';
-    if (startsWith.length >= isLength) return startsWith.slice(0, isLength);
-    return `${startsWith}${'0'.repeat(isLength - startsWith.length)}`;
+    const fixedLen = startsWith.length + endsWith.length;
+    if (fixedLen >= isLength) return `${startsWith}${endsWith}`.slice(0, isLength);
+    const bodyLen = isLength - fixedLen;
+    // Fill the bounded middle with hash hex (not the seed prefix, which is constant
+    // across items) so length-capped placeholders stay unique. 64 hex chars cover
+    // any realistic length; pad only in the pathological case.
+    const hex = createHash('sha256').update(seed).digest('hex');
+    const body = hex.length >= bodyLen ? hex.slice(0, bodyLen) : `${hex}${'0'.repeat(bodyLen - hex.length)}`;
+    return `${startsWith}${body}${endsWith}`;
   }
 
-  return `${startsWith}0000000000000000`;
+  return `${startsWith}${seed}${endsWith}`;
 }
 
 function buildFallbackPlaceholder(itemKey: string): string {
@@ -67,14 +87,16 @@ export type GeneratedProxyPlaceholder = {
 /**
  * Derive a proxy placeholder for an item, in priority order:
  *  1. explicit `@placeholder` — the author's exact value
- *  2. data-type `generatePlaceholder()` — the blessed source: it encodes the
- *     provider's real format, so it's the one most likely to pass SDK validation
- *  3. `@type` startsWith/isLength constraints — deterministic, but only honors
- *     the declared validation rules, which may not match the SDK's real checks
+ *  2. data-type `generatePlaceholder(seed)` — a valid-and-unique form for types
+ *     that have one (url/email/uuid/md5, …); most likely to pass SDK validation
+ *  3. `@type` startsWith/endsWith/isLength constraints — honors the declared
+ *     string rules while staying unique
  *  4. generic fallback — guaranteed-unique but format-agnostic (flagged)
  *
- * Deriving from `@example` was intentionally removed: a documentation field
- * shouldn't double as a functional, validation-critical placeholder.
+ * All forms embed a per-item unique seed so distinct secrets never share a
+ * placeholder (wire scrubbing relies on that). Deriving from `@example` was
+ * intentionally removed: a documentation field shouldn't double as a functional,
+ * validation-critical placeholder.
  */
 export async function generateProxyPlaceholderForItem(
   item: ConfigItem,
@@ -88,12 +110,14 @@ export async function generateProxyPlaceholderForItem(
     }
   }
 
-  const generatedByType = item.dataType?.generatePlaceholder(item.resolvedValue);
+  const seed = buildPlaceholderSeed(item.key);
+
+  const generatedByType = item.dataType?.generatePlaceholder(seed);
   if (_.isString(generatedByType) && generatedByType.length > 0) {
     return { placeholder: ensureUnique(generatedByType, usedPlaceholders), isGenericFallback: false };
   }
 
-  const fromType = fromTypeSettings(item);
+  const fromType = fromTypeSettings(item, seed);
   if (fromType) {
     return { placeholder: ensureUnique(fromType, usedPlaceholders), isGenericFallback: false };
   }

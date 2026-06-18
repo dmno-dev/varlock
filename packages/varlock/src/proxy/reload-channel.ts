@@ -28,8 +28,8 @@ export type ProxyReloadRequest = {
   entryPaths?: Array<string>;
 };
 
-/** `done`/`error` are terminal. A future approver adds `denied` (+ a pending phase). */
-export type ProxyReloadStatus = 'reloading' | 'done' | 'error';
+/** Both terminal. A future approver adds `denied` (+ a pending phase). */
+export type ProxyReloadStatus = 'done' | 'error';
 
 export type ProxyReloadResult = {
   requestId: string;

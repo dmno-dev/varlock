@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../../../env-graph';
-import { getProxyOmittedKeys, isCwdWithin } from '../proxy.command.js';
+import { computeProxyChildView, isCwdWithin } from '../proxy.command.js';
 
 async function loadGraph(envFile: string) {
   const graph = new EnvGraph();
@@ -12,13 +12,13 @@ async function loadGraph(envFile: string) {
   return graph;
 }
 
-async function omittedKeys(graph: EnvGraph) {
+async function childView(graph: EnvGraph) {
   const managedItems = await graph.getProxyManagedItems();
-  return getProxyOmittedKeys(graph, managedItems);
+  return computeProxyChildView(graph, managedItems);
 }
 
-describe('getProxyOmittedKeys', () => {
-  test('omits an unmanaged sensitive key by default (implicit — warned)', async () => {
+describe('computeProxyChildView', () => {
+  test('gives an unmanaged sensitive key a placeholder by default (not omitted)', async () => {
     const graph = await loadGraph(outdent`
       # @defaultSensitive=false
       # ---
@@ -31,10 +31,32 @@ describe('getProxyOmittedKeys', () => {
       UNMANAGED_SECRET=secret-unmanaged
     `);
 
-    expect(await omittedKeys(graph)).toEqual([{ key: 'UNMANAGED_SECRET', explicit: false }]);
+    const view = await childView(graph);
+    // both the managed and the default-sensitive item get a placeholder
+    expect(Object.keys(view.placeholderByKey).sort()).toEqual(['PROXIED_SECRET', 'UNMANAGED_SECRET']);
+    expect(view.placeholderByKey.UNMANAGED_SECRET).not.toBe('secret-unmanaged');
+    expect(view.omittedKeys).toEqual([]);
+    // non-sensitive baseline is left alone
+    expect(view.placeholderByKey.BASELINE).toBeUndefined();
   });
 
-  test('does not omit a sensitive key marked @proxy=passthrough', async () => {
+  test('placeholders are unique across items (no scrub collisions)', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @sensitive
+      A_SECRET=aaa
+
+      # @sensitive
+      B_SECRET=bbb
+    `);
+
+    const view = await childView(graph);
+    const placeholders = Object.values(view.placeholderByKey);
+    expect(new Set(placeholders).size).toBe(placeholders.length);
+  });
+
+  test('does not placeholder/omit a sensitive key marked @proxy=passthrough', async () => {
     const graph = await loadGraph(outdent`
       # @defaultSensitive=false
       # ---
@@ -43,7 +65,9 @@ describe('getProxyOmittedKeys', () => {
       PASS_SECRET=secret-allowed
     `);
 
-    expect(await omittedKeys(graph)).toEqual([]);
+    const view = await childView(graph);
+    expect(view.placeholderByKey.PASS_SECRET).toBeUndefined();
+    expect(view.omittedKeys).toEqual([]);
   });
 
   test('omits a key marked @proxy=omit explicitly (regardless of sensitivity)', async () => {
@@ -58,13 +82,13 @@ describe('getProxyOmittedKeys', () => {
       SECRET_OMITTED=secret
     `);
 
-    expect(await omittedKeys(graph)).toEqual([
-      { key: 'PLAIN_BUT_OMITTED', explicit: true },
-      { key: 'SECRET_OMITTED', explicit: true },
-    ]);
+    const view = await childView(graph);
+    expect(view.omittedKeys.sort()).toEqual(['PLAIN_BUT_OMITTED', 'SECRET_OMITTED']);
+    expect(view.placeholderByKey.PLAIN_BUT_OMITTED).toBeUndefined();
+    expect(view.placeholderByKey.SECRET_OMITTED).toBeUndefined();
   });
 
-  test('does not omit varlock-reserved (_VARLOCK_*) keys — they are internal infra', async () => {
+  test('does not touch varlock-reserved (_VARLOCK_*) keys — they are internal infra', async () => {
     const graph = await loadGraph(outdent`
       # @defaultSensitive=false
       # ---
@@ -75,10 +99,13 @@ describe('getProxyOmittedKeys', () => {
       USER_SECRET=some-secret
     `);
 
-    expect(await omittedKeys(graph)).toEqual([{ key: 'USER_SECRET', explicit: false }]);
+    const view = await childView(graph);
+    expect(view.placeholderByKey._VARLOCK_ENV_KEY).toBeUndefined();
+    expect(Object.keys(view.placeholderByKey)).toEqual(['USER_SECRET']);
+    expect(view.omittedKeys).toEqual([]);
   });
 
-  test('does not omit non-sensitive keys with no policy', async () => {
+  test('does not placeholder/omit non-sensitive keys with no policy', async () => {
     const graph = await loadGraph(outdent`
       # @defaultSensitive=false
       # ---
@@ -89,7 +116,10 @@ describe('getProxyOmittedKeys', () => {
       PROXIED_SECRET=secret-proxied
     `);
 
-    expect(await omittedKeys(graph)).toEqual([]);
+    const view = await childView(graph);
+    expect(view.placeholderByKey.PLAIN).toBeUndefined();
+    expect(Object.keys(view.placeholderByKey)).toEqual(['PROXIED_SECRET']);
+    expect(view.omittedKeys).toEqual([]);
   });
 });
 

@@ -2,6 +2,6 @@
 varlock: patch
 ---
 
-Proxy: omit unhandled sensitive items by default instead of blocking the session.
+Proxy: show the agent a placeholder for every sensitive item by default.
 
-Previously `varlock proxy run|start` refused to start if any sensitive item wasn't `@proxy`-managed or `@proxyPassthrough`. Now such items are simply withheld from the proxied child — dropped from both the injected vars and the `__VARLOCK_ENV` blob — with a warning at startup listing the omitted vars. Least privilege by default: the agent only ever sees secrets you explicitly route with `@proxy(...)` (as a placeholder) or `@proxyPassthrough` (the real value), and you no longer have to annotate every other secret just to start a session. Varlock's own `_VARLOCK_*` reserved keys are internal infrastructure and are excluded from this policy entirely (not omitted, not warned).
+Inside `varlock proxy run|start`, any `@sensitive` item the agent sees is replaced with a placeholder — the `@proxy(domain=...)`-routed ones (whose real value is injected at the wire) plus every other sensitive item (which simply isn't injected anywhere). The real value never reaches the child. Use `@proxy=passthrough` to inject the real value (escape hatch) or `@proxy=omit` to withhold an item entirely. Varlock's own `_VARLOCK_*` reserved keys are internal infrastructure and are excluded from this policy.

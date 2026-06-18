@@ -6,7 +6,7 @@ import {
 import type { ProxyManagedItem, ProxyRule } from './types';
 
 const rule = (partial: Partial<ProxyRule>): ProxyRule => ({
-  source: 'detached', domain: [], itemKeys: [], ...partial,
+  domain: [], itemKeys: [], ...partial,
 });
 const facts = (host: string, method: string, path: string): RequestFacts => ({ host, method, path });
 

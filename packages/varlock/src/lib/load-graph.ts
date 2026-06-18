@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadEnvGraph, type EnvGraph } from '../env-graph';
+import { loadEnvGraph, type EnvGraph, type ProxyResolutionView } from '../env-graph';
 import { VarlockResolver } from './local-encrypt/builtin-resolver';
 import { KeychainResolver } from './local-encrypt/keychain-resolver';
 import { CliExitError } from '../cli/helpers/exit-error';
@@ -9,7 +9,7 @@ import { runWithWorkspaceInfo } from './workspace-utils';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { createDebug } from './debug';
 import { parseOverrideProvenanceMetadata, selectOverrideValuesFromEnv } from './injected-env-provenance';
-import { getProxyPlaceholderOverridesForEnv } from '../proxy/session-registry';
+import { getProxyResolutionViewForEnv } from '../proxy/session-registry';
 import { enforceProxySchemaFingerprint } from '../cli/helpers/proxy-schema-fingerprint';
 
 const debug = createDebug('varlock:load');
@@ -52,7 +52,7 @@ function loadFromPaths(
     overrideValues?: Record<string, string | undefined>,
     clearCache?: boolean,
     skipCache?: boolean,
-    proxyPlaceholderOverrides?: Record<string, string>,
+    proxyResolutionView?: ProxyResolutionView,
   },
 ) {
   const resolvedPaths = rawPaths.map((p) => path.resolve(p));
@@ -83,11 +83,8 @@ function loadFromPaths(
     afterInit: async (g) => {
       g.registerResolver(VarlockResolver);
       g.registerResolver(KeychainResolver);
-      if (config.proxyPlaceholderOverrides) {
-        g.overrideValues = {
-          ...g.overrideValues,
-          ...config.proxyPlaceholderOverrides,
-        };
+      if (config.proxyResolutionView) {
+        g.proxyResolutionView = config.proxyResolutionView;
       }
     },
   })));
@@ -110,9 +107,9 @@ export async function loadVarlockEnvGraph(opts?: {
   skipProxyFingerprintGuard?: boolean,
 }) {
   const runtimeOverrideValues = getGraphEnvOverridesFromRuntimeEnv();
-  const proxyPlaceholderOverrides = await getProxyPlaceholderOverridesForEnv().catch(() => undefined);
-  if (proxyPlaceholderOverrides) {
-    debug('applying %d proxy placeholder override(s)', Object.keys(proxyPlaceholderOverrides).length);
+  const proxyResolutionView = await getProxyResolutionViewForEnv().catch(() => undefined);
+  if (proxyResolutionView) {
+    debug('applying proxy resolution view (%d item(s))', Object.keys(proxyResolutionView).length);
   }
 
   const cliPaths = opts?.entryFilePaths?.filter(Boolean);
@@ -128,7 +125,7 @@ export async function loadVarlockEnvGraph(opts?: {
         overrideValues: runtimeOverrideValues,
         clearCache: opts?.clearCache,
         skipCache: opts?.skipCache,
-        proxyPlaceholderOverrides,
+        proxyResolutionView,
       });
     }
 
@@ -145,7 +142,7 @@ export async function loadVarlockEnvGraph(opts?: {
         overrideValues: runtimeOverrideValues,
         clearCache: opts?.clearCache,
         skipCache: opts?.skipCache,
-        proxyPlaceholderOverrides,
+        proxyResolutionView,
       });
     }
 
@@ -160,11 +157,8 @@ export async function loadVarlockEnvGraph(opts?: {
       afterInit: async (g) => {
         g.registerResolver(VarlockResolver);
         g.registerResolver(KeychainResolver);
-        if (proxyPlaceholderOverrides) {
-          g.overrideValues = {
-            ...g.overrideValues,
-            ...proxyPlaceholderOverrides,
-          };
+        if (proxyResolutionView) {
+          g.proxyResolutionView = proxyResolutionView;
         }
       },
     })));

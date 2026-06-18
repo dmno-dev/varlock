@@ -341,13 +341,48 @@ function assertProxyStringListArg(
  * literal and `keys` as an array literal; rejects positional args; validates the
  * approval options.
  */
+const VALID_PROXY_OPTIONS = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'approvalEach', 'approvalMaxDuration'] as const;
+
+/** A static boolean option (`block`/`approval`) must be a real boolean — a quoted
+ * `"true"` or `1` is a misconfiguration that would otherwise silently drop the
+ * option (turning a deny/approval rule into a plain allow). Dynamic expressions
+ * are validated at resolve time. */
+function assertProxyBooleanArg(resolver: Resolver | undefined, option: string): void {
+  if (!resolver?.isStatic) return;
+  if (typeof resolver.staticValue !== 'boolean') {
+    throw new SchemaError(`@proxy: ${option} must be a boolean (true or false), not ${JSON.stringify(resolver.staticValue)}`);
+  }
+}
+
+/** A static `path` must be a single non-empty string (not an array/number). */
+function assertProxyStringArg(resolver: Resolver | undefined, option: string): void {
+  if (!resolver?.isStatic) return;
+  if (typeof resolver.staticValue !== 'string' || !resolver.staticValue.trim()) {
+    throw new SchemaError(`@proxy: ${option} must be a non-empty string`);
+  }
+}
+
 function validateProxyFunctionArgs(argsVal: Resolver): void {
   if (!argsVal.objArgs?.domain) {
     throw new SchemaError('@proxy: missing required "domain" option');
   }
+
+  // Reject unknown options so a typo (e.g. `aproval=true`, `blok=true`) fails loudly
+  // instead of silently producing a permissive rule.
+  for (const key of Object.keys(argsVal.objArgs)) {
+    if (!VALID_PROXY_OPTIONS.includes(key as typeof VALID_PROXY_OPTIONS[number])) {
+      throw new SchemaError(
+        `@proxy: unknown option "${key}". Valid options: ${VALID_PROXY_OPTIONS.join(', ')}`,
+      );
+    }
+  }
+
   assertProxyStringListArg(argsVal.objArgs.domain, 'domain', false);
   assertProxyStringListArg(argsVal.objArgs?.method, 'method', false);
   assertProxyStringListArg(argsVal.objArgs?.keys, 'keys', true);
+  assertProxyStringArg(argsVal.objArgs?.path, 'path');
+  assertProxyBooleanArg(argsVal.objArgs?.block, 'block');
+  assertProxyBooleanArg(argsVal.objArgs?.approval, 'approval');
 
   if (argsVal.arrArgs?.length) {
     throw new SchemaError('@proxy: positional args are not supported - use keys=[ITEM_A, ITEM_B] to attach items');

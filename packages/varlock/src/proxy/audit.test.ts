@@ -152,7 +152,7 @@ describe('proxy audit log', () => {
     });
     const runtime = await startLocalProxyRuntime({
       managedItems: [],
-      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: [] }],
+      rules: [{ domain: ['127.0.0.1'], itemKeys: [] }],
       egressMode: 'permissive',
       onActivity: (activity) => log.record(activity),
     });

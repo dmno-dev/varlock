@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import _ from '@env-spec/utils/my-dash';
 import { type FallbackIfUnknown } from '@env-spec/utils/type-utils';
 import { CoercionError, ValidationError } from './errors';
@@ -31,8 +32,15 @@ type EnvGraphDataTypeDef<CoerceReturnType, ValidateInputType = FallbackIfUnknown
    * */
   validate?: (value: ValidateInputType) => MaybePromise<(true | undefined | void | Error | Array<Error>)>;
 
-  /** optional placeholder generator used by proxy mode */
-  generatePlaceholder?: (value: CoerceReturnType | string | undefined) => string | undefined;
+  /**
+   * Optional placeholder generator used by proxy mode. Receives a unique,
+   * format-safe `seed` (lowercase alphanumerics + hyphens, derived from the item
+   * key) and should return a value that (a) is a valid instance of this type so it
+   * passes an SDK's format checks, and (b) embeds the seed so distinct items get
+   * distinct placeholders (required so wire scrubbing can't confuse two secrets).
+   * Return undefined when no valid-and-unique form exists for this type.
+   */
+  generatePlaceholder?: (seed: string) => string | undefined;
 
   // asyncValidate? - async validation function, meant to be called more sparingly
   // for example, when could validate an API key is currently valid
@@ -73,8 +81,8 @@ export class EnvGraphDataType {
   get isSensitive() { return this.def.sensitive; }
   get isInternal() { return this.def.internal; }
   get docsEntries() { return this.def.docs; }
-  generatePlaceholder(val: any) {
-    return this.def.generatePlaceholder?.(val);
+  generatePlaceholder(seed: string) {
+    return this.def.generatePlaceholder?.(seed);
   }
 
   /** @internal */
@@ -138,6 +146,11 @@ function coerceToNumber(rawVal: any) {
     throw new CoercionError(`Cannot convert ${rawVal} to number`);
   }
   return numVal;
+}
+
+/** Deterministic lowercase hex derived from a placeholder seed (for uuid/md5 forms). */
+function hexFromSeed(seed: string): string {
+  return createHash('sha256').update(seed).digest('hex');
 }
 
 const StringDataType = createEnvGraphDataType(
@@ -327,6 +340,8 @@ const UrlDataType = createEnvGraphDataType(
   }) => ({
     name: 'url',
     icon: 'carbon:url',
+    // A valid, unique, non-routable URL (`.invalid` is reserved, RFC 2606).
+    generatePlaceholder: (seed) => `https://${seed}.invalid/`,
     coerce(rawVal) {
       const val = coerceToString(rawVal);
       if (settings?.prependHttps && !val.startsWith('https://')) return `https://${val}`;
@@ -423,6 +438,8 @@ const EmailDataType = createEnvGraphDataType(
     name: 'email',
     icon: 'iconoir:at-sign',
     typeDescription: 'standard email address',
+    // A valid, unique address at the reserved `.invalid` TLD (RFC 2606).
+    generatePlaceholder: (seed) => `${seed}@placeholder.invalid`,
     coerce(rawVal) {
       let val = coerceToString(rawVal);
       if (settings?.normalize) val = val.toLowerCase();
@@ -526,6 +543,11 @@ const UuidDataType = createEnvGraphDataType({
   name: 'uuid',
   icon: 'mdi:identifier',
   typeDescription: 'UUID string V1-V5 per RFC4122, including NIL',
+  // A deterministic, unique, valid v4-shaped UUID derived from the seed.
+  generatePlaceholder: (seed) => {
+    const hex = hexFromSeed(seed);
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+  },
   validate(val) {
     const result = UUID_REGEX.test(val);
     if (result) return true;
@@ -537,6 +559,8 @@ const MD5_REGEX = /^[a-f0-9]{32}$/;
 const Md5DataType = createEnvGraphDataType({
   name: 'md5',
   typeDescription: 'MD5 hash string',
+  // A deterministic, unique, valid 32-hex string derived from the seed.
+  generatePlaceholder: (seed) => hexFromSeed(seed).slice(0, 32),
   validate(val) {
     const result = MD5_REGEX.test(val);
     if (result) return true;
