@@ -15,6 +15,11 @@ export const commandSpec = define({
   name: 'reveal',
   description: 'Securely view decrypted values of sensitive environment variables',
   args: {
+    key: {
+      type: 'positional',
+      required: false,
+      description: 'Variable to reveal (omit for an interactive picker)',
+    },
     copy: {
       type: 'boolean',
       description: 'Copy the value to clipboard instead of displaying (auto-clears after 10s)',
@@ -153,8 +158,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   // Check if a specific variable was requested via positional arg
-  const positionals = (ctx.positionals ?? []).slice(ctx.commandPath?.length ?? 0);
-  const requestedVar = positionals[0];
+  const requestedVar = ctx.values.key;
 
   if (requestedVar) {
     // Direct reveal of a specific variable

@@ -438,7 +438,8 @@
         "@clack/prompts": "^1.0.0",
         "@env-spec/parser": "workspace:*",
         "@env-spec/utils": "workspace:*",
-        "@gunshi/plugin-completion": "^0.32.0",
+        "@gunshi/plugin-completion": "^0.35.1",
+        "@gunshi/plugin-i18n": "^0.35.1",
         "@sindresorhus/is": "catalog:",
         "@types/bun": "catalog:",
         "@types/node": "catalog:",
@@ -449,7 +450,7 @@
         "browser-or-node": "^3.0.0",
         "ci-info": "^4.3.1",
         "exit-hook": "^5.1.0",
-        "gunshi": "^0.32.0",
+        "gunshi": "^0.35.1",
         "is-docker": "^4.0.0",
         "is-unicode-supported": "^2.1.0",
         "is-wsl": "^3.1.0",
@@ -875,11 +876,11 @@
 
     "@expressive-code/plugin-text-markers": ["@expressive-code/plugin-text-markers@0.42.0", "", { "dependencies": { "@expressive-code/core": "^0.42.0" } }, "sha512-l59lUx8fq1v5g6SpmbDjiU0+7IdfbiWnAyRmtTVSpfhyq+nZMN4UcmYyu2b9Mynhzt7Gr+O+cXyEPDNb2AVWVQ=="],
 
-    "@gunshi/plugin": ["@gunshi/plugin@0.32.0", "", {}, "sha512-Bb0R4k3Pk8iYBoE5dkvY84UhwBFARJT4d6vq3DlNztH5WI3fozTZoPnbUgNKJHzx2yGTiiry+ywnzcRnRnRZTQ=="],
+    "@gunshi/plugin": ["@gunshi/plugin@0.35.1", "", {}, "sha512-N6q4zIDiuRU0CM1CpTPFLUzxOW3T2XsUtnEjxFCIp+sTGfbH0jkejUKeUWynZfX5Blao5Ww45K4f66giQ6AJFA=="],
 
-    "@gunshi/plugin-completion": ["@gunshi/plugin-completion@0.32.0", "", { "dependencies": { "@bomb.sh/tab": "^0.0.15", "@gunshi/plugin": "0.32.0" }, "peerDependencies": { "@gunshi/plugin-i18n": "0.32.0" } }, "sha512-7L2J+1n8LNnYAOTubnG/nY3mfUqMe3wlhBLLVlPRkT01GSqpeHjgewNhqIFQMZcttlzz0lrszj3pLWOxd+/+FQ=="],
+    "@gunshi/plugin-completion": ["@gunshi/plugin-completion@0.35.1", "", { "dependencies": { "@bomb.sh/tab": "^0.0.15", "@gunshi/plugin": "0.35.1" }, "peerDependencies": { "@gunshi/plugin-i18n": "0.35.1" } }, "sha512-oKWRmjV4IYPTG5VJR/ivdl41KE/S5ha2p9Vl7MpriEZHeAwvRn+9Zd7RGgi7Bwod43mshnyK8q782K0RP2J1UA=="],
 
-    "@gunshi/plugin-i18n": ["@gunshi/plugin-i18n@0.32.0", "", { "dependencies": { "@gunshi/plugin": "0.32.0" }, "peerDependencies": { "@gunshi/plugin-global": "0.32.0" }, "optionalPeers": ["@gunshi/plugin-global"] }, "sha512-YPN9lOScwdTr7HyE9Al7qkkNG0Ug9qzHIPVdEjBuOVR7ElpjBSq89+twIC7jLFXpu28Nrk+SWv2h0knw3d5RlQ=="],
+    "@gunshi/plugin-i18n": ["@gunshi/plugin-i18n@0.35.1", "", { "dependencies": { "@gunshi/plugin": "0.35.1" }, "peerDependencies": { "@gunshi/plugin-global": "0.35.1" }, "optionalPeers": ["@gunshi/plugin-global"] }, "sha512-fmLDCceUnpx/O/6/CZKve2JB9sSAEPE7ZU6zcyjfohQiU9XeOVGIJXj3VBYx5VDJzT9DxjzXTnWcwKxUW5cE+Q=="],
 
     "@hono/node-server": ["@hono/node-server@1.19.14", "", { "peerDependencies": { "hono": "^4" } }, "sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw=="],
 
@@ -2087,7 +2088,7 @@
 
     "graphql": ["graphql@16.13.2", "", {}, "sha512-5bJ+nf/UCpAjHM8i06fl7eLyVC9iuNAjm9qzkiu2ZGhM0VscSvS6WDPfAwkdkBuoXGM9FJSbKl6wylMwP9Ktig=="],
 
-    "gunshi": ["gunshi@0.32.0", "", {}, "sha512-kvRFiIkxeiLJIE0p7reKItydbY+SKIEtveeElnot2YetMTYNN5qBH4wiuCSeir68zlDvbq0wbTdNiZflt1Y+rA=="],
+    "gunshi": ["gunshi@0.35.1", "", {}, "sha512-Fn+IZReFITpU1lfjLdQG9WXk5+NqolwR1Q6gnSeEicstlZZfVKqnANCo4YbR4ml3/4JkyJSi3vYmxb9XdCeN3g=="],
 
     "h3": ["h3@1.15.11", "", { "dependencies": { "cookie-es": "^1.2.3", "crossws": "^0.3.5", "defu": "^6.1.6", "destr": "^2.0.5", "iron-webcrypto": "^1.2.1", "node-mock-http": "^1.0.4", "radix3": "^1.1.2", "ufo": "^1.6.3", "uncrypto": "^0.1.3" } }, "sha512-L3THSe2MPeBwgIZVSH5zLdBBU90TOxarvhK9d04IDY2AmVS8j2Jz2LIWtwsGOU3lu2I5jCN7FNvVfY2+XyF+mg=="],
 

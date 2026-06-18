@@ -30,6 +30,7 @@ export const commandSpec = define({
     'no-inject-graph': {
       type: 'boolean',
       description: 'Deprecated: use --inject vars instead',
+      hidden: true,
     },
     'include-internal': {
       type: 'boolean',

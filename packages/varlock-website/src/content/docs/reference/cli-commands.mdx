@@ -150,7 +150,7 @@ varlock run -- <command>
 
 **Options:**
 - `--redact-stdout` / `--no-redact-stdout`: Override automatic stdout/stderr redaction. `--redact-stdout` forces redaction of piped/redirected output (e.g., to override `@redactLogs=false`) and errors if output is attached to an interactive terminal, where redaction is not possible without breaking TTY behavior. `--no-redact-stdout` disables redaction entirely.
-- `--no-inject-graph`: Disable injection of `__VARLOCK_ENV` serialized config graph into the child process environment
+- `--inject <mode>` / `-i`: Control what gets injected into the child process environment — `all` (default: individual vars plus the `__VARLOCK_ENV` serialized config graph blob), `vars` (individual vars only, no blob), or `blob` (only the `__VARLOCK_ENV` blob, no individual vars)
 - `--include-internal`: Pass [`@internal`](/reference/item-decorators/#internal) items through to the child process. By default they are stripped from the child env — even if set in the ambient environment — so a secret-zero token never reaches your app. Use this for a _nested_ `varlock run` whose own resolution needs the internal value.
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
 - `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (when combined with `--skip-cache`, the cache is cleared first, then reads and writes are skipped for the run)
@@ -204,13 +204,13 @@ The same override can be set via the [`_VARLOCK_REDACT_STDOUT`](/reference/reser
 :::note[Preventing sensitive value exposure via env inspection]
 By default, `varlock run` injects a `__VARLOCK_ENV` variable containing the full serialized config graph (including resolved sensitive values) into the child process environment. This is used by framework integrations to obtain sensitivity metadata without re-invoking the CLI.
 
-For long-lived processes, interactive shells, or any workflow where subprocesses may inspect their environment (e.g., `env`, `printenv`, or an LLM-driven agent), use `--no-inject-graph` to omit this variable:
+For long-lived processes, interactive shells, or any workflow where subprocesses may inspect their environment (e.g., `env`, `printenv`, or an LLM-driven agent), use `--inject vars` to inject only the individual vars and omit this blob:
 ```bash
-varlock run --no-inject-graph -- bash
-varlock run --no-inject-graph -- claude
+varlock run --inject vars -- bash
+varlock run --inject vars -- claude
 ```
 
-Note: When `--no-inject-graph` is set, framework integrations that rely on `__VARLOCK_ENV` will need to fall back to re-invoking the CLI. `__VARLOCK_RUN=1` is always set regardless of this flag.
+Note: When the `__VARLOCK_ENV` blob is omitted, framework integrations that rely on it will need to fall back to re-invoking the CLI. `__VARLOCK_RUN=1` is always set regardless of this flag.
 :::
 
 :::note[Signals and exit codes]

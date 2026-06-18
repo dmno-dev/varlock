@@ -67,7 +67,6 @@ describe('Log Redaction', () => {
     const overridden = runVarlock(['run', '--no-redact-stdout', '--', 'node', 'test-script.js'], {
       cwd: 'smoke-test-basic',
       env: { _VARLOCK_REDACT_STDOUT: 'true' },
-      captureOutput: true,
     });
     // the flag takes precedence over the env var, so the secret is shown
     expect(overridden.output).toContain('super-secret-token-12345');
