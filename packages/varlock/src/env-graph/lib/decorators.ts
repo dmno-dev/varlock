@@ -8,7 +8,7 @@ import {
 import { EnvGraphDataSource } from './data-source';
 import type { ConfigItem } from './config-item';
 import {
-  StaticValueResolver, ArrayLiteralResolver, type Resolver, convertParsedValueToResolvers,
+  StaticValueResolver, ArrayLiteralResolver, ObjectLiteralResolver, type Resolver, convertParsedValueToResolvers,
 } from './resolver';
 import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
@@ -341,12 +341,14 @@ function assertProxyStringListArg(
  * literal and `keys` as an array literal; rejects positional args; validates the
  * approval options.
  */
-const VALID_PROXY_OPTIONS = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'approvalEach', 'approvalMaxDuration'] as const;
+const VALID_PROXY_OPTIONS = ['domain', 'path', 'method', 'keys', 'block', 'approval'] as const;
+/** Inner options of the `approval={...}` object form. */
+const VALID_APPROVAL_OPTIONS = ['enabled', 'each', 'maxDuration'] as const;
 
-/** A static boolean option (`block`/`approval`) must be a real boolean — a quoted
- * `"true"` or `1` is a misconfiguration that would otherwise silently drop the
- * option (turning a deny/approval rule into a plain allow). Dynamic expressions
- * are validated at resolve time. */
+/** A static boolean option (`block`) must be a real boolean — a quoted `"true"`
+ * or `1` is a misconfiguration that would otherwise silently drop the option
+ * (turning a deny rule into a plain allow). Dynamic expressions are validated at
+ * resolve time. */
 function assertProxyBooleanArg(resolver: Resolver | undefined, option: string): void {
   if (!resolver?.isStatic) return;
   if (typeof resolver.staticValue !== 'boolean') {
@@ -359,6 +361,44 @@ function assertProxyStringArg(resolver: Resolver | undefined, option: string): v
   if (!resolver?.isStatic) return;
   if (typeof resolver.staticValue !== 'string' || !resolver.staticValue.trim()) {
     throw new SchemaError(`@proxy: ${option} must be a non-empty string`);
+  }
+}
+
+/**
+ * `approval` accepts either a boolean (`approval=true`) or an options object
+ * (`approval={each=request, maxDuration=15m}`); the object form implies approval
+ * is required unless `enabled=false`. Validates the inner options statically when
+ * they're literals; dynamic values are re-checked at resolve time.
+ */
+function assertProxyApprovalArg(resolver: Resolver | undefined): void {
+  if (!resolver) return;
+  if (resolver instanceof ObjectLiteralResolver) {
+    const inner = resolver.objArgs ?? {};
+    for (const key of Object.keys(inner)) {
+      if (!VALID_APPROVAL_OPTIONS.includes(key as typeof VALID_APPROVAL_OPTIONS[number])) {
+        throw new SchemaError(`@proxy: unknown approval option "${key}". Valid options: ${VALID_APPROVAL_OPTIONS.join(', ')}`);
+      }
+    }
+    const each = inner.each;
+    if (each?.isStatic && !(typeof each.staticValue === 'string' && PROXY_APPROVAL_EACH_VALUES.includes(each.staticValue as any))) {
+      throw new SchemaError(`@proxy: approval.each must be one of ${PROXY_APPROVAL_EACH_VALUES.join(', ')}`);
+    }
+    const maxDuration = inner.maxDuration;
+    if (maxDuration?.isStatic) {
+      try {
+        parseDuration(maxDuration.staticValue as string | number);
+      } catch {
+        throw new SchemaError('@proxy: approval.maxDuration must be a duration like "15m" or 0 (always ask)');
+      }
+    }
+    const enabled = inner.enabled;
+    if (enabled?.isStatic && typeof enabled.staticValue !== 'boolean') {
+      throw new SchemaError('@proxy: approval.enabled must be a boolean (true or false)');
+    }
+    return;
+  }
+  if (resolver.isStatic && typeof resolver.staticValue !== 'boolean') {
+    throw new SchemaError('@proxy: approval must be true/false or an options object, e.g. approval={each=request, maxDuration=15m}');
   }
 }
 
@@ -382,26 +422,10 @@ function validateProxyFunctionArgs(argsVal: Resolver): void {
   assertProxyStringListArg(argsVal.objArgs?.keys, 'keys', true);
   assertProxyStringArg(argsVal.objArgs?.path, 'path');
   assertProxyBooleanArg(argsVal.objArgs?.block, 'block');
-  assertProxyBooleanArg(argsVal.objArgs?.approval, 'approval');
+  assertProxyApprovalArg(argsVal.objArgs?.approval);
 
   if (argsVal.arrArgs?.length) {
     throw new SchemaError('@proxy: positional args are not supported - use keys=[ITEM_A, ITEM_B] to attach items');
-  }
-
-  const eachResolver = argsVal.objArgs?.approvalEach;
-  if (eachResolver?.isStatic) {
-    const eachVal = eachResolver.staticValue;
-    if (typeof eachVal !== 'string' || !PROXY_APPROVAL_EACH_VALUES.includes(eachVal as any)) {
-      throw new SchemaError(`@proxy: approvalEach must be one of ${PROXY_APPROVAL_EACH_VALUES.join(', ')}`);
-    }
-  }
-  const maxDurResolver = argsVal.objArgs?.approvalMaxDuration;
-  if (maxDurResolver?.isStatic) {
-    try {
-      parseDuration(maxDurResolver.staticValue as string | number);
-    } catch {
-      throw new SchemaError('@proxy: approvalMaxDuration must be a duration like "15m" or 0 (always ask)');
-    }
   }
 }
 
@@ -729,7 +753,7 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
         }
         return;
       }
-      // Function form: @proxy(domain=..., [path], [method], [block], [approval], [approvalEach], [approvalMaxDuration], [keys=[...]])
+      // Function form: @proxy(domain=..., [path], [method], [block], [approval=true | approval={each, maxDuration, enabled}], [keys=[...]])
       validateProxyFunctionArgs(decVal);
     },
   },
