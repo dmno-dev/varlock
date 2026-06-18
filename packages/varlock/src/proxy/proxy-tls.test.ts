@@ -122,7 +122,7 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     const activities: Array<import('./audit').ProxyActivity> = [];
     const runtime = await startLocalProxyRuntime({
       managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
-      rules: [{ source: 'attached', domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
       egressMode: 'permissive',
       onActivity: (a) => activities.push(a),
     });
@@ -181,7 +181,7 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
 
     const runtime = await startLocalProxyRuntime({
       managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
-      rules: [{ source: 'attached', domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
       egressMode: 'permissive',
     });
     const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
@@ -235,7 +235,7 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
 
     const runtime = await startLocalProxyRuntime({
       managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
-      rules: [{ source: 'attached', domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
       egressMode: 'permissive',
     });
     const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
@@ -275,7 +275,7 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
 
     const runtime = await startLocalProxyRuntime({
       managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: REAL }],
-      rules: [{ source: 'attached', domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
       egressMode: 'permissive',
     });
     const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
@@ -311,7 +311,7 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
 
     const runtime = await startLocalProxyRuntime({
       managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: REAL }],
-      rules: [{ source: 'attached', domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
       egressMode: 'permissive',
     });
     const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
@@ -343,9 +343,9 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     const runtime = await startLocalProxyRuntime({
       managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
       rules: [
-        { source: 'attached', domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] },
+        { domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] },
         {
-          source: 'detached', domain: [UPSTREAM_HOST], path: '/v1/charges', method: ['POST'], itemKeys: [], block: true,
+          domain: [UPSTREAM_HOST], path: '/v1/charges', method: ['POST'], itemKeys: [], block: true,
         },
       ],
       egressMode: 'permissive',
@@ -385,8 +385,8 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
         { key: 'ITEM_B', placeholder: 'PH_B_xxxxx', realValue: 'REAL_B_secret' },
       ],
       rules: [
-        { source: 'attached', domain: [UPSTREAM_HOST], itemKeys: ['ITEM_A'] },
-        { source: 'attached', domain: ['other-host.example'], itemKeys: ['ITEM_B'] },
+        { domain: [UPSTREAM_HOST], itemKeys: ['ITEM_A'] },
+        { domain: ['other-host.example'], itemKeys: ['ITEM_B'] },
       ],
       egressMode: 'permissive',
     });

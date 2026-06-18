@@ -1,7 +1,5 @@
 export type ProxyEgressMode = 'permissive' | 'strict';
 
-export type ProxyRuleSource = 'attached' | 'detached';
-
 /**
  * Approval granularity — what a single approval (and any standing grant) covers.
  * `host` = the host; `endpoint` = method + path; `request` = method + path + body.
@@ -11,7 +9,6 @@ export type ProxyApprovalEach = 'host' | 'endpoint' | 'request';
 export const PROXY_APPROVAL_EACH_VALUES: ReadonlyArray<ProxyApprovalEach> = ['host', 'endpoint', 'request'];
 
 export type ProxyRule = {
-  source: ProxyRuleSource;
   domain: Array<string>;
   itemKeys: Array<string>;
   path?: string;

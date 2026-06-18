@@ -42,12 +42,10 @@ describe('proxy decorators', () => {
     const rules = await graph.getProxyRules();
     expect(rules).toMatchObject([
       {
-        source: 'detached',
         domain: ['api.example.com'],
         itemKeys: [],
       },
       {
-        source: 'attached',
         domain: ['api.stripe.com'],
         itemKeys: ['STRIPE_KEY'],
       },
@@ -64,7 +62,6 @@ describe('proxy decorators', () => {
 
     expect(await graph.getProxyRules()).toMatchObject([
       {
-        source: 'attached',
         domain: ['api.a.com', 'api.b.com'],
         method: ['GET', 'POST'],
         itemKeys: ['API_KEY'],
@@ -85,7 +82,7 @@ describe('proxy decorators', () => {
     `);
 
     const rules = await graph.getProxyRules();
-    expect(rules).toMatchObject([{ source: 'detached', domain: ['api.example.com'], itemKeys: ['STRIPE_KEY', 'WEBHOOK_SECRET'] }]);
+    expect(rules).toMatchObject([{ domain: ['api.example.com'], itemKeys: ['STRIPE_KEY', 'WEBHOOK_SECRET'] }]);
     // and those keys become managed (placeholders injected)
     const managed = await graph.getProxyManagedItems();
     expect(managed.map((i) => i.key).sort()).toEqual(['STRIPE_KEY', 'WEBHOOK_SECRET']);
@@ -113,6 +110,39 @@ describe('proxy decorators', () => {
     expect(errors.some((e) => /keys must be an array literal/.test(e.message))).toBe(true);
   });
 
+  test('an unknown option is rejected (typo fails loud, not silently permissive)', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", aproval=true)
+      API_KEY=secret
+    `);
+    const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
+    expect(errors.some((e) => /unknown option "aproval"/.test(e.message))).toBe(true);
+  });
+
+  test('block must be a real boolean, not a quoted string', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", block="true")
+      API_KEY=secret
+    `);
+    const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
+    expect(errors.some((e) => /block must be a boolean/.test(e.message))).toBe(true);
+  });
+
+  test('path must be a string, not an array literal', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", path=[a, b])
+      API_KEY=secret
+    `);
+    const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
+    expect(errors.some((e) => /path must be a non-empty string/.test(e.message))).toBe(true);
+  });
+
   test('a header-level (detached) @proxy is not rejected as a misplaced item decorator', async () => {
     const graph = await loadGraph(outdent`
       # @enableProxy(egress="strict")
@@ -130,10 +160,8 @@ describe('proxy decorators', () => {
     // ...and both detached rules are collected, including the approve rule.
     const rules = await graph.getProxyRules();
     expect(rules).toMatchObject([
-      { source: 'detached', domain: ['api.a.com'] },
-      {
-        source: 'detached', domain: ['api.b.com'], path: '/admin/**', approval: true,
-      },
+      { domain: ['api.a.com'] },
+      { domain: ['api.b.com'], path: '/admin/**', approval: true },
     ]);
   });
 
@@ -234,9 +262,11 @@ describe('proxy decorators', () => {
     const managed = await graph.getProxyManagedItems();
     const byKey = Object.fromEntries(managed.map((item) => [item.key, item]));
 
-    // Explicit @placeholder wins; @type constraints derive a format-shaped placeholder.
+    // Explicit @placeholder wins; @type constraints derive a format-shaped
+    // placeholder honoring startsWith + isLength, while staying unique.
     expect(byKey.EXPLICIT_KEY?.placeholder).toBe('sk_test_explicit');
-    expect(byKey.TYPE_KEY?.placeholder).toBe('tok_00000000');
+    expect(byKey.TYPE_KEY?.placeholder).toMatch(/^tok_[0-9a-f]{8}$/);
+    expect(byKey.TYPE_KEY?.placeholder).toHaveLength(12);
     expect(byKey.EXPLICIT_KEY?.placeholderIsGenericFallback).toBeFalsy();
     expect(byKey.TYPE_KEY?.placeholderIsGenericFallback).toBeFalsy();
 
@@ -247,5 +277,57 @@ describe('proxy decorators', () => {
     expect(byKey.EXPLICIT_KEY?.realValue).toBe('sk_live_real_explicit');
     expect(byKey.TYPE_KEY?.realValue).toBe('tok_real_secret');
     expect(byKey.NO_HINT_KEY?.realValue).toBe('whatever_real_secret');
+  });
+});
+
+describe('proxy resolution view (proxied re-resolution)', () => {
+  // Build a graph but apply a proxy view BEFORE resolving, mimicking a proxied
+  // child re-running `varlock load`/`printenv`. The real value must never surface.
+  async function loadWithView(
+    envFile: string,
+    view: NonNullable<EnvGraph['proxyResolutionView']>,
+  ) {
+    const graph = new EnvGraph();
+    const source = new DotEnvFileDataSource('.env.schema', { overrideContents: envFile });
+    await graph.setRootDataSource(source);
+    await graph.finishLoad();
+    graph.proxyResolutionView = view;
+    await graph.resolveEnvValues();
+    return graph;
+  }
+
+  test('forces a placeholder for a sensitive item and skips coerce/validate', async () => {
+    const graph = await loadWithView(
+      outdent`
+        # ---
+        # @sensitive @type=number
+        NUM_SECRET=42
+      `,
+      { NUM_SECRET: { kind: 'placeholder', value: 'vlk_placeholder_NUM_SECRET_abcd1234' } },
+    );
+
+    const item = graph.configSchema.NUM_SECRET;
+    // A non-numeric placeholder is accepted verbatim — no coercion/validation error,
+    // because the real value was already validated upstream by the proxy daemon.
+    expect(item.resolvedValue).toBe('vlk_placeholder_NUM_SECRET_abcd1234');
+    expect(item.coercionError).toBeUndefined();
+    expect(item.validationErrors).toBeUndefined();
+    // and the real value is gone
+    expect(graph.getResolvedEnvObject().NUM_SECRET).not.toBe(42);
+  });
+
+  test('omits an item to undefined without tripping the required check', async () => {
+    const graph = await loadWithView(
+      outdent`
+        # ---
+        # @sensitive @required
+        REQ_SECRET=real-secret
+      `,
+      { REQ_SECRET: { kind: 'omit' } },
+    );
+
+    const item = graph.configSchema.REQ_SECRET;
+    expect(item.resolvedValue).toBeUndefined();
+    expect(item.validationErrors).toBeUndefined();
   });
 });

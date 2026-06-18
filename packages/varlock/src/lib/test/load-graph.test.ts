@@ -5,12 +5,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const { getProxyPlaceholderOverridesForEnvMock } = vi.hoisted(() => ({
-  getProxyPlaceholderOverridesForEnvMock: vi.fn(),
+const { getProxyResolutionViewForEnvMock, getActiveProxySessionMock } = vi.hoisted(() => ({
+  getProxyResolutionViewForEnvMock: vi.fn(),
+  getActiveProxySessionMock: vi.fn(),
 }));
 
 vi.mock('../../proxy/session-registry', () => ({
-  getProxyPlaceholderOverridesForEnv: getProxyPlaceholderOverridesForEnvMock,
+  getProxyResolutionViewForEnv: getProxyResolutionViewForEnvMock,
+  // The schema-fingerprint guard (run by loadVarlockEnvGraph) resolves the active
+  // session through this; no session in these tests.
+  getActiveProxySession: getActiveProxySessionMock,
 }));
 
 import { loadVarlockEnvGraph } from '../load-graph';
@@ -26,29 +30,42 @@ describe('loadVarlockEnvGraph', () => {
       'API_KEY=real-secret',
       '',
     ].join('\n'));
-    getProxyPlaceholderOverridesForEnvMock.mockReset();
-    getProxyPlaceholderOverridesForEnvMock.mockResolvedValue(undefined);
+    getProxyResolutionViewForEnvMock.mockReset();
+    getProxyResolutionViewForEnvMock.mockResolvedValue(undefined);
+    getActiveProxySessionMock.mockReset();
+    getActiveProxySessionMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  test('uses schema value when no proxy placeholder overrides exist', async () => {
+  test('uses schema value when no proxy resolution view exists', async () => {
     const graph = await loadVarlockEnvGraph({ entryFilePaths: [tempDir] });
     await graph.resolveEnvValues();
 
     expect(graph.getResolvedEnvObject().API_KEY).toBe('real-secret');
   });
 
-  test('applies proxy placeholder overrides when present', async () => {
-    getProxyPlaceholderOverridesForEnvMock.mockResolvedValue({
-      API_KEY: '<<PROXY_PLACEHOLDER>>',
+  test('applies a proxy placeholder directive when present', async () => {
+    getProxyResolutionViewForEnvMock.mockResolvedValue({
+      API_KEY: { kind: 'placeholder', value: '<<PROXY_PLACEHOLDER>>' },
     });
 
     const graph = await loadVarlockEnvGraph({ entryFilePaths: [tempDir] });
     await graph.resolveEnvValues();
 
     expect(graph.getResolvedEnvObject().API_KEY).toBe('<<PROXY_PLACEHOLDER>>');
+  });
+
+  test('resolves an omitted item to undefined without erroring', async () => {
+    getProxyResolutionViewForEnvMock.mockResolvedValue({
+      API_KEY: { kind: 'omit' },
+    });
+
+    const graph = await loadVarlockEnvGraph({ entryFilePaths: [tempDir] });
+    await graph.resolveEnvValues();
+
+    expect(graph.getResolvedEnvObject().API_KEY).toBeUndefined();
   });
 });

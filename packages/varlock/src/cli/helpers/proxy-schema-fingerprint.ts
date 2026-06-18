@@ -11,12 +11,10 @@ import {
 
 import type { EnvGraph } from '../../env-graph';
 import { CliExitError } from './exit-error';
-import { getProxySessionByToken } from '../../proxy/session-registry';
+import { getActiveProxySession } from '../../proxy/session-registry';
 import {
   PROXY_CHILD_ENV_VAR,
   PROXY_SCHEMA_FINGERPRINT_ENV_VAR,
-  PROXY_SESSION_ID_ENV_VAR,
-  PROXY_SESSION_UUID_ENV_VAR,
 } from '../../proxy/env-vars';
 
 /**
@@ -102,22 +100,25 @@ export function buildProxySchemaFingerprint(envGraph: EnvGraph): string {
  *
  * No-ops outside a proxied context, and when there's no stored fingerprint to
  * compare against (fails open rather than blocking unrelated commands).
+ *
+ * Detection goes through the shared `getActiveProxySession` resolver (env marker
+ * → session token → process ancestry), so clearing `__VARLOCK_PROXY_CHILD` alone
+ * does not bypass the guard — the session token and ancestry still resolve the
+ * session whose fingerprint we enforce against.
  */
 export async function enforceProxySchemaFingerprint(
   envGraph: EnvGraph,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  if (env[PROXY_CHILD_ENV_VAR] !== '1') return;
+  const session = await getActiveProxySession(env).catch(() => undefined);
 
-  // Prefer the session record as source of truth; fall back to the
-  // env-exported fingerprint if the registry can't be read.
-  const sessionToken = env[PROXY_SESSION_ID_ENV_VAR] ?? env[PROXY_SESSION_UUID_ENV_VAR];
-  let expected: string | undefined;
-  if (sessionToken) {
-    const session = await getProxySessionByToken(sessionToken).catch(() => undefined);
-    expected = session?.schemaFingerprint;
+  // Prefer the resolved session's fingerprint as source of truth; fall back to
+  // the env-exported fingerprint only when we know we're in a proxy child (marker
+  // present) but the registry couldn't be read.
+  let expected = session?.schemaFingerprint;
+  if (!expected && env[PROXY_CHILD_ENV_VAR] === '1') {
+    expected = env[PROXY_SCHEMA_FINGERPRINT_ENV_VAR];
   }
-  expected ??= env[PROXY_SCHEMA_FINGERPRINT_ENV_VAR];
   if (!expected) return;
 
   const actual = buildProxySchemaFingerprint(envGraph);

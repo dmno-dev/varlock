@@ -3,7 +3,20 @@ import http from 'node:http';
 import { URL } from 'node:url';
 
 import type { ProxyActivity } from './audit';
-import { startLocalProxyRuntime } from './runtime-proxy';
+import { replacePlaceholdersWithReal, startLocalProxyRuntime } from './runtime-proxy';
+
+describe('replacePlaceholdersWithReal', () => {
+  test('substitutes the longest placeholder first so substring placeholders are not corrupted', () => {
+    // P1 is a prefix of P2 — naive left-to-right replacement would splice R1 into
+    // P2's text and never match P2 correctly.
+    const managedItems = [
+      { key: 'A', placeholder: 'vlk_x', realValue: 'REAL_A' },
+      { key: 'B', placeholder: 'vlk_x_1', realValue: 'REAL_B' },
+    ];
+    const input = 'a=vlk_x&b=vlk_x_1';
+    expect(replacePlaceholdersWithReal(input, managedItems as any)).toBe('a=REAL_A&b=REAL_B');
+  });
+});
 
 async function requestViaProxy(proxyUrl: string, targetUrl: string, headers?: Record<string, string>) {
   const proxy = new URL(proxyUrl);
@@ -86,7 +99,7 @@ describe('startLocalProxyRuntime', () => {
     // Reconfigure to allow 127.0.0.1 → the same request now reaches the upstream.
     runtime.reconfigure({
       managedItems: [],
-      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: [] }],
+      rules: [{ domain: ['127.0.0.1'], itemKeys: [] }],
       egressMode: 'strict',
     });
     const allowed = await requestViaProxy(runtime.env.HTTP_PROXY!, target);
@@ -120,7 +133,7 @@ describe('startLocalProxyRuntime', () => {
 
     const runtime = await startLocalProxyRuntime({
       managedItems: [{ key: 'API_KEY', placeholder: 'PH_placeholder', realValue: 'sk-REAL-secret' }],
-      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: ['API_KEY'] }],
+      rules: [{ domain: ['127.0.0.1'], itemKeys: ['API_KEY'] }],
       egressMode: 'permissive',
     });
 
@@ -159,7 +172,7 @@ describe('startLocalProxyRuntime', () => {
       // No injected items — these tests exercise forwarding/streaming behavior,
       // not injection (which now requires TLS, see proxy-tls.test.ts).
       managedItems: [],
-      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: [] }],
+      rules: [{ domain: ['127.0.0.1'], itemKeys: [] }],
       egressMode: 'permissive',
     });
 
@@ -214,7 +227,7 @@ describe('startLocalProxyRuntime', () => {
       managedItems: [],
       rules: [
         {
-          source: 'attached', domain: ['127.0.0.1'], itemKeys: [], block: true,
+          domain: ['127.0.0.1'], itemKeys: [], block: true,
         },
       ],
       egressMode: 'permissive',
@@ -247,7 +260,7 @@ describe('startLocalProxyRuntime', () => {
     const activities: Array<ProxyActivity> = [];
     const runtime = await startLocalProxyRuntime({
       managedItems: [{ key: 'API_KEY', placeholder: 'PH_placeholder', realValue: 'sk-REAL-secret' }],
-      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: ['API_KEY'] }],
+      rules: [{ domain: ['127.0.0.1'], itemKeys: ['API_KEY'] }],
       egressMode: 'permissive',
       onActivity: (a) => activities.push(a),
     });
@@ -277,7 +290,7 @@ describe('startLocalProxyRuntime', () => {
     const activities: Array<ProxyActivity> = [];
     const runtime = await startLocalProxyRuntime({
       managedItems: [],
-      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: [] }],
+      rules: [{ domain: ['127.0.0.1'], itemKeys: [] }],
       egressMode: 'permissive',
       onActivity: (a) => activities.push(a),
     });
@@ -316,7 +329,7 @@ describe('startLocalProxyRuntime', () => {
       managedItems: [],
       rules: [
         {
-          source: 'attached', domain: ['127.0.0.1'], itemKeys: [], approval: true,
+          domain: ['127.0.0.1'], itemKeys: [], approval: true,
         },
       ],
       egressMode: 'permissive',
@@ -355,7 +368,7 @@ describe('startLocalProxyRuntime', () => {
       managedItems: [],
       rules: [
         {
-          source: 'attached', domain: ['127.0.0.1'], itemKeys: [], approval: true,
+          domain: ['127.0.0.1'], itemKeys: [], approval: true,
         },
       ],
       egressMode: 'permissive',
@@ -405,7 +418,7 @@ describe('startLocalProxyRuntime', () => {
       // No injected items — these tests exercise forwarding/streaming behavior,
       // not injection (which now requires TLS, see proxy-tls.test.ts).
       managedItems: [],
-      rules: [{ source: 'attached', domain: ['127.0.0.1'], itemKeys: [] }],
+      rules: [{ domain: ['127.0.0.1'], itemKeys: [] }],
       egressMode: 'permissive',
     });
 

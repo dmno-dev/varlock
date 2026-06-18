@@ -27,8 +27,9 @@ import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
 import { isVarlockReservedKey } from './reserved-vars';
 import { buildOverrideProvenanceMetadata, type OverrideProvenanceMetadata } from '../../lib/injected-env-provenance';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
-import type {
-  ProxyApprovalEach, ProxyEgressMode, ProxyManagedItem, ProxyRule,
+import {
+  PROXY_APPROVAL_EACH_VALUES,
+  type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule,
 } from '../../proxy/types';
 import { parseDuration } from '../../lib/duration';
 
@@ -80,6 +81,15 @@ export type SerializedEnvGraph = {
   errors?: SerializedEnvGraphErrors;
 };
 
+/**
+ * Per-item directive applied during resolution inside a proxy-child context:
+ * substitute a placeholder for the (sensitive) value, or omit it entirely.
+ */
+export type ProxyResolutionView = Record<
+  string,
+  { kind: 'placeholder'; value: string } | { kind: 'omit' }
+>;
+
 /** container of the overall graph and current resolution attempt / values */
 export class EnvGraph {
   // TODO: not sure if this should be the graph of _everything_ in a workspace/project
@@ -103,6 +113,16 @@ export class EnvGraph {
 
   /** place to store process.env overrides */
   overrideValues: Record<string, string | undefined> = {};
+
+  /**
+   * Proxy-child resolution view: when a graph is loaded inside a `varlock proxy`
+   * session, each sensitive item is forced to a placeholder (or omitted) at
+   * resolution time so re-resolving the schema can never surface the real value.
+   * Set by `load-graph` from the active session's record. The real values were
+   * already validated by the proxy daemon, so these short-circuit coerce/validate
+   * and the required check. Empty/undefined outside a proxied context.
+   */
+  proxyResolutionView?: ProxyResolutionView;
 
   /** config item key of env flag (toggles env-specific data sources enabled) */
   envFlagKey?: string;
@@ -893,8 +913,39 @@ export class EnvGraph {
   }
 
   /**
+   * Validate a *resolved* `@proxy(...)` arg object — catches misconfigurations
+   * that only surface after dynamic resolution (where the static load-time
+   * validator can't see the value). Fail loud rather than silently dropping a
+   * security-relevant option (a dropped `block`/`approval` is a permissive rule).
+   */
+  private static validateResolvedProxyObj(obj: any): void {
+    if (obj?.block !== undefined && !_.isBoolean(obj.block)) {
+      throw new SchemaError(`@proxy: block must resolve to a boolean, got ${JSON.stringify(obj.block)}`);
+    }
+    if (obj?.approval !== undefined && !_.isBoolean(obj.approval)) {
+      throw new SchemaError(`@proxy: approval must resolve to a boolean, got ${JSON.stringify(obj.approval)}`);
+    }
+    if (obj?.path !== undefined && !_.isString(obj.path)) {
+      throw new SchemaError(`@proxy: path must resolve to a string, got ${JSON.stringify(obj.path)}`);
+    }
+    const eachOk = _.isString(obj?.approvalEach)
+      && PROXY_APPROVAL_EACH_VALUES.includes(obj.approvalEach as ProxyApprovalEach);
+    if (obj?.approvalEach !== undefined && !eachOk) {
+      throw new SchemaError(`@proxy: approvalEach must be one of ${PROXY_APPROVAL_EACH_VALUES.join(', ')}`);
+    }
+    if (obj?.approvalMaxDuration !== undefined) {
+      try {
+        parseDuration(obj.approvalMaxDuration);
+      } catch {
+        throw new SchemaError('@proxy: approvalMaxDuration must be a duration like "15m" or 0 (always ask)');
+      }
+    }
+  }
+
+  /**
    * Approval fields for a rule, from a resolved `@proxy(...)` arg object.
    * Approval is required if `approval=true` or any approval config prop is set.
+   * Assumes the object has already passed `validateResolvedProxyObj`.
    */
   private static buildProxyApprovalFields(obj: any): Partial<ProxyRule> {
     const approvalEach = _.isString(obj?.approvalEach) ? (obj.approvalEach as ProxyApprovalEach) : undefined;
@@ -915,12 +966,12 @@ export class EnvGraph {
     // detached rules from root-level @proxy(...)
     for (const rootProxyDec of this.getRootDecFns('proxy')) {
       const resolved = await rootProxyDec.resolve();
+      EnvGraph.validateResolvedProxyObj(resolved?.obj);
       const domain = EnvGraph.normalizeStringList(resolved?.obj?.domain);
       if (domain.length === 0) continue;
 
       const method = EnvGraph.normalizeStringList(resolved?.obj?.method);
       rules.push({
-        source: 'detached',
         domain,
         itemKeys: EnvGraph.normalizeStringList(resolved?.obj?.keys),
         ...(_.isString(resolved?.obj?.path) ? { path: resolved.obj.path } : {}),
@@ -935,6 +986,7 @@ export class EnvGraph {
       const item = this.configSchema[itemKey];
       for (const itemProxyDec of item.getDecFns('proxy')) {
         const resolved = await itemProxyDec.resolve();
+        EnvGraph.validateResolvedProxyObj(resolved?.obj);
         const domain = EnvGraph.normalizeStringList(resolved?.obj?.domain);
         if (domain.length === 0) continue;
 
@@ -942,7 +994,6 @@ export class EnvGraph {
         const extraKeys = EnvGraph.normalizeStringList(resolved?.obj?.keys);
         const itemKeys = _.uniq([itemKey, ...extraKeys]);
         rules.push({
-          source: 'attached',
           domain,
           itemKeys,
           ...(_.isString(resolved?.obj?.path) ? { path: resolved.obj.path } : {}),

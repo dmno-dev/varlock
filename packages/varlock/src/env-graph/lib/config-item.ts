@@ -674,6 +674,27 @@ export class ConfigItem {
     await this.processRequired();
     await this.processSensitive();
 
+    // Proxy-child resolution view: inside a `varlock proxy` session, a sensitive
+    // item is forced to its placeholder (or omitted) instead of resolving the real
+    // value — so re-running `varlock load`/`printenv`/`run` can never surface a
+    // secret the proxy is meant to hide. Runs after decorators (so isSensitive,
+    // isRequired, etc. are correct for serialization) but short-circuits value
+    // resolution, coercion, validation and the required check: the real value was
+    // already validated upstream by the proxy daemon.
+    const proxyDirective = this.envGraph.proxyResolutionView?.[this.key];
+    if (proxyDirective) {
+      this.isResolved = true;
+      if (proxyDirective.kind === 'placeholder') {
+        this.resolvedRawValue = proxyDirective.value;
+        this.resolvedValue = proxyDirective.value;
+      } else {
+        this.resolvedRawValue = undefined;
+        this.resolvedValue = undefined;
+      }
+      this.isValidated = true;
+      return;
+    }
+
     // Resolver functions like varlock() and keychain() imply sensitivity —
     // override defaults but respect explicit per-item @sensitive=false / @public
     if (this.valueResolver?.def?.impliesSensitive && !this._sensitiveExplicitlySet) {

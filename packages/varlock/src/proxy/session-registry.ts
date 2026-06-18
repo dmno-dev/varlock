@@ -7,6 +7,7 @@ import { join } from 'node:path';
 
 import { getUserVarlockDir } from '../lib/user-config-dir';
 import { getAncestorPids } from './process-ancestry';
+import type { ProxyResolutionView } from '../env-graph';
 import type { ProxyEgressMode } from './types';
 import {
   PROXY_CHILD_ENV_VAR,
@@ -25,11 +26,27 @@ export type ProxySessionRecord = {
   updatedAt: string;
   /** Set once the session's process has stopped. A session dir is a durable record; it's marked ended, not deleted. */
   endedAt?: string;
-  /** A long-lived `proxy start` daemon that can hot-reload its policy on `proxy refresh` (via SIGHUP). One-shot `proxy run` sessions are not reloadable. */
+  /** A long-lived `proxy start` daemon that can hot-reload its policy on `proxy refresh` (via the file reload channel). One-shot `proxy run` sessions are not reloadable. */
   reloadable?: boolean;
+  /**
+   * Pids of `proxy run` processes that attached to this (shared daemon) session.
+   * Ancestry detection matches these so a process under an *attached* run is
+   * recognized as proxied even if it scrubs the `__VARLOCK_PROXY_*` env markers —
+   * the daemon's `ownerPid` is not in an attached child's ancestor chain, but the
+   * attaching `proxy run` process is. Self-owned runs don't need this (their
+   * `ownerPid` is already an ancestor). Dead pids are harmless and pruned on read.
+   */
+  attachedPids?: Array<number>;
   egressMode: ProxyEgressMode;
   schemaFingerprint?: string;
+  /**
+   * Sensitive item key → placeholder shown to the child. Covers `@proxy`-managed
+   * (wire-injected) items and, by default, every other sensitive item. The child
+   * re-resolves these to the placeholder instead of the real value.
+   */
   placeholderOverrides?: Record<string, string>;
+  /** Keys explicitly `@proxy=omit` — absent from the child env and resolved to undefined. */
+  omittedKeys?: Array<string>;
   stats?: ProxySessionStats;
   env: Record<string, string>;
   entryPaths?: Array<string>;
@@ -99,6 +116,9 @@ function parseSessionRecord(raw: string, filePath: string): ProxySessionRecord |
       updatedAt: String(parsed.updatedAt),
       ...(parsed.endedAt ? { endedAt: String(parsed.endedAt) } : {}),
       ...(parsed.reloadable ? { reloadable: true } : {}),
+      ...(Array.isArray(parsed.attachedPids)
+        ? { attachedPids: parsed.attachedPids.map((v) => Number(v)).filter((n) => Number.isFinite(n)) }
+        : {}),
       egressMode: parsed.egressMode as ProxyEgressMode,
       ...(parsed.schemaFingerprint ? { schemaFingerprint: String(parsed.schemaFingerprint) } : {}),
       ...(parsed.placeholderOverrides && typeof parsed.placeholderOverrides === 'object'
@@ -107,6 +127,9 @@ function parseSessionRecord(raw: string, filePath: string): ProxySessionRecord |
             Object.entries(parsed.placeholderOverrides as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
           ),
         }
+        : {}),
+      ...(Array.isArray(parsed.omittedKeys)
+        ? { omittedKeys: parsed.omittedKeys.map((v) => String(v)) }
         : {}),
       ...(parsed.stats && typeof parsed.stats === 'object'
         ? {
@@ -267,14 +290,72 @@ export async function resolveActiveProxySession(
 
   const ancestors = new Set(getAncestorPids());
   return sessions.find(
-    (s) => ancestors.has(s.ownerPid) || (s.childPid !== undefined && ancestors.has(s.childPid)),
+    (s) => ancestors.has(s.ownerPid)
+      || (s.childPid !== undefined && ancestors.has(s.childPid))
+      || (s.attachedPids?.some((pid) => ancestors.has(pid)) ?? false),
   );
 }
 
-export async function getProxyPlaceholderOverridesForEnv(env: NodeJS.ProcessEnv = process.env) {
-  const session = await resolveActiveProxySession(env);
-  if (!session?.placeholderOverrides) return undefined;
-  return session.placeholderOverrides;
+/**
+ * Memoized authoritative "what proxy session is this process running under?".
+ * Proxy-child status is invariant for a process's lifetime (its place in the
+ * process tree and its injected env don't change), so we resolve it at most once
+ * per process for the real `process.env` path — the ancestry walk can spawn `ps`
+ * on non-Linux, so repeating it on every guard/load would be wasteful. Explicit
+ * `env` args (tests) bypass the cache so each scenario resolves fresh.
+ *
+ * This is the single seam every consumer (context guard, fingerprint guard,
+ * load-graph placeholder/omit view) should use, so detection lives in one place.
+ */
+let memoizedDefaultSession: Promise<ProxySessionRecord | undefined> | undefined;
+
+export async function getActiveProxySession(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ProxySessionRecord | undefined> {
+  if (env !== process.env) return resolveActiveProxySession(env);
+  memoizedDefaultSession ??= resolveActiveProxySession(env).catch((err) => {
+    // Don't cache a rejection — allow a later call to retry.
+    memoizedDefaultSession = undefined;
+    throw err;
+  });
+  return memoizedDefaultSession;
+}
+
+/** Test-only: clear the per-process memoized detection result. */
+export function resetActiveProxySessionCache() {
+  memoizedDefaultSession = undefined;
+}
+
+/**
+ * Whether this process is running inside a proxy session. The injected env marker
+ * is the fast path; the session token and process ancestry (via
+ * `getActiveProxySession`) are the authoritative fallbacks a child can't shed by
+ * clearing `__VARLOCK_PROXY_CHILD`.
+ */
+export async function isProxyChildContext(env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  if (env[PROXY_CHILD_ENV_VAR] === '1') return true;
+  return !!(await getActiveProxySession(env));
+}
+
+/**
+ * The proxy-child resolution view for the active session: each placeholder key →
+ * a placeholder directive, each omitted key → an omit directive. Consumed by
+ * `load-graph` to force sensitive items to placeholders (or unset) during a
+ * proxied re-resolution. Returns undefined outside a proxy context.
+ */
+export async function getProxyResolutionViewForEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ProxyResolutionView | undefined> {
+  const session = await getActiveProxySession(env);
+  if (!session) return undefined;
+  const view: ProxyResolutionView = {};
+  for (const [key, value] of Object.entries(session.placeholderOverrides ?? {})) {
+    view[key] = { kind: 'placeholder', value };
+  }
+  for (const key of session.omittedKeys ?? []) {
+    view[key] = { kind: 'omit' };
+  }
+  return Object.keys(view).length ? view : undefined;
 }
 
 export async function updateProxySessionRecord(
@@ -290,6 +371,27 @@ export async function updateProxySessionRecord(
   };
   await writeFile(getSessionFilePath(existing.uuid), JSON.stringify(next, null, 2), { mode: 0o600 });
   return next;
+}
+
+/**
+ * Register an attaching `proxy run` process pid on a (shared daemon) session so
+ * ancestry detection recognizes processes under that run. Read-modify-write on
+ * the shared record; concurrent attaches race but that's tolerable for the local
+ * single-user MVP. Dead pids are pruned here.
+ */
+export async function addProxySessionAttachment(uuid: string, pid: number) {
+  const existing = await getProxySessionByToken(uuid);
+  if (!existing) return;
+  const live = (existing.attachedPids ?? []).filter((p) => isProcessRunning(p));
+  const next = Array.from(new Set([...live, pid]));
+  await updateProxySessionRecord(uuid, { attachedPids: next });
+}
+
+export async function removeProxySessionAttachment(uuid: string, pid: number) {
+  const existing = await getProxySessionByToken(uuid);
+  if (!existing?.attachedPids) return;
+  const next = existing.attachedPids.filter((p) => p !== pid && isProcessRunning(p));
+  await updateProxySessionRecord(uuid, { attachedPids: next });
 }
 
 export async function resolveProxySessionForCommand(opts?: {

@@ -23,6 +23,7 @@ import {
   type ApprovalGrantStore,
 } from '../../proxy/approval-grants';
 import {
+  addProxySessionAttachment,
   cleanupStaleProxySessions,
   createProxySessionRecord,
   markProxySessionEnded,
@@ -30,6 +31,7 @@ import {
   getProxySessionExportEnv,
   isProcessRunning,
   listProxySessions,
+  removeProxySessionAttachment,
   reserveProxySessionIdentity,
   resolveProxySessionForCommand,
   updateProxySessionRecord,
@@ -48,8 +50,10 @@ import {
   type ProxyReloadResult,
 } from '../../proxy/reload-channel';
 import type { ProxyManagedItem, ProxyRule } from '../../proxy/types';
+import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
-import { resetRedactionMap, redactSensitiveConfig } from '../../runtime/env';
+import { resetRedactionMap } from '../../runtime/env';
+import { createRedactedStreamWriter } from '../../runtime/lib/redact-stream';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import {
@@ -127,6 +131,14 @@ type PreparedProxyPolicy = {
   proxyManagedItems: Array<ProxyManagedItem>;
   proxyRules: Array<ProxyRule>;
   egressMode: 'permissive' | 'strict';
+  /**
+   * Every sensitive item key → the placeholder the child sees (managed/wire items
+   * plus every other sensitive item, which gets a placeholder by default). Stored
+   * on the session so a proxied re-resolution yields the same placeholders.
+   */
+  placeholderByKey: Record<string, string>;
+  /** Keys explicitly `@proxy=omit` — withheld from the child env entirely. */
+  omittedKeys: Array<string>;
 };
 
 const EMPTY_PROXY_SESSION_STATS: ProxySessionStats = {
@@ -202,34 +214,46 @@ function getProxyValueMode(
 }
 
 /**
- * Keys withheld (omitted) from the proxied child. An item is omitted when it's
- * not `@proxy`-managed (placeholder) and not `@proxy=passthrough` (real value),
- * and is either sensitive (omitted by default — least privilege) or explicitly
- * marked `@proxy=omit`. `_VARLOCK_*` reserved keys are internal infra, never
- * omitted. Returns `{ explicit }` so the caller can warn only about implicit
- * omits ("no proxy policy set").
+ * The proxy view of the child env, computed from the resolved (real-value) graph:
+ *  - `placeholderByKey`: every sensitive item the child should see a placeholder
+ *    for — the `@proxy`-managed/wire items plus, by default, every other sensitive
+ *    item (least privilege: the agent never sees a real secret unless explicitly
+ *    opted in). Managed placeholders are passed in so the two share uniqueness.
+ *  - `omittedKeys`: items explicitly marked `@proxy=omit` — withheld entirely.
+ *
+ * `@proxy=passthrough` and non-sensitive items keep their real values.
+ * `_VARLOCK_*` reserved keys are internal infra and never touched.
  */
-export function getProxyOmittedKeys(
+export async function computeProxyChildView(
   envGraph: Awaited<ReturnType<typeof loadVarlockEnvGraph>>,
   proxyManagedItems: Array<ProxyManagedItem>,
-): Array<{ key: string; explicit: boolean }> {
+): Promise<{ placeholderByKey: Record<string, string>; omittedKeys: Array<string> }> {
   const managedKeys = new Set(proxyManagedItems.map((item) => item.key));
-  const omitted: Array<{ key: string; explicit: boolean }> = [];
+  const placeholderByKey: Record<string, string> = {};
+  for (const item of proxyManagedItems) placeholderByKey[item.key] = item.placeholder;
+
+  // Seed uniqueness with the managed placeholders so default-sensitive placeholders
+  // can't collide (collisions would corrupt wire scrubbing).
+  const usedPlaceholders = new Set(proxyManagedItems.map((item) => item.placeholder));
+  const omittedKeys: Array<string> = [];
+
   for (const key of envGraph.sortedConfigKeys) {
     if (isVarlockReservedKey(key)) continue;
+    if (managedKeys.has(key)) continue;
     const item = envGraph.configSchema[key];
     if (!item || item.resolvedValue === undefined) continue;
-    if (managedKeys.has(key)) continue;
     const mode = getProxyValueMode(item);
     if (mode === 'passthrough') continue; // inject the real value
     if (mode === 'omit') {
-      omitted.push({ key, explicit: true });
+      omittedKeys.push(key);
       continue;
     }
     if (!item.isSensitive) continue; // non-sensitive with no policy → injected normally
-    omitted.push({ key, explicit: false }); // sensitive default → omit (and warn)
+    const { placeholder } = await generateProxyPlaceholderForItem(item, usedPlaceholders);
+    placeholderByKey[key] = placeholder; // sensitive default → placeholder
   }
-  return omitted;
+
+  return { placeholderByKey, omittedKeys };
 }
 
 function quoteForShell(value: string): string {
@@ -305,34 +329,20 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
     );
   }
 
-  // Default-omit (least privilege): a sensitive item with no @proxy policy (and no
-  // @proxy=passthrough) is withheld from the child entirely — dropped from both
-  // the individual vars and the injected blob, so the agent never sees it.
-  const omittedKeys = getProxyOmittedKeys(envGraph, proxyManagedItems);
-  if (omittedKeys.length) {
-    for (const { key } of omittedKeys) {
-      delete resolvedEnv[key];
-      delete serializedGraph.config[key];
-    }
-    // Only warn about items omitted by default — items explicitly marked
-    // @proxy=omit were an intentional choice and don't need a warning.
-    const warnKeys = omittedKeys.filter((o) => !o.explicit).map((o) => o.key);
-    if (warnKeys.length) {
-      console.error(
-        `⚠️  The following sensitive var(s) were omitted from the proxied child because no proxy policy is set for them: ${warnKeys.join(', ')}`,
-      );
-      console.error(
-        '   Add @proxy(...) to route a value through the proxy (agent sees a placeholder), '
-          + '@proxy=passthrough to inject the real value, or @proxy=omit to omit it explicitly.',
-      );
+  // Least privilege by default: every sensitive item the child sees is a
+  // placeholder (managed/wire items plus the rest), unless explicitly opted out
+  // with @proxy=passthrough (real value) or @proxy=omit (withheld entirely).
+  const { placeholderByKey, omittedKeys } = await computeProxyChildView(envGraph, proxyManagedItems);
+
+  for (const [key, placeholder] of Object.entries(placeholderByKey)) {
+    resolvedEnv[key] = placeholder;
+    if (serializedGraph.config[key]) {
+      serializedGraph.config[key].value = placeholder;
     }
   }
-
-  for (const managedItem of proxyManagedItems) {
-    resolvedEnv[managedItem.key] = managedItem.placeholder;
-    if (serializedGraph.config[managedItem.key]) {
-      serializedGraph.config[managedItem.key].value = managedItem.placeholder;
-    }
+  for (const key of omittedKeys) {
+    delete resolvedEnv[key];
+    delete serializedGraph.config[key];
   }
 
   return {
@@ -342,6 +352,8 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
     proxyManagedItems,
     proxyRules,
     egressMode: serializedGraph.settings?.proxyEgress ?? 'permissive',
+    placeholderByKey,
+    omittedKeys,
   };
 }
 
@@ -399,9 +411,8 @@ async function createRuntimeAndSession(opts: {
     startedAt: now,
     egressMode: opts.policy.egressMode,
     schemaFingerprint: opts.policy.schemaFingerprint,
-    placeholderOverrides: Object.fromEntries(
-      opts.policy.proxyManagedItems.map((item) => [item.key, item.placeholder]),
-    ),
+    placeholderOverrides: opts.policy.placeholderByKey,
+    ...(opts.policy.omittedKeys.length ? { omittedKeys: opts.policy.omittedKeys } : {}),
     stats: cloneSessionStats(statsWriter.stats),
     env: Object.fromEntries(
       Object.entries(runtime.env).filter((entry): entry is [string, string] => !!entry[1]),
@@ -550,7 +561,6 @@ function startReloadServicer(opts: {
   let busy = false;
 
   const apply = async (requestId: string, entryPaths?: Array<string>): Promise<ProxyReloadResult> => {
-    const completedAt = new Date().toISOString();
     try {
       const latest = await getProxySessionByToken(opts.session.uuid).catch(() => undefined);
       const paths = entryPaths ?? latest?.entryPaths ?? opts.defaultEntryPaths;
@@ -566,18 +576,17 @@ function startReloadServicer(opts: {
       await updateProxySessionRecord(opts.session.uuid, {
         schemaFingerprint: next.schemaFingerprint,
         egressMode: next.egressMode,
-        placeholderOverrides: Object.fromEntries(
-          next.proxyManagedItems.map((item) => [item.key, item.placeholder]),
-        ),
+        placeholderOverrides: next.placeholderByKey,
+        omittedKeys: next.omittedKeys,
       });
       opts.log(`Reloaded proxy session ${opts.session.id} from schema (${next.proxyManagedItems.length} managed item(s)).`);
       return {
-        requestId, status: 'done', completedAt, managedItemCount: next.proxyManagedItems.length,
+        requestId, status: 'done', completedAt: new Date().toISOString(), managedItemCount: next.proxyManagedItems.length,
       };
     } catch (error) {
       opts.log(`Proxy reload failed: ${(error as Error).message}`);
       return {
-        requestId, status: 'error', completedAt, error: (error as Error).message,
+        requestId, status: 'error', completedAt: new Date().toISOString(), error: (error as Error).message,
       };
     }
   };
@@ -628,15 +637,26 @@ async function runAction(ctx: any) {
   let cleanup: () => Promise<void>;
 
   if (attachSession) {
-    // Use the daemon's authoritative placeholders so the child's values are
-    // exactly what the running proxy expects to substitute.
+    // Use the daemon's authoritative view so the child's values are exactly what
+    // the running proxy expects: its placeholders for sensitive items, and its
+    // omitted keys withheld entirely.
     for (const [key, placeholder] of Object.entries(attachSession.placeholderOverrides ?? {})) {
       policy.resolvedEnv[key] = placeholder;
       if (policy.serializedGraph.config[key]) policy.serializedGraph.config[key].value = placeholder;
     }
+    for (const key of attachSession.omittedKeys ?? []) {
+      delete policy.resolvedEnv[key];
+      delete policy.serializedGraph.config[key];
+    }
     session = attachSession;
+    // Register this `proxy run` process on the (shared daemon) session so ancestry
+    // detection recognizes the agent as proxied even if it scrubs the env markers —
+    // the daemon's ownerPid isn't in the agent's parent chain, but this pid is.
+    await addProxySessionAttachment(session.uuid, process.pid);
     console.error(`Attached to proxy session ${session.id}. Approval prompts (if any) appear in its terminal.`);
-    cleanup = async () => undefined; // nothing to tear down — the session is the daemon's
+    cleanup = async () => {
+      await removeProxySessionAttachment(session.uuid, process.pid).catch(() => undefined);
+    };
   } else {
     const created = await createRuntimeAndSession({
       policy,
@@ -708,11 +728,6 @@ async function runAction(ctx: any) {
     resetRedactionMap(redactionGraph);
   }
 
-  const writeRedacted = (stream: NodeJS.WriteStream, chunk: Buffer | string) => {
-    const str = chunk.toString();
-    stream.write(redactLogs ? redactSensitiveConfig(str) : str);
-  };
-
   if (noRedactStdout) {
     commandProcess = exec(rawCommand, commandArgsOnly, {
       stdio: 'inherit',
@@ -740,8 +755,20 @@ async function runAction(ctx: any) {
       stderr: 'pipe',
       env: redactEnv,
     });
-    commandProcess.stdout?.on('data', (chunk: Buffer | string) => writeRedacted(process.stdout, chunk));
-    commandProcess.stderr?.on('data', (chunk: Buffer | string) => writeRedacted(process.stderr, chunk));
+    // Pipe child output through the shared chunk-boundary-buffered redactor (the
+    // same one `varlock run` uses) so a secret split across two chunks is still
+    // caught — the proxy must redact the real values it injects at the wire.
+    if (redactLogs) {
+      const stdoutWriter = createRedactedStreamWriter(process.stdout);
+      const stderrWriter = createRedactedStreamWriter(process.stderr);
+      commandProcess.stdout?.on('data', stdoutWriter.write);
+      commandProcess.stdout?.on('close', stdoutWriter.flush);
+      commandProcess.stderr?.on('data', stderrWriter.write);
+      commandProcess.stderr?.on('close', stderrWriter.flush);
+    } else {
+      commandProcess.stdout?.on('data', (chunk: Buffer | string) => process.stdout.write(chunk));
+      commandProcess.stderr?.on('data', (chunk: Buffer | string) => process.stderr.write(chunk));
+    }
   }
 
   if (commandProcess.pid && !attachSession) {
@@ -965,7 +992,8 @@ async function refreshAction(ctx: any) {
     console.log(`Requested reload of proxy session ${session.id}; waiting…`);
     while (!interrupted) {
       const latest = await readReloadResult(session.uuid);
-      if (latest?.requestId === requestId && latest.status !== 'reloading') {
+      if (latest?.requestId === requestId) {
+        // `done`/`error` are both terminal — the servicer only writes a result once.
         result = latest;
         break;
       }

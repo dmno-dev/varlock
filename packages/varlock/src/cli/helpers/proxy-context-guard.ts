@@ -1,6 +1,6 @@
 import { CliExitError } from './exit-error';
 import { createDebug } from '../../lib/debug';
-import { resolveActiveProxySession } from '../../proxy/session-registry';
+import { getActiveProxySession } from '../../proxy/session-registry';
 import {
   PROXY_CHILD_ENV_VAR,
 } from '../../proxy/env-vars';
@@ -26,7 +26,7 @@ export function isProxyChildProcess(env: NodeJS.ProcessEnv = process.env): boole
 async function isInProxyContext(env: NodeJS.ProcessEnv): Promise<boolean> {
   if (isProxyChildProcess(env)) return true;
 
-  const session = await resolveActiveProxySession(env);
+  const session = await getActiveProxySession(env);
   if (session) {
     debug(
       'proxy context detected via process ancestry with the env marker absent '

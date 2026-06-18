@@ -144,12 +144,16 @@ async function runApprovalGate(input: {
   }
 }
 
-function replacePlaceholdersWithReal(value: string, managedItems: Array<ProxyManagedItem>): string {
+export function replacePlaceholdersWithReal(value: string, managedItems: Array<ProxyManagedItem>): string {
   let next = value;
-  for (const item of managedItems) {
-    if (item.placeholder) {
-      next = next.split(item.placeholder).join(item.realValue);
-    }
+  // Longest placeholder first, mirroring the scrub direction: if one placeholder
+  // is a substring of another (e.g. `vlk_x` and `vlk_x_1`), replacing the shorter
+  // one first would corrupt the longer one and splice in the wrong real value.
+  const sortedByPlaceholderLength = [...managedItems]
+    .filter((item) => !!item.placeholder)
+    .sort((a, b) => b.placeholder.length - a.placeholder.length);
+  for (const item of sortedByPlaceholderLength) {
+    next = next.split(item.placeholder).join(item.realValue);
   }
   return next;
 }
@@ -178,6 +182,53 @@ function replaceRealWithPlaceholders(value: string, managedItems: Array<ProxyMan
   }
   return next;
 }
+
+/**
+ * Fail-closed response for a blocked/failed request. When `teardown` is set (the
+ * MITM tunnel path), short status-only responses don't reliably flush through the
+ * CONNECT tunnel, so we write a best-effort response and destroy the socket. The
+ * absolute-form (plain http) path ends the response normally.
+ */
+function respondBlocked(
+  res: http.ServerResponse,
+  code: number,
+  message: string,
+  teardown: boolean,
+): void {
+  if (!res.headersSent) {
+    try {
+      if (teardown) {
+        res.writeHead(code, { 'content-type': 'text/plain', connection: 'close' });
+      } else {
+        res.statusCode = code;
+      }
+      res.end(message);
+    } catch { /* response may already be gone */ }
+  } else {
+    try {
+      res.end();
+    } catch { /* ignore */ }
+  }
+  if (teardown) res.socket?.destroy();
+}
+
+/** Transport-specific inputs for a proxied request, shared by the MITM-tunnel and
+ * absolute-form (plain http) handlers so the policy/approval/injection/forwarding
+ * logic lives in one place. */
+type ProxiedRequestTransport = {
+  host: string;
+  port: number;
+  isHttps: boolean;
+  method: string;
+  /** Path component for policy facts/activity (no query). */
+  pathOnly: string;
+  /** Origin-form path+query sent upstream (and scrubbed) — also used as the activity URL. */
+  requestTarget: string;
+  /** When set, override the upstream `Host` header (absolute-form). Undefined = pass the client's through (MITM). */
+  upstreamHostHeader?: string;
+  /** Deny/approval/error responses tear the socket down (MITM tunnel) rather than ending normally. */
+  tunnelTeardown: boolean;
+};
 
 function transformHeaders(
   headers: http.IncomingHttpHeaders,
@@ -419,35 +470,32 @@ export async function startLocalProxyRuntime({
   await writeFile(caCertPath, ca.certPem, 'utf8');
   await writeFile(combinedCaPath, `${ca.certPem}\n${tls.rootCertificates.join('\n')}\n`, 'utf8');
 
-  const handleInterceptRequest = async (req: http.IncomingMessage, res: http.ServerResponse) => {
-    const hostHeader = req.headers.host ?? '';
-    const hostInfo = parseHostPort(hostHeader.includes(':') ? hostHeader : `${hostHeader}:443`);
-    if (!hostInfo) {
-      res.statusCode = 400;
-      res.end('Invalid host');
-      return;
-    }
-
-    const method = req.method ?? 'GET';
-    const rawUrl = req.url ?? '/';
-    const pathOnly = rawUrl.split('?')[0] ?? '/';
+  // Shared request pipeline for both transports (MITM tunnel + absolute-form http):
+  // egress gate → per-call policy (block) → cleartext guard → approval gate →
+  // scrub+inject → forward upstream (verified identity) → scrub response. Every
+  // failure path fails closed via respondBlocked.
+  const processProxiedRequest = async (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    t: ProxiedRequestTransport,
+  ) => {
     const baseActivity = {
-      host: hostInfo.host, method, path: pathOnly, url: rawUrl,
+      host: t.host, method: t.method, path: t.pathOnly, url: t.requestTarget,
     };
 
-    const shouldRewrite = hostMatchesProxyRules(hostInfo.host, rules);
+    const shouldRewrite = hostMatchesProxyRules(t.host, rules);
     const shouldAllowEgress = egressMode === 'permissive' || shouldRewrite;
     if (!shouldAllowEgress) {
       onActivity?.({
         ...baseActivity, matched: shouldRewrite, blocked: true, decision: 'blocked-egress',
       });
-      res.statusCode = 403;
-      res.end('Proxy egress blocked by strict mode');
+      respondBlocked(res, 403, 'Proxy egress blocked by strict mode', false);
       return;
     }
-    // Per-call policy (Invariant: static authorization). Evaluate host + method
-    // + path against the rules; a matching `block` rule denies the request.
-    const facts: RequestFacts = { host: hostInfo.host, method, path: pathOnly };
+
+    // Per-call policy (static authorization): evaluate host + method + path; a
+    // matching `block` rule denies the request and it never reaches upstream.
+    const facts: RequestFacts = { host: t.host, method: t.method, path: t.pathOnly };
     const policyDecision = shouldRewrite ? evaluateProxyPolicy(facts, rules) : undefined;
     const ruleIdStr = policyDecision?.matchedRule ? describeRule(policyDecision.matchedRule) : undefined;
     const ruleId = ruleIdStr ? { ruleId: ruleIdStr } : {};
@@ -455,20 +503,26 @@ export async function startLocalProxyRuntime({
       onActivity?.({
         ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'deny',
       });
-      // Fail closed: the request is denied and never reaches upstream. Best-effort
-      // 403, then tear down (short MITM-tunnel responses don't reliably flush).
-      try {
-        res.writeHead(403, { 'content-type': 'text/plain', connection: 'close' });
-        res.end('Blocked by proxy policy');
-      } catch { /* response may already be gone */ }
-      res.socket?.destroy();
+      respondBlocked(res, 403, 'Blocked by proxy policy', t.tunnelTeardown);
       return;
     }
 
     const hostItems = shouldRewrite ? getRequestScopedManagedItems(facts, rules, managedItems) : [];
+
+    // Invariant #2/#5: never inject a secret into a cleartext (non-TLS) connection —
+    // no cert means no verifiable identity. Fail closed. (MITM is always https, so
+    // this only fires on the absolute-form http path.)
+    if (hostItems.length > 0 && !t.isHttps) {
+      onActivity?.({
+        ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-cleartext',
+      });
+      respondBlocked(res, 403, 'Refusing to inject secrets into a cleartext (non-TLS) connection', false);
+      return;
+    }
+
     const body = await readBody(req);
     const injectedKeys = shouldRewrite
-      ? detectInjectedKeys([rawUrl, JSON.stringify(req.headers), body.toString('utf8')], hostItems)
+      ? detectInjectedKeys([t.requestTarget, JSON.stringify(req.headers), body.toString('utf8')], hostItems)
       : [];
 
     // Invariant #8: a require-approval rule holds the request for an out-of-band,
@@ -476,9 +530,9 @@ export async function startLocalProxyRuntime({
     if (policyDecision?.verdict === 'require-approval') {
       const approved = await runApprovalGate({
         approvalProvider,
-        method,
-        host: hostInfo.host,
-        path: pathOnly,
+        method: t.method,
+        host: t.host,
+        path: t.pathOnly,
         body,
         ruleId: ruleIdStr,
         each: policyDecision.matchedRule?.approvalEach,
@@ -489,11 +543,7 @@ export async function startLocalProxyRuntime({
         onActivity?.({
           ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'approval-denied',
         });
-        try {
-          res.writeHead(403, { 'content-type': 'text/plain', connection: 'close' });
-          res.end('Request denied: approval not granted');
-        } catch { /* response may already be gone */ }
-        res.socket?.destroy();
+        respondBlocked(res, 403, 'Request denied: approval not granted', t.tunnelTeardown);
         return;
       }
     }
@@ -510,6 +560,9 @@ export async function startLocalProxyRuntime({
     const rewrittenBody = shouldRewrite
       ? Buffer.from(replacePlaceholdersWithReal(body.toString('utf8'), hostItems), 'utf8')
       : body;
+    const rewrittenPath = shouldRewrite
+      ? buildPathnameAndQuery(t.requestTarget, hostItems)
+      : t.requestTarget;
 
     const upstreamHeaders = transformHeaders(
       req.headers,
@@ -519,44 +572,51 @@ export async function startLocalProxyRuntime({
     );
     delete upstreamHeaders['proxy-connection'];
     delete upstreamHeaders.connection;
-    const rewrittenPath = shouldRewrite
-      ? buildPathnameAndQuery(rawUrl, hostItems)
-      : rawUrl;
-
+    if (t.upstreamHostHeader !== undefined) upstreamHeaders.host = t.upstreamHostHeader;
     if (rewrittenBody.byteLength !== body.byteLength) {
       upstreamHeaders['content-length'] = String(rewrittenBody.byteLength);
     }
 
-    const upstreamReq = https.request({
-      protocol: 'https:',
-      hostname: hostInfo.host,
-      port: hostInfo.port || 443,
+    const agent = t.isHttps ? https : http;
+    const upstreamReq = agent.request({
+      protocol: t.isHttps ? 'https:' : 'http:',
+      hostname: t.host,
+      port: t.port || (t.isHttps ? 443 : 80),
       method: req.method,
       path: rewrittenPath,
       headers: upstreamHeaders,
-      ...buildVerifiedUpstreamOptions(),
+      ...(t.isHttps ? buildVerifiedUpstreamOptions() : {}),
     }, (upstreamRes) => {
-      forwardUpstreamResponseWithRedaction(
-        upstreamRes,
-        res,
-        hostItems,
-        shouldRewrite,
-      );
+      forwardUpstreamResponseWithRedaction(upstreamRes, res, hostItems, shouldRewrite);
     });
 
     upstreamReq.on('error', () => {
-      // Fail closed: the upstream identity could not be verified (or the
-      // connection failed), so the secret was never transmitted. Tear the
-      // client connection down rather than risk a half-delivered response.
-      if (!res.headersSent) {
-        try {
-          res.writeHead(502, { 'content-type': 'text/plain', connection: 'close' });
-          res.end('Upstream MITM request failed');
-        } catch { /* response may already be gone */ }
-      }
-      res.socket?.destroy();
+      // Fail closed: the upstream identity could not be verified (or the connection
+      // failed), so the secret was never transmitted.
+      respondBlocked(res, 502, 'Upstream request failed', t.tunnelTeardown);
     });
     upstreamReq.end(rewrittenBody);
+  };
+
+  const handleInterceptRequest = async (req: http.IncomingMessage, res: http.ServerResponse) => {
+    const hostHeader = req.headers.host ?? '';
+    const hostInfo = parseHostPort(hostHeader.includes(':') ? hostHeader : `${hostHeader}:443`);
+    if (!hostInfo) {
+      res.statusCode = 400;
+      res.end('Invalid host');
+      return;
+    }
+    const rawUrl = req.url ?? '/';
+    await processProxiedRequest(req, res, {
+      host: hostInfo.host,
+      port: hostInfo.port || 443,
+      isHttps: true, // the MITM tunnel is always TLS
+      method: req.method ?? 'GET',
+      pathOnly: rawUrl.split('?')[0] ?? '/',
+      requestTarget: rawUrl,
+      upstreamHostHeader: undefined, // pass the client's Host through
+      tunnelTeardown: true,
+    });
   };
 
   const hostMitmServers = new Map<string, { server: https.Server; port: number }>();
@@ -613,131 +673,18 @@ export async function startLocalProxyRuntime({
       return;
     }
 
-    const method = clientReq.method ?? 'GET';
-    const pathOnly = destination.pathname;
-    const url = `${destination.pathname}${destination.search}`;
-    const baseActivity = {
-      host: destination.hostname, method, path: pathOnly, url,
-    };
-
-    const shouldRewrite = hostMatchesProxyRules(destination.hostname, rules);
-    const shouldAllowEgress = egressMode === 'permissive' || shouldRewrite;
-    if (!shouldAllowEgress) {
-      onActivity?.({
-        ...baseActivity, matched: shouldRewrite, blocked: true, decision: 'blocked-egress',
-      });
-      clientRes.statusCode = 403;
-      clientRes.end('Proxy egress blocked by strict mode');
-      return;
-    }
-    const facts: RequestFacts = { host: destination.hostname, method, path: pathOnly };
-    const policyDecision = shouldRewrite ? evaluateProxyPolicy(facts, rules) : undefined;
-    const ruleIdStr = policyDecision?.matchedRule ? describeRule(policyDecision.matchedRule) : undefined;
-    const ruleId = ruleIdStr ? { ruleId: ruleIdStr } : {};
-    if (policyDecision?.verdict === 'deny') {
-      onActivity?.({
-        ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'deny',
-      });
-      clientRes.statusCode = 403;
-      clientRes.end('Blocked by proxy policy');
-      return;
-    }
-
     const isHttps = destination.protocol === 'https:';
-    const hostItems = shouldRewrite ? getRequestScopedManagedItems(facts, rules, managedItems) : [];
-
-    // Invariant #2/#5: never inject a secret into a cleartext (non-TLS)
-    // connection — no cert means no verifiable identity. Fail closed.
-    if (hostItems.length > 0 && !isHttps) {
-      onActivity?.({
-        ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-cleartext',
-      });
-      clientRes.statusCode = 403;
-      clientRes.end('Refusing to inject secrets into a cleartext (non-TLS) connection');
-      return;
-    }
-
-    const body = await readBody(clientReq);
-    const injectedKeys = shouldRewrite
-      ? detectInjectedKeys([url, JSON.stringify(clientReq.headers), body.toString('utf8')], hostItems)
-      : [];
-
-    // Invariant #8: require-approval holds the request for an out-of-band,
-    // request-bound decision. Fail closed (deny) unless explicitly approved.
-    if (policyDecision?.verdict === 'require-approval') {
-      const approved = await runApprovalGate({
-        approvalProvider,
-        method,
-        host: destination.hostname,
-        path: pathOnly,
-        body,
-        ruleId: ruleIdStr,
-        each: policyDecision.matchedRule?.approvalEach,
-        maxDurationMs: policyDecision.matchedRule?.approvalMaxDurationMs,
-        injectedKeys,
-      });
-      if (!approved) {
-        onActivity?.({
-          ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'approval-denied',
-        });
-        clientRes.statusCode = 403;
-        clientRes.end('Request denied: approval not granted');
-        return;
-      }
-    }
-
-    onActivity?.({
-      ...baseActivity,
-      ...ruleId,
-      matched: shouldRewrite,
-      blocked: false,
-      decision: policyDecision?.verdict === 'require-approval' ? 'approval-granted' : 'allow',
-      ...(injectedKeys.length ? { injectedKeys } : {}),
+    const defaultPort = isHttps ? 443 : 80;
+    await processProxiedRequest(clientReq, clientRes, {
+      host: destination.hostname,
+      port: destination.port ? Number(destination.port) : defaultPort,
+      isHttps,
+      method: clientReq.method ?? 'GET',
+      pathOnly: destination.pathname,
+      requestTarget: `${destination.pathname}${destination.search}`,
+      upstreamHostHeader: destination.host, // absolute-form: client Host may be the proxy
+      tunnelTeardown: false,
     });
-
-    const rewrittenBody = shouldRewrite
-      ? Buffer.from(replacePlaceholdersWithReal(body.toString('utf8'), hostItems), 'utf8')
-      : body;
-
-    const rewrittenPath = shouldRewrite
-      ? buildPathnameAndQuery(`${destination.pathname}${destination.search}`, hostItems)
-      : `${destination.pathname}${destination.search}`;
-
-    const upstreamHeaders = transformHeaders(
-      clientReq.headers,
-      shouldRewrite
-        ? (value) => replacePlaceholdersWithReal(value, hostItems)
-        : (value) => value,
-    );
-    delete upstreamHeaders['proxy-connection'];
-    delete upstreamHeaders.connection;
-    upstreamHeaders.host = destination.host;
-    if (rewrittenBody.byteLength !== body.byteLength) {
-      upstreamHeaders['content-length'] = String(rewrittenBody.byteLength);
-    }
-
-    const upstream = (isHttps ? https : http).request({
-      protocol: destination.protocol,
-      hostname: destination.hostname,
-      port: destination.port || (isHttps ? 443 : 80),
-      method: clientReq.method,
-      path: rewrittenPath,
-      headers: upstreamHeaders,
-      ...(isHttps ? buildVerifiedUpstreamOptions() : {}),
-    }, (upstreamRes) => {
-      forwardUpstreamResponseWithRedaction(
-        upstreamRes,
-        clientRes,
-        hostItems,
-        shouldRewrite,
-      );
-    });
-
-    upstream.on('error', () => {
-      if (!clientRes.headersSent) clientRes.statusCode = 502;
-      clientRes.end('Upstream proxy error');
-    });
-    upstream.end(rewrittenBody);
   });
 
   proxyServer.on('connect', async (req, clientSocket, head) => {
