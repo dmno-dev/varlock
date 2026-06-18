@@ -133,6 +133,18 @@ varlock load -p ./envs -p ./overrides
 varlock load --agent
 ```
 
+**Exit codes:**
+- `0` when all config is valid
+- non-zero when validation fails (missing required values, failed coercion, or resolver errors)
+
+**Output formats (for scripts & agents):**
+- `--format json` — a flat `{ "KEY": value }` map of resolved values on stdout
+- `--agent` — the same flat map, but `@sensitive` values are redacted (e.g. `"su▒▒▒▒▒"`), so it is safe to print in logs or agent transcripts. Implies JSON output; not compatible with `--format env`/`shell`.
+- `--format json-full` — the full serialized graph: top-level `basePath`, `sources`, `config` (per-item metadata including resolved value, validation state, and sensitivity), `settings`. Use this when you need per-item validation/error detail rather than just values.
+- `--format env` / `--format shell` — dotenv lines / shell `export` statements with **raw** values. Never pipe these somewhere that gets logged when secrets are involved.
+
+When emitting machine-readable output, add `--summary-stderr` (or `--summary-file`) to get a human-readable, redacted summary on **stderr** while keeping clean JSON on **stdout** — handy for agents and CI.
+
 :::caution
 Setting `@currentEnv` in your `.env.schema` will override the `--env` flag.
 :::
@@ -147,6 +159,8 @@ Executes a command in a child process, injecting your resolved and validated env
 ```bash
 varlock run -- <command>
 ```
+
+**Exit codes:** `varlock run` exits with the child command's exit code, so it is transparent in scripts and CI. If varlock itself fails before the command starts (e.g. invalid config or a failed resolver), it exits non-zero without running the command.
 
 **Options:**
 - `--redact-stdout` / `--no-redact-stdout`: Override automatic stdout/stderr redaction. `--redact-stdout` forces redaction of piped/redirected output (e.g., to override `@redactLogs=false`) and errors if output is attached to an interactive terminal, where redaction is not possible without breaking TTY behavior. `--no-redact-stdout` disables redaction entirely.
@@ -233,9 +247,14 @@ Resolves and prints the value of a single environment variable to stdout. Only t
 
 This is useful within larger shell commands where you need to embed a single resolved env var value.
 
+**Exit codes:** `0` when the value resolves; non-zero when no variable name is given, the variable is not in the schema, or it fails to resolve.
+
 ```bash
 varlock printenv <VAR_NAME> [options]
 ```
+
+**Positional arguments:**
+- `<VAR_NAME>`: The variable to print. Required — printenv errors if omitted.
 
 **Options:**
 - `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
@@ -270,11 +289,44 @@ sh -c 'echo $(varlock printenv MY_VAR)'  # ✅ embed in a larger command
 </div>
 
 <div>
+### `varlock explain` ||explain||
+
+Shows detailed information about how a single config item is resolved — all of its definitions, sources, overrides, and the final resolved value. This is the go-to command for debugging *why* a value is what it is (and an agent-friendly way to inspect resolution without dumping every value).
+
+Sensitive values are redacted in the output.
+
+**Exit codes:** `0` when the item is found and explained; non-zero when no key is given or the key is not in the schema.
+
+```bash
+varlock explain <VAR_NAME> [options]
+```
+
+**Positional arguments:**
+- `<VAR_NAME>`: The config item to explain. Required — explain errors if omitted.
+
+**Options:**
+- `--env`:         Resolve in the context of a specific environment (e.g., `--env production`)
+- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
+
+**Examples:**
+```bash
+# Explain how a value is resolved
+varlock explain DATABASE_URL
+
+# Explain in the context of a specific environment
+varlock explain --env production API_KEY
+```
+
+</div>
+
+<div>
 ### `varlock scan` ||scan||
 
 Scans your project files for sensitive config values that should not appear in plaintext. Loads your varlock config, resolves all `@sensitive` values, then checks files for any occurrences of those values.
 
 This is especially useful as a **pre-commit git hook** to prevent accidentally committing secrets into version control, and for **scanning build output** to ensure no secrets leaked into files that will be published or deployed.
+
+**Exit codes:** `0` when no plaintext secrets are found; `1` when a leaked value is detected. This makes it usable directly as a pre-commit hook or CI gate.
 
 ```bash
 varlock scan [paths...] [options]
@@ -346,6 +398,7 @@ varlock encrypt [options]
 
 **Options:**
 - `--file`:    Path to a `.env` file — encrypts all sensitive plaintext values in-place
+- `--key-id`:  Encryption key ID to use (defaults to `varlock-default`)
 
 **Examples:**
 ```bash
@@ -589,6 +642,34 @@ varlock generate-key
 
 See the [Next.js](/integrations/nextjs/#encrypting-the-env-blob) and [Vite](/integrations/vite/#encrypting-the-env-blob) integration docs for setup instructions.
 
+</div>
+
+<div>
+### `varlock install-plugin` ||install-plugin||
+
+Pre-downloads a plugin from npm into the local varlock plugin cache so it is available without an interactive confirmation prompt. This is mainly for the **standalone binary** in CI or other non-interactive environments — when varlock runs as a package.json dependency, plugins resolve through your normal node_modules instead.
+
+The plugin must be specified with an exact version (`name@version`).
+
+```bash
+varlock install-plugin <name@version>
+```
+
+**Positional arguments:**
+- `<name@version>`: The plugin to install, with an exact version (e.g. `my-plugin@1.2.3`).
+
+**Examples:**
+```bash
+# Install a plugin at an exact version
+varlock install-plugin my-plugin@1.2.3
+
+# Scoped package
+varlock install-plugin @my-scope/my-plugin@2.0.0
+```
+
+</div>
+
+<div>
 ### `varlock help` ||help||
 
 Displays general help information, alias for `varlock --help`
