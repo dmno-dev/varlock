@@ -13,6 +13,7 @@ plugin.icon = PROTON_PASS_ICON;
 plugin.standardVars = {
   initDecorator: '@initProtonPass',
   params: {
+    personalAccessToken: { key: 'PROTON_PASS_PERSONAL_ACCESS_TOKEN', dataType: 'protonPassPersonalAccessToken' },
     password: { key: 'PROTON_PASS_PASSWORD', dataType: 'protonPassPassword' },
     totp: { key: 'PROTON_PASS_TOTP', dataType: 'protonPassTotp' },
     extraPassword: { key: 'PROTON_PASS_EXTRA_PASSWORD', dataType: 'protonPassExtraPassword' },
@@ -37,6 +38,11 @@ const LOGIN_HELP_TIP = [
   '  PROTON_PASS_PASSWORD',
   '  PROTON_PASS_TOTP (if 2FA/TOTP is enabled)',
   '  PROTON_PASS_EXTRA_PASSWORD (if your account requires an extra password)',
+  '',
+  'Or use a personal access token (recommended for CI):',
+  '  PROTON_PASS_PERSONAL_ACCESS_TOKEN',
+  'Create one with `pass-cli pat create --name <name> --expiration <1d|1w|1m|3m|6m|1y>`',
+  'and grant it access with `pass-cli pat access grant ...`.',
 ].join('\n');
 
 function getSecretFieldNameFromRef(secretRef: string): string | undefined {
@@ -96,6 +102,7 @@ class ProtonPassPluginInstance {
   private password?: string;
   private totp?: string;
   private extraPassword?: string;
+  private personalAccessToken?: string;
 
   // Cache decrypted values for the current resolution session.
   private cache = new Map<string, string>();
@@ -116,17 +123,23 @@ class ProtonPassPluginInstance {
     password?: string;
     totp?: string;
     extraPassword?: string;
+    personalAccessToken?: string;
   }) {
     if (opts.username && typeof opts.username === 'string') this.username = opts.username;
     if (opts.password && typeof opts.password === 'string') this.password = opts.password;
     if (opts.totp && typeof opts.totp === 'string') this.totp = opts.totp;
     if (opts.extraPassword && typeof opts.extraPassword === 'string') this.extraPassword = opts.extraPassword;
+    if (opts.personalAccessToken && typeof opts.personalAccessToken === 'string') {
+      this.personalAccessToken = opts.personalAccessToken;
+    }
 
     debug('proton-pass instance', this.id, 'configured');
   }
 
   private get loginEnv(): Record<string, string> | undefined {
     const env: Record<string, string> = {};
+    // A personal access token is a self-contained credential and does not need a username.
+    if (this.personalAccessToken) env.PROTON_PASS_PERSONAL_ACCESS_TOKEN = this.personalAccessToken;
     if (this.password) env.PROTON_PASS_PASSWORD = this.password;
     if (this.totp) env.PROTON_PASS_TOTP = this.totp;
     if (this.extraPassword) env.PROTON_PASS_EXTRA_PASSWORD = this.extraPassword;
@@ -141,6 +154,31 @@ class ProtonPassPluginInstance {
     }
 
     this.loginInFlight = (async () => {
+      // Prefer a personal access token when configured — it is non-interactive,
+      // needs no username/password, and is the recommended path for CI.
+      // PATs have a fixed expiration (set at creation); when one expires the user
+      // mints a new token via `pass-cli pat renew` and updates their config — there
+      // is nothing for us to refresh or persist here.
+      if (this.personalAccessToken) {
+        debug('logging into proton pass via personal access token');
+        try {
+          await spawnAsync(
+            'pass-cli',
+            ['login'],
+            { env: { ...(process.env as Record<string, string>), ...this.loginEnv } },
+          );
+        } catch (loginErr) {
+          const loginMsg = loginErr instanceof ExecError ? (loginErr.data || loginErr.message) : String(loginErr);
+          throw new ResolutionError(`Proton Pass CLI login (personal access token) failed: ${loginMsg}`, {
+            tip: [
+              NOT_LOGGED_IN_TIP,
+              'The token may be invalid or expired — check with `pass-cli pat list` and renew if needed.',
+            ].join('\n'),
+          });
+        }
+        return;
+      }
+
       // Attempt login
       if (!this.username) {
         throw new ResolutionError('Proton Pass CLI not authenticated and no username configured', {
@@ -429,6 +467,27 @@ plugin.registerDataType({
   },
 });
 
+plugin.registerDataType({
+  name: 'protonPassPersonalAccessToken',
+  sensitive: true,
+  typeDescription: 'Proton Pass personal access token used by `pass-cli login` (non-interactive, recommended for CI)',
+  icon: PROTON_PASS_ICON,
+  docs: [
+    {
+      description: 'Proton Pass CLI personal access token login',
+      url: 'https://protonpass.github.io/pass-cli/commands/login/#personal-access-token-login',
+    },
+  ],
+  async validate(val): Promise<true> {
+    if (!val || typeof val !== 'string') throw new ValidationError('Personal access token must be a non-empty string');
+    // Tokens are issued in the shape `pst_xxxx...xxxx::TOKENKEY`.
+    if (!val.includes('::')) {
+      throw new ValidationError('Personal access token looks malformed - expected `pst_...::TOKENKEY`');
+    }
+    return true;
+  },
+});
+
 plugin.registerRootDecorator({
   name: 'initProtonPass',
   description: 'Initialize a Proton Pass plugin instance for protonPass() resolver',
@@ -456,21 +515,24 @@ plugin.registerRootDecorator({
       passwordResolver: objArgs?.password,
       totpResolver: objArgs?.totp,
       extraPasswordResolver: objArgs?.extraPassword,
+      personalAccessTokenResolver: objArgs?.personalAccessToken,
     };
   },
   async execute({
-    id, usernameResolver, passwordResolver, totpResolver, extraPasswordResolver,
+    id, usernameResolver, passwordResolver, totpResolver, extraPasswordResolver, personalAccessTokenResolver,
   }) {
     const username = await usernameResolver?.resolve();
     const password = await passwordResolver?.resolve();
     const totp = await totpResolver?.resolve();
     const extraPassword = await extraPasswordResolver?.resolve();
+    const personalAccessToken = await personalAccessTokenResolver?.resolve();
 
     pluginInstances[id].configure({
       username: typeof username === 'string' ? username : undefined,
       password: typeof password === 'string' ? password : undefined,
       totp: typeof totp === 'string' ? totp : undefined,
       extraPassword: typeof extraPassword === 'string' ? extraPassword : undefined,
+      personalAccessToken: typeof personalAccessToken === 'string' ? personalAccessToken : undefined,
     });
   },
 });

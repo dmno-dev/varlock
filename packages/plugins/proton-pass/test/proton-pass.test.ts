@@ -25,6 +25,7 @@ type FakePassConfig = {
   requirePassword?: boolean;
   runErrorMessage?: string;
   itemViewErrors?: Record<string, string>;
+  invalidToken?: boolean;
 };
 
 function resetFakeCli(config: FakePassConfig) {
@@ -184,6 +185,54 @@ MISSING=protonPass(pass://Production/Database/missing)
 # @plugin(${PLUGIN_PATH})
 # @initProtonPass(username=test@example.com)
 # ---
+SECRET=protonPass(pass://Production/Database/password)
+`,
+      expectValues: {
+        SECRET: Error,
+      },
+    });
+  });
+
+  test('logs in via personal access token (no username/password required)', async () => {
+    await runProtonPassTest({
+      config: {
+        refs: {
+          'pass://Production/Database/password': 'db-secret',
+        },
+        requirePassword: true,
+      },
+      fullSchema: `
+# @plugin(${PLUGIN_PATH})
+# @initProtonPass(personalAccessToken=$PROTON_PASS_PERSONAL_ACCESS_TOKEN)
+# ---
+# @type=protonPassPersonalAccessToken @sensitive
+PROTON_PASS_PERSONAL_ACCESS_TOKEN=pst_abc123::TOKENKEY
+DB_PASS=protonPass(pass://Production/Database/password)
+`,
+      expectValues: {
+        DB_PASS: 'db-secret',
+      },
+    });
+
+    const calls = getFakeCliCalls();
+    // run fails (not logged in) -> login via token -> run succeeds.
+    expect(calls.map((args) => args[0])).toEqual(['run', 'login', 'run']);
+    // login is invoked without `--interactive` or a username when using a token.
+    const loginCall = calls.find((args) => args[0] === 'login');
+    expect(loginCall).toEqual(['login']);
+  });
+
+  test('surfaces an error when the personal access token is invalid/expired', async () => {
+    await runProtonPassTest({
+      config: {
+        invalidToken: true,
+      },
+      fullSchema: `
+# @plugin(${PLUGIN_PATH})
+# @initProtonPass(personalAccessToken=$PROTON_PASS_PERSONAL_ACCESS_TOKEN)
+# ---
+# @type=protonPassPersonalAccessToken @sensitive
+PROTON_PASS_PERSONAL_ACCESS_TOKEN=pst_expired::TOKENKEY
 SECRET=protonPass(pass://Production/Database/password)
 `,
       expectValues: {
