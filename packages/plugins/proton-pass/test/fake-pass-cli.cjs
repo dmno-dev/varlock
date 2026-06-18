@@ -66,6 +66,13 @@ if (args[0] === 'info') {
 }
 
 if (args[0] === 'login') {
+  // A personal access token is a self-contained credential — no username/password needed.
+  if (process.env.PROTON_PASS_PERSONAL_ACCESS_TOKEN) {
+    if (config.invalidToken) fail('personal access token invalid or expired');
+    state.loggedIn = true;
+    writeJson(statePath, state);
+    process.exit(0);
+  }
   const needsPassword = config.requirePassword !== false;
   if (needsPassword && !process.env.PROTON_PASS_PASSWORD) {
     fail('password missing');
