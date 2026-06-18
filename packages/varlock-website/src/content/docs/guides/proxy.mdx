@@ -242,10 +242,17 @@ A rule can require explicit, out-of-band approval before each matching request i
 STRIPE_SECRET_KEY=sk_live_...
 ```
 
-When matched under `proxy start`, the request is held and you're prompted to approve it (once, for the session, or for a time window). Two knobs tune this:
+When matched under `proxy start`, the request is held and you're prompted to approve it (once, for the session, or for a time window). For finer control, pass `approval` as an options object instead of `approval=true`:
 
-- `approvalEach` — what one approval covers: `host`, `endpoint` (method + path, the default), or `request` (also binds the body).
-- `approvalMaxDuration` — a ceiling on how long a "yes" is remembered: a duration like `"15m"`, `0` for always-ask, or unset for the whole session. The ceiling is enforced by the proxy, not just the prompt.
+```env-spec title=".env.schema"
+# @proxy(domain="api.stripe.com", path="/v1/refunds/**", approval={each=request, maxDuration="15m"})
+```
+
+- `each` — what one approval covers: `host`, `endpoint` (method + path, the default), or `request` (also binds the body).
+- `maxDuration` — a ceiling on how long a "yes" is remembered: a duration like `"15m"`, `0` for always-ask, or unset for the whole session. The ceiling is enforced by the proxy, not just the prompt.
+- `enabled` — set `enabled=false` to turn the rule into a plain allow (useful for dynamically toggling approval, e.g. `enabled=forEnv(production)`).
+
+The object form implies approval is required; `approval=true` is shorthand for the defaults.
 
 ## Reference
 

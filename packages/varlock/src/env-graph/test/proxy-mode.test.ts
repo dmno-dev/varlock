@@ -165,12 +165,12 @@ describe('proxy decorators', () => {
     ]);
   });
 
-  test('approval config: approvalEach + approvalMaxDuration parse onto the rule', async () => {
+  test('approval object form: each + maxDuration parse onto the rule', async () => {
     const graph = await loadGraph(outdent`
       # @enableProxy(egress="strict")
       # @proxy(domain="api.a.com", approval=true)
-      # @proxy(domain="api.b.com", approvalEach="request", approvalMaxDuration="15m")
-      # @proxy(domain="api.c.com", approvalEach="host", approvalMaxDuration=0)
+      # @proxy(domain="api.b.com", approval={each=request, maxDuration="15m"})
+      # @proxy(domain="api.c.com", approval={each=host, maxDuration=0})
       # ---
       BASELINE=1
     `);
@@ -186,15 +186,39 @@ describe('proxy decorators', () => {
     ]);
   });
 
-  test('approval config: a bad approvalEach is rejected', async () => {
+  test('approval object form: enabled=false makes the rule a plain allow (no approval)', async () => {
     const graph = await loadGraph(outdent`
       # @defaultSensitive=false
       # ---
-      # @proxy(domain="api.a.com", approvalEach="bogus")
+      # @proxy(domain="api.a.com", approval={enabled=false, each=request})
+      API_KEY=secret
+    `);
+    const rules = await graph.getProxyRules();
+    expect(rules).toMatchObject([{ domain: ['api.a.com'] }]);
+    expect(rules[0]!.approval).toBeUndefined();
+    expect(rules[0]!.approvalEach).toBeUndefined();
+  });
+
+  test('approval config: a bad approval.each is rejected', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", approval={each=bogus})
       API_KEY=secret
     `);
     const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
-    expect(errors.some((e) => /approvalEach must be one of/.test(e.message))).toBe(true);
+    expect(errors.some((e) => /approval\.each must be one of/.test(e.message))).toBe(true);
+  });
+
+  test('approval config: an unknown approval option is rejected', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", approval={eech=request})
+      API_KEY=secret
+    `);
+    const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
+    expect(errors.some((e) => /unknown approval option "eech"/.test(e.message))).toBe(true);
   });
 
   test('@proxy=passthrough / =omit parse as value-form modes (no rule created)', async () => {

@@ -922,41 +922,64 @@ export class EnvGraph {
     if (obj?.block !== undefined && !_.isBoolean(obj.block)) {
       throw new SchemaError(`@proxy: block must resolve to a boolean, got ${JSON.stringify(obj.block)}`);
     }
-    if (obj?.approval !== undefined && !_.isBoolean(obj.approval)) {
-      throw new SchemaError(`@proxy: approval must resolve to a boolean, got ${JSON.stringify(obj.approval)}`);
-    }
     if (obj?.path !== undefined && !_.isString(obj.path)) {
       throw new SchemaError(`@proxy: path must resolve to a string, got ${JSON.stringify(obj.path)}`);
     }
-    const eachOk = _.isString(obj?.approvalEach)
-      && PROXY_APPROVAL_EACH_VALUES.includes(obj.approvalEach as ProxyApprovalEach);
-    if (obj?.approvalEach !== undefined && !eachOk) {
-      throw new SchemaError(`@proxy: approvalEach must be one of ${PROXY_APPROVAL_EACH_VALUES.join(', ')}`);
-    }
-    if (obj?.approvalMaxDuration !== undefined) {
-      try {
-        parseDuration(obj.approvalMaxDuration);
-      } catch {
-        throw new SchemaError('@proxy: approvalMaxDuration must be a duration like "15m" or 0 (always ask)');
+    // `approval` resolves to either a boolean or an options object `{enabled?, each?, maxDuration?}`.
+    const approval = obj?.approval;
+    if (approval !== undefined && !_.isBoolean(approval)) {
+      if (!_.isPlainObject(approval)) {
+        throw new SchemaError(`@proxy: approval must resolve to a boolean or an options object, got ${JSON.stringify(approval)}`);
+      }
+      for (const key of Object.keys(approval)) {
+        if (!['enabled', 'each', 'maxDuration'].includes(key)) {
+          throw new SchemaError(`@proxy: unknown approval option "${key}". Valid options: enabled, each, maxDuration`);
+        }
+      }
+      if (approval.enabled !== undefined && !_.isBoolean(approval.enabled)) {
+        throw new SchemaError(`@proxy: approval.enabled must resolve to a boolean, got ${JSON.stringify(approval.enabled)}`);
+      }
+      const eachOk = _.isString(approval.each)
+        && PROXY_APPROVAL_EACH_VALUES.includes(approval.each as ProxyApprovalEach);
+      if (approval.each !== undefined && !eachOk) {
+        throw new SchemaError(`@proxy: approval.each must be one of ${PROXY_APPROVAL_EACH_VALUES.join(', ')}`);
+      }
+      if (approval.maxDuration !== undefined) {
+        try {
+          parseDuration(approval.maxDuration as string | number);
+        } catch {
+          throw new SchemaError('@proxy: approval.maxDuration must be a duration like "15m" or 0 (always ask)');
+        }
       }
     }
   }
 
   /**
    * Approval fields for a rule, from a resolved `@proxy(...)` arg object.
-   * Approval is required if `approval=true` or any approval config prop is set.
-   * Assumes the object has already passed `validateResolvedProxyObj`.
+   * `approval` is a boolean (`approval=true`) or an options object
+   * (`approval={each=..., maxDuration=...}`); the object form implies required
+   * unless `enabled=false`. Assumes the object passed `validateResolvedProxyObj`.
    */
   private static buildProxyApprovalFields(obj: any): Partial<ProxyRule> {
-    const approvalEach = _.isString(obj?.approvalEach) ? (obj.approvalEach as ProxyApprovalEach) : undefined;
-    const approvalMaxDurationMs = obj?.approvalMaxDuration !== undefined
-      ? parseDuration(obj.approvalMaxDuration)
-      : undefined;
-    const required = obj?.approval === true || approvalEach !== undefined || approvalMaxDurationMs !== undefined;
+    const approval = obj?.approval;
+    let required = false;
+    let approvalEach: ProxyApprovalEach | undefined;
+    let approvalMaxDurationMs: number | undefined;
+
+    if (_.isBoolean(approval)) {
+      required = approval;
+    } else if (_.isPlainObject(approval)) {
+      required = approval.enabled !== false; // object form implies required unless explicitly disabled
+      approvalEach = _.isString(approval.each) ? (approval.each as ProxyApprovalEach) : undefined;
+      approvalMaxDurationMs = approval.maxDuration !== undefined
+        ? parseDuration(approval.maxDuration as string | number)
+        : undefined;
+    }
+
     return {
       ...(required ? { approval: true } : {}),
-      ...(approvalEach ? { approvalEach } : {}),
-      ...(approvalMaxDurationMs !== undefined ? { approvalMaxDurationMs } : {}),
+      ...(required && approvalEach ? { approvalEach } : {}),
+      ...(required && approvalMaxDurationMs !== undefined ? { approvalMaxDurationMs } : {}),
     };
   }
 
