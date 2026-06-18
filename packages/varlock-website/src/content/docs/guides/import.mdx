@@ -48,6 +48,13 @@ You can import files from your home directory using the `~/` prefix. This is use
 # @import(../shared-config-dir/)
 ```
 
+:::tip[File vs directory — which should I import?]
+- **Import a single file** when you want exactly that file's contents — a shared `.env.common`, or specific keys from another schema via `pick`.
+- **Import a directory** (trailing `/`) when you want everything that directory would load on its own: its `.env.schema` **plus** sibling `.env`, `.env.local`, and environment-specific files, resolved by the current environment flag.
+
+This distinction matters when pulling in a root or sibling package. Importing its `.env.schema` file alone brings only the schema; importing the package's **directory** also brings its values (including `.env.local` and `.env.[currentEnv]`). For the common "import the repo root" case in a monorepo, use the directory form (`# @import(../../)`).
+:::
+
 {/*
 ### HTTP URL (👀 coming soon)
 
@@ -158,7 +165,7 @@ This commonly appears in monorepos when a sub-package imports shared keys from a
 
 ```env-spec title=".env.schema (sub-package)"
 # @currentEnv=$DEPLOY_ENV
-# @import(../../../.env.schema, DEPLOY_ENV, AWS_REGION)
+# @import(../../../.env.schema, pick=[DEPLOY_ENV, AWS_REGION])
 # ---
 MY_SERVICE_URL=...
 ```
@@ -175,7 +182,7 @@ environment flag "DEPLOY_ENV" must be defined within this schema
 
 ```env-spec title=".env.schema (sub-package)"
 # @currentEnv=$DEPLOY_ENV
-# @import(../../../.env.schema, DEPLOY_ENV, AWS_REGION)
+# @import(../../../.env.schema, pick=[DEPLOY_ENV, AWS_REGION])
 # ---
 DEPLOY_ENV=
 MY_SERVICE_URL=...

@@ -38,6 +38,66 @@ See the [`varlock load` CLI Reference](/reference/cli-commands/#load) for more i
 
 By default, `varlock load` prints a human-readable summary to **stdout**. Schema and validation errors go to **stderr** first; if loading succeeds, you will see a `-- Resolved config --` header followed by one block per item.
 
+{/*
+  The two `ansi` blocks in this section are generated from the fixture in
+  packages/varlock-website/examples/load-output/ and contain raw ANSI escape
+  bytes, so don't hand-edit them. To regenerate (run inside that fixture dir):
+
+    # success block — warm the cache first so the cached hint shows:
+    APP_ENV=production FORCE_COLOR=1 varlock load >/dev/null 2>&1
+    APP_ENV=production FORCE_COLOR=1 varlock load
+    # error block — key genuinely unset:
+    mv .env .env.bak; APP_ENV=production FORCE_COLOR=1 varlock load; mv .env.bak .env
+
+  Paste each capture into the matching block, then normalize the volatile
+  cached timestamp to "2m ago".
+*/}
+
+For example, given a schema like this:
+
+```env-spec title=".env.schema"
+# @defaultRequired=false
+# @defaultSensitive=false
+# ---
+# @required
+SERVICE_NAME=payments-api
+LOG_LEVEL=info
+# @type=number
+PORT="8080"
+# @type=boolean
+FEATURE_FLAG_BETA="true"
+# @required
+APP_ENV=development
+# @sensitive @required
+DATABASE_URL=postgres://user:pass@localhost:5432/app
+# @sensitive
+SESSION_SECRET=cache(randomHex(32), ttl="1h")
+# @sensitive @required
+STRIPE_SECRET_KEY=
+```
+
+`varlock load` prints (with `STRIPE_SECRET_KEY` set in `.env`, `APP_ENV` overridden in the shell, and `SESSION_SECRET` served from cache on a second run):
+
+```ansi
+[1m[32m-- Resolved config --[39m[22m
+✅ [36mSERVICE_NAME[39m[35m*[39m
+[90m   └[39m "payments-api"
+✅ [36mLOG_LEVEL[39m
+[90m   └[39m "info"
+✅ [36mPORT[39m
+[90m   └[39m [33m8080[39m [90m[3m< coerced from [23m[39m"8080"
+✅ [36mFEATURE_FLAG_BETA[39m
+[90m   └[39m [3m[33mtrue[39m[23m [90m[3m< coerced from [23m[39m"true"
+✅ [36mAPP_ENV[39m[35m*[39m
+[90m   └[39m "production" [90m [39m[33m🟡 process.env[39m
+✅ [36mDATABASE_URL[39m[35m*[39m  🔐[90m[3msensitive[23m[39m
+[90m   └[39m po▒▒▒▒▒
+✅ [36mSESSION_SECRET[39m  🔐[90m[3msensitive[23m[39m
+[90m   └[39m df▒▒▒▒▒ [90m [39m[90m📦 2m ago[39m
+✅ [36mSTRIPE_SECRET_KEY[39m[35m*[39m  🔐[90m[3msensitive[23m[39m
+[90m   └[39m sk▒▒▒▒▒
+```
+
 Each item line shows:
 
 - A status icon (`✅` valid, or an error/warning icon if something failed)
@@ -47,6 +107,18 @@ Each item line shows:
 - Inline hints such as `📦` (cached), `🟡 process.env` (overridden by the shell), or `< coerced from ...` when a value was coerced
 
 When validation fails, only failing items are shown unless you pass [`--show-all`](/reference/cli-commands/#load). Use [`--format json`](/reference/cli-commands/#load) or [`--format json-full`](/reference/cli-commands/#load) for machine-readable output. For example, in CI or when piping to other tools.
+
+For example, with `STRIPE_SECRET_KEY` left empty:
+
+```ansi
+🚨🚨🚨  [1m[31m[4mConfiguration is currently invalid[24m[39m[22m  🚨🚨🚨
+
+❓ [31mSTRIPE_SECRET_KEY[39m[35m*[39m  🔐[90m[3msensitive[23m[39m
+[90m   └[39m [90mundefined[39m
+[31m   - Value is required but is currently empty[39m
+
+💥 [31mResolved config/env did not pass validation[39m 💥
+```
 
 ### `varlock run`
 

@@ -237,10 +237,10 @@ Ask the user how their repo is structured before designing the env layout.
 **Monorepo / multi-app:** use `@import()` to share common config:
 
 ```env-spec title="apps/web/.env.schema"
-# Import shared config from root
-# @import(../../.env.schema)
+# Import shared config from root (directory form: also loads root .env / .env.local)
+# @import(../../)
 # Import from a sibling service (specific keys only)
-# @import(../api/.env.schema, SHARED_API_URL, SHARED_DB_HOST)
+# @import(../api/.env.schema, pick=[SHARED_API_URL, SHARED_DB_HOST])
 # ---
 APP_PUBLIC_URL=http://localhost:3000
 ```

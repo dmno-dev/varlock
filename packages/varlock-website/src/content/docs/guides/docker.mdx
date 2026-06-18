@@ -226,11 +226,11 @@ Use [Docker Compose secrets](https://docs.docker.com/compose/how-tos/use-secrets
 
 ## Monorepos and partial build context
 
-In a monorepo, `.env.schema` often uses [`@import()`](/guides/import/) to pull shared config from other packages:
+In a monorepo, `.env.schema` often uses [`@import()`](/guides/import/) to pull shared config from other packages. For Docker builds, prefer importing **specific files** (optionally with `pick`) over whole directories — a [directory import](/guides/import/#directory) also pulls sibling `.env.local` / `.env.[currentEnv]` files, which you generally don't want baked into an image and may not have copied into the build context:
 
 ```env-spec title="apps/web/.env.schema"
 # @import(../../shared/.env.common)
-# @import(../api/.env.schema, DATABASE_URL, REDIS_URL)
+# @import(../api/.env.schema, pick=[DATABASE_URL, REDIS_URL])
 ```
 
 When Docker's build context is limited to `apps/web/`, those imported files are **not** in the context — `varlock load` fails with missing file errors.

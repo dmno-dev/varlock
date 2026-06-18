@@ -13,7 +13,7 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
 
 Varlock provides a robust solution for managing environment variables in Cloudflare Workers, offering validation, type safety, and security features that go beyond Cloudflare's built-in environment variable and secrets handling.
 
-Both approaches below use `varlock-wrangler` — a thin wrapper around `wrangler` that automatically resolves and uploads your env vars as Cloudflare secrets and vars during deployment, and injects them into miniflare during local dev.
+Our integration relies on using `varlock-wrangler` — a thin wrapper around `wrangler` that automatically resolves and uploads your env vars as Cloudflare secrets and vars during deployment, and injects them into miniflare during local dev.
 
 :::caution[Requires `nodejs_compat`]
 Varlock relies on a handful of `node:*` built-ins at runtime, so your worker must opt into Cloudflare's Node.js compatibility layer. Add `nodejs_compat` to your `compatibility_flags` in `wrangler.toml` / `wrangler.json` — without it, the worker will fail to start with "Cannot resolve 'node:...'" errors.
@@ -27,31 +27,16 @@ Varlock relies on a handful of `node:*` built-ins at runtime, so your worker mus
 
 ## Choosing an approach
 
-All three paths use the same `.env.schema` and `varlock-wrangler deploy` for production uploads. The difference is how env gets into your worker during **local dev** and **build**:
+All paths use the same `.env.schema` and `varlock-wrangler deploy` for production uploads — the difference is how env reaches your worker during **local dev** and **build**:
 
-| Approach | Best when | Dev experience | Build / deploy |
-|----------|-----------|----------------|----------------|
-| **[`varlock-wrangler`](#approach-1-using-varlock-wrangler)** | Plain Workers, minimal tooling, or you want a one-line init import | `varlock-wrangler dev` injects env via FIFO; watches `.env` files | `varlock-wrangler deploy` uploads vars + secrets |
-| **[Vite plugin](#approach-2-with-the-vite-plugin)** | Already using [`@cloudflare/vite-plugin`](https://developers.cloudflare.com/workers/vite-plugin/) | `vite dev` — env injected into miniflare bindings automatically | `vite build` + `varlock-wrangler deploy` |
-| **[SvelteKit adapter plugin](/integrations/sveltekit/#sveltekit-on-cloudflare-workers)** | SvelteKit with [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare) | `vite dev` — SSR entry loader hydrates varlock at worker boot | `vite build` + `varlock-wrangler deploy` |
+| Approach | Best when | Dev / build |
+|----------|-----------|-------------|
+| **[`varlock-wrangler`](#approach-1-using-varlock-wrangler)** | Plain Workers, minimal tooling | `varlock-wrangler dev` injects env via FIFO and watches `.env` files; `varlock-wrangler deploy` uploads vars + secrets |
+| **[Vite plugin](#approach-2-with-the-vite-plugin)** | Already using [`@cloudflare/vite-plugin`](https://developers.cloudflare.com/workers/vite-plugin/) | `vite dev` injects into miniflare automatically; `vite build` + `varlock-wrangler deploy` |
+| **[SvelteKit adapter plugin](/integrations/sveltekit/#sveltekit-on-cloudflare-workers)** | SvelteKit with [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare) | `vite dev` via an SSR entry loader; `vite build` + `varlock-wrangler deploy` |
 
-**Decision guide:**
-
-- **No Vite, or a simple Worker script?** → `varlock-wrangler` + `@varlock/cloudflare-integration/init`
-- **Vite + `@cloudflare/vite-plugin`?** → `varlockCloudflareVitePlugin()` (replaces `cloudflare()`)
-- **SvelteKit on Cloudflare?** → `varlockSvelteKitCloudflarePlugin()` from `@varlock/cloudflare-integration/sveltekit` — **not** the standard Vite plugin. See the [SvelteKit on Cloudflare Workers guide](/integrations/sveltekit/#sveltekit-on-cloudflare-workers).
-
-:::caution[Don't mix SvelteKit and the standard Vite plugin]
-`@cloudflare/vite-plugin` does not support SvelteKit ([workers-sdk#8922](https://github.com/cloudflare/workers-sdk/issues/8922)). SvelteKit projects must use the dedicated SvelteKit entry point.
-:::
-
-## Two approaches
-
-1. **Using `varlock-wrangler`** - A thin wrapper for `wrangler` that injects env vars correctly, along with a one-line init import in your worker
-2. **With the Vite plugin** - If you're already using the [Cloudflare Workers Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/), you can add the varlock Cloudflare Vite plugin to automatically inject env vars and init code
-
-:::note[SvelteKit on Cloudflare]
-Deploying SvelteKit via `@sveltejs/adapter-cloudflare`? Use `varlockSvelteKitCloudflarePlugin` from `@varlock/cloudflare-integration/sveltekit` — a separate entry point that skips `@cloudflare/vite-plugin` (which isn't SvelteKit-compatible) and uses an SSR-entry-based env loader instead. The [SvelteKit guide](/integrations/sveltekit/#sveltekit-on-cloudflare-workers) walks through the setup end-to-end.
+:::caution[SvelteKit uses a separate entry point]
+`@cloudflare/vite-plugin` does not support SvelteKit ([workers-sdk#8922](https://github.com/cloudflare/workers-sdk/issues/8922)). SvelteKit projects must use [`varlockSvelteKitCloudflarePlugin`](/integrations/sveltekit/#sveltekit-on-cloudflare-workers) from `@varlock/cloudflare-integration/sveltekit` — **not** the standard Vite plugin.
 :::
 
 ## Approach 1: Using `varlock-wrangler`
@@ -127,7 +112,7 @@ For SvelteKit on Cloudflare, use the dedicated [`varlockSvelteKitCloudflarePlugi
 1. **Install packages**
     <InstallJsDepsWidget packages="@varlock/cloudflare-integration @cloudflare/vite-plugin varlock" />
 
-    `@cloudflare/vite-plugin` is an (optional) peer dependency — this plugin wraps it, so you need it installed in the same project. SvelteKit users should omit it (see the [SvelteKit callout](#two-approaches) at the top of this page).
+    `@cloudflare/vite-plugin` is an (optional) peer dependency — this plugin wraps it, so you need it installed in the same project. SvelteKit users should omit it (see the [SvelteKit callout](#choosing-an-approach) at the top of this page).
 
 1. **Run `varlock init` to set up your `.env.schema` file**
 
@@ -304,13 +289,9 @@ If you deploy via [Cloudflare Workers Builds](https://developers.cloudflare.com/
 
 ----
 
-## Federated credentials and build-time secrets (self-hosted CI)
+## Deploying from your own CI
 
-When you deploy from **your own CI** (GitHub Actions, GitLab CI, a self-hosted runner, etc.) rather than [Cloudflare Workers Builds](#cloudflare-workers-builds-cicd), varlock still needs credentials to resolve plugin-backed secrets during `varlock-wrangler deploy`.
-
-### Secret-zero vars
-
-Any env var varlock itself needs **during load** — a 1Password service account token, a GCP key, an Infisical machine identity, etc. — must be present in the CI job environment before deploy runs. Export them as CI secrets; varlock resolves the rest of your graph and uploads the result to Cloudflare.
+Deploying from **your own CI** (GitHub Actions, GitLab CI, a self-hosted runner) instead of [Cloudflare Workers Builds](#cloudflare-workers-builds-cicd) works the same way — and isn't really Cloudflare-specific. The same _secret-zero_ rule applies: any var varlock needs to resolve your secrets (a 1Password service account token, a GCP key, etc.) must be present in the job environment before `varlock-wrangler deploy` runs.
 
 ```yaml title=".github/workflows/deploy-worker.yml"
 jobs:
@@ -328,17 +309,7 @@ jobs:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
 ```
 
-### OIDC / federated credentials
-
-For supported secret providers, varlock can authenticate with **short-lived OIDC tokens** from your CI platform instead of long-lived API keys. Configure federated credentials on the provider side, then let varlock auto-detect the token — see the [OIDC workload identity guide](/guides/oidc/).
-
-:::tip[Validate before deploy]
-Run `varlock load` in an earlier CI step to fail fast on schema errors without exposing secret values in logs.
-:::
-
-### Encrypted `__VARLOCK_ENV` at deploy time
-
-If you enable [`@encryptInjectedEnv`](/guides/encrypted-deployments/), `varlock-wrangler deploy` auto-generates `_VARLOCK_ENV_KEY` and uploads the encrypted env blob as Cloudflare secrets — no manual key management on Workers. See [Encrypted deployments — Cloudflare Workers](/guides/encrypted-deployments/#cloudflare-workers).
+For supported providers, varlock can authenticate with **short-lived OIDC tokens** from your CI instead of long-lived keys — see the [OIDC workload identity guide](/guides/oidc/). Run `varlock load` in an earlier step to fail fast on schema errors without exposing values.
 
 ----
 

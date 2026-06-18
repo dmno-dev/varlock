@@ -136,7 +136,7 @@ FOO=bar  # will be ignored
 
 Imports other `.env` file(s) - useful for sharing config across monorepos and splitting up large schemas. _Can be called multiple times._
 
-You may import a specific file, or a directory of files - automatically loading all `.env.*` files appropriately according to the current environment flag.
+You may import a specific file, or a directory of files. Importing a **directory** (trailing `/`) brings everything that directory would load on its own — its `.env.schema` plus sibling `.env`, `.env.local`, and environment-specific files, resolved by the current environment flag — whereas importing a single file brings only that file. To pull in a sibling or root package's values (not just its schema), import the directory.
 
 The optional `enabled` parameter allows conditional imports based on boolean expressions. It defaults to `true` if not specified.
 
