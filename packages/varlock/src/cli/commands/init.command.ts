@@ -267,8 +267,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       if (reloadedSchemaFile.configItems.find((i) => i.key === 'EXAMPLE_ITEM')) {
         logLines([
           '',
-          ansis.bold(`🚨 Really? ${ansis.red("You didn't remove the EXAMPLE_ITEM!")}`),
-          `Please make sure your schema is all correct before using it...`,
+          ansis.bold(`🙏 Thanks for your honesty!`),
+          `Make sure to review your schema and remove the ${ansis.bold('EXAMPLE_ITEM')} before using it...`,
         ]);
       }
     }
