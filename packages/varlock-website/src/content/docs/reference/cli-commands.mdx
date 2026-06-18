@@ -46,6 +46,15 @@ You can configure varlock's default behavior by adding a `varlock` key to your `
 While plugins cannot add additional CLI commands, they can extend varlock with additional [resolver functions](/reference/functions/), [data types](/reference/data-types/), and [decorators](/reference/item-decorators/). See the [Plugins guide](/guides/plugins/) for more information.
 :::
 
+## Common options
+
+Several commands share these flags. They behave identically wherever they appear, except where a command's own section calls out a deviation.
+
+- `--path` / `-p` `<path>`: Path to a specific `.env` file or directory to use as the entry point (overrides `varlock.loadPath` in `package.json`). Can be specified multiple times to load from multiple paths — later paths take higher precedence. _(For [`scan`](#scan) and [`audit`](#audit) this is the **schema** entry point used to resolve sensitive values; `audit` accepts a single path only.)_
+- `--env <env>`: Resolve in the context of a specific environment (e.g., `--env production`). Overridden by `@currentEnv` if it is set in your `.env.schema`.
+- `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (when combined with `--skip-cache`, the cache is cleared first, then reads and writes are skipped for the run).
+- `--skip-cache`: Skip cache entirely for this invocation (no reads or writes). This overrides `@cache=disk`/`@cache=memory`.
+
 ## Commands reference
 
 <div class="reference-docs">
@@ -92,10 +101,7 @@ varlock load [options]
 - `--agent`:      Agent-safe mode — defaults to JSON output and redacts sensitive values. Not compatible with `--format env` or `--format shell`.
 - `--compact`:    Compact output (json-full: no indentation, env/shell: skip undefined values)
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
-- `--env`:        Set the default environment flag (e.g., `--env production`), only useful if not using `@currentEnv` in `.env.schema`
-- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point (overrides `varlock.loadPath` in `package.json`). Can be specified multiple times to load from multiple paths — later paths take higher precedence.
-- `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (when combined with `--skip-cache`, the cache is cleared first, then reads and writes are skipped for the run)
-- `--skip-cache`: Skip cache entirely for this invocation (no reads or writes). This overrides `@cache=disk`/`@cache=memory`.
+- [Common options](#common-options): `--env`, `--path` / `-p`, `--clear-cache`, `--skip-cache`
 
 **Examples:**
 ```bash
@@ -166,9 +172,7 @@ varlock run -- <command>
 - `--redact-stdout` / `--no-redact-stdout`: Override automatic stdout/stderr redaction. `--redact-stdout` forces redaction of piped/redirected output (e.g., to override `@redactLogs=false`) and errors if output is attached to an interactive terminal, where redaction is not possible without breaking TTY behavior. `--no-redact-stdout` disables redaction entirely.
 - `--inject <mode>` / `-i`: Control what gets injected into the child process environment — `all` (default: individual vars plus the `__VARLOCK_ENV` serialized config graph blob), `vars` (individual vars only, no blob), or `blob` (only the `__VARLOCK_ENV` blob, no individual vars)
 - `--include-internal`: Pass [`@internal`](/reference/item-decorators/#internal) items through to the child process. By default they are stripped from the child env — even if set in the ambient environment — so a secret-zero token never reaches your app. Use this for a _nested_ `varlock run` whose own resolution needs the internal value.
-- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
-- `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (when combined with `--skip-cache`, the cache is cleared first, then reads and writes are skipped for the run)
-- `--skip-cache`: Skip cache entirely for this invocation (no reads or writes). This overrides `@cache=disk`/`@cache=memory`.
+- [Common options](#common-options): `--path` / `-p`, `--clear-cache`, `--skip-cache`
 
 **Examples:**
 ```bash
@@ -257,9 +261,7 @@ varlock printenv <VAR_NAME> [options]
 - `<VAR_NAME>`: The variable to print. Required — printenv errors if omitted.
 
 **Options:**
-- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
-- `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (when combined with `--skip-cache`, the cache is cleared first, then reads and writes are skipped for the run)
-- `--skip-cache`: Skip cache entirely for this invocation (no reads or writes). This overrides `@cache=disk`/`@cache=memory`.
+- [Common options](#common-options): `--path` / `-p`, `--clear-cache`, `--skip-cache`
 
 **Examples:**
 ```bash
@@ -305,8 +307,7 @@ varlock explain <VAR_NAME> [options]
 - `<VAR_NAME>`: The config item to explain. Required — explain errors if omitted.
 
 **Options:**
-- `--env`:         Resolve in the context of a specific environment (e.g., `--env production`)
-- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
+- [Common options](#common-options): `--env`, `--path` / `-p`
 
 **Examples:**
 ```bash
@@ -339,7 +340,7 @@ varlock scan [paths...] [options]
 - `--staged`:           Only scan staged git files (ignored when explicit paths are provided)
 - `--include-ignored`:  Include git-ignored files in the scan (ignored when explicit paths are provided)
 - `--install-hook`:     Set up `varlock scan` as a git pre-commit hook
-- `--path` / `-p`:      Path to a specific `.env` file or directory to use as the schema entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
+- [Common options](#common-options): `--path` / `-p` — here it sets the **schema** entry point used to resolve sensitive values
 
 **Examples:**
 ```bash
@@ -446,8 +447,7 @@ varlock reveal [VAR_NAME] [options]
 
 **Options:**
 - `--copy`:        Copy the value to clipboard instead of displaying (auto-clears after 10s)
-- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point
-- `--env`:         Set the environment (e.g., production, development, etc)
+- [Common options](#common-options): `--path` / `-p`, `--env`
 
 **Examples:**
 ```bash
@@ -509,7 +509,7 @@ varlock audit [paths...] [options]
 - `[paths...]`: Optional list of directories to scan. When provided, only these directories are scanned instead of the auto-detected scan root.
 
 **Options:**
-- `--path` / `-p`: Path to a specific `.env` file or directory to use as the schema entry point
+- [Common options](#common-options): `--path` / `-p` — here it sets the **schema** entry point (single path only)
 - `--ignore` / `-i`: Directory to exclude from code scanning (can be specified multiple times)
 
 **Examples:**
@@ -599,7 +599,7 @@ varlock typegen [options]
 ```
 
 **Options:**
-- `--path` / `-p`: Path to a specific `.env` file or directory to use as the entry point. Can be specified multiple times to load from multiple paths — later paths take higher precedence.
+- [Common options](#common-options): `--path` / `-p`
 
 **Examples:**
 ```bash
