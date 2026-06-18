@@ -25,6 +25,10 @@ export const commandSpec = define({
       type: 'string',
       description: 'Encryption key ID',
       default: 'varlock-default',
+      // Hidden until multi-key round-trips: the varlock("local:...") reference does not
+      // encode a keyId, and the load-time resolver always decrypts with the default key,
+      // so encrypting with a non-default key produces values that cannot be loaded back.
+      hidden: true,
     },
     file: {
       type: 'string',
@@ -42,7 +46,6 @@ Examples:
   echo "$MY_SECRET" | varlock encrypt    # Encrypt a value from stdin (non-interactive, agent-friendly)
   varlock encrypt                        # Prompt interactively for a value
   varlock encrypt --file .env.local      # Encrypt @sensitive plaintext values in a file in-place
-  varlock encrypt --key-id my-key        # Use a specific encryption key
 `.trim(),
 });
 
