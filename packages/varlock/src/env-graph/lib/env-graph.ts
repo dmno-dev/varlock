@@ -639,6 +639,28 @@ export class EnvGraph {
     return [...builtinKeys, ...userKeys];
   }
 
+  /**
+   * Keys that were excluded from generated types because they only exist in a plain `.env`
+   * value file (not declared in `.env.schema` or imported into it). These are usually drift —
+   * a stale or extra key, or one the user meant to declare in their schema. Type generation
+   * deliberately ignores them so output stays deterministic, but surfacing them lets the
+   * `typegen` command (or a future doctor check) nudge the user. Keys defined only in
+   * env-specific files (`.env.local`, `.env.production`, ...) are intentionally excluded here.
+   */
+  getValueOnlyKeysExcludedFromTypes() {
+    const keys: Array<string> = [];
+    for (const itemKey of this.sortedConfigKeys) {
+      if (isVarlockReservedKey(itemKey)) continue;
+      const item = this.configSchema[itemKey];
+      if (item.isBuiltin) continue;
+      // still has a schema-defining def → it's included in types, nothing to flag
+      if (item.defsForTypeGeneration.length) continue;
+      // only flag keys that actually appear in a plain `.env` (vs. only env-specific files)
+      if (item.defs.some((def) => def.source?.isAutoloadedValueSource)) keys.push(itemKey);
+    }
+    return keys;
+  }
+
   getResolvedEnvObject() {
     const envObject: Record<string, any> = {};
     for (const itemKey of this.sortedConfigKeys) {

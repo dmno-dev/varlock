@@ -100,7 +100,16 @@ export class ConfigItem {
    * regardless of which environment is being loaded.
    */
   get defsForTypeGeneration() {
-    return this.defs.filter((def) => !def.source || !def.source.isEnvSpecific);
+    return this.defs.filter((def) => {
+      if (!def.source) return true;
+      // env-specific sources (e.g. `.env.local`, `.env.production`) must not affect types
+      if (def.source.isEnvSpecific) return false;
+      // a plain auto-loaded `.env` is a value source, not a schema source — keys defined
+      // only there should not leak into generated types (output stays deterministic
+      // regardless of an uncommitted local `.env`)
+      if (def.source.isAutoloadedValueSource) return false;
+      return true;
+    });
   }
 
   get description() {

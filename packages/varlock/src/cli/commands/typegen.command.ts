@@ -18,8 +18,9 @@ export const commandSpec = define({
   },
   examples: `
 Generates TypeScript type definitions from your .env schema files.
-Uses only non-environment-specific schema info, so output is deterministic
-regardless of which environment is active.
+Uses only your schema definitions, so output is deterministic regardless of
+which environment is active. Keys that come only from value files like .env or
+.env.local are ignored - only items declared in your schema are included.
 
 This is useful when you have \`@generateTypes(lang=ts, path=env.d.ts, auto=false)\`
 in your schema to disable automatic type generation during \`varlock load\` or \`varlock run\`.
@@ -48,4 +49,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   console.log('✅ Types generated successfully');
+
+  // Nudge about keys that only live in a plain `.env` and were left out of the types.
+  // Only shown here (the explicit command), not during background auto-generation on load/run.
+  const excludedKeys = envGraph.getValueOnlyKeysExcludedFromTypes();
+  if (excludedKeys.length) {
+    console.log('');
+    console.log(`ℹ️  Ignored ${excludedKeys.length} key${excludedKeys.length === 1 ? '' : 's'} found only in .env (not declared in your schema):`);
+    console.log(`   ${excludedKeys.join(', ')}`);
+    console.log('   Declare them in your .env.schema to include them in generated types.');
+  }
 };
