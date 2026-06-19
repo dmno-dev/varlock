@@ -12,6 +12,14 @@
 
 
 
+
+## 1.7.2
+<sub>2026-06-19</sub>
+
+- [#806](https://github.com/dmno-dev/varlock/pull/806)  *(patch)* - Fix typegen leaking keys that exist only in a plain .env (not declared in .env.schema) into generated types. `varlock typegen` now also reports any such ignored keys.
+- [#809](https://github.com/dmno-dev/varlock/pull/809)  *(patch)* - Detect circular @import() between schemas and fail with a clear error instead of crashing
+- [#808](https://github.com/dmno-dev/varlock/pull/808)  *(patch)* - Bundle the varlock agent skill in the npm package so agents can discover version-pinned guidance from node_modules
+
 ## 1.7.1
 <sub>2026-06-17</sub>
 
