@@ -358,6 +358,40 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
   };
 }
 
+// The live request log and an interactive approval prompt share the same TTY
+// (stderr). While a prompt is awaiting input, defer log lines so a concurrent
+// request can't clobber the readline prompt; flush them once the prompt resolves.
+let activeApprovalPrompts = 0;
+const deferredProxyLogLines: Array<string> = [];
+
+function emitProxyLog(line: string): void {
+  if (activeApprovalPrompts > 0) {
+    deferredProxyLogLines.push(line);
+    return;
+  }
+  console.error(line);
+}
+
+function flushDeferredProxyLogs(): void {
+  if (activeApprovalPrompts > 0) return;
+  for (const line of deferredProxyLogLines.splice(0)) console.error(line);
+}
+
+/** Wrap an approval provider so the live log defers (rather than corrupts) the TTY while it prompts. */
+function guardApprovalPromptForLogging(inner: ApprovalProvider): ApprovalProvider {
+  return {
+    async requestApproval(req) {
+      activeApprovalPrompts += 1;
+      try {
+        return await inner.requestApproval(req);
+      } finally {
+        activeApprovalPrompts -= 1;
+        flushDeferredProxyLogs();
+      }
+    },
+  };
+}
+
 /** A one-line live log of a request decision: `→ POST host/path  inject: KEY` (or `✗ … blocked-egress`). */
 function formatProxyRequestLog(a: ProxyActivity): string {
   const arrow = a.blocked ? '✗' : '→';
@@ -419,10 +453,10 @@ async function createRuntimeAndSession(opts: {
     onActivity: (activity) => {
       statsWriter.onActivity(activity);
       auditLog.record(activity);
-      if (opts.logRequests) console.error(formatProxyRequestLog(activity));
+      if (opts.logRequests) emitProxyLog(formatProxyRequestLog(activity));
     },
     onResponse: opts.logRequests
-      ? (info) => console.error(formatProxyResponseLog(info))
+      ? (info) => emitProxyLog(formatProxyResponseLog(info))
       : undefined,
   });
   const session = await createProxySessionRecord({
@@ -842,8 +876,9 @@ async function startAction(ctx: any) {
     entryPaths: ctx.values.path,
     // The proxy owns this terminal (the agent runs elsewhere and routes through
     // it), so require-approval requests can prompt here — and session/duration
-    // approvals can be remembered as standing grants.
-    approvalProvider: createTtyApprovalProvider(),
+    // approvals can be remembered as standing grants. Wrapped so the live request
+    // log defers while the prompt is reading input (shared TTY).
+    approvalProvider: guardApprovalPromptForLogging(createTtyApprovalProvider()),
     enableApprovalGrants: true,
     reloadable: true,
     // The daemon owns this terminal, so tail a live per-request/response log here.

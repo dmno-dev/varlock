@@ -235,6 +235,7 @@ export function createTtyApprovalProvider(opts?: {
         }   Approve? ${options.join('  ')} `;
 
       const rl = readline.createInterface({ input, output });
+      let answered = false;
       const answer = await new Promise<string>((resolve) => {
         const timer = setTimeout(() => {
           output.write('\n   (timed out — denied)\n');
@@ -242,11 +243,22 @@ export function createTtyApprovalProvider(opts?: {
         }, timeoutMs);
         timer.unref?.();
         rl.question(prompt, (a) => {
+          answered = true;
           clearTimeout(timer);
           resolve(a);
         });
         rl.on('close', () => {
           clearTimeout(timer);
+          // 'close' without an answer means EOF on the terminal — which happens
+          // when `proxy start` isn't the foreground process of an interactive
+          // terminal (e.g. started with `&`, under a supervisor, or stdin
+          // redirected). Surface that rather than denying silently.
+          if (!answered) {
+            output.write(
+              '\n   (couldn\'t read your answer — run `varlock proxy start` in the '
+                + 'foreground of an interactive terminal to approve requests)\n',
+            );
+          }
           resolve('');
         });
       });
