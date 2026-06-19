@@ -161,7 +161,7 @@ describe('proxy decorators', () => {
     const rules = await graph.getProxyRules();
     expect(rules).toMatchObject([
       { domain: ['api.a.com'] },
-      { domain: ['api.b.com'], path: '/admin/**', approval: true },
+      { domain: ['api.b.com'], path: '/admin/**', approval: {} },
     ]);
   });
 
@@ -176,12 +176,12 @@ describe('proxy decorators', () => {
     `);
 
     expect(await graph.getProxyRules()).toMatchObject([
-      { domain: ['api.a.com'], approval: true },
+      { domain: ['api.a.com'], approval: {} },
       {
-        domain: ['api.b.com'], approval: true, approvalEach: 'request', approvalMaxDurationMs: 900_000,
+        domain: ['api.b.com'], approval: { each: 'request', maxDurationMs: 900_000 },
       },
       {
-        domain: ['api.c.com'], approval: true, approvalEach: 'host', approvalMaxDurationMs: 0,
+        domain: ['api.c.com'], approval: { each: 'host', maxDurationMs: 0 },
       },
     ]);
   });
@@ -196,7 +196,6 @@ describe('proxy decorators', () => {
     const rules = await graph.getProxyRules();
     expect(rules).toMatchObject([{ domain: ['api.a.com'] }]);
     expect(rules[0]!.approval).toBeUndefined();
-    expect(rules[0]!.approvalEach).toBeUndefined();
   });
 
   test('approval config: a bad approval.each is rejected', async () => {

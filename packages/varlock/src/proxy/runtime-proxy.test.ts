@@ -329,7 +329,7 @@ describe('startLocalProxyRuntime', () => {
       managedItems: [],
       rules: [
         {
-          domain: ['127.0.0.1'], itemKeys: [], approval: true,
+          domain: ['127.0.0.1'], itemKeys: [], approval: {},
         },
       ],
       egressMode: 'permissive',
@@ -368,7 +368,7 @@ describe('startLocalProxyRuntime', () => {
       managedItems: [],
       rules: [
         {
-          domain: ['127.0.0.1'], itemKeys: [], approval: true,
+          domain: ['127.0.0.1'], itemKeys: [], approval: {},
         },
       ],
       egressMode: 'permissive',

@@ -51,7 +51,7 @@ describe('evaluateProxyPolicy', () => {
   });
 
   test('an approve rule yields require-approval', () => {
-    const approveRules = [rule({ domain: ['api.x.com'], path: '/v1/refunds/**', approval: true })];
+    const approveRules = [rule({ domain: ['api.x.com'], path: '/v1/refunds/**', approval: {} })];
     expect(evaluateProxyPolicy(facts('api.x.com', 'POST', '/v1/refunds/42'), approveRules).verdict).toBe('require-approval');
     // a non-matching path falls through to allow
     expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/v1/customers'), approveRules).verdict).toBe('allow');
@@ -60,7 +60,7 @@ describe('evaluateProxyPolicy', () => {
   test('block beats require-approval beats allow', () => {
     const layered = [
       rule({ domain: ['api.x.com'] }), // broad allow
-      rule({ domain: ['api.x.com'], path: '/admin/**', approval: true }),
+      rule({ domain: ['api.x.com'], path: '/admin/**', approval: {} }),
       rule({ domain: ['api.x.com'], path: '/admin/destroy', block: true }),
     ];
     expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/admin/destroy'), layered).verdict).toBe('deny');
@@ -70,7 +70,7 @@ describe('evaluateProxyPolicy', () => {
 
   test('a more-specific allow exempts a path from a broad approve', () => {
     const broadApprove = [
-      rule({ domain: ['api.x.com'], approval: true }), // approve everything by default
+      rule({ domain: ['api.x.com'], approval: {} }), // approve everything by default
       rule({ domain: ['api.x.com'], path: '/health' }), // ...except this safe path
     ];
     expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/anything'), broadApprove).verdict).toBe('require-approval');
@@ -80,7 +80,7 @@ describe('evaluateProxyPolicy', () => {
   test('on a specificity tie, require-approval wins over allow (more restrictive)', () => {
     const tied = [
       rule({ domain: ['api.x.com'], path: '/v1/*' }),
-      rule({ domain: ['api.x.com'], path: '/v1/*', approval: true }),
+      rule({ domain: ['api.x.com'], path: '/v1/*', approval: {} }),
     ];
     expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/v1/x'), tied).verdict).toBe('require-approval');
   });
