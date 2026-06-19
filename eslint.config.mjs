@@ -174,6 +174,7 @@ export default tseslint.config(
       'packages/encryption-binary-swift/scripts/**',
       'packages/encryption-binary-rust/scripts/**',
       'packages/vscode-plugin/scripts/**',
+      'packages/varlock-website/scripts/**',
     ],
     rules: {
       'no-console': 0,
