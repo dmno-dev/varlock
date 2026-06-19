@@ -83,9 +83,17 @@ gh skill install dmno-dev/varlock varlock
 
 See the [AI Tools guide](/guides/ai-tools/#install-the-varlock-skill) for update commands and agent-specific options.
 
+## Editor and shell tooling
 
+Varlock ships with first-party tooling that makes authoring `.env.schema` files much easier. Set these up right after installing the CLI.
 
-:::tip[Shell completions]
-Enable tab completion for varlock commands and flags in your terminal. See the [Shell Completion guide](/guides/shell-completion/) for setup instructions.
-:::
+### VS Code extension
+
+Install the [**@env-spec VS Code extension**](/env-spec/vs-code-ext/) from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=varlock.env-spec-language) or [Open VSX](https://open-vsx.org/extension/varlock/env-spec-language) (for Cursor, Windsurf, and other VS Code forks).
+
+It provides syntax highlighting, decorator and `@type` IntelliSense, `$KEY` reference completion, and inline validation while you edit `.env.schema` and other `@env-spec` files.
+
+### Shell completion
+
+Enable tab completion for varlock commands and flags in bash, zsh, or fish. See the [Shell completion guide](/guides/shell-completion/) for one-time setup. Usually, adding `eval "$(varlock complete)"` to your shell profile is enough.
 

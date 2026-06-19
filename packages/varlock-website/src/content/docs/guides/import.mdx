@@ -48,6 +48,13 @@ You can import files from your home directory using the `~/` prefix. This is use
 # @import(../shared-config-dir/)
 ```
 
+:::tip[File vs directory — which should I import?]
+- **Import a single file** when you want exactly that file's contents — a shared `.env.common`, or specific keys from another schema via `pick`.
+- **Import a directory** (trailing `/`) when you want everything that directory would load on its own: its `.env.schema` **plus** sibling `.env`, `.env.local`, and environment-specific files, resolved by the current environment flag.
+
+This distinction matters when pulling in a root or sibling package. Importing its `.env.schema` file alone brings only the schema; importing the package's **directory** also brings its values (including `.env.local` and `.env.[currentEnv]`). For the common "import the repo root" case in a monorepo, use the directory form (`# @import(../../)`).
+:::
+
 {/*
 ### HTTP URL (👀 coming soon)
 
@@ -147,3 +154,39 @@ Meaning if there was a value for `ITEM` in all 4 files, the final value used wou
 - Root decorators that affect individual items (e.g., `@defaultRequired`) affect only the items that are defined in the file, not those in imported files
 - An item with no value at all (e.g., `ITEM=`) will be skipped when looking for a value / function to use, but its presence can be used to add other decorators/description to the item
 - If an imported file is marked with [`@disable`](/reference/root-decorators/#disable), it and any files it imports are skipped entirely
+
+## When things go wrong
+
+### `environment flag "..." must be defined within this schema`
+
+If you use [`@currentEnv`](/reference/root-decorators/#currentenv) to point at a variable (e.g. `# @currentEnv=$DEPLOY_ENV`) and that variable is only brought in via a **partial** `@import()`, varlock validates the env flag during schema initialization — before imported values are merged. The flag must be **defined in the same `.env.schema` file** that declares `@currentEnv`, not only in an imported file.
+
+This commonly appears in monorepos when a sub-package imports shared keys from a parent schema:
+
+```env-spec title=".env.schema (sub-package)"
+# @currentEnv=$DEPLOY_ENV
+# @import(../../../, pick=[DEPLOY_ENV, AWS_REGION])
+# ---
+MY_SERVICE_URL=...
+```
+
+Running `varlock load` fails with:
+
+```txt
+environment flag "DEPLOY_ENV" must be defined within this schema
+```
+
+**Fixes:**
+
+- Define the env flag locally in the file that uses `@currentEnv`, even if the value comes from elsewhere:
+
+```env-spec title=".env.schema (sub-package)"
+# @currentEnv=$DEPLOY_ENV
+# @import(../../../, pick=[DEPLOY_ENV, AWS_REGION])
+# ---
+DEPLOY_ENV=
+MY_SERVICE_URL=...
+```
+
+- Move `@currentEnv` to the shared schema where the flag is already defined
+- Import the full directory (omit the key list) if the sub-package should inherit the parent's `@currentEnv` handling

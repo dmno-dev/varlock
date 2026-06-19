@@ -47,8 +47,8 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
     category: 'ai',
   },
   {
-    id: 'gemini-cli',
-    title: 'Gemini CLI',
+    id: 'antigravity-cli',
+    title: 'Antigravity CLI',
     icon: 'simple-icons:googlegemini',
     href: '/guides/ai-tools/',
     category: 'ai',

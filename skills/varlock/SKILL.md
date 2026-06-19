@@ -237,10 +237,10 @@ Ask the user how their repo is structured before designing the env layout.
 **Monorepo / multi-app:** use `@import()` to share common config:
 
 ```env-spec title="apps/web/.env.schema"
-# Import shared config from root
-# @import(../../.env.schema)
+# Import shared config from root (directory form: also loads root .env / .env.local)
+# @import(../../)
 # Import from a sibling service (specific keys only)
-# @import(../api/.env.schema, SHARED_API_URL, SHARED_DB_HOST)
+# @import(../api/.env.schema, pick=[SHARED_API_URL, SHARED_DB_HOST])
 # ---
 APP_PUBLIC_URL=http://localhost:3000
 ```
@@ -335,6 +335,18 @@ Run `varlock --help` or `varlock <command> --help` for full flags and options.
 | `varlock audit` | Detect drift between schema and code usage |
 | `varlock typegen` | Explicitly trigger type generation from schema (usually triggered automatically) |
 | `varlock lock` | Lock biometric session (requires re-auth on next decrypt) |
+
+## Updating an existing project
+
+Keep `.env.schema` as the source of truth. Edit schema and tracked `.env.[env]` files only — not gitignored `.local` files.
+
+1. **Schema changes** — add/remove/rename items in `.env.schema`, update code to match, then `varlock load --agent`
+2. **Secrets** — leave sensitive values empty in schema; ask the user to set them locally or in their secret provider
+3. **Plugins** — add `@plugin()` in the header and prefer plugin resolvers over raw `exec()` when available
+4. **Types** — `@generateTypes` runs on load by default; use `auto=false` and `varlock typegen` if you need explicit control
+5. **Before commit** — `varlock load --agent`, then `varlock scan --staged`; run `varlock audit` if you renamed keys or suspect drift
+
+See [Schema](https://varlock.dev/guides/schema/), [Secrets](https://varlock.dev/guides/secrets/), and [Monorepos](https://varlock.dev/guides/monorepos/) for deeper patterns.
 
 ## Advanced
 

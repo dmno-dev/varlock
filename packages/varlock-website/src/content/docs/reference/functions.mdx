@@ -18,7 +18,7 @@ EXPANSION_EQUIVALENT="pre-${OTHER}-post"
 USING_FN_CALLS=concat("pre-", ref(OTHER), "-post")
 
 # mixed example
-CONFIG=exec(`aws ssm get-parameter --name "/config/${APP_ENV}" --with-decryption`)
+CONFIG=exec(`./scripts/load-config.sh ${APP_ENV}`)
 ```
 
 
@@ -65,13 +65,17 @@ Executes a CLI command and uses its output as the value. This is particularly us
 Many CLI tools output an additional newline. `exec()` will trim this automatically.
 :::
 
+:::tip[Prefer a plugin when one exists]
+If varlock has a [plugin](/plugins/overview/) for your provider (1Password, AWS, Vault, …), use its resolver (e.g. `op()`) instead of shelling out — plugins handle auth, caching, and validation. Reach for `exec()` only for tools without a plugin, or for custom logic.
+:::
+
 Expansion equivalent: `exec(command)` === `$(command)`
 
 ```env-spec "exec"
-# Using 1Password CLI
-API_KEY=exec(`op read "op://dev test/service x/api key"`)
-# Using AWS CLI
-AWS_CREDENTIALS=exec(`aws sts get-session-token --profile prod`)
+# A custom or internal secrets CLI
+API_KEY=exec(`my-secrets-cli get api-key`)
+# Any command whose stdout becomes the value
+GIT_SHA=exec(`git rev-parse HEAD`)
 ```
 </div>
 

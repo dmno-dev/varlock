@@ -136,7 +136,7 @@ FOO=bar  # will be ignored
 
 Imports other `.env` file(s) - useful for sharing config across monorepos and splitting up large schemas. _Can be called multiple times._
 
-You may import a specific file, or a directory of files - automatically loading all `.env.*` files appropriately according to the current environment flag.
+You may import a specific file, or a directory of files. Importing a **directory** (trailing `/`) brings everything that directory would load on its own — its `.env.schema` plus sibling `.env`, `.env.local`, and environment-specific files, resolved by the current environment flag — whereas importing a single file brings only that file. To pull in a sibling or root package's values (not just its schema), import the directory.
 
 The optional `enabled` parameter allows conditional imports based on boolean expressions. It defaults to `true` if not specified.
 
@@ -232,7 +232,7 @@ API_KEY=
 APP_ENV=dev
 ```
 
-If a plugin doesn't exist for your provider, any CLI tool works via [`exec()`](/reference/functions/#exec) — e.g. `@setValuesBulk(exec("vault kv get -format=json secret/myapp"), format=json)`.
+If a plugin doesn't exist for your provider, any CLI tool works via [`exec()`](/reference/functions/#exec) — e.g. `@setValuesBulk(exec("my-secrets-cli export --format=json"), format=json)`.
 
 :::note
 When using `format=env`, function calls like `$VAR` references in unquoted values are not supported and will cause an error. Use single quotes for literal `$` signs (e.g., `'$LITERAL'`) or use `format=json` instead.

@@ -1,0 +1,181 @@
+---
+title: Python
+description: Use varlock with Python (FastAPI, uvicorn, Poetry), Pydantic Settings, and varlock run
+draft: true
+---
+
+import { Steps } from "@astrojs/starlight/components";
+
+Varlock's first-class integrations target JavaScript and TypeScript runtimes, but the CLI works with **any language** that reads environment variables. For Python projects, install the [standalone binary](/getting-started/installation/#as-a-binary) and boot your app with [`varlock run`](/reference/cli-commands/#run).
+
+:::tip[Why the standalone binary?]
+Python projects typically don't have a `package.json`, so the npm-distributed `varlock` package isn't the natural install path. The standalone binary gives you the same CLI — load, validate, run, and plugin support — without adding a Node.js dependency to your repo.
+:::
+
+## Install the standalone binary
+
+<Steps>
+
+1. **Install varlock**
+
+    ```bash
+    # Homebrew (macOS / Linux)
+    brew install dmno-dev/tap/varlock
+
+    # Or via install script
+    curl -sSfL https://varlock.dev/install.sh | sh -s
+    ```
+
+    See the full [installation guide](/getting-started/installation/#as-a-binary) for version pinning and CI usage.
+
+1. **Initialize your schema**
+
+    ```bash
+    varlock init
+    ```
+
+    For AI-assisted setup, use non-interactive mode:
+
+    ```bash
+    varlock init --agent
+    ```
+
+</Steps>
+
+:::note[Docker and CI]
+You can also run varlock from the official Docker image in pipelines — see the [Docker guide](/guides/docker/). The binary and Docker image expose the same CLI surface.
+:::
+
+---
+
+## Python with `varlock run`
+
+[`varlock run`](/reference/cli-commands/#run) resolves and validates your `.env.schema`, then spawns your command with the resolved values injected as regular environment variables. No Python library is required — your app reads `os.environ` (or a settings helper that wraps it).
+
+### uvicorn / FastAPI
+
+Boot your ASGI server through varlock so local dev and production use the same schema:
+
+```bash
+varlock run -- uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+In a `Makefile` or shell script:
+
+```bash
+APP_ENV=development varlock run -- uvicorn main:app --reload
+```
+
+:::caution[Shell expansion]
+Environment variables in the command itself are expanded by your shell **before** varlock runs. Pass overrides on the left (`APP_ENV=production varlock run -- …`) or use [`varlock printenv`](/reference/cli-commands/#printenv) to read resolved values into the shell.
+:::
+
+### Poetry
+
+If you manage dependencies with [Poetry](https://python-poetry.org/), wrap the Poetry invocation:
+
+```bash
+varlock run -- poetry run uvicorn main:app --reload
+```
+
+Or add scripts to `pyproject.toml` that call varlock directly:
+
+```toml title="pyproject.toml"
+[tool.poetry.scripts]
+dev = "scripts:dev"
+
+# scripts/__init__.py or a small entry module can shell out to:
+# varlock run -- uvicorn main:app --reload
+```
+
+:::tip[Poetry + varlock in CI]
+Install the varlock binary in your CI image (or use the [Docker image](/guides/docker/)), then run `varlock run -- poetry run pytest` so tests see the same validated env as production.
+:::
+
+### Plain Python
+
+For scripts, Celery workers, Django management commands, or anything else:
+
+```bash
+varlock run -- python manage.py runserver
+varlock run -- python script.py
+```
+
+By default, `varlock run` also pipes stdout/stderr through varlock's redaction filter, masking sensitive values that appear in logs. Use `--no-redact-stdout` for interactive tools that need raw TTY behavior — see the [`varlock run` reference](/reference/cli-commands/#run).
+
+---
+
+## Reading env in Python
+
+Varlock injects plain environment variables. Use whichever settings library you already prefer — both patterns below assume vars arrive via `varlock run`, not from a committed `.env` file.
+
+### Pydantic Settings
+
+[Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) reads from `os.environ` by default, which maps cleanly to varlock:
+
+```env-spec title=".env.schema"
+# @currentEnv=$APP_ENV
+# @defaultSensitive=false @defaultRequired=false
+# ---
+
+# @type=enum(development, staging, production)
+APP_ENV=development
+
+# @type=url @required
+DATABASE_URL=
+
+# @type=string(startsWith=sk-) @sensitive
+OPENAI_API_KEY=
+```
+
+```python title="settings.py"
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore")
+
+    app_env: str
+    database_url: str
+    openai_api_key: str
+
+
+settings = Settings()
+```
+
+```python title="main.py"
+from fastapi import FastAPI
+from settings import settings
+
+app = FastAPI()
+
+
+@app.get("/health")
+def health():
+    return {"env": settings.app_env}
+```
+
+Run with:
+
+```bash
+varlock run -- uvicorn main:app --reload
+```
+
+:::note[Skip `.env` file loading in Python]
+When using varlock, don't also load `.env` from Python (`python-dotenv`, Pydantic's `env_file=`, etc.) unless you intentionally want a second source of truth. Varlock is the single resolver — your schema, plugins, and environment files all flow through it before Python starts.
+:::
+
+### environs
+
+[environs](https://github.com/sloria/environs) works the same way — call `env()` helpers against process env, without reading a file:
+
+```python title="config.py"
+from environs import Env
+
+env = Env()
+# Do not call env.read_env() — varlock run already populated os.environ
+
+DATABASE_URL = env.str("DATABASE_URL")
+OPENAI_API_KEY = env.str("OPENAI_API_KEY")
+DEBUG = env.bool("DEBUG", default=False)
+```

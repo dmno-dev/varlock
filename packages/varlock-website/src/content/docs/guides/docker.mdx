@@ -1,118 +1,414 @@
 ---
 title: Docker
-description: Using varlock with Docker containers and CI/CD pipelines
+description: Using varlock with Docker containers — CI validation, runtime injection, multi-stage builds, and monorepo workarounds
 ---
 
-Varlock provides an official Docker image for use in containerized environments and CI/CD pipelines. The image is hosted on GitHub Container Registry (GHCR) and makes it easy to integrate varlock into your Docker workflows and ensures consistent behavior across different environments.
+import { TabItem, Tabs } from "@astrojs/starlight/components";
 
-## Quick Start
+Varlock works well in containerized workflows, but **how** you use it depends on what you need at each stage of your pipeline. This guide covers the official [GHCR image](https://github.com/dmno-dev/varlock/pkgs/container/varlock), patterns for installing varlock yourself, and the pitfalls to avoid when secrets meet Docker layers.
 
-```bash
-# Pull the latest version
-docker pull ghcr.io/dmno-dev/varlock:latest
+## Choosing an approach
 
-# Run varlock help
-docker run --rm ghcr.io/dmno-dev/varlock:latest --help
+Before adding varlock to a Dockerfile, decide which role it plays:
 
-# Run varlock load in a directory
-docker run --rm -v $(pwd):/work -w /work -e PWD=/work ghcr.io/dmno-dev/varlock:latest load
-```
+| Approach | When to use | varlock in production image? |
+| --- | --- | --- |
+| **CI-only validation** | Validate schema and config in pipelines; runtime env comes from the platform | No — run `varlock load` in CI only |
+| **Runtime injection** | Long-running containers (APIs, workers) that resolve secrets at boot via [plugins](/guides/plugins/) | Yes — use `varlock run` as the entrypoint |
+| **Build-time** | SSR apps where a [framework integration](/integrations/overview/) injects resolved env into build output | Sometimes — only in a **builder** stage, not the final runtime image |
 
-## Available Tags
+<Tabs>
+  <TabItem label="CI-only validation">
 
-- `ghcr.io/dmno-dev/varlock:latest` - Latest stable release
-- `ghcr.io/dmno-dev/varlock:1.2.3` - Specific version (replace with actual version)
+Use varlock in your pipeline to catch schema errors before deploy. Your production container does not need the CLI — the hosting platform (or orchestrator) injects env vars, and varlock has already validated the config graph in CI.
 
-## Usage Examples
-
-### Basic Usage
-
-```bash
-# Validate and load environment variables
-docker run --rm -v $(pwd):/work -w /work -e PWD=/work ghcr.io/dmno-dev/varlock:latest load
-
-# Run a command with loaded environment variables
-docker run --rm -v $(pwd):/work -w /work -e PWD=/work ghcr.io/dmno-dev/varlock:latest run -- node app.js
-```
-
-### CI/CD Pipeline
-
-```yaml
-# GitHub Actions example
+```yaml title=".github/workflows/ci.yml"
 - name: Validate environment schema
   run: |
     docker run --rm \
       -v ${{ github.workspace }}:/work \
       -w /work \
       -e PWD=/work \
-      ghcr.io/dmno-dev/varlock:latest load
+      ghcr.io/dmno-dev/varlock:1.0.2 load
 ```
 
-### Multi-stage Docker Builds
+See also the [GitHub Action](/integrations/github-action/) for a native Actions integration.
 
-Use varlock in multi-stage builds to copy the binary into your application:
+  </TabItem>
+  <TabItem label="Runtime injection">
 
-```dockerfile
-# Use varlock in a multi-stage build
-FROM ghcr.io/dmno-dev/varlock:latest AS varlock
+Use when your container must resolve secrets at boot — for example via a [1Password service account token](/plugins/1password/), AWS IAM, or [OIDC workload identity](/guides/oidc/). The final image runs your app through `varlock run`:
 
-FROM node:18-alpine
+```dockerfile title="Dockerfile (runtime stage excerpt)"
+ENTRYPOINT ["varlock", "run", "--"]
+CMD ["node", "dist/server.js"]
+```
+
+Secrets are fetched when the container starts, not when the image is built.
+
+  </TabItem>
+  <TabItem label="Build-time">
+
+Use when a [framework integration](/integrations/overview/) (Next.js, Vite SSR, Cloudflare Workers, etc.) resolves and injects env during `build`. Varlock belongs in the **builder** stage; the runtime image receives env via the platform or an encrypted blob — not via the CLI.
+
+For serverless SSR, prefer [encrypted deployments](/guides/encrypted-deployments/) over baking resolved values into image layers.
+
+  </TabItem>
+</Tabs>
+
+### When not to put varlock in your production image
+
+:::caution[Don't ship the CLI unless you need it at runtime]
+Skip varlock in the final production image when:
+
+- **Serverless / edge** — integrations inject env at build or deploy time; the runtime has no filesystem or CLI access anyway
+- **Platform-managed env** — your host already injects env vars and you only want schema validation in CI
+- **Build-time-only resolution** — secrets are resolved during `docker build` and would end up in a layer (see [best practices](#best-practices) below)
+
+Adding varlock to every production image increases size and attack surface without benefit if secrets are already handled elsewhere.
+:::
+
+## Official Docker image
+
+The image is published to GitHub Container Registry and built from the official release binaries on Alpine Linux:
+
+- **Image:** `ghcr.io/dmno-dev/varlock`
+- **Binary path:** `/usr/local/bin/varlock`
+- **Default workdir:** `/work`
+- **Entrypoint:** `varlock` (pass subcommands as arguments)
+
+```bash
+# Pull a pinned version (recommended)
+docker pull ghcr.io/dmno-dev/varlock:1.6.0
+
+# Run help
+docker run --rm ghcr.io/dmno-dev/varlock:1.6.0 --help
+
+# Validate schema in the current directory
+docker run --rm \
+  -v "$(pwd):/work" \
+  -w /work \
+  -e PWD=/work \
+  ghcr.io/dmno-dev/varlock:1.6.0 load
+```
+
+### Available tags
+
+- `ghcr.io/dmno-dev/varlock:latest` — latest stable release
+- `ghcr.io/dmno-dev/varlock:1.6.0` — specific version (replace with the version you pin in CI/production)
+
+:::tip[Pin image tags]
+Use an explicit version tag in CI and production Dockerfiles. `latest` is convenient for local experiments but can change without notice.
+:::
+
+## Best practices
+
+### Never bake resolved secrets into image layers
+
+Anything written during `RUN` is persisted in the image history. Avoid:
+
+```dockerfile title="Anti-pattern — secrets in layers"
+# BAD: resolved values become part of the image
+RUN varlock load > /app/.env.production
+RUN varlock run -- node scripts/build.js   # if build embeds secrets in output
+ARG OP_SERVICE_ACCOUNT_TOKEN                # build args are also stored in metadata
+```
+
+Instead:
+
+- Pass **secret-zero** credentials at **runtime** via environment variables or orchestrator secrets
+- Use **multi-stage builds** so builder-stage artifacts containing secrets are discarded
+- For SSR, use [@encryptInjectedEnv](/guides/encrypted-deployments/) so build output holds ciphertext, not plaintext
+
+### Use the `/work` mount and `PWD=/work` pattern
+
+The official image sets `WORKDIR /work`. When bind-mounting your project, mirror that layout and set `PWD` explicitly — varlock uses the process working directory to resolve relative `@import()` paths and `.env` files:
+
+```bash
+docker run --rm \
+  -v "$(pwd):/work" \
+  -w /work \
+  -e PWD=/work \
+  ghcr.io/dmno-dev/varlock:1.6.0 load
+```
+
+If your app lives in a subdirectory, mount that directory to `/work` (or adjust `-w` and `PWD` together).
+
+### Pin versions
+
+Pin the GHCR image tag **and** any plugin versions in `.env.schema` when using the standalone binary (see [plugins in containers](#plugins-in-containers)).
+
+## Multi-stage builds
+
+Copy the varlock binary from the official image into your application image — no need to install Node or curl in the final stage:
+
+```dockerfile title="Dockerfile"
+FROM ghcr.io/dmno-dev/varlock:1.6.0 AS varlock
+
+FROM node:22-alpine AS builder
 COPY --from=varlock /usr/local/bin/varlock /usr/local/bin/varlock
 
-# Now varlock is available in your application container
-RUN varlock --help
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+
+COPY . .
+# Validate schema during build (no secrets written to disk)
+RUN varlock load
+RUN pnpm build
+
+FROM node:22-alpine AS runner
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/.env.schema ./.env.schema
+
+# Runtime: resolve secrets when the container starts
+COPY --from=varlock /usr/local/bin/varlock /usr/local/bin/varlock
+ENTRYPOINT ["varlock", "run", "--"]
+CMD ["node", "dist/server.js"]
+```
+
+:::note[Alpine runtime deps]
+The official image includes `libstdc++` and `ca-certificates` required by the Bun-compiled binary. If you copy the binary into a minimal Alpine-based app image, add the same packages:
+
+```dockerfile
+RUN apk add --no-cache ca-certificates libstdc++
+```
+:::
+
+You can also use `COPY --from=ghcr.io/dmno-dev/varlock:1.6.0` directly without a named stage:
+
+```dockerfile
+COPY --from=ghcr.io/dmno-dev/varlock:1.6.0 /usr/local/bin/varlock /usr/local/bin/varlock
+```
+
+## Runtime: entrypoint and Docker Compose
+
+For containers that resolve secrets at boot, set varlock as the entrypoint and pass your process after `--`:
+
+```dockerfile title="Dockerfile"
+ENTRYPOINT ["varlock", "run", "--"]
+CMD ["node", "dist/server.js"]
+```
+
+Inject the environment flag and secret-zero credentials via your orchestrator — not via `docker build`:
+
+```bash
+docker run --rm \
+  -e APP_ENV=production \
+  -e OP_SERVICE_ACCOUNT_TOKEN \
+  -v "$(pwd):/work" \
+  -w /work \
+  -e PWD=/work \
+  my-app:latest
 ```
 
 ### Docker Compose
 
-```yaml
-# docker-compose.yml
-version: '3.8'
+```yaml title="docker-compose.yml"
 services:
   app:
     build: .
     environment:
-      - NODE_ENV=production
+      APP_ENV: production
+      OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN}
+    entrypoint: ["varlock", "run", "--"]
+    command: ["node", "dist/server.js"]
     volumes:
-      - .:/app
-      - /app/node_modules
-    command: ["varlock", "run", "--", "node", "app.js"]
+      - .:/work
+    working_dir: /work
 ```
 
-## Security
+:::tip[Compose secrets]
+Use [Docker Compose secrets](https://docs.docker.com/compose/how-tos/use-secrets/) or an `.env` file excluded from git for tokens like `OP_SERVICE_ACCOUNT_TOKEN`. Never commit secret-zero values into `docker-compose.yml`.
+:::
 
-The Docker image is built from the official varlock binary releases and includes:
+## Monorepos and partial build context
 
-- Minimal Alpine Linux base for reduced attack surface
-- Non-root user execution (when possible)
-- Regular security updates through Alpine package updates
+In a monorepo, `.env.schema` often uses [`@import()`](/guides/import/) to pull shared config from other packages. For Docker builds, prefer importing **specific files** (optionally with `pick`) over whole directories — a [directory import](/guides/import/#directory) also pulls sibling `.env.local` / `.env.[currentEnv]` files, which you generally don't want baked into an image and may not have copied into the build context:
 
-## Troubleshooting
+```env-spec title="apps/web/.env.schema"
+# @import(../../shared/.env.common)
+# @import(../api/.env.schema, pick=[DATABASE_URL, REDIS_URL])
+```
 
-### Permission Issues
+When Docker's build context is limited to `apps/web/`, those imported files are **not** in the context — `varlock load` fails with missing file errors.
 
-If you encounter permission issues when mounting volumes:
+### Workaround: copy imported files explicitly
+
+Until a dedicated **`varlock flatten`** command ships (to inline the import graph into a local directory for Docker builds), copy every file the import graph needs:
+
+```dockerfile title="Dockerfile — monorepo env files"
+# Build from repo root: docker build -f apps/web/Dockerfile .
+ARG SERVICE_DIR=web
+
+COPY .env.schema ./
+COPY shared/.env.common ./shared/
+COPY apps/${SERVICE_DIR}/.env.schema ./apps/${SERVICE_DIR}/
+COPY apps/${SERVICE_DIR}/.env.production ./apps/${SERVICE_DIR}/
+
+WORKDIR /app/apps/${SERVICE_DIR}
+RUN varlock load
+```
+
+Alternatively, set the build context to the **monorepo root** and use `docker build -f apps/web/Dockerfile .` so all import paths resolve naturally — at the cost of a larger context and slower builds.
+
+:::note[Coming soon]
+A planned `varlock flatten` command will automate inlining imported env files for Docker builds. Until then, explicit `COPY` lines or a root build context are the supported approaches.
+:::
+
+## Plugins in containers
+
+Containers commonly authenticate to secret providers in two ways:
+
+1. **Service account tokens** — pass a long-lived token (e.g. `OP_SERVICE_ACCOUNT_TOKEN`) as a runtime environment variable
+2. **OIDC workload identity** — exchange a short-lived platform token for temporary credentials; no secret-zero in the image
+
+For OIDC on Fly.io, GCP Cloud Run, GitHub Actions, and other platforms, see the [OIDC workload identity guide](/guides/oidc/).
+
+When using the **standalone binary** (copied from GHCR or a release tarball), plugins must specify a **fixed version** in `@plugin()` — semver ranges require a local `node_modules` install:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/1password-plugin@1.2.3)
+# @initOp(token=$OP_SERVICE_ACCOUNT_TOKEN)
+# ---
+OP_SERVICE_ACCOUNT_TOKEN= # @sensitive
+DATABASE_URL=op(op://prod/db/connection-string) # @sensitive
+```
+
+In **Node-based images** where varlock is an npm dependency, install plugins in `package.json` and reference them without a version (or with a range for validation only). See the [Plugins guide](/guides/plugins/#plugin-installation) for details.
+
+:::caution[Plugin cache in CI/containers]
+Ephemeral containers often run in memory cache mode. If your job invokes varlock multiple times and plugin fetches are slow, set [`_VARLOCK_CACHE_KEY`](/guides/caching/#disk-caching-in-ci-with-_varlock_cache_key) as a CI secret. See the [Caching guide](/guides/caching/) for details.
+:::
+
+## Without the official image
+
+If you cannot pull from GHCR (air-gapped registry policy, custom base images, etc.), install varlock by another method:
+
+<Tabs>
+  <TabItem label="npm (Node image)">
+
+Best when your image already uses Node 22+ and varlock is a project dependency:
+
+```dockerfile title="Dockerfile"
+FROM node:22-alpine AS builder
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+
+COPY . .
+RUN pnpm exec varlock load
+RUN pnpm build
+```
+
+Install `varlock` and any plugins in `package.json` — the npm package includes the CLI.
+
+  </TabItem>
+  <TabItem label="install.sh">
+
+Download a release binary during build (similar to local [installation](/getting-started/installation/#as-a-standalone-binary)):
+
+```dockerfile title="Dockerfile"
+FROM alpine:3.19
+RUN apk add --no-cache curl ca-certificates libstdc++ \
+  && curl -sSfL https://varlock.dev/install.sh | sh -s -- --version=1.6.0 --dir=/usr/local/bin
+
+WORKDIR /work
+ENTRYPOINT ["/usr/local/bin/varlock"]
+```
+
+Pass `--version=x.y.z` for reproducible builds. For multi-arch images, prefer the release tarball tab — `install.sh` picks the host architecture at install time.
+
+  </TabItem>
+  <TabItem label="Release tarball">
+
+Matches how the [official Dockerfile](https://github.com/dmno-dev/varlock/blob/main/Dockerfile) is built — download a versioned binary from GitHub releases:
+
+```dockerfile title="Dockerfile"
+FROM alpine:3.19 AS varlock-builder
+ARG VARLOCK_VERSION=1.6.0
+ARG TARGETARCH
+
+RUN apk add --no-cache curl tar \
+  && ARCH="$([ "$TARGETARCH" = "arm64" ] && echo linux-musl-arm64 || echo linux-musl-x64)" \
+  && curl -L -o varlock.tar.gz \
+       "https://github.com/dmno-dev/varlock/releases/download/varlock@${VARLOCK_VERSION}/varlock-${ARCH}.tar.gz" \
+  && tar -xzf varlock.tar.gz \
+  && chmod +x varlock
+
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates libstdc++
+COPY --from=varlock-builder /varlock /usr/local/bin/varlock
+WORKDIR /work
+ENTRYPOINT ["/usr/local/bin/varlock"]
+```
+
+Build with Buildx for multi-platform support (`TARGETARCH` is set automatically).
+
+  </TabItem>
+</Tabs>
+
+## Building the image locally
+
+The repository root [Dockerfile](https://github.com/dmno-dev/varlock/blob/main/Dockerfile) builds the GHCR image. To build locally:
 
 ```bash
-# Run with appropriate user permissions
-docker run --rm -u $(id -u):$(id -g) -v $(pwd):/work -w /work -e PWD=/work ghcr.io/dmno-dev/varlock:latest load
+# Pin a specific varlock version
+docker build --build-arg VARLOCK_VERSION=1.6.0 -t varlock:local .
 
-### Network Issues
-
-If you need to access external services (like 1Password CLI):
-
-```bash
-# Pass through host network
-docker run --rm --network host -v $(pwd):/work -w /work -e PWD=/work ghcr.io/dmno-dev/varlock:latest load
-
-## Building Locally
-
-To build the Docker image locally:
-
-```bash
-# Build with specific version
-docker build --build-arg VARLOCK_VERSION=1.2.3 -t varlock:local .
-
-# Build with latest version
+# Build using the latest GitHub release
 docker build --build-arg VARLOCK_VERSION=latest -t varlock:local .
-``` 
+```
+
+## When things go wrong
+
+### Permission denied on mounted volumes
+
+Bind mounts inherit host ownership. If varlock cannot read `.env.schema` or write cache files:
+
+```bash
+docker run --rm \
+  -u "$(id -u):$(id -g)" \
+  -v "$(pwd):/work" \
+  -w /work \
+  -e PWD=/work \
+  ghcr.io/dmno-dev/varlock:1.6.0 load
+```
+
+Or adjust host file permissions so the container user can read your env files.
+
+### Network / plugin connectivity
+
+Plugins that call external APIs (1Password, AWS, Azure, Vault, etc.) need outbound network access from the container. If fetches fail with connection errors:
+
+- Confirm the container has DNS and egress to the provider's endpoints
+- For local CLI tools (e.g. 1Password desktop app), use `--network host` only in local dev — not in production
+- Check that secret-zero tokens are passed at **runtime**, not only at build time
+
+```bash
+# Local dev only — host network for desktop CLI integrations
+docker run --rm --network host \
+  -v "$(pwd):/work" \
+  -w /work \
+  -e PWD=/work \
+  ghcr.io/dmno-dev/varlock:1.6.0 load
+```
+
+For cloud deployments, prefer [service account tokens](/guides/plugins/) or [OIDC](/guides/oidc/) over desktop CLI integrations.
+
+### Missing `@import` files
+
+See [Monorepos and partial build context](#monorepos-and-partial-build-context). The error usually lists a path outside your Docker build context — add explicit `COPY` instructions or widen the context to the monorepo root.
+
+### Wrong environment loaded
+
+If `.env.production` is not loading, verify the environment flag is set in the container environment:
+
+```bash
+docker run --rm -e APP_ENV=production -e PWD=/work -w /work ...
+```
+
+See the [Environments guide](/guides/environments/) for how `@currentEnv` selects files.

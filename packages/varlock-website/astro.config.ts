@@ -148,6 +148,7 @@ export default defineConfig({
             { label: 'Secrets', slug: 'guides/secrets' },
             { label: 'Environments', slug: 'guides/environments' },
             { label: 'Imports', slug: 'guides/import' },
+            { label: 'Monorepos', slug: 'guides/monorepos', badge: 'new' },
             { label: 'Plugins', slug: 'guides/plugins' },
             { label: 'Local encryption', slug: 'guides/local-encryption' },
             { label: 'Encrypted deployments', slug: 'guides/encrypted-deployments', badge: 'new' },

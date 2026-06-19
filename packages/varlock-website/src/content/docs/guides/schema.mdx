@@ -56,7 +56,7 @@ STATIC_VALUE_UNQUOTED=quotes are optional # but are recommended!
 STATIC_VALUE_QUOTED="#hashtag" # and are necessary in some cases
 BOOLEAN_VALUE=true
 NUMERIC_VALUE=123.456
-FUNCTION_VALUE=exec(`op read "op://api-config/item/credential"`)
+FUNCTION_VALUE=op(op://api-config/item/credential)
 EXPANSION_VALUE=${OTHER_VAR}-suffix
 MULTILINE_VALUE="""
 multiple
@@ -107,7 +107,7 @@ Both `$ITEM` and `${ITEM}` are equivalent to `ref(ITEM)`.
 We recommend using the bracket version only when used within a larger string.
 
 ```env-spec /\\$\\{[^\\}]+\\}/ /\\$[A-Z]+/
-WITH_BRACKETS=exec(`op read "op://${OP_VAULT_NAME}/service/api-key"`)
+WITH_BRACKETS=op(op://${OP_VAULT_NAME}/service/api-key)
 NO_BRACKETS=fallback($OTHERVAR, foo)
 ```
 
