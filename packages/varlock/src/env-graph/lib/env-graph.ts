@@ -119,6 +119,34 @@ export class EnvGraph {
   }
 
   /**
+   * Stack of sources whose imports are currently being processed (an ancestor chain).
+   * Used to detect circular imports: a path that re-enters while still on the stack is a cycle.
+   * Unlike `_loadedImportPaths` (recorded only after a child fully loads, for diamond dedup),
+   * this is recorded *before* descending, so a true cycle is caught before it recurses forever.
+   */
+  private _importProcessingStack: Array<string> = [];
+
+  /**
+   * Mark a source as being processed for imports.
+   * Returns the cycle chain (including the repeated entry) if `key` is already on the stack,
+   * otherwise pushes it and returns undefined.
+   */
+  beginImportProcessing(key: string): Array<string> | undefined {
+    const existingIndex = this._importProcessingStack.indexOf(key);
+    if (existingIndex !== -1) {
+      return [...this._importProcessingStack.slice(existingIndex), key];
+    }
+    this._importProcessingStack.push(key);
+    return undefined;
+  }
+
+  /** Pop a source off the import-processing stack once its imports are done. */
+  endImportProcessing(key: string) {
+    const index = this._importProcessingStack.lastIndexOf(key);
+    if (index !== -1) this._importProcessingStack.splice(index, 1);
+  }
+
+  /**
    * Register ConfigItems for keys visible through an import
    * that may not have been registered during the original source's finishInit.
    */

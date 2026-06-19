@@ -376,7 +376,23 @@ export abstract class EnvGraphDataSource {
     if (!this.isValid || this.disabled) return;
 
     const importDecs = this.getRootDecFns('import');
-    if (importDecs.length) {
+    if (!importDecs.length) return;
+
+    // Detect circular imports before descending. If this source is already on the
+    // import-processing stack (an ancestor is mid-load and we've looped back to it),
+    // emit a clean error instead of recursing until the call stack overflows.
+    // eslint-disable-next-line no-use-before-define
+    const importStackKey = this instanceof FileBasedDataSource ? this.fullPath : this.label;
+    const importCycle = this.graph.beginImportProcessing(importStackKey);
+    if (importCycle) {
+      const chain = importCycle
+        .map((p) => `${path.basename(path.dirname(p))}/${path.basename(p)}`)
+        .join(' -> ');
+      this._errors.push(new LoadingError(`Circular import detected: ${chain}`));
+      return;
+    }
+
+    try {
       for (const importDec of importDecs) {
         try {
           // Process the import decorator to identify dependencies
@@ -558,6 +574,8 @@ export abstract class EnvGraphDataSource {
           return;
         }
       }
+    } finally {
+      this.graph.endImportProcessing(importStackKey);
     }
   }
 

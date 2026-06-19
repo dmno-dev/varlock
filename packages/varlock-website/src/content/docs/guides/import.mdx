@@ -154,6 +154,7 @@ Meaning if there was a value for `ITEM` in all 4 files, the final value used wou
 - Root decorators that affect individual items (e.g., `@defaultRequired`) affect only the items that are defined in the file, not those in imported files
 - An item with no value at all (e.g., `ITEM=`) will be skipped when looking for a value / function to use, but its presence can be used to add other decorators/description to the item
 - If an imported file is marked with [`@disable`](/reference/root-decorators/#disable), it and any files it imports are skipped entirely
+- Importing the same source from multiple places (a "diamond") is fine — it is loaded once and reused
 
 ## When things go wrong
 
@@ -190,3 +191,11 @@ MY_SERVICE_URL=...
 
 - Move `@currentEnv` to the shared schema where the flag is already defined
 - Import the full directory (omit the key list) if the sub-package should inherit the parent's `@currentEnv` handling
+
+### Circular imports
+
+A circular chain of imports (e.g. `a` imports `b` which imports `a`) is not allowed. Varlock detects the cycle and fails with an explicit error showing the chain:
+
+```txt
+Circular import detected: a/.env.schema -> b/.env.schema -> a/.env.schema
+```

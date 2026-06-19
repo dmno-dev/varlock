@@ -1,5 +1,9 @@
-import { describe, test } from 'vitest';
+import {
+  describe, test, expect, vi,
+} from 'vitest';
+import path from 'node:path';
 import outdent from 'outdent';
+import { EnvGraph, DirectoryDataSource, LoadingError } from '../index';
 import { envFilesTest } from './helpers/generic-test';
 
 describe('@import', () => {
@@ -947,5 +951,71 @@ describe('@import', () => {
         Z: 'overlay-z', // overlay's own definition beats its import of common
       },
     }));
+  });
+
+  describe('circular imports', () => {
+    // a 2-node cycle (a -> b -> a) must fail with a clean error rather than
+    // recursing until the call stack overflows
+    test('2-node cycle fails cleanly', envFilesTest({
+      files: {
+        'a/.env.schema': outdent`
+          # @import(../b/)
+          # ---
+          A_VAR=1
+        `,
+        'b/.env.schema': outdent`
+          # @import(../a/)
+          # ---
+          B_VAR=2
+        `,
+      },
+      loadPaths: 'a/',
+      expectError: LoadingError,
+    }));
+
+    // a 3-node cycle (a -> b -> c -> a) must also fail cleanly
+    test('3-node cycle fails cleanly', envFilesTest({
+      files: {
+        'a/.env.schema': outdent`
+          # @import(../b/)
+          # ---
+          A_VAR=1
+        `,
+        'b/.env.schema': outdent`
+          # @import(../c/)
+          # ---
+          B_VAR=2
+        `,
+        'c/.env.schema': outdent`
+          # @import(../a/)
+          # ---
+          C_VAR=3
+        `,
+      },
+      loadPaths: 'a/',
+      expectError: LoadingError,
+    }));
+
+    // the error message should spell out the import chain that loops back
+    test('reports the import chain in the error message', async () => {
+      const currentDir = path.dirname(expect.getState().testPath!);
+      vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
+
+      const g = new EnvGraph();
+      g.setVirtualImports(currentDir, {
+        'a/.env.schema': '# @import(../b/)\n# ---\nA_VAR=1\n',
+        'b/.env.schema': '# @import(../a/)\n# ---\nB_VAR=2\n',
+      });
+      await g.setRootDataSource(new DirectoryDataSource(`${path.resolve(currentDir, 'a')}${path.sep}`));
+      await g.finishLoad();
+
+      const cycleError = g.sortedDataSources
+        .flatMap((s) => s.errors)
+        .find((e) => e.message.includes('Circular import detected'));
+      expect(cycleError).toBeInstanceOf(LoadingError);
+      expect(cycleError!.message).toBe(
+        'Circular import detected: a/.env.schema -> b/.env.schema -> a/.env.schema',
+      );
+    });
   });
 });
