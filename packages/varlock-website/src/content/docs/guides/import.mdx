@@ -165,7 +165,7 @@ This commonly appears in monorepos when a sub-package imports shared keys from a
 
 ```env-spec title=".env.schema (sub-package)"
 # @currentEnv=$DEPLOY_ENV
-# @import(../../../.env.schema, pick=[DEPLOY_ENV, AWS_REGION])
+# @import(../../../, pick=[DEPLOY_ENV, AWS_REGION])
 # ---
 MY_SERVICE_URL=...
 ```
@@ -182,11 +182,11 @@ environment flag "DEPLOY_ENV" must be defined within this schema
 
 ```env-spec title=".env.schema (sub-package)"
 # @currentEnv=$DEPLOY_ENV
-# @import(../../../.env.schema, pick=[DEPLOY_ENV, AWS_REGION])
+# @import(../../../, pick=[DEPLOY_ENV, AWS_REGION])
 # ---
 DEPLOY_ENV=
 MY_SERVICE_URL=...
 ```
 
 - Move `@currentEnv` to the shared schema where the flag is already defined
-- Import the full schema (omit the key list) if the sub-package should inherit the parent's `@currentEnv` handling
+- Import the full directory (omit the key list) if the sub-package should inherit the parent's `@currentEnv` handling

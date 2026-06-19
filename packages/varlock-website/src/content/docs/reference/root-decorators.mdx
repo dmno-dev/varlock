@@ -232,7 +232,7 @@ API_KEY=
 APP_ENV=dev
 ```
 
-If a plugin doesn't exist for your provider, any CLI tool works via [`exec()`](/reference/functions/#exec) — e.g. `@setValuesBulk(exec("vault kv get -format=json secret/myapp"), format=json)`.
+If a plugin doesn't exist for your provider, any CLI tool works via [`exec()`](/reference/functions/#exec) — e.g. `@setValuesBulk(exec("my-secrets-cli export --format=json"), format=json)`.
 
 :::note
 When using `format=env`, function calls like `$VAR` references in unquoted values are not supported and will cause an error. Use single quotes for literal `$` signs (e.g., `'$LITERAL'`) or use `format=json` instead.

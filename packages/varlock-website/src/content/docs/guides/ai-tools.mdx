@@ -24,20 +24,23 @@ If you haven't already, [install varlock](/getting-started/installation/) on you
 Define your API keys and secrets in your `.env.schema` file. Mark sensitive values appropriately:
 
 ```env-spec title=".env.schema"
+# @plugin(@varlock/1password-plugin)
+# @initOp(allowAppAuth=true)
+# ---
 # @sensitive @required
-OPENAI_API_KEY=exec('op read "op://api-local/openai/api-key"')
+OPENAI_API_KEY=op(op://api-local/openai/api-key)
 
 # @sensitive @required
-ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
+ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
 
 # @sensitive @required
-GOOGLE_API_KEY=exec('op read "op://api-local/google/api-key"')
+GOOGLE_API_KEY=op(op://api-local/google/api-key)
 ```
 
-Store the actual secret values in your preferred [secret provider](/plugins/overview/) (for example 1Password, as shown above), AWS Secrets Manager, or any other provider with a CLI to fetch individual secrets. See also the [Secrets guide](/guides/secrets/#loading-secrets-from-external-sources).
+Store the actual secret values in your preferred [secret provider](/plugins/overview/). The examples above use the [1Password plugin](/plugins/1password/)'s `op()` resolver, but any provider plugin works the same way ([AWS Secrets Manager](/plugins/aws-secrets/), [and more](/plugins/overview/)). If you'd rather not depend on an external provider, keep encrypted values in a gitignored `.env.local` using [device-local encryption](/guides/local-encryption/). See also the [Secrets guide](/guides/secrets/#loading-secrets-from-external-sources).
 
 :::tip
-You can use any secrets provider you want, but we like 1Password since it uses biometric authentication for local access. All the examples in this guide use 1Password as a means of showing more real world examples.
+You can use any secrets provider you want, but we like 1Password since it uses biometric authentication for local access. All the examples in this guide use the [1Password plugin](/plugins/1password/) (`op()`) as a means of showing more real world examples — see that page for plugin setup and auth options.
 :::
 
 ### 3. Run your tool via `varlock run`
@@ -69,7 +72,7 @@ Varlock does not auto-load a global schema (that would make two developers' mach
 
     ```env-spec
     # @sensitive @required
-    ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
+    ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
     ```
 
     ```bash
@@ -80,7 +83,7 @@ Varlock does not auto-load a global schema (that would make two developers' mach
 
     ```env-spec title="~/.env.claude"
     # @sensitive @required
-    ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
+    ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
     ```
 
     ```bash
@@ -123,10 +126,10 @@ Varlock does not auto-load a global schema (that would make two developers' mach
 
     ```env-spec
     # @sensitive @required
-    ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
+    ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
 
     # @sensitive
-    OPENAI_API_KEY=exec('op read "op://api-local/openai/api-key"')
+    OPENAI_API_KEY=op(op://api-local/openai/api-key)
     ```
 
     ```bash
@@ -140,10 +143,10 @@ Varlock does not auto-load a global schema (that would make two developers' mach
 
     ```env-spec title="~/.env.opencode"
     # @sensitive @required
-    ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
+    ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
 
     # @sensitive
-    OPENAI_API_KEY=exec('op read "op://api-local/openai/api-key"')
+    OPENAI_API_KEY=op(op://api-local/openai/api-key)
     ```
 
     ```bash
