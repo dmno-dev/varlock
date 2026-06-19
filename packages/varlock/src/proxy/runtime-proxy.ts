@@ -535,8 +535,8 @@ export async function startLocalProxyRuntime({
         path: t.pathOnly,
         body,
         ruleId: ruleIdStr,
-        each: policyDecision.matchedRule?.approvalEach,
-        maxDurationMs: policyDecision.matchedRule?.approvalMaxDurationMs,
+        each: policyDecision.matchedRule?.approval?.each,
+        maxDurationMs: policyDecision.matchedRule?.approval?.maxDurationMs,
         injectedKeys,
       });
       if (!approved) {

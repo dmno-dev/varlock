@@ -963,23 +963,25 @@ export class EnvGraph {
   private static buildProxyApprovalFields(obj: any): Partial<ProxyRule> {
     const approval = obj?.approval;
     let required = false;
-    let approvalEach: ProxyApprovalEach | undefined;
-    let approvalMaxDurationMs: number | undefined;
+    let each: ProxyApprovalEach | undefined;
+    let maxDurationMs: number | undefined;
 
     if (_.isBoolean(approval)) {
       required = approval;
     } else if (_.isPlainObject(approval)) {
       required = approval.enabled !== false; // object form implies required unless explicitly disabled
-      approvalEach = _.isString(approval.each) ? (approval.each as ProxyApprovalEach) : undefined;
-      approvalMaxDurationMs = approval.maxDuration !== undefined
+      each = _.isString(approval.each) ? (approval.each as ProxyApprovalEach) : undefined;
+      maxDurationMs = approval.maxDuration !== undefined
         ? parseDuration(approval.maxDuration as string | number)
         : undefined;
     }
 
+    if (!required) return {};
     return {
-      ...(required ? { approval: true } : {}),
-      ...(required && approvalEach ? { approvalEach } : {}),
-      ...(required && approvalMaxDurationMs !== undefined ? { approvalMaxDurationMs } : {}),
+      approval: {
+        ...(each ? { each } : {}),
+        ...(maxDurationMs !== undefined ? { maxDurationMs } : {}),
+      },
     };
   }
 
