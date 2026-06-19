@@ -2,6 +2,9 @@
 dist/
 # generated types
 .astro/
+# generated agent-skills discovery tree (see scripts/gen-agent-skills.ts)
+public/.well-known/agent-skills/index.json
+public/.well-known/agent-skills/varlock/
 
 # dependencies
 node_modules/
