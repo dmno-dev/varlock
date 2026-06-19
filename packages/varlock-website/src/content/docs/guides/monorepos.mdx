@@ -51,7 +51,7 @@ Use `@import()` to pull in a root or shared schema without copying keys, to spli
 You can also **import directly from a sibling package**, which lets you keep a config item with its logical owner instead of hoisting everything to the root. Define the item once in the package that owns it, then `pick` just what you need — like the `../api/` import in the example above.
 
 :::caution[Avoid circular imports]
-Imports must flow in one direction — if `web` imports `api` and `api` also imports `web` (directly or through a chain), varlock can't resolve the cycle and loading fails. Keep each shared item with a single owner and import one way; if two packages genuinely need each other's values, hoist those keys into a common file (e.g. the repo root) that both import.
+Imports must flow in one direction — if `web` imports `api` and `api` also imports `web` (directly or through a chain), varlock detects the cycle and loading fails with an explicit error naming the chain (e.g. `Circular import detected: web/.env.schema -> api/.env.schema -> web/.env.schema`). Keep each shared item with a single owner and import one way; if two packages genuinely need each other's values, hoist those keys into a common file (e.g. the repo root) that both import.
 :::
 
 :::note[Shared environment flag]

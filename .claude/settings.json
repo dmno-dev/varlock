@@ -39,8 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git push*)",
-            "command": "printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"git push ran. If this added commits to an open PR, check that the PR description still matches what changed and update it with gh pr edit if it is now stale.\"}}'"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/git-push-notice.sh"
           }
         ]
       }
