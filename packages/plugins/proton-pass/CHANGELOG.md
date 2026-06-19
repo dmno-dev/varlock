@@ -3,6 +3,12 @@
 
 
 
+
+## 1.1.0
+<sub>2026-06-19</sub>
+
+- [#805](https://github.com/dmno-dev/varlock/pull/805)  *(minor)* - Add Proton Pass personal access token login (PROTON_PASS_PERSONAL_ACCESS_TOKEN) as a non-interactive alternative to username/password
+
 ## 1.0.2
 <sub>2026-06-10</sub>
 
