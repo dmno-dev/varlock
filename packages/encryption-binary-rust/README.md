@@ -108,6 +108,8 @@ In the [Azure portal](https://portal.azure.com):
 
 **4. Configure GitHub repository**
 
+Store values in the **VarlockCI** 1Password vault (see `packages/encryption-binary-rust/.env.schema`) or set them directly in GitHub.
+
 Add **secrets** (Settings → Secrets and variables → Actions):
 
 | Secret | Value |
