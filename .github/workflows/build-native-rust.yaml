@@ -26,6 +26,9 @@ on:
 
 jobs:
   build:
+    permissions:
+      contents: read
+      id-token: write # Azure Artifact Signing via OIDC (Windows job only)
     strategy:
       matrix:
         include:
@@ -74,17 +77,45 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Install UPX
+        if: contains(matrix.os, 'ubuntu')
         shell: bash
-        run: |
-          if [[ "${{ matrix.os }}" == *"ubuntu"* ]]; then
-            sudo apt-get update && sudo apt-get install -y upx-ucl
-          elif [[ "${{ matrix.os }}" == *"windows"* ]]; then
-            choco install upx --yes
-          fi
+        run: sudo apt-get update && sudo apt-get install -y upx-ucl
 
       - name: Build release binary
         working-directory: packages/encryption-binary-rust
         run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Windows signing skipped (Azure not configured)
+        if: contains(matrix.os, 'windows') && secrets.AZURE_CLIENT_ID == ''
+        shell: bash
+        run: |
+          echo "Azure Artifact Signing skipped: configure AZURE_CLIENT_ID (and related secrets/vars) to sign the Windows binary"
+
+      - name: Azure login (OIDC)
+        if: >-
+          contains(matrix.os, 'windows')
+          && secrets.AZURE_CLIENT_ID != ''
+          && vars.AZURE_ARTIFACT_SIGNING_ENDPOINT != ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign Windows binary (Azure Artifact Signing)
+        if: >-
+          contains(matrix.os, 'windows')
+          && secrets.AZURE_CLIENT_ID != ''
+          && vars.AZURE_ARTIFACT_SIGNING_ENDPOINT != ''
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_ARTIFACT_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\packages\encryption-binary-rust\target\${{ matrix.target }}\release\${{ matrix.binary-name }}
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
       - name: Prepare artifact
         shell: bash
@@ -96,8 +127,12 @@ jobs:
           RAW_SIZE=$(stat --format=%s "$ARTIFACT_DIR/${{ matrix.binary-name }}" 2>/dev/null || stat -f%z "$ARTIFACT_DIR/${{ matrix.binary-name }}")
           echo "Size: $(( RAW_SIZE / 1024 )) KB ($RAW_SIZE bytes)"
           file "$ARTIFACT_DIR/${{ matrix.binary-name }}" || true
-          echo "=== UPX compress ==="
-          upx --best "$ARTIFACT_DIR/${{ matrix.binary-name }}" || echo "UPX compression failed, continuing with uncompressed binary"
+          if [[ "${{ matrix.native-bin-subdir }}" != "win32-x64" ]]; then
+            echo "=== UPX compress ==="
+            upx --best "$ARTIFACT_DIR/${{ matrix.binary-name }}" || echo "UPX compression failed, continuing with uncompressed binary"
+          else
+            echo "=== UPX skipped (Windows) ==="
+          fi
           FINAL_SIZE=$(stat --format=%s "$ARTIFACT_DIR/${{ matrix.binary-name }}" 2>/dev/null || stat -f%z "$ARTIFACT_DIR/${{ matrix.binary-name }}")
           echo "=== Binary info (after UPX) ==="
           echo "Size: $(( FINAL_SIZE / 1024 )) KB ($FINAL_SIZE bytes)"

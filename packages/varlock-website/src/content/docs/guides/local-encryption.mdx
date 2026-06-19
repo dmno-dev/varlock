@@ -113,6 +113,23 @@ If native capabilities are unavailable, varlock falls back to file-based local e
 
 ✅ No additional install/setup steps required
 
+#### Windows Defender false positives
+
+`varlock-local-encrypt.exe` is Varlock's official local-encryption helper (bundled with the npm package and standalone CLI). Windows Defender may flag it as `Trojan:Win32/Wacatac.C!ml` or similar — a common machine-learning false positive on new, unsigned executables. The binary is safe when obtained from official Varlock releases.
+
+**Verify the download:** each [GitHub release](https://github.com/dmno-dev/varlock/releases) includes `SHA256SUMS.txt` with hashes for all native helpers. After installing, compare your file:
+
+```powershell
+# PowerShell — run from the directory containing the .exe
+Get-FileHash varlock-local-encrypt.exe -Algorithm SHA256
+```
+
+Match the hash against the `native-bins/win32-x64/varlock-local-encrypt.exe` line in `SHA256SUMS.txt` for your release version.
+
+**If quarantined:** restore the file from Windows Security → Protection history, or add an exclusion for your project directory. Reinstall from npm or the official release if needed.
+
+**Permanent fix:** official builds are moving to Authenticode code signing, which greatly reduces these alerts. Until your installed version is signed, verification via `SHA256SUMS.txt` is the recommended way to confirm authenticity.
+
 ### Linux
 
 - Native Linux helper when available
