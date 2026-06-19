@@ -5,10 +5,11 @@ import { gracefulExit } from 'exit-hook';
 
 import { exec } from '../../lib/exec';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
-import { startLocalProxyRuntime } from '../../proxy/runtime-proxy';
+import { startLocalProxyRuntime, type ProxyResponseInfo } from '../../proxy/runtime-proxy';
 import {
   createProxyAuditLog,
   readProxyAuditLines,
+  type ProxyActivity,
   type ProxyAuditEntry,
   type ProxyAuditLog,
 } from '../../proxy/audit';
@@ -357,6 +358,21 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
   };
 }
 
+/** A one-line live log of a request decision: `→ POST host/path  inject: KEY` (or `✗ … blocked-egress`). */
+function formatProxyRequestLog(a: ProxyActivity): string {
+  const arrow = a.blocked ? '✗' : '→';
+  const decision = a.decision === 'allow' ? '' : `  ${a.decision}`;
+  const inject = a.injectedKeys?.length ? `  inject: ${a.injectedKeys.join(', ')}` : '';
+  return `${arrow} ${a.method} ${a.host}${a.path}${decision}${inject}`;
+}
+
+/** A one-line live log of a forwarded response: `← POST host/path  200  scrubbed: KEY`. */
+function formatProxyResponseLog(info: ProxyResponseInfo): string {
+  const scrub = info.scrubbedKeys.length ? `  scrubbed: ${info.scrubbedKeys.join(', ')}` : '';
+  const streamed = info.streamed ? ' (streamed)' : '';
+  return `← ${info.method} ${info.host}${info.path}  ${info.statusCode}${scrub}${streamed}`;
+}
+
 async function createRuntimeAndSession(opts: {
   policy: PreparedProxyPolicy;
   entryPaths?: Array<string>;
@@ -366,6 +382,8 @@ async function createRuntimeAndSession(opts: {
   enableApprovalGrants?: boolean;
   /** Mark the session as a hot-reloadable daemon (so `proxy refresh` can reload it). */
   reloadable?: boolean;
+  /** Print a live per-request/response log to stderr (for the `proxy start` terminal). */
+  logRequests?: boolean;
 }): Promise<{
   runtime: Awaited<ReturnType<typeof startLocalProxyRuntime>>;
   session: ProxySessionRecord;
@@ -401,7 +419,11 @@ async function createRuntimeAndSession(opts: {
     onActivity: (activity) => {
       statsWriter.onActivity(activity);
       auditLog.record(activity);
+      if (opts.logRequests) console.error(formatProxyRequestLog(activity));
     },
+    onResponse: opts.logRequests
+      ? (info) => console.error(formatProxyResponseLog(info))
+      : undefined,
   });
   const session = await createProxySessionRecord({
     id: identity.id,
@@ -824,12 +846,15 @@ async function startAction(ctx: any) {
     approvalProvider: createTtyApprovalProvider(),
     enableApprovalGrants: true,
     reloadable: true,
+    // The daemon owns this terminal, so tail a live per-request/response log here.
+    logRequests: true,
   });
 
   console.log(`Started proxy session ${session.id} (${session.uuid})`);
   console.log(`Use \`varlock proxy env --session ${session.id}\` to print env exports.`);
   console.log(`Use \`varlock proxy status --session ${session.id} --watch\` to monitor activity.`);
   console.log(`Use \`varlock proxy refresh --session ${session.id}\` to reload after editing your schema.`);
+  console.log('Live request log (→ request · ← response):');
 
   // Service `proxy refresh` requests: hot-reload the live policy without dropping
   // the proxy. The daemon owns this terminal, so reload notices print here.

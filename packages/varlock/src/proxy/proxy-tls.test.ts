@@ -273,10 +273,12 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
       res.end(JSON.stringify({ apiKey: REAL }));
     });
 
+    const responses: Array<{ statusCode: number; scrubbedKeys: Array<string> }> = [];
     const runtime = await startLocalProxyRuntime({
       managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: REAL }],
       rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
       egressMode: 'permissive',
+      onResponse: (info) => responses.push({ statusCode: info.statusCode, scrubbedKeys: info.scrubbedKeys }),
     });
     const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
 
@@ -290,6 +292,9 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     // placeholder before it reaches the client.
     expect(response).toContain('sk-stub-PLACEHOLDER');
     expect(response).not.toContain(REAL);
+
+    // ...and onResponse reports which key was scrubbed (for the live proxy-start log).
+    expect(responses).toEqual([{ statusCode: 200, scrubbedKeys: ['API_KEY'] }]);
 
     tlsSocket.destroy();
     await runtime.stop();
