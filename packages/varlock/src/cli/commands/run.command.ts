@@ -88,6 +88,43 @@ let commandProcess: ReturnType<typeof exec> | undefined;
 let childCommandKilledFromRestart = false;
 const isWatchModeRestart = false; // TODO: re-enable watch mode
 
+// whether the child was spawned in its own process group, so we can signal the
+// whole group (child + grandchildren) rather than just the immediate child
+let childInOwnProcessGroup = false;
+// once we begin forwarding a termination signal, we arm a single fallback timer
+// that escalates to SIGKILL if the child ignores it
+let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+
+// signals we forward to the child so it can shut down gracefully. these are the
+// terminating signals an orchestrator (docker stop, k8s, a shell) would send.
+const FORWARDED_SIGNALS: Array<NodeJS.Signals> = ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGQUIT'];
+
+// how long to wait for the child to exit after forwarding a termination signal
+// before escalating to SIGKILL. overridable for slow-draining workloads.
+const FORCE_KILL_TIMEOUT_MS = (() => {
+  const raw = Number(process.env._VARLOCK_FORCE_KILL_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 10_000;
+})();
+
+/**
+ * Forward a signal to the running child process. When the child lives in its own
+ * process group we signal the whole group (negative pid) so grandchildren are
+ * terminated too; otherwise we signal the child pid directly.
+ */
+function signalChild(signal: NodeJS.Signals | number) {
+  const child = commandProcess;
+  if (!child?.pid) return;
+  try {
+    if (childInOwnProcessGroup && process.platform !== 'win32') {
+      process.kill(-child.pid, signal);
+    } else {
+      child.kill(signal);
+    }
+  } catch {
+    // child (or its group) is already gone — nothing to forward to
+  }
+}
+
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   // if "--" is present, split the args into our command and the rest, which will be another external command
   const argv = process.argv.slice(2);
@@ -187,11 +224,20 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const redactStdout = redactionEnabled && (forceRedact || !process.stdout.isTTY);
   const redactStderr = redactionEnabled && (forceRedact || !process.stderr.isTTY);
 
+  // run the child in its own process group when we're not attached to an interactive
+  // terminal (containers, CI, pipes). this lets us forward signals to the whole group
+  // so grandchildren shut down too — most valuable when `varlock run` is a container
+  // ENTRYPOINT / PID 1. when stdin IS a TTY we stay in the shared group so interactive
+  // tools (psql, vim, claude) keep receiving terminal job-control signals normally.
+  const useProcessGroup = !process.stdin.isTTY;
+  childInOwnProcessGroup = useProcessGroup && process.platform !== 'win32';
+
   if (!redactStdout && !redactStderr) {
     // full stdio inherit - no redaction needed on any stream
     commandProcess = exec(rawCommand, commandArgsOnly, {
       stdio: 'inherit',
       env: fullInjectedEnv,
+      detached: useProcessGroup,
     });
   } else {
     resetRedactionMap(serializedGraph);
@@ -201,6 +247,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       stdout: redactStdout ? 'pipe' : 'inherit',
       stderr: redactStderr ? 'pipe' : 'inherit',
       env: fullInjectedEnv,
+      detached: useProcessGroup,
     });
 
     // pipe output through redaction writers, which buffer possible partial secrets
@@ -221,24 +268,30 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   // if first run, we need to attach some extra exit handling
   if (!isWatchModeRestart) {
-    // try to make sure we shut down cleanly and kill the child process
-    process.on('exit', (_code: any, _signal: any) => {
-      // if (childCommandKilledFromRestart) {
-      //   childCommandKilledFromRestart = false;
-      //   return;
-      // }
-      // console.log('exit!', code, signal);
-      commandProcess?.kill(9);
+    // last-resort cleanup: if we exit while the child is somehow still alive, force-kill it
+    process.on('exit', () => {
+      signalChild('SIGKILL');
     });
 
-    ['SIGTERM', 'SIGINT'].forEach((signal) => {
-      process.on(signal, () => {
-        // console.log('SIGNAL = ', signal);
-        commandProcess?.kill(9);
-        gracefulExit(1);
-      });
+    // forward terminating signals to the child instead of killing it outright, so it can
+    // run its own shutdown handlers. we then wait (below, by awaiting commandProcess) for
+    // the child to exit and propagate its real status — rather than exiting immediately and
+    // losing both the graceful shutdown and the true exit code.
+    FORWARDED_SIGNALS.forEach((signal) => {
+      try {
+        process.on(signal, () => {
+          signalChild(signal);
+          // arm a single fallback that escalates to SIGKILL if the child ignores the signal
+          if (!forceKillTimer) {
+            forceKillTimer = setTimeout(() => signalChild('SIGKILL'), FORCE_KILL_TIMEOUT_MS);
+            // don't let the fallback timer keep the process alive on its own
+            forceKillTimer.unref();
+          }
+        });
+      } catch {
+        // some signals (e.g. SIGQUIT) can't be listened for on every platform — skip those
+      }
     });
-    // TODO: handle other signals?
   }
 
 
@@ -247,24 +300,30 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     const result = await commandProcess;
     exitCode = result.exitCode;
   } catch (error) {
+    const err = error as any;
     // console.log('child command error!', error);
-    if ((error as any).signal === 'SIGINT' && childCommandKilledFromRestart) {
+    if (err.signal === 'SIGINT' && childCommandKilledFromRestart) {
       // console.log('child command failed due to being killed form restart');
       childCommandKilledFromRestart = false;
       return;
     }
 
-    // console.log('child command result error', error);
-    if ((error as any).signal === 'SIGINT' || (error as any).signal === 'SIGKILL') {
-      gracefulExit(1);
+    if (err.signal) {
+      // the child was terminated by a signal (often one we just forwarded). this is a
+      // normal shutdown path, not a varlock failure — propagate the conventional 128+N
+      // status (already computed by exec) without printing the "varlock may be broken" noise.
+      exitCode = err.exitCode || 1;
     } else {
       console.log((error as Error).message);
       console.log(`command [${commandToRunStr}] failed`);
       console.log('try running the same command without varlock');
       console.log('if you get a different result, varlock may be the problem...');
       // console.log(`Please report issue here: <${REPORT_ISSUE_LINK}>`);
+      exitCode = err.exitCode || 1;
     }
-    exitCode = (error as any).exitCode || 1;
+  } finally {
+    // child has exited; cancel any pending force-kill escalation
+    if (forceKillTimer) clearTimeout(forceKillTimer);
   }
 
   if (isWatchEnabled) {
