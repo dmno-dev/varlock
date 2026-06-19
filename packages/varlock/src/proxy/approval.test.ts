@@ -162,4 +162,19 @@ describe('createTtyApprovalProvider', () => {
     // never write input → the timeout fires and denies
     expect((await provider.requestApproval(req())).approved).toBe(false);
   });
+
+  test('on EOF without an answer, denies and hints to run in the foreground', async () => {
+    const input = ttyInput();
+    const output = new PassThrough();
+    let prompt = '';
+    output.on('data', (c: Buffer) => {
+      prompt += c.toString('utf8');
+    });
+    const provider = createTtyApprovalProvider({ input, output });
+    const pending = provider.requestApproval(req());
+    input.end(); // EOF — the terminal couldn't be read (e.g. backgrounded daemon)
+    const decision = await pending;
+    expect(decision.approved).toBe(false);
+    expect(prompt).toContain('foreground of an interactive terminal');
+  });
 });
