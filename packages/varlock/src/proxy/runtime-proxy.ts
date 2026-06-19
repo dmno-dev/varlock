@@ -43,11 +43,25 @@ export type ProxyRuntimeContext = {
   stop: () => Promise<void>;
 };
 
+/** Reported after an upstream response is forwarded — surfaces response-side scrubbing. */
+export type ProxyResponseInfo = {
+  host: string;
+  method: string;
+  path: string;
+  statusCode: number;
+  /** Managed item keys (names) whose real value appeared in the response and was scrubbed back to a placeholder. */
+  scrubbedKeys: Array<string>;
+  /** True for an unbounded/streamed body (scrubbed chunk-by-chunk). */
+  streamed?: boolean;
+};
+
 export type StartLocalProxyRuntimeInput = {
   managedItems: Array<ProxyManagedItem>;
   rules: Array<ProxyRule>;
   egressMode: ProxyEgressMode;
   onActivity?: (activity: ProxyActivity) => void;
+  /** Called after an upstream response is forwarded, with any keys scrubbed from it. */
+  onResponse?: (info: ProxyResponseInfo) => void;
   /**
    * Called when a request matches a `require-approval` rule. Must fail closed
    * (deny on timeout/error). Absent ⇒ require-approval requests are denied.
@@ -316,6 +330,15 @@ function findRealLeak(text: string, managedItems: Array<ProxyManagedItem>): Prox
   return managedItems.find((item) => item.realValue.length > 0 && text.includes(item.realValue));
 }
 
+/** Item keys whose real value appears in `text` — i.e. the keys that get scrubbed back to placeholders. */
+function detectScrubbedKeys(text: string, managedItems: Array<ProxyManagedItem>): Array<string> {
+  const keys: Array<string> = [];
+  for (const item of managedItems) {
+    if (item.realValue.length > 0 && text.includes(item.realValue)) keys.push(item.key);
+  }
+  return keys;
+}
+
 /**
  * Length of the longest suffix of `text` that is a strict prefix of some real
  * value — i.e. a partial real value that might complete in the next chunk and
@@ -346,19 +369,29 @@ function pendingRealPrefixLen(text: string, managedItems: Array<ProxyManagedItem
  * keeps multi-byte UTF-8 chars intact across chunks; only a trailing *partial*
  * real value is held back, so complete chunks flow through immediately.
  */
-function createScrubbingTransform(managedItems: Array<ProxyManagedItem>): Transform {
+function createScrubbingTransform(
+  managedItems: Array<ProxyManagedItem>,
+  matchedKeys?: Set<string>,
+): Transform {
   const decoder = new StringDecoder('utf8');
   let carry = '';
+  const note = (text: string) => {
+    if (matchedKeys) for (const key of detectScrubbedKeys(text, managedItems)) matchedKeys.add(key);
+  };
   return new Transform({
     transform(chunk, _enc, cb) {
-      const scrubbed = replaceRealWithPlaceholders(carry + decoder.write(chunk as Buffer), managedItems);
+      const decoded = carry + decoder.write(chunk as Buffer);
+      note(decoded);
+      const scrubbed = replaceRealWithPlaceholders(decoded, managedItems);
       const hold = pendingRealPrefixLen(scrubbed, managedItems);
       const emitLen = scrubbed.length - hold;
       carry = scrubbed.slice(emitLen);
       cb(null, Buffer.from(scrubbed.slice(0, emitLen), 'utf8'));
     },
     flush(cb) {
-      cb(null, Buffer.from(replaceRealWithPlaceholders(carry + decoder.end(), managedItems), 'utf8'));
+      const decoded = carry + decoder.end();
+      note(decoded);
+      cb(null, Buffer.from(replaceRealWithPlaceholders(decoded, managedItems), 'utf8'));
     },
   });
 }
@@ -368,8 +401,23 @@ function forwardUpstreamResponseWithRedaction(
   clientRes: http.ServerResponse,
   managedItems: Array<ProxyManagedItem>,
   shouldRedact: boolean,
+  responseCtx?: { host: string; method: string; path: string; onResponse?: (info: ProxyResponseInfo) => void },
 ) {
   const statusCode = upstreamRes.statusCode ?? 502;
+  const onResponse = responseCtx?.onResponse;
+  const report = (scrubbedKeys: Iterable<string>, streamed: boolean) => {
+    if (!onResponse || !responseCtx) return;
+    onResponse({
+      host: responseCtx.host,
+      method: responseCtx.method,
+      path: responseCtx.path,
+      statusCode,
+      scrubbedKeys: [...new Set(scrubbedKeys)],
+      ...(streamed ? { streamed: true } : {}),
+    });
+  };
+  // Detect keys reflected in the (original) response headers, scrubbed regardless of body path.
+  const headerKeys = shouldRedact ? detectScrubbedKeys(JSON.stringify(upstreamRes.headers), managedItems) : [];
   const outgoingHeaders = shouldRedact
     ? redactOutgoingHeaders(upstreamRes.headers, managedItems)
     : { ...upstreamRes.headers };
@@ -388,8 +436,13 @@ function forwardUpstreamResponseWithRedaction(
 
     clientRes.writeHead(statusCode, outgoingHeaders);
     if (canScrubStream) {
-      upstreamRes.pipe(createScrubbingTransform(managedItems)).pipe(clientRes);
+      const matched = new Set(headerKeys);
+      const transform = createScrubbingTransform(managedItems, matched);
+      transform.on('end', () => report(matched, true));
+      upstreamRes.pipe(transform).pipe(clientRes);
     } else {
+      // Passthrough (compressed/binary/unscanned body) — only header reflection is visible.
+      report(headerKeys, false);
       upstreamRes.pipe(clientRes);
     }
     return;
@@ -402,6 +455,7 @@ function forwardUpstreamResponseWithRedaction(
 
   upstreamRes.on('end', () => {
     const originalBody = Buffer.concat(chunks).toString('utf8');
+    const bodyKeys = detectScrubbedKeys(originalBody, managedItems);
     const redactedBody = replaceRealWithPlaceholders(originalBody, managedItems);
 
     // Fail-safe (Invariant #6): if a real value somehow survived scrubbing, do
@@ -424,6 +478,7 @@ function forwardUpstreamResponseWithRedaction(
 
     clientRes.writeHead(statusCode, headersForWrite);
     clientRes.end(redactedBuffer);
+    report([...headerKeys, ...bodyKeys], false);
   });
 
   upstreamRes.on('error', () => {
@@ -453,6 +508,7 @@ export async function startLocalProxyRuntime({
   rules: initialRules,
   egressMode: initialEgressMode,
   onActivity,
+  onResponse,
   approvalProvider,
 }: StartLocalProxyRuntimeInput): Promise<ProxyRuntimeContext> {
   // Mutable so `reconfigure` can hot-swap the enforced policy on a live proxy.
@@ -587,7 +643,12 @@ export async function startLocalProxyRuntime({
       headers: upstreamHeaders,
       ...(t.isHttps ? buildVerifiedUpstreamOptions() : {}),
     }, (upstreamRes) => {
-      forwardUpstreamResponseWithRedaction(upstreamRes, res, hostItems, shouldRewrite);
+      forwardUpstreamResponseWithRedaction(upstreamRes, res, hostItems, shouldRewrite, {
+        host: t.host,
+        method: t.method,
+        path: t.pathOnly,
+        onResponse,
+      });
     });
 
     upstreamReq.on('error', () => {
