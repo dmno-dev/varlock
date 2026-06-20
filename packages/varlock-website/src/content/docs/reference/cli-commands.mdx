@@ -647,7 +647,8 @@ varlock proxy <subcommand> [options]
 
 **Subcommands:**
 - `run -- <command>`: Start a proxy, run `<command>` through it, and tear down on exit. Attaches to a running `proxy start` session for this directory if one exists; otherwise runs self-contained.
-- `start`: Start a long-lived proxy session that owns the terminal (interactive approval prompts appear here). Stop with `Ctrl+C`.
+- `start`: Start a long-lived proxy session that owns the terminal (interactive approval prompts and a live request log appear here). Stop with `Ctrl+C`.
+- `rules`: Print a static summary of the effective `@proxy` configuration — the rules (host/path/method, block/approval) and each secret's mode (proxied / placeholder / passthrough / omit) — without starting a proxy.
 - `env`: Print the proxy + CA environment for a session, to source into another shell (`eval "$(varlock proxy env)"`).
 - `status`: List active proxy sessions.
 - `audit`: Print a session's request audit log (no secret values).

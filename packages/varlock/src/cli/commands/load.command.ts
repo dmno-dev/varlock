@@ -15,6 +15,7 @@ import {
   PROXY_SESSION_ID_ENV_VAR,
   PROXY_SESSION_UUID_ENV_VAR,
 } from '../../proxy/env-vars';
+import { getActiveProxySession } from '../../proxy/session-registry';
 
 export const commandSpec = define({
   name: 'load',
@@ -197,12 +198,16 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // this is an inspection dump (not the injected blob), so include @internal items —
     // they're flagged with isInternal and redacted below like any other sensitive value
     const serialized = envGraph.getSerializedGraph({ includeInternal: true });
-    if (process.env[PROXY_CHILD_ENV_VAR] === '1') {
+    // Detect the proxy context via the unified resolver (env marker → session
+    // token → ancestry), so the annotation is accurate even if the child scrubbed
+    // the env marker.
+    const proxySession = await getActiveProxySession().catch(() => undefined);
+    if (proxySession || process.env[PROXY_CHILD_ENV_VAR] === '1') {
       (serialized as any).runtime = {
         proxy: {
           active: true,
-          sessionId: process.env[PROXY_SESSION_ID_ENV_VAR],
-          sessionUuid: process.env[PROXY_SESSION_UUID_ENV_VAR],
+          sessionId: proxySession?.id ?? process.env[PROXY_SESSION_ID_ENV_VAR],
+          sessionUuid: proxySession?.uuid ?? process.env[PROXY_SESSION_UUID_ENV_VAR],
         },
       };
     }

@@ -117,6 +117,7 @@ Proxy command surface:
   varlock proxy run --session abc12 -- claude   # attach to a specific session (approvals prompt in its terminal)
   varlock proxy run --new -- claude             # force a fresh, separate proxy
   varlock proxy start
+  varlock proxy rules                           # summarize the effective @proxy config (no proxy started)
   varlock proxy env --session abc12
   varlock proxy status
   varlock proxy audit --session abc12
@@ -275,7 +276,7 @@ function getAction(ctx: any): string {
   if (!action) {
     throw new CliExitError(
       'Missing proxy action.',
-      { suggestion: 'Use one of: run, start, env, status, audit, refresh, stop' },
+      { suggestion: 'Use one of: run, start, rules, env, status, audit, refresh, stop' },
     );
   }
   return action;
@@ -1193,6 +1194,88 @@ async function auditAction(ctx: any) {
   }
 }
 
+/** Human-readable gate for a rule: `block`, `approval (each=…, max=…)`, or empty. */
+function describeProxyRuleGate(rule: ProxyRule): string {
+  if (rule.block) return ansis.red('block (deny)');
+  if (rule.approval) {
+    const each = rule.approval.each ?? 'endpoint';
+    let max: string;
+    if (rule.approval.maxDurationMs === 0) max = 'always-ask';
+    else if (rule.approval.maxDurationMs === undefined) max = 'session';
+    else max = `${Math.max(1, Math.round(rule.approval.maxDurationMs / 60_000))}m`;
+    return ansis.yellow(`approval (each=${each}, max=${max})`);
+  }
+  return '';
+}
+
+/**
+ * Print a static summary of the effective `@proxy` configuration — the rules and
+ * each secret's mode — without starting a proxy. Useful for verifying a schema
+ * after the fail-closed validation, and for seeing what an agent would and
+ * wouldn't be able to reach.
+ */
+async function rulesAction(ctx: any) {
+  const envGraph = await loadVarlockEnvGraph({
+    entryFilePaths: ctx.values.path,
+    // This command inspects the schema; don't subject it to the nested guard.
+    skipProxyFingerprintGuard: true,
+  });
+  checkForSchemaErrors(envGraph);
+  checkForNoEnvFiles(envGraph);
+  await envGraph.resolveEnvValues(); // values aren't printed; resolution classifies items
+
+  const egress = envGraph.getSerializedGraph().settings?.proxyEgress ?? 'permissive';
+  const rules = await envGraph.getProxyRules();
+  const managedItems = await envGraph.getProxyManagedItems();
+  const managedKeys = new Set(managedItems.map((item) => item.key));
+  const { placeholderByKey, omittedKeys } = await computeProxyChildView(envGraph, managedItems);
+  const omittedSet = new Set(omittedKeys);
+
+  console.log(ansis.bold('Proxy configuration'));
+  console.log(`  egress mode: ${egress === 'strict' ? ansis.yellow('strict') : 'permissive'}`);
+  console.log('');
+
+  console.log(ansis.bold(`Rules (${rules.length})`));
+  if (!rules.length) {
+    console.log(ansis.dim('  (none — add @proxy(domain=...) to route a secret)'));
+  } else {
+    for (const rule of rules) {
+      const target = rule.domain.join(', ')
+        + (rule.path ? ` ${ansis.dim(rule.path)}` : '')
+        + (rule.method?.length ? ` ${ansis.dim(`[${rule.method.join(',')}]`)}` : '');
+      const parts = [target, describeProxyRuleGate(rule)];
+      // A block rule denies the request, so it never injects — don't imply otherwise.
+      if (rule.itemKeys.length && !rule.block) parts.push(`→ inject ${ansis.yellow(rule.itemKeys.join(', '))}`);
+      console.log(`  • ${parts.filter(Boolean).join('  ')}`);
+    }
+  }
+  console.log('');
+
+  const secrets: Array<{ key: string; label: string }> = [];
+  for (const key of envGraph.sortedConfigKeys) {
+    if (isVarlockReservedKey(key)) continue;
+    const item = envGraph.configSchema[key];
+    if (!item) continue;
+    if (managedKeys.has(key)) {
+      secrets.push({ key, label: `${ansis.green('proxied')} — placeholder; real value injected on matching hosts` });
+    } else if (omittedSet.has(key)) {
+      secrets.push({ key, label: `${ansis.yellow('omit')} — withheld from the child entirely` });
+    } else if (getProxyValueMode(item) === 'passthrough') {
+      secrets.push({ key, label: `${ansis.red('passthrough')} — real value sent to the child` });
+    } else if (placeholderByKey[key]) {
+      secrets.push({ key, label: `${ansis.cyan('placeholder')} — sensitive, no rule (not injected anywhere)` });
+    }
+  }
+
+  console.log(ansis.bold(`Secrets (${secrets.length})`));
+  if (!secrets.length) {
+    console.log(ansis.dim('  (none)'));
+  } else {
+    const width = Math.max(...secrets.map((s) => s.key.length));
+    for (const { key, label } of secrets) console.log(`  ${key.padEnd(width)}  ${label}`);
+  }
+}
+
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const action = getAction(ctx);
 
@@ -1201,6 +1284,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       return await runAction(ctx);
     case 'start':
       return await startAction(ctx);
+    case 'rules':
+      return await rulesAction(ctx);
     case 'env':
       return await envAction(ctx);
     case 'status':
@@ -1214,7 +1299,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     default:
       throw new CliExitError(
         `Unknown proxy action "${action}".`,
-        { suggestion: 'Use one of: run, start, env, status, audit, refresh, stop' },
+        { suggestion: 'Use one of: run, start, rules, env, status, audit, refresh, stop' },
       );
   }
 };
