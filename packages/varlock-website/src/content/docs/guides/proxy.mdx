@@ -7,6 +7,10 @@ The credential proxy lets you run an AI agent (or any untrusted tool) so that it
 
 This is useful any time a process you don't fully trust needs to _use_ a secret without being allowed to _read_ it — coding agents, MCP servers, third-party CLIs, or scripts.
 
+:::caution[Preview]
+The credential proxy is an early preview. The core protection (placeholder isolation + verified-identity wire injection) is solid, but there are real limits to what it covers and it runs on the same machine/user as the agent. Read [Limitations](#limitations) before relying on it as a security boundary.
+:::
+
 ```env-spec title=".env.schema"
 # @enableProxy(egress="permissive")
 # ---
@@ -253,6 +257,17 @@ When matched under `proxy start`, the request is held and you're prompted to app
 - `enabled` — set `enabled=false` to turn the rule into a plain allow (useful for dynamically toggling approval, e.g. `enabled=forEnv(production)`).
 
 The object form implies approval is required; `approval=true` is shorthand for the defaults.
+
+## Limitations
+
+The proxy is a local, same-machine tool. Know what it does and doesn't cover before relying on it:
+
+- **Same host, same user.** The proxy runs as you, and so does the agent. It stops the agent from *reading* a secret it's *using*, but it is **not a sandbox** — it doesn't isolate the filesystem, other processes, or memory. Pair it with an OS sandbox/container if you need stronger isolation.
+- **Response scrubbing is best-effort.** Responses are scrubbed back to placeholders only for **small, uncompressed text** bodies. **Compressed (gzip/br) or large (>2&nbsp;MB) response bodies are passed through unscrubbed** — the proxy can't scan into them. This only matters if an upstream *reflects your secret back in its response* (uncommon); the primary protection — the agent only ever holds a placeholder — is unaffected.
+- **Injection requires a verified public-TLS host.** Secrets are injected only onto connections whose TLS identity is verified against public CAs. The proxy refuses to inject over cleartext `http://` or into a self-signed/local upstream — by design.
+- **Live policy reload is unauthenticated.** Any process running as your user can trigger a `proxy refresh`. On a shared-uid machine this is not a trust boundary; a real out-of-band approver is planned to close it.
+- **Approvals are a TTY-only preview.** See [Approvals (experimental)](#approvals-experimental).
+- **Only proxy-aware clients are covered.** The child is pointed at the proxy via standard `HTTP(S)_PROXY` / CA env vars. A client that ignores those (or pins its own CA) bypasses the proxy entirely — it just won't get a working secret.
 
 ## Reference
 
