@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import ansis from 'ansis';
 import { define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
@@ -392,19 +393,40 @@ function guardApprovalPromptForLogging(inner: ApprovalProvider): ApprovalProvide
   };
 }
 
+/** Color an HTTP status by class: 2xx/3xx green, 4xx yellow, 5xx red. */
+function colorProxyStatus(code: number): string {
+  const text = String(code);
+  if (code >= 500) return ansis.red(text);
+  if (code >= 400) return ansis.yellow(text);
+  return ansis.green(text);
+}
+
+/** `METHOD host/path` with the method + path dimmed so the host stands out. */
+function formatProxyTarget(method: string, host: string, pathName: string): string {
+  return `${ansis.dim(`${method} `)}${host}${ansis.dim(pathName)}`;
+}
+
 /** A one-line live log of a request decision: `→ POST host/path  inject: KEY` (or `✗ … blocked-egress`). */
 function formatProxyRequestLog(a: ProxyActivity): string {
-  const arrow = a.blocked ? '✗' : '→';
-  const decision = a.decision === 'allow' ? '' : `  ${a.decision}`;
-  const inject = a.injectedKeys?.length ? `  inject: ${a.injectedKeys.join(', ')}` : '';
-  return `${arrow} ${a.method} ${a.host}${a.path}${decision}${inject}`;
+  const arrow = a.blocked ? ansis.red('✗') : ansis.green('→');
+  let decision = '';
+  if (a.decision !== 'allow') {
+    decision = `  ${(a.blocked ? ansis.red : ansis.green)(a.decision)}`;
+  }
+  const inject = a.injectedKeys?.length
+    ? `  ${ansis.dim('inject:')} ${ansis.yellow(a.injectedKeys.join(', '))}`
+    : '';
+  return `${arrow} ${formatProxyTarget(a.method, a.host, a.path)}${decision}${inject}`;
 }
 
 /** A one-line live log of a forwarded response: `← POST host/path  200  scrubbed: KEY`. */
 function formatProxyResponseLog(info: ProxyResponseInfo): string {
-  const scrub = info.scrubbedKeys.length ? `  scrubbed: ${info.scrubbedKeys.join(', ')}` : '';
-  const streamed = info.streamed ? ' (streamed)' : '';
-  return `← ${info.method} ${info.host}${info.path}  ${info.statusCode}${scrub}${streamed}`;
+  const arrow = ansis.cyan('←');
+  const scrub = info.scrubbedKeys.length
+    ? `  ${ansis.dim('scrubbed:')} ${ansis.yellow(info.scrubbedKeys.join(', '))}`
+    : '';
+  const streamed = info.streamed ? ansis.dim(' (streamed)') : '';
+  return `${arrow} ${formatProxyTarget(info.method, info.host, info.path)}  ${colorProxyStatus(info.statusCode)}${scrub}${streamed}`;
 }
 
 async function createRuntimeAndSession(opts: {
