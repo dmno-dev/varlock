@@ -7,7 +7,7 @@ import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
 export const commandSpec = define({
   name: 'typegen',
-  description: 'Generate TypeScript types from your env schema',
+  description: 'Generate type definitions from your env schema',
   args: {
     path: {
       type: 'string',
@@ -17,12 +17,14 @@ export const commandSpec = define({
     },
   },
   examples: `
-Generates TypeScript type definitions from your .env schema files.
-Uses only your schema definitions, so output is deterministic regardless of
-which environment is active. Keys that come only from value files like .env or
-.env.local are ignored - only items declared in your schema are included.
+Generates type definition files from your .env schema files.
+Uses only non-environment-specific schema info, so output is deterministic
+regardless of which environment is active.
 
-This is useful when you have \`@generateTypes(lang=ts, path=env.d.ts, auto=false)\`
+Supported languages are set via \`@generateTypes(lang=..., path=...)\` in your schema:
+ts, py, rs, go, and php.
+
+This is useful when you have \`@generateTypes(..., auto=false)\`
 in your schema to disable automatic type generation during \`varlock load\` or \`varlock run\`.
 
 Examples:
@@ -44,7 +46,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   if (generatedCount === 0) {
     throw new CliExitError('No @generateTypes decorator found in your schema', {
-      suggestion: 'Add `@generateTypes(lang=ts, path=env.d.ts)` to your .env.schema file.',
+      suggestion: 'Add `@generateTypes(lang=ts, path=env.d.ts)` or `@generateTypes(lang=py, path=env_types.py)` to your .env.schema file.',
     });
   }
 

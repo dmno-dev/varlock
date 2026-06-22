@@ -1,48 +1,17 @@
 import {
-  describe, expect, test, vi,
+  describe, expect, test,
 } from 'vitest';
 import outdent from 'outdent';
 import path from 'node:path';
 
 import {
-  EnvGraph, DirectoryDataSource, DotEnvFileDataSource,
+  EnvGraph, DotEnvFileDataSource,
   generateTsTypesSrc,
+  generateTypes,
+  resolveFieldType,
   type TypeGenItemInfo,
 } from '../index';
-
-
-/** Helper to create a loaded graph from virtual files (finishLoad only, no resolveEnvValues) */
-async function loadGraph(spec: {
-  envFile?: string;
-  files?: Record<string, string>;
-  overrideValues?: Record<string, string>;
-  fallbackEnv?: string;
-}) {
-  const currentDir = path.dirname(expect.getState().testPath!);
-  vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
-
-  const g = new EnvGraph();
-  if (spec.overrideValues) g.overrideValues = spec.overrideValues;
-  if (spec.fallbackEnv) g.envFlagFallback = spec.fallbackEnv;
-
-  if (spec.files) {
-    g.setVirtualImports(currentDir, spec.files);
-    await g.setRootDataSource(new DirectoryDataSource(currentDir));
-  } else if (spec.envFile) {
-    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', { overrideContents: spec.envFile }));
-  }
-  await g.finishLoad();
-  return g;
-}
-
-/** Helper to get TypeGenItemInfo for all items in the graph */
-async function getTypeGenInfoMap(g: EnvGraph) {
-  const infos: Record<string, TypeGenItemInfo> = {};
-  for (const key of g.sortedConfigKeys) {
-    infos[key] = await g.configSchema[key].getTypeGenInfo();
-  }
-  return infos;
-}
+import { getTypeGenInfoMap, loadGraph } from './type-generation/helpers';
 
 describe('type generation', () => {
   describe('isEnvSpecific on data sources', () => {
@@ -803,6 +772,84 @@ describe('type generation', () => {
       expect(infos.DB_HOST.isSensitive).toBe(false);
       expect(infos.DB_PORT.isRequired).toBe(false);
       expect(infos.SECRET.isSensitive).toBe(true);
+    });
+  });
+
+  describe('shared field type mapping', () => {
+    test('maps coerced and raw string types consistently', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultSensitive=false
+          # ---
+          STR=hello                 # @type=string @public
+          NUM=1                     # @type=number @public
+          FLAG=true                 # @type=boolean @public
+          # @type=enum(dev, staging, prod)
+          APP_ENV=dev               # @public
+          # @type=simple-object
+          CONFIG={}                 # @public
+        `,
+      });
+
+      const strField = resolveFieldType(await g.configSchema.STR.getTypeGenInfo());
+      const numField = resolveFieldType(await g.configSchema.NUM.getTypeGenInfo());
+      const flagField = resolveFieldType(await g.configSchema.FLAG.getTypeGenInfo());
+      const configField = resolveFieldType(await g.configSchema.CONFIG.getTypeGenInfo());
+      const appEnvField = resolveFieldType(await g.configSchema.APP_ENV.getTypeGenInfo());
+
+      expect(strField.coerced).toBe('string');
+      expect(numField.coerced).toBe('number');
+      expect(flagField.coerced).toBe('boolean');
+      expect(configField.coerced).toBe('object');
+      expect(appEnvField.coerced).toEqual({ enum: ['dev', 'staging', 'prod'] });
+      expect(appEnvField.rawString).toEqual({ enum: ['dev', 'staging', 'prod'] });
+      expect(flagField.rawString).toEqual({ boolean: true });
+      expect(numField.rawString).toBe('string');
+    });
+  });
+
+  describe('generateTypes lang dispatch', () => {
+    test('rejects unsupported languages with actionable error', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          ITEM=val
+        `,
+      });
+
+      await expect(generateTypes(g, 'ruby', '/tmp/env_types.rb')).rejects.toThrow(
+        'Unsupported @generateTypes lang: ruby. Supported languages: ts, py, rs, go, php',
+      );
+    });
+
+    test.each([
+      ['py', 'class CoercedEnvSchema(TypedDict):', 'DEBUG: NotRequired[bool]'],
+      ['rs', 'pub struct CoercedEnvSchema', 'pub debug: Option<bool>,'],
+      ['go', 'type CoercedEnvSchema struct', 'Debug *bool'],
+      ['php', '@phpstan-type CoercedEnvSchema', 'DEBUG?: bool'],
+    ] as const)('writes %s types file with non-string fields', async (lang, marker, nonStringMarker) => {
+      const currentDir = path.dirname(expect.getState().testPath!);
+      const outputPath = path.join(currentDir, `.tmp-env-types.${lang}`);
+
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultSensitive=false
+          # ---
+          # @type=boolean
+          DEBUG=false           # @optional @public
+          # @type=port
+          DB_PORT=5432          # @optional @public
+        `,
+      });
+
+      try {
+        await generateTypes(g, lang, outputPath);
+        const fs = await import('node:fs');
+        const src = await fs.promises.readFile(outputPath, 'utf-8');
+        expect(src).toContain(marker);
+        expect(src).toContain(nonStringMarker);
+      } finally {
+        await import('node:fs').then((fs) => fs.promises.rm(outputPath, { force: true }));
+      }
     });
   });
 });

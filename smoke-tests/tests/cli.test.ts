@@ -1,10 +1,10 @@
 import {
   describe, test, expect, beforeEach,
 } from 'vitest';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  varlockLoad, varlockRun, varlockPrintenv, runVarlock, VARLOCK_CLI,
+  varlockLoad, varlockRun, varlockPrintenv, varlockTypegen, runVarlock, VARLOCK_CLI,
 } from '../helpers/run-varlock.js';
 
 const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
@@ -299,6 +299,62 @@ describe('CLI Commands', () => {
       const result = varlockRun(['node', '-e', 'process.exit(0)'], { cwd: 'smoke-test-typegen-auto' });
       expect(result.exitCode).toBe(0);
       expect(existsSync(typeFilePathAutoFalse)).toBe(false);
+    });
+
+    test('varlock typegen generates polyglot types with non-string fields', () => {
+      const polyglotDir = join(SMOKE_TESTS_DIR, 'smoke-test-typegen-polyglot');
+      const cases = [
+        {
+          outputFile: 'env_types.py',
+          markers: ['class CoercedEnvSchema(TypedDict):', 'DEBUG: NotRequired[bool]', 'DB_PORT: NotRequired[int]'],
+          publicClass: 'class PublicCoercedEnvSchema',
+          nextClass: 'class EnvSchemaAsStrings',
+          secretKey: 'SECRET_TOKEN',
+        },
+        {
+          outputFile: 'env_types.rs',
+          markers: ['pub struct CoercedEnvSchema', 'pub debug: Option<bool>,', 'pub db_port: Option<f64>,'],
+          publicClass: 'pub struct PublicCoercedEnvSchema',
+          nextClass: 'pub struct EnvSchemaAsStrings',
+          secretKey: 'api_key',
+        },
+        {
+          outputFile: 'env_types.go',
+          markers: ['type CoercedEnvSchema struct', 'Debug *bool', 'DbPort *float64'],
+          publicClass: 'type PublicCoercedEnvSchema struct',
+          nextClass: 'type EnvSchemaAsStrings struct',
+          secretKey: 'SecretToken',
+        },
+        {
+          outputFile: 'env_types.php',
+          markers: ['@phpstan-type CoercedEnvSchema', 'DEBUG?: bool', 'DB_PORT?: int|float'],
+          publicClass: '@phpstan-type PublicCoercedEnvSchema',
+          nextClass: '@phpstan-type EnvSchemaAsStrings',
+          secretKey: 'API_KEY',
+        },
+      ] as const;
+
+      for (const testCase of cases) {
+        const polyglotOutputPath = join(polyglotDir, testCase.outputFile);
+        if (existsSync(polyglotOutputPath)) rmSync(polyglotOutputPath);
+      }
+
+      const result = varlockTypegen({ cwd: 'smoke-test-typegen-polyglot' });
+      expect(result.exitCode).toBe(0);
+
+      for (const testCase of cases) {
+        const polyglotOutputPath = join(polyglotDir, testCase.outputFile);
+        expect(existsSync(polyglotOutputPath)).toBe(true);
+
+        const src = readFileSync(polyglotOutputPath, 'utf-8');
+        for (const marker of testCase.markers) {
+          expect(src).toContain(marker);
+        }
+
+        const publicSection = src.split(testCase.publicClass)[1]?.split(testCase.nextClass)[0] ?? '';
+        expect(publicSection).toContain('PUBLIC_VAR');
+        expect(publicSection).not.toContain(testCase.secretKey);
+      }
     });
   });
 
