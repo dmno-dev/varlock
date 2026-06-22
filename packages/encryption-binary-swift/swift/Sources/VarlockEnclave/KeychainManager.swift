@@ -484,17 +484,37 @@ final class KeychainManager {
     /// Searches generic passwords first, then internet passwords.
     private static func getItemRef(service: String, account: String?, keychainName: String?) throws -> SecKeychainItem {
         for itemClass in [kSecClassGenericPassword, kSecClassInternetPassword] {
+            let serviceAttribute = itemClass == kSecClassGenericPassword ? kSecAttrService : kSecAttrServer
+
+            if account == nil {
+                var countQuery: [CFString: Any] = [
+                    kSecClass: itemClass,
+                    kSecReturnAttributes: true,
+                    kSecMatchLimit: kSecMatchLimitAll,
+                    serviceAttribute: service,
+                ]
+
+                if let keychainName = keychainName, let keychainRef = resolveKeychain(named: keychainName) {
+                    countQuery[kSecMatchSearchList] = [keychainRef]
+                }
+
+                var countResult: AnyObject?
+                let countStatus = SecItemCopyMatching(countQuery as CFDictionary, &countResult)
+                if countStatus == errSecSuccess, let items = countResult as? [[String: Any]], items.count > 1 {
+                    let accounts = items.compactMap { $0[kSecAttrAccount as String] as? String }
+                    throw KeychainError.ambiguousMatch(
+                        service: service,
+                        accounts: accounts
+                    )
+                }
+            }
+
             var query: [CFString: Any] = [
                 kSecClass: itemClass,
                 kSecReturnRef: true,
                 kSecMatchLimit: kSecMatchLimitOne,
+                serviceAttribute: service,
             ]
-
-            if itemClass == kSecClassGenericPassword {
-                query[kSecAttrService] = service
-            } else {
-                query[kSecAttrServer] = service
-            }
 
             if let account = account {
                 query[kSecAttrAccount] = account
