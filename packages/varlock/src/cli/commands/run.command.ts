@@ -1,3 +1,4 @@
+import { openSync, closeSync } from 'node:fs';
 import { define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
@@ -112,6 +113,28 @@ const FORCE_KILL_TIMEOUT_MS = (() => {
   const ms = Number(raw);
   return Number.isFinite(ms) && ms >= 0 ? ms : undefined;
 })();
+
+/**
+ * Whether this process is part of a terminal session — i.e. has a controlling terminal.
+ *
+ * We can't just check `isTTY` on the std streams: a process can keep its controlling
+ * terminal while its std fds are pipes (e.g. a task runner like turbo running
+ * interactively but piping a task's output instead of giving it a PTY). The daemon's
+ * session scoping keys off the controlling terminal (`e_tdev`), not fd tty-ness, so we
+ * use the canonical POSIX probe — `/dev/tty` opens iff a controlling terminal exists —
+ * with the std-stream check as a fast path.
+ */
+function hasControllingTerminal(): boolean {
+  if (process.stdin.isTTY || process.stdout.isTTY || process.stderr.isTTY) return true;
+  if (process.platform === 'win32') return false; // no /dev/tty; we never setsid on Windows anyway
+  try {
+    const fd = openSync('/dev/tty', 'r');
+    closeSync(fd);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Forward a signal to the running child process. When the child lives in its own
@@ -237,16 +260,16 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // forward a signal to the whole group so grandchildren shut down too (most valuable
   // when `varlock run` is a container ENTRYPOINT / PID 1).
   //
-  // We deliberately gate on "no TTY anywhere" rather than just stdin so detaching never
-  // has a downside:
-  //  - No-TTY context: setsid changes neither env vars nor parent PIDs, and there's no
-  //    controlling terminal to lose, so the daemon's peer/session scoping (env-anchored
-  //    for agents, or process-tree) is unaffected.
-  //  - Any-TTY context: we stay in the shared group, preserving the child's controlling
+  // We deliberately gate on "no controlling terminal" rather than just stdin so detaching
+  // never has a downside:
+  //  - No-terminal context (containers, CI, agents): setsid changes neither env vars nor
+  //    parent PIDs, and there's no controlling terminal to lose, so the daemon's
+  //    peer/session scoping (env-anchored for agents, or process-tree) is unaffected.
+  //  - Terminal context: we stay in the shared group, preserving the child's controlling
   //    terminal — needed for interactive tools (psql, vim, claude), /dev/tty access,
-  //    SIGWINCH, and the enclave's tty-based session scoping of any nested varlock.
-  const hasAnyTty = Boolean(process.stdin.isTTY || process.stdout.isTTY || process.stderr.isTTY);
-  const useProcessGroup = !hasAnyTty;
+  //    SIGWINCH, and the enclave's tty-based session scoping of any nested varlock (incl.
+  //    fan-out runners like turbo whose per-task PTYs we must not sever).
+  const useProcessGroup = !hasControllingTerminal();
   childInOwnProcessGroup = useProcessGroup && process.platform !== 'win32';
 
   // Install signal handling BEFORE spawning the child. This both (a) closes the window
