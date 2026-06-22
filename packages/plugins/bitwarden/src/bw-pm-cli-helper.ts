@@ -98,8 +98,15 @@ function processBwCliError(err: unknown, args?: Array<string>): Error {
  * Execute a Bitwarden CLI command using the provided session token.
  * The session token is passed via the BW_SESSION environment variable so it
  * never appears in the process argument list.
+ *
+ * `appDataDir` (optional) selects a specific bw CLI data directory via
+ * BITWARDENCLI_APPDATA_DIR — used to target a distinct account/server.
  */
-export async function execBwCliCommand(args: Array<string>, sessionToken: string): Promise<string> {
+export async function execBwCliCommand(
+  args: Array<string>,
+  sessionToken: string,
+  opts: { appDataDir?: string } = {},
+): Promise<string> {
   const startAt = Date.now();
   try {
     debug('bw cli args', args);
@@ -107,6 +114,7 @@ export async function execBwCliCommand(args: Array<string>, sessionToken: string
       env: {
         ...process.env,
         BW_SESSION: sessionToken,
+        ...(opts.appDataDir ? { BITWARDENCLI_APPDATA_DIR: opts.appDataDir } : {}),
       },
     });
     debug(`> took ${Date.now() - startAt}ms`);
@@ -127,23 +135,27 @@ export async function execBwCliCommand(args: Array<string>, sessionToken: string
  * - Otherwise the master-password prompt is shown on the TTY; stdout (the raw
  *   key) is captured while stdin/stderr are inherited. Requires an interactive
  *   terminal — callers should guard on `process.stdin.isTTY`.
+ *
+ * `appDataDir` (optional) selects a specific bw CLI data directory via
+ * BITWARDENCLI_APPDATA_DIR — so the unlock targets the matching account/server.
  */
-export async function unlockVault(opts: { masterPassword?: string } = {}): Promise<string> {
+export async function unlockVault(opts: { masterPassword?: string; appDataDir?: string } = {}): Promise<string> {
   const startAt = Date.now();
+  const appDataEnv = opts.appDataDir ? { BITWARDENCLI_APPDATA_DIR: opts.appDataDir } : {};
   try {
     let token: string;
     if (opts.masterPassword !== undefined) {
       debug('bw unlock (non-interactive)');
       // pass the password via env (never in argv); --raw emits only the session key
       token = await spawnAsync('bw', ['unlock', '--raw', '--passwordenv', 'BW_VARLOCK_MASTERPW'], {
-        env: { ...process.env, BW_VARLOCK_MASTERPW: opts.masterPassword },
+        env: { ...process.env, ...appDataEnv, BW_VARLOCK_MASTERPW: opts.masterPassword },
       });
     } else {
       debug('bw unlock (interactive)');
       // inherit stdin/stderr so the master-password prompt is shown and answered
       // on the user's terminal; capture stdout, which (with --raw) is only the key
       token = await spawnAsync('bw', ['unlock', '--raw'], {
-        env: process.env,
+        env: { ...process.env, ...appDataEnv },
         stdio: ['inherit', 'pipe', 'inherit'],
       });
     }

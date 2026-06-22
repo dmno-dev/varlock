@@ -15,10 +15,14 @@ const FAKE_BW = path.join(FAKE_BIN_DIR, 'bw');
 const BW_CONFIG_PATH = path.join(FAKE_BIN_DIR, 'bw-config.json');
 const UNLOCKS_DIR = path.join(FAKE_BIN_DIR, 'unlocks');
 
-/** how many times the fake `bw unlock` has run (one file per invocation) */
-function countUnlocks(): number {
+/**
+ * how many times the fake `bw unlock` has run (one file per invocation).
+ * Pass `account` to count only unlocks for a given BITWARDENCLI_APPDATA_DIR basename.
+ */
+function countUnlocks(account?: string): number {
   try {
-    return fs.readdirSync(UNLOCKS_DIR).length;
+    const files = fs.readdirSync(UNLOCKS_DIR);
+    return account ? files.filter((f) => f.endsWith(`-${account}`)).length : files.length;
   } catch {
     return 0;
   }
@@ -243,4 +247,57 @@ describe('Bitwarden Password Manager (bwp)', () => {
     `,
     expectValues: { DB_PASSWORD: 'super-secret-pw' },
   }, { afterResolve: () => expect(countUnlocks()).toBe(2) })); // 1 initial + 1 re-unlock
+
+  // Multiple instances target different accounts/servers by pointing each at its own
+  // bw data dir (BITWARDENCLI_APPDATA_DIR). Verify the instances read from different
+  // vaults AND that each account unlocks independently exactly once (per-account
+  // single-flight) — i.e. they don't share/invalidate one global session.
+  test('isolates instances by appDataDir (separate accounts)', async () => {
+    writeBwConfig({}); // clears the unlock counter; default config is unused here
+    const dirPersonal = path.join(FIXTURES_DIR, 'acct-personal');
+    const dirWork = path.join(FIXTURES_DIR, 'acct-work');
+    fs.mkdirSync(dirPersonal, { recursive: true });
+    fs.mkdirSync(dirWork, { recursive: true });
+    fs.writeFileSync(path.join(dirPersonal, 'bw-config.json'), JSON.stringify({
+      items: {
+        Shared: {
+          id: 'p', name: 'Shared', type: 1, login: { password: 'pw-from-personal' },
+        },
+      },
+    }));
+    fs.writeFileSync(path.join(dirWork, 'bw-config.json'), JSON.stringify({
+      items: {
+        Shared: {
+          id: 'w', name: 'Shared', type: 1, login: { password: 'pw-from-work' },
+        },
+      },
+    }));
+
+    const origPath = process.env.PATH;
+    process.env.PATH = `${FAKE_BIN_DIR}:${origPath}`;
+    try {
+      await pluginTest({
+        resolveDir: FIXTURES_DIR,
+        schema: outdent`
+          # @plugin(${PLUGIN_PATH})
+          # @initBwp(id=personal, masterPassword=$BW_PW, appDataDir="${dirPersonal}")
+          # @initBwp(id=work, masterPassword=$BW_PW, appDataDir="${dirWork}")
+          # ---
+          # @sensitive
+          BW_PW=hunter2
+          PERSONAL_PW=bwp(personal, "Shared")
+          WORK_PW=bwp(work, "Shared")
+        `,
+        expectValues: {
+          PERSONAL_PW: 'pw-from-personal',
+          WORK_PW: 'pw-from-work',
+        },
+      })();
+      // each account unlocked on its own (not one shared/colliding session)
+      expect(countUnlocks('acct-personal')).toBe(1);
+      expect(countUnlocks('acct-work')).toBe(1);
+    } finally {
+      process.env.PATH = origPath;
+    }
+  });
 });

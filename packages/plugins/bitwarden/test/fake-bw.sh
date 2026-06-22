@@ -8,8 +8,17 @@
 # verify that concurrent re-unlocks are deduped into a single `bw unlock`.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/bw-config.json"
 UNLOCKS_DIR="$SCRIPT_DIR/unlocks"
+
+# When BITWARDENCLI_APPDATA_DIR is set (multi-account isolation), read that account's
+# config from the data dir and tag this account so tests can count unlocks per account.
+if [ -n "$BITWARDENCLI_APPDATA_DIR" ]; then
+  CONFIG_FILE="$BITWARDENCLI_APPDATA_DIR/bw-config.json"
+  ACCT_TAG="$(basename "$BITWARDENCLI_APPDATA_DIR")"
+else
+  CONFIG_FILE="$SCRIPT_DIR/bw-config.json"
+  ACCT_TAG="default"
+fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "fake bw: config file not found ($CONFIG_FILE)" >&2
@@ -23,9 +32,10 @@ case "$1" in
       const fs = require('fs');
       const path = require('path');
       const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE', 'utf-8'));
-      // record this unlock invocation (unique filename — no cross-process races)
+      // record this unlock invocation (unique filename — no cross-process races);
+      // the trailing '-<account>' tag lets tests count unlocks per account
       fs.mkdirSync('$UNLOCKS_DIR', { recursive: true });
-      fs.writeFileSync(path.join('$UNLOCKS_DIR', process.pid + '-' + process.hrtime.bigint()), '');
+      fs.writeFileSync(path.join('$UNLOCKS_DIR', process.pid + '-' + process.hrtime.bigint() + '-$ACCT_TAG'), '');
       if (cfg.unlockError) { process.stderr.write(cfg.unlockError); process.exit(1); }
       // real \`bw unlock\` issues a fresh key each time; emit a unique token unless the
       // test pins one explicitly, so re-unlock logic that compares tokens is exercised

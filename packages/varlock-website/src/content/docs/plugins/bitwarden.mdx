@@ -309,18 +309,26 @@ Interactive unlock needs a TTY, so a non-interactive load (a dev server started 
 BWP_SESSION=
 ```
 
-### Multiple instances
+### Multiple accounts / servers
 
-As with Secrets Manager, you can register multiple named Password Manager instances:
+The `bw` CLI keeps **one logged-in account per data directory**, so to read from more than one account or server (e.g. personal + work, or bitwarden.com + a self-hosted Vaultwarden) you give each instance its own data dir via `appDataDir`. Set up each dir once with the `bw` CLI (`bw config server …` if needed, then `bw login`), then point an instance at it:
 
 ```env-spec title=".env.schema"
-# @initBwp(id=personal)
-# @initBwp(id=work)
+# personal account on bitwarden.com
+# @initBwp(id=personal, appDataDir="~/.config/Bitwarden CLI Personal")
+# work account on a self-hosted Vaultwarden (that dir was configured + logged in separately)
+# @initBwp(id=work, appDataDir="~/.config/Bitwarden CLI Work")
 # ---
 
 PERSONAL_TOKEN=bwp(personal, "My Token")
 WORK_DB=bwp(work, "Work DB", field=password)
 ```
+
+varlock unlocks and caches a session token **per account** (keyed by `appDataDir`), so the two accounts never share or invalidate each other's sessions.
+
+:::caution
+Without distinct `appDataDir`s, multiple instances all point at the same global `bw` account — `bwp(personal, …)` and `bwp(work, …)` would read the *same* vault. The `appDataDir` is what makes them separate. (This differs from Secrets Manager, where each instance has its own `accessToken`.)
+:::
 
 ---
 
@@ -358,6 +366,7 @@ Initialize a Password Manager / Vaultwarden instance accessed via the `bw` CLI. 
 - `masterPassword`: master password used to unlock the vault non-interactively (e.g. in CI). Reference a `@sensitive` config item.
 - `sessionTtl`: how long the auto-unlocked session token is cached before a fresh `bw unlock` (default `forever` — kept until the CLI session is invalidated externally; e.g. `"1h"` to force periodic master-password re-auth).
 - `cacheTtl`: cache resolved item values for the specified duration. See the [Caching guide](/guides/caching/).
+- `appDataDir`: bw CLI data directory (`BITWARDENCLI_APPDATA_DIR`) for this instance — point separate instances at separate dirs to read from different accounts/servers. A leading `~` is expanded. The dir must be set up independently (`bw config server` + `bw login`).
 - `id`: instance identifier for multiple instances.
 
 ```env-spec "@initBwp"

@@ -4,6 +4,8 @@ import {
 import ky from 'ky';
 import { Buffer } from 'node:buffer';
 import { createHash, webcrypto } from 'node:crypto';
+import { homedir } from 'node:os';
+import { join as joinPath } from 'node:path';
 import { deriveKeyFromAccessToken, decryptAes256CbcHmac } from './crypto-utils.js';
 import {
   type BwItem, execBwCliCommand, unlockVault, isInvalidSessionMessage,
@@ -591,16 +593,15 @@ function isInvalidSessionError(err: unknown): boolean {
   return isInvalidSessionMessage((err as Error)?.message ?? '');
 }
 
-// The `bw` CLI has a single global logged-in account, so all PM instances share
-// one cached session token (the plugin cache is already namespaced per-plugin).
-const SESSION_CACHE_KEY = 'bwp-session';
-
-// Single-flight session token shared by all PM instances. Because each `bw unlock`
-// invalidates prior session keys, parallel resolutions must share one unlock rather
-// than racing (racing unlocks would invalidate each other's tokens). Held for the
-// process lifetime so repeated resolutions reuse the token even when the persistent
-// cache is unavailable; cleared only when an unlock attempt fails.
-let sessionUnlockInFlight: Promise<string> | undefined;
+// Single-flight session tokens, keyed per bw account (its `appDataDir`). The `bw`
+// CLI has one logged-in account per data directory, so each `bw unlock` invalidates
+// prior session keys *for that account* — parallel resolutions for the same account
+// must therefore share one unlock rather than racing (racing unlocks would invalidate
+// each other's tokens). Distinct accounts (different appDataDir) get independent
+// entries. Held for the process lifetime so repeated resolutions reuse the token even
+// when the persistent cache is unavailable; an entry is cleared only when its unlock
+// attempt fails. The persistent cache key is namespaced per account the same way.
+const sessionUnlockInFlight = new Map<string, Promise<string>>();
 
 class BitwardenPasswordManagerInstance {
   /** optional manually-supplied session token (e.g. sessionToken=$BWP_SESSION) */
@@ -620,8 +621,31 @@ class BitwardenPasswordManagerInstance {
   sessionTtl: string | number = 'forever';
   /** optional TTL for caching resolved item field values */
   cacheTtl?: string | number;
+  /**
+   * Optional bw CLI data directory (BITWARDENCLI_APPDATA_DIR). The `bw` CLI keeps one
+   * logged-in account/server per data dir, so pointing instances at different dirs is
+   * how you read from different accounts or servers (e.g. personal vs work). Each dir
+   * must be set up independently (`bw config server` + `bw login`).
+   */
+  appDataDir?: string;
 
   constructor(readonly id: string) {}
+
+  /**
+   * Stable key identifying which bw account this instance reads — its `appDataDir`
+   * (or `default` when unset). Used to namespace the session cache and single-flight
+   * unlock so distinct accounts don't share/invalidate each other's session tokens.
+   */
+  get accountKey(): string {
+    return this.appDataDir
+      ? createHash('sha256').update(this.appDataDir).digest('hex').slice(0, 12)
+      : 'default';
+  }
+
+  /** persistent cache key for this account's session token */
+  private get sessionCacheKey(): string {
+    return `bwp-session:${this.accountKey}`;
+  }
 
   /** resolve the manual session token, if one was configured and is non-empty */
   private async resolveManualToken(): Promise<string | undefined> {
@@ -644,7 +668,7 @@ class BitwardenPasswordManagerInstance {
         ].join('\n'),
       });
     }
-    return await unlockVault({ masterPassword });
+    return await unlockVault({ masterPassword, appDataDir: this.appDataDir });
   }
 
   /**
@@ -654,18 +678,24 @@ class BitwardenPasswordManagerInstance {
    * separate `bw status` / login probe is needed here.
    */
   async autoUnlock(): Promise<string> {
-    sessionUnlockInFlight ||= (async () => {
-      if (pluginCache) {
-        return await pluginCache.getOrSet(SESSION_CACHE_KEY, this.sessionTtl, () => this.unlock());
-      }
-      return await this.unlock();
-    })();
+    const key = this.accountKey;
+    let inFlight = sessionUnlockInFlight.get(key);
+    if (!inFlight) {
+      // create + register synchronously (no await between get and set) to keep single-flight
+      inFlight = (async () => {
+        if (pluginCache) {
+          return await pluginCache.getOrSet(this.sessionCacheKey, this.sessionTtl, () => this.unlock());
+        }
+        return await this.unlock();
+      })();
+      sessionUnlockInFlight.set(key, inFlight);
+    }
 
     try {
-      return await sessionUnlockInFlight;
+      return await inFlight;
     } catch (err) {
       // let a later resolution retry after a failed unlock
-      sessionUnlockInFlight = undefined;
+      if (sessionUnlockInFlight.get(key) === inFlight) sessionUnlockInFlight.delete(key);
       throw err;
     }
   }
@@ -681,7 +711,8 @@ class BitwardenPasswordManagerInstance {
    * back through a not-yet-completed delete.
    */
   async refreshUnlock(staleToken: string): Promise<string> {
-    const current = sessionUnlockInFlight;
+    const key = this.accountKey;
+    const current = sessionUnlockInFlight.get(key);
     if (current) {
       const resolved = await current.catch(() => undefined);
       // a fresh unlock already happened past the stale token — reuse it
@@ -691,18 +722,19 @@ class BitwardenPasswordManagerInstance {
     // Compare-and-swap: only the caller still pointing at the stale unlock starts a
     // new one. The check + assignment run synchronously with no `await` between them,
     // so they are atomic across the continuations woken by awaiting `current` above.
-    if (sessionUnlockInFlight === current) {
-      sessionUnlockInFlight = (async () => {
+    if (sessionUnlockInFlight.get(key) === current) {
+      sessionUnlockInFlight.set(key, (async () => {
         const token = await this.unlock();
-        await pluginCache?.set(SESSION_CACHE_KEY, token, this.sessionTtl);
+        await pluginCache?.set(this.sessionCacheKey, token, this.sessionTtl);
         return token;
-      })();
+      })());
     }
 
+    const inFlight = sessionUnlockInFlight.get(key)!;
     try {
-      return await sessionUnlockInFlight!;
+      return await inFlight;
     } catch (err) {
-      sessionUnlockInFlight = undefined;
+      if (sessionUnlockInFlight.get(key) === inFlight) sessionUnlockInFlight.delete(key);
       throw err;
     }
   }
@@ -734,7 +766,11 @@ class BitwardenPasswordManagerInstance {
   }
 
   private async fetchField(itemQuery: string, field: string, token: string): Promise<string> {
-    const raw = await execBwCliCommand(['get', 'item', itemQuery, '--nointeraction'], token);
+    const raw = await execBwCliCommand(
+      ['get', 'item', itemQuery, '--nointeraction'],
+      token,
+      { appDataDir: this.appDataDir },
+    );
     let item: BwItem;
     try {
       item = JSON.parse(raw);
@@ -748,6 +784,16 @@ class BitwardenPasswordManagerInstance {
 }
 
 const bwpPluginInstances: Record<string, BitwardenPasswordManagerInstance> = {};
+
+/** resolve the optional appDataDir, expanding a leading `~` (spawn env does not) */
+async function resolveAppDataDir(resolver?: Resolver): Promise<string | undefined> {
+  if (!resolver) return undefined;
+  const val = await resolver.resolve();
+  if (typeof val !== 'string' || !val) return undefined;
+  if (val === '~') return homedir();
+  if (val.startsWith('~/')) return joinPath(homedir(), val.slice(2));
+  return val;
+}
 
 plugin.registerRootDecorator({
   name: 'initBwp',
@@ -775,6 +821,7 @@ plugin.registerRootDecorator({
       masterPasswordResolver: objArgs.masterPassword,
       sessionTtlResolver: objArgs.sessionTtl,
       cacheTtlResolver: objArgs.cacheTtl,
+      appDataDirResolver: objArgs.appDataDir,
     };
   },
   async execute({
@@ -783,12 +830,14 @@ plugin.registerRootDecorator({
     masterPasswordResolver,
     sessionTtlResolver,
     cacheTtlResolver,
+    appDataDirResolver,
   }) {
     const instance = bwpPluginInstances[id];
     // store resolvers (not resolved values) so auth is resolved lazily — a fully
     // value-cached load never needs to unlock
     instance.sessionTokenResolver = sessionTokenResolver;
     instance.masterPasswordResolver = masterPasswordResolver;
+    instance.appDataDir = await resolveAppDataDir(appDataDirResolver);
 
     const sessionTtl = await resolveCacheTtl(sessionTtlResolver);
     if (sessionTtl !== undefined) instance.sessionTtl = sessionTtl;
@@ -884,9 +933,11 @@ plugin.registerResolverFunction({
       if (typeof resolvedField === 'string' && resolvedField) field = resolvedField;
     }
 
-    // cache resolved values too, if cacheTtl is configured and caching is available
+    // cache resolved values too, if cacheTtl is configured and caching is available.
+    // key by account (appDataDir), not instance id, so instances on the same account
+    // share cached values and distinct accounts never collide.
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
-      const cacheKey = `bwp:${instanceId}:${itemQuery}:${field}`;
+      const cacheKey = `bwp:${selectedInstance.accountKey}:${itemQuery}:${field}`;
       return await pluginCache.getOrSet(
         cacheKey,
         selectedInstance.cacheTtl,
