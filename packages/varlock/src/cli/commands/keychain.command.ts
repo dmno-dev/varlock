@@ -13,6 +13,7 @@ import {
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { writeBackValue } from '../../lib/local-encrypt/write-back';
 import { getDaemonClient } from '../../lib/local-encrypt';
+import { DaemonError } from '../../lib/local-encrypt/daemon-client';
 import { CliExitError } from '../helpers/exit-error';
 import { password } from '../helpers/prompts';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
@@ -105,6 +106,10 @@ function getStaticString(value: unknown): string | undefined {
   return undefined;
 }
 
+export function isKeychainItemNotFoundError(error: unknown): boolean {
+  return error instanceof DaemonError && error.code === 'itemNotFound';
+}
+
 export function extractKeychainRefFromCall(key: string, call: ParsedEnvSpecFunctionCall): KeychainRef | undefined {
   if (call.name !== 'keychain') return undefined;
 
@@ -163,6 +168,18 @@ function getExistingEnvKeys(filePath: string): Set<string> {
   return new Set(parsed.configItems.map((item) => item.key));
 }
 
+export function getSensitivePlaintextImportValue(
+  schemaItem: { isSensitive?: boolean; defs?: Array<{ source?: { type?: string } }> } | undefined,
+  value: unknown,
+): string | undefined {
+  const hasSchemaDefinition = schemaItem?.defs?.some((def) => def.source?.type === 'schema');
+  if (!schemaItem?.isSensitive || !hasSchemaDefinition) return undefined;
+  if (!(value instanceof ParsedEnvSpecStaticValue)) return undefined;
+  const unescapedValue = value.unescapedValue;
+  if (typeof unescapedValue !== 'string' || unescapedValue === '') return undefined;
+  return unescapedValue;
+}
+
 function writeEnvRef(filePath: string, key: string, ref: string, force: boolean) {
   const existingKeys = getExistingEnvKeys(filePath);
   if (!existingKeys.has(key)) {
@@ -179,6 +196,20 @@ function writeEnvRef(filePath: string, key: string, ref: string, force: boolean)
   const result = writeBackValue(key, ref, filePath);
   if (!result.updated) {
     throw new CliExitError(`Failed to update ${key} in ${filePath}`);
+  }
+}
+
+export function assertKeychainImportSchemaPresent(envGraph: {
+  sortedDataSources?: Array<{ type?: string; fullPath?: string }>;
+}) {
+  const hasExplicitSchemaFile = envGraph.sortedDataSources?.some((source) => (
+    source.type === 'schema' && source.fullPath
+  ));
+
+  if (!hasExplicitSchemaFile) {
+    throw new CliExitError('Cannot import plaintext secrets without .env.schema for the input file', {
+      suggestion: 'Create .env.schema so Varlock knows which variables in the input env file are secrets, then mark them with @sensitive before running `varlock keychain import`.',
+    });
   }
 }
 
@@ -271,8 +302,7 @@ async function setKeychainSecret(opts: {
       });
     } catch (err) {
       if (err instanceof CliExitError) throw err;
-      const message = err instanceof Error ? err.message : String(err);
-      if (!message.includes('not found')) throw err;
+      if (!isKeychainItemNotFoundError(err)) throw err;
     }
   }
 
@@ -309,18 +339,14 @@ async function importPlaintextEnv(opts: {
   if (!fs.existsSync(fromPath)) throw new CliExitError(`File not found: ${fromPath}`);
 
   const envGraph = await loadVarlockEnvGraph();
+  assertKeychainImportSchemaPresent(envGraph);
   const sourceFile = parseEnvSpecDotEnvFile(fs.readFileSync(fromPath, 'utf-8'));
   const itemsToImport: Array<{ key: string; value: string; ref: KeychainRef }> = [];
 
   for (const item of sourceFile.configItems) {
     const schemaItem = envGraph.configSchema[item.key];
-    const markedSensitive = schemaItem?.defs.some((def) => (
-      def.itemDef.decorators?.some((decorator) => decorator.name === 'sensitive')
-    ));
-    if (!schemaItem?.isSensitive || !markedSensitive) continue;
-    if (!(item.value instanceof ParsedEnvSpecStaticValue)) continue;
-    const value = item.value.unescapedValue;
-    if (typeof value !== 'string' || value === '') continue;
+    const value = getSensitivePlaintextImportValue(schemaItem, item.value);
+    if (value === undefined) continue;
 
     itemsToImport.push({
       key: item.key,
@@ -361,8 +387,7 @@ async function importPlaintextEnv(opts: {
         });
       } catch (err) {
         if (err instanceof CliExitError) throw err;
-        const message = err instanceof Error ? err.message : String(err);
-        if (!message.includes('not found')) throw err;
+        if (!isKeychainItemNotFoundError(err)) throw err;
       }
     }
   }

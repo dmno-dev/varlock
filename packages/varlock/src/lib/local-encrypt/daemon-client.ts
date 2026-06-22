@@ -41,6 +41,13 @@ const INTERACTIVE_TIMEOUT_MS = 5 * 60_000;
 /** How long to wait for SIGTERM before escalating to SIGKILL */
 const KILL_GRACE_MS = 2_000;
 
+export class DaemonError extends Error {
+  constructor(message: string, readonly code?: string) {
+    super(message);
+    this.name = 'DaemonError';
+  }
+}
+
 function debug(msg: string) {
   if (process.env.VARLOCK_DEBUG) {
     process.stderr.write(`[varlock:daemon-client] ${msg}\n`);
@@ -520,7 +527,7 @@ export class DaemonClient {
           const { resolve: res, reject: rej } = this.messageQueue.get(message.id)!;
           this.messageQueue.delete(message.id);
           if (message.error) {
-            rej(new Error(message.error));
+            rej(new DaemonError(String(message.error), message.errorCode));
           } else {
             res(message.result);
           }

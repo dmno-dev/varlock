@@ -12,6 +12,25 @@ enum KeychainError: LocalizedError {
     case keychainNotFound(String)
     case ambiguousMatch(service: String, accounts: [String])
 
+    var code: String {
+        switch self {
+        case .itemNotFound:
+            return "itemNotFound"
+        case .accessDenied:
+            return "accessDenied"
+        case .duplicateItem:
+            return "duplicateItem"
+        case .unexpectedData:
+            return "unexpectedData"
+        case .unhandledError:
+            return "unhandledError"
+        case .keychainNotFound:
+            return "keychainNotFound"
+        case .ambiguousMatch:
+            return "ambiguousMatch"
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .itemNotFound:

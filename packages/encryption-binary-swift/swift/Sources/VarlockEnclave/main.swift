@@ -27,6 +27,16 @@ func jsonSuccess(_ result: [String: Any]) -> Never {
     _exit(0)
 }
 
+func keychainErrorResponse(_ error: Error) -> [String: Any] {
+    if let keychainError = error as? KeychainError {
+        return [
+            "error": keychainError.localizedDescription,
+            "errorCode": keychainError.code,
+        ]
+    }
+    return ["error": error.localizedDescription]
+}
+
 // MARK: - CLI Parsing
 
 let args = CommandLine.arguments
@@ -324,7 +334,7 @@ case "daemon":
                     )
                     return ["result": value]
                 } catch {
-                    return ["error": error.localizedDescription]
+                    return keychainErrorResponse(error)
                 }
             }
 
@@ -344,7 +354,7 @@ case "daemon":
                 statusBarMenu?.refresh()
                 return ["result": value]
             } catch {
-                return ["error": error.localizedDescription]
+                return keychainErrorResponse(error)
             }
 
         case "keychain-search":
@@ -384,7 +394,7 @@ case "daemon":
                 )
                 return ["result": ["modified": modified]]
             } catch {
-                return ["error": error.localizedDescription]
+                return keychainErrorResponse(error)
             }
 
         case "keychain-set":
@@ -409,7 +419,7 @@ case "daemon":
                 )
                 return ["result": ["updated": updated]]
             } catch {
-                return ["error": error.localizedDescription]
+                return keychainErrorResponse(error)
             }
 
         default:

@@ -34,6 +34,7 @@ export interface DaemonResponse {
   id: string;
   result?: unknown;
   error?: string;
+  errorCode?: string;
 }
 
 /** Metadata about a keychain item (no secret values) */
