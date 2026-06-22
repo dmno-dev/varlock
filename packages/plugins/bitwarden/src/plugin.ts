@@ -541,9 +541,11 @@ plugin.registerResolverFunction({
 // reachable via the `bw` CLI. varlock acquires a session token itself by
 // running `bw unlock` (interactively, or non-interactively with a master
 // password) and caches it — so the user no longer has to manually unlock and
-// paste a token. Each `bw unlock` invalidates prior session keys, so the
-// cached token is reused (sessionTtl, default `forever`) until the bw vault
-// itself locks, which the re-unlock retry in getSecret then heals.
+// paste a token. Each `bw unlock` invalidates prior session keys, so the cached
+// token is reused (sessionTtl, default `forever`) until the CLI session is
+// invalidated externally (bw lock/logout, an external bw unlock, or account
+// policy) — which the re-unlock retry in getSecret then heals. Note the CLI
+// session does not auto-lock on system sleep/lock; those are app-only settings.
 // ──────────────────────────────────────────────────────────────
 
 /**
@@ -608,11 +610,12 @@ class BitwardenPasswordManagerInstance {
   /**
    * How long an auto-unlocked session token is cached before re-unlock.
    * Defaults to `forever`: the token lives in varlock's encrypted cache (biometric-
-   * gated on platforms with a secure enclave) until the bw vault locks / logs out —
-   * at which point `bw get` fails and the re-unlock retry in `getSecret` prompts
-   * again. So the real lifetime is governed by Bitwarden's own vault-timeout, not a
-   * redundant varlock-side timer; set a shorter `sessionTtl` to force periodic
-   * master-password re-auth on top of that.
+   * gated on platforms with a secure enclave) until the CLI session is invalidated
+   * externally (bw lock/logout, an external bw unlock, or account policy) — at which
+   * point `bw get` fails and the re-unlock retry in `getSecret` heals it. The `bw`
+   * CLI session does not auto-lock on system sleep/lock/restart (those are app-only
+   * vault-timeout settings), so the cached token is long-lived by default; set a
+   * shorter `sessionTtl` to force periodic master-password re-auth.
    */
   sessionTtl: string | number = 'forever';
   /** optional TTL for caching resolved item field values */
