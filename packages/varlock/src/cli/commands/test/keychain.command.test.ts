@@ -4,6 +4,7 @@ import { parseEnvSpecDotEnvFile, ParsedEnvSpecFunctionCall } from '@env-spec/par
 import {
   assertKeychainImportSchemaPresent,
   extractKeychainRefFromCall,
+  formatKeychainRef,
   getSensitivePlaintextImportValue,
   isKeychainItemNotFoundError,
 } from '../keychain.command.js';
@@ -55,6 +56,22 @@ describe('extractKeychainRefFromCall', () => {
   test('ignores prompt mode refs', () => {
     const ref = extractKeychainRefFromCall('API_KEY', parseValue('API_KEY=keychain(prompt)'));
     expect(ref).toBeUndefined();
+  });
+
+  test('rejects account-only refs because fix-access requires a service', () => {
+    expect(() => extractKeychainRefFromCall(
+      'API_KEY',
+      parseValue('API_KEY=keychain(account="project:jb:API_KEY")'),
+    )).toThrow(CliExitError);
+  });
+});
+
+describe('formatKeychainRef', () => {
+  test('escapes env-spec expansion syntax in generated refs', () => {
+    expect(formatKeychainRef({
+      service: 'var$lock',
+      account: 'project:$(whoami):API_KEY',
+    })).toBe('keychain(service="var\\$lock", account="project:\\$(whoami):API_KEY")');
   });
 });
 

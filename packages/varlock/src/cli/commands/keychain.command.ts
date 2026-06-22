@@ -85,10 +85,10 @@ function assertMacOS() {
 }
 
 function quoteEnvString(value: string): string {
-  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('$', '\\$')}"`;
 }
 
-function formatKeychainRef(ref: KeychainRef): string {
+export function formatKeychainRef(ref: KeychainRef): string {
   const parts = [`service=${quoteEnvString(ref.service)}`];
   if (ref.account) parts.push(`account=${quoteEnvString(ref.account)}`);
   if (ref.keychain) parts.push(`keychain=${quoteEnvString(ref.keychain)}`);
@@ -134,7 +134,14 @@ export function extractKeychainRefFromCall(key: string, call: ParsedEnvSpecFunct
     if (arg.key === 'keychain') keychain = value;
   }
 
-  if (!service) return undefined;
+  if (!service) {
+    if (account) {
+      throw new CliExitError(`Cannot fix access for ${key}: account-only keychain() refs are not supported`, {
+        suggestion: 'Add an explicit service to the ref, for example keychain(service="varlock", account="...").',
+      });
+    }
+    return undefined;
+  }
   return {
     key, service, account, keychain,
   };
@@ -286,6 +293,15 @@ async function setKeychainSecret(opts: {
   }
 
   const label = opts.key ?? opts.account;
+  if (opts.write && opts.key && !opts.force) {
+    const writePath = path.resolve(opts.write);
+    if (getExistingEnvKeys(writePath).has(opts.key)) {
+      throw new CliExitError(`Refusing to overwrite ${opts.key} in ${writePath}`, {
+        suggestion: 'Re-run with --force to overwrite the existing env ref and Keychain item.',
+      });
+    }
+  }
+
   const value = await readSecretForSet(label);
   if (value === undefined) return;
 
@@ -338,7 +354,7 @@ async function importPlaintextEnv(opts: {
   const writePath = path.resolve(opts.write);
   if (!fs.existsSync(fromPath)) throw new CliExitError(`File not found: ${fromPath}`);
 
-  const envGraph = await loadVarlockEnvGraph();
+  const envGraph = await loadVarlockEnvGraph({ entryFilePaths: [fromPath] });
   assertKeychainImportSchemaPresent(envGraph);
   const sourceFile = parseEnvSpecDotEnvFile(fs.readFileSync(fromPath, 'utf-8'));
   const itemsToImport: Array<{ key: string; value: string; ref: KeychainRef }> = [];
