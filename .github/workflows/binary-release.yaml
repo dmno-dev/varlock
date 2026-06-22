@@ -55,7 +55,8 @@ jobs:
     with:
       artifact-name: native-bin-rust
       sign: true
-    secrets: inherit
+    secrets:
+      OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
 
   release-binaries:
     needs: [notarize-native-macos, build-native-rust]

@@ -24,9 +24,13 @@ on:
         type: string
         default: ''
       sign:
-        description: 'Code-sign the Windows binary via Azure Artifact Signing. Enabled only for release builds (callers pass secrets: inherit so OP_CI_TOKEN is available).'
+        description: 'Code-sign the Windows binary via Azure Artifact Signing. Enabled only for release builds, which pass OP_CI_TOKEN.'
         type: boolean
         default: false
+    secrets:
+      OP_CI_TOKEN:
+        description: '1Password service-account token used to load Azure signing credentials. Required only when sign is true.'
+        required: false
 
 jobs:
   build:
@@ -90,8 +94,8 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       # --- Windows code signing (Azure Artifact Signing) ---
-      # Only runs for release builds (inputs.sign), which pass secrets: inherit
-      # so OP_CI_TOKEN is available. Azure credentials are resolved from 1Password
+      # Only runs for release builds (inputs.sign), which pass OP_CI_TOKEN
+      # so signing creds are available. Azure credentials are resolved from 1Password
       # through varlock (see packages/encryption-binary-rust/.env.schema), mirroring
       # the macOS Developer ID signing flow. PR/preview builds skip signing entirely,
       # so no secrets are loaded there.
