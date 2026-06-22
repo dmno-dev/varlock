@@ -191,6 +191,7 @@ jobs:
     with:
       artifact-name: native-bin-rust
       source-hash: ${{ needs.plan.outputs.rust-source-hash }}
+    secrets: inherit
 
   release:
     name: Release
@@ -305,6 +306,26 @@ jobs:
           if [ "$missing" = "1" ]; then exit 1; fi
           echo "All native binaries present"
 
+      - name: Generate native binary SHA256 checksums
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
+        working-directory: packages/varlock
+        run: |
+          sha256sum \
+            native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt \
+            native-bins/linux-x64/varlock-local-encrypt \
+            native-bins/linux-arm64/varlock-local-encrypt \
+            native-bins/win32-x64/varlock-local-encrypt.exe \
+            > SHA256SUMS.txt
+          echo "Native binary checksums:"
+          cat SHA256SUMS.txt
+      - name: Upload native binary checksums
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-bins-sha256sums
+          path: packages/varlock/SHA256SUMS.txt
+          retention-days: 90
+
       # ------------------------------------------------------------
       - name: Build libraries
         run: bun run build:libs
@@ -319,7 +340,7 @@ jobs:
       # varlock the action uses.)
       - name: Load extension publishing secrets from 1Password
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-vscode == 'true'
-        uses: dmno-dev/varlock-action@v1.0.1
+        uses: dmno-dev/varlock-action@v1.0.3
         with:
           working-directory: packages/vscode-plugin
         env:

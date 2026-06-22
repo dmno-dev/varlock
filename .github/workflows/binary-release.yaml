@@ -54,6 +54,7 @@ jobs:
     uses: ./.github/workflows/build-native-rust.yaml
     with:
       artifact-name: native-bin-rust
+    secrets: inherit
 
   release-binaries:
     needs: [notarize-native-macos, build-native-rust]
@@ -120,6 +121,18 @@ jobs:
           chmod +x packages/varlock/native-bins/linux-x64/varlock-local-encrypt
           chmod +x packages/varlock/native-bins/linux-arm64/varlock-local-encrypt
 
+      - name: Generate native binary SHA256 checksums
+        working-directory: packages/varlock
+        run: |
+          sha256sum \
+            native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt \
+            native-bins/linux-x64/varlock-local-encrypt \
+            native-bins/linux-arm64/varlock-local-encrypt \
+            native-bins/win32-x64/varlock-local-encrypt.exe \
+            > SHA256SUMS.txt
+          echo "Native binary checksums:"
+          cat SHA256SUMS.txt
+
       - name: build libs
         run: bun run build:libs
         env:
@@ -131,7 +144,7 @@ jobs:
           # default token works to update release on this repo
           GH_TOKEN: ${{ github.token }}
         working-directory: packages/varlock/dist-sea
-        run: gh release upload ${{ env.RELEASE_TAG }} *.{tar.gz,zip} checksums.txt --clobber
+        run: gh release upload ${{ env.RELEASE_TAG }} *.{tar.gz,zip} checksums.txt ../SHA256SUMS.txt --clobber
 
       # UPDATE HOMEBREW FORMULA ---
       - name: checkout homebrew tap repo

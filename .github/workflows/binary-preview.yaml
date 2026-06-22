@@ -42,6 +42,7 @@ jobs:
     uses: ./.github/workflows/build-native-rust.yaml
     with:
       artifact-name: native-bin-rust-preview
+    secrets: inherit
 
   # Build SEA binaries for all platforms and upload as artifacts
   build-sea-binaries:

@@ -160,6 +160,7 @@ jobs:
     with:
       artifact-name: native-bin-rust-ci
       source-hash: ${{ needs.build-and-test.outputs.rust-source-hash }}
+    secrets: inherit
 
   # Publish preview packages via pkg-pr-new
   release-preview-packages:

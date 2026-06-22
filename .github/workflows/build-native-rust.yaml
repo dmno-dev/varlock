@@ -26,6 +26,9 @@ on:
 
 jobs:
   build:
+    permissions:
+      contents: read
+      id-token: write # Azure Artifact Signing via OIDC (Windows job only)
     strategy:
       matrix:
         include:
@@ -74,17 +77,66 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Install UPX
+        if: contains(matrix.os, 'ubuntu')
         shell: bash
-        run: |
-          if [[ "${{ matrix.os }}" == *"ubuntu"* ]]; then
-            sudo apt-get update && sudo apt-get install -y upx-ucl
-          elif [[ "${{ matrix.os }}" == *"windows"* ]]; then
-            choco install upx --yes
-          fi
+        run: sudo apt-get update && sudo apt-get install -y upx-ucl
 
       - name: Build release binary
         working-directory: packages/encryption-binary-rust
         run: cargo build --release --target ${{ matrix.target }}
+
+      # --- Windows code signing (Azure Artifact Signing) ---
+      # Azure credentials are resolved from 1Password through varlock
+      # (see packages/encryption-binary-rust/.env.schema), mirroring the
+      # macOS Developer ID signing flow. Skipped when OP_CI_TOKEN is absent
+      # (e.g. fork PRs), leaving the Windows binary unsigned.
+      - name: Windows signing skipped (no OP_CI_TOKEN)
+        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN == ''
+        shell: bash
+        run: |
+          echo "Azure Artifact Signing skipped: OP_CI_TOKEN not available (fork PR?) — Windows binary will be unsigned"
+
+      - name: Setup Bun (for varlock secret loading)
+        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install node deps (for varlock secret loading)
+        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        run: bun install
+
+      # Build varlock JS so we can use it to resolve secrets from 1Password
+      - name: Build varlock libs
+        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        run: bun run build:libs
+
+      # Load Azure signing secrets from 1Password via varlock (scoped to the Rust package)
+      - name: Load signing secrets
+        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        uses: dmno-dev/varlock-action@v1.0.3
+        with:
+          working-directory: packages/encryption-binary-rust
+        env:
+          OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
+      - name: Azure login (OIDC)
+        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign Windows binary (Azure Artifact Signing)
+        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ env.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.AZURE_ARTIFACT_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\packages\encryption-binary-rust\target\${{ matrix.target }}\release\${{ matrix.binary-name }}
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
       - name: Prepare artifact
         shell: bash
@@ -96,8 +148,12 @@ jobs:
           RAW_SIZE=$(stat --format=%s "$ARTIFACT_DIR/${{ matrix.binary-name }}" 2>/dev/null || stat -f%z "$ARTIFACT_DIR/${{ matrix.binary-name }}")
           echo "Size: $(( RAW_SIZE / 1024 )) KB ($RAW_SIZE bytes)"
           file "$ARTIFACT_DIR/${{ matrix.binary-name }}" || true
-          echo "=== UPX compress ==="
-          upx --best "$ARTIFACT_DIR/${{ matrix.binary-name }}" || echo "UPX compression failed, continuing with uncompressed binary"
+          if [[ "${{ matrix.native-bin-subdir }}" != "win32-x64" ]]; then
+            echo "=== UPX compress ==="
+            upx --best "$ARTIFACT_DIR/${{ matrix.binary-name }}" || echo "UPX compression failed, continuing with uncompressed binary"
+          else
+            echo "=== UPX skipped (Windows) ==="
+          fi
           FINAL_SIZE=$(stat --format=%s "$ARTIFACT_DIR/${{ matrix.binary-name }}" 2>/dev/null || stat -f%z "$ARTIFACT_DIR/${{ matrix.binary-name }}")
           echo "=== Binary info (after UPX) ==="
           echo "Size: $(( FINAL_SIZE / 1024 )) KB ($FINAL_SIZE bytes)"
