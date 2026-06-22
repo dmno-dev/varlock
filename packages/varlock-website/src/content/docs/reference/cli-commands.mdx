@@ -215,7 +215,7 @@ Note: When `--no-inject-graph` is set, framework integrations that rely on `__VA
 :::note[Signals and exit codes]
 `varlock run` stays resident while your command runs, but it gets out of the way of process termination:
 
-- Terminating signals (`SIGTERM`, `SIGINT`, `SIGHUP`, `SIGQUIT`) are **forwarded** to the child so it can run its own shutdown handlers, rather than being killed abruptly. When not attached to an interactive terminal (containers, CI, pipes), the child runs in its own process group and the signal is forwarded to the whole group, so grandchildren are terminated too.
+- Terminating signals (`SIGTERM`, `SIGINT`, `SIGHUP`, `SIGQUIT`) are **forwarded** to the child so it can run its own shutdown handlers, rather than being killed abruptly. When no terminal is attached (containers, CI, background/agent runs), the child runs in its own process group and the signal is forwarded to the whole group, so grandchildren are terminated too.
 - The child's exit status is **propagated faithfully**: a normal exit code passes through unchanged, and a child terminated by signal N exits with `128+N` (e.g. `143` for `SIGTERM`), matching shell conventions.
 
 This makes `varlock run` safe to use as a container `ENTRYPOINT` (including PID 1), so `docker stop` / pod termination reaches your app gracefully instead of waiting out the grace period and being `SIGKILL`ed.

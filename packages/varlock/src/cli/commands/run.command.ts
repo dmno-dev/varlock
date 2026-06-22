@@ -232,13 +232,57 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const redactStdout = redactionEnabled && (forceRedact || !process.stdout.isTTY);
   const redactStderr = redactionEnabled && (forceRedact || !process.stderr.isTTY);
 
-  // run the child in its own process group when we're not attached to an interactive
-  // terminal (containers, CI, pipes). this lets us forward signals to the whole group
-  // so grandchildren shut down too — most valuable when `varlock run` is a container
-  // ENTRYPOINT / PID 1. when stdin IS a TTY we stay in the shared group so interactive
-  // tools (psql, vim, claude) keep receiving terminal job-control signals normally.
-  const useProcessGroup = !process.stdin.isTTY;
+  // Run the child in its own process group (setsid) only when NO std stream is a TTY —
+  // i.e. containers, CI, and background/agent invocations. Detaching is what lets us
+  // forward a signal to the whole group so grandchildren shut down too (most valuable
+  // when `varlock run` is a container ENTRYPOINT / PID 1).
+  //
+  // We deliberately gate on "no TTY anywhere" rather than just stdin so detaching never
+  // has a downside:
+  //  - No-TTY context: setsid changes neither env vars nor parent PIDs, and there's no
+  //    controlling terminal to lose, so the daemon's peer/session scoping (env-anchored
+  //    for agents, or process-tree) is unaffected.
+  //  - Any-TTY context: we stay in the shared group, preserving the child's controlling
+  //    terminal — needed for interactive tools (psql, vim, claude), /dev/tty access,
+  //    SIGWINCH, and the enclave's tty-based session scoping of any nested varlock.
+  const hasAnyTty = Boolean(process.stdin.isTTY || process.stdout.isTTY || process.stderr.isTTY);
+  const useProcessGroup = !hasAnyTty;
   childInOwnProcessGroup = useProcessGroup && process.platform !== 'win32';
+
+  // Install signal handling BEFORE spawning the child. This both (a) closes the window
+  // where a signal arriving between spawn and handler-registration would kill varlock
+  // without forwarding, and (b) ensures varlock holds a real handler for these signals at
+  // fork time, so the child inherits the default disposition (SIG_DFL) rather than an
+  // inherited "ignored" state — otherwise the child can't react to a forwarded signal.
+  if (!isWatchModeRestart) {
+    // last-resort cleanup: only if we exit while the child is somehow still alive (e.g. an
+    // unexpected error in varlock itself). once the child has exited, signalChild is a no-op,
+    // so a clean run never blasts SIGKILL at a reaped (possibly recycled) process group.
+    process.on('exit', () => {
+      signalChild('SIGKILL');
+    });
+
+    // forward terminating signals to the child instead of killing it outright, so it can
+    // run its own shutdown handlers. we then wait (below, by awaiting commandProcess) for
+    // the child to exit and propagate its real status — rather than exiting immediately and
+    // losing both the graceful shutdown and the true exit code. we deliberately do NOT
+    // impose our own kill deadline by default (see FORCE_KILL_TIMEOUT_MS).
+    FORWARDED_SIGNALS.forEach((signal) => {
+      try {
+        process.on(signal, () => {
+          signalChild(signal);
+          // opt-in only: escalate to SIGKILL if the child hasn't exited in time
+          if (FORCE_KILL_TIMEOUT_MS !== undefined && !forceKillTimer) {
+            forceKillTimer = setTimeout(() => signalChild('SIGKILL'), FORCE_KILL_TIMEOUT_MS);
+            // don't let the fallback timer keep the process alive on its own
+            forceKillTimer.unref();
+          }
+        });
+      } catch {
+        // some signals (e.g. SIGQUIT) can't be listened for on every platform — skip those
+      }
+    });
+  }
 
   if (!redactStdout && !redactStderr) {
     // full stdio inherit - no redaction needed on any stream
@@ -273,38 +317,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
   // console.log('PARENT PID = ', process.pid);
   // console.log('CHILD PID = ', commandProcess.pid);
-
-  // if first run, we need to attach some extra exit handling
-  if (!isWatchModeRestart) {
-    // last-resort cleanup: only if we exit while the child is somehow still alive (e.g. an
-    // unexpected error in varlock itself). once the child has exited, signalChild is a no-op,
-    // so a clean run never blasts SIGKILL at a reaped (possibly recycled) process group.
-    process.on('exit', () => {
-      signalChild('SIGKILL');
-    });
-
-    // forward terminating signals to the child instead of killing it outright, so it can
-    // run its own shutdown handlers. we then wait (below, by awaiting commandProcess) for
-    // the child to exit and propagate its real status — rather than exiting immediately and
-    // losing both the graceful shutdown and the true exit code. we deliberately do NOT
-    // impose our own kill deadline by default (see FORCE_KILL_TIMEOUT_MS).
-    FORWARDED_SIGNALS.forEach((signal) => {
-      try {
-        process.on(signal, () => {
-          signalChild(signal);
-          // opt-in only: escalate to SIGKILL if the child hasn't exited in time
-          if (FORCE_KILL_TIMEOUT_MS !== undefined && !forceKillTimer) {
-            forceKillTimer = setTimeout(() => signalChild('SIGKILL'), FORCE_KILL_TIMEOUT_MS);
-            // don't let the fallback timer keep the process alive on its own
-            forceKillTimer.unref();
-          }
-        });
-      } catch {
-        // some signals (e.g. SIGQUIT) can't be listened for on every platform — skip those
-      }
-    });
-  }
-
 
   let exitCode: any; // TODO: fix this any
   try {

@@ -38,7 +38,7 @@ function runAndSignal(command: Array<string>, signal: NodeJS.Signals, env?: Reco
       // safety net so a hung child can't wedge the suite
       const timeout = setTimeout(() => {
         child.kill('SIGKILL');
-        reject(new Error('varlock run did not exit after signal'));
+        reject(new Error(`varlock run did not exit after ${signal} (output: ${JSON.stringify(output)})`));
       }, 15_000);
       timeout.unref();
     },
