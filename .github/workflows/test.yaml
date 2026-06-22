@@ -153,6 +153,10 @@ jobs:
   # Build Rust native binaries if varlock is being released AND (source changed or cache missing)
   build-native-rust:
     needs: build-and-test
+    # CI builds never sign, so no id-token is granted here (signing is gated on
+    # the `sign` input, which only the release workflows pass).
+    permissions:
+      contents: read
     if: >-
       needs.build-and-test.outputs.includes-varlock == 'true'
       && (needs.build-and-test.outputs.rust-changed == 'true' || needs.build-and-test.outputs.rust-cache-hit != 'true')
@@ -160,7 +164,6 @@ jobs:
     with:
       artifact-name: native-bin-rust-ci
       source-hash: ${{ needs.build-and-test.outputs.rust-source-hash }}
-    secrets: inherit
 
   # Publish preview packages via pkg-pr-new
   release-preview-packages:

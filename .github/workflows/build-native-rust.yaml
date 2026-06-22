@@ -8,9 +8,13 @@ name: Build Rust native binaries
 #
 # Output: native binaries uploaded as artifacts, ready to be bundled
 # into the varlock npm package and CLI release archives.
-
-permissions:
-  contents: read
+#
+# Permissions are intentionally NOT declared here — this reusable workflow
+# inherits whatever the calling job passes. Callers grant `contents: read`,
+# and only the release callers (which set sign: true) additionally grant
+# `id-token: write` for the Azure OIDC signing step. Declaring id-token here
+# would force every caller — including PR/preview builds that never sign — to
+# grant it too.
 
 on:
   workflow_call:
@@ -23,12 +27,17 @@ on:
         description: 'Pre-computed hash of Rust source files (from Ubuntu runner). When provided, used for the binary cache key instead of local hashFiles to ensure cross-OS consistency.'
         type: string
         default: ''
+      sign:
+        description: 'Code-sign the Windows binary via Azure Artifact Signing. Enabled only for release builds, which pass OP_CI_TOKEN.'
+        type: boolean
+        default: false
+    secrets:
+      OP_CI_TOKEN:
+        description: '1Password service-account token used to load Azure signing credentials. Required only when sign is true.'
+        required: false
 
 jobs:
   build:
-    permissions:
-      contents: read
-      id-token: write # Azure Artifact Signing via OIDC (Windows job only)
     strategy:
       matrix:
         include:
@@ -86,32 +95,27 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       # --- Windows code signing (Azure Artifact Signing) ---
-      # Azure credentials are resolved from 1Password through varlock
-      # (see packages/encryption-binary-rust/.env.schema), mirroring the
-      # macOS Developer ID signing flow. Skipped when OP_CI_TOKEN is absent
-      # (e.g. fork PRs), leaving the Windows binary unsigned.
-      - name: Windows signing skipped (no OP_CI_TOKEN)
-        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN == ''
-        shell: bash
-        run: |
-          echo "Azure Artifact Signing skipped: OP_CI_TOKEN not available (fork PR?) — Windows binary will be unsigned"
-
+      # Only runs for release builds (inputs.sign), which pass OP_CI_TOKEN
+      # so signing creds are available. Azure credentials are resolved from 1Password
+      # through varlock (see packages/encryption-binary-rust/.env.schema), mirroring
+      # the macOS Developer ID signing flow. PR/preview builds skip signing entirely,
+      # so no secrets are loaded there.
       - name: Setup Bun (for varlock secret loading)
-        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        if: inputs.sign && contains(matrix.os, 'windows')
         uses: oven-sh/setup-bun@v2
 
       - name: Install node deps (for varlock secret loading)
-        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        if: inputs.sign && contains(matrix.os, 'windows')
         run: bun install
 
       # Build varlock JS so we can use it to resolve secrets from 1Password
       - name: Build varlock libs
-        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        if: inputs.sign && contains(matrix.os, 'windows')
         run: bun run build:libs
 
       # Load Azure signing secrets from 1Password via varlock (scoped to the Rust package)
       - name: Load signing secrets
-        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        if: inputs.sign && contains(matrix.os, 'windows')
         uses: dmno-dev/varlock-action@v1.0.3
         with:
           working-directory: packages/encryption-binary-rust
@@ -119,7 +123,7 @@ jobs:
           OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
 
       - name: Azure login (OIDC)
-        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        if: inputs.sign && contains(matrix.os, 'windows')
         uses: azure/login@v2
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
@@ -127,7 +131,7 @@ jobs:
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Sign Windows binary (Azure Artifact Signing)
-        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        if: inputs.sign && contains(matrix.os, 'windows')
         uses: azure/artifact-signing-action@v2
         with:
           endpoint: ${{ env.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
