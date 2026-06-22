@@ -23,7 +23,9 @@ import { spawn } from 'node:child_process';
 import { getUserVarlockDir } from '../user-config-dir';
 import { resolveNativeBinary } from './binary-resolver';
 import { isWSL } from './wsl-detect';
-import type { KeychainItemMeta, KeychainItemRef } from './types';
+import type {
+  KeychainFixAccessResult, KeychainItemMeta, KeychainItemRef, KeychainSetResult,
+} from './types';
 
 /** Timeout for daemon IPC messages that don't involve user interaction */
 const SEND_TIMEOUT_MS = 30_000;
@@ -375,6 +377,37 @@ export class DaemonClient {
         if (err instanceof Error && err.message === 'cancelled') return undefined;
         throw err;
       }
+    });
+  }
+
+  async keychainFixAccess(opts: {
+    service: string;
+    account?: string;
+    keychain?: string;
+  }): Promise<KeychainFixAccessResult> {
+    return this.withRetry(async () => {
+      await this.ensureConnected();
+      const result = await this.sendMessage({
+        action: 'keychain-fix-access',
+        payload: opts,
+      }, INTERACTIVE_TIMEOUT_MS);
+      return result as KeychainFixAccessResult;
+    });
+  }
+
+  async keychainSet(opts: {
+    service: string;
+    account?: string;
+    value: string;
+    update?: boolean;
+  }): Promise<KeychainSetResult> {
+    return this.withRetry(async () => {
+      await this.ensureConnected();
+      const result = await this.sendMessage({
+        action: 'keychain-set',
+        payload: opts,
+      }, BIOMETRIC_TIMEOUT_MS);
+      return result as KeychainSetResult;
     });
   }
 

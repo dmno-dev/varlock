@@ -39,6 +39,58 @@ Rather than wiring up items individually, the easiest way to get started is by u
 ITEM=keychain(prompt) # Opens a native picker dialog
 ```
 
+## Import plaintext env files
+
+If you already have sensitive plaintext values in a local `.env` file, import them into macOS Keychain and write stable `keychain(...)` references to a profile env file:
+
+```sh
+varlock keychain import --from .env --profile jb --write .env.jb
+```
+
+Import only includes variables marked `@sensitive` in your schema. It never prints secret values. By default, Varlock refuses to overwrite existing Keychain items or existing refs in the target env file; pass `--force` to overwrite both.
+
+Generated refs use `service="varlock"` and account names like `<project>:<profile>:<ENV_VAR>`. The project defaults to the current directory name and can be overridden:
+
+```sh
+varlock keychain import --from .env --profile jb --project my-app --write .env.jb
+```
+
+## Set one secret manually
+
+To store one secret without putting the value in shell history, run `set` and enter the value at the masked prompt:
+
+```sh
+varlock keychain set API_KEY --profile jb --write .env.jb
+```
+
+This stores the item under `service="varlock"` with account `<project>:<profile>:API_KEY`, then writes the matching `keychain(...)` ref when `--write` is provided. If you need to paste a multi-line secret, pipe it through stdin instead of passing it as a command-line argument:
+
+```sh
+cat secret.txt | varlock keychain set PRIVATE_KEY --profile jb --write .env.jb
+```
+
+By default, `set` refuses to overwrite an existing Keychain item or env ref. Pass `--force` to replace both.
+
+## Access management
+
+If VarlockEnclave cannot read an existing Keychain item, grant access without using `/usr/bin/security` directly:
+
+```sh
+varlock keychain fix-access --account "my-app:jb:API_KEY"
+```
+
+`--service` defaults to `varlock`, but can be overridden for legacy or manually-created Keychain items:
+
+```sh
+varlock keychain fix-access --service "com.company.api" --account "admin"
+```
+
+You can also fix every explicit `keychain(...)` ref in an env file:
+
+```sh
+varlock keychain fix-access --path .env.jb
+```
+
 ## Reference
 
 <div class="reference-docs">

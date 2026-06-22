@@ -301,6 +301,50 @@ final class KeychainManager {
 
     // MARK: - Add Item
 
+    /// Create or update a generic password item.
+    /// Returns true when an existing item was updated, false when a new item was created.
+    static func setGenericPassword(service: String, account: String, value: String, update: Bool = false) throws -> Bool {
+        guard let valueData = value.data(using: .utf8) else {
+            throw KeychainError.unexpectedData
+        }
+
+        let lookup: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+        ]
+
+        if update {
+            let attrs: [CFString: Any] = [
+                kSecValueData: valueData,
+                kSecAttrLabel: account.isEmpty ? service : account,
+            ]
+            let status = SecItemUpdate(lookup as CFDictionary, attrs as CFDictionary)
+            switch status {
+            case errSecSuccess:
+                return true
+            case errSecItemNotFound:
+                break
+            default:
+                throw KeychainError.unhandledError(status)
+            }
+        }
+
+        var addQuery = lookup
+        addQuery[kSecAttrLabel] = account.isEmpty ? service : account
+        addQuery[kSecValueData] = valueData
+
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        switch status {
+        case errSecSuccess:
+            return false
+        case errSecDuplicateItem:
+            throw KeychainError.duplicateItem
+        default:
+            throw KeychainError.unhandledError(status)
+        }
+    }
+
     /// Create a new keychain item as a secure note.
     /// The label is the only user-visible identifier in Keychain Access.
     /// The value is stored as RTF for Keychain Access compatibility.
