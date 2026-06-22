@@ -50,6 +50,9 @@ jobs:
 
   # Build Rust native binaries for Linux and Windows
   build-native-rust:
+    permissions:
+      contents: read
+      id-token: write # Azure OIDC signing in the reusable workflow
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'varlock@')
     uses: ./.github/workflows/build-native-rust.yaml
     with:

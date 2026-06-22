@@ -186,6 +186,9 @@ jobs:
   # Build Rust native binaries for Linux and Windows. Skipped on a cache hit.
   build-native-rust:
     needs: plan
+    permissions:
+      contents: read
+      id-token: write # Azure OIDC signing in the reusable workflow
     if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true' && needs.plan.outputs.rust-cache-hit != 'true'
     uses: ./.github/workflows/build-native-rust.yaml
     with:

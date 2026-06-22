@@ -39,6 +39,9 @@ jobs:
   # Build Rust native binaries for Linux and Windows
   build-native-rust:
     needs: check-label
+    permissions:
+      contents: read
+      id-token: write # Azure OIDC signing in the reusable workflow (release builds only)
     uses: ./.github/workflows/build-native-rust.yaml
     with:
       artifact-name: native-bin-rust-preview

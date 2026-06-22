@@ -153,6 +153,12 @@ jobs:
   # Build Rust native binaries if varlock is being released AND (source changed or cache missing)
   build-native-rust:
     needs: build-and-test
+    # id-token granted for the reusable workflow's Azure OIDC signing step
+    # (only exercised on release builds; required here because the reusable
+    # workflow declares the permission statically).
+    permissions:
+      contents: read
+      id-token: write
     if: >-
       needs.build-and-test.outputs.includes-varlock == 'true'
       && (needs.build-and-test.outputs.rust-changed == 'true' || needs.build-and-test.outputs.rust-cache-hit != 'true')
