@@ -633,9 +633,11 @@ class BitwardenPasswordManagerInstance {
     if (masterPassword === undefined && !process.stdin.isTTY) {
       throw new ResolutionError('Cannot unlock the Bitwarden vault without an interactive terminal', {
         tip: [
-          'No cached session token is available and stdin is not a TTY',
-          'Provide a token via sessionToken=$BWP_SESSION,',
-          'or supply masterPassword= to unlock non-interactively (e.g. in CI)',
+          'varlock is auto-unlocking the vault (no sessionToken/masterPassword configured) but stdin is not a TTY',
+          'For local dev: run `varlock load` once in an interactive terminal to unlock and cache the session,',
+          '  then your non-interactive command will reuse the cached token',
+          'For CI / headless: configure @initBwp with sessionToken=$BWP_SESSION (a pre-obtained token),',
+          '  or masterPassword=$BW_MASTER_PASSWORD to unlock non-interactively',
         ].join('\n'),
       });
     }

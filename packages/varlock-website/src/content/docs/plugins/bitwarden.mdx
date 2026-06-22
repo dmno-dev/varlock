@@ -288,9 +288,13 @@ STRIPE_KEY=bwp("Stripe", field="secret-key")
 - `sessionTtl` (default `forever`) — how long the unlocked CLI session token is cached before varlock forces a fresh `bw unlock`. `forever` means "until the bw vault locks" (re-unlock then happens automatically); set e.g. `"1h"` to force periodic master-password re-auth.
 - `cacheTtl` (optional) — additionally cache the **resolved item values**, avoiding a `bw` invocation per value within the window. See the [Caching guide](/guides/caching/).
 
-### CI / non-interactive use
+### Non-interactive loads
 
-Interactive unlock needs a TTY. In CI (or any non-interactive context) provide credentials explicitly instead:
+Interactive unlock needs a TTY, so a non-interactive load (a dev server started by a tool that has no TTY, an editor task runner, etc.) can't show the master-password prompt. How you fix it depends on the environment:
+
+**Local dev, using auto-unlock** — if you're letting varlock unlock the vault itself (no `sessionToken` / `masterPassword` configured on `@initBwp()`), run `varlock load` once in a regular terminal (`npx varlock load`, `pnpm exec varlock load`, etc.). That performs the interactive unlock and caches the session token in varlock's encrypted cache, so subsequent non-interactive commands reuse it without prompting (until the vault locks again — see `sessionTtl` above). This only applies to the auto-unlock flow — if you've configured `sessionToken=` or `masterPassword=`, no interactive `varlock load` is needed.
+
+**CI / truly headless** — there's no terminal to unlock from, so provide credentials explicitly instead:
 
 ```env-spec title=".env.schema"
 # Option A: pass a pre-obtained session token (from `bw unlock --raw`)
@@ -485,7 +489,7 @@ WORK_DB=bwp(work, "Work DB", field=password)
 ### Password Manager (`bwp()`)
 - **`bw` not found** — install the CLI from a trusted source and ensure it's on your `PATH`.
 - **Not logged in** — run `bw login` once (for Vaultwarden, also `bw config server <url>` first).
-- **Cannot unlock without an interactive terminal** — you're in a non-TTY context (e.g. CI). Provide `sessionToken=$BWP_SESSION` or `masterPassword=...` to `@initBwp()`.
+- **Cannot unlock without an interactive terminal** — you're auto-unlocking (no `sessionToken` / `masterPassword` configured) in a non-TTY context. For local dev, run `varlock load` once in a regular terminal to unlock and cache the session token; for CI / headless, provide `sessionToken=$BWP_SESSION` or `masterPassword=...` to `@initBwp()`. See [Non-interactive loads](#non-interactive-loads).
 - **Item / field not found** — verify the item name or UUID; the error lists the item's available custom fields.
 
 ## Resources
