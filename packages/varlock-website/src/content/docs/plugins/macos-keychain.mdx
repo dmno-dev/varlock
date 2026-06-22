@@ -47,7 +47,7 @@ If you already have sensitive plaintext values in a local `.env` file, import th
 varlock keychain import --from .env --profile jb --write .env.jb
 ```
 
-Import only includes variables marked `@sensitive` in your schema. It never prints secret values. By default, Varlock refuses to overwrite existing Keychain items or existing refs in the target env file; pass `--force` to overwrite both.
+Import requires an existing `.env.schema` file for the input env file so Varlock knows which input variables are secrets and which are not. It only includes variables marked `@sensitive` in that schema and never prints secret values. By default, Varlock refuses to overwrite existing Keychain items or existing refs in the target env file; pass `--force` to overwrite both.
 
 Generated refs use `service="varlock"` and account names like `<project>:<profile>:<ENV_VAR>`. The project defaults to the current directory name and can be overridden:
 
