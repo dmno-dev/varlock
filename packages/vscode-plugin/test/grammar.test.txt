@@ -66,6 +66,13 @@ DEC_FN_VAR=test
 #                                             ^^^^^^^^^^^^^^^^ string.unquoted.env-spec
 DOCS_FRAGMENT_VAR=test
 
+# unquoted decorator value terminated by `#` with no preceding space -> comment
+# @unquoted=noquotes#should be comment
+#           ^^^^^^^^ string.unquoted.env-spec
+#                   ^^^^^^^^^^^^^^^^^^ comment.line.env-spec
+NO_SPACE_COMMENT_VAR=test
+#^^^^^^^^^^^^^^^^^^^ entity.name.tag.env-spec
+
 # @type(
 #   string,
 #   ^^^^^^ string.unquoted.env-spec
@@ -231,6 +238,25 @@ COL0_ML=fn({
 })
 AFTER_COL0=ok
 #^^^^^^^^^ entity.name.tag.env-spec
+
+# Bare multi-line fn call (positional args, NO bracket literal). The continuation
+# lines are not `#`-prefixed, so both indented and column-0 comments are full
+# comments. (Distinct path from the literal cases above: the fn call closes at
+# end of the first line and the body is handled as plain continuation lines.)
+FN_ML=fn(
+  ONE,
+# ^^^ string.unquoted.env-spec
+  # TWO disabled (indented comment)
+#   ^^^^^^^^^^^^ comment.line.env-spec
+# THREE disabled (column-0 comment)
+# ^^^^^^^^^^^^^^ comment.line.env-spec
+  FOUR, # trailing note
+# ^^^^ string.unquoted.env-spec
+#        ^^^^^^^^^^^^^ comment.line.env-spec
+)
+# <- punctuation.definition.parameters.end.env-spec
+AFTER_FN_ML=ok
+#^^^^^^^^^^ entity.name.tag.env-spec
 
 # @import(pick=[
 #   ALPHA,
