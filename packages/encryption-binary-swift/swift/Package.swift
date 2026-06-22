@@ -20,15 +20,27 @@ let package = Package(
                 .linkedFramework("Security"),
             ]
         ),
+        // Pure session-scoping logic (TTY / process-tree identity), isolated in
+        // its own library target so it can be unit tested with synthetic process
+        // trees. All OS access goes through the `ProcessProvider` abstraction.
+        .target(
+            name: "SessionScoping",
+            path: "Sources/SessionScoping"
+        ),
         .executableTarget(
             name: "VarlockEnclave",
-            dependencies: ["KeychainLegacy"],
+            dependencies: ["KeychainLegacy", "SessionScoping"],
             path: "Sources/VarlockEnclave",
             linkerSettings: [
                 .linkedFramework("Security"),
                 .linkedFramework("LocalAuthentication"),
                 .linkedFramework("AppKit"),
             ]
+        ),
+        .testTarget(
+            name: "SessionScopingTests",
+            dependencies: ["SessionScoping"],
+            path: "Tests/SessionScopingTests"
         ),
     ]
 )
