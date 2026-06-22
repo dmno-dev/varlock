@@ -8,9 +8,13 @@ name: Build Rust native binaries
 #
 # Output: native binaries uploaded as artifacts, ready to be bundled
 # into the varlock npm package and CLI release archives.
-
-permissions:
-  contents: read
+#
+# Permissions are intentionally NOT declared here — this reusable workflow
+# inherits whatever the calling job passes. Callers grant `contents: read`,
+# and only the release callers (which set sign: true) additionally grant
+# `id-token: write` for the Azure OIDC signing step. Declaring id-token here
+# would force every caller — including PR/preview builds that never sign — to
+# grant it too.
 
 on:
   workflow_call:
@@ -34,9 +38,6 @@ on:
 
 jobs:
   build:
-    permissions:
-      contents: read
-      id-token: write # Azure Artifact Signing via OIDC (Windows job only)
     strategy:
       matrix:
         include:
