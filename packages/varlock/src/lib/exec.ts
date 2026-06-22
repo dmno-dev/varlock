@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { constants as osConstants } from 'node:os';
 import { Readable } from 'node:stream';
 import {
   join, delimiter, extname, isAbsolute,
@@ -13,6 +14,21 @@ interface ExecOptions {
   stdin?: 'inherit' | 'pipe';
   stdout?: 'inherit' | 'pipe';
   stderr?: 'inherit' | 'pipe';
+  /**
+   * Run the child in its own process group (POSIX `setsid`). Lets callers
+   * forward signals to the whole group (`process.kill(-pid, sig)`) so that
+   * grandchildren are terminated too. Ignored on Windows.
+   */
+  detached?: boolean;
+}
+
+/**
+ * Convert a signal name into the conventional shell exit status (128 + signal number),
+ * matching how shells report a process terminated by a signal.
+ */
+function signalExitCode(signal: NodeJS.Signals): number {
+  const signalNumber = osConstants.signals[signal];
+  return signalNumber ? 128 + signalNumber : 1;
 }
 
 interface ExecResult {
@@ -200,6 +216,8 @@ export function exec(
   const spawnOptions: any = {
     env: options.env || process.env,
     shell: false,
+    // process groups are a POSIX concept; on Windows we forward to the child pid directly
+    detached: options.detached === true && process.platform !== 'win32',
   };
 
   // On Windows, wrap .cmd/.bat (or unresolved commands) in cmd.exe
@@ -273,7 +291,8 @@ export function exec(
         return;
       }
 
-      const exitCode = code ?? (signal ? 1 : 0);
+      // a process killed by a signal has a null exit code; report it as 128+N like a shell does
+      const exitCode = code ?? (signal ? signalExitCode(signal) : 0);
       const exitResult: ExecResult = {
         exitCode,
         signal: signal || undefined,

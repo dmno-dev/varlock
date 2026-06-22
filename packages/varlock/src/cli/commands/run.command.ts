@@ -1,3 +1,4 @@
+import { openSync, closeSync } from 'node:fs';
 import { define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
@@ -87,6 +88,73 @@ function parseEnvToggle(value: string | undefined): boolean | undefined {
 let commandProcess: ReturnType<typeof exec> | undefined;
 let childCommandKilledFromRestart = false;
 const isWatchModeRestart = false; // TODO: re-enable watch mode
+
+// whether the child was spawned in its own process group, so we can signal the
+// whole group (child + grandchildren) rather than just the immediate child
+let childInOwnProcessGroup = false;
+// set once the child has exited and been reaped, so we never signal a stale (and
+// possibly recycled) pid/process group afterwards
+let childExited = false;
+// optional opt-in fallback timer that escalates to SIGKILL (see FORCE_KILL_TIMEOUT_MS)
+let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+
+// signals we forward to the child so it can shut down gracefully. these are the
+// terminating signals an orchestrator (docker stop, k8s, a shell) would send.
+const FORWARDED_SIGNALS: Array<NodeJS.Signals> = ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGQUIT'];
+
+// By default we forward-and-wait (like tini/dumb-init) and never impose our own kill
+// deadline — the orchestrator/operator owns SIGKILL, and a timer would wrongly assume
+// every forwarded signal is terminal (SIGHUP often means "reload") and could truncate a
+// legitimately-slow graceful shutdown. Opt in by setting _VARLOCK_FORCE_KILL_TIMEOUT_MS
+// to a number of milliseconds to escalate to SIGKILL that long after the first signal.
+const FORCE_KILL_TIMEOUT_MS = (() => {
+  const raw = process.env._VARLOCK_FORCE_KILL_TIMEOUT_MS;
+  if (raw === undefined) return undefined;
+  const ms = Number(raw);
+  return Number.isFinite(ms) && ms >= 0 ? ms : undefined;
+})();
+
+/**
+ * Whether this process is part of a terminal session — i.e. has a controlling terminal.
+ *
+ * We can't just check `isTTY` on the std streams: a process can keep its controlling
+ * terminal while its std fds are pipes (e.g. a task runner like turbo running
+ * interactively but piping a task's output instead of giving it a PTY). The daemon's
+ * session scoping keys off the controlling terminal (`e_tdev`), not fd tty-ness, so we
+ * use the canonical POSIX probe — `/dev/tty` opens iff a controlling terminal exists —
+ * with the std-stream check as a fast path.
+ */
+function hasControllingTerminal(): boolean {
+  if (process.stdin.isTTY || process.stdout.isTTY || process.stderr.isTTY) return true;
+  if (process.platform === 'win32') return false; // no /dev/tty; we never setsid on Windows anyway
+  try {
+    const fd = openSync('/dev/tty', 'r');
+    closeSync(fd);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Forward a signal to the running child process. When the child lives in its own
+ * process group we signal the whole group (negative pid) so grandchildren are
+ * terminated too; otherwise we signal the child pid directly. Never signals once the
+ * child has exited, to avoid hitting a recycled pid/process group.
+ */
+function signalChild(signal: NodeJS.Signals | number) {
+  const child = commandProcess;
+  if (childExited || !child?.pid) return;
+  try {
+    if (childInOwnProcessGroup && process.platform !== 'win32') {
+      process.kill(-child.pid, signal);
+    } else {
+      child.kill(signal);
+    }
+  } catch {
+    // child (or its group) is already gone — nothing to forward to
+  }
+}
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   // if "--" is present, split the args into our command and the rest, which will be another external command
@@ -187,11 +255,64 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const redactStdout = redactionEnabled && (forceRedact || !process.stdout.isTTY);
   const redactStderr = redactionEnabled && (forceRedact || !process.stderr.isTTY);
 
+  // Run the child in its own process group (setsid) only when NO std stream is a TTY —
+  // i.e. containers, CI, and background/agent invocations. Detaching is what lets us
+  // forward a signal to the whole group so grandchildren shut down too (most valuable
+  // when `varlock run` is a container ENTRYPOINT / PID 1).
+  //
+  // We deliberately gate on "no controlling terminal" rather than just stdin so detaching
+  // never has a downside:
+  //  - No-terminal context (containers, CI, agents): setsid changes neither env vars nor
+  //    parent PIDs, and there's no controlling terminal to lose, so the daemon's
+  //    peer/session scoping (env-anchored for agents, or process-tree) is unaffected.
+  //  - Terminal context: we stay in the shared group, preserving the child's controlling
+  //    terminal — needed for interactive tools (psql, vim, claude), /dev/tty access,
+  //    SIGWINCH, and the enclave's tty-based session scoping of any nested varlock (incl.
+  //    fan-out runners like turbo whose per-task PTYs we must not sever).
+  const useProcessGroup = !hasControllingTerminal();
+  childInOwnProcessGroup = useProcessGroup && process.platform !== 'win32';
+
+  // Install signal handling BEFORE spawning the child. This both (a) closes the window
+  // where a signal arriving between spawn and handler-registration would kill varlock
+  // without forwarding, and (b) ensures varlock holds a real handler for these signals at
+  // fork time, so the child inherits the default disposition (SIG_DFL) rather than an
+  // inherited "ignored" state — otherwise the child can't react to a forwarded signal.
+  if (!isWatchModeRestart) {
+    // last-resort cleanup: only if we exit while the child is somehow still alive (e.g. an
+    // unexpected error in varlock itself). once the child has exited, signalChild is a no-op,
+    // so a clean run never blasts SIGKILL at a reaped (possibly recycled) process group.
+    process.on('exit', () => {
+      signalChild('SIGKILL');
+    });
+
+    // forward terminating signals to the child instead of killing it outright, so it can
+    // run its own shutdown handlers. we then wait (below, by awaiting commandProcess) for
+    // the child to exit and propagate its real status — rather than exiting immediately and
+    // losing both the graceful shutdown and the true exit code. we deliberately do NOT
+    // impose our own kill deadline by default (see FORCE_KILL_TIMEOUT_MS).
+    FORWARDED_SIGNALS.forEach((signal) => {
+      try {
+        process.on(signal, () => {
+          signalChild(signal);
+          // opt-in only: escalate to SIGKILL if the child hasn't exited in time
+          if (FORCE_KILL_TIMEOUT_MS !== undefined && !forceKillTimer) {
+            forceKillTimer = setTimeout(() => signalChild('SIGKILL'), FORCE_KILL_TIMEOUT_MS);
+            // don't let the fallback timer keep the process alive on its own
+            forceKillTimer.unref();
+          }
+        });
+      } catch {
+        // some signals (e.g. SIGQUIT) can't be listened for on every platform — skip those
+      }
+    });
+  }
+
   if (!redactStdout && !redactStderr) {
     // full stdio inherit - no redaction needed on any stream
     commandProcess = exec(rawCommand, commandArgsOnly, {
       stdio: 'inherit',
       env: fullInjectedEnv,
+      detached: useProcessGroup,
     });
   } else {
     resetRedactionMap(serializedGraph);
@@ -201,6 +322,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       stdout: redactStdout ? 'pipe' : 'inherit',
       stderr: redactStderr ? 'pipe' : 'inherit',
       env: fullInjectedEnv,
+      detached: useProcessGroup,
     });
 
     // pipe output through redaction writers, which buffer possible partial secrets
@@ -219,52 +341,37 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // console.log('PARENT PID = ', process.pid);
   // console.log('CHILD PID = ', commandProcess.pid);
 
-  // if first run, we need to attach some extra exit handling
-  if (!isWatchModeRestart) {
-    // try to make sure we shut down cleanly and kill the child process
-    process.on('exit', (_code: any, _signal: any) => {
-      // if (childCommandKilledFromRestart) {
-      //   childCommandKilledFromRestart = false;
-      //   return;
-      // }
-      // console.log('exit!', code, signal);
-      commandProcess?.kill(9);
-    });
-
-    ['SIGTERM', 'SIGINT'].forEach((signal) => {
-      process.on(signal, () => {
-        // console.log('SIGNAL = ', signal);
-        commandProcess?.kill(9);
-        gracefulExit(1);
-      });
-    });
-    // TODO: handle other signals?
-  }
-
-
   let exitCode: any; // TODO: fix this any
   try {
     const result = await commandProcess;
     exitCode = result.exitCode;
   } catch (error) {
+    const err = error as any;
     // console.log('child command error!', error);
-    if ((error as any).signal === 'SIGINT' && childCommandKilledFromRestart) {
+    if (err.signal === 'SIGINT' && childCommandKilledFromRestart) {
       // console.log('child command failed due to being killed form restart');
       childCommandKilledFromRestart = false;
       return;
     }
 
-    // console.log('child command result error', error);
-    if ((error as any).signal === 'SIGINT' || (error as any).signal === 'SIGKILL') {
-      gracefulExit(1);
+    if (err.signal) {
+      // the child was terminated by a signal (often one we just forwarded). this is a
+      // normal shutdown path, not a varlock failure — propagate the conventional 128+N
+      // status (already computed by exec) without printing the "varlock may be broken" noise.
+      exitCode = err.exitCode || 1;
     } else {
       console.log((error as Error).message);
       console.log(`command [${commandToRunStr}] failed`);
       console.log('try running the same command without varlock');
       console.log('if you get a different result, varlock may be the problem...');
       // console.log(`Please report issue here: <${REPORT_ISSUE_LINK}>`);
+      exitCode = err.exitCode || 1;
     }
-    exitCode = (error as any).exitCode || 1;
+  } finally {
+    // child has exited and been reaped: stop forwarding (avoid signaling a recycled pid)
+    // and cancel any pending force-kill escalation
+    childExited = true;
+    if (forceKillTimer) clearTimeout(forceKillTimer);
   }
 
   if (isWatchEnabled) {
