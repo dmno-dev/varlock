@@ -483,6 +483,16 @@ final class KeychainManager {
     /// Get a SecKeychainItem reference for ACL operations.
     /// Searches generic passwords first, then internet passwords.
     private static func getItemRef(service: String, account: String?, keychainName: String?) throws -> SecKeychainItem {
+        let searchList: [SecKeychain]?
+        if let keychainName = keychainName {
+            guard let keychainRef = resolveKeychain(named: keychainName) else {
+                throw KeychainError.keychainNotFound(keychainName)
+            }
+            searchList = [keychainRef]
+        } else {
+            searchList = nil
+        }
+
         for itemClass in [kSecClassGenericPassword, kSecClassInternetPassword] {
             let serviceAttribute = itemClass == kSecClassGenericPassword ? kSecAttrService : kSecAttrServer
 
@@ -494,8 +504,8 @@ final class KeychainManager {
                     serviceAttribute: service,
                 ]
 
-                if let keychainName = keychainName, let keychainRef = resolveKeychain(named: keychainName) {
-                    countQuery[kSecMatchSearchList] = [keychainRef]
+                if let searchList = searchList {
+                    countQuery[kSecMatchSearchList] = searchList
                 }
 
                 var countResult: AnyObject?
@@ -520,8 +530,8 @@ final class KeychainManager {
                 query[kSecAttrAccount] = account
             }
 
-            if let keychainName = keychainName, let keychainRef = resolveKeychain(named: keychainName) {
-                query[kSecMatchSearchList] = [keychainRef]
+            if let searchList = searchList {
+                query[kSecMatchSearchList] = searchList
             }
 
             var result: AnyObject?
