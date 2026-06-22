@@ -311,20 +311,25 @@ BWP_SESSION=
 
 ### Multiple accounts / servers
 
-The `bw` CLI keeps **one logged-in account per data directory**, so to read from more than one account or server (e.g. personal + work, or bitwarden.com + a self-hosted Vaultwarden) you give each instance its own data dir via `appDataDir`. Set up each dir once with the `bw` CLI (`bw config server …` if needed, then `bw login`), then point an instance at it:
+The `bw` CLI keeps **one logged-in account per data directory**, so to read from more than one account or server (e.g. personal + work, or bitwarden.com + a self-hosted Vaultwarden) you give each instance its own data dir via `appDataDir`. Set up each dir once with the `bw` CLI (`bw config server …` if needed, then `bw login`), then point an instance at it. Since a data-dir path is specific to your machine, reference it from a per-developer value rather than hardcoding it:
 
 ```env-spec title=".env.schema"
-# personal account on bitwarden.com
-# @initBwp(id=personal, appDataDir="~/.config/Bitwarden CLI Personal")
-# work account on a self-hosted Vaultwarden (that dir was configured + logged in separately)
-# @initBwp(id=work, appDataDir="~/.config/Bitwarden CLI Work")
+# @initBwp(id=personal, appDataDir=$BWP_PERSONAL_DIR)
+# @initBwp(id=work, appDataDir=$BWP_WORK_DIR)
 # ---
+# bw data dirs — set per-machine in .env.local (a leading ~ is expanded)
+BWP_PERSONAL_DIR=
+BWP_WORK_DIR=
 
 PERSONAL_TOKEN=bwp(personal, "My Token")
 WORK_DB=bwp(work, "Work DB", field=password)
 ```
 
 varlock unlocks and caches a session token **per account** (keyed by `appDataDir`), so the two accounts never share or invalidate each other's sessions.
+
+:::note[`appDataDir` is machine-specific]
+A data-dir path points at a directory on *your* machine, so avoid hardcoding it in a shared `.env.schema`. There's no way to override an already-declared instance's settings from another file, so make the **value** local rather than the instance: reference `appDataDir=$BWP_WORK_DIR` and set that var in your (gitignored) `.env.local`. If the whole multi-account workflow is personal, you can instead declare the entire `@initBwp(...)` in `.env.local` — root decorators are honored there too.
+:::
 
 :::caution
 Without distinct `appDataDir`s, multiple instances all point at the same global `bw` account — `bwp(personal, …)` and `bwp(work, …)` would read the *same* vault. The `appDataDir` is what makes them separate. (This differs from Secrets Manager, where each instance has its own `accessToken`.)
