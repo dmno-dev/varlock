@@ -85,33 +85,54 @@ jobs:
         working-directory: packages/encryption-binary-rust
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Windows signing skipped (Azure not configured)
-        if: contains(matrix.os, 'windows') && secrets.AZURE_CLIENT_ID == ''
+      # --- Windows code signing (Azure Artifact Signing) ---
+      # Azure credentials are resolved from 1Password through varlock
+      # (see packages/encryption-binary-rust/.env.schema), mirroring the
+      # macOS Developer ID signing flow. Skipped when OP_CI_TOKEN is absent
+      # (e.g. fork PRs), leaving the Windows binary unsigned.
+      - name: Windows signing skipped (no OP_CI_TOKEN)
+        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN == ''
         shell: bash
         run: |
-          echo "Azure Artifact Signing skipped: configure AZURE_CLIENT_ID (and related secrets/vars) to sign the Windows binary"
+          echo "Azure Artifact Signing skipped: OP_CI_TOKEN not available (fork PR?) — Windows binary will be unsigned"
+
+      - name: Setup Bun (for varlock secret loading)
+        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install node deps (for varlock secret loading)
+        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        run: bun install
+
+      # Build varlock JS so we can use it to resolve secrets from 1Password
+      - name: Build varlock libs
+        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        run: bun run build:libs
+
+      # Load Azure signing secrets from 1Password via varlock (scoped to the Rust package)
+      - name: Load signing secrets
+        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
+        uses: dmno-dev/varlock-action@v1.0.3
+        with:
+          working-directory: packages/encryption-binary-rust
+        env:
+          OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
 
       - name: Azure login (OIDC)
-        if: >-
-          contains(matrix.os, 'windows')
-          && secrets.AZURE_CLIENT_ID != ''
-          && vars.AZURE_ARTIFACT_SIGNING_ENDPOINT != ''
+        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
       - name: Sign Windows binary (Azure Artifact Signing)
-        if: >-
-          contains(matrix.os, 'windows')
-          && secrets.AZURE_CLIENT_ID != ''
-          && vars.AZURE_ARTIFACT_SIGNING_ENDPOINT != ''
+        if: contains(matrix.os, 'windows') && secrets.OP_CI_TOKEN != ''
         uses: azure/artifact-signing-action@v2
         with:
-          endpoint: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
-          signing-account-name: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ vars.AZURE_ARTIFACT_SIGNING_PROFILE }}
+          endpoint: ${{ env.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.AZURE_ARTIFACT_SIGNING_PROFILE }}
           files: ${{ github.workspace }}\packages\encryption-binary-rust\target\${{ matrix.target }}\release\${{ matrix.binary-name }}
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
