@@ -364,6 +364,54 @@ case "daemon":
             }
             return ["result": selected]
 
+        case "keychain-fix-access":
+            guard let payload = message["payload"] as? [String: Any] else {
+                return ["error": "Missing payload"]
+            }
+            guard let service = payload["service"] as? String else {
+                return ["error": "Missing service"]
+            }
+            let account = payload["account"] as? String
+            let keychainName = payload["keychain"] as? String
+            let appPath = Bundle.main.executablePath ?? ProcessInfo.processInfo.arguments[0]
+
+            do {
+                let modified = try KeychainManager.addToACL(
+                    service: service,
+                    account: account,
+                    keychainName: keychainName,
+                    appPath: appPath
+                )
+                return ["result": ["modified": modified]]
+            } catch {
+                return ["error": error.localizedDescription]
+            }
+
+        case "keychain-set":
+            guard let payload = message["payload"] as? [String: Any] else {
+                return ["error": "Missing payload"]
+            }
+            guard let service = payload["service"] as? String else {
+                return ["error": "Missing service"]
+            }
+            guard let value = payload["value"] as? String else {
+                return ["error": "Missing value"]
+            }
+            let account = payload["account"] as? String ?? ""
+            let update = payload["update"] as? Bool ?? false
+
+            do {
+                let updated = try KeychainManager.setGenericPassword(
+                    service: service,
+                    account: account,
+                    value: value,
+                    update: update
+                )
+                return ["result": ["updated": updated]]
+            } catch {
+                return ["error": error.localizedDescription]
+            }
+
         default:
             return ["error": "Unknown action: \(action)"]
         }
