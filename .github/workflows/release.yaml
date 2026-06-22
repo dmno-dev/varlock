@@ -191,6 +191,7 @@ jobs:
     with:
       artifact-name: native-bin-rust
       source-hash: ${{ needs.plan.outputs.rust-source-hash }}
+      sign: true
     secrets: inherit
 
   release:

@@ -54,6 +54,7 @@ jobs:
     uses: ./.github/workflows/build-native-rust.yaml
     with:
       artifact-name: native-bin-rust
+      sign: true
     secrets: inherit
 
   release-binaries:
