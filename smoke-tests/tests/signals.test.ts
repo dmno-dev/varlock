@@ -11,12 +11,13 @@ const BASIC_CWD = join(SMOKE_TESTS_DIR, 'smoke-test-basic');
  * send `signal` to the varlock process itself, and resolve once it exits.
  * stdin is left non-interactive so varlock runs the child in its own process group.
  */
-function runAndSignal(command: Array<string>, signal: NodeJS.Signals) {
+function runAndSignal(command: Array<string>, signal: NodeJS.Signals, env?: Record<string, string>) {
   return new Promise<{ output: string; code: number | null; signal: NodeJS.Signals | null }>(
     (resolve, reject) => {
       const child = spawn(process.execPath, [VARLOCK_CLI, 'run', '--', ...command], {
         cwd: BASIC_CWD,
         stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, ...env },
       });
 
       let output = '';
@@ -81,5 +82,31 @@ describe.skipIf(process.platform === 'win32')('Signal handling', () => {
   test('still propagates normal non-zero exit codes', () => {
     const result = varlockRun(['bash', '-c', 'exit 7'], { cwd: 'smoke-test-basic' });
     expect(result.exitCode).toBe(7);
+  });
+
+  // by default we forward-and-wait with no self-imposed kill deadline: a child that
+  // treats the signal as non-terminal (e.g. SIGHUP-as-reload, or simply ignores it)
+  // must be allowed to keep running rather than getting SIGKILLed out from under us.
+  test('does NOT force-kill a child that ignores the forwarded signal', async () => {
+    const result = await runAndSignal(
+      ['bash', '-c', 'trap "echo reloaded" HUP; echo ready; sleep 2; echo finished; exit 0'],
+      'SIGHUP',
+    );
+
+    expect(result.output).toContain('reloaded');
+    expect(result.output).toContain('finished');
+    expect(result.code).toBe(0);
+  });
+
+  // escalation is opt-in via _VARLOCK_FORCE_KILL_TIMEOUT_MS
+  test('escalates to SIGKILL when _VARLOCK_FORCE_KILL_TIMEOUT_MS is set and the child ignores the signal', async () => {
+    const result = await runAndSignal(
+      ['bash', '-c', 'trap "" TERM; echo ready; sleep 30'],
+      'SIGTERM',
+      { _VARLOCK_FORCE_KILL_TIMEOUT_MS: '1000' },
+    );
+
+    // killed by SIGKILL (signal 9) -> the wrapper reports 128+9 = 137
+    expect(result.code).toBe(137);
   });
 });

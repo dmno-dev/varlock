@@ -220,7 +220,7 @@ Note: When `--no-inject-graph` is set, framework integrations that rely on `__VA
 
 This makes `varlock run` safe to use as a container `ENTRYPOINT` (including PID 1), so `docker stop` / pod termination reaches your app gracefully instead of waiting out the grace period and being `SIGKILL`ed.
 
-If the child ignores a forwarded signal, varlock escalates to `SIGKILL` after a grace period (10s by default, overridable via the `_VARLOCK_FORCE_KILL_TIMEOUT_MS` environment variable).
+By default varlock forwards and then waits indefinitely for the child — it does **not** impose its own kill deadline, leaving that decision to the orchestrator or operator (a forwarded signal isn't always terminal — e.g. many programs use `SIGHUP` to reload). If you want varlock to escalate to `SIGKILL` when the child hasn't exited within a grace period, set the `_VARLOCK_FORCE_KILL_TIMEOUT_MS` environment variable to a number of milliseconds.
 :::
 
 </div>

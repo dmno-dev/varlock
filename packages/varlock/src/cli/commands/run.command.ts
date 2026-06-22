@@ -91,29 +91,37 @@ const isWatchModeRestart = false; // TODO: re-enable watch mode
 // whether the child was spawned in its own process group, so we can signal the
 // whole group (child + grandchildren) rather than just the immediate child
 let childInOwnProcessGroup = false;
-// once we begin forwarding a termination signal, we arm a single fallback timer
-// that escalates to SIGKILL if the child ignores it
+// set once the child has exited and been reaped, so we never signal a stale (and
+// possibly recycled) pid/process group afterwards
+let childExited = false;
+// optional opt-in fallback timer that escalates to SIGKILL (see FORCE_KILL_TIMEOUT_MS)
 let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
 
 // signals we forward to the child so it can shut down gracefully. these are the
 // terminating signals an orchestrator (docker stop, k8s, a shell) would send.
 const FORWARDED_SIGNALS: Array<NodeJS.Signals> = ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGQUIT'];
 
-// how long to wait for the child to exit after forwarding a termination signal
-// before escalating to SIGKILL. overridable for slow-draining workloads.
+// By default we forward-and-wait (like tini/dumb-init) and never impose our own kill
+// deadline — the orchestrator/operator owns SIGKILL, and a timer would wrongly assume
+// every forwarded signal is terminal (SIGHUP often means "reload") and could truncate a
+// legitimately-slow graceful shutdown. Opt in by setting _VARLOCK_FORCE_KILL_TIMEOUT_MS
+// to a number of milliseconds to escalate to SIGKILL that long after the first signal.
 const FORCE_KILL_TIMEOUT_MS = (() => {
-  const raw = Number(process.env._VARLOCK_FORCE_KILL_TIMEOUT_MS);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 10_000;
+  const raw = process.env._VARLOCK_FORCE_KILL_TIMEOUT_MS;
+  if (raw === undefined) return undefined;
+  const ms = Number(raw);
+  return Number.isFinite(ms) && ms >= 0 ? ms : undefined;
 })();
 
 /**
  * Forward a signal to the running child process. When the child lives in its own
  * process group we signal the whole group (negative pid) so grandchildren are
- * terminated too; otherwise we signal the child pid directly.
+ * terminated too; otherwise we signal the child pid directly. Never signals once the
+ * child has exited, to avoid hitting a recycled pid/process group.
  */
 function signalChild(signal: NodeJS.Signals | number) {
   const child = commandProcess;
-  if (!child?.pid) return;
+  if (childExited || !child?.pid) return;
   try {
     if (childInOwnProcessGroup && process.platform !== 'win32') {
       process.kill(-child.pid, signal);
@@ -268,7 +276,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   // if first run, we need to attach some extra exit handling
   if (!isWatchModeRestart) {
-    // last-resort cleanup: if we exit while the child is somehow still alive, force-kill it
+    // last-resort cleanup: only if we exit while the child is somehow still alive (e.g. an
+    // unexpected error in varlock itself). once the child has exited, signalChild is a no-op,
+    // so a clean run never blasts SIGKILL at a reaped (possibly recycled) process group.
     process.on('exit', () => {
       signalChild('SIGKILL');
     });
@@ -276,13 +286,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // forward terminating signals to the child instead of killing it outright, so it can
     // run its own shutdown handlers. we then wait (below, by awaiting commandProcess) for
     // the child to exit and propagate its real status — rather than exiting immediately and
-    // losing both the graceful shutdown and the true exit code.
+    // losing both the graceful shutdown and the true exit code. we deliberately do NOT
+    // impose our own kill deadline by default (see FORCE_KILL_TIMEOUT_MS).
     FORWARDED_SIGNALS.forEach((signal) => {
       try {
         process.on(signal, () => {
           signalChild(signal);
-          // arm a single fallback that escalates to SIGKILL if the child ignores the signal
-          if (!forceKillTimer) {
+          // opt-in only: escalate to SIGKILL if the child hasn't exited in time
+          if (FORCE_KILL_TIMEOUT_MS !== undefined && !forceKillTimer) {
             forceKillTimer = setTimeout(() => signalChild('SIGKILL'), FORCE_KILL_TIMEOUT_MS);
             // don't let the fallback timer keep the process alive on its own
             forceKillTimer.unref();
@@ -322,7 +333,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       exitCode = err.exitCode || 1;
     }
   } finally {
-    // child has exited; cancel any pending force-kill escalation
+    // child has exited and been reaped: stop forwarding (avoid signaling a recycled pid)
+    // and cancel any pending force-kill escalation
+    childExited = true;
     if (forceKillTimer) clearTimeout(forceKillTimer);
   }
 
