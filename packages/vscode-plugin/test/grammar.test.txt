@@ -213,6 +213,25 @@ LIST_ML=fn([
 AFTER_LIST=ok
 #^^^^^^^^^ entity.name.tag.env-spec
 
+# Item-value literal (fn-call) with UNINDENTED (column-0) comments. Unlike a
+# decorator, continuation lines here are not `#`-prefixed, so a column-0 `#` is
+# a full comment, not a structural prefix.
+COL0_ML=fn({
+  items=[
+# col-0 comment inside nested array
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
+    ONE,
+#   ^^^ string.unquoted.env-spec
+  ],
+# count=3 disabled at column 0
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
+  timeout=30, # trailing note
+# ^^^^^^^ entity.other.attribute-name.env-spec
+#             ^^^^^^^^^^^^^^ comment.line.env-spec
+})
+AFTER_COL0=ok
+#^^^^^^^^^ entity.name.tag.env-spec
+
 # @import(pick=[
 #   ALPHA,
 #   ^^^^^ string.unquoted.env-spec
@@ -226,6 +245,40 @@ AFTER_LIST=ok
 #  ^ punctuation.section.parens.end.env-spec
 IMPORT_ML=test
 #^^^^^^^^ entity.name.tag.env-spec
+
+# Bare item-value literals (no fn-call / decorator wrapper).
+# These are single-line only; bare multi-line literals are not valid @env-spec
+# (they require a fn() wrapper), so the grammar must not span lines here.
+ARR_INLINE=[a, b]
+#          ^ punctuation.definition.array.begin.env-spec
+#           ^ string.unquoted.env-spec
+#              ^ string.unquoted.env-spec
+#               ^ punctuation.definition.array.end.env-spec
+
+OBJ_INLINE={ host=localhost, port=5432 }
+#          ^ punctuation.definition.dictionary.begin.env-spec
+#            ^^^^ entity.other.attribute-name.env-spec
+#                ^ keyword.operator.assignment.env-spec
+#                 ^^^^^^^^^ string.unquoted.env-spec
+#                            ^^^^ entity.other.attribute-name.env-spec
+#                                 ^^^^ constant.numeric.env-spec
+#                                      ^ punctuation.definition.dictionary.end.env-spec
+
+OBJ_NESTED=[{ aa=1 }, { bb=2 }]
+#          ^ punctuation.definition.array.begin.env-spec
+#           ^ punctuation.definition.dictionary.begin.env-spec
+#             ^^ entity.other.attribute-name.env-spec
+#                  ^ punctuation.definition.dictionary.end.env-spec
+#                             ^ punctuation.definition.array.end.env-spec
+
+# A bare bracket left unclosed must NOT swallow the following entry — it closes
+# at end of line, so the next line is still a normal env entry.
+STRAY_OPEN=[oops
+#          ^ punctuation.definition.array.begin.env-spec
+NEXT_ENTRY=fine
+#^^^^^^^^^ entity.name.tag.env-spec
+#         ^ keyword.operator.assignment.env-spec
+#          ^^^^ string.unquoted.env-spec
 
 # ======================
 # Edge cases
