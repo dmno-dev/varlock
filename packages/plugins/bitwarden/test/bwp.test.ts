@@ -2,7 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  describe, test, beforeAll, afterAll,
+  describe, test, beforeAll, afterAll, expect,
 } from 'vitest';
 import outdent from 'outdent';
 import { pluginTest, type PluginTestSpec } from 'varlock/test-helpers';
@@ -13,6 +13,16 @@ const FIXTURES_DIR = path.join(__dirname, 'fixtures');
 const FAKE_BIN_DIR = path.join(FIXTURES_DIR, 'bin');
 const FAKE_BW = path.join(FAKE_BIN_DIR, 'bw');
 const BW_CONFIG_PATH = path.join(FAKE_BIN_DIR, 'bw-config.json');
+const UNLOCKS_DIR = path.join(FAKE_BIN_DIR, 'unlocks');
+
+/** how many times the fake `bw unlock` has run (one file per invocation) */
+function countUnlocks(): number {
+  try {
+    return fs.readdirSync(UNLOCKS_DIR).length;
+  } catch {
+    return 0;
+  }
+}
 
 // canned vault items the fake `bw get item <query>` returns
 const ITEMS = {
@@ -23,8 +33,10 @@ const ITEMS = {
     notes: 'primary db creds',
     login: {
       username: 'db_user',
+      // `bw get item` stores the TOTP secret/seed (base32 key or otpauth:// URI),
+      // not a generated 6-digit code — field=totp returns this verbatim
+      totp: 'JBSWY3DPEHPK3PXP',
       password: 'super-secret-pw',
-      totp: '123456',
       uris: [{ uri: 'https://db.example.com' }],
     },
     fields: [{ name: 'api-key', value: 'cf-12345', type: 0 }],
@@ -35,23 +47,27 @@ type BwConfig = {
   sessionToken?: string;
   unlockError?: string;
   lockedUntilReunlock?: boolean;
+  /** `bw get` stays "Vault is locked." until a second unlock has run (count-based, concurrency-safe) */
+  staleFirstSession?: boolean;
   items?: Record<string, unknown>;
 };
 
 function writeBwConfig(cfg: BwConfig) {
-  // reset the "stale session" marker so each test starts fresh
+  // reset the "stale session" marker and unlock counter so each test starts fresh
   fs.rmSync(`${BW_CONFIG_PATH}.unlocked`, { force: true });
+  fs.rmSync(UNLOCKS_DIR, { recursive: true, force: true });
   fs.writeFileSync(BW_CONFIG_PATH, JSON.stringify({ items: ITEMS, ...cfg }));
 }
 
 /** run a pluginTest spec with the fake `bw` on PATH and a given fake-CLI config */
-function bwpTest(cfg: BwConfig, spec: PluginTestSpec) {
+function bwpTest(cfg: BwConfig, spec: PluginTestSpec, opts: { afterResolve?: () => void } = {}) {
   return async () => {
     writeBwConfig(cfg);
     const origPath = process.env.PATH;
     process.env.PATH = `${FAKE_BIN_DIR}:${origPath}`;
     try {
       await pluginTest({ ...spec, resolveDir: FIXTURES_DIR })();
+      opts.afterResolve?.();
     } finally {
       process.env.PATH = origPath;
     }
@@ -120,7 +136,8 @@ describe('Bitwarden Password Manager (bwp)', () => {
     `,
     expectValues: {
       DB_USER: 'db_user',
-      DB_TOTP: '123456',
+      // field=totp returns the stored secret/seed verbatim, not a generated code
+      DB_TOTP: 'JBSWY3DPEHPK3PXP',
       DB_URI: 'https://db.example.com',
       DB_NOTES: 'primary db creds',
     },
@@ -185,4 +202,45 @@ describe('Bitwarden Password Manager (bwp)', () => {
     `,
     expectValues: { WORK_DB: 'db_user' },
   }));
+
+  // Regression: when many fields resolve in parallel against a stale session, the
+  // re-unlock must be deduped into a SINGLE `bw unlock`. Each `bw unlock` invalidates
+  // prior session keys, so racing re-unlocks would invalidate each other's tokens and
+  // produce spurious failures. (The earlier `forceFresh` implementation reset the
+  // in-flight guard per-caller, allowing one `bw unlock` per resolving field.)
+  test('dedupes concurrent re-unlocks into a single bw unlock', bwpTest({ staleFirstSession: true }, {
+    schema: outdent`
+      # @plugin(${PLUGIN_PATH})
+      # @initBwp(masterPassword=$BW_PW)
+      # ---
+      # @sensitive
+      BW_PW=hunter2
+      DB_A=bwp("Production DB", field=username)
+      DB_B=bwp("Production DB", field=password)
+      DB_C=bwp("Production DB", field=uri)
+      DB_D=bwp("Production DB", field=notes)
+    `,
+    expectValues: {
+      DB_A: 'db_user',
+      DB_B: 'super-secret-pw',
+      DB_C: 'https://db.example.com',
+      DB_D: 'primary db creds',
+    },
+  }, { afterResolve: () => expect(countUnlocks()).toBe(2) })); // 1 initial + 1 deduped re-unlock
+
+  // Regression: with a real (storing) cache, a stale cached token must be refreshed by
+  // producing a fresh token and overwriting the cache entry — not by reading it back
+  // through a not-yet-completed async delete (which could re-surface the stale token).
+  test('heals a stale cached session with a real cache store', bwpTest({ staleFirstSession: true }, {
+    schema: outdent`
+      # @plugin(${PLUGIN_PATH})
+      # @cache=memory
+      # @initBwp(masterPassword=$BW_PW)
+      # ---
+      # @sensitive
+      BW_PW=hunter2
+      DB_PASSWORD=bwp("Production DB")
+    `,
+    expectValues: { DB_PASSWORD: 'super-secret-pw' },
+  }, { afterResolve: () => expect(countUnlocks()).toBe(2) })); // 1 initial + 1 re-unlock
 });

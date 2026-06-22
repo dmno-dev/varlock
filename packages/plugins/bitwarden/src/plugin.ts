@@ -593,10 +593,11 @@ function isInvalidSessionError(err: unknown): boolean {
 // one cached session token (the plugin cache is already namespaced per-plugin).
 const SESSION_CACHE_KEY = 'bwp-session';
 
-// Dedupe concurrent unlocks. Because each `bw unlock` invalidates prior session
-// keys, parallel resolutions must share a single unlock rather than racing. Kept
-// for the process lifetime so repeated resolutions reuse the same token even when
-// the persistent cache is unavailable; cleared on failure and on forced refresh.
+// Single-flight session token shared by all PM instances. Because each `bw unlock`
+// invalidates prior session keys, parallel resolutions must share one unlock rather
+// than racing (racing unlocks would invalidate each other's tokens). Held for the
+// process lifetime so repeated resolutions reuse the token even when the persistent
+// cache is unavailable; cleared only when an unlock attempt fails.
 let sessionUnlockInFlight: Promise<string> | undefined;
 
 class BitwardenPasswordManagerInstance {
@@ -626,42 +627,76 @@ class BitwardenPasswordManagerInstance {
     return (typeof val === 'string' && val) ? val : undefined;
   }
 
+  /** Produce a brand-new session token by running `bw unlock`. */
+  private async unlock(): Promise<string> {
+    const masterPassword = await this.resolveMasterPassword();
+    if (masterPassword === undefined && !process.stdin.isTTY) {
+      throw new ResolutionError('Cannot unlock the Bitwarden vault without an interactive terminal', {
+        tip: [
+          'No cached session token is available and stdin is not a TTY',
+          'Provide a token via sessionToken=$BWP_SESSION,',
+          'or supply masterPassword= to unlock non-interactively (e.g. in CI)',
+        ].join('\n'),
+      });
+    }
+    return await unlockVault({ masterPassword });
+  }
+
   /**
-   * Acquire a session token by unlocking the vault, caching the result.
+   * Acquire a session token, reusing the cached/in-flight one when available.
    * `bw unlock` itself errors clearly when the user isn't logged in, and a stale
    * cached token is self-healed by the re-unlock retry in `getSecret`, so no
    * separate `bw status` / login probe is needed here.
    */
-  async autoUnlock(opts: { forceFresh?: boolean } = {}): Promise<string> {
-    if (opts.forceFresh) {
-      sessionUnlockInFlight = undefined;
-      pluginCache?.delete(SESSION_CACHE_KEY);
-    }
-
+  async autoUnlock(): Promise<string> {
     sessionUnlockInFlight ||= (async () => {
-      const produce = async () => {
-        const masterPassword = await this.resolveMasterPassword();
-        if (masterPassword === undefined && !process.stdin.isTTY) {
-          throw new ResolutionError('Cannot unlock the Bitwarden vault without an interactive terminal', {
-            tip: [
-              'No cached session token is available and stdin is not a TTY',
-              'Provide a token via sessionToken=$BWP_SESSION,',
-              'or supply masterPassword= to unlock non-interactively (e.g. in CI)',
-            ].join('\n'),
-          });
-        }
-        return await unlockVault({ masterPassword });
-      };
       if (pluginCache) {
-        return await pluginCache.getOrSet(SESSION_CACHE_KEY, this.sessionTtl, produce);
+        return await pluginCache.getOrSet(SESSION_CACHE_KEY, this.sessionTtl, () => this.unlock());
       }
-      return await produce();
+      return await this.unlock();
     })();
 
     try {
       return await sessionUnlockInFlight;
     } catch (err) {
       // let a later resolution retry after a failed unlock
+      sessionUnlockInFlight = undefined;
+      throw err;
+    }
+  }
+
+  /**
+   * Replace a known-stale session token with a fresh `bw unlock`, then return it.
+   *
+   * Idempotent for concurrent callers holding the same stale token: only the first
+   * triggers a new unlock and the rest reuse its result. This avoids a re-unlock
+   * storm — since each `bw unlock` invalidates prior session keys, racing unlocks
+   * would invalidate each other and cause spurious failures. We overwrite the cache
+   * via `set` (rather than `delete` + `getOrSet`) so the fresh token is never read
+   * back through a not-yet-completed delete.
+   */
+  async refreshUnlock(staleToken: string): Promise<string> {
+    const current = sessionUnlockInFlight;
+    if (current) {
+      const resolved = await current.catch(() => undefined);
+      // a fresh unlock already happened past the stale token — reuse it
+      if (resolved !== undefined && resolved !== staleToken) return resolved;
+    }
+
+    // Compare-and-swap: only the caller still pointing at the stale unlock starts a
+    // new one. The check + assignment run synchronously with no `await` between them,
+    // so they are atomic across the continuations woken by awaiting `current` above.
+    if (sessionUnlockInFlight === current) {
+      sessionUnlockInFlight = (async () => {
+        const token = await this.unlock();
+        await pluginCache?.set(SESSION_CACHE_KEY, token, this.sessionTtl);
+        return token;
+      })();
+    }
+
+    try {
+      return await sessionUnlockInFlight!;
+    } catch (err) {
       sessionUnlockInFlight = undefined;
       throw err;
     }
@@ -686,7 +721,7 @@ class BitwardenPasswordManagerInstance {
       // if we manage the token ourselves and it went stale, re-unlock once and retry
       if (!manualToken && isInvalidSessionError(err)) {
         debug('cached bw session invalid — re-unlocking');
-        const freshToken = await this.autoUnlock({ forceFresh: true });
+        const freshToken = await this.refreshUnlock(token);
         return await this.fetchField(itemQuery, field, freshToken);
       }
       throw err;
