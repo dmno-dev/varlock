@@ -9,6 +9,7 @@ import {
 import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
 import { CLOUDFLARE_SSR_ENTRY_CODE, disableWranglerDotEnvAutoload, logVarlockEnvInjectionNotice } from './shared-ssr-entry-code';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
+import packageJson from '../package.json';
 
 const isWindows = process.platform === 'win32';
 
@@ -308,6 +309,10 @@ export function varlockCloudflareVitePlugin(
     ssrEdgeRuntime: true,
     ssrEntryModuleIds: ['\0virtual:cloudflare/worker-entry'],
     ssrEntryCode: [CLOUDFLARE_SSR_ENTRY_CODE],
+    integrationTelemetry: {
+      name: packageJson.name,
+      version: packageJson.version,
+    },
   });
 
   const cloudflarePlugin = cloudflare({

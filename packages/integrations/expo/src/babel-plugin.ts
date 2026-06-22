@@ -2,6 +2,7 @@ import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { initVarlockEnv } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import { createDebug, type SerializedEnvGraph } from 'varlock';
+import packageJson from '../package.json';
 
 const debug = createDebug('varlock:expo-integration');
 
@@ -17,6 +18,10 @@ function loadVarlockConfig() {
     const { stdout } = execSyncVarlock('load --format json-full', {
       fullResult: true,
       env: originalProcessEnv,
+      integrationTelemetry: {
+        name: packageJson.name,
+        version: packageJson.version,
+      },
     });
     process.env.__VARLOCK_ENV = stdout;
     varlockLoadedEnv = JSON.parse(stdout) as SerializedEnvGraph;

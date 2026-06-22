@@ -56,6 +56,29 @@ export class VarlockExecError extends Error {
 
 export type ExecVarlockResult = { stdout: string, stderr: string };
 
+export function integrationTelemetryEnv(name: string, version: string) {
+  return { VARLOCK_INTEGRATION: `${name}@${version}` };
+}
+
+function mergeExecEnv(
+  opts?: ExecSyncVarlockOpts,
+): NodeJS.ProcessEnv | undefined {
+  const baseEnv = opts?.env ?? process.env;
+  if (!opts?.integrationTelemetry && !opts?.env) return undefined;
+
+  const merged = { ...baseEnv } as NodeJS.ProcessEnv;
+  if (
+    opts.integrationTelemetry
+    && !merged.VARLOCK_INTEGRATION
+  ) {
+    Object.assign(
+      merged,
+      integrationTelemetryEnv(opts.integrationTelemetry.name, opts.integrationTelemetry.version),
+    );
+  }
+  return merged;
+}
+
 type ExecSyncVarlockOpts = Parameters<typeof execSyncType>[1] & {
   exitOnError?: boolean,
   showLogsOnError?: boolean,
@@ -72,6 +95,8 @@ type ExecSyncVarlockOpts = Parameters<typeof execSyncType>[1] & {
    * instead of the raw execSync error.
    */
   fullResult?: boolean,
+  /** Identifies the framework integration invoking varlock (passed as VARLOCK_INTEGRATION) */
+  integrationTelemetry?: { name: string, version: string },
 };
 
 /**
@@ -88,13 +113,22 @@ export function execSyncVarlock(
   command: string,
   opts?: ExecSyncVarlockOpts,
 ): string | ExecVarlockResult {
+  const execEnv = mergeExecEnv(opts);
+  const {
+    exitOnError: _exitOnError,
+    showLogsOnError: _showLogsOnError,
+    callerDir: _callerDir,
+    fullResult: _fullResult,
+    integrationTelemetry: _integrationTelemetry,
+    ...childProcessOpts
+  } = opts ?? {};
   try {
     // in most cases, user will be running via their package manager
     // and a package.json script (ie `pnpm run start`)
     // which will inject node_modules/.bin into PATH
     try {
       const result = execSync(`varlock ${command}`, {
-        ...opts?.env && { env: opts.env },
+        ...(execEnv && { env: execEnv }),
         ...opts?.cwd && { cwd: opts.cwd },
         stdio: 'pipe',
       });
@@ -127,7 +161,8 @@ export function execSyncVarlock(
         // .cmd files are batch scripts that must be run through cmd.exe
         const needsShell = varlockPath.endsWith('.cmd');
         const result = execFileSync(varlockPath, command.split(' '), {
-          ...opts,
+          ...childProcessOpts,
+          ...(execEnv && { env: execEnv }),
           stdio: 'pipe',
           ...(needsShell && { shell: true }),
         });

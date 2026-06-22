@@ -4,6 +4,7 @@ import { createDebug } from 'varlock';
 import { scanForLeaks, varlockSettings } from 'varlock/env';
 import { varlockVitePlugin } from '@varlock/vite-integration';
 import type { AstroIntegration } from 'astro';
+import packageJson from '../package.json';
 
 const debug = createDebug('varlock:astro-integration');
 
@@ -78,7 +79,13 @@ function varlockAstroIntegration(
 
         opts.config.vite.plugins ||= [];
         opts.config.vite?.plugins?.push(
-          varlockVitePlugin(vitePluginOptions) as any,
+          varlockVitePlugin({
+            ...vitePluginOptions,
+            integrationTelemetry: integrationOptions?.integrationTelemetry ?? {
+              name: packageJson.name,
+              version: packageJson.version,
+            },
+          }) as any,
         );
       },
 

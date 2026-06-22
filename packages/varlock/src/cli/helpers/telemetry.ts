@@ -16,6 +16,11 @@ import packageJson from '../../../package.json';
 
 import { CONFIG } from '../../config';
 import { getUserVarlockDir } from '../../lib/user-config-dir';
+import { getTelemetryUsageContextPayload } from './telemetry-usage-context';
+import { detectJsPackageManager } from './js-package-manager-utils';
+import type { JsPackageManager } from '../../lib/workspace-utils';
+
+export { captureUsageContextFromEnvGraph } from './telemetry-usage-context';
 
 
 const debug = createDebug('varlock:telemetry');
@@ -265,7 +270,13 @@ type TelemetryMeta = {
   is_ci: boolean,
   ci_name: string | null,
   is_sea: boolean,
+  js_package_manager: JsPackageManager | null,
 };
+
+/** @internal exported for unit tests */
+export function getJsPackageManagerForTelemetry(): JsPackageManager | null {
+  return detectJsPackageManager()?.name ?? null;
+}
 
 let cachedTelemetryMetadata: TelemetryMeta | undefined;
 function getTelemetryMeta() {
@@ -281,7 +292,6 @@ function getTelemetryMeta() {
     anonymous_project_id: getAnonymousProjectId(),
     node_version: process.version.replace(/^v?/, ''),
     varlock_version: versionIdentifier,
-    // TODO: pass through version info for specific integrations/plugins?
     system_platform: os.platform(),
     system_release: os.release(),
     system_architecture: os.arch(),
@@ -295,6 +305,7 @@ function getTelemetryMeta() {
     is_ci: isCI,
     ci_name: ciName,
     is_sea: __VARLOCK_SEA_BUILD__,
+    js_package_manager: getJsPackageManagerForTelemetry(),
   };
   return cachedTelemetryMetadata;
 }
@@ -306,12 +317,14 @@ let lastTelemetryReq: Promise<any> | undefined;
 
 async function posthogCapture(event: string, properties?: Record<string, any>) {
   const telemetryMeta = getTelemetryMeta();
+  const usageContext = getTelemetryUsageContextPayload();
   const payload = {
     api_key: CONFIG.POSTHOG_API_KEY,
     event,
     properties: {
       $process_person_profile: false,
       ...telemetryMeta,
+      ...usageContext,
       ...properties,
     },
     distinct_id: isOptedOut ? '---' : getAnonymousId(),

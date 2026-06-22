@@ -44,11 +44,12 @@ function buildLazyCommand(
   return {
     ...commandSpec,
     run: async (...args: Array<any>) => {
-      // Track command execution
-      await trackCommand(commandName, { command: commandName });
-      // load the command fn and run it
-      const commandSpecAndFn = await loadCommandFn();
-      return commandSpecAndFn.commandFn(...args);
+      try {
+        const commandSpecAndFn = await loadCommandFn();
+        return await commandSpecAndFn.commandFn(...args);
+      } finally {
+        await trackCommand(commandName, { command: commandName });
+      }
     },
   };
 }

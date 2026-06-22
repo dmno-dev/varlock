@@ -15,6 +15,7 @@ import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-en
 import { createReplacerTransformFn, SUPPORTED_FILES } from './transform';
 
 import { ansiToHtml } from './ansi-to-html';
+import packageJson from '../package.json';
 export { ansiToHtml };
 
 export function buildErrorPageHtml(ansiError?: string): string {
@@ -76,12 +77,18 @@ function resetStaticReplacements() {
 
 
 let loadCount = 0;
+let activeIntegrationTelemetry = {
+  name: packageJson.name,
+  version: packageJson.version,
+};
+
 function reloadConfig(cwd?: string) {
   debug('loading config - count =', ++loadCount, cwd ? `(cwd: ${cwd})` : '');
   try {
     const { stdout } = execSyncVarlock('load --format json-full --compact', {
       fullResult: true,
       env: originalProcessEnv,
+      integrationTelemetry: activeIntegrationTelemetry,
       ...(cwd && { cwd }),
     });
     process.env.__VARLOCK_ENV = stdout;
@@ -143,6 +150,8 @@ export interface VarlockVitePluginOptions {
   ssrEdgeRuntime?: boolean,
   /** additional virtual module IDs to treat as entry points (e.g., '\0virtual:cloudflare/worker-entry') */
   ssrEntryModuleIds?: Array<string>,
+  /** override integration identity for CLI telemetry (used by composed integrations like Astro) */
+  integrationTelemetry?: { name: string, version: string },
 }
 
 // Return type is `any` instead of `Plugin` to avoid symlink type conflicts.
@@ -155,6 +164,14 @@ const VARLOCK_INIT_MODULE_ID = '\0varlock-ssr-init';
 export function varlockVitePlugin(
   vitePluginOptions?: VarlockVitePluginOptions,
 ): any {
+  if (vitePluginOptions?.integrationTelemetry) {
+    const prevName = activeIntegrationTelemetry.name;
+    activeIntegrationTelemetry = vitePluginOptions.integrationTelemetry;
+    if (prevName !== activeIntegrationTelemetry.name) {
+      reloadConfig();
+    }
+  }
+
   // Build the virtual init module content once. This module is imported
   // by SSR entry points and evaluates before any user code because it
   // has no transitive dependencies on user modules.

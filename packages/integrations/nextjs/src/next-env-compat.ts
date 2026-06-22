@@ -12,6 +12,7 @@ import { type SerializedEnvGraph } from 'varlock';
 import { initVarlockEnv, resetRedactionMap } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
+import packageJson from '../package.json';
 
 export type Env = { [key: string]: string | undefined };
 export type LoadedEnvFiles = Array<{
@@ -531,6 +532,10 @@ export function loadEnvConfig(
     const { stdout } = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
       fullResult: true,
       env: cleanEnv as any,
+      integrationTelemetry: {
+        name: packageJson.name,
+        version: packageJson.version,
+      },
     });
     if (loadCount >= 2 && forceReload) {
       const envChanged = stdout !== previousSerializedEnv;
