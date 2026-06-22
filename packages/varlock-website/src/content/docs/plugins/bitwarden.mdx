@@ -269,10 +269,15 @@ By default `bwp()` returns the item's **password**. Use the `field` argument to 
 ```env-spec title=".env.schema"
 DB_USER=bwp("Production DB", field=username)
 DB_PASSWORD=bwp("Production DB", field=password)
-API_TOTP=bwp("Some Service", field=totp)
+# the stored TOTP secret/seed, not a generated 6-digit code (see note below)
+API_TOTP_SEED=bwp("Some Service", field=totp)
 # custom field on the item
 STRIPE_KEY=bwp("Stripe", field="secret-key")
 ```
+
+:::note[`totp` returns the secret, not a code]
+`field=totp` returns the **stored TOTP secret/seed** (a base32 key or `otpauth://` URI), not a generated 6-digit code. It is read verbatim from `bw get item`, the same way every other field is. There is no field that returns a live code: a one-time code rotates every ~30 seconds, but config is resolved once at load time, so a captured code would be stale before it could be used.
+:::
 
 ### Caching and TTLs
 
@@ -437,7 +442,7 @@ Fetch a field from a Password Manager / Vaultwarden vault item via the `bw` CLI.
 **Args:**
 - `instanceId` (optional, positional): instance identifier when multiple `@initBwp()` instances are initialized
 - `item` (required, positional): item name or UUID to look up
-- `field` (optional, key/value): which field to return — `password` (default), `username`, `notes`, `totp`, `uri`, or a custom field name
+- `field` (optional, key/value): which field to return — `password` (default), `username`, `notes`, `totp` (the stored TOTP secret/seed, not a generated code), `uri`, or a custom field name
 
 ```env-spec /bwp\\(.*\\)/
 # Default field (password)

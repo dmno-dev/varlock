@@ -126,6 +126,7 @@ Install the `bw` CLI from a trusted source and log in once (`bw login`), then:
 # defaults to the item's password
 DATABASE_PASSWORD=bwp("Production DB")
 # other fields: username, notes, totp, uri, or a custom field name
+# (totp returns the stored TOTP secret/seed, not a generated 6-digit code)
 DATABASE_USER=bwp("Production DB", field=username)
 ```
 
