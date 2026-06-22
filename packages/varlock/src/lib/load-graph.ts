@@ -4,7 +4,7 @@ import { loadEnvGraph, type EnvGraph } from '../env-graph';
 import { VarlockResolver } from './local-encrypt/builtin-resolver';
 import { KeychainResolver } from './local-encrypt/keychain-resolver';
 import { CliExitError } from '../cli/helpers/exit-error';
-import { captureUsageContextFromEnvGraph } from '../cli/helpers/telemetry-usage-context';
+import { captureUsageContextFromEnvGraph, captureTelemetryGraphLoadFailure } from '../cli/helpers/telemetry-usage-context';
 import { runWithWorkspaceInfo } from './workspace-utils';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { createDebug } from './debug';
@@ -24,10 +24,15 @@ function normalizePkgLoadPath(pkgLoadPath: string | Array<string>): Array<string
 }
 
 function captureUsageAfterLoad(promise: Promise<EnvGraph>) {
-  return promise.then((graph) => {
-    captureUsageContextFromEnvGraph(graph);
-    return graph;
-  });
+  return promise
+    .then((graph) => {
+      captureUsageContextFromEnvGraph(graph);
+      return graph;
+    })
+    .catch((err) => {
+      captureTelemetryGraphLoadFailure(err);
+      throw err;
+    });
 }
 
 function loadFromPaths(
@@ -52,9 +57,11 @@ function loadFromPaths(
 
   for (const resolvedPath of resolvedPaths) {
     if (!fs.existsSync(resolvedPath)) {
-      throw new CliExitError(`${config.errorPrefix}: ${resolvedPath}`, {
+      const err = new CliExitError(`${config.errorPrefix}: ${resolvedPath}`, {
         suggestion: config.errorSuggestion,
       });
+      captureTelemetryGraphLoadFailure(err);
+      throw err;
     }
   }
 

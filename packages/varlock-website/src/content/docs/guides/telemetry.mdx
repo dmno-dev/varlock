@@ -14,6 +14,7 @@ We track general usage information, and the environment in which `varlock` is be
 - Which framework integration invoked the CLI (if any), such as Vite, Next.js, or Astro — official `@varlock/*` package name and version only
 - Which plugins are installed in the project — `@varlock/*` plugin names and versions are sent as-is; third-party plugin names are hashed (SHA-256) and versions are omitted
 - Anonymous schema feature signals when a project is loaded — for example root settings like `@redactLogs`, cache mode, safe resolver/decorator identifiers in use, and data source type counts (not config keys, values, file paths, or error messages)
+- Whether the env graph was loaded (`graph_loaded`) and a coarse error category when the run failed (`error_code`: e.g. `parse_error`, `plugin_error`, `schema_error`, `validation_error`, `resolution_error`, `load_error`) — no error messages or file paths
 - Version information for varlock and Node.js
 - JavaScript package manager in use (if detectable from lockfiles or runtime env) — `npm`, `pnpm`, `yarn`, `bun`, or `deno` only
 - General system/machine information

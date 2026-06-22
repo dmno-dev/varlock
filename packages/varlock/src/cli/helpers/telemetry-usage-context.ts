@@ -1,12 +1,27 @@
 import { createHash } from 'node:crypto';
 import type { EnvGraph, SerializedEnvGraph } from '../../env-graph/lib/env-graph';
 import type { Resolver } from '../../env-graph/lib/resolver';
+import {
+  LoadingError,
+  ParseError,
+  ResolutionError,
+  SchemaError,
+  VarlockError,
+} from '../../env-graph/lib/errors';
 
 /** npm-style package name (scoped or unscoped), conservative length */
 const NPM_PACKAGE_NAME_RE = /^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i;
 const NPM_VERSION_RE = /^[\d]+(?:\.[\d]+)*(?:-[\w.-]+)?$/;
 const TELEMETRY_IDENTIFIER_RE = /^[a-zA-Z][\w-]{0,63}$/;
 const KNOWN_SOURCE_TYPES = new Set(['schema', 'example', 'defaults', 'values', 'overrides']);
+
+/** Machine-friendly error category sent with telemetry (no messages or paths) */
+export type TelemetryErrorCode = | 'parse_error'
+  | 'plugin_error'
+  | 'load_error'
+  | 'schema_error'
+  | 'resolution_error'
+  | 'validation_error';
 
 export type TelemetryPluginInfo = {
   /** Raw npm name for @varlock/* plugins; SHA-256 hex for all others */
@@ -33,12 +48,19 @@ export type TelemetryUsageContext = {
   integration: { name: string; version: string } | null;
   plugins: Array<TelemetryPluginInfo>;
   features: TelemetryFeatureInfo | null;
+  graph_loaded: boolean;
+  error_code: TelemetryErrorCode | null;
 };
 
 let sessionUsageContext: Pick<TelemetryUsageContext, 'plugins' | 'features'> = {
   plugins: [],
   features: null,
 };
+
+let sessionGraph: EnvGraph | undefined;
+let sessionGraphLoaded = false;
+/** Set when graph load throws before a graph instance is available */
+let sessionLoadFailureErrorCode: TelemetryErrorCode | null = null;
 
 let cachedIntegrationFromEnv: { name: string; version: string } | null | undefined;
 
@@ -48,6 +70,56 @@ function hashTelemetryValue(value: string): string {
 
 function isOfficialVarlockPackageName(name: string) {
   return name.startsWith('@varlock/');
+}
+
+function isBlockingError(err: VarlockError) {
+  return !err.isWarning;
+}
+
+/** Classify a loaded graph's most significant blocking error (re-run at send time for post-resolve state) */
+export function classifyGraphTelemetryErrorCode(graph: EnvGraph): TelemetryErrorCode | null {
+  if (graph.plugins.some((p) => p.loadingError && isBlockingError(p.loadingError))) {
+    return 'plugin_error';
+  }
+
+  for (const source of graph.sortedDataSources) {
+    const loadingError = source.loadingError;
+    if (loadingError instanceof ParseError && isBlockingError(loadingError)) {
+      return 'parse_error';
+    }
+
+    for (const err of source.errors) {
+      if (!isBlockingError(err)) continue;
+      if (err instanceof ParseError) return 'parse_error';
+      if (err instanceof LoadingError) return 'load_error';
+      if (err instanceof SchemaError) return 'schema_error';
+    }
+
+    for (const err of source.resolutionErrors) {
+      if (isBlockingError(err)) return 'resolution_error';
+    }
+  }
+
+  for (const itemKey of graph.sortedConfigKeys) {
+    if (graph.configSchema[itemKey].validationState === 'error') {
+      return 'validation_error';
+    }
+  }
+
+  return null;
+}
+
+/** Map thrown load failures (before a graph is returned) to an error code */
+export function classifyThrownTelemetryErrorCode(err: unknown): TelemetryErrorCode {
+  let current: unknown = err;
+  while (current instanceof Error) {
+    if (current instanceof ParseError) return 'parse_error';
+    if (current instanceof SchemaError) return 'schema_error';
+    if (current instanceof ResolutionError) return 'resolution_error';
+    if (current instanceof LoadingError) return 'load_error';
+    current = current.cause;
+  }
+  return 'load_error';
 }
 
 /** Only @varlock/* integration packages with npm-like name/version are accepted */
@@ -134,6 +206,10 @@ function countSourceTypes(sources: SerializedEnvGraph['sources']) {
 }
 
 export function captureUsageContextFromEnvGraph(graph: EnvGraph) {
+  sessionGraph = graph;
+  sessionGraphLoaded = true;
+  sessionLoadFailureErrorCode = null;
+
   const serialized = graph.getSerializedGraph();
   const resolverNames = new Set<string>();
   for (const itemKey of graph.sortedConfigKeys) {
@@ -161,6 +237,21 @@ export function captureUsageContextFromEnvGraph(graph: EnvGraph) {
   };
 }
 
+/** Record a graph load failure before an EnvGraph instance is available */
+export function captureTelemetryGraphLoadFailure(err: unknown) {
+  sessionGraph = undefined;
+  sessionGraphLoaded = false;
+  sessionLoadFailureErrorCode = classifyThrownTelemetryErrorCode(err);
+  sessionUsageContext = { plugins: [], features: null };
+}
+
+function resolveTelemetryErrorCode(): TelemetryErrorCode | null {
+  if (sessionGraphLoaded && sessionGraph) {
+    return classifyGraphTelemetryErrorCode(sessionGraph);
+  }
+  return sessionLoadFailureErrorCode;
+}
+
 export function getTelemetryUsageContext(): TelemetryUsageContext {
   if (cachedIntegrationFromEnv === undefined) {
     cachedIntegrationFromEnv = parseIntegrationFromEnv();
@@ -169,6 +260,8 @@ export function getTelemetryUsageContext(): TelemetryUsageContext {
     integration: cachedIntegrationFromEnv,
     plugins: sessionUsageContext.plugins,
     features: sessionUsageContext.features,
+    graph_loaded: sessionGraphLoaded,
+    error_code: resolveTelemetryErrorCode(),
   };
 }
 
@@ -180,11 +273,16 @@ export function getTelemetryUsageContextPayload(): Record<string, unknown> {
     integration_version: ctx.integration?.version ?? null,
     plugins: ctx.plugins,
     features: ctx.features,
+    graph_loaded: ctx.graph_loaded,
+    error_code: ctx.error_code,
   };
 }
 
 /** @internal test helper */
 export function resetTelemetryUsageContextForTests() {
   sessionUsageContext = { plugins: [], features: null };
+  sessionGraph = undefined;
+  sessionGraphLoaded = false;
+  sessionLoadFailureErrorCode = null;
   cachedIntegrationFromEnv = undefined;
 }

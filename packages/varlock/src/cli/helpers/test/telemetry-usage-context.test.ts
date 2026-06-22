@@ -8,12 +8,18 @@ import {
   sanitizeIntegrationIdentity,
   sanitizeFeatureIdentifier,
   sanitizePluginForTelemetry,
+  classifyGraphTelemetryErrorCode,
+  classifyThrownTelemetryErrorCode,
   captureUsageContextFromEnvGraph,
+  captureTelemetryGraphLoadFailure,
   getTelemetryUsageContext,
   getTelemetryUsageContextPayload,
   resetTelemetryUsageContextForTests,
 } from '../telemetry-usage-context';
 import { EnvGraph, DotEnvFileDataSource } from '../../../env-graph';
+import {
+  ParseError, SchemaError, LoadingError,
+} from '../../../env-graph/lib/errors';
 
 describe('parseIntegrationFromEnv', () => {
   it('returns null for empty values', () => {
@@ -145,6 +151,8 @@ describe('captureUsageContextFromEnvGraph', () => {
     expect(ctx.features?.settings.redactLogs).toBe(true);
     expect(ctx.features?.config_item_count).toBeGreaterThan(0);
     expect(ctx.features?.source_type_counts.schema).toBeGreaterThan(0);
+    expect(ctx.graph_loaded).toBe(true);
+    expect(ctx.error_code).toBeNull();
   });
 
   it('includes integration env in telemetry payload when valid', () => {
@@ -155,6 +163,92 @@ describe('captureUsageContextFromEnvGraph', () => {
     expect(payload.integration_version).toBe('1.0.4');
     expect(payload.plugins).toEqual([]);
     expect(payload.features).toBeNull();
+    expect(payload.graph_loaded).toBe(false);
+    expect(payload.error_code).toBeNull();
+  });
+
+  it('re-classifies error_code from live graph state at send time', async () => {
+    const testDir = path.join(
+      path.dirname(expect.getState().testPath!),
+      '../../../env-graph/test',
+    );
+    vi.spyOn(process, 'cwd').mockReturnValue(testDir);
+
+    const graph = new EnvGraph();
+    await graph.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # ---
+        FOO=bar
+      `,
+    }));
+    await graph.finishLoad();
+
+    captureUsageContextFromEnvGraph(graph);
+    expect(getTelemetryUsageContextPayload().error_code).toBeNull();
+
+    graph.sortedDataSources[0]._errors.push(new SchemaError('bad schema'));
+    const payload = getTelemetryUsageContextPayload();
+    expect(payload.graph_loaded).toBe(true);
+    expect(payload.error_code).toBe('schema_error');
+  });
+
+  it('records load failures before a graph is returned', () => {
+    captureTelemetryGraphLoadFailure(new ParseError('bad syntax'));
+    const payload = getTelemetryUsageContextPayload();
+    expect(payload.graph_loaded).toBe(false);
+    expect(payload.error_code).toBe('parse_error');
+    expect(payload.features).toBeNull();
+  });
+});
+
+describe('classifyGraphTelemetryErrorCode', () => {
+  it('returns null for a graph with no blocking errors', () => {
+    const graph = {
+      plugins: [],
+      sortedDataSources: [{ loadingError: undefined, errors: [], resolutionErrors: [] }],
+      sortedConfigKeys: ['FOO'],
+      configSchema: { FOO: { validationState: 'valid' } },
+    } as unknown as EnvGraph;
+    expect(classifyGraphTelemetryErrorCode(graph)).toBeNull();
+  });
+
+  it('prioritizes plugin_error over schema_error', () => {
+    const graph = {
+      plugins: [{ loadingError: new LoadingError('plugin failed') }],
+      sortedDataSources: [{ errors: [new SchemaError('bad')], resolutionErrors: [] }],
+      sortedConfigKeys: [],
+      configSchema: {},
+    } as unknown as EnvGraph;
+    expect(classifyGraphTelemetryErrorCode(graph)).toBe('plugin_error');
+  });
+
+  it('returns validation_error when items fail validation', () => {
+    const graph = {
+      plugins: [],
+      sortedDataSources: [{ errors: [], resolutionErrors: [] }],
+      sortedConfigKeys: ['API_KEY'],
+      configSchema: { API_KEY: { validationState: 'error' } },
+    } as unknown as EnvGraph;
+    expect(classifyGraphTelemetryErrorCode(graph)).toBe('validation_error');
+  });
+});
+
+describe('classifyThrownTelemetryErrorCode', () => {
+  it('maps Varlock error types', () => {
+    expect(classifyThrownTelemetryErrorCode(new ParseError('x'))).toBe('parse_error');
+    expect(classifyThrownTelemetryErrorCode(new SchemaError('x'))).toBe('schema_error');
+    expect(classifyThrownTelemetryErrorCode(new LoadingError('x'))).toBe('load_error');
+  });
+
+  it('defaults unknown errors to load_error', () => {
+    expect(classifyThrownTelemetryErrorCode(new Error('boom'))).toBe('load_error');
+  });
+});
+
+describe('integration env sanitization in payload', () => {
+  beforeEach(() => {
+    resetTelemetryUsageContextForTests();
+    delete process.env.VARLOCK_INTEGRATION;
   });
 
   it('ignores invalid integration env values in telemetry payload', () => {
