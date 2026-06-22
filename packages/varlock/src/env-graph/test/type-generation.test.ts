@@ -482,7 +482,7 @@ describe('type generation', () => {
       expect(infos2.ITEM1.isRequired).toBe(false);
     });
 
-    test('non-env-specific .env still contributes to type gen, but .env.local does not', async () => {
+    test('plain .env (a value source) does not affect type gen, nor does .env.local', async () => {
       const g = await loadGraph({
         files: {
           '.env.schema': outdent`
@@ -502,9 +502,88 @@ describe('type generation', () => {
 
       const infos = await getTypeGenInfoMap(g);
 
-      // .env is not env-specific, but .env.local is now skipped
-      expect(infos.ITEM1.isSensitive).toBe(true);
+      // neither .env nor .env.local should change the schema-derived types
+      expect(infos.ITEM1.isSensitive).toBe(false);
       expect(infos.ITEM2.isSensitive).toBe(false);
+    });
+
+    test('keys defined only in a plain .env are excluded from type gen (issue #796)', async () => {
+      const g = await loadGraph({
+        files: {
+          '.env.schema': outdent`
+            # @defaultSensitive=false @defaultRequired=optional
+            # ---
+            SOME_DECLARED_KEY=
+          `,
+          '.env': outdent`
+            SOME_DECLARED_KEY="value"
+            STALE_BOGUS_KEY="leakcheck"
+          `,
+        },
+      });
+
+      // declared in the schema → still included
+      expect(g.configSchema.SOME_DECLARED_KEY.defsForTypeGeneration.length).toBeGreaterThan(0);
+      // only present in the plain .env → must not leak into types
+      expect(g.configSchema.STALE_BOGUS_KEY).toBeDefined();
+      expect(g.configSchema.STALE_BOGUS_KEY.defsForTypeGeneration.length).toBe(0);
+
+      const items: Array<TypeGenItemInfo> = [];
+      for (const key of g.sortedConfigKeys) {
+        if (g.configSchema[key].defsForTypeGeneration.length) {
+          items.push(await g.configSchema[key].getTypeGenInfo());
+        }
+      }
+      const src = await generateTsTypesSrc(items);
+      expect(src).toContain('SOME_DECLARED_KEY');
+      expect(src).not.toContain('STALE_BOGUS_KEY');
+
+      // the excluded key is surfaced so the typegen command can nudge the user
+      expect(g.getValueOnlyKeysExcludedFromTypes()).toEqual(['STALE_BOGUS_KEY']);
+    });
+
+    test('getValueOnlyKeysExcludedFromTypes ignores keys only in env-specific files', async () => {
+      const g = await loadGraph({
+        overrideValues: { APP_ENV: 'production' },
+        files: {
+          '.env.schema': outdent`
+            # @currentEnv=$APP_ENV
+            # ---
+            APP_ENV=dev
+            DECLARED=val
+          `,
+          '.env': outdent`
+            ENV_ONLY=from-dot-env
+          `,
+          '.env.local': outdent`
+            LOCAL_ONLY=from-local
+          `,
+          '.env.production': outdent`
+            PROD_ONLY=from-prod
+          `,
+        },
+      });
+
+      // only the plain `.env` key is flagged — .env.local / .env.production are
+      // excluded by design and should not be reported as drift
+      expect(g.getValueOnlyKeysExcludedFromTypes()).toEqual(['ENV_ONLY']);
+    });
+
+    test('a lone .env (no .env.schema) is still the schema source for type gen', async () => {
+      const g = await loadGraph({
+        files: {
+          '.env': outdent`
+            # @defaultSensitive=false
+            # ---
+            ITEM1=val   # @required
+          `,
+        },
+      });
+
+      // with no .env.schema, the .env IS the schema source, so its keys belong in types
+      expect(g.configSchema.ITEM1.defsForTypeGeneration.length).toBeGreaterThan(0);
+      const infos = await getTypeGenInfoMap(g);
+      expect(infos.ITEM1.isRequired).toBe(true);
     });
 
     test('items only defined in env-specific sources are excluded from type gen', async () => {

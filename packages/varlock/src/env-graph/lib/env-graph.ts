@@ -119,6 +119,34 @@ export class EnvGraph {
   }
 
   /**
+   * Stack of sources whose imports are currently being processed (an ancestor chain).
+   * Used to detect circular imports: a path that re-enters while still on the stack is a cycle.
+   * Unlike `_loadedImportPaths` (recorded only after a child fully loads, for diamond dedup),
+   * this is recorded *before* descending, so a true cycle is caught before it recurses forever.
+   */
+  private _importProcessingStack: Array<string> = [];
+
+  /**
+   * Mark a source as being processed for imports.
+   * Returns the cycle chain (including the repeated entry) if `key` is already on the stack,
+   * otherwise pushes it and returns undefined.
+   */
+  beginImportProcessing(key: string): Array<string> | undefined {
+    const existingIndex = this._importProcessingStack.indexOf(key);
+    if (existingIndex !== -1) {
+      return [...this._importProcessingStack.slice(existingIndex), key];
+    }
+    this._importProcessingStack.push(key);
+    return undefined;
+  }
+
+  /** Pop a source off the import-processing stack once its imports are done. */
+  endImportProcessing(key: string) {
+    const index = this._importProcessingStack.lastIndexOf(key);
+    if (index !== -1) this._importProcessingStack.splice(index, 1);
+  }
+
+  /**
    * Register ConfigItems for keys visible through an import
    * that may not have been registered during the original source's finishInit.
    */
@@ -637,6 +665,28 @@ export class EnvGraph {
       else userKeys.push(key);
     }
     return [...builtinKeys, ...userKeys];
+  }
+
+  /**
+   * Keys that were excluded from generated types because they only exist in a plain `.env`
+   * value file (not declared in `.env.schema` or imported into it). These are usually drift —
+   * a stale or extra key, or one the user meant to declare in their schema. Type generation
+   * deliberately ignores them so output stays deterministic, but surfacing them lets the
+   * `typegen` command (or a future doctor check) nudge the user. Keys defined only in
+   * env-specific files (`.env.local`, `.env.production`, ...) are intentionally excluded here.
+   */
+  getValueOnlyKeysExcludedFromTypes() {
+    const keys: Array<string> = [];
+    for (const itemKey of this.sortedConfigKeys) {
+      if (isVarlockReservedKey(itemKey)) continue;
+      const item = this.configSchema[itemKey];
+      if (item.isBuiltin) continue;
+      // still has a schema-defining def → it's included in types, nothing to flag
+      if (item.defsForTypeGeneration.length) continue;
+      // only flag keys that actually appear in a plain `.env` (vs. only env-specific files)
+      if (item.defs.some((def) => def.source?.isAutoloadedValueSource)) keys.push(itemKey);
+    }
+    return keys;
   }
 
   getResolvedEnvObject() {

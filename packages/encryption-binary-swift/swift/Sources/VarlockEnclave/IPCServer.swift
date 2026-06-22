@@ -1,4 +1,5 @@
 import Foundation
+import SessionScoping
 
 /// Unix domain socket IPC server using length-prefixed JSON protocol.
 ///

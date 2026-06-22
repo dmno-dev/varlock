@@ -159,6 +159,25 @@ export abstract class EnvGraphDataSource {
     return false;
   }
 
+  /**
+   * Whether this source is an auto-loaded plain value file (e.g. `.env`) rather than a
+   * schema-defining source. Keys that exist only in such a file (not declared in
+   * `.env.schema`) should not leak into generated types — see {@link ConfigItem.defsForTypeGeneration}.
+   *
+   * This is true only for an auto-loaded `.env` that is NOT itself the schema source. When
+   * there is no `.env.schema`, the lone `.env` IS the schema source, so it still contributes.
+   * Imported files and standalone root entry points are always treated as schema sources.
+   */
+  get isAutoloadedValueSource(): boolean {
+    if (this.isImport) return false;
+    // env-specific value files (`.env.local`, `.env.production`, ...) are handled by isEnvSpecific
+    if (this.isEnvSpecific) return false;
+    // eslint-disable-next-line no-use-before-define
+    if (!(this.parent instanceof DirectoryDataSource)) return false;
+    if ((this.parent.schemaDataSource as EnvGraphDataSource | undefined) === this) return false;
+    return this.type === 'values';
+  }
+
   /** true when the source has a `@disable` decorator whose value is not static */
   _hasConditionalDisable?: boolean;
 
@@ -357,7 +376,23 @@ export abstract class EnvGraphDataSource {
     if (!this.isValid || this.disabled) return;
 
     const importDecs = this.getRootDecFns('import');
-    if (importDecs.length) {
+    if (!importDecs.length) return;
+
+    // Detect circular imports before descending. If this source is already on the
+    // import-processing stack (an ancestor is mid-load and we've looped back to it),
+    // emit a clean error instead of recursing until the call stack overflows.
+    // eslint-disable-next-line no-use-before-define
+    const importStackKey = this instanceof FileBasedDataSource ? this.fullPath : this.label;
+    const importCycle = this.graph.beginImportProcessing(importStackKey);
+    if (importCycle) {
+      const chain = importCycle
+        .map((p) => `${path.basename(path.dirname(p))}/${path.basename(p)}`)
+        .join(' -> ');
+      this._errors.push(new LoadingError(`Circular import detected: ${chain}`));
+      return;
+    }
+
+    try {
       for (const importDec of importDecs) {
         try {
           // Process the import decorator to identify dependencies
@@ -539,6 +574,8 @@ export abstract class EnvGraphDataSource {
           return;
         }
       }
+    } finally {
+      this.graph.endImportProcessing(importStackKey);
     }
   }
 

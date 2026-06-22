@@ -24,81 +24,94 @@ If you haven't already, [install varlock](/getting-started/installation/) on you
 Define your API keys and secrets in your `.env.schema` file. Mark sensitive values appropriately:
 
 ```env-spec title=".env.schema"
+# @plugin(@varlock/1password-plugin)
+# @initOp(allowAppAuth=true)
+# ---
 # @sensitive @required
-OPENAI_API_KEY=exec('op read "op://api-local/openai/api-key"')
+OPENAI_API_KEY=op(op://api-local/openai/api-key)
 
 # @sensitive @required
-ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
+ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
 
 # @sensitive @required
-GOOGLE_API_KEY=exec('op read "op://api-local/google/api-key"')
+GOOGLE_API_KEY=op(op://api-local/google/api-key)
 ```
 
-Store the actual secret values in your preferred [secret provider](/plugins/overview/) (for example 1Password, as shown above), AWS Secrets Manager, or any other provider with a CLI to fetch individual secrets. See also the [Secrets guide](/guides/secrets/#loading-secrets-from-external-sources).
+Store the actual secret values in your preferred [secret provider](/plugins/overview/). The examples above use the [1Password plugin](/plugins/1password/)'s `op()` resolver, but any provider plugin works the same way ([AWS Secrets Manager](/plugins/aws-secrets/), [and more](/plugins/overview/)). If you'd rather not depend on an external provider, keep encrypted values in a gitignored `.env.local` using [device-local encryption](/guides/local-encryption/). See also the [Secrets guide](/guides/secrets/#loading-secrets-from-external-sources).
 
 :::tip
-You can use any secrets provider you want, but we like 1Password since it uses biometric authentication for local access. All the examples in this guide use 1Password as a means of showing more real world examples.
+You can use any secrets provider you want, but we like 1Password since it uses biometric authentication for local access. All the examples in this guide use the [1Password plugin](/plugins/1password/) (`op()`) as a means of showing more real world examples — see that page for plugin setup and auth options.
 :::
 
 ### 3. Run your tool via `varlock run`
 
-Execute your AI CLI tool through `varlock` to securely inject the environment variables:
+Execute your AI CLI tool through `varlock` to securely inject environment variables:
 
 ```bash
 varlock run -- <your-cli-command>
 ```
 
-### Popular AI CLI tool examples
+See [AI CLI tool examples](#ai-cli-tool-examples) below for tool-specific setup.
 
-Here's how to configure and run popular AI coding CLI tools with varlock:
+## AI CLI tool examples
 
-<Tabs>
+Popular AI coding CLIs differ in which env vars they need and how they authenticate. Varlock supports two patterns:
+
+- **Project setup** — define secrets in the repo's `.env.schema` (steps 1-2 above) and run `varlock run -- <tool>` from the project directory.
+- **Personal setup** — keep a schema in your home directory (for example `~/.env.claude`) and pass it with [`-p`](/reference/cli-commands/#run) when launching a tool from any directory (usually using an alias).
+
+Varlock does not auto-load a global schema (that would make two developers' machines behave differently for the same repo).
+
+<Tabs syncKey="ai-tool">
   <TabItem label="Claude">
     [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) is Anthropic's CLI tool for AI-assisted coding.
 
-    **Environment variable:**
-    - `ANTHROPIC_API_KEY` - Your Anthropic API key
+    **Environment variable:** `ANTHROPIC_API_KEY` — see [supported env variables](https://docs.claude.com/en/docs/claude-code/settings#environment-variables).
 
-    **Add to `.env.schema`:**
+    **In a project** — add to `.env.schema`:
+
     ```env-spec
     # @sensitive @required
-    ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
+    ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
     ```
 
-    **Run with varlock:**
     ```bash
     varlock run -- claude
     ```
 
-    See supported env variables [here](https://docs.claude.com/en/docs/claude-code/settings#environment-variables).
+    **From any directory** — personal schema at `~/.env.claude`:
+
+    ```env-spec title="~/.env.claude"
+    # @sensitive @required
+    ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
+    ```
+
+    ```bash
+    varlock run -p ~/.env.claude -- claude
+    ```
+
+    **Shell alias** (optional):
+
+    ```bash
+    alias vclaude='varlock run -p ~/.env.claude --no-redact-stdout -- claude'
+    ```
+
+    `--no-redact-stdout` keeps Claude's own terminal output unredacted while secrets stay out of your shell history.
   </TabItem>
 
   <TabItem label="Opencode">
     [Opencode](https://opencode.ai/) is a provider-agnostic AI coding assistant that works in your terminal.
 
     **Environment variables:**
-    - `ANTHROPIC_API_KEY` - For Claude models
-    - `OPENAI_API_KEY` - For OpenAI models
-    - `OPENCODE_CONFIG` - Path to custom config file (optional)
+    - `ANTHROPIC_API_KEY` — for Claude models
+    - `OPENAI_API_KEY` — for OpenAI models
+    - `OPENCODE_CONFIG` — path to custom config file (optional)
 
-    **Add to `.env.schema`:**
-    ```env-spec
-    # @sensitive @required
-    ANTHROPIC_API_KEY=exec('op read "op://api-local/anthropic/api-key"')
-    
-    # @sensitive
-    OPENAI_API_KEY=exec('op read "op://api-local/openai/api-key"')
-    ```
-
-    **Add an auth configuration:**
-    ```bash
-    opencode auth login
-    ```
-    It will ask you to paste your API key. Instead, paste in an `env reference` like this:
+    **Auth configuration** — run `opencode auth login` once. When prompted for an API key, paste an env reference instead:
 
     `{"env:ANTHROPIC_API_KEY"}`
 
-    Your config file (`~/.local/share/opencode/auth.json`) should now look like this:
+    Your config file (`~/.local/share/opencode/auth.json`) should look like:
 
     ```json title="~/.local/share/opencode/auth.json"
     {
@@ -108,38 +121,79 @@ Here's how to configure and run popular AI coding CLI tools with varlock:
       }
     }
     ```
-    **Run with varlock:**
+
+    **In a project** — add to `.env.schema`:
+
+    ```env-spec
+    # @sensitive @required
+    ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
+
+    # @sensitive
+    OPENAI_API_KEY=op(op://api-local/openai/api-key)
+    ```
+
     ```bash
     varlock run -- opencode
-    
-    # or with specific model
+
+    # or with a specific model
     varlock run -- opencode --model claude-3-5-sonnet
+    ```
+
+    **From any directory** — personal schema at `~/.env.opencode`:
+
+    ```env-spec title="~/.env.opencode"
+    # @sensitive @required
+    ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
+
+    # @sensitive
+    OPENAI_API_KEY=op(op://api-local/openai/api-key)
+    ```
+
+    ```bash
+    varlock run -p ~/.env.opencode -- opencode
+
+    # or with a specific model
+    varlock run -p ~/.env.opencode -- opencode --model claude-3-5-sonnet
+    ```
+
+    **Shell alias** (optional):
+
+    ```bash
+    alias vopencode='varlock run -p ~/.env.opencode --no-redact-stdout -- opencode'
     ```
 
     See the [Opencode docs](https://opencode.ai/docs/) for more information.
   </TabItem>
 
-  <TabItem label="Gemini">
-    [Gemini CLI](https://github.com/google-gemini/gemini-cli) is Google's open source AI agent.
+  <TabItem label="Antigravity">
+    [Antigravity CLI](https://antigravity.google/docs/cli-getting-started) is Google's agent-first terminal experience — the successor to [Gemini CLI](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/), which has been phased out.
 
-    **Environment variable:**
-    - `GOOGLE_API_KEY` or `GEMINI_API_KEY` - Your Google AI API key
+    **Launch command:** `agy`
 
-    **Add to `.env.schema`:**
-    ```env-spec
-    # @sensitive @required
-    GOOGLE_CLOUD_PROJECT=exec('op read "op://api-local/google/cloud-project"')
-    
-    # @sensitive @required
-    GOOGLE_API_KEY=exec('op read "op://api-local/google/api-key"')
-    ```
+    **Authentication:** Antigravity signs in via Google OAuth on first launch (credentials live in your system keyring). 
 
-    **Run with varlock:**
     ```bash
-    varlock run -- gemini
+    varlock run -- agy
     ```
 
-    See the [Gemini CLI auth docs](https://github.com/google-gemini/gemini-cli/blob/main/docs/get-started/authentication.md) for more information.
+    **From any directory** — personal schema at `~/.env.antigravity` for project-agnostic defaults:
+
+    ```env-spec title="~/.env.antigravity"
+    # @type=enum(development, staging, production)
+    APP_ENV=development
+    ```
+
+    ```bash
+    varlock run -p ~/.env.antigravity -- agy
+    ```
+
+    **Shell alias** (optional):
+
+    ```bash
+    alias vagy='varlock run -p ~/.env.antigravity --no-redact-stdout -- agy'
+    ```
+
+    See the [Antigravity CLI getting started guide](https://antigravity.google/docs/cli-getting-started) and [installation & auth docs](https://antigravity.google/docs/cli-overview) for OAuth, enterprise, and headless setup.
   </TabItem>
 </Tabs>
 
@@ -267,4 +321,3 @@ This is especially valuable when working with AI coding tools — the scan comma
 ## Varlock Docs MCP
 
 We also have a docs MCP server that allows you to search the Varlock docs. See more details [here](/guides/mcp/#docs-mcp).
-

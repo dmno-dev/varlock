@@ -4,9 +4,10 @@
   "type": "module",
   "version": "0.0.1",
   "scripts": {
-    "dev": "astro dev",
-    "start": "astro dev",
-    "build": "astro build",
+    "gen:agent-skills": "bun run scripts/gen-agent-skills.ts",
+    "dev": "bun run gen:agent-skills && astro dev",
+    "start": "bun run gen:agent-skills && astro dev",
+    "build": "bun run gen:agent-skills && astro build",
     "build:cloudflare": "turbo build --filter=@varlock/astro-integration && varlock load && turbo build",
     "preview": "astro preview",
     "astro": "astro"

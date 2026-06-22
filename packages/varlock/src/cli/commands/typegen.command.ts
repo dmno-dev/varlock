@@ -51,4 +51,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   console.log('✅ Types generated successfully');
+
+  // Nudge about keys that only live in a plain `.env` and were left out of the types.
+  // Only shown here (the explicit command), not during background auto-generation on load/run.
+  const excludedKeys = envGraph.getValueOnlyKeysExcludedFromTypes();
+  if (excludedKeys.length) {
+    console.log('');
+    console.log(`ℹ️  Ignored ${excludedKeys.length} key${excludedKeys.length === 1 ? '' : 's'} found only in .env (not declared in your schema):`);
+    console.log(`   ${excludedKeys.join(', ')}`);
+    console.log('   Declare them in your .env.schema to include them in generated types.');
+  }
 };

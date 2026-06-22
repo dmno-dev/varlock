@@ -26,10 +26,10 @@ Any environment-specific files (e.g., `.env.development`) will automatically be 
 
 The files are applied with a specific precedence (increasing):
 - `.env.schema` - your schema file, which can also contain default values
-- `.env` - will be loaded, but not recommended, instead use something more specific
-- `.env.local` - local overrides (gitignored)
+- `.env` - ⚠️ **not recommended**, will be loaded but better to use others
+- `.env.local` - local overrides _(gitignored)_
 - `.env.[currentEnv]` - environment-specific values
-- `.env.[currentEnv].local` - environment-specific local overrides (gitignored)
+- `.env.[currentEnv].local` - environment-specific local overrides _(gitignored)_
 
 :::tip[Auto-detect with `VARLOCK_ENV`]
 Instead of managing your own environment flag, you can use the built-in `$VARLOCK_ENV` variable which auto-detects the environment from your CI/deploy platform. See the [builtin variables reference](/reference/builtin-variables/) for details.

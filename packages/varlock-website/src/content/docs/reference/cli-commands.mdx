@@ -526,7 +526,7 @@ See the [Caching guide](/guides/caching/) for cache mode strategy and troublesho
 <div>
 ### `varlock typegen` ||typegen||
 
-Generates type files according to [`@generateTypes`](/reference/root-decorators/#generatetypes) and your config schema. Uses only non-environment-specific schema info, so output is deterministic regardless of which environment is active.
+Generates type files according to [`@generateTypes`](/reference/root-decorators/#generatetypes) and your config schema. Uses only your schema definitions, so output is deterministic regardless of which environment is active. Keys (and decorators) that come only from value files like `.env` or `.env.local` are ignored — only items declared in your `.env.schema` (or imported into it) are included. When run directly, the command reports any keys found only in a plain `.env` so you can move them into your schema if they belong there.
 
 Supported `lang` values: `ts`, `py`, `rs`, `go`, and `php`. Each `@generateTypes` decorator in your schema generates its own output file.
 

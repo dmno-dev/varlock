@@ -21,14 +21,25 @@
     "pr": ""
   },
   "hooks": {
-    "WorktreeCreate": [
+    "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/setup-worktree.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/worktree-deps.sh",
             "timeout": 600,
-            "statusMessage": "Creating worktree + installing deps..."
+            "statusMessage": "Installing deps + building libs..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/git-push-notice.sh"
           }
         ]
       }

@@ -394,7 +394,7 @@
     },
     "packages/plugins/proton-pass": {
       "name": "@varlock/proton-pass-plugin",
-      "version": "1.0.2",
+      "version": "1.1.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -424,7 +424,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "1.7.1",
+      "version": "1.7.2",
       "bin": {
         "varlock": "./bin/cli.js",
       },

@@ -29,7 +29,9 @@
     "audit:full": "bun audit --audit-level=moderate",
     "bumpy:add": "bumpy add",
     "release:create-missing-tags": "node scripts/create-missing-release-tags.js",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install",
+    "packages:new": "bunx fledgling",
+    "packages:sync": "bunx fledgling sync"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.37.1",
@@ -84,5 +86,11 @@
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vitest": "^4.0.18"
+  },
+  "fledgling": {
+    "provider": "github",
+    "workflow": "release.yaml",
+    "environment": "publish",
+    "permissions": "publish"
   }
 }

@@ -1,0 +1,122 @@
+---
+title: Monorepos
+description: Patterns for using varlock in monorepos and multi-service repositories
+---
+
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+
+Monorepos often mix shared platform config with app-specific settings. Varlock supports both per-package schemas and shared root config, with [`@import()`](/reference/root-decorators/#import) to compose them. This guide walks through common layout choices, incremental adoption, CI, and containers.
+
+## Schema layout
+
+The recommended pattern is **one `.env.schema` per project** — each app or service owns a schema next to its code and imports whatever shared config it needs from the repo root or sibling packages. Avoid funneling every variable into a single central env directory; keep each project's config with the project.
+
+### One schema per project (recommended)
+
+Give each app or service its own `.env.schema`. This keeps config next to the code that uses it, lets you adopt varlock one package at a time, and works well even when services are mostly independent.
+
+```text
+.env.schema            # shared root config (imported by apps that need it)
+packages/
+  web/.env.schema
+  api/.env.schema
+```
+
+Varlock resolves env files from each package's **current working directory** — it does not walk up to a parent directory automatically. Use [`@import()`](/guides/import/) when a package needs config defined elsewhere.
+
+:::tip[Packages with no env vars]
+A library or utility package that doesn't read any environment variables doesn't need a `.env.schema` at all. Only add one where a package actually loads config.
+:::
+
+### Sharing config from the root or siblings
+
+Put cross-cutting config — database URLs used by many services, shared feature flags, platform identifiers — in a schema at the repo root, then **import the root directory** from each project that needs it:
+
+```env-spec title="packages/web/.env.schema"
+# Import only the shared keys this app needs
+# @import(../../, pick=[DATABASE_URL, REDIS_URL, SENTRY_*])
+# @import(../api/, pick=[API_PUBLIC_URL])
+# ---
+# App-specific config
+# @type=url @required
+PUBLIC_SITE_URL=
+```
+
+By default every key in the imported source is brought in, but importing only the keys an app actually needs is usually the cleaner default — use `pick=[...]` (allowlist) or `omit=[...]` (denylist) so each schema declares exactly what it depends on.
+
+Importing the **directory** (`../../`) rather than the schema file (`../../.env.schema`) means all files like `.env.local` and [environment-specific](/guides/environments/) are loaded too — not just the schema — following the same precedence as the current directory. Imported definitions merge with the importing schema, and the importing file wins. See the [Imports guide](/guides/import/) for partial imports, precedence, and conditional loading.
+
+Use `@import()` to pull in a root or shared schema without copying keys, to split a large schema into focused files (e.g. `.env.database`, `.env.features`), or to share a directory of common env files across services (`# @import(../../shared-config/)`).
+
+You can also **import directly from a sibling package**, which lets you keep a config item with its logical owner instead of hoisting everything to the root. Define the item once in the package that owns it, then `pick` just what you need — like the `../api/` import in the example above.
+
+:::caution[Avoid circular imports]
+Imports must flow in one direction — if `web` imports `api` and `api` also imports `web` (directly or through a chain), varlock detects the cycle and loading fails with an explicit error naming the chain (e.g. `Circular import detected: web/.env.schema -> api/.env.schema -> web/.env.schema`). Keep each shared item with a single owner and import one way; if two packages genuinely need each other's values, hoist those keys into a common file (e.g. the repo root) that both import.
+:::
+
+:::note[Shared environment flag]
+If several projects share an environment flag like `APP_ENV`, define it in the shared schema and import it. For per-service environment variations, see [Loading environment-specific `.env` files](/guides/environments#loading-environment-specific-env-files).
+:::
+
+### Pointing varlock at the right directory
+
+In most cases you don't need anything here — a `.env.schema` in each package, loaded from its working directory, is the right default. Reach for the options below only when a package's env files live somewhere other than its cwd.
+
+When an app's env files live outside its default cwd (or you need multiple roots), set `varlock.loadPath` in that package's `package.json`:
+
+```json title="apps/web/package.json"
+{
+  "varlock": {
+    "loadPath": "./"
+  }
+}
+```
+
+You can also pass an explicit path on the CLI with `--path` (or `-p`) — useful in CI or scripts that run from the monorepo root:
+
+<ExecCommandWidget command="varlock load --path apps/web/" showBinary={false} />
+
+For loading from multiple directories in one package, see [Loading from multiple directories](/integrations/vite/#loading-from-multiple-directories) in the Vite integration docs (the same `loadPath` array works for all commands).
+
+## Next.js apps
+
+Next.js requires a workspace-root `@next/env` override and has extra footguns when only some apps use varlock. See [Next.js in a monorepo](/integrations/nextjs/#monorepos) for package-manager overrides, incremental adoption, and troubleshooting — then return here for shared schema layout and CI patterns.
+
+## Turborepo and strict env mode
+
+Turborepo v2+ enables **Strict Environment Mode** by default. Tasks only receive env vars that are listed in `turbo.json`, so any var varlock reads from the ambient environment — not just your `@currentEnv` flag — must be declared there, or it won't reach the task. This includes:
+
+- your environment flag (e.g. `APP_ENV`), or varlock may load the wrong `.env.[currentEnv]` file
+- the **CI-detection vars** that built-ins like [`VARLOCK_ENV`](/reference/builtin-variables/#varlock_env) rely on (`CI`, `VERCEL`, `WORKERS_CI_BRANCH`, etc.)
+- any var passed in at the root `turbo` invocation, or otherwise present in the environment, that a `VARLOCK_*` setting or a resolver in your schema depends on
+
+Declare these in `globalEnv` (or per-task `env`) in `turbo.json`. Full explanation and examples are in [Using `currentEnv` in Turborepo](/guides/environments#using-currentenv-in-turborepo).
+
+## Incremental adoption
+
+You do not need to migrate every package at once. A practical order:
+
+1. **Pick one app** — run `varlock init` in that package and commit its `.env.schema`.
+2. **Wire the integration** for that stack only (Next.js plugin, Vite plugin, or `varlock run` for scripts).
+3. **Expand shared config** — extract common keys to a root or shared schema and `@import()` them from apps as you go.
+4. **Leave untouched apps alone** — packages without a `.env.schema` should keep using their existing env loading until you migrate them.
+
+:::tip[CLI-only services]
+Services that do not need a framework integration can start with [`varlock run`](/reference/cli-commands/#run) and a local `.env.schema` without changing root dependency overrides.
+:::
+
+## Mixed stacks (JavaScript and other languages)
+
+Monorepos often combine Node apps with Python, Go, or other runtimes. Varlock's CLI works the same everywhere: load and validate from a schema, then exec your command with the resolved env injected.
+
+<ExecCommandWidget command="varlock run -- python manage.py runserver" showBinary={false} />
+
+Run the command from the service directory (or pass `--path` to its env folder). Each language can keep its own `.env.schema`; there is no requirement to share a single root file. For more detail, see [Other languages](/integrations/other-languages/).
+
+## Container builds
+
+Container images often copy a single app directory, not the whole monorepo. If your schema uses `@import()` to pull files from sibling packages or the repo root, those paths must exist in the build context — otherwise the load graph fails at build time.
+
+The [Docker guide](/guides/docker/) covers the official image, multi-stage copies of the varlock binary, and running `varlock run` as your container entrypoint.
+
+Today you may need to copy imported env files explicitly in your Dockerfile (mirroring the import tree). A planned **`varlock flatten`** command will collapse an import graph into local files for slim Docker contexts — see the [Docker guide](/guides/docker/#monorepos-and-partial-build-context).
