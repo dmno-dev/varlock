@@ -1,4 +1,5 @@
-import { CLOUDFLARE_SSR_ENTRY_CODE, varlockVitePlugin } from '@varlock/vite-integration';
+import { varlockVitePlugin } from '@varlock/vite-integration';
+import { CLOUDFLARE_SSR_ENTRY_CODE } from './shared-ssr-entry-code';
 
 /**
  * Varlock SvelteKit + Cloudflare Vite plugin.

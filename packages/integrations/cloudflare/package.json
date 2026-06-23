@@ -13,7 +13,8 @@
   "exports": {
     ".": "./dist/index.js",
     "./sveltekit": "./dist/sveltekit.js",
-    "./init": "./dist/init.js"
+    "./init": "./dist/init.js",
+    "./ssr-entry-code": "./dist/shared-ssr-entry-code.js"
   },
   "bin": {
     "varlock-wrangler": "./bin/varlock-wrangler.js"

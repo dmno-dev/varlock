@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createDebug } from 'varlock';
 import { scanForLeaks, varlockSettings } from 'varlock/env';
-import { CLOUDFLARE_SSR_ENTRY_CODE, varlockVitePlugin } from '@varlock/vite-integration';
+import { varlockVitePlugin } from '@varlock/vite-integration';
 import type { AstroIntegration } from 'astro';
 
 const debug = createDebug('varlock:astro-integration');
@@ -37,6 +37,16 @@ function varlockAstroIntegration(
           // @astrojs/cloudflare runs SSR in workerd via @cloudflare/vite-plugin.
           // Inject varlock init into the CF worker entry and load env from bindings
           // at runtime in production (via varlock-wrangler deploy).
+          let cloudflareSsrEntryCode: string;
+          try {
+            ({ CLOUDFLARE_SSR_ENTRY_CODE: cloudflareSsrEntryCode } = await import('@varlock/cloudflare-integration/ssr-entry-code'));
+          } catch {
+            throw new Error(
+              '[varlock] Using @astrojs/cloudflare requires @varlock/cloudflare-integration.\n'
+              + 'Install it alongside @varlock/astro-integration: npm install @varlock/cloudflare-integration',
+            );
+          }
+
           vitePluginOptions = {
             ...vitePluginOptions,
             ssrInjectMode,
@@ -45,7 +55,7 @@ function varlockAstroIntegration(
               ...(vitePluginOptions.ssrEntryModuleIds ?? []),
               '\0virtual:cloudflare/worker-entry',
             ],
-            ssrEntryCode: vitePluginOptions.ssrEntryCode ?? [CLOUDFLARE_SSR_ENTRY_CODE],
+            ssrEntryCode: vitePluginOptions.ssrEntryCode ?? [cloudflareSsrEntryCode],
           };
         } else {
           vitePluginOptions = { ...vitePluginOptions, ssrInjectMode };

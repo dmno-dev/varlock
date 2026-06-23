@@ -5,9 +5,9 @@ import {
 import { execSync, spawn, type ChildProcess } from 'node:child_process';
 import {
   varlockVitePlugin, varlockLoadedEnv, varlockLastError, buildErrorPageHtml,
-  CLOUDFLARE_SSR_ENTRY_CODE,
 } from '@varlock/vite-integration';
 import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
+import { CLOUDFLARE_SSR_ENTRY_CODE } from './shared-ssr-entry-code';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 
 const isWindows = process.platform === 'win32';
