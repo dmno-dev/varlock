@@ -40,10 +40,17 @@
   },
   "peerDependencies": {
     "varlock": "workspace:^",
-    "astro": ">=4"
+    "astro": ">=4",
+    "@varlock/cloudflare-integration": "^1.1.7"
+  },
+  "peerDependenciesMeta": {
+    "@varlock/cloudflare-integration": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@varlock/cloudflare-integration": "workspace:*",
     "@varlock/vite-integration": "workspace:*",
     "astro": ">=5.12.8",
     "tsup": "catalog:",

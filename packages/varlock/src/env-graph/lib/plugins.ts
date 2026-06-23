@@ -150,10 +150,10 @@ async function loadPluginModuleESM(filePath: string): Promise<void> {
       source = new Bun.Transpiler({ loader: 'ts' }).transformSync(source);
     }
 
-    await import(/* webpackIgnore: true */ `data:text/javascript,${encodeURIComponent(source)}`);
+    await import(/* webpackIgnore: true */ /* @vite-ignore */ `data:text/javascript,${encodeURIComponent(source)}`);
   } else {
     const fileUrl = pathToFileURL(filePath).href;
-    await import(/* webpackIgnore: true */ `${fileUrl}?t=${Date.now()}`);
+    await import(/* webpackIgnore: true */ /* @vite-ignore */ `${fileUrl}?t=${Date.now()}`);
   }
 }
 

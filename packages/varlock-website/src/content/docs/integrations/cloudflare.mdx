@@ -33,6 +33,7 @@ All paths use the same `.env.schema` and `varlock-wrangler deploy` for productio
 |----------|-----------|-------------|
 | **[`varlock-wrangler`](#approach-1-using-varlock-wrangler)** | Plain Workers, minimal tooling | `varlock-wrangler dev` injects env via FIFO and watches `.env` files; `varlock-wrangler deploy` uploads vars + secrets |
 | **[Vite plugin](#approach-2-with-the-vite-plugin)** | Already using [`@cloudflare/vite-plugin`](https://developers.cloudflare.com/workers/vite-plugin/) | `vite dev` injects into miniflare automatically; `vite build` + `varlock-wrangler deploy` |
+| **[Astro adapter](/integrations/astro/#deploying-to-cloudflare-workers)** | Astro with [`@astrojs/cloudflare`](https://docs.astro.build/en/guides/integrations-guide/cloudflare/) | `@varlock/astro-integration` auto-detects the adapter; `astro dev` works as-is; `astro build` + `varlock-wrangler deploy` |
 | **[SvelteKit adapter plugin](/integrations/sveltekit/#sveltekit-on-cloudflare-workers)** | SvelteKit with [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare) | `vite dev` via an SSR entry loader; `vite build` + `varlock-wrangler deploy` |
 
 :::caution[SvelteKit uses a separate entry point]

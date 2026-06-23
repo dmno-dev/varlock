@@ -6,6 +6,7 @@ export default defineConfig({
     'src/sveltekit.ts',
     'src/init.ts',
     'src/varlock-wrangler.ts',
+    'src/shared-ssr-entry-code.ts',
   ],
 
   // cloudflare:workers is a runtime-only module (workerd/miniflare)

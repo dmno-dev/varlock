@@ -72,6 +72,7 @@
       "version": "1.0.4",
       "devDependencies": {
         "@types/node": "catalog:",
+        "@varlock/cloudflare-integration": "workspace:*",
         "@varlock/vite-integration": "workspace:*",
         "astro": ">=5.12.8",
         "tsup": "catalog:",
@@ -79,9 +80,13 @@
         "vitest": "catalog:",
       },
       "peerDependencies": {
+        "@varlock/cloudflare-integration": "^1.1.7",
         "astro": ">=4",
         "varlock": "workspace:^",
       },
+      "optionalPeers": [
+        "@varlock/cloudflare-integration",
+      ],
     },
     "packages/integrations/cloudflare": {
       "name": "@varlock/cloudflare-integration",

@@ -23,18 +23,62 @@ function varlockAstroIntegration(
         const adapterName = opts.config.adapter?.name;
 
         let ssrInjectMode = integrationOptions?.ssrInjectMode;
+        let vitePluginOptions: Parameters<typeof varlockVitePlugin>[0] = {
+          ...integrationOptions,
+        };
+
         if (['@astrojs/netlify', '@astrojs/vercel', '@astrojs/cloudflare'].includes(adapterName || '')) {
           ssrInjectMode ??= 'resolved-env';
         } else if (adapterName === '@astrojs/node') {
           ssrInjectMode ??= 'auto-load';
         }
 
+        if (adapterName === '@astrojs/cloudflare') {
+          // @astrojs/cloudflare runs SSR in workerd via @cloudflare/vite-plugin.
+          // Inject varlock init into the CF worker entry and load env from bindings
+          // at runtime in production (via varlock-wrangler deploy).
+          let cloudflareSsrEntryCode: string;
+          let logVarlockEnvInjectionNotice: () => void;
+          try {
+            const cfIntegration = await import('@varlock/cloudflare-integration/ssr-entry-code');
+            ({ CLOUDFLARE_SSR_ENTRY_CODE: cloudflareSsrEntryCode, logVarlockEnvInjectionNotice } = cfIntegration);
+            // @astrojs/cloudflare uses @cloudflare/vite-plugin, which otherwise
+            // auto-loads .env and logs "Using secrets defined in .env" — opt out
+            // so varlock is the only source of env for the worker.
+            cfIntegration.disableWranglerDotEnvAutoload();
+          } catch {
+            throw new Error(
+              '[varlock] Using @astrojs/cloudflare requires @varlock/cloudflare-integration.\n'
+              + 'Install it alongside @varlock/astro-integration: npm install @varlock/cloudflare-integration',
+            );
+          }
+
+          vitePluginOptions = {
+            ...vitePluginOptions,
+            ssrInjectMode,
+            ssrEdgeRuntime: vitePluginOptions.ssrEdgeRuntime ?? true,
+            ssrEntryModuleIds: [
+              ...(vitePluginOptions.ssrEntryModuleIds ?? []),
+              '\0virtual:cloudflare/worker-entry',
+            ],
+            ssrEntryCode: vitePluginOptions.ssrEntryCode ?? [cloudflareSsrEntryCode],
+          };
+
+          // Print a varlock notice at server start, in place of wrangler's
+          // suppressed "Using secrets defined in .env" message.
+          opts.config.vite.plugins ||= [];
+          opts.config.vite.plugins.push({
+            name: 'varlock-cloudflare-env-notice',
+            configureServer() { logVarlockEnvInjectionNotice(); },
+            configurePreviewServer() { logVarlockEnvInjectionNotice(); },
+          } as any);
+        } else {
+          vitePluginOptions = { ...vitePluginOptions, ssrInjectMode };
+        }
+
         opts.config.vite.plugins ||= [];
         opts.config.vite?.plugins?.push(
-          varlockVitePlugin({
-            ...integrationOptions,
-            ssrInjectMode,
-          }) as any,
+          varlockVitePlugin(vitePluginOptions) as any,
         );
       },
 

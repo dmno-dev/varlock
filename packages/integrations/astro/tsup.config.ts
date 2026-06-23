@@ -6,6 +6,8 @@ export default defineConfig({
     'src/astro-middleware.ts',
   ],
 
+  external: ['@varlock/cloudflare-integration/ssr-entry-code'],
+
   dts: true,
 
   // minify: true, // Minify output

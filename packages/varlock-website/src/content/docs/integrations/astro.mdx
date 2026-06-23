@@ -169,6 +169,60 @@ When deploying SSR Astro apps to serverless platforms, varlock injects the resol
 
 ---
 
+## Deploying to Cloudflare Workers
+
+If you deploy your SSR Astro app to Cloudflare Workers via [`@astrojs/cloudflare`](https://docs.astro.build/en/guides/integrations-guide/cloudflare/), install [`@varlock/cloudflare-integration`](/integrations/cloudflare/) alongside the Astro integration. The Astro integration **auto-detects** the Cloudflare adapter and wires up env injection into the worker — there's no extra Vite or adapter config to write, and you keep using `astro dev` as normal.
+
+<Steps>
+
+1. **Install the Cloudflare integration**
+
+    <InstallJsDepsWidget packages="@varlock/cloudflare-integration" />
+
+1. **Use the Cloudflare adapter as usual**
+
+    No varlock-specific Cloudflare setup is needed — just the standard adapter alongside `varlockAstroIntegration()`:
+
+    ```ts title="astro.config.ts"
+    import { defineConfig } from 'astro/config';
+    import cloudflare from '@astrojs/cloudflare';
+    import varlockAstroIntegration from '@varlock/astro-integration';
+
+    export default defineConfig({
+      output: 'server',
+      adapter: cloudflare(),
+      integrations: [varlockAstroIntegration()],
+    });
+    ```
+
+1. **Deploy with `varlock-wrangler`**
+
+    Use [`varlock-wrangler`](/integrations/cloudflare/#varlock-wrangler-cli) so your resolved env is uploaded as Cloudflare vars and secrets at deploy time:
+
+    ```diff lang="json" title="package.json" add="varlock-"
+    {
+      "scripts": {
+        "dev": "astro dev",
+        "build": "astro build",
+        "deploy": "astro build && varlock-wrangler deploy"
+      }
+    }
+    ```
+
+</Steps>
+
+:::caution[Requires `nodejs_compat`]
+Varlock relies on a handful of `node:*` built-ins at runtime, so your worker must enable Cloudflare's Node.js compatibility layer. Add `nodejs_compat` to `compatibility_flags` in your `wrangler.json` / `wrangler.toml`.
+:::
+
+:::caution[Remove `.dev.vars`]
+Varlock manages env injection automatically — delete any `.dev.vars` file in your project root, or the dev server will error.
+:::
+
+See the [Cloudflare Workers integration docs](/integrations/cloudflare/) for full details on how dev injection, deployment, CI/CD, and `varlock-wrangler` work.
+
+---
+
 ## Reference
 - [Root decorators reference](/reference/root-decorators)
 - [Item decorators reference](/reference/item-decorators)
