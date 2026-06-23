@@ -244,6 +244,9 @@ describe('captureUsageContextFromEnvGraph', () => {
     expect(ctx.features?.source_type_counts.schema).toBeGreaterThan(0);
     expect(ctx.graph_loaded).toBe(true);
     expect(ctx.error_code).toBeNull();
+
+    // flat, breakdownable list of official plugin names
+    expect(getTelemetryUsageContextPayload().official_plugins).toEqual(['@varlock/test-plugin']);
   });
 
   it('includes integration env in telemetry payload when valid', () => {
@@ -253,6 +256,7 @@ describe('captureUsageContextFromEnvGraph', () => {
     expect(payload.integration_name).toBe('@varlock/astro-integration');
     expect(payload.integration_version).toBe('1.0.4');
     expect(payload.plugins).toEqual([]);
+    expect(payload.official_plugins).toEqual([]);
     expect(payload.features).toBeNull();
     expect(payload.graph_loaded).toBe(false);
     expect(payload.error_code).toBeNull();

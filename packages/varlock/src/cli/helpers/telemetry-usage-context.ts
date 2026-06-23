@@ -330,6 +330,11 @@ export function getTelemetryUsageContextPayload(): Record<string, unknown> {
   return {
     integration_name: ctx.integration?.name ?? null,
     integration_version: ctx.integration?.version ?? null,
+    // Flat, directly-breakdownable list of official plugin names in use (an
+    // array of strings can be sliced in PostHog's UI; the nested `plugins`
+    // detail below needs HogQL/SQL to query). Third-party (hashed) plugins are
+    // excluded here — see `plugins` for those.
+    official_plugins: ctx.plugins.filter((p) => p.is_official).map((p) => p.name).sort(),
     plugins: ctx.plugins,
     features: ctx.features,
     graph_loaded: ctx.graph_loaded,
