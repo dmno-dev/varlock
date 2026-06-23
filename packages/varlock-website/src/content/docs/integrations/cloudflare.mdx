@@ -34,10 +34,10 @@ All paths use the same `.env.schema` and `varlock-wrangler deploy` for productio
 | **[`varlock-wrangler`](#approach-1-using-varlock-wrangler)** | Plain Workers, minimal tooling | `varlock-wrangler dev` injects env via FIFO and watches `.env` files; `varlock-wrangler deploy` uploads vars + secrets |
 | **[Vite plugin](#approach-2-with-the-vite-plugin)** | Already using [`@cloudflare/vite-plugin`](https://developers.cloudflare.com/workers/vite-plugin/) | `vite dev` injects into miniflare automatically; `vite build` + `varlock-wrangler deploy` |
 | **[Astro adapter](/integrations/astro/#deploying-to-cloudflare-workers)** | Astro with [`@astrojs/cloudflare`](https://docs.astro.build/en/guides/integrations-guide/cloudflare/) | `@varlock/astro-integration` auto-detects the adapter; `astro dev` works as-is; `astro build` + `varlock-wrangler deploy` |
-| **[SvelteKit adapter plugin](/integrations/sveltekit/#sveltekit-on-cloudflare-workers)** | SvelteKit with [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare) | `vite dev` via an SSR entry loader; `vite build` + `varlock-wrangler deploy` |
+| **[SvelteKit](/integrations/sveltekit/#setup-for-cloudflare-workers)** | SvelteKit with [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare) | `@varlock/vite-integration` auto-detects the adapter; `vite dev` via an SSR entry loader; `vite build` + `varlock-wrangler deploy` |
 
-:::caution[SvelteKit uses a separate entry point]
-`@cloudflare/vite-plugin` does not support SvelteKit ([workers-sdk#8922](https://github.com/cloudflare/workers-sdk/issues/8922)). SvelteKit projects must use [`varlockSvelteKitCloudflarePlugin`](/integrations/sveltekit/#sveltekit-on-cloudflare-workers) from `@varlock/cloudflare-integration/sveltekit` — **not** the standard Vite plugin.
+:::caution[Using SvelteKit? Follow the SvelteKit guide instead]
+This page covers plain Workers and the `@cloudflare/vite-plugin` flow, which **does not support SvelteKit** ([workers-sdk#8922](https://github.com/cloudflare/workers-sdk/issues/8922)). For SvelteKit with `@sveltejs/adapter-cloudflare`, set up varlock using the **[SvelteKit → Cloudflare Workers guide](/integrations/sveltekit/#setup-for-cloudflare-workers)** — you use the standard `varlockVitePlugin` (which auto-detects the adapter), **not** `varlockCloudflareVitePlugin`. You'll still install `@varlock/cloudflare-integration` (for `varlock-wrangler`) and deploy the same way described below.
 :::
 
 ## Approach 1: Using `varlock-wrangler`
@@ -104,7 +104,7 @@ Replace your `wrangler` commands with `varlock-wrangler` and initialize varlock 
 
 If you're building with Vite, `varlockCloudflareVitePlugin` wraps the [Cloudflare Workers Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/) and adds env var + varlock init injection — no extra init import needed, and both `ENV.MY_VAR` and native `env.MY_VAR` work in dev and production.
 
-For SvelteKit on Cloudflare, use the dedicated [`varlockSvelteKitCloudflarePlugin`](/integrations/sveltekit/#sveltekit-on-cloudflare-workers) from `@varlock/cloudflare-integration/sveltekit` instead.
+For SvelteKit on Cloudflare, use the standard [`varlockVitePlugin`](/integrations/sveltekit/#setup-for-cloudflare-workers) instead — it auto-detects the Cloudflare adapter and wires up the SSR entry loader.
 
 ### Setup
 

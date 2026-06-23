@@ -13,6 +13,7 @@
     "test:cloudflare": "vitest run frameworks/cloudflare",
     "test:expo": "vitest run frameworks/expo",
     "test:nextjs": "vitest run frameworks/nextjs",
+    "test:sveltekit": "vitest run frameworks/sveltekit",
     "test:vanilla-node": "vitest run frameworks/vanilla-node",
     "test:tanstack-start": "vitest run frameworks/tanstack-start",
     "test:vite": "vitest run frameworks/vite"

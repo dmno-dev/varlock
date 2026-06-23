@@ -165,11 +165,10 @@ function serveFifoOrFile(filePath: string, content: string) {
  * Varlock Cloudflare Vite plugin — wraps `@cloudflare/vite-plugin` with
  * automatic env var injection.
  *
- * For SvelteKit projects deploying via `@sveltejs/adapter-cloudflare`, use
- * `varlockSvelteKitCloudflarePlugin` from
- * `@varlock/cloudflare-integration/sveltekit` instead — it skips
- * `@cloudflare/vite-plugin` (which doesn't support SvelteKit) and uses an
- * SSR-entry-based env loader.
+ * For SvelteKit projects deploying via `@sveltejs/adapter-cloudflare`, use the
+ * standard `varlockVitePlugin` from `@varlock/vite-integration` instead — it
+ * auto-detects the Cloudflare adapter and uses an SSR-entry-based env loader,
+ * skipping `@cloudflare/vite-plugin` (which doesn't support SvelteKit).
  *
  * **Important:** Do not use a `.dev.vars` file alongside this plugin — varlock
  * handles env injection automatically. The plugin will throw an error if a
