@@ -42,6 +42,12 @@ This is a monorepo managed with bun workspaces and Turborepo:
 - Smoke tests live in `smoke-tests/` and test the CLI end-to-end
 - Binary-specific tests in `smoke-tests/tests/binary.test.ts` require the SEA binary to be built first
 
+## Plugins
+
+- First-party plugins live in `packages/plugins/*`
+- When adding a new plugin to the monorepo, register a `plugin:<name>` label for it in `.github/config/labeler.yaml` (one entry per plugin, globbing `packages/plugins/<name>/**`)
+- See the plugin authoring guide (`packages/varlock-website/src/content/docs/plugins/authoring.mdx`) and the Plugin API reference (`.../reference/plugin-api.mdx`) for design conventions and the API surface
+
 ## Versioning & releases
 
 - This monorepo uses **bumpy** (`@varlock/bumpy`) for version management

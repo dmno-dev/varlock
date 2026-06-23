@@ -112,20 +112,10 @@ Some decorators or resolver functions may require the plugin to be initialized a
 
 Please refer to the specific plugin's documentation for details on usage.
 
-## Plugin caching
+## Caching plugin values
 
-Plugins can use varlock's built-in [cache](/guides/caching/) to avoid repeated API calls or hold short-lived tokens. Caching is opt-in - it is only active when the user enables it (typically via a `cacheTtl` init option) and the global cache mode allows it.
+Some plugins can cache fetched values to avoid repeated API calls or to hold short-lived tokens. This is opt-in — typically enabled per-instance via a `cacheTtl` init option and gated by the global [cache](/guides/caching/) mode. See each plugin's page for its specific caching options.
 
-Plugin authors get a scoped cache accessor on the plugin instance:
-
-```ts
-// primary API - atomic get-or-set
-const value = await plugin.cache.getOrSet('some-key', '1h', () => fetchFromApi());
-
-// lower-level helpers
-await plugin.cache.get('some-key');
-await plugin.cache.set('some-key', value, '1h');
-plugin.cache.delete('some-key');
-```
-
-Keys are automatically prefixed with `plugin:{name}:`, so plugins cannot collide with each other's cache entries.
+:::tip[Building your own plugin?]
+See the [plugin authoring guide](/plugins/authoring/) for design conventions, the `varlock/plugin-lib` API, packaging, and testing.
+:::

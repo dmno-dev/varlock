@@ -187,6 +187,7 @@ export default defineConfig({
           collapsed: true,
           items: [
             { label: 'Overview', slug: 'plugins/overview' },
+            { label: 'Authoring plugins', slug: 'plugins/authoring' },
             { label: '1Password', slug: 'plugins/1password' },
             { label: 'Akeyless', slug: 'plugins/akeyless' },
             { label: 'AWS SSM/SM', slug: 'plugins/aws-secrets' },
@@ -217,6 +218,7 @@ export default defineConfig({
             { label: 'Resolver functions', slug: 'reference/functions' },
             { label: 'Builtin variables', slug: 'reference/builtin-variables' },
             { label: 'Reserved variables', slug: 'reference/reserved-variables' },
+            { label: 'Plugin API', slug: 'reference/plugin-api' },
           ],
         },
         {

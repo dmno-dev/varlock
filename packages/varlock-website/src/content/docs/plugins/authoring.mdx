@@ -1,0 +1,298 @@
+---
+title: Authoring plugins
+description: Build a varlock plugin — design conventions, the plugin-lib API, packaging, and testing
+---
+
+Most people only ever *use* plugins (see the [plugins guide](/guides/plugins/) and the [plugin catalog](/plugins/overview/)). This page is for the rarer case of *building* one.
+
+Plugins are TypeScript modules that import from `varlock/plugin-lib` and register their functionality at module load time. This page covers the conventions and mechanics of building a plugin; for the full API surface of `varlock/plugin-lib`, see the [Plugin API reference](/reference/plugin-api/). Everything below is drawn from real first-party plugins.
+
+## Design conventions
+
+Before writing any code, a few conventions that make a plugin feel native to the service it wraps and consistent with other varlock plugins.
+
+**Mirror the service.** Use the service's own terminology throughout, and match its native URL/ID schemes as closely as possible so references look familiar to anyone who already uses that service. When a single native ID can't capture everything you need, it's fine to extend it — e.g. appending `@version` or `#key` to a combined identifier — even if that exact form isn't a native concept.
+
+**Instances.** The init decorator should create a single default instance with no extra configuration. Support _named_ instances only when it genuinely makes sense to have multiple auth methods or presets in use at the same time — most plugins never need more than the default.
+
+**Resolver arguments.**
+- Accept key/value (named) params where they help, but in most cases positional array args are cleaner — infer meaning from position wherever you can rather than requiring the user to name everything.
+- When named instances are supported, give the resolver an optional _first_ positional arg that selects the instance id.
+- Many services let you store either a single value or a key/value blob of many values under one path. There, make the key optional and use a `#key` suffix on the path to pull one entry out of a blob.
+- If the service commonly stores values under the exact key names they'll be injected as, offer a bulk value resolver — and let the key names be optional, defaulting to each config item's own key.
+
+**Auth.**
+- Do _not_ probe well-known environment variables by default. If a user wants to authenticate that way, let them wire the env var up explicitly in their schema.
+- It _is_ fine to check well-known _file_ locations when that's an established pattern for the service (e.g. `~/.aws`).
+- Gate more automatic or "magic" auth behind opt-in flags so it can be turned off when it doesn't fit — for example, enabling 1Password desktop-app auth only in dev.
+
+**Lazy validation.** A plugin may be initialized but never actually used, so an initialized-but-unused plugin with empty config must be a complete no-op — it should never error. Defer "is this usable?" checks to the first time the plugin is used through a resolver. (Config that is _known to be invalid_ — not merely empty — may still fail early.)
+
+**Data types.** Custom data types are a good place to attach documentation links and service-specific validation. Always feel free to add docs — but don't add a `validate()` function unless there's a real, specific check to make. Validating "is a non-empty string" adds nothing.
+
+## Scaffold and metadata
+
+A plugin is a single TypeScript file (`src/plugin.ts`). All registration calls run at the top level when the module is loaded.
+
+```ts title="src/plugin.ts"
+import { type Resolver, plugin } from 'varlock/plugin-lib';
+
+// Destructure the error classes you need
+const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
+
+// Short identifier used internally (e.g. for logging)
+plugin.name = 'myplugin';
+
+// Optional: debug logger — output is enabled by the DEBUG env var,
+// e.g. `DEBUG=varlock:plugin:*` (namespaced to `varlock:plugin:<name>`)
+const { debug } = plugin;
+debug('init - version =', plugin.version);
+
+// Icon from simple-icons (https://simpleicons.org) or any Iconify set
+plugin.icon = 'simple-icons:yourservice';
+
+// Optional: declare well-known env var names so users get warnings if they
+// forget to wire them up as schema items
+plugin.standardVars = {
+  initDecorator: '@initMyPlugin',
+  params: {
+    token: { key: 'MY_SERVICE_TOKEN' },
+    url:   { key: 'MY_SERVICE_URL' },
+  },
+};
+
+// registration calls follow…
+```
+
+## `plugin.registerRootDecorator`
+
+Root decorators appear as `@decoratorName(...)` comments at the top of a `.env` file. They are used for plugin initialization and run in two phases:
+
+- **`process`** — runs during schema parsing. Validates static arguments (e.g. `id=`), creates the instance record, and returns a plain serialisable object containing any `Resolver` references for dynamic args.
+- **`execute`** — runs during value resolution. Awaits the dynamic resolvers returned by `process` and performs auth/connection setup.
+
+```ts title="src/plugin.ts"
+interface PluginInstance {
+  token?: string;
+}
+const instances: Record<string, PluginInstance> = {};
+
+plugin.registerRootDecorator({
+  name: 'initMyPlugin',
+  description: 'Initialise a MyPlugin instance',
+  isFunction: true,          // required when the decorator accepts arguments
+
+  async process(argsVal) {
+    const { objArgs } = argsVal;
+    if (!objArgs) throw new SchemaError('@initMyPlugin requires arguments');
+
+    // id must be a literal string so we can key the instance map at parse time
+    if (objArgs.id && !objArgs.id.isStatic) {
+      throw new SchemaError('id must be a static value');
+    }
+    const id = String(objArgs.id?.staticValue ?? '_default');
+
+    if (instances[id]) {
+      throw new SchemaError(`Instance "${id}" is already initialised`);
+    }
+    instances[id] = {};   // reserve the slot
+
+    // Return resolvers for dynamic args alongside any static data
+    return { id, tokenResolver: objArgs.token };
+  },
+
+  async execute({ id, tokenResolver }) {
+    // Await dynamic values (these may reference other schema items)
+    const token = await tokenResolver?.resolve();
+    // `process` reserved instances[id], so the non-null assertion is safe here
+    instances[id]!.token = token ? String(token) : undefined;
+  },
+});
+```
+
+## `plugin.registerDataType`
+
+Data types appear as `@type=myType` on an item. They can mark values as sensitive, add validation, and surface documentation links.
+
+```ts title="src/plugin.ts"
+plugin.registerDataType({
+  name: 'myServiceToken',
+  sensitive: true,                           // value will be redacted in logs
+  typeDescription: 'Authentication token for MyService',
+  icon: 'simple-icons:yourservice',
+  docs: [
+    {
+      description: 'Creating API tokens',
+      url: 'https://docs.yourservice.example/tokens',
+    },
+  ],
+  // Optional: validate the raw string value
+  async validate(val) {
+    if (typeof val !== 'string' || !val.startsWith('mst_')) {
+      throw new ValidationError('Token must start with "mst_"');
+    }
+  },
+});
+```
+
+## `plugin.registerResolverFunction`
+
+Resolver functions appear as values in `.env` files: `MY_SECRET=myPlugin(ref)`. They also run in two phases:
+
+- **`process`** — runs at parse time. Validate argument shapes and return the resolvers + metadata your `resolve` call needs.
+- **`resolve`** — runs at resolution time. Awaits resolvers, contacts the external service, and returns the final string value.
+
+```ts title="src/plugin.ts"
+plugin.registerResolverFunction({
+  name: 'myPlugin',
+  label: 'Fetch secret from MyService',
+  icon: 'simple-icons:yourservice',
+  argsSchema: {
+    type: 'array',
+    arrayMinLength: 1,
+    arrayMaxLength: 2,  // myPlugin(ref) or myPlugin(instanceId, ref)
+  },
+
+  process() {
+    let instanceId = '_default';
+    let refResolver: Resolver;
+
+    if (this.arrArgs!.length === 1) {
+      refResolver = this.arrArgs![0];
+    } else {
+      // first arg is the instance id – must be a literal
+      if (!this.arrArgs![0].isStatic) {
+        throw new SchemaError('Instance id must be a static value');
+      }
+      instanceId = String(this.arrArgs![0].staticValue);
+      refResolver = this.arrArgs![1];
+    }
+
+    if (!instances[instanceId]) {
+      throw new SchemaError(
+        `No MyPlugin instance "${instanceId}" found`,
+        { tip: 'Add @initMyPlugin() to your .env.schema file' },
+      );
+    }
+
+    return { instanceId, refResolver };
+  },
+
+  async resolve({ instanceId, refResolver }) {
+    const ref = await refResolver.resolve();
+    if (typeof ref !== 'string') throw new SchemaError('Expected a string reference');
+
+    // `process` verified the instance exists, so the non-null assertion is safe
+    const instance = instances[instanceId]!;
+    // ... use `instance` to call your SDK / API and return the secret value
+    return `fetched:${ref}`;
+  },
+});
+```
+
+## Caching
+
+Plugins can use varlock's built-in [cache](/guides/caching/) to avoid repeated API calls or hold short-lived tokens. Caching is opt-in — it is only active when the user enables it (typically via a `cacheTtl` init option) and the global cache mode allows it.
+
+Plugin authors get a scoped cache accessor on the plugin instance:
+
+```ts
+// primary API - atomic get-or-set
+const value = await plugin.cache.getOrSet('some-key', '1h', () => fetchFromApi());
+
+// lower-level helpers
+await plugin.cache.get('some-key');
+await plugin.cache.set('some-key', value, '1h');
+plugin.cache.delete('some-key');
+```
+
+Keys are automatically prefixed with `plugin:{name}:`, so plugins cannot collide with each other's cache entries.
+
+Capture the accessor **once at module load** — `plugin.cache` (like the rest of the `plugin` object) is only valid while the plugin module is initializing, not later inside a resolver:
+
+```ts
+// at module top, alongside plugin.name / plugin.ERRORS
+let pluginCache: typeof plugin.cache | undefined;
+try { pluginCache = plugin.cache; } catch { /* cache unavailable (no encryption key) */ }
+```
+
+## Error handling
+
+Always use error classes from `plugin.ERRORS`:
+
+| Class | When to use |
+|---|---|
+| `SchemaError` | Problems detected at parse/schema-build time (bad args, missing config) |
+| `ResolutionError` | Problems at value-fetch time (secret not found, network error) |
+| `ValidationError` | Value fails a `@type` constraint |
+| `CoercionError` | Value cannot be converted to the expected type |
+
+Pass a `tip` string (or array of strings) to guide users toward a fix:
+
+```ts
+throw new ResolutionError(`Secret "${ref}" not found`, {
+  tip: [
+    'Verify the secret name is correct in MyService',
+    'Check your token has read access',
+  ],
+});
+```
+
+## Package setup
+
+```json title="package.json"
+{
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    "./plugin": "./dist/plugin.cjs"
+  },
+  "files": ["dist"],
+  "engines": { "node": ">=22" },
+  "peerDependencies": { "varlock": "*" },
+  "devDependencies": {
+    "varlock": "...",
+    "tsup": "...",
+    "vitest": "..."
+  }
+}
+```
+
+Key points:
+- Published plugins should expose their entry through a `"./plugin"` export pointing at a **CJS** file (`.cjs`). Varlock loads CJS plugins by intercepting `require('varlock/plugin-lib')` so the plugin shares varlock's _own_ module instance — that's what makes the `plugin` proxy and the shared error classes work. (Single-file local plugins may also be `.mjs` or `.ts`, but packaged plugins should ship CJS.)
+- SDK/client libraries should go in `devDependencies` and be bundled via tsup; they must **not** be listed as runtime `dependencies` (which would require the user to install them separately).
+- `varlock` is a `peerDependency` (not a regular dependency) so the plugin binds to the user's installed varlock rather than pulling in a second copy — keeping the shared module instance, and therefore `instanceof` checks on error classes, intact.
+
+```ts title="tsup.config.ts"
+import { defineConfig } from 'tsup';
+
+export default defineConfig({
+  entry: ['src/plugin.ts'],
+  format: ['cjs'],        // ship CJS for the ./plugin export (see packaging notes above)
+  dts: true,
+  sourcemap: true,
+  treeshake: true,
+  external: ['varlock'], // peer – do NOT bundle
+});
+```
+
+## Testing
+
+```ts title="vitest.config.ts"
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  resolve: {
+    // Resolve varlock's `ts-src` condition so tests run against TypeScript source
+    conditions: ['ts-src'],
+  },
+  define: {
+    // Required – varlock uses these globals at import time
+    __VARLOCK_BUILD_TYPE__: JSON.stringify('test'),
+    __VARLOCK_SEA_BUILD__: 'false',
+  },
+});
+```
+
+Without `conditions: ['ts-src']` and the two `define` entries your tests will fail with a `ReferenceError`.
