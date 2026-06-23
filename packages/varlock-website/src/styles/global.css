@@ -586,6 +586,15 @@ html[data-theme='light'] .starlight-aside .starlight-aside__title {
   .right-sidebar-container {
     width: var(--sl-sidebar-width);
   }
+
+  /* Allow the main content column to shrink to its computed width instead of
+     being stretched by wide, non-wrapping content (code blocks, tables). The
+     default flex `min-width: auto` lets such content expand the pane, which
+     pushes the right TOC sidebar off the right edge of the viewport (the TOC
+     heading gets clipped). `min-width: 0` lets the content scroll internally. */
+  .main-pane {
+    min-width: 0;
+  }
 }
 
 #starlight__mobile-toc .toggle {
