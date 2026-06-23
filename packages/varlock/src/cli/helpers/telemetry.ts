@@ -247,10 +247,102 @@ function getAnonymousProjectId() {
   return anonymizeValue(gitRemoteUrl);
 }
 
+/**
+ * Normalizes a git remote URL down to a canonical `host/owner/repo` (lowercased)
+ * so that http(s), ssh, scp-style, and git:// clones of the same repo collapse to
+ * the same value. Returns undefined if the URL can't be parsed.
+ *
+ * Examples (all -> `github.com/owner/repo`):
+ *   git@github.com:owner/repo.git
+ *   ssh://git@github.com/owner/repo.git
+ *   https://github.com/owner/repo.git
+ *   https://user:token@github.com/owner/repo
+ *   git://github.com/owner/repo.git
+ *
+ * @internal exported for unit tests
+ */
+export function normalizeGitRemoteUrl(rawUrl: string): string | undefined {
+  const url = rawUrl.trim();
+  if (!url) return undefined;
+
+  let host: string;
+  let path: string;
+
+  const schemeMatch = url.match(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/(.*)$/);
+  if (schemeMatch) {
+    // scheme-based URL (https://, http://, ssh://, git://, ftp://, ...)
+    let rest = schemeMatch[1];
+    // strip userinfo (user[:pass]@) if it appears before the first path slash
+    const atIdx = rest.indexOf('@');
+    const slashIdx = rest.indexOf('/');
+    if (atIdx !== -1 && (slashIdx === -1 || atIdx < slashIdx)) {
+      rest = rest.slice(atIdx + 1);
+    }
+    const firstSlash = rest.indexOf('/');
+    if (firstSlash === -1) return undefined;
+    host = rest.slice(0, firstSlash);
+    path = rest.slice(firstSlash + 1);
+  } else {
+    // scp-like syntax: [user@]host:path
+    const scpMatch = url.match(/^(?:[^@/]+@)?([^/]+?):(.+)$/);
+    if (!scpMatch) return undefined;
+    host = scpMatch[1];
+    path = scpMatch[2];
+  }
+
+  // strip port from host, lowercase it
+  host = host.replace(/:\d+$/, '').toLowerCase();
+  if (!host) return undefined;
+
+  // clean path: drop leading/trailing slashes, optional `.git` suffix, then lowercase.
+  // host paths are treated case-insensitively to maximize grouping (GitHub/GitLab/etc.
+  // treat owner/repo case-insensitively, and clones may differ only by case)
+  path = path
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+    .replace(/\.git$/, '')
+    .toLowerCase();
+  if (!path) return undefined;
+
+  return `${host}/${path}`;
+}
+
+/**
+ * Stable, anonymized project id derived from a normalized git remote.
+ * Unlike {@link getAnonymousProjectId} (kept as-is for measurement continuity),
+ * this collapses http/ssh/scp variants of the same repo to a single id.
+ */
+function getAnonymousProjectIdV2() {
+  const gitRemoteUrl = getProjectGitRemoteUrl();
+  if (!gitRemoteUrl) return null;
+  const normalized = normalizeGitRemoteUrl(gitRemoteUrl);
+  if (!normalized) return null;
+  return anonymizeValue(normalized);
+}
+
+/**
+ * Anonymized org-level id: hash of `host/owner` from the normalized remote.
+ * Lets us group activity across repos owned by the same org/user.
+ */
+function getAnonymousOrgId() {
+  const gitRemoteUrl = getProjectGitRemoteUrl();
+  if (!gitRemoteUrl) return null;
+  const normalized = normalizeGitRemoteUrl(gitRemoteUrl);
+  if (!normalized) return null;
+  const segments = normalized.split('/');
+  // host + first path segment (owner / top-level group)
+  if (segments.length < 3) return null;
+  return anonymizeValue(`${segments[0]}/${segments[1]}`);
+}
+
 
 type TelemetryMeta = {
   // project info
   anonymous_project_id: string | null;
+  // normalized variant (host/owner/repo) that collapses http/ssh/scp clone variants
+  anonymous_project_id_v2: string | null;
+  // org-level id (host/owner) for grouping repos by org/user
+  anonymous_org_id: string | null;
   // version information
   node_version: string;
   varlock_version: string;
@@ -290,6 +382,8 @@ function getTelemetryMeta() {
 
   cachedTelemetryMetadata = {
     anonymous_project_id: getAnonymousProjectId(),
+    anonymous_project_id_v2: getAnonymousProjectIdV2(),
+    anonymous_org_id: getAnonymousOrgId(),
     node_version: process.version.replace(/^v?/, ''),
     varlock_version: versionIdentifier,
     system_platform: os.platform(),
