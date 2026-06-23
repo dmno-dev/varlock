@@ -67,10 +67,9 @@ function mergeExecEnv(
   if (!opts?.integrationTelemetry && !opts?.env) return undefined;
 
   const merged = { ...baseEnv } as NodeJS.ProcessEnv;
-  if (
-    opts.integrationTelemetry
-    && !merged.__VARLOCK_INTEGRATION
-  ) {
+  if (opts.integrationTelemetry) {
+    // __VARLOCK_INTEGRATION is for our internal use only — the integration-provided
+    // identity is authoritative and always wins over any inherited/user-set value.
     Object.assign(
       merged,
       integrationTelemetryEnv(opts.integrationTelemetry.name, opts.integrationTelemetry.version),

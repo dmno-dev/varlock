@@ -25,7 +25,7 @@ describe('execSyncVarlock integration telemetry', () => {
     });
   });
 
-  it('passes integrationTelemetry into subprocess env without overwriting explicit values', () => {
+  it('integration-provided identity overrides any inherited __VARLOCK_INTEGRATION (internal use only)', () => {
     execSyncVarlock('load', {
       env: {
         ...process.env,
@@ -41,7 +41,7 @@ describe('execSyncVarlock integration telemetry', () => {
       'varlock load',
       expect.objectContaining({
         env: expect.objectContaining({
-          __VARLOCK_INTEGRATION: '@custom/explicit@9.9.9',
+          __VARLOCK_INTEGRATION: '@varlock/vite-integration@1.1.3',
         }),
       }),
     );
