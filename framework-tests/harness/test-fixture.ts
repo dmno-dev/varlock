@@ -110,11 +110,11 @@ export class FrameworkTestEnv {
     ].join('\n'));
 
     // pnpm v11 defaults: block all build scripts, and error on packages missing time metadata.
-    // Allow known native packages that need postinstall scripts, and skip age check for packages
-    // without registry time metadata (common for some npm packages).
+    // Allow known native packages that need postinstall scripts.
+    // minimumReleaseAge is 0 here (matching bunfig.toml) so framework tests can use
+    // recently published versions (e.g. new Astro majors) without waiting 72h.
     writeFileSync(join(this.dir, 'pnpm-workspace.yaml'), [
-      'minimumReleaseAge: 4320',
-      'minimumReleaseAgeIgnoreMissingTime: true',
+      'minimumReleaseAge: 0',
       'onlyBuiltDependencies:',
       '  - esbuild',
       '  - sharp',
