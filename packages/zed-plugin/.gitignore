@@ -1,0 +1,14 @@
+# Rust / Zed extension build output
+/target
+/extension.wasm
+
+# Zed-managed grammar checkout + compiled grammar (rebuilt from extension.toml)
+/grammars
+
+# Language-server build artifacts
+server/node_modules
+server/out
+
+# Local tooling
+.claude/
+.DS_Store
