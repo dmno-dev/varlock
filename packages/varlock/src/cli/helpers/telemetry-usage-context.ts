@@ -169,9 +169,9 @@ export function sanitizePluginForTelemetry(plugin: {
   };
 }
 
-/** @internal convention: integrations set `VARLOCK_INTEGRATION=name@version` before subprocess */
+/** @internal convention: integrations set `__VARLOCK_INTEGRATION=name@version` before subprocess */
 export function parseIntegrationFromEnv(
-  envValue: string | undefined = process.env.VARLOCK_INTEGRATION,
+  envValue: string | undefined = process.env.__VARLOCK_INTEGRATION,
 ): { name: string; version: string } | null {
   if (!envValue?.trim()) return null;
   const trimmed = envValue.trim();

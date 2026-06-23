@@ -57,7 +57,7 @@ export class VarlockExecError extends Error {
 export type ExecVarlockResult = { stdout: string, stderr: string };
 
 export function integrationTelemetryEnv(name: string, version: string) {
-  return { VARLOCK_INTEGRATION: `${name}@${version}` };
+  return { __VARLOCK_INTEGRATION: `${name}@${version}` };
 }
 
 function mergeExecEnv(
@@ -69,7 +69,7 @@ function mergeExecEnv(
   const merged = { ...baseEnv } as NodeJS.ProcessEnv;
   if (
     opts.integrationTelemetry
-    && !merged.VARLOCK_INTEGRATION
+    && !merged.__VARLOCK_INTEGRATION
   ) {
     Object.assign(
       merged,
@@ -95,7 +95,7 @@ type ExecSyncVarlockOpts = Parameters<typeof execSyncType>[1] & {
    * instead of the raw execSync error.
    */
   fullResult?: boolean,
-  /** Identifies the framework integration invoking varlock (passed as VARLOCK_INTEGRATION) */
+  /** Identifies the framework integration invoking varlock (passed as __VARLOCK_INTEGRATION) */
   integrationTelemetry?: { name: string, version: string },
 };
 

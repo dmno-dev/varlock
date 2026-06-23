@@ -16,12 +16,12 @@ describe('execSyncVarlock integration telemetry', () => {
   });
 
   afterEach(() => {
-    delete process.env.VARLOCK_INTEGRATION;
+    delete process.env.__VARLOCK_INTEGRATION;
   });
 
-  it('integrationTelemetryEnv formats VARLOCK_INTEGRATION', () => {
+  it('integrationTelemetryEnv formats __VARLOCK_INTEGRATION', () => {
     expect(integrationTelemetryEnv('@varlock/vite-integration', '1.1.3')).toEqual({
-      VARLOCK_INTEGRATION: '@varlock/vite-integration@1.1.3',
+      __VARLOCK_INTEGRATION: '@varlock/vite-integration@1.1.3',
     });
   });
 
@@ -29,7 +29,7 @@ describe('execSyncVarlock integration telemetry', () => {
     execSyncVarlock('load', {
       env: {
         ...process.env,
-        VARLOCK_INTEGRATION: '@custom/explicit@9.9.9',
+        __VARLOCK_INTEGRATION: '@custom/explicit@9.9.9',
       },
       integrationTelemetry: {
         name: '@varlock/vite-integration',
@@ -41,13 +41,13 @@ describe('execSyncVarlock integration telemetry', () => {
       'varlock load',
       expect.objectContaining({
         env: expect.objectContaining({
-          VARLOCK_INTEGRATION: '@custom/explicit@9.9.9',
+          __VARLOCK_INTEGRATION: '@custom/explicit@9.9.9',
         }),
       }),
     );
   });
 
-  it('sets VARLOCK_INTEGRATION when integrationTelemetry is provided', () => {
+  it('sets __VARLOCK_INTEGRATION when integrationTelemetry is provided', () => {
     execSyncVarlock('load', {
       integrationTelemetry: {
         name: '@varlock/nextjs-integration',
@@ -59,7 +59,7 @@ describe('execSyncVarlock integration telemetry', () => {
       'varlock load',
       expect.objectContaining({
         env: expect.objectContaining({
-          VARLOCK_INTEGRATION: '@varlock/nextjs-integration@1.1.3',
+          __VARLOCK_INTEGRATION: '@varlock/nextjs-integration@1.1.3',
         }),
       }),
     );

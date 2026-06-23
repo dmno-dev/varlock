@@ -111,12 +111,12 @@ describe('sanitizePluginForTelemetry', () => {
 describe('captureUsageContextFromEnvGraph', () => {
   beforeEach(() => {
     resetTelemetryUsageContextForTests();
-    delete process.env.VARLOCK_INTEGRATION;
+    delete process.env.__VARLOCK_INTEGRATION;
   });
 
   afterEach(() => {
     resetTelemetryUsageContextForTests();
-    delete process.env.VARLOCK_INTEGRATION;
+    delete process.env.__VARLOCK_INTEGRATION;
   });
 
   it('extracts plugins, resolver names, and settings from a loaded graph', async () => {
@@ -156,7 +156,7 @@ describe('captureUsageContextFromEnvGraph', () => {
   });
 
   it('includes integration env in telemetry payload when valid', () => {
-    process.env.VARLOCK_INTEGRATION = '@varlock/astro-integration@1.0.4';
+    process.env.__VARLOCK_INTEGRATION = '@varlock/astro-integration@1.0.4';
 
     const payload = getTelemetryUsageContextPayload();
     expect(payload.integration_name).toBe('@varlock/astro-integration');
@@ -248,11 +248,11 @@ describe('classifyThrownTelemetryErrorCode', () => {
 describe('integration env sanitization in payload', () => {
   beforeEach(() => {
     resetTelemetryUsageContextForTests();
-    delete process.env.VARLOCK_INTEGRATION;
+    delete process.env.__VARLOCK_INTEGRATION;
   });
 
   it('ignores invalid integration env values in telemetry payload', () => {
-    process.env.VARLOCK_INTEGRATION = 'not-a-valid-integration@secret-data';
+    process.env.__VARLOCK_INTEGRATION = 'not-a-valid-integration@secret-data';
 
     const payload = getTelemetryUsageContextPayload();
     expect(payload.integration_name).toBeNull();
