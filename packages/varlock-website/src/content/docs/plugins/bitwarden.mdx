@@ -39,7 +39,7 @@ See the [plugins guide](/guides/plugins/#installation) for more instructions on 
 # ---
 
 # 3. Add a machine account access token config item
-# @type=bitwardenAccessToken @sensitive
+# @type=bitwardenAccessToken @sensitive @internal
 BITWARDEN_ACCESS_TOKEN=
 ```
 
@@ -81,7 +81,7 @@ BITWARDEN_ACCESS_TOKEN=
     # @initBitwarden(accessToken=$BITWARDEN_ACCESS_TOKEN)
     # ---
 
-    # @type=bitwardenAccessToken @sensitive
+    # @type=bitwardenAccessToken @sensitive @internal
     BITWARDEN_ACCESS_TOKEN=
     ```
 
@@ -305,7 +305,7 @@ Interactive unlock needs a TTY, so a non-interactive load (a dev server started 
 # Option B: let varlock unlock non-interactively with a master password
 # @initBwp(masterPassword=$BW_MASTER_PASSWORD)
 # ---
-# @type=bwSessionToken @sensitive
+# @type=bwSessionToken @sensitive @internal
 BWP_SESSION=
 ```
 
@@ -356,7 +356,7 @@ Initialize a Bitwarden Secrets Manager plugin instance for accessing secrets.
 ```env-spec "@initBitwarden"
 # @initBitwarden(accessToken=$BITWARDEN_ACCESS_TOKEN)
 # ---
-# @type=bitwardenAccessToken @sensitive
+# @type=bitwardenAccessToken @sensitive @internal
 BITWARDEN_ACCESS_TOKEN=
 ```
 </div>
@@ -386,6 +386,9 @@ DB_PASSWORD=bwp("Production DB")
 <div class="reference-docs">
 <div>
 #### `bitwardenAccessToken`
+
+This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+
 
 Represents a Bitwarden Secrets Manager machine account access token. Validation ensures the token is in the correct format (`0.<client_id>.<client_secret>:<encryption_key>`).
 Note that the type itself is marked as `@sensitive`, so adding an explicit `@sensitive` decorator is optional.
@@ -420,6 +423,8 @@ BITWARDEN_ORG_ID=87654321-4321-4321-4321-cba987654321
 
 <div>
 #### `bwSessionToken`
+
+This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
 
 Represents a Bitwarden CLI session token (the output of `bw unlock`). Only needed when supplying a token manually for non-interactive use. Marked `@sensitive`.
 

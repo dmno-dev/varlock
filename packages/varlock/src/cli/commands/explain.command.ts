@@ -11,7 +11,27 @@ import {
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import { StaticValueResolver } from '../../env-graph/lib/resolver';
+import type { ConfigItem } from '../../env-graph/lib/config-item';
 import _ from '@env-spec/utils/my-dash';
+
+/** Human-readable explanation of how an item's sensitivity was determined */
+function describeSensitiveSource(item: ConfigItem): string {
+  switch (item.sensitiveSource) {
+    case 'explicit': return 'set explicitly';
+    case 'data-type': return `from the \`${item.dataType?.name}\` data type`;
+    case 'resolver': return `inferred from the ${item.valueResolver?.fnName}() resolver`;
+    case 'default-decorator': return 'from @defaultSensitive';
+    case 'prefix': return 'from a @defaultSensitive prefix rule';
+    default: return 'default — items are sensitive unless marked @public';
+  }
+}
+
+/** Human-readable explanation of how an item became @internal */
+function describeInternalSource(item: ConfigItem): string {
+  return item.internalSource === 'explicit'
+    ? 'set explicitly via @internal'
+    : `set by the \`${item.dataType?.name}\` data type`;
+}
 
 export const commandSpec = define({
   name: 'explain',
@@ -97,7 +117,16 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   else props.push('optional');
   if (isSensitive) props.push('sensitive');
   else props.push('public');
+  if (item.isInternal) props.push('internal');
   console.log(`  ${ansis.gray('Properties:')} ${props.join(', ')}`);
+
+  // Show *how* sensitivity / internal-ness were determined (explicit vs implied by data type/resolver)
+  if (isSensitive) {
+    console.log(`  ${ansis.gray('Sensitive:')} yes ${ansis.gray.italic(`(${describeSensitiveSource(item)})`)}`);
+  }
+  if (item.isInternal) {
+    console.log(`  ${ansis.gray('Internal:')} ${ansis.yellow('yes')} ${ansis.gray.italic(`(${describeInternalSource(item)} — not injected into your app; set @internal=false to inject)`)}`);
+  }
 
   // Resolved value
   console.log('');

@@ -223,10 +223,13 @@ Initialize a KeePass plugin instance for accessing secrets from a KDBX database.
 <div>
 #### `kdbxPassword`
 
+This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+
+
 A sensitive string type for KeePass database master passwords. Validates that the value is a non-empty string and is automatically marked as sensitive.
 
 ```env-spec "kdbxPassword"
-# @type=kdbxPassword @sensitive
+# @type=kdbxPassword @sensitive @internal
 KP_PASSWORD=
 ```
 </div>
@@ -303,7 +306,7 @@ Entry paths are sanitized to valid env var names (uppercased, non-alphanumeric r
 # @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD)
 # ---
 
-# @type=kdbxPassword @sensitive
+# @type=kdbxPassword @sensitive @internal
 KP_PASSWORD=
 
 DB_PASSWORD=kp("Database/production")
@@ -319,7 +322,7 @@ SMTP_USER=kp("Email/smtp#UserName")
 # @setValuesBulk(kpBulk(Production), createMissing=true)
 # ---
 
-# @type=kdbxPassword @sensitive
+# @type=kdbxPassword @sensitive @internal
 KP_PASSWORD=
 
 # These are auto-populated from entries in the "Production" group
@@ -336,7 +339,7 @@ REDIS_URL=
 # @setValuesBulk(kp("Database/production", customAttributesObj=true), createMissing=true)
 # ---
 
-# @type=kdbxPassword @sensitive
+# @type=kdbxPassword @sensitive @internal
 KP_PASSWORD=
 
 # Custom fields from the "Database/production" entry
@@ -352,7 +355,7 @@ DB_NAME=
 # @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD, useCli=forEnv(dev))
 # ---
 
-# @type=kdbxPassword @sensitive
+# @type=kdbxPassword @sensitive @internal
 KP_PASSWORD=
 
 # In dev: reads via keepassxc-cli (YubiKey, etc.)

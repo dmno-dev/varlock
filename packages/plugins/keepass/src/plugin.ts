@@ -168,6 +168,7 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'kdbxPassword',
   sensitive: true,
+  internal: true,
   typeDescription: 'Master password for a KeePass KDBX database file',
   icon: KP_ICON,
   docs: [

@@ -583,6 +583,7 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'kubernetesBearerToken',
   sensitive: true,
+  internal: true,
   typeDescription: 'Kubernetes bearer token for API authentication',
   icon: KUBERNETES_ICON,
   docs: [

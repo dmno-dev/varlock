@@ -529,6 +529,7 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'vaultToken',
   sensitive: true,
+  internal: true,
   typeDescription: 'HashiCorp Vault authentication token',
   icon: VAULT_ICON,
   docs: [

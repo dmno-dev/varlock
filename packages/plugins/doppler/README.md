@@ -44,7 +44,7 @@ Navigate to your project config in the Doppler dashboard → **Access** → **Se
 # )
 # ---
 
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 ```
 
@@ -80,7 +80,7 @@ PROD_DATABASE=doppler(prod, "DATABASE_URL")
 # @setValuesBulk(dopplerBulk())
 # ---
 
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 
 DATABASE_URL=

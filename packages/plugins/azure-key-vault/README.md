@@ -74,11 +74,13 @@ AZURE_TENANT_ID=
 # @type=azureClientId
 AZURE_CLIENT_ID=
 
-# @type=azureClientSecret @sensitive
+# @type=azureClientSecret @sensitive @internal
 AZURE_CLIENT_SECRET=
 ```
 
 You would then need to inject these env vars using your CI/CD system.
+
+> `@internal` keeps this credential out of your app's environment — varlock only uses it to fetch your secrets. If you need the credential at runtime for other purposes (e.g. via the Azure SDK), set `@internal=false` to keep it injected.
 
 ### OIDC workload identity (For Vercel, GitHub Actions, etc.)
 

@@ -44,7 +44,7 @@ You will need to provide your Passbolt account kit and its passphrase:
 # @plugin(@varlock/passbolt-plugin)
 # @initPassbolt(accountKit=$PB_ACCOUNT_KIT, passphrase=$PB_PASSPHRASE)
 # ---
-# @type=passboltAccountKit @sensitive
+# @type=passboltAccountKit @sensitive @internal
 PB_ACCOUNT_KIT=
 # @type=string @sensitive
 PB_PASSPHRASE=
@@ -67,7 +67,7 @@ This plugin introduces the `passbolt()` function to fetch secret values.
 # @plugin(@varlock/passbolt-plugin)
 # @initPassbolt(accountKit=$PB_ACCOUNT_KIT, passphrase=$PB_PASSPHRASE)
 # ---
-# @type=passboltAccountKit @sensitive
+# @type=passboltAccountKit @sensitive @internal
 PB_ACCOUNT_KIT=
 # @type=string @sensitive
 PB_PASSPHRASE=
@@ -105,7 +105,7 @@ Use `passboltBulk()` with `@setValuesBulk` to load all secrets (passwords) from 
 # @initPassbolt(accountKit=$PB_ACCOUNT_KIT, passphrase=$PB_PASSPHRASE)
 # @setValuesBulk(passboltBulk(folderPath="Database/Dev"))
 # ---
-# @type=passboltAccountKit @sensitive
+# @type=passboltAccountKit @sensitive @internal
 PB_ACCOUNT_KIT=
 # @type=string @sensitive
 PB_PASSPHRASE=
@@ -122,7 +122,7 @@ Or use `passboltCustomFieldsObj()` with `@setValuesBulk` to load all custom fiel
 # @initPassbolt(accountKit=$PB_ACCOUNT_KIT, passphrase=$PB_PASSPHRASE)
 # @setValuesBulk(passboltCustomFieldsObj("01234567-0123-4567-890a-bcdef0123456"))
 # ---
-# @type=passboltAccountKit @sensitive
+# @type=passboltAccountKit @sensitive @internal
 PB_ACCOUNT_KIT=
 # @type=string @sensitive
 PB_PASSPHRASE=

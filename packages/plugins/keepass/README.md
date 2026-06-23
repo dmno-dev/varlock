@@ -87,7 +87,7 @@ After registering the plugin, initialize it with the `@initKeePass` root decorat
 # @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD)
 # ---
 
-# @type=kdbxPassword @sensitive
+# @type=kdbxPassword @sensitive @internal
 KP_PASSWORD=
 ```
 

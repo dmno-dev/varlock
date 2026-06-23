@@ -522,6 +522,9 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
     incompatibleWith: ['sensitive'],
   },
   {
+    name: 'internal',
+  },
+  {
     name: 'type',
     useFnArgsResolver: true,
   },

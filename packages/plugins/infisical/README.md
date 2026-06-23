@@ -61,7 +61,7 @@ Add the plugin to your `.env.schema` file:
 # ---
 # @type=infisicalClientId
 INFISICAL_CLIENT_ID=
-# @type=infisicalClientSecret @sensitive
+# @type=infisicalClientSecret @sensitive @internal
 INFISICAL_CLIENT_SECRET=
 ```
 
@@ -143,11 +143,11 @@ Use multiple Infisical projects or environments:
 # ---
 # @type=infisicalClientId
 DEV_CLIENT_ID=
-# @type=infisicalClientSecret @sensitive
+# @type=infisicalClientSecret @sensitive @internal
 DEV_CLIENT_SECRET=
 # @type=infisicalClientId
 PROD_CLIENT_ID=
-# @type=infisicalClientSecret @sensitive
+# @type=infisicalClientSecret @sensitive @internal
 PROD_CLIENT_SECRET=
 
 DEV_DATABASE=infisical(dev, "DATABASE_URL")
@@ -165,7 +165,7 @@ Use `infisicalBulk()` with `@setValuesBulk` to load all secrets from a project e
 # ---
 # @type=infisicalClientId
 INFISICAL_CLIENT_ID=
-# @type=infisicalClientSecret @sensitive
+# @type=infisicalClientSecret @sensitive @internal
 INFISICAL_CLIENT_SECRET=
 
 # These will be populated from Infisical
@@ -280,7 +280,7 @@ The plugin provides helpful error messages:
 # ---
 # @type=infisicalClientId
 INFISICAL_CLIENT_ID=
-# @type=infisicalClientSecret @sensitive
+# @type=infisicalClientSecret @sensitive @internal
 INFISICAL_CLIENT_SECRET=
 
 # Secret names automatically match config keys
@@ -319,7 +319,7 @@ SENDGRID_KEY=infisical("SENDGRID_KEY", "/api")
 # ---
 # @type=infisicalClientId
 INFISICAL_CLIENT_ID=
-# @type=infisicalClientSecret @sensitive
+# @type=infisicalClientSecret @sensitive @internal
 INFISICAL_CLIENT_SECRET=
 
 DATABASE_URL=

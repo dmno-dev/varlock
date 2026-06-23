@@ -61,7 +61,7 @@ The plugin authenticates using an API Key consisting of an Access ID and Access 
 
     # @type=akeylessAccessId
     AKEYLESS_ACCESS_ID=
-    # @type=akeylessAccessKey @sensitive
+    # @type=akeylessAccessKey @sensitive @internal
     AKEYLESS_ACCESS_KEY=
     ```
 
@@ -253,6 +253,9 @@ AKEYLESS_ACCESS_ID=
 </div>
 <div>
 #### `akeylessAccessKey`
+
+This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+
 
 Represents an Akeyless Access Key for API Key authentication. This type is marked as `@sensitive`.
 

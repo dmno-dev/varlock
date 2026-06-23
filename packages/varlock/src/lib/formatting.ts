@@ -128,6 +128,7 @@ export function getItemSummary(item: ConfigItem) {
 
     // ansis.gray(`[type = ${item.type.typeLabel}]`),
     isSensitive && ` 🔐${ansis.gray.italic('sensitive')}`,
+    item.isInternal && ` 🔩${ansis.gray.italic('internal')}`,
     item.isDeprecated && ` 😵${ansis.yellow.dim.italic('deprecated')}`,
 
     // item.useAt ? ansis.gray.italic(`(${item.useAt?.join(', ')})`) : undefined,

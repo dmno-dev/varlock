@@ -269,6 +269,7 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'dopplerServiceToken',
   sensitive: true,
+  internal: true,
   typeDescription: 'Doppler service token for API access',
   icon: DOPPLER_ICON,
   docs: [

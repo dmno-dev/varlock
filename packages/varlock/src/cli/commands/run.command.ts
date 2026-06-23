@@ -31,6 +31,10 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'Deprecated: use --inject vars instead',
     },
+    'include-internal': {
+      type: 'boolean',
+      description: 'Pass @internal items through to the child process (by default they are stripped, even when set in the ambient env). Use this for a nested `varlock run` whose own resolution needs the internal value (e.g. a secret-zero token).',
+    },
     path: {
       type: 'string',
       short: 'p',
@@ -194,7 +198,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   // will fail above if there are any errors
 
-  const resolvedEnv = envGraph.getResolvedEnvObject();
+  // by default @internal items are never handed to the child; --include-internal opts out
+  // (e.g. a nested `varlock run` whose own resolution needs a secret-zero token)
+  const includeInternal = !!ctx.values['include-internal'];
+  const resolvedEnv = envGraph.getResolvedEnvObject({ includeInternal });
   const serializedGraph = envGraph.getSerializedGraph();
   const { resetRedactionMap } = await import('../../runtime/env');
   const { createRedactedStreamWriter } = await import('../../runtime/lib/redact-stream');
@@ -220,6 +227,15 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     __VARLOCK_RUN: '1', // flag for a child process to detect it is running via `varlock run`
     ...(injectBlob ? { __VARLOCK_ENV: JSON.stringify(serializedGraph) } : {}),
   };
+
+  // @internal items must not reach the application. The spread of process.env above can carry
+  // an ambiently-set value (e.g. `OP_TOKEN=xxx varlock run ...`), so strip those keys here —
+  // unless --include-internal was passed, in which case they were intentionally injected above.
+  if (!includeInternal) {
+    for (const itemKey of envGraph.sortedConfigKeys) {
+      if (envGraph.configSchema[itemKey].isInternal) delete fullInjectedEnv[itemKey];
+    }
+  }
 
   // when only injecting the blob, also inject the encryption key so the
   // child process can decrypt it (if encrypted)

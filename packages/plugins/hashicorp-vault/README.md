@@ -87,7 +87,7 @@ You can also provide a token directly:
 # )
 # ---
 
-# @type=vaultToken @sensitive
+# @type=vaultToken @sensitive @internal
 VAULT_TOKEN=
 ```
 

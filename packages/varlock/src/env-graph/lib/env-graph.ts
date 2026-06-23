@@ -61,6 +61,8 @@ export type SerializedEnvGraph = {
     isSensitive: boolean;
     /** false = opted out of runtime leak detection (still redacted in logs). Omitted when true (the default). */
     preventLeaks?: boolean;
+    /** true = used only by varlock, not injected into the app. Only present in inspection output (never in the blob). */
+    isInternal?: boolean;
   }>;
   /** provenance metadata for process.env overrides across nested invocations */
   __varlockOverrideMeta?: OverrideProvenanceMetadata;
@@ -689,16 +691,19 @@ export class EnvGraph {
     return keys;
   }
 
-  getResolvedEnvObject() {
+  getResolvedEnvObject(opts?: { includeInternal?: boolean }) {
     const envObject: Record<string, any> = {};
     for (const itemKey of this.sortedConfigKeys) {
       const item = this.configSchema[itemKey];
+      // @internal items are used only by varlock (e.g. to resolve other items) and are
+      // never injected into the application — exclude them from the resolved env output
+      if (item.isInternal && !opts?.includeInternal) continue;
       envObject[itemKey] = item.resolvedValue;
     }
     return envObject;
   }
 
-  getSerializedGraph(): SerializedEnvGraph {
+  getSerializedGraph(opts?: { includeInternal?: boolean }): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
       basePath: this.basePath,
       sources: [],
@@ -720,9 +725,14 @@ export class EnvGraph {
       // reserved prefix so any current/future infra var is excluded automatically.
       if (isVarlockReservedKey(itemKey)) continue;
       const item = this.configSchema[itemKey];
+      // @internal items are never injected into the app, so the blob (delivered to the app
+      // process via __VARLOCK_ENV) must exclude them entirely. Inspection callers
+      // (e.g. `load --format json-full`) opt in via includeInternal to show them, flagged.
+      if (item.isInternal && !opts?.includeInternal) continue;
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,
         isSensitive: item.isSensitive,
+        ...item.isInternal ? { isInternal: true } : {},
         // only emit when opted out — keeps the common-case blob smaller
         ...item.isSensitive && !item.preventLeaks ? { preventLeaks: false } : {},
       };

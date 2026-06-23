@@ -38,7 +38,7 @@ See the [plugins guide](/guides/plugins/#installation) for more instructions on 
 # ---
 
 # 3. Add a config item for the Secrets Manager config token
-# @type=keeperSmToken @sensitive
+# @type=keeperSmToken @sensitive @internal
 KSM_CONFIG=
 ```
 
@@ -78,7 +78,7 @@ KSM_CONFIG=
     # @initKeeper(token=$KSM_CONFIG)
     # ---
 
-    # @type=keeperSmToken @sensitive
+    # @type=keeperSmToken @sensitive @internal
     KSM_CONFIG=
     ```
 
@@ -97,9 +97,9 @@ If you need to connect to different Keeper applications or vaults, register mult
 # @initKeeper(token=$KSM_DEV, id=dev)
 # ---
 
-# @type=keeperSmToken @sensitive
+# @type=keeperSmToken @sensitive @internal
 KSM_PROD=
-# @type=keeperSmToken @sensitive
+# @type=keeperSmToken @sensitive @internal
 KSM_DEV=
 
 PROD_SECRET=keeper(prod, "XXXXXXXXXXXXXXXXXXXX")
@@ -188,7 +188,7 @@ Initialize a Keeper Secrets Manager plugin instance for accessing secrets.
 ```env-spec "@initKeeper"
 # @initKeeper(token=$KSM_CONFIG)
 # ---
-# @type=keeperSmToken @sensitive
+# @type=keeperSmToken @sensitive @internal
 KSM_CONFIG=
 ```
 </div>
@@ -198,6 +198,9 @@ KSM_CONFIG=
 <div class="reference-docs">
 <div>
 #### `keeperSmToken`
+
+This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+
 
 Represents a base64-encoded configuration token for the Keeper Secrets Manager SDK. Validation ensures the value is a valid base64-encoded JSON string.
 Note that the type itself is marked as `@sensitive`, so adding an explicit `@sensitive` decorator is optional.

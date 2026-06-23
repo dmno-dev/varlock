@@ -62,7 +62,7 @@ For deployments without a kubeconfig, provide the API server URL and a bearer to
 # )
 # ---
 
-# @type=kubernetesBearerToken @sensitive
+# @type=kubernetesBearerToken @sensitive @internal
 KUBERNETES_TOKEN=
 ```
 

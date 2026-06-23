@@ -46,7 +46,7 @@ For most use cases, you only need to provide the access token:
 # @initBitwarden(accessToken=$BITWARDEN_ACCESS_TOKEN)
 # ---
 
-# @type=bitwardenAccessToken @sensitive
+# @type=bitwardenAccessToken @sensitive @internal
 BITWARDEN_ACCESS_TOKEN=
 ```
 
@@ -90,7 +90,7 @@ This plugin introduces the `bitwarden()` function to fetch secret values.
 # @initBitwarden(accessToken=$BITWARDEN_ACCESS_TOKEN)
 # ---
 
-# @type=bitwardenAccessToken @sensitive
+# @type=bitwardenAccessToken @sensitive @internal
 BITWARDEN_ACCESS_TOKEN=
 
 # Fetch secrets by UUID

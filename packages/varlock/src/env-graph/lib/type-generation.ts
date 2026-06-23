@@ -251,6 +251,8 @@ export async function generateTypes(graph: EnvGraph, lang: string, typesPath: st
     if (isVarlockReservedKey(itemKey)) continue;
     const configItem = graph.configSchema[itemKey];
     if (!configItem.defsForTypeGeneration.length) continue;
+    // @internal items are not injected into the app, so they shouldn't appear in the typed ENV
+    if (configItem.isInternal) continue;
     items.push(await configItem.getTypeGenInfo());
   }
 

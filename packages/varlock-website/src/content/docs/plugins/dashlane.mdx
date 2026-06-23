@@ -152,6 +152,9 @@ Initialize a Dashlane plugin instance for `dashlane()` resolver.
 <div>
 #### `dashlaneDeviceKeys`
 
+This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+
+
 Service device keys for non-interactive Dashlane CLI authentication. Must start with `dls_`.
 
 See: [Dashlane CLI device registration](https://cli.dashlane.com/personal/devices)

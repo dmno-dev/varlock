@@ -453,6 +453,7 @@ plugin.registerDataType({
 plugin.registerDataType({
   name: 'akeylessAccessKey',
   sensitive: true,
+  internal: true,
   typeDescription: 'Akeyless Access Key for API Key authentication',
   docs: [
     {

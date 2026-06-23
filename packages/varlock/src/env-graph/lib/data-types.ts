@@ -39,6 +39,14 @@ type EnvGraphDataTypeDef<CoerceReturnType, ValidateInputType = FallbackIfUnknown
   /** will make items of this type sensitive, unless overridden specifically on that item */
   sensitive?: boolean,
 
+  /**
+   * will make items of this type internal (used only by varlock, not injected into the app),
+   * unless overridden specifically on that item via `@internal=false`.
+   * Useful for credentials like a service-account token that fetch other secrets but
+   * are very rarely needed in application code.
+   */
+  internal?: boolean,
+
   /** adds docs info for these  */
   docs?: Array<string | { url: string, description: string }>;
   // do we want to allow adding settings that usually come from other decorators?
@@ -60,6 +68,7 @@ export class EnvGraphDataType {
   get name() { return this.def.name; }
   get icon() { return this.def.icon; }
   get isSensitive() { return this.def.sensitive; }
+  get isInternal() { return this.def.internal; }
   get docsEntries() { return this.def.docs; }
 
   /** @internal */

@@ -77,6 +77,7 @@ plugin.registerResolverFunction({
 plugin.registerDataType({
   name: 'dashlaneDeviceKeys',
   sensitive: true,
+  internal: true,
   typeDescription: 'Service device keys for non-interactive Dashlane CLI authentication',
   icon: DASHLANE_ICON,
   docs: [

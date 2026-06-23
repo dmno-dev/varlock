@@ -39,7 +39,7 @@ See the [plugins guide](/guides/plugins/#installation) for more instructions on 
 # ---
 
 # 3. Add config items for your credentials
-# @type=passboltAccountKit @sensitive
+# @type=passboltAccountKit @sensitive @internal
 PB_ACCOUNT_KIT=
 # @sensitive
 PB_PASSPHRASE=
@@ -61,7 +61,7 @@ The plugin authenticates using your Passbolt **account kit** (a base64-encoded b
     # @plugin(@varlock/passbolt-plugin)
     # @initPassbolt(accountKit=$PB_ACCOUNT_KIT, passphrase=$PB_PASSPHRASE)
     # ---
-    # @type=passboltAccountKit @sensitive
+    # @type=passboltAccountKit @sensitive @internal
     PB_ACCOUNT_KIT=
     # @sensitive
     PB_PASSPHRASE=
@@ -136,7 +136,7 @@ Use `passboltBulk()` with `@setValuesBulk` to load all passwords from a Passbolt
 # @initPassbolt(accountKit=$PB_ACCOUNT_KIT, passphrase=$PB_PASSPHRASE)
 # @setValuesBulk(passboltBulk(folderPath="Database/Dev"))
 # ---
-# @type=passboltAccountKit @sensitive
+# @type=passboltAccountKit @sensitive @internal
 PB_ACCOUNT_KIT=
 # @sensitive
 PB_PASSPHRASE=
@@ -187,7 +187,7 @@ Initializes an instance of the Passbolt plugin — setting up authentication and
 ```env-spec "@initPassbolt"
 # @initPassbolt(accountKit=$PB_ACCOUNT_KIT, passphrase=$PB_PASSPHRASE, cacheTtl="1h")
 # ---
-# @type=passboltAccountKit @sensitive
+# @type=passboltAccountKit @sensitive @internal
 PB_ACCOUNT_KIT=
 # @sensitive
 PB_PASSPHRASE=
@@ -202,10 +202,13 @@ PB_PASSPHRASE=
 <div>
 #### `passboltAccountKit`
 
+This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+
+
 Represents a Passbolt account kit (base64-encoded). Validation ensures the value is valid base64. The type is marked as `@sensitive`, so adding an explicit `@sensitive` decorator is optional.
 
 ```env-spec "passboltAccountKit"
-# @type=passboltAccountKit @sensitive
+# @type=passboltAccountKit @sensitive @internal
 PB_ACCOUNT_KIT=
 ```
 </div>
