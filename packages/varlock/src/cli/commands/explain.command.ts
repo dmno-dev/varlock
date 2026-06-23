@@ -37,6 +37,11 @@ export const commandSpec = define({
   name: 'explain',
   description: 'Show detailed information about how a config item is resolved',
   args: {
+    key: {
+      type: 'positional',
+      required: false,
+      description: 'Config item to explain',
+    },
     env: {
       type: 'string',
       description: 'Set the environment (e.g., production, development, etc)',
@@ -71,13 +76,12 @@ function describeResolver(resolver: any, indent = ''): string {
 }
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
-  const positionals = (ctx.positionals ?? []).slice(ctx.commandPath?.length ?? 0);
-  if (!positionals.length) {
+  const varName = ctx.values.key;
+  if (!varName) {
     throw new CliExitError('Missing required argument: variable name', {
       suggestion: 'Run `varlock explain MY_VAR` to explain a config item',
     });
   }
-  const varName = positionals[0];
 
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,

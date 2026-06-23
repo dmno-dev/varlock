@@ -19,6 +19,12 @@ export const commandSpec = define({
   name: 'audit',
   description: 'Audit code env var usage against your .env.schema',
   args: {
+    targets: {
+      type: 'positional',
+      required: false,
+      multiple: true,
+      description: 'Directories to scan for env var references (defaults to the current project)',
+    },
     path: {
       type: 'string',
       short: 'p',
@@ -119,7 +125,7 @@ async function getCustomAuditIgnorePaths(envGraph: any): Promise<Array<string>> 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const providedEntryPath = ctx.values.path as string | undefined;
   const cliIgnoreDirs = (ctx.values.ignore ?? []) as Array<string>;
-  const scanTargets = (ctx.positionals ?? []).slice(ctx.commandPath?.length ?? 0);
+  const scanTargets = ctx.values.targets ?? [];
 
   const envGraph = await loadVarlockEnvGraph({
     entryFilePaths: providedEntryPath ? [providedEntryPath] : undefined,

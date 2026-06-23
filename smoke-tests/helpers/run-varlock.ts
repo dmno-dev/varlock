@@ -15,7 +15,6 @@ export const VARLOCK_CLI = join(SMOKE_TESTS_DIR, 'node_modules', 'varlock', 'bin
 export function runVarlock(args: Array<string>, options?: {
   cwd?: string;
   env?: Record<string, string>;
-  captureOutput?: boolean;
 }) {
   const cwd = options?.cwd ? join(SMOKE_TESTS_DIR, options.cwd) : SMOKE_TESTS_DIR;
   const env = { ...process.env, ...options?.env };
@@ -53,7 +52,6 @@ export function varlockRun(command: Array<string>, options?: {
   return runVarlock(['run', '--', ...command], {
     cwd: options?.cwd,
     env: options?.env,
-    captureOutput: true,
   });
 }
 
@@ -71,5 +69,5 @@ export function varlockPrintenv(varName: string, options?: {
     args.push('--path', options.path);
   }
   args.push(varName);
-  return runVarlock(args, { cwd: options?.cwd, captureOutput: true });
+  return runVarlock(args, { cwd: options?.cwd });
 }
