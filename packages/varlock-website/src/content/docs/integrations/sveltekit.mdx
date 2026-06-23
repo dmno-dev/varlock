@@ -7,22 +7,21 @@ import Badge from '@/components/Badge.astro';
 import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
 import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
 
-[SvelteKit](https://svelte.dev/docs/kit) is built on [Vite](https://vite.dev), so there's no dedicated SvelteKit package — which integration you use depends on where you deploy.
+[SvelteKit](https://svelte.dev/docs/kit) is built on [Vite](https://vite.dev), so there's no dedicated SvelteKit package — you use the [Vite integration](/integrations/vite/) the same way regardless of where you deploy.
 
-- **Node / Vercel / Netlify / self-hosted / most adapters** — use the [Vite integration](/integrations/vite/). See [setup below](#setup).
-- **Cloudflare Workers (via `@sveltejs/adapter-cloudflare`)** — use `varlockSvelteKitCloudflarePlugin` from `@varlock/cloudflare-integration/sveltekit`. See [setup below](#sveltekit-on-cloudflare-workers).
+Add `varlockVitePlugin()` to your Vite config ([setup below](#setup)) and it works across deploy targets. If you deploy to **Cloudflare Workers** (via [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare)), the plugin detects the adapter and automatically wires up the runtime env-loader — you just need `@varlock/cloudflare-integration` installed as well (it ships `varlock-wrangler`). See [Cloudflare Workers setup](#setup-for-cloudflare-workers).
 
 Check out the [SvelteKit example project](https://github.com/dmno-dev/varlock-examples/tree/main/examples/sveltekit) for a working reference.
 
 ---
 
-## Setup (Vite integration)
+## Setup
 
 <div class="page-badges">
   <Badge npmPackage="@varlock/vite-integration" />
 </div>
 
-For any SvelteKit deployment target _other than_ Cloudflare Workers, use `varlockVitePlugin` exactly as you would in any Vite project.
+Use `varlockVitePlugin` exactly as you would in any Vite project. This is the setup for every deploy target — see [Cloudflare Workers](#setup-for-cloudflare-workers) below for the one extra package CF deployments need.
 
 <Steps>
 
@@ -62,10 +61,12 @@ See the [**Vite integration page**](/integrations/vite/) for configuration optio
   <Badge npmPackage="@varlock/cloudflare-integration" />
 </div>
 
-For SvelteKit projects deploying to Cloudflare Workers via [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare), use `varlockSvelteKitCloudflarePlugin` from `@varlock/cloudflare-integration/sveltekit`. This is a separate entry point from the standard `varlockCloudflareVitePlugin` because `@cloudflare/vite-plugin` doesn't currently support SvelteKit (see [cloudflare/workers-sdk#8922](https://github.com/cloudflare/workers-sdk/issues/8922)). The SvelteKit plugin skips that dependency entirely and injects the runtime env-loader into SvelteKit's SSR entry instead, so the resolved env is available inside the worker.
+For SvelteKit projects deploying to Cloudflare Workers via [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare), use the same `varlockVitePlugin()` from the [setup above](#setup). When it detects the Cloudflare adapter, it automatically injects the runtime env-loader into SvelteKit's SSR entry so the resolved env is available inside the worker. You just need to additionally install `@varlock/cloudflare-integration` — it provides `varlock-wrangler` and the Cloudflare-specific loader the plugin pulls in. (The standard `varlockCloudflareVitePlugin` isn't used here because `@cloudflare/vite-plugin` doesn't currently support SvelteKit — see [cloudflare/workers-sdk#8922](https://github.com/cloudflare/workers-sdk/issues/8922).)
+
+The adapter is detected whether you configure it in `svelte.config.js` or inline in your Vite config (SvelteKit ≥ 2.62), so no extra setup is needed either way.
 
 :::note[Static-only SvelteKit sites]
-If your SvelteKit app is fully static (no SSR — typically using `@sveltejs/adapter-static` and deployed to Cloudflare Pages or any CDN), you don't need this section at all. Use the generic [Vite integration](#setup) above — there's no server bundle for us to inject into.
+If your SvelteKit app is fully static (no SSR — typically using `@sveltejs/adapter-static` and deployed to Cloudflare Pages or any CDN), you don't need `@varlock/cloudflare-integration` at all. The [base setup](#setup) is enough — there's no server bundle for us to inject into.
 :::
 
 ### Setup
@@ -73,22 +74,22 @@ If your SvelteKit app is fully static (no SSR — typically using `@sveltejs/ada
 <Steps>
 
 1. **Install packages**
-    <InstallJsDepsWidget packages="@varlock/cloudflare-integration varlock" />
+    <InstallJsDepsWidget packages="@varlock/vite-integration @varlock/cloudflare-integration varlock" />
 
 1. **Run `varlock init` to set up your `.env.schema`**
 
     <ExecCommandWidget command="varlock init" showBinary={false} />
 
-1. **Add the plugin to your Vite config**
+1. **Add the plugin to your Vite config** — the same as the base setup; it auto-detects the Cloudflare adapter:
 
     ```diff lang="ts" title="vite.config.ts"
     import { sveltekit } from '@sveltejs/kit/vite';
     import { defineConfig } from 'vite';
-    +import { varlockSvelteKitCloudflarePlugin } from '@varlock/cloudflare-integration/sveltekit';
+    +import { varlockVitePlugin } from '@varlock/vite-integration';
 
     export default defineConfig({
       plugins: [
-    +    varlockSvelteKitCloudflarePlugin(),
+    +    varlockVitePlugin(),
         sveltekit(),
       ],
     });

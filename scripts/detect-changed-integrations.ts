@@ -30,6 +30,9 @@ const INTEGRATION_PACKAGES: Record<string, Array<string>> = {
   'vanilla-node': [], // no integration package — triggered only by core varlock changes
   astro: ['@varlock/astro-integration', '@varlock/vite-integration'],
   'tanstack-start': ['@varlock/cloudflare-integration', '@varlock/vite-integration'],
+  // SvelteKit uses the vite plugin directly; the CF scenario also pulls the
+  // cloudflare integration's edge loader via auto-detection.
+  sveltekit: ['@varlock/vite-integration', '@varlock/cloudflare-integration'],
 };
 
 // Quick test paths for integrations where full suite is expensive.
