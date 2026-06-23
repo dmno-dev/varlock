@@ -3,7 +3,6 @@ import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { initVarlockEnv } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import type { SerializedEnvGraph } from 'varlock';
-import packageJson from '../package.json';
 
 const VARLOCK_SUBPATHS = [
   'varlock/env',
@@ -80,8 +79,8 @@ export function withVarlockMetroConfig<T extends Record<string, any>>(config: T)
     const { stdout } = execSyncVarlock('load --format json-full', {
       fullResult: true,
       integrationTelemetry: {
-        name: packageJson.name,
-        version: packageJson.version,
+        name: __VARLOCK_INTEGRATION_NAME__,
+        version: __VARLOCK_INTEGRATION_VERSION__,
       },
     });
     process.env.__VARLOCK_ENV = stdout;

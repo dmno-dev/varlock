@@ -10,7 +10,6 @@ import { spawn, execSync } from 'node:child_process';
 
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
-import packageJson from '../package.json';
 
 const isWindows = process.platform === 'win32';
 const debugEnabled = !!process.env.VARLOCK_DEBUG;
@@ -53,8 +52,8 @@ function loadSerializedGraph() {
   const { stdout } = execSyncVarlock('load --format json-full --compact', {
     fullResult: true,
     integrationTelemetry: {
-      name: packageJson.name,
-      version: packageJson.version,
+      name: __VARLOCK_INTEGRATION_NAME__,
+      version: __VARLOCK_INTEGRATION_VERSION__,
     },
   });
   return {

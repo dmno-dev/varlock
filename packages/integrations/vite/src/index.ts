@@ -15,7 +15,6 @@ import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-en
 import { createReplacerTransformFn, SUPPORTED_FILES } from './transform';
 
 import { ansiToHtml } from './ansi-to-html';
-import packageJson from '../package.json';
 export { ansiToHtml };
 
 export function buildErrorPageHtml(ansiError?: string): string {
@@ -78,8 +77,8 @@ function resetStaticReplacements() {
 
 let loadCount = 0;
 let activeIntegrationTelemetry = {
-  name: packageJson.name,
-  version: packageJson.version,
+  name: __VARLOCK_INTEGRATION_NAME__,
+  version: __VARLOCK_INTEGRATION_VERSION__,
 };
 
 function reloadConfig(cwd?: string) {
