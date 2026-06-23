@@ -1,4 +1,5 @@
 ---
+"@varlock/1password-plugin": patch
 "@varlock/akeyless-plugin": patch
 "@varlock/aws-secrets-plugin": patch
 "@varlock/azure-key-vault-plugin": patch
