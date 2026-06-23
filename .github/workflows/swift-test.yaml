@@ -23,7 +23,7 @@ jobs:
   swift-test:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Cache the Swift .build directory so compilation is fast on unchanged source
       - name: Compute Swift source hash

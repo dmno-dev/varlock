@@ -54,7 +54,7 @@ jobs:
       macos-cache-hit: ${{ steps.macos-cache.outputs.cache-hit }}
       rust-cache-hit: ${{ steps.rust-cache.outputs.cache-hit }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
       - id: plan
@@ -210,7 +210,7 @@ jobs:
       pull-requests: write
       issues: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           # this is needed so that pushes to the version release branch will use the token we pass in below

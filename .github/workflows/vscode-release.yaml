@@ -12,7 +12,7 @@ jobs:
       contents: read
       id-token: write # required for Azure OIDC login
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
       - name: Use Node.js 24.x

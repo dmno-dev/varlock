@@ -24,7 +24,7 @@ jobs:
       rust-cache-hit: ${{ steps.rust-cache-final.outputs.cache-hit }}
       rust-source-hash: ${{ steps.rust-hash.outputs.hash }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Setup Bun
@@ -172,7 +172,7 @@ jobs:
     if: always() && !failure() && !cancelled() && github.ref_name != 'main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Setup Bun
