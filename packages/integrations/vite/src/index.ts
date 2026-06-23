@@ -16,6 +16,7 @@ import { createReplacerTransformFn, SUPPORTED_FILES } from './transform';
 
 import { ansiToHtml } from './ansi-to-html';
 export { ansiToHtml };
+export { CLOUDFLARE_SSR_ENTRY_CODE } from './cloudflare-ssr-entry-code';
 
 export function buildErrorPageHtml(ansiError?: string): string {
   const errorContent = ansiError
