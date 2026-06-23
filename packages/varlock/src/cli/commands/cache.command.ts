@@ -6,6 +6,8 @@ import { isCancel } from '@clack/prompts';
 
 import { CacheStore, createEnvKeyCacheStore, getCacheEnvKey } from '../../lib/cache';
 import { groupKeyPrefix } from '../../lib/cache/cache-store';
+import { loadVarlockConfigVarsFromFiles } from '../../env-graph/lib/loader';
+import { mergeVarlockConfigEnv } from '../../env-graph/lib/reserved-vars';
 import { formatTimeAgo, formatDuration } from '../../lib/formatting';
 import * as localEncrypt from '../../lib/local-encrypt';
 import { select, confirm } from '../helpers/prompts';
@@ -107,9 +109,11 @@ const isInteractive = () => process.stdout.isTTY && process.stdin.isTTY;
  * Resolve the cache store to operate on. Returns `null` (after logging) when no
  * cache is active — e.g. an invalid `_VARLOCK_CACHE_KEY` or no local key present.
  */
-function resolveStore(): CacheStore | null {
-  // when an env-provided key is active (e.g. CI), manage that key's cache file
-  const envKey = getCacheEnvKey();
+async function resolveStore(): Promise<CacheStore | null> {
+  // honor a _VARLOCK_CACHE_KEY set in the real env or in a .env file (env wins), so this
+  // manages the same cache `varlock run` does — parse-only, so a broken schema can't block it
+  const fileVars = await loadVarlockConfigVarsFromFiles(process.cwd());
+  const envKey = getCacheEnvKey(mergeVarlockConfigEnv(fileVars));
   if (envKey) {
     try {
       return createEnvKeyCacheStore(envKey);
@@ -134,7 +138,7 @@ const statusCommand = define({
   description: 'Print a cache status summary (non-interactive)',
   run: async () => {
     await trackCommand('cache status', { command: 'cache status' });
-    const store = resolveStore();
+    const store = await resolveStore();
     if (!store) return;
     printStatus(store);
   },
@@ -163,7 +167,7 @@ const clearCommand = define({
   run: async (ctx) => {
     await trackCommand('cache clear', { command: 'cache clear' });
 
-    const store = resolveStore();
+    const store = await resolveStore();
     if (!store) return;
 
     const pluginName = ctx.values.plugin;
@@ -227,7 +231,7 @@ Examples:
  * otherwise a non-interactive status summary (safe for CI).
  */
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async () => {
-  const store = resolveStore();
+  const store = await resolveStore();
   if (!store) return;
 
   if (!isInteractive()) {

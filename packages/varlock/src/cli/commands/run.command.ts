@@ -238,8 +238,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   }
 
-  // when only injecting the blob, also inject the encryption key so the
-  // child process can decrypt it (if encrypted)
+  // when only injecting the blob, also inject the encryption key so the child process can
+  // decrypt it (if encrypted). Only a real env var is forwarded — a `.env.local`-sourced key
+  // stays local (a child that runs varlock re-reads .env.local itself).
   if (injectBlob && !injectVars && process.env._VARLOCK_ENV_KEY) {
     fullInjectedEnv._VARLOCK_ENV_KEY = process.env._VARLOCK_ENV_KEY;
   }
@@ -247,8 +248,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const redactLogs = serializedGraph.settings?.redactLogs ?? true;
   // tri-state override (true = force on, false = force off, undefined = auto-detect):
   // the --redact-stdout / --no-redact-stdout flag takes precedence, falling back to the
-  // _VARLOCK_REDACT_STDOUT env var, otherwise we auto-detect per stream below
-  const redactOverride = ctx.values['redact-stdout'] ?? parseEnvToggle(process.env._VARLOCK_REDACT_STDOUT);
+  // _VARLOCK_REDACT_STDOUT env var (which may come from a .env file), otherwise we
+  // auto-detect per stream below
+  const redactOverride = ctx.values['redact-stdout'] ?? parseEnvToggle(envGraph.varlockConfigEnv._VARLOCK_REDACT_STDOUT);
   const forceRedact = redactOverride === true;
   const forceNoRedact = redactOverride === false;
 

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { loadEnvGraph } from '../lib/loader';
+import { loadEnvGraph, loadVarlockConfigVarsFromFiles } from '../lib/loader';
 import { CacheStore, InMemoryCacheStore } from '../../lib/cache';
 
 // switchable local-encrypt backend so tests can simulate native vs file-fallback
@@ -92,10 +92,52 @@ describe('loadEnvGraph cache auto-policy', () => {
     expect((graph._cacheStore as CacheStore).getFilePath().endsWith('varlock-default.json')).toBe(true);
   });
 
+  it('honors a _VARLOCK_CACHE_KEY set in a .env.local file', async () => {
+    fs.writeFileSync(path.join(tempProjectDir, '.env.local'), `_VARLOCK_CACHE_KEY=${VALID_CACHE_KEY}\n`);
+    const graph = await loadEnvGraph({
+      entryFilePaths: tempProjectDir,
+      processEnvOverride: { CI: 'true' },
+    });
+    expect(graph.varlockConfigVarsFromFiles._VARLOCK_CACHE_KEY).toBe(VALID_CACHE_KEY);
+    expect(graph._cacheMode).toBe('disk');
+    expect((graph._cacheStore as CacheStore).getFilePath().endsWith(`env-key-${keyFingerprint}.json`)).toBe(true);
+  });
+
+  it('lets a real _VARLOCK_CACHE_KEY env var override the .env.local value', async () => {
+    const realKey = crypto.randomBytes(32).toString('hex');
+    const realFingerprint = crypto.createHash('sha256').update(realKey).digest('hex').slice(0, 12);
+    fs.writeFileSync(path.join(tempProjectDir, '.env.local'), `_VARLOCK_CACHE_KEY=${VALID_CACHE_KEY}\n`);
+    const graph = await loadEnvGraph({
+      entryFilePaths: tempProjectDir,
+      processEnvOverride: { CI: 'true', _VARLOCK_CACHE_KEY: realKey },
+    });
+    expect((graph._cacheStore as CacheStore).getFilePath().endsWith(`env-key-${realFingerprint}.json`)).toBe(true);
+  });
+
   it('falls back to memory when _VARLOCK_CACHE_KEY is invalid', async () => {
     const graph = await load({ processEnvOverride: { CI: 'true', _VARLOCK_CACHE_KEY: 'not-a-valid-key' } });
     expect(graph._cacheMode).toBe('memory');
     expect(graph._cacheStore).toBeInstanceOf(InMemoryCacheStore);
+  });
+
+  it('loadVarlockConfigVarsFromFiles does a parse-only extraction of file config vars', async () => {
+    fs.writeFileSync(path.join(tempProjectDir, '.env.local'), [
+      `_VARLOCK_CACHE_KEY=${VALID_CACHE_KEY}`,
+      '_VARLOCK_REDACT_STDOUT=true',
+      '',
+    ].join('\n'));
+    const fileVars = await loadVarlockConfigVarsFromFiles(tempProjectDir);
+    expect(fileVars._VARLOCK_CACHE_KEY).toBe(VALID_CACHE_KEY);
+    expect(fileVars._VARLOCK_REDACT_STDOUT).toBe('true');
+  });
+
+  it('loadVarlockConfigVarsFromFiles returns {} for a directory with no .env files', async () => {
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-empty-'));
+    try {
+      expect(await loadVarlockConfigVarsFromFiles(emptyDir)).toEqual({});
+    } finally {
+      fs.rmSync(emptyDir, { recursive: true, force: true });
+    }
   });
 
   it('creates no store with --skip-cache', async () => {

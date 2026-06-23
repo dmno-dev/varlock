@@ -11,6 +11,7 @@ import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
 // Decrypt the env blob if it was encrypted at build time.
 // Modern edge runtimes (Vercel Edge, Cloudflare with nodejs_compat) support node:crypto,
 // so we use the sync version here. Pure Web Crypto async path is available in env.ts as fallback.
+// At runtime there are no .env files, so _VARLOCK_ENV_KEY must already be a real env var.
 if (process.env.__VARLOCK_ENV && isEncryptedBlob(process.env.__VARLOCK_ENV)) {
   const key = process.env._VARLOCK_ENV_KEY;
   if (!key) throw new Error('[varlock] __VARLOCK_ENV is encrypted but _VARLOCK_ENV_KEY is not set');

@@ -16,6 +16,13 @@
  */
 export const VARLOCK_RESERVED_KEY_PREFIX = '_VARLOCK_';
 
+/**
+ * The `.env` files varlock reads its own `_VARLOCK_*` config from. Only these are scanned —
+ * not the committed `.env.schema`, nor env-specific files like `.env.production` — so this
+ * config stays in the local/value files where it belongs.
+ */
+export const VARLOCK_CONFIG_VAR_FILENAMES = new Set(['.env', '.env.local']);
+
 export type ReservedVarInfo = {
   name: string;
   description: string;
@@ -65,4 +72,37 @@ export const VARLOCK_INTERNAL_ENV_VARS: Array<ReservedVarInfo> = [
  */
 export function isVarlockReservedKey(key: string): boolean {
   return key.startsWith(VARLOCK_RESERVED_KEY_PREFIX);
+}
+
+const VARLOCK_CONFIG_VARS_BY_NAME = new Map(VARLOCK_CONFIG_ENV_VARS.map((v) => [v.name, v]));
+
+/**
+ * Check if a key is a recognized `_VARLOCK_*` config var (e.g. `_VARLOCK_ENV_KEY`). An
+ * unrecognized `_VARLOCK_*` key is almost certainly a typo.
+ */
+export function isKnownVarlockConfigVar(key: string): boolean {
+  return VARLOCK_CONFIG_VARS_BY_NAME.has(key);
+}
+
+/**
+ * Whether a `_VARLOCK_*` config var can be honored when set as a static value in a `.env`
+ * file (extracted before/around graph resolution and used to configure varlock itself).
+ * Internal vars (e.g. `_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK`) are read from the real
+ * environment at module load, too early to source from a file, so they're excluded.
+ */
+export function isFileHonorableVarlockConfigVar(key: string): boolean {
+  const info = VARLOCK_CONFIG_VARS_BY_NAME.get(key);
+  return !!info && !info.internal;
+}
+
+/**
+ * The single precedence rule for varlock's own config: a real environment variable wins
+ * over a value picked up from a `.env` file. Returns a merged env record (env layered over
+ * file values) — use this anywhere a `_VARLOCK_*` setting is read.
+ */
+export function mergeVarlockConfigEnv(
+  fileVars: Record<string, string | undefined> = {},
+  env: Record<string, string | undefined> = process.env,
+): Record<string, string | undefined> {
+  return { ...fileVars, ...env };
 }

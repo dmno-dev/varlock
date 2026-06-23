@@ -8,7 +8,8 @@ import { patchGlobalServerResponse } from '../runtime/patch-server-response';
 import { patchGlobalResponse } from '../runtime/patch-response';
 import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
 
-// Decrypt the env blob if it was encrypted at build time
+// Decrypt the env blob if it was encrypted at build time. At runtime there are no .env files,
+// so _VARLOCK_ENV_KEY must already be a real environment variable.
 if (process.env.__VARLOCK_ENV && isEncryptedBlob(process.env.__VARLOCK_ENV)) {
   const key = process.env._VARLOCK_ENV_KEY;
   if (!key) throw new Error('[varlock] __VARLOCK_ENV is encrypted but _VARLOCK_ENV_KEY is not set');

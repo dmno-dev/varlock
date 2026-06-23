@@ -12,12 +12,20 @@ varlock reserves a couple of environment variable namespaces for its own use. Kn
 | `__VARLOCK_*` (double underscore) | `__VARLOCK_ENV` | varlock internals — injected automatically, never set these yourself |
 
 :::caution[The `_VARLOCK_` prefix is reserved]
-Config items whose key starts with `_VARLOCK_` are reserved for varlock. They are **excluded** from the injected env blob, generated types, and override provenance — even if you define one in your `.env.schema`. varlock emits a warning if you do, since such an item won't behave like a normal config value. Don't name your own variables with this prefix.
+Keys starting with `_VARLOCK_` configure varlock itself, not your app. They never become config items — they're excluded from the injected env blob, the resolved env, `varlock load` output, generated types, and override provenance, and **can't be referenced from other items** (`FOO=$_VARLOCK_ENV_KEY` won't resolve). Don't name your own variables with this prefix; varlock warns if you use it on a key it doesn't recognize (most likely a typo).
 :::
 
 ## Configuration variables (`_VARLOCK_*`)
 
 Set these in your shell, CI, or deploy environment to configure varlock's behavior.
+
+You can also set a recognized config var (other than the internal ones) as a **static value in `.env` or `.env.local`** — e.g. `_VARLOCK_ENV_KEY` in a gitignored `.env.local` for local development. A few rules:
+
+- **Only `.env` and `.env.local` are honored** — not the committed `.env.schema` or env-specific files like `.env.production`. A `_VARLOCK_*` key elsewhere warns that it has no effect.
+- **Must be a plain literal** — references or functions can't be resolved before the config they configure, so a non-static value is an error.
+- **A real environment variable always takes precedence**, and these values are not passed through to `varlock run` child processes (a child re-reads `.env.local` itself).
+
+At runtime in a deployed app there are no `.env` files, so anything needed there (like `_VARLOCK_ENV_KEY` to decrypt the injected blob) must still be a real environment variable.
 
 ### `_VARLOCK_ENV_KEY`
 

@@ -18,6 +18,7 @@ import { pathExists } from '@env-spec/utils/fs-utils';
 import { processPluginInstallDecorators } from './plugins';
 import { RootDecoratorInstance } from './decorators';
 import { isBuiltinVar } from './builtin-vars';
+import { isVarlockReservedKey } from './reserved-vars';
 import { type KeyFilter, keyMatchesFilter, parseKeyFilterArgs } from './key-filter';
 
 /**
@@ -269,6 +270,10 @@ export abstract class EnvGraphDataSource {
       if (!this.isKeyImported(itemKey)) continue;
       const itemDef = this.configItemDefs[itemKey];
       if (!itemDef) continue;
+      // _VARLOCK_* keys configure varlock itself, not the app — never register them as config
+      // items (so they aren't resolved, validated, shown, or injected). They're picked up
+      // separately from the parsed defs via EnvGraph.processVarlockConfigVarsFromFiles().
+      if (isVarlockReservedKey(itemKey)) continue;
 
       // check if this item was already early-resolved (used by @currentEnv, @import enabled, or @disable)
       // a later file setting a conflicting value would silently contradict the decision already made

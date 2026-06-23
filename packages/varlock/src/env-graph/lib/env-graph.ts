@@ -1,4 +1,5 @@
 import _ from '@env-spec/utils/my-dash';
+import { ParsedEnvSpecStaticValue } from '@env-spec/parser';
 import path from 'node:path';
 import { ConfigItem } from './config-item';
 import {
@@ -21,7 +22,10 @@ import type { VarlockPlugin } from './plugins';
 import { runWithResolutionContext, getResolutionContext } from './resolution-context';
 import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
 import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
-import { isVarlockReservedKey } from './reserved-vars';
+import {
+  isVarlockReservedKey, isKnownVarlockConfigVar, isFileHonorableVarlockConfigVar,
+  mergeVarlockConfigEnv, VARLOCK_CONFIG_VAR_FILENAMES,
+} from './reserved-vars';
 import { buildOverrideProvenanceMetadata, type OverrideProvenanceMetadata } from '../../lib/injected-env-provenance';
 
 const processExists = !!globalThis.process;
@@ -301,6 +305,113 @@ export class EnvGraph {
   }
 
   /**
+   * Static-literal `_VARLOCK_*` config vars picked up from `.env` files (e.g. an
+   * `_VARLOCK_ENV_KEY` set in `.env.local`). These configure varlock itself and are kept
+   * out of the resolved graph/blob. A real environment variable always takes precedence —
+   * see `varlockConfigEnv` and the consumers in the CLI / auto-load.
+   */
+  varlockConfigVarsFromFiles: Record<string, string> = {};
+
+  /** guards against re-running the `.env` config-var extraction within a single load */
+  private _varlockConfigVarsProcessed = false;
+
+  /**
+   * The environment varlock reads its OWN config (`_VARLOCK_*`) from: the real process env
+   * (or its override) layered over any static values picked up from `.env` files, with the
+   * real env winning. Used for things like the cache encryption key.
+   */
+  get varlockConfigEnv(): Record<string, string | undefined> {
+    return mergeVarlockConfigEnv(this.varlockConfigVarsFromFiles, this.processEnvOverride ?? process.env);
+  }
+
+  /**
+   * Scan the `.env` / `.env.local` data sources for `_VARLOCK_*` keys defined as static values
+   * and record the honorable ones (highest precedence wins, real env still overrides later).
+   * Only those two files are honored — config doesn't belong in the committed `.env.schema` or
+   * env-specific files. When `emitDiagnostics` is set, also surface mistakes: a hard error for a
+   * recognized config var given a non-static value (it can never resolve before the graph it
+   * configures), and warnings for unrecognized keys (likely typos), internal vars (env-only),
+   * and `_VARLOCK_*` keys placed in a file where they won't take effect. Runs at most once per
+   * load (cached after the first call).
+   */
+  processVarlockConfigVarsFromFiles({ emitDiagnostics = false }: { emitDiagnostics?: boolean } = {}) {
+    if (this._varlockConfigVarsProcessed) return this.varlockConfigVarsFromFiles;
+    this._varlockConfigVarsProcessed = true;
+    const values: Record<string, string> = {};
+    const decided = new Set<string>();
+    for (const { source, filterNode } of this.sortedDefinitionSources) {
+      if (source.disabled) continue;
+      if (!(source instanceof FileBasedDataSource)) continue;
+      const isConfigFile = VARLOCK_CONFIG_VAR_FILENAMES.has(source.fileName);
+      for (const itemKey of Object.keys(source.configItemDefs)) {
+        if (!isVarlockReservedKey(itemKey)) continue;
+        if (filterNode && !filterNode.isKeyImported(itemKey)) continue;
+
+        // varlock's own config is only honored from .env / .env.local. Anywhere else it has no
+        // effect — flag it so a misplaced key isn't silently ignored.
+        if (!isConfigFile) {
+          if (emitDiagnostics) {
+            source._errors.push(new SchemaError(
+              `"${itemKey}" has no effect in ${source.fileName}`,
+              {
+                isWarning: true,
+                tip: '_VARLOCK_* vars configure varlock itself and are only read from .env / .env.local (or the real environment) — not the committed schema or env-specific files.',
+              },
+            ));
+          }
+          continue;
+        }
+
+        // only the highest-precedence definition in a config file decides a key's fate
+        if (decided.has(itemKey)) continue;
+        decided.add(itemKey);
+
+        const def = source.configItemDefs[itemKey];
+        const isStatic = def?.parsedValue instanceof ParsedEnvSpecStaticValue;
+
+        if (!isKnownVarlockConfigVar(itemKey)) {
+          if (emitDiagnostics) {
+            source._errors.push(new SchemaError(
+              `"${itemKey}" is not a recognized varlock config var`,
+              {
+                isWarning: true,
+                tip: '_VARLOCK_* keys are reserved for configuring varlock itself. This looks like a typo — check the spelling, or rename this item.',
+              },
+            ));
+          }
+        } else if (!isFileHonorableVarlockConfigVar(itemKey)) {
+          if (emitDiagnostics) {
+            source._errors.push(new SchemaError(
+              `"${itemKey}" is read from the environment only and has no effect when defined here`,
+              {
+                isWarning: true,
+                tip: `${itemKey} is an internal varlock config var resolved before your .env files load. Set it as a real environment variable instead.`,
+              },
+            ));
+          }
+        } else if (!isStatic) {
+          // a non-static value can never be honored (it's read before the graph resolves), and
+          // silently falling back to a different/auto key would be a footgun — fail loudly
+          if (emitDiagnostics) {
+            source._errors.push(new SchemaError(
+              `"${itemKey}" must be a static value`,
+              {
+                tip: `${itemKey} configures varlock itself and is read before the graph resolves, so it can't use references or functions. Use a literal value, or set it as a real environment variable.`,
+              },
+            ));
+          }
+        } else {
+          // config vars are env-var-like strings; the parser may type a bare `true`/number,
+          // so coerce (matches how a real env var would arrive)
+          values[itemKey] = String((def!.parsedValue as ParsedEnvSpecStaticValue).unescapedValue);
+        }
+      }
+    }
+    this.varlockConfigVarsFromFiles = values;
+    return values;
+  }
+
+  /**
    * Register a builtin VARLOCK_* variable.
    * Attaches an internal def with the builtin resolver so it flows through the normal pipeline.
    * If the item already exists (user-defined), the internal def is added as a fallback.
@@ -391,23 +502,10 @@ export class EnvGraph {
       if (isBuiltinVar(key)) this.registerBuiltinVar(key);
     }
 
-    // Warn about items defined with varlock's reserved _VARLOCK_ prefix. These keys are
-    // excluded from the injected env blob and generated types, so a user-defined one is
-    // almost certainly a mistake (or a typo'd internal var that won't behave as expected).
-    for (const source of this.sortedDataSources) {
-      if (source.disabled) continue;
-      for (const itemKey of Object.keys(source.configItemDefs)) {
-        if (isVarlockReservedKey(itemKey)) {
-          source._errors.push(new SchemaError(
-            `"${itemKey}" uses varlock's reserved _VARLOCK_ prefix`,
-            {
-              isWarning: true,
-              tip: 'Keys starting with _VARLOCK_ are reserved for configuring varlock itself and are excluded from the injected env and generated types. Rename this item unless that exclusion is intended.',
-            },
-          ));
-        }
-      }
-    }
+    // Extract any `_VARLOCK_*` config vars set as static values in .env files (so they can
+    // configure varlock itself) and warn about ones that can't be honored. A no-op when the
+    // loader already ran this before cache init; needed for callers that finishLoad directly.
+    this.processVarlockConfigVarsFromFiles({ emitDiagnostics: true });
 
     // process root decorators
     let hasErrors = false;
@@ -447,7 +545,7 @@ export class EnvGraph {
           // explicit disk mode overrides the auto policy's safety fallback — allowed, but warn
           const localEncrypt = await import('../../lib/local-encrypt');
           const { createEnvKeyCacheStore, getCacheEnvKey } = await import('../../lib/cache');
-          const envKey = getCacheEnvKey(this.processEnvOverride ?? process.env);
+          const envKey = getCacheEnvKey(this.varlockConfigEnv);
           const backendIsFile = localEncrypt.getBackendInfo().type === 'file';
 
           let diskStore: import('../../lib/cache/cache-store').CacheStoreLike | undefined;

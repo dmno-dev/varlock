@@ -35,49 +35,6 @@ export async function loadEnvGraph(opts?: {
   if (opts?.clearCache) graph._clearCacheMode = true;
   if (opts?.skipCache) graph._skipCacheMode = true;
 
-  const envKey = getCacheEnvKey(opts?.processEnvOverride ?? process.env);
-
-  // --clear-cache always clears the persistent disk cache(s), even when combined
-  // with --skip-cache or when the active store for this run is memory-backed
-  if (opts?.clearCache) {
-    const diskStores = [new CacheStore()];
-    if (envKey) {
-      try {
-        diskStores.push(createEnvKeyCacheStore(envKey));
-      } catch {
-        // invalid env key — nothing to clear for it
-      }
-    }
-    for (const store of diskStores) {
-      if (fs.existsSync(store.getFilePath())) await store.clearAll();
-    }
-  }
-
-  // initialize cache store (encryption key is ensured lazily on first write)
-  // auto policy: native-backend disk > env-key disk > in-process memory
-  if (!opts?.skipCache) {
-    const backend = localEncrypt.getBackendInfo();
-    const isCi = graph.ciEnvInfo.isCI;
-    if (backend.type !== 'file' && !isCi) {
-      graph._cacheMode = 'disk';
-      graph._cacheStore = new CacheStore();
-    } else if (envKey) {
-      // _VARLOCK_CACHE_KEY (e.g. provided as a CI secret) enables disk caching
-      // without the encryption key ever touching disk
-      try {
-        graph._cacheStore = createEnvKeyCacheStore(envKey);
-        graph._cacheMode = 'disk';
-      } catch (err) {
-        debug('invalid %s — falling back to memory cache: %O', '_VARLOCK_CACHE_KEY', err);
-        graph._cacheMode = 'memory';
-        graph._cacheStore = new InMemoryCacheStore();
-      }
-    } else {
-      graph._cacheMode = 'memory';
-      graph._cacheStore = new InMemoryCacheStore();
-    }
-  }
-
   let rawPaths: Array<string> | undefined;
   if (opts?.entryFilePaths) {
     rawPaths = Array.isArray(opts.entryFilePaths) ? opts.entryFilePaths : [opts.entryFilePaths];
@@ -112,7 +69,75 @@ export async function loadEnvGraph(opts?: {
     await graph.setRootDataSource(new DirectoryDataSource(graph.basePath));
   }
 
+  // Pick up any `_VARLOCK_*` config vars set as static values in the now-parsed .env files
+  // (e.g. an `_VARLOCK_CACHE_KEY` in `.env.local`) so they can configure varlock itself. A
+  // real env var still wins — see `graph.varlockConfigEnv`. Runs once (finishLoad's call is a
+  // no-op after this); disabled/env flags are already settled here.
+  graph.processVarlockConfigVarsFromFiles({ emitDiagnostics: true });
+
+  // initialize cache store (encryption key is ensured lazily on first write)
+  // auto policy: native-backend disk > env-key disk > in-process memory
+  // NOTE: runs after parsing so the cache key can come from a .env file; this means values
+  // resolved during early init (envFlag/@disable/@import) are not disk-cached, which is fine.
+  const envKey = getCacheEnvKey(graph.varlockConfigEnv);
+
+  // --clear-cache always clears the persistent disk cache(s), even when combined
+  // with --skip-cache or when the active store for this run is memory-backed
+  if (opts?.clearCache) {
+    const diskStores = [new CacheStore()];
+    if (envKey) {
+      try {
+        diskStores.push(createEnvKeyCacheStore(envKey));
+      } catch {
+        // invalid env key — nothing to clear for it
+      }
+    }
+    for (const store of diskStores) {
+      if (fs.existsSync(store.getFilePath())) await store.clearAll();
+    }
+  }
+
+  if (!opts?.skipCache) {
+    const backend = localEncrypt.getBackendInfo();
+    const isCi = graph.ciEnvInfo.isCI;
+    if (backend.type !== 'file' && !isCi) {
+      graph._cacheMode = 'disk';
+      graph._cacheStore = new CacheStore();
+    } else if (envKey) {
+      // _VARLOCK_CACHE_KEY (e.g. provided as a CI secret) enables disk caching
+      // without the encryption key ever touching disk
+      try {
+        graph._cacheStore = createEnvKeyCacheStore(envKey);
+        graph._cacheMode = 'disk';
+      } catch (err) {
+        debug('invalid %s — falling back to memory cache: %O', '_VARLOCK_CACHE_KEY', err);
+        graph._cacheMode = 'memory';
+        graph._cacheStore = new InMemoryCacheStore();
+      }
+    } else {
+      graph._cacheMode = 'memory';
+      graph._cacheStore = new InMemoryCacheStore();
+    }
+  }
+
   await graph.finishLoad();
 
   return graph;
+}
+
+/**
+ * Lightweight, parse-only extraction of `_VARLOCK_*` config vars set as static values in a
+ * directory's `.env` files. Skips full resolution (and the cache), so callers that only need
+ * varlock's own config — e.g. the `cache` command — can read it without the cost or potential
+ * recursion of a full graph load. Returns `{}` if the files can't be parsed.
+ */
+export async function loadVarlockConfigVarsFromFiles(basePath: string): Promise<Record<string, string>> {
+  const graph = new EnvGraph();
+  graph.basePath = basePath;
+  try {
+    await graph.setRootDataSource(new DirectoryDataSource(basePath));
+  } catch {
+    return {};
+  }
+  return graph.processVarlockConfigVarsFromFiles();
 }

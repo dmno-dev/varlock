@@ -21,20 +21,33 @@ try {
   });
 
   const parsed = JSON.parse(stdout);
+
+  // The `load` CLI read the .env files; any `_VARLOCK_*` config vars it found there (e.g.
+  // _VARLOCK_ENV_KEY in .env.local) come back on this side-channel field, not as real config.
+  // Strip it out so it never leaks into the injected blob, then re-serialize for the blob
+  // (only when present, so the common path is unchanged).
+  const fileConfigVars = parsed.__varlockConfigVars as Record<string, string> | undefined;
+  let blobJson = stdout;
+  if (fileConfigVars) {
+    delete parsed.__varlockConfigVars;
+    blobJson = JSON.stringify(parsed);
+  }
+
   // set parsed object on globalThis so initVarlockEnv() picks it up directly
   (globalThis as any).__varlockLoadedEnv = parsed;
 
-  // encrypt the blob in process.env so sensitive values aren't sitting
-  // in plaintext in process.env.__VARLOCK_ENV
-  let encryptionKey = process.env._VARLOCK_ENV_KEY;
+  // encrypt the blob in process.env so sensitive values aren't sitting in plaintext in
+  // process.env.__VARLOCK_ENV. A real _VARLOCK_ENV_KEY wins over one set in a .env file.
+  let encryptionKey = process.env._VARLOCK_ENV_KEY ?? fileConfigVars?._VARLOCK_ENV_KEY;
   if (parsed.settings?.encryptInjectedEnv && !encryptionKey) {
     encryptionKey = generateEncryptionKeyHex();
-    process.env._VARLOCK_ENV_KEY = encryptionKey;
   }
   if (encryptionKey) {
-    process.env.__VARLOCK_ENV = encryptEnvBlobSync(stdout, encryptionKey);
+    // ensure the key is in process.env so spawned children / runtime init can decrypt the blob
+    process.env._VARLOCK_ENV_KEY ||= encryptionKey;
+    process.env.__VARLOCK_ENV = encryptEnvBlobSync(blobJson, encryptionKey);
   } else {
-    process.env.__VARLOCK_ENV = stdout;
+    process.env.__VARLOCK_ENV = blobJson;
   }
 } catch (err) {
   if (err instanceof VarlockExecError && err.stderr) {

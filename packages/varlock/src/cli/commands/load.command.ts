@@ -202,7 +202,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         }
       }
     }
-    console.log(JSON.stringify(serialized, null, indent));
+    // Side-channel: `_VARLOCK_*` config vars picked up from .env files (e.g. _VARLOCK_ENV_KEY
+    // in .env.local). Kept OUT of getSerializedGraph (so it never lands in the run/auto-load
+    // blob); the auto-load parent reads it to configure itself and strips it before injecting.
+    const output: typeof serialized & { __varlockConfigVars?: Record<string, string> } = serialized;
+    if (Object.keys(envGraph.varlockConfigVarsFromFiles).length) {
+      output.__varlockConfigVars = envGraph.varlockConfigVarsFromFiles;
+    }
+    console.log(JSON.stringify(output, null, indent));
     // Output JSON to stdout even on failure (so consumers can parse err.stdout),
     // but still exit non-zero so execSync callers know something is wrong
     if (serialized.errors) {
