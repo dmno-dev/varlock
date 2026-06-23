@@ -8,7 +8,9 @@
       title="Star varlock on GitHub"
     >
       <img
-        src="https://varlock-pixel-art.dmno.workers.dev/icons/star.png"
+        :src="starUrl"
+        width="21"
+        height="18"
         alt=""
         class="star-arrow-star-img"
       />
@@ -44,6 +46,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import starUrl from '../assets/pixel-art/star.png?url';
 
 const CACHE_KEY = 'starCountCache';
 const animationSeenBefore =
@@ -169,15 +172,22 @@ onMounted(() => {
   white-space: nowrap;
   animation: arrow-label-pulse 3s infinite;
 }
+/* Match the Docs/Blog nav links: turn red and raise the icon on hover.
+   !important is needed so the hover color beats the arrow-label-pulse animation
+   (which sets yellow at its 50% keyframe) — the glow itself keeps pulsing. */
 .star-arrow-link:hover {
-  color: var(--brand-yellow);
+  color: var(--sl-color-text-accent) !important;
 }
 .star-arrow-star-img {
-  height: 1.35em;
-  width: auto;
+  width: 21px;
+  height: 18px;
   image-rendering: pixelated;
   image-rendering: -moz-crisp-edges;
   image-rendering: crisp-edges;
+  transition: transform 0.15s ease;
+}
+.star-arrow-link:hover .star-arrow-star-img {
+  transform: translateY(-2px);
 }
 .star-arrow-count {
   font-family: var(--font-pixel);
@@ -187,7 +197,7 @@ onMounted(() => {
   align-items: center;
 }
 .star-arrow-link:hover .star-arrow-count {
-  color: var(--brand-yellow);
+  color: var(--sl-color-text-accent);
 }
 .star-arrow-count-loading {
   opacity: 0.7;

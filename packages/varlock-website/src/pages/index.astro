@@ -4,6 +4,7 @@ import { Icon } from "astro-iconify";
 
 import Layout from "../layouts/Layout.astro";
 import { createMetaHead } from "../lib/meta";
+import { sidebar } from "../sidebar";
 import { LinkButton, Code } from "@astrojs/starlight/components";
 import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
 import WorksWithLogoList from "../components/WorksWithLogoList.astro";
@@ -33,6 +34,9 @@ const metaHead = createMetaHead({
   title={pageTitle}
   description={pageDescription}
   showSearch={false}
+  showSidebar={true}
+  hideDesktopSidebar={true}
+  sidebar={sidebar}
   head={metaHead}
 >
   <main>
