@@ -261,6 +261,24 @@ describe('CLI Commands', () => {
       const vars = JSON.parse(result.stdout);
       expect(vars.SHARED_VAR).toBe('from-shell-inner');
     });
+
+    test('strips @internal vars from the child env even when set ambiently', () => {
+      // child exits 0 only if OP_TOKEN is ABSENT (exit code can't be redacted, unlike stdout)
+      const result = runVarlock(['run', '--', 'node', '-e', 'process.exit(process.env.OP_TOKEN ? 1 : 0)'], {
+        cwd: 'smoke-test-internal',
+        env: { OP_TOKEN: 'secret-zero' },
+      });
+      expect(result.exitCode).toBe(0);
+    });
+
+    test('--include-internal passes @internal vars through to the child', () => {
+      // child exits 0 only if OP_TOKEN is PRESENT
+      const result = runVarlock(['run', '--include-internal', '--', 'node', '-e', 'process.exit(process.env.OP_TOKEN ? 0 : 1)'], {
+        cwd: 'smoke-test-internal',
+        env: { OP_TOKEN: 'secret-zero' },
+      });
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe('type generation', () => {

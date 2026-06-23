@@ -430,6 +430,7 @@ plugin.registerDataType({
 plugin.registerDataType({
   name: 'infisicalClientSecret',
   sensitive: true,
+  internal: true,
   typeDescription: 'Client Secret for Infisical Universal Auth (machine identity)',
   icon: INFISICAL_ICON,
   docs: [

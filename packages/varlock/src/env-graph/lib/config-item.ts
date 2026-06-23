@@ -138,6 +138,23 @@ export class ConfigItem {
     const val = deprecatedDec.parsedDecorator.simplifiedValue;
     return typeof val === 'string' ? val : undefined;
   }
+
+  /**
+   * Whether this item is used only internally by varlock (e.g. a "secret zero" used to
+   * resolve _other_ items) and must NOT be injected into the running application.
+   * Internal items are still resolved and can be referenced by other items via ref(),
+   * but are excluded from the injected env vars, the serialized graph blob, and generated types.
+   */
+  get isInternal(): boolean {
+    const internalDec = this.getDec('internal');
+    // an explicit `@internal` / `@internal=false` always wins over a data-type default
+    if (internalDec) {
+      // bare `@internal` === `@internal=true`; `@internal=false` explicitly opts out
+      return internalDec.parsedDecorator.simplifiedValue === true;
+    }
+    // otherwise fall back to the data type's default (e.g. a service-account token type)
+    return this.dataType?.isInternal ?? false;
+  }
   get docsLinks() {
     // matching { url, description } from OpenAPI
     const links: Array<{ url: string, description?: string }> = [];
@@ -440,8 +457,21 @@ export class ConfigItem {
 
   _isSensitive: boolean = true;
   _sensitiveExplicitlySet = false;
+  /** how sensitivity was determined (undefined = the global default that items are sensitive) */
+  _sensitiveSource?: 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix';
   get isSensitive(): boolean {
     return this._isSensitive;
+  }
+
+  /** how this item's sensitivity was determined — used by `varlock explain` */
+  get sensitiveSource(): 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'default' {
+    return this._sensitiveSource ?? 'default';
+  }
+
+  /** how this item's @internal status was determined, or undefined if not internal */
+  get internalSource(): 'explicit' | 'data-type' | undefined {
+    if (!this.isInternal) return undefined;
+    return this.getDec('internal') ? 'explicit' : 'data-type';
   }
 
   /**
@@ -478,6 +508,7 @@ export class ConfigItem {
         if (sensitiveDec.schemaErrors.some((e) => !e.isWarning)) return;
         this._isSensitive = this.applySensitiveOptions(resolved ?? {});
         this._sensitiveExplicitlySet = true;
+        this._sensitiveSource = 'explicit';
         return;
       }
       // an array literal is never valid here — guide toward the object form
@@ -495,6 +526,7 @@ export class ConfigItem {
       if (sensitiveDecValue !== undefined) {
         this._isSensitive = usingPublic ? !sensitiveDecValue : sensitiveDecValue;
         this._sensitiveExplicitlySet = true;
+        this._sensitiveSource = 'explicit';
         return;
       }
     }
@@ -513,6 +545,7 @@ export class ConfigItem {
             return;
           }
           this._isSensitive = !this.key.startsWith(prefix);
+          this._sensitiveSource = 'prefix';
           return;
         } else {
           const defaultSensitiveVal = await defaultSensitiveDec.resolve();
@@ -520,13 +553,17 @@ export class ConfigItem {
             this._schemaErrors.push(new SchemaError('@defaultSensitive must resolve to a boolean value'));
           } else {
             this._isSensitive = defaultSensitiveVal;
+            this._sensitiveSource = 'default-decorator';
             return;
           }
         }
       }
     }
 
-    if (sensitiveFromDataType !== undefined) this._isSensitive = sensitiveFromDataType;
+    if (sensitiveFromDataType !== undefined) {
+      this._isSensitive = sensitiveFromDataType;
+      this._sensitiveSource = 'data-type';
+    }
   }
 
   /**
@@ -619,6 +656,8 @@ export class ConfigItem {
       const wasSensitive = this._isSensitive;
       this._isSensitive = true;
       if (!wasSensitive) {
+        // the resolver is what actually made this sensitive (it wasn't otherwise)
+        this._sensitiveSource = 'resolver';
         const hasSchemaSource = this.defs.some((d) => d.source && d.source.type !== 'overrides');
         if (hasSchemaSource) {
           this._schemaErrors.push(new SchemaError(
@@ -717,7 +756,9 @@ export class ConfigItem {
   }
 
   get isValid() {
-    return this.validationState === 'valid';
+    // a warning is advisory — only a real error makes an item invalid (and e.g. unsafe to
+    // reference from another item). `validationState === 'valid'` would wrongly exclude warn-state.
+    return this.validationState !== 'error';
   }
 
   /**

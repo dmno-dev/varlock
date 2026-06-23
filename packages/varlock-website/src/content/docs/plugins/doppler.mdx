@@ -43,7 +43,7 @@ See the [plugins guide](/guides/plugins/#installation) for more instructions on 
 # ---
 
 # 3. Add your service token
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 ```
 
@@ -77,7 +77,7 @@ DOPPLER_TOKEN=
     # )
     # ---
 
-    # @type=dopplerServiceToken @sensitive
+    # @type=dopplerServiceToken @sensitive @internal
     DOPPLER_TOKEN=
     ```
 
@@ -139,7 +139,7 @@ Use `dopplerBulk()` with `@setValuesBulk` to load all secrets from a Doppler con
 # @initDoppler(project=my-project, config=dev, serviceToken=$DOPPLER_TOKEN)
 # @setValuesBulk(dopplerBulk())
 # ---
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 
 API_KEY=
@@ -179,7 +179,7 @@ Initialize a Doppler plugin instance for accessing secrets.
 #   cacheTtl="1h"
 # )
 # ---
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 ```
 
@@ -191,10 +191,13 @@ DOPPLER_TOKEN=
 <div>
 #### `dopplerServiceToken`
 
+This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+
+
 Represents a Doppler service token. This type is marked as `@sensitive`.
 
 ```env-spec "dopplerServiceToken"
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 ```
 </div>
@@ -251,7 +254,7 @@ Bulk-load all secrets from a Doppler config. Intended for use with `@setValuesBu
 # @plugin(@varlock/doppler-plugin)
 # @initDoppler(project=my-app, config=dev, serviceToken=$DOPPLER_TOKEN)
 # ---
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 
 # Secret names automatically match config keys
@@ -281,7 +284,7 @@ PROD_DATABASE=doppler(prod, "DATABASE_URL")
 # @initDoppler(project=my-app, config=dev, serviceToken=$DOPPLER_TOKEN)
 # @setValuesBulk(dopplerBulk())
 # ---
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 
 # These will be populated from Doppler secrets with matching names

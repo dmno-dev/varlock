@@ -366,6 +366,7 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'keeperSmToken',
   sensitive: true,
+  internal: true,
   typeDescription: 'Base64-encoded configuration token for the [Keeper Secrets Manager](https://docs.keeper.io/secrets-manager/) SDK',
   icon: KEEPER_ICON,
   docs: [

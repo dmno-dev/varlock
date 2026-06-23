@@ -72,11 +72,13 @@ If you're deploying outside of AWS (e.g., Azure, GCP, on-premises), wire up IAM 
 # @type=awsAccessKey
 AWS_ACCESS_KEY_ID=
 
-# @type=awsSecretKey @sensitive
+# @type=awsSecretKey @sensitive @internal
 AWS_SECRET_ACCESS_KEY=
 ```
 
 You would then need to inject these env vars using your CI/CD system.
+
+> `@internal` keeps this credential out of your app's environment — varlock only uses it to fetch your secrets. If you need the credential at runtime for other purposes (e.g. via the AWS SDK), set `@internal=false` to keep it injected.
 
 ### OIDC workload identity (For Vercel, GitHub Actions, etc.)
 

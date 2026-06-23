@@ -54,7 +54,7 @@ ksm profile export --format json | base64
 # @initKeeper(token=$KSM_CONFIG)
 # ---
 
-# @type=keeperSmToken @sensitive
+# @type=keeperSmToken @sensitive @internal
 KSM_CONFIG=
 ```
 
@@ -66,10 +66,10 @@ KSM_CONFIG=
 # @initKeeper(token=$KSM_CONFIG_DEV, id=dev)
 # ---
 
-# @type=keeperSmToken @sensitive
+# @type=keeperSmToken @sensitive @internal
 KSM_CONFIG_PROD=
 
-# @type=keeperSmToken @sensitive
+# @type=keeperSmToken @sensitive @internal
 KSM_CONFIG_DEV=
 ```
 
@@ -210,7 +210,7 @@ ksm profile export --format json | base64
 # @initKeeper(token=$KSM_CONFIG)
 # ---
 
-# @type=keeperSmToken @sensitive
+# @type=keeperSmToken @sensitive @internal
 KSM_CONFIG=
 
 # Your secrets

@@ -396,6 +396,7 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'bitwardenAccessToken',
   sensitive: true,
+  internal: true,
   typeDescription: 'Access token for a Bitwarden Secrets Manager machine account',
   icon: BITWARDEN_ICON,
   docs: [
@@ -850,6 +851,7 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'bwSessionToken',
   sensitive: true,
+  internal: true,
   typeDescription: 'Bitwarden CLI session token (output of `bw unlock`)',
   icon: BITWARDEN_ICON,
   docs: [

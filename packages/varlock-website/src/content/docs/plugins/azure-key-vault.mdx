@@ -94,7 +94,7 @@ If you're deploying outside of Azure (e.g., AWS, GCP, on-premises), wire up serv
     # @type=azureClientId @sensitive
     AZURE_CLIENT_ID=
 
-    # @type=azureClientSecret @sensitive
+    # @type=azureClientSecret @sensitive @internal
     AZURE_CLIENT_SECRET=
     ```
 
@@ -354,6 +354,15 @@ Represents a service principal client secret (password). This type is marked as 
 # @type=azureClientSecret
 AZURE_CLIENT_SECRET=
 ```
+
+:::tip[Does your app use these credentials too?]
+The examples here mark the credential [`@internal`](/reference/item-decorators/#internal) so it's used by varlock to fetch your secrets but **not** injected into your app — the recommended posture when varlock is the only consumer. Unlike the dedicated secrets-manager tokens, Azure credentials are **not** `@internal` by default (they're commonly read directly by the Azure SDK), so if you need the credential at runtime for other purposes, opt out with `@internal=false` to keep it injected:
+
+```env-spec
+# @type=azureClientSecret @internal=false
+AZURE_CLIENT_SECRET=
+```
+:::
 </div>
 </div>
 

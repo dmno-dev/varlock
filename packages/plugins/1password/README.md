@@ -47,7 +47,7 @@ For deployed environments (CI/CD, production, etc), you'll need a service accoun
 # @initOp(token=$OP_TOKEN)
 # ---
 
-# @type=opServiceAccountToken @sensitive
+# @type=opServiceAccountToken @sensitive @internal
 OP_TOKEN=
 ```
 
@@ -74,7 +74,7 @@ Set `useCliWithServiceAccount=true` to use the `op` CLI binary instead of the SD
 # @initOp(token=$OP_TOKEN, useCliWithServiceAccount=true)
 # ---
 
-# @type=opServiceAccountToken @sensitive
+# @type=opServiceAccountToken @sensitive @internal
 OP_TOKEN=
 ```
 
@@ -94,7 +94,7 @@ During local development, you can use the 1Password desktop app instead of a ser
 # @initOp(token=$OP_TOKEN, allowAppAuth=true, account=acmeco)
 # ---
 
-# @type=opServiceAccountToken @sensitive
+# @type=opServiceAccountToken @sensitive @internal
 OP_TOKEN=
 ```
 
@@ -121,7 +121,7 @@ If you are running a self-hosted [1Password Connect server](https://www.1passwor
 # @initOp(connectHost="http://connect-server:8080", connectToken=$OP_CONNECT_TOKEN)
 # ---
 
-# @type=opConnectToken @sensitive
+# @type=opConnectToken @sensitive @internal
 OP_CONNECT_TOKEN=
 ```
 
@@ -155,7 +155,7 @@ This plugin introduces the `op()` function to fetch secret values using 1Passwor
 # @initOp(token=$OP_TOKEN, allowAppAuth=forEnv(dev), account=acmeco)
 # ---
 
-# @type=opServiceAccountToken @sensitive
+# @type=opServiceAccountToken @sensitive @internal
 OP_TOKEN=
 
 # Fetch secrets using 1Password secret references
@@ -209,7 +209,7 @@ Use `opLoadEnvironment()` with `@setValuesBulk` to load all variables from a [1P
 # @setValuesBulk(opLoadEnvironment(your-environment-id))
 # ---
 
-# @type=opServiceAccountToken @sensitive
+# @type=opServiceAccountToken @sensitive @internal
 OP_TOKEN=
 
 API_KEY=

@@ -295,6 +295,7 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'passboltAccountKit',
   sensitive: true,
+  internal: true,
   typeDescription: 'Passbolt accountKit for authentication',
   icon: PASSBOLT_ICON,
   async validate(val: any): Promise<true> {
