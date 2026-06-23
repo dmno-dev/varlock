@@ -1,7 +1,7 @@
 {
   "name": "@varlock/kubernetes-plugin",
   "description": "Varlock plugin to load values from Kubernetes Secrets and ConfigMaps",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/kubernetes/",
   "bugs": "https://github.com/dmno-dev/varlock/issues",

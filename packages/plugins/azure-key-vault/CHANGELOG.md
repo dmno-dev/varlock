@@ -3,6 +3,13 @@
 
 
 
+
+## 1.2.1
+<sub>2026-06-23</sub>
+
+- [#817](https://github.com/dmno-dev/varlock/pull/817)  *(patch)* - Docs: recommend marking cloud-provider credentials @internal when varlock is the only consumer (use @internal=false to opt out if your app reads them directly).
+- [#818](https://github.com/dmno-dev/varlock/pull/818)  *(patch)* - Report anonymous, non-sensitive usage attributes (auth mode, feature flags) through varlock's opt-out telemetry.
+
 ## 1.2.0
 <sub>2026-06-10</sub>
 
