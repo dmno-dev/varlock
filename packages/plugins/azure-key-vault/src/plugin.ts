@@ -88,6 +88,17 @@ class AzurePluginInstance {
     );
   }
 
+  /**
+   * @internal telemetry: which auth method this instance is *configured* for (fixed enum, no user input).
+   * 'ambient' means no explicit credentials were configured, so auth falls back to the runtime
+   * chain (Managed Identity / Azure CLI) determined at resolve time.
+   */
+  get telemetryAuthMethod(): 'service_principal' | 'oidc_federated' | 'ambient' {
+    if (this.tenantId && this.clientId && this.clientSecret) return 'service_principal';
+    if (this.tenantId && this.clientId) return 'oidc_federated';
+    return 'ambient';
+  }
+
   private _cacheKeyIdentity?: string;
   /** short hash identifying which Key Vault is being read, used to namespace cache keys */
   get cacheKeyIdentity() {
@@ -757,4 +768,19 @@ plugin.registerResolverFunction({
     const secretValue = await selectedInstance.getSecret(secretRef, jsonKey);
     return secretValue;
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const authMethods = new Set(instances.map((i) => i.telemetryAuthMethod));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+    // custom attributes
+    auth_service_principal: authMethods.has('service_principal'),
+    auth_oidc_federated: authMethods.has('oidc_federated'),
+    auth_ambient: authMethods.has('ambient'),
+  };
 });

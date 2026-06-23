@@ -79,6 +79,17 @@ class AwsPluginInstance {
   ) {
   }
 
+  /**
+   * @internal telemetry: which credential source this instance is configured for (fixed enum, no user input).
+   * Mirrors the precedence in getCredentials(): explicit keys > OIDC role > named profile > default chain.
+   */
+  get telemetryAuthMethod(): 'access_key' | 'oidc' | 'profile' | 'default_chain' {
+    if (this.accessKeyId && this.secretAccessKey) return 'access_key';
+    if (this.oidcRoleArn) return 'oidc';
+    if (this.profile) return 'profile';
+    return 'default_chain';
+  }
+
   private _cacheKeyIdentity?: string;
   /** short hash identifying which AWS account/region is being read, used to namespace cache keys */
   get cacheKeyIdentity() {
@@ -493,6 +504,10 @@ class AwsPluginInstance {
 
 const pluginInstances: Record<string, AwsPluginInstance> = {};
 
+/** @internal telemetry: which AWS services the schema references */
+let usedSecretsManager = false;
+let usedParameterStore = false;
+
 plugin.registerRootDecorator({
   name: 'initAws',
   description: 'Initialize an AWS plugin instance for awsSecret() and awsParam() resolvers',
@@ -620,6 +635,7 @@ plugin.registerResolverFunction({
     arrayMinLength: 0,
   },
   process() {
+    usedSecretsManager = true;
     let instanceId: string;
     let secretIdResolver: Resolver | undefined;
     let inferredSecretName: string | undefined;
@@ -755,6 +771,7 @@ plugin.registerResolverFunction({
     arrayMinLength: 0,
   },
   process() {
+    usedParameterStore = true;
     let instanceId: string;
     let parameterNameResolver: Resolver | undefined;
     let inferredParamName: string | undefined;
@@ -879,4 +896,22 @@ plugin.registerResolverFunction({
     const parameterValue = await selectedInstance.getParameter(finalParameterName, jsonKey);
     return parameterValue;
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const authMethods = new Set(instances.map((i) => i.telemetryAuthMethod));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+    // custom attributes
+    auth_access_key: authMethods.has('access_key'),
+    auth_oidc: authMethods.has('oidc'),
+    auth_profile: authMethods.has('profile'),
+    auth_default_chain: authMethods.has('default_chain'),
+    uses_secrets_manager: usedSecretsManager,
+    uses_parameter_store: usedParameterStore,
+  };
 });

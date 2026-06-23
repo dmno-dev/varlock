@@ -78,7 +78,13 @@ function varlockAstroIntegration(
 
         opts.config.vite.plugins ||= [];
         opts.config.vite?.plugins?.push(
-          varlockVitePlugin(vitePluginOptions) as any,
+          varlockVitePlugin({
+            ...vitePluginOptions,
+            integrationTelemetry: integrationOptions?.integrationTelemetry ?? {
+              name: __VARLOCK_INTEGRATION_NAME__,
+              version: __VARLOCK_INTEGRATION_VERSION__,
+            },
+          }) as any,
         );
       },
 

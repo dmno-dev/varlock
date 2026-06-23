@@ -281,6 +281,17 @@ class VaultPluginInstance {
     }
   }
 
+  /** @internal telemetry: which auth method this instance is configured for (fixed enum, never raw values) */
+  get telemetryAuthMethod(): 'token' | 'approle' | 'jwt' | 'cli_file' {
+    if (this.token) return 'token';
+    if (this.roleId && this.secretId) return 'approle';
+    if (this.jwtRole) return 'jwt';
+    return 'cli_file';
+  }
+
+  /** @internal telemetry: whether a namespace is configured (HCP/enterprise vs OSS) — boolean only, never the namespace string */
+  get telemetryUsesNamespace() { return this.namespace != null; }
+
   buildPath(explicitPath?: string): string {
     let basePath: string;
     if (explicitPath) {
@@ -699,4 +710,21 @@ plugin.registerResolverFunction({
 
     return await selectedInstance.getSecret(fullPath, jsonKey);
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const authMethods = new Set(instances.map((i) => i.telemetryAuthMethod));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+    // custom attributes
+    auth_token: authMethods.has('token'),
+    auth_approle: authMethods.has('approle'),
+    auth_jwt: authMethods.has('jwt'),
+    auth_cli_file: authMethods.has('cli_file'),
+    uses_namespace: instances.some((i) => i.telemetryUsesNamespace),
+  };
 });

@@ -17,6 +17,10 @@ function loadVarlockConfig() {
     const { stdout } = execSyncVarlock('load --format json-full', {
       fullResult: true,
       env: originalProcessEnv,
+      integrationTelemetry: {
+        name: __VARLOCK_INTEGRATION_NAME__,
+        version: __VARLOCK_INTEGRATION_VERSION__,
+      },
     });
     process.env.__VARLOCK_ENV = stdout;
     varlockLoadedEnv = JSON.parse(stdout) as SerializedEnvGraph;

@@ -326,6 +326,17 @@ class OpPluginInstance {
   /** Whether this instance is configured for Connect server */
   get isConnect() { return !!(this.connectHost && this.connectToken); }
 
+  /** @internal telemetry: which auth path this instance is configured for */
+  get telemetryAuthMode(): 'connect' | 'service_account_cli' | 'service_account_sdk' | 'app' | 'none' {
+    if (this.isConnect) return 'connect';
+    if (this.token) return this.useCliWithServiceAccount ? 'service_account_cli' : 'service_account_sdk';
+    if (this.allowAppAuth) return 'app';
+    return 'none';
+  }
+
+  /** @internal telemetry: whether this instance has a cache TTL configured */
+  get telemetryUsesCache() { return this.cacheTtl != null; }
+
   opClientPromise: Promise<Client> | undefined;
   async initSdkClient() {
     if (!this.token) return;
@@ -749,6 +760,9 @@ class OpPluginInstance {
 }
 const pluginInstances: Record<string, OpPluginInstance> = {};
 
+/** @internal telemetry: set when the schema uses the opLoadEnvironment resolver */
+let usedEnvironments = false;
+
 /** Returns true if the error represents a missing 1Password item/field/vault */
 function isNotFoundError(err: any): boolean {
   const code = err?.code;
@@ -979,6 +993,7 @@ plugin.registerResolverFunction({
     arrayMaxLength: 2,
   },
   process() {
+    usedEnvironments = true;
     let instanceId = '_default';
     let environmentIdResolver: Resolver | undefined;
 
@@ -1038,4 +1053,22 @@ plugin.registerResolverFunction({
 
     return await selectedInstance.readEnvironment(environmentId);
   },
+});
+
+// Anonymous, non-sensitive usage signals — which auth path(s) and features are in use.
+// Strictly sanitized before send (booleans / counts only here); no item refs, accounts, or hosts.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const authModes = new Set(instances.map((i) => i.telemetryAuthMode));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.telemetryUsesCache),
+    // custom attributes
+    auth_app: authModes.has('app'),
+    auth_service_account_sdk: authModes.has('service_account_sdk'),
+    auth_service_account_cli: authModes.has('service_account_cli'),
+    auth_connect: authModes.has('connect'),
+    uses_environments: usedEnvironments,
+  };
 });

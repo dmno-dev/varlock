@@ -158,6 +158,11 @@ async function loadPluginModuleESM(filePath: string): Promise<void> {
 }
 
 
+/** Allowed value types for plugin telemetry attributes (strictly sanitized before send) */
+export type PluginTelemetryAttributeValue = boolean | number | string | null;
+/** Flat object of anonymous, non-sensitive usage attributes a plugin reports for telemetry */
+export type PluginTelemetryAttributes = Record<string, PluginTelemetryAttributeValue>;
+
 export class VarlockPlugin {
   // helper so end user code can get same error classes
   readonly ERRORS = {
@@ -254,6 +259,21 @@ export class VarlockPlugin {
   registerResolverFunction<T>(resolverDef: ResolverDef<T>) {
     this.debug('registerResolverFunction', resolverDef.name);
     this.resolverFunctions!.push(resolverDef);
+  }
+
+  /** @internal telemetry attributes provider registered by the plugin (collected for official plugins only) */
+  _getTelemetryAttributes?: () => PluginTelemetryAttributes;
+  /**
+   * Register a function returning a flat object of anonymous, non-sensitive usage
+   * attributes for this plugin (booleans, short enum strings, counts) — e.g. which
+   * auth mode is in use, whether a feature is enabled. Called when telemetry is
+   * captured. Values are strictly sanitized and only collected for official
+   * `@varlock/*` plugins. Throwing or returning unexpected shapes is safe —
+   * offending entries are dropped. Never include secret values, names, or paths.
+   */
+  registerTelemetryAttributes(fn: () => PluginTelemetryAttributes) {
+    this.debug('registerTelemetryAttributes');
+    this._getTelemetryAttributes = fn;
   }
 
   /**

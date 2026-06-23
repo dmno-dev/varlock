@@ -653,3 +653,12 @@ plugin.registerResolverFunction({
     }
   },
 });
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  return {
+    // standard attributes
+    instance_count: instances.length,
+  };
+});

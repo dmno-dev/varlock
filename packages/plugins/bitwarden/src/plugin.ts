@@ -17,6 +17,9 @@ const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
 const BITWARDEN_ICON = 'simple-icons:bitwarden';
 
+const BITWARDEN_CLOUD_API_URL = 'https://api.bitwarden.com';
+const BITWARDEN_CLOUD_IDENTITY_URL = 'https://identity.bitwarden.com';
+
 plugin.name = 'bitwarden';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
@@ -65,9 +68,9 @@ class BitwardenPluginInstance {
   /** Access token for Bitwarden Secrets Manager machine account */
   private accessToken?: string;
   /** API URL - defaults to https://api.bitwarden.com */
-  private apiUrl: string = 'https://api.bitwarden.com';
+  private apiUrl: string = BITWARDEN_CLOUD_API_URL;
   /** Identity URL - defaults to https://identity.bitwarden.com */
-  private identityUrl: string = 'https://identity.bitwarden.com';
+  private identityUrl: string = BITWARDEN_CLOUD_IDENTITY_URL;
   /** Cached authentication */
   private cachedAuth?: CachedAuth;
   /** In-flight auth promise - prevents parallel resolution from triggering multiple auth requests (rate limit fix) */
@@ -104,6 +107,11 @@ class BitwardenPluginInstance {
       this.identityUrl = identityUrl;
     }
     debug('bitwarden instance', this.id, 'set auth - apiUrl:', this.apiUrl);
+  }
+
+  /** @internal telemetry: whether a self-hosted server is configured (boolean only, never the URL) */
+  get telemetryUsesSelfHostedServer() {
+    return this.apiUrl !== BITWARDEN_CLOUD_API_URL || this.identityUrl !== BITWARDEN_CLOUD_IDENTITY_URL;
   }
 
   /**
@@ -949,4 +957,20 @@ plugin.registerResolverFunction({
 
     return await selectedInstance.getSecret(itemQuery, field);
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const smInstances = Object.values(pluginInstances);
+  const pmInstances = Object.values(bwpPluginInstances);
+  const instances = [...smInstances, ...pmInstances];
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+    // custom attributes
+    uses_secrets_manager: smInstances.length > 0,
+    uses_password_manager: pmInstances.length > 0,
+    self_hosted_server: smInstances.some((i) => i.telemetryUsesSelfHostedServer),
+  };
 });
