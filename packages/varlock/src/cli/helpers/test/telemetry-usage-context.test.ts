@@ -8,6 +8,7 @@ import {
   sanitizeIntegrationIdentity,
   sanitizeFeatureIdentifier,
   sanitizePluginForTelemetry,
+  sanitizePluginAttributes,
   classifyGraphTelemetryErrorCode,
   classifyThrownTelemetryErrorCode,
   captureUsageContextFromEnvGraph,
@@ -105,6 +106,96 @@ describe('sanitizePluginForTelemetry', () => {
     expect(result.name_is_hashed).toBe(false);
     expect(result.name).toBe('@varlock/pass-plugin');
     expect(result.version).toBe('0.4.0');
+  });
+
+  it('collects sanitized attributes for official plugins', () => {
+    const result = sanitizePluginForTelemetry({
+      name: '@varlock/1password-plugin',
+      version: '1.0.0',
+      type: 'package',
+      warnings: [],
+      _getTelemetryAttributes: () => ({ auth_connect: true, instance_count: 2 }),
+    });
+    expect(result.attributes).toEqual({ auth_connect: true, instance_count: 2 });
+  });
+
+  it('never collects attributes for third-party plugins (provider is not even called)', () => {
+    let called = false;
+    const result = sanitizePluginForTelemetry({
+      name: '@acme/secrets-plugin',
+      version: '9.9.9',
+      type: 'package',
+      warnings: [],
+      _getTelemetryAttributes: () => {
+        called = true;
+        return { leaked: true };
+      },
+    });
+    expect(result.attributes).toBeNull();
+    expect(called).toBe(false);
+  });
+
+  it('attributes is null when an official plugin has no provider', () => {
+    const result = sanitizePluginForTelemetry({
+      name: '@varlock/pass-plugin',
+      version: '0.4.0',
+      type: 'package',
+      warnings: [],
+    });
+    expect(result.attributes).toBeNull();
+  });
+});
+
+describe('sanitizePluginAttributes', () => {
+  it('keeps booleans, finite numbers, short enum strings, and null', () => {
+    expect(sanitizePluginAttributes(() => ({
+      a: true, b: false, n: 3, mode: 'service-account', empty: null,
+    }))).toEqual({
+      a: true, b: false, n: 3, mode: 'service-account', empty: null,
+    });
+  });
+
+  it('drops non-primitive, non-finite, and free-form/long string values', () => {
+    expect(sanitizePluginAttributes(() => ({
+      ok: true,
+      obj: { nested: 1 },
+      arr: [1, 2],
+      inf: Infinity,
+      nan: NaN,
+      secret: 'op://vault/item/field', // contains "/" and ":" — not an enum
+      long: 'x'.repeat(40),
+      fn: () => 1,
+    }))).toEqual({ ok: true });
+  });
+
+  it('drops invalid keys (non snake_case, too long) and caps the number of keys', () => {
+    const many: Record<string, boolean> = {};
+    for (let i = 0; i < 50; i++) {
+      many[`k${i}`] = true;
+    }
+    const result = sanitizePluginAttributes(() => ({
+      'Bad-Key': true,
+      UPPER: true,
+      '1leading': true,
+      good: true,
+      ...many,
+    }))!;
+    expect(result['Bad-Key']).toBeUndefined();
+    expect(result.UPPER).toBeUndefined();
+    expect(result['1leading']).toBeUndefined();
+    expect(result.good).toBe(true);
+    expect(Object.keys(result).length).toBeLessThanOrEqual(24);
+  });
+
+  it('returns null for a throwing provider, non-object return, or no provider', () => {
+    const throwing = () => {
+      throw new Error('boom');
+    };
+    expect(sanitizePluginAttributes(throwing)).toBeNull();
+    expect(sanitizePluginAttributes(() => 'nope' as unknown as object)).toBeNull();
+    expect(sanitizePluginAttributes(() => [1, 2] as unknown as object)).toBeNull();
+    expect(sanitizePluginAttributes(() => ({}))).toBeNull();
+    expect(sanitizePluginAttributes(undefined)).toBeNull();
   });
 });
 

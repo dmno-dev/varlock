@@ -15,6 +15,12 @@ const NPM_VERSION_RE = /^[\d]+(?:\.[\d]+)*(?:-[\w.-]+)?$/;
 const TELEMETRY_IDENTIFIER_RE = /^[a-zA-Z][\w-]{0,63}$/;
 const KNOWN_SOURCE_TYPES = new Set(['schema', 'example', 'defaults', 'values', 'overrides']);
 
+/** Plugin telemetry attribute keys: short snake_case identifiers */
+const PLUGIN_ATTR_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
+/** Plugin telemetry attribute enum string values: short, no free-form text (prevents leaking secrets/names/paths) */
+const PLUGIN_ATTR_ENUM_RE = /^[a-zA-Z][\w-]{0,31}$/;
+const MAX_PLUGIN_ATTR_KEYS = 24;
+
 /** Machine-friendly error category sent with telemetry (no messages or paths) */
 export type TelemetryErrorCode = | 'parse_error'
   | 'plugin_error'
@@ -22,6 +28,9 @@ export type TelemetryErrorCode = | 'parse_error'
   | 'schema_error'
   | 'resolution_error'
   | 'validation_error';
+
+/** Sanitized plugin-reported usage attributes (booleans, short enums, counts) */
+export type TelemetryPluginAttributes = Record<string, boolean | number | string | null>;
 
 export type TelemetryPluginInfo = {
   /** Raw npm name for @varlock/* plugins; SHA-256 hex for all others */
@@ -33,6 +42,8 @@ export type TelemetryPluginInfo = {
   name_is_hashed: boolean;
   has_loading_error: boolean;
   warning_count: number;
+  /** Plugin-defined usage attributes — collected for official plugins only, else null */
+  attributes: TelemetryPluginAttributes | null;
 };
 
 export type TelemetryFeatureInfo = {
@@ -147,6 +158,51 @@ export function sanitizeFeatureIdentifier(name: string): string | null {
   return name;
 }
 
+/** A single attribute value passes only if a primitive of an allowed, non-identifying shape */
+const DROP_ATTR = Symbol('drop-attr');
+function sanitizePluginAttributeValue(value: unknown): boolean | number | string | null | typeof DROP_ATTR {
+  if (value === null) return null;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : DROP_ATTR;
+  if (typeof value === 'string') return PLUGIN_ATTR_ENUM_RE.test(value) ? value : DROP_ATTR;
+  return DROP_ATTR; // objects, arrays, functions, symbols, undefined, bigint
+}
+
+/**
+ * Run a plugin's telemetry attributes provider and strictly sanitize the result.
+ * Only flat objects of booleans / finite numbers / short enum strings / null survive;
+ * keys must be short snake_case and the object is capped in size. A throwing provider
+ * or unexpected shape yields null. Prevents plugins from leaking secrets/names/paths.
+ *
+ * @internal exported for unit tests
+ */
+export function sanitizePluginAttributes(
+  provider: (() => unknown) | undefined,
+): TelemetryPluginAttributes | null {
+  if (typeof provider !== 'function') return null;
+
+  let raw: unknown;
+  try {
+    raw = provider();
+  } catch {
+    return null;
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+
+  const out: TelemetryPluginAttributes = {};
+  let count = 0;
+  for (const [key, value] of Object.entries(raw)) {
+    if (count >= MAX_PLUGIN_ATTR_KEYS) break;
+    if (!PLUGIN_ATTR_KEY_RE.test(key)) continue;
+    const sanitized = sanitizePluginAttributeValue(value);
+    if (sanitized === DROP_ATTR) continue;
+    out[key] = sanitized;
+    count += 1;
+  }
+
+  return Object.keys(out).length ? out : null;
+}
+
 /** @internal exported for unit tests */
 export function sanitizePluginForTelemetry(plugin: {
   name: string;
@@ -154,6 +210,7 @@ export function sanitizePluginForTelemetry(plugin: {
   type: 'single-file' | 'package';
   loadingError?: unknown;
   warnings: Array<unknown>;
+  _getTelemetryAttributes?: () => unknown;
 }): TelemetryPluginInfo {
   const isOfficial = isOfficialVarlockPackageName(plugin.name);
   const nameIsHashed = !isOfficial && plugin.name !== 'unnamed plugin';
@@ -166,6 +223,8 @@ export function sanitizePluginForTelemetry(plugin: {
     name_is_hashed: nameIsHashed,
     has_loading_error: !!plugin.loadingError,
     warning_count: plugin.warnings.length,
+    // only official plugins' attribute providers are run (we author/review those)
+    attributes: isOfficial ? sanitizePluginAttributes(plugin._getTelemetryAttributes) : null,
   };
 }
 
