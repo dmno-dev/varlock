@@ -382,11 +382,36 @@ function getAnonymousOrgId() {
   return anonymizeValue(`${segments[0]}/${segments[1]}`);
 }
 
-/** Git host (e.g. `github.com`) for the current project. Not anonymized — host alone is not identifying. */
+/** Well-known public git hosts that are safe to report verbatim (not identifying). */
+const KNOWN_PUBLIC_GIT_HOSTS = new Set([
+  'github.com',
+  'gitlab.com',
+  'bitbucket.org',
+  'dev.azure.com',
+  'ssh.dev.azure.com',
+  'codeberg.org',
+  'gitea.com',
+  'git.sr.ht',
+  'sourceforge.net',
+]);
+
+/**
+ * Buckets a git host for telemetry. Sent unhashed, so we only ever emit a known
+ * public host verbatim; anything else (self-hosted GitLab, GitHub Enterprise,
+ * Bitbucket Server, internal Gitea, etc.) becomes `self-hosted` so we never leak
+ * a private/internal hostname.
+ *
+ * @internal exported for unit tests
+ */
+export function bucketGitHost(host: string | undefined | null): string | null {
+  if (!host) return null;
+  return KNOWN_PUBLIC_GIT_HOSTS.has(host) ? host : 'self-hosted';
+}
+
+/** Git host bucket for the current project (well-known public host name or `self-hosted`). */
 function getGitHost(): string | null {
   const slug = getNormalizedProjectSlug();
-  if (!slug) return null;
-  return slug.split('/')[0] || null;
+  return bucketGitHost(slug ? slug.split('/')[0] : null);
 }
 
 
@@ -467,49 +492,56 @@ const isOptedOut = checkIsOptedOut();
 let lastTelemetryReq: Promise<any> | undefined;
 
 async function posthogCapture(event: string, properties?: Record<string, any>) {
-  const telemetryMeta = getTelemetryMeta();
-  const usageContext = getTelemetryUsageContextPayload();
-  const payload = {
-    api_key: CONFIG.POSTHOG_API_KEY,
-    event,
-    properties: {
-      $process_person_profile: false,
-      ...telemetryMeta,
-      ...usageContext,
-      ...properties,
-    },
-    distinct_id: isOptedOut ? '---' : getAnonymousId(),
-  };
+  // Telemetry must never break the CLI. trackCommand() is awaited in a `finally`,
+  // and the payload (incl. project/git/plugin data) is built even when opted out,
+  // so any failure here is swallowed rather than surfaced to the caller.
+  try {
+    const telemetryMeta = getTelemetryMeta();
+    const usageContext = getTelemetryUsageContextPayload();
+    const payload = {
+      api_key: CONFIG.POSTHOG_API_KEY,
+      event,
+      properties: {
+        $process_person_profile: false,
+        ...telemetryMeta,
+        ...usageContext,
+        ...properties,
+      },
+      distinct_id: isOptedOut ? '---' : getAnonymousId(),
+    };
 
-  debug(`track${isOptedOut ? ' (disabled)' : ''}`, payload);
+    debug(`track${isOptedOut ? ' (disabled)' : ''}`, payload);
 
-  if (isOptedOut) return;
+    if (isOptedOut) return;
 
-  // add exit hook, so we can give the request a little time to finish
-  const removeExitHook = asyncExitHook(async () => {
-    // will still exit if the timeout is met, but will finish early if the request completes
-    await lastTelemetryReq;
-  }, { wait: 500 });
+    // add exit hook, so we can give the request a little time to finish
+    const removeExitHook = asyncExitHook(async () => {
+      // will still exit if the timeout is met, but will finish early if the request completes
+      await lastTelemetryReq;
+    }, { wait: 500 });
 
-  // Make the fetch call
-  lastTelemetryReq = fetch(`${CONFIG.POSTHOG_HOST}/i/v0/e/`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  })
-    .then((res) => {
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      return res.text();
+    // Make the fetch call
+    lastTelemetryReq = fetch(`${CONFIG.POSTHOG_HOST}/i/v0/e/`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        'Content-Type': 'application/json',
+      },
     })
-    .then((text) => debug('telemetry response:', text))
-    .catch((error) => {
-      debug('telemetry error:', error);
-    })
-    .finally(() => {
-      removeExitHook();
-    });
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res.text();
+      })
+      .then((text) => debug('telemetry response:', text))
+      .catch((error) => {
+        debug('telemetry error:', error);
+      })
+      .finally(() => {
+        removeExitHook();
+      });
+  } catch (err) {
+    debug('telemetry capture error:', err);
+  }
 }
 
 

@@ -26,11 +26,16 @@ function normalizePkgLoadPath(pkgLoadPath: string | Array<string>): Array<string
 function captureUsageAfterLoad(promise: Promise<EnvGraph>) {
   return promise
     .then((graph) => {
-      captureUsageContextFromEnvGraph(graph);
+      // telemetry capture must never turn a successful load into a failure
+      try {
+        captureUsageContextFromEnvGraph(graph);
+      } catch { /* swallow - telemetry is best-effort */ }
       return graph;
     })
     .catch((err) => {
-      captureTelemetryGraphLoadFailure(err);
+      try {
+        captureTelemetryGraphLoadFailure(err);
+      } catch { /* swallow - telemetry is best-effort */ }
       throw err;
     });
 }

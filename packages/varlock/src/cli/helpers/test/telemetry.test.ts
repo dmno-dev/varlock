@@ -7,7 +7,9 @@ vi.mock('../js-package-manager-utils', () => ({
 }));
 
 import { detectJsPackageManager } from '../js-package-manager-utils';
-import { getJsPackageManagerForTelemetry, normalizeGitRemoteUrl, getProjectSlugFromCi } from '../telemetry';
+import {
+  getJsPackageManagerForTelemetry, normalizeGitRemoteUrl, getProjectSlugFromCi, bucketGitHost,
+} from '../telemetry';
 
 describe('getJsPackageManagerForTelemetry', () => {
   beforeEach(() => {
@@ -69,6 +71,26 @@ describe('normalizeGitRemoteUrl', () => {
     expect(normalizeGitRemoteUrl('   ')).toBeUndefined();
     expect(normalizeGitRemoteUrl('not-a-url')).toBeUndefined();
     expect(normalizeGitRemoteUrl('https://github.com')).toBeUndefined();
+  });
+});
+
+describe('bucketGitHost', () => {
+  it('emits well-known public hosts verbatim', () => {
+    expect(bucketGitHost('github.com')).toBe('github.com');
+    expect(bucketGitHost('gitlab.com')).toBe('gitlab.com');
+    expect(bucketGitHost('bitbucket.org')).toBe('bitbucket.org');
+  });
+
+  it('buckets self-hosted / internal hosts so a private hostname is never emitted', () => {
+    expect(bucketGitHost('github.acme-corp.com')).toBe('self-hosted'); // GitHub Enterprise
+    expect(bucketGitHost('gitlab.internal.example')).toBe('self-hosted');
+    expect(bucketGitHost('git.acme.io')).toBe('self-hosted');
+  });
+
+  it('returns null for empty input', () => {
+    expect(bucketGitHost(null)).toBeNull();
+    expect(bucketGitHost(undefined)).toBeNull();
+    expect(bucketGitHost('')).toBeNull();
   });
 });
 
