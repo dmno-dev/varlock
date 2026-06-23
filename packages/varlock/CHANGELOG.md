@@ -13,6 +13,16 @@
 
 
 
+
+## 1.8.0
+<sub>2026-06-23</sub>
+
+- [#817](https://github.com/dmno-dev/varlock/pull/817)  *(minor)* - Add @internal decorator to mark items used only by varlock (e.g. a secret-zero token) so they are resolved but not injected into your app
+- [#818](https://github.com/dmno-dev/varlock/pull/818)  *(minor)* - Enrich CLI telemetry with plugin, integration, and schema feature context.
+- [#811](https://github.com/dmno-dev/varlock/pull/811)  *(patch)* - Stop UPX on Windows native encrypt binary, sign via Azure Artifact Signing, and publish SHA256SUMS for native helpers
+- [#812](https://github.com/dmno-dev/varlock/pull/812)  *(patch)* - varlock run now forwards termination signals (SIGTERM/SIGINT/SIGHUP/SIGQUIT) to the child process and propagates its exit status faithfully (128+N on signal death), making it safe to use as a container ENTRYPOINT / PID 1
+- [#799](https://github.com/dmno-dev/varlock/pull/799)  *(patch)* - Update gunshi to 0.35. `varlock cache status`/`clear` are now proper subcommands with scoped help and completion, and `printenv`/`explain`/`reveal`/`scan`/`audit` now declare their positional arguments so they appear in `--help` and shell completion.
+
 ## 1.7.2
 <sub>2026-06-19</sub>
 

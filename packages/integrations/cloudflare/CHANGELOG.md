@@ -10,6 +10,14 @@
 
 
 
+
+## 1.2.0
+<sub>2026-06-23</sub>
+
+- [#823](https://github.com/dmno-dev/varlock/pull/823)  *(patch)* - Fix varlock env initialization when using the Astro Cloudflare adapter (@astrojs/cloudflare), including Astro v7. The Astro integration now injects varlock init into the Cloudflare worker entry so ENV works in astro dev and production Workers deployments. Requires `@varlock/cloudflare-integration` when using `@astrojs/cloudflare` (optional peer). varlock now also disables wrangler's redundant `.env` auto-loading (which printed "Using secrets defined in .env" and could shadow varlock's values), since varlock is the source of env for the worker.
+- [#827](https://github.com/dmno-dev/varlock/pull/827)  *(patch)* - SvelteKit on Cloudflare now works with the standard varlockVitePlugin() — it auto-detects the @sveltejs/adapter-cloudflare adapter (configured in svelte.config.js or inline in vite.config) and injects the Workers env loader automatically. The same import now works across all deploy targets. varlockSvelteKitCloudflarePlugin is deprecated; install @varlock/cloudflare-integration alongside the vite plugin for Cloudflare deploys.
+- *(minor)* Version bump from `@varlock/vite-integration` v1.2.0
+
 ## 1.1.7
 <sub>2026-06-11</sub>
 

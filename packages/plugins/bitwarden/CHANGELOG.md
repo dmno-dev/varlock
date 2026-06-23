@@ -2,6 +2,14 @@
 
 
 
+
+## 2.0.0
+<sub>2026-06-23</sub>
+
+- [#817](https://github.com/dmno-dev/varlock/pull/817)  *(major)* - **Breaking:** the service-account / auth token data types are now `@internal` by default — varlock still uses them to fetch your other secrets, but they are no longer injected into your application. If your app reads one of these credentials directly (e.g. to write secrets back or fetch more at runtime), set `@internal=false` to keep it injected.
+- [#779](https://github.com/dmno-dev/varlock/pull/779)  *(minor)* - Add Bitwarden Password Manager and Vaultwarden support via the bw CLI, with auto-unlock and cached session token (new @initBwp / bwp / bwSessionToken)
+- [#818](https://github.com/dmno-dev/varlock/pull/818)  *(patch)* - Report anonymous, non-sensitive usage attributes (auth mode, feature flags) through varlock's opt-out telemetry.
+
 ## 1.1.0
 <sub>2026-06-10</sub>
 
