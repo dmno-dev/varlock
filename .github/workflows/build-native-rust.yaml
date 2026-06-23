@@ -113,6 +113,20 @@ jobs:
         if: inputs.sign && contains(matrix.os, 'windows')
         run: bun run build:libs
 
+      # varlock-action locates varlock on Windows by looking for a
+      # node_modules/.bin/varlock.cmd shim, which `bun install` does not create
+      # (bun emits .exe/.bunx shims instead). Without it the action falls back to
+      # `npm install -g varlock`, whose post-install check can't resolve a .cmd via
+      # PATHEXT under spawnSync({shell:false}), so it fails with "Failed to install
+      # varlock". Drop a .cmd shim pointing at the workspace varlock so the action's
+      # local-binary path finds it — mirroring how macOS finds node_modules/.bin/varlock.
+      - name: Shim varlock for varlock-action (Windows)
+        if: inputs.sign && contains(matrix.os, 'windows')
+        shell: bash
+        run: |
+          mkdir -p node_modules/.bin
+          printf '@node "%%~dp0..\\varlock\\bin\\cli.js" %%*\r\n' > node_modules/.bin/varlock.cmd
+
       # Load Azure signing secrets from 1Password via varlock (scoped to the Rust package)
       - name: Load signing secrets
         if: inputs.sign && contains(matrix.os, 'windows')
