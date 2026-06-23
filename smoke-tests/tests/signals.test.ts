@@ -47,9 +47,17 @@ function runAndSignal(command: Array<string>, signal: NodeJS.Signals, env?: Reco
 
 // signals / process groups are POSIX concepts
 describe.skipIf(process.platform === 'win32')('Signal handling', () => {
+  // We background the sleep and `wait` rather than sleeping in the foreground so the
+  // child's trap fires the instant the signal arrives, consistently across bash versions.
+  // A foreground `sleep` makes bash defer the trap until the command returns, and bash's
+  // handling of that case differs for SIGINT (the interactive-interrupt signal): macOS
+  // still ships bash 3.2, which — unlike Linux's bash 5.x — does not run the INT trap
+  // promptly when a foreground child is interrupted, so the test would hang until the
+  // sleep's full duration elapsed. `sleep & wait` sidesteps that and is the canonical
+  // signal-handling idiom anyway.
   test('forwards SIGTERM to the child so its handler runs and the exit code is preserved', async () => {
     const result = await runAndSignal(
-      ['bash', '-c', 'trap "echo bye; exit 0" TERM; echo ready; sleep 60'],
+      ['bash', '-c', 'trap "echo bye; exit 0" TERM; echo ready; sleep 60 & wait'],
       'SIGTERM',
     );
 
@@ -61,7 +69,7 @@ describe.skipIf(process.platform === 'win32')('Signal handling', () => {
 
   test('forwards SIGINT to the child', async () => {
     const result = await runAndSignal(
-      ['bash', '-c', 'trap "echo interrupted; exit 0" INT; echo ready; sleep 60'],
+      ['bash', '-c', 'trap "echo interrupted; exit 0" INT; echo ready; sleep 60 & wait'],
       'SIGINT',
     );
 
