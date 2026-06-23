@@ -41,7 +41,7 @@
   "peerDependencies": {
     "varlock": "workspace:^",
     "astro": ">=4",
-    "@varlock/cloudflare-integration": "workspace:^"
+    "@varlock/cloudflare-integration": "^1.1.7"
   },
   "peerDependenciesMeta": {
     "@varlock/cloudflare-integration": {

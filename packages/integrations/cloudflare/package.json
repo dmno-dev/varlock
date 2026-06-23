@@ -11,10 +11,22 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./sveltekit": "./dist/sveltekit.js",
-    "./init": "./dist/init.js",
-    "./ssr-entry-code": "./dist/shared-ssr-entry-code.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./sveltekit": {
+      "types": "./dist/sveltekit.d.ts",
+      "default": "./dist/sveltekit.js"
+    },
+    "./init": {
+      "types": "./dist/init.d.ts",
+      "default": "./dist/init.js"
+    },
+    "./ssr-entry-code": {
+      "types": "./dist/shared-ssr-entry-code.d.ts",
+      "default": "./dist/shared-ssr-entry-code.js"
+    }
   },
   "bin": {
     "varlock-wrangler": "./bin/varlock-wrangler.js"

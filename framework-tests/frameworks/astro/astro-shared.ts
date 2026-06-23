@@ -4,7 +4,9 @@ import {
 import { FrameworkTestEnv } from '../../harness/index';
 
 export function defineAstroTests(astroVersion: number, testDir: string, opts: { portBase: number }) {
-  const nodeAdapterVersion = astroVersion >= 6 ? '^10' : '^9';
+  let nodeAdapterVersion = '^9';
+  if (astroVersion >= 7) nodeAdapterVersion = '^11';
+  else if (astroVersion >= 6) nodeAdapterVersion = '^10';
   let nextPort = opts.portBase;
   const port = () => nextPort++;
 
