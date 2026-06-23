@@ -80,7 +80,7 @@
         "vitest": "catalog:",
       },
       "peerDependencies": {
-        "@varlock/cloudflare-integration": "workspace:^",
+        "@varlock/cloudflare-integration": "^1.1.7",
         "astro": ">=4",
         "varlock": "workspace:^",
       },
