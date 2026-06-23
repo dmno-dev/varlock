@@ -1061,12 +1061,14 @@ plugin.registerTelemetryAttributes(() => {
   const instances = Object.values(pluginInstances);
   const authModes = new Set(instances.map((i) => i.telemetryAuthMode));
   return {
+    // standard attributes
     instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.telemetryUsesCache),
+    // custom attributes
     auth_app: authModes.has('app'),
     auth_service_account_sdk: authModes.has('service_account_sdk'),
     auth_service_account_cli: authModes.has('service_account_cli'),
     auth_connect: authModes.has('connect'),
     uses_environments: usedEnvironments,
-    uses_cache: instances.some((i) => i.telemetryUsesCache),
   };
 });

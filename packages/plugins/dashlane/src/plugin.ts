@@ -91,3 +91,15 @@ plugin.registerDataType({
     if (error) throw new ValidationError(error);
   },
 });
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(manager.instances);
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    // custom attributes
+    auto_sync: instances.some((i) => i.telemetryAutoSync),
+    lock_on_exit: instances.some((i) => i.telemetryLockOnExit),
+  };
+});

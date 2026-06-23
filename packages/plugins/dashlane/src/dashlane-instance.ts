@@ -30,6 +30,12 @@ export class DashlanePluginInstance {
     this.lockAfter = opts?.lockOnExit ?? !!serviceDeviceKeys;
   }
 
+  /** @internal telemetry: whether this instance auto-syncs the vault before reads */
+  get telemetryAutoSync() { return this.autoSync; }
+
+  /** @internal telemetry: whether this instance locks the vault on process exit */
+  get telemetryLockOnExit() { return this.lockAfter; }
+
   private get spawnEnv(): Record<string, string> | undefined {
     if (!this.serviceDeviceKeys) return undefined;
     return {

@@ -83,6 +83,16 @@ class InfisicalPluginInstance {
     debug('infisical instance', this.id, 'set auth - projectId:', projectId, 'environment:', environment, 'hasIdentityId:', !!identityId);
   }
 
+  /** @internal telemetry: which auth method this instance is configured for (fixed enum, never raw values) */
+  get telemetryAuthMethod(): 'universal' | 'oidc' | 'none' {
+    if (this.clientId) return 'universal';
+    if (this.identityId) return 'oidc';
+    return 'none';
+  }
+
+  /** @internal telemetry: whether a custom site URL is set (self-hosted vs cloud) — boolean only, never the URL */
+  get telemetrySelfHosted() { return this.siteUrl != null; }
+
   private infisicalClientPromise?: Promise<InfisicalSDK>;
   private static readonly defaultSiteUrl = 'https://app.infisical.com';
 
@@ -652,4 +662,19 @@ plugin.registerResolverFunction({
 
     return await selectedInstance.listSecrets(secretPath, tagSlugs);
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const authMethods = new Set(instances.map((i) => i.telemetryAuthMethod));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+    // custom attributes
+    auth_universal: authMethods.has('universal'),
+    auth_oidc: authMethods.has('oidc'),
+    self_hosted: instances.some((i) => i.telemetrySelfHosted),
+  };
 });

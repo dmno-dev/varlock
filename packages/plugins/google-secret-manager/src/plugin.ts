@@ -69,6 +69,13 @@ class GsmPluginInstance {
     );
   }
 
+  /** @internal telemetry: which auth path this instance is configured for (fixed enum, never raw config) */
+  get telemetryAuthMode(): 'service_account' | 'workload_identity' | 'adc' {
+    if (this.credentials) return 'service_account';
+    if (this.workloadIdentityProvider) return 'workload_identity';
+    return 'adc';
+  }
+
   private authClientPromise: Promise<GoogleAuth> | undefined;
   async initClient() {
     if (this.authClientPromise) return this.authClientPromise;
@@ -454,4 +461,19 @@ plugin.registerResolverFunction({
 
     return await selectedInstance.readSecret(secretRef);
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const authModes = new Set(instances.map((i) => i.telemetryAuthMode));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+    // custom attributes
+    auth_service_account: authModes.has('service_account'),
+    auth_workload_identity: authModes.has('workload_identity'),
+    auth_adc: authModes.has('adc'),
+  };
 });
