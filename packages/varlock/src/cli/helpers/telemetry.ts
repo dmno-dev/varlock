@@ -247,6 +247,26 @@ function getAnonymousProjectId() {
   return anonymizeValue(gitRemoteUrl);
 }
 
+/** Builds a canonical `host/owner/repo` slug (lowercased) from a host + path pair. */
+function buildProjectSlug(rawHost: string, rawPath: string): string | undefined {
+  // strip port from host, lowercase it
+  const host = rawHost.trim().replace(/:\d+$/, '').toLowerCase();
+  if (!host) return undefined;
+
+  // clean path: drop leading/trailing slashes, optional `.git` suffix, then lowercase.
+  // host paths are treated case-insensitively to maximize grouping (GitHub/GitLab/etc.
+  // treat owner/repo case-insensitively, and clones may differ only by case)
+  const path = rawPath
+    .trim()
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+    .replace(/\.git$/, '')
+    .toLowerCase();
+  if (!path) return undefined;
+
+  return `${host}/${path}`;
+}
+
 /**
  * Normalizes a git remote URL down to a canonical `host/owner/repo` (lowercased)
  * so that http(s), ssh, scp-style, and git:// clones of the same repo collapse to
@@ -290,49 +310,83 @@ export function normalizeGitRemoteUrl(rawUrl: string): string | undefined {
     path = scpMatch[2];
   }
 
-  // strip port from host, lowercase it
-  host = host.replace(/:\d+$/, '').toLowerCase();
-  if (!host) return undefined;
-
-  // clean path: drop leading/trailing slashes, optional `.git` suffix, then lowercase.
-  // host paths are treated case-insensitively to maximize grouping (GitHub/GitLab/etc.
-  // treat owner/repo case-insensitively, and clones may differ only by case)
-  path = path
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '')
-    .replace(/\.git$/, '')
-    .toLowerCase();
-  if (!path) return undefined;
-
-  return `${host}/${path}`;
+  return buildProjectSlug(host, path);
 }
 
 /**
- * Stable, anonymized project id derived from a normalized git remote.
+ * Resolves a canonical `host/owner/repo` slug from CI environment variables, when
+ * available. CI runners expose the repo slug directly and unambiguously — more
+ * reliable than parsing `.git/config`, and it works even when no remote is set.
+ * Output matches {@link normalizeGitRemoteUrl} so CI and local clones of the same
+ * repo collapse to the same id.
+ *
+ * @internal exported for unit tests
+ */
+export function getProjectSlugFromCi(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  // GitHub Actions (incl. GitHub Enterprise via GITHUB_SERVER_URL)
+  if (env.GITHUB_REPOSITORY) {
+    const host = (env.GITHUB_SERVER_URL || 'https://github.com').replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '');
+    return buildProjectSlug(host, env.GITHUB_REPOSITORY);
+  }
+  // GitLab CI
+  if (env.CI_PROJECT_PATH && env.CI_SERVER_HOST) {
+    return buildProjectSlug(env.CI_SERVER_HOST, env.CI_PROJECT_PATH);
+  }
+  // Bitbucket Pipelines (no host env var — always bitbucket.org)
+  if (env.BITBUCKET_REPO_FULL_NAME) {
+    return buildProjectSlug('bitbucket.org', env.BITBUCKET_REPO_FULL_NAME);
+  }
+  return undefined;
+}
+
+let _cachedProjectSlug: string | undefined | null;
+/**
+ * Canonical `host/owner/repo` slug for the current project. Prefers CI env vars
+ * (deterministic, remote-independent), falling back to the parsed git remote.
+ * Cached; returns null if neither source yields a slug.
+ */
+function getNormalizedProjectSlug(): string | null {
+  if (_cachedProjectSlug !== undefined) return _cachedProjectSlug;
+  const ciSlug = getProjectSlugFromCi();
+  if (ciSlug) {
+    _cachedProjectSlug = ciSlug;
+    return _cachedProjectSlug;
+  }
+  const gitRemoteUrl = getProjectGitRemoteUrl();
+  _cachedProjectSlug = (gitRemoteUrl && normalizeGitRemoteUrl(gitRemoteUrl)) || null;
+  return _cachedProjectSlug;
+}
+
+/**
+ * Stable, anonymized project id derived from the normalized project slug.
  * Unlike {@link getAnonymousProjectId} (kept as-is for measurement continuity),
- * this collapses http/ssh/scp variants of the same repo to a single id.
+ * this collapses http/ssh/scp variants of the same repo to a single id and also
+ * resolves from CI env vars when available.
  */
 function getAnonymousProjectIdV2() {
-  const gitRemoteUrl = getProjectGitRemoteUrl();
-  if (!gitRemoteUrl) return null;
-  const normalized = normalizeGitRemoteUrl(gitRemoteUrl);
-  if (!normalized) return null;
-  return anonymizeValue(normalized);
+  const slug = getNormalizedProjectSlug();
+  if (!slug) return null;
+  return anonymizeValue(slug);
 }
 
 /**
- * Anonymized org-level id: hash of `host/owner` from the normalized remote.
+ * Anonymized org-level id: hash of `host/owner` from the normalized slug.
  * Lets us group activity across repos owned by the same org/user.
  */
 function getAnonymousOrgId() {
-  const gitRemoteUrl = getProjectGitRemoteUrl();
-  if (!gitRemoteUrl) return null;
-  const normalized = normalizeGitRemoteUrl(gitRemoteUrl);
-  if (!normalized) return null;
-  const segments = normalized.split('/');
+  const slug = getNormalizedProjectSlug();
+  if (!slug) return null;
+  const segments = slug.split('/');
   // host + first path segment (owner / top-level group)
   if (segments.length < 3) return null;
   return anonymizeValue(`${segments[0]}/${segments[1]}`);
+}
+
+/** Git host (e.g. `github.com`) for the current project. Not anonymized — host alone is not identifying. */
+function getGitHost(): string | null {
+  const slug = getNormalizedProjectSlug();
+  if (!slug) return null;
+  return slug.split('/')[0] || null;
 }
 
 
@@ -343,6 +397,8 @@ type TelemetryMeta = {
   anonymous_project_id_v2: string | null;
   // org-level id (host/owner) for grouping repos by org/user
   anonymous_org_id: string | null;
+  // git host (e.g. github.com) — not anonymized, host alone is not identifying
+  git_host: string | null;
   // version information
   node_version: string;
   varlock_version: string;
@@ -384,6 +440,7 @@ function getTelemetryMeta() {
     anonymous_project_id: getAnonymousProjectId(),
     anonymous_project_id_v2: getAnonymousProjectIdV2(),
     anonymous_org_id: getAnonymousOrgId(),
+    git_host: getGitHost(),
     node_version: process.version.replace(/^v?/, ''),
     varlock_version: versionIdentifier,
     system_platform: os.platform(),

@@ -7,7 +7,7 @@ vi.mock('../js-package-manager-utils', () => ({
 }));
 
 import { detectJsPackageManager } from '../js-package-manager-utils';
-import { getJsPackageManagerForTelemetry, normalizeGitRemoteUrl } from '../telemetry';
+import { getJsPackageManagerForTelemetry, normalizeGitRemoteUrl, getProjectSlugFromCi } from '../telemetry';
 
 describe('getJsPackageManagerForTelemetry', () => {
   beforeEach(() => {
@@ -69,5 +69,39 @@ describe('normalizeGitRemoteUrl', () => {
     expect(normalizeGitRemoteUrl('   ')).toBeUndefined();
     expect(normalizeGitRemoteUrl('not-a-url')).toBeUndefined();
     expect(normalizeGitRemoteUrl('https://github.com')).toBeUndefined();
+  });
+});
+
+describe('getProjectSlugFromCi', () => {
+  it('resolves GitHub Actions repo slug', () => {
+    expect(getProjectSlugFromCi({ GITHUB_REPOSITORY: 'Owner/Repo' })).toBe('github.com/owner/repo');
+  });
+
+  it('honors GITHUB_SERVER_URL for GitHub Enterprise', () => {
+    expect(getProjectSlugFromCi({
+      GITHUB_REPOSITORY: 'owner/repo',
+      GITHUB_SERVER_URL: 'https://github.acme.com',
+    })).toBe('github.acme.com/owner/repo');
+  });
+
+  it('resolves GitLab CI slug incl. subgroups', () => {
+    expect(getProjectSlugFromCi({
+      CI_SERVER_HOST: 'gitlab.com',
+      CI_PROJECT_PATH: 'group/subgroup/repo',
+    })).toBe('gitlab.com/group/subgroup/repo');
+  });
+
+  it('resolves Bitbucket Pipelines slug', () => {
+    expect(getProjectSlugFromCi({ BITBUCKET_REPO_FULL_NAME: 'workspace/repo' }))
+      .toBe('bitbucket.org/workspace/repo');
+  });
+
+  it('matches normalizeGitRemoteUrl output for the same repo (CI vs local clone)', () => {
+    expect(getProjectSlugFromCi({ GITHUB_REPOSITORY: 'owner/repo' }))
+      .toBe(normalizeGitRemoteUrl('git@github.com:owner/repo.git'));
+  });
+
+  it('returns undefined when no CI repo vars are present', () => {
+    expect(getProjectSlugFromCi({})).toBeUndefined();
   });
 });
