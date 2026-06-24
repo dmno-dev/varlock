@@ -104,6 +104,20 @@ jobs:
         if: inputs.sign && contains(matrix.os, 'windows')
         uses: oven-sh/setup-bun@v2
 
+      # `bun install` segfaults on Windows when the Socket security scanner runs
+      # (bun crashes with "Segmentation fault" right after "Security scanner
+      # installed successfully"). Drop the [install.security] section for this
+      # native-build install only — supply-chain scanning still runs in the
+      # dedicated Socket workflows. Remove once the upstream bun bug is fixed.
+      - name: Disable bun security scanner (Windows bun crash workaround)
+        if: inputs.sign && contains(matrix.os, 'windows')
+        shell: bash
+        run: |
+          awk '/^\[install\.security\]/{skip=1; next} /^\[/{skip=0} !skip' bunfig.toml > bunfig.toml.tmp
+          mv bunfig.toml.tmp bunfig.toml
+          echo "=== bunfig.toml after workaround ==="
+          cat bunfig.toml
+
       - name: Install node deps (for varlock secret loading)
         if: inputs.sign && contains(matrix.os, 'windows')
         run: bun install
