@@ -1,73 +1,35 @@
-name: Release varlock CLI binaries
+name: Re-cut varlock CLI binaries
 
-# normal CI release workflow handles publishing multiple packages from the monorepo
-# this workflow triggered by a release `varlock@x.y.z`
+# Manual re-cut of the varlock CLI standalone (SEA) binaries, homebrew formula,
+# and Docker image for an ALREADY-PUBLISHED version.
+#
+# The normal release flow (release.yaml) builds and uploads these in the same run
+# as the npm publish, reusing the in-run signed/notarized native binaries. This
+# workflow is only for re-cutting binaries of an existing version — it pulls the
+# signed native binaries from the published npm package (varlock's `files`
+# includes /native-bins) rather than rebuilding + re-signing them, so it needs no
+# macOS/Windows runner, no Azure, and no Apple credentials.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (ex: "1.2.3")'
+        description: 'Published version to re-cut (ex: "1.2.3")'
         required: true
         type: string
-  release:
-    types: [published]
 
 permissions:
   contents: read
 
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+concurrency: ${{ github.workflow }}-${{ inputs.version }}
 
 jobs:
-  debug:
-    runs-on: ubuntu-latest
-    steps:
-      - name: print github context
-        env:
-          GITHUB_CONTEXT: ${{ toJson(github) }}
-        run: |
-          echo "$GITHUB_CONTEXT"
-
-  # Build and sign the macOS native binary (cache hit if already built in CI)
-  build-native-macos:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'varlock@')
-    uses: ./.github/workflows/build-native-macos.yaml
-    with:
-      mode: release
-      artifact-name: native-bin-macos-signed
-    secrets:
-      OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
-
-  # Notarize the signed binary for production distribution
-  notarize-native-macos:
-    needs: build-native-macos
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'varlock@')
-    uses: ./.github/workflows/notarize-native-macos.yaml
-    with:
-      source-artifact-name: native-bin-macos-signed
-      artifact-name: native-bin-macos-release
-    secrets:
-      OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
-
-  # Build Rust native binaries for Linux and Windows
-  build-native-rust:
-    permissions:
-      contents: read
-      id-token: write # Azure OIDC signing in the reusable workflow
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'varlock@')
-    uses: ./.github/workflows/build-native-rust.yaml
-    with:
-      artifact-name: native-bin-rust
-      sign: true
-    secrets:
-      OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
-
   release-binaries:
-    needs: [notarize-native-macos, build-native-rust]
-    # was using github.ref.tag_name, but it seems that when publishing multiple tags at once, it was behaving weirdly
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'varlock@')
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_TAG: varlock@${{ inputs.version }}
     steps:
       - uses: actions/checkout@v7
       - name: Setup Bun
@@ -80,49 +42,25 @@ jobs:
         run: bun install
       - name: Enable turborepo build cache
         uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
-      # ------------------------------------------------------------
 
-      - name: get version from release tag
-        if: ${{ github.event_name == 'release' }}
+      # Pull the signed/notarized native binaries from the published npm package
+      # instead of rebuilding + re-signing them.
+      - name: Fetch native binaries from published npm package
         run: |
-          # get the full release tag name - ex: varlock@1.2.3
-          echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> $GITHUB_ENV
-          # get the version only from the tag - ex: 1.2.3
-          echo "RELEASE_VERSION=${GITHUB_REF_NAME#varlock@}" >> $GITHUB_ENV
-
-      - name: use manual version from input
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+          set -euo pipefail
+          TMP="$RUNNER_TEMP/varlock-npm"
+          mkdir -p "$TMP" && cd "$TMP"
+          for i in $(seq 1 30); do
+            if npm view "varlock@${RELEASE_VERSION}" version >/dev/null 2>&1; then break; fi
+            echo "waiting for varlock@${RELEASE_VERSION} on npm ($i)..."; sleep 10
+          done
+          npm pack "varlock@${RELEASE_VERSION}"
+          tar -xzf varlock-*.tgz
+          rm -rf "$GITHUB_WORKSPACE/packages/varlock/native-bins"
+          cp -R package/native-bins "$GITHUB_WORKSPACE/packages/varlock/native-bins"
+      - name: Restore native binary execute permissions
         run: |
-          echo "RELEASE_TAG=varlock@${{ inputs.version }}" >> $GITHUB_ENV
-          echo "RELEASE_VERSION=${{ inputs.version }}" >> $GITHUB_ENV
-
-      # Download the signed macOS native binary
-      - name: Download macOS native binary
-        uses: actions/download-artifact@v8
-        with:
-          name: native-bin-macos-release
-          path: packages/varlock/native-bins/darwin/VarlockEnclave.app
-      - name: Restore native binary execute permission
-        run: chmod +x packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
-
-      # Download Rust native binaries for Linux and Windows
-      - name: Download Linux x64 native binary
-        uses: actions/download-artifact@v8
-        with:
-          name: native-bin-rust-linux-x64
-          path: packages/varlock/native-bins/linux-x64
-      - name: Download Linux arm64 native binary
-        uses: actions/download-artifact@v8
-        with:
-          name: native-bin-rust-linux-arm64
-          path: packages/varlock/native-bins/linux-arm64
-      - name: Download Windows x64 native binary
-        uses: actions/download-artifact@v8
-        with:
-          name: native-bin-rust-win32-x64
-          path: packages/varlock/native-bins/win32-x64
-      - name: Restore Rust binary execute permissions
-        run: |
+          chmod +x packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
           chmod +x packages/varlock/native-bins/linux-x64/varlock-local-encrypt
           chmod +x packages/varlock/native-bins/linux-arm64/varlock-local-encrypt
 
@@ -135,74 +73,56 @@ jobs:
             native-bins/linux-arm64/varlock-local-encrypt \
             native-bins/win32-x64/varlock-local-encrypt.exe \
             > SHA256SUMS.txt
-          echo "Native binary checksums:"
-          cat SHA256SUMS.txt
 
-      - name: build libs
+      - name: Build libs
         run: bun run build:libs
         env:
           BUILD_TYPE: release
-      - name: build varlock SEA binaries
+      - name: Build varlock SEA binaries
         run: bun run packages/varlock/scripts/build-binaries.ts
-      - name: add binaries to GH release
+      - name: Upload binaries to GitHub release
         env:
-          # default token works to update release on this repo
           GH_TOKEN: ${{ github.token }}
         working-directory: packages/varlock/dist-sea
-        run: gh release upload ${{ env.RELEASE_TAG }} *.{tar.gz,zip} checksums.txt ../SHA256SUMS.txt --clobber
+        run: gh release upload "$RELEASE_TAG" *.{tar.gz,zip} checksums.txt ../SHA256SUMS.txt --clobber
 
-      # UPDATE HOMEBREW FORMULA ---
-      - name: checkout homebrew tap repo
+      - name: Checkout homebrew tap repo
         uses: actions/checkout@v7
         with:
           repository: dmno-dev/homebrew-tap
-          # need a different token to update a different repo
           token: ${{ secrets.HOMEBREW_REPO_GITHUB_ACCESS_TOKEN }}
           path: homebrew-tap
           clean: false
-      - name: update homebrew formula
+      - name: Update homebrew formula
         run: bun run scripts/update-homebrew-formula.ts
-      - name: commit and push homebrew tap update
+      - name: Commit and push homebrew tap update
         run: |
           cd homebrew-tap
           git config --global user.name 'theoephraim'
           git config --global user.email 'theo@dmno.dev'
           git add .
-          git commit -m "varlock@${{ env.RELEASE_VERSION }}"
-          git tag "varlock@${{ env.RELEASE_VERSION }}"
+          git commit -m "varlock@${RELEASE_VERSION}"
+          git tag "varlock@${RELEASE_VERSION}"
           git push origin HEAD --tags
 
   release-docker:
     needs: release-binaries
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'varlock@')
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v7
-
-      - name: get version from release tag
-        if: ${{ github.event_name == 'release' }}
-        run: |
-          # get the version only from the tag - ex: 1.2.3
-          echo "RELEASE_VERSION=${GITHUB_REF_NAME#varlock@}" >> $GITHUB_ENV
-
-      - name: use manual version from input
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          echo "RELEASE_VERSION=${{ inputs.version }}" >> $GITHUB_ENV
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
         with:
