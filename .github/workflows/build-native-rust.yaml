@@ -100,18 +100,24 @@ jobs:
       # through varlock (see packages/encryption-binary-rust/.env.schema), mirroring
       # the macOS Developer ID signing flow. PR/preview builds skip signing entirely,
       # so no secrets are loaded there.
-      - name: Setup Bun (for varlock secret loading)
+      # Standalone varlock (installed by varlock-action via `npm install -g varlock`,
+      # which has zero runtime deps) resolves the 1Password plugin by downloading it
+      # from npm, which requires a fixed version. We keep the committed schema
+      # unversioned so local/workspace runs resolve the in-repo plugin; inject the
+      # published version here, in CI only.
+      - name: Pin 1Password plugin version for standalone varlock (CI only)
         if: inputs.sign && contains(matrix.os, 'windows')
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install node deps (for varlock secret loading)
-        if: inputs.sign && contains(matrix.os, 'windows')
-        run: bun install
-
-      # Build varlock JS so we can use it to resolve secrets from 1Password
-      - name: Build varlock libs
-        if: inputs.sign && contains(matrix.os, 'windows')
-        run: bun run build:libs
+        shell: bash
+        env:
+          # Published @varlock/1password-plugin version — must already be on npm; bump as needed.
+          OP_PLUGIN_VERSION: '1.2.0'
+        run: |
+          schema=packages/encryption-binary-rust/.env.schema
+          sed -i "s|@plugin(@varlock/1password-plugin)|@plugin(@varlock/1password-plugin@${OP_PLUGIN_VERSION})|" "$schema"
+          grep -q "@plugin(@varlock/1password-plugin@${OP_PLUGIN_VERSION})" "$schema" \
+            || { echo "::error::failed to inject 1Password plugin version into $schema"; exit 1; }
+          echo "=== schema @plugin line ==="
+          grep '@plugin' "$schema"
 
       # Load Azure signing secrets from 1Password via varlock (scoped to the Rust package)
       - name: Load signing secrets
