@@ -3,6 +3,7 @@ import { parseEnvSpecDotEnvFile, ParsedEnvSpecFunctionCall } from '@env-spec/par
 
 import {
   assertKeychainImportSchemaPresent,
+  collectSensitivePlaintextImports,
   extractKeychainRefFromCall,
   formatKeychainRef,
   getSensitivePlaintextImportValue,
@@ -115,6 +116,27 @@ describe('getSensitivePlaintextImportValue', () => {
       isSensitive: true,
       defs: [{ source: { type: 'values' } }],
     }, item.value)).toBeUndefined();
+  });
+});
+
+describe('collectSensitivePlaintextImports', () => {
+  const schema = {
+    API_KEY: { isSensitive: true, defs: [{ source: { type: 'schema' } }] },
+    PUBLIC_URL: { isSensitive: false, defs: [{ source: { type: 'schema' } }] },
+  };
+
+  test('imports only schema-sensitive items, taking values from the input file', () => {
+    const file = parseEnvSpecDotEnvFile('API_KEY=from-input-file\nPUBLIC_URL=https://example.com\n');
+
+    expect(collectSensitivePlaintextImports(file.configItems, schema)).toEqual([{ key: 'API_KEY', value: 'from-input-file' }]);
+  });
+
+  test('uses the input file value verbatim, never an overriding graph value', () => {
+    // The env graph (configSchema) only decides sensitivity; the value to store must come
+    // from the input file's own parsed item, even if another file would override it.
+    const file = parseEnvSpecDotEnvFile('API_KEY=the-real-input-value\n');
+
+    expect(collectSensitivePlaintextImports(file.configItems, schema)).toEqual([{ key: 'API_KEY', value: 'the-real-input-value' }]);
   });
 });
 

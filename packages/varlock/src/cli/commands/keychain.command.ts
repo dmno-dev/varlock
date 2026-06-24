@@ -135,6 +135,27 @@ export function getSensitivePlaintextImportValue(
   return unescapedValue;
 }
 
+type SchemaItemLike = { isSensitive?: boolean; defs?: Array<{ source?: { type?: string } }> };
+
+/**
+ * Select which config items to import, taking the value to store from the *input file's*
+ * own AST node (`item.value`) — never the resolved value from the env graph, which may have
+ * been overridden by another file (e.g. `.env.local`) in the scanned directory. The graph is
+ * consulted only for sensitivity via `configSchema`.
+ */
+export function collectSensitivePlaintextImports(
+  configItems: Array<{ key: string; value: unknown }>,
+  configSchema: Record<string, SchemaItemLike | undefined>,
+): Array<{ key: string; value: string }> {
+  const items: Array<{ key: string; value: string }> = [];
+  for (const item of configItems) {
+    const value = getSensitivePlaintextImportValue(configSchema[item.key], item.value);
+    if (value === undefined) continue;
+    items.push({ key: item.key, value });
+  }
+  return items;
+}
+
 function writeEnvRef(filePath: string, key: string, ref: string, force: boolean) {
   const existingKeys = getExistingEnvKeys(filePath);
   if (!existingKeys.has(key)) {
@@ -324,23 +345,19 @@ async function importPlaintextEnv(opts: {
   // Sensitivity is only finalized during resolution (type/resolver inference) — before
   // this, every item reports isSensitive=true, which would import non-sensitive values.
   await envGraph.resolveEnvValues();
+
+  // Values come from the input file's own parse (not the resolved graph) — see
+  // collectSensitivePlaintextImports.
   const sourceFile = parseEnvSpecDotEnvFile(fs.readFileSync(fromPath, 'utf-8'));
-  const itemsToImport: Array<{ key: string; value: string; ref: KeychainRef }> = [];
-
-  for (const item of sourceFile.configItems) {
-    const schemaItem = envGraph.configSchema[item.key];
-    const value = getSensitivePlaintextImportValue(schemaItem, item.value);
-    if (value === undefined) continue;
-
-    itemsToImport.push({
-      key: item.key,
+  const itemsToImport = collectSensitivePlaintextImports(sourceFile.configItems, envGraph.configSchema)
+    .map(({ key, value }) => ({
+      key,
       value,
       ref: {
         service: opts.service,
-        account: getGeneratedAccount(opts.project, opts.profile, item.key),
-      },
-    });
-  }
+        account: getGeneratedAccount(opts.project, opts.profile, key),
+      } satisfies KeychainRef,
+    }));
 
   if (itemsToImport.length === 0) {
     console.log('No sensitive plaintext values found to import.');
