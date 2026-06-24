@@ -15,6 +15,14 @@ const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
 const DEFAULT_CONCURRENCY = 50;
 const ENV_KEY_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+// A subdirectory containing one of these files is treated as a separate project /
+// workspace package, so we don't descend into it while scanning the parent. This keeps
+// a monorepo root's `audit`/`init` from pulling in env var references that belong to
+// child packages. `package.json` covers JS workspace packages (even before they've run
+// `varlock init`, and regardless of package manager); `.env.schema` covers
+// already-initialized and non-JS projects.
+const NESTED_PROJECT_MARKERS = new Set(['package.json', '.env.schema']);
+
 const LANGUAGE_BY_EXTENSION: Record<string, ScannerLanguage> = {
   '.js': 'js-like',
   '.mjs': 'js-like',
@@ -192,16 +200,36 @@ const JS_DESTRUCTURE_PATTERNS: Array<{ regex: RegExp, syntax: EnvVarSyntax }> = 
 
 async function discoverSourceFiles(cwd: string, ignoredDirs: Set<string>): Promise<Array<string>> {
   const filePaths: Array<string> = [];
-  const globExcludes = [...ignoredDirs].flatMap((dirName) => [`**/${dirName}`, `**/${dirName}/**`]);
 
-  for await (const relativePath of fs.glob('**/*', { cwd, exclude: globExcludes })) {
-    const normalizedRelativePath = String(relativePath).replaceAll('\\', '/');
+  async function walk(dir: string, isRoot: boolean): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
 
-    const extension = path.extname(normalizedRelativePath).toLowerCase();
-    if (!(extension in LANGUAGE_BY_EXTENSION)) continue;
+    // Don't descend into nested projects / workspace packages (the scan root is exempt).
+    // We detect the boundary from the directory listing we already have - no extra stat.
+    if (!isRoot && entries.some((entry) => entry.isFile() && NESTED_PROJECT_MARKERS.has(entry.name))) {
+      return;
+    }
 
-    filePaths.push(path.resolve(cwd, normalizedRelativePath));
+    const subdirWalks: Array<Promise<void>> = [];
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (ignoredDirs.has(entry.name)) continue;
+        subdirWalks.push(walk(path.join(dir, entry.name), false));
+      } else if (entry.isFile()) {
+        const extension = path.extname(entry.name).toLowerCase();
+        if (!(extension in LANGUAGE_BY_EXTENSION)) continue;
+        filePaths.push(path.join(dir, entry.name));
+      }
+    }
+    await Promise.all(subdirWalks);
   }
+
+  await walk(cwd, true);
   return filePaths;
 }
 

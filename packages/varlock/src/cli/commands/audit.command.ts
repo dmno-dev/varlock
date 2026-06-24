@@ -14,6 +14,7 @@ import {
 } from '../helpers/env-var-scanner';
 import { gracefulExit } from 'exit-hook';
 import { diffSchemaAndCodeKeys } from '../helpers/audit-diff';
+import { isWellKnownEnvKey } from '../helpers/well-known-env-keys';
 
 export const commandSpec = define({
   name: 'audit',
@@ -182,6 +183,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const schemaKeys = Object.keys(envGraph.configSchema);
 
   const diff = diffSchemaAndCodeKeys(schemaKeys, scanResult.keys);
+  // Don't report well-known platform/runtime/CI vars (NODE_ENV, CI, PATH, npm_*, ...) as
+  // missing - they're read from process.env in real code but never declared in a schema.
+  const missingInSchema = diff.missingInSchema.filter((key) => !isWellKnownEnvKey(key));
   const internallyReferenced = getInternallyReferencedKeys(envGraph);
   const unusedInSchema: Array<string> = [];
   for (const key of diff.unusedInSchema) {
@@ -196,7 +200,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     unusedInSchema.push(key);
   }
 
-  if (diff.missingInSchema.length === 0 && unusedInSchema.length === 0) {
+  if (missingInSchema.length === 0 && unusedInSchema.length === 0) {
     console.log(ansis.green(`✅ Schema and code references are in sync. (scanned ${scanResult.scannedFilesCount} file${scanResult.scannedFilesCount === 1 ? '' : 's'})`));
     gracefulExit(0);
     return;
@@ -204,9 +208,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   console.error(ansis.red('\n🚨 Schema/code mismatch detected:\n'));
 
-  if (diff.missingInSchema.length > 0) {
-    console.error(ansis.red(`Missing in schema (${diff.missingInSchema.length}):`));
-    for (const key of diff.missingInSchema) {
+  if (missingInSchema.length > 0) {
+    console.error(ansis.red(`Missing in schema (${missingInSchema.length}):`));
+    for (const key of missingInSchema) {
       const refs = scanResult.references.filter((r) => r.key === key).slice(0, 3);
       const refPreview = refs.map((r) => formatReference(finalScanRoot, r)).join(', ');
       console.error(`  - ${ansis.bold(key)}${refPreview ? ansis.dim(` (seen at ${refPreview})`) : ''}`);

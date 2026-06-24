@@ -22,6 +22,7 @@ import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { findEnvFiles } from '../helpers/find-env-files';
 import { tryCatch } from '@env-spec/utils/try-catch';
 import { scanCodeForEnvVars } from '../helpers/env-var-scanner';
+import { isWellKnownEnvKey } from '../helpers/well-known-env-keys';
 
 export const commandSpec = define({
   name: 'init',
@@ -164,7 +165,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     ensureAllItemsExist(parsedEnvSchemaFile, Object.values(parsedEnvFiles));
 
     const scannedCodeKeysToAdd = !exampleFileToConvert
-      ? scannedCodeEnvKeys.filter((key) => !parsedEnvSchemaFile.configItems.find((i) => i.key === key))
+      ? scannedCodeEnvKeys.filter((key) => {
+        // skip well-known platform/runtime vars (NODE_ENV, CI, PATH, npm_*, ...) - they
+        // are read from process.env but aren't app config the user should declare
+        if (isWellKnownEnvKey(key)) return false;
+        return !parsedEnvSchemaFile.configItems.find((i) => i.key === key);
+      })
       : [];
 
     // add items we detect in source code if no sample/example file was provided

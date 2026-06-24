@@ -100,6 +100,21 @@ describe('audit command', () => {
     expect(gracefulExitMock).toHaveBeenCalledWith(1);
   });
 
+  test('does not report well-known platform/runtime vars as missing in schema', async () => {
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      // all code keys are either in the schema or well-known platform vars
+      keys: ['API_KEY', 'DATABASE_URL', 'NODE_ENV', 'CI', 'PATH', 'npm_config_user_agent', 'GITHUB_BASE_REF'],
+      references: [],
+      scannedFilesCount: 3,
+    });
+
+    await commandFn({ values: {} } as any);
+
+    expect(gracefulExitMock).toHaveBeenCalledWith(0);
+    const errorOutput = consoleErrorSpy.mock.calls.flat().join('\n');
+    expect(errorOutput).not.toContain('Missing in schema');
+  });
+
   test('exits with code 0 when schema and code match', async () => {
     scanCodeForEnvVarsMock.mockResolvedValue({
       keys: ['API_KEY', 'DATABASE_URL'],
