@@ -2,4 +2,4 @@
 varlock: minor
 ---
 
-Add macOS Keychain management commands.
+Add `varlock keychain` commands to manage macOS Keychain-backed secrets.
