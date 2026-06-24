@@ -29,7 +29,7 @@ jobs:
       # Resolve publishing secrets from 1Password via varlock: AZURE_CLIENT_ID /
       # AZURE_TENANT_ID (for Marketplace OIDC) and OVSX_PAT (for Open VSX).
       - name: Load extension publishing secrets from 1Password
-        uses: dmno-dev/varlock-action@v1.0.3
+        uses: dmno-dev/varlock-action@v1.0.5
         with:
           working-directory: packages/vscode-plugin
         env:

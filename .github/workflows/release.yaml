@@ -345,7 +345,7 @@ jobs:
       # varlock the action uses.)
       - name: Load extension publishing secrets from 1Password
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-vscode == 'true'
-        uses: dmno-dev/varlock-action@v1.0.3
+        uses: dmno-dev/varlock-action@v1.0.5
         with:
           working-directory: packages/vscode-plugin
         env:
