@@ -301,18 +301,29 @@ async function setKeychainSecret(opts: {
 
 async function importPlaintextEnv(opts: {
   from: string;
-  write: string;
+  /** When omitted, refs are written back into the source file in place (replacing plaintext). */
+  write?: string;
   service: string;
   profile: string;
   project: string;
   force: boolean;
 }) {
   const fromPath = path.resolve(opts.from);
-  const writePath = path.resolve(opts.write);
   if (!fs.existsSync(fromPath)) throw new CliExitError(`File not found: ${fromPath}`);
 
-  const envGraph = await loadVarlockEnvGraph({ entryFilePaths: [fromPath] });
+  // No --write means migrate the source file in place: replacing each plaintext
+  // value with its keychain() ref is the goal, not an accidental overwrite.
+  const inPlace = !opts.write;
+  const writePath = inPlace ? fromPath : path.resolve(opts.write!);
+
+  // Scan the source file's directory so the sibling .env.schema is loaded too —
+  // that schema is how we know which values are sensitive. Loading the file alone
+  // would never surface the schema.
+  const envGraph = await loadVarlockEnvGraph({ entryFilePaths: [path.dirname(fromPath)] });
   assertKeychainImportSchemaPresent(envGraph);
+  // Sensitivity is only finalized during resolution (type/resolver inference) — before
+  // this, every item reports isSensitive=true, which would import non-sensitive values.
+  await envGraph.resolveEnvValues();
   const sourceFile = parseEnvSpecDotEnvFile(fs.readFileSync(fromPath, 'utf-8'));
   const itemsToImport: Array<{ key: string; value: string; ref: KeychainRef }> = [];
 
@@ -336,8 +347,10 @@ async function importPlaintextEnv(opts: {
     return;
   }
 
-  const existingEnvKeys = getExistingEnvKeys(writePath);
-  if (!opts.force) {
+  // When redirecting to a different file, don't clobber unrelated refs already in it.
+  // (In-place mode is exempt — the keys are expected to be there as the plaintext we're replacing.)
+  if (!inPlace && !opts.force) {
+    const existingEnvKeys = getExistingEnvKeys(writePath);
     const existingKey = itemsToImport.find((item) => existingEnvKeys.has(item.key));
     if (existingKey) {
       throw new CliExitError(`Refusing to overwrite ${existingKey.key} in ${writePath}`, {
@@ -353,7 +366,7 @@ async function importPlaintextEnv(opts: {
         client,
         item.ref,
         item.key,
-        'Re-run with --force to overwrite existing env refs and Keychain items.',
+        'Re-run with --force to overwrite the existing Keychain item.',
       );
     }
   }
@@ -366,13 +379,17 @@ async function importPlaintextEnv(opts: {
       value: item.value,
       update: opts.force,
     });
-    writeEnvRef(writePath, item.key, formatKeychainRef(item.ref), opts.force);
+    // In-place always replaces the plaintext value; redirect mode appends (or replaces with --force).
+    writeEnvRef(writePath, item.key, formatKeychainRef(item.ref), inPlace || opts.force);
     imported++;
     console.log(`  Imported ${item.key}`);
   }
 
+  const relWritePath = path.relative(process.cwd(), writePath) || writePath;
   console.log(`\nImported ${imported} sensitive value${imported === 1 ? '' : 's'} into macOS Keychain.`);
-  console.log(`Wrote refs to ${path.relative(process.cwd(), writePath) || writePath}.`);
+  console.log(inPlace
+    ? `Replaced plaintext with keychain() refs in ${relWritePath}.`
+    : `Wrote refs to ${relWritePath}.`);
 }
 
 function resolveProject(project?: string): string {
@@ -521,15 +538,16 @@ const setCommand = define({
 
 const importCommand = define({
   name: 'import',
-  description: 'Import sensitive plaintext values from an env file into macOS Keychain',
+  description: 'Migrate sensitive plaintext values from an env file into macOS Keychain',
   args: {
-    from: {
-      type: 'string',
-      description: 'Plaintext env file to import from',
+    file: {
+      type: 'positional',
+      required: false,
+      description: 'Plaintext env file to import secrets from',
     },
     write: {
       type: 'string',
-      description: 'Env file to write keychain() refs to (default: .env.<profile>)',
+      description: 'Write refs to a different env file instead of editing the source in place',
     },
     service: {
       type: 'string',
@@ -547,22 +565,22 @@ const importCommand = define({
     },
     force: {
       type: 'boolean',
-      description: 'Overwrite existing Keychain items and env refs',
+      description: 'Overwrite existing Keychain items (and refs in a --write target)',
     },
   },
   run: async (ctx) => {
     assertMacOS();
     await trackCommand('keychain import', { command: 'keychain import' });
 
-    if (!ctx.values.from) {
-      throw new CliExitError('Missing --from for keychain import', {
-        suggestion: 'Use `varlock keychain import --from .env --write .env.profile`.',
+    if (!ctx.values.file) {
+      throw new CliExitError('Missing env file to import from', {
+        suggestion: 'Use `varlock keychain import .env` (edits the file in place) or add `--write .env.profile`.',
       });
     }
 
     await importPlaintextEnv({
-      from: ctx.values.from,
-      write: ctx.values.write ?? `.env.${ctx.values.profile}`,
+      from: ctx.values.file,
+      write: ctx.values.write,
       service: ctx.values.service,
       profile: ctx.values.profile,
       project: resolveProject(ctx.values.project),
@@ -587,7 +605,8 @@ Examples:
   varlock keychain list
   varlock keychain fix-access --account "my-project:jb:API_KEY"
   varlock keychain fix-access --path .env.jb
-  varlock keychain import --from .env --profile jb --write .env.jb
+  varlock keychain import .env --profile jb            # migrate .env in place
+  varlock keychain import .env --profile jb --write .env.jb
   varlock keychain set API_KEY --profile jb --write .env.jb
 `.trim(),
 });

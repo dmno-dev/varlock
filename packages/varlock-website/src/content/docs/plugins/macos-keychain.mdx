@@ -41,18 +41,24 @@ ITEM=keychain(prompt) # Opens a native picker dialog
 
 ## Import plaintext env files
 
-If you already have sensitive plaintext values in a local `.env` file, import them into macOS Keychain and write stable `keychain(...)` references to a profile env file:
+If you already have sensitive plaintext values in a local `.env` file, import them into macOS Keychain and replace the plaintext with stable `keychain(...)` references. The file to import is the first argument:
 
 ```sh
-varlock keychain import --from .env --profile jb --write .env.jb
+varlock keychain import .env --profile jb
 ```
 
-Import requires an existing `.env.schema` file for the input env file so Varlock knows which input variables are secrets and which are not. It only includes variables marked `@sensitive` in that schema and never prints secret values. By default, Varlock refuses to overwrite existing Keychain items or existing refs in the target env file; pass `--force` to overwrite both.
+By default this **edits the file in place** — each sensitive plaintext value is replaced by its `keychain(...)` ref, so the secret no longer lives on disk. Comments and non-sensitive values are left untouched. To write the refs to a *different* file instead and leave the source as-is, pass `--write`:
+
+```sh
+varlock keychain import .env --profile jb --write .env.jb
+```
+
+Import requires an existing `.env.schema` file for the input env file so Varlock knows which input variables are secrets and which are not. It only imports variables marked `@sensitive` in that schema and never prints secret values. Re-running is safe: values already converted to `keychain(...)` refs are skipped. By default, Varlock refuses to overwrite an existing Keychain item (or, with `--write`, an existing ref in the target file); pass `--force` to overwrite.
 
 Generated refs use `service="varlock"` and account names like `<project>:<profile>:<ENV_VAR>`. The project defaults to the current directory name and can be overridden:
 
 ```sh
-varlock keychain import --from .env --profile jb --project my-app --write .env.jb
+varlock keychain import .env --profile jb --project my-app
 ```
 
 ## Set one secret manually
