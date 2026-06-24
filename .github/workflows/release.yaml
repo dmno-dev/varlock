@@ -374,4 +374,137 @@ jobs:
           # VS Code Marketplace auth comes from the Azure OIDC login step above;
           # Open VSX (OVSX_PAT) is loaded into the job env by the varlock step above.
 
+      # Publish the in-run signed/notarized native binaries so the binary
+      # distribution jobs below reuse them instead of rebuilding + re-signing.
+      - name: Upload staged native binaries
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-bins-staged
+          path: packages/varlock/native-bins
+          retention-days: 7
+          include-hidden-files: true
+
       # TODO: send notifications?
+
+  # --- varlock CLI binary distribution ---------------------------------------
+  # Reuse the signed/notarized native binaries built earlier in THIS run (no
+  # rebuild, no re-sign, no Azure/Apple on this path). Gated on a varlock publish;
+  # the varlock@<version> GitHub release that bumpy just created is the target.
+  release-binaries:
+    name: Release varlock CLI binaries
+    needs: [plan, release]
+    if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.x"
+      - name: Install node deps
+        run: bun install
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
+
+      - name: Resolve published varlock version
+        id: ver
+        run: |
+          V=$(node -p "require('./packages/varlock/package.json').version")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=varlock@$V" >> "$GITHUB_OUTPUT"
+
+      # Reuse the native binaries built + signed + notarized earlier this run
+      - name: Download staged native binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: native-bins-staged
+          path: packages/varlock/native-bins
+      - name: Restore native binary execute permissions
+        run: |
+          chmod +x packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
+          chmod +x packages/varlock/native-bins/linux-x64/varlock-local-encrypt
+          chmod +x packages/varlock/native-bins/linux-arm64/varlock-local-encrypt
+
+      - name: Generate native binary SHA256 checksums
+        working-directory: packages/varlock
+        run: |
+          sha256sum \
+            native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt \
+            native-bins/linux-x64/varlock-local-encrypt \
+            native-bins/linux-arm64/varlock-local-encrypt \
+            native-bins/win32-x64/varlock-local-encrypt.exe \
+            > SHA256SUMS.txt
+
+      - name: Build libs
+        run: bun run build:libs
+        env:
+          BUILD_TYPE: release
+      - name: Build varlock SEA binaries
+        run: bun run packages/varlock/scripts/build-binaries.ts
+
+      - name: Upload binaries to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: packages/varlock/dist-sea
+        run: gh release upload "${{ steps.ver.outputs.tag }}" *.{tar.gz,zip} checksums.txt ../SHA256SUMS.txt --clobber
+
+      # Update the homebrew tap formula
+      - name: Checkout homebrew tap repo
+        uses: actions/checkout@v7
+        with:
+          repository: dmno-dev/homebrew-tap
+          token: ${{ secrets.HOMEBREW_REPO_GITHUB_ACCESS_TOKEN }}
+          path: homebrew-tap
+          clean: false
+      - name: Update homebrew formula
+        env:
+          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+        run: bun run scripts/update-homebrew-formula.ts
+      - name: Commit and push homebrew tap update
+        run: |
+          cd homebrew-tap
+          git config --global user.name 'theoephraim'
+          git config --global user.email 'theo@dmno.dev'
+          git add .
+          git commit -m "varlock@${{ steps.ver.outputs.version }}"
+          git tag "varlock@${{ steps.ver.outputs.version }}"
+          git push origin HEAD --tags
+
+  release-docker:
+    name: Release varlock Docker image
+    needs: [plan, release-binaries]
+    if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Resolve published varlock version
+        id: ver
+        run: echo "version=$(node -p "require('./packages/varlock/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ghcr.io/dmno-dev/varlock:${{ steps.ver.outputs.version }}
+            ghcr.io/dmno-dev/varlock:latest
+          build-args: |
+            VARLOCK_VERSION=${{ steps.ver.outputs.version }}
+          platforms: linux/amd64,linux/arm64
