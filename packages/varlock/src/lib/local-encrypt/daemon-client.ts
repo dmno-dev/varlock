@@ -23,7 +23,9 @@ import { spawn } from 'node:child_process';
 import { getUserVarlockDir } from '../user-config-dir';
 import { resolveNativeBinary } from './binary-resolver';
 import { isWSL } from './wsl-detect';
-import type { KeychainItemMeta, KeychainItemRef } from './types';
+import type {
+  KeychainFixAccessResult, KeychainItemMeta, KeychainItemRef, KeychainSetResult,
+} from './types';
 
 /** Timeout for daemon IPC messages that don't involve user interaction */
 const SEND_TIMEOUT_MS = 30_000;
@@ -38,6 +40,13 @@ const BIOMETRIC_TIMEOUT_MS = 90_000;
 const INTERACTIVE_TIMEOUT_MS = 5 * 60_000;
 /** How long to wait for SIGTERM before escalating to SIGKILL */
 const KILL_GRACE_MS = 2_000;
+
+export class DaemonError extends Error {
+  constructor(message: string, readonly code?: string) {
+    super(message);
+    this.name = 'DaemonError';
+  }
+}
 
 function debug(msg: string) {
   if (process.env.VARLOCK_DEBUG) {
@@ -378,6 +387,37 @@ export class DaemonClient {
     });
   }
 
+  async keychainFixAccess(opts: {
+    service: string;
+    account?: string;
+    keychain?: string;
+  }): Promise<KeychainFixAccessResult> {
+    return this.withRetry(async () => {
+      await this.ensureConnected();
+      const result = await this.sendMessage({
+        action: 'keychain-fix-access',
+        payload: opts,
+      }, INTERACTIVE_TIMEOUT_MS);
+      return result as KeychainFixAccessResult;
+    });
+  }
+
+  async keychainSet(opts: {
+    service: string;
+    account?: string;
+    value: string;
+    update?: boolean;
+  }): Promise<KeychainSetResult> {
+    return this.withRetry(async () => {
+      await this.ensureConnected();
+      const result = await this.sendMessage({
+        action: 'keychain-set',
+        payload: opts,
+      }, BIOMETRIC_TIMEOUT_MS);
+      return result as KeychainSetResult;
+    });
+  }
+
   cleanup(): void {
     for (const { reject } of this.messageQueue.values()) {
       reject(new Error('Connection closed'));
@@ -487,7 +527,7 @@ export class DaemonClient {
           const { resolve: res, reject: rej } = this.messageQueue.get(message.id)!;
           this.messageQueue.delete(message.id);
           if (message.error) {
-            rej(new Error(message.error));
+            rej(new DaemonError(String(message.error), message.errorCode));
           } else {
             res(message.result);
           }
