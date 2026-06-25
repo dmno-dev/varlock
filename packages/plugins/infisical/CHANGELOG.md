@@ -5,6 +5,12 @@
 
 
 
+
+## 2.0.1
+<sub>2026-06-25</sub>
+
+- [#838](https://github.com/dmno-dev/varlock/pull/838)  *(patch)* Thanks [@stephansama](https://github.com/stephansama)! - Allow `siteUrl` in `@initInfisical` to be a dynamic value (env var or reference), not just a static literal.
+
 ## 2.0.0
 <sub>2026-06-23</sub>
 
