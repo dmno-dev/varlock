@@ -431,7 +431,12 @@ jobs:
   release-binaries:
     name: Release varlock CLI binaries
     needs: [plan, release]
-    if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
+    # `release` always has a by-design skipped dependency (the native-binary cache
+    # logic skips either verify-native-macos on a miss, or build/notarize on a hit),
+    # and GitHub propagates that skip through `release`'s always() into the implicit
+    # success() of any downstream job — which would skip this job on every release.
+    # Mirror the `release` job's guard to break that propagation.
+    if: always() && !failure() && !cancelled() && needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -515,7 +520,9 @@ jobs:
   release-docker:
     name: Release varlock Docker image
     needs: [plan, release-binaries]
-    if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
+    # Same as release-binaries: the upstream skip propagates through always() jobs,
+    # so guard with !failure() instead of relying on the implicit success().
+    if: always() && !failure() && !cancelled() && needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
