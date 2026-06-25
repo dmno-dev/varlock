@@ -6,7 +6,8 @@ name: Bumpy check
 # `pull_request` gives forks a read-only token, so `pull-requests: write` would
 # be ineffective). Because that runs with the base repo's elevated token, the PR
 # code is treated as untrusted DATA only:
-#   - the base branch is checked out at the root (trusted bunfig.toml / lockfile);
+#   - the base branch is checked out at the root (trusted bunfig.toml / lockfile
+#     + the base package.json we read the pinned bumpy version from);
 #   - the PR head is checked out into ./pr, isolated and never executed;
 #   - bumpy is run from the root (so the PR's bunfig.toml/.npmrc can't redirect
 #     package resolution) and only reads the PR files via `--cwd ./pr`.
@@ -26,11 +27,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Trusted base checkout at the root: provides the bunfig.toml / lockfile
-      # that govern how `bunx` below resolves and runs bumpy.
+      # that govern how `bunx` below resolves and runs bumpy, plus the base
+      # package.json we read the pinned bumpy version from.
       - uses: actions/checkout@v7
         with:
           ref: main
           persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
 
       # Untrusted PR head, isolated in ./pr — read as data, never executed.
       - uses: actions/checkout@v7
@@ -39,15 +43,13 @@ jobs:
           path: pr
           persist-credentials: false
 
-      - uses: oven-sh/setup-bun@v2
-
-      # Pin bumpy to the version committed on the base branch (trusted), so a
-      # malicious fork can't point us at an arbitrary/compromised version.
-      - name: Resolve bumpy version from base
+      # Resolve bumpy from the base package.json (trusted) and run it from the
+      # root against the PR files. The version is read straight into the bunx
+      # invocation (never written to $GITHUB_ENV) so there is no env-injection
+      # sink even though this is a pull_request_target workflow.
+      - name: Bumpy release-plan check
         run: |
           VERSION=$(jq -r '.devDependencies["@varlock/bumpy"] // .dependencies["@varlock/bumpy"]' package.json | sed 's/[\^~]//')
-          echo "BUMPY_VERSION=$VERSION" >> "$GITHUB_ENV"
-
-      - run: bunx "@varlock/bumpy@$BUMPY_VERSION" ci check --cwd ./pr
+          bunx "@varlock/bumpy@$VERSION" ci check --cwd ./pr
         env:
           GH_TOKEN: ${{ github.token }}
