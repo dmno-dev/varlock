@@ -4,10 +4,13 @@ name: Bumpy check
 #
 # Uses `pull_request_target` so the comment can be posted on fork PRs (a plain
 # `pull_request` gives forks a read-only token, so `pull-requests: write` would
-# be ineffective). Because `pull_request_target` runs with the base repo's
-# elevated token, we MUST NOT install dependencies or run any PR-defined scripts
-# here — we only check out the PR head to read its bump files as data and run a
-# version-pinned bumpy resolved from the base branch.
+# be ineffective). Because that runs with the base repo's elevated token, the PR
+# code is treated as untrusted DATA only:
+#   - the base branch is checked out at the root (trusted bunfig.toml / lockfile);
+#   - the PR head is checked out into ./pr, isolated and never executed;
+#   - bumpy is run from the root (so the PR's bunfig.toml/.npmrc can't redirect
+#     package resolution) and only reads the PR files via `--cwd ./pr`.
+# ⚠️ DO NOT bun install / npm install / run any script from ./pr ⚠️
 on: pull_request_target
 
 permissions:
@@ -22,21 +25,29 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
+      # Trusted base checkout at the root: provides the bunfig.toml / lockfile
+      # that govern how `bunx` below resolves and runs bumpy.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      # Untrusted PR head, isolated in ./pr — read as data, never executed.
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          persist-credentials: false
+
       - uses: oven-sh/setup-bun@v2
 
-      # Resolve the bumpy version from the BASE branch (trusted), not the PR, so
-      # a malicious fork can't point us at an arbitrary/compromised version.
+      # Pin bumpy to the version committed on the base branch (trusted), so a
+      # malicious fork can't point us at an arbitrary/compromised version.
       - name: Resolve bumpy version from base
         run: |
-          git fetch origin main --depth=1
-          VERSION=$(git show "origin/main:package.json" \
-            | jq -r '.devDependencies["@varlock/bumpy"] // .dependencies["@varlock/bumpy"]' \
-            | sed 's/[\^~]//')
+          VERSION=$(jq -r '.devDependencies["@varlock/bumpy"] // .dependencies["@varlock/bumpy"]' package.json | sed 's/[\^~]//')
           echo "BUMPY_VERSION=$VERSION" >> "$GITHUB_ENV"
 
-      - run: bunx "@varlock/bumpy@$BUMPY_VERSION" ci check
+      - run: bunx "@varlock/bumpy@$BUMPY_VERSION" ci check --cwd ./pr
         env:
           GH_TOKEN: ${{ github.token }}
