@@ -67,7 +67,7 @@ class InfisicalPluginInstance {
     environment: any,
     clientId: any,
     clientSecret: any,
-    siteUrl?: string,
+    siteUrl?: any,
     secretPath?: string,
     identityId?: any,
     oidcToken?: any,
@@ -78,7 +78,7 @@ class InfisicalPluginInstance {
     if (clientSecret && typeof clientSecret === 'string') this.clientSecret = clientSecret;
     if (identityId && typeof identityId === 'string') this.identityId = identityId;
     if (oidcToken && typeof oidcToken === 'string') this.oidcToken = oidcToken;
-    this.siteUrl = siteUrl;
+    if (siteUrl && typeof siteUrl === 'string') this.siteUrl = siteUrl;
     this.secretPath = secretPath;
     debug('infisical instance', this.id, 'set auth - projectId:', projectId, 'environment:', environment, 'hasIdentityId:', !!identityId);
   }
@@ -358,12 +358,6 @@ plugin.registerRootDecorator({
       });
     }
 
-    // Validate siteUrl is static if provided
-    if (objArgs.siteUrl && !objArgs.siteUrl.isStatic) {
-      throw new SchemaError('Expected siteUrl to be static');
-    }
-    const siteUrl = objArgs.siteUrl ? String(objArgs.siteUrl.staticValue) : undefined;
-
     // Validate secretPath is static if provided
     if (objArgs.secretPath && !objArgs.secretPath.isStatic) {
       throw new SchemaError('Expected secretPath to be static');
@@ -376,7 +370,7 @@ plugin.registerRootDecorator({
     return {
       id,
       cacheTtlResolver: objArgs.cacheTtl,
-      siteUrl,
+      siteUrlResolver: objArgs.siteUrl,
       secretPath,
       projectIdResolver: objArgs.projectId,
       environmentResolver: objArgs.environment,
@@ -389,7 +383,7 @@ plugin.registerRootDecorator({
   async execute({
     id,
     cacheTtlResolver,
-    siteUrl,
+    siteUrlResolver,
     secretPath,
     projectIdResolver,
     environmentResolver,
@@ -406,6 +400,7 @@ plugin.registerRootDecorator({
     const clientSecret = await clientSecretResolver?.resolve();
     const identityId = await identityIdResolver?.resolve();
     const oidcToken = await oidcTokenResolver?.resolve();
+    const siteUrl = await siteUrlResolver?.resolve();
 
     pluginInstances[id].setAuth(
       projectId,
