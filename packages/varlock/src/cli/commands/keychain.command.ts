@@ -288,9 +288,7 @@ async function setKeychainSecret(opts: {
     }
   }
 
-  const value = await readSecretForSet(label);
-  if (value === undefined) return;
-
+  // Check for an existing item before prompting, so we don't ask for a secret we'd refuse.
   const client = getDaemonClient();
   if (!opts.force) {
     await assertKeychainItemAbsent(
@@ -300,6 +298,9 @@ async function setKeychainSecret(opts: {
       'Re-run with --force to overwrite the existing Keychain item.',
     );
   }
+
+  const value = await readSecretForSet(label);
+  if (value === undefined) return;
 
   await client.keychainSet({
     service: opts.service,
@@ -397,18 +398,27 @@ async function importPlaintextEnv(opts: {
     }
   }
 
+  // Store the secret before writing its ref, so we never leave a ref pointing at a
+  // missing Keychain item. If a write fails mid-run, report progress: the stored secrets
+  // are safe and any remaining plaintext can be re-imported with --force.
   let imported = 0;
-  for (const item of itemsToImport) {
-    await client.keychainSet({
-      service: item.ref.service,
-      account: item.ref.account,
-      value: item.value,
-      update: opts.force,
-    });
-    // In-place always replaces the plaintext value; redirect mode appends (or replaces with --force).
-    writeEnvRef(writePath, item.key, formatKeychainRef(item.ref), inPlace || opts.force);
-    imported++;
-    console.log(`  Imported ${item.key}`);
+  try {
+    for (const item of itemsToImport) {
+      await client.keychainSet({
+        service: item.ref.service,
+        account: item.ref.account,
+        value: item.value,
+        update: opts.force,
+      });
+      // In-place always replaces the plaintext value; redirect mode appends (or replaces with --force).
+      writeEnvRef(writePath, item.key, formatKeychainRef(item.ref), inPlace || opts.force);
+      imported++;
+      console.log(`  Imported ${item.key}`);
+    }
+  } catch (err) {
+    console.error(ansis.red(`\nImport interrupted after ${imported}/${itemsToImport.length} value${imported === 1 ? '' : 's'}.`));
+    if (inPlace) console.error('Remaining plaintext is still in the source file — re-run with --force to finish.');
+    throw err;
   }
 
   const relWritePath = path.relative(process.cwd(), writePath) || writePath;
