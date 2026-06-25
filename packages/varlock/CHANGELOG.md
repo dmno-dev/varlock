@@ -14,6 +14,17 @@
 
 
 
+
+## 1.9.0
+<sub>2026-06-25</sub>
+
+- [#835](https://github.com/dmno-dev/varlock/pull/835)  *(minor)* - Add `varlock keychain` commands to manage macOS Keychain-backed secrets.
+- [#830](https://github.com/dmno-dev/varlock/pull/830)  *(patch)*
+  Improved `audit` and `init` env var scanning in monorepos:
+
+  - Scanning no longer descends into child packages — any subdirectory with its own `package.json` or `.env.schema` is treated as a separate package and skipped. This fixes spurious results and makes scanning much faster.
+  - Pure execution-environment plumbing (`PATH`, `HOME`, `SHELL`, `NODE_OPTIONS`, `npm_*`, etc.) is no longer reported as "missing in schema" by `audit`, nor added to inferred schemas by `init`. App-meaningful vars like `NODE_ENV` and CI variables are still reported.
+
 ## 1.8.0
 <sub>2026-06-23</sub>
 

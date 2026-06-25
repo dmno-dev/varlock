@@ -307,7 +307,7 @@
     },
     "packages/plugins/infisical": {
       "name": "@varlock/infisical-plugin",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@infisical/sdk": "^5.0.2",
@@ -434,7 +434,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "1.8.0",
+      "version": "1.9.0",
       "bin": {
         "varlock": "./bin/cli.js",
       },
