@@ -97,6 +97,21 @@ You can also fix every explicit `keychain(...)` ref in an env file:
 varlock keychain fix-access --path .env.jb
 ```
 
+## List Keychain items
+
+To see which Keychain items are available, list them by service name. This shows metadata only (service, account, and keychain) and never reads secret values:
+
+```sh
+varlock keychain list           # same as bare `varlock keychain`
+varlock keychain list API_KEY   # filter (matches service, account, or label)
+```
+
+Pass `--keychain` to search a specific keychain, such as `System`:
+
+```sh
+varlock keychain list --keychain System
+```
+
 ## Reference
 
 <div class="reference-docs">

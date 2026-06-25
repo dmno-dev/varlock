@@ -273,7 +273,7 @@ async function setKeychainSecret(opts: {
 }) {
   if (opts.write && !opts.key) {
     throw new CliExitError('Cannot write an env ref without an env var key', {
-      suggestion: 'Use `varlock keychain set API_KEY --write .env.profile`, or omit --write.',
+      suggestion: 'Use `varlock keychain set API_KEY --write-to .env.profile`, or omit --write-to.',
     });
   }
 
