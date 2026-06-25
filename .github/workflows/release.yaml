@@ -47,6 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       mode: ${{ steps.plan.outputs.mode }}
+      bumpy-version: ${{ steps.bumpy-version.outputs.version }}
       includes-varlock: ${{ contains(fromJSON(steps.plan.outputs.json).packageNames, 'varlock') }}
       includes-vscode: ${{ contains(fromJSON(steps.plan.outputs.json).packageNames, 'env-spec-language') }}
       macos-cache-key: ${{ steps.keys.outputs.macos-cache-key }}
@@ -57,8 +58,15 @@ jobs:
       - uses: actions/checkout@v7
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+      # Pin bumpy to the version committed on main so every release job runs the
+      # exact version this repo declares (this job does not `bun install`).
+      - id: bumpy-version
+        name: Resolve bumpy version
+        run: |
+          VERSION=$(jq -r '.devDependencies["@varlock/bumpy"] // .dependencies["@varlock/bumpy"]' package.json | sed 's/[\^~]//')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - id: plan
-        run: bunx @varlock/bumpy ci plan
+        run: bunx "@varlock/bumpy@${{ steps.bumpy-version.outputs.version }}" ci plan
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -126,6 +134,32 @@ jobs:
           else
             echo "cache-hit=false" >> "$GITHUB_OUTPUT"
           fi
+
+  # Open/update the "version packages" PR. This is the non-publish path: when
+  # bump files are pending on main, bumpy computes versions + changelogs and
+  # opens (or refreshes) the release PR. No build/native-binary work is needed —
+  # publishing happens later, when that PR merges and `plan` reports `publish`.
+  version-pr:
+    needs: plan
+    if: needs.plan.outputs.mode == 'version-pr'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          # Push the version branch with BUMPY_GH_TOKEN (below) rather than the
+          # default token, so PR workflows trigger on the version branch.
+          persist-credentials: false
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Create / update version PR
+        run: bunx "@varlock/bumpy@${{ needs.plan.outputs.bumpy-version }}" ci release --expect-mode version-pr
+        env:
+          BUMPY_GH_TOKEN: ${{ secrets.BUMPY_GH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
 
   # Build + sign the macOS native binary. Skipped on a cache hit — the previously
   # notarized bundle is reused and re-verified (see verify-native-macos) instead.
@@ -198,10 +232,13 @@ jobs:
     secrets:
       OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
 
+  # Publish path: native binaries are ready (built this run or restored from
+  # cache), so build the npm packages and publish. Gated on `mode == 'publish'`;
+  # the version-PR path is handled by the `version-pr` job above.
   release:
     name: Release
     needs: [plan, notarize-native-macos, verify-native-macos, build-native-rust]
-    if: always() && !failure() && !cancelled()
+    if: always() && !failure() && !cancelled() && needs.plan.outputs.mode == 'publish'
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # Required for OIDC
@@ -363,8 +400,8 @@ jobs:
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           allow-no-subscriptions: true
 
-      - name: Create Release PR / Publish
-        run: bunx @varlock/bumpy ci release
+      - name: Publish packages
+        run: bunx "@varlock/bumpy@${{ needs.plan.outputs.bumpy-version }}" ci release --expect-mode publish
         env:
           # BUMPY_GH_TOKEN is a bot user PAT used by bumpy to push the version branch and create PRs
           # so that PR workflows (binary-release, etc.) will be triggered

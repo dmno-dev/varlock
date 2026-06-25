@@ -1,0 +1,42 @@
+name: Bumpy check
+
+# Posts/updates the release-plan comment on every PR (including forks).
+#
+# Uses `pull_request_target` so the comment can be posted on fork PRs (a plain
+# `pull_request` gives forks a read-only token, so `pull-requests: write` would
+# be ineffective). Because `pull_request_target` runs with the base repo's
+# elevated token, we MUST NOT install dependencies or run any PR-defined scripts
+# here — we only check out the PR head to read its bump files as data and run a
+# version-pinned bumpy resolved from the base branch.
+on: pull_request_target
+
+permissions:
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: bumpy-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: oven-sh/setup-bun@v2
+
+      # Resolve the bumpy version from the BASE branch (trusted), not the PR, so
+      # a malicious fork can't point us at an arbitrary/compromised version.
+      - name: Resolve bumpy version from base
+        run: |
+          git fetch origin main --depth=1
+          VERSION=$(git show "origin/main:package.json" \
+            | jq -r '.devDependencies["@varlock/bumpy"] // .dependencies["@varlock/bumpy"]' \
+            | sed 's/[\^~]//')
+          echo "BUMPY_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - run: bunx "@varlock/bumpy@$BUMPY_VERSION" ci check
+        env:
+          GH_TOKEN: ${{ github.token }}
