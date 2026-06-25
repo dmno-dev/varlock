@@ -100,6 +100,35 @@ describe('audit command', () => {
     expect(gracefulExitMock).toHaveBeenCalledWith(1);
   });
 
+  test('does not report execution-environment plumbing as missing in schema', async () => {
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      // all code keys are either in the schema or pure plumbing (shell / node flags / npm_*)
+      keys: ['API_KEY', 'DATABASE_URL', 'PATH', 'HOME', 'NODE_OPTIONS', 'npm_config_user_agent'],
+      references: [],
+      scannedFilesCount: 3,
+    });
+
+    await commandFn({ values: {} } as any);
+
+    expect(gracefulExitMock).toHaveBeenCalledWith(0);
+    const errorOutput = consoleErrorSpy.mock.calls.flat().join('\n');
+    expect(errorOutput).not.toContain('Missing in schema');
+  });
+
+  test('still reports app-meaningful vars like NODE_ENV as missing in schema', async () => {
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      keys: ['API_KEY', 'DATABASE_URL', 'NODE_ENV'],
+      references: [],
+      scannedFilesCount: 1,
+    });
+
+    await commandFn({ values: {} } as any);
+
+    expect(gracefulExitMock).toHaveBeenCalledWith(1);
+    const errorOutput = consoleErrorSpy.mock.calls.flat().join('\n');
+    expect(errorOutput).toContain('NODE_ENV');
+  });
+
   test('exits with code 0 when schema and code match', async () => {
     scanCodeForEnvVarsMock.mockResolvedValue({
       keys: ['API_KEY', 'DATABASE_URL'],

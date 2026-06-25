@@ -497,6 +497,8 @@ This command reports two drift categories:
 - **Missing in schema**: key is used in code but not declared in schema
 - **Unused in schema**: key is declared in schema but not referenced in code
 
+Pure execution-environment plumbing — variables that reflect *where/how* the process runs (e.g. `PATH`, `HOME`, `SHELL`, `NODE_OPTIONS`, `npm_*`) — is read from `process.env` in normal code but is never part of your schema, so it is **not** reported as missing. Semantically meaningful variables your app or CI may depend on (e.g. `NODE_ENV`, `CI`, GitHub Actions vars) are still reported, so you can decide whether to declare them or suppress them with [`@auditIgnore`](/reference/item-decorators/#auditignore).
+
 Exit codes:
 - `0` when schema and code are in sync
 - `1` when drift is detected
@@ -535,6 +537,10 @@ varlock audit -i vendor -i generated
 
 :::note
 When `--path` points to a directory, code scanning is scoped to that directory tree. When it points to a file, scanning is scoped to that file's parent directory.
+:::
+
+:::note[Monorepos]
+Code scanning does not descend into nested projects — any subdirectory that contains its own `package.json` or `.env.schema` is treated as a separate package and skipped. This keeps a parent package's audit from picking up env var references that belong to child packages, and works even in a fresh monorepo where the child packages haven't run `varlock init` yet. Run `varlock audit` inside each package to audit it against its own schema.
 :::
 
 :::tip[Suppressing false positives]
