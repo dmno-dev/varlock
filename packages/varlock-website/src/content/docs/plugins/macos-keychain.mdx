@@ -55,6 +55,8 @@ varlock keychain import .env --profile jb --write-to .env.jb
 
 Import requires an existing `.env.schema` file for the input env file so Varlock knows which input variables are secrets and which are not. It only imports variables marked `@sensitive` in that schema and never prints secret values. Re-running is safe: values already converted to `keychain(...)` refs are skipped. By default, Varlock refuses to overwrite an existing Keychain item (or, with `--write-to`, an existing ref in the target file); pass `--force` to overwrite.
 
+The file you name must be one Varlock loads as part of your env setup — it resolves your normal env graph (from `package.json` `varlock.loadPath`, or the files in the current directory) to read sensitivity from your schema, the same way `varlock encrypt --file` works. An arbitrary file outside that setup can't be imported. The value stored in Keychain is taken from the file you named specifically; an override of the same variable in another file (such as `.env.local`) does not change what gets imported.
+
 Generated refs use `service="varlock"` and account names like `<project>:<profile>:<ENV_VAR>`. The project defaults to the current directory name and can be overridden:
 
 ```sh
