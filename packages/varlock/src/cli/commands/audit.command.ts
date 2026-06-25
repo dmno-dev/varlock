@@ -183,8 +183,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const schemaKeys = Object.keys(envGraph.configSchema);
 
   const diff = diffSchemaAndCodeKeys(schemaKeys, scanResult.keys);
-  // Don't report well-known platform/runtime/CI vars (NODE_ENV, CI, PATH, npm_*, ...) as
-  // missing - they're read from process.env in real code but never declared in a schema.
+  // Don't report execution-environment plumbing (PATH, NODE_OPTIONS, npm_*, ...) as
+  // missing - it's read from process.env in real code but never declared in a schema.
   const missingInSchema = diff.missingInSchema.filter((key) => !isWellKnownEnvKey(key));
   const internallyReferenced = getInternallyReferencedKeys(envGraph);
   const unusedInSchema: Array<string> = [];

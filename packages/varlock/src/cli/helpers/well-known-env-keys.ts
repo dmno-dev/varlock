@@ -1,88 +1,17 @@
 /**
- * Well-known environment variables injected by the operating system, shell, language
- * runtime, package managers, and CI / hosting providers. They are routinely read from
- * `process.env` in real application and tooling code, but are never declared in a varlock
- * schema - so `varlock audit` should not flag them as "missing in schema", and
- * `varlock init` should not add them to a freshly inferred schema.
+ * Environment variables that are pure *execution-environment plumbing* — an artifact of
+ * where/how the process was launched (operating system, shell, node runtime flags, package
+ * manager lifecycle). They are routinely read from `process.env` but are never something an
+ * application author declares as config, so `varlock audit` should not flag them as "missing
+ * in schema" and `varlock init` should not add them to a freshly inferred schema.
  *
- * The list is intentionally conservative: it only contains unambiguous platform markers
- * (paths, flags, runtime hints, CI context). It deliberately excludes anything that could
- * plausibly be application config or a secret - e.g. `PORT`, `HOST`, `DATABASE_URL`, or
- * any `*_TOKEN` / `*_KEY` / `*_SECRET`. In particular we do NOT prefix-match `GITHUB_`,
- * since user-defined secrets are commonly named that way; only the documented, non-secret
- * GitHub Actions context vars are listed individually below.
- *
- * If one of these genuinely IS part of your config, declare it in your schema - audit only
- * skips it when it is otherwise undeclared.
+ * This list is intentionally NARROW. It deliberately does NOT include semantically
+ * meaningful variables that an app or its CI may legitimately depend on and may want to
+ * track — e.g. `NODE_ENV`, the `CI` flag, GitHub Actions / GitLab context vars, or
+ * hosting-platform markers like `VERCEL`. Those should keep showing up in audit so you can
+ * decide whether to declare them (or suppress them with `@auditIgnore`).
  */
 const WELL_KNOWN_ENV_KEYS = new Set<string>([
-  // --- CI detection (generic + common providers) ---
-  'CI',
-  'CONTINUOUS_INTEGRATION',
-  'GITHUB_ACTIONS',
-  'GITLAB_CI',
-  'CIRCLECI',
-  'TRAVIS',
-  'APPVEYOR',
-  'BUILDKITE',
-  'DRONE',
-  'JENKINS_URL',
-  'TEAMCITY_VERSION',
-  'TF_BUILD',
-  'BITBUCKET_BUILD_NUMBER',
-  'SEMAPHORE',
-  'CODEBUILD_BUILD_ID',
-
-  // --- GitHub Actions default context vars (auto-injected, non-secret) ---
-  'GITHUB_ACTION',
-  'GITHUB_ACTION_PATH',
-  'GITHUB_ACTION_REPOSITORY',
-  'GITHUB_ACTOR',
-  'GITHUB_ACTOR_ID',
-  'GITHUB_API_URL',
-  'GITHUB_BASE_REF',
-  'GITHUB_ENV',
-  'GITHUB_EVENT_NAME',
-  'GITHUB_EVENT_PATH',
-  'GITHUB_GRAPHQL_URL',
-  'GITHUB_HEAD_REF',
-  'GITHUB_JOB',
-  'GITHUB_OUTPUT',
-  'GITHUB_PATH',
-  'GITHUB_REF',
-  'GITHUB_REF_NAME',
-  'GITHUB_REF_PROTECTED',
-  'GITHUB_REF_TYPE',
-  'GITHUB_REPOSITORY',
-  'GITHUB_REPOSITORY_ID',
-  'GITHUB_REPOSITORY_OWNER',
-  'GITHUB_RETENTION_DAYS',
-  'GITHUB_RUN_ATTEMPT',
-  'GITHUB_RUN_ID',
-  'GITHUB_RUN_NUMBER',
-  'GITHUB_SERVER_URL',
-  'GITHUB_SHA',
-  'GITHUB_STEP_SUMMARY',
-  'GITHUB_WORKFLOW',
-  'GITHUB_WORKFLOW_REF',
-  'GITHUB_WORKFLOW_SHA',
-  'GITHUB_WORKSPACE',
-  'RUNNER_OS',
-  'RUNNER_ARCH',
-  'RUNNER_NAME',
-  'RUNNER_TEMP',
-  'RUNNER_TOOL_CACHE',
-  'RUNNER_DEBUG',
-  'RUNNER_ENVIRONMENT',
-  'RUNNER_WORKSPACE',
-
-  // --- hosting / serverless platform detection ---
-  'VERCEL',
-  'NETLIFY',
-  'CF_PAGES',
-  'WORKERS_CI',
-  'RENDER',
-
   // --- OS / shell ---
   'PATH',
   'PATHEXT',
@@ -122,8 +51,7 @@ const WELL_KNOWN_ENV_KEYS = new Set<string>([
   'XDG_STATE_HOME',
   'XDG_RUNTIME_DIR',
 
-  // --- language runtime ---
-  'NODE_ENV',
+  // --- node.js launch flags (NOT NODE_ENV - that's an app-level mode worth declaring) ---
   'NODE_OPTIONS',
   'NODE_PATH',
   'NODE_DEBUG',
@@ -131,11 +59,10 @@ const WELL_KNOWN_ENV_KEYS = new Set<string>([
   'NODE_NO_WARNINGS',
   'NODE_TLS_REJECT_UNAUTHORIZED',
 
-  // --- output / TTY ---
+  // --- terminal / color output ---
   'NO_COLOR',
   'FORCE_COLOR',
   'COLORTERM',
-  'DEBUG',
 ].map((key) => key.toUpperCase()));
 
 /**
@@ -148,9 +75,9 @@ const WELL_KNOWN_ENV_KEY_PREFIXES = [
 ];
 
 /**
- * Returns true if `key` is a well-known platform/runtime/CI variable that should be
- * excluded from audit drift reporting and from inferred schemas. Matching is
- * case-insensitive (handles e.g. `comspec` vs `ComSpec`).
+ * Returns true if `key` is pure execution-environment plumbing that should be excluded from
+ * audit drift reporting and from inferred schemas. Matching is case-insensitive (handles
+ * e.g. `comspec` vs `ComSpec`).
  */
 export function isWellKnownEnvKey(key: string): boolean {
   const upper = key.toUpperCase();

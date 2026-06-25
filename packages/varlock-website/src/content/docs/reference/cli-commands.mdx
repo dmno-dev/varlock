@@ -497,7 +497,7 @@ This command reports two drift categories:
 - **Missing in schema**: key is used in code but not declared in schema
 - **Unused in schema**: key is declared in schema but not referenced in code
 
-Well-known platform, runtime, and CI variables (e.g. `NODE_ENV`, `CI`, `PATH`, `npm_*`, GitHub Actions context vars) are read from `process.env` in normal code but are never part of your schema, so they are **not** reported as missing. If one of these is genuinely part of your config, just declare it in your schema.
+Pure execution-environment plumbing — variables that reflect *where/how* the process runs (e.g. `PATH`, `HOME`, `SHELL`, `NODE_OPTIONS`, `npm_*`) — is read from `process.env` in normal code but is never part of your schema, so it is **not** reported as missing. Semantically meaningful variables your app or CI may depend on (e.g. `NODE_ENV`, `CI`, GitHub Actions vars) are still reported, so you can decide whether to declare them or suppress them with [`@auditIgnore`](/reference/item-decorators/#auditignore).
 
 Exit codes:
 - `0` when schema and code are in sync

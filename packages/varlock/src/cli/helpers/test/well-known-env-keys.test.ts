@@ -3,8 +3,8 @@ import { describe, expect, test } from 'vitest';
 import { isWellKnownEnvKey } from '../well-known-env-keys';
 
 describe('isWellKnownEnvKey', () => {
-  test('matches OS/shell, runtime, and CI vars', () => {
-    for (const key of ['PATH', 'HOME', 'NODE_ENV', 'CI', 'GITHUB_ACTIONS', 'GITHUB_BASE_REF', 'VERCEL', 'XDG_CONFIG_HOME']) {
+  test('matches OS/shell and node launch-flag plumbing', () => {
+    for (const key of ['PATH', 'HOME', 'SHELL', 'NODE_OPTIONS', 'NODE_PATH', 'XDG_CONFIG_HOME', 'NO_COLOR']) {
       expect(isWellKnownEnvKey(key)).toBe(true);
     }
   });
@@ -18,6 +18,13 @@ describe('isWellKnownEnvKey', () => {
     expect(isWellKnownEnvKey('npm_config_user_agent')).toBe(true);
     expect(isWellKnownEnvKey('npm_lifecycle_event')).toBe(true);
     expect(isWellKnownEnvKey('npm_package_name')).toBe(true);
+  });
+
+  test('does NOT match app-meaningful vars (NODE_ENV, CI, GitHub Actions, hosting)', () => {
+    // these are intentionally still auditable - they affect app/CI behavior
+    for (const key of ['NODE_ENV', 'CI', 'GITHUB_ACTIONS', 'GITHUB_BASE_REF', 'VERCEL', 'DEBUG']) {
+      expect(isWellKnownEnvKey(key)).toBe(false);
+    }
   });
 
   test('does NOT match application config or secrets', () => {

@@ -166,8 +166,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
     const scannedCodeKeysToAdd = !exampleFileToConvert
       ? scannedCodeEnvKeys.filter((key) => {
-        // skip well-known platform/runtime vars (NODE_ENV, CI, PATH, npm_*, ...) - they
-        // are read from process.env but aren't app config the user should declare
+        // skip execution-environment plumbing (PATH, NODE_OPTIONS, npm_*, ...) - it's read
+        // from process.env but isn't app config the user should declare
         if (isWellKnownEnvKey(key)) return false;
         return !parsedEnvSchemaFile.configItems.find((i) => i.key === key);
       })
