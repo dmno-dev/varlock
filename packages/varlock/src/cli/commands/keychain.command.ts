@@ -519,7 +519,7 @@ const setCommand = define({
       type: 'string',
       description: 'Project slug used in generated account names (default: current directory name)',
     },
-    write: {
+    'write-to': {
       type: 'string',
       description: 'Env file to write the keychain() ref to',
     },
@@ -545,7 +545,7 @@ const setCommand = define({
       key,
       service,
       account: targetAccount,
-      write: ctx.values.write,
+      write: ctx.values['write-to'],
       force: Boolean(ctx.values.force),
     });
   },
@@ -562,7 +562,7 @@ const importCommand = define({
       required: false,
       description: 'Plaintext env file to import secrets from',
     },
-    write: {
+    'write-to': {
       type: 'string',
       description: 'Write refs to a different env file instead of editing the source in place',
     },
@@ -582,7 +582,7 @@ const importCommand = define({
     },
     force: {
       type: 'boolean',
-      description: 'Overwrite existing Keychain items (and refs in a --write target)',
+      description: 'Overwrite existing Keychain items (and refs in a --write-to target)',
     },
   },
   run: async (ctx) => {
@@ -591,13 +591,13 @@ const importCommand = define({
 
     if (!ctx.values.file) {
       throw new CliExitError('Missing env file to import from', {
-        suggestion: 'Use `varlock keychain import .env` (edits the file in place) or add `--write .env.profile`.',
+        suggestion: 'Use `varlock keychain import .env` (edits the file in place) or add `--write-to .env.profile`.',
       });
     }
 
     await importPlaintextEnv({
       from: ctx.values.file,
-      write: ctx.values.write,
+      write: ctx.values['write-to'],
       service: ctx.values.service,
       profile: ctx.values.profile,
       project: resolveProject(ctx.values.project),
@@ -623,8 +623,8 @@ Examples:
   varlock keychain fix-access --account "my-project:jb:API_KEY"
   varlock keychain fix-access --path .env.jb
   varlock keychain import .env --profile jb            # migrate .env in place
-  varlock keychain import .env --profile jb --write .env.jb
-  varlock keychain set API_KEY --profile jb --write .env.jb
+  varlock keychain import .env --profile jb --write-to .env.jb
+  varlock keychain set API_KEY --profile jb --write-to .env.jb
 `.trim(),
 });
 
