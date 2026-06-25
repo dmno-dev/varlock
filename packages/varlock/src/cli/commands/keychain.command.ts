@@ -10,6 +10,7 @@ import {
   ParsedEnvSpecStaticValue,
 } from '@env-spec/parser';
 
+import { FileBasedDataSource } from '../../env-graph';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { writeBackValue } from '../../lib/local-encrypt/write-back';
 import { getDaemonClient } from '../../lib/local-encrypt';
@@ -337,19 +338,27 @@ async function importPlaintextEnv(opts: {
   const inPlace = !opts.write;
   const writePath = inPlace ? fromPath : path.resolve(opts.write!);
 
-  // Scan the source file's directory so the sibling .env.schema is loaded too —
-  // that schema is how we know which values are sensitive. Loading the file alone
-  // would never surface the schema.
-  const envGraph = await loadVarlockEnvGraph({ entryFilePaths: [path.dirname(fromPath)] });
+  // Load the project's env graph normally (respecting package.json varlock.loadPath) and
+  // locate the source file within it — same approach as `encrypt --file`. The schema tells
+  // us what's sensitive; resolution finalizes that (before resolution every item reports
+  // isSensitive=true). Values are read from the file's own parsed defs, never the resolved
+  // graph value (which a sibling like .env.local could override).
+  const envGraph = await loadVarlockEnvGraph();
   assertKeychainImportSchemaPresent(envGraph);
-  // Sensitivity is only finalized during resolution (type/resolver inference) — before
-  // this, every item reports isSensitive=true, which would import non-sensitive values.
   await envGraph.resolveEnvValues();
 
-  // Values come from the input file's own parse (not the resolved graph) — see
-  // collectSensitivePlaintextImports.
-  const sourceFile = parseEnvSpecDotEnvFile(fs.readFileSync(fromPath, 'utf-8'));
-  const itemsToImport = collectSensitivePlaintextImports(sourceFile.configItems, envGraph.configSchema)
+  const sourceFile = envGraph.sortedDataSources.find(
+    (source) => source instanceof FileBasedDataSource && source.fullPath === fromPath,
+  ) as FileBasedDataSource | undefined;
+  if (!sourceFile) {
+    throw new CliExitError(`File "${opts.from}" is not part of the loaded env graph`, {
+      suggestion: 'Make sure the file is in the project directory (or its varlock.loadPath) and covered by your .env.schema.',
+    });
+  }
+
+  const sourceItems = Object.entries(sourceFile.configItemDefs)
+    .map(([key, def]) => ({ key, value: def.parsedValue }));
+  const itemsToImport = collectSensitivePlaintextImports(sourceItems, envGraph.configSchema)
     .map(({ key, value }) => ({
       key,
       value,
