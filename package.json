@@ -41,7 +41,7 @@
     "@types/node": "catalog:",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",
-    "@varlock/bumpy": "^1.10.2",
+    "@varlock/bumpy": "^1.17.0",
     "@varlock/tsconfig": "workspace:*",
     "eslint": "^10.0.2",
     "eslint-plugin-es-x": "^9.5.0",
