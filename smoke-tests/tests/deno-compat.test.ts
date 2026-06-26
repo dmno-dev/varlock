@@ -1,9 +1,12 @@
-import { describe, expect, test } from 'vitest';
+import {
+  beforeAll, describe, expect, test,
+} from 'vitest';
 import { spawnSync, execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { VARLOCK_CLI } from '../helpers/run-varlock.js';
 
 const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
+const RUN_DENO_COMPAT = process.env.VARLOCK_RUN_DENO_COMPAT === '1';
 
 function hasDeno(): boolean {
   try {
@@ -36,7 +39,10 @@ function runDenoVarlock(args: Array<string>, options?: {
 
 const denoAvailable = hasDeno();
 
-describe.skipIf(!denoAvailable)('Deno compatibility', () => {
+describe.skipIf(!RUN_DENO_COMPAT)('Deno compatibility', () => {
+  beforeAll(() => {
+    expect(denoAvailable, 'Deno compatibility tests require the `deno` executable').toBe(true);
+  });
   test('runs the CLI help through deno run -A', () => {
     const result = runDenoVarlock(['--help']);
 
