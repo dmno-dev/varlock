@@ -16,13 +16,17 @@ import { EnvGraphDataSource } from './data-source';
 import {
   convertParsedValueToResolvers, type ResolvedValue, Resolver, StaticValueResolver,
 } from './resolver';
+import {
+  createDataTypeFromParsedType,
+  parseTypeDecoratorValue,
+} from './type-decorator';
 import { ItemDecoratorInstance } from './decorators';
 
 export type ConfigItemDef = {
   description?: string;
   // TODO: translate parser decorator class into our own generic version
   parsedDecorators?: Array<ParsedEnvSpecDecorator>;
-  parsedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+  parsedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecArrayLiteral | undefined;
 
   resolver?: Resolver;
   decorators?: Array<ItemDecoratorInstance>;
@@ -321,30 +325,30 @@ export class ConfigItem {
     }
 
     const typeDec = this.getDec('type');
-    let dataTypeName: string | undefined;
-    let dataTypeArgs: any;
     // TODO: this will not currently support any resolver functions within type settings
     const typeDecParsedValue = typeDec?.parsedDecorator.value;
-    if (typeDecParsedValue instanceof ParsedEnvSpecStaticValue) {
-      dataTypeName = typeDecParsedValue.value;
-    } else if (typeDecParsedValue instanceof ParsedEnvSpecFunctionCall) {
-      dataTypeName = typeDecParsedValue.name;
-      dataTypeArgs = typeDecParsedValue.simplifiedArgs;
-    }
-    // if no type is set explicitly, we can try to use inferred type from the resolver
-    // currently only static value resolver does this - but you can imagine another resolver knowing the type ahead of time
-    // (maybe we only want to do this if the value is set in a schema file? or if all inferred types match?)
+    const parsedType = parseTypeDecoratorValue(typeDecParsedValue);
+    let dataTypeName = parsedType?.name;
     if (!dataTypeName && this.valueResolver?.inferredType) {
       dataTypeName = this.valueResolver.inferredType;
     }
     dataTypeName ||= 'string';
-    dataTypeArgs ||= [];
 
     if (!(dataTypeName in this.envGraph.dataTypesRegistry)) {
       this._schemaErrors.push(new SchemaError(`unknown data type: ${dataTypeName}`));
+    } else if (parsedType) {
+      try {
+        this.dataType = createDataTypeFromParsedType(this.envGraph.dataTypesRegistry, parsedType);
+      } catch (err) {
+        if (err instanceof SchemaError) {
+          this._schemaErrors.push(err);
+        } else {
+          throw err;
+        }
+      }
     } else {
       const dataTypeFactory = this.envGraph.dataTypesRegistry[dataTypeName];
-      this.dataType = dataTypeFactory(..._.isPlainObject(dataTypeArgs) ? [dataTypeArgs] : dataTypeArgs);
+      this.dataType = dataTypeFactory();
     }
   }
 

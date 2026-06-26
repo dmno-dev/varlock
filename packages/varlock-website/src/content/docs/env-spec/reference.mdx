@@ -215,7 +215,8 @@ Standalone objects and arrays use distinct brackets, keeping them unambiguous fr
 - `[ value, ... ]` is an **array**
 - they may be nested, and used as decorator values or as function-call arguments
 - they are parsed using the common value-handling rules, and may span multiple lines (see [Multi-line literals](#multi-line-literals) below)
-- they are **not yet supported as standalone config item values** (e.g. `ITEM={...}`) — for now an item value that starts with `{`/`[` is still treated as a string
+- **array literals** are supported as standalone config item values (e.g. `ITEM=[a, b]`) when paired with `@type=array(...)`
+- **object literals** are **not yet supported** as standalone config item values (e.g. `ITEM={...}`) — for now an item value that starts with `{` is still treated as a string
 
 ```env-spec
 # @dec={ key1=v1, key2="v2", nested={ a=1 } }

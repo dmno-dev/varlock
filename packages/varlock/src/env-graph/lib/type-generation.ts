@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import _ from '@env-spec/utils/my-dash';
 import type { EnvGraph } from './env-graph';
 import type { TypeGenItemInfo } from './config-item';
+import type { EnvGraphDataType } from './data-types';
 import { isVarlockReservedKey } from './reserved-vars';
 
 
@@ -80,6 +81,18 @@ function getItemTsType(info: TypeGenItemInfo): string {
   const dataTypeName = dataType?.name;
 
   if (dataType) {
+    if (dataTypeName === 'array') {
+      const rawDef = dataType._rawDef as {
+        _elementDataType?: EnvGraphDataType;
+      };
+      const elementType = rawDef._elementDataType;
+      if (elementType) {
+        const inner = getItemTsType({ ...info, dataType: elementType });
+        if (inner.includes('|')) return `(${inner})[]`;
+        return `${inner}[]`;
+      }
+      return 'unknown[]';
+    }
     if (dataTypeName === 'number' || dataTypeName === 'port') return 'number';
     if (dataTypeName === 'boolean') return 'boolean';
     if (dataTypeName === 'simple-object') return 'Record<string, any>';

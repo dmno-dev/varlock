@@ -1,8 +1,10 @@
 import { execSync } from 'node:child_process';
 import {
   ParsedEnvSpecFile, ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair,
-  ParsedEnvSpecStaticValue,
+  ParsedEnvSpecStaticValue, ParsedEnvSpecArrayLiteral,
 } from './classes.js';
+
+type SimpleResolvedValue = string | Array<unknown> | undefined;
 
 /**
  * very simple resolver meant to be used for testing
@@ -18,9 +20,20 @@ export function simpleResolver(
   const resolved = {} as Record<string, any>;
 
   function valueResolver(
-    valOrFn: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall,
-  ): string | undefined {
+    valOrFn: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecArrayLiteral,
+  ): SimpleResolvedValue {
     if (valOrFn instanceof ParsedEnvSpecStaticValue) return valOrFn.unescapedValue;
+    if (valOrFn instanceof ParsedEnvSpecArrayLiteral) {
+      return valOrFn.values.map((v) => {
+        if (v instanceof ParsedEnvSpecStaticValue || v instanceof ParsedEnvSpecFunctionCall) {
+          return valueResolver(v);
+        }
+        if (v instanceof ParsedEnvSpecArrayLiteral) {
+          return valueResolver(v);
+        }
+        throw new Error('Unsupported array literal element');
+      });
+    }
     if (valOrFn instanceof ParsedEnvSpecFunctionCall) {
       if (valOrFn.name === 'ref') {
         const args = valOrFn.simplifiedArgs;
@@ -38,11 +51,13 @@ export function simpleResolver(
             return valueResolver(i);
           } else if (i instanceof ParsedEnvSpecFunctionCall) {
             return valueResolver(i);
+          } else if (i instanceof ParsedEnvSpecArrayLiteral) {
+            return valueResolver(i);
           } else {
             throw new Error('Invalid concat args');
           }
         });
-        return resolvedArgs.join('');
+        return resolvedArgs.map((v) => (v === undefined ? '' : String(v))).join('');
       } else if (valOrFn.name === 'exec') {
         const args = valOrFn.simplifiedArgs;
         if (Array.isArray(args)) {
@@ -71,6 +86,7 @@ export function simpleResolver(
         if (
           !(args[0] instanceof ParsedEnvSpecStaticValue)
           && !(args[0] instanceof ParsedEnvSpecFunctionCall)
+          && !(args[0] instanceof ParsedEnvSpecArrayLiteral)
         ) throw new Error('Expected first arg to be a static value or function call');
         const val = valueResolver(args[0]);
         const remainingArgs = args.slice(1);

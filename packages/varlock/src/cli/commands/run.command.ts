@@ -6,7 +6,7 @@ import { exec } from '../../lib/exec';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
-import { CliExitError } from '../helpers/exit-error';
+import { serializeEnvValueForProcessEnv } from '../../lib/serialize-env-value';
 
 export const commandSpec = define({
   name: 'run',
@@ -203,6 +203,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // (e.g. a nested `varlock run` whose own resolution needs a secret-zero token)
   const includeInternal = !!ctx.values['include-internal'];
   const resolvedEnv = envGraph.getResolvedEnvObject({ includeInternal });
+  const serializedEnvForProcess: Record<string, string> = {};
+  for (const [key, value] of Object.entries(resolvedEnv)) {
+    serializedEnvForProcess[key] = serializeEnvValueForProcessEnv(value);
+  }
   const serializedGraph = envGraph.getSerializedGraph();
   const { resetRedactionMap } = await import('../../runtime/env');
   const { createRedactedStreamWriter } = await import('../../runtime/lib/redact-stream');
@@ -224,7 +228,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   const fullInjectedEnv: NodeJS.ProcessEnv = {
     ...process.env,
-    ...(injectVars ? resolvedEnv : {}),
+    ...(injectVars ? serializedEnvForProcess : {}),
     __VARLOCK_RUN: '1', // flag for a child process to detect it is running via `varlock run`
     ...(injectBlob ? { __VARLOCK_ENV: JSON.stringify(serializedGraph) } : {}),
   };

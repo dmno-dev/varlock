@@ -129,6 +129,12 @@ export abstract class DecoratorInstance {
         );
       }
 
+      // @type is resolved in ConfigItem.process() via parseTypeDecoratorValue — nested
+      // element specs like array(enum(a, b)) are not resolver functions.
+      if (this.name === 'type') {
+        return;
+      }
+
       // this is so we can deal with @type, where each data type is not a real resolver
       // so instead we just make a new dummy resolver holding the args
       if (
@@ -171,6 +177,13 @@ export abstract class DecoratorInstance {
     if (this.isResolved) return this.resolvedValue;
 
     await this.process();
+
+    // @type is parsed in ConfigItem.process() — no value resolver to resolve
+    if (this.name === 'type') {
+      this.isResolved = true;
+      return this.resolvedValue;
+    }
+
     if (!this.decValueResolver) {
       // process() already recorded schema errors, don't throw again
       if (this._errors.length) return;
