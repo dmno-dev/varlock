@@ -6,6 +6,7 @@ import { exec } from '../../lib/exec';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { CliExitError } from '../helpers/exit-error';
 import { serializeEnvValueForProcessEnv } from '../../lib/serialize-env-value';
 
 export const commandSpec = define({
