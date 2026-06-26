@@ -256,7 +256,7 @@ OPENAI_API_KEY=sk-proj-...
 
 Routes an item's secret through the [credential proxy](/guides/proxy/) so an untrusted child process only ever sees a placeholder, while the real value is injected into matching outbound requests at the network boundary. Requires [`@enableProxy`](/reference/root-decorators/#enableproxy) in the header. Using `@proxy(...)` on an item implies [`@sensitive`](#sensitive).
 
-**Function form** — `@proxy(domain=..., [path], [method], [block], [keys], [approval])`:
+**Function form** — `@proxy(domain=..., [path], [method], [block], [keys])`:
 
 | Option | Meaning |
 |---|---|
@@ -265,7 +265,6 @@ Routes an item's secret through the [credential proxy](/guides/proxy/) so an unt
 | `method` | Restrict to one or more HTTP methods, e.g. `[GET, POST]`. |
 | `block` | `block=true` denies matching requests outright. |
 | `keys` | Array of additional item names to inject for this rule, e.g. `keys=[OTHER_KEY]`. |
-| `approval` _(experimental)_ | `approval=true` holds matching requests for interactive approval. Pass an options object for finer control: `approval={each=request, maxDuration="15m"}` — `each` (`host`｜`endpoint`｜`request`) is what one approval covers, `maxDuration` caps how long a "yes" is remembered (`"15m"`, `0` = always ask), and `enabled=false` makes it a plain allow. The object form implies approval is required. |
 
 The same decorator in the **header** creates a _detached_ policy rule (no injection unless it lists `keys`).
 
