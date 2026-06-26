@@ -67,4 +67,4 @@ This is a monorepo managed with bun workspaces and Turborepo:
 
 ## Writing style
 
-- **Do not use em dashes (`—`) or en dashes (`–`)** in any prose you write: docs, code comments, commit messages, PR descriptions, changeset entries, or design notes. They read as an AI-writing tell. Rewrite with a colon, comma, semicolon, parentheses, or two sentences instead.
+- **Do not use em dashes (`—`) or en dashes (`–`)** in any prose you write: docs, code comments, commit messages, PR descriptions, changeset entries, or design notes. They read as an AI-writing tell. Rewrite with a colon, comma, semicolon, parentheses, two sentences, or a plain hyphen (`-`) where that reads naturally. Only the em/en dash characters are banned; a regular hyphen is fine.
