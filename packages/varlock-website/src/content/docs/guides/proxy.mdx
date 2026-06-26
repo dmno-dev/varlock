@@ -3,9 +3,9 @@ title: Credential proxy
 description: Run AI agents and untrusted tools through a local proxy so they only ever see placeholder secrets, while real values are injected at the network boundary.
 ---
 
-The credential proxy lets you run an AI agent (or any untrusted tool) so that it **never sees your real secrets** — it only ever has placeholders in its environment. The real values are injected into outbound requests at the network boundary, against a cryptographically verified upstream, and every request is logged.
+The credential proxy lets you run an AI agent (or any untrusted tool) so that it **never sees your real secrets**: it only ever has placeholders in its environment. The real values are injected into outbound requests at the network boundary, against a cryptographically verified upstream, and every request is logged.
 
-This is useful any time a process you don't fully trust needs to _use_ a secret without being allowed to _read_ it — coding agents, MCP servers, third-party CLIs, or scripts.
+This is useful any time a process you don't fully trust needs to _use_ a secret without being allowed to _read_ it: coding agents, MCP servers, third-party CLIs, or scripts.
 
 :::caution[Preview]
 The credential proxy is an early preview. The core protection (placeholder isolation + verified-identity wire injection) is solid, but there are real limits to what it covers and it runs on the same machine/user as the agent. Read [Limitations](#limitations) before relying on it as a security boundary.
@@ -23,7 +23,7 @@ OPENAI_API_KEY=sk-...
 varlock proxy run -- claude
 ```
 
-The agent launched above sees `OPENAI_API_KEY=sk-proj-0000…` — a placeholder shaped like a real key. When it makes a request to `api.openai.com`, the proxy swaps the placeholder for the real key on the wire. If the agent prints the variable, exfiltrates its env, or sends it anywhere else, all it has is a useless placeholder.
+The agent launched above sees `OPENAI_API_KEY=sk-proj-0000…`, a placeholder shaped like a real key. When it makes a request to `api.openai.com`, the proxy swaps the placeholder for the real key on the wire. If the agent prints the variable, exfiltrates its env, or sends it anywhere else, all it has is a useless placeholder.
 
 The `@placeholder` keeps the placeholder valid-looking so the OpenAI SDK's client-side key-format check passes. See [Placeholders](#placeholders) for when you need it.
 
@@ -34,7 +34,7 @@ The `@placeholder` keeps the placeholder valid-looking so the OpenAI SDK's clien
 3. The proxy intercepts HTTPS traffic. For a request that matches a rule, it verifies the upstream's real TLS identity, then substitutes the placeholder for the real secret **only on that connection**.
 4. Responses are scrubbed so real values can't leak back into the child's output, and every request is recorded to an [audit log](#auditing).
 
-Secrets and the proxy's signing key live only in memory on your machine — they are never written to disk and never handed to the child.
+Secrets and the proxy's signing key live only in memory on your machine; they are never written to disk and never handed to the child.
 
 ## Quick start
 
@@ -81,10 +81,10 @@ varlock proxy run -- node agent.js
 varlock proxy run -- python tool.py
 ```
 
-That's it — the child inherits everything it needs (proxy address + CA trust) automatically.
+That's it. The child inherits everything it needs (proxy address + CA trust) automatically.
 
 :::caution[Put `@proxy` on the item, not in the header]
-`@proxy(domain=...)` on a **config item** routes _that item's_ secret to the domain. The same decorator in the **header** creates a _detached_ policy rule for a domain with **no** secret injection (useful for `block` rules). A common mistake is to write `@proxy` in the header and expect a separate item to be injected — it won't be. See [Routing rules](#routing-rules).
+`@proxy(domain=...)` on a **config item** routes _that item's_ secret to the domain. The same decorator in the **header** creates a _detached_ policy rule for a domain with **no** secret injection (useful for `block` rules). A common mistake is to write `@proxy` in the header and expect a separate item to be injected, but it won't be. See [Routing rules](#routing-rules).
 :::
 
 ## Routing rules
@@ -93,7 +93,7 @@ A `@proxy(...)` rule supports more than just a domain:
 
 | Option | Meaning |
 |---|---|
-| `domain` | **(required)** Host to match — a single host or an array list. Supports globs, e.g. `*.example.com`. |
+| `domain` | **(required)** Host to match: a single host or an array list. Supports globs, e.g. `*.example.com`. |
 | `path` | Restrict to matching URL paths (glob), e.g. `path="/v1/**"`. |
 | `method` | Restrict to one or more HTTP methods, e.g. `method=[GET, POST]`. |
 | `block` | `block=true` denies matching requests outright (fail closed). |
@@ -103,7 +103,7 @@ A `@proxy(...)` rule supports more than just a domain:
 
 ```env-spec title=".env.schema"
 # @enableProxy(egress="strict")
-# Block a dangerous endpoint entirely (detached rule — no injection):
+# Block a dangerous endpoint entirely (detached rule, no injection):
 # @proxy(domain="api.stripe.com", path="/v1/refunds/**", method=[POST, DELETE], block=true)
 # ---
 # Match either host, any method:
@@ -113,15 +113,15 @@ STRIPE_SECRET_KEY=sk_live_...
 
 ### Attached vs detached rules
 
-- **Attached rule** — `@proxy` on an item. Injects that item's secret into matching requests. (Attach extra items with the `keys` array: `@proxy(domain="api.x.com", keys=[OTHER_KEY])`.)
-- **Detached rule** — `@proxy` in the header. A policy-only rule (match or `block`) for a domain. It injects nothing on its own, but can inject named items with `keys=[...]`.
+- **Attached rule**: `@proxy` on an item. Injects that item's secret into matching requests. (Attach extra items with the `keys` array: `@proxy(domain="api.x.com", keys=[OTHER_KEY])`.)
+- **Detached rule**: `@proxy` in the header. A policy-only rule (match or `block`) for a domain. It injects nothing on its own, but can inject named items with `keys=[...]`.
 
 ### Egress modes
 
 `@enableProxy(egress=...)` controls what happens to requests that **don't** match any rule:
 
-- `permissive` _(default)_ — unmatched hosts pass through untouched (no injection, no blocking). Good for getting started.
-- `strict` — only requests matching a `@proxy` rule are allowed; everything else is blocked. This is the recommended posture once your rules are dialed in, since it prevents the agent from reaching arbitrary hosts.
+- `permissive` _(default)_: unmatched hosts pass through untouched (no injection, no blocking). Good for getting started.
+- `strict`: only requests matching a `@proxy` rule are allowed; everything else is blocked. This is the recommended posture once your rules are dialed in, since it prevents the agent from reaching arbitrary hosts.
 
 ## Controlling what the agent sees
 
@@ -132,10 +132,10 @@ By default, varlock applies **least privilege** to the proxied child:
 - Non-sensitive items → passed through normally.
 
 :::note[varlock treats items as sensitive by default]
-Unless an item is marked [`@public`](/reference/item-decorators/#sensitive) (or made non-sensitive by a [`@type`](/reference/item-decorators/#type) / `@defaultSensitive` rule), varlock considers it sensitive — so it becomes a **placeholder** in the proxied child. If your agent needs to read a non-secret config value (an API base URL, a feature flag), mark it `@public` so it passes through with its real value.
+Unless an item is marked [`@public`](/reference/item-decorators/#sensitive) (or made non-sensitive by a [`@type`](/reference/item-decorators/#type) / `@defaultSensitive` rule), varlock considers it sensitive, so it becomes a **placeholder** in the proxied child. If your agent needs to read a non-secret config value (an API base URL, a feature flag), mark it `@public` so it passes through with its real value.
 :::
 
-Because every sensitive item resolves to a placeholder inside a proxied session, an agent can't **trivially** recover a secret by re-running `varlock load` / `varlock printenv` from within the proxied session — it gets the same placeholder back, not the real value. (A determined agent on the same machine can still escape this — see [Limitations](#limitations); pair the proxy with a sandbox for a real boundary.)
+Because every sensitive item resolves to a placeholder inside a proxied session, an agent can't **trivially** recover a secret by re-running `varlock load` / `varlock printenv` from within the proxied session; it gets the same placeholder back, not the real value. (A determined agent on the same machine can still escape this; see [Limitations](#limitations) and pair the proxy with a sandbox for a real boundary.)
 
 To override the default for an item, use the value form of `@proxy`:
 
@@ -144,7 +144,7 @@ To override the default for an item, use the value form of `@proxy`:
 # @proxy=passthrough   # inject the REAL value into the child (escape hatch)
 LEGACY_TOKEN=...
 
-# @proxy=omit          # withhold entirely — absent from the child env, and
+# @proxy=omit          # withhold entirely: absent from the child env, and
                        # resolves to "unset" (not the real value) if re-resolved
 UNUSED_SECRET=...
 ```
@@ -155,9 +155,9 @@ UNUSED_SECRET=...
 
 The placeholder the agent sees is chosen in priority order:
 
-1. An explicit [`@placeholder`](/reference/item-decorators/#placeholder) value — always wins.
-2. A valid-and-unique value derived from the item's [`@type`](/reference/item-decorators/#type) — e.g. `@type=url` → `https://vlk-placeholder-…invalid/`, `@type=email` / `uuid` / `md5` likewise, and `@type=string(startsWith=sk-, isLength=20)` yields an `sk-`-shaped placeholder.
-3. A generic fallback (`vlk_placeholder_<KEY>_…`) — for a `@proxy`-routed (wire-injected) item varlock **warns** about these, because a generic placeholder can fail an SDK's client-side key-format check (e.g. an `sk-…` prefix assertion) before the request is ever made.
+1. An explicit [`@placeholder`](/reference/item-decorators/#placeholder) value (always wins).
+2. A valid-and-unique value derived from the item's [`@type`](/reference/item-decorators/#type): e.g. `@type=url` → `https://vlk-placeholder-…invalid/`, `@type=email` / `uuid` / `md5` likewise, and `@type=string(startsWith=sk-, isLength=20)` yields an `sk-`-shaped placeholder.
+3. A generic fallback (`vlk_placeholder_<KEY>_…`): for a `@proxy`-routed (wire-injected) item varlock **warns** about these, because a generic placeholder can fail an SDK's client-side key-format check (e.g. an `sk-…` prefix assertion) before the request is ever made.
 
 Every placeholder is unique per item, so two different secrets can never collide on the wire.
 
@@ -184,10 +184,10 @@ Starts a proxy, runs the command through it, and tears down when the command exi
 ### Daemon + attach: `proxy start`
 
 ```bash
-# Terminal 1 — owns the proxy and its live request log
+# Terminal 1: owns the proxy and its live request log
 varlock proxy start
 
-# Terminal 2 — attaches automatically
+# Terminal 2: attaches automatically
 varlock proxy run -- claude
 ```
 
@@ -213,12 +213,12 @@ node agent.js                       # now routed through the proxy
 The proxy uses an **ephemeral, in-memory certificate authority** generated per run; only its public certificate is written to a temp file for the child to trust. The CA private key and all per-host certificates never leave memory.
 
 :::note[Clients that don't read these env vars]
-Tools that ignore the standard proxy/CA environment variables — many GUI apps, browsers, and some language runtimes with their own trust stores — won't be transparently proxied. The target here is CLI tools and agents, which generally do respect them.
+Tools that ignore the standard proxy/CA environment variables (many GUI apps, browsers, and some language runtimes with their own trust stores) won't be transparently proxied. The target here is CLI tools and agents, which generally do respect them.
 :::
 
 ## Auditing
 
-Every request through the proxy is appended to a per-session, secrets-free audit log (host, method, path, a request hash, the matched rule, the decision, and which key names were injected — never any values).
+Every request through the proxy is appended to a per-session, secrets-free audit log (host, method, path, a request hash, the matched rule, the decision, and which key names were injected, never any values).
 
 ```bash
 varlock proxy audit                       # current/most-recent session
@@ -236,7 +236,7 @@ varlock proxy status --watch    # live updates
 
 ## Editing the schema while a session is running
 
-For safety, a proxied command refuses to run if your `.env.schema` has changed since the proxy session started. This prevents an agent from editing the schema mid-session — downgrading `@sensitive`, or adding a new item that resolves a secret — to recover real values. After an intentional edit, **restart the proxy** from a trusted (non-proxied) shell so it re-resolves the new schema:
+For safety, a proxied command refuses to run if your `.env.schema` has changed since the proxy session started. This prevents an agent from editing the schema mid-session (downgrading `@sensitive`, or adding a new item that resolves a secret) to recover real values. After an intentional edit, **restart the proxy** from a trusted (non-proxied) shell so it re-resolves the new schema:
 
 ```bash
 varlock proxy stop --all
@@ -253,12 +253,12 @@ You can start a daemon with `varlock proxy start --allow-reload` to enable `varl
 
 The proxy is a local, same-machine tool. Know what it does and doesn't cover before relying on it:
 
-- **Same host, same user.** The proxy runs as you, and so does the agent. It stops the agent from *trivially reading* a secret it's *using*, but it is **not a sandbox** — it doesn't isolate the filesystem, other processes, or memory. A determined agent can spawn a process outside the proxy's view (e.g. reparented via `setsid`) and resolve secrets directly from their source; the in-tree guards (placeholder isolation, the schema-fingerprint check) raise the bar but are not a hard boundary. Pair the proxy with an OS sandbox/container for real isolation.
-- **Response scrubbing is best-effort.** Responses are scrubbed back to placeholders only for **small, uncompressed text** bodies. **Compressed (gzip/br) or large (>2&nbsp;MB) response bodies are passed through unscrubbed** — the proxy can't scan into them. This only matters if an upstream *reflects your secret back in its response* (uncommon); the primary protection — the agent only ever holds a placeholder — is unaffected.
-- **Injection requires a verified public-TLS host.** Secrets are injected only onto connections whose TLS identity is verified against public CAs. The proxy refuses to inject over cleartext `http://` or into a self-signed/local upstream — by design.
-- **Default egress is not containment.** `egress=permissive` (the default) does not restrict where the agent can connect — it just never injects to unmatched hosts. Use `egress=strict` (and ideally a sandbox) if you want to constrain egress.
+- **Same host, same user.** The proxy runs as you, and so does the agent. It stops the agent from *trivially reading* a secret it's *using*, but it is **not a sandbox**: it doesn't isolate the filesystem, other processes, or memory. A determined agent can spawn a process outside the proxy's view (e.g. reparented via `setsid`) and resolve secrets directly from their source; the in-tree guards (placeholder isolation, the schema-fingerprint check) raise the bar but are not a hard boundary. Pair the proxy with an OS sandbox/container for real isolation.
+- **Response scrubbing is best-effort.** Responses are scrubbed back to placeholders only for **small, uncompressed text** bodies. **Compressed (gzip/br) or large (>2&nbsp;MB) response bodies are passed through unscrubbed**: the proxy can't scan into them. This only matters if an upstream *reflects your secret back in its response* (uncommon); the primary protection (the agent only ever holds a placeholder) is unaffected.
+- **Injection requires a verified public-TLS host.** Secrets are injected only onto connections whose TLS identity is verified against public CAs. The proxy refuses to inject over cleartext `http://` or into a self-signed/local upstream, by design.
+- **Default egress is not containment.** `egress=permissive` (the default) does not restrict where the agent can connect; it just never injects to unmatched hosts. Use `egress=strict` (and ideally a sandbox) if you want to constrain egress.
 - **Hot-reload is unauthenticated (and off by default).** `proxy refresh` only works when the daemon was started with `--allow-reload`. Even then, any process running as your user can trigger it, so on a shared uid it is not a trust boundary; a real out-of-band approver is planned to close it.
-- **Only proxy-aware clients are covered.** The child is pointed at the proxy via standard `HTTP(S)_PROXY` / CA env vars. A client that ignores those (or pins its own CA) bypasses the proxy entirely — it just won't get a working secret.
+- **Only proxy-aware clients are covered.** The child is pointed at the proxy via standard `HTTP(S)_PROXY` / CA env vars. A client that ignores those (or pins its own CA) bypasses the proxy entirely; it just won't get a working secret.
 
 ## Reference
 

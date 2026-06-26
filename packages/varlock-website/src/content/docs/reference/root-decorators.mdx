@@ -492,8 +492,8 @@ API_KEY=
 Enables the [credential proxy](/guides/proxy/), which lets you run an untrusted child process (e.g. an AI agent) that only ever sees placeholder secrets while real values are injected at the network boundary.
 
 The `egress` option controls requests that don't match any [`@proxy`](#proxy) rule:
-- `permissive` _(default)_ — unmatched hosts pass through untouched.
-- `strict` — only requests matching a `@proxy` rule are allowed; everything else is blocked.
+- `permissive` _(default)_: unmatched hosts pass through untouched.
+- `strict`: only requests matching a `@proxy` rule are allowed; everything else is blocked.
 
 ```env-spec
 # @enableProxy(egress="strict")
@@ -509,9 +509,9 @@ See the [credential proxy guide](/guides/proxy/) for the full workflow.
 ### `@proxy()`
 **Arg types:** `(domain: string | string[], path?, method?: string | string[], block?, keys?: string[], ...)`
 
-Defines a **detached** [credential proxy](/guides/proxy/) rule — a domain-level policy (match or `block`). It injects no secret on its own, but can inject named items via `keys=[...]`. Requires [`@enableProxy`](#enableproxy).
+Defines a **detached** [credential proxy](/guides/proxy/) rule: a domain-level policy (match or `block`). It injects no secret on its own, but can inject named items via `keys=[...]`. Requires [`@enableProxy`](#enableproxy).
 
-This is the header (root) form of the decorator. To inject a specific secret into requests for a domain, put [`@proxy`](/reference/item-decorators/#proxy) on the **item** instead (an _attached_ rule). The two forms share the same options — see the [item decorator reference](/reference/item-decorators/#proxy).
+This is the header (root) form of the decorator. To inject a specific secret into requests for a domain, put [`@proxy`](/reference/item-decorators/#proxy) on the **item** instead (an _attached_ rule). The two forms share the same options; see the [item decorator reference](/reference/item-decorators/#proxy).
 
 ```env-spec
 # @enableProxy(egress="permissive")
