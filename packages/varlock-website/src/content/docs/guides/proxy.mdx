@@ -1,11 +1,13 @@
 ---
 title: Credential proxy
-description: Run AI agents and untrusted tools through a local proxy so they only ever see placeholder secrets, while real values are injected at the network boundary.
+description: Run AI agents and untrusted tools through a local credential broker so they only ever see placeholder secrets, while real values are injected at the network boundary.
 ---
 
 The credential proxy lets you run an AI agent (or any untrusted tool) so that it **never sees your real secrets**: it only ever has placeholders in its environment. The real values are injected into outbound requests at the network boundary, against a cryptographically verified upstream, and every request is logged.
 
 This is useful any time a process you don't fully trust needs to _use_ a secret without being allowed to _read_ it: coding agents, MCP servers, third-party CLIs, or scripts.
+
+This pattern is known as a **credential broker** (or credential brokering): a trusted component holds the real credentials and swaps them in at the network boundary, so a compromised or prompt-injected agent never holds a secret it can leak. It is increasingly recommended for agent security, for example by the [SANS Institute](https://www.sans.org/blog/your-ai-agent-easily-confused-deputy-why-cloud-security-needs-credential-broker) and in [Anthropic's managed-agents architecture](https://www.anthropic.com/engineering/managed-agents). varlock's credential proxy is a local implementation you run on your own machine.
 
 :::caution[Preview]
 The credential proxy is an early preview. The core protection (placeholder isolation + verified-identity wire injection) is solid, but there are real limits to what it covers and it runs on the same machine/user as the agent. Read [Limitations](#limitations) before relying on it as a security boundary.
