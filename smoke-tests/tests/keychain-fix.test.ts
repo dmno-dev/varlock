@@ -8,7 +8,7 @@ import { runVarlock } from '../helpers/run-varlock.js';
 
 const RUN_KEYCHAIN_SMOKE = process.env.VARLOCK_RUN_KEYCHAIN_SMOKE === '1';
 const SERVICE = 'varlock-smoke-test';
-const FIXTURE_DIR = 'smoke-test-keychain';
+const FIXTURE_DIR = 'smoke-test-keychain-fix';
 const FIXTURE_SCHEMA_PATH = join(import.meta.dirname, '..', FIXTURE_DIR, '.env.schema');
 const createdAccounts: Array<string> = [];
 
