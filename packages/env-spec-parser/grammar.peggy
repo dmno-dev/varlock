@@ -44,7 +44,7 @@ ConfigItem =
 
 ConfigItemKey = $([a-zA-Z_] [a-zA-Z0-9_.-]*)
 
-ConfigItemValue = FunctionCall / multiLineString / quotedString / unquotedString
+ConfigItemValue = FunctionCall / ArrayLiteral / multiLineString / quotedString / unquotedString
 
 CommentBlock =
   // not sure if we want to treat these as decorators if within comment block?

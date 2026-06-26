@@ -6,6 +6,22 @@ import {
   parseDuration, convertDurationFromMs, type DurationUnit,
 } from '../../lib/duration';
 
+export const ARRAY_TYPE_OPTION_KEYS = new Set([
+  'minLength',
+  'maxLength',
+  'unique',
+  'separator',
+  'allowEmpty',
+]);
+
+export type ArrayDataTypeSettings = {
+  minLength?: number;
+  maxLength?: number;
+  unique?: boolean;
+  separator?: string;
+  allowEmpty?: boolean;
+};
+
 type MaybePromise<T> = T | Promise<T>;
 
 type EnvGraphDataTypeDef<CoerceReturnType, ValidateInputType = FallbackIfUnknown<CoerceReturnType, string>> = {
@@ -52,6 +68,12 @@ type EnvGraphDataTypeDef<CoerceReturnType, ValidateInputType = FallbackIfUnknown
   // do we want to allow adding settings that usually come from other decorators?
   // specific items - docs, sensitive, example, etc
   // or just a way to add arbitrary other decorators?
+
+  /** @internal composite / enum metadata for type generation and nested coercion */
+  _rawEnumOptions?: Array<PossibleEnumValues>;
+  _elementTypeName?: string;
+  _elementDataType?: EnvGraphDataType;
+  _arraySettings?: ArrayDataTypeSettings;
 };
 
 
@@ -601,6 +623,151 @@ const DurationDataType = createEnvGraphDataType(
 );
 
 
+function coerceRawValueToArray(
+  rawVal: unknown,
+  settings: ArrayDataTypeSettings,
+): Array<unknown> | CoercionError {
+  let arr: Array<unknown>;
+  if (Array.isArray(rawVal)) {
+    arr = rawVal;
+  } else if (_.isString(rawVal)) {
+    const trimmed = rawVal.trim();
+    if (trimmed === '' && settings.allowEmpty) {
+      arr = [];
+    } else if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (!Array.isArray(parsed)) return new CoercionError('Value must be an array');
+        arr = parsed;
+      } catch {
+        return new CoercionError('Error parsing JSON array string');
+      }
+    } else if (settings.separator) {
+      arr = trimmed === ''
+        ? []
+        : trimmed.split(settings.separator).map((part) => part.trim()).filter((part) => part !== '');
+    } else {
+      return new CoercionError('Value must be an array');
+    }
+  } else {
+    return new CoercionError('Value must be an array');
+  }
+
+  if (arr.length === 0 && !settings.allowEmpty) {
+    return new CoercionError('Array must not be empty');
+  }
+  return arr;
+}
+
+function indexedCoercionError(index: number, err: CoercionError): CoercionError {
+  const wrapped = new CoercionError(`[${index}]: ${err.message}`, { err });
+  return wrapped;
+}
+
+function indexedValidationError(index: number, err: ValidationError): ValidationError {
+  return new ValidationError(`[${index}]: ${err.message}`, { err });
+}
+
+// Registered so `array` appears in the type registry; real instances are built via buildArrayDataType.
+const ArrayDataTypePlaceholder = createEnvGraphDataType({
+  name: 'array',
+  icon: 'bi:brackets',
+  coerce() {
+    throw new CoercionError('array type requires an element type argument');
+  },
+});
+
+export function buildArrayDataType(
+  elementType: EnvGraphDataType,
+  elementTypeName: string,
+  arraySettingsInput: Record<string, unknown>,
+): EnvGraphDataType {
+  const arraySettings = arraySettingsInput as ArrayDataTypeSettings;
+  const elementTypeRef = elementType;
+
+  return new EnvGraphDataType({
+    name: 'array',
+    icon: 'bi:brackets',
+    typeDescription: `array of ${elementTypeName}`,
+    coerce(rawVal) {
+      const arrResult = coerceRawValueToArray(rawVal, arraySettings);
+      if (arrResult instanceof CoercionError) return arrResult;
+
+      const coerced: Array<unknown> = [];
+      for (let i = 0; i < arrResult.length; i++) {
+        const coerceResult = elementTypeRef.coerce(arrResult[i]);
+        if (coerceResult instanceof Error) {
+          return indexedCoercionError(
+            i,
+            coerceResult instanceof CoercionError
+              ? coerceResult
+              : new CoercionError(coerceResult.message),
+          );
+        }
+        coerced.push(coerceResult);
+      }
+      return coerced;
+    },
+    async validate(val) {
+      const errors: Array<ValidationError> = [];
+      const arr = val as Array<unknown>;
+
+      if (arr.length === 0 && !arraySettings.allowEmpty) {
+        errors.push(new ValidationError('Array must not be empty'));
+      }
+      if (arraySettings.minLength !== undefined && arr.length < arraySettings.minLength) {
+        errors.push(new ValidationError(`Array must have at least ${arraySettings.minLength} elements`));
+      }
+      if (arraySettings.maxLength !== undefined && arr.length > arraySettings.maxLength) {
+        errors.push(new ValidationError(`Array must have at most ${arraySettings.maxLength} elements`));
+      }
+      if (arraySettings.unique) {
+        const seen = new Set<string>();
+        for (let i = 0; i < arr.length; i++) {
+          const key = JSON.stringify(arr[i]);
+          if (seen.has(key)) {
+            errors.push(new ValidationError(`[${i}]: Duplicate value`));
+          }
+          seen.add(key);
+        }
+      }
+
+      for (let i = 0; i < arr.length; i++) {
+        try {
+          const validateResult = await elementTypeRef.validate(arr[i]);
+          if (validateResult instanceof ValidationError) {
+            errors.push(indexedValidationError(i, validateResult));
+          } else if (_.isArray(validateResult)) {
+            for (const nestedErr of validateResult) {
+              if (nestedErr instanceof ValidationError) {
+                errors.push(indexedValidationError(i, nestedErr));
+              }
+            }
+          }
+        } catch (err) {
+          if (err instanceof ValidationError) {
+            errors.push(indexedValidationError(i, err));
+          } else if (_.isArray(err)) {
+            for (const nestedErr of err) {
+              if (nestedErr instanceof ValidationError) {
+                errors.push(indexedValidationError(i, nestedErr));
+              }
+            }
+          } else {
+            throw err;
+          }
+        }
+      }
+
+      return errors.length ? errors : true;
+    },
+    _elementTypeName: elementTypeName,
+    _elementDataType: elementTypeRef,
+    _arraySettings: arraySettings,
+  }, ArrayDataTypePlaceholder);
+}
+
+
 export const BaseDataTypes: Array<EnvGraphDataTypeFactory> = [
   StringDataType,
   NumberDataType,
@@ -616,4 +783,5 @@ export const BaseDataTypes: Array<EnvGraphDataTypeFactory> = [
   UuidDataType,
   Md5DataType,
   DurationDataType,
+  ArrayDataTypePlaceholder,
 ];

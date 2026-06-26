@@ -266,6 +266,41 @@ describe('type generation', () => {
       expect(infos.APP_ENV.dataType?.name).toBe('enum');
     });
 
+    test('array type gets correct TypeGenItemInfo and TS output', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultRequired=false
+          # ---
+          # @type=array(email, normalize=true)
+          ALLOWED_EMAILS=[a@example.com, b@example.com]
+          # @type=array(number, min=0, max=100)
+          SCORES=[1, 2, 3]
+          # @type=array(boolean)
+          FLAGS=[true, false]
+          # @type=array(enum(dev, staging, prod))
+          APP_MODES=[dev, staging]
+        `,
+      });
+
+      const infos = await getTypeGenInfoMap(g);
+      expect(infos.ALLOWED_EMAILS.dataType?.name).toBe('array');
+      expect(infos.SCORES.dataType?.name).toBe('array');
+      expect(infos.FLAGS.dataType?.name).toBe('array');
+      expect(infos.APP_MODES.dataType?.name).toBe('array');
+
+      const emailSrc = await generateTsTypesSrc([await g.configSchema.ALLOWED_EMAILS.getTypeGenInfo()]);
+      expect(emailSrc).toContain('ALLOWED_EMAILS?: string[];');
+
+      const numberSrc = await generateTsTypesSrc([await g.configSchema.SCORES.getTypeGenInfo()]);
+      expect(numberSrc).toContain('SCORES?: number[];');
+
+      const boolSrc = await generateTsTypesSrc([await g.configSchema.FLAGS.getTypeGenInfo()]);
+      expect(boolSrc).toContain('FLAGS?: boolean[];');
+
+      const enumSrc = await generateTsTypesSrc([await g.configSchema.APP_MODES.getTypeGenInfo()]);
+      expect(enumSrc).toContain('APP_MODES?: ("dev" | "staging" | "prod")[];');
+    });
+
     test('boolean type gets correct TypeGenInfo', async () => {
       const g = await loadGraph({
         envFile: outdent`

@@ -264,6 +264,19 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
     insertText: 'enum(${1:development}, ${2:preview}, ${3:production})',
   },
   {
+    name: 'array',
+    summary: 'Array of values with per-element validation.',
+    documentation: 'Example: `@type=array(email, normalize=true)` or `@type=array(enum(dev, staging, prod))`.',
+    insertText: 'array(${1|string,email,number,boolean,enum|})',
+    optionSnippets: [
+      { name: 'minLength', insertText: 'minLength=${1:1}', documentation: 'Minimum number of elements.' },
+      { name: 'maxLength', insertText: 'maxLength=${1:10}', documentation: 'Maximum number of elements.' },
+      { name: 'unique', insertText: 'unique=true', documentation: 'Reject duplicate elements.' },
+      { name: 'separator', insertText: 'separator=${1:","}', documentation: 'Split string input on this separator.' },
+      { name: 'allowEmpty', insertText: 'allowEmpty=true', documentation: 'Allow an empty array.' },
+    ],
+  },
+  {
     name: 'email',
     summary: 'Email address.',
     documentation: 'Example: `@type=email(normalize=true)`.',

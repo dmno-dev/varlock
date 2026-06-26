@@ -3,6 +3,7 @@ import { redactString } from './lib/redaction';
 import type { SerializedEnvGraph } from '../env-graph';
 import { isBrowser } from '../lib/detect-runtime';
 import { debug } from './lib/debug';
+import { serializeEnvValueForProcessEnv } from '../lib/serialize-env-value';
 
 // TODO: would like to move all of the redaction utils out of this file
 // but its complicated since it is imported by code that may be run in the backend and frontend
@@ -321,7 +322,7 @@ export function initVarlockEnv(opts?: {
       varlockInjectedProcessEnvKeys?.push(itemKey);
       // when re-injecting into process.env, we treat undefined as empty string
       // this more closely matches expected behaviour from other .env loaders
-      process.env[itemKey] = itemValue === undefined ? '' : String(itemValue);
+      process.env[itemKey] = serializeEnvValueForProcessEnv(itemValue);
     }
   }
   initializedEnv = true;

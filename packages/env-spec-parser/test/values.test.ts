@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import ansis from 'ansis';
 import {
   ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair,
-  ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
+  ParsedEnvSpecStaticValue, ParsedEnvSpecArrayLiteral, parseEnvSpecDotEnvFile,
 } from '../src';
 import { expectInstanceOf } from './test-utils';
 
@@ -223,5 +223,21 @@ describe('regex-like strings and paths with slashes', () => {
     // The value includes the full unquoted string up to the closing )
     // In the env file: /^https:\/\// (the trailing / that was previously the regex closing delimiter is now part of the string)
     expect(args[0].value.value).toEqual('/^https:\\/\\//');
+  });
+});
+
+describe('array literal item values', () => {
+  it('parses [a, b] as an array literal', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=[a, b]');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecArrayLiteral);
+    expect(valNode.simplifiedValue).toEqual(['a', 'b']);
+  });
+
+  it('parses quoted email strings in array literals', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=["a@example.com", "b@example.com"]');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecArrayLiteral);
+    expect(valNode.simplifiedValue).toEqual(['a@example.com', 'b@example.com']);
   });
 });

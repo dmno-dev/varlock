@@ -254,4 +254,34 @@ POLL_INTERVAL=15m
 
 Same parser is used by `cache(..., ttl=...)` and the plugin `cacheTtl` option, so any string that works there also works here. For cache mode behavior and troubleshooting, see the [Caching guide](/guides/caching/).
 </div>
+
+<div>
+### `array`
+
+Validates a list of values, coercing and checking each element with an inner type.
+
+**Element type** — first positional argument: a type name (`string`, `email`, …) or a nested call for types with positional args (`enum(dev, staging, prod)`).
+
+**Array options:**
+- `minLength` / `maxLength` — element count bounds
+- `unique` (boolean) — reject duplicate elements
+- `separator` (string) — split string input (e.g. `","` for comma-separated `.env` values)
+- `allowEmpty` (boolean) — allow `[]` (default: false)
+
+Named options not listed above are forwarded to the element type (e.g. `normalize=true` on `array(email, …)`).
+
+```env-spec
+# @type=array(email, normalize=true)
+ALLOWED_EMAILS=[admin@example.com, support@example.com]
+
+# @type=array(enum(dev, staging, prod))
+APP_MODES=[dev, staging]
+
+# Comma-separated in .env
+# @type=array(email, separator=",")
+ALLOWED_EMAILS=one@example.com, two@example.com
+```
+
+Array values are available as typed arrays via `ENV` (e.g. `string[]`). In `process.env` they are JSON-serialized.
+</div>
 </div>
