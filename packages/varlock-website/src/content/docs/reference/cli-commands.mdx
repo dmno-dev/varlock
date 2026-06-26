@@ -647,18 +647,19 @@ varlock proxy <subcommand> [options]
 
 **Subcommands:**
 - `run -- <command>`: Start a proxy, run `<command>` through it, and tear down on exit. Attaches to a running `proxy start` session for this directory if one exists; otherwise runs self-contained.
-- `start`: Start a long-lived proxy session that owns the terminal (interactive approval prompts and a live request log appear here). Stop with `Ctrl+C`.
-- `rules`: Print a static summary of the effective `@proxy` configuration — the rules (host/path/method, block/approval) and each secret's mode (proxied / placeholder / passthrough / omit) — without starting a proxy.
+- `start`: Start a long-lived proxy session that owns the terminal (a live request log appears here). Stop with `Ctrl+C`.
+- `rules`: Print a static summary of the effective `@proxy` configuration — the rules (host/path/method, block) and each secret's mode (proxied / placeholder / passthrough / omit) — without starting a proxy.
 - `env`: Print the proxy + CA environment for a session, to source into another shell (`eval "$(varlock proxy env)"`).
 - `status`: List active proxy sessions.
 - `audit`: Print a session's request audit log (no secret values).
-- `refresh`: Hot-reload a running `proxy start` daemon after an intentional schema edit — re-resolves and swaps the live policy (rules, injected secrets, egress) without restarting.
+- `refresh`: Hot-reload a daemon started with `--allow-reload` after an intentional schema edit — re-resolves and swaps the live policy without restarting. (Off by default; otherwise restart the proxy to apply schema changes.)
 - `stop`: Stop a session.
 
 **Options:**
 - `--session <id>`: Target a specific session by id.
 - `--new`: For `run`, force a fresh proxy instead of attaching to a running one.
 - `--all`: For `status`/`stop`, include all sessions (`status` also shows ended sessions).
+- `--allow-reload`: For `start`/`run`, enable live policy hot-reload via `proxy refresh` (off by default — the reload channel is unauthenticated on a shared uid; only enable behind a sandbox).
 - `--inject <all｜vars｜blob>`: For `run`, control what is injected into the child env (default `all`).
 - `--no-redact-stdout`: For `run`, disable stdout/stderr redaction (full TTY pass-through).
 - `--watch`: For `status`, continuously refresh.
@@ -669,7 +670,7 @@ varlock proxy <subcommand> [options]
 # Run an agent through the proxy
 varlock proxy run -- claude
 
-# Daemon in one terminal, attach from another (enables interactive approvals)
+# Daemon in one terminal, attach from another
 varlock proxy start
 varlock proxy run -- node agent.js
 
