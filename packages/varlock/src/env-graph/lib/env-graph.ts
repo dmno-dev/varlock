@@ -919,6 +919,16 @@ export class EnvGraph {
    * security-relevant option (a dropped `block`/`approval` is a permissive rule).
    */
   private static validateResolvedProxyObj(obj: any): void {
+    // Reject unknown options at resolve time too (the static load-time validator
+    // doesn't fire for header/root @proxy decorators), so a typo like `blok=true`
+    // fails loudly instead of silently producing a permissive rule. Entries that
+    // reach the recursive call have already been filtered to the per-entry set.
+    const validOptions = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'rules'];
+    for (const key of Object.keys(obj ?? {})) {
+      if (!validOptions.includes(key)) {
+        throw new SchemaError(`@proxy: unknown option "${key}". Valid options: ${validOptions.join(', ')}`);
+      }
+    }
     if (obj?.block !== undefined && !_.isBoolean(obj.block)) {
       throw new SchemaError(`@proxy: block must resolve to a boolean, got ${JSON.stringify(obj.block)}`);
     }
@@ -950,6 +960,25 @@ export class EnvGraph {
         } catch {
           throw new SchemaError('@proxy: approval.maxDuration must be a duration like "15m" or 0 (always ask)');
         }
+      }
+    }
+
+    // `rules=[{...}]`: each entry is a policy refinement for the parent's domain.
+    if (obj?.rules !== undefined) {
+      if (!Array.isArray(obj.rules)) {
+        throw new SchemaError(`@proxy: rules must be an array of rule objects, got ${JSON.stringify(obj.rules)}`);
+      }
+      for (const entry of obj.rules) {
+        if (!_.isPlainObject(entry)) {
+          throw new SchemaError(`@proxy: each rules entry must be an object, got ${JSON.stringify(entry)}`);
+        }
+        for (const key of Object.keys(entry)) {
+          if (!['path', 'method', 'block', 'approval'].includes(key)) {
+            throw new SchemaError(`@proxy: unknown option "${key}" in a rules entry. Valid entry options: path, method, block, approval (domain and keys are set on the parent @proxy)`);
+          }
+        }
+        // reuse the per-option type checks for the entry (path/method/block/approval)
+        EnvGraph.validateResolvedProxyObj(entry);
       }
     }
   }
@@ -985,6 +1014,36 @@ export class EnvGraph {
     };
   }
 
+  /** Build one runtime ProxyRule from a resolved `@proxy(...)` arg object (or a `rules` entry). */
+  private static buildProxyRuleFromObj(obj: any, domain: Array<string>, itemKeys: Array<string>): ProxyRule {
+    const method = EnvGraph.normalizeStringList(obj?.method);
+    return {
+      domain,
+      itemKeys,
+      ...(_.isString(obj?.path) ? { path: obj.path } : {}),
+      ...(method.length ? { method } : {}),
+      ...(_.isBoolean(obj?.block) ? { block: obj.block } : {}),
+      ...EnvGraph.buildProxyApprovalFields(obj),
+    };
+  }
+
+  /**
+   * Expand a resolved `@proxy(...)` arg object into one or more runtime rules: the
+   * parent rule (which carries injection via `itemKeys` and the parent's own
+   * path/method/block) plus one policy-only rule per `rules=[{...}]` entry. Each
+   * entry inherits `domain`, injects nothing (empty `itemKeys`), and refines via
+   * precedence (block > require-approval > allow), so the domain is written once.
+   */
+  private static expandProxyRules(obj: any, domain: Array<string>, itemKeys: Array<string>): Array<ProxyRule> {
+    const out: Array<ProxyRule> = [EnvGraph.buildProxyRuleFromObj(obj, domain, itemKeys)];
+    if (Array.isArray(obj?.rules)) {
+      for (const entry of obj.rules) {
+        out.push(EnvGraph.buildProxyRuleFromObj(entry, domain, []));
+      }
+    }
+    return out;
+  }
+
   async getProxyRules(): Promise<Array<ProxyRule>> {
     const rules: Array<ProxyRule> = [];
 
@@ -994,16 +1053,8 @@ export class EnvGraph {
       EnvGraph.validateResolvedProxyObj(resolved?.obj);
       const domain = EnvGraph.normalizeStringList(resolved?.obj?.domain);
       if (domain.length === 0) continue;
-
-      const method = EnvGraph.normalizeStringList(resolved?.obj?.method);
-      rules.push({
-        domain,
-        itemKeys: EnvGraph.normalizeStringList(resolved?.obj?.keys),
-        ...(_.isString(resolved?.obj?.path) ? { path: resolved.obj.path } : {}),
-        ...(method.length ? { method } : {}),
-        ...(_.isBoolean(resolved?.obj?.block) ? { block: resolved.obj.block } : {}),
-        ...EnvGraph.buildProxyApprovalFields(resolved?.obj),
-      });
+      const itemKeys = EnvGraph.normalizeStringList(resolved?.obj?.keys);
+      rules.push(...EnvGraph.expandProxyRules(resolved?.obj, domain, itemKeys));
     }
 
     // attached rules from item-level @proxy(...)
@@ -1014,18 +1065,9 @@ export class EnvGraph {
         EnvGraph.validateResolvedProxyObj(resolved?.obj);
         const domain = EnvGraph.normalizeStringList(resolved?.obj?.domain);
         if (domain.length === 0) continue;
-
-        const method = EnvGraph.normalizeStringList(resolved?.obj?.method);
         const extraKeys = EnvGraph.normalizeStringList(resolved?.obj?.keys);
         const itemKeys = _.uniq([itemKey, ...extraKeys]);
-        rules.push({
-          domain,
-          itemKeys,
-          ...(_.isString(resolved?.obj?.path) ? { path: resolved.obj.path } : {}),
-          ...(method.length ? { method } : {}),
-          ...(_.isBoolean(resolved?.obj?.block) ? { block: resolved.obj.block } : {}),
-          ...EnvGraph.buildProxyApprovalFields(resolved?.obj),
-        });
+        rules.push(...EnvGraph.expandProxyRules(resolved?.obj, domain, itemKeys));
       }
     }
 

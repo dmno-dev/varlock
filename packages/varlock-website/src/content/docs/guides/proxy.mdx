@@ -98,6 +98,7 @@ A `@proxy(...)` rule supports more than just a domain:
 | `method` | Restrict to one or more HTTP methods, e.g. `method=[GET, POST]`. |
 | `block` | `block=true` denies matching requests outright (fail closed). |
 | `keys` | Array of additional item names to inject for this rule, e.g. `keys=[STRIPE_KEY, WEBHOOK_SECRET]`. |
+| `rules` | Array of per-path/method policy refinements that share this rule's `domain` (see [Grouping rules for one domain](#grouping-rules-for-one-domain)). |
 
 `domain` and `method` take either a single value or an **array literal** for lists:
 
@@ -110,6 +111,22 @@ A `@proxy(...)` rule supports more than just a domain:
 # @proxy(domain=[api.stripe.com, api.stripe-test.com])
 STRIPE_SECRET_KEY=sk_live_...
 ```
+
+### Grouping rules for one domain
+
+When one host needs several path/method policies, write the `domain` once and list the refinements under `rules`:
+
+```env-spec title=".env.schema"
+# @enableProxy(egress="strict")
+# ---
+# @proxy(domain="api.stripe.com", rules=[
+#   {path="/v1/refunds/**", method=[POST, DELETE], block=true},
+#   {path="/v1/payouts/**", block=true},
+# ])
+STRIPE_SECRET_KEY=sk_live_...
+```
+
+This injects `STRIPE_SECRET_KEY` across `api.stripe.com` and blocks refunds and payouts. The parent `@proxy(...)` still controls injection (where the secret goes); each `rules` entry is a policy-only refinement that inherits the `domain` and injects nothing on its own, so [precedence](#routing-rules) (block over allow) does the rest. An entry may set `path`, `method`, `block`, and `approval`, but not `domain` or `keys` (those stay on the parent).
 
 ### Attached vs detached rules
 

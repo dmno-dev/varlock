@@ -507,7 +507,7 @@ See the [credential proxy guide](/guides/proxy/) for the full workflow.
 
 <div>
 ### `@proxy()`
-**Arg types:** `(domain: string | string[], path?, method?: string | string[], block?, keys?: string[], ...)`
+**Arg types:** `(domain: string | string[], path?, method?: string | string[], block?, keys?: string[], rules?: object[], ...)`
 
 Defines a **detached** [credential proxy](/guides/proxy/) rule: a domain-level policy (match or `block`). It injects no secret on its own, but can inject named items via `keys=[...]`. Requires [`@enableProxy`](#enableproxy).
 
