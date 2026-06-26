@@ -327,6 +327,32 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
         Use <code>varlock run</code> to inject resolved, validated env vars into another
         process.
       </p>
+
+      <h2>
+        <img
+          src="https://varlock-pixel-art.dmno.workers.dev/effects/fire.gif"
+        />
+        Credential proxy for AI agents
+      </h2>
+
+      <Code
+        title=".env.schema"
+        lang="env-spec"
+        code=`
+# @enableProxy()
+# ---
+# @sensitive @proxy(domain="api.openai.com")
+OPENAI_API_KEY=sk-...
+    `
+      />
+      <Code lang="bash" code={`varlock proxy run -- claude`} />
+      <p class="env-spec-example-note">
+        Run an agent (or any untrusted tool) so it only ever sees a <b>placeholder</b>.
+        The real value is injected at the network boundary against a cryptographically
+        verified upstream, and scrubbed back out of responses, so a prompt-injected or
+        compromised agent has nothing to leak. This is the <i>credential broker</i> pattern;
+        <a href="guides/proxy/">read the guide</a>.
+      </p>
     </div>
   </main>
 </Layout>
