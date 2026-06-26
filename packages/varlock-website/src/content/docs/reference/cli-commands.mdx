@@ -645,6 +645,8 @@ Manages [credential proxy](/guides/proxy/) sessions: running an untrusted child 
 varlock proxy <subcommand> [options]
 ```
 
+Every subcommand operates on a [session](/guides/proxy/#sessions). Target one with `--session <id>`, or let it auto-resolve: `run` attaches to the daemon for the current directory (else starts its own), and the other subcommands use the single active session (asking for `--session` if more than one is running).
+
 **Subcommands:**
 - `run -- <command>`: Start a proxy, run `<command>` through it, and tear down on exit. Attaches to a running `proxy start` session for this directory if one exists; otherwise runs self-contained.
 - `start`: Start a long-lived proxy session that owns the terminal (a live request log appears here). Stop with `Ctrl+C`.
