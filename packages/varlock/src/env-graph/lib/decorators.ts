@@ -341,7 +341,11 @@ function assertProxyStringListArg(
  * literal and `keys` as an array literal; rejects positional args; validates the
  * approval options.
  */
-const VALID_PROXY_OPTIONS = ['domain', 'path', 'method', 'keys', 'block', 'approval'] as const;
+const VALID_PROXY_OPTIONS = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'rules'] as const;
+/** Per-entry options inside the `rules=[{...}]` array form. Each entry is a
+ * policy refinement for the parent's `domain`, so it cannot re-set `domain` or
+ * `keys` (injection is controlled by the parent rule). */
+const VALID_PROXY_RULE_ENTRY_OPTIONS = ['path', 'method', 'block', 'approval'] as const;
 /** Inner options of the `approval={...}` object form. */
 const VALID_APPROVAL_OPTIONS = ['enabled', 'each', 'maxDuration'] as const;
 
@@ -402,6 +406,37 @@ function assertProxyApprovalArg(resolver: Resolver | undefined): void {
   }
 }
 
+/**
+ * The `rules=[{...}]` form: a list of policy refinements that share the parent's
+ * `domain`. Each entry may set path/method/block/approval (but not domain/keys —
+ * injection is the parent rule's job). Statically validates literal entries; the
+ * resolve-time validator re-checks dynamic values.
+ */
+function assertProxyRulesArg(resolver: Resolver | undefined): void {
+  if (!resolver) return;
+  if (!(resolver instanceof ArrayLiteralResolver)) {
+    throw new SchemaError('@proxy: rules must be an array of rule objects, e.g. rules=[{path="/v1/**", block=true}]');
+  }
+  for (const entry of resolver.arrArgs ?? []) {
+    if (!(entry instanceof ObjectLiteralResolver)) {
+      throw new SchemaError('@proxy: each rules entry must be an object, e.g. {path="/v1/**", block=true}');
+    }
+    const inner = entry.objArgs ?? {};
+    for (const key of Object.keys(inner)) {
+      if (!VALID_PROXY_RULE_ENTRY_OPTIONS.includes(key as typeof VALID_PROXY_RULE_ENTRY_OPTIONS[number])) {
+        throw new SchemaError(
+          `@proxy: unknown option "${key}" in a rules entry. Valid entry options: ${VALID_PROXY_RULE_ENTRY_OPTIONS.join(', ')} `
+            + '(domain and keys are set on the parent @proxy)',
+        );
+      }
+    }
+    assertProxyStringListArg(inner.method, 'method', false);
+    assertProxyStringArg(inner.path, 'path');
+    assertProxyBooleanArg(inner.block, 'block');
+    assertProxyApprovalArg(inner.approval);
+  }
+}
+
 function validateProxyFunctionArgs(argsVal: Resolver): void {
   if (!argsVal.objArgs?.domain) {
     throw new SchemaError('@proxy: missing required "domain" option');
@@ -423,6 +458,7 @@ function validateProxyFunctionArgs(argsVal: Resolver): void {
   assertProxyStringArg(argsVal.objArgs?.path, 'path');
   assertProxyBooleanArg(argsVal.objArgs?.block, 'block');
   assertProxyApprovalArg(argsVal.objArgs?.approval);
+  assertProxyRulesArg(argsVal.objArgs?.rules);
 
   if (argsVal.arrArgs?.length) {
     throw new SchemaError('@proxy: positional args are not supported - use keys=[ITEM_A, ITEM_B] to attach items');

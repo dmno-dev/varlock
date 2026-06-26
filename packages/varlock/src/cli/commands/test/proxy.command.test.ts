@@ -132,3 +132,55 @@ describe('isCwdWithin (proxy run attach matching)', () => {
     expect(isCwdWithin('/x/y', '/a/b')).toBe(false); // unrelated
   });
 });
+
+describe('@proxy nested rules=[...] form', () => {
+  test('desugars to the parent inject rule plus one policy rule per entry (domain written once)', async () => {
+    const graph = await loadGraph(outdent`
+      # @enableProxy(egress="strict")
+      # ---
+      # @proxy(domain="api.stripe.com", rules=[
+      #   {path="/v1/refunds/**", method=[POST, DELETE], block=true},
+      #   {path="/v1/payouts/**", block=true},
+      # ])
+      STRIPE_SECRET_KEY=sk_live_realsecret
+    `);
+    const rules = await graph.getProxyRules();
+    expect(rules).toHaveLength(3);
+
+    // parent rule injects the item across the domain
+    expect(rules[0]).toMatchObject({ domain: ['api.stripe.com'], itemKeys: ['STRIPE_SECRET_KEY'] });
+    expect(rules[0].path).toBeUndefined();
+    expect(rules[0].block).toBeUndefined();
+
+    // entries are policy-only refinements (no injection), inheriting the domain
+    expect(rules[1]).toMatchObject({
+      domain: ['api.stripe.com'], itemKeys: [], path: '/v1/refunds/**', method: ['POST', 'DELETE'], block: true,
+    });
+    expect(rules[2]).toMatchObject({
+      domain: ['api.stripe.com'], itemKeys: [], path: '/v1/payouts/**', block: true,
+    });
+  });
+
+  test('a detached header rules=[...] block inherits the domain and injects nothing', async () => {
+    const graph = await loadGraph(outdent`
+      # @enableProxy(egress="strict")
+      # @proxy(domain="api.example.com", rules=[{path="/admin/**", block=true}])
+      # ---
+      FOO=bar
+    `);
+    const rules = await graph.getProxyRules();
+    expect(rules).toHaveLength(2);
+    expect(rules.every((r) => r.itemKeys.length === 0)).toBe(true);
+    expect(rules[1]).toMatchObject({ domain: ['api.example.com'], path: '/admin/**', block: true });
+  });
+
+  test('rejects an entry that tries to re-set domain (injection is the parent rule\'s job)', async () => {
+    const graph = await loadGraph(outdent`
+      # @enableProxy()
+      # @proxy(domain="api.example.com", rules=[{domain="evil.com", block=true}])
+      # ---
+      FOO=bar
+    `);
+    await expect(graph.getProxyRules()).rejects.toThrow(/unknown option "domain" in a rules entry/);
+  });
+});
