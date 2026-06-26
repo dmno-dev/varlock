@@ -1,21 +1,21 @@
 name: Bumpy check
 
-# Posts/updates the release-plan comment on every PR (including forks).
+# PR half of bumpy's fork-safe release-plan comment (the 1.18+ split pattern).
 #
-# Uses `pull_request_target` so the comment can be posted on fork PRs (a plain
-# `pull_request` gives forks a read-only token, so `pull-requests: write` would
-# be ineffective). Because that runs with the base repo's elevated token, the PR
-# code is treated as untrusted DATA only:
-#   - the base branch is checked out at the root (trusted bunfig.toml / lockfile
-#     + the base package.json we read the pinned bumpy version from);
-#   - the PR head is checked out into ./pr, isolated and never executed;
-#   - bumpy is run from the root (so the PR's bunfig.toml/.npmrc can't redirect
-#     package resolution) and only reads the PR files via `--cwd ./pr`.
-# ⚠️ DO NOT bun install / npm install / run any script from ./pr ⚠️
-on: pull_request_target
+# Runs on plain `pull_request`, so on fork PRs this job gets a READ-ONLY token
+# and cannot post comments — that's intentional. It only computes the release
+# plan, gates on missing bump files, and writes the rendered comment to the
+# `bumpy-comment` artifact (`ci check --emit-comment`). The privileged half that
+# actually posts lives in bumpy-comment.yaml, which runs on `workflow_run`
+# (trusted context, never executes PR code) and resolves the target PR from the
+# trusted event — never from this artifact.
+#
+# Because the token here is read-only, it is safe to run bumpy against PR code:
+# the worst a malicious fork's bunfig.toml/.npmrc/preload can do is corrupt its
+# own release-plan output, with no write capability to abuse.
+on: pull_request
 
 permissions:
-  pull-requests: write
   contents: read
 
 concurrency:
@@ -26,30 +26,31 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      # Trusted base checkout at the root: provides the bunfig.toml / lockfile
-      # that govern how `bunx` below resolves and runs bumpy, plus the base
-      # package.json we read the pinned bumpy version from.
       - uses: actions/checkout@v7
         with:
-          ref: main
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
 
-      # Untrusted PR head, isolated in ./pr — read as data, never executed.
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: pr
-          persist-credentials: false
-
-      # Resolve bumpy from the base package.json (trusted) and run it from the
-      # root against the PR files. The version is read straight into the bunx
-      # invocation (never written to $GITHUB_ENV) so there is no env-injection
-      # sink even though this is a pull_request_target workflow.
+      # Resolve the bumpy version pinned in package.json and run the PR check.
+      # A direct comment post is attempted but fails-soft on the read-only token
+      # (bumpy just warns); the rendered comment is written to ./bumpy-comment
+      # for the poster regardless. Exits non-zero only on the gate: a changed
+      # publishable package missing its bump file.
       - name: Bumpy release-plan check
         run: |
           VERSION=$(jq -r '.devDependencies["@varlock/bumpy"] // .dependencies["@varlock/bumpy"]' package.json | sed 's/[\^~]//')
-          bunx "@varlock/bumpy@$VERSION" ci check --cwd ./pr
+          bunx "@varlock/bumpy@$VERSION" ci check --emit-comment ./bumpy-comment
         env:
           GH_TOKEN: ${{ github.token }}
+
+      # Hand the rendered comment to the privileged poster. `always()` so the
+      # plan still posts even when the check fails the gate (missing bump file);
+      # bumpy always writes a (possibly empty) comment.md, so the artifact exists.
+      - name: Upload release-plan comment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bumpy-comment
+          path: ./bumpy-comment
