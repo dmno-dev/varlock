@@ -250,6 +250,12 @@ final class KeychainManager {
     }
 
     private static func getItemOfClass(_ itemClass: CFString, service: String?, account: String?, keychainName: String?) throws -> String {
+        if itemClass == kSecClassGenericPassword,
+           let service = service,
+           let value = try? getGenericPasswordViaSecurityCLI(service: service, account: account, keychainName: keychainName) {
+            return value
+        }
+
         // When account is nil and service is set, check for ambiguity
         if account == nil, let service = service {
             var countQuery: [CFString: Any] = [
@@ -316,6 +322,44 @@ final class KeychainManager {
         default:
             throw KeychainError.unhandledError(status)
         }
+    }
+
+    private static func getGenericPasswordViaSecurityCLI(service: String, account: String?, keychainName: String?) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+
+        var arguments = ["find-generic-password", "-s", service, "-w"]
+        if let account = account {
+            arguments.append(contentsOf: ["-a", account])
+        }
+        if let keychainName = keychainName, let keychainPath = resolveKeychainPath(named: keychainName) {
+            arguments.append(keychainPath)
+        }
+        process.arguments = arguments
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+            let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
+            if errorOutput.contains("could not be found") || errorOutput.contains("specified item could not be found") {
+                throw KeychainError.itemNotFound
+            }
+            throw KeychainError.unhandledError(OSStatus(process.terminationStatus))
+        }
+
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        guard var value = String(data: data, encoding: .utf8) else {
+            throw KeychainError.unexpectedData
+        }
+        value = value.replacingOccurrences(of: "\r?\n$", with: "", options: .regularExpression)
+        return value
     }
 
     // MARK: - Add Item
@@ -583,6 +627,19 @@ final class KeychainManager {
     /// Resolve a human-friendly keychain name to a SecKeychain reference.
     /// Supports: "Login", "System", or a full/partial path.
     private static func resolveKeychain(named name: String) -> SecKeychain? {
+        guard let path = resolveKeychainPath(named: name) else {
+            return nil
+        }
+
+        let (status, keychain) = LegacyKeychain.keychainOpen(path: path)
+        guard status == errSecSuccess, let kc = keychain else {
+            return nil
+        }
+
+        return kc
+    }
+
+    private static func resolveKeychainPath(named name: String) -> String? {
         let lowered = name.lowercased()
 
         // Well-known keychains
@@ -603,12 +660,7 @@ final class KeychainManager {
             return nil
         }
 
-        let (status, keychain) = LegacyKeychain.keychainOpen(path: path)
-        guard status == errSecSuccess, let kc = keychain else {
-            return nil
-        }
-
-        return kc
+        return path
     }
 
     /// Extract keychain file path from item attributes (if available).
