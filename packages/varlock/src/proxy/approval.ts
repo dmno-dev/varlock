@@ -229,7 +229,7 @@ export function createTtyApprovalProvider(opts?: {
       options.push('[n] no');
 
       const inj = req.injectedKeys?.length ? ` injecting [${req.injectedKeys.join(', ')}]` : '';
-      const prompt = '\n🔐 varlock proxy — approval required\n'
+      const prompt = '\n🔐 varlock proxy: approval required\n'
         + `   ${req.method} https://${req.host}${req.path}${inj}\n${
           req.ruleId ? `   rule: ${req.ruleId}\n` : ''
         }   Approve? ${options.join('  ')} `;
@@ -238,7 +238,7 @@ export function createTtyApprovalProvider(opts?: {
       let answered = false;
       const answer = await new Promise<string>((resolve) => {
         const timer = setTimeout(() => {
-          output.write('\n   (timed out — denied)\n');
+          output.write('\n   (timed out, denied)\n');
           resolve('');
         }, timeoutMs);
         timer.unref?.();
@@ -255,7 +255,7 @@ export function createTtyApprovalProvider(opts?: {
           // redirected). Surface that rather than denying silently.
           if (!answered) {
             output.write(
-              '\n   (couldn\'t read your answer — run `varlock proxy start` in the '
+              '\n   (couldn\'t read your answer; run `varlock proxy start` in the '
                 + 'foreground of an interactive terminal to approve requests)\n',
             );
           }
