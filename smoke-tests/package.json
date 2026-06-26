@@ -8,8 +8,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:deno-compat": "VARLOCK_RUN_DENO_COMPAT=1 vitest run tests/deno-compat.test.ts",
-    "test:keychain": "VARLOCK_RUN_KEYCHAIN_SMOKE=1 vitest run tests/keychain.test.ts",
-    "test:keychain:deno": "VARLOCK_RUN_KEYCHAIN_SMOKE=1 vitest run tests/keychain-deno.test.ts"
+    "test:keychain": "VARLOCK_RUN_KEYCHAIN_SMOKE=1 vitest run tests/keychain.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
