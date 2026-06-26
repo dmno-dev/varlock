@@ -220,6 +220,17 @@ node agent.js                       # now routed through the proxy
 
 `proxy env` prints the proxy + CA environment for an existing session so you can source it into any shell or tool.
 
+## Sessions
+
+Every `varlock proxy` command operates on a **session**: one running proxy with its own short id (printed by `proxy start`, listed by `proxy status`). You target a session in one of two ways:
+
+- **By id:** pass `--session <id>` to any command (`proxy env --session abc12`, `proxy stop --session abc12`, etc.).
+- **Auto-discovered:** with no `--session`, the command resolves one for you:
+  - `proxy run` attaches to the running `proxy start` daemon **for the current directory** (a session whose directory is this one or a parent of it). If there isn't one it starts its own proxy; pass `--new` to always start a fresh, separate one.
+  - `env` / `status` / `audit` / `refresh` / `stop` use the **single active session**. If more than one is running they ask you to pass `--session <id>`; commands run from inside a proxied child target that child's own session automatically.
+
+Sessions are durable records: they persist after the proxy stops (visible with `proxy status --all`) so their [audit log](#auditing) stays available.
+
 ## How the child is wired
 
 `proxy run` (and `proxy env`) inject a standard set of environment variables into the child so common HTTP clients trust the proxy with no manual setup:
