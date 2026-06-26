@@ -24,7 +24,7 @@ import { getUserVarlockDir } from '../user-config-dir';
 import { resolveNativeBinary } from './binary-resolver';
 import { isWSL } from './wsl-detect';
 import type {
-  KeychainFixAccessResult, KeychainItemMeta, KeychainItemRef, KeychainSetResult,
+  KeychainFixAccessBatchResult, KeychainFixAccessResult, KeychainItemMeta, KeychainItemRef, KeychainSetResult,
 } from './types';
 
 /** Timeout for daemon IPC messages that don't involve user interaction */
@@ -399,6 +399,21 @@ export class DaemonClient {
         payload: opts,
       }, INTERACTIVE_TIMEOUT_MS);
       return result as KeychainFixAccessResult;
+    });
+  }
+
+  async keychainFixAccessBatch(opts: Array<{
+    service: string;
+    account?: string;
+    keychain?: string;
+  }>): Promise<KeychainFixAccessBatchResult> {
+    return this.withRetry(async () => {
+      await this.ensureConnected();
+      const result = await this.sendMessage({
+        action: 'keychain-fix-access-batch',
+        payload: { items: opts },
+      }, INTERACTIVE_TIMEOUT_MS);
+      return result as KeychainFixAccessBatchResult;
     });
   }
 

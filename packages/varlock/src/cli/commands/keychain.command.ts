@@ -211,18 +211,31 @@ async function fixAccessForRefs(refs: Array<KeychainRef>) {
   let unchanged = 0;
   let failed = 0;
 
-  for (const ref of refs) {
-    try {
-      const result = await client.keychainFixAccess(ref);
-      if (result.modified) updated++;
+  try {
+    const result = await client.keychainFixAccessBatch(refs);
+    for (let i = 0; i < refs.length; i++) {
+      const ref = refs[i]!;
+      const item = result.results[i];
+      if (!item) {
+        failed++;
+        const label = ref.key ? `${ref.key}: ` : '';
+        console.error(ansis.red(`  ${label}No result returned`));
+        continue;
+      }
+      if (item.error) {
+        failed++;
+        const label = ref.key ? `${ref.key}: ` : '';
+        console.error(ansis.red(`  ${label}${item.error}`));
+        continue;
+      }
+      if (item.modified) updated++;
       else unchanged++;
       const label = ref.key ? `${ref.key} ` : '';
-      console.log(`  ${label}${result.modified ? 'updated' : 'already allowed'}`);
-    } catch (err) {
-      failed++;
-      const label = ref.key ? `${ref.key}: ` : '';
-      console.error(ansis.red(`  ${label}${err instanceof Error ? err.message : err}`));
+      console.log(`  ${label}${item.modified ? 'updated' : 'already allowed'}`);
     }
+  } catch (err) {
+    failed = refs.length;
+    console.error(ansis.red(`  ${err instanceof Error ? err.message : err}`));
   }
 
   console.log(`\nChecked ${refs.length} item${refs.length === 1 ? '' : 's'}: ${updated} updated, ${unchanged} already allowed, ${failed} failed.`);

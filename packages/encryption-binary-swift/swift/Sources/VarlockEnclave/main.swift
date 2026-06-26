@@ -27,6 +27,13 @@ func jsonSuccess(_ result: [String: Any]) -> Never {
     _exit(0)
 }
 
+func keychainErrorMessage(_ error: Error) -> String {
+    if let keychainError = error as? KeychainError {
+        return keychainError.localizedDescription
+    }
+    return error.localizedDescription
+}
+
 func keychainErrorResponse(_ error: Error) -> [String: Any] {
     if let keychainError = error as? KeychainError {
         return [
@@ -386,6 +393,7 @@ case "daemon":
             let appPath = Bundle.main.executablePath ?? ProcessInfo.processInfo.arguments[0]
 
             do {
+                try KeychainManager.unlockForAccessFix(keychainName: keychainName)
                 let modified = try KeychainManager.addToACL(
                     service: service,
                     account: account,
@@ -396,6 +404,52 @@ case "daemon":
             } catch {
                 return keychainErrorResponse(error)
             }
+
+        case "keychain-fix-access-batch":
+            guard let payload = message["payload"] as? [String: Any] else {
+                return ["error": "Missing payload"]
+            }
+            guard let items = payload["items"] as? [[String: Any]] else {
+                return ["error": "Missing items"]
+            }
+            let appPath = Bundle.main.executablePath ?? ProcessInfo.processInfo.arguments[0]
+            let keychainNames = Set(items.map { ($0["keychain"] as? String) ?? "" })
+
+            do {
+                for keychainName in keychainNames {
+                    try KeychainManager.unlockForAccessFix(keychainName: keychainName.isEmpty ? nil : keychainName)
+                }
+            } catch {
+                return keychainErrorResponse(error)
+            }
+
+            var results: [[String: Any]] = []
+            for item in items {
+                guard let service = item["service"] as? String else {
+                    results.append(["modified": false, "error": "Missing service"])
+                    continue
+                }
+                let account = item["account"] as? String
+                let keychainName = item["keychain"] as? String
+                do {
+                    let modified = try KeychainManager.addToACL(
+                        service: service,
+                        account: account,
+                        keychainName: keychainName,
+                        appPath: appPath
+                    )
+                    var result: [String: Any] = ["service": service, "modified": modified]
+                    if let account = account { result["account"] = account }
+                    if let keychainName = keychainName { result["keychain"] = keychainName }
+                    results.append(result)
+                } catch {
+                    var result: [String: Any] = ["service": service, "modified": false, "error": keychainErrorMessage(error)]
+                    if let account = account { result["account"] = account }
+                    if let keychainName = keychainName { result["keychain"] = keychainName }
+                    results.append(result)
+                }
+            }
+            return ["result": ["results": results]]
 
         case "keychain-set":
             guard let payload = message["payload"] as? [String: Any] else {

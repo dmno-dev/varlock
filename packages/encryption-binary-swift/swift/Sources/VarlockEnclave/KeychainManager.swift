@@ -409,6 +409,41 @@ final class KeychainManager {
     /// This uses the legacy Keychain API which supports per-application access control.
     /// Returns true if the ACL was modified, false if no change was needed.
     /// macOS will prompt the user for authentication to authorize the change.
+    static func unlockForAccessFix(keychainName: String? = nil) throws {
+        let keychain: SecKeychain?
+        if let keychainName = keychainName {
+            keychain = resolveKeychain(named: keychainName)
+            if keychain == nil {
+                throw KeychainError.keychainNotFound(keychainName)
+            }
+        } else {
+            let (status, defaultKeychain) = LegacyKeychain.keychainCopyDefault()
+            if status != errSecSuccess {
+                throw KeychainError.unhandledError(status)
+            }
+            keychain = defaultKeychain
+        }
+
+        guard let keychain else {
+            throw KeychainError.itemNotFound
+        }
+
+        let (statusResult, keychainStatus) = LegacyKeychain.keychainGetStatus(keychain)
+        if statusResult != errSecSuccess {
+            throw KeychainError.unhandledError(statusResult)
+        }
+
+        let unlockedStatus = SecKeychainStatus(1)
+        if (keychainStatus & unlockedStatus) != 0 {
+            return
+        }
+
+        let unlockStatus = LegacyKeychain.keychainUnlock(keychain)
+        if unlockStatus != errSecSuccess {
+            throw KeychainError.unhandledError(unlockStatus)
+        }
+    }
+
     static func addToACL(service: String, account: String? = nil, keychainName: String? = nil, appPath: String) throws -> Bool {
         // We need the item reference for ACL manipulation
         let itemRef = try getItemRef(service: service, account: account, keychainName: keychainName)
