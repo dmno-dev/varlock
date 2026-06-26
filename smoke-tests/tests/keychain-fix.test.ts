@@ -1,23 +1,29 @@
 import {
-  afterEach, describe, expect, test,
+  afterEach, beforeEach, describe, expect, test,
 } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { runVarlock } from '../helpers/run-varlock.js';
 
 const RUN_KEYCHAIN_SMOKE = process.env.VARLOCK_RUN_KEYCHAIN_SMOKE === '1';
-const SERVICE = 'varlock-smoke-test';
-const FIXTURE_DIR = 'smoke-test-keychain-fix';
-const FIXTURE_SCHEMA_PATH = join(import.meta.dirname, '..', FIXTURE_DIR, '.env.schema');
-const createdAccounts: Array<string> = [];
-
-function uniqueId() {
-  return `${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2)}`;
-}
+const SERVICE = 'varlock-smoke-test-fix';
+const PROFILE = 'local';
+const PROJECT = 'smoke-test-keychain-fix';
+const FIXTURE_DIR = PROJECT;
+const FIXTURE_SCHEMA = '.env.schema';
+const FIXED_SECRETS = {
+  FIXED_API_KEY: 'fixed-api-key-from-keychain',
+  FIXED_DATABASE_URL: 'postgres://fixed-user:fixed-pass@localhost:5432/fixed-db',
+};
+const FIXED_ACCOUNTS = Object.keys(FIXED_SECRETS).map((key) => `${PROJECT}:${PROFILE}:${key}`);
 
 function security(args: Array<string>) {
   return spawnSync('security', args, { encoding: 'utf-8' });
+}
+
+function deleteFixedSecrets() {
+  for (const account of FIXED_ACCOUNTS) {
+    security(['delete-generic-password', '-s', SERVICE, '-a', account]);
+  }
 }
 
 function createKeychainItem(account: string, value: string) {
@@ -34,68 +40,43 @@ function createKeychainItem(account: string, value: string) {
     '',
   ]);
   expect(result.status, result.stderr || result.stdout).toBe(0);
-  createdAccounts.push(account);
 }
 
-function writeKeychainFixture(account: string) {
-  writeFileSync(FIXTURE_SCHEMA_PATH, [
-    '# @defaultSensitive=false',
-    '# ---',
-    '',
-    '# @sensitive',
-    `SECRET_FROM_KEYCHAIN=keychain(service="${SERVICE}", account="${account}")`,
-    '',
-  ].join('\n'));
-}
-
-function clearKeychainFixture() {
-  writeFileSync(FIXTURE_SCHEMA_PATH, '');
-}
-
-afterEach(() => {
-  for (const account of createdAccounts.splice(0)) {
-    security(['delete-generic-password', '-s', SERVICE, '-a', account]);
+beforeEach(() => {
+  deleteFixedSecrets();
+  for (const [key, value] of Object.entries(FIXED_SECRETS)) {
+    createKeychainItem(`${PROJECT}:${PROFILE}:${key}`, value);
   }
-  clearKeychainFixture();
 });
 
-describe.skipIf(!RUN_KEYCHAIN_SMOKE || process.platform !== 'darwin')('macOS Keychain smoke tests', () => {
-  test('lists, resolves when already allowed, or fixes access before resolving a keychain item', () => {
-    const account = `node:${uniqueId()}:SECRET_FROM_KEYCHAIN`;
-    const secret = `keychain-smoke-secret-${uniqueId()}`;
-    createKeychainItem(account, secret);
-    writeKeychainFixture(account);
+afterEach(() => {
+  deleteFixedSecrets();
+});
 
-    const listResult = runVarlock(['keychain', 'list', account]);
-    expect(listResult.exitCode, listResult.output).toBe(0);
-    expect(listResult.output).toContain(SERVICE);
-    expect(listResult.output).toContain(account);
-
-    const initialLoadResult = runVarlock(['load', '--format', 'json', '--skip-cache'], {
-      cwd: FIXTURE_DIR,
-    });
-
-    if (initialLoadResult.exitCode === 0) {
-      const vars = JSON.parse(initialLoadResult.stdout);
-      expect(vars.SECRET_FROM_KEYCHAIN).toBe(secret);
-      return;
-    }
-
+describe.skipIf(!RUN_KEYCHAIN_SMOKE || process.platform !== 'darwin')('macOS Keychain fix-access smoke tests', () => {
+  test('fixes access for keychain refs in the fixture schema and reads the secrets', () => {
     const fixAccessResult = runVarlock([
       'keychain',
       'fix-access',
-      '--service',
-      SERVICE,
-      '--account',
-      account,
-    ]);
+      '--path',
+      FIXTURE_SCHEMA,
+    ], { cwd: FIXTURE_DIR });
     expect(fixAccessResult.exitCode, fixAccessResult.output).toBe(0);
+
+    const apiKeyResult = runVarlock(['printenv', 'FIXED_API_KEY', '--skip-cache'], { cwd: FIXTURE_DIR });
+    expect(apiKeyResult.exitCode, apiKeyResult.output).toBe(0);
+    expect(apiKeyResult.stdout.trim()).toBe(FIXED_SECRETS.FIXED_API_KEY);
+
+    const databaseUrlResult = runVarlock(['printenv', 'FIXED_DATABASE_URL', '--skip-cache'], { cwd: FIXTURE_DIR });
+    expect(databaseUrlResult.exitCode, databaseUrlResult.output).toBe(0);
+    expect(databaseUrlResult.stdout.trim()).toBe(FIXED_SECRETS.FIXED_DATABASE_URL);
 
     const loadAfterFixResult = runVarlock(['load', '--format', 'json', '--skip-cache'], {
       cwd: FIXTURE_DIR,
     });
     expect(loadAfterFixResult.exitCode, loadAfterFixResult.output).toBe(0);
     const vars = JSON.parse(loadAfterFixResult.stdout);
-    expect(vars.SECRET_FROM_KEYCHAIN).toBe(secret);
+    expect(vars.FIXED_API_KEY).toBe(FIXED_SECRETS.FIXED_API_KEY);
+    expect(vars.FIXED_DATABASE_URL).toBe(FIXED_SECRETS.FIXED_DATABASE_URL);
   });
 });
