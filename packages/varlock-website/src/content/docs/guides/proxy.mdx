@@ -9,6 +9,49 @@ This is useful any time a process you don't fully trust needs to _use_ a secret 
 
 This pattern is known as a **credential broker** (or credential brokering): a trusted component holds the real credentials and swaps them in at the network boundary, so a compromised or prompt-injected agent never holds a secret it can leak. It is increasingly recommended for agent security, for example by the [SANS Institute](https://www.sans.org/blog/your-ai-agent-easily-confused-deputy-why-cloud-security-needs-credential-broker) and in [Anthropic's managed-agents architecture](https://www.anthropic.com/engineering/managed-agents). varlock's credential proxy is a local implementation you run on your own machine.
 
+<figure style="margin: 1.5rem 0;">
+<svg viewBox="0 0 760 200" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Flow diagram: the agent sends a request carrying a placeholder to the local varlock proxy; the proxy injects the real secret toward a verified upstream API, then scrubs the response back to a placeholder before returning it to the agent.">
+  <defs>
+    <marker id="vlk-arrow-accent" markerWidth="8" markerHeight="8" refX="5" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L6,3 L0,6 z" fill="var(--sl-color-accent, #3b82f6)" />
+    </marker>
+    <marker id="vlk-arrow-muted" markerWidth="8" markerHeight="8" refX="5" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L6,3 L0,6 z" fill="currentColor" />
+    </marker>
+  </defs>
+  <g fill="none" stroke="currentColor">
+    <rect x="15" y="50" width="180" height="100" rx="10" stroke-width="1.5" opacity="0.55" />
+    <rect x="290" y="50" width="180" height="100" rx="10" stroke="var(--sl-color-accent, #3b82f6)" stroke-width="2" />
+    <rect x="565" y="50" width="180" height="100" rx="10" stroke-width="1.5" opacity="0.55" />
+  </g>
+  <g fill="currentColor" text-anchor="middle">
+    <text x="105" y="90" font-size="15" font-weight="600">Agent</text>
+    <text x="105" y="110" font-size="11" opacity="0.7">untrusted child</text>
+    <text x="105" y="126" font-size="11" opacity="0.7">holds placeholders</text>
+    <text x="380" y="88" font-size="15" font-weight="600">varlock proxy</text>
+    <text x="380" y="108" font-size="11" opacity="0.7">local, in memory</text>
+    <text x="380" y="124" font-size="11" opacity="0.7">swap / verify TLS / scrub</text>
+    <text x="655" y="90" font-size="15" font-weight="600">Upstream API</text>
+    <text x="655" y="110" font-size="11" opacity="0.7">verified TLS host</text>
+  </g>
+  <g stroke="var(--sl-color-accent, #3b82f6)" stroke-width="1.5" fill="none">
+    <line x1="197" y1="85" x2="286" y2="85" marker-end="url(#vlk-arrow-accent)" />
+    <line x1="472" y1="85" x2="561" y2="85" marker-end="url(#vlk-arrow-accent)" />
+  </g>
+  <g stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.5">
+    <line x1="286" y1="118" x2="197" y2="118" marker-end="url(#vlk-arrow-muted)" />
+    <line x1="561" y1="118" x2="472" y2="118" marker-end="url(#vlk-arrow-muted)" />
+  </g>
+  <g text-anchor="middle" fill="currentColor" font-size="10.5">
+    <text x="241" y="79">placeholder</text>
+    <text x="516" y="79" font-weight="600">real secret</text>
+    <text x="241" y="134" opacity="0.7">scrubbed</text>
+    <text x="516" y="134" opacity="0.7">response</text>
+  </g>
+</svg>
+<figcaption style="text-align: center; font-size: 0.85em; opacity: 0.75;">The agent only ever holds a placeholder. The proxy swaps in the real secret on the wire toward a verified upstream, and scrubs it back out of the response.</figcaption>
+</figure>
+
 :::caution[Preview]
 The credential proxy is an early preview. The core protection (placeholder isolation + verified-identity wire injection) is solid, but there are real limits to what it covers and it runs on the same machine/user as the agent. Read [Limitations](#limitations) before relying on it as a security boundary.
 :::
