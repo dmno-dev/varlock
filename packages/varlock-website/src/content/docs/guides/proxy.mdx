@@ -16,6 +16,7 @@ The credential proxy is an early preview. The core protection (placeholder isola
 ```env-spec title=".env.schema"
 # @enableProxy(egress="permissive")
 # ---
+# @sensitive
 # @proxy(domain="api.openai.com")
 # @placeholder=sk-proj-000000000000000000000000
 OPENAI_API_KEY=sk-...
@@ -53,18 +54,22 @@ Add the [`@enableProxy`](/reference/root-decorators/#enableproxy) root decorator
 
 #### 2. Route a secret through the proxy
 
-Add [`@proxy(domain=...)`](/reference/item-decorators/#proxy) **to the item** you want to protect. This both marks the item [`@sensitive`](/reference/item-decorators/#sensitive) and tells the proxy to inject its real value into requests to that host:
+Mark the item [`@sensitive`](/reference/item-decorators/#sensitive) and add [`@proxy(domain=...)`](/reference/item-decorators/#proxy) **to the item** you want to protect. The `@proxy` tells the proxy to inject the item's real value into requests to that host:
 
 ```env-spec title=".env.schema"
 # @enableProxy(egress="permissive")
 # ---
+# @sensitive
 # @proxy(domain="api.openai.com")
 # @placeholder=sk-proj-000000000000000000000000
 OPENAI_API_KEY=sk-...
 
+# @sensitive
 # @proxy(domain="api.stripe.com")
 STRIPE_SECRET_KEY=sk_live_...
 ```
+
+`@proxy` already implies [`@sensitive`](/reference/item-decorators/#sensitive) (and varlock treats items as sensitive by default), so the `@sensitive` line is optional. We show it explicitly here because being clear about what is a secret is good practice.
 
 The `@placeholder` on `OPENAI_API_KEY` makes the placeholder the agent sees look like a real key, so SDK key-format checks pass. Leave it off (like `STRIPE_SECRET_KEY` above) and the item gets a generic `vlk_placeholder_…`, which varlock warns about because it can fail a client-side key-format check (see [Placeholders](#placeholders)).
 
@@ -110,6 +115,7 @@ A `@proxy(...)` rule supports more than just a domain:
 # @proxy(domain="api.stripe.com", path="/v1/refunds/**", method=[POST, DELETE], block=true)
 # ---
 # Match either host, any method:
+# @sensitive
 # @proxy(domain=[api.stripe.com, api.stripe-test.com])
 STRIPE_SECRET_KEY=sk_live_...
 ```
@@ -121,6 +127,7 @@ When one host needs several path/method policies, write the `domain` once and li
 ```env-spec title=".env.schema"
 # @enableProxy(egress="strict")
 # ---
+# @sensitive
 # @proxy(domain="api.stripe.com", rules=[
 #   {path="/v1/refunds/**", method=[POST, DELETE], block=true},
 #   {path="/v1/payouts/**", block=true},
@@ -183,6 +190,7 @@ Every placeholder is unique per item, so two different secrets can never collide
 If you see the generic-placeholder warning, add an `@placeholder` or a typed format so the placeholder looks valid to the client:
 
 ```env-spec title=".env.schema"
+# @sensitive
 # @proxy(domain="api.openai.com")
 # @placeholder=sk-proj-000000000000000000000000
 OPENAI_API_KEY=sk-proj-...
