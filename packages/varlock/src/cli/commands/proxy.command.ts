@@ -110,6 +110,12 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'For `proxy run`: start a fresh proxy instead of attaching to a running one for this directory',
     },
+    'allow-reload': {
+      type: 'boolean',
+      description: 'For `proxy start`/`run`: enable live policy hot-reload via `proxy refresh`. Off by default — '
+        + 'the reload channel is unauthenticated on a shared uid, so a same-uid agent could self-approve a schema '
+        + 'edit. Only enable it alongside a sandbox (or once the out-of-band approver ships).',
+    },
   },
   examples: `
 Proxy command surface:
@@ -244,7 +250,7 @@ export async function computeProxyChildView(
     if (isVarlockReservedKey(key)) continue;
     if (managedKeys.has(key)) continue;
     const item = envGraph.configSchema[key];
-    if (!item || item.resolvedValue === undefined) continue;
+    if (!item) continue;
     const mode = getProxyValueMode(item);
     if (mode === 'passthrough') continue; // inject the real value
     if (mode === 'omit') {
@@ -252,6 +258,15 @@ export async function computeProxyChildView(
       continue;
     }
     if (!item.isSensitive) continue; // non-sensitive with no policy → injected normally
+    // Default-deny: if a sensitive item's value didn't resolve at snapshot time
+    // (its resolver threw / returned undefined), we can't base a placeholder on it
+    // AND can't assume it stays unresolved in the child — a later successful
+    // re-resolution (e.g. a warm credential session) would surface the REAL value.
+    // Omit it so the child gets `unset`, never the real secret.
+    if (item.resolvedValue === undefined) {
+      omittedKeys.push(key);
+      continue;
+    }
     const { placeholder } = await generateProxyPlaceholderForItem(item, usedPlaceholders);
     placeholderByKey[key] = placeholder; // sensitive default → placeholder
   }
@@ -737,6 +752,10 @@ async function runAction(ctx: any) {
       await removeProxySessionAttachment(session.uuid, process.pid).catch(() => undefined);
     };
   } else {
+    // Hot-reload is opt-in (see startAction). For a one-shot `proxy run` it's
+    // rarely needed — the next invocation re-reads the schema — so it stays off
+    // unless `--allow-reload` is passed.
+    const allowReload = ctx.values['allow-reload'] === true;
     const created = await createRuntimeAndSession({
       policy,
       entryPaths: ctx.values.path,
@@ -745,21 +764,23 @@ async function runAction(ctx: any) {
       // require-approval requests fail closed. Use `proxy start` (or attach to one)
       // for interactive approval.
       approvalProvider: createAutoDenyApprovalProvider(),
-      reloadable: true,
+      reloadable: allowReload,
     });
     session = created.session;
     statsWriter = created.statsWriter;
     console.error(`Proxy session ${session.id} active. Monitor with \`varlock proxy status --session ${session.id} --watch\`.`);
-    // This run owns its proxy, so it services its own `proxy refresh` reloads.
-    // Notices go to stderr (the child owns stdout).
-    const reloadServicer = startReloadServicer({
-      session,
-      runtime: created.runtime,
-      defaultEntryPaths: ctx.values.path,
-      log: (message) => console.error(message),
-    });
+    // This run owns its proxy, so it services its own `proxy refresh` reloads when
+    // enabled. Notices go to stderr (the child owns stdout).
+    const reloadServicer = allowReload
+      ? startReloadServicer({
+        session,
+        runtime: created.runtime,
+        defaultEntryPaths: ctx.values.path,
+        log: (message) => console.error(message),
+      })
+      : undefined;
     cleanup = async () => {
-      reloadServicer.stop();
+      reloadServicer?.stop();
       await created.statsWriter.flushNow();
       created.statsWriter.stop();
       await created.runtime.stop().catch(() => undefined);
@@ -891,6 +912,10 @@ async function runAction(ctx: any) {
 }
 
 async function startAction(ctx: any) {
+  // Hot-reload is opt-in: the reload channel is unauthenticated on a shared uid,
+  // so a same-uid agent could `proxy refresh` to self-approve a schema edit and
+  // defeat the fingerprint guard. Off by default; restart to change policy.
+  const allowReload = ctx.values['allow-reload'] === true;
   const policy = await prepareProxyPolicy(ctx.values.path);
   const {
     runtime, session, statsWriter, auditLog,
@@ -903,7 +928,7 @@ async function startAction(ctx: any) {
     // log defers while the prompt is reading input (shared TTY).
     approvalProvider: guardApprovalPromptForLogging(createTtyApprovalProvider()),
     enableApprovalGrants: true,
-    reloadable: true,
+    reloadable: allowReload,
     // The daemon owns this terminal, so tail a live per-request/response log here.
     logRequests: true,
   });
@@ -911,23 +936,30 @@ async function startAction(ctx: any) {
   console.log(`Started proxy session ${session.id} (${session.uuid})`);
   console.log(`Use \`varlock proxy env --session ${session.id}\` to print env exports.`);
   console.log(`Use \`varlock proxy status --session ${session.id} --watch\` to monitor activity.`);
-  console.log(`Use \`varlock proxy refresh --session ${session.id}\` to reload after editing your schema.`);
+  if (allowReload) {
+    console.log(`Use \`varlock proxy refresh --session ${session.id}\` to reload after editing your schema.`);
+  } else {
+    console.log('Schema edits require a restart (hot-reload disabled; enable with `--allow-reload`).');
+  }
   console.log('Live request log (→ request · ← response):');
 
   // Service `proxy refresh` requests: hot-reload the live policy without dropping
-  // the proxy. The daemon owns this terminal, so reload notices print here.
-  const reloadServicer = startReloadServicer({
-    session,
-    runtime,
-    defaultEntryPaths: ctx.values.path,
-    log: (message) => console.log(message),
-  });
+  // the proxy. The daemon owns this terminal, so reload notices print here. Only
+  // runs when reload is explicitly enabled.
+  const reloadServicer = allowReload
+    ? startReloadServicer({
+      session,
+      runtime,
+      defaultEntryPaths: ctx.values.path,
+      log: (message) => console.log(message),
+    })
+    : undefined;
 
   let cleanedUp = false;
   const cleanup = async () => {
     if (cleanedUp) return;
     cleanedUp = true;
-    reloadServicer.stop();
+    reloadServicer?.stop();
     await statsWriter.flushNow();
     statsWriter.stop();
     await runtime.stop().catch(() => undefined);
@@ -1032,13 +1064,18 @@ async function refreshAction(ctx: any) {
     throw new CliExitError((error as Error).message);
   });
 
-  // Only a session that owns a live runtime (`proxy start`, or a self-owned
-  // `proxy run`) can hot-reload. An attached run has no runtime of its own — it
-  // routes through a daemon, which is the session resolved here anyway.
+  // Hot-reload is opt-in and only a session that owns a live runtime (`proxy
+  // start`, or a self-owned `proxy run`) started with `--allow-reload` can do it.
+  // An attached run has no runtime of its own — it routes through a daemon, which
+  // is the session resolved here anyway.
   if (!session.reloadable) {
     throw new CliExitError(
-      `Proxy session ${session.id} is not reloadable.`,
-      { suggestion: 'Refresh applies to a `proxy start` daemon (or a self-owned `proxy run`).' },
+      `Proxy session ${session.id} has hot-reload disabled.`,
+      {
+        suggestion: 'Restart the proxy to pick up schema edits, or start it with '
+          + '`varlock proxy start --allow-reload` to enable live reloads. Note: the reload '
+          + 'channel is unauthenticated on a shared uid — only enable it behind a sandbox.',
+      },
     );
   }
   if (!isProcessRunning(session.ownerPid)) {
@@ -1105,12 +1142,21 @@ async function refreshAction(ctx: any) {
   }
 
   console.log(`✓ Schema change reloaded for proxy session ${session.id}.`);
-  console.log('  • Commands run via `varlock run -- …` now use the updated variables.');
-  console.log('  • Run `varlock load` to see the current variable set (placeholders).');
+  console.log('  • New requests through the proxy use the updated rules and secrets.');
+  console.log('  • Newly launched `varlock proxy run -- …` children pick up the change; an already-running');
+  console.log('    child keeps the env it started with (restart it to refresh its variables).');
 }
 
 async function stopAction(ctx: any) {
   await cleanupStaleProxySessions();
+
+  // Refuse an ambiguous target rather than silently honoring the destructive `--all`.
+  if (ctx.values.all && ctx.values.session) {
+    throw new CliExitError(
+      'Pass either --all or --session, not both.',
+      { suggestion: 'Use `--session <id>` to stop one session, or `--all` to stop every session.' },
+    );
+  }
 
   if (ctx.values.all) {
     const sessions = await listProxySessions();

@@ -18,6 +18,7 @@ vi.mock('../../proxy/session-registry', () => ({
 }));
 
 import { loadVarlockEnvGraph } from '../load-graph';
+import { PROXY_CHILD_ENV_VAR } from '../../proxy/env-vars';
 
 describe('loadVarlockEnvGraph', () => {
   let tempDir: string;
@@ -67,5 +68,34 @@ describe('loadVarlockEnvGraph', () => {
     await graph.resolveEnvValues();
 
     expect(graph.getResolvedEnvObject().API_KEY).toBeUndefined();
+  });
+
+  describe('fail-closed when a proxy child cannot resolve its session', () => {
+    afterEach(() => {
+      delete process.env[PROXY_CHILD_ENV_VAR];
+    });
+
+    test('refuses to load when the child marker is set but no session resolves', async () => {
+      // Marker present (in-tree proxy child) but the session record is gone /
+      // corrupt → no placeholder overlay. Resolving would re-expose the real
+      // secret, so loadVarlockEnvGraph must throw instead.
+      process.env[PROXY_CHILD_ENV_VAR] = '1';
+      getActiveProxySessionMock.mockResolvedValue(undefined);
+
+      await expect(loadVarlockEnvGraph({ entryFilePaths: [tempDir] })).rejects.toThrow(/session record is unavailable/i);
+    });
+
+    test('loads normally when the child marker is set and the session resolves', async () => {
+      process.env[PROXY_CHILD_ENV_VAR] = '1';
+      getActiveProxySessionMock.mockResolvedValue({ id: 'abc', uuid: 'u' } as any);
+      getProxyResolutionViewForEnvMock.mockResolvedValue({
+        API_KEY: { kind: 'placeholder', value: '<<PH>>' },
+      });
+
+      const graph = await loadVarlockEnvGraph({ entryFilePaths: [tempDir] });
+      await graph.resolveEnvValues();
+
+      expect(graph.getResolvedEnvObject().API_KEY).toBe('<<PH>>');
+    });
   });
 });

@@ -125,8 +125,8 @@ export async function enforceProxySchemaFingerprint(
   if (actual === expected) return;
 
   throw new CliExitError('Schema changed inside an active proxy session.', {
-    details: 'The resolved .env.schema shape no longer matches the fingerprint captured when the proxy session started. This guards against downgrading @sensitive items mid-session to recover real values.',
-    suggestion: 'Re-approve the change by running `varlock proxy refresh` from a trusted (non-proxied) context, then retry.',
+    details: 'The resolved .env.schema no longer matches the fingerprint captured when the proxy session started. This guards against editing the schema mid-session — e.g. downgrading @sensitive, or adding a new item that resolves a secret — to recover real values.',
+    suggestion: 'Restart the proxy from a trusted (non-proxied) context to pick up the change. (If it was started with `varlock proxy start --allow-reload`, run `varlock proxy refresh` from a trusted context instead.)',
     forceExit: true,
   });
 }

@@ -1,9 +1,9 @@
 import crypto from 'node:crypto';
 import { existsSync } from 'node:fs';
 import {
-  mkdir, readdir, readFile, rm, writeFile,
+  mkdir, readdir, readFile, rename, writeFile,
 } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { getUserVarlockDir } from '../lib/user-config-dir';
 import { getAncestorPids } from './process-ancestry';
@@ -84,6 +84,21 @@ function getSessionFilePath(uuid: string): string {
   return join(getProxySessionDir(uuid), 'session.json');
 }
 
+/**
+ * Write a session record atomically (tmp + rename) so a concurrent reader never
+ * sees a half-written file. The daemon rewrites session.json on a debounce as
+ * traffic flows, and any varlock invocation reads it — a bare truncate-then-write
+ * would expose torn JSON, which `parseSessionRecord` must never delete (doing so
+ * would silently drop the live record and let a proxied child re-resolve real
+ * secrets). The `.tmp` suffix isn't `session.json`, so `listProxySessions` ignores it.
+ */
+async function writeSessionRecordAtomic(filePath: string, record: ProxySessionRecord): Promise<void> {
+  await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
+  const tmp = `${filePath}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  await writeFile(tmp, JSON.stringify(record, null, 2), { mode: 0o600 });
+  await rename(tmp, filePath);
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -98,7 +113,7 @@ function randomShortId(length = 5): string {
   return out;
 }
 
-function parseSessionRecord(raw: string, filePath: string): ProxySessionRecord | undefined {
+function parseSessionRecord(raw: string): ProxySessionRecord | undefined {
   try {
     const parsed = JSON.parse(raw) as Partial<ProxySessionRecord>;
     if (!parsed || typeof parsed !== 'object') return undefined;
@@ -154,7 +169,13 @@ function parseSessionRecord(raw: string, filePath: string): ProxySessionRecord |
         : {}),
     };
   } catch {
-    rm(filePath, { force: true }).catch(() => undefined);
+    // Skip an unparseable record — never delete it. Writes are atomic (tmp +
+    // rename), so a reader sees either the old or the new complete file; a parse
+    // failure therefore means genuine corruption, not a torn read. Deleting here
+    // would be far worse than leaving it: dropping a still-live record removes the
+    // proxy's placeholder/omit overlay and lets a proxied child re-resolve REAL
+    // secrets. A genuinely corrupt orphan just lingers (a rare, harmless disk
+    // leak) rather than risking a secret leak.
     return undefined;
   }
 }
@@ -190,7 +211,7 @@ export async function listProxySessions(opts?: {
     const raw = await readFile(filePath, 'utf8').catch(() => undefined);
     if (!raw) continue;
 
-    const parsed = parseSessionRecord(raw, filePath);
+    const parsed = parseSessionRecord(raw);
     if (!parsed) continue;
 
     if (!opts?.includeEnded) {
@@ -214,11 +235,11 @@ export async function markProxySessionEnded(uuid: string) {
   const filePath = getSessionFilePath(uuid);
   const raw = await readFile(filePath, 'utf8').catch(() => undefined);
   if (!raw) return;
-  const existing = parseSessionRecord(raw, filePath);
+  const existing = parseSessionRecord(raw);
   if (!existing || existing.endedAt) return;
   const ts = nowIso();
   const next: ProxySessionRecord = { ...existing, endedAt: ts, updatedAt: ts };
-  await writeFile(filePath, JSON.stringify(next, null, 2), { mode: 0o600 });
+  await writeSessionRecordAtomic(filePath, next);
 }
 
 /**
@@ -250,7 +271,7 @@ export async function createProxySessionRecord(session: Omit<ProxySessionRecord,
     ...session,
     updatedAt: nowIso(),
   };
-  await writeFile(getSessionFilePath(next.uuid), JSON.stringify(next, null, 2), { mode: 0o600 });
+  await writeSessionRecordAtomic(getSessionFilePath(next.uuid), next);
   return next;
 }
 
@@ -369,7 +390,7 @@ export async function updateProxySessionRecord(
     ...patch,
     updatedAt: nowIso(),
   };
-  await writeFile(getSessionFilePath(existing.uuid), JSON.stringify(next, null, 2), { mode: 0o600 });
+  await writeSessionRecordAtomic(getSessionFilePath(existing.uuid), next);
   return next;
 }
 
