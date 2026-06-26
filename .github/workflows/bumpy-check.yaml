@@ -23,7 +23,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  # Distinct job name (not "check") so the status context reads
+  # "Bumpy check / bumpy-check" and doesn't collide with other `check` jobs —
+  # this is the context to require in branch protection.
+  bumpy-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
