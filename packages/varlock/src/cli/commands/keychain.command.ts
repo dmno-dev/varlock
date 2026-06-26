@@ -652,11 +652,11 @@ export const commandSpec = define({
   examples: `
 Examples:
   varlock keychain list
-  varlock keychain fix-access --account "my-project:jb:API_KEY"
-  varlock keychain fix-access --path .env.jb
-  varlock keychain import .env --profile jb            # migrate .env in place
-  varlock keychain import .env --profile jb --write-to .env.jb
-  varlock keychain set API_KEY --profile jb --write-to .env.jb
+  varlock keychain fix-access --account "my-project:myenv:API_KEY"
+  varlock keychain fix-access --path .env.myenv
+  varlock keychain import .env --profile myenv            # migrate .env in place
+  varlock keychain import .env --profile myenv --write-to .env.myenv
+  varlock keychain set API_KEY --profile myenv --write-to .env.myenv
 `.trim(),
 });
 

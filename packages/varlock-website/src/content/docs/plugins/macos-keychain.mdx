@@ -44,13 +44,13 @@ ITEM=keychain(prompt) # Opens a native picker dialog
 If you already have sensitive plaintext values in a local `.env` file, import them into macOS Keychain and replace the plaintext with stable `keychain(...)` references. The file to import is the first argument:
 
 ```sh
-varlock keychain import .env --profile jb
+varlock keychain import .env --profile myenv
 ```
 
 By default this **edits the file in place** — each sensitive plaintext value is replaced by its `keychain(...)` ref, so the secret no longer lives on disk. Comments and non-sensitive values are left untouched. To write the refs to a *different* file instead and leave the source as-is, pass `--write-to`:
 
 ```sh
-varlock keychain import .env --profile jb --write-to .env.jb
+varlock keychain import .env --profile myenv --write-to .env.myenv
 ```
 
 Import requires an existing `.env.schema` file for the input env file so Varlock knows which input variables are secrets and which are not. It only imports variables marked `@sensitive` in that schema and never prints secret values. Re-running is safe: values already converted to `keychain(...)` refs are skipped. By default, Varlock refuses to overwrite an existing Keychain item (or, with `--write-to`, an existing ref in the target file); pass `--force` to overwrite.
@@ -60,7 +60,7 @@ The file you name must be one Varlock loads as part of your env setup — it res
 Generated refs use `service="varlock"` and account names like `<project>:<profile>:<ENV_VAR>`. The project defaults to the current directory name and can be overridden:
 
 ```sh
-varlock keychain import .env --profile jb --project my-app
+varlock keychain import .env --profile myenv --project my-app
 ```
 
 ## Set one secret manually
@@ -68,13 +68,13 @@ varlock keychain import .env --profile jb --project my-app
 To store one secret without putting the value in shell history, run `set` and enter the value at the masked prompt:
 
 ```sh
-varlock keychain set API_KEY --profile jb --write-to .env.jb
+varlock keychain set API_KEY --profile myenv --write-to .env.myenv
 ```
 
 This stores the item under `service="varlock"` with account `<project>:<profile>:API_KEY`, then writes the matching `keychain(...)` ref when `--write-to` is provided. If you need to paste a multi-line secret, pipe it through stdin instead of passing it as a command-line argument:
 
 ```sh
-cat secret.txt | varlock keychain set PRIVATE_KEY --profile jb --write-to .env.jb
+cat secret.txt | varlock keychain set PRIVATE_KEY --profile myenv --write-to .env.myenv
 ```
 
 By default, `set` refuses to overwrite an existing Keychain item or env ref. Pass `--force` to replace both.
@@ -84,7 +84,7 @@ By default, `set` refuses to overwrite an existing Keychain item or env ref. Pas
 If VarlockEnclave cannot read an existing Keychain item, grant access without using `/usr/bin/security` directly:
 
 ```sh
-varlock keychain fix-access --account "my-app:jb:API_KEY"
+varlock keychain fix-access --account "my-app:myenv:API_KEY"
 ```
 
 `--service` defaults to `varlock`, but can be overridden for legacy or manually-created Keychain items:
@@ -96,7 +96,7 @@ varlock keychain fix-access --service "com.company.api" --account "admin"
 You can also fix every explicit `keychain(...)` ref in an env file:
 
 ```sh
-varlock keychain fix-access --path .env.jb
+varlock keychain fix-access --path .env.myenv
 ```
 
 ## List Keychain items
