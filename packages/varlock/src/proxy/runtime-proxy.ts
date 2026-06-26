@@ -74,11 +74,20 @@ type HostInfo = { host: string, port: number };
 type HeaderTransformFn = (value: string) => string;
 
 function parseHostPort(value: string): HostInfo | null {
-  const [host, portRaw] = value.split(':');
-  if (!host) return null;
-  const port = Number(portRaw ?? 443);
-  if (Number.isNaN(port)) return null;
-  return { host, port };
+  // Parse via URL so bracketed IPv6 literals (`[::1]:443`) are handled — a plain
+  // `split(':')` mangles them. The hostname comes back bracketed for IPv6; strip
+  // the brackets so the bare address flows to tls.connect / checkServerIdentity /
+  // the IP-SAN cert minting (all of which expect `::1`, not `[::1]`).
+  try {
+    const url = new URL(`http://${value}`);
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+    if (!host) return null;
+    const port = url.port ? Number(url.port) : 443;
+    if (Number.isNaN(port)) return null;
+    return { host, port };
+  } catch {
+    return null;
+  }
 }
 
 function normalizeHost(host: string): string {
@@ -101,25 +110,67 @@ function hostMatchesProxyRules(host: string, rules: Array<ProxyRule>): boolean {
 
 /**
  * Invariant #1: bind secret injection to the *verified upstream TLS identity*,
- * not the requested name. Returns TLS options for the secret-bearing upstream
- * request that (a) require validation against the public PKI
- * (`rejectUnauthorized`) and (b) confirm the cert identity matches the host we
- * dialed (which is the rule-matched host). On any mismatch the handshake fails,
- * so the already-substituted request is never transmitted — a poisoned
- * DNS/Host name causes a failed connection, never a leaked secret.
+ * not the requested name. Opens a TLS connection to the rule-matched host, proves
+ * the chain validates against the public PKI AND the cert identity matches that
+ * host, and returns the **verified peer IP**. The secret-bearing request is then
+ * pinned to that exact IP (see processProxiedRequest).
+ *
+ * Why not just rely on `https.request`'s own pre-write identity check? Some
+ * runtimes — notably Bun's `https.request`, which the compiled CLI binary runs on
+ * — flush the request (the `Authorization` header and body) to a wrong-identity
+ * upstream *before* `checkServerIdentity` rejects, leaking the secret. So we
+ * verify here, on a connection we control, and then pin the request to the proven
+ * IP. A poisoned DNS/Host name fails this verification (we abort, secret never
+ * sent); pinning the IP for the real request defeats a DNS-rebind between the two
+ * connections — the secret only ever reaches an address already proven to hold a
+ * valid cert for the rule host.
  */
-function buildVerifiedUpstreamOptions(): {
-  rejectUnauthorized: true;
-  checkServerIdentity: (servername: string, cert: tls.PeerCertificate) => Error | undefined;
-} {
-  // Deliberately do NOT set `servername` — Node derives it from the request
-  // hostname (SNI for DNS names; omitted for IP literals, where setting it
-  // throws) and still passes the host to checkServerIdentity, so identity is
-  // verified against the host we dialed (= the rule-matched host) either way.
-  return {
-    rejectUnauthorized: true,
-    checkServerIdentity: (servername, cert) => tls.checkServerIdentity(servername, cert),
-  };
+function verifyUpstreamIdentity(host: string, port: number): Promise<{ address: string }> {
+  return new Promise((resolve, reject) => {
+    // SNI for DNS names; omitted for IP literals (setting `servername` to an IP
+    // throws). Identity is verified against `host` either way below.
+    const servername = net.isIP(host) ? undefined : host;
+    const socket = tls.connect({
+      host,
+      port,
+      ...(servername ? { servername } : {}),
+      rejectUnauthorized: true,
+      ALPNProtocols: ['http/1.1'],
+      // Default trust store (system roots + NODE_EXTRA_CA_CERTS), but also honor
+      // any process-global CAs the user configured on the https agent (e.g. a
+      // corporate root) so we trust the same upstreams the rest of their stack
+      // does. Undefined in the common case → default roots.
+      ca: https.globalAgent.options.ca,
+    });
+    const fail = (err: Error) => {
+      socket.destroy();
+      reject(err);
+    };
+    socket.once('error', fail);
+    socket.once('secureConnect', () => {
+      socket.removeListener('error', fail);
+      // (a) public-PKI chain must validate
+      if (!socket.authorized) {
+        fail(socket.authorizationError ?? new Error('upstream TLS chain not authorized'));
+        return;
+      }
+      // (b) cert identity must match the host we dialed (= the rule-matched host).
+      // checkServerIdentity handles both DNS names (dNSName SANs) and IP literals
+      // (iPAddress SANs) when given the host.
+      const identityError = tls.checkServerIdentity(host, socket.getPeerCertificate());
+      if (identityError) {
+        fail(identityError);
+        return;
+      }
+      const address = socket.remoteAddress;
+      socket.destroy();
+      if (!address) {
+        reject(new Error('verified upstream has no remote address'));
+        return;
+      }
+      resolve({ address });
+    });
+  });
 }
 
 /**
@@ -633,15 +684,52 @@ export async function startLocalProxyRuntime({
       upstreamHeaders['content-length'] = String(rewrittenBody.byteLength);
     }
 
+    const upstreamPort = t.port || (t.isHttps ? 443 : 80);
+
+    // Invariant #1: for TLS upstreams, verify the identity on a connection we
+    // control BEFORE writing any secret, then pin the request to the proven IP.
+    // We can't reuse the verified socket directly (Bun's https client won't accept
+    // a handed-in socket), so we pin by IP — the secret only ever reaches an
+    // address already proven to hold a valid cert for the rule host, defeating
+    // DNS-poison/rebind. Cleartext (http) upstreams never carry an injected secret
+    // — the cleartext guard above fails closed when hostItems.length > 0 && !isHttps.
+    let verifiedAddress: string | undefined;
+    if (t.isHttps) {
+      try {
+        ({ address: verifiedAddress } = await verifyUpstreamIdentity(t.host, upstreamPort));
+      } catch {
+        // Fail closed: the upstream identity could not be verified, so the secret
+        // was never transmitted.
+        respondBlocked(res, 502, 'Upstream request failed', t.tunnelTeardown);
+        return;
+      }
+    }
+
+    // For DNS-name hosts, send SNI for (and re-check identity against) the rule
+    // host even though we dial the pinned IP. For IP-literal hosts there is no SNI.
+    const sni = t.isHttps && !net.isIP(t.host) ? t.host : undefined;
     const agent = t.isHttps ? https : http;
     const upstreamReq = agent.request({
       protocol: t.isHttps ? 'https:' : 'http:',
-      hostname: t.host,
-      port: t.port || (t.isHttps ? 443 : 80),
+      // Pin to the verified peer IP (https) so the request can't be re-resolved to
+      // a different host between verification and send.
+      hostname: verifiedAddress ?? t.host,
+      port: upstreamPort,
       method: req.method,
       path: rewrittenPath,
       headers: upstreamHeaders,
-      ...(t.isHttps ? buildVerifiedUpstreamOptions() : {}),
+      ...(t.isHttps
+        ? {
+          ...(sni ? { servername: sni } : {}),
+          rejectUnauthorized: true,
+          // Defense-in-depth: re-check the cert identity against the rule host
+          // (not the pinned IP we dialed). Redundant given the pinned-IP proof,
+          // but cheap. (Some runtimes ignore this; the pinned-IP proof is the
+          // real guarantee — see verifyUpstreamIdentity.)
+          checkServerIdentity: (_sni: string, cert: tls.PeerCertificate) => tls.checkServerIdentity(t.host, cert),
+          ca: https.globalAgent.options.ca,
+        }
+        : {}),
     }, (upstreamRes) => {
       forwardUpstreamResponseWithRedaction(upstreamRes, res, hostItems, shouldRewrite, {
         host: t.host,

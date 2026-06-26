@@ -9,7 +9,8 @@ import { runWithWorkspaceInfo } from './workspace-utils';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { createDebug } from './debug';
 import { parseOverrideProvenanceMetadata, selectOverrideValuesFromEnv } from './injected-env-provenance';
-import { getProxyResolutionViewForEnv } from '../proxy/session-registry';
+import { getActiveProxySession, getProxyResolutionViewForEnv } from '../proxy/session-registry';
+import { PROXY_CHILD_ENV_VAR } from '../proxy/env-vars';
 import { enforceProxySchemaFingerprint } from '../cli/helpers/proxy-schema-fingerprint';
 
 const debug = createDebug('varlock:load');
@@ -107,6 +108,21 @@ export async function loadVarlockEnvGraph(opts?: {
   skipProxyFingerprintGuard?: boolean,
 }) {
   const runtimeOverrideValues = getGraphEnvOverridesFromRuntimeEnv();
+
+  // Fail closed: if this process is a proxy child (the injected `__VARLOCK_PROXY_CHILD`
+  // marker is the reliable in-tree signal) but its session record can't be resolved
+  // — missing, corrupt, or otherwise unreadable — we have no placeholder/omit overlay
+  // to apply, so resolving would re-expose REAL secrets. Refuse rather than leak.
+  // (The daemon and `proxy` command itself never carry this marker, so they're
+  // unaffected; only an actual proxied child is.)
+  if (process.env[PROXY_CHILD_ENV_VAR] === '1' && !(await getActiveProxySession())) {
+    throw new CliExitError('Proxy session record is unavailable', {
+      suggestion: 'The proxy session that launched this process can no longer be read '
+        + '(it may have been stopped, or its record corrupted). Re-run inside an active '
+        + '`varlock proxy run` / `varlock proxy start` session.',
+    });
+  }
+
   const proxyResolutionView = await getProxyResolutionViewForEnv().catch(() => undefined);
   if (proxyResolutionView) {
     debug('applying proxy resolution view (%d item(s))', Object.keys(proxyResolutionView).length);

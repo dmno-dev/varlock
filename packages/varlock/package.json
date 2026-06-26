@@ -28,6 +28,7 @@
     "sync-skill": "bun run scripts/sync-skill.ts",
     "test": "vitest",
     "test:ci": "vitest --run",
+    "test:proxy:bun": "bun run scripts/proxy-tls-bun-check.ts",
     "lint": "eslint .",
     "lint:fix": "bun run lint --fix",
     "typecheck": "tsc --noEmit"

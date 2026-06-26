@@ -504,6 +504,14 @@ export class ConfigItem {
     // placeholder while the real value is injected at the wire, so force sensitivity
     // regardless of any @public / @sensitive=false signal.
     if (this.getDecFns('proxy').length > 0) {
+      // If the author explicitly made it public, warn that @proxy wins — otherwise
+      // the override is silent and surprising.
+      if (this._sensitiveExplicitlySet && !this._isSensitive) {
+        this._schemaErrors.push(new SchemaError(
+          '@proxy implies @sensitive — the @public / @sensitive=false on this item is overridden (its value is still proxied as a placeholder).',
+          { isWarning: true },
+        ));
+      }
       this._isSensitive = true;
       this._sensitiveSource = 'proxy';
     }
@@ -926,6 +934,11 @@ export class ConfigItem {
       }
       if (!foundSensitive && sensitiveFromDataType !== undefined) {
         isSensitive = sensitiveFromDataType;
+      }
+      // @proxy forces sensitivity (same override as processSensitive) so generated
+      // types mark a @public @proxy item sensitive rather than contradicting runtime.
+      if (this.getDecFns('proxy').length > 0) {
+        isSensitive = true;
       }
     } catch {
       // on error, fall back to default (sensitive=true, safe default)

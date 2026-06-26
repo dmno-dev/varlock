@@ -2,6 +2,6 @@
 varlock: patch
 ---
 
-`varlock proxy refresh` hot-reloads a running proxy.
+`varlock proxy refresh` hot-reloads a running proxy (opt-in).
 
-Editing your schema and running `varlock proxy refresh` re-resolves it in the proxy's trusted context and swaps the live policy — rules, injected secrets, and egress mode — without restarting the proxy or dropping your agent's connection. `refresh` now blocks until the reload completes and then prints how to pick up the new variables (`varlock load` / `varlock run`). Works for both `proxy start` daemons and self-owned `proxy run` sessions.
+Start a daemon with `varlock proxy start --allow-reload`, then editing your schema and running `varlock proxy refresh` re-resolves it in the proxy's trusted context and swaps the live policy — rules, injected secrets, and egress mode — without restarting the proxy or dropping your agent's connection. It is **off by default**: the reload channel is unauthenticated on a shared uid, so without this gate a same-uid agent could trigger a refresh to self-approve its own schema edit. When disabled, restart the proxy to apply schema changes.
