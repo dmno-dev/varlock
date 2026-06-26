@@ -30,7 +30,7 @@ async function isInProxyContext(env: NodeJS.ProcessEnv): Promise<boolean> {
   if (session) {
     debug(
       'proxy context detected via process ancestry with the env marker absent '
-        + '(possible bypass attempt) — session %s',
+        + '(possible bypass attempt), session %s',
       session.id,
     );
     return true;

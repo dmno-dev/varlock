@@ -112,7 +112,7 @@ export const commandSpec = define({
     },
     'allow-reload': {
       type: 'boolean',
-      description: 'For `proxy start`/`run`: enable live policy hot-reload via `proxy refresh`. Off by default — '
+      description: 'For `proxy start`/`run`: enable live policy hot-reload via `proxy refresh`. Off by default; '
         + 'the reload channel is unauthenticated on a shared uid, so a same-uid agent could self-approve a schema '
         + 'edit. Only enable it alongside a sandbox (or once the out-of-band approver ships).',
     },
@@ -1074,7 +1074,7 @@ async function refreshAction(ctx: any) {
       {
         suggestion: 'Restart the proxy to pick up schema edits, or start it with '
           + '`varlock proxy start --allow-reload` to enable live reloads. Note: the reload '
-          + 'channel is unauthenticated on a shared uid — only enable it behind a sandbox.',
+          + 'channel is unauthenticated on a shared uid, so only enable it behind a sandbox.',
       },
     );
   }
@@ -1283,7 +1283,7 @@ async function rulesAction(ctx: any) {
 
   console.log(ansis.bold(`Rules (${rules.length})`));
   if (!rules.length) {
-    console.log(ansis.dim('  (none — add @proxy(domain=...) to route a secret)'));
+    console.log(ansis.dim('  (none; add @proxy(domain=...) to route a secret)'));
   } else {
     for (const rule of rules) {
       const target = rule.domain.join(', ')
@@ -1303,13 +1303,13 @@ async function rulesAction(ctx: any) {
     const item = envGraph.configSchema[key];
     if (!item) continue;
     if (managedKeys.has(key)) {
-      secrets.push({ key, label: `${ansis.green('proxied')} — placeholder; real value injected on matching hosts` });
+      secrets.push({ key, label: `${ansis.green('proxied')}: placeholder; real value injected on matching hosts` });
     } else if (omittedSet.has(key)) {
-      secrets.push({ key, label: `${ansis.yellow('omit')} — withheld from the child entirely` });
+      secrets.push({ key, label: `${ansis.yellow('omit')}: withheld from the child entirely` });
     } else if (getProxyValueMode(item) === 'passthrough') {
-      secrets.push({ key, label: `${ansis.red('passthrough')} — real value sent to the child` });
+      secrets.push({ key, label: `${ansis.red('passthrough')}: real value sent to the child` });
     } else if (placeholderByKey[key]) {
-      secrets.push({ key, label: `${ansis.cyan('placeholder')} — sensitive, no rule (not injected anywhere)` });
+      secrets.push({ key, label: `${ansis.cyan('placeholder')}: sensitive, no rule (not injected anywhere)` });
     }
   }
 
