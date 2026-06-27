@@ -11,6 +11,7 @@ enum KeychainError: LocalizedError {
     case unhandledError(OSStatus)
     case keychainNotFound(String)
     case ambiguousMatch(service: String, accounts: [String])
+    case ownershipTransferFailed(recreateError: Error, restoreError: Error?)
 
     var code: String {
         switch self {
@@ -28,6 +29,8 @@ enum KeychainError: LocalizedError {
             return "keychainNotFound"
         case .ambiguousMatch:
             return "ambiguousMatch"
+        case .ownershipTransferFailed:
+            return "ownershipTransferFailed"
         }
     }
 
@@ -51,8 +54,21 @@ enum KeychainError: LocalizedError {
         case .ambiguousMatch(let service, let accounts):
             let accountList = accounts.map { "\"\($0)\"" }.joined(separator: ", ")
             return "Multiple keychain items found for service \"\(service)\" with accounts: \(accountList). Specify account to disambiguate."
+        case .ownershipTransferFailed(let recreateError, let restoreError):
+            let recreateMessage = keychainErrorDetail(recreateError)
+            if let restoreError = restoreError {
+                return "Ownership transfer failed while recreating the keychain item (\(recreateMessage)); restoring the secret value also failed (\(keychainErrorDetail(restoreError)))."
+            }
+            return "Ownership transfer failed while recreating the keychain item (\(recreateMessage)); the secret value was restored."
         }
     }
+}
+
+private func keychainErrorDetail(_ error: Error) -> String {
+    if let keychainError = error as? KeychainError {
+        return keychainError.localizedDescription
+    }
+    return error.localizedDescription
 }
 
 /// Metadata about a keychain item (no secret values)
@@ -585,7 +601,16 @@ final class KeychainManager {
     static func takeOwnership(service: String, account: String? = nil, keychainName: String? = nil) throws -> Bool {
         let (resolvedAccount, value) = try getGenericPasswordForOwnership(service: service, account: account, keychainName: keychainName)
         try deleteGenericPassword(service: service, account: resolvedAccount, keychainName: keychainName)
-        _ = try setGenericPassword(service: service, account: resolvedAccount, value: value, update: false, keychainName: keychainName)
+        do {
+            _ = try setGenericPassword(service: service, account: resolvedAccount, value: value, update: false, keychainName: keychainName)
+        } catch {
+            do {
+                _ = try setGenericPassword(service: service, account: resolvedAccount, value: value, update: false, keychainName: keychainName)
+            } catch let restoreError {
+                throw KeychainError.ownershipTransferFailed(recreateError: error, restoreError: restoreError)
+            }
+            throw KeychainError.ownershipTransferFailed(recreateError: error, restoreError: nil)
+        }
         return true
     }
 
