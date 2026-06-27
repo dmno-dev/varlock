@@ -413,15 +413,6 @@ case "daemon":
                 return ["error": "Missing items"]
             }
             let appPath = Bundle.main.executablePath ?? ProcessInfo.processInfo.arguments[0]
-            let keychainNames = Set(items.map { ($0["keychain"] as? String) ?? "" })
-
-            do {
-                for keychainName in keychainNames {
-                    try KeychainManager.unlockForAccessFix(keychainName: keychainName.isEmpty ? nil : keychainName)
-                }
-            } catch {
-                return keychainErrorResponse(error)
-            }
 
             var results: [[String: Any]] = []
             for item in items {
@@ -432,6 +423,7 @@ case "daemon":
                 let account = item["account"] as? String
                 let keychainName = item["keychain"] as? String
                 do {
+                    try KeychainManager.unlockForAccessFix(keychainName: keychainName)
                     let modified = try KeychainManager.addToACL(
                         service: service,
                         account: account,

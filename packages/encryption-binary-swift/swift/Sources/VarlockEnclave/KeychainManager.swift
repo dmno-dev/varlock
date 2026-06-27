@@ -370,16 +370,29 @@ final class KeychainManager {
 
     /// Create or update a generic password item.
     /// Returns true when an existing item was updated, false when a new item was created.
-    static func setGenericPassword(service: String, account: String, value: String, update: Bool = false) throws -> Bool {
+    static func setGenericPassword(service: String, account: String, value: String, update: Bool = false, keychainName: String? = nil) throws -> Bool {
         guard let valueData = value.data(using: .utf8) else {
             throw KeychainError.unexpectedData
         }
 
-        let lookup: [CFString: Any] = [
+        let keychainRef: SecKeychain?
+        if let keychainName = keychainName {
+            guard let resolvedKeychain = resolveKeychain(named: keychainName) else {
+                throw KeychainError.keychainNotFound(keychainName)
+            }
+            keychainRef = resolvedKeychain
+        } else {
+            keychainRef = nil
+        }
+
+        var lookup: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: account,
         ]
+        if let keychainRef = keychainRef {
+            lookup[kSecMatchSearchList] = [keychainRef]
+        }
 
         if update {
             let attrs: [CFString: Any] = [
@@ -400,6 +413,10 @@ final class KeychainManager {
         var addQuery = lookup
         addQuery[kSecAttrLabel] = account.isEmpty ? service : account
         addQuery[kSecValueData] = valueData
+        if let keychainRef = keychainRef {
+            addQuery[kSecUseKeychain] = keychainRef
+            addQuery.removeValue(forKey: kSecMatchSearchList)
+        }
 
         let status = SecItemAdd(addQuery as CFDictionary, nil)
         switch status {
@@ -493,7 +510,72 @@ final class KeychainManager {
     }
 
     static func addToACL(service: String, account: String? = nil, keychainName: String? = nil, appPath: String) throws -> Bool {
-        return try takeOwnership(service: service, account: account, keychainName: keychainName)
+        do {
+            return try takeOwnership(service: service, account: account, keychainName: keychainName)
+        } catch KeychainError.itemNotFound {
+            return try addToLegacyACL(service: service, account: account, keychainName: keychainName, appPath: appPath)
+        } catch KeychainError.accessDenied {
+            return try addToLegacyACL(service: service, account: account, keychainName: keychainName, appPath: appPath)
+        }
+    }
+
+    private static func addToLegacyACL(service: String, account: String? = nil, keychainName: String? = nil, appPath: String) throws -> Bool {
+        let itemRef = try getItemRef(service: service, account: account, keychainName: keychainName)
+
+        let (accessStatus, access) = LegacyKeychain.itemCopyAccess(itemRef)
+        guard accessStatus == errSecSuccess, let currentAccess = access else {
+            if accessStatus == errSecNoAccessForItem {
+                throw KeychainError.accessDenied("Cannot read ACL for this item — it may be managed by the system")
+            }
+            throw KeychainError.unhandledError(accessStatus)
+        }
+
+        let (aclListStatus, aclListRef) = LegacyKeychain.accessCopyACLList(currentAccess)
+        guard aclListStatus == errSecSuccess, let aclList = aclListRef as? [SecACL] else {
+            throw KeychainError.accessDenied("Cannot read ACL list")
+        }
+
+        let (trustStatus, trustedApp) = LegacyKeychain.trustedApplicationCreate(path: appPath)
+        guard trustStatus == errSecSuccess, let newTrustedApp = trustedApp else {
+            throw KeychainError.unhandledError(trustStatus)
+        }
+
+        var modified = false
+        for acl in aclList {
+            let (contentsStatus, appList, description, promptSelector) = LegacyKeychain.aclCopyContents(acl)
+            guard contentsStatus == errSecSuccess else { continue }
+            guard let currentApps = appList as? [SecTrustedApplication] else { continue }
+
+            var alreadyPresent = false
+            for app in currentApps {
+                let (dataStatus, appData) = LegacyKeychain.trustedApplicationCopyData(app)
+                if dataStatus == errSecSuccess,
+                   let data = appData as Data?,
+                   let path = String(data: data, encoding: .utf8),
+                   path == appPath {
+                    alreadyPresent = true
+                    break
+                }
+            }
+
+            if !alreadyPresent {
+                var updatedApps = currentApps
+                updatedApps.append(newTrustedApp)
+                let updateStatus = LegacyKeychain.aclSetContents(acl, apps: updatedApps as CFArray, description: description ?? "" as CFString, prompt: promptSelector)
+                if updateStatus == errSecSuccess {
+                    modified = true
+                }
+            }
+        }
+
+        if modified {
+            let setStatus = LegacyKeychain.itemSetAccess(itemRef, currentAccess)
+            if setStatus != errSecSuccess {
+                throw KeychainError.unhandledError(setStatus)
+            }
+        }
+
+        return modified
     }
 
     /// Make VarlockEnclave the owner of an existing keychain item by reading the
@@ -501,43 +583,71 @@ final class KeychainManager {
     /// normal write path. This is more reliable than legacy ACL editing on modern
     /// macOS, where an updated ACL can still keep prompting on later reads.
     static func takeOwnership(service: String, account: String? = nil, keychainName: String? = nil) throws -> Bool {
-        guard let account = account, !account.isEmpty else {
-            throw KeychainError.accessDenied("Cannot take ownership without an explicit account")
-        }
-
-        let value = try getGenericPasswordViaSecurityCLI(service: service, account: account, keychainName: keychainName)
-        try deleteItem(service: service, account: account, keychainName: keychainName)
-        _ = try setGenericPassword(service: service, account: account, value: value, update: false)
+        let (resolvedAccount, value) = try getGenericPasswordForOwnership(service: service, account: account, keychainName: keychainName)
+        try deleteGenericPassword(service: service, account: resolvedAccount, keychainName: keychainName)
+        _ = try setGenericPassword(service: service, account: resolvedAccount, value: value, update: false, keychainName: keychainName)
         return true
     }
 
-    private static func deleteItem(service: String, account: String, keychainName: String?) throws {
-        var deleted = false
-        for itemClass in [kSecClassGenericPassword, kSecClassInternetPassword] {
-            let serviceAttribute = itemClass == kSecClassGenericPassword ? kSecAttrService : kSecAttrServer
-            var query: [CFString: Any] = [
-                kSecClass: itemClass,
-                serviceAttribute: service,
-                kSecAttrAccount: account,
-            ]
+    private static func getGenericPasswordForOwnership(service: String, account: String?, keychainName: String?) throws -> (String, String) {
+        var query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecReturnAttributes: true,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitAll,
+        ]
 
-            if let keychainName = keychainName, let keychainRef = resolveKeychain(named: keychainName) {
-                query[kSecMatchSearchList] = [keychainRef]
-            }
-
-            let status = SecItemDelete(query as CFDictionary)
-            switch status {
-            case errSecSuccess:
-                deleted = true
-            case errSecItemNotFound:
-                continue
-            default:
-                throw KeychainError.unhandledError(status)
-            }
+        if let account = account {
+            query[kSecAttrAccount] = account
+        }
+        if let keychainName = keychainName, let keychainRef = resolveKeychain(named: keychainName) {
+            query[kSecMatchSearchList] = [keychainRef]
         }
 
-        if !deleted {
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        switch status {
+        case errSecSuccess:
+            guard let items = result as? [[String: Any]], let item = items.first else {
+                throw KeychainError.itemNotFound
+            }
+            if account == nil, items.count > 1 {
+                let accounts = items.compactMap { $0[kSecAttrAccount as String] as? String }
+                throw KeychainError.ambiguousMatch(service: service, accounts: accounts)
+            }
+            guard let data = item[kSecValueData as String] as? Data, let value = String(data: data, encoding: .utf8) else {
+                throw KeychainError.unexpectedData
+            }
+            return ((item[kSecAttrAccount as String] as? String) ?? "", value)
+        case errSecItemNotFound:
             throw KeychainError.itemNotFound
+        case errSecAuthFailed, errSecInteractionNotAllowed:
+            throw KeychainError.accessDenied("Authentication failed or interaction not allowed")
+        default:
+            throw KeychainError.unhandledError(status)
+        }
+    }
+
+    private static func deleteGenericPassword(service: String, account: String, keychainName: String?) throws {
+        var query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+        ]
+
+        if let keychainName = keychainName, let keychainRef = resolveKeychain(named: keychainName) {
+            query[kSecMatchSearchList] = [keychainRef]
+        }
+
+        let status = SecItemDelete(query as CFDictionary)
+        switch status {
+        case errSecSuccess:
+            return
+        case errSecItemNotFound:
+            throw KeychainError.itemNotFound
+        default:
+            throw KeychainError.unhandledError(status)
         }
     }
 
