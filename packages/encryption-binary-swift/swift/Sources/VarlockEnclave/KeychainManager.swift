@@ -250,12 +250,6 @@ final class KeychainManager {
     }
 
     private static func getItemOfClass(_ itemClass: CFString, service: String?, account: String?, keychainName: String?) throws -> String {
-        if itemClass == kSecClassGenericPassword,
-           let service = service,
-           let value = try? getGenericPasswordViaSecurityCLI(service: service, account: account, keychainName: keychainName) {
-            return value
-        }
-
         // When account is nil and service is set, check for ambiguity
         if account == nil, let service = service {
             var countQuery: [CFString: Any] = [
@@ -318,8 +312,18 @@ final class KeychainManager {
         case errSecItemNotFound:
             throw KeychainError.itemNotFound
         case errSecAuthFailed, errSecInteractionNotAllowed:
+            if itemClass == kSecClassGenericPassword,
+               let service = service,
+               let value = try? getGenericPasswordViaSecurityCLI(service: service, account: account, keychainName: keychainName) {
+                return value
+            }
             throw KeychainError.accessDenied("Authentication failed or interaction not allowed")
         default:
+            if itemClass == kSecClassGenericPassword,
+               let service = service,
+               let value = try? getGenericPasswordViaSecurityCLI(service: service, account: account, keychainName: keychainName) {
+                return value
+            }
             throw KeychainError.unhandledError(status)
         }
     }
@@ -489,72 +493,52 @@ final class KeychainManager {
     }
 
     static func addToACL(service: String, account: String? = nil, keychainName: String? = nil, appPath: String) throws -> Bool {
-        // We need the item reference for ACL manipulation
-        let itemRef = try getItemRef(service: service, account: account, keychainName: keychainName)
+        return try takeOwnership(service: service, account: account, keychainName: keychainName)
+    }
 
-        // Get current access object (uses legacy API wrappers from KeychainLegacyACL.swift)
-        let (accessStatus, access) = LegacyKeychain.itemCopyAccess(itemRef)
-        guard accessStatus == errSecSuccess, let currentAccess = access else {
-            if accessStatus == errSecNoAccessForItem {
-                throw KeychainError.accessDenied("Cannot read ACL for this item — it may be managed by the system")
-            }
-            throw KeychainError.unhandledError(accessStatus)
+    /// Make VarlockEnclave the owner of an existing keychain item by reading the
+    /// current value, deleting the original item, and recreating it through our
+    /// normal write path. This is more reliable than legacy ACL editing on modern
+    /// macOS, where an updated ACL can still keep prompting on later reads.
+    static func takeOwnership(service: String, account: String? = nil, keychainName: String? = nil) throws -> Bool {
+        guard let account = account, !account.isEmpty else {
+            throw KeychainError.accessDenied("Cannot take ownership without an explicit account")
         }
 
-        // Get all ACL entries
-        let (aclListStatus, aclListRef) = LegacyKeychain.accessCopyACLList(currentAccess)
-        guard aclListStatus == errSecSuccess, let aclList = aclListRef as? [SecACL] else {
-            throw KeychainError.accessDenied("Cannot read ACL list")
-        }
+        let value = try getGenericPasswordViaSecurityCLI(service: service, account: account, keychainName: keychainName)
+        try deleteItem(service: service, account: account, keychainName: keychainName)
+        _ = try setGenericPassword(service: service, account: account, value: value, update: false)
+        return true
+    }
 
-        // Create trusted application for our binary
-        let (trustStatus, trustedApp) = LegacyKeychain.trustedApplicationCreate(path: appPath)
-        guard trustStatus == errSecSuccess, let newTrustedApp = trustedApp else {
-            throw KeychainError.unhandledError(trustStatus)
-        }
+    private static func deleteItem(service: String, account: String, keychainName: String?) throws {
+        var deleted = false
+        for itemClass in [kSecClassGenericPassword, kSecClassInternetPassword] {
+            let serviceAttribute = itemClass == kSecClassGenericPassword ? kSecAttrService : kSecAttrServer
+            var query: [CFString: Any] = [
+                kSecClass: itemClass,
+                serviceAttribute: service,
+                kSecAttrAccount: account,
+            ]
 
-        var modified = false
-
-        // Find ACL entries that control decryption/reading and add our app
-        for acl in aclList {
-            let (contentsStatus, appList, description, promptSelector) = LegacyKeychain.aclCopyContents(acl)
-            guard contentsStatus == errSecSuccess else { continue }
-
-            // nil appList means "allow all apps" — no change needed
-            guard let currentApps = appList as? [SecTrustedApplication] else { continue }
-
-            // Check if our app is already in the list
-            var alreadyPresent = false
-            for app in currentApps {
-                let (dataStatus, appData) = LegacyKeychain.trustedApplicationCopyData(app)
-                if dataStatus == errSecSuccess,
-                   let data = appData as Data?,
-                   let path = String(data: data, encoding: .utf8),
-                   path == appPath {
-                    alreadyPresent = true
-                    break
-                }
+            if let keychainName = keychainName, let keychainRef = resolveKeychain(named: keychainName) {
+                query[kSecMatchSearchList] = [keychainRef]
             }
 
-            if !alreadyPresent {
-                var updatedApps = currentApps
-                updatedApps.append(newTrustedApp)
-                let updateStatus = LegacyKeychain.aclSetContents(acl, apps: updatedApps as CFArray, description: description ?? "" as CFString, prompt: promptSelector)
-                if updateStatus == errSecSuccess {
-                    modified = true
-                }
+            let status = SecItemDelete(query as CFDictionary)
+            switch status {
+            case errSecSuccess:
+                deleted = true
+            case errSecItemNotFound:
+                continue
+            default:
+                throw KeychainError.unhandledError(status)
             }
         }
 
-        if modified {
-            // Apply the modified access object back to the item
-            let setStatus = LegacyKeychain.itemSetAccess(itemRef, currentAccess)
-            if setStatus != errSecSuccess {
-                throw KeychainError.unhandledError(setStatus)
-            }
+        if !deleted {
+            throw KeychainError.itemNotFound
         }
-
-        return modified
     }
 
     // MARK: - Private Helpers
