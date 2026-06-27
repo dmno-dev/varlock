@@ -2,14 +2,11 @@ import {
   afterEach, describe, expect, test,
 } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
-import { VARLOCK_CLI } from '../helpers/run-varlock.js';
+import { runVarlock as runVarlockHelper } from '../helpers/run-varlock.js';
 
 const RUN_KEYCHAIN_SMOKE = process.env.VARLOCK_RUN_KEYCHAIN_SMOKE === '1';
 const SERVICE = 'varlock-smoke-test-set';
 const FIXTURE_DIR = 'smoke-test-keychain-set';
-const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
-const FIXTURE_PATH = join(SMOKE_TESTS_DIR, FIXTURE_DIR);
 const ACCOUNT = 'set:SECRET_FROM_KEYCHAIN';
 const createdAccounts: Array<string> = [];
 
@@ -22,19 +19,7 @@ function security(args: Array<string>) {
 }
 
 function runVarlockWithInput(args: Array<string>, input: string) {
-  const result = spawnSync(process.execPath, [VARLOCK_CLI, ...args], {
-    cwd: FIXTURE_PATH,
-    env: { ...process.env },
-    input,
-    encoding: 'utf-8',
-  });
-
-  return {
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-    exitCode: result.status ?? 1,
-    output: (result.stdout ?? '') + (result.stderr ?? ''),
-  };
+  return runVarlockHelper(args, { cwd: FIXTURE_DIR, input });
 }
 
 function runVarlock(args: Array<string>) {

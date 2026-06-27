@@ -140,6 +140,7 @@
     "@clack/prompts": "^1.0.0",
     "@env-spec/parser": "workspace:*",
     "@env-spec/utils": "workspace:*",
+    "@bomb.sh/tab": "^0.0.15",
     "@gunshi/plugin-completion": "^0.35.1",
     "@gunshi/plugin-i18n": "^0.35.1",
     "@sindresorhus/is": "catalog:",
