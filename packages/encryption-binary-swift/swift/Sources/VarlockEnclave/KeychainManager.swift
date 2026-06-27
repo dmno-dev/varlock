@@ -601,7 +601,10 @@ final class KeychainManager {
         if let account = account {
             query[kSecAttrAccount] = account
         }
-        if let keychainName = keychainName, let keychainRef = resolveKeychain(named: keychainName) {
+        if let keychainName = keychainName {
+            guard let keychainRef = resolveKeychain(named: keychainName) else {
+                throw KeychainError.keychainNotFound(keychainName)
+            }
             query[kSecMatchSearchList] = [keychainRef]
         }
 
@@ -636,7 +639,10 @@ final class KeychainManager {
             kSecAttrAccount: account,
         ]
 
-        if let keychainName = keychainName, let keychainRef = resolveKeychain(named: keychainName) {
+        if let keychainName = keychainName {
+            guard let keychainRef = resolveKeychain(named: keychainName) else {
+                throw KeychainError.keychainNotFound(keychainName)
+            }
             query[kSecMatchSearchList] = [keychainRef]
         }
 
