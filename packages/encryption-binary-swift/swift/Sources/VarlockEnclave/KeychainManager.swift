@@ -59,7 +59,7 @@ enum KeychainError: LocalizedError {
             if let restoreError = restoreError {
                 return "Ownership transfer failed while recreating the keychain item (\(recreateMessage)); restoring the secret value also failed (\(keychainErrorDetail(restoreError)))."
             }
-            return "Ownership transfer failed while recreating the keychain item (\(recreateMessage)); the secret value was restored."
+            return "Ownership transfer failed while recreating the keychain item (\(recreateMessage)); the secret value was preserved or restored."
         }
     }
 }
@@ -600,17 +600,38 @@ final class KeychainManager {
     /// macOS, where an updated ACL can still keep prompting on later reads.
     static func takeOwnership(service: String, account: String? = nil, keychainName: String? = nil) throws -> Bool {
         let (resolvedAccount, value) = try getGenericPasswordForOwnership(service: service, account: account, keychainName: keychainName)
-        try deleteGenericPassword(service: service, account: resolvedAccount, keychainName: keychainName)
+        let tempService = "\(service).varlock-ownership-transfer.\(UUID().uuidString)"
+        let tempAccount = "\(resolvedAccount).varlock-ownership-transfer.\(UUID().uuidString)"
+
         do {
-            _ = try setGenericPassword(service: service, account: resolvedAccount, value: value, update: false, keychainName: keychainName)
+            _ = try setGenericPassword(service: tempService, account: tempAccount, value: value, update: false, keychainName: keychainName)
+            let (_, verifiedValue) = try getGenericPasswordForOwnership(service: tempService, account: tempAccount, keychainName: keychainName)
+            guard verifiedValue == value else {
+                throw KeychainError.unexpectedData
+            }
+        } catch {
+            try? deleteGenericPassword(service: tempService, account: tempAccount, keychainName: keychainName)
+            throw KeychainError.ownershipTransferFailed(recreateError: error, restoreError: nil)
+        }
+
+        try deleteGenericPassword(service: service, account: resolvedAccount, keychainName: keychainName)
+
+        do {
+            try renameGenericPassword(service: tempService, account: tempAccount, newService: service, newAccount: resolvedAccount, keychainName: keychainName)
+            let (_, verifiedValue) = try getGenericPasswordForOwnership(service: service, account: resolvedAccount, keychainName: keychainName)
+            guard verifiedValue == value else {
+                throw KeychainError.unexpectedData
+            }
         } catch {
             do {
                 _ = try setGenericPassword(service: service, account: resolvedAccount, value: value, update: false, keychainName: keychainName)
+                try? deleteGenericPassword(service: tempService, account: tempAccount, keychainName: keychainName)
             } catch let restoreError {
                 throw KeychainError.ownershipTransferFailed(recreateError: error, restoreError: restoreError)
             }
             throw KeychainError.ownershipTransferFailed(recreateError: error, restoreError: nil)
         }
+
         return true
     }
 
@@ -677,6 +698,39 @@ final class KeychainManager {
             return
         case errSecItemNotFound:
             throw KeychainError.itemNotFound
+        default:
+            throw KeychainError.unhandledError(status)
+        }
+    }
+
+    private static func renameGenericPassword(service: String, account: String, newService: String, newAccount: String, keychainName: String?) throws {
+        var query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+        ]
+
+        if let keychainName = keychainName {
+            guard let keychainRef = resolveKeychain(named: keychainName) else {
+                throw KeychainError.keychainNotFound(keychainName)
+            }
+            query[kSecMatchSearchList] = [keychainRef]
+        }
+
+        let attrs: [CFString: Any] = [
+            kSecAttrService: newService,
+            kSecAttrAccount: newAccount,
+            kSecAttrLabel: newAccount.isEmpty ? newService : newAccount,
+        ]
+
+        let status = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
+        switch status {
+        case errSecSuccess:
+            return
+        case errSecItemNotFound:
+            throw KeychainError.itemNotFound
+        case errSecDuplicateItem:
+            throw KeychainError.duplicateItem
         default:
             throw KeychainError.unhandledError(status)
         }
