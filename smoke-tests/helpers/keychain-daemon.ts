@@ -1,5 +1,5 @@
 import {
-  existsSync, readFileSync, rmSync, unlinkSync,
+  existsSync, readFileSync, unlinkSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -48,13 +48,3 @@ export function resetVarlockDaemon() {
   }
 }
 
-export function resetVarlockDaemonAfterKeychainSmoke() {
-  resetVarlockDaemon();
-
-  // Best-effort cleanup for empty directories left after daemon state removal.
-  try {
-    rmSync(getDaemonDir(), { recursive: false });
-  } catch {
-    // Directory may contain keys or other state; leave it alone.
-  }
-}

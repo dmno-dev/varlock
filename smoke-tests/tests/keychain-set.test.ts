@@ -2,7 +2,7 @@ import {
   afterEach, beforeEach, describe, expect, test,
 } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { resetVarlockDaemon, resetVarlockDaemonAfterKeychainSmoke } from '../helpers/keychain-daemon.js';
+import { resetVarlockDaemon } from '../helpers/keychain-daemon.js';
 import { runVarlock as runVarlockHelper } from '../helpers/run-varlock.js';
 
 const RUN_KEYCHAIN_SMOKE = process.env.VARLOCK_RUN_KEYCHAIN_SMOKE === '1';
@@ -35,7 +35,7 @@ afterEach(() => {
   for (const account of createdAccounts.splice(0)) {
     security(['delete-generic-password', '-s', SERVICE, '-a', account]);
   }
-  resetVarlockDaemonAfterKeychainSmoke();
+  resetVarlockDaemon();
 });
 
 describe.skipIf(!RUN_KEYCHAIN_SMOKE || process.platform !== 'darwin')('macOS Keychain set smoke tests', () => {

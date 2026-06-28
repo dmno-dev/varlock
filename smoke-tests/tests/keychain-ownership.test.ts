@@ -2,7 +2,7 @@ import {
   afterEach, beforeEach, describe, expect, test,
 } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { resetVarlockDaemon, resetVarlockDaemonAfterKeychainSmoke } from '../helpers/keychain-daemon.js';
+import { resetVarlockDaemon } from '../helpers/keychain-daemon.js';
 import { runVarlock } from '../helpers/run-varlock.js';
 
 const RUN_KEYCHAIN_SMOKE = process.env.VARLOCK_RUN_KEYCHAIN_SMOKE === '1';
@@ -52,7 +52,7 @@ beforeEach(() => {
 
 afterEach(() => {
   deleteOwnedSecrets();
-  resetVarlockDaemonAfterKeychainSmoke();
+  resetVarlockDaemon();
 });
 
 describe.skipIf(!RUN_KEYCHAIN_SMOKE || process.platform !== 'darwin')('macOS Keychain take-ownership smoke tests', () => {
