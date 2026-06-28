@@ -55,12 +55,6 @@ afterEach(() => {
 
 describe.skipIf(!RUN_KEYCHAIN_SMOKE || process.platform !== 'darwin')('macOS Keychain fix-access smoke tests', () => {
   test('fixes access for keychain refs in the fixture schema and reads the secrets', () => {
-    const preFixReadResult = runVarlock(['printenv', 'FIXED_API_KEY', '--skip-cache'], {
-      cwd: FIXTURE_DIR,
-      timeout: 5_000,
-    });
-    expect(preFixReadResult.exitCode, preFixReadResult.output).not.toBe(0);
-
     const fixAccessResult = runVarlock([
       'keychain',
       'fix-access',

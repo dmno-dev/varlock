@@ -24,7 +24,6 @@ export function runVarlock(args: Array<string>, options?: {
   cwd?: string;
   env?: Record<string, string>;
   input?: string;
-  timeout?: number;
 }) {
   const cwd = options?.cwd ? join(SMOKE_TESTS_DIR, options.cwd) : SMOKE_TESTS_DIR;
   const env = { ...process.env, ...options?.env };
@@ -33,19 +32,14 @@ export function runVarlock(args: Array<string>, options?: {
     cwd,
     env,
     input: options?.input,
-    timeout: options?.timeout,
     encoding: 'utf-8',
   });
 
-  const stdout = result.stdout ?? '';
-  const stderr = result.stderr ?? '';
-  const error = result.error ? `\n${result.error.message}` : '';
-
   return {
-    stdout,
-    stderr,
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
     exitCode: result.status ?? 1,
-    output: stdout + stderr + error,
+    output: (result.stdout ?? '') + (result.stderr ?? ''),
   };
 }
 
