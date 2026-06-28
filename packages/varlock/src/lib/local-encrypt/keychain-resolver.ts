@@ -9,6 +9,7 @@
  *   keychain(service="com.company.db")
  *   keychain(service="com.company.db", account="admin")
  *   keychain(service="com.company.db", keychain="System")
+ *   keychain(service="com.company.db", useFallback=false)
  *   keychain("com.company.db")          — shorthand for service
  *   keychain(prompt)                     — interactive picker, writes back reference
  */
@@ -24,6 +25,7 @@ type KeychainResolverState = {
   account?: string;
   keychain?: string;
   field?: string;
+  useFallback?: boolean;
 } | {
   mode: 'prompt';
   itemKey: string;
@@ -77,29 +79,37 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
       return { mode: 'prompt', itemKey, sourceFilePath };
     }
 
-    // Named args mode: keychain(service="...", account="...", keychain="...", field="...")
+    // Named args mode: keychain(service="...", account="...", keychain="...", field="...", useFallback=false)
     const serviceArg = this.objArgs?.service;
     const accountArg = this.objArgs?.account;
     const keychainArg = this.objArgs?.keychain;
     const fieldArg = this.objArgs?.field;
+    const useFallbackArg = this.objArgs?.useFallback;
 
     const account = accountArg?.isStatic ? accountArg.staticValue as string : undefined;
     const keychain = keychainArg?.isStatic ? keychainArg.staticValue as string : undefined;
     const field = fieldArg?.isStatic ? fieldArg.staticValue as string : undefined;
+    let useFallback: boolean | undefined;
+    if (useFallbackArg) {
+      if (!useFallbackArg.isStatic || typeof useFallbackArg.staticValue !== 'boolean') {
+        throw new SchemaError('keychain() useFallback must be a static boolean');
+      }
+      useFallback = useFallbackArg.staticValue;
+    }
 
     if (serviceArg) {
       if (!serviceArg.isStatic || typeof serviceArg.staticValue !== 'string') {
         throw new SchemaError('keychain() service must be a static string');
       }
       return {
-        mode: 'get', service: serviceArg.staticValue, account, keychain, field,
+        mode: 'get', service: serviceArg.staticValue, account, keychain, field, useFallback,
       };
     }
 
     // account-only lookup: keychain(account="admin@corp.com", field="account")
     if (accountArg) {
       return {
-        mode: 'get', account, keychain, field,
+        mode: 'get', account, keychain, field, useFallback,
       };
     }
 
@@ -109,7 +119,9 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
       if (typeof value !== 'string') {
         throw new SchemaError('keychain() expects a string service name');
       }
-      return { mode: 'get', service: value, field };
+      return {
+        mode: 'get', service: value, field, useFallback,
+      };
     }
 
     throw new SchemaError(
@@ -127,6 +139,7 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
           account: state.account,
           keychain: state.keychain,
           field: state.field,
+          useFallback: state.useFallback,
         });
       } catch (err) {
         throw new ResolutionError(

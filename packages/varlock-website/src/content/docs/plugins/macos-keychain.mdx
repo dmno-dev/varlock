@@ -99,6 +99,12 @@ You can also fix every explicit `keychain(...)` ref in an env file:
 varlock keychain fix-access --path .env.myenv
 ```
 
+By default, `keychain()` may fall back to `/usr/bin/security` when Apple's framework APIs cannot read a generic-password item. To require direct framework access, pass `useFallback=false`:
+
+```env
+API_KEY=keychain(service="varlock", account="my-app:myenv:API_KEY", useFallback=false)
+```
+
 `fix-access` preserves existing Keychain item ACLs. If macOS still prompts after fixing access, you can explicitly recreate a generic-password item so VarlockEnclave owns it:
 
 ```sh

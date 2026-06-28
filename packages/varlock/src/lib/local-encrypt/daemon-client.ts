@@ -340,7 +340,13 @@ export class DaemonClient {
     });
   }
 
-  async keychainGet(opts: { service?: string; account?: string; keychain?: string; field?: string }): Promise<string> {
+  async keychainGet(opts: {
+    service?: string;
+    account?: string;
+    keychain?: string;
+    field?: string;
+    useFallback?: boolean;
+  }): Promise<string> {
     return this.withRetry(async () => {
       await this.ensureConnected();
       // Password reads may trigger biometric; metadata field reads won't,

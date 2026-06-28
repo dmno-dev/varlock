@@ -324,6 +324,7 @@ case "daemon":
             let account = payload["account"] as? String
             let keychainName = payload["keychain"] as? String
             let field = payload["field"] as? String
+            let useFallback = payload["useFallback"] as? Bool ?? true
 
             guard service != nil || account != nil else {
                 return ["error": "At least one of service or account is required"]
@@ -356,7 +357,8 @@ case "daemon":
                 let value = try KeychainManager.getItem(
                     service: service,
                     account: account,
-                    keychainName: keychainName
+                    keychainName: keychainName,
+                    useFallback: useFallback
                 )
                 statusBarMenu?.refresh()
                 return ["result": value]
