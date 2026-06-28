@@ -6,6 +6,7 @@ import {
   existsSync, readFileSync, unlinkSync, writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { resetVarlockDaemon, resetVarlockDaemonAfterKeychainSmoke } from '../helpers/keychain-daemon.js';
 import { runVarlock } from '../helpers/run-varlock.js';
 
 const RUN_KEYCHAIN_SMOKE = process.env.VARLOCK_RUN_KEYCHAIN_SMOKE === '1';
@@ -38,6 +39,7 @@ function deleteImportedSecrets() {
 }
 
 beforeEach(() => {
+  resetVarlockDaemon();
   deleteImportedSecrets();
   writeFileSync(ENV_PATH, ORIGINAL_ENV);
 });
@@ -45,6 +47,7 @@ beforeEach(() => {
 afterEach(() => {
   writeFileSync(ENV_PATH, ORIGINAL_ENV);
   deleteImportedSecrets();
+  resetVarlockDaemonAfterKeychainSmoke();
 });
 
 describe.skipIf(!RUN_KEYCHAIN_SMOKE || process.platform !== 'darwin')('macOS Keychain import smoke tests', () => {
