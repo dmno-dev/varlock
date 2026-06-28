@@ -417,6 +417,21 @@ export class DaemonClient {
     });
   }
 
+  async keychainTakeOwnership(opts: {
+    service: string;
+    account?: string;
+    keychain?: string;
+  }): Promise<KeychainFixAccessResult> {
+    return this.withRetry(async () => {
+      await this.ensureConnected();
+      const result = await this.sendMessage({
+        action: 'keychain-take-ownership',
+        payload: opts,
+      }, INTERACTIVE_TIMEOUT_MS);
+      return result as KeychainFixAccessResult;
+    });
+  }
+
   async keychainSet(opts: {
     service: string;
     account?: string;

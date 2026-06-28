@@ -405,6 +405,28 @@ case "daemon":
                 return keychainErrorResponse(error)
             }
 
+        case "keychain-take-ownership":
+            guard let payload = message["payload"] as? [String: Any] else {
+                return ["error": "Missing payload"]
+            }
+            guard let service = payload["service"] as? String else {
+                return ["error": "Missing service"]
+            }
+            let account = payload["account"] as? String
+            let keychainName = payload["keychain"] as? String
+
+            do {
+                try KeychainManager.unlockForAccessFix(keychainName: keychainName)
+                let modified = try KeychainManager.takeOwnership(
+                    service: service,
+                    account: account,
+                    keychainName: keychainName
+                )
+                return ["result": ["modified": modified]]
+            } catch {
+                return keychainErrorResponse(error)
+            }
+
         case "keychain-fix-access-batch":
             guard let payload = message["payload"] as? [String: Any] else {
                 return ["error": "Missing payload"]

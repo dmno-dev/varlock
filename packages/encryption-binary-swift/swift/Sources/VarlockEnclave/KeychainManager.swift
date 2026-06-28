@@ -526,16 +526,6 @@ final class KeychainManager {
     }
 
     static func addToACL(service: String, account: String? = nil, keychainName: String? = nil, appPath: String) throws -> Bool {
-        do {
-            return try takeOwnership(service: service, account: account, keychainName: keychainName)
-        } catch KeychainError.itemNotFound {
-            return try addToLegacyACL(service: service, account: account, keychainName: keychainName, appPath: appPath)
-        } catch KeychainError.accessDenied {
-            return try addToLegacyACL(service: service, account: account, keychainName: keychainName, appPath: appPath)
-        }
-    }
-
-    private static func addToLegacyACL(service: String, account: String? = nil, keychainName: String? = nil, appPath: String) throws -> Bool {
         let itemRef = try getItemRef(service: service, account: account, keychainName: keychainName)
 
         let (accessStatus, access) = LegacyKeychain.itemCopyAccess(itemRef)
@@ -594,10 +584,10 @@ final class KeychainManager {
         return modified
     }
 
-    /// Make VarlockEnclave the owner of an existing keychain item by reading the
+    /// Make VarlockEnclave the owner of an existing generic-password keychain item by reading the
     /// current value, deleting the original item, and recreating it through our
-    /// normal write path. This is more reliable than legacy ACL editing on modern
-    /// macOS, where an updated ACL can still keep prompting on later reads.
+    /// normal write path. This intentionally resets item ACLs, so callers should
+    /// use it only when explicitly requested instead of the non-destructive ACL flow.
     static func takeOwnership(service: String, account: String? = nil, keychainName: String? = nil) throws -> Bool {
         let (resolvedAccount, value) = try getGenericPasswordForOwnership(service: service, account: account, keychainName: keychainName)
         let tempService = "\(service).varlock-ownership-transfer.\(UUID().uuidString)"

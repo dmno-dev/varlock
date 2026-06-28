@@ -99,6 +99,14 @@ You can also fix every explicit `keychain(...)` ref in an env file:
 varlock keychain fix-access --path .env.myenv
 ```
 
+`fix-access` preserves existing Keychain item ACLs. If macOS still prompts after fixing access, you can explicitly recreate a generic-password item so VarlockEnclave owns it:
+
+```sh
+varlock keychain take-ownership --account "my-app:myenv:API_KEY"
+```
+
+This can reset per-app Keychain ACLs on that item, so use it only when you want that ownership rewrite.
+
 ## List Keychain items
 
 To see which Keychain items are available, list them by service name. This shows metadata only (service, account, and keychain) and never reads secret values:

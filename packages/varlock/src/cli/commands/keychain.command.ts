@@ -242,6 +242,28 @@ async function fixAccessForRefs(refs: Array<KeychainRef>) {
   if (failed > 0) process.exitCode = 1;
 }
 
+async function takeOwnershipForRefs(refs: Array<KeychainRef>) {
+  const client = getDaemonClient();
+  let updated = 0;
+  let failed = 0;
+
+  for (const ref of refs) {
+    try {
+      const result = await client.keychainTakeOwnership(ref);
+      if (result.modified) updated++;
+      const label = ref.key ? `${ref.key} ` : '';
+      console.log(`  ${label}${result.modified ? 'ownership taken' : 'already owned'}`);
+    } catch (err) {
+      failed++;
+      const label = ref.key ? `${ref.key}: ` : '';
+      console.error(ansis.red(`  ${label}${err instanceof Error ? err.message : err}`));
+    }
+  }
+
+  console.log(`\nChecked ${refs.length} item${refs.length === 1 ? '' : 's'}: ${updated} updated, ${failed} failed.`);
+  if (failed > 0) process.exitCode = 1;
+}
+
 async function readSecretForSet(label: string): Promise<string | undefined> {
   if (!process.stdin.isTTY) {
     const chunks: Array<Buffer> = [];
@@ -522,6 +544,62 @@ const fixAccessCommand = define({
   },
 });
 
+// --- `varlock keychain take-ownership` --------------------------------------
+
+const takeOwnershipCommand = define({
+  name: 'take-ownership',
+  description: 'Recreate generic-password keychain() items so Varlock owns them',
+  args: {
+    service: {
+      type: 'string',
+      default: 'varlock',
+      description: 'Keychain service name (default: varlock)',
+    },
+    account: {
+      type: 'string',
+      description: 'Keychain account name',
+    },
+    keychain: {
+      type: 'string',
+      description: 'Keychain name to search, such as Login or System',
+    },
+    path: {
+      type: 'string',
+      description: 'Env file to take ownership for every explicit keychain() ref',
+    },
+  },
+  run: async (ctx) => {
+    assertMacOS();
+    await trackCommand('keychain take-ownership', { command: 'keychain take-ownership' });
+
+    console.warn(ansis.yellow('This recreates generic-password items and can reset existing per-app Keychain ACLs.'));
+
+    if (ctx.values.path) {
+      const refs = extractKeychainRefsFromFile(path.resolve(ctx.values.path));
+      if (refs.length === 0) {
+        console.log(ansis.gray('No explicit keychain() refs found.'));
+        return;
+      }
+      await takeOwnershipForRefs(refs);
+      return;
+    }
+
+    if (!ctx.values.account) {
+      throw new CliExitError('Missing --account for keychain take-ownership', {
+        suggestion: 'Use --account "project:profile:KEY" or --path .env.profile',
+      });
+    }
+
+    await takeOwnershipForRefs([
+      {
+        service: ctx.values.service,
+        account: ctx.values.account,
+        keychain: ctx.values.keychain,
+      },
+    ]);
+  },
+});
+
 // --- `varlock keychain set` -------------------------------------------------
 
 const setCommand = define({
@@ -646,6 +724,7 @@ export const commandSpec = define({
   subCommands: {
     list: listCommand,
     'fix-access': fixAccessCommand,
+    'take-ownership': takeOwnershipCommand,
     set: setCommand,
     import: importCommand,
   },
@@ -654,6 +733,7 @@ Examples:
   varlock keychain list
   varlock keychain fix-access --account "my-project:myenv:API_KEY"
   varlock keychain fix-access --path .env.myenv
+  varlock keychain take-ownership --account "my-project:myenv:API_KEY"
   varlock keychain import .env --profile myenv            # migrate .env in place
   varlock keychain import .env --profile myenv --write-to .env.myenv
   varlock keychain set API_KEY --profile myenv --write-to .env.myenv

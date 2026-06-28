@@ -25,7 +25,7 @@ export interface BackendInfo {
 export interface DaemonMessage {
   id: string;
   action: 'decrypt' | 'encrypt' | 'prompt-secret' | 'ping' | 'invalidate-session'
-    | 'keychain-get' | 'keychain-search' | 'keychain-pick' | 'keychain-fix-access' | 'keychain-fix-access-batch' | 'keychain-set';
+    | 'keychain-get' | 'keychain-search' | 'keychain-pick' | 'keychain-fix-access' | 'keychain-fix-access-batch' | 'keychain-take-ownership' | 'keychain-set';
   payload?: Record<string, unknown>;
 }
 
