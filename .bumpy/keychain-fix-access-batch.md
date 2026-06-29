@@ -2,4 +2,4 @@
 varlock: patch
 ---
 
-Reduce macOS Keychain fix-access password prompts when fixing multiple refs.
+Remove the unsupported macOS Keychain ACL mutation path from fix-access.

@@ -25,7 +25,7 @@ export interface BackendInfo {
 export interface DaemonMessage {
   id: string;
   action: 'decrypt' | 'encrypt' | 'prompt-secret' | 'ping' | 'invalidate-session'
-    | 'keychain-get' | 'keychain-search' | 'keychain-pick' | 'keychain-fix-access' | 'keychain-fix-access-batch' | 'keychain-take-ownership' | 'keychain-set';
+    | 'keychain-get' | 'keychain-search' | 'keychain-pick' | 'keychain-set' | 'keychain-delete';
   payload?: Record<string, unknown>;
 }
 
@@ -54,19 +54,14 @@ export interface KeychainItemRef {
   label?: string;
 }
 
-/** Result from adding VarlockEnclave to a keychain item's access list */
-export interface KeychainFixAccessResult {
-  modified: boolean;
-}
-
-/** Result from adding VarlockEnclave to multiple keychain item access lists */
-export interface KeychainFixAccessBatchResult {
-  results: Array<KeychainFixAccessResult & { service: string; account?: string; keychain?: string; error?: string }>;
-}
-
 /** Result from creating or updating a keychain item */
 export interface KeychainSetResult {
   updated: boolean;
+}
+
+/** Result from deleting a keychain item */
+export interface KeychainDeleteResult {
+  deleted: boolean;
 }
 
 /** Result from the status command of a native binary */

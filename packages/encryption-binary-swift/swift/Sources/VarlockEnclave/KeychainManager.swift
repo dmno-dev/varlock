@@ -486,47 +486,6 @@ final class KeychainManager {
         }
     }
 
-    // MARK: - ACL Management
-
-    /// Attempt to add the given application path to the ACL of a keychain item.
-    /// This uses the legacy Keychain API which supports per-application access control.
-    /// Returns true if the ACL was modified, false if no change was needed.
-    /// macOS will prompt the user for authentication to authorize the change.
-    static func unlockForAccessFix(keychainName: String? = nil) throws {
-        let keychain: SecKeychain?
-        if let keychainName = keychainName {
-            keychain = resolveKeychain(named: keychainName)
-            if keychain == nil {
-                throw KeychainError.keychainNotFound(keychainName)
-            }
-        } else {
-            let (status, defaultKeychain) = LegacyKeychain.keychainCopyDefault()
-            if status != errSecSuccess {
-                throw KeychainError.unhandledError(status)
-            }
-            keychain = defaultKeychain
-        }
-
-        guard let keychain else {
-            throw KeychainError.itemNotFound
-        }
-
-        let (statusResult, keychainStatus) = LegacyKeychain.keychainGetStatus(keychain)
-        if statusResult != errSecSuccess {
-            throw KeychainError.unhandledError(statusResult)
-        }
-
-        let unlockedStatus = SecKeychainStatus(1)
-        if (keychainStatus & unlockedStatus) != 0 {
-            return
-        }
-
-        let unlockStatus = LegacyKeychain.keychainUnlock(keychain)
-        if unlockStatus != errSecSuccess {
-            throw KeychainError.unhandledError(unlockStatus)
-        }
-    }
-
     static func addToACL(service: String, account: String? = nil, keychainName: String? = nil, appPath: String) throws -> Bool {
         let itemRef = try getItemRef(service: service, account: account, keychainName: keychainName)
 
@@ -586,91 +545,7 @@ final class KeychainManager {
         return modified
     }
 
-    /// Make VarlockEnclave the owner of an existing generic-password keychain item by reading the
-    /// current value, deleting the original item, and recreating it through our
-    /// normal write path. This intentionally resets item ACLs, so callers should
-    /// use it only when explicitly requested instead of the non-destructive ACL flow.
-    static func takeOwnership(service: String, account: String? = nil, keychainName: String? = nil) throws -> Bool {
-        let (resolvedAccount, value) = try getGenericPasswordForOwnership(service: service, account: account, keychainName: keychainName)
-        let tempService = "\(service).varlock-ownership-transfer.\(UUID().uuidString)"
-        let tempAccount = "\(resolvedAccount).varlock-ownership-transfer.\(UUID().uuidString)"
-
-        do {
-            _ = try setGenericPassword(service: tempService, account: tempAccount, value: value, update: false, keychainName: keychainName)
-            let (_, verifiedValue) = try getGenericPasswordForOwnership(service: tempService, account: tempAccount, keychainName: keychainName)
-            guard verifiedValue == value else {
-                throw KeychainError.unexpectedData
-            }
-        } catch {
-            try? deleteGenericPassword(service: tempService, account: tempAccount, keychainName: keychainName)
-            throw KeychainError.ownershipTransferFailed(recreateError: error, restoreError: nil)
-        }
-
-        try deleteGenericPassword(service: service, account: resolvedAccount, keychainName: keychainName)
-
-        do {
-            try renameGenericPassword(service: tempService, account: tempAccount, newService: service, newAccount: resolvedAccount, keychainName: keychainName)
-            let (_, verifiedValue) = try getGenericPasswordForOwnership(service: service, account: resolvedAccount, keychainName: keychainName)
-            guard verifiedValue == value else {
-                throw KeychainError.unexpectedData
-            }
-        } catch {
-            do {
-                _ = try setGenericPassword(service: service, account: resolvedAccount, value: value, update: false, keychainName: keychainName)
-                try? deleteGenericPassword(service: tempService, account: tempAccount, keychainName: keychainName)
-            } catch let restoreError {
-                throw KeychainError.ownershipTransferFailed(recreateError: error, restoreError: restoreError)
-            }
-            throw KeychainError.ownershipTransferFailed(recreateError: error, restoreError: nil)
-        }
-
-        return true
-    }
-
-    private static func getGenericPasswordForOwnership(service: String, account: String?, keychainName: String?) throws -> (String, String) {
-        var query: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecReturnAttributes: true,
-            kSecReturnData: true,
-            kSecMatchLimit: kSecMatchLimitAll,
-        ]
-
-        if let account = account {
-            query[kSecAttrAccount] = account
-        }
-        if let keychainName = keychainName {
-            guard let keychainRef = resolveKeychain(named: keychainName) else {
-                throw KeychainError.keychainNotFound(keychainName)
-            }
-            query[kSecMatchSearchList] = [keychainRef]
-        }
-
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        switch status {
-        case errSecSuccess:
-            guard let items = result as? [[String: Any]], let item = items.first else {
-                throw KeychainError.itemNotFound
-            }
-            if account == nil, items.count > 1 {
-                let accounts = items.compactMap { $0[kSecAttrAccount as String] as? String }
-                throw KeychainError.ambiguousMatch(service: service, accounts: accounts)
-            }
-            guard let data = item[kSecValueData as String] as? Data, let value = String(data: data, encoding: .utf8) else {
-                throw KeychainError.unexpectedData
-            }
-            return ((item[kSecAttrAccount as String] as? String) ?? "", value)
-        case errSecItemNotFound:
-            throw KeychainError.itemNotFound
-        case errSecAuthFailed, errSecInteractionNotAllowed:
-            throw KeychainError.accessDenied("Authentication failed or interaction not allowed")
-        default:
-            throw KeychainError.unhandledError(status)
-        }
-    }
-
-    private static func deleteGenericPassword(service: String, account: String, keychainName: String?) throws {
+    static func deleteGenericPassword(service: String, account: String, keychainName: String? = nil) throws {
         var query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
@@ -690,39 +565,6 @@ final class KeychainManager {
             return
         case errSecItemNotFound:
             throw KeychainError.itemNotFound
-        default:
-            throw KeychainError.unhandledError(status)
-        }
-    }
-
-    private static func renameGenericPassword(service: String, account: String, newService: String, newAccount: String, keychainName: String?) throws {
-        var query: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecAttrAccount: account,
-        ]
-
-        if let keychainName = keychainName {
-            guard let keychainRef = resolveKeychain(named: keychainName) else {
-                throw KeychainError.keychainNotFound(keychainName)
-            }
-            query[kSecMatchSearchList] = [keychainRef]
-        }
-
-        let attrs: [CFString: Any] = [
-            kSecAttrService: newService,
-            kSecAttrAccount: newAccount,
-            kSecAttrLabel: newAccount.isEmpty ? newService : newAccount,
-        ]
-
-        let status = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
-        switch status {
-        case errSecSuccess:
-            return
-        case errSecItemNotFound:
-            throw KeychainError.itemNotFound
-        case errSecDuplicateItem:
-            throw KeychainError.duplicateItem
         default:
             throw KeychainError.unhandledError(status)
         }

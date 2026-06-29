@@ -383,90 +383,6 @@ case "daemon":
             }
             return ["result": selected]
 
-        case "keychain-fix-access":
-            guard let payload = message["payload"] as? [String: Any] else {
-                return ["error": "Missing payload"]
-            }
-            guard let service = payload["service"] as? String else {
-                return ["error": "Missing service"]
-            }
-            let account = payload["account"] as? String
-            let keychainName = payload["keychain"] as? String
-            let appPath = Bundle.main.executablePath ?? ProcessInfo.processInfo.arguments[0]
-
-            do {
-                try KeychainManager.unlockForAccessFix(keychainName: keychainName)
-                let modified = try KeychainManager.addToACL(
-                    service: service,
-                    account: account,
-                    keychainName: keychainName,
-                    appPath: appPath
-                )
-                return ["result": ["modified": modified]]
-            } catch {
-                return keychainErrorResponse(error)
-            }
-
-        case "keychain-take-ownership":
-            guard let payload = message["payload"] as? [String: Any] else {
-                return ["error": "Missing payload"]
-            }
-            guard let service = payload["service"] as? String else {
-                return ["error": "Missing service"]
-            }
-            let account = payload["account"] as? String
-            let keychainName = payload["keychain"] as? String
-
-            do {
-                try KeychainManager.unlockForAccessFix(keychainName: keychainName)
-                let modified = try KeychainManager.takeOwnership(
-                    service: service,
-                    account: account,
-                    keychainName: keychainName
-                )
-                return ["result": ["modified": modified]]
-            } catch {
-                return keychainErrorResponse(error)
-            }
-
-        case "keychain-fix-access-batch":
-            guard let payload = message["payload"] as? [String: Any] else {
-                return ["error": "Missing payload"]
-            }
-            guard let items = payload["items"] as? [[String: Any]] else {
-                return ["error": "Missing items"]
-            }
-            let appPath = Bundle.main.executablePath ?? ProcessInfo.processInfo.arguments[0]
-
-            var results: [[String: Any]] = []
-            for item in items {
-                guard let service = item["service"] as? String else {
-                    results.append(["modified": false, "error": "Missing service"])
-                    continue
-                }
-                let account = item["account"] as? String
-                let keychainName = item["keychain"] as? String
-                do {
-                    try KeychainManager.unlockForAccessFix(keychainName: keychainName)
-                    let modified = try KeychainManager.addToACL(
-                        service: service,
-                        account: account,
-                        keychainName: keychainName,
-                        appPath: appPath
-                    )
-                    var result: [String: Any] = ["service": service, "modified": modified]
-                    if let account = account { result["account"] = account }
-                    if let keychainName = keychainName { result["keychain"] = keychainName }
-                    results.append(result)
-                } catch {
-                    var result: [String: Any] = ["service": service, "modified": false, "error": keychainErrorMessage(error)]
-                    if let account = account { result["account"] = account }
-                    if let keychainName = keychainName { result["keychain"] = keychainName }
-                    results.append(result)
-                }
-            }
-            return ["result": ["results": results]]
-
         case "keychain-set":
             guard let payload = message["payload"] as? [String: Any] else {
                 return ["error": "Missing payload"]
@@ -488,6 +404,29 @@ case "daemon":
                     update: update
                 )
                 return ["result": ["updated": updated]]
+            } catch {
+                return keychainErrorResponse(error)
+            }
+
+        case "keychain-delete":
+            guard let payload = message["payload"] as? [String: Any] else {
+                return ["error": "Missing payload"]
+            }
+            guard let service = payload["service"] as? String else {
+                return ["error": "Missing service"]
+            }
+            guard let account = payload["account"] as? String else {
+                return ["error": "Missing account"]
+            }
+            let keychainName = payload["keychain"] as? String
+
+            do {
+                try KeychainManager.deleteGenericPassword(
+                    service: service,
+                    account: account,
+                    keychainName: keychainName
+                )
+                return ["result": ["deleted": true]]
             } catch {
                 return keychainErrorResponse(error)
             }

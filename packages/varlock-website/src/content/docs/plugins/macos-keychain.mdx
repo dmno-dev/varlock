@@ -79,9 +79,17 @@ cat secret.txt | varlock keychain set PRIVATE_KEY --profile myenv --write-to .en
 
 By default, `set` refuses to overwrite an existing Keychain item or env ref. Pass `--force` to replace both.
 
+To delete a generic-password item through Varlock's macOS helper:
+
+```sh
+varlock keychain delete --account "my-app:myenv:API_KEY"
+```
+
+Pass `--service` if the item does not use the default `varlock` service.
+
 ## Access management
 
-If VarlockEnclave cannot read an existing Keychain item, grant access without using `/usr/bin/security` directly:
+If VarlockEnclave cannot read an existing Keychain item, ask the helper to read it once and approve the macOS prompt:
 
 ```sh
 varlock keychain fix-access --account "my-app:myenv:API_KEY"
@@ -99,19 +107,37 @@ You can also fix every explicit `keychain(...)` ref in an env file:
 varlock keychain fix-access --path .env.myenv
 ```
 
+macOS may show one Keychain prompt per secret. Choose **Always Allow** for each prompt. Choosing **Allow Once** lets that single read continue, but future reads will still prompt.
+
 By default, `keychain()` may fall back to `/usr/bin/security` when Apple's framework APIs cannot read a generic-password item. To require direct framework access, pass `useFallback=false`:
 
 ```env
 API_KEY=keychain(service="varlock", account="my-app:myenv:API_KEY", useFallback=false)
 ```
 
-`fix-access` preserves existing Keychain item ACLs. If macOS still prompts after fixing access, you can explicitly recreate a generic-password item so VarlockEnclave owns it:
+If you want a new Varlock-owned copy instead of relying on the original item's access rules, clone one existing secret into a new item:
 
 ```sh
-varlock keychain take-ownership --account "my-app:myenv:API_KEY"
+varlock keychain cloneToOwned \
+  --service "com.company.api" \
+  --account "admin" \
+  --target-account "my-app:myenv:API_KEY"
 ```
 
-This can reset per-app Keychain ACLs on that item, so use it only when you want that ownership rewrite.
+`cloneToOwned` reads the source secret and creates a new destination item through Varlock. It does not delete or modify the original item.
+
+To also write the new ref to an env file, provide the env key explicitly:
+
+```sh
+varlock keychain cloneToOwned \
+  --service "com.company.api" \
+  --account "admin" \
+  --target-account "my-app:myenv:API_KEY" \
+  --write-to .env.myenv \
+  --key API_KEY
+```
+
+If the env key already exists, pass `--force` to replace it.
 
 ## List Keychain items
 

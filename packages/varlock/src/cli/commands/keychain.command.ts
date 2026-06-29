@@ -207,52 +207,23 @@ async function listKeychainItems(query?: string, keychain?: string) {
 
 async function fixAccessForRefs(refs: Array<KeychainRef>) {
   const client = getDaemonClient();
-  let updated = 0;
-  let unchanged = 0;
+  let read = 0;
   let failed = 0;
 
-  try {
-    const result = await client.keychainFixAccessBatch(refs);
-    for (let i = 0; i < refs.length; i++) {
-      const ref = refs[i]!;
-      const item = result.results[i];
-      if (!item) {
-        failed++;
-        const label = ref.key ? `${ref.key}: ` : '';
-        console.error(ansis.red(`  ${label}No result returned`));
-        continue;
-      }
-      if (item.error) {
-        failed++;
-        const label = ref.key ? `${ref.key}: ` : '';
-        console.error(ansis.red(`  ${label}${item.error}`));
-        continue;
-      }
-      if (item.modified) updated++;
-      else unchanged++;
-      const label = ref.key ? `${ref.key} ` : '';
-      console.log(`  ${label}${item.modified ? 'updated' : 'already allowed'}`);
-    }
-  } catch (err) {
-    failed = refs.length;
-    console.error(ansis.red(`  ${err instanceof Error ? err.message : err}`));
-  }
-
-  console.log(`\nChecked ${refs.length} item${refs.length === 1 ? '' : 's'}: ${updated} updated, ${unchanged} already allowed, ${failed} failed.`);
-  if (failed > 0) process.exitCode = 1;
-}
-
-async function takeOwnershipForRefs(refs: Array<KeychainRef>) {
-  const client = getDaemonClient();
-  let updated = 0;
-  let failed = 0;
+  console.log(ansis.yellow('macOS may ask for Keychain access once per secret. Choose “Always Allow” for each prompt.'));
+  console.log(ansis.gray('Choosing “Allow Once” will not make future reads prompt-free.'));
 
   for (const ref of refs) {
     try {
-      const result = await client.keychainTakeOwnership(ref);
-      if (result.modified) updated++;
+      await client.keychainGet({
+        service: ref.service,
+        account: ref.account,
+        keychain: ref.keychain,
+        useFallback: false,
+      });
+      read++;
       const label = ref.key ? `${ref.key} ` : '';
-      console.log(`  ${label}${result.modified ? 'ownership taken' : 'already owned'}`);
+      console.log(`  ${label}read successfully`);
     } catch (err) {
       failed++;
       const label = ref.key ? `${ref.key}: ` : '';
@@ -260,7 +231,7 @@ async function takeOwnershipForRefs(refs: Array<KeychainRef>) {
     }
   }
 
-  console.log(`\nChecked ${refs.length} item${refs.length === 1 ? '' : 's'}: ${updated} updated, ${failed} failed.`);
+  console.log(`\nChecked ${refs.length} item${refs.length === 1 ? '' : 's'}: ${read} read successfully, ${failed} failed.`);
   if (failed > 0) process.exitCode = 1;
 }
 
@@ -298,6 +269,55 @@ async function assertKeychainItemAbsent(
     throw err;
   }
   throw new CliExitError(`Refusing to overwrite existing Keychain item for ${label}`, { suggestion });
+}
+
+async function cloneKeychainSecretToOwned(opts: {
+  source: KeychainRef;
+  target: { service: string; account: string };
+  write?: { file: string; key: string };
+  force: boolean;
+}) {
+  const client = getDaemonClient();
+  if (!opts.force) {
+    await assertKeychainItemAbsent(
+      client,
+      opts.target,
+      opts.target.account,
+      'Re-run with --force to overwrite the destination Keychain item.',
+    );
+
+    if (opts.write && getExistingEnvKeys(opts.write.file).has(opts.write.key)) {
+      throw new CliExitError(`Refusing to overwrite ${opts.write.key} in ${opts.write.file}`, {
+        suggestion: 'Re-run with --force to overwrite the existing env ref and destination Keychain item.',
+      });
+    }
+  }
+
+  console.log(ansis.yellow('macOS may ask for Keychain access to read the source secret. Choose “Always Allow” if you want future source reads to be prompt-free.'));
+  const value = await client.keychainGet({
+    service: opts.source.service,
+    account: opts.source.account,
+    keychain: opts.source.keychain,
+    useFallback: false,
+  });
+
+  await client.keychainSet({
+    service: opts.target.service,
+    account: opts.target.account,
+    value,
+    update: opts.force,
+  });
+
+  const ref = formatKeychainRef(opts.target);
+  if (opts.write) {
+    writeEnvRef(opts.write.file, opts.write.key, ref, opts.force);
+  }
+
+  console.log(`Cloned ${formatKeychainRef(opts.source)} to ${ref}.`);
+  console.log(ansis.gray('The original Keychain item was left unchanged.'));
+  if (opts.write) {
+    console.log(`Wrote ${opts.write.key} ref to ${opts.write.file}.`);
+  }
 }
 
 async function setKeychainSecret(opts: {
@@ -355,6 +375,16 @@ async function setKeychainSecret(opts: {
   } else {
     console.log(`Ref: ${ref}`);
   }
+}
+
+async function deleteKeychainSecret(opts: {
+  service: string;
+  account: string;
+  keychain?: string;
+}) {
+  const client = getDaemonClient();
+  await client.keychainDelete(opts);
+  console.log(`Deleted Keychain item ${formatKeychainRef(opts)}.`);
 }
 
 async function importPlaintextEnv(opts: {
@@ -544,59 +574,87 @@ const fixAccessCommand = define({
   },
 });
 
-// --- `varlock keychain take-ownership` --------------------------------------
+// --- `varlock keychain cloneToOwned` ----------------------------------------
 
-const takeOwnershipCommand = define({
-  name: 'take-ownership',
-  description: 'Recreate generic-password keychain() items so Varlock owns them',
+const cloneToOwnedCommand = define({
+  name: 'cloneToOwned',
+  description: 'Clone one existing Keychain secret into a new Varlock-owned item',
   args: {
     service: {
       type: 'string',
       default: 'varlock',
-      description: 'Keychain service name (default: varlock)',
+      description: 'Source Keychain service name (default: varlock)',
     },
     account: {
       type: 'string',
-      description: 'Keychain account name',
+      description: 'Source Keychain account name',
     },
     keychain: {
       type: 'string',
-      description: 'Keychain name to search, such as Login or System',
+      description: 'Source keychain name to search, such as Login or System',
     },
-    path: {
+    'target-service': {
       type: 'string',
-      description: 'Env file to take ownership for every explicit keychain() ref',
+      default: 'varlock',
+      description: 'Destination Keychain service name (default: varlock)',
+    },
+    'target-account': {
+      type: 'string',
+      description: 'Destination Keychain account name',
+    },
+    'write-to': {
+      type: 'string',
+      description: 'Env file to write the destination keychain() ref to',
+    },
+    key: {
+      type: 'string',
+      description: 'Env var key to write when using --write-to',
+    },
+    force: {
+      type: 'boolean',
+      description: 'Overwrite an existing destination Keychain item',
     },
   },
   run: async (ctx) => {
     assertMacOS();
-    await trackCommand('keychain take-ownership', { command: 'keychain take-ownership' });
-
-    console.warn(ansis.yellow('This recreates generic-password items and can reset existing per-app Keychain ACLs.'));
-
-    if (ctx.values.path) {
-      const refs = extractKeychainRefsFromFile(path.resolve(ctx.values.path));
-      if (refs.length === 0) {
-        console.log(ansis.gray('No explicit keychain() refs found.'));
-        return;
-      }
-      await takeOwnershipForRefs(refs);
-      return;
-    }
+    await trackCommand('keychain cloneToOwned', { command: 'keychain cloneToOwned' });
 
     if (!ctx.values.account) {
-      throw new CliExitError('Missing --account for keychain take-ownership', {
-        suggestion: 'Use --account "project:profile:KEY" or --path .env.profile',
+      throw new CliExitError('Missing --account for keychain cloneToOwned', {
+        suggestion: 'Use --account for the source item you want to clone.',
+      });
+    }
+    if (!ctx.values['target-account']) {
+      throw new CliExitError('Missing --target-account for keychain cloneToOwned', {
+        suggestion: 'Use --target-account "project:profile:KEY" for the new Varlock-owned item.',
+      });
+    }
+    if (ctx.values['write-to'] && !ctx.values.key) {
+      throw new CliExitError('Missing --key for keychain cloneToOwned --write-to', {
+        suggestion: 'Use --key API_KEY so Varlock knows which env var to write.',
+      });
+    }
+    if (ctx.values.key && !ctx.values['write-to']) {
+      throw new CliExitError('Missing --write-to for keychain cloneToOwned --key', {
+        suggestion: 'Use --write-to .env.local, or omit --key.',
       });
     }
 
-    await takeOwnershipForRefs([
-      {
+    await cloneKeychainSecretToOwned({
+      source: {
         service: ctx.values.service,
         account: ctx.values.account,
         keychain: ctx.values.keychain,
       },
-    ]);
+      target: {
+        service: ctx.values['target-service'],
+        account: ctx.values['target-account'],
+      },
+      write: ctx.values['write-to'] && ctx.values.key
+        ? { file: path.resolve(ctx.values['write-to']), key: ctx.values.key }
+        : undefined,
+      force: Boolean(ctx.values.force),
+    });
   },
 });
 
@@ -657,6 +715,44 @@ const setCommand = define({
       account: targetAccount,
       write: ctx.values['write-to'],
       force: Boolean(ctx.values.force),
+    });
+  },
+});
+
+// --- `varlock keychain delete` ----------------------------------------------
+
+const deleteCommand = define({
+  name: 'delete',
+  description: 'Delete a macOS Keychain generic-password item',
+  args: {
+    service: {
+      type: 'string',
+      default: 'varlock',
+      description: 'Keychain service name (default: varlock)',
+    },
+    account: {
+      type: 'string',
+      description: 'Keychain account name',
+    },
+    keychain: {
+      type: 'string',
+      description: 'Keychain name to search, such as Login or System',
+    },
+  },
+  run: async (ctx) => {
+    assertMacOS();
+    await trackCommand('keychain delete', { command: 'keychain delete' });
+
+    if (!ctx.values.account) {
+      throw new CliExitError('Missing --account for keychain delete', {
+        suggestion: 'Use --account "project:profile:KEY".',
+      });
+    }
+
+    await deleteKeychainSecret({
+      service: ctx.values.service,
+      account: ctx.values.account,
+      keychain: ctx.values.keychain,
     });
   },
 });
@@ -724,8 +820,9 @@ export const commandSpec = define({
   subCommands: {
     list: listCommand,
     'fix-access': fixAccessCommand,
-    'take-ownership': takeOwnershipCommand,
+    cloneToOwned: cloneToOwnedCommand,
     set: setCommand,
+    delete: deleteCommand,
     import: importCommand,
   },
   examples: `
@@ -733,7 +830,9 @@ Examples:
   varlock keychain list
   varlock keychain fix-access --account "my-project:myenv:API_KEY"
   varlock keychain fix-access --path .env.myenv
-  varlock keychain take-ownership --account "my-project:myenv:API_KEY"
+  varlock keychain cloneToOwned --service "old-service" --account "API_KEY" --target-account "my-project:myenv:API_KEY"
+  varlock keychain cloneToOwned --service "old-service" --account "API_KEY" --target-account "my-project:myenv:API_KEY" --write-to .env.myenv --key API_KEY
+  varlock keychain delete --account "my-project:myenv:API_KEY"
   varlock keychain import .env --profile myenv            # migrate .env in place
   varlock keychain import .env --profile myenv --write-to .env.myenv
   varlock keychain set API_KEY --profile myenv --write-to .env.myenv

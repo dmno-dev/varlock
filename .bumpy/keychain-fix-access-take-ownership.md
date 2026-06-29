@@ -2,4 +2,4 @@
 varlock: patch
 ---
 
-Add an explicit macOS Keychain take-ownership command for generic-password items that need an ownership rewrite.
+Change macOS Keychain fix-access to use the native read prompt with Always Allow guidance, and replace take-ownership with a non-destructive cloneToOwned command.
