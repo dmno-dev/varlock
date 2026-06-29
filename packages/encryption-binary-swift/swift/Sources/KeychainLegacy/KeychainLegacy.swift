@@ -52,4 +52,20 @@ public enum LegacyKeychain {
         let status = SecKeychainOpen(path, &keychain)
         return (status, keychain)
     }
+
+    public static func keychainCopyDefault() -> (OSStatus, SecKeychain?) {
+        var keychain: SecKeychain?
+        let status = SecKeychainCopyDefault(&keychain)
+        return (status, keychain)
+    }
+
+    public static func keychainGetStatus(_ keychain: SecKeychain) -> (OSStatus, SecKeychainStatus) {
+        var keychainStatus = SecKeychainStatus()
+        let status = SecKeychainGetStatus(keychain, &keychainStatus)
+        return (status, keychainStatus)
+    }
+
+    public static func keychainUnlock(_ keychain: SecKeychain) -> OSStatus {
+        return SecKeychainUnlock(keychain, 0, nil, false)
+    }
 }
