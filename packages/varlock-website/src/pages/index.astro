@@ -333,14 +333,14 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
           <img
             src="https://varlock-pixel-art.dmno.workers.dev/effects/fire.gif"
           />
-          Credential proxy for AI agents
+          Credential broker for AI agents
         </h2>
         <p class="proxy-lead">
           Run coding agents, MCP servers, and any untrusted tool so they only ever see
           <b>placeholder</b> secrets. The real values are injected at the network boundary
           against a cryptographically verified upstream, and scrubbed back out of responses,
-          so a prompt-injected or compromised agent has nothing to leak. This is the
-          <i>credential broker</i> pattern, run locally on your own machine.
+          so a prompt-injected or compromised agent has nothing to leak. varlock runs the
+          broker locally on your own machine, so your real secrets never leave it.
         </p>
 
         <div class="proxy-diagram">
@@ -651,20 +651,12 @@ OPENAI_API_KEY=sk-...
     font-weight: bold;
   }
 
-  /* Credential proxy feature highlight */
+  /* Credential broker feature highlight */
   .proxy-feature {
     margin: 3.5rem 0 1rem;
-    border: 2px dotted var(--brand-cyan--t1);
-    border-radius: 14px;
-    padding: 0.5rem 2rem 2rem;
-  }
-  .proxy-feature h2 {
-    margin-top: 1rem;
   }
   .proxy-lead {
-    font-size: 1.2rem;
     line-height: 1.5;
-    text-align: center;
     max-width: 800px;
     margin: 0.5rem auto 1.5rem;
   }
