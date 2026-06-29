@@ -53,7 +53,7 @@ This pattern is known as a **credential broker** (or credential brokering): a tr
 </figure>
 
 :::caution[Preview]
-The credential proxy is an early preview. The core protection (placeholder isolation + verified-identity wire injection) is solid, but there are real limits to what it covers and it runs on the same machine/user as the agent. Read [Limitations](#limitations) before relying on it as a security boundary.
+The credential proxy is an early preview. Its core protection (placeholder isolation + verified-identity wire injection) is solid, but on its own it runs as the same user as the agent, so it raises the bar rather than being a hard boundary. Pair it with an OS sandbox or container and it becomes a real one. Read [Limitations](#limitations) before relying on it as a security boundary.
 :::
 
 ```env-spec title=".env.schema"
