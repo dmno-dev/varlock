@@ -486,17 +486,17 @@ API_KEY=
 </div>
 
 <div>
-### `@enableProxy()`
-**Arg types:** `(egress?: "permissive" | "strict")`
+### `@proxyConfig`
+**Value type:** `{egress?: "permissive" | "strict"}`
 
-Configures [credential proxy](/guides/proxy/) egress. The proxy is driven by [`@proxy`](/reference/item-decorators/#proxy) decorators on your items, so this header decorator is **optional**: it exists only to change the egress mode from the default.
+Configures [credential proxy](/guides/proxy/) egress. The proxy is driven by [`@proxy`](/reference/item-decorators/#proxy) decorators on your items, so this header decorator is **optional**: it exists only to change the egress mode from the default. It is a single-use, object-value decorator (`@proxyConfig={...}`), not a function call.
 
 The `egress` option controls requests that don't match any [`@proxy`](#proxy) rule:
 - `permissive` _(default)_: unmatched hosts pass through untouched.
 - `strict`: only requests matching a `@proxy` rule are allowed; everything else is blocked.
 
 ```env-spec
-# @enableProxy(egress="strict")
+# @proxyConfig={egress="strict"}
 # ---
 # @proxy(domain="api.openai.com")
 OPENAI_API_KEY=sk-...

@@ -254,7 +254,7 @@ OPENAI_API_KEY=sk-proj-...
 ### `@proxy`
 **Value type:** function `@proxy(domain=..., ...)` _or_ value `@proxy=passthrough｜omit`
 
-Routes an item's secret through the [credential proxy](/guides/proxy/) so an untrusted child process only ever sees a placeholder, while the real value is injected into matching outbound requests at the network boundary. Requires [`@enableProxy`](/reference/root-decorators/#enableproxy) in the header. Using `@proxy(...)` on an item implies [`@sensitive`](#sensitive).
+Routes an item's secret through the [credential proxy](/guides/proxy/) so an untrusted child process only ever sees a placeholder, while the real value is injected into matching outbound requests at the network boundary. Using `@proxy(...)` on an item implies [`@sensitive`](#sensitive).
 
 **Function form** `@proxy(domain=..., [path], [method], [block], [keys], [rules])`:
 
@@ -272,8 +272,6 @@ The same decorator in the **header** creates a _detached_ policy rule (no inject
 **Value form** `@proxy=passthrough` injects the real value into the child (escape hatch); `@proxy=omit` explicitly withholds it. The value and function forms are mutually exclusive on one item.
 
 ```env-spec
-# @enableProxy(egress="strict")
-# ---
 # @proxy(domain="api.stripe.com", path="/v1/**")
 STRIPE_SECRET_KEY=sk_live_...
 

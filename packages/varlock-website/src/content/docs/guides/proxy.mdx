@@ -104,7 +104,7 @@ STRIPE_SECRET_KEY=sk_live_...
 
 The `@placeholder` on `OPENAI_API_KEY` makes the placeholder the agent sees look like a real key, so SDK key-format checks pass. Leave it off (like `STRIPE_SECRET_KEY` above) and the item gets a generic `vlk_placeholder_…`, which varlock warns about because it can fail a client-side key-format check (see [Placeholders](#placeholders)).
 
-That is all the proxy needs: there is no separate "enable" step. It runs in **permissive** mode by default (hosts that don't match a rule pass through untouched). Add [`@enableProxy(egress="strict")`](#egress-modes) to your schema header only when you want to block everything that isn't explicitly routed.
+That is all the proxy needs: there is no separate "enable" step. It runs in **permissive** mode by default (hosts that don't match a rule pass through untouched). Add [`@proxyConfig={egress="strict"}`](#egress-modes) to your schema header only when you want to block everything that isn't explicitly routed.
 
 #### 2. Check your config (optional)
 
@@ -143,7 +143,7 @@ A `@proxy(...)` rule supports more than just a domain:
 `domain` and `method` take either a single value or an **array literal** for lists:
 
 ```env-spec title=".env.schema"
-# @enableProxy(egress="strict")
+# @proxyConfig={egress="strict"}
 # Block a dangerous endpoint entirely (detached rule, no injection):
 # @proxy(domain="api.stripe.com", path="/v1/refunds/**", method=[POST, DELETE], block=true)
 # ---
@@ -158,7 +158,7 @@ STRIPE_SECRET_KEY=sk_live_...
 When one host needs several path/method policies, write the `domain` once and list the refinements under `rules`:
 
 ```env-spec title=".env.schema"
-# @enableProxy(egress="strict")
+# @proxyConfig={egress="strict"}
 # ---
 # @sensitive
 # @proxy(domain="api.stripe.com", rules=[
@@ -177,10 +177,10 @@ This injects `STRIPE_SECRET_KEY` across `api.stripe.com` and blocks refunds and 
 
 ### Egress modes
 
-The [`@enableProxy(egress=...)`](/reference/root-decorators/#enableproxy) header decorator controls what happens to requests that **don't** match any rule. It's the only reason to write `@enableProxy` at all: the proxy works without it, and `egress` defaults to `permissive`.
+The [`@proxyConfig={egress=...}`](/reference/root-decorators/#proxyconfig) header decorator controls what happens to requests that **don't** match any rule. It's the only reason to write `@proxyConfig` at all: the proxy works without it, and `egress` defaults to `permissive`.
 
 - `permissive` _(default, no decorator needed)_: unmatched hosts pass through untouched (no injection, no blocking). Good for getting started.
-- `strict`: add `@enableProxy(egress="strict")` to the header so only requests matching a `@proxy` rule are allowed; everything else is blocked. This is the recommended posture once your rules are dialed in, since it prevents the agent from reaching arbitrary hosts.
+- `strict`: add `@proxyConfig={egress="strict"}` to the header so only requests matching a `@proxy` rule are allowed; everything else is blocked. This is the recommended posture once your rules are dialed in, since it prevents the agent from reaching arbitrary hosts.
 
 ## Controlling what the agent sees
 
@@ -333,7 +333,7 @@ The proxy is a local, same-machine tool. Know what it does and doesn't cover bef
 
 ## Reference
 
-- [`@enableProxy`](/reference/root-decorators/#enableproxy) and [`@proxy`](/reference/root-decorators/#proxy) root decorators
+- [`@proxyConfig`](/reference/root-decorators/#proxyconfig) and [`@proxy`](/reference/root-decorators/#proxy) root decorators
 - [`@proxy`](/reference/item-decorators/#proxy) item decorator
 - [`varlock proxy`](/reference/cli-commands/#proxy) CLI commands
 - [AI Tools guide](/guides/ai-tools/)

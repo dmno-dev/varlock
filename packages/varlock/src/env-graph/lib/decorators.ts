@@ -128,14 +128,15 @@ export abstract class DecoratorInstance {
         }
         if (!this.decoratorDef.isFunction && this.isFunctionCall) {
           // bare fn-call syntax `@name(...)` is reserved for repeatable decorators (e.g. @docs()).
-          // @sensitive is single-use but accepts an options-object value — guide users who tried
-          // to pass options as a bare call toward the object form `@sensitive={...}`.
-          if (this.name === 'sensitive') {
+          // @sensitive and @proxyConfig are single-use but accept an options-object value, so guide
+          // users who tried to pass options as a bare call toward the object form `@name={...}`.
+          if (this.name === 'sensitive' || this.name === 'proxyConfig') {
+            const fallback = this.name === 'sensitive' ? '{preventLeaks=false}' : '{egress="strict"}';
             const optsStr = this.parsedDecorator.bareFnArgs
               ? `{${this.parsedDecorator.bareFnArgs.values.map((v) => v.toString()).join(', ')}}`
-              : '{preventLeaks=false}';
+              : fallback;
             throw new SchemaError(
-              `@sensitive is single-use and cannot be called like @sensitive(...). To pass options, use an object value: @sensitive=${optsStr}`,
+              `@${this.name} is single-use and cannot be called like @${this.name}(...). To pass options, use an object value: @${this.name}=${optsStr}`,
             );
           }
           throw new SchemaError(
@@ -544,15 +545,24 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     name: 'disableProcessEnvInjection',
   },
   {
-    name: 'enableProxy',
-    isFunction: true,
-    useFnArgsResolver: true,
-    process: (argsVal) => {
-      const egressResolver = argsVal.objArgs?.egress;
+    // Single-use header config for the credential proxy. The proxy itself is
+    // driven by @proxy decorators on items; @proxyConfig only tunes proxy-wide
+    // settings (currently just egress). Value/object form: @proxyConfig={egress="strict"}.
+    name: 'proxyConfig',
+    process: (decValue) => {
+      if (decValue.objArgs === undefined) {
+        throw new SchemaError('@proxyConfig must be set to an options object, for example @proxyConfig={egress="strict"}');
+      }
+      for (const key in decValue.objArgs) {
+        if (key !== 'egress') {
+          throw new SchemaError(`@proxyConfig: unknown option "${key}" (only "egress" is supported)`);
+        }
+      }
+      const egressResolver = decValue.objArgs.egress;
       if (!egressResolver || !egressResolver.isStatic) return;
       const egressValue = egressResolver.staticValue;
       if (egressValue !== 'permissive' && egressValue !== 'strict') {
-        throw new SchemaError('@enableProxy: egress must be "permissive" or "strict"');
+        throw new SchemaError('@proxyConfig: egress must be "permissive" or "strict"');
       }
     },
   },

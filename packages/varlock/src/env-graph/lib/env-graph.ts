@@ -64,7 +64,6 @@ export type SerializedEnvGraph = {
     preventLeaks?: boolean;
     encryptInjectedEnv?: boolean;
     disableProcessEnvInjection?: boolean;
-    enableProxy?: boolean;
     proxyEgress?: ProxyEgressMode;
   },
   config: Record<string, {
@@ -579,7 +578,7 @@ export class EnvGraph {
     await this.getRootDec('preventLeaks')?.resolve();
     await this.getRootDec('encryptInjectedEnv')?.resolve();
     await this.getRootDec('disableProcessEnvInjection')?.resolve();
-    await this.getRootDecFns('enableProxy')?.[0]?.resolve();
+    await this.getRootDec('proxyConfig')?.resolve();
     await Promise.all(this.getRootDecFns('proxy').map(async (d) => d.resolve()));
   }
 
@@ -785,13 +784,8 @@ export class EnvGraph {
     serializedGraph.settings.preventLeaks = this.getRootDec('preventLeaks')?.resolvedValue ?? true;
     serializedGraph.settings.encryptInjectedEnv = this.getRootDec('encryptInjectedEnv')?.resolvedValue ?? false;
     serializedGraph.settings.disableProcessEnvInjection = this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
-    const enableProxy = this.getRootDecFns('enableProxy')[0]?.resolvedValue;
-    serializedGraph.settings.enableProxy = !!enableProxy;
-    if (enableProxy?.obj?.egress === 'strict') {
-      serializedGraph.settings.proxyEgress = 'strict';
-    } else {
-      serializedGraph.settings.proxyEgress = 'permissive';
-    }
+    const proxyConfig = this.getRootDec('proxyConfig')?.resolvedValue;
+    serializedGraph.settings.proxyEgress = proxyConfig?.egress === 'strict' ? 'strict' : 'permissive';
 
     // collect all errors into a single nested object
     const errors: SerializedEnvGraphErrors = {};

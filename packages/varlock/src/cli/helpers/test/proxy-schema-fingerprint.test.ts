@@ -13,7 +13,7 @@ async function fp(envFile: string): Promise<string> {
 }
 
 const BASE = outdent`
-  # @enableProxy(egress="strict")
+  # @proxyConfig={egress="strict"}
   # ---
   # @sensitive @proxy(domain="api.x.com", approval=true)
   SECRET=abc
@@ -26,7 +26,7 @@ describe('buildProxySchemaFingerprint', () => {
 
   test('decorator order, named-arg order, comments, and whitespace do not affect it', async () => {
     const reordered = outdent`
-      # @enableProxy(egress="strict")
+      # @proxyConfig={egress="strict"}
       # ---
       # a comment that should be ignored
       # @proxy(approval=true, domain="api.x.com")  @sensitive
@@ -37,7 +37,7 @@ describe('buildProxySchemaFingerprint', () => {
 
   test('an inert decorator (@example) does not change it', async () => {
     const withExample = outdent`
-      # @enableProxy(egress="strict")
+      # @proxyConfig={egress="strict"}
       # ---
       # @sensitive @proxy(domain="api.x.com", approval=true) @example=placeholder-ish
       SECRET=abc
@@ -51,13 +51,13 @@ describe('buildProxySchemaFingerprint', () => {
 
   test('a single value and a single-element array are identical (domain=a ≡ domain=[a])', async () => {
     const single = outdent`
-      # @enableProxy(egress="strict")
+      # @proxyConfig={egress="strict"}
       # ---
       # @sensitive @proxy(domain="api.x.com")
       SECRET=abc
     `;
     const arrayOfOne = outdent`
-      # @enableProxy(egress="strict")
+      # @proxyConfig={egress="strict"}
       # ---
       # @sensitive @proxy(domain=["api.x.com"])
       SECRET=abc
@@ -75,7 +75,7 @@ describe('buildProxySchemaFingerprint', () => {
 
   test('flipping proxied → passthrough changes it (the gap the old shape-only fingerprint missed)', async () => {
     const passthrough = outdent`
-      # @enableProxy(egress="strict")
+      # @proxyConfig={egress="strict"}
       # ---
       # @sensitive
       # @proxy=passthrough
