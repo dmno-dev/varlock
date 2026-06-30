@@ -105,10 +105,12 @@ function nowIso(): string {
 
 function randomShortId(length = 5): string {
   const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  // crypto.randomInt is uniform; mapping raw random bytes with `% alphabet.length`
+  // would bias the first few characters. This is a human-friendly handle (the real
+  // session token is the crypto.randomUUID() `uuid`), but an unbiased id costs nothing.
   let out = '';
   while (out.length < length) {
-    const byte = crypto.randomBytes(1)[0]!;
-    out += alphabet[byte % alphabet.length];
+    out += alphabet[crypto.randomInt(alphabet.length)];
   }
   return out;
 }
