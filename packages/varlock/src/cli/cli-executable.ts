@@ -10,6 +10,7 @@ import { InvalidEnvError } from './helpers/error-checks';
 import { checkBunVersion } from '../lib/check-bun-version';
 import { checkLocalVersionMismatch } from '../lib/check-local-version';
 import packageJson from '../../package.json';
+import { enforceProxyContextGuards } from './helpers/proxy-context-guard';
 
 // we'll import just the spec from each, so the implementations can be lazy loaded
 import { commandSpec as initCommandSpec } from './commands/init.command';
@@ -30,6 +31,7 @@ import { commandSpec as auditCommandSpec } from './commands/audit.command';
 import { commandSpec as generateKeyCommandSpec } from './commands/generate-key.command';
 import { commandSpec as cacheCommandSpec } from './commands/cache.command';
 import { commandSpec as keychainCommandSpec } from './commands/keychain.command';
+import { commandSpec as proxyCommandSpec } from './commands/proxy.command';
 // import { commandSpec as loginCommandSpec } from './commands/login.command';
 // import { commandSpec as pluginCommandSpec } from './commands/plugin.command';
 
@@ -74,6 +76,7 @@ subCommands.set('install-plugin', buildLazyCommand(installPluginCommandSpec, asy
 subCommands.set('generate-key', buildLazyCommand(generateKeyCommandSpec, async () => await import('./commands/generate-key.command')));
 subCommands.set('cache', buildLazyCommand(cacheCommandSpec, async () => await import('./commands/cache.command')));
 subCommands.set('keychain', buildLazyCommand(keychainCommandSpec, async () => await import('./commands/keychain.command')));
+subCommands.set('proxy', buildLazyCommand(proxyCommandSpec, async () => await import('./commands/proxy.command')));
 // subCommands.set('login', buildLazyCommand(loginCommandSpec, async () => await import('./commands/login.command')));
 // subCommands.set('plugin', buildLazyCommand(pluginCommandSpec, async () => await import('./commands/plugin.command')));
 
@@ -105,6 +108,8 @@ subCommands.set('keychain', buildLazyCommand(keychainCommandSpec, async () => aw
     if (args[0] === '--version') {
       await trackCommand('version');
     }
+
+    await enforceProxyContextGuards(args);
 
     // warn if standalone binary version differs from local node_modules install
     // skip for --version/--help/complete since those are quick informational commands

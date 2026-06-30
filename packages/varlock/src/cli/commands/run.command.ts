@@ -164,6 +164,9 @@ function signalChild(signal: NodeJS.Signals | number) {
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   // if "--" is present, split the args into our command and the rest, which will be another external command
   const argv = process.argv.slice(2);
+  if (argv.includes('--proxy')) {
+    throw new CliExitError('`varlock run` no longer supports `--proxy`.');
+  }
   let restCommandArgs: Array<string> = [];
   if (argv.includes('--')) {
     const doubleDashIndex = argv.indexOf('--');

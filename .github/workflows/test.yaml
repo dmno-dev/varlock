@@ -54,6 +54,11 @@ jobs:
         run: bun run build:libs
       - name: Run tests
         run: bun run test:ci
+      # The vitest suite runs under Node; this check runs the proxy's verified-TLS
+      # injection (Invariant #1) under Bun, the runtime the compiled binary uses —
+      # Node cannot catch the Bun-specific pre-write leak it guards against.
+      - name: Proxy verified-TLS injection (Bun)
+        run: bun run --filter varlock test:proxy:bun
 
       # Determine which packages will be preview-released (used to gate native builds)
       - name: Check release packages

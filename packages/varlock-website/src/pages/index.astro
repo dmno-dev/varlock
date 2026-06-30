@@ -327,6 +327,96 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
         Use <code>varlock run</code> to inject resolved, validated env vars into another
         process.
       </p>
+
+      <section class="proxy-feature">
+        <h2>
+          <img
+            src="https://varlock-pixel-art.dmno.workers.dev/effects/fire.gif"
+          />
+          Credential broker for AI agents
+        </h2>
+        <p class="proxy-lead">
+          Run coding agents, MCP servers, and any untrusted tool so they only ever see
+          <b>placeholder</b> secrets. The real values are injected at the network boundary
+          against a cryptographically verified upstream, and scrubbed back out of responses,
+          so a prompt-injected or compromised agent has nothing to leak. You run the broker
+          yourself, on the same host as the agent, so the real secrets never go to a third party.
+        </p>
+
+        <div class="proxy-diagram">
+          <svg viewBox="0 0 760 200" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Flow diagram: the agent sends a request carrying a placeholder to the local varlock proxy; the proxy injects the real secret toward a verified upstream API, then scrubs the response back to a placeholder before returning it to the agent.">
+            <defs>
+              <marker id="hp-arrow-accent" markerWidth="8" markerHeight="8" refX="5" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L6,3 L0,6 z" fill="var(--brand-cyan, #3b82f6)" />
+              </marker>
+              <marker id="hp-arrow-muted" markerWidth="8" markerHeight="8" refX="5" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L6,3 L0,6 z" fill="currentColor" />
+              </marker>
+            </defs>
+            <g fill="none" stroke="currentColor">
+              <rect x="15" y="50" width="180" height="100" rx="10" stroke-width="1.5" opacity="0.55" />
+              <rect x="290" y="50" width="180" height="100" rx="10" stroke="var(--brand-cyan, #3b82f6)" stroke-width="2" />
+              <rect x="565" y="50" width="180" height="100" rx="10" stroke-width="1.5" opacity="0.55" />
+            </g>
+            <g fill="currentColor" text-anchor="middle">
+              <text x="105" y="90" font-size="15" font-weight="600">Agent</text>
+              <text x="105" y="110" font-size="11" opacity="0.7">untrusted child</text>
+              <text x="105" y="126" font-size="11" opacity="0.7">holds placeholders</text>
+              <text x="380" y="88" font-size="15" font-weight="600">varlock proxy</text>
+              <text x="380" y="108" font-size="11" opacity="0.7">local, in memory</text>
+              <text x="380" y="124" font-size="11" opacity="0.7">swap / verify TLS / scrub</text>
+              <text x="655" y="90" font-size="15" font-weight="600">Upstream API</text>
+              <text x="655" y="110" font-size="11" opacity="0.7">verified TLS host</text>
+            </g>
+            <g stroke="var(--brand-cyan, #3b82f6)" stroke-width="1.5" fill="none">
+              <line x1="197" y1="85" x2="286" y2="85" marker-end="url(#hp-arrow-accent)" />
+              <line x1="472" y1="85" x2="561" y2="85" marker-end="url(#hp-arrow-accent)" />
+            </g>
+            <g stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.5">
+              <line x1="286" y1="118" x2="197" y2="118" marker-end="url(#hp-arrow-muted)" />
+              <line x1="561" y1="118" x2="472" y2="118" marker-end="url(#hp-arrow-muted)" />
+            </g>
+            <g text-anchor="middle" fill="currentColor" font-size="10.5">
+              <text x="241" y="79">placeholder</text>
+              <text x="516" y="79" font-weight="600">real secret</text>
+              <text x="241" y="134" opacity="0.7">scrubbed</text>
+              <text x="516" y="134" opacity="0.7">response</text>
+            </g>
+          </svg>
+        </div>
+
+        <div class="proxy-grid">
+          <div class="proxy-code">
+            <Code
+              title=".env.schema"
+              lang="env-spec"
+              code=`
+# @sensitive @proxy(domain="api.openai.com")
+OPENAI_API_KEY=sk-...
+      `
+            />
+            <Code lang="bash" code={`varlock proxy run -- claude`} />
+          </div>
+          <ul class="proxy-points">
+            <li>
+              <b>Placeholder isolation:</b> the agent never holds a real secret, even if
+              it re-runs <code>varlock load</code> or reads its own environment.
+            </li>
+            <li>
+              <b>Verified-identity injection:</b> secrets are sent only to upstreams whose
+              TLS identity checks out against public CAs, never over cleartext.
+            </li>
+            <li>
+              <b>Scrub and audit:</b> real values are scrubbed back out of responses, and
+              every request is logged with no secret values.
+            </li>
+          </ul>
+        </div>
+
+        <div class="button-container">
+          <LinkButton href="guides/proxy/">Read the credential proxy guide</LinkButton>
+        </div>
+      </section>
     </div>
   </main>
 </Layout>
@@ -557,6 +647,46 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
     padding: 0.5em 1em;
     text-align: center;
     font-weight: bold;
+  }
+
+  /* Credential broker feature highlight */
+  .proxy-feature {
+    margin: 3.5rem 0 1rem;
+  }
+  .proxy-lead {
+    line-height: 1.5;
+    max-width: 800px;
+    margin: 0.5rem auto 1.5rem;
+  }
+  .proxy-diagram {
+    max-width: 760px;
+    margin: 1.5rem auto;
+  }
+  .proxy-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem 2.5rem;
+    align-items: center;
+    margin-top: 1.5rem;
+    @media screen and (max-width: 700px) {
+      grid-template-columns: 1fr;
+    }
+  }
+  .proxy-points {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+  }
+  .proxy-points li {
+    position: relative;
+    margin: 0.85rem 0;
+    padding-left: 1.5rem;
+  }
+  .proxy-points li::before {
+    content: "▸";
+    position: absolute;
+    left: 0;
+    color: var(--brand-cyan);
   }
 
   .custom-badge {

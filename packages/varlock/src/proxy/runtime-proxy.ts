@@ -1,0 +1,957 @@
+import {
+  mkdtemp, rm, writeFile,
+} from 'node:fs/promises';
+import http from 'node:http';
+import https from 'node:https';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { Transform } from 'node:stream';
+import { StringDecoder } from 'node:string_decoder';
+import tls from 'node:tls';
+import { URL } from 'node:url';
+
+import {
+  createApprovalRequest, isApprovalValid, type ApprovalProvider,
+} from './approval';
+import type { ProxyActivity } from './audit';
+import { createEphemeralCa, createHostCert } from './cert-authority';
+import {
+  describeRule, evaluateProxyPolicy, getRequestScopedManagedItems, type RequestFacts,
+} from './policy';
+import type {
+  ProxyApprovalEach, ProxyEgressMode, ProxyManagedItem, ProxyRule,
+} from './types';
+
+const LOCALHOST = '127.0.0.1';
+
+export type ProxyReconfigureInput = {
+  managedItems: Array<ProxyManagedItem>;
+  rules: Array<ProxyRule>;
+  egressMode: ProxyEgressMode;
+};
+
+export type ProxyRuntimeContext = {
+  env: NodeJS.ProcessEnv;
+  /**
+   * Hot-swap the policy a running proxy enforces (rules, managed items, egress
+   * mode) without restarting — used by `proxy refresh` to apply schema edits to
+   * a live daemon. Takes effect on the next request; in-flight requests keep the
+   * snapshot they already resolved. The proxy address and CA are unchanged.
+   */
+  reconfigure: (next: ProxyReconfigureInput) => void;
+  stop: () => Promise<void>;
+};
+
+/** Reported after an upstream response is forwarded — surfaces response-side scrubbing. */
+export type ProxyResponseInfo = {
+  host: string;
+  method: string;
+  path: string;
+  statusCode: number;
+  /** Managed item keys (names) whose real value appeared in the response and was scrubbed back to a placeholder. */
+  scrubbedKeys: Array<string>;
+  /** True for an unbounded/streamed body (scrubbed chunk-by-chunk). */
+  streamed?: boolean;
+};
+
+export type StartLocalProxyRuntimeInput = {
+  managedItems: Array<ProxyManagedItem>;
+  rules: Array<ProxyRule>;
+  egressMode: ProxyEgressMode;
+  onActivity?: (activity: ProxyActivity) => void;
+  /** Called after an upstream response is forwarded, with any keys scrubbed from it. */
+  onResponse?: (info: ProxyResponseInfo) => void;
+  /**
+   * Called when a request matches a `require-approval` rule. Must fail closed
+   * (deny on timeout/error). Absent ⇒ require-approval requests are denied.
+   */
+  approvalProvider?: ApprovalProvider;
+};
+
+type HostInfo = { host: string, port: number };
+
+type HeaderTransformFn = (value: string) => string;
+
+function parseHostPort(value: string): HostInfo | null {
+  // Parse via URL so bracketed IPv6 literals (`[::1]:443`) are handled — a plain
+  // `split(':')` mangles them. The hostname comes back bracketed for IPv6; strip
+  // the brackets so the bare address flows to tls.connect / checkServerIdentity /
+  // the IP-SAN cert minting (all of which expect `::1`, not `[::1]`).
+  try {
+    const url = new URL(`http://${value}`);
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+    if (!host) return null;
+    const port = url.port ? Number(url.port) : 443;
+    if (Number.isNaN(port)) return null;
+    return { host, port };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHost(host: string): string {
+  return host.toLowerCase().trim();
+}
+
+function domainMatches(domainPattern: string, host: string): boolean {
+  const pattern = normalizeHost(domainPattern);
+  const normalizedHost = normalizeHost(host);
+  if (pattern.startsWith('*.')) {
+    const suffix = pattern.slice(2);
+    return normalizedHost === suffix || normalizedHost.endsWith(`.${suffix}`);
+  }
+  return normalizedHost === pattern;
+}
+
+function hostMatchesProxyRules(host: string, rules: Array<ProxyRule>): boolean {
+  return rules.some((rule) => rule.domain.some((d) => domainMatches(d, host)));
+}
+
+/**
+ * Invariant #1: bind secret injection to the *verified upstream TLS identity*,
+ * not the requested name. Opens a TLS connection to the rule-matched host, proves
+ * the chain validates against the public PKI AND the cert identity matches that
+ * host, and returns the **verified peer IP**. The secret-bearing request is then
+ * pinned to that exact IP (see processProxiedRequest).
+ *
+ * Why not just rely on `https.request`'s own pre-write identity check? Some
+ * runtimes — notably Bun's `https.request`, which the compiled CLI binary runs on
+ * — flush the request (the `Authorization` header and body) to a wrong-identity
+ * upstream *before* `checkServerIdentity` rejects, leaking the secret. So we
+ * verify here, on a connection we control, and then pin the request to the proven
+ * IP. A poisoned DNS/Host name fails this verification (we abort, secret never
+ * sent); pinning the IP for the real request defeats a DNS-rebind between the two
+ * connections — the secret only ever reaches an address already proven to hold a
+ * valid cert for the rule host.
+ */
+function verifyUpstreamIdentity(host: string, port: number): Promise<{ address: string }> {
+  return new Promise((resolve, reject) => {
+    // SNI for DNS names; omitted for IP literals (setting `servername` to an IP
+    // throws). Identity is verified against `host` either way below.
+    const servername = net.isIP(host) ? undefined : host;
+    const socket = tls.connect({
+      host,
+      port,
+      ...(servername ? { servername } : {}),
+      rejectUnauthorized: true,
+      ALPNProtocols: ['http/1.1'],
+      // Default trust store (system roots + NODE_EXTRA_CA_CERTS), but also honor
+      // any process-global CAs the user configured on the https agent (e.g. a
+      // corporate root) so we trust the same upstreams the rest of their stack
+      // does. Undefined in the common case → default roots.
+      ca: https.globalAgent.options.ca,
+    });
+    const fail = (err: Error) => {
+      socket.destroy();
+      reject(err);
+    };
+    socket.once('error', fail);
+    socket.once('secureConnect', () => {
+      socket.removeListener('error', fail);
+      // (a) public-PKI chain must validate
+      if (!socket.authorized) {
+        fail(socket.authorizationError ?? new Error('upstream TLS chain not authorized'));
+        return;
+      }
+      // (b) cert identity must match the host we dialed (= the rule-matched host).
+      // checkServerIdentity handles both DNS names (dNSName SANs) and IP literals
+      // (iPAddress SANs) when given the host.
+      const identityError = tls.checkServerIdentity(host, socket.getPeerCertificate());
+      if (identityError) {
+        fail(identityError);
+        return;
+      }
+      const address = socket.remoteAddress;
+      socket.destroy();
+      if (!address) {
+        reject(new Error('verified upstream has no remote address'));
+        return;
+      }
+      resolve({ address });
+    });
+  });
+}
+
+/**
+ * Run the request-bound approval gate (Invariant #8). Builds an ApprovalRequest
+ * committed to this exact request, asks the provider, and returns whether the
+ * decision actually authorizes it. Fails closed: no provider, a throwing
+ * provider, a nonce mismatch, or an expired/denied decision all return false.
+ */
+async function runApprovalGate(input: {
+  approvalProvider: ApprovalProvider | undefined;
+  method: string;
+  host: string;
+  path: string;
+  body: Buffer;
+  ruleId?: string;
+  each?: ProxyApprovalEach;
+  maxDurationMs?: number;
+  injectedKeys: Array<string>;
+}): Promise<boolean> {
+  if (!input.approvalProvider) return false;
+  const request = createApprovalRequest({
+    method: input.method,
+    host: input.host,
+    path: input.path,
+    body: input.body,
+    ruleId: input.ruleId,
+    each: input.each,
+    maxDurationMs: input.maxDurationMs,
+    injectedKeys: input.injectedKeys,
+  });
+  try {
+    const decision = await input.approvalProvider.requestApproval(request);
+    return isApprovalValid(request, decision);
+  } catch {
+    return false;
+  }
+}
+
+export function replacePlaceholdersWithReal(value: string, managedItems: Array<ProxyManagedItem>): string {
+  let next = value;
+  // Longest placeholder first, mirroring the scrub direction: if one placeholder
+  // is a substring of another (e.g. `vlk_x` and `vlk_x_1`), replacing the shorter
+  // one first would corrupt the longer one and splice in the wrong real value.
+  const sortedByPlaceholderLength = [...managedItems]
+    .filter((item) => !!item.placeholder)
+    .sort((a, b) => b.placeholder.length - a.placeholder.length);
+  for (const item of sortedByPlaceholderLength) {
+    next = next.split(item.placeholder).join(item.realValue);
+  }
+  return next;
+}
+
+/**
+ * Which managed items' placeholders actually appear in this request — i.e. the
+ * secrets that will really be injected. Used for the audit log so it records
+ * what was injected (keys only), not merely what was in scope.
+ */
+function detectInjectedKeys(parts: Array<string>, hostItems: Array<ProxyManagedItem>): Array<string> {
+  const keys: Array<string> = [];
+  for (const item of hostItems) {
+    if (!item.placeholder) continue;
+    if (parts.some((part) => part.includes(item.placeholder))) keys.push(item.key);
+  }
+  return keys;
+}
+
+function replaceRealWithPlaceholders(value: string, managedItems: Array<ProxyManagedItem>): string {
+  let next = value;
+  const sortedByRealLength = [...managedItems]
+    .filter((item) => !!item.realValue && !!item.placeholder)
+    .sort((a, b) => b.realValue.length - a.realValue.length);
+  for (const item of sortedByRealLength) {
+    next = next.split(item.realValue).join(item.placeholder);
+  }
+  return next;
+}
+
+/**
+ * Fail-closed response for a blocked/failed request. When `teardown` is set (the
+ * MITM tunnel path), short status-only responses don't reliably flush through the
+ * CONNECT tunnel, so we write a best-effort response and destroy the socket. The
+ * absolute-form (plain http) path ends the response normally.
+ */
+function respondBlocked(
+  res: http.ServerResponse,
+  code: number,
+  message: string,
+  teardown: boolean,
+): void {
+  if (!res.headersSent) {
+    try {
+      if (teardown) {
+        res.writeHead(code, { 'content-type': 'text/plain', connection: 'close' });
+      } else {
+        res.statusCode = code;
+      }
+      res.end(message);
+    } catch { /* response may already be gone */ }
+  } else {
+    try {
+      res.end();
+    } catch { /* ignore */ }
+  }
+  if (teardown) res.socket?.destroy();
+}
+
+/** Transport-specific inputs for a proxied request, shared by the MITM-tunnel and
+ * absolute-form (plain http) handlers so the policy/approval/injection/forwarding
+ * logic lives in one place. */
+type ProxiedRequestTransport = {
+  host: string;
+  port: number;
+  isHttps: boolean;
+  method: string;
+  /** Path component for policy facts/activity (no query). */
+  pathOnly: string;
+  /** Origin-form path+query sent upstream (and scrubbed) — also used as the activity URL. */
+  requestTarget: string;
+  /** When set, override the upstream `Host` header (absolute-form). Undefined = pass the client's through (MITM). */
+  upstreamHostHeader?: string;
+  /** Deny/approval/error responses tear the socket down (MITM tunnel) rather than ending normally. */
+  tunnelTeardown: boolean;
+};
+
+function transformHeaders(
+  headers: http.IncomingHttpHeaders,
+  transformValue: HeaderTransformFn,
+): Record<string, string | Array<string>> {
+  const out: Record<string, string | Array<string>> = {};
+  for (const [key, val] of Object.entries(headers)) {
+    if (val === undefined) continue;
+    if (Array.isArray(val)) {
+      out[key] = val.map((v) => transformValue(v));
+    } else {
+      out[key] = transformValue(String(val));
+    }
+  }
+  return out;
+}
+
+function getHeaderValue(
+  headers: http.IncomingHttpHeaders,
+  key: string,
+): string | undefined {
+  const raw = headers[key.toLowerCase()];
+  if (raw === undefined) return undefined;
+  if (Array.isArray(raw)) return raw[0];
+  return String(raw);
+}
+
+function isUncompressedResponse(headers: http.IncomingHttpHeaders): boolean {
+  const contentEncoding = getHeaderValue(headers, 'content-encoding');
+  if (!contentEncoding) return true;
+  const tokens = contentEncoding.split(',').map((token) => token.trim().toLowerCase()).filter(Boolean);
+  if (!tokens.length) return true;
+  return tokens.every((token) => token === 'identity');
+}
+
+function isTextLikeResponse(headers: http.IncomingHttpHeaders): boolean {
+  const contentType = getHeaderValue(headers, 'content-type')?.toLowerCase();
+  if (!contentType) return false;
+  return contentType.startsWith('text/')
+    || contentType.includes('json')
+    || contentType.includes('xml')
+    || contentType.includes('javascript')
+    || contentType.includes('x-www-form-urlencoded')
+    || contentType.includes('graphql');
+}
+
+// Only buffer-and-redact bounded, reasonably small text bodies. Anything we
+// can't size up front (SSE, chunked streams) or that's too large is streamed
+// straight through — buffering it would break streaming (e.g. LLM token-by-token
+// responses hang until complete) for a low-value protection: the injected secret
+// is in the request, not the response. Header redaction still applies regardless.
+const MAX_REDACT_BODY_BYTES = 2 * 1024 * 1024;
+
+function isStreamingResponse(headers: http.IncomingHttpHeaders): boolean {
+  const contentType = getHeaderValue(headers, 'content-type')?.toLowerCase() ?? '';
+  return contentType.includes('text/event-stream');
+}
+
+function isBoundedRedactableBody(headers: http.IncomingHttpHeaders): boolean {
+  const lenRaw = getHeaderValue(headers, 'content-length');
+  if (lenRaw === undefined) return false; // unknown size — treat as a stream, never buffer
+  const len = Number(lenRaw);
+  return Number.isFinite(len) && len >= 0 && len <= MAX_REDACT_BODY_BYTES;
+}
+
+function shouldRedactResponseBody(headers: http.IncomingHttpHeaders): boolean {
+  return isUncompressedResponse(headers)
+    && isTextLikeResponse(headers)
+    && !isStreamingResponse(headers)
+    && isBoundedRedactableBody(headers);
+}
+
+function redactOutgoingHeaders(
+  headers: http.IncomingHttpHeaders,
+  managedItems: Array<ProxyManagedItem>,
+): Record<string, string | Array<string>> {
+  return transformHeaders(
+    headers,
+    (value) => replaceRealWithPlaceholders(value, managedItems),
+  );
+}
+
+/** Returns the first managed item whose real value still appears in `text` (a leak), if any. */
+function findRealLeak(text: string, managedItems: Array<ProxyManagedItem>): ProxyManagedItem | undefined {
+  return managedItems.find((item) => item.realValue.length > 0 && text.includes(item.realValue));
+}
+
+/** Item keys whose real value appears in `text` — i.e. the keys that get scrubbed back to placeholders. */
+function detectScrubbedKeys(text: string, managedItems: Array<ProxyManagedItem>): Array<string> {
+  const keys: Array<string> = [];
+  for (const item of managedItems) {
+    if (item.realValue.length > 0 && text.includes(item.realValue)) keys.push(item.key);
+  }
+  return keys;
+}
+
+/**
+ * Length of the longest suffix of `text` that is a strict prefix of some real
+ * value — i.e. a partial real value that might complete in the next chunk and
+ * so must be held back. Returns 0 (emit everything) when the text doesn't end
+ * mid-secret, which keeps streaming responsive instead of buffering a fixed
+ * window every chunk.
+ */
+function pendingRealPrefixLen(text: string, managedItems: Array<ProxyManagedItem>): number {
+  let best = 0;
+  for (const item of managedItems) {
+    const real = item.realValue;
+    if (!real) continue;
+    const maxK = Math.min(real.length - 1, text.length);
+    for (let k = maxK; k > best; k -= 1) {
+      if (text.endsWith(real.slice(0, k))) {
+        best = k;
+        break;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Scrub real values back to placeholders on an *unbounded text stream* (e.g.
+ * SSE), chunk by chunk, so a reflected secret in a streamed response is still
+ * replaced for the child without buffering the whole stream. A StringDecoder
+ * keeps multi-byte UTF-8 chars intact across chunks; only a trailing *partial*
+ * real value is held back, so complete chunks flow through immediately.
+ */
+function createScrubbingTransform(
+  managedItems: Array<ProxyManagedItem>,
+  matchedKeys?: Set<string>,
+): Transform {
+  const decoder = new StringDecoder('utf8');
+  let carry = '';
+  const note = (text: string) => {
+    if (matchedKeys) for (const key of detectScrubbedKeys(text, managedItems)) matchedKeys.add(key);
+  };
+  return new Transform({
+    transform(chunk, _enc, cb) {
+      const decoded = carry + decoder.write(chunk as Buffer);
+      note(decoded);
+      const scrubbed = replaceRealWithPlaceholders(decoded, managedItems);
+      const hold = pendingRealPrefixLen(scrubbed, managedItems);
+      const emitLen = scrubbed.length - hold;
+      carry = scrubbed.slice(emitLen);
+      cb(null, Buffer.from(scrubbed.slice(0, emitLen), 'utf8'));
+    },
+    flush(cb) {
+      const decoded = carry + decoder.end();
+      note(decoded);
+      cb(null, Buffer.from(replaceRealWithPlaceholders(decoded, managedItems), 'utf8'));
+    },
+  });
+}
+
+function forwardUpstreamResponseWithRedaction(
+  upstreamRes: http.IncomingMessage,
+  clientRes: http.ServerResponse,
+  managedItems: Array<ProxyManagedItem>,
+  shouldRedact: boolean,
+  responseCtx?: { host: string; method: string; path: string; onResponse?: (info: ProxyResponseInfo) => void },
+) {
+  const statusCode = upstreamRes.statusCode ?? 502;
+  const onResponse = responseCtx?.onResponse;
+  const report = (scrubbedKeys: Iterable<string>, streamed: boolean) => {
+    if (!onResponse || !responseCtx) return;
+    onResponse({
+      host: responseCtx.host,
+      method: responseCtx.method,
+      path: responseCtx.path,
+      statusCode,
+      scrubbedKeys: [...new Set(scrubbedKeys)],
+      ...(streamed ? { streamed: true } : {}),
+    });
+  };
+  // Detect keys reflected in the (original) response headers, scrubbed regardless of body path.
+  const headerKeys = shouldRedact ? detectScrubbedKeys(JSON.stringify(upstreamRes.headers), managedItems) : [];
+  const outgoingHeaders = shouldRedact
+    ? redactOutgoingHeaders(upstreamRes.headers, managedItems)
+    : { ...upstreamRes.headers };
+
+  if (!shouldRedact || !shouldRedactResponseBody(upstreamRes.headers)) {
+    // Scrub unbounded uncompressed text streams (e.g. SSE) chunk-by-chunk so a
+    // reflected secret is still replaced. Bodies with a content-length take the
+    // buffered path below; compressed/binary bodies can't be scanned without
+    // decompressing and pass through unchanged.
+    const hasContentLength = getHeaderValue(upstreamRes.headers, 'content-length') !== undefined;
+    const canScrubStream = shouldRedact
+      && managedItems.length > 0
+      && !hasContentLength
+      && isUncompressedResponse(upstreamRes.headers)
+      && isTextLikeResponse(upstreamRes.headers);
+
+    clientRes.writeHead(statusCode, outgoingHeaders);
+    if (canScrubStream) {
+      const matched = new Set(headerKeys);
+      const transform = createScrubbingTransform(managedItems, matched);
+      transform.on('end', () => report(matched, true));
+      upstreamRes.pipe(transform).pipe(clientRes);
+    } else {
+      // Passthrough (compressed/binary/unscanned body) — only header reflection is visible.
+      report(headerKeys, false);
+      upstreamRes.pipe(clientRes);
+    }
+    return;
+  }
+
+  const chunks: Array<Buffer> = [];
+  upstreamRes.on('data', (chunk: Buffer | string) => {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  });
+
+  upstreamRes.on('end', () => {
+    const originalBody = Buffer.concat(chunks).toString('utf8');
+    const bodyKeys = detectScrubbedKeys(originalBody, managedItems);
+    const redactedBody = replaceRealWithPlaceholders(originalBody, managedItems);
+
+    // Fail-safe (Invariant #6): if a real value somehow survived scrubbing, do
+    // NOT forward it — fail closed rather than leak a secret to the child.
+    if (findRealLeak(redactedBody, managedItems)) {
+      if (!clientRes.headersSent) {
+        clientRes.writeHead(502, { 'content-type': 'text/plain', connection: 'close' });
+      }
+      clientRes.end('Response withheld: a sensitive value could not be redacted');
+      clientRes.socket?.destroy();
+      return;
+    }
+
+    const redactedBuffer = Buffer.from(redactedBody, 'utf8');
+
+    const headersForWrite = { ...outgoingHeaders };
+    headersForWrite['content-length'] = String(redactedBuffer.byteLength);
+    delete headersForWrite['transfer-encoding'];
+    delete headersForWrite.etag;
+
+    clientRes.writeHead(statusCode, headersForWrite);
+    clientRes.end(redactedBuffer);
+    report([...headerKeys, ...bodyKeys], false);
+  });
+
+  upstreamRes.on('error', () => {
+    if (!clientRes.headersSent) clientRes.statusCode = 502;
+    clientRes.end('Upstream proxy error');
+  });
+}
+
+async function readBody(req: http.IncomingMessage): Promise<Buffer> {
+  const chunks: Array<Buffer> = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+function buildPathnameAndQuery(input: string, managedItems: Array<ProxyManagedItem>): string {
+  return replacePlaceholdersWithReal(input, managedItems);
+}
+
+/**
+ * Local MITM proxy runtime for `varlock proxy run`.
+ * Rewrites placeholder values to real values for requests matching @proxy domains.
+ */
+export async function startLocalProxyRuntime({
+  managedItems: initialManagedItems,
+  rules: initialRules,
+  egressMode: initialEgressMode,
+  onActivity,
+  onResponse,
+  approvalProvider,
+}: StartLocalProxyRuntimeInput): Promise<ProxyRuntimeContext> {
+  // Mutable so `reconfigure` can hot-swap the enforced policy on a live proxy.
+  // The request handlers below close over these bindings, so reassigning them
+  // changes behavior on the next request (in-flight requests already snapshotted).
+  let managedItems = initialManagedItems;
+  let rules = initialRules;
+  let egressMode = initialEgressMode;
+  // Only the public CA cert is written to disk (for child trust). Private keys
+  // — the CA's and every per-host leaf's — stay in memory; see cert-authority.ts.
+  const certsDir = await mkdtemp(path.join(os.tmpdir(), 'varlock-proxy-certs-'));
+  const ca = await createEphemeralCa();
+  const caCertPath = path.join(certsDir, 'ca-cert.pem');
+  const combinedCaPath = path.join(certsDir, 'combined-ca.pem');
+  await writeFile(caCertPath, ca.certPem, 'utf8');
+  await writeFile(combinedCaPath, `${ca.certPem}\n${tls.rootCertificates.join('\n')}\n`, 'utf8');
+
+  // Shared request pipeline for both transports (MITM tunnel + absolute-form http):
+  // egress gate → per-call policy (block) → cleartext guard → approval gate →
+  // scrub+inject → forward upstream (verified identity) → scrub response. Every
+  // failure path fails closed via respondBlocked.
+  const processProxiedRequest = async (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    t: ProxiedRequestTransport,
+  ) => {
+    const baseActivity = {
+      host: t.host, method: t.method, path: t.pathOnly, url: t.requestTarget,
+    };
+
+    const shouldRewrite = hostMatchesProxyRules(t.host, rules);
+    const shouldAllowEgress = egressMode === 'permissive' || shouldRewrite;
+    if (!shouldAllowEgress) {
+      onActivity?.({
+        ...baseActivity, matched: shouldRewrite, blocked: true, decision: 'blocked-egress',
+      });
+      respondBlocked(res, 403, 'Proxy egress blocked by strict mode', false);
+      return;
+    }
+
+    // Per-call policy (static authorization): evaluate host + method + path; a
+    // matching `block` rule denies the request and it never reaches upstream.
+    const facts: RequestFacts = { host: t.host, method: t.method, path: t.pathOnly };
+    const policyDecision = shouldRewrite ? evaluateProxyPolicy(facts, rules) : undefined;
+    const ruleIdStr = policyDecision?.matchedRule ? describeRule(policyDecision.matchedRule) : undefined;
+    const ruleId = ruleIdStr ? { ruleId: ruleIdStr } : {};
+    if (policyDecision?.verdict === 'deny') {
+      onActivity?.({
+        ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'deny',
+      });
+      respondBlocked(res, 403, 'Blocked by proxy policy', t.tunnelTeardown);
+      return;
+    }
+
+    const hostItems = shouldRewrite ? getRequestScopedManagedItems(facts, rules, managedItems) : [];
+
+    // Invariant #2/#5: never inject a secret into a cleartext (non-TLS) connection —
+    // no cert means no verifiable identity. Fail closed. (MITM is always https, so
+    // this only fires on the absolute-form http path.)
+    if (hostItems.length > 0 && !t.isHttps) {
+      onActivity?.({
+        ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-cleartext',
+      });
+      respondBlocked(res, 403, 'Refusing to inject secrets into a cleartext (non-TLS) connection', false);
+      return;
+    }
+
+    const body = await readBody(req);
+    const injectedKeys = shouldRewrite
+      ? detectInjectedKeys([t.requestTarget, JSON.stringify(req.headers), body.toString('utf8')], hostItems)
+      : [];
+
+    // Invariant #8: a require-approval rule holds the request for an out-of-band,
+    // request-bound decision. Fail closed (deny) unless explicitly approved.
+    if (policyDecision?.verdict === 'require-approval') {
+      const approved = await runApprovalGate({
+        approvalProvider,
+        method: t.method,
+        host: t.host,
+        path: t.pathOnly,
+        body,
+        ruleId: ruleIdStr,
+        each: policyDecision.matchedRule?.approval?.each,
+        maxDurationMs: policyDecision.matchedRule?.approval?.maxDurationMs,
+        injectedKeys,
+      });
+      if (!approved) {
+        onActivity?.({
+          ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'approval-denied',
+        });
+        respondBlocked(res, 403, 'Request denied: approval not granted', t.tunnelTeardown);
+        return;
+      }
+    }
+
+    onActivity?.({
+      ...baseActivity,
+      ...ruleId,
+      matched: shouldRewrite,
+      blocked: false,
+      decision: policyDecision?.verdict === 'require-approval' ? 'approval-granted' : 'allow',
+      ...(injectedKeys.length ? { injectedKeys } : {}),
+    });
+
+    const rewrittenBody = shouldRewrite
+      ? Buffer.from(replacePlaceholdersWithReal(body.toString('utf8'), hostItems), 'utf8')
+      : body;
+    const rewrittenPath = shouldRewrite
+      ? buildPathnameAndQuery(t.requestTarget, hostItems)
+      : t.requestTarget;
+
+    const upstreamHeaders = transformHeaders(
+      req.headers,
+      shouldRewrite
+        ? (value) => replacePlaceholdersWithReal(value, hostItems)
+        : (value) => value,
+    );
+    delete upstreamHeaders['proxy-connection'];
+    delete upstreamHeaders.connection;
+    if (t.upstreamHostHeader !== undefined) upstreamHeaders.host = t.upstreamHostHeader;
+    if (rewrittenBody.byteLength !== body.byteLength) {
+      upstreamHeaders['content-length'] = String(rewrittenBody.byteLength);
+    }
+
+    const upstreamPort = t.port || (t.isHttps ? 443 : 80);
+
+    // Invariant #1: for TLS upstreams, verify the identity on a connection we
+    // control BEFORE writing any secret, then pin the request to the proven IP.
+    // We can't reuse the verified socket directly (Bun's https client won't accept
+    // a handed-in socket), so we pin by IP — the secret only ever reaches an
+    // address already proven to hold a valid cert for the rule host, defeating
+    // DNS-poison/rebind. Cleartext (http) upstreams never carry an injected secret
+    // — the cleartext guard above fails closed when hostItems.length > 0 && !isHttps.
+    let verifiedAddress: string | undefined;
+    if (t.isHttps) {
+      try {
+        ({ address: verifiedAddress } = await verifyUpstreamIdentity(t.host, upstreamPort));
+      } catch {
+        // Fail closed: the upstream identity could not be verified, so the secret
+        // was never transmitted.
+        respondBlocked(res, 502, 'Upstream request failed', t.tunnelTeardown);
+        return;
+      }
+    }
+
+    // For DNS-name hosts, send SNI for (and re-check identity against) the rule
+    // host even though we dial the pinned IP. For IP-literal hosts there is no SNI.
+    const sni = t.isHttps && !net.isIP(t.host) ? t.host : undefined;
+    const agent = t.isHttps ? https : http;
+    const upstreamReq = agent.request({
+      protocol: t.isHttps ? 'https:' : 'http:',
+      // Pin to the verified peer IP (https) so the request can't be re-resolved to
+      // a different host between verification and send.
+      hostname: verifiedAddress ?? t.host,
+      port: upstreamPort,
+      method: req.method,
+      path: rewrittenPath,
+      headers: upstreamHeaders,
+      ...(t.isHttps
+        ? {
+          ...(sni ? { servername: sni } : {}),
+          rejectUnauthorized: true,
+          // Defense-in-depth: re-check the cert identity against the rule host
+          // (not the pinned IP we dialed). Redundant given the pinned-IP proof,
+          // but cheap. (Some runtimes ignore this; the pinned-IP proof is the
+          // real guarantee — see verifyUpstreamIdentity.)
+          checkServerIdentity: (_sni: string, cert: tls.PeerCertificate) => tls.checkServerIdentity(t.host, cert),
+          ca: https.globalAgent.options.ca,
+        }
+        : {}),
+    }, (upstreamRes) => {
+      forwardUpstreamResponseWithRedaction(upstreamRes, res, hostItems, shouldRewrite, {
+        host: t.host,
+        method: t.method,
+        path: t.pathOnly,
+        onResponse,
+      });
+    });
+
+    upstreamReq.on('error', () => {
+      // Fail closed: the upstream identity could not be verified (or the connection
+      // failed), so the secret was never transmitted.
+      respondBlocked(res, 502, 'Upstream request failed', t.tunnelTeardown);
+    });
+    upstreamReq.end(rewrittenBody);
+  };
+
+  const handleInterceptRequest = async (req: http.IncomingMessage, res: http.ServerResponse) => {
+    const hostHeader = req.headers.host ?? '';
+    const hostInfo = parseHostPort(hostHeader.includes(':') ? hostHeader : `${hostHeader}:443`);
+    if (!hostInfo) {
+      res.statusCode = 400;
+      res.end('Invalid host');
+      return;
+    }
+    const rawUrl = req.url ?? '/';
+    await processProxiedRequest(req, res, {
+      host: hostInfo.host,
+      port: hostInfo.port || 443,
+      isHttps: true, // the MITM tunnel is always TLS
+      method: req.method ?? 'GET',
+      pathOnly: rawUrl.split('?')[0] ?? '/',
+      requestTarget: rawUrl,
+      upstreamHostHeader: undefined, // pass the client's Host through
+      tunnelTeardown: true,
+    });
+  };
+
+  const hostMitmServers = new Map<string, { server: https.Server; port: number }>();
+  const getOrCreateHostMitmServer = async (host: string): Promise<{ server: https.Server; port: number }> => {
+    const normalized = normalizeHost(host);
+    const cached = hostMitmServers.get(normalized);
+    if (cached) return cached;
+
+    const hostCert = await createHostCert(ca, normalized);
+    const server = https.createServer({
+      key: hostCert.keyPem,
+      cert: hostCert.certPem,
+      ALPNProtocols: ['http/1.1'],
+    }, (req, res) => {
+      handleInterceptRequest(req, res).catch(() => {
+        if (!res.headersSent) res.statusCode = 502;
+        res.end('Upstream MITM request failed');
+      });
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, LOCALHOST, () => {
+        server.off('error', reject);
+        resolve();
+      });
+    });
+    const addr = server.address();
+    if (!addr || typeof addr === 'string') {
+      server.close();
+      throw new Error(`Failed to start MITM TLS server for ${normalized}`);
+    }
+
+    const created = { server, port: addr.port };
+    hostMitmServers.set(normalized, created);
+    return created;
+  };
+
+  // Handles absolute-form proxy requests (mostly plain HTTP).
+  const proxyServer = http.createServer(async (clientReq, clientRes) => {
+    const urlRaw = clientReq.url;
+    if (!urlRaw) {
+      clientRes.statusCode = 400;
+      clientRes.end('Missing request URL');
+      return;
+    }
+
+    let destination: URL;
+    try {
+      destination = new URL(urlRaw);
+    } catch {
+      clientRes.statusCode = 400;
+      clientRes.end('Invalid proxy request URL');
+      return;
+    }
+
+    const isHttps = destination.protocol === 'https:';
+    const defaultPort = isHttps ? 443 : 80;
+    await processProxiedRequest(clientReq, clientRes, {
+      host: destination.hostname,
+      port: destination.port ? Number(destination.port) : defaultPort,
+      isHttps,
+      method: clientReq.method ?? 'GET',
+      pathOnly: destination.pathname,
+      requestTarget: `${destination.pathname}${destination.search}`,
+      upstreamHostHeader: destination.host, // absolute-form: client Host may be the proxy
+      tunnelTeardown: false,
+    });
+  });
+
+  proxyServer.on('connect', async (req, clientSocket, head) => {
+    const hostInfo = parseHostPort(req.url ?? '');
+    if (!hostInfo) {
+      clientSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+      clientSocket.destroy();
+      return;
+    }
+
+    const shouldRewrite = hostMatchesProxyRules(hostInfo.host, rules);
+    const shouldAllowEgress = egressMode === 'permissive' || shouldRewrite;
+    if (!shouldAllowEgress) {
+      // CONNECT only exposes host:port; the per-request audit entry (method/path)
+      // comes later from the MITM handler for allowed hosts. Here we record the
+      // host-level egress denial.
+      onActivity?.({
+        host: hostInfo.host,
+        method: 'CONNECT',
+        path: '/',
+        matched: shouldRewrite,
+        blocked: true,
+        decision: 'blocked-egress',
+      });
+      const blockedBody = 'Proxy egress blocked by strict mode';
+      clientSocket.write(
+        `HTTP/1.1 403 Forbidden\r\nContent-Length: ${Buffer.byteLength(blockedBody)}\r\nConnection: close\r\n\r\n${blockedBody}`,
+      );
+      clientSocket.destroy();
+      return;
+    }
+
+    // Only MITM for configured proxy domains. Others are tunneled through.
+    if (!shouldRewrite) {
+      const upstreamSocket = net.connect(hostInfo.port, hostInfo.host, () => {
+        clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (head.length > 0) upstreamSocket.write(head);
+        clientSocket.pipe(upstreamSocket);
+        upstreamSocket.pipe(clientSocket);
+      });
+      upstreamSocket.on('error', () => clientSocket.destroy());
+      clientSocket.on('error', () => upstreamSocket.destroy());
+      return;
+    }
+
+    try {
+      const hostMitmServer = await getOrCreateHostMitmServer(hostInfo.host);
+      const mitmSocket = net.connect(hostMitmServer.port, LOCALHOST, () => {
+        clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (head.length > 0) {
+          mitmSocket.write(head);
+        }
+        clientSocket.pipe(mitmSocket);
+        mitmSocket.pipe(clientSocket);
+      });
+      mitmSocket.on('error', () => {
+        clientSocket.destroy();
+      });
+      clientSocket.on('error', () => {
+        mitmSocket.destroy();
+      });
+    } catch {
+      clientSocket.destroy();
+    }
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    proxyServer.once('error', reject);
+    proxyServer.listen(0, LOCALHOST, () => {
+      proxyServer.off('error', reject);
+      resolve();
+    });
+  });
+
+  const address = proxyServer.address();
+  if (!address || typeof address === 'string') {
+    await new Promise<void>((resolve) => {
+      proxyServer.close(() => resolve());
+    });
+    throw new Error('Failed to start local proxy runtime');
+  }
+  const proxyUrl = `http://${LOCALHOST}:${address.port}`;
+
+  return {
+    env: {
+      HTTP_PROXY: proxyUrl,
+      HTTPS_PROXY: proxyUrl,
+      ALL_PROXY: proxyUrl,
+      http_proxy: proxyUrl,
+      https_proxy: proxyUrl,
+      all_proxy: proxyUrl,
+      NO_PROXY: 'localhost,127.0.0.1,::1',
+      no_proxy: 'localhost,127.0.0.1,::1',
+      NODE_EXTRA_CA_CERTS: caCertPath,
+      SSL_CERT_FILE: combinedCaPath,
+      REQUESTS_CA_BUNDLE: combinedCaPath,
+      CURL_CA_BUNDLE: combinedCaPath,
+      GIT_SSL_CAINFO: combinedCaPath,
+    },
+    reconfigure: (next) => {
+      managedItems = next.managedItems;
+      rules = next.rules;
+      egressMode = next.egressMode;
+    },
+    stop: async () => {
+      await Promise.all([
+        new Promise<void>((resolve) => {
+          proxyServer.close(() => resolve());
+        }),
+        new Promise<void>((resolve) => {
+          Promise.all(
+            [...hostMitmServers.values()].map(({ server }) => new Promise<void>((innerResolve) => {
+              server.close(() => innerResolve());
+            })),
+          ).then(() => resolve());
+        }),
+      ]);
+      await rm(certsDir, { recursive: true, force: true });
+    },
+  };
+}
