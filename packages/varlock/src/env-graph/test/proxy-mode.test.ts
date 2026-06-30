@@ -28,7 +28,7 @@ describe('proxy decorators', () => {
 
   test('collects attached and detached proxy rules', async () => {
     const graph = await loadGraph(outdent`
-      # @enableProxy(egress="strict")
+      # @proxyConfig={egress="strict"}
       # @proxy(domain="api.example.com")
       # ---
       BASELINE=1
@@ -71,7 +71,7 @@ describe('proxy decorators', () => {
 
   test('detached rule attaches extra items via keys=[...] array literal', async () => {
     const graph = await loadGraph(outdent`
-      # @enableProxy(egress="strict")
+      # @proxyConfig={egress="strict"}
       # @proxy(domain="api.example.com", keys=[STRIPE_KEY, WEBHOOK_SECRET])
       # ---
       # @sensitive
@@ -145,7 +145,7 @@ describe('proxy decorators', () => {
 
   test('a header-level (detached) @proxy is not rejected as a misplaced item decorator', async () => {
     const graph = await loadGraph(outdent`
-      # @enableProxy(egress="strict")
+      # @proxyConfig={egress="strict"}
       # @proxy(domain="api.a.com")
       # @proxy(domain="api.b.com", path="/admin/**", approval=true)
       # ---
@@ -167,7 +167,7 @@ describe('proxy decorators', () => {
 
   test('approval object form: each + maxDuration parse onto the rule', async () => {
     const graph = await loadGraph(outdent`
-      # @enableProxy(egress="strict")
+      # @proxyConfig={egress="strict"}
       # @proxy(domain="api.a.com", approval=true)
       # @proxy(domain="api.b.com", approval={each=request, maxDuration="15m"})
       # @proxy(domain="api.c.com", approval={each=host, maxDuration=0})

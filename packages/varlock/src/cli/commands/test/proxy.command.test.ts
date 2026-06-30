@@ -136,7 +136,7 @@ describe('isCwdWithin (proxy run attach matching)', () => {
 describe('@proxy nested rules=[...] form', () => {
   test('desugars to the parent inject rule plus one policy rule per entry (domain written once)', async () => {
     const graph = await loadGraph(outdent`
-      # @enableProxy(egress="strict")
+      # @proxyConfig={egress="strict"}
       # ---
       # @proxy(domain="api.stripe.com", rules=[
       #   {path="/v1/refunds/**", method=[POST, DELETE], block=true},
@@ -163,7 +163,7 @@ describe('@proxy nested rules=[...] form', () => {
 
   test('a detached header rules=[...] block inherits the domain and injects nothing', async () => {
     const graph = await loadGraph(outdent`
-      # @enableProxy(egress="strict")
+      # @proxyConfig={egress="strict"}
       # @proxy(domain="api.example.com", rules=[{path="/admin/**", block=true}])
       # ---
       FOO=bar
@@ -176,7 +176,6 @@ describe('@proxy nested rules=[...] form', () => {
 
   test('rejects an entry that tries to re-set domain (injection is the parent rule\'s job)', async () => {
     const graph = await loadGraph(outdent`
-      # @enableProxy()
       # @proxy(domain="api.example.com", rules=[{domain="evil.com", block=true}])
       # ---
       FOO=bar
