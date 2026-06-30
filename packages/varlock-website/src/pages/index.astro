@@ -339,8 +339,8 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
           Run coding agents, MCP servers, and any untrusted tool so they only ever see
           <b>placeholder</b> secrets. The real values are injected at the network boundary
           against a cryptographically verified upstream, and scrubbed back out of responses,
-          so a prompt-injected or compromised agent has nothing to leak. varlock runs the
-          broker locally on your own machine, so your real secrets never leave it.
+          so a prompt-injected or compromised agent has nothing to leak. You run the broker
+          yourself, on the same host as the agent, so the real secrets never go to a third party.
         </p>
 
         <div class="proxy-diagram">
@@ -391,8 +391,6 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
               title=".env.schema"
               lang="env-spec"
               code=`
-# @enableProxy()
-# ---
 # @sensitive @proxy(domain="api.openai.com")
 OPENAI_API_KEY=sk-...
       `

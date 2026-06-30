@@ -639,7 +639,7 @@ You can also temporarily opt out by setting the `VARLOCK_TELEMETRY_DISABLED` env
 <div>
 ### `varlock proxy` ||proxy||
 
-Manages [credential proxy](/guides/proxy/) sessions: running an untrusted child process so it only sees placeholder secrets while real values are injected at the network boundary. Requires [`@enableProxy`](/reference/root-decorators/#enableproxy) in your schema.
+Manages [credential proxy](/guides/proxy/) sessions: running an untrusted child process so it only sees placeholder secrets while real values are injected at the network boundary. Route secrets by adding [`@proxy(domain=...)`](/reference/item-decorators/#proxy) to the items you want to protect.
 
 ```bash
 varlock proxy <subcommand> [options]
