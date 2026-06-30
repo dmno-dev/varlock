@@ -3,11 +3,13 @@ title: Credential proxy
 description: Run AI agents and untrusted tools through a local credential broker so they only ever see placeholder secrets, while real values are injected at the network boundary.
 ---
 
-The credential proxy lets you run an AI agent (or any untrusted tool) so that it **never sees your real secrets**: it only ever has placeholders in its environment. The real values are injected into outbound requests at the network boundary, against a cryptographically verified upstream, and every request is logged.
+The credential proxy lets you run an AI agent (or any untrusted component) so that it **never sees real secrets**. Instead it receives _placeholders_ and real values are swapped in at the network boundary.
 
 This is useful any time a process you don't fully trust needs to _use_ a secret without being allowed to _read_ it: coding agents, MCP servers, third-party CLIs, or scripts.
 
-This pattern is known as a **credential broker** (or credential brokering): a trusted component holds the real credentials and swaps them in at the network boundary, so a compromised or prompt-injected agent never holds a secret it can leak. It is increasingly recommended for agent security, for example by the [SANS Institute](https://www.sans.org/blog/your-ai-agent-easily-confused-deputy-why-cloud-security-needs-credential-broker) and in [Anthropic's managed-agents architecture](https://www.anthropic.com/engineering/managed-agents). varlock's credential proxy is a local implementation you run on your own machine.
+This pattern is known as a **credential broker**: a trusted component holds the real credentials and swaps them in at the network boundary, so a compromised or prompt-injected agent never holds a secret it can leak. It is increasingly recommended for agent security, for example by the [SANS Institute](https://www.sans.org/blog/your-ai-agent-easily-confused-deputy-why-cloud-security-needs-credential-broker) and in [Anthropic's managed-agents architecture](https://www.anthropic.com/engineering/managed-agents).
+
+Most other credential brokers require you to store secrets in their tool, or work only with a limited subset of secure storage locations (system keychain, 1Password). Our proxy works with the existing varlock suite - so you can use any of our [plugins](/plugins/overview/), and still take advantage of the rest of varlock's features.
 
 <figure style="margin: 1.5rem 0;">
 <svg viewBox="0 0 760 200" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Flow diagram: the agent sends a request carrying a placeholder to the local varlock proxy; the proxy injects the real secret toward a verified upstream API, then scrubs the response back to a placeholder before returning it to the agent.">
@@ -56,13 +58,10 @@ This pattern is known as a **credential broker** (or credential brokering): a tr
 The credential proxy is an early preview. Its core protection (placeholder isolation + verified-identity wire injection) is solid, but on its own it runs as the same user as the agent, so it raises the bar rather than being a hard boundary. Pair it with an OS sandbox or container and it becomes a real one. Read [Limitations](#limitations) before relying on it as a security boundary.
 :::
 
-```env-spec title=".env.schema"
-# @enableProxy(egress="permissive")
-# ---
+```diff lang="env-spec" title=".env.schema"
 # @sensitive
-# @proxy(domain="api.openai.com")
-# @placeholder=sk-proj-000000000000000000000000
-OPENAI_API_KEY=sk-...
++# @proxy(domain="api.openai.com") @placeholder=sk-proj-000000000000000000000000
+OPENAI_API_KEY=yourPreferredPlugin() # load from secure vault
 ```
 
 ```bash
@@ -86,22 +85,11 @@ Secrets and the proxy's signing key live only in memory on your machine; they ar
 
 This assumes you already have varlock [installed](/getting-started/installation/) and a working `.env.schema` whose secrets resolve (committed encrypted values, a [plugin](/plugins/overview/), or env values you can load).
 
-#### 1. Enable the proxy
-
-Add the [`@enableProxy`](/reference/root-decorators/#enableproxy) root decorator to your schema header:
-
-```env-spec title=".env.schema"
-# @enableProxy(egress="permissive")
-# ---
-```
-
-#### 2. Route a secret through the proxy
+#### 1. Route a secret through the proxy
 
 Mark the item [`@sensitive`](/reference/item-decorators/#sensitive) and add [`@proxy(domain=...)`](/reference/item-decorators/#proxy) **to the item** you want to protect. The `@proxy` tells the proxy to inject the item's real value into requests to that host:
 
 ```env-spec title=".env.schema"
-# @enableProxy(egress="permissive")
-# ---
 # @sensitive
 # @proxy(domain="api.openai.com")
 # @placeholder=sk-proj-000000000000000000000000
@@ -116,13 +104,15 @@ STRIPE_SECRET_KEY=sk_live_...
 
 The `@placeholder` on `OPENAI_API_KEY` makes the placeholder the agent sees look like a real key, so SDK key-format checks pass. Leave it off (like `STRIPE_SECRET_KEY` above) and the item gets a generic `vlk_placeholder_…`, which varlock warns about because it can fail a client-side key-format check (see [Placeholders](#placeholders)).
 
-#### 3. Check your config (optional)
+That is all the proxy needs: there is no separate "enable" step. It runs in **permissive** mode by default (hosts that don't match a rule pass through untouched). Add [`@enableProxy(egress="strict")`](#egress-modes) to your schema header only when you want to block everything that isn't explicitly routed.
+
+#### 2. Check your config (optional)
 
 ```bash
 varlock proxy rules   # prints the effective @proxy rules + per-secret mode, no proxy started
 ```
 
-#### 4. Run your agent through it
+#### 3. Run your agent through it
 
 ```bash
 varlock proxy run -- claude
@@ -187,10 +177,10 @@ This injects `STRIPE_SECRET_KEY` across `api.stripe.com` and blocks refunds and 
 
 ### Egress modes
 
-`@enableProxy(egress=...)` controls what happens to requests that **don't** match any rule:
+The [`@enableProxy(egress=...)`](/reference/root-decorators/#enableproxy) header decorator controls what happens to requests that **don't** match any rule. It's the only reason to write `@enableProxy` at all: the proxy works without it, and `egress` defaults to `permissive`.
 
-- `permissive` _(default)_: unmatched hosts pass through untouched (no injection, no blocking). Good for getting started.
-- `strict`: only requests matching a `@proxy` rule are allowed; everything else is blocked. This is the recommended posture once your rules are dialed in, since it prevents the agent from reaching arbitrary hosts.
+- `permissive` _(default, no decorator needed)_: unmatched hosts pass through untouched (no injection, no blocking). Good for getting started.
+- `strict`: add `@enableProxy(egress="strict")` to the header so only requests matching a `@proxy` rule are allowed; everything else is blocked. This is the recommended posture once your rules are dialed in, since it prevents the agent from reaching arbitrary hosts.
 
 ## Controlling what the agent sees
 
