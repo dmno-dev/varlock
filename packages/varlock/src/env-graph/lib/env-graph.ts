@@ -857,7 +857,6 @@ export class EnvGraph {
 
         const src = await generator.generate({
           graph: this,
-          items,
           fields,
           options: settings.obj,
           outputPath,

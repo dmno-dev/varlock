@@ -9,6 +9,7 @@ import {
   collectTypeGenItems,
   generateTsTypesSrc,
   resolveFieldType,
+  resolveFieldTypes,
   type TypeGenItemInfo,
 } from '../index';
 import { getTypeGenInfoMap, loadFixtureFields, loadGraph } from './type-generation/helpers';
@@ -534,7 +535,7 @@ describe('type generation', () => {
           items.push(await g.configSchema[key].getTypeGenInfo());
         }
       }
-      const src = await generateTsTypesSrc(items);
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
       expect(src).toContain('SOME_DECLARED_KEY');
       expect(src).not.toContain('STALE_BOGUS_KEY');
 
@@ -620,7 +621,7 @@ describe('type generation', () => {
           items.push(await g.configSchema[key].getTypeGenInfo());
         }
       }
-      const src = await generateTsTypesSrc(items);
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
 
       expect(src).toContain('APP_ENV');
       expect(src).toContain('SHARED_ITEM');
@@ -653,7 +654,7 @@ describe('type generation', () => {
       for (const key of g.sortedConfigKeys) {
         items.push(await g.configSchema[key].getTypeGenInfo());
       }
-      const src = await generateTsTypesSrc(items);
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
 
       // verify the source contains expected type declarations
       expect(src).toContain('export type CoercedEnvSchema');
@@ -731,7 +732,7 @@ describe('type generation', () => {
   describe('generateTsTypesSrc options', () => {
     test('defaults preserve global augmentation (strict)', async () => {
       const { items } = await loadFixtureFields();
-      const src = await generateTsTypesSrc(items);
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
       expect(src).toContain("declare module 'varlock/env'");
       expect(src).toContain('declare global {');
       // strict = extends the strings alias with no index signature
@@ -743,7 +744,7 @@ describe('type generation', () => {
 
     test('env=none omits the varlock/env augmentation and ENV export', async () => {
       const { items } = await loadFixtureFields();
-      const src = await generateTsTypesSrc(items, { env: 'none' });
+      const src = await generateTsTypesSrc(resolveFieldTypes(items), { env: 'none' });
       expect(src).not.toContain("declare module 'varlock/env'");
       expect(src).not.toContain('export const ENV');
       // types are still emitted
@@ -752,22 +753,22 @@ describe('type generation', () => {
 
     test('processEnv=none / importMetaEnv=none omit those global blocks', async () => {
       const { items } = await loadFixtureFields();
-      expect(await generateTsTypesSrc(items, { processEnv: 'none' })).not.toContain('namespace NodeJS');
-      expect(await generateTsTypesSrc(items, { importMetaEnv: 'none' })).not.toContain('ImportMetaEnv');
+      expect(await generateTsTypesSrc(resolveFieldTypes(items), { processEnv: 'none' })).not.toContain('namespace NodeJS');
+      expect(await generateTsTypesSrc(resolveFieldTypes(items), { importMetaEnv: 'none' })).not.toContain('ImportMetaEnv');
       // both off => no declare global block at all
-      const src = await generateTsTypesSrc(items, { processEnv: 'none', importMetaEnv: 'none' });
+      const src = await generateTsTypesSrc(resolveFieldTypes(items), { processEnv: 'none', importMetaEnv: 'none' });
       expect(src).not.toContain('declare global {');
     });
 
     test('loose adds an index signature for extra keys', async () => {
       const { items } = await loadFixtureFields();
-      const src = await generateTsTypesSrc(items, { processEnv: 'loose', importMetaEnv: 'loose' });
+      const src = await generateTsTypesSrc(resolveFieldTypes(items), { processEnv: 'loose', importMetaEnv: 'loose' });
       expect(src).toContain('[key: string]: string | undefined;');
     });
 
     test('env=module emits a package-local importable ENV, no global augmentation', async () => {
       const { items } = await loadFixtureFields();
-      const src = await generateTsTypesSrc(items, { env: 'module' });
+      const src = await generateTsTypesSrc(resolveFieldTypes(items), { env: 'module' });
       expect(src).toContain("import { ENV as _ENV } from 'varlock/env';");
       expect(src).toContain('export const ENV = _ENV as unknown as Readonly<CoercedEnvSchema>;');
       expect(src).toContain('export type PublicCoercedEnvSchema');
@@ -776,8 +777,8 @@ describe('type generation', () => {
 
     test('rejects invalid option values', async () => {
       const { items } = await loadFixtureFields();
-      await expect(generateTsTypesSrc(items, { env: 'bogus' as any })).rejects.toThrow('invalid `env` value');
-      await expect(generateTsTypesSrc(items, { processEnv: 'nope' as any })).rejects.toThrow('invalid `processEnv` value');
+      await expect(generateTsTypesSrc(resolveFieldTypes(items), { env: 'bogus' as any })).rejects.toThrow('invalid `env` value');
+      await expect(generateTsTypesSrc(resolveFieldTypes(items), { processEnv: 'nope' as any })).rejects.toThrow('invalid `processEnv` value');
     });
 
     test('@generateTsTypes env=module requires a non-.d.ts path', async () => {
@@ -855,7 +856,7 @@ describe('type generation', () => {
       for (const key of g.sortedConfigKeys) {
         items.push(await g.configSchema[key].getTypeGenInfo());
       }
-      const src = await generateTsTypesSrc(items);
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
 
       // The item declaration must still be present (comment not prematurely closed)
       expect(src).toContain('GLOB_ITEM: string;');

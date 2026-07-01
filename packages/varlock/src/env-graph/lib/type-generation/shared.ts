@@ -1,12 +1,5 @@
 import type { TypeGenItemInfo } from '../config-item';
 
-export const SUPPORTED_TYPEGEN_LANGS = ['ts', 'py', 'rs', 'go', 'php'] as const;
-export type TypeGenLang = typeof SUPPORTED_TYPEGEN_LANGS[number];
-
-export function isSupportedTypeGenLang(lang: string): lang is TypeGenLang {
-  return (SUPPORTED_TYPEGEN_LANGS as ReadonlyArray<string>).includes(lang);
-}
-
 export type CoercedType = | 'string'
   | 'number'
   | 'boolean'
@@ -41,7 +34,7 @@ function getEnumOptions(info: TypeGenItemInfo): Array<string | number | boolean>
   return rawEnumOptions ?? [];
 }
 
-export function resolveCoercedType(info: TypeGenItemInfo): CoercedType {
+function resolveCoercedType(info: TypeGenItemInfo): CoercedType {
   const dataTypeName = info.dataType?.name;
 
   if (info.dataType) {
@@ -57,7 +50,7 @@ export function resolveCoercedType(info: TypeGenItemInfo): CoercedType {
   return 'string';
 }
 
-export function resolveRawStringType(coerced: CoercedType): RawStringType {
+function resolveRawStringType(coerced: CoercedType): RawStringType {
   if (coerced === 'boolean') return { boolean: true };
   if (typeof coerced === 'object' && 'enum' in coerced) {
     const stringOptions = coerced.enum.filter((option): option is string => typeof option === 'string');

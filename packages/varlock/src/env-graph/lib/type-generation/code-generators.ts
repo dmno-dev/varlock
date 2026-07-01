@@ -11,9 +11,7 @@ import { type ResolvedFieldType } from './shared';
 /** Everything a code generator needs to produce a single output file. */
 export type CodeGenContext = {
   graph: EnvGraph;
-  /** rich per-item info (jsdoc, icons, ...) — used by the TS generator */
-  items: Array<TypeGenItemInfo>;
-  /** language-agnostic resolved field types — used by most generators */
+  /** language-agnostic resolved field types — the common input every generator consumes */
   fields: Array<ResolvedFieldType>;
   /** resolved decorator args (e.g. `env`, `processEnv`, `lang`) */
   options: Record<string, any>;
@@ -50,7 +48,7 @@ export async function collectTypeGenItems(graph: EnvGraph): Promise<Array<TypeGe
 }
 
 // language code -> per-language decorator, used to point users off the deprecated `@generateTypes(lang=...)`
-export const LANG_TO_DECORATOR: Record<string, string> = {
+const LANG_TO_DECORATOR: Record<string, string> = {
   py: 'generatePythonTypes',
   rs: 'generateRustTypes',
   go: 'generateGoTypes',
@@ -63,7 +61,7 @@ function generateTsFile(ctx: CodeGenContext): Promise<string> {
       '@generateTsTypes - `env=module` emits a runtime re-export, so it needs a `.ts` (or `.js`) output path, not `.d.ts`.',
     );
   }
-  return generateTsTypesSrc(ctx.items, ctx.options);
+  return generateTsTypesSrc(ctx.fields, ctx.options);
 }
 
 export const builtInCodeGenerators: Array<CodeGeneratorDef> = [
