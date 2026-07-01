@@ -5,44 +5,14 @@ import outdent from 'outdent';
 import path from 'node:path';
 
 import {
-  EnvGraph, DirectoryDataSource, DotEnvFileDataSource,
+  EnvGraph, DotEnvFileDataSource,
+  collectTypeGenItems,
   generateTsTypesSrc,
+  resolveFieldType,
+  resolveFieldTypes,
   type TypeGenItemInfo,
 } from '../index';
-
-
-/** Helper to create a loaded graph from virtual files (finishLoad only, no resolveEnvValues) */
-async function loadGraph(spec: {
-  envFile?: string;
-  files?: Record<string, string>;
-  overrideValues?: Record<string, string>;
-  fallbackEnv?: string;
-}) {
-  const currentDir = path.dirname(expect.getState().testPath!);
-  vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
-
-  const g = new EnvGraph();
-  if (spec.overrideValues) g.overrideValues = spec.overrideValues;
-  if (spec.fallbackEnv) g.envFlagFallback = spec.fallbackEnv;
-
-  if (spec.files) {
-    g.setVirtualImports(currentDir, spec.files);
-    await g.setRootDataSource(new DirectoryDataSource(currentDir));
-  } else if (spec.envFile) {
-    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', { overrideContents: spec.envFile }));
-  }
-  await g.finishLoad();
-  return g;
-}
-
-/** Helper to get TypeGenItemInfo for all items in the graph */
-async function getTypeGenInfoMap(g: EnvGraph) {
-  const infos: Record<string, TypeGenItemInfo> = {};
-  for (const key of g.sortedConfigKeys) {
-    infos[key] = await g.configSchema[key].getTypeGenInfo();
-  }
-  return infos;
-}
+import { getTypeGenInfoMap, loadFixtureFields, loadGraph } from './type-generation/helpers';
 
 describe('type generation', () => {
   describe('isEnvSpecific on data sources', () => {
@@ -565,7 +535,7 @@ describe('type generation', () => {
           items.push(await g.configSchema[key].getTypeGenInfo());
         }
       }
-      const src = await generateTsTypesSrc(items);
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
       expect(src).toContain('SOME_DECLARED_KEY');
       expect(src).not.toContain('STALE_BOGUS_KEY');
 
@@ -651,7 +621,7 @@ describe('type generation', () => {
           items.push(await g.configSchema[key].getTypeGenInfo());
         }
       }
-      const src = await generateTsTypesSrc(items);
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
 
       expect(src).toContain('APP_ENV');
       expect(src).toContain('SHARED_ITEM');
@@ -684,7 +654,7 @@ describe('type generation', () => {
       for (const key of g.sortedConfigKeys) {
         items.push(await g.configSchema[key].getTypeGenInfo());
       }
-      const src = await generateTsTypesSrc(items);
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
 
       // verify the source contains expected type declarations
       expect(src).toContain('export type CoercedEnvSchema');
@@ -759,6 +729,118 @@ describe('type generation', () => {
     });
   });
 
+  describe('generateTsTypesSrc options', () => {
+    test('defaults preserve global augmentation (strict)', async () => {
+      const { items } = await loadFixtureFields();
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
+      expect(src).toContain("declare module 'varlock/env'");
+      expect(src).toContain('declare global {');
+      // strict = extends the strings alias with no index signature
+      expect(src).toMatch(/interface ProcessEnv extends _EnvSchemaAsStrings_[0-9a-f]+ \{\}/);
+      expect(src).toMatch(/interface ImportMetaEnv extends _EnvSchemaAsStrings_[0-9a-f]+ \{\}/);
+      expect(src).not.toContain('[key: string]: string | undefined;');
+      expect(src).not.toContain('import { ENV as _ENV }');
+    });
+
+    test('env=none omits the varlock/env augmentation and ENV export', async () => {
+      const { items } = await loadFixtureFields();
+      const src = await generateTsTypesSrc(resolveFieldTypes(items), { env: 'none' });
+      expect(src).not.toContain("declare module 'varlock/env'");
+      expect(src).not.toContain('export const ENV');
+      // types are still emitted
+      expect(src).toContain('export type CoercedEnvSchema');
+    });
+
+    test('processEnv=none / importMetaEnv=none omit those global blocks', async () => {
+      const { items } = await loadFixtureFields();
+      expect(await generateTsTypesSrc(resolveFieldTypes(items), { processEnv: 'none' })).not.toContain('namespace NodeJS');
+      expect(await generateTsTypesSrc(resolveFieldTypes(items), { importMetaEnv: 'none' })).not.toContain('ImportMetaEnv');
+      // both off => no declare global block at all
+      const src = await generateTsTypesSrc(resolveFieldTypes(items), { processEnv: 'none', importMetaEnv: 'none' });
+      expect(src).not.toContain('declare global {');
+    });
+
+    test('loose adds an index signature for extra keys', async () => {
+      const { items } = await loadFixtureFields();
+      const src = await generateTsTypesSrc(resolveFieldTypes(items), { processEnv: 'loose', importMetaEnv: 'loose' });
+      expect(src).toContain('[key: string]: string | undefined;');
+    });
+
+    test('env=module emits a package-local importable ENV, no global augmentation', async () => {
+      const { items } = await loadFixtureFields();
+      const src = await generateTsTypesSrc(resolveFieldTypes(items), { env: 'module' });
+      expect(src).toContain("import { ENV as _ENV } from 'varlock/env';");
+      expect(src).toContain('export const ENV = _ENV as unknown as Readonly<CoercedEnvSchema>;');
+      expect(src).toContain('export type PublicCoercedEnvSchema');
+      expect(src).not.toContain("declare module 'varlock/env'");
+    });
+
+    test('rejects invalid option values', async () => {
+      const { items } = await loadFixtureFields();
+      await expect(generateTsTypesSrc(resolveFieldTypes(items), { env: 'bogus' as any })).rejects.toThrow('invalid `env` value');
+      await expect(generateTsTypesSrc(resolveFieldTypes(items), { processEnv: 'nope' as any })).rejects.toThrow('invalid `processEnv` value');
+    });
+
+    test('@generateTsTypes env=module requires a non-.d.ts path', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @generateTsTypes(path=env.d.ts, env=module)
+          # ---
+          ITEM=val
+        `,
+      });
+      await expect(g.runCodeGeneratorsIfNeeded()).rejects.toThrow('needs a `.ts` (or `.js`) output path');
+    });
+  });
+
+  describe('code generator registry', () => {
+    test('excludes @internal items from generated output', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultSensitive=false
+          # ---
+          PUBLIC_ITEM=val       # @public
+          # @internal
+          SECRET_INTERNAL=val
+        `,
+      });
+      const items = await collectTypeGenItems(g);
+      const keys = items.map((i) => i.key);
+      expect(keys).toContain('PUBLIC_ITEM');
+      expect(keys).not.toContain('SECRET_INTERNAL');
+    });
+
+    test('runs a plugin-registered code generator via the same API', async () => {
+      const currentDir = path.dirname(expect.getState().testPath!);
+      vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
+      const relPath = '.tmp-fake-codegen.txt';
+      const outputPath = path.join(currentDir, relPath);
+
+      const g = new EnvGraph();
+      const generate = vi.fn(() => 'FAKE GENERATED OUTPUT');
+      g.registerCodeGenerator({ decoratorName: 'generateFakeThing', generate });
+
+      await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @generateFakeThing(path=${relPath})
+          # ---
+          ITEM=val
+        `,
+      }));
+      await g.finishLoad();
+
+      try {
+        const count = await g.runCodeGeneratorsIfNeeded();
+        expect(count).toBe(1);
+        expect(generate).toHaveBeenCalledTimes(1);
+        const fs = await import('node:fs');
+        expect(await fs.promises.readFile(outputPath, 'utf-8')).toBe('FAKE GENERATED OUTPUT');
+      } finally {
+        await import('node:fs').then((fs) => fs.promises.rm(outputPath, { force: true }));
+      }
+    });
+  });
+
   describe('JSDoc comment safety', () => {
     test('description containing "*/" does not prematurely close JSDoc comment', async () => {
       const g = await loadGraph({
@@ -774,7 +856,7 @@ describe('type generation', () => {
       for (const key of g.sortedConfigKeys) {
         items.push(await g.configSchema[key].getTypeGenInfo());
       }
-      const src = await generateTsTypesSrc(items);
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
 
       // The item declaration must still be present (comment not prematurely closed)
       expect(src).toContain('GLOB_ITEM: string;');
@@ -803,6 +885,114 @@ describe('type generation', () => {
       expect(infos.DB_HOST.isSensitive).toBe(false);
       expect(infos.DB_PORT.isRequired).toBe(false);
       expect(infos.SECRET.isSensitive).toBe(true);
+    });
+  });
+
+  describe('shared field type mapping', () => {
+    test('maps coerced and raw string types consistently', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultSensitive=false
+          # ---
+          STR=hello                 # @type=string @public
+          NUM=1                     # @type=number @public
+          INT_NUM=1                 # @type=number(isInt=true) @public
+          PORT=8080                 # @type=port @public
+          DUR=1h                    # @type=duration @public
+          FLAG=true                 # @type=boolean @public
+          # @type=enum(dev, staging, prod)
+          APP_ENV=dev               # @public
+          # @type=simple-object
+          CONFIG={}                 # @public
+        `,
+      });
+
+      const strField = resolveFieldType(await g.configSchema.STR.getTypeGenInfo());
+      const numField = resolveFieldType(await g.configSchema.NUM.getTypeGenInfo());
+      const intNumField = resolveFieldType(await g.configSchema.INT_NUM.getTypeGenInfo());
+      const portField = resolveFieldType(await g.configSchema.PORT.getTypeGenInfo());
+      const durField = resolveFieldType(await g.configSchema.DUR.getTypeGenInfo());
+      const flagField = resolveFieldType(await g.configSchema.FLAG.getTypeGenInfo());
+      const configField = resolveFieldType(await g.configSchema.CONFIG.getTypeGenInfo());
+      const appEnvField = resolveFieldType(await g.configSchema.APP_ENV.getTypeGenInfo());
+
+      expect(strField.coerced).toBe('string');
+      // plain number is a general (float) number; ports and integer-constrained numbers are ints;
+      // duration can be fractional, so it stays a general number
+      expect(numField.coerced).toBe('number');
+      expect(intNumField.coerced).toBe('int');
+      expect(portField.coerced).toBe('int');
+      expect(durField.coerced).toBe('number');
+      expect(flagField.coerced).toBe('boolean');
+      expect(configField.coerced).toBe('object');
+      expect(appEnvField.coerced).toEqual({ enum: ['dev', 'staging', 'prod'] });
+      expect(appEnvField.rawString).toEqual({ enum: ['dev', 'staging', 'prod'] });
+      expect(flagField.rawString).toEqual({ boolean: true });
+      expect(numField.rawString).toBe('string');
+    });
+  });
+
+  describe('per-language code-gen decorators', () => {
+    test('@generateTypes rejects non-ts langs, pointing at the per-language decorator', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @generateTypes(lang=py, path=env_types.py)
+          # ---
+          ITEM=val
+        `,
+      });
+
+      await expect(g.runCodeGeneratorsIfNeeded()).rejects.toThrow(
+        'For `py`, use @generatePythonTypes(path=...)',
+      );
+    });
+
+    test('@generateTypes rejects unknown langs with a ts-only error', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @generateTypes(lang=ruby, path=env_types.rb)
+          # ---
+          ITEM=val
+        `,
+      });
+
+      await expect(g.runCodeGeneratorsIfNeeded()).rejects.toThrow(
+        '@generateTypes only supports `lang=ts`',
+      );
+    });
+
+    test.each([
+      ['generatePythonTypes', 'py', 'class CoercedEnvSchema(TypedDict):', 'DEBUG: NotRequired[bool]'],
+      ['generateRustTypes', 'rs', 'pub struct CoercedEnvSchema', 'pub debug: Option<bool>,'],
+      ['generateGoTypes', 'go', 'type CoercedEnvSchema struct', 'Debug *bool'],
+      ['generatePhpTypes', 'php', '@phpstan-type CoercedEnvSchema', 'DEBUG?: bool'],
+    ] as const)('@%s writes a %s types file with non-string fields', async (decorator, lang, marker, nonStringMarker) => {
+      const currentDir = path.dirname(expect.getState().testPath!);
+      const relPath = `.tmp-env-types.${lang}`;
+      const outputPath = path.join(currentDir, relPath);
+
+      const g = await loadGraph({
+        envFile: outdent`
+          # @${decorator}(path=${relPath})
+          # @defaultSensitive=false
+          # ---
+          # @type=boolean
+          DEBUG=false           # @optional @public
+          # @type=port
+          DB_PORT=5432          # @optional @public
+        `,
+      });
+
+      try {
+        const count = await g.runCodeGeneratorsIfNeeded();
+        expect(count).toBe(1);
+        const fs = await import('node:fs');
+        const src = await fs.promises.readFile(outputPath, 'utf-8');
+        expect(src).toContain(marker);
+        expect(src).toContain(nonStringMarker);
+      } finally {
+        await import('node:fs').then((fs) => fs.promises.rm(outputPath, { force: true }));
+      }
     });
   });
 });

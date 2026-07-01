@@ -14,4 +14,19 @@ export {
 export {
   BUILTIN_VARS, isBuiltinVar,
 } from './lib/builtin-vars';
-export { generateTsTypesSrc, getTsDefinitionForItem } from './lib/type-generation';
+export {
+  builtInCodeGenerators,
+  collectTypeGenItems,
+  generateGoTypesSrc,
+  generatePhpTypesSrc,
+  generatePythonTypesSrc,
+  generateRustTypesSrc,
+  generateTsTypesSrc,
+  resolveFieldType,
+  resolveFieldTypes,
+  type CodeGenContext,
+  type CodeGeneratorDef,
+  type CoercedType,
+  type RawStringType,
+  type ResolvedFieldType,
+} from './lib/type-generation';

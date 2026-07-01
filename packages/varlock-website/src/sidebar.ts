@@ -24,6 +24,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
       { label: 'Imports', slug: 'guides/import' },
       { label: 'Monorepos', slug: 'guides/monorepos', badge: 'new' },
       { label: 'Plugins', slug: 'guides/plugins' },
+      { label: 'Code generation', slug: 'guides/code-generation', badge: 'new' },
       { label: 'Local encryption', slug: 'guides/local-encryption' },
       { label: 'Encrypted deployments', slug: 'guides/encrypted-deployments', badge: 'new' },
       { label: 'Caching', slug: 'guides/caching', badge: 'new' },

@@ -156,10 +156,10 @@ Sensitive items (marked with `@sensitive` in your `.env.schema`) are **never** r
 
 ### Type-safety and IntelliSense
 
-To enable type-safety and IntelliSense for your env vars, enable the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
+To enable type-safety and IntelliSense for your env vars, enable the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
 
 ```diff lang="env-spec" title=".env.schema"
-+# @generateTypes(lang='ts', path='env.d.ts')
++# @generateTsTypes(path='env.d.ts')
 # ---
 # your config items...
 ```

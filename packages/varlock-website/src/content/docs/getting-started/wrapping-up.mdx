@@ -24,7 +24,7 @@ of Varlock's features to improve your developer experience and security posture.
 
 Depending on your setup you will want to update your `.gitignore` to _not_ ignore your `.env.schema` file and any other `.env.xxx` files that can now be safely committed to your repo if they don't contain secrets (which they shouldn't).
 
-If using [generated types](/reference/root-decorators/#generatetypes), we also recommend that you ignore the generated file (usually `env.d.ts` in TypeScript) as it is dynamically generated based the hierarchy of env files being loaded on each individual machine.
+If using [generated types](/reference/root-decorators/#code-generation), we also recommend that you ignore the generated file (usually `env.d.ts` in TypeScript) as it is dynamically generated based the hierarchy of env files being loaded on each individual machine.
 
 ```diff title=".gitignore"
 

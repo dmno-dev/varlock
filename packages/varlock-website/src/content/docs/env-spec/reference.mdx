@@ -238,7 +238,7 @@ Do **not** wrap a function's (or function-decorator's) own named arguments in a 
 | Prefer | Avoid |
 | --- | --- |
 | `@type=string(minLength=3, maxLength=50)` | `@type=string({minLength=3, maxLength=50})` |
-| `@generateTypes(lang=ts, path=env.d.ts)` | `@generateTypes({lang=ts, path=env.d.ts})` |
+| `@generateTsTypes(path=env.d.ts)` | `@generateTsTypes({path=env.d.ts})` |
 | `cache(fn, ttl=1h, key=k)` | `cache(fn, {ttl=1h, key=k})` |
 
 Also prefer the existing positional/comma forms for:

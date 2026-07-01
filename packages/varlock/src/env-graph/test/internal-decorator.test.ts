@@ -127,7 +127,7 @@ describe('@internal item decorator', () => {
     }));
     await g.finishLoad();
 
-    const { generateTsTypesSrc } = await import('../lib/type-generation');
+    const { generateTsTypesSrc, resolveFieldTypes } = await import('../lib/type-generation');
     const items = [];
     for (const key of g.sortedConfigKeys) {
       const item = g.configSchema[key];
@@ -135,7 +135,7 @@ describe('@internal item decorator', () => {
       if (!item.defsForTypeGeneration.length) continue;
       items.push(await item.getTypeGenInfo());
     }
-    const src = await generateTsTypesSrc(items);
+    const src = await generateTsTypesSrc(resolveFieldTypes(items));
     expect(src).not.toContain('OP_TOKEN');
     expect(src).toContain('PUBLIC_VAR');
   });

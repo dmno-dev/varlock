@@ -4,6 +4,7 @@ description: Integrating varlock into other languages
 ---
 
 import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
+import { TabItem, Tabs } from "@astrojs/starlight/components";
 
 To use varlock with other languages, you'll likely want to [install the standalone binary](/getting-started/installation/#as-a-binary), rather than using a JS package manager.
 
@@ -15,7 +16,164 @@ varlock run -- <your-command>
 
 We are working on language-specific helper libraries, that will make this integration better, and provide additional security features like we do in JavaScript.
 
-We will also be implementing automatic type-generation based on your schema for various languages.
+## Type generation
 
-**Want to help us build these integrations? Join our <a href={process.env.PUBLIC_DISCORD_URL}>Discord</a>.**
+Varlock can generate static type definitions from your schema for several languages via per-language [`@generate*Types`](/reference/root-decorators/#code-generation) root decorators (see the [Code generation guide](/guides/code-generation/) for the full picture). Add one decorator per language/output file you need:
 
+```env-spec
+# @generatePythonTypes(path=env_types.py)
+# @generateRustTypes(path=src/env_types.rs)
+# @generateGoTypes(path=env_types.go)
+# @generatePhpTypes(path=env_types.php)
+```
+
+Each emitter produces two layers of types:
+
+- **Coerced schema** — types matching varlock's coercion (`CoercedEnvSchema` / equivalent)
+- **Raw string schema** — types for values read directly from the process environment (`EnvSchemaAsStrings` / equivalent)
+
+Non-sensitive keys are also emitted as a public coerced type (for example `PublicCoercedEnvSchema` in Python).
+
+Types are generated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly via [`varlock typegen`](/reference/cli-commands/#typegen).
+
+## Using coerced values
+
+By default, [`varlock run`](/reference/cli-commands/#run) injects a [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) variable containing the full resolved config graph as JSON. Each entry under `config` includes a **coerced** `value` (numbers, booleans, parsed JSON objects, etc.) — not the raw string you'd get from `getenv`.
+
+Use the generated `CoercedEnvSchema` types with values from the blob:
+
+<Tabs syncKey="polyglot-env-blob">
+  <TabItem label="Python">
+
+Add type generation to your schema, then parse the injected blob (Python 3.11+ for `NotRequired` in generated types):
+
+```env-spec
+# @generatePythonTypes(path=env_types.py)
+```
+
+```python
+import json
+import os
+from env_types import CoercedEnvSchema
+
+graph = json.loads(os.environ["__VARLOCK_ENV"])
+env: CoercedEnvSchema = {
+    key: entry["value"]
+    for key, entry in graph["config"].items()
+}
+
+port = env["DB_PORT"]       # int
+debug = env["DEBUG"]        # bool
+```
+
+```bash
+varlock run -- python main.py
+```
+
+  </TabItem>
+
+  <TabItem label="Rust">
+
+```env-spec
+# @generateRustTypes(path=src/env_types.rs)
+```
+
+```rust
+use serde_json::Value;
+
+fn load_coerced_env() -> Result<Value, Box<dyn std::error::Error>> {
+    let raw = std::env::var("__VARLOCK_ENV")?;
+    let graph: Value = serde_json::from_str(&raw)?;
+    Ok(graph["config"].clone())
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = load_coerced_env()?;
+    let port = config["DB_PORT"]["value"].as_f64().unwrap();
+    let debug = config["DEBUG"]["value"].as_bool().unwrap();
+    Ok(())
+}
+```
+
+```bash
+varlock run -- cargo run
+```
+
+  </TabItem>
+
+  <TabItem label="Go">
+
+```env-spec
+# @generateGoTypes(path=env_types.go)
+```
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "log"
+    "os"
+)
+
+type configEntry struct {
+    Value any `json:"value"`
+}
+
+func main() {
+    var graph struct {
+        Config map[string]configEntry `json:"config"`
+    }
+    if err := json.Unmarshal([]byte(os.Getenv("__VARLOCK_ENV")), &graph); err != nil {
+        log.Fatal(err)
+    }
+
+    port := int(graph.Config["DB_PORT"].Value.(float64))
+    debug := graph.Config["DEBUG"].Value.(bool)
+    _ = port
+    _ = debug
+}
+```
+
+```bash
+varlock run -- go run .
+```
+
+  </TabItem>
+
+  <TabItem label="PHP">
+
+```env-spec
+# @generatePhpTypes(path=env_types.php)
+```
+
+```php
+<?php
+
+/** @var CoercedEnvSchema $env */
+$graph = json_decode(getenv('__VARLOCK_ENV'), true, flags: JSON_THROW_ON_ERROR);
+$env = array_map(
+    static fn (array $entry): mixed => $entry['value'],
+    $graph['config'],
+);
+
+$port = $env['DB_PORT'];   // int
+$debug = $env['DEBUG'];    // bool
+```
+
+```bash
+varlock run -- php main.php
+```
+
+  </TabItem>
+</Tabs>
+
+:::note[Raw string env vars]
+Individual config keys are also injected as plain environment variables, but those values are always strings. Use `__VARLOCK_ENV` when you need coerced types. Your generated `EnvSchemaAsStrings` type describes that raw layer if you read from `getenv` / `os.environ` directly.
+:::
+
+:::caution[Sensitive values in the blob]
+`__VARLOCK_ENV` includes resolved sensitive values and metadata used by varlock integrations. For interactive shells or workflows where subprocesses inspect the environment, use [`--no-inject-graph`](/reference/cli-commands/#run) and read individual vars (as strings) instead.
+:::
+
+**We are planning deeper integrations with other languages. Want to help us build these? Join our <a href={process.env.PUBLIC_DISCORD_URL}>Discord</a>.**
