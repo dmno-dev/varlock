@@ -10,7 +10,7 @@ Root decorators appear in the _header_ section of a .env file - which is any com
 ```env-spec title=".env.schema"
 # This is the header, it can contain root decorators
 # @defaultSensitive=false @defaultRequired=infer
-# @generateTypes(lang=ts, path=./env.d.ts)
+# @generateTsTypes(path=./env.d.ts)
 ```
 
 
@@ -301,34 +301,59 @@ See the [Caching guide](/guides/caching/) for mode selection guidance by environ
 </div>
 
 <div>
-### `@generateTypes()`
-**Arg types (key/value):**
-- `lang`: Language to generate types for (`ts`, `py`, `rs`, `go`, or `php`)
-- `path`: Relative filepath to output generated type file
-- `auto`: Controls whether types are generated automatically on every load (defaults to `true`). Set to `false` to disable automatic generation and instead run [`varlock typegen`](/reference/cli-commands/#typegen) explicitly.
-- `executeWhenImported`: overrides the default behaviour of not executing when the containing file is imported (defaults to `false`)
+### `@generate*Types()`
 
-Triggers type generation based on your schema. _Can be called multiple times._
+Varlock generates code from your schema via per-language decorators — see the [Code generation guide](/guides/code-generation/) for the full picture. Add one decorator per output file you want:
+
+- [`@generateTsTypes()`](#generatetstypes) — TypeScript
+- `@generatePythonTypes()` — Python (`TypedDict`)
+- `@generateRustTypes()` — Rust
+- `@generateGoTypes()` — Go
+- `@generatePhpTypes()` — PHP (phpstan)
+
+Each of these is a root decorator that _can be called multiple times_. They share these common args:
+
+- `path`: Relative filepath to write the generated file to.
+- `auto`: Controls whether generation runs automatically on every load (defaults to `true`). Set to `false` to disable automatic generation and instead run [`varlock typegen`](/reference/cli-commands/#typegen) explicitly.
+- `executeWhenImported`: overrides the default behaviour of not executing when the containing file is imported (defaults to `false`).
 
 ```env-spec
-# @generateTypes(lang=ts, path=./env.d.ts)
-# @generateTypes(lang=py, path=./env_types.py)
+# @generateTsTypes(path=./env.d.ts)
+# @generatePythonTypes(path=./env_types.py)
 ```
 
 :::tip
-Usually this decorator will live in your primary `.env.schema` file, and it will be ignored if it is within an imported file.
-
-To override this behaviour, set `executeWhenImported` to `true`.
+Usually these decorators live in your primary `.env.schema` file, and are ignored within imported files. To override this, set `executeWhenImported` to `true`.
 :::
 
-:::note[Disabling automatic type generation]
-If you prefer to generate types manually rather than on every load, set `auto=false` and run [`varlock typegen`](/reference/cli-commands/#typegen) explicitly:
+:::note[Disabling automatic generation]
+If you prefer to generate manually rather than on every load, set `auto=false` and run [`varlock typegen`](/reference/cli-commands/#typegen) explicitly:
 
 ```env-spec
-# @generateTypes(lang=ts, path=./env.d.ts, auto=false)
+# @generateTsTypes(path=./env.d.ts, auto=false)
 ```
 
-This is useful when you want full control over when your type definitions are updated, for example in a CI pipeline or as a dedicated build step.
+This is useful when you want full control over when files are regenerated, for example in a CI pipeline or a dedicated build step.
+:::
+
+#### `@generateTsTypes()`
+
+In addition to the common args above, the TypeScript generator accepts:
+
+- `env`: how the coerced `ENV` object is exposed (defaults to `augment`).
+  - `augment` — globally augment `varlock/env` so `import { ENV } from 'varlock/env'` is typed.
+  - `module` — emit a package-local importable `ENV` (typed to _this_ package's schema) with **no** global augmentation. Use this in monorepos where multiple packages have different schemas. Requires a `.ts` (or `.js`) output path, and you import from the generated file (e.g. `import { ENV } from './env'`).
+  - `none` — emit only the type definitions, no `ENV` binding.
+- `processEnv`: how `process.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`). Note that `@types/node` declares a base string index signature that can't be removed, so extra keys remain allowed on `process.env` regardless.
+- `importMetaEnv`: how `import.meta.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`).
+
+```env-spec
+# monorepo-friendly: importable ENV, no globals
+# @generateTsTypes(path=./env.ts, env=module, processEnv=none, importMetaEnv=none)
+```
+
+:::note[Deprecated: `@generateTypes()`]
+`@generateTypes(lang=ts, path=...)` still works as a TypeScript-only alias for `@generateTsTypes`, but is deprecated. For other languages, use the matching `@generate*Types` decorator (`@generateTypes(lang=py, ...)` will error with a pointer to `@generatePythonTypes`).
 :::
 
 </div>

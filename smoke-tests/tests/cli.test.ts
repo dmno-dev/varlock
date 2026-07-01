@@ -427,6 +427,22 @@ describe('CLI Commands', () => {
         expect(publicSection).not.toContain(testCase.secretKey);
       }
     });
+
+    test('varlock typegen env=module emits an importable ENV without global augmentation', () => {
+      const moduleDir = join(SMOKE_TESTS_DIR, 'smoke-test-typegen-module');
+      const outputPath = join(moduleDir, 'env.ts');
+      if (existsSync(outputPath)) rmSync(outputPath);
+
+      const result = varlockTypegen({ cwd: 'smoke-test-typegen-module' });
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(outputPath)).toBe(true);
+
+      const src = readFileSync(outputPath, 'utf-8');
+      expect(src).toContain("import { ENV as _ENV } from 'varlock/env';");
+      expect(src).toContain('export const ENV = _ENV as unknown as Readonly<CoercedEnvSchema>;');
+      // module mode must NOT globally augment varlock/env
+      expect(src).not.toContain("declare module 'varlock/env'");
+    });
   });
 
   describe('error output - schema errors', () => {

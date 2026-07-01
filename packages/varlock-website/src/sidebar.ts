@@ -19,6 +19,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
     collapsed: true,
     items: [
       { label: 'Schema', slug: 'guides/schema' },
+      { label: 'Code generation', slug: 'guides/code-generation', badge: 'new' },
       { label: 'Secrets', slug: 'guides/secrets' },
       { label: 'Environments', slug: 'guides/environments' },
       { label: 'Imports', slug: 'guides/import' },

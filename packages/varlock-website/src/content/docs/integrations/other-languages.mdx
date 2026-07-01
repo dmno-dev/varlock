@@ -18,13 +18,13 @@ We are working on language-specific helper libraries, that will make this integr
 
 ## Type generation
 
-Varlock can generate static type definitions from your schema for several languages via the [`@generateTypes`](/reference/root-decorators/#generatetypes) root decorator. Add one decorator per language/output file you need:
+Varlock can generate static type definitions from your schema for several languages via per-language [`@generate*Types`](/reference/root-decorators/#generatetypes) root decorators (see the [Code generation guide](/guides/code-generation/) for the full picture). Add one decorator per language/output file you need:
 
 ```env-spec
-# @generateTypes(lang=py, path=env_types.py)
-# @generateTypes(lang=rs, path=src/env_types.rs)
-# @generateTypes(lang=go, path=env_types.go)
-# @generateTypes(lang=php, path=env_types.php)
+# @generatePythonTypes(path=env_types.py)
+# @generateRustTypes(path=src/env_types.rs)
+# @generateGoTypes(path=env_types.go)
+# @generatePhpTypes(path=env_types.php)
 ```
 
 Each emitter produces two layers of types:
@@ -48,7 +48,7 @@ Use the generated `CoercedEnvSchema` types with values from the blob:
 Add type generation to your schema, then parse the injected blob (Python 3.11+ for `NotRequired` in generated types):
 
 ```env-spec
-# @generateTypes(lang=py, path=env_types.py)
+# @generatePythonTypes(path=env_types.py)
 ```
 
 ```python
@@ -75,7 +75,7 @@ varlock run -- python main.py
   <TabItem label="Rust">
 
 ```env-spec
-# @generateTypes(lang=rs, path=src/env_types.rs)
+# @generateRustTypes(path=src/env_types.rs)
 ```
 
 ```rust
@@ -104,7 +104,7 @@ varlock run -- cargo run
   <TabItem label="Go">
 
 ```env-spec
-# @generateTypes(lang=go, path=env_types.go)
+# @generateGoTypes(path=env_types.go)
 ```
 
 ```go
@@ -144,7 +144,7 @@ varlock run -- go run .
   <TabItem label="PHP">
 
 ```env-spec
-# @generateTypes(lang=php, path=env_types.php)
+# @generatePhpTypes(path=env_types.php)
 ```
 
 ```php

@@ -130,7 +130,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // errors would just be noise caused by the parse/schema failure
   if (!hasSchemaErrors) {
     // Generate types before resolving values — uses only non-env-specific schema info
-    await envGraph.generateTypesIfNeeded();
+    await envGraph.runCodeGeneratorsIfNeeded();
 
     await envGraph.resolveEnvValues();
 

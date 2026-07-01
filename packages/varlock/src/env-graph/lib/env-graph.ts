@@ -1,6 +1,7 @@
 import _ from '@env-spec/utils/my-dash';
 import path from 'node:path';
-import { ConfigItem } from './config-item';
+import fs from 'node:fs';
+import { ConfigItem, type TypeGenItemInfo } from './config-item';
 import {
   EnvGraphDataSource, FileBasedDataSource, ImportAliasSource,
   keyPassesImportFilter,
@@ -11,7 +12,10 @@ import { BaseResolvers, createResolver, type ResolverChildClass } from './resolv
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, getTransitiveDeps, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
-import { generateTypes, isSupportedTypeGenLang, SUPPORTED_TYPEGEN_LANGS } from './type-generation';
+import {
+  builtInCodeGenerators, collectTypeGenItems, resolveFieldTypes,
+  type CodeGeneratorDef, type ResolvedFieldType,
+} from './type-generation';
 
 import {
   builtInItemDecorators, builtInRootDecorators, RootDecoratorInstance, type ItemDecoratorDef, type RootDecoratorDef,
@@ -260,6 +264,17 @@ export class EnvGraph {
     this.rootDecoratorsRegistry[decoratorDef.name] = decoratorDef;
   }
 
+  /** Registered code generators, keyed by the root decorator name that triggers them. */
+  codeGeneratorsRegistry: Record<string, CodeGeneratorDef> = {};
+  registerCodeGenerator(generatorDef: CodeGeneratorDef) {
+    const name = generatorDef.decoratorName;
+    // ensure a root decorator exists for this generator (plugins get one for free)
+    if (!(name in this.rootDecoratorsRegistry)) {
+      this.registerRootDecorator({ name, isFunction: true });
+    }
+    this.codeGeneratorsRegistry[name] = generatorDef;
+  }
+
   constructor() {
     // register base data types (string, number, boolean, etc)
     for (const dataType of BaseDataTypes) {
@@ -276,6 +291,11 @@ export class EnvGraph {
     // base item decorators (required, sensitive, docs, etc)
     for (const itemDec of builtInItemDecorators) {
       this.registerItemDecorator(itemDec);
+    }
+    // base code generators (ts/py/rs/go/php + deprecated generateTypes alias)
+    // registered via the same API plugins use
+    for (const codeGen of builtInCodeGenerators) {
+      this.registerCodeGenerator(codeGen);
     }
 
     this.overrideValues = originalProcessEnv;
@@ -792,46 +812,60 @@ export class EnvGraph {
     return _.some(_.values(this.configSchema), (i) => !i.isValid);
   }
 
-  async generateTypes(lang: string, outputPath: string) {
-    await generateTypes(this, lang, outputPath);
-  }
-
   /**
-   * Resolve @generateTypes decorators and generate type files.
+   * Resolve every registered code-generation decorator (@generateTsTypes, @generatePythonTypes,
+   * plugin-contributed ones, and the deprecated @generateTypes) and write their output files.
    * This should be called after finishLoad() but before resolveEnvValues().
-   * The @generateTypes decorator args (lang, path) are static, so we can resolve them
-   * without needing full env resolution. Type info is computed from non-env-specific
-   * definitions only, so the output is deterministic regardless of environment.
+   * Decorator args (path, options) are static, so we can resolve them without full env resolution.
+   * Type info is computed from non-env-specific definitions only, so output is deterministic
+   * regardless of the active environment.
    *
-   * @param opts.ignoreAutoFalse - if true, generate types even if `auto=false` is set.
+   * @param opts.ignoreAutoFalse - if true, generate even if `auto=false` is set.
    *   Used by the `varlock typegen` command to force generation.
    */
-  async generateTypesIfNeeded(opts?: { ignoreAutoFalse?: boolean }) {
-    const generateTypesDecs = this.getRootDecFns('generateTypes');
+  async runCodeGeneratorsIfNeeded(opts?: { ignoreAutoFalse?: boolean }) {
     let generatedCount = 0;
-    for (const generateTypesDec of generateTypesDecs) {
-      const typeGenSettings = await generateTypesDec.resolve();
 
-      // we skip generating types if `@generateTypes` was not in the main file
-      // unless the `executeWhenImported` flag is set
-      if (generateTypesDec.dataSource.isImport && !typeGenSettings.obj.executeWhenImported) continue;
+    // the item/field lists are the same across all generators — build them lazily, once,
+    // and only if at least one generator actually runs
+    let items: Array<TypeGenItemInfo> | undefined;
+    let fields: Array<ResolvedFieldType> | undefined;
 
-      // skip if auto=false unless explicitly overridden (e.g., `varlock typegen`)
-      if (typeGenSettings.obj.auto === false && !opts?.ignoreAutoFalse) continue;
+    for (const decoratorName of Object.keys(this.codeGeneratorsRegistry)) {
+      const generator = this.codeGeneratorsRegistry[decoratorName];
+      const decs = this.getRootDecFns(decoratorName);
+      for (const dec of decs) {
+        const settings = await dec.resolve();
 
-      if (!typeGenSettings.obj.lang) throw new Error('@generateTypes - must set `lang` arg');
-      if (!isSupportedTypeGenLang(typeGenSettings.obj.lang)) {
-        throw new Error(`@generateTypes - unsupported language: ${typeGenSettings.obj.lang}. Supported languages: ${SUPPORTED_TYPEGEN_LANGS.join(', ')}`);
+        // skip if the decorator came from an imported file, unless `executeWhenImported` is set
+        if (dec.dataSource.isImport && !settings.obj.executeWhenImported) continue;
+        // skip if auto=false unless explicitly overridden (e.g. `varlock typegen`)
+        if (settings.obj.auto === false && !opts?.ignoreAutoFalse) continue;
+
+        if (!settings.obj.path) throw new Error(`@${decoratorName} - must set \`path\` arg`);
+        if (!_.isString(settings.obj.path)) throw new Error(`@${decoratorName} - \`path\` arg must be a string`);
+
+        const sourceDir = dec.dataSource instanceof FileBasedDataSource
+          ? path.resolve(dec.dataSource.fullPath, '..')
+          : process.cwd();
+        const outputPath = dec.dataSource instanceof FileBasedDataSource
+          ? path.resolve(sourceDir, settings.obj.path)
+          : settings.obj.path;
+
+        items ||= await collectTypeGenItems(this);
+        fields ||= resolveFieldTypes(items);
+
+        const src = await generator.generate({
+          graph: this,
+          items,
+          fields,
+          options: settings.obj,
+          outputPath,
+          sourceDir,
+        });
+        await fs.promises.writeFile(outputPath, src, 'utf-8');
+        generatedCount++;
       }
-      if (!typeGenSettings.obj.path) throw new Error('@generateTypes - must set `path` arg');
-      if (!_.isString(typeGenSettings.obj.path)) throw new Error('@generateTypes - `path` arg must be a string');
-
-      const outputPath = generateTypesDec.dataSource instanceof FileBasedDataSource
-        ? path.resolve(generateTypesDec.dataSource.fullPath, '..', typeGenSettings.obj.path)
-        : typeGenSettings.obj.path;
-
-      await this.generateTypes(typeGenSettings.obj.lang, outputPath);
-      generatedCount++;
     }
     return generatedCount;
   }

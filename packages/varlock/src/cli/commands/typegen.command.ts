@@ -21,11 +21,15 @@ Generates type definition files from your .env schema files.
 Uses only non-environment-specific schema info, so output is deterministic
 regardless of which environment is active.
 
-Supported languages are set via \`@generateTypes(lang=..., path=...)\` in your schema:
-ts, py, rs, go, and php.
+Add a per-language decorator to your schema for each output you want:
+  @generateTsTypes(path=env.d.ts)
+  @generatePythonTypes(path=env_types.py)
+  @generateRustTypes(path=src/env_types.rs)
+  @generateGoTypes(path=env_types.go)
+  @generatePhpTypes(path=env_types.php)
 
-This is useful when you have \`@generateTypes(..., auto=false)\`
-in your schema to disable automatic type generation during \`varlock load\` or \`varlock run\`.
+This is useful when you have \`auto=false\` set on a generator decorator to
+disable automatic generation during \`varlock load\` or \`varlock run\`.
 
 Examples:
   varlock typegen                    # Generate types using default schema
@@ -42,11 +46,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   checkForNoEnvFiles(envGraph);
 
   // Force type generation even if auto=false is set
-  const generatedCount = await envGraph.generateTypesIfNeeded({ ignoreAutoFalse: true });
+  const generatedCount = await envGraph.runCodeGeneratorsIfNeeded({ ignoreAutoFalse: true });
 
   if (generatedCount === 0) {
-    throw new CliExitError('No @generateTypes decorator found in your schema', {
-      suggestion: 'Add `@generateTypes(lang=ts, path=env.d.ts)` or `@generateTypes(lang=py, path=env_types.py)` to your .env.schema file.',
+    throw new CliExitError('No code-generation decorator found in your schema', {
+      suggestion: 'Add `@generateTsTypes(path=env.d.ts)` (or `@generatePythonTypes(path=env_types.py)`, etc.) to your .env.schema file.',
     });
   }
 
