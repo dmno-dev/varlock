@@ -1,7 +1,8 @@
 import type { TypeGenItemInfo } from '../config-item';
 
 export type CoercedType = | 'string'
-  | 'number'
+  | 'int' // integer number — languages that distinguish can emit int; JS/TS just uses number
+  | 'number' // general (possibly fractional) number
   | 'boolean'
   | 'object'
   | { enum: Array<string | number | boolean> };
@@ -34,11 +35,20 @@ function getEnumOptions(info: TypeGenItemInfo): Array<string | number | boolean>
   return rawEnumOptions ?? [];
 }
 
+function isIntegerNumber(info: TypeGenItemInfo): boolean {
+  type NumberDef = { _isInt?: boolean };
+  return !!(info.dataType?._rawDef as NumberDef | undefined)?._isInt;
+}
+
 function resolveCoercedType(info: TypeGenItemInfo): CoercedType {
   const dataTypeName = info.dataType?.name;
 
   if (info.dataType) {
-    if (dataTypeName === 'number' || dataTypeName === 'port' || dataTypeName === 'duration') return 'number';
+    // ports are always integers; `number` is an integer only when constrained (isInt / precision=0);
+    // `duration` can be fractional (unit conversion), so it stays a general number
+    if (dataTypeName === 'port') return 'int';
+    if (dataTypeName === 'number') return isIntegerNumber(info) ? 'int' : 'number';
+    if (dataTypeName === 'duration') return 'number';
     if (dataTypeName === 'boolean') return 'boolean';
     if (dataTypeName === 'simple-object') return 'object';
     if (dataTypeName === 'enum') {

@@ -14,7 +14,7 @@ describe('generatePhpTypesSrc', () => {
     expect(src).toContain('@phpstan-type EnvSchemaAsStrings');
 
     expect(src).toContain('DB_HOST: string');
-    expect(src).toContain('DB_PORT?: int|float');
+    expect(src).toContain('DB_PORT?: int');
     expect(src).toContain('DEBUG?: bool');
     expect(src).toContain('APP_ENV: "dev"|"staging"|"prod"');
     expect(src).toContain('CONFIG?: array<string, mixed>');
@@ -23,7 +23,7 @@ describe('generatePhpTypesSrc', () => {
     expect(src).toContain('DB_PORT?: string');
 
     const publicSection = getSectionBetween(src, '@phpstan-type PublicCoercedEnvSchema', '@phpstan-type EnvSchemaAsStrings');
-    expect(publicSection).toContain('DB_PORT?: int|float');
+    expect(publicSection).toContain('DB_PORT?: int');
     expect(publicSection).not.toContain('API_KEY');
   });
 });

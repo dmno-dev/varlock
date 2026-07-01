@@ -6,6 +6,7 @@ import {
 } from '../shared';
 
 function getGoCoercedTypeString(coerced: CoercedType): string {
+  if (coerced === 'int') return 'int64';
   if (coerced === 'number') return 'float64';
   if (coerced === 'boolean') return 'bool';
   if (coerced === 'object') return 'map[string]any';

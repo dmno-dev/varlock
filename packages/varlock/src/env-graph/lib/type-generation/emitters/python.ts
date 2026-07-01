@@ -7,7 +7,8 @@ import {
 } from '../shared';
 
 function getPythonCoercedTypeString(coerced: CoercedType): string {
-  if (coerced === 'number') return 'int';
+  if (coerced === 'int') return 'int';
+  if (coerced === 'number') return 'float';
   if (coerced === 'boolean') return 'bool';
   if (coerced === 'object') return 'dict[str, object]';
   if (typeof coerced === 'object' && 'enum' in coerced) {

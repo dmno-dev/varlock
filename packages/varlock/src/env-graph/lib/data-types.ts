@@ -245,6 +245,8 @@ const NumberDataType = createEnvGraphDataType(
   )) => ({
     name: 'number',
     icon: 'carbon:string-integer',
+    // exposed for type generation — whether this coerces to an integer
+    _isInt: settings?.isInt === true || settings?.precision === 0,
     coerce(rawVal) {
       let numVal = coerceToNumber(rawVal);
       if (settings?.coerceToMinMaxRange) {

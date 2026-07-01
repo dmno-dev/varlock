@@ -896,6 +896,9 @@ describe('type generation', () => {
           # ---
           STR=hello                 # @type=string @public
           NUM=1                     # @type=number @public
+          INT_NUM=1                 # @type=number(isInt=true) @public
+          PORT=8080                 # @type=port @public
+          DUR=1h                    # @type=duration @public
           FLAG=true                 # @type=boolean @public
           # @type=enum(dev, staging, prod)
           APP_ENV=dev               # @public
@@ -906,12 +909,20 @@ describe('type generation', () => {
 
       const strField = resolveFieldType(await g.configSchema.STR.getTypeGenInfo());
       const numField = resolveFieldType(await g.configSchema.NUM.getTypeGenInfo());
+      const intNumField = resolveFieldType(await g.configSchema.INT_NUM.getTypeGenInfo());
+      const portField = resolveFieldType(await g.configSchema.PORT.getTypeGenInfo());
+      const durField = resolveFieldType(await g.configSchema.DUR.getTypeGenInfo());
       const flagField = resolveFieldType(await g.configSchema.FLAG.getTypeGenInfo());
       const configField = resolveFieldType(await g.configSchema.CONFIG.getTypeGenInfo());
       const appEnvField = resolveFieldType(await g.configSchema.APP_ENV.getTypeGenInfo());
 
       expect(strField.coerced).toBe('string');
+      // plain number is a general (float) number; ports and integer-constrained numbers are ints;
+      // duration can be fractional, so it stays a general number
       expect(numField.coerced).toBe('number');
+      expect(intNumField.coerced).toBe('int');
+      expect(portField.coerced).toBe('int');
+      expect(durField.coerced).toBe('number');
       expect(flagField.coerced).toBe('boolean');
       expect(configField.coerced).toBe('object');
       expect(appEnvField.coerced).toEqual({ enum: ['dev', 'staging', 'prod'] });

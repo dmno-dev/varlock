@@ -16,7 +16,8 @@ function formatPhpEnumLiteral(option: string | number | boolean): string {
 }
 
 function getPhpCoercedTypeString(coerced: CoercedType): string {
-  if (coerced === 'number') return 'int|float';
+  if (coerced === 'int') return 'int';
+  if (coerced === 'number') return 'float';
   if (coerced === 'boolean') return 'bool';
   if (coerced === 'object') return 'array<string, mixed>';
   if (typeof coerced === 'object' && 'enum' in coerced) {

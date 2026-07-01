@@ -6,6 +6,7 @@ import {
 } from '../shared';
 
 function getRustCoercedTypeString(coerced: CoercedType): string {
+  if (coerced === 'int') return 'i64';
   if (coerced === 'number') return 'f64';
   if (coerced === 'boolean') return 'bool';
   if (coerced === 'object') return 'serde_json::Value';

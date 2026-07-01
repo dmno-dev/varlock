@@ -14,7 +14,7 @@ describe('generateGoTypesSrc', () => {
     expect(src).toContain('type EnvSchemaAsStrings struct');
 
     expect(src).toContain('DbHost string');
-    expect(src).toContain('DbPort *float64');
+    expect(src).toContain('DbPort *int64');
     expect(src).toContain('Debug *bool');
     expect(src).toContain('AppEnv string');
     expect(src).toContain('Config *map[string]any');
@@ -23,10 +23,10 @@ describe('generateGoTypesSrc', () => {
     expect(stringsSection).toContain('DbPort *string');
     expect(stringsSection).toContain('Debug *string');
     expect(stringsSection).not.toContain('*bool');
-    expect(stringsSection).not.toContain('*float64');
+    expect(stringsSection).not.toContain('*int64');
 
     const publicSection = getSectionBetween(src, 'type PublicCoercedEnvSchema struct', 'type EnvSchemaAsStrings struct');
-    expect(publicSection).toContain('DbPort *float64');
+    expect(publicSection).toContain('DbPort *int64');
     expect(publicSection).not.toContain('ApiKey');
   });
 });

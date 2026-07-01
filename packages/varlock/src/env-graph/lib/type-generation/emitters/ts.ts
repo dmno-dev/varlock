@@ -8,7 +8,7 @@ import {
 } from '../shared';
 
 function getItemTsTypeString(coerced: CoercedType): string {
-  if (coerced === 'number') return 'number';
+  if (coerced === 'number' || coerced === 'int') return 'number';
   if (coerced === 'boolean') return 'boolean';
   if (coerced === 'object') return 'Record<string, any>';
   if (typeof coerced === 'object' && 'enum' in coerced) {
