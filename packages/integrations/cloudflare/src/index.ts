@@ -7,7 +7,7 @@ import {
   varlockVitePlugin, varlockLoadedEnv, varlockLastError, buildErrorPageHtml,
 } from '@varlock/vite-integration';
 import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
-import { CLOUDFLARE_SSR_ENTRY_CODE } from './shared-ssr-entry-code';
+import { CLOUDFLARE_SSR_ENTRY_CODE, disableWranglerDotEnvAutoload, logVarlockEnvInjectionNotice } from './shared-ssr-entry-code';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 
 const isWindows = process.platform === 'win32';
@@ -165,11 +165,10 @@ function serveFifoOrFile(filePath: string, content: string) {
  * Varlock Cloudflare Vite plugin — wraps `@cloudflare/vite-plugin` with
  * automatic env var injection.
  *
- * For SvelteKit projects deploying via `@sveltejs/adapter-cloudflare`, use
- * `varlockSvelteKitCloudflarePlugin` from
- * `@varlock/cloudflare-integration/sveltekit` instead — it skips
- * `@cloudflare/vite-plugin` (which doesn't support SvelteKit) and uses an
- * SSR-entry-based env loader.
+ * For SvelteKit projects deploying via `@sveltejs/adapter-cloudflare`, use the
+ * standard `varlockVitePlugin` from `@varlock/vite-integration` instead — it
+ * auto-detects the Cloudflare adapter and uses an SSR-entry-based env loader,
+ * skipping `@cloudflare/vite-plugin` (which doesn't support SvelteKit).
  *
  * **Important:** Do not use a `.dev.vars` file alongside this plugin — varlock
  * handles env injection automatically. The plugin will throw an error if a
@@ -198,6 +197,10 @@ export function varlockCloudflareVitePlugin(
   // consumer's — causing spurious type errors. Since Vite's `plugins` config
   // is loosely typed, Array<any> is functionally equivalent.
 ): Array<any> {
+  // Opt out of wrangler's redundant `.env`/`.dev.vars` auto-loading before the
+  // CF plugin resolves its config — varlock injects the resolved env itself.
+  disableWranglerDotEnvAutoload();
+
   // --- conflict guard ---------------------------------------------------
   // Error loudly if the user added `@cloudflare/vite-plugin` themselves.
   const conflictGuard: import('vite').Plugin = {
@@ -285,6 +288,7 @@ export function varlockCloudflareVitePlugin(
   const errorPagePlugin: import('vite').Plugin = {
     name: 'varlock-cloudflare-error-page',
     configureServer(server) {
+      logVarlockEnvInjectionNotice();
       // Return middleware — returning from configureServer adds it in the
       // "post" phase, after internal vite middlewares
       return () => {
@@ -303,6 +307,10 @@ export function varlockCloudflareVitePlugin(
     ssrEdgeRuntime: true,
     ssrEntryModuleIds: ['\0virtual:cloudflare/worker-entry'],
     ssrEntryCode: [CLOUDFLARE_SSR_ENTRY_CODE],
+    integrationTelemetry: {
+      name: __VARLOCK_INTEGRATION_NAME__,
+      version: __VARLOCK_INTEGRATION_VERSION__,
+    },
   });
 
   const cloudflarePlugin = cloudflare({
@@ -323,6 +331,7 @@ export function varlockCloudflareVitePlugin(
       resolvedRoot = config.root;
     },
     configurePreviewServer(server) {
+      logVarlockEnvInjectionNotice();
       if (!resolvedRoot) return;
 
       // Find the build output directory containing wrangler.json.

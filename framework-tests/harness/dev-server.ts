@@ -193,6 +193,12 @@ export async function runDevServer(
     COREPACK_ENABLE_PROJECT_SPEC: '0',
     WRANGLER_SEND_METRICS: 'false',
     VARLOCK_DEBUG: '1',
+    // Astro v7 auto-backgrounds `astro dev` when it detects an agentic/CI
+    // environment, which detaches the server's output (and emits JSON logs) so
+    // the harness can't monitor stdout. Setting this env var (any value — astro
+    // only checks presence) disables that auto-detection; `0` is the form astro
+    // documents and reads correctly as "background off".
+    ASTRO_DEV_BACKGROUND: '0',
     ...scenario.env,
   };
   log(`Spawning: ${command}`);

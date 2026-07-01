@@ -50,7 +50,7 @@ See the [plugins guide](/guides/plugins/#installation) for more instructions on 
 # @type=infisicalClientId
 INFISICAL_CLIENT_ID=
 
-# @type=infisicalClientSecret @sensitive
+# @type=infisicalClientSecret @sensitive @internal
 INFISICAL_CLIENT_SECRET=
 ```
 :::caution[Note for EU users]
@@ -97,7 +97,7 @@ If you are using the Infisical EU Cloud, you must set `@initFisical(siteUrl=http
     # @type=infisicalClientId
     INFISICAL_CLIENT_ID=
 
-    # @type=infisicalClientSecret @sensitive
+    # @type=infisicalClientSecret @sensitive @internal
     INFISICAL_CLIENT_SECRET=
     ```
 
@@ -144,6 +144,8 @@ For self-hosted Infisical instances, specify the `siteUrl`:
 #   siteUrl=https://infisical.mycompany.com
 # )
 ```
+
+`siteUrl` can also be set dynamically — pass a reference like `siteUrl=$INFISICAL_SITE_URL` to point at different Infisical instances per environment.
 
 ### Multiple instances
 
@@ -211,7 +213,7 @@ Use `infisicalBulk()` with `@setValuesBulk` to load all secrets from a project e
 # ---
 # @type=infisicalClientId
 INFISICAL_CLIENT_ID=
-# @type=infisicalClientSecret @sensitive
+# @type=infisicalClientSecret @sensitive @internal
 INFISICAL_CLIENT_SECRET=
 
 API_KEY=
@@ -268,7 +270,7 @@ Initialize an Infisical plugin instance for accessing secrets.
 # ---
 # @type=infisicalClientId
 INFISICAL_CLIENT_ID=
-# @type=infisicalClientSecret @sensitive
+# @type=infisicalClientSecret @sensitive @internal
 INFISICAL_CLIENT_SECRET=
 ```
 
@@ -290,6 +292,9 @@ INFISICAL_CLIENT_ID=
 
 <div>
 #### `infisicalClientSecret`
+
+This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+
 
 Represents an Infisical Universal Auth Client Secret. This type is marked as `@sensitive`.
 
@@ -370,7 +375,7 @@ Bulk-load all secrets from an Infisical project environment. Intended for use wi
 # ---
 # @type=infisicalClientId
 INFISICAL_CLIENT_ID=
-# @type=infisicalClientSecret @sensitive
+# @type=infisicalClientSecret @sensitive @internal
 INFISICAL_CLIENT_SECRET=
 
 # Secret names automatically match config keys

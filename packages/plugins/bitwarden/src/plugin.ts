@@ -4,13 +4,21 @@ import {
 import ky from 'ky';
 import { Buffer } from 'node:buffer';
 import { createHash, webcrypto } from 'node:crypto';
+import { homedir } from 'node:os';
+import { join as joinPath } from 'node:path';
 import { deriveKeyFromAccessToken, decryptAes256CbcHmac } from './crypto-utils.js';
+import {
+  type BwItem, execBwCliCommand, unlockVault, isInvalidSessionMessage,
+} from './bw-pm-cli-helper.js';
 
 const { subtle } = webcrypto;
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
 const BITWARDEN_ICON = 'simple-icons:bitwarden';
+
+const BITWARDEN_CLOUD_API_URL = 'https://api.bitwarden.com';
+const BITWARDEN_CLOUD_IDENTITY_URL = 'https://identity.bitwarden.com';
 
 plugin.name = 'bitwarden';
 const { debug } = plugin;
@@ -60,9 +68,9 @@ class BitwardenPluginInstance {
   /** Access token for Bitwarden Secrets Manager machine account */
   private accessToken?: string;
   /** API URL - defaults to https://api.bitwarden.com */
-  private apiUrl: string = 'https://api.bitwarden.com';
+  private apiUrl: string = BITWARDEN_CLOUD_API_URL;
   /** Identity URL - defaults to https://identity.bitwarden.com */
-  private identityUrl: string = 'https://identity.bitwarden.com';
+  private identityUrl: string = BITWARDEN_CLOUD_IDENTITY_URL;
   /** Cached authentication */
   private cachedAuth?: CachedAuth;
   /** In-flight auth promise - prevents parallel resolution from triggering multiple auth requests (rate limit fix) */
@@ -99,6 +107,11 @@ class BitwardenPluginInstance {
       this.identityUrl = identityUrl;
     }
     debug('bitwarden instance', this.id, 'set auth - apiUrl:', this.apiUrl);
+  }
+
+  /** @internal telemetry: whether a self-hosted server is configured (boolean only, never the URL) */
+  get telemetryUsesSelfHostedServer() {
+    return this.apiUrl !== BITWARDEN_CLOUD_API_URL || this.identityUrl !== BITWARDEN_CLOUD_IDENTITY_URL;
   }
 
   /**
@@ -391,6 +404,7 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'bitwardenAccessToken',
   sensitive: true,
+  internal: true,
   typeDescription: 'Access token for a Bitwarden Secrets Manager machine account',
   icon: BITWARDEN_ICON,
   docs: [
@@ -529,4 +543,434 @@ plugin.registerResolverFunction({
 
     return await selectedInstance.getSecret(secretId);
   },
+});
+
+// ──────────────────────────────────────────────────────────────
+// Bitwarden Password Manager / Vaultwarden  (bwp)
+//
+// Unlike Secrets Manager (above, HTTP API), the Password Manager is only
+// reachable via the `bw` CLI. varlock acquires a session token itself by
+// running `bw unlock` (interactively, or non-interactively with a master
+// password) and caches it — so the user no longer has to manually unlock and
+// paste a token. Each `bw unlock` invalidates prior session keys, so the cached
+// token is reused (sessionTtl, default `forever`) until the CLI session is
+// invalidated externally (bw lock/logout, an external bw unlock, or account
+// policy) — which the re-unlock retry in getSecret then heals. Note the CLI
+// session does not auto-lock on system sleep/lock; those are app-only settings.
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * Extract a named field from a Bitwarden vault item JSON object.
+ * Standard fields: password, username, notes, totp, uri
+ * Falls back to searching the `fields` array for custom fields.
+ */
+function extractBwItemField(item: BwItem, field: string): string {
+  switch (field) {
+    case 'password':
+      if (item.login?.password != null) return item.login.password;
+      throw new ResolutionError(`Item "${item.name}" has no password field`);
+    case 'username':
+      if (item.login?.username != null) return item.login.username;
+      throw new ResolutionError(`Item "${item.name}" has no username field`);
+    case 'notes':
+      if (item.notes != null) return item.notes;
+      throw new ResolutionError(`Item "${item.name}" has no notes`);
+    case 'totp':
+      if (item.login?.totp != null) return item.login.totp;
+      throw new ResolutionError(`Item "${item.name}" has no TOTP field`);
+    case 'uri':
+      if (item.login?.uris?.[0]?.uri != null) return item.login.uris[0].uri;
+      throw new ResolutionError(`Item "${item.name}" has no URI field`);
+    default: {
+      // Try custom fields (case-insensitive match)
+      const customField = item.fields?.find(
+        (f) => f.name.toLowerCase() === field.toLowerCase(),
+      );
+      if (customField != null) return customField.value ?? '';
+      throw new ResolutionError(`Field "${field}" not found in item "${item.name}"`, {
+        tip: [
+          'Available standard fields: password, username, notes, totp, uri',
+          `Custom fields on this item: ${item.fields?.map((f) => f.name).join(', ') || 'none'}`,
+        ].join('\n'),
+      });
+    }
+  }
+}
+
+/** an error indicating the session token is no longer valid (so a re-unlock may help) */
+function isInvalidSessionError(err: unknown): boolean {
+  return isInvalidSessionMessage((err as Error)?.message ?? '');
+}
+
+// Single-flight session tokens, keyed per bw account (its `appDataDir`). The `bw`
+// CLI has one logged-in account per data directory, so each `bw unlock` invalidates
+// prior session keys *for that account* — parallel resolutions for the same account
+// must therefore share one unlock rather than racing (racing unlocks would invalidate
+// each other's tokens). Distinct accounts (different appDataDir) get independent
+// entries. Held for the process lifetime so repeated resolutions reuse the token even
+// when the persistent cache is unavailable; an entry is cleared only when its unlock
+// attempt fails. The persistent cache key is namespaced per account the same way.
+const sessionUnlockInFlight = new Map<string, Promise<string>>();
+
+class BitwardenPasswordManagerInstance {
+  /** optional manually-supplied session token (e.g. sessionToken=$BWP_SESSION) */
+  sessionTokenResolver?: Resolver;
+  /** optional master password for non-interactive unlock (CI / keychain) */
+  masterPasswordResolver?: Resolver;
+  /**
+   * How long an auto-unlocked session token is cached before re-unlock.
+   * Defaults to `forever`: the token lives in varlock's encrypted cache (biometric-
+   * gated on platforms with a secure enclave) until the CLI session is invalidated
+   * externally (bw lock/logout, an external bw unlock, or account policy) — at which
+   * point `bw get` fails and the re-unlock retry in `getSecret` heals it. The `bw`
+   * CLI session does not auto-lock on system sleep/lock/restart (those are app-only
+   * vault-timeout settings), so the cached token is long-lived by default; set a
+   * shorter `sessionTtl` to force periodic master-password re-auth.
+   */
+  sessionTtl: string | number = 'forever';
+  /** optional TTL for caching resolved item field values */
+  cacheTtl?: string | number;
+  /**
+   * Optional bw CLI data directory (BITWARDENCLI_APPDATA_DIR). The `bw` CLI keeps one
+   * logged-in account/server per data dir, so pointing instances at different dirs is
+   * how you read from different accounts or servers (e.g. personal vs work). Each dir
+   * must be set up independently (`bw config server` + `bw login`).
+   */
+  appDataDir?: string;
+
+  constructor(readonly id: string) {}
+
+  /**
+   * Stable key identifying which bw account this instance reads — its `appDataDir`
+   * (or `default` when unset). Used to namespace the session cache and single-flight
+   * unlock so distinct accounts don't share/invalidate each other's session tokens.
+   */
+  get accountKey(): string {
+    return this.appDataDir
+      ? createHash('sha256').update(this.appDataDir).digest('hex').slice(0, 12)
+      : 'default';
+  }
+
+  /** persistent cache key for this account's session token */
+  private get sessionCacheKey(): string {
+    return `bwp-session:${this.accountKey}`;
+  }
+
+  /** resolve the manual session token, if one was configured and is non-empty */
+  private async resolveManualToken(): Promise<string | undefined> {
+    if (!this.sessionTokenResolver) return undefined;
+    const val = await this.sessionTokenResolver.resolve();
+    return (typeof val === 'string' && val) ? val : undefined;
+  }
+
+  /** Produce a brand-new session token by running `bw unlock`. */
+  private async unlock(): Promise<string> {
+    const masterPassword = await this.resolveMasterPassword();
+    if (masterPassword === undefined && !process.stdin.isTTY) {
+      throw new ResolutionError('Cannot unlock the Bitwarden vault without an interactive terminal', {
+        tip: [
+          'varlock is auto-unlocking the vault (no sessionToken/masterPassword configured) but stdin is not a TTY',
+          'For local dev: run `varlock load` once in an interactive terminal to unlock and cache the session,',
+          '  then your non-interactive command will reuse the cached token',
+          'For CI / headless: configure @initBwp with sessionToken=$BWP_SESSION (a pre-obtained token),',
+          '  or masterPassword=$BW_MASTER_PASSWORD to unlock non-interactively',
+        ].join('\n'),
+      });
+    }
+    return await unlockVault({ masterPassword, appDataDir: this.appDataDir });
+  }
+
+  /**
+   * Acquire a session token, reusing the cached/in-flight one when available.
+   * `bw unlock` itself errors clearly when the user isn't logged in, and a stale
+   * cached token is self-healed by the re-unlock retry in `getSecret`, so no
+   * separate `bw status` / login probe is needed here.
+   */
+  async autoUnlock(): Promise<string> {
+    const key = this.accountKey;
+    let inFlight = sessionUnlockInFlight.get(key);
+    if (!inFlight) {
+      // create + register synchronously (no await between get and set) to keep single-flight
+      inFlight = (async () => {
+        if (pluginCache) {
+          return await pluginCache.getOrSet(this.sessionCacheKey, this.sessionTtl, () => this.unlock());
+        }
+        return await this.unlock();
+      })();
+      sessionUnlockInFlight.set(key, inFlight);
+    }
+
+    try {
+      return await inFlight;
+    } catch (err) {
+      // let a later resolution retry after a failed unlock
+      if (sessionUnlockInFlight.get(key) === inFlight) sessionUnlockInFlight.delete(key);
+      throw err;
+    }
+  }
+
+  /**
+   * Replace a known-stale session token with a fresh `bw unlock`, then return it.
+   *
+   * Idempotent for concurrent callers holding the same stale token: only the first
+   * triggers a new unlock and the rest reuse its result. This avoids a re-unlock
+   * storm — since each `bw unlock` invalidates prior session keys, racing unlocks
+   * would invalidate each other and cause spurious failures. We overwrite the cache
+   * via `set` (rather than `delete` + `getOrSet`) so the fresh token is never read
+   * back through a not-yet-completed delete.
+   */
+  async refreshUnlock(staleToken: string): Promise<string> {
+    const key = this.accountKey;
+    const current = sessionUnlockInFlight.get(key);
+    if (current) {
+      const resolved = await current.catch(() => undefined);
+      // a fresh unlock already happened past the stale token — reuse it
+      if (resolved !== undefined && resolved !== staleToken) return resolved;
+    }
+
+    // Compare-and-swap: only the caller still pointing at the stale unlock starts a
+    // new one. The check + assignment run synchronously with no `await` between them,
+    // so they are atomic across the continuations woken by awaiting `current` above.
+    if (sessionUnlockInFlight.get(key) === current) {
+      sessionUnlockInFlight.set(key, (async () => {
+        const token = await this.unlock();
+        await pluginCache?.set(this.sessionCacheKey, token, this.sessionTtl);
+        return token;
+      })());
+    }
+
+    const inFlight = sessionUnlockInFlight.get(key)!;
+    try {
+      return await inFlight;
+    } catch (err) {
+      if (sessionUnlockInFlight.get(key) === inFlight) sessionUnlockInFlight.delete(key);
+      throw err;
+    }
+  }
+
+  private async resolveMasterPassword(): Promise<string | undefined> {
+    if (!this.masterPasswordResolver) return undefined;
+    const val = await this.masterPasswordResolver.resolve();
+    if (typeof val !== 'string' || !val) {
+      throw new SchemaError('masterPassword resolved to an empty value');
+    }
+    return val;
+  }
+
+  async getSecret(itemQuery: string, field: string = 'password'): Promise<string> {
+    const manualToken = await this.resolveManualToken();
+    const token = manualToken ?? await this.autoUnlock();
+
+    try {
+      return await this.fetchField(itemQuery, field, token);
+    } catch (err) {
+      // if we manage the token ourselves and it went stale, re-unlock once and retry
+      if (!manualToken && isInvalidSessionError(err)) {
+        debug('cached bw session invalid — re-unlocking');
+        const freshToken = await this.refreshUnlock(token);
+        return await this.fetchField(itemQuery, field, freshToken);
+      }
+      throw err;
+    }
+  }
+
+  private async fetchField(itemQuery: string, field: string, token: string): Promise<string> {
+    const raw = await execBwCliCommand(
+      ['get', 'item', itemQuery, '--nointeraction'],
+      token,
+      { appDataDir: this.appDataDir },
+    );
+    let item: BwItem;
+    try {
+      item = JSON.parse(raw);
+    } catch {
+      throw new ResolutionError(`Failed to parse Bitwarden CLI response for item "${itemQuery}"`, {
+        tip: 'Make sure the `bw` CLI is working correctly and the item is a login/secure-note item',
+      });
+    }
+    return extractBwItemField(item, field);
+  }
+}
+
+const bwpPluginInstances: Record<string, BitwardenPasswordManagerInstance> = {};
+
+/** resolve the optional appDataDir, expanding a leading `~` (spawn env does not) */
+async function resolveAppDataDir(resolver?: Resolver): Promise<string | undefined> {
+  if (!resolver) return undefined;
+  const val = await resolver.resolve();
+  if (typeof val !== 'string' || !val) return undefined;
+  if (val === '~') return homedir();
+  if (val.startsWith('~/')) return joinPath(homedir(), val.slice(2));
+  return val;
+}
+
+plugin.registerRootDecorator({
+  name: 'initBwp',
+  description: 'Initialize a Bitwarden Password Manager (or Vaultwarden) plugin instance via the `bw` CLI',
+  isFunction: true,
+  async process(argsVal) {
+    // all args are optional — `@initBwp()` with no args is the primary (auto-unlock) form
+    const objArgs = argsVal.objArgs ?? {};
+
+    // id (optional, static)
+    if (objArgs.id && !objArgs.id.isStatic) {
+      throw new SchemaError('Expected id to be static');
+    }
+    const id = String(objArgs?.id?.staticValue || '_default');
+
+    if (bwpPluginInstances[id]) {
+      throw new SchemaError(`Bitwarden PM instance with id "${id}" already initialized`);
+    }
+
+    bwpPluginInstances[id] = new BitwardenPasswordManagerInstance(id);
+
+    return {
+      id,
+      sessionTokenResolver: objArgs.sessionToken,
+      masterPasswordResolver: objArgs.masterPassword,
+      sessionTtlResolver: objArgs.sessionTtl,
+      cacheTtlResolver: objArgs.cacheTtl,
+      appDataDirResolver: objArgs.appDataDir,
+    };
+  },
+  async execute({
+    id,
+    sessionTokenResolver,
+    masterPasswordResolver,
+    sessionTtlResolver,
+    cacheTtlResolver,
+    appDataDirResolver,
+  }) {
+    const instance = bwpPluginInstances[id];
+    // store resolvers (not resolved values) so auth is resolved lazily — a fully
+    // value-cached load never needs to unlock
+    instance.sessionTokenResolver = sessionTokenResolver;
+    instance.masterPasswordResolver = masterPasswordResolver;
+    instance.appDataDir = await resolveAppDataDir(appDataDirResolver);
+
+    const sessionTtl = await resolveCacheTtl(sessionTtlResolver);
+    if (sessionTtl !== undefined) instance.sessionTtl = sessionTtl;
+
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) instance.cacheTtl = cacheTtl;
+  },
+});
+
+plugin.registerDataType({
+  name: 'bwSessionToken',
+  sensitive: true,
+  internal: true,
+  typeDescription: 'Bitwarden CLI session token (output of `bw unlock`)',
+  icon: BITWARDEN_ICON,
+  docs: [
+    {
+      description: 'Bitwarden CLI authentication',
+      url: 'https://bitwarden.com/help/cli/#unlock',
+    },
+  ],
+  async validate(val) {
+    if (typeof val !== 'string' || val.length === 0) {
+      throw new ValidationError('Bitwarden session token must be a non-empty string');
+    }
+  },
+});
+
+plugin.registerResolverFunction({
+  name: 'bwp',
+  label: 'Fetch a field from a Bitwarden Password Manager / Vaultwarden vault item via the `bw` CLI',
+  icon: BITWARDEN_ICON,
+  argsSchema: {
+    type: 'mixed',
+    arrayMinLength: 1,
+    arrayMaxLength: 2,
+  },
+  process() {
+    let instanceId = '_default';
+    let itemQueryResolver: Resolver | undefined;
+    const fieldResolver = this.objArgs?.field;
+
+    const arrArgs = this.arrArgs ?? [];
+    const argCount = arrArgs.length;
+
+    if (argCount === 1) {
+      itemQueryResolver = arrArgs[0];
+    } else if (argCount === 2) {
+      if (!arrArgs[0].isStatic) {
+        throw new SchemaError('Expected instance id (first argument) to be a static value');
+      }
+      instanceId = String(arrArgs[0].staticValue);
+      itemQueryResolver = arrArgs[1];
+    } else {
+      throw new SchemaError('Expected 1 or 2 positional arguments: bwp("item") or bwp(instanceId, "item")');
+    }
+
+    if (!Object.keys(bwpPluginInstances).length) {
+      throw new SchemaError('No Bitwarden PM plugin instances found', {
+        tip: 'Initialize at least one instance using the @initBwp() root decorator',
+      });
+    }
+
+    const selectedInstance = bwpPluginInstances[instanceId];
+    if (!selectedInstance) {
+      if (instanceId === '_default') {
+        throw new SchemaError('Bitwarden PM plugin instance (without id) not found', {
+          tip: [
+            'Either remove the `id` param from your @initBwp call',
+            'or use `bwp(id, "item")` to select an instance by id',
+            `Available ids: ${Object.keys(bwpPluginInstances).join(', ')}`,
+          ].join('\n'),
+        });
+      } else {
+        throw new SchemaError(`Bitwarden PM plugin instance id "${instanceId}" not found`, {
+          tip: `Available ids: ${Object.keys(bwpPluginInstances).join(', ')}`,
+        });
+      }
+    }
+
+    return { instanceId, itemQueryResolver, fieldResolver };
+  },
+  async resolve({ instanceId, itemQueryResolver, fieldResolver }) {
+    const selectedInstance = bwpPluginInstances[instanceId];
+
+    const itemQuery = await itemQueryResolver.resolve();
+    if (typeof itemQuery !== 'string' || !itemQuery) {
+      throw new SchemaError('Expected item name/id to resolve to a non-empty string');
+    }
+
+    let field = 'password';
+    if (fieldResolver) {
+      const resolvedField = await fieldResolver.resolve();
+      if (typeof resolvedField === 'string' && resolvedField) field = resolvedField;
+    }
+
+    // cache resolved values too, if cacheTtl is configured and caching is available.
+    // key by account (appDataDir), not instance id, so instances on the same account
+    // share cached values and distinct accounts never collide.
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `bwp:${selectedInstance.accountKey}:${itemQuery}:${field}`;
+      return await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.getSecret(itemQuery, field),
+      );
+    }
+
+    return await selectedInstance.getSecret(itemQuery, field);
+  },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const smInstances = Object.values(pluginInstances);
+  const pmInstances = Object.values(bwpPluginInstances);
+  const instances = [...smInstances, ...pmInstances];
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+    // custom attributes
+    uses_secrets_manager: smInstances.length > 0,
+    uses_password_manager: pmInstances.length > 0,
+    self_hosted_server: smInstances.some((i) => i.telemetryUsesSelfHostedServer),
+  };
 });

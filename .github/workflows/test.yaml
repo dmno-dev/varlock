@@ -10,7 +10,6 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   build-and-test:
@@ -24,7 +23,7 @@ jobs:
       rust-cache-hit: ${{ steps.rust-cache-final.outputs.cache-hit }}
       rust-source-hash: ${{ steps.rust-hash.outputs.hash }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Setup Bun
@@ -41,12 +40,10 @@ jobs:
       - name: Enable turborepo build cache
         uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
 
-      # ------------------------------------------------------------
-      - name: Bumpy release plan check
-        if: github.event_name == 'pull_request'
-        run: bunx @varlock/bumpy ci check
-        env:
-          GH_TOKEN: ${{ github.token }}
+      # Note: the bumpy release-plan check + comment live in their own workflows
+      # (bumpy-check.yaml emits the comment on `pull_request`; bumpy-comment.yaml
+      # posts it on `workflow_run`) so it can post on fork PRs without running
+      # PR-defined code with write permissions.
 
       # lint, build, tests  ---------------------------------
       - name: ESLint
@@ -153,6 +150,10 @@ jobs:
   # Build Rust native binaries if varlock is being released AND (source changed or cache missing)
   build-native-rust:
     needs: build-and-test
+    # CI builds never sign, so no id-token is granted here (signing is gated on
+    # the `sign` input, which only the release workflows pass).
+    permissions:
+      contents: read
     if: >-
       needs.build-and-test.outputs.includes-varlock == 'true'
       && (needs.build-and-test.outputs.rust-changed == 'true' || needs.build-and-test.outputs.rust-cache-hit != 'true')
@@ -168,7 +169,7 @@ jobs:
     if: always() && !failure() && !cancelled() && github.ref_name != 'main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Setup Bun

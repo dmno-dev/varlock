@@ -4,7 +4,9 @@ import {
 import { FrameworkTestEnv } from '../../harness/index';
 
 export function defineAstroTests(astroVersion: number, testDir: string, opts: { portBase: number }) {
-  const nodeAdapterVersion = astroVersion >= 6 ? '^10' : '^9';
+  let nodeAdapterVersion = '^9';
+  if (astroVersion >= 7) nodeAdapterVersion = '^11';
+  else if (astroVersion >= 6) nodeAdapterVersion = '^10';
   let nextPort = opts.portBase;
   const port = () => nextPort++;
 
@@ -370,4 +372,90 @@ export function defineAstroTests(astroVersion: number, testDir: string, opts: { 
       // is covered above in "invalid schema causes build failure".
     });
   });
+
+  // ---- Cloudflare adapter (@astrojs/cloudflare) ----
+  // @astrojs/cloudflare v14 requires Astro v7, so this suite is v7+ only.
+  // It runs SSR in workerd via @cloudflare/vite-plugin and relies on
+  // @varlock/cloudflare-integration to inject env into the worker.
+  if (astroVersion >= 7) {
+    describe(`Astro v${astroVersion} — Cloudflare adapter`, () => {
+      const cfEnv = new FrameworkTestEnv({
+        testDir,
+        framework: `astro-v${astroVersion}-cloudflare`,
+        packageManager: 'pnpm',
+        dependencies: {
+          astro: `^${astroVersion}`,
+          varlock: 'will-be-replaced',
+          '@varlock/astro-integration': 'will-be-replaced',
+          '@varlock/cloudflare-integration': 'will-be-replaced',
+          '@astrojs/cloudflare': '^14',
+          wrangler: '^4',
+        },
+        overrides: {
+          punycode: 'npm:punycode@^2.3.1',
+        },
+        templateFiles: {
+          '.env.schema': 'schemas/.env.schema',
+          '.env.dev': 'schemas/.env.dev',
+          '.env.prod': 'schemas/.env.prod',
+        },
+      });
+
+      beforeAll(() => cfEnv.setup(), 180_000);
+      afterAll(() => cfEnv.teardown());
+
+      cfEnv.describeDevScenario('SSR + env injection via worker bindings', {
+        command: `astro dev --port ${port()}`,
+        readyPattern: /http:\/\/localhost/,
+        readyTimeout: 60_000,
+        timeout: 120_000,
+        templateFiles: {
+          'src/pages/index.astro': 'pages/server-basic-page.astro',
+          'src/pages/api/health.ts': 'pages/api-endpoint.ts',
+          'astro.config.mts': 'configs/astro.config.cloudflare.mts',
+          // @astrojs/cloudflare runs SSR in workerd and requires a wrangler config.
+          'wrangler.jsonc': 'configs/wrangler.jsonc',
+        },
+        requests: [
+          {
+            path: '/',
+            bodyAssertions: {
+              shouldContain: [
+                'public-var-value',
+                'unprefixed-public-var',
+                'env-specific-var--dev',
+                'sensitive-var-available',
+              ],
+              shouldNotContain: ['super-secret-value'],
+            },
+          },
+          {
+            path: '/api/health',
+            bodyAssertions: {
+              shouldContain: [
+                'public_var::public-var-value',
+                'has_secret::yes',
+                'toplevel_has_secret::yes',
+              ],
+              shouldNotContain: ['super-secret-value'],
+            },
+          },
+        ],
+        outputAssertions: [
+          {
+            description: 'sensitive value is redacted in console output',
+            shouldContain: ['secret-log-test:'],
+            shouldNotContain: ['super-secret-value'],
+          },
+          {
+            // varlock disables wrangler's redundant .env auto-loading and prints
+            // its own notice in place of "Using secrets defined in .env".
+            description: 'wrangler .env auto-load message is replaced by a varlock notice',
+            shouldContain: ['injecting resolved env into the Cloudflare worker'],
+            shouldNotContain: ['Using secrets defined in .env'],
+          },
+        ],
+      });
+    });
+  }
 }

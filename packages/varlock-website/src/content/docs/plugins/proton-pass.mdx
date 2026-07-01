@@ -44,6 +44,10 @@ See: [Proton Pass CLI overview](https://protonpass.github.io/pass-cli/).
 In production/CI you typically want a fully non-interactive login. The plugin supports two
 authentication methods — a **personal access token** (recommended) or a **username + password**.
 
+:::note[Login credentials are `@internal` by default]
+The login credential types (`protonPassPersonalAccessToken`, `protonPassPassword`, `protonPassTotp`, `protonPassExtraPassword`) are marked [`@internal`](/reference/item-decorators/#internal) — varlock uses them to authenticate but does **not** inject them into your application. Override with `@internal=false` if needed.
+:::
+
 #### Personal access token (recommended)
 
 A [personal access token](https://protonpass.github.io/pass-cli/commands/login/#personal-access-token-login)
@@ -72,7 +76,7 @@ pass-cli pat access grant ...
 # )
 # ---
 
-# @type=protonPassPersonalAccessToken @sensitive
+# @type=protonPassPersonalAccessToken @sensitive @internal
 PROTON_PASS_PERSONAL_ACCESS_TOKEN=
 ```
 
@@ -97,13 +101,13 @@ the value in your config — there is nothing for the plugin to refresh or cache
 # )
 # ---
 
-# @type=protonPassPassword @sensitive
+# @type=protonPassPassword @sensitive @internal
 PROTON_PASS_PASSWORD=
 
-# @type=protonPassTotp @sensitive
+# @type=protonPassTotp @sensitive @internal
 PROTON_PASS_TOTP=
 
-# @type=protonPassExtraPassword @sensitive
+# @type=protonPassExtraPassword @sensitive @internal
 PROTON_PASS_EXTRA_PASSWORD=
 ```
 

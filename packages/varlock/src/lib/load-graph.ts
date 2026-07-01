@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadEnvGraph } from '../env-graph';
+import { loadEnvGraph, type EnvGraph } from '../env-graph';
 import { VarlockResolver } from './local-encrypt/builtin-resolver';
 import { KeychainResolver } from './local-encrypt/keychain-resolver';
 import { CliExitError } from '../cli/helpers/exit-error';
+import { captureUsageContextFromEnvGraph, captureTelemetryGraphLoadFailure } from '../cli/helpers/telemetry-usage-context';
 import { runWithWorkspaceInfo } from './workspace-utils';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { createDebug } from './debug';
@@ -20,6 +21,23 @@ function getGraphEnvOverridesFromRuntimeEnv() {
 function normalizePkgLoadPath(pkgLoadPath: string | Array<string>): Array<string> {
   if (Array.isArray(pkgLoadPath)) return pkgLoadPath;
   return [pkgLoadPath];
+}
+
+function captureUsageAfterLoad(promise: Promise<EnvGraph>) {
+  return promise
+    .then((graph) => {
+      // telemetry capture must never turn a successful load into a failure
+      try {
+        captureUsageContextFromEnvGraph(graph);
+      } catch { /* swallow - telemetry is best-effort */ }
+      return graph;
+    })
+    .catch((err) => {
+      try {
+        captureTelemetryGraphLoadFailure(err);
+      } catch { /* swallow - telemetry is best-effort */ }
+      throw err;
+    });
 }
 
 function loadFromPaths(
@@ -44,13 +62,15 @@ function loadFromPaths(
 
   for (const resolvedPath of resolvedPaths) {
     if (!fs.existsSync(resolvedPath)) {
-      throw new CliExitError(`${config.errorPrefix}: ${resolvedPath}`, {
+      const err = new CliExitError(`${config.errorPrefix}: ${resolvedPath}`, {
         suggestion: config.errorSuggestion,
       });
+      captureTelemetryGraphLoadFailure(err);
+      throw err;
     }
   }
 
-  return runWithWorkspaceInfo(() => loadEnvGraph({
+  return captureUsageAfterLoad(runWithWorkspaceInfo(() => loadEnvGraph({
     currentEnvFallback: config.currentEnvFallback,
     entryFilePaths: resolvedPaths,
     overrideValues: config.overrideValues,
@@ -61,7 +81,7 @@ function loadFromPaths(
       g.registerResolver(VarlockResolver);
       g.registerResolver(KeychainResolver);
     },
-  }));
+  })));
 }
 
 export function loadVarlockEnvGraph(opts?: {
@@ -108,7 +128,7 @@ export function loadVarlockEnvGraph(opts?: {
 
   debug('no path configured, using cwd: %s', process.cwd());
 
-  return runWithWorkspaceInfo(() => loadEnvGraph({
+  return captureUsageAfterLoad(runWithWorkspaceInfo(() => loadEnvGraph({
     currentEnvFallback: opts?.currentEnvFallback,
     overrideValues: runtimeOverrideValues,
     processEnvOverride: runtimeOverrideValues,
@@ -118,5 +138,5 @@ export function loadVarlockEnvGraph(opts?: {
       g.registerResolver(VarlockResolver);
       g.registerResolver(KeychainResolver);
     },
-  }));
+  })));
 }

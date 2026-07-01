@@ -102,6 +102,16 @@ class AkeylessPluginInstance {
     );
   }
 
+  /** @internal telemetry: which auth method this instance is configured for (fixed enum, no user input) */
+  get telemetryAuthMethod(): 'api_key' | 'oidc' | 'none' {
+    if (this.accessId && this.accessKey) return 'api_key';
+    if (this.oidcAccessId) return 'oidc';
+    return 'none';
+  }
+
+  /** @internal telemetry: whether this instance targets a self-hosted gateway (non-default API URL) */
+  get telemetrySelfHosted() { return this.apiUrl !== DEFAULT_API_URL; }
+
   private _cacheKeyIdentity?: string;
   /** short hash identifying which Akeyless gateway/account is being read, used to namespace cache keys */
   get cacheKeyIdentity() {
@@ -363,6 +373,9 @@ class AkeylessPluginInstance {
 
 const pluginInstances: Record<string, AkeylessPluginInstance> = {};
 
+/** @internal telemetry: which secret types have been referenced by the schema (fixed enum keys) */
+const usedSecretTypes = { static: false, dynamic: false, rotated: false };
+
 plugin.registerRootDecorator({
   name: 'initAkeyless',
   description: 'Initialize an Akeyless plugin instance for akeyless() resolver',
@@ -453,6 +466,7 @@ plugin.registerDataType({
 plugin.registerDataType({
   name: 'akeylessAccessKey',
   sensitive: true,
+  internal: true,
   typeDescription: 'Akeyless Access Key for API Key authentication',
   docs: [
     {
@@ -546,6 +560,8 @@ plugin.registerResolverFunction({
       }
     }
 
+    usedSecretTypes[secretType] = true;
+
     return {
       instanceId, secretNameResolver, itemKey, keyResolver, secretType,
     };
@@ -619,4 +635,22 @@ plugin.registerResolverFunction({
 
     return await selectedInstance.getStaticSecret(finalSecretName, jsonKey);
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const authMethods = new Set(instances.map((i) => i.telemetryAuthMethod));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+    // custom attributes
+    auth_api_key: authMethods.has('api_key'),
+    auth_oidc: authMethods.has('oidc'),
+    self_hosted: instances.some((i) => i.telemetrySelfHosted),
+    uses_static_secrets: usedSecretTypes.static,
+    uses_dynamic_secrets: usedSecretTypes.dynamic,
+    uses_rotated_secrets: usedSecretTypes.rotated,
+  };
 });

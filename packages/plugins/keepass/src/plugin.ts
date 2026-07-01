@@ -38,6 +38,11 @@ class KeePassPluginInstance {
     }
   }
 
+  /** Hardcoded enum: which reader backend is in use (never emits db path, key file, or password). */
+  get telemetryReaderMode(): 'file' | 'cli' | 'unknown' {
+    return this.readerMode ?? 'unknown';
+  }
+
   async readEntry(entryPath: string, attribute: string = 'Password'): Promise<string> {
     return await this.reader!.readEntry(entryPath, attribute);
   }
@@ -168,6 +173,7 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'kdbxPassword',
   sensitive: true,
+  internal: true,
   typeDescription: 'Master password for a KeePass KDBX database file',
   icon: KP_ICON,
   docs: [
@@ -342,4 +348,18 @@ plugin.registerResolverFunction({
 
     return await selectedInstance.readAllEntries(groupPath);
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+// Booleans / counts / hardcoded enums only — never db paths, key files, passwords, or entry names.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const readerModes = new Set(instances.map((i) => i.telemetryReaderMode));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    // custom attributes
+    reader_file: readerModes.has('file'),
+    reader_cli: readerModes.has('cli'),
+  };
 });

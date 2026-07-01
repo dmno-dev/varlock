@@ -366,6 +366,7 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'keeperSmToken',
   sensitive: true,
+  internal: true,
   typeDescription: 'Base64-encoded configuration token for the [Keeper Secrets Manager](https://docs.keeper.io/secrets-manager/) SDK',
   icon: KEEPER_ICON,
   docs: [
@@ -482,4 +483,14 @@ plugin.registerResolverFunction({
 
     return await fetchValue();
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+  };
 });

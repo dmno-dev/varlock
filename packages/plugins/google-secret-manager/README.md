@@ -65,9 +65,11 @@ For explicit service account authentication:
 # @initGsm(projectId=my-gcp-project, credentials=$GCP_SA_KEY)
 # ---
 
-# @type=gcpServiceAccountJson @sensitive
+# @type=gcpServiceAccountJson @sensitive @internal
 GCP_SA_KEY=
 ```
+
+> `@internal` keeps this credential out of your app's environment — varlock only uses it to fetch your secrets. If you need the credential at runtime for other purposes (e.g. via the Google Cloud SDK), set `@internal=false` to keep it injected.
 
 The `credentials` parameter accepts:
 - JSON string containing the service account key

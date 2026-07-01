@@ -49,7 +49,13 @@ function spawnWrangler(args: Array<string>): Promise<number> {
 }
 
 function loadSerializedGraph() {
-  const { stdout } = execSyncVarlock('load --format json-full --compact', { fullResult: true });
+  const { stdout } = execSyncVarlock('load --format json-full --compact', {
+    fullResult: true,
+    integrationTelemetry: {
+      name: __VARLOCK_INTEGRATION_NAME__,
+      version: __VARLOCK_INTEGRATION_VERSION__,
+    },
+  });
   return {
     json: stdout,
     graph: JSON.parse(stdout) as {

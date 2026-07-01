@@ -2,3 +2,8 @@ dist
 dist-sea
 native-bins
 skills
+
+# Generated during the release job (native binary checksums, uploaded as a
+# workflow artifact, not part of the npm package). Ignored so it does not
+# leave the working tree dirty before bumpy publishes.
+SHA256SUMS.txt

@@ -11,7 +11,7 @@
  * The binary is placed in packages/varlock/native-bins/<platform>[-<arch>]/
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -107,10 +107,11 @@ if (process.platform !== 'win32') {
 const rawStats = fs.statSync(destBinary);
 const rawSizeKB = Math.round(rawStats.size / 1024);
 
-// UPX compress on Linux/Windows (macOS is not reliably supported)
+// UPX compress on Linux only (macOS is not reliably supported; Windows UPX triggers AV false positives)
 const skipUpx = args.includes('--no-upx');
 const isMacOS = !target ? process.platform === 'darwin' : (target.includes('darwin') || target.includes('apple'));
-if (!skipUpx && !isMacOS) {
+const isWindows = !target ? process.platform === 'win32' : target.includes('windows');
+if (!skipUpx && !isMacOS && !isWindows) {
   try {
     console.log('\nCompressing with UPX...');
     execSync(`upx --best "${destBinary}"`, { stdio: 'inherit' });

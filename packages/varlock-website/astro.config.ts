@@ -15,6 +15,8 @@ import { ENV } from 'varlock/env';
 
 import envSpecGrammar from '../vscode-plugin/language/env-spec.tmLanguage.json' with { type: 'json' };
 
+import { sidebar } from './src/sidebar';
+
 // https://astro.build/config
 export default defineConfig({
   site: 'https://varlock.dev',
@@ -128,107 +130,7 @@ export default defineConfig({
         })`,
         },
       ],
-      sidebar: [
-        {
-          label: 'Getting Started',
-          collapsed: true,
-          items: [
-            { label: 'Introduction', slug: 'getting-started/introduction' },
-            { label: 'Installation', slug: 'getting-started/installation' },
-            { label: 'Usage', slug: 'getting-started/usage' },
-            { label: 'Migration', slug: 'getting-started/migration' },
-            { label: 'Wrapping up', slug: 'getting-started/wrapping-up' },
-          ],
-        },
-        {
-          label: 'Guides',
-          collapsed: true,
-          items: [
-            { label: 'Schema', slug: 'guides/schema' },
-            { label: 'Secrets', slug: 'guides/secrets' },
-            { label: 'Environments', slug: 'guides/environments' },
-            { label: 'Imports', slug: 'guides/import' },
-            { label: 'Monorepos', slug: 'guides/monorepos', badge: 'new' },
-            { label: 'Plugins', slug: 'guides/plugins' },
-            { label: 'Local encryption', slug: 'guides/local-encryption' },
-            { label: 'Encrypted deployments', slug: 'guides/encrypted-deployments', badge: 'new' },
-            { label: 'Caching', slug: 'guides/caching', badge: 'new' },
-            { label: 'OIDC Workload Identity', slug: 'guides/oidc', badge: 'new' },
-            { label: 'Migrate from dotenv', slug: 'guides/migrate-from-dotenv' },
-            { label: 'Shell completion', slug: 'guides/shell-completion' },
-            { label: 'Telemetry', slug: 'guides/telemetry' },
-            { label: 'MCP', slug: 'guides/mcp' },
-            { label: 'AI Tools', slug: 'guides/ai-tools' },
-          ],
-        },
-        {
-          label: 'Integrations',
-          collapsed: true,
-          items: [
-            { label: 'Overview', slug: 'integrations/overview' },
-            { label: 'JavaScript / Node.js', slug: 'integrations/javascript' },
-            { label: 'Bun', slug: 'integrations/bun' },
-            { label: 'Next.js', slug: 'integrations/nextjs' },
-            { label: 'Vite-based', slug: 'integrations/vite' },
-            { label: 'Astro', slug: 'integrations/astro' },
-            { label: 'SvelteKit', slug: 'integrations/sveltekit' },
-            { label: 'TanStack Start', slug: 'integrations/tanstack-start' },
-            { label: 'Cloudflare Workers', slug: 'integrations/cloudflare' },
-            { label: 'Expo / React Native', slug: 'integrations/expo' },
-            { label: 'Docker', slug: 'guides/docker' },
-            { label: 'GitHub Actions', slug: 'integrations/github-action' },
-            { label: 'mise', slug: 'integrations/mise' },
-            { label: 'direnv', slug: 'integrations/direnv' },
-            { label: 'Other languages', slug: 'integrations/other-languages' },
-          ],
-        },
-        {
-          label: 'Plugins',
-          collapsed: true,
-          items: [
-            { label: 'Overview', slug: 'plugins/overview' },
-            { label: '1Password', slug: 'plugins/1password' },
-            { label: 'Akeyless', slug: 'plugins/akeyless' },
-            { label: 'AWS SSM/SM', slug: 'plugins/aws-secrets' },
-            { label: 'Azure Key Vault', slug: 'plugins/azure-key-vault' },
-            { label: 'Bitwarden', slug: 'plugins/bitwarden' },
-            { label: 'Dashlane', slug: 'plugins/dashlane' },
-            { label: 'Doppler', slug: 'plugins/doppler' },
-            { label: 'GCP Secret Manager', slug: 'plugins/google-secret-manager' },
-            { label: 'HashiCorp Vault', slug: 'plugins/hashicorp-vault' },
-            { label: 'Infisical', slug: 'plugins/infisical' },
-            { label: 'KeePass', slug: 'plugins/keepass' },
-            { label: 'Keeper', slug: 'plugins/keeper' },
-            { label: 'Kubernetes', slug: 'plugins/kubernetes', badge: 'new' },
-            { label: 'macOS Keychain', slug: 'plugins/macos-keychain' },
-            { label: 'Pass', slug: 'plugins/pass' },
-            { label: 'Passbolt', slug: 'plugins/passbolt' },
-            { label: 'Proton Pass', slug: 'plugins/proton-pass' },
-          ],
-        },
-        {
-          label: 'Reference',
-          collapsed: true,
-          items: [
-            { label: 'CLI', slug: 'reference/cli-commands' },
-            { label: 'Root decorators', slug: 'reference/root-decorators' },
-            { label: 'Item decorators', slug: 'reference/item-decorators' },
-            { label: '> @type data types', slug: 'reference/data-types' },
-            { label: 'Resolver functions', slug: 'reference/functions' },
-            { label: 'Builtin variables', slug: 'reference/builtin-variables' },
-            { label: 'Reserved variables', slug: 'reference/reserved-variables' },
-          ],
-        },
-        {
-          label: '@env-spec',
-          collapsed: true,
-          items: [
-            { label: 'Overview', slug: 'env-spec/overview' },
-            { label: 'Reference', slug: 'env-spec/reference' },
-            { label: 'VS Code extension', slug: 'env-spec/vs-code-ext' },
-          ],
-        },
-      ],
+      sidebar,
       expressiveCode: {
         shiki: {
           langs: [

@@ -4,6 +4,12 @@
 
 
 
+
+## 0.2.4
+<sub>2026-06-23</sub>
+
+- [#816](https://github.com/dmno-dev/varlock/pull/816)  *(patch)* - Improve syntax highlighting for array/object literals: highlight bare item-value literals (e.g. `KEY=[a, b]`, `KEY={ k=v }`) and fix unindented (column-0) comments inside multi-line `fn(...)` literals
+
 ## 0.2.3
 <sub>2026-06-17</sub>
 

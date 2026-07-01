@@ -11,7 +11,13 @@ The `varlock` CLI collects **anonymous telemetry data** about usage to help us u
 
 We track general usage information, and the environment in which `varlock` is being used. Specifically we collect _anonymous_ information about:
 - Which varlock command is being invoked
-- Version and settings for varlock, Node.js, and any plugins
+- Which framework integration invoked the CLI (if any), such as Vite, Next.js, or Astro — official `@varlock/*` package name and version only
+- Which plugins are installed in the project — `@varlock/*` plugin names and versions are sent as-is; third-party plugin names are hashed (SHA-256) and versions are omitted
+- Anonymous, non-sensitive usage attributes that official `@varlock/*` plugins report about how they are used (for example which authentication mode is active, or whether a feature is enabled) — booleans, short enum strings, and counts only; collected for official plugins only and strictly sanitized (never secret values, item references, hostnames, or paths)
+- Anonymous schema feature signals when a project is loaded — for example root settings like `@redactLogs`, cache mode, safe resolver/decorator identifiers in use, and data source type counts (not config keys, values, file paths, or error messages)
+- Whether the env graph was loaded (`graph_loaded`) and a coarse error category when the run failed (`error_code`: e.g. `parse_error`, `plugin_error`, `schema_error`, `validation_error`, `resolution_error`, `load_error`) — no error messages or file paths
+- Version information for varlock and Node.js
+- JavaScript package manager in use (if detectable from lockfiles or runtime env) — `npm`, `pnpm`, `yarn`, `bun`, or `deno` only
 - General system/machine information
 - Anonymous user + project ID
 

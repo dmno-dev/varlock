@@ -540,3 +540,13 @@ plugin.registerResolverFunction({
     return await selectedInstance.getAllSecrets(pathPrefix);
   },
 });
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+// Only an instance count — store paths and name prefixes are user-controlled and never emitted.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  return {
+    // standard attributes
+    instance_count: instances.length,
+  };
+});

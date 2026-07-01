@@ -2,7 +2,9 @@
 
 [![npm version](https://img.shields.io/npm/v/@varlock/bitwarden-plugin.svg)](https://www.npmjs.com/package/@varlock/bitwarden-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/bitwarden-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
 
-This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading data from [Bitwarden Secrets Manager](https://bitwarden.com/products/secrets-manager/) into your configuration.
+This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading data from Bitwarden into your configuration. It supports both [Bitwarden Secrets Manager](https://bitwarden.com/products/secrets-manager/) (via access tokens over the REST API, using `@initBitwarden` + `bitwarden()`) and the [Bitwarden Password Manager](https://bitwarden.com/products/personal/) / self-hosted [Vaultwarden](https://github.com/dani-garcia/vaultwarden) (via the `bw` CLI, using `@initBwp` + `bwp()`).
+
+See the [full documentation](https://varlock.dev/plugins/bitwarden/) for details.
 
 ## Features
 
@@ -44,7 +46,7 @@ For most use cases, you only need to provide the access token:
 # @initBitwarden(accessToken=$BITWARDEN_ACCESS_TOKEN)
 # ---
 
-# @type=bitwardenAccessToken @sensitive
+# @type=bitwardenAccessToken @sensitive @internal
 BITWARDEN_ACCESS_TOKEN=
 ```
 
@@ -88,7 +90,7 @@ This plugin introduces the `bitwarden()` function to fetch secret values.
 # @initBitwarden(accessToken=$BITWARDEN_ACCESS_TOKEN)
 # ---
 
-# @type=bitwardenAccessToken @sensitive
+# @type=bitwardenAccessToken @sensitive @internal
 BITWARDEN_ACCESS_TOKEN=
 
 # Fetch secrets by UUID
@@ -107,6 +109,28 @@ To find a secret's UUID:
 1. Open your Bitwarden Secrets Manager
 2. Navigate to the secret
 3. Copy the UUID from the URL or secret details (format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
+
+---
+
+## Password Manager / Vaultwarden
+
+Separate from Secrets Manager, you can load values from your personal/team **Bitwarden Password Manager** vault — or a self-hosted **Vaultwarden** server — using the [`bw` CLI](https://bitwarden.com/help/cli/). varlock unlocks the vault for you (prompting for your master password on first use) and caches the resulting session token, so you never have to manually unlock and paste a token.
+
+Install the `bw` CLI from a trusted source and log in once (`bw login`), then:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/bitwarden-plugin)
+# @initBwp()
+# ---
+
+# defaults to the item's password
+DATABASE_PASSWORD=bwp("Production DB")
+# other fields: username, notes, totp, uri, or a custom field name
+# (totp returns the stored TOTP secret/seed, not a generated 6-digit code)
+DATABASE_USER=bwp("Production DB", field=username)
+```
+
+The cached session token lives in varlock's encrypted cache (biometric-gated on platforms with a secure enclave) and by default is reused indefinitely (`sessionTtl="forever"`). The `bw` CLI session does not auto-lock on system sleep/lock/restart (those are app-only settings), so a fresh master-password unlock is only needed when the session is invalidated externally (`bw lock`/`bw logout`, an external `bw unlock`, or account policy); set a shorter `sessionTtl` to force periodic re-auth. For CI / non-interactive use, pass a pre-obtained token (`@initBwp(sessionToken=$BWP_SESSION)`) or a master password (`@initBwp(masterPassword=$BW_MASTER_PASSWORD)`). To read from multiple accounts/servers, give each instance its own bw data dir (`@initBwp(id=work, appDataDir=$BWP_WORK_DIR)`, with the machine-specific path set in `.env.local`). See the [full docs](https://varlock.dev/plugins/bitwarden/#password-manager--vaultwarden) for all options.
 
 ---
 

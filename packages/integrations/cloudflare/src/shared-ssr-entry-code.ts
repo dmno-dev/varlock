@@ -43,3 +43,38 @@ if (typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Work
   }
 }
 `;
+
+// --- wrangler .env auto-loading suppression --------------------------------
+//
+// `@cloudflare/vite-plugin` (used by `wrangler dev`, `vite dev`/`preview`, and
+// the `@astrojs/cloudflare` adapter) auto-loads `.env`/`.dev.vars` itself and
+// injects the raw values as worker bindings, printing
+// `Using secrets defined in .env` as it goes. In a varlock project that's both
+// noisy and wrong: varlock already injects the fully-resolved, validated env,
+// and the raw `.env` values would shadow it. We opt out of wrangler's loading
+// via the documented `CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV` env var and print
+// our own notice in its place.
+
+let noticeLogged = false;
+
+/**
+ * Disable wrangler's built-in `.env`/`.dev.vars` auto-loading so it doesn't
+ * shadow varlock's resolved env or print "Using secrets defined in .env".
+ * Respects an explicit user override of the env var.
+ *
+ * Must be called before `@cloudflare/vite-plugin` resolves its worker config
+ * (the env var is read lazily by wrangler at that point).
+ */
+export function disableWranglerDotEnvAutoload() {
+  if (!('CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV' in process.env)) {
+    process.env.CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = 'false';
+  }
+}
+
+/** Print a one-time notice that varlock (not wrangler/`.env`) provides the env. */
+export function logVarlockEnvInjectionNotice() {
+  if (noticeLogged) return;
+  noticeLogged = true;
+  // eslint-disable-next-line no-console
+  console.log('\x1b[36m🔒 [varlock] injecting resolved env into the Cloudflare worker\x1b[0m');
+}

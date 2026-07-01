@@ -88,6 +88,17 @@ class AzurePluginInstance {
     );
   }
 
+  /**
+   * @internal telemetry: which auth method this instance is *configured* for (fixed enum, no user input).
+   * 'ambient' means no explicit credentials were configured, so auth falls back to the runtime
+   * chain (Managed Identity / Azure CLI) determined at resolve time.
+   */
+  get telemetryAuthMethod(): 'service_principal' | 'oidc_federated' | 'ambient' {
+    if (this.tenantId && this.clientId && this.clientSecret) return 'service_principal';
+    if (this.tenantId && this.clientId) return 'oidc_federated';
+    return 'ambient';
+  }
+
   private _cacheKeyIdentity?: string;
   /** short hash identifying which Key Vault is being read, used to namespace cache keys */
   get cacheKeyIdentity() {
@@ -110,9 +121,14 @@ class AzurePluginInstance {
       const now = new Date();
       const validToken = tokens.find((t: any) => {
         const expiresOn = new Date(t.expiresOn);
+        // `_authority` looks like https://login.microsoftonline.com/<tenant>; only accept a
+        // cached token whose issuing tenant matches the configured one (see MSAL note below).
+        const tenantMatches = !this.tenantId
+          || (typeof t._authority === 'string' && t._authority.includes(this.tenantId));
         return t.resource === 'https://vault.azure.net'
           && expiresOn > now
-          && t.tokenType === 'Bearer';
+          && t.tokenType === 'Bearer'
+          && tenantMatches;
       });
 
       if (validToken) {
@@ -141,11 +157,19 @@ class AzurePluginInstance {
       const accessTokens = msalCache.AccessToken || {};
       const now = Math.floor(Date.now() / 1000);
 
-      // Find a valid token for vault.azure.net
+      // Find a valid token for vault.azure.net.
+      // When a tenantId is configured we must match it against the token's `realm`
+      // (the tenant that issued the token). With multiple `az login` accounts the cache
+      // can hold valid vault.azure.net tokens for several tenants; handing a token from
+      // the wrong tenant to the vault yields a confusing 401 ("token expired or invalid").
       for (const [_key, token] of Object.entries(accessTokens) as Array<[string, any]>) {
         if (token.target?.includes('https://vault.azure.net/.default')
           && token.expires_on > now
           && token.secret) {
+          if (this.tenantId && token.realm !== this.tenantId) {
+            debug(`Skipping cached MSAL token for tenant ${token.realm} (need ${this.tenantId})`);
+            continue;
+          }
           debug('Found valid Azure CLI token from MSAL cache');
 
           // Cache it
@@ -164,7 +188,9 @@ class AzurePluginInstance {
     // If no cached token found, try to get one directly from az CLI
     try {
       debug('No cached token found, attempting to get token from az CLI directly');
-      const result = execSync('az account get-access-token --resource https://vault.azure.net', {
+      // Scope the request to the configured tenant so we don't get a token for the wrong account.
+      const tenantArg = this.tenantId ? ` --tenant ${this.tenantId}` : '';
+      const result = execSync(`az account get-access-token --resource https://vault.azure.net${tenantArg}`, {
         encoding: 'utf-8',
         timeout: 10000,
         stdio: ['ignore', 'pipe', 'ignore'], // Suppress stderr
@@ -757,4 +783,19 @@ plugin.registerResolverFunction({
     const secretValue = await selectedInstance.getSecret(secretRef, jsonKey);
     return secretValue;
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const authMethods = new Set(instances.map((i) => i.telemetryAuthMethod));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+    // custom attributes
+    auth_service_principal: authMethods.has('service_principal'),
+    auth_oidc_federated: authMethods.has('oidc_federated'),
+    auth_ambient: authMethods.has('ambient'),
+  };
 });

@@ -430,6 +430,7 @@ plugin.registerDataType({
 plugin.registerDataType({
   name: 'protonPassPassword',
   sensitive: true,
+  internal: true,
   typeDescription: 'Proton Pass account password used by `pass-cli login --interactive`',
   icon: PROTON_PASS_ICON,
   docs: [
@@ -447,6 +448,7 @@ plugin.registerDataType({
 plugin.registerDataType({
   name: 'protonPassTotp',
   sensitive: true,
+  internal: true,
   typeDescription: 'Proton Pass TOTP code used by `pass-cli login --interactive` (if 2FA is enabled)',
   icon: PROTON_PASS_ICON,
   async validate(val): Promise<true> {
@@ -459,6 +461,7 @@ plugin.registerDataType({
 plugin.registerDataType({
   name: 'protonPassExtraPassword',
   sensitive: true,
+  internal: true,
   typeDescription: 'Proton Pass extra password used by `pass-cli login --interactive` (if required by your account)',
   icon: PROTON_PASS_ICON,
   async validate(val): Promise<true> {
@@ -470,6 +473,7 @@ plugin.registerDataType({
 plugin.registerDataType({
   name: 'protonPassPersonalAccessToken',
   sensitive: true,
+  internal: true,
   typeDescription: 'Proton Pass personal access token used by `pass-cli login` (non-interactive, recommended for CI)',
   icon: PROTON_PASS_ICON,
   docs: [
@@ -648,4 +652,13 @@ plugin.registerResolverFunction({
       throw new ResolutionError(`Failed to fetch Proton Pass secret: ${err instanceof Error ? err.message : String(err)}`);
     }
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  return {
+    // standard attributes
+    instance_count: instances.length,
+  };
 });

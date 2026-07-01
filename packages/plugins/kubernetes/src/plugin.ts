@@ -149,6 +149,15 @@ class KubernetesPluginInstance {
     return kind === 'Secret' ? this.config.defaultSecret : this.config.defaultConfigMap;
   }
 
+  /** Hardcoded enum describing which connection path is configured (never emits server/context/path values). */
+  get telemetryAuthMode(): 'explicit_server' | 'kubeconfig' | 'default' {
+    if (this.config.clusterServer) return 'explicit_server';
+    if (this.config.kubeconfig) return 'kubeconfig';
+    return 'default';
+  }
+
+  get telemetryAllowMissing() { return !!this.config.allowMissing; }
+
   private async initKubeConfig(): Promise<k8s.KubeConfig> {
     const {
       namespace,
@@ -583,6 +592,7 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'kubernetesBearerToken',
   sensitive: true,
+  internal: true,
   typeDescription: 'Kubernetes bearer token for API authentication',
   icon: KUBERNETES_ICON,
   docs: [
@@ -677,4 +687,20 @@ plugin.registerResolverFunction({
     const resourceName = await resolveResourceName(instanceId, resourceNameResolver, kind);
     return pluginInstances[instanceId].getConfigMapBulk(resourceName);
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+// Booleans / counts / hardcoded enums only — never server URLs, contexts, namespaces, tokens, or paths.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const authModes = new Set(instances.map((i) => i.telemetryAuthMode));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    // custom attributes
+    auth_explicit_server: authModes.has('explicit_server'),
+    auth_kubeconfig: authModes.has('kubeconfig'),
+    auth_default: authModes.has('default'),
+    allow_missing: instances.some((i) => i.telemetryAllowMissing),
+  };
 });

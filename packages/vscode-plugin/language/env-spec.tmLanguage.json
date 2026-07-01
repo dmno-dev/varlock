@@ -247,6 +247,7 @@
         }
       },
       "patterns": [
+        { "include": "#bracket-literal-inline" },
         { "include": "#literal-value" },
         { "include": "#env-item-value-fn-call" },
         { "include": "#expansion" },
@@ -288,10 +289,10 @@
           "match": "#.*$",
           "name": "comment.line.env-spec"
         },
-        { "include": "#bracket-literal" },
+        { "include": "#bracket-literal-item" },
         { "include": "#literal-value" },
         { "include": "#quoted-value" },
-        { "include": "#key-value-pair" },
+        { "include": "#key-value-pair-item" },
         { "include": "#env-item-value-fn-call" },
         { "include": "#expansion" },
         { "include": "#unquoted-string-within-fn-call" },
@@ -403,71 +404,162 @@
     },
 
     "bracket-literal": {
-      "comment": "Object `{...}` and array `[...]` literals — multi-line and comment-aware",
+      "comment": "DECORATOR-context object/array literal — multi-line, where each continuation line is prefixed by the comment-block `#`. Uses the structural-`#`-aware contents. Only reachable from decorator rules.",
       "patterns": [
         { "include": "#bracket-literal--object" },
         { "include": "#bracket-literal--array" }
-      ],
-      "repository": {
-        "bracket-literal--object": {
-          "comment": "Object literal { key=value, ... }",
-          "begin": "(\\{)",
-          "end": "(\\})",
-          "beginCaptures": {
-            "1": { "name": "punctuation.definition.dictionary.begin.env-spec" }
-          },
-          "endCaptures": {
-            "1": { "name": "punctuation.definition.dictionary.end.env-spec" }
-          },
-          "name": "meta.structure.dictionary.env-spec",
-          "patterns": [{ "include": "#bracket-literal--contents" }]
+      ]
+    },
+    "bracket-literal-item": {
+      "comment": "ITEM-context object/array literal — multi-line, used inside fn() calls in item values. Continuation lines are NOT `#`-prefixed, so a column-0 `#` is a real comment (no structural marker).",
+      "patterns": [
+        { "include": "#bracket-literal--object-item" },
+        { "include": "#bracket-literal--array-item" }
+      ]
+    },
+    "bracket-literal-inline": {
+      "comment": "Single-line object/array literal for bare item values (`KEY=[...]` / `KEY={...}`). Bare multi-line literals are not valid @env-spec — they require a fn() wrapper — so these close at the newline to avoid swallowing subsequent lines when a bracket is left unclosed.",
+      "patterns": [
+        { "include": "#bracket-literal--object-inline" },
+        { "include": "#bracket-literal--array-inline" }
+      ]
+    },
+    "bracket-literal--object": {
+      "comment": "Object literal { key=value, ... } (decorator context)",
+      "begin": "(\\{)",
+      "end": "(\\})",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.dictionary.begin.env-spec" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.dictionary.end.env-spec" }
+      },
+      "name": "meta.structure.dictionary.env-spec",
+      "patterns": [{ "include": "#bracket-literal--contents" }]
+    },
+    "bracket-literal--array": {
+      "comment": "Array literal [ value, ... ] (decorator context)",
+      "begin": "(\\[)",
+      "end": "(\\])",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.array.begin.env-spec" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.array.end.env-spec" }
+      },
+      "name": "meta.structure.array.env-spec",
+      "patterns": [{ "include": "#bracket-literal--contents" }]
+    },
+    "bracket-literal--object-item": {
+      "comment": "Object literal { key=value, ... } (item context — plain, non-`#`-prefixed lines)",
+      "begin": "(\\{)",
+      "end": "(\\})",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.dictionary.begin.env-spec" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.dictionary.end.env-spec" }
+      },
+      "name": "meta.structure.dictionary.env-spec",
+      "patterns": [{ "include": "#bracket-literal--contents-item" }]
+    },
+    "bracket-literal--array-item": {
+      "comment": "Array literal [ value, ... ] (item context — plain, non-`#`-prefixed lines)",
+      "begin": "(\\[)",
+      "end": "(\\])",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.array.begin.env-spec" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.array.end.env-spec" }
+      },
+      "name": "meta.structure.array.env-spec",
+      "patterns": [{ "include": "#bracket-literal--contents-item" }]
+    },
+    "bracket-literal--object-inline": {
+      "comment": "Single-line object literal — closes at `}` or end of line",
+      "begin": "(\\{)",
+      "end": "(\\})|(?=\\n)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.dictionary.begin.env-spec" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.dictionary.end.env-spec" }
+      },
+      "name": "meta.structure.dictionary.env-spec",
+      "patterns": [{ "include": "#bracket-literal--contents-item" }]
+    },
+    "bracket-literal--array-inline": {
+      "comment": "Single-line array literal — closes at `]` or end of line",
+      "begin": "(\\[)",
+      "end": "(\\])|(?=\\n)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.array.begin.env-spec" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.array.end.env-spec" }
+      },
+      "name": "meta.structure.array.env-spec",
+      "patterns": [{ "include": "#bracket-literal--contents-item" }]
+    },
+    "bracket-literal--contents": {
+      "comment": "Inner patterns for DECORATOR-context object/array literals. The structural `#` marker strips the comment-block prefix on each continuation line so the rest is parsed as literal content; nests the decorator-context literal/key-value-pair variants.",
+      "patterns": [
+        {
+          "comment": "structural # continuation marker (decorator context): strips the comment-block `#` prefix; indented item-value comments are handled by #bracket-literal--contents-item instead",
+          "match": "^\\s?#\\s*",
+          "name": "comment.line.env-spec punctuation.definition.comment"
         },
-        "bracket-literal--array": {
-          "comment": "Array literal [ value, ... ]",
-          "begin": "(\\[)",
-          "end": "(\\])",
-          "beginCaptures": {
-            "1": { "name": "punctuation.definition.array.begin.env-spec" }
-          },
-          "endCaptures": {
-            "1": { "name": "punctuation.definition.array.end.env-spec" }
-          },
-          "name": "meta.structure.array.env-spec",
-          "patterns": [{ "include": "#bracket-literal--contents" }]
+        {
+          "comment": "comment inside a literal (commented-out entry or trailing note)",
+          "match": "#.*$",
+          "name": "comment.line.env-spec"
         },
-        "bracket-literal--contents": {
-          "comment": "Shared inner patterns for object/array literals (both contexts)",
-          "patterns": [
-            {
-              "comment": "structural # continuation marker (decorator context); only a column-0 #, so indented item-value comment lines fall through to the comment rule below",
-              "match": "^\\s?#\\s*",
-              "name": "comment.line.env-spec punctuation.definition.comment"
-            },
-            {
-              "comment": "comment inside a literal (commented-out entry or trailing note)",
-              "match": "#.*$",
-              "name": "comment.line.env-spec"
-            },
-            { "include": "#bracket-literal" },
-            { "include": "#key-value-pair" },
-            { "include": "#env-item-value-fn-call" },
-            { "include": "#quoted-value" },
-            { "include": "#expansion" },
-            { "include": "#literal-value" },
-            { "include": "#unquoted-string-within-literal" },
-            {
-              "comment": "extra $",
-              "match": "\\$",
-              "name": "string.unquoted.env-spec"
-            },
-            {
-              "comment": "literal element separator",
-              "match": "\\s*,\\s*",
-              "name": "punctuation.separator.comma.env-spec"
-            }
-          ]
+        { "include": "#bracket-literal" },
+        { "include": "#key-value-pair" },
+        { "include": "#env-item-value-fn-call" },
+        { "include": "#quoted-value" },
+        { "include": "#expansion" },
+        { "include": "#literal-value" },
+        { "include": "#unquoted-string-within-literal" },
+        {
+          "comment": "extra $",
+          "match": "\\$",
+          "name": "string.unquoted.env-spec"
+        },
+        {
+          "comment": "literal element separator",
+          "match": "\\s*,\\s*",
+          "name": "punctuation.separator.comma.env-spec"
         }
-      }
+      ]
+    },
+    "bracket-literal--contents-item": {
+      "comment": "Inner patterns for ITEM-context object/array literals (inside fn() calls / bare values). No structural `#` marker — continuation lines are not comment-prefixed, so any `#` (column-0 or indented) is a full comment. Nests the item-context literal/key-value-pair variants.",
+      "patterns": [
+        {
+          "comment": "comment inside a literal — commented-out entry, full-line note (column-0 or indented), or trailing note",
+          "match": "#.*$",
+          "name": "comment.line.env-spec"
+        },
+        { "include": "#bracket-literal-item" },
+        { "include": "#key-value-pair-item" },
+        { "include": "#env-item-value-fn-call" },
+        { "include": "#quoted-value" },
+        { "include": "#expansion" },
+        { "include": "#literal-value" },
+        { "include": "#unquoted-string-within-literal" },
+        {
+          "comment": "extra $",
+          "match": "\\$",
+          "name": "string.unquoted.env-spec"
+        },
+        {
+          "comment": "literal element separator",
+          "match": "\\s*,\\s*",
+          "name": "punctuation.separator.comma.env-spec"
+        }
+      ]
     },
 
     "unquoted-string-within-literal": {
@@ -738,6 +830,7 @@
     },
 
     "key-value-pair": {
+      "comment": "key=value pair (decorator context) — a nested literal value spans `#`-prefixed lines",
       "begin": "([a-zA-Z][a-zA-Z0-9]+)(=)",
       "end": "(?=[,\n#)\\]}])",
       "beginCaptures": {
@@ -750,6 +843,32 @@
       },
       "patterns": [
         { "include": "#bracket-literal" },
+        { "include": "#env-item-value-fn-call" },
+        { "include": "#literal-value" },
+        { "include": "#quoted-value" },
+        { "include": "#expansion" },
+        { "include": "#unquoted-string-within-fn-call" },
+        {
+          "comment": "extra $",
+          "match": "\\$",
+          "name": "string.unquoted.env-spec"
+        }
+      ]
+    },
+    "key-value-pair-item": {
+      "comment": "key=value pair (item context) — same as #key-value-pair but nests the item-context literal variant so column-0 comments inside a nested literal are treated as comments",
+      "begin": "([a-zA-Z][a-zA-Z0-9]+)(=)",
+      "end": "(?=[,\n#)\\]}])",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.other.attribute-name.env-spec"
+        },
+        "2": {
+          "name": "keyword.operator.assignment.env-spec"
+        }
+      },
+      "patterns": [
+        { "include": "#bracket-literal-item" },
         { "include": "#env-item-value-fn-call" },
         { "include": "#literal-value" },
         { "include": "#quoted-value" },
@@ -791,11 +910,11 @@
       ]
     },
     "env-item-value-fn-call-arg": {
-      "comment": "env item value fn call arg",
+      "comment": "env item value fn call arg (item context)",
       "patterns": [
-        { "include": "#bracket-literal" },
+        { "include": "#bracket-literal-item" },
         { "include": "#literal-value" },
-        { "include": "#key-value-pair" },
+        { "include": "#key-value-pair-item" },
         { "include": "#env-item-value-fn-call" },
         { "include": "#expansion" },
         { "include": "#quoted-value" },

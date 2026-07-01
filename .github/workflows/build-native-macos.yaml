@@ -32,7 +32,7 @@ jobs:
   build-swift-binary:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -65,7 +65,7 @@ jobs:
 
       # Load secrets from 1Password via varlock (scoped to the Swift package)
       - name: Load signing secrets
-        uses: dmno-dev/varlock-action@v1.0.1
+        uses: dmno-dev/varlock-action@v1.0.5
         with:
           working-directory: packages/encryption-binary-swift
         env:

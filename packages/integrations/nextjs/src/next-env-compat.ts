@@ -531,6 +531,10 @@ export function loadEnvConfig(
     const { stdout } = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
       fullResult: true,
       env: cleanEnv as any,
+      integrationTelemetry: {
+        name: __VARLOCK_INTEGRATION_NAME__,
+        version: __VARLOCK_INTEGRATION_VERSION__,
+      },
     });
     if (loadCount >= 2 && forceReload) {
       const envChanged = stdout !== previousSerializedEnv;

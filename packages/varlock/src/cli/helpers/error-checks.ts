@@ -191,9 +191,10 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
         'Valid items:',
         ansis.italic.gray('(remove `--show-all` flag to hide)'),
       ]));
+      // strictly-clean items only — warn-state items are already listed above
       const validItems = envGraph.sortedConfigKeys
         .map((k) => envGraph.configSchema[k])
-        .filter((i) => !!i.isValid);
+        .filter((i) => i.validationState === 'valid');
       for (const item of validItems) {
         console.error(getItemSummary(item));
       }

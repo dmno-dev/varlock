@@ -12,7 +12,7 @@ jobs:
       contents: read
       id-token: write # required for Azure OIDC login
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
       - name: Use Node.js 24.x
@@ -29,7 +29,7 @@ jobs:
       # Resolve publishing secrets from 1Password via varlock: AZURE_CLIENT_ID /
       # AZURE_TENANT_ID (for Marketplace OIDC) and OVSX_PAT (for Open VSX).
       - name: Load extension publishing secrets from 1Password
-        uses: dmno-dev/varlock-action@v1.0.1
+        uses: dmno-dev/varlock-action@v1.0.5
         with:
           working-directory: packages/vscode-plugin
         env:

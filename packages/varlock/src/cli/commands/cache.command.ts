@@ -9,32 +9,8 @@ import { groupKeyPrefix } from '../../lib/cache/cache-store';
 import { formatTimeAgo, formatDuration } from '../../lib/formatting';
 import * as localEncrypt from '../../lib/local-encrypt';
 import { select, confirm } from '../helpers/prompts';
+import { trackCommand } from '../helpers/telemetry';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
-
-export const commandSpec = define({
-  name: 'cache',
-  description: 'Manage the varlock cache',
-  args: {
-    plugin: {
-      type: 'string',
-      description: 'Clear cache for a specific plugin only',
-    },
-    yes: {
-      type: 'boolean',
-      short: 'y',
-      description: 'Skip confirmation prompts (required for non-interactive `clear`)',
-    },
-  },
-  examples: `
-Manage the encrypted value cache used by cache() and plugin authors.
-
-Examples:
-  varlock cache                       # Interactive cache browser (or status summary if non-TTY)
-  varlock cache status                # Print cache status summary (non-interactive)
-  varlock cache clear --yes           # Clear all entries (no prompt)
-  varlock cache clear --plugin 1password --yes  # Clear cache for a specific plugin
-`.trim(),
-});
 
 type CacheEntry = { key: string; cachedAt: number; expiresAt: number };
 
@@ -127,37 +103,69 @@ function printStatus(store: CacheStore): void {
 
 const isInteractive = () => process.stdout.isTTY && process.stdin.isTTY;
 
-export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
-  const positionals = (ctx.positionals ?? []).slice(ctx.commandPath?.length ?? 0);
-  const action = positionals[0];
-
+/**
+ * Resolve the cache store to operate on. Returns `null` (after logging) when no
+ * cache is active — e.g. an invalid `_VARLOCK_CACHE_KEY` or no local key present.
+ */
+function resolveStore(): CacheStore | null {
   // when an env-provided key is active (e.g. CI), manage that key's cache file
   const envKey = getCacheEnvKey();
-  let store: CacheStore;
   if (envKey) {
     try {
-      store = createEnvKeyCacheStore(envKey);
+      return createEnvKeyCacheStore(envKey);
     } catch (err) {
       console.error(ansis.red(`_VARLOCK_CACHE_KEY is set but invalid: ${err instanceof Error ? err.message : err}`));
       process.exitCode = 1;
-      return;
+      return null;
     }
-  } else {
-    if (!localEncrypt.keyExists()) {
-      console.log(ansis.gray('  No encryption key found — cache is not active.'));
-      return;
-    }
-    store = new CacheStore();
   }
 
-  // explicit non-interactive status
-  if (action === 'status') {
+  if (!localEncrypt.keyExists()) {
+    console.log(ansis.gray('  No encryption key found — cache is not active.'));
+    return null;
+  }
+  return new CacheStore();
+}
+
+// --- `varlock cache status` -------------------------------------------------
+
+const statusCommand = define({
+  name: 'status',
+  description: 'Print a cache status summary (non-interactive)',
+  run: async () => {
+    await trackCommand('cache status', { command: 'cache status' });
+    const store = resolveStore();
+    if (!store) return;
     printStatus(store);
-    return;
-  }
+  },
+});
 
-  // non-interactive clear
-  if (action === 'clear') {
+// --- `varlock cache clear` --------------------------------------------------
+
+const clearCommand = define({
+  name: 'clear',
+  description: 'Clear cache entries',
+  args: {
+    plugin: {
+      type: 'string',
+      description: 'Clear cache for a specific plugin only',
+    },
+    yes: {
+      type: 'boolean',
+      short: 'y',
+      description: 'Skip confirmation prompts (required when non-interactive)',
+    },
+  },
+  examples: `
+  varlock cache clear --yes                       # Clear all entries (no prompt)
+  varlock cache clear --plugin 1password --yes    # Clear cache for a specific plugin
+`.trim(),
+  run: async (ctx) => {
+    await trackCommand('cache clear', { command: 'cache clear' });
+
+    const store = resolveStore();
+    if (!store) return;
+
     const pluginName = ctx.values.plugin;
     const skipConfirm = ctx.values.yes;
     const target = pluginName
@@ -191,10 +199,37 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       console.error(ansis.red(`Failed to clear ${target}: ${err instanceof Error ? err.message : err}`));
       process.exitCode = 1;
     }
-    return;
-  }
+  },
+});
 
-  // default (no action) — interactive browser if TTY, status summary otherwise
+// --- `varlock cache` (parent) -----------------------------------------------
+
+export const commandSpec = define({
+  name: 'cache',
+  description: 'Manage the varlock cache',
+  subCommands: {
+    status: statusCommand,
+    clear: clearCommand,
+  },
+  examples: `
+Manage the encrypted value cache used by cache() and plugin authors.
+
+Examples:
+  varlock cache                                   # Interactive cache browser (or status summary if non-TTY)
+  varlock cache status                            # Print cache status summary (non-interactive)
+  varlock cache clear --yes                       # Clear all entries (no prompt)
+  varlock cache clear --plugin 1password --yes    # Clear cache for a specific plugin
+`.trim(),
+});
+
+/**
+ * Default `varlock cache` with no subcommand: interactive browser when on a TTY,
+ * otherwise a non-interactive status summary (safe for CI).
+ */
+export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async () => {
+  const store = resolveStore();
+  if (!store) return;
+
   if (!isInteractive()) {
     printStatus(store);
     return;

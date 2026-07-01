@@ -269,6 +269,7 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'dopplerServiceToken',
   sensitive: true,
+  internal: true,
   typeDescription: 'Doppler service token for API access',
   icon: DOPPLER_ICON,
   docs: [
@@ -453,4 +454,14 @@ plugin.registerResolverFunction({
     }
     return await selectedInstance.listSecrets();
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+  };
 });

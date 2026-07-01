@@ -8,9 +8,13 @@ name: Build Rust native binaries
 #
 # Output: native binaries uploaded as artifacts, ready to be bundled
 # into the varlock npm package and CLI release archives.
-
-permissions:
-  contents: read
+#
+# Permissions are intentionally NOT declared here — this reusable workflow
+# inherits whatever the calling job passes. Callers grant `contents: read`,
+# and only the release callers (which set sign: true) additionally grant
+# `id-token: write` for the Azure OIDC signing step. Declaring id-token here
+# would force every caller — including PR/preview builds that never sign — to
+# grant it too.
 
 on:
   workflow_call:
@@ -23,6 +27,14 @@ on:
         description: 'Pre-computed hash of Rust source files (from Ubuntu runner). When provided, used for the binary cache key instead of local hashFiles to ensure cross-OS consistency.'
         type: string
         default: ''
+      sign:
+        description: 'Code-sign the Windows binary via Azure Artifact Signing. Enabled only for release builds, which pass OP_CI_TOKEN.'
+        type: boolean
+        default: false
+    secrets:
+      OP_CI_TOKEN:
+        description: '1Password service-account token used to load Azure signing credentials. Required only when sign is true.'
+        required: false
 
 jobs:
   build:
@@ -49,7 +61,7 @@ jobs:
     name: Build ${{ matrix.native-bin-subdir }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -74,17 +86,67 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Install UPX
+        if: contains(matrix.os, 'ubuntu')
         shell: bash
-        run: |
-          if [[ "${{ matrix.os }}" == *"ubuntu"* ]]; then
-            sudo apt-get update && sudo apt-get install -y upx-ucl
-          elif [[ "${{ matrix.os }}" == *"windows"* ]]; then
-            choco install upx --yes
-          fi
+        run: sudo apt-get update && sudo apt-get install -y upx-ucl
 
       - name: Build release binary
         working-directory: packages/encryption-binary-rust
         run: cargo build --release --target ${{ matrix.target }}
+
+      # --- Windows code signing (Azure Artifact Signing) ---
+      # Only runs for release builds (inputs.sign), which pass OP_CI_TOKEN
+      # so signing creds are available. Azure credentials are resolved from 1Password
+      # through varlock (see packages/encryption-binary-rust/.env.schema), mirroring
+      # the macOS Developer ID signing flow. PR/preview builds skip signing entirely,
+      # so no secrets are loaded there.
+      # Standalone varlock (installed by varlock-action via `npm install -g varlock`,
+      # which has zero runtime deps) resolves the 1Password plugin by downloading it
+      # from npm, which requires a fixed version. We keep the committed schema
+      # unversioned so local/workspace runs resolve the in-repo plugin; inject the
+      # published version here, in CI only.
+      - name: Pin 1Password plugin version for standalone varlock (CI only)
+        if: inputs.sign && contains(matrix.os, 'windows')
+        shell: bash
+        env:
+          # Published @varlock/1password-plugin version — must already be on npm; bump as needed.
+          OP_PLUGIN_VERSION: '1.2.0'
+        run: |
+          schema=packages/encryption-binary-rust/.env.schema
+          sed -i "s|@plugin(@varlock/1password-plugin)|@plugin(@varlock/1password-plugin@${OP_PLUGIN_VERSION})|" "$schema"
+          grep -q "@plugin(@varlock/1password-plugin@${OP_PLUGIN_VERSION})" "$schema" \
+            || { echo "::error::failed to inject 1Password plugin version into $schema"; exit 1; }
+          echo "=== schema @plugin line ==="
+          grep '@plugin' "$schema"
+
+      # Load Azure signing secrets from 1Password via varlock (scoped to the Rust package)
+      - name: Load signing secrets
+        if: inputs.sign && contains(matrix.os, 'windows')
+        uses: dmno-dev/varlock-action@v1.0.5
+        with:
+          working-directory: packages/encryption-binary-rust
+        env:
+          OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
+      - name: Azure login (OIDC)
+        if: inputs.sign && contains(matrix.os, 'windows')
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign Windows binary (Azure Artifact Signing)
+        if: inputs.sign && contains(matrix.os, 'windows')
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ env.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.AZURE_ARTIFACT_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\packages\encryption-binary-rust\target\${{ matrix.target }}\release\${{ matrix.binary-name }}
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
       - name: Prepare artifact
         shell: bash
@@ -96,8 +158,12 @@ jobs:
           RAW_SIZE=$(stat --format=%s "$ARTIFACT_DIR/${{ matrix.binary-name }}" 2>/dev/null || stat -f%z "$ARTIFACT_DIR/${{ matrix.binary-name }}")
           echo "Size: $(( RAW_SIZE / 1024 )) KB ($RAW_SIZE bytes)"
           file "$ARTIFACT_DIR/${{ matrix.binary-name }}" || true
-          echo "=== UPX compress ==="
-          upx --best "$ARTIFACT_DIR/${{ matrix.binary-name }}" || echo "UPX compression failed, continuing with uncompressed binary"
+          if [[ "${{ matrix.native-bin-subdir }}" != "win32-x64" ]]; then
+            echo "=== UPX compress ==="
+            upx --best "$ARTIFACT_DIR/${{ matrix.binary-name }}" || echo "UPX compression failed, continuing with uncompressed binary"
+          else
+            echo "=== UPX skipped (Windows) ==="
+          fi
           FINAL_SIZE=$(stat --format=%s "$ARTIFACT_DIR/${{ matrix.binary-name }}" 2>/dev/null || stat -f%z "$ARTIFACT_DIR/${{ matrix.binary-name }}")
           echo "=== Binary info (after UPX) ==="
           echo "Size: $(( FINAL_SIZE / 1024 )) KB ($FINAL_SIZE bytes)"

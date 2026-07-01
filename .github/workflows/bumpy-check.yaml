@@ -1,0 +1,59 @@
+name: Bumpy check
+
+# PR half of bumpy's fork-safe release-plan comment (the 1.18+ split pattern).
+#
+# Runs on plain `pull_request`, so on fork PRs this job gets a READ-ONLY token
+# and cannot post comments — that's intentional. It only computes the release
+# plan, gates on missing bump files, and writes the rendered comment to the
+# `bumpy-comment` artifact (`ci check --emit-comment`). The privileged half that
+# actually posts lives in bumpy-comment.yaml, which runs on `workflow_run`
+# (trusted context, never executes PR code) and resolves the target PR from the
+# trusted event — never from this artifact.
+#
+# Because the token here is read-only, it is safe to run bumpy against PR code:
+# the worst a malicious fork's bunfig.toml/.npmrc/preload can do is corrupt its
+# own release-plan output, with no write capability to abuse.
+on: pull_request
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bumpy-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Distinct job name (not "check") so the status context reads
+  # "Bumpy check / bumpy-check" and doesn't collide with other `check` jobs —
+  # this is the context to require in branch protection.
+  bumpy-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+
+      # Resolve the bumpy version pinned in package.json and run the PR check.
+      # A direct comment post is attempted but fails-soft on the read-only token
+      # (bumpy just warns); the rendered comment is written to ./bumpy-comment
+      # for the poster regardless. Exits non-zero only on the gate: a changed
+      # publishable package missing its bump file.
+      - name: Bumpy release-plan check
+        run: |
+          VERSION=$(jq -r '.devDependencies["@varlock/bumpy"] // .dependencies["@varlock/bumpy"]' package.json | sed 's/[\^~]//')
+          bunx "@varlock/bumpy@$VERSION" ci check --emit-comment ./bumpy-comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # Hand the rendered comment to the privileged poster. `always()` so the
+      # plan still posts even when the check fails the gate (missing bump file);
+      # bumpy always writes a (possibly empty) comment.md, so the artifact exists.
+      - name: Upload release-plan comment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bumpy-comment
+          path: ./bumpy-comment

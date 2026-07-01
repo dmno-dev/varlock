@@ -156,9 +156,49 @@ describe('CLI Commands', () => {
     });
 
     test('varlock printenv with no variable name returns error', () => {
-      const result = runVarlock(['printenv'], { cwd: 'smoke-test-basic', captureOutput: true });
+      const result = runVarlock(['printenv'], { cwd: 'smoke-test-basic' });
       expect(result.exitCode).not.toBe(0);
       expect(result.output).toContain('Missing required argument');
+    });
+  });
+
+  describe('explain command', () => {
+    test('varlock explain <key> resolves a config item', () => {
+      const result = runVarlock(['explain', 'PUBLIC_VAR'], { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('PUBLIC_VAR');
+      expect(result.output).toContain('public-value');
+    });
+
+    test('varlock explain with no key returns error', () => {
+      const result = runVarlock(['explain'], { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).toContain('Missing required argument');
+    });
+  });
+
+  describe('scan command', () => {
+    // Positional targets scope the scan to specific files/dirs. test-script.js contains the
+    // resolved secret value in plaintext; stdin-test.js does not.
+    test('varlock scan <file> flags a plaintext secret in the targeted file', () => {
+      const result = runVarlock(['scan', './test-script.js'], { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).toContain('test-script.js');
+      expect(result.output).toContain('SECRET_TOKEN');
+    });
+
+    test('varlock scan <file> passes for a targeted file with no plaintext secrets', () => {
+      const result = runVarlock(['scan', './stdin-test.js'], { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('No sensitive values found');
+    });
+  });
+
+  describe('audit command', () => {
+    test('varlock audit <dir> accepts a positional target and reports in-sync', () => {
+      const result = runVarlock(['audit', './'], { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('in sync');
     });
   });
 
@@ -204,7 +244,6 @@ describe('CLI Commands', () => {
         '../overrides/.env.schema',
       ], {
         cwd: 'smoke-test-multi-path/base',
-        captureOutput: true,
       });
 
       expect(result.exitCode).toBe(0);
@@ -227,7 +266,6 @@ describe('CLI Commands', () => {
         '../overrides/.env.schema',
       ], {
         cwd: 'smoke-test-multi-path/base',
-        captureOutput: true,
         env: {
           SHARED_VAR: 'from-shell',
         },
@@ -251,7 +289,6 @@ describe('CLI Commands', () => {
         `SHARED_VAR=from-shell-inner node "${LOCAL_VARLOCK_CLI.replace(/\\/g, '/')}" load --format json --path ../overrides/.env.schema`,
       ], {
         cwd: 'smoke-test-multi-path/base',
-        captureOutput: true,
         env: {
           SHARED_VAR: 'from-shell-outer',
         },
@@ -260,6 +297,40 @@ describe('CLI Commands', () => {
       expect(result.exitCode).toBe(0);
       const vars = JSON.parse(result.stdout);
       expect(vars.SHARED_VAR).toBe('from-shell-inner');
+    });
+
+    test('strips @internal vars from the child env even when set ambiently', () => {
+      // child exits 0 only if OP_TOKEN is ABSENT (exit code can't be redacted, unlike stdout)
+      const result = runVarlock(['run', '--', 'node', '-e', 'process.exit(process.env.OP_TOKEN ? 1 : 0)'], {
+        cwd: 'smoke-test-internal',
+        env: { OP_TOKEN: 'secret-zero' },
+      });
+      expect(result.exitCode).toBe(0);
+    });
+
+    test('--include-internal passes @internal vars through to the child', () => {
+      // child exits 0 only if OP_TOKEN is PRESENT
+      const result = runVarlock(['run', '--include-internal', '--', 'node', '-e', 'process.exit(process.env.OP_TOKEN ? 0 : 1)'], {
+        cwd: 'smoke-test-internal',
+        env: { OP_TOKEN: 'secret-zero' },
+      });
+      expect(result.exitCode).toBe(0);
+    });
+
+    // `--no-inject-graph` is deprecated and hidden from help, but still supported for
+    // back-compat. Guard that it keeps working and omits the __VARLOCK_ENV blob.
+    test('--no-inject-graph still works and omits the __VARLOCK_ENV blob', () => {
+      const probe = "process.stdout.write('BLOB=' + (!!process.env.__VARLOCK_ENV) + ' RUN=' + process.env.__VARLOCK_RUN)";
+
+      const withBlob = runVarlock(['run', '--', 'node', '-e', probe], { cwd: 'smoke-test-basic' });
+      expect(withBlob.exitCode).toBe(0);
+      expect(withBlob.output).toContain('BLOB=true');
+
+      const noBlob = runVarlock(['run', '--no-inject-graph', '--', 'node', '-e', probe], { cwd: 'smoke-test-basic' });
+      expect(noBlob.exitCode).toBe(0);
+      expect(noBlob.output).toContain('BLOB=false');
+      // __VARLOCK_RUN is always set regardless of the flag
+      expect(noBlob.output).toContain('RUN=1');
     });
   });
 

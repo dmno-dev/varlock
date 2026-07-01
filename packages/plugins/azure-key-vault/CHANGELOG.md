@@ -3,6 +3,20 @@
 
 
 
+
+
+## 1.2.2
+<sub>2026-06-26</sub>
+
+- [#841](https://github.com/dmno-dev/varlock/pull/841)  *(patch)* Thanks [@mskutle](https://github.com/mskutle)!
+  Fixed Azure CLI token selection to respect the configured `tenantId`. With multiple `az login` accounts, a cached `vault.azure.net` token from another tenant could be picked and rejected by Key Vault with a misleading 401 ("token expired or invalid"). Cached tokens are now matched against the configured tenant, and the direct `az` fallback is scoped to it.
+
+## 1.2.1
+<sub>2026-06-23</sub>
+
+- [#817](https://github.com/dmno-dev/varlock/pull/817)  *(patch)* - Docs: recommend marking cloud-provider credentials @internal when varlock is the only consumer (use @internal=false to opt out if your app reads them directly).
+- [#818](https://github.com/dmno-dev/varlock/pull/818)  *(patch)* - Report anonymous, non-sensitive usage attributes (auth mode, feature flags) through varlock's opt-out telemetry.
+
 ## 1.2.0
 <sub>2026-06-10</sub>
 

@@ -99,7 +99,7 @@ If you don't want to rely on a kubeconfig file — for example, in CI/CD or othe
     # )
     # ---
 
-    # @type=kubernetesBearerToken @sensitive
+    # @type=kubernetesBearerToken @sensitive @internal
     KUBERNETES_TOKEN=
     ```
 
@@ -400,6 +400,9 @@ Initialize a Kubernetes plugin instance for `k8sSecret()`, `k8sConfigMap()`, `k8
 <div class="reference-docs">
 <div>
 #### `kubernetesBearerToken`
+
+This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+
 
 Represents a Kubernetes bearer token used for API server authentication (typically a service account token). This type is marked as `@sensitive`.
 

@@ -29,6 +29,7 @@ import { commandSpec as installPluginCommandSpec } from './commands/install-plug
 import { commandSpec as auditCommandSpec } from './commands/audit.command';
 import { commandSpec as generateKeyCommandSpec } from './commands/generate-key.command';
 import { commandSpec as cacheCommandSpec } from './commands/cache.command';
+import { commandSpec as keychainCommandSpec } from './commands/keychain.command';
 // import { commandSpec as loginCommandSpec } from './commands/login.command';
 // import { commandSpec as pluginCommandSpec } from './commands/plugin.command';
 
@@ -44,11 +45,12 @@ function buildLazyCommand(
   return {
     ...commandSpec,
     run: async (...args: Array<any>) => {
-      // Track command execution
-      await trackCommand(commandName, { command: commandName });
-      // load the command fn and run it
-      const commandSpecAndFn = await loadCommandFn();
-      return commandSpecAndFn.commandFn(...args);
+      try {
+        const commandSpecAndFn = await loadCommandFn();
+        return await commandSpecAndFn.commandFn(...args);
+      } finally {
+        await trackCommand(commandName, { command: commandName });
+      }
     },
   };
 }
@@ -71,6 +73,7 @@ subCommands.set('typegen', buildLazyCommand(typegenCommandSpec, async () => awai
 subCommands.set('install-plugin', buildLazyCommand(installPluginCommandSpec, async () => await import('./commands/install-plugin.command')));
 subCommands.set('generate-key', buildLazyCommand(generateKeyCommandSpec, async () => await import('./commands/generate-key.command')));
 subCommands.set('cache', buildLazyCommand(cacheCommandSpec, async () => await import('./commands/cache.command')));
+subCommands.set('keychain', buildLazyCommand(keychainCommandSpec, async () => await import('./commands/keychain.command')));
 // subCommands.set('login', buildLazyCommand(loginCommandSpec, async () => await import('./commands/login.command')));
 // subCommands.set('plugin', buildLazyCommand(pluginCommandSpec, async () => await import('./commands/plugin.command')));
 

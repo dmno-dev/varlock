@@ -54,7 +54,7 @@ describe('CLI plugin loading (non-binary)', () => {
       const result = runVarlock(
         // Use process.env access without string literals to avoid cmd.exe quoting issues on Windows
         ['run', '--', 'node', '-e', 'console.log(process.env.BASIC_RESULT)'],
-        { cwd, captureOutput: true },
+        { cwd },
       );
       expect(result.exitCode, result.output).toBe(0);
       expect(result.output).toContain('hello-basic');

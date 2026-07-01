@@ -67,7 +67,7 @@ class InfisicalPluginInstance {
     environment: any,
     clientId: any,
     clientSecret: any,
-    siteUrl?: string,
+    siteUrl?: any,
     secretPath?: string,
     identityId?: any,
     oidcToken?: any,
@@ -78,10 +78,20 @@ class InfisicalPluginInstance {
     if (clientSecret && typeof clientSecret === 'string') this.clientSecret = clientSecret;
     if (identityId && typeof identityId === 'string') this.identityId = identityId;
     if (oidcToken && typeof oidcToken === 'string') this.oidcToken = oidcToken;
-    this.siteUrl = siteUrl;
+    if (siteUrl && typeof siteUrl === 'string') this.siteUrl = siteUrl;
     this.secretPath = secretPath;
     debug('infisical instance', this.id, 'set auth - projectId:', projectId, 'environment:', environment, 'hasIdentityId:', !!identityId);
   }
+
+  /** @internal telemetry: which auth method this instance is configured for (fixed enum, never raw values) */
+  get telemetryAuthMethod(): 'universal' | 'oidc' | 'none' {
+    if (this.clientId) return 'universal';
+    if (this.identityId) return 'oidc';
+    return 'none';
+  }
+
+  /** @internal telemetry: whether a custom site URL is set (self-hosted vs cloud) — boolean only, never the URL */
+  get telemetrySelfHosted() { return this.siteUrl != null; }
 
   private infisicalClientPromise?: Promise<InfisicalSDK>;
   private static readonly defaultSiteUrl = 'https://app.infisical.com';
@@ -348,12 +358,6 @@ plugin.registerRootDecorator({
       });
     }
 
-    // Validate siteUrl is static if provided
-    if (objArgs.siteUrl && !objArgs.siteUrl.isStatic) {
-      throw new SchemaError('Expected siteUrl to be static');
-    }
-    const siteUrl = objArgs.siteUrl ? String(objArgs.siteUrl.staticValue) : undefined;
-
     // Validate secretPath is static if provided
     if (objArgs.secretPath && !objArgs.secretPath.isStatic) {
       throw new SchemaError('Expected secretPath to be static');
@@ -366,7 +370,7 @@ plugin.registerRootDecorator({
     return {
       id,
       cacheTtlResolver: objArgs.cacheTtl,
-      siteUrl,
+      siteUrlResolver: objArgs.siteUrl,
       secretPath,
       projectIdResolver: objArgs.projectId,
       environmentResolver: objArgs.environment,
@@ -379,7 +383,7 @@ plugin.registerRootDecorator({
   async execute({
     id,
     cacheTtlResolver,
-    siteUrl,
+    siteUrlResolver,
     secretPath,
     projectIdResolver,
     environmentResolver,
@@ -396,6 +400,7 @@ plugin.registerRootDecorator({
     const clientSecret = await clientSecretResolver?.resolve();
     const identityId = await identityIdResolver?.resolve();
     const oidcToken = await oidcTokenResolver?.resolve();
+    const siteUrl = await siteUrlResolver?.resolve();
 
     pluginInstances[id].setAuth(
       projectId,
@@ -430,6 +435,7 @@ plugin.registerDataType({
 plugin.registerDataType({
   name: 'infisicalClientSecret',
   sensitive: true,
+  internal: true,
   typeDescription: 'Client Secret for Infisical Universal Auth (machine identity)',
   icon: INFISICAL_ICON,
   docs: [
@@ -651,4 +657,19 @@ plugin.registerResolverFunction({
 
     return await selectedInstance.listSecrets(secretPath, tagSlugs);
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const authMethods = new Set(instances.map((i) => i.telemetryAuthMethod));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+    // custom attributes
+    auth_universal: authMethods.has('universal'),
+    auth_oidc: authMethods.has('oidc'),
+    self_hosted: instances.some((i) => i.telemetrySelfHosted),
+  };
 });

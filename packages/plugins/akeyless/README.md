@@ -53,7 +53,7 @@ The simplest auth method uses an API Key (Access ID + Access Key):
 
 # @type=akeylessAccessId
 AKEYLESS_ACCESS_ID=
-# @type=akeylessAccessKey @sensitive
+# @type=akeylessAccessKey @sensitive @internal
 AKEYLESS_ACCESS_KEY=
 ```
 

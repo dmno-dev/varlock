@@ -47,6 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       mode: ${{ steps.plan.outputs.mode }}
+      bumpy-version: ${{ steps.bumpy-version.outputs.version }}
       includes-varlock: ${{ contains(fromJSON(steps.plan.outputs.json).packageNames, 'varlock') }}
       includes-vscode: ${{ contains(fromJSON(steps.plan.outputs.json).packageNames, 'env-spec-language') }}
       macos-cache-key: ${{ steps.keys.outputs.macos-cache-key }}
@@ -54,11 +55,18 @@ jobs:
       macos-cache-hit: ${{ steps.macos-cache.outputs.cache-hit }}
       rust-cache-hit: ${{ steps.rust-cache.outputs.cache-hit }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+      # Pin bumpy to the version committed on main so every release job runs the
+      # exact version this repo declares (this job does not `bun install`).
+      - id: bumpy-version
+        name: Resolve bumpy version
+        run: |
+          VERSION=$(jq -r '.devDependencies["@varlock/bumpy"] // .dependencies["@varlock/bumpy"]' package.json | sed 's/[\^~]//')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - id: plan
-        run: bunx @varlock/bumpy ci plan
+        run: bunx "@varlock/bumpy@${{ steps.bumpy-version.outputs.version }}" ci plan
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -127,6 +135,32 @@ jobs:
             echo "cache-hit=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # Open/update the "version packages" PR. This is the non-publish path: when
+  # bump files are pending on main, bumpy computes versions + changelogs and
+  # opens (or refreshes) the release PR. No build/native-binary work is needed —
+  # publishing happens later, when that PR merges and `plan` reports `publish`.
+  version-pr:
+    needs: plan
+    if: needs.plan.outputs.mode == 'version-pr'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          # Push the version branch with BUMPY_GH_TOKEN (below) rather than the
+          # default token, so PR workflows trigger on the version branch.
+          persist-credentials: false
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Create / update version PR
+        run: bunx "@varlock/bumpy@${{ needs.plan.outputs.bumpy-version }}" ci release --expect-mode version-pr
+        env:
+          BUMPY_GH_TOKEN: ${{ secrets.BUMPY_GH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+
   # Build + sign the macOS native binary. Skipped on a cache hit — the previously
   # notarized bundle is reused and re-verified (see verify-native-macos) instead.
   build-native-macos:
@@ -186,16 +220,25 @@ jobs:
   # Build Rust native binaries for Linux and Windows. Skipped on a cache hit.
   build-native-rust:
     needs: plan
+    permissions:
+      contents: read
+      id-token: write # Azure OIDC signing in the reusable workflow
     if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true' && needs.plan.outputs.rust-cache-hit != 'true'
     uses: ./.github/workflows/build-native-rust.yaml
     with:
       artifact-name: native-bin-rust
       source-hash: ${{ needs.plan.outputs.rust-source-hash }}
+      sign: true
+    secrets:
+      OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
 
+  # Publish path: native binaries are ready (built this run or restored from
+  # cache), so build the npm packages and publish. Gated on `mode == 'publish'`;
+  # the version-PR path is handled by the `version-pr` job above.
   release:
     name: Release
     needs: [plan, notarize-native-macos, verify-native-macos, build-native-rust]
-    if: always() && !failure() && !cancelled()
+    if: always() && !failure() && !cancelled() && needs.plan.outputs.mode == 'publish'
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # Required for OIDC
@@ -204,7 +247,7 @@ jobs:
       pull-requests: write
       issues: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           # this is needed so that pushes to the version release branch will use the token we pass in below
@@ -305,6 +348,26 @@ jobs:
           if [ "$missing" = "1" ]; then exit 1; fi
           echo "All native binaries present"
 
+      - name: Generate native binary SHA256 checksums
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
+        working-directory: packages/varlock
+        run: |
+          sha256sum \
+            native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt \
+            native-bins/linux-x64/varlock-local-encrypt \
+            native-bins/linux-arm64/varlock-local-encrypt \
+            native-bins/win32-x64/varlock-local-encrypt.exe \
+            > SHA256SUMS.txt
+          echo "Native binary checksums:"
+          cat SHA256SUMS.txt
+      - name: Upload native binary checksums
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-bins-sha256sums
+          path: packages/varlock/SHA256SUMS.txt
+          retention-days: 90
+
       # ------------------------------------------------------------
       - name: Build libraries
         run: bun run build:libs
@@ -319,7 +382,7 @@ jobs:
       # varlock the action uses.)
       - name: Load extension publishing secrets from 1Password
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-vscode == 'true'
-        uses: dmno-dev/varlock-action@v1.0.1
+        uses: dmno-dev/varlock-action@v1.0.5
         with:
           working-directory: packages/vscode-plugin
         env:
@@ -337,8 +400,8 @@ jobs:
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           allow-no-subscriptions: true
 
-      - name: Create Release PR / Publish
-        run: bunx @varlock/bumpy ci release
+      - name: Publish packages
+        run: bunx "@varlock/bumpy@${{ needs.plan.outputs.bumpy-version }}" ci release --expect-mode publish
         env:
           # BUMPY_GH_TOKEN is a bot user PAT used by bumpy to push the version branch and create PRs
           # so that PR workflows (binary-release, etc.) will be triggered
@@ -348,4 +411,144 @@ jobs:
           # VS Code Marketplace auth comes from the Azure OIDC login step above;
           # Open VSX (OVSX_PAT) is loaded into the job env by the varlock step above.
 
+      # Publish the in-run signed/notarized native binaries so the binary
+      # distribution jobs below reuse them instead of rebuilding + re-signing.
+      - name: Upload staged native binaries
+        if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-bins-staged
+          path: packages/varlock/native-bins
+          retention-days: 7
+          include-hidden-files: true
+
       # TODO: send notifications?
+
+  # --- varlock CLI binary distribution ---------------------------------------
+  # Reuse the signed/notarized native binaries built earlier in THIS run (no
+  # rebuild, no re-sign, no Azure/Apple on this path). Gated on a varlock publish;
+  # the varlock@<version> GitHub release that bumpy just created is the target.
+  release-binaries:
+    name: Release varlock CLI binaries
+    needs: [plan, release]
+    # `release` always has a by-design skipped dependency (the native-binary cache
+    # logic skips either verify-native-macos on a miss, or build/notarize on a hit),
+    # and GitHub propagates that skip through `release`'s always() into the implicit
+    # success() of any downstream job — which would skip this job on every release.
+    # Mirror the `release` job's guard to break that propagation.
+    if: always() && !failure() && !cancelled() && needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.x"
+      - name: Install node deps
+        run: bun install
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
+
+      - name: Resolve published varlock version
+        id: ver
+        run: |
+          V=$(node -p "require('./packages/varlock/package.json').version")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=varlock@$V" >> "$GITHUB_OUTPUT"
+
+      # Reuse the native binaries built + signed + notarized earlier this run
+      - name: Download staged native binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: native-bins-staged
+          path: packages/varlock/native-bins
+      - name: Restore native binary execute permissions
+        run: |
+          chmod +x packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
+          chmod +x packages/varlock/native-bins/linux-x64/varlock-local-encrypt
+          chmod +x packages/varlock/native-bins/linux-arm64/varlock-local-encrypt
+
+      - name: Generate native binary SHA256 checksums
+        working-directory: packages/varlock
+        run: |
+          sha256sum \
+            native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt \
+            native-bins/linux-x64/varlock-local-encrypt \
+            native-bins/linux-arm64/varlock-local-encrypt \
+            native-bins/win32-x64/varlock-local-encrypt.exe \
+            > SHA256SUMS.txt
+
+      - name: Build libs
+        run: bun run build:libs
+        env:
+          BUILD_TYPE: release
+      - name: Build varlock SEA binaries
+        run: bun run packages/varlock/scripts/build-binaries.ts
+
+      - name: Upload binaries to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: packages/varlock/dist-sea
+        run: gh release upload "${{ steps.ver.outputs.tag }}" *.{tar.gz,zip} checksums.txt ../SHA256SUMS.txt --clobber
+
+      # Update the homebrew tap formula
+      - name: Checkout homebrew tap repo
+        uses: actions/checkout@v7
+        with:
+          repository: dmno-dev/homebrew-tap
+          token: ${{ secrets.HOMEBREW_REPO_GITHUB_ACCESS_TOKEN }}
+          path: homebrew-tap
+          clean: false
+      - name: Update homebrew formula
+        env:
+          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+        run: bun run scripts/update-homebrew-formula.ts
+      - name: Commit and push homebrew tap update
+        run: |
+          cd homebrew-tap
+          git config --global user.name 'theoephraim'
+          git config --global user.email 'theo@dmno.dev'
+          git add .
+          git commit -m "varlock@${{ steps.ver.outputs.version }}"
+          git tag "varlock@${{ steps.ver.outputs.version }}"
+          git push origin HEAD --tags
+
+  release-docker:
+    name: Release varlock Docker image
+    needs: [plan, release-binaries]
+    # Same as release-binaries: the upstream skip propagates through always() jobs,
+    # so guard with !failure() instead of relying on the implicit success().
+    if: always() && !failure() && !cancelled() && needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Resolve published varlock version
+        id: ver
+        run: echo "version=$(node -p "require('./packages/varlock/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ghcr.io/dmno-dev/varlock:${{ steps.ver.outputs.version }}
+            ghcr.io/dmno-dev/varlock:latest
+          build-args: |
+            VARLOCK_VERSION=${{ steps.ver.outputs.version }}
+          platforms: linux/amd64,linux/arm64

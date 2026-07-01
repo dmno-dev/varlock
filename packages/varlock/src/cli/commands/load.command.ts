@@ -157,7 +157,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   /** When --agent is set, return a copy of the resolved env with sensitive values redacted */
   function getRedactedEnvObject() {
     const redactedEnv: Record<string, unknown> = {};
-    const resolvedEnv = envGraph.getResolvedEnvObject();
+    // include @internal items here: they aren't injected, but an agent inspecting the env
+    // still needs to see they exist (redacted) to help set/debug them
+    const resolvedEnv = envGraph.getResolvedEnvObject({ includeInternal: true });
     for (const itemKey of envGraph.sortedConfigKeys) {
       const item = envGraph.configSchema[itemKey];
       const value = resolvedEnv[itemKey];
@@ -187,7 +189,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     console.log(JSON.stringify(env, null, 2));
   } else if (outputFormat === 'json-full') {
     const indent = compact ? 0 : 2;
-    const serialized = envGraph.getSerializedGraph();
+    // this is an inspection dump (not the injected blob), so include @internal items —
+    // they're flagged with isInternal and redacted below like any other sensitive value
+    const serialized = envGraph.getSerializedGraph({ includeInternal: true });
     if (agent) {
       for (const key in serialized.config) {
         const item = serialized.config[key];
