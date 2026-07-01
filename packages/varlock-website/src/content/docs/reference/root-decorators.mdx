@@ -301,9 +301,11 @@ See the [Caching guide](/guides/caching/) for mode selection guidance by environ
 </div>
 
 <div>
-### `@generate*Types()`
+### Code generation ||code-generation||
 
-Varlock generates code from your schema via per-language decorators — see the [Code generation guide](/guides/code-generation/) for the full picture. Add one decorator per output file you want:
+Code-generation decorators turn your schema into generated code. Most commonly this is **type definitions** for your language, but [plugins](/guides/plugins/) can register generators that emit other kinds of code. See the [Code generation guide](/guides/code-generation/) for the full picture.
+
+Varlock ships per-language type generators — add one decorator per output file you want:
 
 - [`@generateTsTypes()`](#generatetstypes) — TypeScript
 - `@generatePythonTypes()` — Python (`TypedDict`)
