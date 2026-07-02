@@ -97,9 +97,9 @@ export const commandSpec = define({
       multiple: true,
       description: 'Path to a specific .env file or directory to use as the entry point (can be specified multiple times)',
     },
-    'no-redact-stdout': {
+    'redact-stdout': {
       type: 'boolean',
-      description: 'Disable stdout/stderr redaction and use stdio inherit for full TTY pass-through',
+      description: 'Override automatic stdout/stderr redaction: --redact-stdout forces redaction of piped/redirected output (e.g., to override @redactLogs=false) and errors if attached to an interactive terminal; --no-redact-stdout disables redaction entirely. Can also be set via the _VARLOCK_REDACT_STDOUT env var (the flag takes precedence)',
     },
     inject: {
       type: 'string',
@@ -155,6 +155,15 @@ const EMPTY_PROXY_SESSION_STATS: ProxySessionStats = {
   matchedRequests: 0,
   blockedRequests: 0,
 };
+
+/** Parse a tri-state on/off/unset env toggle (mirrors the same helper in run.command). */
+function parseEnvToggle(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === '1' || normalized === 'true') return true;
+  if (normalized === '0' || normalized === 'false') return false;
+  return undefined;
+}
 
 function cloneSessionStats(stats?: ProxySessionStats): ProxySessionStats {
   return {
@@ -807,14 +816,40 @@ async function runAction(ctx: any) {
   let commandProcess: ReturnType<typeof exec> | undefined;
 
   const redactLogs = policy.serializedGraph.settings?.redactLogs ?? true;
-  const noRedactStdout = ctx.values['no-redact-stdout'] ?? false;
+  // tri-state override (true = force on, false = force off, undefined = auto-detect):
+  // the --redact-stdout / --no-redact-stdout flag wins, then _VARLOCK_REDACT_STDOUT,
+  // otherwise we auto-detect per stream below (matching `varlock run`).
+  const redactOverride = ctx.values['redact-stdout'] ?? parseEnvToggle(process.env._VARLOCK_REDACT_STDOUT);
+  const forceRedact = redactOverride === true;
+  const forceNoRedact = redactOverride === false;
 
-  if (redactLogs) {
+  // Redacting a TTY-attached stream is impossible without piping it, which breaks
+  // interactive/TTY tools (claude, psql) - so fail loudly rather than silently degrade.
+  if (forceRedact && (process.stdout.isTTY || process.stderr.isTTY)) {
+    throw new CliExitError('Cannot force redaction while output is attached to an interactive terminal', {
+      details: [
+        'Redaction requires piping stdout/stderr, which breaks tools that need a raw TTY (e.g., claude, psql).',
+        'Redaction is applied automatically whenever output is piped or redirected, so you can likely just drop the --redact-stdout flag.',
+      ],
+    });
+  }
+
+  // Auto-detect per stream: a stream attached to an interactive terminal is inherited
+  // directly (raw TTY, so interactive children like `claude` work, and the human at the
+  // terminal already sees the secrets); piped/redirected streams (files, CI, pagers) are
+  // where leaked output persists, so those get piped through the redactor.
+  const redactionEnabled = !forceNoRedact && (redactLogs || forceRedact);
+  const redactStdout = redactionEnabled && (forceRedact || !process.stdout.isTTY);
+  const redactStderr = redactionEnabled && (forceRedact || !process.stderr.isTTY);
+
+  // Seed the redaction map with the REAL values the proxy injects at the wire (on top of
+  // the schema's own secrets), so if the child ever echoes an injected value back it is
+  // still scrubbed. Only needed when we actually redact a stream.
+  if (redactStdout || redactStderr) {
     const redactionGraph = {
       ...policy.serializedGraph,
       config: { ...policy.serializedGraph.config },
     };
-
     for (const managedItem of policy.proxyManagedItems) {
       const schemaItem = policy.serializedGraph.config[managedItem.key];
       if (!schemaItem?.isSensitive) continue;
@@ -824,50 +859,33 @@ async function runAction(ctx: any) {
         isSensitive: true,
       };
     }
-
     resetRedactionMap(redactionGraph);
   }
 
-  if (noRedactStdout) {
+  if (!redactStdout && !redactStderr) {
+    // full stdio inherit - raw TTY pass-through, no redaction needed on any stream
     commandProcess = exec(rawCommand, commandArgsOnly, {
       stdio: 'inherit',
       env: fullInjectedEnv,
     });
   } else {
-    let redactEnv: NodeJS.ProcessEnv = fullInjectedEnv;
-    if (
-      process.stdout.isTTY
-      && process.env.NO_COLOR === undefined
-      && process.env.FORCE_COLOR === undefined
-    ) {
-      let forceColorLevel = '1';
-      if (process.env.COLORTERM === 'truecolor' || process.env.COLORTERM === '24bit') {
-        forceColorLevel = '3';
-      } else if (process.env.TERM?.includes('256color') || process.env.TERM_PROGRAM === 'iTerm.app') {
-        forceColorLevel = '2';
-      }
-      redactEnv = { ...fullInjectedEnv, FORCE_COLOR: forceColorLevel };
-    }
-
     commandProcess = exec(rawCommand, commandArgsOnly, {
       stdin: 'inherit',
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: redactEnv,
+      stdout: redactStdout ? 'pipe' : 'inherit',
+      stderr: redactStderr ? 'pipe' : 'inherit',
+      env: fullInjectedEnv,
     });
-    // Pipe child output through the shared chunk-boundary-buffered redactor (the
-    // same one `varlock run` uses) so a secret split across two chunks is still
-    // caught — the proxy must redact the real values it injects at the wire.
-    if (redactLogs) {
+    // Pipe redacted streams through the shared chunk-boundary-buffered redactor (the same
+    // one `varlock run` uses) so a secret split across two chunks is still caught.
+    if (redactStdout && commandProcess.stdout) {
       const stdoutWriter = createRedactedStreamWriter(process.stdout);
+      commandProcess.stdout.on('data', stdoutWriter.write);
+      commandProcess.stdout.on('close', stdoutWriter.flush);
+    }
+    if (redactStderr && commandProcess.stderr) {
       const stderrWriter = createRedactedStreamWriter(process.stderr);
-      commandProcess.stdout?.on('data', stdoutWriter.write);
-      commandProcess.stdout?.on('close', stdoutWriter.flush);
-      commandProcess.stderr?.on('data', stderrWriter.write);
-      commandProcess.stderr?.on('close', stderrWriter.flush);
-    } else {
-      commandProcess.stdout?.on('data', (chunk: Buffer | string) => process.stdout.write(chunk));
-      commandProcess.stderr?.on('data', (chunk: Buffer | string) => process.stderr.write(chunk));
+      commandProcess.stderr.on('data', stderrWriter.write);
+      commandProcess.stderr.on('close', stderrWriter.flush);
     }
   }
 

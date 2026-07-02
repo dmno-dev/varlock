@@ -663,7 +663,7 @@ Every subcommand operates on a [session](/guides/proxy/#sessions). Target one wi
 - `--all`: For `status`/`stop`, include all sessions (`status` also shows ended sessions).
 - `--allow-reload`: For `start`/`run`, enable live policy hot-reload via `proxy refresh` (off by default; the reload channel is unauthenticated on a shared uid, so only enable behind a sandbox).
 - `--inject <all｜vars｜blob>`: For `run`, control what is injected into the child env (default `all`).
-- `--no-redact-stdout`: For `run`, disable stdout/stderr redaction (full TTY pass-through).
+- `--redact-stdout` / `--no-redact-stdout`: For `run`, override the automatic per-stream redaction. By default output is redacted only when piped or redirected; streams attached to an interactive terminal pass through as a raw TTY, so interactive tools like `claude` work. `--no-redact-stdout` disables redaction entirely; `--redact-stdout` forces it for piped output (and errors on a TTY). Also settable via `_VARLOCK_REDACT_STDOUT`.
 - `--watch`: For `status`, continuously refresh.
 - `--format <text｜json>`: Output format for `audit` (text/json) and `env` (shell/json).
 
