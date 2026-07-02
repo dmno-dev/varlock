@@ -61,7 +61,15 @@ function generateTsFile(ctx: CodeGenContext): Promise<string> {
       '@generateTsTypes - `env=module` emits a runtime re-export, so it needs a `.ts` (or `.js`) output path, not `.d.ts`.',
     );
   }
-  return generateTsTypesSrc(ctx.fields, ctx.options);
+
+  const options = { ...ctx.options };
+  // when `@disableProcessEnvInjection` is set, varlock doesn't populate process.env, so don't
+  // type it as populated. This only sets the default — an explicit `processEnv=` still wins.
+  if (options.processEnv === undefined && ctx.graph.isProcessEnvInjectionDisabled) {
+    options.processEnv = 'none';
+  }
+
+  return generateTsTypesSrc(ctx.fields, options);
 }
 
 export const builtInCodeGenerators: Array<CodeGeneratorDef> = [

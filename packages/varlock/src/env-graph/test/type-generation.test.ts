@@ -810,6 +810,56 @@ describe('type generation', () => {
       expect(keys).not.toContain('SECRET_INTERNAL');
     });
 
+    test('@disableProcessEnvInjection defaults the process.env augmentation off (TS)', async () => {
+      const currentDir = path.dirname(expect.getState().testPath!);
+      const relPath = '.tmp-disable-injection.d.ts';
+      const outputPath = path.join(currentDir, relPath);
+
+      const g = await loadGraph({
+        envFile: outdent`
+          # @disableProcessEnvInjection
+          # @generateTsTypes(path=${relPath})
+          # ---
+          PUBLIC_ITEM=val   # @public
+        `,
+      });
+      try {
+        await g.runCodeGeneratorsIfNeeded();
+        const fs = await import('node:fs');
+        const src = await fs.promises.readFile(outputPath, 'utf-8');
+        // process.env isn't populated, so it shouldn't be typed...
+        expect(src).not.toContain('namespace NodeJS');
+        // ...but import.meta.env and the varlock/env ENV augmentation are unaffected
+        expect(src).toContain('interface ImportMetaEnv');
+        expect(src).toContain("declare module 'varlock/env'");
+      } finally {
+        await import('node:fs').then((fs) => fs.promises.rm(outputPath, { force: true }));
+      }
+    });
+
+    test('explicit processEnv= overrides the @disableProcessEnvInjection default', async () => {
+      const currentDir = path.dirname(expect.getState().testPath!);
+      const relPath = '.tmp-disable-injection-override.d.ts';
+      const outputPath = path.join(currentDir, relPath);
+
+      const g = await loadGraph({
+        envFile: outdent`
+          # @disableProcessEnvInjection
+          # @generateTsTypes(path=${relPath}, processEnv=strict)
+          # ---
+          PUBLIC_ITEM=val   # @public
+        `,
+      });
+      try {
+        await g.runCodeGeneratorsIfNeeded();
+        const fs = await import('node:fs');
+        const src = await fs.promises.readFile(outputPath, 'utf-8');
+        expect(src).toContain('namespace NodeJS');
+      } finally {
+        await import('node:fs').then((fs) => fs.promises.rm(outputPath, { force: true }));
+      }
+    });
+
     test('runs a plugin-registered code generator via the same API', async () => {
       const currentDir = path.dirname(expect.getState().testPath!);
       vi.spyOn(process, 'cwd').mockReturnValue(currentDir);

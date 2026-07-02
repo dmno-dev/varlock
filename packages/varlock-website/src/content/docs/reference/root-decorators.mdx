@@ -346,7 +346,7 @@ In addition to the common args above, the TypeScript generator accepts:
   - `augment` — globally augment `varlock/env` so `import { ENV } from 'varlock/env'` is typed.
   - `module` — emit a package-local importable `ENV` (typed to _this_ package's schema) with **no** global augmentation. Use this in monorepos where multiple packages have different schemas. Requires a `.ts` (or `.js`) output path, and you import from the generated file (e.g. `import { ENV } from './env'`).
   - `none` — emit only the type definitions, no `ENV` binding.
-- `processEnv`: how `process.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`). Note that `@types/node` declares a base string index signature that can't be removed, so extra keys remain allowed on `process.env` regardless.
+- `processEnv`: how `process.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`, but to `none` when [`@disableProcessEnvInjection`](#disableprocessenvinjection) is set, since values aren't put on `process.env` then). Note that `@types/node` declares a base string index signature that can't be removed, so extra keys remain allowed on `process.env` regardless.
 - `importMetaEnv`: how `import.meta.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`).
 
 ```env-spec
@@ -461,6 +461,8 @@ SECRET_KEY= # @sensitive
 Prevents varlock from injecting resolved values into `process.env`. When enabled, env vars are only accessible via the `ENV` proxy — `process.env.MY_VAR` will not contain varlock-resolved values.
 
 This is useful for security hardening. Combined with [`@encryptInjectedEnv`](#encryptinjectedenv), it ensures that no plaintext secrets exist in `process.env` at all.
+
+When set, [`@generateTsTypes`](#generatetstypes) stops augmenting `process.env` by default (its `processEnv` option defaults to `none`), so your generated types match the fact that `process.env` isn't populated.
 
 **Options:**
 - `false` (default): Values are injected into `process.env` as usual

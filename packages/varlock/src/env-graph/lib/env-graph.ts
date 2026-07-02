@@ -813,6 +813,15 @@ export class EnvGraph {
   }
 
   /**
+   * True when `@disableProcessEnvInjection` is set — resolved values are NOT mirrored into
+   * `process.env`, so type generation should not type `process.env` as populated.
+   * Resolved during finishLoad(), so this is available before code generation runs.
+   */
+  get isProcessEnvInjectionDisabled(): boolean {
+    return this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
+  }
+
+  /**
    * Resolve every registered code-generation decorator (@generateTsTypes, @generatePythonTypes,
    * plugin-contributed ones, and the deprecated @generateTypes) and write their output files.
    * This should be called after finishLoad() but before resolveEnvValues().
