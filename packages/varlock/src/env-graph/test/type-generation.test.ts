@@ -1013,9 +1013,9 @@ describe('type generation', () => {
 
     test.each([
       ['generatePythonTypes', 'py', 'class CoercedEnvSchema(TypedDict):', 'DEBUG: NotRequired[bool]'],
-      ['generateRustTypes', 'rs', 'pub struct CoercedEnvSchema', 'pub debug: Option<bool>,'],
-      ['generateGoTypes', 'go', 'type CoercedEnvSchema struct', 'Debug *bool'],
-      ['generatePhpTypes', 'php', '@phpstan-type CoercedEnvSchema', 'DEBUG?: bool'],
+      ['generateRustTypes', 'rs', 'pub struct Env {', 'pub debug: Option<bool>,'],
+      ['generateGoTypes', 'go', 'type Env struct {', 'Debug *bool'],
+      ['generatePhpTypes', 'php', 'final class Env', 'public readonly ?bool $DEBUG = null,'],
     ] as const)('@%s writes a %s types file with non-string fields', async (decorator, lang, marker, nonStringMarker) => {
       const currentDir = path.dirname(expect.getState().testPath!);
       const relPath = `.tmp-env-types.${lang}`;

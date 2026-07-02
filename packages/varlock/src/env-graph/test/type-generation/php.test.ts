@@ -1,29 +1,30 @@
 import { describe, expect, test } from 'vitest';
 
 import { generatePhpTypesSrc } from '../../index';
-import { getSectionBetween, loadFixtureFields } from './helpers';
+import { loadFixtureFields } from './helpers';
 
 describe('generatePhpTypesSrc', () => {
-  test('maps non-string coerced and raw string types', async () => {
+  test('emits a typed readonly class, SENSITIVE_KEYS, and a loader', async () => {
     const { fields } = await loadFixtureFields();
     const src = generatePhpTypesSrc(fields);
 
     expect(src).toMatch(/^<\?php/);
-    expect(src).toContain('@phpstan-type CoercedEnvSchema');
-    expect(src).toContain('@phpstan-type PublicCoercedEnvSchema');
-    expect(src).toContain('@phpstan-type EnvSchemaAsStrings');
+    expect(src).toContain('final class Env');
+    // the floating @phpstan-type approach (not recognized by PHPStan) is gone
+    expect(src).not.toContain('@phpstan-type');
 
-    expect(src).toContain('DB_HOST: string');
-    expect(src).toContain('DB_PORT?: int');
-    expect(src).toContain('DEBUG?: bool');
-    expect(src).toContain('APP_ENV: "dev"|"staging"|"prod"');
-    expect(src).toContain('CONFIG?: array<string, mixed>');
+    expect(src).toContain("public const SENSITIVE_KEYS = ['API_KEY'];");
 
-    expect(src).toContain('DEBUG?: \'true\'|\'false\'');
-    expect(src).toContain('DB_PORT?: string');
+    // required params first, optional (nullable, defaulted) after
+    expect(src).toContain('public readonly string $DB_HOST,');
+    expect(src).toContain('public readonly ?int $DB_PORT = null,');
+    expect(src).toContain('public readonly ?bool $DEBUG = null,');
+    expect(src).toContain('public readonly string $APP_ENV,');
+    expect(src).toContain('@var "dev"|"staging"|"prod"');
+    expect(src).toContain('public readonly ?array $CONFIG = null,');
+    expect(src).toContain('@var array<string, mixed>|null');
 
-    const publicSection = getSectionBetween(src, '@phpstan-type PublicCoercedEnvSchema', '@phpstan-type EnvSchemaAsStrings');
-    expect(publicSection).toContain('DB_PORT?: int');
-    expect(publicSection).not.toContain('API_KEY');
+    expect(src).toContain('public static function load(): self');
+    expect(src).toContain("getenv('__VARLOCK_ENV')");
   });
 });

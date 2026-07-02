@@ -374,34 +374,27 @@ describe('CLI Commands', () => {
 
     test('varlock typegen generates polyglot types with non-string fields', () => {
       const polyglotDir = join(SMOKE_TESTS_DIR, 'smoke-test-typegen-polyglot');
+      // each generated module: typed coerced fields + a loader + a SENSITIVE_KEYS constant
       const cases = [
         {
           outputFile: 'env_types.py',
-          markers: ['class CoercedEnvSchema(TypedDict):', 'DEBUG: NotRequired[bool]', 'DB_PORT: NotRequired[int]'],
-          publicClass: 'class PublicCoercedEnvSchema',
-          nextClass: 'class EnvSchemaAsStrings',
-          secretKey: 'SECRET_TOKEN',
+          markers: ['class CoercedEnvSchema(TypedDict):', 'DEBUG: NotRequired[bool]', 'DB_PORT: NotRequired[int]', 'PUBLIC_VAR: str', 'def load_env() -> CoercedEnvSchema:'],
+          sensitiveMarker: 'SENSITIVE_KEYS: frozenset[str] = frozenset({"SECRET_TOKEN"})',
         },
         {
           outputFile: 'env_types.rs',
-          markers: ['pub struct CoercedEnvSchema', 'pub debug: Option<bool>,', 'pub db_port: Option<i64>,'],
-          publicClass: 'pub struct PublicCoercedEnvSchema',
-          nextClass: 'pub struct EnvSchemaAsStrings',
-          secretKey: 'api_key',
+          markers: ['pub struct Env {', 'pub debug: Option<bool>,', 'pub db_port: Option<i64>,', 'pub fn load()'],
+          sensitiveMarker: 'pub const SENSITIVE_KEYS: &[&str] = &["SECRET_TOKEN"];',
         },
         {
           outputFile: 'env_types.go',
-          markers: ['type CoercedEnvSchema struct', 'Debug *bool', 'DbPort *int64'],
-          publicClass: 'type PublicCoercedEnvSchema struct',
-          nextClass: 'type EnvSchemaAsStrings struct',
-          secretKey: 'SecretToken',
+          markers: ['package env', 'type Env struct {', 'Debug *bool', 'DbPort *int64', 'func Load() (Env, error) {'],
+          sensitiveMarker: 'var SensitiveKeys = map[string]bool{"SECRET_TOKEN": true}',
         },
         {
           outputFile: 'env_types.php',
-          markers: ['@phpstan-type CoercedEnvSchema', 'DEBUG?: bool', 'DB_PORT?: int'],
-          publicClass: '@phpstan-type PublicCoercedEnvSchema',
-          nextClass: '@phpstan-type EnvSchemaAsStrings',
-          secretKey: 'API_KEY',
+          markers: ['final class Env', 'public readonly ?bool $DEBUG = null,', 'public readonly ?int $DB_PORT = null,', 'public static function load(): self'],
+          sensitiveMarker: "public const SENSITIVE_KEYS = ['SECRET_TOKEN'];",
         },
       ] as const;
 
@@ -421,10 +414,8 @@ describe('CLI Commands', () => {
         for (const marker of testCase.markers) {
           expect(src).toContain(marker);
         }
-
-        const publicSection = src.split(testCase.publicClass)[1]?.split(testCase.nextClass)[0] ?? '';
-        expect(publicSection).toContain('PUBLIC_VAR');
-        expect(publicSection).not.toContain(testCase.secretKey);
+        // sensitivity is exposed as a constant listing the sensitive keys
+        expect(src).toContain(testCase.sensitiveMarker);
       }
     });
 

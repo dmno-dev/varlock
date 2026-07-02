@@ -2,33 +2,34 @@ import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 
 import { resolveFieldTypes, generatePythonTypesSrc } from '../../index';
-import { getPublicSection, loadFixtureFields, loadGraph } from './helpers';
+import { loadFixtureFields, loadGraph } from './helpers';
 
 describe('generatePythonTypesSrc', () => {
-  test('maps non-string coerced and raw string types', async () => {
+  test('emits a typed TypedDict, SENSITIVE_KEYS, and a loader', async () => {
     const { fields } = await loadFixtureFields();
     const src = generatePythonTypesSrc(fields);
 
     expect(src).toContain('class CoercedEnvSchema(TypedDict):');
-    expect(src).toContain('class PublicCoercedEnvSchema(TypedDict):');
-    expect(src).toContain('class EnvSchemaAsStrings(TypedDict):');
+    // reference-only Public/raw-string types were dropped in favor of SENSITIVE_KEYS + the loader
+    expect(src).not.toContain('PublicCoercedEnvSchema');
+    expect(src).not.toContain('EnvSchemaAsStrings');
 
     expect(src).toContain('DB_HOST: str');
     expect(src).toContain('DB_PORT: NotRequired[int]');
     expect(src).toContain('DEBUG: NotRequired[bool]');
-    expect(src).toContain('APP_ENV: Literal["dev"] | Literal["staging"] | Literal["prod"]');
-    expect(src).toContain('CONFIG: NotRequired[dict[str, object]]');
+    expect(src).toContain('APP_ENV: Literal["dev", "staging", "prod"]');
+    expect(src).toContain('CONFIG: NotRequired[dict[str, Any]]');
 
-    expect(src).toContain('DEBUG: NotRequired[Literal["true", "false"]]');
-    expect(src).toContain('DB_PORT: NotRequired[str]');
-    expect(src).toContain('APP_ENV: Literal["dev"] | Literal["staging"] | Literal["prod"]');
+    // sensitivity is exposed as a constant, not a separate type
+    expect(src).toContain('SENSITIVE_KEYS: frozenset[str] = frozenset({"API_KEY"})');
 
-    const publicSection = getPublicSection(src, 'PublicCoercedEnvSchema', 'EnvSchemaAsStrings');
-    expect(publicSection).toContain('DB_PORT: NotRequired[int]');
-    expect(publicSection).not.toContain('API_KEY');
+    // ready-to-use loader + eager ENV
+    expect(src).toContain('def load_env() -> CoercedEnvSchema:');
+    expect(src).toContain('os.environ["__VARLOCK_ENV"]');
+    expect(src).toContain('ENV: CoercedEnvSchema = load_env()');
   });
 
-  test('description containing triple quotes is escaped safely', async () => {
+  test('descriptions become comments (no fragile docstrings to escape)', async () => {
     const g = await loadGraph({
       envFile: outdent`
         # @defaultSensitive=false
@@ -41,8 +42,7 @@ describe('generatePythonTypesSrc', () => {
     const items = [await g.configSchema.QUOTED.getTypeGenInfo()];
     const src = generatePythonTypesSrc(resolveFieldTypes(items));
 
-    expect(src).toContain('QUOTED: str');
-    expect(src).toContain('\\"\\"\\"');
-    expect(src).not.toMatch(/value with """ quotes/);
+    // rendered as a `#` comment — a triple-quote in the text can't break the file
+    expect(src).toContain('QUOTED: str  # value with """ quotes inside');
   });
 });

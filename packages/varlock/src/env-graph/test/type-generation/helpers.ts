@@ -63,11 +63,3 @@ export async function loadFixtureFields(envFile = NON_STRING_TYPE_FIXTURE) {
   }
   return { g, items, fields: resolveFieldTypes(items) };
 }
-
-export function getSectionBetween(src: string, startMarker: string, endMarker: string) {
-  return src.split(startMarker)[1]?.split(endMarker)[0] ?? '';
-}
-
-export function getPublicSection(src: string, publicClassName: string, nextClassName: string) {
-  return getSectionBetween(src, `class ${publicClassName}`, `class ${nextClassName}`);
-}
