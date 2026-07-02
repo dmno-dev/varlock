@@ -7,6 +7,7 @@ import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
+import { REDACT_STDOUT_ARG, resolveStdoutRedaction, pipeRedactedStreams } from '../helpers/stdout-redaction';
 
 export const commandSpec = define({
   name: 'run',
@@ -17,11 +18,7 @@ export const commandSpec = define({
     //   short: 'w',
     //   description: 'Watch mode',
     // },
-    'redact-stdout': {
-      type: 'boolean',
-      negatable: true,
-      description: 'Override automatic stdout/stderr redaction: --redact-stdout forces redaction of piped/redirected output (e.g., to override @redactLogs=false) and errors if attached to an interactive terminal; --no-redact-stdout disables redaction entirely. Can also be set via the _VARLOCK_REDACT_STDOUT env var (the flag takes precedence)',
-    },
+    ...REDACT_STDOUT_ARG,
     inject: {
       type: 'string',
       short: 'i',
@@ -76,19 +73,6 @@ Examples:
 💡 Tip: Use --inject blob when your app uses the ENV proxy and doesn't need individual process.env vars
   `.trim(),
 });
-
-/**
- * Parse a tri-state boolean toggle from an env var value.
- * Returns true/false for recognized truthy/falsy values, or undefined when unset
- * or unrecognized (so it can fall through to other logic via `??`).
- */
-function parseEnvToggle(value: string | undefined): boolean | undefined {
-  if (value === undefined) return undefined;
-  const normalized = value.trim().toLowerCase();
-  if (normalized === '1' || normalized === 'true') return true;
-  if (normalized === '0' || normalized === 'false') return false;
-  return undefined;
-}
 
 let commandProcess: ReturnType<typeof exec> | undefined;
 let childCommandKilledFromRestart = false;
@@ -208,7 +192,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const resolvedEnv = envGraph.getResolvedEnvObject({ includeInternal });
   const serializedGraph = envGraph.getSerializedGraph();
   const { resetRedactionMap } = await import('../../runtime/env');
-  const { createRedactedStreamWriter } = await import('../../runtime/lib/redact-stream');
   // console.log(resolvedEnv);
 
   // handle deprecated --no-inject-graph flag
@@ -247,33 +230,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     fullInjectedEnv._VARLOCK_ENV_KEY = process.env._VARLOCK_ENV_KEY;
   }
 
-  const redactLogs = serializedGraph.settings?.redactLogs ?? true;
-  // tri-state override (true = force on, false = force off, undefined = auto-detect):
-  // the --redact-stdout / --no-redact-stdout flag takes precedence, falling back to the
-  // _VARLOCK_REDACT_STDOUT env var, otherwise we auto-detect per stream below
-  const redactOverride = ctx.values['redact-stdout'] ?? parseEnvToggle(process.env._VARLOCK_REDACT_STDOUT);
-  const forceRedact = redactOverride === true;
-  const forceNoRedact = redactOverride === false;
-
-  // redacting a TTY-attached stream is not possible without piping it, which breaks
-  // interactive/TTY-dependent tools - so we fail loudly rather than silently degrade
-  if (forceRedact && (process.stdout.isTTY || process.stderr.isTTY)) {
-    throw new CliExitError('Cannot force redaction while output is attached to an interactive terminal', {
-      details: [
-        'Redaction requires piping stdout/stderr, which breaks tools that need a raw TTY (e.g., claude, psql).',
-        'Redaction is applied automatically whenever output is piped or redirected, so you can likely just drop the --redact-stdout flag.',
-      ],
-    });
-  }
-
-  // Explicit flags force redaction on/off; otherwise we auto-detect per stream:
-  // streams attached to an interactive terminal are inherited directly, preserving raw TTY
-  // behavior for interactive tools (psql, claude, etc.) — a human at the terminal already
-  // has access to the secrets. Piped/redirected streams (CI logs, files, pipes) are where
-  // leaked output persists, so those are piped through redaction.
-  const redactionEnabled = !forceNoRedact && (redactLogs || forceRedact);
-  const redactStdout = redactionEnabled && (forceRedact || !process.stdout.isTTY);
-  const redactStderr = redactionEnabled && (forceRedact || !process.stderr.isTTY);
+  // Per-stream TTY auto-detect (interactive terminal -> raw inherit; piped/redirected ->
+  // redact). Shared with `varlock proxy run` so the two commands can't diverge.
+  const { redactStdout, redactStderr } = resolveStdoutRedaction({
+    redactStdoutFlag: ctx.values['redact-stdout'],
+    redactLogs: serializedGraph.settings?.redactLogs ?? true,
+  });
 
   // Run the child in its own process group (setsid) only when NO std stream is a TTY —
   // i.e. containers, CI, and background/agent invocations. Detaching is what lets us
@@ -345,18 +307,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       detached: useProcessGroup,
     });
 
-    // pipe output through redaction writers, which buffer possible partial secrets
-    // at chunk boundaries so split secrets are still redacted
-    if (redactStdout && commandProcess.stdout) {
-      const stdoutWriter = createRedactedStreamWriter(process.stdout);
-      commandProcess.stdout.on('data', stdoutWriter.write);
-      commandProcess.stdout.on('close', stdoutWriter.flush);
-    }
-    if (redactStderr && commandProcess.stderr) {
-      const stderrWriter = createRedactedStreamWriter(process.stderr);
-      commandProcess.stderr.on('data', stderrWriter.write);
-      commandProcess.stderr.on('close', stderrWriter.flush);
-    }
+    pipeRedactedStreams(commandProcess, { redactStdout, redactStderr });
   }
   // console.log('PARENT PID = ', process.pid);
   // console.log('CHILD PID = ', commandProcess.pid);

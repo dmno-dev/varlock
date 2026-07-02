@@ -55,7 +55,7 @@ import type { ProxyManagedItem, ProxyRule } from '../../proxy/types';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { resetRedactionMap } from '../../runtime/env';
-import { createRedactedStreamWriter } from '../../runtime/lib/redact-stream';
+import { REDACT_STDOUT_ARG, resolveStdoutRedaction, pipeRedactedStreams } from '../helpers/stdout-redaction';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import {
@@ -97,10 +97,7 @@ export const commandSpec = define({
       multiple: true,
       description: 'Path to a specific .env file or directory to use as the entry point (can be specified multiple times)',
     },
-    'redact-stdout': {
-      type: 'boolean',
-      description: 'Override automatic stdout/stderr redaction: --redact-stdout forces redaction of piped/redirected output (e.g., to override @redactLogs=false) and errors if attached to an interactive terminal; --no-redact-stdout disables redaction entirely. Can also be set via the _VARLOCK_REDACT_STDOUT env var (the flag takes precedence)',
-    },
+    ...REDACT_STDOUT_ARG,
     inject: {
       type: 'string',
       short: 'i',
@@ -155,15 +152,6 @@ const EMPTY_PROXY_SESSION_STATS: ProxySessionStats = {
   matchedRequests: 0,
   blockedRequests: 0,
 };
-
-/** Parse a tri-state on/off/unset env toggle (mirrors the same helper in run.command). */
-function parseEnvToggle(value: string | undefined): boolean | undefined {
-  if (value === undefined) return undefined;
-  const normalized = value.trim().toLowerCase();
-  if (normalized === '1' || normalized === 'true') return true;
-  if (normalized === '0' || normalized === 'false') return false;
-  return undefined;
-}
 
 function cloneSessionStats(stats?: ProxySessionStats): ProxySessionStats {
   return {
@@ -813,34 +801,12 @@ async function runAction(ctx: any) {
     fullInjectedEnv._VARLOCK_ENV_KEY = process.env._VARLOCK_ENV_KEY;
   }
 
-  let commandProcess: ReturnType<typeof exec> | undefined;
-
-  const redactLogs = policy.serializedGraph.settings?.redactLogs ?? true;
-  // tri-state override (true = force on, false = force off, undefined = auto-detect):
-  // the --redact-stdout / --no-redact-stdout flag wins, then _VARLOCK_REDACT_STDOUT,
-  // otherwise we auto-detect per stream below (matching `varlock run`).
-  const redactOverride = ctx.values['redact-stdout'] ?? parseEnvToggle(process.env._VARLOCK_REDACT_STDOUT);
-  const forceRedact = redactOverride === true;
-  const forceNoRedact = redactOverride === false;
-
-  // Redacting a TTY-attached stream is impossible without piping it, which breaks
-  // interactive/TTY tools (claude, psql) - so fail loudly rather than silently degrade.
-  if (forceRedact && (process.stdout.isTTY || process.stderr.isTTY)) {
-    throw new CliExitError('Cannot force redaction while output is attached to an interactive terminal', {
-      details: [
-        'Redaction requires piping stdout/stderr, which breaks tools that need a raw TTY (e.g., claude, psql).',
-        'Redaction is applied automatically whenever output is piped or redirected, so you can likely just drop the --redact-stdout flag.',
-      ],
-    });
-  }
-
-  // Auto-detect per stream: a stream attached to an interactive terminal is inherited
-  // directly (raw TTY, so interactive children like `claude` work, and the human at the
-  // terminal already sees the secrets); piped/redirected streams (files, CI, pagers) are
-  // where leaked output persists, so those get piped through the redactor.
-  const redactionEnabled = !forceNoRedact && (redactLogs || forceRedact);
-  const redactStdout = redactionEnabled && (forceRedact || !process.stdout.isTTY);
-  const redactStderr = redactionEnabled && (forceRedact || !process.stderr.isTTY);
+  // Per-stream TTY auto-detect (interactive terminal -> raw inherit so tools like `claude`
+  // work; piped/redirected -> redact). Shared with `varlock run` so they can't diverge.
+  const { redactStdout, redactStderr } = resolveStdoutRedaction({
+    redactStdoutFlag: ctx.values['redact-stdout'],
+    redactLogs: policy.serializedGraph.settings?.redactLogs ?? true,
+  });
 
   // Seed the redaction map with the REAL values the proxy injects at the wire (on top of
   // the schema's own secrets), so if the child ever echoes an injected value back it is
@@ -862,32 +828,14 @@ async function runAction(ctx: any) {
     resetRedactionMap(redactionGraph);
   }
 
-  if (!redactStdout && !redactStderr) {
-    // full stdio inherit - raw TTY pass-through, no redaction needed on any stream
-    commandProcess = exec(rawCommand, commandArgsOnly, {
-      stdio: 'inherit',
-      env: fullInjectedEnv,
-    });
-  } else {
-    commandProcess = exec(rawCommand, commandArgsOnly, {
-      stdin: 'inherit',
-      stdout: redactStdout ? 'pipe' : 'inherit',
-      stderr: redactStderr ? 'pipe' : 'inherit',
-      env: fullInjectedEnv,
-    });
-    // Pipe redacted streams through the shared chunk-boundary-buffered redactor (the same
-    // one `varlock run` uses) so a secret split across two chunks is still caught.
-    if (redactStdout && commandProcess.stdout) {
-      const stdoutWriter = createRedactedStreamWriter(process.stdout);
-      commandProcess.stdout.on('data', stdoutWriter.write);
-      commandProcess.stdout.on('close', stdoutWriter.flush);
-    }
-    if (redactStderr && commandProcess.stderr) {
-      const stderrWriter = createRedactedStreamWriter(process.stderr);
-      commandProcess.stderr.on('data', stderrWriter.write);
-      commandProcess.stderr.on('close', stderrWriter.flush);
-    }
-  }
+  // An inherited stream (both false) yields raw TTY pass-through, same as stdio: 'inherit'.
+  const commandProcess = exec(rawCommand, commandArgsOnly, {
+    stdin: 'inherit',
+    stdout: redactStdout ? 'pipe' : 'inherit',
+    stderr: redactStderr ? 'pipe' : 'inherit',
+    env: fullInjectedEnv,
+  });
+  pipeRedactedStreams(commandProcess, { redactStdout, redactStderr });
 
   if (commandProcess.pid && !attachSession) {
     await updateProxySessionRecord(session.uuid, { childPid: commandProcess.pid });
