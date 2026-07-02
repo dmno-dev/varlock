@@ -94,3 +94,28 @@ export function resolveFieldType(info: TypeGenItemInfo): ResolvedFieldType {
 export function resolveFieldTypes(items: Array<TypeGenItemInfo>): Array<ResolvedFieldType> {
   return items.map(resolveFieldType);
 }
+
+/** Keys of sensitive fields, in schema order — emitted as a constant so consumers can build redaction/leak-scanning. */
+export function getSensitiveKeys(fields: Array<ResolvedFieldType>): Array<string> {
+  return fields.filter((f) => f.isSensitive).map((f) => f.key);
+}
+
+/**
+ * Language-agnostic doc content lines for a field (description, docs links, deprecation, enum values).
+ * Deliberately excludes the key name — repeating it as a comment is noise. Returns `[]` when there's
+ * nothing worth a comment, so emitters can skip the doc entirely.
+ */
+export function getFieldDocLines(field: ResolvedFieldType): Array<string> {
+  const lines: Array<string> = [];
+  if (field.docs.description) lines.push(...field.docs.description.split('\n'));
+  for (const entry of field.docs.docsLinks) {
+    lines.push(`Docs: ${[entry.url, entry.description].filter(Boolean).join(' | ')}`);
+  }
+  if (field.docs.isDeprecated) {
+    lines.push(field.docs.deprecationMessage ? `Deprecated: ${field.docs.deprecationMessage}` : 'Deprecated');
+  }
+  if (typeof field.coerced === 'object' && 'enum' in field.coerced && field.coerced.enum.length) {
+    lines.push(`Valid values: ${field.coerced.enum.map((o) => JSON.stringify(o)).join(' | ')}`);
+  }
+  return lines;
+}
