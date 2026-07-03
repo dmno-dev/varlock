@@ -1,10 +1,10 @@
 import type { EnvGraph } from '../env-graph';
 import type { TypeGenItemInfo } from '../config-item';
 import { isVarlockReservedKey } from '../reserved-vars';
-import { generateGoTypesSrc } from './emitters/go';
-import { generatePhpTypesSrc } from './emitters/php';
-import { generatePythonTypesSrc } from './emitters/python';
-import { generateRustTypesSrc } from './emitters/rust';
+import { generateGoEnvSrc } from './emitters/go';
+import { generatePhpEnvSrc } from './emitters/php';
+import { generatePythonEnvSrc } from './emitters/python';
+import { generateRustEnvSrc } from './emitters/rust';
 import { generateTsTypesSrc } from './emitters/ts';
 import { type ResolvedFieldType } from './shared';
 
@@ -49,10 +49,10 @@ export async function collectTypeGenItems(graph: EnvGraph): Promise<Array<TypeGe
 
 // language code -> per-language decorator, used to point users off the deprecated `@generateTypes(lang=...)`
 const LANG_TO_DECORATOR: Record<string, string> = {
-  py: 'generatePythonTypes',
-  rs: 'generateRustTypes',
-  go: 'generateGoTypes',
-  php: 'generatePhpTypes',
+  py: 'generatePythonEnv',
+  rs: 'generateRustEnv',
+  go: 'generateGoEnv',
+  php: 'generatePhpEnv',
 };
 
 function generateTsFile(ctx: CodeGenContext): Promise<string> {
@@ -74,10 +74,10 @@ function generateTsFile(ctx: CodeGenContext): Promise<string> {
 
 export const builtInCodeGenerators: Array<CodeGeneratorDef> = [
   { decoratorName: 'generateTsTypes', generate: generateTsFile },
-  { decoratorName: 'generatePythonTypes', generate: (ctx) => generatePythonTypesSrc(ctx.fields) },
-  { decoratorName: 'generateRustTypes', generate: (ctx) => generateRustTypesSrc(ctx.fields) },
-  { decoratorName: 'generateGoTypes', generate: (ctx) => generateGoTypesSrc(ctx.fields) },
-  { decoratorName: 'generatePhpTypes', generate: (ctx) => generatePhpTypesSrc(ctx.fields) },
+  { decoratorName: 'generatePythonEnv', generate: (ctx) => generatePythonEnvSrc(ctx.fields) },
+  { decoratorName: 'generateRustEnv', generate: (ctx) => generateRustEnvSrc(ctx.fields) },
+  { decoratorName: 'generateGoEnv', generate: (ctx) => generateGoEnvSrc(ctx.fields) },
+  { decoratorName: 'generatePhpEnv', generate: (ctx) => generatePhpEnvSrc(ctx.fields) },
   {
     // deprecated ts-only alias — kept for back-compat with existing schemas + `varlock init` output
     decoratorName: 'generateTypes',

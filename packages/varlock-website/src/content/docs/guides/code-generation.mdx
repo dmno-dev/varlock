@@ -9,7 +9,7 @@ Generation is driven by per-language root decorators in your schema. Each one wr
 
 ```env-spec title=".env.schema"
 # @generateTsTypes(path=./env.d.ts)
-# @generatePythonTypes(path=./env_types.py)
+# @generatePythonEnv(path=./env_types.py)
 ```
 
 Output is regenerated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly with [`varlock typegen`](/reference/cli-commands/#typegen). It's derived only from non-environment-specific schema definitions, so the result is deterministic regardless of which environment is active.
@@ -39,10 +39,10 @@ Varlock ships generators for several languages. Each emits a **self-contained, i
 
 | Language | Decorator | Use it via |
 | --- | --- | --- |
-| Python | `@generatePythonTypes` | `from env_types import ENV, SENSITIVE_KEYS` |
-| Rust | `@generateRustTypes` | `env::load()` |
-| Go | `@generateGoTypes` | `env.Load()` |
-| PHP | `@generatePhpTypes` | `Env::load()` |
+| Python | `@generatePythonEnv` | `from env_types import ENV, SENSITIVE_KEYS` |
+| Rust | `@generateRustEnv` | `env::load()` |
+| Go | `@generateGoEnv` | `env.Load()` |
+| PHP | `@generatePhpEnv` | `Env::load()` |
 
 For full usage examples per language, see [Other languages](/integrations/other-languages/).
 

@@ -16,15 +16,15 @@ varlock run -- <your-command>
 
 We are working on language-specific helper libraries, that will make this integration better, and provide additional security features like we do in JavaScript.
 
-## Type generation
+## Generated env modules
 
-Varlock can generate static type definitions from your schema for several languages via per-language [`@generate*Types`](/reference/root-decorators/#code-generation) root decorators (see the [Code generation guide](/guides/code-generation/) for the full picture). Add one decorator per language/output file you need:
+Varlock can generate a ready-to-use env module from your schema for several languages via per-language [`@generate*Env`](/reference/root-decorators/#code-generation) root decorators (see the [Code generation guide](/guides/code-generation/) for the full picture). Add one decorator per language/output file you need:
 
 ```env-spec
-# @generatePythonTypes(path=env_types.py)
-# @generateRustTypes(path=src/env_types.rs)
-# @generateGoTypes(path=env_types.go)
-# @generatePhpTypes(path=env_types.php)
+# @generatePythonEnv(path=env.py)
+# @generateRustEnv(path=src/env.rs)
+# @generateGoEnv(path=env/env.go)
+# @generatePhpEnv(path=Env.php)
 ```
 
 Each generated file is a small, self-contained module you can use directly — no hand-rolled JSON parsing. It contains:
@@ -41,7 +41,7 @@ Files are generated automatically on [`varlock load`](/reference/cli-commands/#l
   <TabItem label="Python">
 
 ```env-spec
-# @generatePythonTypes(path=env_types.py)
+# @generatePythonEnv(path=env_types.py)
 ```
 
 ```python
@@ -65,7 +65,7 @@ varlock run -- python main.py
   <TabItem label="Rust">
 
 ```env-spec
-# @generateRustTypes(path=src/env.rs)
+# @generateRustEnv(path=src/env.rs)
 ```
 
 ```rust
@@ -96,7 +96,7 @@ varlock run -- cargo run
   <TabItem label="Go">
 
 ```env-spec
-# @generateGoTypes(path=env/env.go)
+# @generateGoEnv(path=env/env.go)
 ```
 
 ```go
@@ -127,7 +127,7 @@ varlock run -- go run .
   <TabItem label="PHP">
 
 ```env-spec
-# @generatePhpTypes(path=Env.php)
+# @generatePhpEnv(path=Env.php)
 ```
 
 ```php

@@ -48,7 +48,7 @@ function formatGoStruct(
   return lines;
 }
 
-export function generateGoTypesSrc(fields: Array<ResolvedFieldType>): string {
+export function generateGoEnvSrc(fields: Array<ResolvedFieldType>): string {
   const sensitiveKeys = getSensitiveKeys(fields);
 
   const src = [

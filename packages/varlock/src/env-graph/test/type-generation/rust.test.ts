@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest';
 
-import { generateRustTypesSrc } from '../../index';
+import { generateRustEnvSrc } from '../../index';
 import { loadFixtureFields } from './helpers';
 
-describe('generateRustTypesSrc', () => {
+describe('generateRustEnvSrc', () => {
   test('emits a serde struct, SENSITIVE_KEYS, and a loader', async () => {
     const { fields } = await loadFixtureFields();
-    const src = generateRustTypesSrc(fields);
+    const src = generateRustEnvSrc(fields);
 
     expect(src).toContain('use serde::Deserialize;');
     expect(src).toContain('#[derive(Debug, Clone, Deserialize)]');

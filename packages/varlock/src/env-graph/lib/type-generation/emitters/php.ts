@@ -45,7 +45,7 @@ function phpConstructorParam(field: ResolvedFieldType): Array<string> {
   return [...doc, `        public readonly ${typeHint} $${field.key}${field.isRequired ? '' : ' = null'},`];
 }
 
-export function generatePhpTypesSrc(fields: Array<ResolvedFieldType>): string {
+export function generatePhpEnvSrc(fields: Array<ResolvedFieldType>): string {
   const sensitiveKeys = getSensitiveKeys(fields);
   // a PHP constructor cannot declare an optional (defaulted) param before a required one
   const ordered = [...fields].sort((a, b) => Number(b.isRequired) - Number(a.isRequired));

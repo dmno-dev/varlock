@@ -822,7 +822,7 @@ export class EnvGraph {
   }
 
   /**
-   * Resolve every registered code-generation decorator (@generateTsTypes, @generatePythonTypes,
+   * Resolve every registered code-generation decorator (@generateTsTypes, @generatePythonEnv,
    * plugin-contributed ones, and the deprecated @generateTypes) and write their output files.
    * This should be called after finishLoad() but before resolveEnvValues().
    * Decorator args (path, options) are static, so we can resolve them without full env resolution.

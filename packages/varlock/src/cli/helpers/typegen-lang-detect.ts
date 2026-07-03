@@ -12,10 +12,10 @@ export type TypegenLangChoice = {
 // common and our JS integrations depend on it. Extend this table to support more languages.
 const DETECTION_RULES: Array<{ files: Array<string>, choice: TypegenLangChoice }> = [
   { files: ['package.json'], choice: { decorator: 'generateTsTypes', args: 'path=env.d.ts' } },
-  { files: ['pyproject.toml', 'requirements.txt', 'setup.py', 'Pipfile'], choice: { decorator: 'generatePythonTypes', args: 'path=env_types.py' } },
-  { files: ['go.mod'], choice: { decorator: 'generateGoTypes', args: 'path=env_types.go' } },
-  { files: ['Cargo.toml'], choice: { decorator: 'generateRustTypes', args: 'path=src/env_types.rs' } },
-  { files: ['composer.json'], choice: { decorator: 'generatePhpTypes', args: 'path=env_types.php' } },
+  { files: ['pyproject.toml', 'requirements.txt', 'setup.py', 'Pipfile'], choice: { decorator: 'generatePythonEnv', args: 'path=env.py' } },
+  { files: ['go.mod'], choice: { decorator: 'generateGoEnv', args: 'path=env/env.go' } },
+  { files: ['Cargo.toml'], choice: { decorator: 'generateRustEnv', args: 'path=src/env.rs' } },
+  { files: ['composer.json'], choice: { decorator: 'generatePhpEnv', args: 'path=Env.php' } },
 ];
 
 // fall back to TS — it's the richest generator and harmless if unused

@@ -62,7 +62,7 @@ function formatPythonTypedDict(
   return lines;
 }
 
-export function generatePythonTypesSrc(fields: Array<ResolvedFieldType>): string {
+export function generatePythonEnvSrc(fields: Array<ResolvedFieldType>): string {
   const sensitiveKeys = getSensitiveKeys(fields);
   const sensitiveSet = sensitiveKeys.length
     ? `frozenset({${sensitiveKeys.map((k) => JSON.stringify(k)).join(', ')}})`

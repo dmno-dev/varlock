@@ -596,9 +596,9 @@ See the [Caching guide](/guides/caching/) for cache mode strategy and troublesho
 <div>
 ### `varlock typegen` ||typegen||
 
-Runs the [code-generation decorators](/reference/root-decorators/#code-generation) in your schema. These usually generate type definitions (`@generateTsTypes`, `@generatePythonTypes`, …), though plugins can contribute generators that emit other code. Uses only your schema definitions, so output is deterministic regardless of which environment is active. Keys (and decorators) that come only from value files like `.env` or `.env.local` are ignored — only items declared in your `.env.schema` (or imported into it) are included. When run directly, the command reports any keys found only in a plain `.env` so you can move them into your schema if they belong there.
+Runs the [code-generation decorators](/reference/root-decorators/#code-generation) in your schema — typed env accessors like `@generateTsTypes` (type declarations) and `@generatePythonEnv` (a loadable module), plus any generators contributed by plugins. Uses only your schema definitions, so output is deterministic regardless of which environment is active. Keys (and decorators) that come only from value files like `.env` or `.env.local` are ignored — only items declared in your `.env.schema` (or imported into it) are included. When run directly, the command reports any keys found only in a plain `.env` so you can move them into your schema if they belong there.
 
-Add a per-language decorator for each output file you want: `@generateTsTypes`, `@generatePythonTypes`, `@generateRustTypes`, `@generateGoTypes`, or `@generatePhpTypes`. Each generates its own file.
+Add a per-language decorator for each output file you want: `@generateTsTypes`, `@generatePythonEnv`, `@generateRustEnv`, `@generateGoEnv`, or `@generatePhpEnv`. Each generates its own file.
 
 This command is particularly useful when you have set `auto=false` on a generator decorator to disable automatic generation during `varlock load` or `varlock run`.
 

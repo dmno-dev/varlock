@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest';
 
-import { generatePhpTypesSrc } from '../../index';
+import { generatePhpEnvSrc } from '../../index';
 import { loadFixtureFields } from './helpers';
 
-describe('generatePhpTypesSrc', () => {
+describe('generatePhpEnvSrc', () => {
   test('emits a typed readonly class, SENSITIVE_KEYS, and a loader', async () => {
     const { fields } = await loadFixtureFields();
-    const src = generatePhpTypesSrc(fields);
+    const src = generatePhpEnvSrc(fields);
 
     expect(src).toMatch(/^<\?php/);
     expect(src).toContain('final class Env');

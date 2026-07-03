@@ -25,11 +25,11 @@ afterEach(async () => {
 describe('detectTypegenDecorator', () => {
   test.each([
     [['package.json'], 'generateTsTypes'],
-    [['pyproject.toml'], 'generatePythonTypes'],
-    [['requirements.txt'], 'generatePythonTypes'],
-    [['go.mod'], 'generateGoTypes'],
-    [['Cargo.toml'], 'generateRustTypes'],
-    [['composer.json'], 'generatePhpTypes'],
+    [['pyproject.toml'], 'generatePythonEnv'],
+    [['requirements.txt'], 'generatePythonEnv'],
+    [['go.mod'], 'generateGoEnv'],
+    [['Cargo.toml'], 'generateRustEnv'],
+    [['composer.json'], 'generatePhpEnv'],
   ] as const)('detects %s -> @%s', async (files, decorator) => {
     const dir = await makeProjectDir([...files]);
     expect((await detectTypegenDecorator(dir)).decorator).toBe(decorator);

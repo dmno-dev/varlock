@@ -23,7 +23,7 @@ function fieldDocComment(field: ResolvedFieldType): Array<string> {
   return getFieldDocLines(field).map((line) => `    /// ${line.replace(/\r?\n/g, ' ')}`);
 }
 
-export function generateRustTypesSrc(fields: Array<ResolvedFieldType>): string {
+export function generateRustEnvSrc(fields: Array<ResolvedFieldType>): string {
   const sensitiveKeys = getSensitiveKeys(fields);
 
   const structFields = fields.flatMap((field) => {

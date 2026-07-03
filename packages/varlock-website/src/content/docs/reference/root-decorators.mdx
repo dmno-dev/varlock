@@ -303,15 +303,13 @@ See the [Caching guide](/guides/caching/) for mode selection guidance by environ
 <div>
 ### Code generation ||code-generation||
 
-Code-generation decorators turn your schema into generated code. Most commonly this is **type definitions** for your language, but [plugins](/guides/plugins/) can register generators that emit other kinds of code. See the [Code generation guide](/guides/code-generation/) for the full picture.
+Code-generation decorators turn your schema into generated code, and [plugins](/guides/plugins/) can register generators that emit other kinds of code. See the [Code generation guide](/guides/code-generation/) for the full picture. Varlock ships these built-in generators — add one decorator per output file you want:
 
-Varlock ships per-language type generators — add one decorator per output file you want:
-
-- [`@generateTsTypes()`](#generatetstypes) — TypeScript
-- `@generatePythonTypes()` — Python (`TypedDict`)
-- `@generateRustTypes()` — Rust
-- `@generateGoTypes()` — Go
-- `@generatePhpTypes()` — PHP (phpstan)
+- [`@generateTsTypes()`](#generatetstypes) — TypeScript type declarations (augments `varlock/env` / `process.env`)
+- `@generatePythonEnv()` — a Python env module (typed values + loader + `SENSITIVE_KEYS`)
+- `@generateRustEnv()` — a Rust env module (serde struct + loader)
+- `@generateGoEnv()` — a Go env module (struct + `Load()`)
+- `@generatePhpEnv()` — a PHP env module (class + loader)
 
 Each of these is a root decorator that _can be called multiple times_. They share these common args:
 
@@ -321,7 +319,7 @@ Each of these is a root decorator that _can be called multiple times_. They shar
 
 ```env-spec
 # @generateTsTypes(path=./env.d.ts)
-# @generatePythonTypes(path=./env_types.py)
+# @generatePythonEnv(path=./env_types.py)
 ```
 
 :::tip
@@ -355,7 +353,7 @@ In addition to the common args above, the TypeScript generator accepts:
 ```
 
 :::note[Deprecated: `@generateTypes()`]
-`@generateTypes(lang=ts, path=...)` still works as a TypeScript-only alias for `@generateTsTypes`, but is deprecated. For other languages, use the matching `@generate*Types` decorator (`@generateTypes(lang=py, ...)` will error with a pointer to `@generatePythonTypes`).
+`@generateTypes(lang=ts, path=...)` still works as a TypeScript-only alias for `@generateTsTypes`, but is deprecated. For other languages, use the matching `@generate*Env` decorator (`@generateTypes(lang=py, ...)` will error with a pointer to `@generatePythonEnv`).
 :::
 
 </div>

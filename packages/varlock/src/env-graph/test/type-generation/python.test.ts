@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 
-import { resolveFieldTypes, generatePythonTypesSrc } from '../../index';
+import { resolveFieldTypes, generatePythonEnvSrc } from '../../index';
 import { loadFixtureFields, loadGraph } from './helpers';
 
-describe('generatePythonTypesSrc', () => {
+describe('generatePythonEnvSrc', () => {
   test('emits a typed TypedDict, SENSITIVE_KEYS, and a loader', async () => {
     const { fields } = await loadFixtureFields();
-    const src = generatePythonTypesSrc(fields);
+    const src = generatePythonEnvSrc(fields);
 
     expect(src).toContain('class CoercedEnvSchema(TypedDict):');
     // reference-only Public/raw-string types were dropped in favor of SENSITIVE_KEYS + the loader
@@ -40,7 +40,7 @@ describe('generatePythonTypesSrc', () => {
     });
 
     const items = [await g.configSchema.QUOTED.getTypeGenInfo()];
-    const src = generatePythonTypesSrc(resolveFieldTypes(items));
+    const src = generatePythonEnvSrc(resolveFieldTypes(items));
 
     // rendered as a `#` comment — a triple-quote in the text can't break the file
     expect(src).toContain('QUOTED: str  # value with """ quotes inside');

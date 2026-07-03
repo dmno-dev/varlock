@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest';
 
-import { generateGoTypesSrc } from '../../index';
+import { generateGoEnvSrc } from '../../index';
 import { loadFixtureFields } from './helpers';
 
-describe('generateGoTypesSrc', () => {
+describe('generateGoEnvSrc', () => {
   test('emits a buildable package with a struct, SensitiveKeys, and Load()', async () => {
     const { fields } = await loadFixtureFields();
-    const src = generateGoTypesSrc(fields);
+    const src = generateGoEnvSrc(fields);
 
     // must be compilable — no build:ignore, real package
     expect(src).not.toContain('//go:build ignore');

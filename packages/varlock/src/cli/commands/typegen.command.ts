@@ -23,10 +23,10 @@ regardless of which environment is active.
 
 Add a per-language decorator to your schema for each output you want:
   @generateTsTypes(path=env.d.ts)
-  @generatePythonTypes(path=env_types.py)
-  @generateRustTypes(path=src/env_types.rs)
-  @generateGoTypes(path=env_types.go)
-  @generatePhpTypes(path=env_types.php)
+  @generatePythonEnv(path=env_types.py)
+  @generateRustEnv(path=src/env_types.rs)
+  @generateGoEnv(path=env_types.go)
+  @generatePhpEnv(path=env_types.php)
 
 This is useful when you have \`auto=false\` set on a generator decorator to
 disable automatic generation during \`varlock load\` or \`varlock run\`.
@@ -50,7 +50,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   if (generatedCount === 0) {
     throw new CliExitError('No code-generation decorator found in your schema', {
-      suggestion: 'Add `@generateTsTypes(path=env.d.ts)` (or `@generatePythonTypes(path=env_types.py)`, etc.) to your .env.schema file.',
+      suggestion: 'Add `@generateTsTypes(path=env.d.ts)` (or `@generatePythonEnv(path=env_types.py)`, etc.) to your .env.schema file.',
     });
   }
 

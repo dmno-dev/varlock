@@ -1,8 +1,8 @@
 export { generateTsTypesSrc } from './emitters/ts';
-export { generatePythonTypesSrc } from './emitters/python';
-export { generateRustTypesSrc } from './emitters/rust';
-export { generateGoTypesSrc } from './emitters/go';
-export { generatePhpTypesSrc } from './emitters/php';
+export { generatePythonEnvSrc } from './emitters/python';
+export { generateRustEnvSrc } from './emitters/rust';
+export { generateGoEnvSrc } from './emitters/go';
+export { generatePhpEnvSrc } from './emitters/php';
 export {
   resolveFieldType,
   resolveFieldTypes,
