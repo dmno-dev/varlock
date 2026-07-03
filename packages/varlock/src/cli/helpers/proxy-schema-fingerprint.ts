@@ -96,7 +96,7 @@ export function buildProxySchemaFingerprint(envGraph: EnvGraph): string {
  * schema fingerprint and refuse if it no longer matches the one captured when
  * the session started. Closes the "edit .env.schema, flip @sensitive off,
  * re-load to recover raw values" downgrade — a deliberate schema change must be
- * re-approved out-of-band via `varlock proxy refresh`.
+ * re-applied out-of-band via `varlock proxy reload`.
  *
  * No-ops outside a proxied context, and when there's no stored fingerprint to
  * compare against (fails open rather than blocking unrelated commands).
@@ -125,8 +125,8 @@ export async function enforceProxySchemaFingerprint(
   if (actual === expected) return;
 
   throw new CliExitError('Schema changed inside an active proxy session.', {
-    details: 'The resolved .env.schema no longer matches the fingerprint captured when the proxy session started. This guards against editing the schema mid-session (e.g. downgrading @sensitive, or adding a new item that resolves a secret) to recover real values.',
-    suggestion: 'Restart the proxy from a trusted (non-proxied) context to pick up the change. (If it was started with `varlock proxy start --allow-reload`, run `varlock proxy refresh` from a trusted context instead.)',
+    details: 'Your resolved env schema no longer matches the fingerprint captured when the proxy session started. This guards against editing the schema mid-session (e.g. downgrading @sensitive, or adding a new item that resolves a secret) to recover real values.',
+    suggestion: 'Restart the proxy from a trusted (non-proxied) context to pick up the change. (If the proxy allows reload, e.g. started with `--allow-reload` or `@proxyConfig={reload="manual"}`, run `varlock proxy reload` from a trusted context instead.)',
     forceExit: true,
   });
 }

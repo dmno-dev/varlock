@@ -102,7 +102,7 @@ export async function loadVarlockEnvGraph(opts?: {
   /**
    * Skip the proxy schema-fingerprint guard for this load. Used by the `proxy`
    * command itself (it manages the session fingerprint directly), so that
-   * `proxy refresh` can re-approve a schema change without being blocked by the
+   * `proxy reload` can apply a schema change without being blocked by the
    * very guard it exists to clear.
    */
   skipProxyFingerprintGuard?: boolean,
