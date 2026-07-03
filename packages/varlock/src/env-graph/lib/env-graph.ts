@@ -246,9 +246,18 @@ export class EnvGraph {
     this.dataTypesRegistry[factory.dataTypeName] = factory;
   }
 
+  // the `generate` prefix is reserved for code generators (registered via registerCodeGenerator),
+  // giving a bidirectional guarantee: a `@generate*` decorator always writes generated output
+  private assertNotReservedGeneratePrefix(name: string, kind: string) {
+    if (name.startsWith('generate')) {
+      throw new SchemaError(`${kind} "${name}" — the "generate" prefix is reserved for code generators (use registerCodeGenerator)`);
+    }
+  }
+
   itemDecoratorsRegistry: Record<string, ItemDecoratorDef> = {};
   registerItemDecorator(decoratorDef: ItemDecoratorDef) {
     const name = decoratorDef.name;
+    this.assertNotReservedGeneratePrefix(name, 'Item decorator');
     if (name in this.itemDecoratorsRegistry) {
       throw new SchemaError(`Item decorator "${name}" already registered`);
     }
@@ -258,6 +267,7 @@ export class EnvGraph {
   rootDecoratorsRegistry: Record<string, RootDecoratorDef> = {};
   registerRootDecorator(decoratorDef: RootDecoratorDef) {
     const name = decoratorDef.name;
+    this.assertNotReservedGeneratePrefix(name, 'Root decorator');
     if (name in this.itemDecoratorsRegistry) {
       throw new SchemaError(`Root decorator "${name}" already registered`);
     }
@@ -273,9 +283,10 @@ export class EnvGraph {
     if (!name.startsWith('generate')) {
       throw new SchemaError(`Code generator decorator names must start with "generate" (got "${name}")`);
     }
-    // ensure a root decorator exists for this generator (plugins get one for free)
+    // ensure a root decorator exists for this generator (plugins get one for free).
+    // insert directly — registerRootDecorator reserves the `generate` prefix for exactly this path.
     if (!(name in this.rootDecoratorsRegistry)) {
-      this.registerRootDecorator({ name, isFunction: true });
+      this.rootDecoratorsRegistry[name] = { name, isFunction: true };
     }
     this.codeGeneratorsRegistry[name] = generatorDef;
   }

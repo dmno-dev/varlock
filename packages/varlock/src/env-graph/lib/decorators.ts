@@ -318,13 +318,9 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
   {
     name: 'disable',
   },
-  {
-    name: 'generateTypes',
-    isFunction: true,
-    // per-language decorators (@generateTsTypes, @generatePythonEnv, ...) are registered
-    // via the code-generator registry. @generateTypes is kept as a ts-only back-compat alias.
-    deprecated: 'use @generateTsTypes (or another @generate*Types decorator) instead',
-  },
+  // NOTE: `@generate*` decorators (@generateTsTypes, @generatePythonEnv, the deprecated
+  // @generateTypes alias, plugin generators) are registered via the code-generator registry,
+  // not here — the `generate` prefix is reserved for code generators.
   {
     name: 'import',
     isFunction: true,

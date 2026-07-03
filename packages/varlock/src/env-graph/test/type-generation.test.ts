@@ -895,6 +895,12 @@ describe('type generation', () => {
       expect(() => g.registerCodeGenerator({ decoratorName: 'zodSchema', generate: () => '' }))
         .toThrow('must start with "generate"');
     });
+
+    test('reserves the "generate" prefix — a non-codegen root decorator cannot use it', () => {
+      const g = new EnvGraph();
+      expect(() => g.registerRootDecorator({ name: 'generateReport' }))
+        .toThrow('reserved for code generators');
+    });
   });
 
   describe('JSDoc comment safety', () => {
