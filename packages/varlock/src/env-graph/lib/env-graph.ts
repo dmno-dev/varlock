@@ -871,6 +871,8 @@ export class EnvGraph {
           outputPath,
           sourceDir,
         });
+        // ensure the target directory exists (e.g. `path=env/env.go` or `path=src/env.rs`)
+        await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
         await fs.promises.writeFile(outputPath, src, 'utf-8');
         generatedCount++;
       }
