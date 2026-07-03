@@ -1,7 +1,6 @@
 ---
 title: Python
-description: Use varlock with Python (FastAPI, uvicorn, Poetry), Pydantic Settings, and varlock run
-draft: true
+description: Use varlock with Python (FastAPI, uvicorn, Poetry), a generated typed env module, Pydantic Settings, and varlock run
 ---
 
 import { Steps } from "@astrojs/starlight/components";
@@ -102,6 +101,47 @@ varlock run -- python script.py
 ```
 
 By default, `varlock run` also pipes stdout/stderr through varlock's redaction filter, masking sensitive values that appear in logs. Use `--no-redact-stdout` for interactive tools that need raw TTY behavior — see the [`varlock run` reference](/reference/cli-commands/#run).
+
+---
+
+## Generated typed module
+
+For a typed, coerced view of your config — numbers as `int`, booleans as `bool`, no manual `os.environ` parsing — add [`@generatePythonEnv`](/reference/root-decorators/#generatepythonenv) to your schema. Varlock generates a small, self-contained module: a coerced `Env` [`TypedDict`](https://docs.python.org/3/library/typing.html#typing.TypedDict), a `load_env()` loader that reads the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
+
+```env-spec title=".env.schema"
+# @generatePythonEnv(path=env.py)
+```
+
+The file regenerates automatically on [`varlock load`](/reference/cli-commands/#load) / [`varlock run`](/reference/cli-commands/#run), or explicitly via [`varlock codegen`](/reference/cli-commands/#codegen). Call the loader once, then read fields off the returned dict:
+
+```python
+from env import load_env, SENSITIVE_KEYS
+
+ENV = load_env()        # call once, reuse
+port = ENV["DB_PORT"]   # int
+debug = ENV["DEBUG"]    # bool
+
+# build your own redaction using SENSITIVE_KEYS
+safe = {k: ("***" if k in SENSITIVE_KEYS else v) for k, v in ENV.items()}
+```
+
+Importing the module has no side effects, and it imports on any **Python 3.7+** (it uses `from __future__ import annotations`, so `NotRequired`/`Literal` are type-checker-only). Every `load_env()` call re-parses the blob, so to avoid reloading, load once in a config module and share it — the idiomatic "settings module" pattern:
+
+```python
+# config.py
+from env import load_env
+
+env = load_env()   # loaded once, typed as Env
+```
+
+```python
+# anywhere.py
+from config import env
+
+port = env["DB_PORT"]   # int
+```
+
+Keys whose names aren't valid Python identifiers (they contain `.` or `-`) are omitted from `Env` — read those from `os.environ`. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
 
 ---
 

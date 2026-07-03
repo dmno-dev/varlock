@@ -3,264 +3,50 @@ title: Other languages
 description: Integrating varlock into other languages
 ---
 
-import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
-import { TabItem, Tabs } from "@astrojs/starlight/components";
-
-To use varlock with other languages, you'll likely want to [install the standalone binary](/getting-started/installation/#as-a-binary), rather than using a JS package manager.
-
-To use it with your application code, you must use [`varlock run`](/reference/cli-commands/#run) to load and validate your environment variables, then run the command you provided with those environment variables injected into the process.
+To use varlock with other languages, [install the standalone binary](/getting-started/installation/#as-a-binary) rather than a JS package manager, and run your app under [`varlock run`](/reference/cli-commands/#run) — it loads and validates your environment, then runs your command with the resolved values injected into the process.
 
 ```bash
 varlock run -- <your-command>
 ```
 
-We are working on language-specific helper libraries, that will make this integration better, and provide additional security features like we do in JavaScript.
-
 ## Generated env modules
 
-Varlock can generate a ready-to-use env module from your schema for several languages via per-language [`@generate*Env`](/reference/root-decorators/#code-generation) root decorators (see the [Code generation guide](/guides/code-generation/) for the full picture). Add one decorator per language/output file you need:
+Varlock can generate a ready-to-use, typed env module from your schema for several languages via per-language [`@generate*Env`](/reference/root-decorators/#code-generation) root decorators (see the [Code generation guide](/guides/code-generation/) for the full picture). Each generated file is a small, self-contained module — no hand-rolled JSON parsing — containing:
 
-```env-spec
-# @generatePythonEnv(path=env.py)
-# @generateRustEnv(path=src/env.rs)
-# @generateGoEnv(path=env/env.go)
-# @generatePhpEnv(path=Env.php)
-```
-
-Each generated file is a small, self-contained module you can use directly — no hand-rolled JSON parsing. It contains:
-
-- a **typed, coerced env** object/type (matching varlock's coercion — numbers, booleans, parsed objects, not raw strings)
+- a **typed, coerced env** object/type (numbers, booleans, parsed objects — not raw strings)
 - a **loader** that reads the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob and returns those typed values
 - a **`SENSITIVE_KEYS`** constant listing which keys hold sensitive values, so you can build your own redaction or leak-scanning
 
-The module intentionally exposes just these primitives — no global singleton or imposed caching — so it stays idiomatic and flexible in each language. Call the loader **once** at startup and hold or pass the result however your app prefers (a variable, a struct field, a DI container); it's parsed once, not on every access.
+It exposes just these primitives — no global singleton or imposed caching — so it stays idiomatic in each language. Pick your language for setup and usage:
 
-Files are generated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly via [`varlock codegen`](/reference/cli-commands/#codegen). The loader reads `__VARLOCK_ENV`, so run your program under [`varlock run`](/reference/cli-commands/#run) — which always injects a **plaintext** blob. The generated loaders don't decrypt, so they don't support [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) (a JS/SSR build-output feature); if a loader is handed an encrypted blob it fails with a clear message rather than a raw parse error.
+| Language | Decorator | Guide |
+| --- | --- | --- |
+| Python | `@generatePythonEnv` | [Python](/integrations/python/) |
+| Rust | `@generateRustEnv` | [Rust](/integrations/rust/) |
+| Go | `@generateGoEnv` | [Go](/integrations/go/) |
+| PHP | `@generatePhpEnv` | [PHP](/integrations/php/) |
 
-## Using the generated module
+Files are generated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly via [`varlock codegen`](/reference/cli-commands/#codegen). The loaders read `__VARLOCK_ENV`, so run your program under [`varlock run`](/reference/cli-commands/#run) — which always injects a **plaintext** blob. The generated loaders don't decrypt, so they don't support [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) (a JS/SSR build-output feature); if a loader is handed an encrypted blob it fails with a clear message rather than a raw parse error.
 
-Call the loader once, then read fields off the returned value — required fields are the plain type, optional ones are nullable (`None` / `Option` / pointer / `?type`):
+## Languages without a generated module
 
-<Tabs syncKey="polyglot-env-blob">
-  <TabItem label="Python">
+For a language that doesn't have a `@generate*Env` decorator yet, you have two options — both work under `varlock run`:
 
-```env-spec
-# @generatePythonEnv(path=env_types.py)
-```
+**Read individual env vars.** Every config key is injected as a plain environment variable, so read them the way you normally would (`os.environ`, `getenv`, etc.). These values are always **strings** (uncoerced), so parse numbers/booleans yourself.
 
-```python
-from env_types import load_env, SENSITIVE_KEYS
+**Parse the blob yourself.** For coerced values and metadata, read the [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) environment variable — a JSON object with a `config` map keyed by env var name. Skip entries with no `value` (unset optionals), and use `isSensitive` to build redaction:
 
-ENV = load_env()        # call once, reuse
-port = ENV["DB_PORT"]   # int
-debug = ENV["DEBUG"]    # bool
-
-# build your own redaction using SENSITIVE_KEYS
-safe = {k: ("***" if k in SENSITIVE_KEYS else v) for k, v in ENV.items()}
-```
-
-```bash
-varlock run -- python main.py
-```
-
-Importing the module has no side effects; `load_env()` reads `__VARLOCK_ENV`. The module imports on any Python 3.7+ (it uses `from __future__ import annotations`, so `NotRequired`/`Literal` are type-checker-only).
-
-  </TabItem>
-
-  <TabItem label="Rust">
-
-```env-spec
-# @generateRustEnv(path=src/env.rs)
-```
-
-```rust
-mod env;
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let e = env::load()?;   // call once, hold or pass `e` around
-    let port = e.db_port;   // Option<i64>
-    let debug = e.debug;    // Option<bool>
-    println!("{:?} {:?}", port, debug);
-    Ok(())
+```jsonc
+// shape of __VARLOCK_ENV
+{
+  "config": {
+    "DB_PORT": { "value": 5432, "isSensitive": false },
+    "API_KEY": { "value": "…", "isSensitive": true }
+  }
 }
 ```
 
-Requires `serde` and `serde_json`:
-
-```bash
-cargo add serde --features derive
-cargo add serde_json
-```
-
-```bash
-varlock run -- cargo run
-```
-
-  </TabItem>
-
-  <TabItem label="Go">
-
-```env-spec
-# @generateGoEnv(path=env/env.go)
-```
-
-```go
-package main
-
-import (
-    "log"
-
-    "myapp/env"
-)
-
-func main() {
-    e, err := env.Load()   // call once, hold or pass `e` around
-    if err != nil {
-        log.Fatal(err)
-    }
-    host := e.DbHost       // string (required field)
-    if e.DbPort != nil {   // *int64 (optional field — deref when set)
-        log.Printf("%s:%d", host, *e.DbPort)
-    }
-}
-```
-
-```bash
-varlock run -- go run .
-```
-
-Requires Go 1.18+ (the generated code uses `any`). The package name follows the output directory — see the [`@generateGoEnv` reference](/reference/root-decorators/#generategoenv).
-
-  </TabItem>
-
-  <TabItem label="PHP">
-
-```env-spec
-# @generatePhpEnv(path=Env.php)
-```
-
-```php
-<?php
-require_once 'Env.php';   // require_once — a second require would fatal
-
-$env = Env::load();       // call once, hold or inject $env
-$port = $env->DB_PORT;    // ?int
-$debug = $env->DEBUG;     // ?bool
-
-// SENSITIVE_KEYS is available for your own redaction
-foreach (Env::SENSITIVE_KEYS as $key) { /* ... */ }
-```
-
-```bash
-varlock run -- php main.php
-```
-
-Requires PHP 8.1+ (readonly promoted properties). For Composer projects, set `namespace=`/`class=` (see the [`@generatePhpEnv` reference](/reference/root-decorators/#generatephpenv)) and register the file via classmap autoload (`"autoload": { "classmap": ["Env.php"] }`) instead of `require_once`. Under PHP-FPM, make sure the pool passes `__VARLOCK_ENV` through (`clear_env = no`).
-
-  </TabItem>
-</Tabs>
-
-## Reusing one env across your app
-
-Every call to the loader re-parses the `__VARLOCK_ENV` blob, so if you don't want to reload on every access, load it **once** and share that value. The generated module deliberately ships **no** global singleton — each app shares config differently, and the loader returns a **named, exported type** (a struct, class, or `TypedDict`) so *you* can create a reusable, fully-typed instance in one line. Load it once in your own module and import it everywhere.
-
-<Tabs syncKey="polyglot-env-blob">
-  <TabItem label="Python">
-
-Load once in your own config module — the idiomatic Python "settings module" pattern:
-
-```python
-# config.py
-from env_types import load_env
-
-env = load_env()   # loaded once, typed as Env
-```
-
-```python
-# anywhere.py
-from config import env
-
-port = env["DB_PORT"]   # int
-```
-
-  </TabItem>
-
-  <TabItem label="Rust">
-
-If you want a process-wide instance, opt into a `LazyLock` yourself (loaded once, on first access; `LazyLock` needs Rust 1.80+, or use `once_cell::sync::Lazy` on older toolchains):
-
-```rust
-// config.rs
-use std::sync::LazyLock;
-use crate::env;
-
-pub static ENV: LazyLock<env::Env> =
-    LazyLock::new(|| env::load().expect("failed to load env"));
-```
-
-```rust
-// anywhere.rs
-use crate::config::ENV;
-
-let port = ENV.db_port;   // Option<i64>
-```
-
-Prefer no globals? Call `env::load()?` once in `main` and pass `&Env` through your app state — the type comes along either way.
-
-  </TabItem>
-
-  <TabItem label="Go">
-
-Expose it as a package-level var in your own package:
-
-```go
-// config/config.go
-package config
-
-import "myapp/env"
-
-var Env = mustLoad()
-
-func mustLoad() env.Env {
-    e, err := env.Load()
-    if err != nil {
-        panic(err)
-    }
-    return e
-}
-```
-
-```go
-// anywhere.go
-import "myapp/config"
-
-port := config.Env.DbPort   // *int64
-```
-
-  </TabItem>
-
-  <TabItem label="PHP">
-
-Bind the loaded instance wherever your app keeps shared services — e.g. your DI container:
-
-```php
-// bootstrap.php
-$container->instance(Env::class, Env::load());   // resolve Env anywhere, type-hinted
-```
-
-No container? A tiny static holder works:
-
-```php
-final class Config {
-    public static Env $env;
-}
-Config::$env = Env::load();
-
-// elsewhere: Config::$env->DB_PORT  (?int)
-```
-
-  </TabItem>
-</Tabs>
+The generated modules above do exactly this — they're the fastest path if your language is supported. We're planning first-class helper libraries and more generated languages.
 
 :::note[Raw string env vars]
 Individual config keys are also injected as plain environment variables, but those values are always strings (uncoerced). Prefer the generated loader / `__VARLOCK_ENV` when you want coerced types.

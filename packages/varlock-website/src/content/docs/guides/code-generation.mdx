@@ -37,14 +37,14 @@ See the [`@generateTsTypes` reference](/reference/root-decorators/#generatetstyp
 
 Varlock ships generators for several languages. Each emits a **self-contained, idiomatic module** — a typed value object, a loader that reads the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant (so you can build your own redaction or leak-scanning) — usable out of the box, no hand-rolled parsing:
 
-| Language | Decorator | Use it via |
-| --- | --- | --- |
-| Python | `@generatePythonEnv` | `from env_types import load_env, SENSITIVE_KEYS` |
-| Rust | `@generateRustEnv` | `env::load()` |
-| Go | `@generateGoEnv` | `env.Load()` |
-| PHP | `@generatePhpEnv` | `Env::load()` |
+| Language | Decorator | Loader | Guide |
+| --- | --- | --- | --- |
+| Python | `@generatePythonEnv` | `load_env()` | [Python](/integrations/python/) |
+| Rust | `@generateRustEnv` | `env::load()` | [Rust](/integrations/rust/) |
+| Go | `@generateGoEnv` | `env.Load()` | [Go](/integrations/go/) |
+| PHP | `@generatePhpEnv` | `Env::load()` | [PHP](/integrations/php/) |
 
-For full usage examples per language, see [Other languages](/integrations/other-languages/).
+For a language without a generated module, see [Other languages](/integrations/other-languages/).
 
 ## Disabling automatic generation
 

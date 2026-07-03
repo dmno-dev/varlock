@@ -495,7 +495,7 @@ TypeScript type declarations — makes `import { ENV } from 'varlock/env'` typed
 <div>
 ### `@generatePythonEnv()`
 
-A self-contained Python module — a `CoercedEnvSchema` `TypedDict`, a `load_env()` that parses the injected env, and a `SENSITIVE_KEYS` constant. See [Python usage](/integrations/other-languages/).
+A self-contained Python module — a coerced `Env` `TypedDict`, a `load_env()` that parses the injected env, and a `SENSITIVE_KEYS` constant. See [Python usage](/integrations/python/).
 
 ```env-spec
 # @generatePythonEnv(path=./env.py)
@@ -505,7 +505,7 @@ A self-contained Python module — a `CoercedEnvSchema` `TypedDict`, a `load_env
 <div>
 ### `@generateRustEnv()`
 
-A self-contained Rust module — a serde-derived `Env` struct, a `load()` function, and a `SENSITIVE_KEYS` constant. Requires the `serde` and `serde_json` crates. See [Rust usage](/integrations/other-languages/).
+A self-contained Rust module — a serde-derived `Env` struct, a `load()` function, and a `SENSITIVE_KEYS` constant. Requires the `serde` and `serde_json` crates. See [Rust usage](/integrations/rust/).
 
 ```env-spec
 # @generateRustEnv(path=./src/env.rs)
@@ -515,7 +515,7 @@ A self-contained Rust module — a serde-derived `Env` struct, a `load()` functi
 <div>
 ### `@generateGoEnv()`
 
-A self-contained Go package — an `Env` struct, a `Load()` function, and a `SensitiveKeys` map. See [Go usage](/integrations/other-languages/).
+A self-contained Go package — an `Env` struct, a `Load()` function, and a `SensitiveKeys` map. See [Go usage](/integrations/go/).
 
 ```env-spec
 # @generateGoEnv(path=./env/env.go)
@@ -527,7 +527,7 @@ The package name defaults to the output directory (e.g. `path=env/env.go` → `p
 <div>
 ### `@generatePhpEnv()`
 
-A self-contained PHP class — a readonly `Env` with a static `load()` and a `SENSITIVE_KEYS` constant. Requires PHP 8.1+. See [PHP usage](/integrations/other-languages/).
+A self-contained PHP class — a readonly `Env` with a static `load()` and a `SENSITIVE_KEYS` constant. Requires PHP 8.1+. See [PHP usage](/integrations/php/).
 
 ```env-spec
 # @generatePhpEnv(path=./Env.php)

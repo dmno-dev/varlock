@@ -1,0 +1,68 @@
+---
+title: Rust
+description: Use varlock with Rust via a generated, serde-derived env module
+---
+
+To use varlock with Rust, [install the standalone binary](/getting-started/installation/#as-a-binary) and run your app under [`varlock run`](/reference/cli-commands/#run) — it loads and validates your env, then injects it into the process.
+
+Add [`@generateRustEnv`](/reference/root-decorators/#generaterustenv) to your schema to generate a small, self-contained module — a serde-derived `Env` struct, a `load()` function that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
+
+```env-spec title=".env.schema"
+# @generateRustEnv(path=src/env.rs)
+```
+
+The file is regenerated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly with [`varlock codegen`](/reference/cli-commands/#codegen). It needs `serde` and `serde_json`:
+
+```bash
+cargo add serde --features derive
+cargo add serde_json
+```
+
+## Reading values
+
+Call `load()` once, then read fields off the struct — required fields are the plain type, optional ones are `Option<T>`:
+
+```rust
+mod env;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let e = env::load()?;   // call once, hold or pass `e` around
+    let host = e.db_host;   // String (required field)
+    if let Some(port) = e.db_port {   // Option<i64> (optional field)
+        println!("{host}:{port}");
+    }
+    Ok(())
+}
+```
+
+```bash
+varlock run -- cargo run
+```
+
+The struct derives a **redacting `Debug`** — sensitive fields print as `<redacted>`, so `{:?}` won't leak secrets.
+
+## Sharing one instance
+
+Every `load()` call re-parses the blob. If you want a process-wide instance, opt into a `LazyLock` yourself (loaded once, on first access; `LazyLock` needs Rust 1.80+, or use `once_cell::sync::Lazy` on older toolchains):
+
+```rust
+// config.rs
+use std::sync::LazyLock;
+use crate::env;
+
+pub static ENV: LazyLock<env::Env> =
+    LazyLock::new(|| env::load().expect("failed to load env"));
+```
+
+```rust
+// anywhere.rs
+use crate::config::ENV;
+
+let port = ENV.db_port;   // Option<i64>
+```
+
+Prefer no globals? Call `env::load()?` once in `main` and pass `&Env` through your app state — the type comes along either way.
+
+:::note
+Enums are generated as plain `String` (Rust has no string-literal type), and keys whose names aren't valid identifiers (they contain `.` or `-`) are omitted from `Env` — read those from `std::env::var`. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
+:::
