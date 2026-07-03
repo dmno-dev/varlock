@@ -73,5 +73,5 @@ port := config.Env.DbPort   // *int64
 ```
 
 :::note
-Enums are generated as plain `string` (Go has no enum type), and keys whose names aren't valid identifiers (they contain `.` or `-`) are omitted from `Env` — read those from `os.Getenv`. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
+Every key is also injected as a plain environment variable, so you can read any of them with `os.Getenv` (raw strings) if you don't need the typed module. Enums become plain `string` (Go has no enum type), and keys whose names aren't valid identifiers (they contain `.` or `-`) can't be struct fields — read those from the env var directly. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
 :::

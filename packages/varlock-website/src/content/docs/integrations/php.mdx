@@ -70,5 +70,5 @@ By default the class is a global `final class Env` loaded via `require_once`. Fo
 Under PHP-FPM, make sure the pool passes `__VARLOCK_ENV` through (`clear_env = no`).
 
 :::note
-Keys whose names aren't valid identifiers (they contain `.` or `-`) are omitted from `Env` — read those from `getenv()`. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
+Every key is also injected as a plain environment variable, so you can read any of them with `getenv()` (raw strings) if you don't need the typed module. Keys whose names aren't valid identifiers (they contain `.` or `-`) can't be properties — read those from the env var directly. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
 :::

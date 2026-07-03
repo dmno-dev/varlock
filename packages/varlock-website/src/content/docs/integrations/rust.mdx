@@ -64,5 +64,5 @@ let port = ENV.db_port;   // Option<i64>
 Prefer no globals? Call `env::load()?` once in `main` and pass `&Env` through your app state — the type comes along either way.
 
 :::note
-Enums are generated as plain `String` (Rust has no string-literal type), and keys whose names aren't valid identifiers (they contain `.` or `-`) are omitted from `Env` — read those from `std::env::var`. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
+Every key is also injected as a plain environment variable, so you can read any of them with `std::env::var` (raw strings) if you don't need the typed module. Enums become plain `String` (Rust has no string-literal type), and keys whose names aren't valid identifiers (they contain `.` or `-`) can't be struct fields — read those from the env var directly. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
 :::
