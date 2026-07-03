@@ -8,6 +8,11 @@ if ($e->PORT !== 8080 || $e->DEBUG !== true) {
     fwrite(STDERR, "unexpected values\n");
     exit(1);
 }
+// unset optional keys are null
+if ($e->OPTIONAL_UNSET !== null) {
+    fwrite(STDERR, "expected OPTIONAL_UNSET to be null\n");
+    exit(1);
+}
 if (!in_array('SECRET', Env::SENSITIVE_KEYS, true)) {
     fwrite(STDERR, "SECRET not marked sensitive\n");
     exit(1);

@@ -268,7 +268,7 @@ export class EnvGraph {
   registerRootDecorator(decoratorDef: RootDecoratorDef) {
     const name = decoratorDef.name;
     this.assertNotReservedGeneratePrefix(name, 'Root decorator');
-    if (name in this.itemDecoratorsRegistry) {
+    if (name in this.rootDecoratorsRegistry) {
       throw new SchemaError(`Root decorator "${name}" already registered`);
     }
     this.rootDecoratorsRegistry[decoratorDef.name] = decoratorDef;

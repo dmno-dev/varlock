@@ -674,6 +674,44 @@ describe('type generation', () => {
       expect(src).toMatch(/Pick<_CoercedEnvSchema_[0-9a-f]+, 'DB_HOST' \| 'DB_PORT' \| 'DEBUG' \| 'APP_ENV'>/);
     });
 
+    test('quotes keys that are not valid TS identifiers (kept, not dropped)', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultSensitive=false
+          # ---
+          OK_KEY=a   # @public @required
+          MY-KEY=b   # @public @required
+        `,
+      });
+      const items = [
+        await g.configSchema.OK_KEY.getTypeGenInfo(),
+        await g.configSchema['MY-KEY'].getTypeGenInfo(),
+      ];
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
+      // TS can represent the key via quoting (accessible as ENV['MY-KEY']), so it's kept
+      expect(src).toContain('OK_KEY: string;');
+      expect(src).toContain('"MY-KEY": string;');
+      expect(src).not.toContain('MY-KEY: string;'); // must be quoted, not bare
+    });
+
+    test('emits an empty public schema (not invalid Pick<T, \'\'>) when every key is sensitive', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultSensitive=true
+          # ---
+          SECRET_A=a   # @required
+          SECRET_B=b   # @required
+        `,
+      });
+      const items = [
+        await g.configSchema.SECRET_A.getTypeGenInfo(),
+        await g.configSchema.SECRET_B.getTypeGenInfo(),
+      ];
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
+      expect(src).toContain('PublicTypedEnvSchema extends Readonly<Record<string, never>>');
+      expect(src).not.toMatch(/Pick<[^>]*, ''>/);
+    });
+
     test('type gen output is the same regardless of current environment', async () => {
       const schemaFile = outdent`
         # @currentEnv=$APP_ENV @defaultRequired=false @defaultSensitive=false
@@ -1024,7 +1062,7 @@ describe('type generation', () => {
     });
 
     test.each([
-      ['generatePythonEnv', 'py', 'class CoercedEnvSchema(TypedDict):', 'DEBUG: NotRequired[bool]'],
+      ['generatePythonEnv', 'py', 'class Env(TypedDict):', 'DEBUG: NotRequired[bool]'],
       ['generateRustEnv', 'rs', 'pub struct Env {', 'pub debug: Option<bool>,'],
       ['generateGoEnv', 'go', 'type Env struct {', 'Debug *bool'],
       ['generatePhpEnv', 'php', 'final class Env', 'public readonly ?bool $DEBUG = null,'],
@@ -1050,8 +1088,11 @@ describe('type generation', () => {
         expect(count).toBe(1);
         const fs = await import('node:fs');
         const src = await fs.promises.readFile(outputPath, 'utf-8');
-        expect(src).toContain(marker);
-        expect(src).toContain(nonStringMarker);
+        // collapse runs of spaces — Go struct fields are gofmt-aligned (padded), so the gap between
+        // a field name and its type isn't a single space
+        const normalized = src.replace(/ +/g, ' ');
+        expect(normalized).toContain(marker);
+        expect(normalized).toContain(nonStringMarker);
       } finally {
         await import('node:fs').then((fs) => fs.promises.rm(outputPath, { force: true }));
       }

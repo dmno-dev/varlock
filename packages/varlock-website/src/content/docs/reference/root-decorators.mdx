@@ -520,6 +520,8 @@ A self-contained Go package — an `Env` struct, a `Load()` function, and a `Sen
 ```env-spec
 # @generateGoEnv(path=./env/env.go)
 ```
+
+The package name defaults to the output directory (e.g. `path=env/env.go` → `package env`); override it with `package=`.
 </div>
 
 <div>
@@ -530,6 +532,8 @@ A self-contained PHP class — a readonly `Env` with a static `load()` and a `SE
 ```env-spec
 # @generatePhpEnv(path=./Env.php)
 ```
+
+Defaults to a global `final class Env`. For Composer/PSR-4 projects, set `namespace=` and/or `class=` (e.g. `@generatePhpEnv(path=src/Env.php, namespace="App\\Config", class=AppEnv)`).
 </div>
 
 <div>

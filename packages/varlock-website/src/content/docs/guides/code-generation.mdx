@@ -39,7 +39,7 @@ Varlock ships generators for several languages. Each emits a **self-contained, i
 
 | Language | Decorator | Use it via |
 | --- | --- | --- |
-| Python | `@generatePythonEnv` | `from env_types import ENV, SENSITIVE_KEYS` |
+| Python | `@generatePythonEnv` | `from env_types import load_env, SENSITIVE_KEYS` |
 | Rust | `@generateRustEnv` | `env::load()` |
 | Go | `@generateGoEnv` | `env.Load()` |
 | PHP | `@generatePhpEnv` | `Env::load()` |

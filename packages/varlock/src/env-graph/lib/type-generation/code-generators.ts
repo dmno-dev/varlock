@@ -1,7 +1,7 @@
 import type { EnvGraph } from '../env-graph';
 import type { TypeGenItemInfo } from '../config-item';
 import { isVarlockReservedKey } from '../reserved-vars';
-import { generateGoEnvSrc } from './emitters/go';
+import { generateGoEnvSrc, resolveGoPackageName } from './emitters/go';
 import { generatePhpEnvSrc } from './emitters/php';
 import { generatePythonEnvSrc } from './emitters/python';
 import { generateRustEnvSrc } from './emitters/rust';
@@ -76,10 +76,21 @@ export const builtInCodeGenerators: Array<CodeGeneratorDef> = [
   { decoratorName: 'generateTsTypes', generate: generateTsFile },
   { decoratorName: 'generatePythonEnv', generate: (ctx) => generatePythonEnvSrc(ctx.fields) },
   { decoratorName: 'generateRustEnv', generate: (ctx) => generateRustEnvSrc(ctx.fields) },
-  { decoratorName: 'generateGoEnv', generate: (ctx) => generateGoEnvSrc(ctx.fields) },
-  { decoratorName: 'generatePhpEnv', generate: (ctx) => generatePhpEnvSrc(ctx.fields) },
   {
-    // deprecated ts-only alias — kept for back-compat with existing schemas + `varlock init` output
+    decoratorName: 'generateGoEnv',
+    generate: (ctx) => generateGoEnvSrc(ctx.fields, {
+      packageName: resolveGoPackageName(ctx.outputPath, ctx.options.package),
+    }),
+  },
+  {
+    decoratorName: 'generatePhpEnv',
+    generate: (ctx) => generatePhpEnvSrc(ctx.fields, {
+      namespace: ctx.options.namespace,
+      className: ctx.options.class,
+    }),
+  },
+  {
+    // deprecated ts-only alias — kept for back-compat with existing schemas that still use it
     decoratorName: 'generateTypes',
     generate: (ctx) => {
       const { lang } = ctx.options;

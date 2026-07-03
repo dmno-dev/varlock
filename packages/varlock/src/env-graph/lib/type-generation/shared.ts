@@ -101,13 +101,79 @@ export function getSensitiveKeys(fields: Array<ResolvedFieldType>): Array<string
 }
 
 /**
+ * The `varlock:v1:` prefix marks an encrypted `__VARLOCK_ENV` blob (see runtime/crypto). Generated
+ * modules can't decrypt (no key handling in the target language), so loaders detect it and fail with
+ * a clear message rather than a raw JSON-parse error. Exported so emitters share one source of truth.
+ */
+export const ENCRYPTED_BLOB_PREFIX = 'varlock:v1:';
+
+// A key usable verbatim as an identifier (a struct field / class property / TypedDict class-syntax
+// name). @env-spec allows `.` and `-`, which are not — those keys can't be represented this way.
+export const IDENTIFIER_SAFE_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Split fields into those representable as an identifier in the target language and those that
+ * aren't (keys with `.`/`-`, or an optional language-specific reserved word). Emitters for languages
+ * that turn keys into identifiers (Go/Rust/PHP/Python) generate only the `safe` ones and note the
+ * `skipped` keys — the value is still injected as a raw env var, so nothing is silently lost.
+ * (TypeScript quotes such keys instead of skipping, so it doesn't use this.)
+ */
+export function partitionRepresentableKeys(
+  fields: Array<ResolvedFieldType>,
+  isReserved?: (key: string) => boolean,
+): { safe: Array<ResolvedFieldType>, skipped: Array<string> } {
+  const safe: Array<ResolvedFieldType> = [];
+  const skipped: Array<string> = [];
+  for (const field of fields) {
+    if (IDENTIFIER_SAFE_KEY.test(field.key) && !isReserved?.(field.key)) safe.push(field);
+    else skipped.push(field.key);
+  }
+  return { safe, skipped };
+}
+
+/** A `[commentPrefix]`-style note listing keys left out of the typed structure (or `[]` if none). */
+export function skippedKeysComment(skipped: Array<string>, commentPrefix: string): Array<string> {
+  if (!skipped.length) return [];
+  return [
+    `${commentPrefix} Keys omitted from this typed module (not valid identifiers): ${skipped.join(', ')}.`,
+    `${commentPrefix} They are still injected as raw environment variables.`,
+  ];
+}
+
+/**
+ * Some languages fold distinct keys onto the same identifier (Rust lowercases; Go PascalCases, so
+ * `FOO_BAR`/`FOOBAR` collide). Emitters that do such a mapping call this to fail with a clear message
+ * instead of emitting a duplicate field that only errors at compile time.
+ */
+export function assertNoFieldNameCollisions(
+  fields: Array<ResolvedFieldType>,
+  toFieldName: (key: string) => string,
+  langLabel: string,
+): void {
+  const seen = new Map<string, string>();
+  for (const field of fields) {
+    const name = toFieldName(field.key);
+    const prev = seen.get(name);
+    if (prev !== undefined) {
+      throw new Error(
+        `${langLabel} code generation: keys \`${prev}\` and \`${field.key}\` both map to the field `
+        + `name \`${name}\`. Rename one of them in your schema.`,
+      );
+    }
+    seen.set(name, field.key);
+  }
+}
+
+/**
  * Language-agnostic doc content lines for a field (description, docs links, deprecation, enum values).
  * Deliberately excludes the key name — repeating it as a comment is noise. Returns `[]` when there's
  * nothing worth a comment, so emitters can skip the doc entirely.
  */
 export function getFieldDocLines(field: ResolvedFieldType): Array<string> {
   const lines: Array<string> = [];
-  if (field.docs.description) lines.push(...field.docs.description.split('\n'));
+  // split on any newline style so a CR-only description becomes multiple comment lines (rather than
+  // one line with an embedded control char — a bare \r is a hard error inside a Rust doc comment)
+  if (field.docs.description) lines.push(...field.docs.description.split(/\r\n|\r|\n/));
   for (const entry of field.docs.docsLinks) {
     lines.push(`Docs: ${[entry.url, entry.description].filter(Boolean).join(' | ')}`);
   }
@@ -117,5 +183,7 @@ export function getFieldDocLines(field: ResolvedFieldType): Array<string> {
   if (typeof field.coerced === 'object' && 'enum' in field.coerced && field.coerced.enum.length) {
     lines.push(`Valid values: ${field.coerced.enum.map((o) => JSON.stringify(o)).join(' | ')}`);
   }
-  return lines;
+  // strip any remaining control chars (user-controlled description / deprecation / link text) so a
+  // line can't break out of the generated comment in any target language
+  return lines.map((line) => Array.from(line, (ch) => (ch.charCodeAt(0) < 0x20 ? ' ' : ch)).join('').trimEnd());
 }

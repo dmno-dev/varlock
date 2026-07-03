@@ -344,15 +344,17 @@ describe('CLI Commands', () => {
       if (existsSync(typeFilePathAutoFalse)) rmSync(typeFilePathAutoFalse);
     });
 
+    // Note: no `expect(existsSync).toBe(false)` pre-check here — `smoke-test-basic` is a shared
+    // fixture that other test files (redaction/runtime/signals/…) also run load/run in, regenerating
+    // env.d.ts in parallel. The negative pre-check would race; asserting generation (toBe(true)) is
+    // the actual behavior under test. The auto=false tests below use an isolated dir, so they can.
     test('varlock load generates type file when @generateTypes is set', () => {
-      expect(existsSync(typeFilePath)).toBe(false);
       const result = varlockLoad({ cwd: 'smoke-test-basic' });
       expect(result.exitCode).toBe(0);
       expect(existsSync(typeFilePath)).toBe(true);
     });
 
     test('varlock run generates type file when @generateTypes is set', () => {
-      expect(existsSync(typeFilePath)).toBe(false);
       const result = varlockRun(['node', '-e', 'process.exit(0)'], { cwd: 'smoke-test-basic' });
       expect(result.exitCode).toBe(0);
       expect(existsSync(typeFilePath)).toBe(true);

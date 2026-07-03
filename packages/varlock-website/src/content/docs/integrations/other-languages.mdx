@@ -35,9 +35,11 @@ Each generated file is a small, self-contained module you can use directly — n
 
 The module intentionally exposes just these primitives — no global singleton or imposed caching — so it stays idiomatic and flexible in each language. Call the loader **once** at startup and hold or pass the result however your app prefers (a variable, a struct field, a DI container); it's parsed once, not on every access.
 
-Files are generated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly via [`varlock codegen`](/reference/cli-commands/#codegen). The loader reads `__VARLOCK_ENV`, so run your program under [`varlock run`](/reference/cli-commands/#run).
+Files are generated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly via [`varlock codegen`](/reference/cli-commands/#codegen). The loader reads `__VARLOCK_ENV`, so run your program under [`varlock run`](/reference/cli-commands/#run) — which always injects a **plaintext** blob. The generated loaders don't decrypt, so they don't support [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) (a JS/SSR build-output feature); if a loader is handed an encrypted blob it fails with a clear message rather than a raw parse error.
 
 ## Using the generated module
+
+Call the loader once, then read fields off the returned value — required fields are the plain type, optional ones are nullable (`None` / `Option` / pointer / `?type`):
 
 <Tabs syncKey="polyglot-env-blob">
   <TabItem label="Python">
@@ -61,7 +63,7 @@ safe = {k: ("***" if k in SENSITIVE_KEYS else v) for k, v in ENV.items()}
 varlock run -- python main.py
 ```
 
-Importing the module has no side effects; `load_env()` reads `__VARLOCK_ENV`. Requires Python 3.11+ when the schema has optional keys (`NotRequired`).
+Importing the module has no side effects; `load_env()` reads `__VARLOCK_ENV`. The module imports on any Python 3.7+ (it uses `from __future__ import annotations`, so `NotRequired`/`Literal` are type-checker-only).
 
   </TabItem>
 
@@ -116,14 +118,18 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    _ = e.DbPort   // *int64
-    _ = e.Debug    // *bool
+    host := e.DbHost       // string (required field)
+    if e.DbPort != nil {   // *int64 (optional field — deref when set)
+        log.Printf("%s:%d", host, *e.DbPort)
+    }
 }
 ```
 
 ```bash
 varlock run -- go run .
 ```
+
+Requires Go 1.18+ (the generated code uses `any`). The package name follows the output directory — see the [`@generateGoEnv` reference](/reference/root-decorators/#generategoenv).
 
   </TabItem>
 
@@ -135,7 +141,7 @@ varlock run -- go run .
 
 ```php
 <?php
-require 'Env.php';
+require_once 'Env.php';   // require_once — a second require would fatal
 
 $env = Env::load();       // call once, hold or inject $env
 $port = $env->DB_PORT;    // ?int
@@ -149,14 +155,14 @@ foreach (Env::SENSITIVE_KEYS as $key) { /* ... */ }
 varlock run -- php main.php
 ```
 
-Requires PHP 8.1+ (readonly promoted properties).
+Requires PHP 8.1+ (readonly promoted properties). For Composer projects, set `namespace=`/`class=` (see the [`@generatePhpEnv` reference](/reference/root-decorators/#generatephpenv)) and register the file via classmap autoload (`"autoload": { "classmap": ["Env.php"] }`) instead of `require_once`. Under PHP-FPM, make sure the pool passes `__VARLOCK_ENV` through (`clear_env = no`).
 
   </TabItem>
 </Tabs>
 
 ## Reusing one env across your app
 
-The generated module deliberately ships **no** global singleton — each app shares config differently, and the loader returns a **named, exported type** (a struct, class, or `TypedDict`) so *you* can create a reusable, fully-typed instance in one line. Load it once in your own module and import it everywhere.
+Every call to the loader re-parses the `__VARLOCK_ENV` blob, so if you don't want to reload on every access, load it **once** and share that value. The generated module deliberately ships **no** global singleton — each app shares config differently, and the loader returns a **named, exported type** (a struct, class, or `TypedDict`) so *you* can create a reusable, fully-typed instance in one line. Load it once in your own module and import it everywhere.
 
 <Tabs syncKey="polyglot-env-blob">
   <TabItem label="Python">
@@ -167,7 +173,7 @@ Load once in your own config module — the idiomatic Python "settings module" p
 # config.py
 from env_types import load_env
 
-env = load_env()   # loaded once, typed as CoercedEnvSchema
+env = load_env()   # loaded once, typed as Env
 ```
 
 ```python
@@ -181,7 +187,7 @@ port = env["DB_PORT"]   # int
 
   <TabItem label="Rust">
 
-If you want a process-wide instance, opt into a `LazyLock` yourself (loaded once, on first access):
+If you want a process-wide instance, opt into a `LazyLock` yourself (loaded once, on first access; `LazyLock` needs Rust 1.80+, or use `once_cell::sync::Lazy` on older toolchains):
 
 ```rust
 // config.rs
@@ -258,6 +264,8 @@ Config::$env = Env::load();
 
 :::note[Raw string env vars]
 Individual config keys are also injected as plain environment variables, but those values are always strings (uncoerced). Prefer the generated loader / `__VARLOCK_ENV` when you want coerced types.
+
+Keys whose names aren't valid identifiers (they contain `.` or `-`) are **omitted from the typed value** in Python, Rust, Go, and PHP — they can't be a struct field / property — so read them from the raw environment variable instead (they're still injected, and still listed in `SENSITIVE_KEYS`). TypeScript keeps them, accessible as `ENV['MY-KEY']`.
 :::
 
 :::caution[Sensitive values in the blob]

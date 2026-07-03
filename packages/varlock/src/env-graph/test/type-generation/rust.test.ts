@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import outdent from 'outdent';
 
 import { generateRustEnvSrc } from '../../index';
 import { loadFixtureFields } from './helpers';
@@ -9,12 +10,19 @@ describe('generateRustEnvSrc', () => {
     const src = generateRustEnvSrc(fields);
 
     expect(src).toContain('use serde::Deserialize;');
-    expect(src).toContain('#[derive(Debug, Clone, Deserialize)]');
-    expect(src).toContain('#[serde(rename_all = "SCREAMING_SNAKE_CASE")]');
+    // Debug is a hand-written redacting impl (not derived), so secrets don't leak via `{:?}`
+    expect(src).toContain('#[derive(Clone, Deserialize)]');
+    expect(src).not.toContain('#[derive(Debug');
+    expect(src).toContain('impl std::fmt::Debug for Env {');
+    expect(src).toContain('.field("API_KEY", &"<redacted>")');
+    expect(src).toContain('.field("DB_HOST", &self.db_host)');
+    // per-field rename (exact env key) rather than a lossy struct-level rename_all
+    expect(src).not.toContain('rename_all');
     expect(src).toContain('pub struct Env {');
     expect(src).not.toContain('PublicCoercedEnvSchema');
     expect(src).not.toContain('EnvSchemaAsStrings');
 
+    expect(src).toContain('#[serde(rename = "DB_HOST")]');
     expect(src).toContain('pub db_host: String,');
     expect(src).toContain('pub db_port: Option<i64>,');
     expect(src).toContain('pub debug: Option<bool>,');
@@ -28,5 +36,36 @@ describe('generateRustEnvSrc', () => {
     expect(src).not.toContain('LazyLock');
     expect(src).not.toContain('pub static ENV');
     expect(src).toContain('std::env::var("__VARLOCK_ENV")');
+    // clear errors instead of a raw parse failure
+    expect(src).toContain('__VARLOCK_ENV is not set');
+    expect(src).toContain('is encrypted');
+  });
+
+  test('escapes keyword collisions with raw identifiers', async () => {
+    const { fields } = await loadFixtureFields(outdent`
+      # @defaultSensitive=false
+      # ---
+      TYPE=a       # @required @public
+      MATCH=b      # @optional @public
+    `);
+    const src = generateRustEnvSrc(fields);
+    expect(src).toContain('#[serde(rename = "TYPE")]');
+    expect(src).toContain('pub r#type: String,');
+    expect(src).toContain('pub r#match: Option<String>,');
+  });
+
+  test('skips keys that are not valid identifiers (still tracked as sensitive)', async () => {
+    const { fields } = await loadFixtureFields(outdent`
+      # @defaultSensitive=false
+      # ---
+      OK_KEY=a       # @required @public
+      MY-KEY=secret  # @required @sensitive
+    `);
+    const src = generateRustEnvSrc(fields);
+    expect(src).toContain('pub ok_key: String,');
+    // no struct field for the skipped key, but it stays in SENSITIVE_KEYS
+    expect(src).not.toContain('rename = "MY-KEY"');
+    expect(src).toContain('Keys omitted from this typed module (not valid identifiers): MY-KEY');
+    expect(src).toContain('&["MY-KEY"]');
   });
 });
