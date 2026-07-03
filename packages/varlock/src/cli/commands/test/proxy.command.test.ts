@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../../../env-graph';
-import { computeProxyChildView, isCwdWithin, resolveReloadMode } from '../proxy.command.js';
+import {
+  computeProxyChildView, isCwdWithin, resolveReloadMode, createReloadKeypressHandler,
+} from '../proxy.command.js';
 
 async function loadGraph(envFile: string) {
   const graph = new EnvGraph();
@@ -55,6 +57,48 @@ describe('resolveReloadMode', () => {
       flag: undefined, schema: undefined, isStart: true, hasTty: true,
     }))
       .toEqual({ mode: 'manual', resolvedFromAuto: true });
+  });
+});
+
+describe('createReloadKeypressHandler (two-step r -> y reload)', () => {
+  function make() {
+    const calls: Array<string> = [];
+    const h = createReloadKeypressHandler({
+      onArm: () => calls.push('arm'),
+      onCancel: () => calls.push('cancel'),
+      onConfirm: () => calls.push('confirm'),
+    });
+    return { h, calls };
+  }
+
+  test('r arms, then y confirms', () => {
+    const { h, calls } = make();
+    h.handleKey('r');
+    expect(h.state()).toBe('confirming');
+    expect(calls).toEqual(['arm']);
+    h.handleKey('y');
+    expect(h.state()).toBe('idle');
+    expect(calls).toEqual(['arm', 'confirm']);
+  });
+
+  test('r then any non-y cancels (a stray key cannot reload)', () => {
+    const { h, calls } = make();
+    h.handleKey('r');
+    h.handleKey('n');
+    expect(h.state()).toBe('idle');
+    expect(calls).toEqual(['arm', 'cancel']);
+    // and it takes two keys again to reload (no single-key reload)
+    h.handleKey('y'); // ignored in idle
+    expect(calls).toEqual(['arm', 'cancel']);
+  });
+
+  test('a lone key in idle does nothing; R and Y are accepted', () => {
+    const { h, calls } = make();
+    h.handleKey('x');
+    expect(calls).toEqual([]);
+    h.handleKey('R');
+    h.handleKey('Y');
+    expect(calls).toEqual(['arm', 'confirm']);
   });
 });
 

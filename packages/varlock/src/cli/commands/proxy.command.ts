@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { watch as fsWatch, existsSync, statSync } from 'node:fs';
 
 import ansis from 'ansis';
 import { define } from 'gunshi';
@@ -395,19 +396,33 @@ function flushDeferredProxyLogs(): void {
   for (const line of deferredProxyLogLines.splice(0)) console.error(line);
 }
 
-/** Wrap an approval provider so the live log defers (rather than corrupts) the TTY while it prompts. */
+/** The daemon's raw-mode keypress controls (reload/quit); paused while an approval prompt owns stdin. */
+let daemonKeyControls: { pauseForPrompt(): void; resumeAfterPrompt(): void; stop(): void } | undefined;
+
+/**
+ * Wrap an approval provider so the live log defers (rather than corrupts) the TTY while it
+ * prompts, and the reload keypress reader yields stdin to the prompt (both readline and the
+ * raw-mode key listener would otherwise fight over stdin).
+ */
 function guardApprovalPromptForLogging(inner: ApprovalProvider): ApprovalProvider {
   return {
     async requestApproval(req) {
       activeApprovalPrompts += 1;
+      daemonKeyControls?.pauseForPrompt();
       try {
         return await inner.requestApproval(req);
       } finally {
         activeApprovalPrompts -= 1;
+        daemonKeyControls?.resumeAfterPrompt();
         flushDeferredProxyLogs();
       }
     },
   };
+}
+
+/** The session short-id, colored so it stands out in the log preamble. */
+function fmtSessionId(id: string): string {
+  return ansis.magenta.bold(id);
 }
 
 /** Color an HTTP status by class: 2xx/3xx green, 4xx yellow, 5xx red. */
@@ -666,6 +681,131 @@ async function resolveAttachSession(ctx: any, schemaFingerprint: string): Promis
   return candidate;
 }
 
+/**
+ * Apply a trusted reload: re-resolve the schema and swap the live policy on the running
+ * runtime. Used by both the file-channel servicer (for a remote `proxy reload`) and the
+ * in-terminal keypress. No refusal check here: callers must have already established the
+ * request is trusted (a human keypress at the daemon TTY, or a non-agent `proxy reload`).
+ */
+async function applyTrustedReload(opts: {
+  session: ProxySessionRecord;
+  runtime: Awaited<ReturnType<typeof startLocalProxyRuntime>>;
+  requestedEntryPaths?: Array<string>;
+  defaultEntryPaths?: Array<string>;
+  log: (message: string) => void;
+}): Promise<{ ok: true; managedItemCount: number } | { ok: false; error: string }> {
+  try {
+    const latest = await getProxySessionByToken(opts.session.uuid).catch(() => undefined);
+    const paths = opts.requestedEntryPaths ?? latest?.entryPaths ?? opts.defaultEntryPaths;
+    const next = await prepareProxyPolicy(paths);
+    opts.runtime.reconfigure({
+      managedItems: next.proxyManagedItems,
+      rules: next.proxyRules,
+      egressMode: next.egressMode,
+    });
+    await updateProxySessionRecord(opts.session.uuid, {
+      schemaFingerprint: next.schemaFingerprint,
+      egressMode: next.egressMode,
+      placeholderOverrides: next.placeholderByKey,
+      omittedKeys: next.omittedKeys,
+    });
+    opts.log(`Reloaded proxy session ${opts.session.id} from schema (${next.proxyManagedItems.length} managed item(s)).`);
+    return { ok: true, managedItemCount: next.proxyManagedItems.length };
+  } catch (error) {
+    opts.log(`Proxy reload failed: ${(error as Error).message}`);
+    return { ok: false, error: (error as Error).message };
+  }
+}
+
+export type ReloadKeyState = 'idle' | 'confirming';
+
+/**
+ * Two-step reload trigger for the `proxy start` terminal: `r` arms it, then `y` confirms
+ * (any other key cancels), so a stray keystroke can't swap the live policy. Pure state
+ * machine so it is testable without a real TTY; the caller wires the side effects.
+ */
+export function createReloadKeypressHandler(opts: {
+  onArm: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}): { handleKey: (key: string) => void; state: () => ReloadKeyState } {
+  let state: ReloadKeyState = 'idle';
+  return {
+    state: () => state,
+    handleKey(key) {
+      if (state === 'idle') {
+        if (key === 'r' || key === 'R') {
+          state = 'confirming';
+          opts.onArm();
+        }
+        return;
+      }
+      state = 'idle';
+      if (key === 'y' || key === 'Y') opts.onConfirm();
+      else opts.onCancel();
+    },
+  };
+}
+
+/**
+ * Raw-mode stdin controls for the interactive daemon: `r` then `y` reloads, Ctrl-C quits.
+ * Returns undefined when there is no TTY (headless daemons reload via `proxy reload`).
+ * `pauseForPrompt`/`resumeAfterPrompt` hand stdin to the approval readline while it prompts.
+ */
+function startDaemonKeyControls(opts: {
+  onReload: () => void;
+  onQuit: () => void;
+}): { pauseForPrompt(): void; resumeAfterPrompt(): void; stop(): void } | undefined {
+  if (!process.stdin.isTTY) return undefined;
+  const promptText = `\n${ansis.yellow('?')} Reload the schema and swap the live policy? ${ansis.dim('press y to confirm, any other key cancels')}`;
+  const handler = createReloadKeypressHandler({
+    // Hold the live request log while the confirm prompt is up, and print the prompt
+    // directly (bypassing the hold), so it doesn't scroll away. This is the same trick
+    // the approval prompt uses; the held lines flush once the user answers.
+    onArm: () => {
+      activeApprovalPrompts += 1;
+      console.error(promptText);
+    },
+    onCancel: () => {
+      console.error(ansis.dim('  reload cancelled\n'));
+      activeApprovalPrompts -= 1;
+      flushDeferredProxyLogs();
+    },
+    onConfirm: () => {
+      activeApprovalPrompts -= 1;
+      flushDeferredProxyLogs();
+      opts.onReload();
+    },
+  });
+  const onData = (buf: Buffer) => {
+    for (const ch of buf.toString('utf8')) {
+      if (ch === '\u0003') { // Ctrl-C (raw mode swallows the default SIGINT)
+        opts.onQuit();
+        return;
+      }
+      handler.handleKey(ch);
+    }
+  };
+  process.stdin.setRawMode?.(true);
+  process.stdin.resume();
+  process.stdin.on('data', onData);
+  return {
+    pauseForPrompt() {
+      process.stdin.off('data', onData);
+      process.stdin.setRawMode?.(false);
+    },
+    resumeAfterPrompt() {
+      process.stdin.setRawMode?.(true);
+      process.stdin.on('data', onData);
+    },
+    stop() {
+      process.stdin.off('data', onData);
+      process.stdin.setRawMode?.(false);
+      process.stdin.pause();
+    },
+  };
+}
+
 /** How often a proxy owner polls for a reload request. */
 const RELOAD_POLL_INTERVAL_MS = 500;
 /** How often `proxy reload` polls for its result, and how long it waits. */
@@ -713,34 +853,22 @@ function startReloadServicer(opts: {
         error: 'reload requested from inside the proxied agent; apply it from a trusted terminal instead',
       };
     }
-    try {
-      const latest = await getProxySessionByToken(opts.session.uuid).catch(() => undefined);
-      const paths = request.entryPaths ?? latest?.entryPaths ?? opts.defaultEntryPaths;
-      // TODO(approval): when a native/phone approver exists, request approval for
-      // this schema change here and return status 'denied' if refused. Today the
-      // reload is applied directly.
-      const next = await prepareProxyPolicy(paths);
-      opts.runtime.reconfigure({
-        managedItems: next.proxyManagedItems,
-        rules: next.proxyRules,
-        egressMode: next.egressMode,
-      });
-      await updateProxySessionRecord(opts.session.uuid, {
-        schemaFingerprint: next.schemaFingerprint,
-        egressMode: next.egressMode,
-        placeholderOverrides: next.placeholderByKey,
-        omittedKeys: next.omittedKeys,
-      });
-      opts.log(`Reloaded proxy session ${opts.session.id} from schema (${next.proxyManagedItems.length} managed item(s)).`);
-      return {
-        requestId, status: 'done', completedAt: new Date().toISOString(), managedItemCount: next.proxyManagedItems.length,
+    // TODO(approval): when a native/phone approver exists, gate a non-agent reload
+    // here and return status 'denied' if refused. Today it applies directly.
+    const result = await applyTrustedReload({
+      session: opts.session,
+      runtime: opts.runtime,
+      requestedEntryPaths: request.entryPaths,
+      defaultEntryPaths: opts.defaultEntryPaths,
+      log: opts.log,
+    });
+    return result.ok
+      ? {
+        requestId, status: 'done', completedAt: new Date().toISOString(), managedItemCount: result.managedItemCount,
+      }
+      : {
+        requestId, status: 'error', completedAt: new Date().toISOString(), error: result.error,
       };
-    } catch (error) {
-      opts.log(`Proxy reload failed: ${(error as Error).message}`);
-      return {
-        requestId, status: 'error', completedAt: new Date().toISOString(), error: (error as Error).message,
-      };
-    }
   };
 
   const tick = async () => {
@@ -769,6 +897,126 @@ function startReloadServicer(opts: {
     .finally(() => { initialized = true; });
 
   return { stop: () => clearInterval(timer) };
+}
+
+/**
+ * Watch the session record for `proxy run` clients attaching/detaching and print a
+ * line to the daemon's live log when one connects or leaves, plus the running count,
+ * so a watching human has visibility into who's using the proxy. Clients are
+ * distinguished by pid; attributing an individual request line to a specific client
+ * needs per-client proxy identity (a bigger change) and is not done here.
+ */
+function startAttachmentWatcher(opts: { sessionUuid: string; log: (msg: string) => void }): { stop: () => void } {
+  let known = new Set<number>();
+  let seeded = false;
+  const tick = async () => {
+    const rec = await getProxySessionByToken(opts.sessionUuid).catch(() => undefined);
+    if (!rec) return;
+    const current = new Set((rec.attachedPids ?? []).filter((p) => isProcessRunning(p)));
+    // seed silently on the first tick so we only announce changes, not the initial state
+    if (!seeded) {
+      known = current;
+      seeded = true;
+      return;
+    }
+    let changed = false;
+    for (const pid of current) {
+      if (known.has(pid)) continue;
+      changed = true;
+      opts.log(`${ansis.green('⊕')} client attached ${ansis.dim(`(pid ${pid})`)}`);
+    }
+    for (const pid of known) {
+      if (current.has(pid)) continue;
+      changed = true;
+      opts.log(`${ansis.yellow('⊖')} client detached ${ansis.dim(`(pid ${pid})`)}`);
+    }
+    if (changed) opts.log(ansis.dim(`  ${current.size} client${current.size === 1 ? '' : 's'} connected`));
+    known = current;
+  };
+  const timer = setInterval(() => {
+    tick().catch(() => undefined);
+  }, 1000);
+  timer.unref?.();
+  return { stop: () => clearInterval(timer) };
+}
+
+/**
+ * Watch the schema files and warn (do not block) when the on-disk schema drifts from the
+ * running proxy's policy. We deliberately don't block live requests on drift: the agent's
+ * traffic (e.g. LLM calls) flows through this proxy, and blocking it would strand the agent.
+ * Instead we surface it so a human can `proxy reload` to apply, or notice that a proxied
+ * process edited the schema. Uses `fs.watch` (event-driven, no polling) and re-derives the
+ * fingerprint only on a change (parse-only, so no secret resolution).
+ */
+function startSchemaDriftWatcher(opts: {
+  sessionUuid: string;
+  entryPaths?: Array<string>;
+  reloadHint: string;
+  log: (msg: string) => void;
+}): { stop: () => void } {
+  // Watch the directories holding the entry files (a dir watch catches atomic saves,
+  // which rename a temp file into place, and new/removed `.env*` files); default to cwd.
+  const dirs = new Set<string>();
+  const entries = opts.entryPaths?.filter(Boolean);
+  if (entries?.length) {
+    for (const p of entries) {
+      dirs.add(existsSync(p) && statSync(p).isDirectory() ? p : path.dirname(p));
+    }
+  } else {
+    dirs.add(process.cwd());
+  }
+
+  let warnedFingerprint: string | undefined;
+  let debounce: ReturnType<typeof setTimeout> | undefined;
+
+  const check = async () => {
+    let current: string;
+    try {
+      const graph = await loadVarlockEnvGraph({ entryFilePaths: opts.entryPaths, skipProxyFingerprintGuard: true });
+      current = buildProxySchemaFingerprint(graph);
+    } catch {
+      return; // schema mid-edit / unparseable, retry on the next change event
+    }
+    const rec = await getProxySessionByToken(opts.sessionUuid).catch(() => undefined);
+    const running = rec?.schemaFingerprint;
+    if (!running || current === running) {
+      warnedFingerprint = undefined; // in sync (reload applied, or the edit was reverted)
+      return;
+    }
+    if (warnedFingerprint === current) return; // already warned for this exact drift
+    warnedFingerprint = current;
+    opts.log(
+      `${ansis.yellow('⚠')}  Your env schema changed since this proxy started. New requests still use the `
+      + `previous policy (rules, injected secrets, egress). ${opts.reloadHint} `
+      + `${ansis.dim('If you did not edit it, a proxied process may have.')}`,
+    );
+  };
+
+  const onFsEvent = (_event: string, filename: string | Buffer | null) => {
+    // React only to `.env*` files (schema + overrides); some platforms omit the filename.
+    const name = typeof filename === 'string' ? filename : filename?.toString();
+    if (name && !name.startsWith('.env')) return;
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      check().catch(() => undefined);
+    }, 250);
+  };
+
+  const watchers: Array<ReturnType<typeof fsWatch>> = [];
+  for (const dir of dirs) {
+    try {
+      watchers.push(fsWatch(dir, { persistent: false }, onFsEvent));
+    } catch {
+      // directory not watchable on this platform/fs; skip (drift warning is best-effort)
+    }
+  }
+
+  return {
+    stop() {
+      if (debounce) clearTimeout(debounce);
+      for (const w of watchers) w.close();
+    },
+  };
 }
 
 async function runAction(ctx: any) {
@@ -947,7 +1195,7 @@ async function runAction(ctx: any) {
 async function startAction(ctx: any) {
   const policy = await prepareProxyPolicy(ctx.values.path);
   // Reload posture, resolved at launch (see resolveReloadMode). `manual` runs the
-  // reload servicer so a human can `proxy reload` from this terminal; a reload
+  // reload servicer so a human can `proxy reload` from another shell in the folder; a reload
   // requested from inside the agent is refused (it would re-bless the fingerprint).
   const { mode: reloadMode, resolvedFromAuto } = resolveReloadMode({
     flag: ctx.values['allow-reload'],
@@ -972,16 +1220,18 @@ async function startAction(ctx: any) {
     logRequests: true,
   });
 
-  console.log(`Started proxy session ${session.id} (${session.uuid})`);
-  console.log(`Use \`varlock proxy env --session ${session.id}\` to print env exports.`);
-  console.log(`Use \`varlock proxy status --session ${session.id} --watch\` to monitor activity.`);
+  console.log(`Started proxy session ${fmtSessionId(session.id)} ${ansis.dim(`(${session.uuid})`)}`);
+  console.log(ansis.dim(`Run \`varlock proxy env\` / \`reload\` / \`stop\` from this folder and they target this session automatically (or pass \`--session ${session.id}\` from elsewhere).`));
   const autoNote = resolvedFromAuto ? ' (auto)' : '';
+  const canKeypressReload = allowReload && !!process.stdin.isTTY;
   if (allowReload) {
-    console.log(`Reload: manual${autoNote}. Run \`varlock proxy reload --session ${session.id}\` from this terminal after editing your schema; reloads requested from inside the agent are refused.`);
+    const keyHint = canKeypressReload ? ' Or press `r` here (then `y` to confirm).' : '';
+    console.log(`Reload: manual${autoNote}. After editing your schema, run \`varlock proxy reload\` from another shell in this folder (this one is running the proxy).${keyHint} Reloads from inside the agent are refused.`);
   } else {
     console.log(`Reload: off${autoNote}. Schema edits need a restart. Enable live reload with \`--allow-reload\` or \`@proxyConfig={reload="manual"}\`.`);
   }
-  console.log('Live request log (→ request · ← response):');
+  console.log(ansis.dim('─'.repeat(52)));
+  console.log(ansis.dim('Live request log  (→ request · ← response · ⊕ client)'));
 
   // Service `proxy reload` requests: hot-reload the live policy without dropping
   // the proxy. The daemon owns this terminal, so reload notices print here. Only
@@ -995,11 +1245,32 @@ async function startAction(ctx: any) {
     })
     : undefined;
 
+  // Announce `proxy run` clients attaching/detaching in the live log.
+  const attachmentWatcher = startAttachmentWatcher({ sessionUuid: session.uuid, log: emitProxyLog });
+
+  // Warn (never block) when the on-disk schema drifts from the running policy.
+  let reloadHint = 'Restart the proxy to apply it.';
+  if (allowReload) {
+    reloadHint = canKeypressReload
+      ? 'Run `varlock proxy reload` (or press r here) to apply it.'
+      : 'Run `varlock proxy reload` to apply it.';
+  }
+  const schemaDriftWatcher = startSchemaDriftWatcher({
+    sessionUuid: session.uuid,
+    entryPaths: ctx.values.path,
+    reloadHint,
+    log: emitProxyLog,
+  });
+
   let cleanedUp = false;
   const cleanup = async () => {
     if (cleanedUp) return;
     cleanedUp = true;
     reloadServicer?.stop();
+    attachmentWatcher.stop();
+    schemaDriftWatcher.stop();
+    daemonKeyControls?.stop();
+    daemonKeyControls = undefined;
     await statsWriter.flushNow();
     statsWriter.stop();
     await runtime.stop().catch(() => undefined);
@@ -1015,6 +1286,21 @@ async function startAction(ctx: any) {
 
     process.on('SIGINT', close);
     process.on('SIGTERM', close);
+
+    // Interactive daemon: `r` then `y` reloads the schema in place; Ctrl-C quits.
+    if (canKeypressReload) {
+      daemonKeyControls = startDaemonKeyControls({
+        onReload: () => {
+          applyTrustedReload({
+            session,
+            runtime,
+            defaultEntryPaths: ctx.values.path,
+            log: emitProxyLog,
+          }).catch(() => undefined);
+        },
+        onQuit: close,
+      });
+    }
   });
 }
 
