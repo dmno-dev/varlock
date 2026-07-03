@@ -131,6 +131,8 @@ export interface BuildResult {
 export interface DevServerRequest {
   /** URL path, e.g. "/" or "/api/health" */
   path: string;
+  /** Test name for this request (default: auto-generated from path) */
+  label?: string;
   /** Expected HTTP status (default: 200) */
   expectedStatus?: number;
   /** Assertions on the response body */

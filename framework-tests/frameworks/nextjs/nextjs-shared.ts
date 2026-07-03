@@ -115,11 +115,23 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
       // so only run the dev scenarios there.
       const runBuildScenarios = !(nextVersion === 15 && webpackOrTurbo === 'turbopack');
 
+      const defaultBundler = nextVersion >= 16 ? 'turbopack' : 'webpack';
+
       describe(`bundler=${webpackOrTurbo}`, () => {
         const devPort = 14000 + (nextVersion * 10) + (webpackOrTurbo === 'turbopack' ? 1 : 0);
         const devCommand = `next dev ${buildToolFlag} --port ${devPort}`.replace(/\s+/g, ' ').trim();
 
-        nextEnv.describeDevScenario('dev: unchanged extra env file content does not trigger reload', {
+        // KNOWN GAP: after changing an extra env file, the updated value is served
+        // on webpack dev for next <= 15, but on turbopack dev and all of next 16
+        // the stale value is served indefinitely (Next never fires its env reload).
+        // Only assert the updated value where the behavior currently works, so a
+        // regression there still fails loudly.
+        const devEnvReloadWorks = nextVersion <= 15 && webpackOrTurbo === 'webpack';
+
+        // One dev-server session covers both env file watching behaviors:
+        // rewriting the file with identical content must not churn the server,
+        // and actually changing the content must reload env and serve the new value.
+        nextEnv.describeDevScenario('dev: extra env file watching', {
           command: devCommand,
           readyPattern: /Ready in|Starting\.\.\./,
           readyTimeout: 40_000,
@@ -128,12 +140,14 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
           },
           requests: [
             {
+              label: 'initial page load serves dev env value',
               path: '/',
               bodyAssertions: {
-                shouldContain: ['Varlock Framework Test - Next.js'],
+                shouldContain: ['Varlock Framework Test - Next.js', 'env-specific-var--dev'],
               },
             },
             {
+              label: 'rewrite with unchanged content: does not reload, same value served',
               path: '/',
               fileEdits: {
                 '.env.dev': 'ENV_SPECIFIC_VAR=env-specific-var--dev',
@@ -141,58 +155,63 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
               // Watchers are debounced; wait long enough to assert no reload path.
               fileEditDelay: 2000,
               bodyAssertions: {
-                shouldContain: ['Varlock Framework Test - Next.js'],
-              },
-            },
-          ],
-        });
-
-        nextEnv.describeDevScenario('dev: changed extra env file content triggers reload', {
-          command: devCommand,
-          readyPattern: /Ready in|Starting\.\.\./,
-          readyTimeout: 40_000,
-          templateFiles: {
-            'app/page.tsx': 'pages/basic-page.tsx',
-          },
-          requests: [
-            {
-              path: '/',
-              bodyAssertions: {
-                shouldContain: ['Varlock Framework Test - Next.js'],
+                shouldContain: ['Varlock Framework Test - Next.js', 'env-specific-var--dev'],
               },
             },
             {
+              label: devEnvReloadWorks
+                ? 'change to content: env is reloaded, updated value served'
+                : 'change to content: server keeps serving (env reload gap, see comment)',
               path: '/',
               fileEdits: {
                 '.env.dev': 'ENV_SPECIFIC_VAR=env-specific-var--dev-updated',
               },
               fileEditDelay: 2500,
               bodyAssertions: {
-                shouldContain: ['Varlock Framework Test - Next.js'],
+                shouldContain: [
+                  'Varlock Framework Test - Next.js',
+                  ...devEnvReloadWorks ? ['env-specific-var--dev-updated'] : [],
+                ],
               },
             },
           ],
         });
 
         describe.skipIf(!runBuildScenarios)('output=export', () => {
-          nextEnv.describeScenario('basic page', {
+          // One build with two routes: a server component page and a client
+          // component page, each asserted against its own output file.
+          nextEnv.describeScenario('static pages (server + client component)', {
             command: buildCommand,
             templateFiles: {
               'app/page.tsx': 'pages/basic-page.tsx',
+              'app/client-page/page.tsx': 'pages/client-page.tsx',
               'next.config.mjs': EXPORT_CONFIG,
             },
             fileAssertions: [
               {
-                description: 'env vars are injected into output',
-                fileGlob: 'out/**/*.html',
+                description: 'server page: env vars are injected into output',
+                filePath: 'out/index.html',
                 shouldContain: [
                   'next-prefixed-public-var',
                   'unprefixed-public-var',
                   'env-specific-var--dev',
                   'sensitive-var-available',
                 ],
+              },
+              {
+                description: 'client component page: public env vars are inlined',
+                filePath: 'out/client-page.html',
+                shouldContain: [
+                  'next-prefixed-public-var',
+                  'unprefixed-public-var',
+                  'env-specific-var--dev',
+                ],
+              },
+              {
+                description: 'no secrets or wrong-env values in any static output',
+                fileGlob: 'out/**/*.html',
                 shouldNotContain: [
-                  'super-secret-value',
+                  'super-secret-var',
                   'env-specific-var--prod',
                 ],
               },
@@ -221,29 +240,6 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
             ],
           });
 
-          nextEnv.describeScenario('client component page', {
-            command: buildCommand,
-            templateFiles: {
-              'app/page.tsx': {
-                path: 'pages/basic-page.tsx',
-                prepend: "'use client';",
-              },
-              'next.config.mjs': EXPORT_CONFIG,
-            },
-            fileAssertions: [
-              {
-                description: 'public env vars are inlined into client output',
-                fileGlob: 'out/**/*.html',
-                shouldContain: [
-                  'next-prefixed-public-var',
-                  'unprefixed-public-var',
-                  'env-specific-var--dev',
-                ],
-                shouldNotContain: ['super-secret-value'],
-              },
-            ],
-          });
-
           nextEnv.describeScenario('leaky client page', {
             command: buildCommand,
             templateFiles: {
@@ -264,24 +260,39 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
         });
 
         describe.skipIf(!runBuildScenarios)('default output mode', () => {
-          nextEnv.describeScenario('basic static page', {
+          // One build with two routes: a server component page and a client
+          // component page, each asserted against its own pre-rendered output.
+          nextEnv.describeScenario('static pages (server + client component)', {
             command: buildCommand,
             templateFiles: {
               'app/page.tsx': 'pages/basic-page.tsx',
+              'app/client-page/page.tsx': 'pages/client-page.tsx',
             },
             fileAssertions: [
               {
-                description: 'env vars are injected into output',
-                // pre-rendered HTML files
-                fileGlob: '.next/**/*.html',
+                description: 'server page: env vars are injected into output',
+                filePath: '.next/server/app/index.html',
                 shouldContain: [
                   'next-prefixed-public-var',
                   'unprefixed-public-var',
                   'env-specific-var--dev',
                   'sensitive-var-available',
                 ],
+              },
+              {
+                description: 'client component page: public env vars are inlined',
+                filePath: '.next/server/app/client-page.html',
+                shouldContain: [
+                  'next-prefixed-public-var',
+                  'unprefixed-public-var',
+                  'env-specific-var--dev',
+                ],
+              },
+              {
+                description: 'no secrets or wrong-env values in any pre-rendered output',
+                fileGlob: '.next/**/*.html',
                 shouldNotContain: [
-                  'super-secret-value',
+                  'super-secret-var',
                   'env-specific-var--prod',
                 ],
               },
@@ -314,28 +325,6 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
             ],
           });
 
-          nextEnv.describeScenario('client component page', {
-            command: buildCommand,
-            templateFiles: {
-              'app/page.tsx': {
-                path: 'pages/basic-page.tsx',
-                prepend: "'use client';",
-              },
-            },
-            fileAssertions: [
-              {
-                description: 'public env vars are inlined into client output',
-                fileGlob: '.next/**/*.html',
-                shouldContain: [
-                  'next-prefixed-public-var',
-                  'unprefixed-public-var',
-                  'env-specific-var--dev',
-                ],
-                shouldNotContain: ['super-secret-value'],
-              },
-            ],
-          });
-
           nextEnv.describeScenario('leaky client page', {
             command: buildCommand,
             templateFiles: {
@@ -353,7 +342,10 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
             ],
           });
 
+          // The encrypted blob is produced by varlock before bundling, so bundler
+          // choice doesn't affect it — only run on the version's default bundler.
           nextEnv.describeScenario('encrypted env blob with _VARLOCK_ENV_KEY', {
+            skip: webpackOrTurbo !== defaultBundler,
             command: buildCommand,
             env: { _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
             templateFiles: {

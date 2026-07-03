@@ -81,6 +81,8 @@ export class FrameworkTestEnv {
   dir!: string;
   private filesDir: string;
   private label: string;
+  /** Files written by the previous scenario, restored before the next one runs */
+  private prevScenarioFiles = new Set<string>();
 
   constructor(public config: TestFixtureConfig) {
     this.filesDir = join(config.testDir, 'files');
@@ -222,14 +224,30 @@ export class FrameworkTestEnv {
 
   /**
    * Apply template files and inline files to the test project directory.
+   * Files written by the previous scenario are first restored to their _base
+   * version (or removed if not part of the skeleton), so scenarios stay
+   * isolated — e.g. a config override or extra route from one scenario
+   * doesn't silently carry over into the next.
    */
   private applyFiles(scenario: Pick<TestScenario, 'templateFiles' | 'files'>): void {
+    for (const dest of this.prevScenarioFiles) {
+      const basePath = join(this.filesDir, '_base', dest);
+      const destPath = join(this.dir, dest);
+      if (existsSync(basePath)) {
+        cpSync(basePath, destPath);
+      } else {
+        rmSync(destPath, { force: true });
+      }
+    }
+    this.prevScenarioFiles = new Set();
+
     // Copy template files: fixture defaults merged with scenario overrides
     const templateFiles = {
       ...this.config.templateFiles,
       ...scenario.templateFiles,
     };
     for (const [dest, source] of Object.entries(templateFiles)) {
+      this.prevScenarioFiles.add(dest);
       const srcRef = typeof source === 'string' ? { path: source } : source;
       const srcPath = join(this.filesDir, srcRef.path);
       const destPath = join(this.dir, dest);
@@ -260,6 +278,7 @@ export class FrameworkTestEnv {
     // Write inline files
     if (scenario.files) {
       for (const file of scenario.files) {
+        this.prevScenarioFiles.add(file.path);
         const destPath = join(this.dir, file.path);
         mkdirSync(dirname(destPath), { recursive: true });
         writeFileSync(destPath, file.content);
@@ -387,9 +406,9 @@ export class FrameworkTestEnv {
 
       for (let i = 0; i < scenario.requests.length; i++) {
         const req = scenario.requests[i];
-        const testLabel = req.fileEdits
+        const testLabel = req.label ?? (req.fileEdits
           ? `GET ${req.path} returns expected response (after file edit)`
-          : `GET ${req.path} returns expected response`;
+          : `GET ${req.path} returns expected response`);
         test(testLabel, () => {
           const resp = ctx.result!.responses[i];
           expect(resp, `No response for request ${i} (GET ${req.path})`).toBeDefined();
