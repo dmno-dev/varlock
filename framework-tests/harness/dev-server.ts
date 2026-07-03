@@ -201,6 +201,17 @@ export async function runDevServer(
     ASTRO_DEV_BACKGROUND: '0',
     ...scenario.env,
   };
+
+  // The harness runs under vitest, so process.env carries VITEST / VITEST_* vars.
+  // Astro v7's dev server plugin (vite-plugin-astro-server) bails out of mounting
+  // its SSR request handler when it sees process.env.VITEST — an escape hatch for
+  // Astro's own vitest suite — which makes every SSR route 404 ("Cannot GET").
+  // Strip these so the spawned dev server doesn't think it's running under vitest.
+  for (const key of Object.keys(spawnEnv)) {
+    if (key === 'VITEST' || key.startsWith('VITEST_')) {
+      delete (spawnEnv as Record<string, string | undefined>)[key];
+    }
+  }
   log(`Spawning: ${command}`);
   let child: ChildProcess;
   try {
