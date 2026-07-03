@@ -7,10 +7,6 @@ import { Steps } from "@astrojs/starlight/components";
 
 Varlock's runtime helpers (plugins, build-time replacement) target JavaScript and TypeScript, but the CLI works with **any language**. For Python you boot your app with [`varlock run`](/reference/cli-commands/#run) — which loads, validates, and injects your config — and then read that config either from a **[generated typed module](#generated-typed-module)** (coerced `int`/`bool`/etc.) or from the plain environment variables with your existing settings library. Install the [standalone binary](/getting-started/installation/#as-a-binary) to get started.
 
-:::tip[Why the standalone binary?]
-Python projects typically don't have a `package.json`, so the npm-distributed `varlock` package isn't the natural install path. The standalone binary gives you the same CLI — load, validate, run, and plugin support — without adding a Node.js dependency to your repo.
-:::
-
 ## Install the standalone binary
 
 <Steps>

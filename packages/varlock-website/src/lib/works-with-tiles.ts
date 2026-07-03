@@ -87,7 +87,7 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
     id: 'python',
     title: 'Python',
     icon: 'simple-icons:python',
-    href: '/integrations/other-languages/',
+    href: '/integrations/python/',
     category: 'languages',
   },
   {
@@ -101,14 +101,14 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
     id: 'go',
     title: 'Go',
     icon: 'simple-icons:go',
-    href: '/integrations/other-languages/',
+    href: '/integrations/go/',
     category: 'languages',
   },
   {
     id: 'php',
     title: 'PHP',
     icon: 'simple-icons:php',
-    href: '/integrations/other-languages/',
+    href: '/integrations/php/',
     category: 'languages',
   },
   {
