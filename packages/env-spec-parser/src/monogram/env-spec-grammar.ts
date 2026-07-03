@@ -1,78 +1,234 @@
 import {
   alt,
+  altPattern,
+  anyChar,
   defineGrammar,
+  end,
+  followedBy,
   many,
   many1,
+  never,
+  noneOf,
+  notFollowedBy,
+  oneOf,
   opt,
+  optPattern,
+  plus,
+  range,
+  repeat,
+  precededBy,
   rule,
   sep,
+  seq,
+  star,
   token,
 } from 'monogram/src/api';
 
-const WS = token(/[ \t]+/, { skip: true, scope: 'meta.whitespace' });
-// Structural tokens emitted by Monogram indentation mode (placeholder regexes).
-const INDENT = token(/(?!)/, {});
-const DEDENT = token(/(?!)/, {});
-const NEWLINE = token(/(?!)/, { scope: 'meta.separator.newline' });
+// ── Token pattern building blocks ──
+const hspace = oneOf(' ', '\t');
+const digit = range('0', '9');
+const alpha = oneOf(range('a', 'z'), range('A', 'Z'));
+const wordChar = oneOf(alpha, digit, '_');
+const identStart = oneOf(alpha, '_');
+const identChar = oneOf(alpha, digit, '.', '_', '-');
+// lookahead used to keep text tokens from swallowing a function call (`fn(...)`)
+const fnCallAhead = seq(alpha, star(wordChar), star(hspace), '(');
 
-const DIVIDER = token(/#[ \t]*[-=~#]{3,}[^\r\n]*/, { scope: 'comment.line' });
-const HASH = token(/#/, { scope: 'comment.line' });
+const WS = token(plus(hspace), { skip: true, scope: 'meta.whitespace' });
+// Structural tokens emitted by Monogram indentation mode (placeholder patterns).
+const INDENT = token(never(), {});
+const DEDENT = token(never(), {});
+const NEWLINE = token(never(), { scope: 'meta.separator.newline' });
 
-const EXPORT = token(/export\b/, { scope: 'keyword.control.export' });
-const ASSIGN_KEY = token(/[a-zA-Z_][a-zA-Z0-9._-]*(?==)/, { scope: 'entity.name.tag' });
-const FUNCTION_NAME = token(/[a-zA-Z][a-zA-Z0-9_]*(?=[ \t]*\()/, { scope: 'variable.function' });
-const IDENT = token(/[a-zA-Z_][a-zA-Z0-9._-]*(?=[ \t\n#=(),]|$)/, { scope: 'variable.other.readwrite' });
-const DEC_NAME = token(/@[a-zA-Z][^ \t\n=()#@]*(?=[ \t\n=()#]|$)/);
-const DEC_VALUE_TEXT = token(/(?![a-zA-Z][a-zA-Z0-9_]*[ \t]*\()[^# \t\n=(),"'`$][^# \t\n=(),$]*/, { scope: 'string.unquoted' });
-const DEC_ARG_TEXT = token(/(?![a-zA-Z][a-zA-Z0-9_]*[ \t]*\()[^ \t\n,()#="'`$][^ \t\n,()#=$]*/, { scope: 'string.unquoted' });
-const DEC_TEXT = token(/(?![a-zA-Z][a-zA-Z0-9_]*[ \t]*\()[^@#=\s(),"'`$][^@#=\s(),"'`$]*/, { scope: 'string.unquoted' });
+const DIVIDER = token(
+  seq('#', star(hspace), repeat(oneOf('-', '=', '*', '#'), 3), star(noneOf('\r', '\n'))),
+  { scope: 'comment.line' },
+);
+const HASH = token('#', { scope: 'comment.line' });
 
-const NUMBER = token(/-?(?:\d+\.\d+|\d+)(?=[ \t\n#,)=]|$)/, { scope: 'constant.numeric' });
-const BOOL = token(/(?:true|false)\b/, { scope: 'constant.language.boolean' });
-const UNDEFINED = token(/undefined\b/, { scope: 'constant.language.undefined' });
+const EXPORT = token(seq('export', notFollowedBy(wordChar)), { scope: 'keyword.control.export' });
+const ASSIGN_KEY = token(seq(identStart, star(identChar), followedBy('=')), { scope: 'entity.name.tag' });
+const FUNCTION_NAME = token(
+  seq(alpha, star(wordChar), followedBy(seq(star(hspace), '('))),
+  { scope: 'variable.function' },
+);
+const IDENT = token(
+  seq(identStart, star(identChar), followedBy(altPattern(oneOf(' ', '\t', '\n', '#', '=', '(', ')', ',', '}', ']'), end()))),
+  { scope: 'variable.other.readwrite' },
+);
+const DEC_NAME = token(
+  seq('@', alpha, star(noneOf(' ', '\t', '\n', '=', '(', ')', '#', '@')), followedBy(altPattern(oneOf(' ', '\t', '\n', '=', '(', ')', '#'), end()))),
+);
+const DEC_VALUE_TEXT = token(
+  seq(
+    notFollowedBy(fnCallAhead),
+    noneOf('#', ' ', '\t', '\n', '=', '(', ')', ',', '"', "'", '`', '$', '{', '[', '}', ']'),
+    star(noneOf('#', ' ', '\t', '\n', '=', '(', ')', ',', '$', '}', ']')),
+  ),
+  { scope: 'string.unquoted' },
+);
+const DEC_ARG_TEXT = token(
+  seq(
+    notFollowedBy(fnCallAhead),
+    noneOf(' ', '\t', '\n', ',', '(', ')', '#', '=', '"', "'", '`', '$', '{', '[', '}', ']'),
+    star(noneOf(' ', '\t', '\n', ',', '(', ')', '#', '=', '$', '}', ']')),
+  ),
+  { scope: 'string.unquoted' },
+);
+const DEC_TEXT = token(
+  seq(
+    notFollowedBy(fnCallAhead),
+    noneOf('@', '#', '=', ' ', '\t', '\n', '\r', '\f', '(', ')', ',', '"', "'", '`', '$', '{', '[', '}', ']'),
+    star(noneOf('@', '#', '=', ' ', '\t', '\n', '\r', '\f', '(', ')', ',', '"', "'", '`', '$', '{', '[', '}', ']')),
+  ),
+  { scope: 'string.unquoted' },
+);
 
-const TRIPLE_DOUBLE = token(/"""[\s\S]*?\n[\s\S]*?"""/, { scope: 'string.quoted.triple', string: true });
-const TRIPLE_TICK = token(/```(?:\\```|[\s\S])*?```/, { scope: 'string.quoted.triple', string: true });
+const NUMBER = token(
+  seq(
+    optPattern('-'),
+    altPattern(seq(plus(digit), '.', plus(digit)), plus(digit)),
+    followedBy(altPattern(oneOf(' ', '\t', '\n', '#', ',', ')', '=', '}', ']'), end())),
+  ),
+  { scope: 'constant.numeric' },
+);
+const BOOL = token(seq(altPattern('true', 'false'), notFollowedBy(wordChar)), { scope: 'constant.language.boolean' });
+const UNDEFINED = token(seq('undefined', notFollowedBy(wordChar)), { scope: 'constant.language.undefined' });
+
+const TRIPLE_DOUBLE = token(
+  seq('"""', star(anyChar(), { greedy: false }), '\n', star(anyChar(), { greedy: false }), '"""'),
+  { scope: 'string.quoted.triple', string: true },
+);
+const TRIPLE_TICK = token(
+  seq('```', star(altPattern(seq('\\', '```'), anyChar()), { greedy: false }), '```'),
+  { scope: 'string.quoted.triple', string: true },
+);
 const STRING_INTERPOLATION = [
   {
-    begin: /\\?\$\{/.source,
-    end: /\}/.source,
+    begin: '${',
+    end: '}',
     beginScope: 'punctuation.definition.interpolation.begin',
     endScope: 'punctuation.definition.interpolation.end',
     contentScope: 'variable.function',
   },
   {
-    begin: /\\?\$\(/.source,
-    end: /\)/.source,
+    begin: '$(',
+    end: ')',
     beginScope: 'punctuation.definition.interpolation.begin',
     endScope: 'punctuation.definition.interpolation.end',
     contentScope: 'variable.function',
   },
 ];
-const DQ_STRING = token(/"(?:\\.|[^"\\])*"/, {
+const stringEscape = seq('\\', anyChar());
+const DQ_STRING = token(seq('"', star(altPattern(stringEscape, noneOf('"', '\\'))), '"'), {
   scope: 'string.quoted.double',
   string: true,
-  escape: /\\./,
+  escape: stringEscape,
   interpolation: STRING_INTERPOLATION,
 });
-const SQ_STRING = token(/'(?:\\.|[^'\\])*'/, { scope: 'string.quoted.single', string: true, escape: /\\./ });
-const BT_STRING = token(/`(?:\\.|[^`\\])*`/, {
+const SQ_STRING = token(seq("'", star(altPattern(stringEscape, noneOf("'", '\\'))), "'"), {
+  scope: 'string.quoted.single',
+  string: true,
+  escape: stringEscape,
+});
+const BT_STRING = token(seq('`', star(altPattern(stringEscape, noneOf('`', '\\'))), '`'), {
   scope: 'string.quoted.other',
   string: true,
-  escape: /\\./,
+  escape: stringEscape,
   interpolation: STRING_INTERPOLATION,
 });
-const QUOTE_CHUNK = token(/["'`]+/, { scope: 'string.unquoted' });
+const QUOTE_CHUNK = token(plus(oneOf('"', "'", '`')), { scope: 'string.unquoted' });
 
-const EXPANSION = token(/(?:\\?\$\{?[a-zA-Z_][a-zA-Z0-9_]*\}?|\\?\$\([^)]+\))/, {
-  scope: 'variable.function',
-});
+const EXPANSION = token(
+  altPattern(
+    seq(optPattern('\\'), '$', optPattern('{'), identStart, star(wordChar), optPattern('}')),
+    seq(optPattern('\\'), '$', '(', plus(noneOf(')')), ')'),
+  ),
+  { scope: 'variable.function' },
+);
 
 // Slash-prefixed unquoted segments (e.g. regex-like patterns such as `/^foo$/i`).
 // Kept separate from UNQUOTED_TEXT so `$` still tokenizes as EXPANSION in normal values.
-const SLASH_TEXT = token(/\/[^#=,\r\n()]*/, { scope: 'string.unquoted' });
-const UNQUOTED_TEXT = token(/(?![a-zA-Z][a-zA-Z0-9_]*[ \t]*\()[^#=,\r\n()$"'`\t ][^#=,\r\n()$]*/, { scope: 'string.unquoted' });
-const ARG_UNQUOTED_TEXT = token(/(?![a-zA-Z][a-zA-Z0-9_]*[ \t]*\()[^ \t\n,()=#][^ \t\n,)]*/);
+const SLASH_TEXT = token(
+  seq('/', star(noneOf('#', '=', ',', '\r', '\n', '(', ')', '}', ']'))),
+  { scope: 'string.unquoted' },
+);
+const UNQUOTED_TEXT = token(
+  seq(
+    notFollowedBy(fnCallAhead),
+    noneOf('#', '=', ',', '\r', '\n', '(', ')', '$', '"', "'", '`', '\t', ' ', '{', '[', '}', ']'),
+    star(noneOf('#', '=', ',', '\r', '\n', '(', ')', '$', '}', ']')),
+  ),
+  { scope: 'string.unquoted' },
+);
+const ARG_UNQUOTED_TEXT = token(
+  seq(
+    notFollowedBy(fnCallAhead),
+    noneOf(' ', '\t', '\n', ',', '(', ')', '=', '#', '{', '[', '}', ']'),
+    star(noneOf(' ', '\t', '\n', ',', ')', '}', ']')),
+  ),
+);
+// A `#` glued to preceding content is part of the value (`fn(unq#uoted)`), unlike a
+// space-separated `#` which starts a comment.
+const GLUED_HASH_TEXT = token(
+  seq(precededBy(noneOf(' ', '\t', '\n', '\r')), '#', star(noneOf(' ', '\t', '\n', ',', ')', '}', ']'))),
+  { scope: 'string.unquoted' },
+);
+
+// ── Flow fillers: comments + multiline continuation inside `(...)` / `{...}` / `[...]` ──
+
+// Any token that can appear inside a `#` comment (everything except the structural
+// INDENT/DEDENT/NEWLINE tokens — a comment always ends at the line boundary).
+const FlowCommentPart = rule((_self) => [
+  DIVIDER,
+  HASH,
+  EXPORT,
+  ASSIGN_KEY,
+  FUNCTION_NAME,
+  IDENT,
+  DEC_NAME,
+  NUMBER,
+  BOOL,
+  UNDEFINED,
+  TRIPLE_DOUBLE,
+  TRIPLE_TICK,
+  DQ_STRING,
+  SQ_STRING,
+  BT_STRING,
+  QUOTE_CHUNK,
+  EXPANSION,
+  SLASH_TEXT,
+  UNQUOTED_TEXT,
+  ARG_UNQUOTED_TEXT,
+  GLUED_HASH_TEXT,
+  DEC_VALUE_TEXT,
+  DEC_ARG_TEXT,
+  DEC_TEXT,
+  '=',
+  ',',
+  '(',
+  ')',
+  '{',
+  '}',
+  '[',
+  ']',
+]);
+
+// A spaced `#` inside args/literals starts a comment running to the end of the
+// physical line (comment content can never cross a NEWLINE/INDENT/DEDENT token).
+const FlowComment = rule((_self) => [[HASH, many(FlowCommentPart)]]);
+
+// NOTE: fillers can match empty, so they must be INLINED as combinators — a standalone
+// rule that can match the empty string is not supported by the monogram parser engine.
+// Value context: plain newlines + comments are free filler.
+const valFill = () => many(alt(NEWLINE, INDENT, DEDENT, FlowComment));
+// Decorator context: crossing a line boundary REQUIRES a `#` continuation marker
+// (so a missing `#` can never silently swallow following config items); a `#` that
+// does NOT directly follow a line boundary is a comment to end-of-line.
+const decFill = () => many(alt(
+  [many1(alt(NEWLINE, INDENT, DEDENT)), HASH],
+  FlowComment,
+));
 
 const StaticValuePart = rule((_self) => [
   TRIPLE_DOUBLE,
@@ -89,10 +245,18 @@ const StaticValuePart = rule((_self) => [
   IDENT,
   '(',
   ')',
+  '{',
+  '}',
+  '[',
+  ']',
   UNQUOTED_TEXT,
 ]);
 
 const FunctionArgValuePart = rule((_self) => [
+  // eslint-disable-next-line no-use-before-define
+  ObjectLiteral,
+  // eslint-disable-next-line no-use-before-define
+  ArrayLiteral,
   // eslint-disable-next-line no-use-before-define
   FunctionCall,
   TRIPLE_DOUBLE,
@@ -108,14 +272,22 @@ const FunctionArgValuePart = rule((_self) => [
   UNQUOTED_TEXT,
   IDENT,
   ARG_UNQUOTED_TEXT,
-  HASH,
+  GLUED_HASH_TEXT,
 ]);
 const FunctionArgValue = rule((_self) => [[many1(FunctionArgValuePart)]]);
 
 const FunctionArgKeyValue = rule((_self) => [[ASSIGN_KEY, '=', FunctionArgValue]]);
 const FunctionArg = rule((_self) => [FunctionArgKeyValue, FunctionArgValue]);
-const FunctionArgs = rule((_self) => [['(', opt(sep(FunctionArg, ',')), opt(','), ')']]);
+const FunctionArgChunk = rule((_self) => [[valFill(), FunctionArg, valFill()]]);
+const FunctionArgs = rule((_self) => [['(', opt(sep(FunctionArgChunk, ',')), opt(','), valFill(), ')']]);
 const FunctionCall = rule((_self) => [[FUNCTION_NAME, FunctionArgs]]);
+
+// ~ value-context object/array literals (multi-line via plain newlines, like FunctionArgs) ~
+const ObjectLiteralEntry = rule((_self) => [[ASSIGN_KEY, '=', FunctionArgValue]]);
+const ObjectLiteralEntryChunk = rule((_self) => [[valFill(), ObjectLiteralEntry, valFill()]]);
+const ObjectLiteral = rule((_self) => [['{', opt(sep(ObjectLiteralEntryChunk, ',')), opt(','), valFill(), '}']]);
+const ArrayLiteralElementChunk = rule((_self) => [[valFill(), FunctionArgValue, valFill()]]);
+const ArrayLiteral = rule((_self) => [['[', opt(sep(ArrayLiteralElementChunk, ',')), opt(','), valFill(), ']']]);
 
 const Value = rule((_self) => [
   [FunctionCall],
@@ -123,6 +295,10 @@ const Value = rule((_self) => [
 ]);
 
 const DecoratorFunctionArgValue = rule((_self) => [
+  // eslint-disable-next-line no-use-before-define
+  DecoratorObjectLiteral,
+  // eslint-disable-next-line no-use-before-define
+  DecoratorArrayLiteral,
   // eslint-disable-next-line no-use-before-define
   DecoratorFunctionCall,
   DQ_STRING,
@@ -144,30 +320,29 @@ const DecoratorArgKey = rule((_self) => [ASSIGN_KEY, IDENT]);
 const DecoratorFunctionArgKeyValue = rule((_self) => [[DecoratorArgKey, '=', DecoratorFunctionArgValue]]);
 const DecoratorFunctionArg = rule((_self) => [DecoratorFunctionArgKeyValue, DecoratorFunctionArgValue]);
 
-// Prefix marker for multiline decorator function args continuation lines.
-// Must only consume `#` so arg content remains tokenizable by DecoratorFunctionArg.
-const DecoratorLinePrefix = rule((_self) => [[HASH]]);
-
-const DecoratorFunctionArgChunk = rule((_self) => [
-  [
-    opt(DecoratorLinePrefix),
-    DecoratorFunctionArg,
-  ],
-]);
+const DecoratorFunctionArgChunk = rule((_self) => [[decFill(), DecoratorFunctionArg, decFill()]]);
 
 const DecoratorFunctionArgs = rule((_self) => [
   [
     '(',
     opt(sep(DecoratorFunctionArgChunk, ',')),
     opt(','),
-    opt(DecoratorLinePrefix),
+    decFill(),
     ')',
   ],
 ]);
 
 const DecoratorFunctionCall = rule((_self) => [[FUNCTION_NAME, DecoratorFunctionArgs]]);
 
+// ~ decorator-context literals (multi-line via `#` continuation, like DecoratorFunctionArgs) ~
+const DecoratorObjectLiteralEntryChunk = rule((_self) => [[decFill(), DecoratorFunctionArgKeyValue, decFill()]]);
+const DecoratorObjectLiteral = rule((_self) => [['{', opt(sep(DecoratorObjectLiteralEntryChunk, ',')), opt(','), decFill(), '}']]);
+const DecoratorArrayLiteralElementChunk = rule((_self) => [[decFill(), DecoratorFunctionArgValue, decFill()]]);
+const DecoratorArrayLiteral = rule((_self) => [['[', opt(sep(DecoratorArrayLiteralElementChunk, ',')), opt(','), decFill(), ']']]);
+
 const DecoratorValue = rule((_self) => [
+  DecoratorObjectLiteral,
+  DecoratorArrayLiteral,
   DecoratorFunctionCall,
   DQ_STRING,
   SQ_STRING,
@@ -180,6 +355,10 @@ const DecoratorValue = rule((_self) => [
   BOOL,
   UNDEFINED,
   DEC_VALUE_TEXT,
+  // fallback: a `{` / `[` that does not form a valid literal parses as plain text
+  // (so `# @dec=[` with un-prefixed continuation lines can't swallow following items)
+  '{',
+  '[',
 ]);
 
 const DecoratorAssignedValue = rule((_self) => [['=', DecoratorValue]]);
@@ -204,10 +383,15 @@ const DecoratorText = rule((_self) => [
   EXPANSION,
   DEC_VALUE_TEXT,
   DEC_TEXT,
+  GLUED_HASH_TEXT,
   '=',
   ',',
   '(',
   ')',
+  '{',
+  '}',
+  '[',
+  ']',
 ]);
 const DecoratorOrText = rule((_self) => [Decorator, DecoratorText]);
 
@@ -225,14 +409,19 @@ const PostCommentPart = rule((_self) => [
   BT_STRING,
   UNQUOTED_TEXT,
   EXPANSION,
+  GLUED_HASH_TEXT,
   '=',
   ',',
   '(',
   ')',
+  '{',
+  '}',
+  '[',
+  ']',
 ]);
 
-const PostComment = rule((_self) => [[HASH, many(PostCommentPart)]]);
-const TrailingComment = rule((_self) => [[HASH, many(PostCommentPart)]]);
+const PostComment = rule((_self) => [[alt(HASH, GLUED_HASH_TEXT), many(PostCommentPart)]]);
+const TrailingComment = rule((_self) => [[alt(HASH, GLUED_HASH_TEXT), many(PostCommentPart)]]);
 const DecoratorPostComment = rule((_self) => [PostComment, TrailingComment]);
 
 const DecoratorComment = rule((_self) => [
@@ -270,6 +459,7 @@ export const envSpecGrammar = defineGrammar({
     DEDENT,
     NEWLINE,
     DIVIDER,
+    GLUED_HASH_TEXT,
     HASH,
     EXPORT,
     ASSIGN_KEY,
@@ -294,15 +484,22 @@ export const envSpecGrammar = defineGrammar({
     DEC_TEXT,
   },
   rules: {
+    FlowCommentPart,
+    FlowComment,
     StaticValuePart,
     FunctionArgValuePart,
     FunctionArgValue,
     FunctionArgKeyValue,
     FunctionArg,
+    FunctionArgChunk,
     FunctionArgs,
     FunctionCall,
+    ObjectLiteralEntry,
+    ObjectLiteralEntryChunk,
+    ObjectLiteral,
+    ArrayLiteralElementChunk,
+    ArrayLiteral,
     Value,
-    DecoratorLinePrefix,
     DecoratorFunctionArgValue,
     DecoratorArgKey,
     DecoratorFunctionArgKeyValue,
@@ -310,6 +507,10 @@ export const envSpecGrammar = defineGrammar({
     DecoratorFunctionArgChunk,
     DecoratorFunctionArgs,
     DecoratorFunctionCall,
+    DecoratorObjectLiteralEntryChunk,
+    DecoratorObjectLiteral,
+    DecoratorArrayLiteralElementChunk,
+    DecoratorArrayLiteral,
     DecoratorValue,
     DecoratorAssignedValue,
     Decorator,
@@ -331,13 +532,15 @@ export const envSpecGrammar = defineGrammar({
     'punctuation.separator.comma': [','],
     'punctuation.definition.parameters.begin': ['('],
     'punctuation.definition.parameters.end': [')'],
+    'punctuation.definition.dictionary.begin': ['{'],
+    'punctuation.definition.dictionary.end': ['}'],
+    'punctuation.definition.array.begin': ['['],
+    'punctuation.definition.array.end': [']'],
   },
   indent: {
     indentToken: 'INDENT',
     dedentToken: 'DEDENT',
     newlineToken: 'NEWLINE',
-    flowOpen: ['('],
-    flowClose: [')'],
   },
   entry: File,
   expression: File,

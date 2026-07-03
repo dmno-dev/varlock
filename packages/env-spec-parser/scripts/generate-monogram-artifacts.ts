@@ -15,7 +15,7 @@ const repoRoot = resolve(currentDir, '../../..');
 const vscodeLanguageDir = join(repoRoot, 'packages/vscode-plugin/language');
 const treeSitterDir = join(repoRoot, 'packages/env-spec-parser/tree-sitter/env-spec');
 
-const tm = generateTmLanguage(envSpecGrammar, 'env-spec');
+const tm = generateTmLanguage(envSpecGrammar);
 const tmOutPath = join(vscodeLanguageDir, 'env-spec.tmLanguage.monogram.json');
 writeFile(tmOutPath, JSON.stringify(tm, null, 2));
 

@@ -17,6 +17,9 @@ module.exports = grammar({
   ],
 
   externals: $ => [
+    $.indent,
+    $.dedent,
+    $.newline,
     $.dq_string_chars,
     $.bt_string_chars
   ],
@@ -24,9 +27,13 @@ module.exports = grammar({
   rules: {
     file: $ => repeat($.line),
 
-    static_value_part: $ => choice($.triple_double, $.triple_tick, $.dq_string, $.sq_string, $.bt_string, $.quote_chunk, $.number, $.bool, $.undefined, $.expansion, $.slash_text, $.ident, "(", ")", $.unquoted_text),
+    flow_comment_part: $ => choice($.divider, $.hash, $.export, $.assign_key, $.function_name, $.ident, $.dec_name, $.number, $.bool, $.undefined, $.triple_double, $.triple_tick, $.dq_string, $.sq_string, $.bt_string, $.quote_chunk, $.expansion, $.slash_text, $.unquoted_text, $.arg_unquoted_text, $.glued_hash_text, $.dec_value_text, $.dec_arg_text, $.dec_text, "=", ",", "(", ")", "{", "}", "[", "]"),
 
-    function_arg_value_part: $ => choice($.function_call, $.triple_double, $.triple_tick, $.dq_string, $.sq_string, $.bt_string, $.number, $.bool, $.undefined, $.expansion, $.slash_text, $.unquoted_text, $.ident, $.arg_unquoted_text, $.hash),
+    flow_comment: $ => seq($.hash, repeat($.flow_comment_part)),
+
+    static_value_part: $ => choice($.triple_double, $.triple_tick, $.dq_string, $.sq_string, $.bt_string, $.quote_chunk, $.number, $.bool, $.undefined, $.expansion, $.slash_text, $.ident, "(", ")", "{", "}", "[", "]", $.unquoted_text),
+
+    function_arg_value_part: $ => choice($.object_literal, $.array_literal, $.function_call, $.triple_double, $.triple_tick, $.dq_string, $.sq_string, $.bt_string, $.number, $.bool, $.undefined, $.expansion, $.slash_text, $.unquoted_text, $.ident, $.arg_unquoted_text, $.glued_hash_text),
 
     function_arg_value: $ => repeat1($.function_arg_value_part),
 
@@ -34,15 +41,25 @@ module.exports = grammar({
 
     function_arg: $ => choice($.function_arg_key_value, $.function_arg_value),
 
-    function_args: $ => seq("(", optional(optional(seq($.function_arg, repeat(seq(",", $.function_arg)), optional(",")))), optional(","), ")"),
+    function_arg_chunk: $ => seq(repeat(choice($.newline, $.indent, $.dedent, $.flow_comment)), $.function_arg, repeat(choice($.newline, $.indent, $.dedent, $.flow_comment))),
+
+    function_args: $ => seq("(", optional(optional(seq($.function_arg_chunk, repeat(seq(",", $.function_arg_chunk)), optional(",")))), optional(","), repeat(choice($.newline, $.indent, $.dedent, $.flow_comment)), ")"),
 
     function_call: $ => seq($.function_name, $.function_args),
 
+    object_literal_entry: $ => seq($.assign_key, "=", $.function_arg_value),
+
+    object_literal_entry_chunk: $ => seq(repeat(choice($.newline, $.indent, $.dedent, $.flow_comment)), $.object_literal_entry, repeat(choice($.newline, $.indent, $.dedent, $.flow_comment))),
+
+    object_literal: $ => seq("{", optional(optional(seq($.object_literal_entry_chunk, repeat(seq(",", $.object_literal_entry_chunk)), optional(",")))), optional(","), repeat(choice($.newline, $.indent, $.dedent, $.flow_comment)), "}"),
+
+    array_literal_element_chunk: $ => seq(repeat(choice($.newline, $.indent, $.dedent, $.flow_comment)), $.function_arg_value, repeat(choice($.newline, $.indent, $.dedent, $.flow_comment))),
+
+    array_literal: $ => seq("[", optional(optional(seq($.array_literal_element_chunk, repeat(seq(",", $.array_literal_element_chunk)), optional(",")))), optional(","), repeat(choice($.newline, $.indent, $.dedent, $.flow_comment)), "]"),
+
     value: $ => choice($.function_call, repeat1($.static_value_part)),
 
-    decorator_line_prefix: $ => $.hash,
-
-    decorator_function_arg_value: $ => choice($.decorator_function_call, $.dq_string, $.sq_string, $.bt_string, $.dec_value_text, $.dec_text, $.dec_arg_text, $.slash_text, $.unquoted_text, $.expansion, $.ident, $.number, $.bool, $.undefined),
+    decorator_function_arg_value: $ => choice($.decorator_object_literal, $.decorator_array_literal, $.decorator_function_call, $.dq_string, $.sq_string, $.bt_string, $.dec_value_text, $.dec_text, $.dec_arg_text, $.slash_text, $.unquoted_text, $.expansion, $.ident, $.number, $.bool, $.undefined),
 
     decorator_arg_key: $ => choice($.assign_key, $.ident),
 
@@ -50,27 +67,35 @@ module.exports = grammar({
 
     decorator_function_arg: $ => choice($.decorator_function_arg_key_value, $.decorator_function_arg_value),
 
-    decorator_function_arg_chunk: $ => seq(optional($.decorator_line_prefix), $.decorator_function_arg),
+    decorator_function_arg_chunk: $ => seq(repeat(choice(seq(repeat1(choice($.newline, $.indent, $.dedent)), $.hash), $.flow_comment)), $.decorator_function_arg, repeat(choice(seq(repeat1(choice($.newline, $.indent, $.dedent)), $.hash), $.flow_comment))),
 
-    decorator_function_args: $ => seq("(", optional(optional(seq($.decorator_function_arg_chunk, repeat(seq(",", $.decorator_function_arg_chunk)), optional(",")))), optional(","), optional($.decorator_line_prefix), ")"),
+    decorator_function_args: $ => seq("(", optional(optional(seq($.decorator_function_arg_chunk, repeat(seq(",", $.decorator_function_arg_chunk)), optional(",")))), optional(","), repeat(choice(seq(repeat1(choice($.newline, $.indent, $.dedent)), $.hash), $.flow_comment)), ")"),
 
     decorator_function_call: $ => seq($.function_name, $.decorator_function_args),
 
-    decorator_value: $ => choice($.decorator_function_call, $.dq_string, $.sq_string, $.bt_string, $.slash_text, $.unquoted_text, $.expansion, $.ident, $.number, $.bool, $.undefined, $.dec_value_text),
+    decorator_object_literal_entry_chunk: $ => seq(repeat(choice(seq(repeat1(choice($.newline, $.indent, $.dedent)), $.hash), $.flow_comment)), $.decorator_function_arg_key_value, repeat(choice(seq(repeat1(choice($.newline, $.indent, $.dedent)), $.hash), $.flow_comment))),
+
+    decorator_object_literal: $ => seq("{", optional(optional(seq($.decorator_object_literal_entry_chunk, repeat(seq(",", $.decorator_object_literal_entry_chunk)), optional(",")))), optional(","), repeat(choice(seq(repeat1(choice($.newline, $.indent, $.dedent)), $.hash), $.flow_comment)), "}"),
+
+    decorator_array_literal_element_chunk: $ => seq(repeat(choice(seq(repeat1(choice($.newline, $.indent, $.dedent)), $.hash), $.flow_comment)), $.decorator_function_arg_value, repeat(choice(seq(repeat1(choice($.newline, $.indent, $.dedent)), $.hash), $.flow_comment))),
+
+    decorator_array_literal: $ => seq("[", optional(optional(seq($.decorator_array_literal_element_chunk, repeat(seq(",", $.decorator_array_literal_element_chunk)), optional(",")))), optional(","), repeat(choice(seq(repeat1(choice($.newline, $.indent, $.dedent)), $.hash), $.flow_comment)), "]"),
+
+    decorator_value: $ => choice($.decorator_object_literal, $.decorator_array_literal, $.decorator_function_call, $.dq_string, $.sq_string, $.bt_string, $.slash_text, $.unquoted_text, $.expansion, $.ident, $.number, $.bool, $.undefined, $.dec_value_text, "{", "["),
 
     decorator_assigned_value: $ => seq("=", $.decorator_value),
 
     decorator: $ => seq($.dec_name, optional(choice($.decorator_function_args, $.decorator_assigned_value))),
 
-    decorator_text: $ => choice($.ident, $.assign_key, $.number, $.bool, $.undefined, $.dq_string, $.sq_string, $.bt_string, $.unquoted_text, $.expansion, $.dec_value_text, $.dec_text, "=", ",", "(", ")"),
+    decorator_text: $ => choice($.ident, $.assign_key, $.number, $.bool, $.undefined, $.dq_string, $.sq_string, $.bt_string, $.unquoted_text, $.expansion, $.dec_value_text, $.dec_text, $.glued_hash_text, "=", ",", "(", ")", "{", "}", "[", "]"),
 
     decorator_or_text: $ => choice($.decorator, $.decorator_text),
 
-    post_comment_part: $ => choice($.dec_name, $.dec_text, $.dec_value_text, $.assign_key, $.ident, $.number, $.bool, $.undefined, $.dq_string, $.sq_string, $.bt_string, $.unquoted_text, $.expansion, "=", ",", "(", ")"),
+    post_comment_part: $ => choice($.dec_name, $.dec_text, $.dec_value_text, $.assign_key, $.ident, $.number, $.bool, $.undefined, $.dq_string, $.sq_string, $.bt_string, $.unquoted_text, $.expansion, $.glued_hash_text, "=", ",", "(", ")", "{", "}", "[", "]"),
 
-    post_comment: $ => seq($.hash, repeat($.post_comment_part)),
+    post_comment: $ => seq(choice($.hash, $.glued_hash_text), repeat($.post_comment_part)),
 
-    trailing_comment: $ => seq($.hash, repeat($.post_comment_part)),
+    trailing_comment: $ => seq(choice($.hash, $.glued_hash_text), repeat($.post_comment_part)),
 
     decorator_post_comment: $ => choice($.post_comment, $.trailing_comment),
 
@@ -86,53 +111,49 @@ module.exports = grammar({
 
     ws: $ => token(/[ \t]+/),
 
-    indent: $ => token(//),
+    divider: $ => token(/#[ \t]*[\-=*#]{3,}[^\r\n]*/),
 
-    dedent: $ => token(//),
-
-    newline: $ => token(//),
-
-    divider: $ => token(/#[ \t]*[-=~#]{3,}[^\r\n]*/),
+    glued_hash_text: $ => token(/#[^ \t\n,)}\]]*/),
 
     hash: $ => token(/#/),
 
-    export: $ => token(/export\b/),
+    export: $ => token(/export/),
 
-    assign_key: $ => token(/[a-zA-Z_][a-zA-Z0-9._-]*/),
+    assign_key: $ => token(/[a-zA-Z_][a-zA-Z0-9._\-]*/),
 
     function_name: $ => token(/[a-zA-Z][a-zA-Z0-9_]*/),
 
-    ident: $ => token(/[a-zA-Z_][a-zA-Z0-9._-]*/),
+    ident: $ => token(/[a-zA-Z_][a-zA-Z0-9._\-]*/),
 
     dec_name: $ => token(/@[a-zA-Z][^ \t\n=()#@]*/),
 
-    number: $ => token(/-?(?:\d+\.\d+|\d+)/),
+    number: $ => token(/-?(?:[0-9]+\.[0-9]+|[0-9]+)/),
 
-    bool: $ => token(/(?:true|false)\b/),
+    bool: $ => token(/(?:true|false)/),
 
-    undefined: $ => token(/undefined\b/),
+    undefined: $ => token(/undefined/),
 
     triple_double: $ => token(/"""[\s\S]*?\n[\s\S]*?"""/),
 
     triple_tick: $ => token(/```(?:\\```|[\s\S])*?```/),
 
-    sq_string: $ => token(/'(?:\\.|[^'\\])*'/),
+    sq_string: $ => token(/'(?:\\[\s\S]|[^'\\])*'/),
 
     quote_chunk: $ => token(/["'`]+/),
 
-    expansion: $ => token(/(?:\\?\$\{?[a-zA-Z_][a-zA-Z0-9_]*\}?|\\?\$\([^)]+\))/),
+    expansion: $ => token(/\\?\$\{?[a-zA-Z_][a-zA-Z0-9_]*\}?|\\?\$\([^)]+\)/),
 
-    slash_text: $ => token(/\/[^#=,\r\n()]*/),
+    slash_text: $ => token(/\/[^#=,\r\n()}\]]*/),
 
-    unquoted_text: $ => token(/[^#=,\r\n()$"'`\t ][^#=,\r\n()$]*/),
+    unquoted_text: $ => token(/[^#=,\r\n()$"'`\t {\[}\]][^#=,\r\n()$}\]]*/),
 
-    arg_unquoted_text: $ => token(/[^ \t\n,()=#][^ \t\n,)]*/),
+    arg_unquoted_text: $ => token(/[^ \t\n,()=#{\[}\]][^ \t\n,)}\]]*/),
 
-    dec_value_text: $ => token(/[^# \t\n=(),"'`$][^# \t\n=(),$]*/),
+    dec_value_text: $ => token(/[^# \t\n=(),"'`${\[}\]][^# \t\n=(),$}\]]*/),
 
-    dec_arg_text: $ => token(/[^ \t\n,()#="'`$][^ \t\n,()#=$]*/),
+    dec_arg_text: $ => token(/[^ \t\n,()#="'`${\[}\]][^ \t\n,()#=$}\]]*/),
 
-    dec_text: $ => token(/[^@#=\s(),"'`$][^@#=\s(),"'`$]*/),
+    dec_text: $ => token(/[^@#= \t\n\r\f(),"'`${\[}\]][^@#= \t\n\r\f(),"'`${\[}\]]*/),
 
     dq_string: $ => seq(
       "\"",

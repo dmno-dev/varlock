@@ -18,8 +18,9 @@ export class ParsedEnvSpecStaticValue {
 
   constructor(public data: {
     rawValue: any;
-    quote?: '"' | "'" | '`' | undefined;
+    quote?: '"' | "'" | '`' | '"""' | '```' | undefined;
     isImplicit?: boolean;
+    isMultiLine?: boolean;
     _location?: any;
   }) {
     if (!data.quote) {
@@ -89,6 +90,8 @@ export class ParsedEnvSpecFunctionArgs {
     values: Array<
       ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
       | ParsedEnvSpecKeyValuePair
+
+      | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral
     >;
     _location?: any;
   }) {}

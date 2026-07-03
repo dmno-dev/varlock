@@ -9,6 +9,7 @@
 ;; Literal token nodes.
 (ws) @comment
 (divider) @comment
+(glued_hash_text) @string
 (hash) @comment
 (export) @keyword
 (assign_key) @constructor
@@ -19,9 +20,9 @@
 (undefined) @constant.builtin
 (triple_double) @string
 (triple_tick) @string
-(dq_string_chars) @string
+(dq_string) @string
 (sq_string) @string
-(bt_string_chars) @string
+(bt_string) @string
 (quote_chunk) @string
 (expansion) @variable
 (slash_text) @string
@@ -29,12 +30,12 @@
 (dec_value_text) @string
 (dec_arg_text) @string
 (dec_text) @string
-(dq_string "\"") @string
+(dq_string_chars) @string
 (dq_string_interpolation_1 "${") @punctuation.special
 (dq_string_interpolation_1 "}") @punctuation.special
 (dq_string_interpolation_2 "$(") @punctuation.special
 (dq_string_interpolation_2 ")") @punctuation.special
-(bt_string "`") @string
+(bt_string_chars) @string
 (bt_string_interpolation_1 "${") @punctuation.special
 (bt_string_interpolation_1 "}") @punctuation.special
 (bt_string_interpolation_2 "$(") @punctuation.special
@@ -43,5 +44,5 @@
 ;; Keyword, operator, and punctuation literals.
 "=" @operator
 [
-  "," "(" ")"
+  "," "(" ")" "{" "}" "[" "]"
 ] @punctuation.delimiter

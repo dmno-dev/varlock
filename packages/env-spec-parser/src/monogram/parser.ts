@@ -1,5 +1,6 @@
 import { createParser } from 'monogram/src/gen-parser';
 import {
+  ParsedEnvSpecArrayLiteral,
   ParsedEnvSpecBlankLine,
   ParsedEnvSpecComment,
   ParsedEnvSpecCommentBlock,
@@ -11,12 +12,12 @@ import {
   ParsedEnvSpecFunctionArgs,
   ParsedEnvSpecFunctionCall,
   ParsedEnvSpecKeyValuePair,
+  ParsedEnvSpecObjectLiteral,
   ParsedEnvSpecStaticValue,
 } from '../classes';
 import { envSpecGrammar } from './env-spec-grammar';
 
 type CstNode = {
-  kind: 'node';
   rule: string;
   children: Array<CstNode | CstLeaf>;
   offset: number;
@@ -24,9 +25,7 @@ type CstNode = {
 };
 
 type CstLeaf = {
-  kind: 'leaf';
   tokenType: string;
-  text: string;
   offset: number;
   end: number;
 };
@@ -35,11 +34,15 @@ const monogramParser = createParser(envSpecGrammar);
 type ParsedCommentNode = ParsedEnvSpecComment | ParsedEnvSpecDecoratorComment;
 
 function isNode(x: CstNode | CstLeaf): x is CstNode {
-  return x.kind === 'node';
+  return 'rule' in x;
 }
 
 function isLeaf(x: CstNode | CstLeaf): x is CstLeaf {
-  return x.kind === 'leaf';
+  return 'tokenType' in x;
+}
+
+function leafText(source: string, leaf: CstLeaf): string {
+  return source.slice(leaf.offset, leaf.end);
 }
 
 function findFirstLeaf(node: CstNode, tokenType: string): CstLeaf | undefined {
@@ -71,11 +74,10 @@ function validateDecoratorMultiline(input: string) {
   const lines = normalized.split('\n');
   for (let i = 1; i < lines.length; i += 1) {
     const continuation = lines[i] ?? '';
+    // every continuation line must be `#`-prefixed; content after the marker may
+    // itself start with `#` (a commented-out entry) — that is valid
     const match = continuation.match(/^[ \t]*#([ \t]*)([\s\S]*)$/);
     if (!match) throw new Error('Malformed multiline decorator');
-
-    const content = match[2] ?? '';
-    if (content.startsWith('#')) throw new Error('Unexpected nested comment within multiline decorator');
   }
 }
 
@@ -83,13 +85,11 @@ function parseStaticValue(rawValue: string): ParsedEnvSpecStaticValue {
   const trimmed = rawValue.trim();
   if (trimmed.startsWith('"""') && trimmed.endsWith('"""')) {
     if (!trimmed.includes('\n')) throw new Error('Triple-quoted strings must be multiline');
-    const inner = trimmed.slice(3, -3);
-    return new ParsedEnvSpecStaticValue({ rawValue: `"${inner}"`, quote: '"' });
+    return new ParsedEnvSpecStaticValue({ rawValue: trimmed, quote: '"""', isMultiLine: true });
   }
   if (trimmed.startsWith('```') && trimmed.endsWith('```')) {
     if (!trimmed.includes('\n')) throw new Error('Triple-backtick strings must be multiline');
-    const inner = trimmed.slice(3, -3);
-    return new ParsedEnvSpecStaticValue({ rawValue: `\`${inner}\``, quote: '`' });
+    return new ParsedEnvSpecStaticValue({ rawValue: trimmed, quote: '```', isMultiLine: true });
   }
   if (/^"(?:\\.|[^"\\])*"$/.test(trimmed)) {
     return new ParsedEnvSpecStaticValue({ rawValue: trimmed, quote: '"' });
@@ -113,7 +113,12 @@ function nodeText(source: string, node: CstNode): string {
 function parseFunctionArgValueNode(
   source: string,
   valueNode: CstNode,
-): ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall {
+): ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral {
+  const literalNode = findNodes(valueNode, 'ObjectLiteral')[0] ?? findNodes(valueNode, 'ArrayLiteral')[0];
+  if (literalNode && literalNode.offset === valueNode.offset && literalNode.end === valueNode.end) {
+    // eslint-disable-next-line no-use-before-define
+    return parseLiteralNode(source, literalNode);
+  }
   const nestedCallNode = findNodes(valueNode, 'FunctionCall')[0];
   if (nestedCallNode && nestedCallNode.offset === valueNode.offset && nestedCallNode.end === valueNode.end) {
     // eslint-disable-next-line no-use-before-define
@@ -125,14 +130,15 @@ function parseFunctionArgValueNode(
 function parseFunctionArgNode(
   source: string,
   argNode: CstNode,
-): ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecKeyValuePair {
+): ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecKeyValuePair
+  | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral {
   const keyValueNode = findFirstNode(argNode, 'FunctionArgKeyValue');
   if (keyValueNode) {
     const keyLeaf = findFirstLeaf(keyValueNode, 'ASSIGN_KEY');
     const valueNode = findFirstNode(keyValueNode, 'FunctionArgValue');
     if (!keyLeaf || !valueNode) throw new Error('Malformed function argument key/value');
     return new ParsedEnvSpecKeyValuePair({
-      key: keyLeaf.text,
+      key: leafText(source, keyLeaf),
       val: parseFunctionArgValueNode(source, valueNode),
     });
   }
@@ -143,9 +149,70 @@ function parseFunctionArgNode(
 }
 
 function parseFunctionArgsNode(source: string, argsNode: CstNode): ParsedEnvSpecFunctionArgs {
-  const argNodes = findDirectNodes(argsNode, 'FunctionArg');
+  const chunkNodes = findDirectNodes(argsNode, 'FunctionArgChunk');
+  const argNodes = chunkNodes
+    .map((chunkNode) => findFirstNode(chunkNode, 'FunctionArg'))
+    .filter((argNode): argNode is CstNode => !!argNode);
   const values = argNodes.map((argNode) => parseFunctionArgNode(source, argNode));
   return new ParsedEnvSpecFunctionArgs({ values });
+}
+
+// ── object/array literal mapping (value + decorator context share CST shapes) ──
+
+function parseObjectLiteralNode(source: string, node: CstNode): ParsedEnvSpecObjectLiteral {
+  const isDecorator = node.rule === 'DecoratorObjectLiteral';
+  const chunkRule = isDecorator ? 'DecoratorObjectLiteralEntryChunk' : 'ObjectLiteralEntryChunk';
+  const entryRule = isDecorator ? 'DecoratorFunctionArgKeyValue' : 'ObjectLiteralEntry';
+  const values = findDirectNodes(node, chunkRule).flatMap((chunkNode) => {
+    const entryNode = findFirstNode(chunkNode, entryRule);
+    if (!entryNode) return [];
+    let keyLeaf = findFirstLeaf(entryNode, 'ASSIGN_KEY');
+    if (!keyLeaf && isDecorator) {
+      const keyNode = findFirstNode(entryNode, 'DecoratorArgKey');
+      keyLeaf = keyNode ? (findFirstLeaf(keyNode, 'ASSIGN_KEY') ?? findFirstLeaf(keyNode, 'IDENT')) : undefined;
+    }
+    const valueNode = isDecorator
+      ? findFirstNode(entryNode, 'DecoratorFunctionArgValue')
+      : findFirstNode(entryNode, 'FunctionArgValue');
+    if (!keyLeaf || !valueNode) throw new Error('Malformed object literal entry');
+    return [
+      new ParsedEnvSpecKeyValuePair({
+        key: leafText(source, keyLeaf),
+        val: isDecorator
+        // eslint-disable-next-line no-use-before-define
+          ? parseDecoratorFunctionArgValueNode(source, valueNode)
+          : parseFunctionArgValueNode(source, valueNode),
+      }),
+    ];
+  });
+  return new ParsedEnvSpecObjectLiteral({ values });
+}
+
+function parseArrayLiteralNode(source: string, node: CstNode): ParsedEnvSpecArrayLiteral {
+  const isDecorator = node.rule === 'DecoratorArrayLiteral';
+  const chunkRule = isDecorator ? 'DecoratorArrayLiteralElementChunk' : 'ArrayLiteralElementChunk';
+  const valueRule = isDecorator ? 'DecoratorFunctionArgValue' : 'FunctionArgValue';
+  const values = findDirectNodes(node, chunkRule).flatMap((chunkNode) => {
+    const valueNode = findFirstNode(chunkNode, valueRule);
+    if (!valueNode) return [];
+    return [
+      isDecorator
+      // eslint-disable-next-line no-use-before-define
+        ? parseDecoratorFunctionArgValueNode(source, valueNode)
+        : parseFunctionArgValueNode(source, valueNode),
+    ];
+  });
+  return new ParsedEnvSpecArrayLiteral({ values });
+}
+
+function parseLiteralNode(
+  source: string,
+  node: CstNode,
+): ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral {
+  if (node.rule === 'ObjectLiteral' || node.rule === 'DecoratorObjectLiteral') {
+    return parseObjectLiteralNode(source, node);
+  }
+  return parseArrayLiteralNode(source, node);
 }
 
 function parseFunctionCallNode(source: string, functionCallNode: CstNode): ParsedEnvSpecFunctionCall {
@@ -154,7 +221,7 @@ function parseFunctionCallNode(source: string, functionCallNode: CstNode): Parse
   if (!nameLeaf || !argsNode) throw new Error('Malformed function call');
 
   return new ParsedEnvSpecFunctionCall({
-    name: nameLeaf.text,
+    name: leafText(source, nameLeaf),
     args: parseFunctionArgsNode(source, argsNode),
   });
 }
@@ -162,7 +229,12 @@ function parseFunctionCallNode(source: string, functionCallNode: CstNode): Parse
 function parseDecoratorFunctionArgValueNode(
   source: string,
   valueNode: CstNode,
-): ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall {
+): ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral {
+  const literalNode = findFirstNode(valueNode, 'DecoratorObjectLiteral')
+    ?? findFirstNode(valueNode, 'DecoratorArrayLiteral');
+  if (literalNode) {
+    return parseLiteralNode(source, literalNode);
+  }
   const nestedCallNode = findFirstNode(valueNode, 'DecoratorFunctionCall');
   if (nestedCallNode) {
     // eslint-disable-next-line no-use-before-define
@@ -174,7 +246,8 @@ function parseDecoratorFunctionArgValueNode(
 function parseDecoratorFunctionArgNode(
   source: string,
   argNode: CstNode,
-): ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecKeyValuePair {
+): ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecKeyValuePair
+  | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral {
   const keyValueNode = findFirstNode(argNode, 'DecoratorFunctionArgKeyValue');
   if (keyValueNode) {
     const keyNode = findFirstNode(keyValueNode, 'DecoratorArgKey');
@@ -184,7 +257,7 @@ function parseDecoratorFunctionArgNode(
     const valueNode = findFirstNode(keyValueNode, 'DecoratorFunctionArgValue');
     if (!keyLeaf || !valueNode) throw new Error('Malformed decorator function argument key/value');
     return new ParsedEnvSpecKeyValuePair({
-      key: keyLeaf.text,
+      key: leafText(source, keyLeaf),
       val: parseDecoratorFunctionArgValueNode(source, valueNode),
     });
   }
@@ -222,7 +295,7 @@ function parseDecoratorFunctionCallNode(
   const argsNode = findFirstNode(functionCallNode, 'DecoratorFunctionArgs');
   if (!nameLeaf || !argsNode) throw new Error('Malformed decorator function call');
   return new ParsedEnvSpecFunctionCall({
-    name: nameLeaf.text,
+    name: leafText(source, nameLeaf),
     args: parseDecoratorFunctionArgsNode(source, argsNode),
   });
 }
@@ -230,7 +303,12 @@ function parseDecoratorFunctionCallNode(
 function parseDecoratorValueNode(
   source: string,
   valueNode: CstNode,
-): ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall {
+): ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral {
+  const literalNode = findFirstNode(valueNode, 'DecoratorObjectLiteral')
+    ?? findFirstNode(valueNode, 'DecoratorArrayLiteral');
+  if (literalNode) {
+    return parseLiteralNode(source, literalNode);
+  }
   const functionCallNode = findFirstNode(valueNode, 'DecoratorFunctionCall');
   if (functionCallNode) {
     return parseDecoratorFunctionCallNode(source, functionCallNode);
@@ -246,10 +324,10 @@ function parseValueNode(source: string, valueNode: CstNode): ParsedEnvSpecStatic
   return parseStaticValue(nodeText(source, valueNode));
 }
 
-function findPoundLeaf(node: CstNode): CstLeaf | undefined {
+function findPoundLeaf(source: string, node: CstNode): CstLeaf | undefined {
   return node.children.find(
     (child) => isLeaf(child)
-      && ((child.tokenType === '$punct' && child.text === '#') || child.tokenType === 'HASH'),
+      && ((child.tokenType === '$punct' && leafText(source, child) === '#') || child.tokenType === 'HASH'),
   ) as CstLeaf | undefined;
 }
 
@@ -259,7 +337,7 @@ function parseDecoratorFromNode(
 ): ParsedEnvSpecDecorator {
   const nameLeaf = findFirstLeaf(node, 'DEC_NAME');
   if (!nameLeaf) throw new Error('Malformed decorator');
-  const name = nameLeaf.text.slice(1);
+  const name = leafText(source, nameLeaf).slice(1);
 
   const argsNode = findNodes(node, 'DecoratorFunctionArgs')[0];
   const valueNode = findNodes(node, 'DecoratorValue')[0];
@@ -270,7 +348,8 @@ function parseDecoratorFromNode(
     throw new Error('Expected decorator value');
   }
 
-  let value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs | undefined;
+  let value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | ParsedEnvSpecFunctionArgs
+    | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral | undefined;
   let isBareFnCall = false;
 
   if (argsNode && !isExplicitAssign) {
@@ -313,7 +392,7 @@ function parseDecoratorCommentContainer(
   source: string,
   containerNode: CstNode,
 ): ParsedEnvSpecDecoratorComment {
-  const hashLeaf = findPoundLeaf(containerNode);
+  const hashLeaf = findPoundLeaf(source, containerNode);
   const decoratorCommentNode = findFirstNode(containerNode, 'DecoratorComment');
   if (!hashLeaf || !decoratorCommentNode) {
     throw new Error('Malformed decorator comment');
@@ -498,10 +577,11 @@ export function parseWithMonogram(source: string): ParsedEnvSpecFile {
     const statement = statementByOffset.get(startOffset);
 
     if (!statement) {
-      if (line === '') {
+      if (line.trim() === '') {
         flushPendingComments(pendingComments, output);
-        // no trailing blank line node at EOF without a terminal newline
-        if (lineIndex < lines.length - 1) output.push(new ParsedEnvSpecBlankLine({}));
+        // no trailing blank line node at EOF without a terminal newline, unless the
+        // line contains whitespace (`__ !.` in the peggy grammar produced a blank line)
+        if (lineIndex < lines.length - 1 || line !== '') output.push(new ParsedEnvSpecBlankLine({}));
         continue;
       }
       throw new Error(`Unexpected content on line ${lineIndex + 1}`);
@@ -515,10 +595,10 @@ export function parseWithMonogram(source: string): ParsedEnvSpecFile {
       if (pendingComments.length > 0) {
         output.push(new ParsedEnvSpecCommentBlock({
           comments: pendingComments.splice(0, pendingComments.length),
-          divider: parseDividerLeaf(dividerLeaf.text),
+          divider: parseDividerLeaf(leafText(normalizedSource, dividerLeaf)),
         }));
       } else {
-        output.push(parseDividerLeaf(dividerLeaf.text));
+        output.push(parseDividerLeaf(leafText(normalizedSource, dividerLeaf)));
       }
       continue;
     }
@@ -540,7 +620,7 @@ export function parseWithMonogram(source: string): ParsedEnvSpecFile {
     }
 
     output.push(new ParsedEnvSpecConfigItem({
-      key: keyLeaf.text,
+      key: leafText(normalizedSource, keyLeaf),
       value,
       preComments: pendingComments.splice(0, pendingComments.length),
       postComment,

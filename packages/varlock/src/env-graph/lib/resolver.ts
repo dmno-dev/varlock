@@ -1080,6 +1080,7 @@ export function convertParsedValueToResolvers(
     let argsFromParser: Array<
       ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
       | ParsedEnvSpecKeyValuePair
+      | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral
     >;
     if (value instanceof ParsedEnvSpecFunctionCall) {
       // we look up the resolver by function name

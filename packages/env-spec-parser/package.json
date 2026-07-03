@@ -48,7 +48,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "ansis": "catalog:",
-    "monogram": "github:dmno-dev/monogram#e759454",
+    "monogram": "github:dmno-dev/monogram#439d1ed4",
     "outdent": "catalog:",
     "tsup": "catalog:",
     "vitest": "catalog:"
