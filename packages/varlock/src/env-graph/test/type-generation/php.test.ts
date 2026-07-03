@@ -25,8 +25,9 @@ describe('generatePhpEnvSrc', () => {
     expect(src).toContain('@var array<string, mixed>|null');
 
     expect(src).toContain('public static function load(): self');
-    // cached accessor: parses once, no re-parse per access
-    expect(src).toContain('public static function instance(): self');
+    // no imposed singleton — callers load() once and hold/inject the value
+    expect(src).not.toContain('function instance(');
+    expect(src).not.toContain('$cached');
     expect(src).toContain("getenv('__VARLOCK_ENV')");
   });
 });

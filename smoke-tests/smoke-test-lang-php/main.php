@@ -2,7 +2,7 @@
 
 require __DIR__ . '/Env.php';
 
-$e = Env::instance(); // cached; loads once
+$e = Env::load(); // call once, reuse
 
 if ($e->PORT !== 8080 || $e->DEBUG !== true) {
     fwrite(STDERR, "unexpected values\n");

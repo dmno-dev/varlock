@@ -1,9 +1,9 @@
 mod env;
 
 fn main() {
-    // cached; loads once on first access
-    assert_eq!(env::ENV.port, 8080);
-    assert!(env::ENV.debug);
+    let e = env::load().expect("failed to load env"); // call once, reuse
+    assert_eq!(e.port, 8080);
+    assert!(e.debug);
     assert!(env::SENSITIVE_KEYS.contains(&"SECRET"));
     println!("OK");
 }

@@ -33,6 +33,8 @@ Each generated file is a small, self-contained module you can use directly — n
 - a **loader** that reads the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob and returns those typed values
 - a **`SENSITIVE_KEYS`** constant listing which keys hold sensitive values, so you can build your own redaction or leak-scanning
 
+The module intentionally exposes just these primitives — no global singleton or imposed caching — so it stays idiomatic and flexible in each language. Call the loader **once** at startup and hold or pass the result however your app prefers (a variable, a struct field, a DI container); it's parsed once, not on every access.
+
 Files are generated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly via [`varlock codegen`](/reference/cli-commands/#codegen). The loader reads `__VARLOCK_ENV`, so run your program under [`varlock run`](/reference/cli-commands/#run).
 
 ## Using the generated module
@@ -45,8 +47,9 @@ Files are generated automatically on [`varlock load`](/reference/cli-commands/#l
 ```
 
 ```python
-from env_types import ENV, SENSITIVE_KEYS
+from env_types import load_env, SENSITIVE_KEYS
 
+ENV = load_env()        # call once, reuse
 port = ENV["DB_PORT"]   # int
 debug = ENV["DEBUG"]    # bool
 
@@ -58,7 +61,7 @@ safe = {k: ("***" if k in SENSITIVE_KEYS else v) for k, v in ENV.items()}
 varlock run -- python main.py
 ```
 
-`ENV` loads eagerly on import (requires Python 3.11+ for `NotRequired`); call `load_env()` yourself if you need to handle a missing blob.
+Importing the module has no side effects; `load_env()` reads `__VARLOCK_ENV`. Requires Python 3.11+ when the schema has optional keys (`NotRequired`).
 
   </TabItem>
 
@@ -71,11 +74,12 @@ varlock run -- python main.py
 ```rust
 mod env;
 
-fn main() {
-    // `env::ENV` is loaded once and cached; use `env::load()` if you'd rather handle errors
-    let port = env::ENV.db_port;   // Option<i64>
-    let debug = env::ENV.debug;    // Option<bool>
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let e = env::load()?;   // call once, hold or pass `e` around
+    let port = e.db_port;   // Option<i64>
+    let debug = e.debug;    // Option<bool>
     println!("{:?} {:?}", port, debug);
+    Ok(())
 }
 ```
 
@@ -101,11 +105,17 @@ varlock run -- cargo run
 ```go
 package main
 
-import "myapp/env"
+import (
+    "log"
+
+    "myapp/env"
+)
 
 func main() {
-    // env.Get() is loaded once and cached; use env.Load() if you'd rather handle errors
-    e := env.Get()
+    e, err := env.Load()   // call once, hold or pass `e` around
+    if err != nil {
+        log.Fatal(err)
+    }
     _ = e.DbPort   // *int64
     _ = e.Debug    // *bool
 }
@@ -127,8 +137,7 @@ varlock run -- go run .
 <?php
 require 'Env.php';
 
-// Env::instance() is loaded once and cached; use Env::load() for a fresh parse
-$env = Env::instance();
+$env = Env::load();       // call once, hold or inject $env
 $port = $env->DB_PORT;    // ?int
 $debug = $env->DEBUG;     // ?bool
 

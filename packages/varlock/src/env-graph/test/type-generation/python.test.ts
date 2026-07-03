@@ -23,10 +23,10 @@ describe('generatePythonEnvSrc', () => {
     // sensitivity is exposed as a constant, not a separate type
     expect(src).toContain('SENSITIVE_KEYS: frozenset[str] = frozenset({"API_KEY"})');
 
-    // ready-to-use loader + eager ENV
+    // ready-to-use loader; no eager module-level ENV (import stays side-effect-free)
     expect(src).toContain('def load_env() -> CoercedEnvSchema:');
     expect(src).toContain('os.environ["__VARLOCK_ENV"]');
-    expect(src).toContain('ENV: CoercedEnvSchema = load_env()');
+    expect(src).not.toContain('ENV: CoercedEnvSchema = load_env()');
   });
 
   test('descriptions become comments (no fragile docstrings to escape)', async () => {

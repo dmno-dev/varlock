@@ -98,11 +98,6 @@ export function generatePythonEnvSrc(fields: Array<ResolvedFieldType>): string {
     '    graph = json.loads(os.environ["__VARLOCK_ENV"])',
     '    return {key: entry["value"] for key, entry in graph["config"].items()}  # type: ignore[return-value]',
     '',
-    '',
-    '# Eagerly loaded typed env — `from env_types import ENV` then use `ENV["DB_PORT"]`.',
-    '# (Requires running under `varlock run`; call load_env() yourself if you need to handle errors.)',
-    'ENV: CoercedEnvSchema = load_env()',
-    '',
   ];
 
   return src.join('\n');

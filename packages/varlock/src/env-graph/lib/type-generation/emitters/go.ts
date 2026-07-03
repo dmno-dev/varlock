@@ -60,7 +60,6 @@ export function generateGoEnvSrc(fields: Array<ResolvedFieldType>): string {
     '\t"encoding/json"',
     '\t"fmt"',
     '\t"os"',
-    '\t"sync"',
     ')',
     ...formatGoStruct(
       'Env',
@@ -98,16 +97,6 @@ export function generateGoEnvSrc(fields: Array<ResolvedFieldType>): string {
     '\t}',
     '\treturn e, nil',
     '}',
-    '',
-    '// Get returns the cached typed env — env.Get().SomeKey. Loads once on first call;',
-    '// panics if the blob is missing/invalid (use Load() if you need to handle errors).',
-    'var Get = sync.OnceValue(func() Env {',
-    '\te, err := Load()',
-    '\tif err != nil {',
-    '\t\tpanic(err)',
-    '\t}',
-    '\treturn e',
-    '})',
     '',
   ];
 
