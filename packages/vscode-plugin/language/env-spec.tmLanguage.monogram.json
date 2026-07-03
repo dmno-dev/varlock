@@ -340,7 +340,7 @@
     },
     "slash_text": {
       "name": "string.unquoted.env-spec",
-      "match": "/[^#=,\\r\\n()}\\]]*"
+      "match": "/(?:\\[[^\\]\\r\\n]*\\]|\\{[^}\\r\\n]*\\}|[^#=,\\r\\n(){\\[}\\]])*"
     },
     "unquoted_text": {
       "name": "string.unquoted.env-spec",

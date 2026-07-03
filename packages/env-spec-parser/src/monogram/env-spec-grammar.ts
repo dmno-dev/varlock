@@ -149,8 +149,14 @@ const EXPANSION = token(
 
 // Slash-prefixed unquoted segments (e.g. regex-like patterns such as `/^foo$/i`).
 // Kept separate from UNQUOTED_TEXT so `$` still tokenizes as EXPANSION in normal values.
+// `[...]` char classes and `{...}` quantifiers are consumed as pairs so regexes like
+// `/^[A-Z]{2,3}$/` stay one token; a bare `}`/`]` still ends the token (literal close).
 const SLASH_TEXT = token(
-  seq('/', star(noneOf('#', '=', ',', '\r', '\n', '(', ')', '}', ']'))),
+  seq('/', star(altPattern(
+    seq('[', star(noneOf(']', '\r', '\n')), ']'),
+    seq('{', star(noneOf('}', '\r', '\n')), '}'),
+    noneOf('#', '=', ',', '\r', '\n', '(', ')', '{', '[', '}', ']'),
+  ))),
   { scope: 'string.unquoted' },
 );
 const UNQUOTED_TEXT = token(

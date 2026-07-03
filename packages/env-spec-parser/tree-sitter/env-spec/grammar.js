@@ -143,7 +143,7 @@ module.exports = grammar({
 
     expansion: $ => token(/\\?\$\{?[a-zA-Z_][a-zA-Z0-9_]*\}?|\\?\$\([^)]+\)/),
 
-    slash_text: $ => token(/\/[^#=,\r\n()}\]]*/),
+    slash_text: $ => token(/\/(?:\[[^\]\r\n]*\]|\{[^}\r\n]*\}|[^#=,\r\n(){\[}\]])*/),
 
     unquoted_text: $ => token(/[^#=,\r\n()$"'`\t {\[}\]][^#=,\r\n()$}\]]*/),
 
