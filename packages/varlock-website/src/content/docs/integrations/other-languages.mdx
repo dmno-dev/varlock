@@ -154,76 +154,103 @@ Requires PHP 8.1+ (readonly promoted properties).
   </TabItem>
 </Tabs>
 
-## Passing the env around
+## Reusing one env across your app
 
-The loader returns a **named, exported type** — a struct, class, or `TypedDict` — not an anonymous shape. So you load it once and thread it through your own functions, and the types (plus autocomplete and checker support) come along for free. Reference the type name alongside the loader.
+The generated module deliberately ships **no** global singleton — each app shares config differently, and the loader returns a **named, exported type** (a struct, class, or `TypedDict`) so *you* can create a reusable, fully-typed instance in one line. Load it once in your own module and import it everywhere.
 
 <Tabs syncKey="polyglot-env-blob">
   <TabItem label="Python">
 
+Load once in your own config module — the idiomatic Python "settings module" pattern:
+
 ```python
-from env_types import load_env, CoercedEnvSchema
+# config.py
+from env_types import load_env
 
-def connect(cfg: CoercedEnvSchema) -> None:
-    port = cfg["DB_PORT"]   # checker knows this is int
-    ...
+env = load_env()   # loaded once, typed as CoercedEnvSchema
+```
 
-connect(load_env())
+```python
+# anywhere.py
+from config import env
+
+port = env["DB_PORT"]   # int
 ```
 
   </TabItem>
 
   <TabItem label="Rust">
 
+If you want a process-wide instance, opt into a `LazyLock` yourself (loaded once, on first access):
+
 ```rust
-mod env;
+// config.rs
+use std::sync::LazyLock;
+use crate::env;
 
-fn connect(cfg: &env::Env) {
-    let _port = cfg.db_port;   // Option<i64>, fully typed
-}
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let e = env::load()?;
-    connect(&e);
-    Ok(())
-}
+pub static ENV: LazyLock<env::Env> =
+    LazyLock::new(|| env::load().expect("failed to load env"));
 ```
+
+```rust
+// anywhere.rs
+use crate::config::ENV;
+
+let port = ENV.db_port;   // Option<i64>
+```
+
+Prefer no globals? Call `env::load()?` once in `main` and pass `&Env` through your app state — the type comes along either way.
 
   </TabItem>
 
   <TabItem label="Go">
 
+Expose it as a package-level var in your own package:
+
 ```go
-package main
+// config/config.go
+package config
 
 import "myapp/env"
 
-func connect(cfg env.Env) {
-    _ = cfg.DbPort   // *int64, fully typed
-}
+var Env = mustLoad()
 
-func main() {
+func mustLoad() env.Env {
     e, err := env.Load()
     if err != nil {
         panic(err)
     }
-    connect(e)
+    return e
 }
+```
+
+```go
+// anywhere.go
+import "myapp/config"
+
+port := config.Env.DbPort   // *int64
 ```
 
   </TabItem>
 
   <TabItem label="PHP">
 
+Bind the loaded instance wherever your app keeps shared services — e.g. your DI container:
+
 ```php
-<?php
-require 'Env.php';
+// bootstrap.php
+$container->instance(Env::class, Env::load());   // resolve Env anywhere, type-hinted
+```
 
-function connect(Env $cfg): void {
-    $port = $cfg->DB_PORT;   // ?int, IDE knows the readonly props
+No container? A tiny static holder works:
+
+```php
+final class Config {
+    public static Env $env;
 }
+Config::$env = Env::load();
 
-connect(Env::load());
+// elsewhere: Config::$env->DB_PORT  (?int)
 ```
 
   </TabItem>
