@@ -596,7 +596,7 @@ export async function startLocalProxyRuntime({
       onActivity?.({
         ...baseActivity, matched: shouldRewrite, blocked: true, decision: 'blocked-egress',
       });
-      respondBlocked(res, 403, 'Proxy egress blocked by strict mode', false);
+      respondBlocked(res, 403, `Blocked by the varlock credential proxy: ${t.host} is not allowed by your egress policy (strict mode only permits hosts with a matching @proxy rule). Add an @proxy rule for this host, or use permissive egress, to allow it.`, false);
       return;
     }
 
@@ -610,7 +610,7 @@ export async function startLocalProxyRuntime({
       onActivity?.({
         ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'deny',
       });
-      respondBlocked(res, 403, 'Blocked by proxy policy', t.tunnelTeardown);
+      respondBlocked(res, 403, `Blocked by the varlock credential proxy: a @proxy block rule denies this request to ${t.host}.`, t.tunnelTeardown);
       return;
     }
 
@@ -623,7 +623,7 @@ export async function startLocalProxyRuntime({
       onActivity?.({
         ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-cleartext',
       });
-      respondBlocked(res, 403, 'Refusing to inject secrets into a cleartext (non-TLS) connection', false);
+      respondBlocked(res, 403, `Blocked by the varlock credential proxy: refusing to inject a secret into a cleartext (non-TLS) connection to ${t.host}.`, false);
       return;
     }
 
@@ -650,7 +650,7 @@ export async function startLocalProxyRuntime({
         onActivity?.({
           ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'approval-denied',
         });
-        respondBlocked(res, 403, 'Request denied: approval not granted', t.tunnelTeardown);
+        respondBlocked(res, 403, `Blocked by the varlock credential proxy: this request to ${t.host} required approval and it was not granted.`, t.tunnelTeardown);
         return;
       }
     }
@@ -858,7 +858,7 @@ export async function startLocalProxyRuntime({
         blocked: true,
         decision: 'blocked-egress',
       });
-      const blockedBody = 'Proxy egress blocked by strict mode';
+      const blockedBody = `Blocked by the varlock credential proxy: ${hostInfo.host} is not allowed by your egress policy (strict mode only permits hosts with a matching @proxy rule). Add an @proxy rule for this host, or use permissive egress, to allow it.`;
       clientSocket.write(
         `HTTP/1.1 403 Forbidden\r\nContent-Length: ${Buffer.byteLength(blockedBody)}\r\nConnection: close\r\n\r\n${blockedBody}`,
       );
