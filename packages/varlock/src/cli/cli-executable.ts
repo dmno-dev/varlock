@@ -2,6 +2,8 @@ import { cli, type Command } from 'gunshi';
 import completion from '@gunshi/plugin-completion';
 import { gracefulExit } from 'exit-hook';
 
+import { strictFlags } from './strict-flags-plugin';
+
 import { VARLOCK_BANNER_COLOR } from '../lib/ascii-art';
 import { CliExitError } from './helpers/exit-error';
 import { fmt } from './helpers/pretty-format';
@@ -125,7 +127,7 @@ subCommands.set('keychain', buildLazyCommand(keychainCommandSpec, async () => aw
       description: 'Encrypt and protect your env vars',
       version: versionId,
       subCommands,
-      plugins: [completion()],
+      plugins: [completion(), strictFlags()],
       renderHeader: async (ctx) => {
         // do not show header if we are running a sub-command
         if (ctx.name) return '';
