@@ -81,4 +81,4 @@ Once registered, users trigger it from their schema like any other generator:
 # @generateZodSchema(path=./env.schema.ts)
 ```
 
-Generators share the common `path`, `auto`, and `executeWhenImported` args automatically — your `generate` function only handles turning the schema into code.
+The `decoratorName` must start with `generate` (e.g. `generateZodSchema`) — a shared convention that keeps code-generation decorators recognizable and separate from behavior decorators. Generators also get the common `path`, `auto`, and `executeWhenImported` args automatically — your `generate` function only handles turning the schema into code.

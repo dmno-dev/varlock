@@ -268,6 +268,11 @@ export class EnvGraph {
   codeGeneratorsRegistry: Record<string, CodeGeneratorDef> = {};
   registerCodeGenerator(generatorDef: CodeGeneratorDef) {
     const name = generatorDef.decoratorName;
+    // code-gen decorators must be `@generate*` — a consistent, self-documenting convention that
+    // separates them from behavior decorators (@cache, @import, ...) and avoids accidental collisions
+    if (!name.startsWith('generate')) {
+      throw new SchemaError(`Code generator decorator names must start with "generate" (got "${name}")`);
+    }
     // ensure a root decorator exists for this generator (plugins get one for free)
     if (!(name in this.rootDecoratorsRegistry)) {
       this.registerRootDecorator({ name, isFunction: true });

@@ -889,6 +889,12 @@ describe('type generation', () => {
         await import('node:fs').then((fs) => fs.promises.rm(outputPath, { force: true }));
       }
     });
+
+    test('rejects code generators whose decorator name does not start with "generate"', () => {
+      const g = new EnvGraph();
+      expect(() => g.registerCodeGenerator({ decoratorName: 'zodSchema', generate: () => '' }))
+        .toThrow('must start with "generate"');
+    });
   });
 
   describe('JSDoc comment safety', () => {
