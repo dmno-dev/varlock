@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../../../env-graph';
 import {
-  computeProxyChildView, isCwdWithin, resolveReloadMode, createReloadKeypressHandler,
+  buildProxiedChildEnv, computeProxyChildView, isCwdWithin, resolveReloadMode, createReloadKeypressHandler,
 } from '../proxy.command.js';
 
 async function loadGraph(envFile: string) {
@@ -266,5 +266,84 @@ describe('@proxy nested rules=[...] form', () => {
       FOO=bar
     `);
     await expect(graph.getProxyRules()).rejects.toThrow(/unknown option "domain" in a rules entry/);
+  });
+});
+
+describe('buildProxiedChildEnv', () => {
+  const PAYLOAD = {
+    env: {
+      API_KEY: 'vlk_placeholder_API_KEY_abc',
+      LOG_LEVEL: 'info',
+    },
+    omittedKeys: ['ADMIN_TOKEN'],
+    serializedGraph: {
+      sources: [],
+      settings: {},
+      config: {
+        API_KEY: { value: 'vlk_placeholder_API_KEY_abc', isSensitive: true },
+        LOG_LEVEL: { value: 'info', isSensitive: false },
+      },
+    },
+  } as any;
+  const SESSION_EXPORT = { HTTP_PROXY: 'http://127.0.0.1:9999', __VARLOCK_PROXY_CHILD: '1' };
+
+  test('payload values win over the launching shell (an accidentally exported real key never reaches the child)', () => {
+    const env = buildProxiedChildEnv({
+      payload: PAYLOAD,
+      sessionExportEnv: SESSION_EXPORT,
+      parentPid: 123,
+      injectVars: true,
+      injectBlob: true,
+      baseEnv: { API_KEY: 'sk-REAL-oops', LOG_LEVEL: 'debug', PATH: '/usr/bin' },
+    });
+    expect(env.API_KEY).toBe('vlk_placeholder_API_KEY_abc');
+    expect(env.LOG_LEVEL).toBe('info');
+    // ambient OS env still flows through
+    expect(env.PATH).toBe('/usr/bin');
+    // plumbing + markers land
+    expect(env.HTTP_PROXY).toBe('http://127.0.0.1:9999');
+    expect(env.__VARLOCK_PROXY_PARENT_PID).toBe('123');
+    expect(env.__VARLOCK_RUN).toBe('1');
+    expect(env.__VARLOCK_ENV).toBe(JSON.stringify(PAYLOAD.serializedGraph));
+  });
+
+  test('omitted keys are absent even when the shell exports them', () => {
+    const env = buildProxiedChildEnv({
+      payload: PAYLOAD,
+      sessionExportEnv: SESSION_EXPORT,
+      parentPid: 123,
+      injectVars: true,
+      injectBlob: true,
+      baseEnv: { ADMIN_TOKEN: 'real-admin-token-from-shell' },
+    });
+    expect('ADMIN_TOKEN' in env).toBe(false);
+  });
+
+  test('inject mode blob-only keeps _VARLOCK_ENV_KEY and skips plain vars', () => {
+    const env = buildProxiedChildEnv({
+      payload: PAYLOAD,
+      sessionExportEnv: SESSION_EXPORT,
+      parentPid: 1,
+      injectVars: false,
+      injectBlob: true,
+      baseEnv: { _VARLOCK_ENV_KEY: 'enc-key', API_KEY: 'ambient' },
+    });
+    // no var injection: the ambient value survives (blob consumers resolve via the graph)
+    expect(env.API_KEY).toBe('ambient');
+    expect(env._VARLOCK_ENV_KEY).toBe('enc-key');
+    expect(env.__VARLOCK_ENV).toBeDefined();
+  });
+
+  test('inject mode vars-only skips the blob', () => {
+    const env = buildProxiedChildEnv({
+      payload: PAYLOAD,
+      sessionExportEnv: SESSION_EXPORT,
+      parentPid: 1,
+      injectVars: true,
+      injectBlob: false,
+      baseEnv: {},
+    });
+    expect(env.API_KEY).toBe('vlk_placeholder_API_KEY_abc');
+    expect(env.__VARLOCK_ENV).toBeUndefined();
   });
 });

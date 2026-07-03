@@ -257,6 +257,8 @@ varlock proxy run -- claude
 
 `proxy start` is a long-lived session that owns its terminal, where the live per-request log appears. Attach to it from another terminal (or shell) so the agent's stdio doesn't compete with the daemon's output.
 
+An attaching `proxy run` **adopts the running session's env**: it fetches the child view (placeholders, non-secret values, omitted keys) directly from the daemon instead of resolving anything itself. That means no second unlock prompt, and the session's own overrides and env selection apply (attaching means "run me in that session's env"). Your shell's ambient values for schema-managed keys are ignored in favor of the session's; everything else (`PATH`, etc.) passes through as usual.
+
 ### Manual env: `proxy start` + `proxy env`
 
 ```bash

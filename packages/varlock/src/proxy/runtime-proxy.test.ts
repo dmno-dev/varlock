@@ -458,3 +458,107 @@ describe('startLocalProxyRuntime', () => {
     });
   });
 });
+
+describe('varlock.internal session-env endpoint', () => {
+  const TOKEN = 'test-session-token-uuid';
+  const PAYLOAD_JSON = JSON.stringify({
+    env: { FOO: 'bar', API_KEY: 'vlk_placeholder_API_KEY_abc' },
+    omittedKeys: ['ADMIN_TOKEN'],
+    serializedGraph: { settings: {}, config: {}, sources: [] },
+  });
+
+  async function startWithEndpoint(opts?: { egressMode?: 'permissive' | 'strict'; skipPayload?: boolean }) {
+    const activities: Array<ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [],
+      rules: [],
+      egressMode: opts?.egressMode ?? 'permissive',
+      internalEndpointToken: TOKEN,
+      onActivity: (a) => activities.push(a),
+    });
+    if (!opts?.skipPayload) runtime.setSessionEnvPayloadJson(PAYLOAD_JSON);
+    return { runtime, activities };
+  }
+
+  test('serves the current payload with a valid token, without reporting egress activity', async () => {
+    const { runtime, activities } = await startWithEndpoint();
+    const res = await requestViaProxy(runtime.env.HTTP_PROXY!, 'http://varlock.internal/session-env', {
+      host: 'varlock.internal',
+      'x-varlock-proxy-token': TOKEN,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('application/json');
+    expect(JSON.parse(res.body)).toEqual(JSON.parse(PAYLOAD_JSON));
+    // control plane, not traffic: never counted as egress
+    expect(activities).toEqual([]);
+    await runtime.stop();
+  });
+
+  test('serves the LATEST payload after a swap (reload freshness)', async () => {
+    const { runtime } = await startWithEndpoint();
+    const updated = JSON.stringify({ env: { FOO: 'post-reload' }, omittedKeys: [], serializedGraph: { config: {} } });
+    runtime.setSessionEnvPayloadJson(updated);
+    const res = await requestViaProxy(runtime.env.HTTP_PROXY!, 'http://varlock.internal/session-env', {
+      host: 'varlock.internal',
+      'x-varlock-proxy-token': TOKEN,
+    });
+    expect(JSON.parse(res.body).env.FOO).toBe('post-reload');
+    await runtime.stop();
+  });
+
+  test('refuses a missing or wrong token with 403 and serves nothing', async () => {
+    const { runtime } = await startWithEndpoint();
+    const noToken = await requestViaProxy(runtime.env.HTTP_PROXY!, 'http://varlock.internal/session-env', {
+      host: 'varlock.internal',
+    });
+    expect(noToken.statusCode).toBe(403);
+    expect(noToken.body).not.toContain('API_KEY');
+    const wrongToken = await requestViaProxy(runtime.env.HTTP_PROXY!, 'http://varlock.internal/session-env', {
+      host: 'varlock.internal',
+      'x-varlock-proxy-token': 'wrong-token-same-length--',
+    });
+    expect(wrongToken.statusCode).toBe(403);
+    await runtime.stop();
+  });
+
+  test('403s when the endpoint is not enabled, even with some token', async () => {
+    const runtime = await startLocalProxyRuntime({ managedItems: [], rules: [], egressMode: 'permissive' });
+    runtime.setSessionEnvPayloadJson(PAYLOAD_JSON);
+    const res = await requestViaProxy(runtime.env.HTTP_PROXY!, 'http://varlock.internal/session-env', {
+      host: 'varlock.internal',
+      'x-varlock-proxy-token': TOKEN,
+    });
+    expect(res.statusCode).toBe(403);
+    await runtime.stop();
+  });
+
+  test('404s an unknown internal path (token first: only authenticated callers learn paths)', async () => {
+    const { runtime } = await startWithEndpoint();
+    const res = await requestViaProxy(runtime.env.HTTP_PROXY!, 'http://varlock.internal/nope', {
+      host: 'varlock.internal',
+      'x-varlock-proxy-token': TOKEN,
+    });
+    expect(res.statusCode).toBe(404);
+    await runtime.stop();
+  });
+
+  test('503s when the payload has not been set yet', async () => {
+    const { runtime } = await startWithEndpoint({ skipPayload: true });
+    const res = await requestViaProxy(runtime.env.HTTP_PROXY!, 'http://varlock.internal/session-env', {
+      host: 'varlock.internal',
+      'x-varlock-proxy-token': TOKEN,
+    });
+    expect(res.statusCode).toBe(503);
+    await runtime.stop();
+  });
+
+  test('reachable under strict egress (handled before the egress gate)', async () => {
+    const { runtime } = await startWithEndpoint({ egressMode: 'strict' });
+    const res = await requestViaProxy(runtime.env.HTTP_PROXY!, 'http://varlock.internal/session-env', {
+      host: 'varlock.internal',
+      'x-varlock-proxy-token': TOKEN,
+    });
+    expect(res.statusCode).toBe(200);
+    await runtime.stop();
+  });
+});

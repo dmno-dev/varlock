@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { watch as fsWatch, existsSync, statSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 
 import ansis from 'ansis';
 import { define } from 'gunshi';
@@ -54,6 +55,15 @@ import {
   type ProxyReloadResult,
 } from '../../proxy/reload-channel';
 import { isInProxyContext } from '../helpers/proxy-context-guard';
+import {
+  buildSessionEnvPayload,
+  decodeSessionEnvPayload,
+  encodeSessionEnvPayload,
+  PROXY_TOKEN_HEADER,
+  SESSION_ENV_ENDPOINT_PATH,
+  VARLOCK_INTERNAL_HOST,
+  type SessionEnvPayload,
+} from '../../proxy/session-env-payload';
 import type { ProxyManagedItem, ProxyRule } from '../../proxy/types';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
@@ -377,6 +387,199 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
   };
 }
 
+/**
+ * Assemble the env for a proxied child from a session-env payload. Pure (no
+ * process access) so the layering rules are unit-testable:
+ *  - payload values (placeholders included) win over the launching shell's
+ *    ambient values, so a real key accidentally exported in the shell can't
+ *    reach the child when the schema manages it
+ *  - omitted keys are absent entirely, even if the shell exports them
+ */
+export function buildProxiedChildEnv(opts: {
+  payload: SessionEnvPayload;
+  sessionExportEnv: Record<string, string>;
+  parentPid: number;
+  injectVars: boolean;
+  injectBlob: boolean;
+  baseEnv: NodeJS.ProcessEnv;
+}): NodeJS.ProcessEnv {
+  const fullInjectedEnv: NodeJS.ProcessEnv = {
+    ...opts.baseEnv,
+    ...opts.sessionExportEnv,
+    [PROXY_PARENT_PID_ENV_VAR]: String(opts.parentPid),
+    ...(opts.injectVars ? opts.payload.env : {}),
+    __VARLOCK_RUN: '1',
+    ...(opts.injectBlob ? { __VARLOCK_ENV: JSON.stringify(opts.payload.serializedGraph) } : {}),
+  };
+
+  // An omitted key must be absent from the child env entirely, even when the
+  // launching/attaching shell happens to export a value for it.
+  for (const key of opts.payload.omittedKeys) {
+    delete fullInjectedEnv[key];
+  }
+
+  if (opts.injectBlob && !opts.injectVars && opts.baseEnv._VARLOCK_ENV_KEY) {
+    fullInjectedEnv._VARLOCK_ENV_KEY = opts.baseEnv._VARLOCK_ENV_KEY;
+  }
+
+  return fullInjectedEnv;
+}
+
+/**
+ * Spawn the proxied child from a session-env payload: the ONLY consumer of the
+ * payload, shared by one-shot (in-memory payload) and attach (fetched payload)
+ * so the two paths cannot diverge. Assembles the child env, seeds stdout
+ * redaction, and wires the redacted streams.
+ */
+function spawnProxiedChild(opts: {
+  payload: SessionEnvPayload;
+  session: ProxySessionRecord;
+  rawCommand: string;
+  commandArgsOnly: Array<string>;
+  injectVars: boolean;
+  injectBlob: boolean;
+  redactStdoutFlag?: boolean;
+  /**
+   * Wire real values for redaction seeding: self-owned runs only. An attached
+   * run never holds them (the payload has placeholders + passthrough values,
+   * which the serialized graph already covers).
+   */
+  redactionManagedItems?: Array<ProxyManagedItem>;
+}) {
+  const fullInjectedEnv = buildProxiedChildEnv({
+    payload: opts.payload,
+    sessionExportEnv: getProxySessionExportEnv(opts.session),
+    parentPid: process.pid,
+    injectVars: opts.injectVars,
+    injectBlob: opts.injectBlob,
+    baseEnv: process.env,
+  });
+
+  // Per-stream TTY auto-detect (interactive terminal -> raw inherit so tools like `claude`
+  // work; piped/redirected -> redact). Shared with `varlock run` so they can't diverge.
+  const { redactStdout, redactStderr } = resolveStdoutRedaction({
+    redactStdoutFlag: opts.redactStdoutFlag,
+    redactLogs: opts.payload.serializedGraph.settings?.redactLogs ?? true,
+  });
+
+  // Seed the redaction map from the child-view graph (placeholders + passthrough
+  // values), plus the REAL values the proxy injects at the wire when this run owns
+  // the proxy, so if the child ever echoes an injected value back it is scrubbed.
+  if (redactStdout || redactStderr) {
+    const redactionGraph = {
+      ...opts.payload.serializedGraph,
+      config: { ...opts.payload.serializedGraph.config },
+    };
+    for (const managedItem of opts.redactionManagedItems ?? []) {
+      const schemaItem = opts.payload.serializedGraph.config[managedItem.key];
+      if (!schemaItem?.isSensitive) continue;
+      if (!managedItem.realValue || managedItem.realValue === schemaItem.value) continue;
+      redactionGraph.config[`__PROXY_REAL__${managedItem.key}`] = {
+        value: managedItem.realValue,
+        isSensitive: true,
+      };
+    }
+    resetRedactionMap(redactionGraph);
+  }
+
+  // An inherited stream (both false) yields raw TTY pass-through, same as stdio: 'inherit'.
+  const commandProcess = exec(opts.rawCommand, opts.commandArgsOnly, {
+    stdin: 'inherit',
+    stdout: redactStdout ? 'pipe' : 'inherit',
+    stderr: redactStderr ? 'pipe' : 'inherit',
+    env: fullInjectedEnv,
+  });
+  pipeRedactedStreams(commandProcess, { redactStdout, redactStderr });
+  return commandProcess;
+}
+
+const SESSION_ENV_FETCH_TIMEOUT_MS = 5000;
+
+/**
+ * Fetch the session-env payload from a running session's `varlock.internal`
+ * endpoint (via its own proxy port). Adopting this env is what attach MEANS:
+ * the owner resolved it in its own context (its shell overrides, its env
+ * selection); no schema load, resolution, or unlock prompt happens here.
+ *
+ * Any failure gets one clear message: never branch on the connect errno (Node
+ * and Bun report a dead endpoint differently).
+ */
+async function fetchSessionEnvPayload(session: ProxySessionRecord): Promise<SessionEnvPayload> {
+  const unreachable = (details: string) => new CliExitError(
+    `Proxy session ${session.id} is not responding.`,
+    {
+      details,
+      suggestion: 'The session may have stopped or predate this varlock version. Restart it, or use `--new` to start a separate proxy.',
+    },
+  );
+
+  let proxyUrl: URL;
+  try {
+    proxyUrl = new URL(session.env.HTTP_PROXY ?? '');
+  } catch {
+    throw unreachable('Its record has no usable proxy address.');
+  }
+
+  const raw = await new Promise<string>((resolve, reject) => {
+    // `timer` and `req` reference each other (timer destroys req; req's handlers
+    // clear timer), so one must be a let declared first.
+    // eslint-disable-next-line @nofix/prefer-const
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const req = httpRequest({
+      host: proxyUrl.hostname,
+      port: Number(proxyUrl.port),
+      method: 'GET',
+      // absolute-form request target, the shape proxies receive
+      path: `http://${VARLOCK_INTERNAL_HOST}${SESSION_ENV_ENDPOINT_PATH}`,
+      headers: {
+        host: VARLOCK_INTERNAL_HOST,
+        [PROXY_TOKEN_HEADER]: session.uuid,
+      },
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        clearTimeout(timer);
+        res.resume();
+        reject(new Error(`endpoint returned status ${res.statusCode}`));
+        return;
+      }
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        body += chunk;
+      });
+      res.on('end', () => {
+        clearTimeout(timer);
+        resolve(body);
+      });
+      res.on('error', (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+    });
+    req.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    // Own the timeout with a real timer: Bun's compiled runtime does not
+    // reliably emit the http `timeout` (or a subsequent `error`) event for the
+    // request `timeout` option — the socket just dies and the promise would
+    // never settle, so the process would exit 0 silently mid-await.
+    timer = setTimeout(() => {
+      reject(new Error('timed out'));
+      req.destroy();
+    }, SESSION_ENV_FETCH_TIMEOUT_MS);
+    req.end();
+  }).catch((error) => {
+    throw unreachable(`Fetching its env failed: ${(error as Error).message}.`);
+  });
+
+  try {
+    return decodeSessionEnvPayload(raw);
+  } catch (error) {
+    throw unreachable(`It served an unusable env payload: ${(error as Error).message}.`);
+  }
+}
+
 // The live request log and an interactive approval prompt share the same TTY
 // (stderr). While a prompt is awaiting input, defer log lines so a concurrent
 // request can't clobber the readline prompt; flush them once the prompt resolves.
@@ -512,7 +715,11 @@ async function createRuntimeAndSession(opts: {
     onResponse: opts.logRequests
       ? (info) => emitProxyLog(formatProxyResponseLog(info))
       : undefined,
+    internalEndpointToken: identity.uuid,
   });
+  // Serve the child view to attaching `proxy run` processes (adopt semantics);
+  // applyTrustedReload re-sets this after each reload so fetches stay current.
+  runtime.setSessionEnvPayloadJson(encodeSessionEnvPayload(buildSessionEnvPayload(opts.policy)));
   const session = await createProxySessionRecord({
     id: identity.id,
     uuid: identity.uuid,
@@ -640,45 +847,37 @@ function isHumanAttended(): boolean {
 /**
  * Resolve the running proxy session to attach `proxy run` to: an explicit
  * `--session`, else the single session whose cwd contains this one. Returns
- * undefined (→ start a fresh proxy) when nothing matches. Validates the schema
- * fingerprint and fails loudly on drift, so an attached command can't route
- * through a proxy started with a different `.env.schema`.
+ * undefined (→ start a fresh proxy) when nothing matches.
+ *
+ * No schema/fingerprint check here: attach ADOPTS the session's env (fetched
+ * from the owner), so there is no locally-resolved schema to compare. Disk
+ * drift stays handled where it belongs: the owner's drift watcher warns the
+ * human, and the in-child fingerprint guard blocks nested resolves until a
+ * reload re-blesses the change.
  */
-async function resolveAttachSession(ctx: any, schemaFingerprint: string): Promise<ProxySessionRecord | undefined> {
+async function resolveAttachSession(ctx: any): Promise<ProxySessionRecord | undefined> {
   await cleanupStaleProxySessions();
 
-  let candidate: ProxySessionRecord | undefined;
   if (ctx.values.session) {
-    candidate = await resolveProxySessionForCommand({
+    return resolveProxySessionForCommand({
       explicitSession: ctx.values.session,
       env: process.env,
       defaultToSingleActive: false,
     }).catch((error) => {
       throw new CliExitError((error as Error).message);
     });
-  } else {
-    const cwd = process.cwd();
-    const matches = (await listProxySessions()).filter((s) => isCwdWithin(cwd, s.cwd));
-    if (matches.length === 0) return undefined; // → start a fresh proxy
-    if (matches.length > 1) {
-      throw new CliExitError(
-        `Multiple proxy sessions match this directory: ${matches.map((s) => s.id).join(', ')}.`,
-        { suggestion: 'Pass --session <id> to choose one, or --new to start a separate proxy.' },
-      );
-    }
-    [candidate] = matches;
   }
 
-  if (candidate.schemaFingerprint && candidate.schemaFingerprint !== schemaFingerprint) {
+  const cwd = process.cwd();
+  const matches = (await listProxySessions()).filter((s) => isCwdWithin(cwd, s.cwd));
+  if (matches.length === 0) return undefined; // → start a fresh proxy
+  if (matches.length > 1) {
     throw new CliExitError(
-      `The running proxy session ${candidate.id} was started with a different .env.schema.`,
-      {
-        details: "Its placeholders and rules no longer match this directory's schema.",
-        suggestion: 'Restart it (or run `varlock proxy reload`), or use --new to start a separate proxy.',
-      },
+      `Multiple proxy sessions match this directory: ${matches.map((s) => s.id).join(', ')}.`,
+      { suggestion: 'Pass --session <id> to choose one, or --new to start a separate proxy.' },
     );
   }
-  return candidate;
+  return matches[0];
 }
 
 /**
@@ -703,6 +902,9 @@ async function applyTrustedReload(opts: {
       rules: next.proxyRules,
       egressMode: next.egressMode,
     });
+    // Keep the varlock.internal endpoint serving the CURRENT child view, so a
+    // post-reload attach adopts the reloaded env, not the launch-time one.
+    opts.runtime.setSessionEnvPayloadJson(encodeSessionEnvPayload(buildSessionEnvPayload(next)));
     await updateProxySessionRecord(opts.session.uuid, {
       schemaFingerprint: next.schemaFingerprint,
       egressMode: next.egressMode,
@@ -1025,29 +1227,24 @@ async function runAction(ctx: any) {
   const commandArgsOnly = commandToRunAsArgs.slice(1);
   const commandToRunStr = commandToRunAsArgs.join(' ');
 
-  const policy = await prepareProxyPolicy(ctx.values.path);
-
   // Attach to a running proxy for this directory (a `proxy start` daemon) when
   // possible — its terminal handles approvals — instead of a new auto-deny proxy.
   // --new forces a fresh proxy.
-  const attachSession = ctx.values.new ? undefined : await resolveAttachSession(ctx, policy.schemaFingerprint);
+  const attachSession = ctx.values.new ? undefined : await resolveAttachSession(ctx);
 
   let session: ProxySessionRecord;
+  let payload: SessionEnvPayload;
+  /** Wire real values for redaction seeding: only a self-owned run holds them. */
+  let redactionManagedItems: Array<ProxyManagedItem> | undefined;
   let statsWriter: ReturnType<typeof createSessionStatsWriter> | undefined;
   let cleanup: () => Promise<void>;
 
   if (attachSession) {
-    // Use the daemon's authoritative view so the child's values are exactly what
-    // the running proxy expects: its placeholders for sensitive items, and its
-    // omitted keys withheld entirely.
-    for (const [key, placeholder] of Object.entries(attachSession.placeholderOverrides ?? {})) {
-      policy.resolvedEnv[key] = placeholder;
-      if (policy.serializedGraph.config[key]) policy.serializedGraph.config[key].value = placeholder;
-    }
-    for (const key of attachSession.omittedKeys ?? []) {
-      delete policy.resolvedEnv[key];
-      delete policy.serializedGraph.config[key];
-    }
+    // Adopt the running session's env: the owner resolved it in its own context
+    // (its shell overrides, its env selection), and attaching means running
+    // inside THAT session's env. No schema load, no resolution, and no unlock
+    // prompt happens on this path.
+    payload = await fetchSessionEnvPayload(attachSession);
     session = attachSession;
     // Register this `proxy run` process on the (shared daemon) session so ancestry
     // detection recognizes the agent as proxied even if it scrubs the env markers —
@@ -1058,6 +1255,13 @@ async function runAction(ctx: any) {
       await removeProxySessionAttachment(session.uuid, process.pid).catch(() => undefined);
     };
   } else {
+    // Self-owned one-shot: the single trusted resolve happens here — the only
+    // path in `proxy run` that touches resolvers or the encrypted cache.
+    const policy = await prepareProxyPolicy(ctx.values.path);
+    // Round-trip through the serializer so the common path exercises the exact
+    // encoding attach receives over the wire (parity can't silently rot).
+    payload = decodeSessionEnvPayload(encodeSessionEnvPayload(buildSessionEnvPayload(policy)));
+    redactionManagedItems = policy.proxyManagedItems;
     // Reload posture (see resolveReloadMode). A one-shot `proxy run` re-reads the
     // schema on its next invocation, so `auto` resolves to off here; the flag or
     // `@proxyConfig={reload="manual"}` can still opt this self-owned run in.
@@ -1102,55 +1306,16 @@ async function runAction(ctx: any) {
   }
 
   const { injectVars, injectBlob } = applyInjectModeFromFlags(ctx);
-  const sessionEnv = getProxySessionExportEnv(session);
-  const fullInjectedEnv: NodeJS.ProcessEnv = {
-    ...process.env,
-    ...sessionEnv,
-    [PROXY_PARENT_PID_ENV_VAR]: String(process.pid),
-    ...(injectVars ? policy.resolvedEnv : {}),
-    __VARLOCK_RUN: '1',
-    ...(injectBlob ? { __VARLOCK_ENV: JSON.stringify(policy.serializedGraph) } : {}),
-  };
-
-  if (injectBlob && !injectVars && process.env._VARLOCK_ENV_KEY) {
-    fullInjectedEnv._VARLOCK_ENV_KEY = process.env._VARLOCK_ENV_KEY;
-  }
-
-  // Per-stream TTY auto-detect (interactive terminal -> raw inherit so tools like `claude`
-  // work; piped/redirected -> redact). Shared with `varlock run` so they can't diverge.
-  const { redactStdout, redactStderr } = resolveStdoutRedaction({
+  const commandProcess = spawnProxiedChild({
+    payload,
+    session,
+    rawCommand,
+    commandArgsOnly,
+    injectVars,
+    injectBlob,
     redactStdoutFlag: ctx.values['redact-stdout'],
-    redactLogs: policy.serializedGraph.settings?.redactLogs ?? true,
+    redactionManagedItems,
   });
-
-  // Seed the redaction map with the REAL values the proxy injects at the wire (on top of
-  // the schema's own secrets), so if the child ever echoes an injected value back it is
-  // still scrubbed. Only needed when we actually redact a stream.
-  if (redactStdout || redactStderr) {
-    const redactionGraph = {
-      ...policy.serializedGraph,
-      config: { ...policy.serializedGraph.config },
-    };
-    for (const managedItem of policy.proxyManagedItems) {
-      const schemaItem = policy.serializedGraph.config[managedItem.key];
-      if (!schemaItem?.isSensitive) continue;
-      if (!managedItem.realValue || managedItem.realValue === schemaItem.value) continue;
-      redactionGraph.config[`__PROXY_REAL__${managedItem.key}`] = {
-        value: managedItem.realValue,
-        isSensitive: true,
-      };
-    }
-    resetRedactionMap(redactionGraph);
-  }
-
-  // An inherited stream (both false) yields raw TTY pass-through, same as stdio: 'inherit'.
-  const commandProcess = exec(rawCommand, commandArgsOnly, {
-    stdin: 'inherit',
-    stdout: redactStdout ? 'pipe' : 'inherit',
-    stderr: redactStderr ? 'pipe' : 'inherit',
-    env: fullInjectedEnv,
-  });
-  pipeRedactedStreams(commandProcess, { redactStdout, redactStderr });
 
   if (commandProcess.pid && !attachSession) {
     await updateProxySessionRecord(session.uuid, { childPid: commandProcess.pid });

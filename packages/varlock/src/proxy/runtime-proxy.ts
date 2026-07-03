@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import {
   mkdtemp, rm, writeFile,
 } from 'node:fs/promises';
@@ -19,6 +20,9 @@ import { createEphemeralCa, createHostCert } from './cert-authority';
 import {
   describeRule, evaluateProxyPolicy, getRequestScopedManagedItems, type RequestFacts,
 } from './policy';
+import {
+  PROXY_TOKEN_HEADER, SESSION_ENV_ENDPOINT_PATH, VARLOCK_INTERNAL_HOST,
+} from './session-env-payload';
 import type {
   ProxyApprovalEach, ProxyEgressMode, ProxyManagedItem, ProxyRule,
 } from './types';
@@ -40,6 +44,12 @@ export type ProxyRuntimeContext = {
    * snapshot they already resolved. The proxy address and CA are unchanged.
    */
   reconfigure: (next: ProxyReconfigureInput) => void;
+  /**
+   * Set/replace the encoded session-env payload the `varlock.internal` endpoint
+   * serves (see `internalEndpointToken`). Called once after startup and again on
+   * every reload so attach fetches are always current.
+   */
+  setSessionEnvPayloadJson: (payloadJson: string) => void;
   stop: () => Promise<void>;
 };
 
@@ -67,6 +77,16 @@ export type StartLocalProxyRuntimeInput = {
    * (deny on timeout/error). Absent ⇒ require-approval requests are denied.
    */
   approvalProvider?: ApprovalProvider;
+  /**
+   * Enables the `varlock.internal` internal endpoint, which serves the current
+   * session-env payload (child-view env + graph; never wire real values) so an
+   * attaching `proxy run` can adopt this session's env without resolving
+   * anything itself. Requests to the internal host are answered by the proxy,
+   * never forwarded upstream, and not reported as egress activity. The token is
+   * the session token from the 0600 record, so this gates at same-uid — the same
+   * trust level as the record itself, not a hard boundary.
+   */
+  internalEndpointToken?: string;
 };
 
 type HostInfo = { host: string, port: number };
@@ -275,6 +295,15 @@ function respondBlocked(
     } catch { /* ignore */ }
   }
   if (teardown) res.socket?.destroy();
+}
+
+/** Constant-time token comparison (length leak is fine; the token is a uuid, not a password). */
+function tokenMatches(provided: unknown, expected: string): boolean {
+  if (typeof provided !== 'string') return false;
+  const providedBuf = Buffer.from(provided);
+  const expectedBuf = Buffer.from(expected);
+  if (providedBuf.length !== expectedBuf.length) return false;
+  return timingSafeEqual(providedBuf, expectedBuf);
 }
 
 /** Transport-specific inputs for a proxied request, shared by the MITM-tunnel and
@@ -561,6 +590,7 @@ export async function startLocalProxyRuntime({
   onActivity,
   onResponse,
   approvalProvider,
+  internalEndpointToken,
 }: StartLocalProxyRuntimeInput): Promise<ProxyRuntimeContext> {
   // Mutable so `reconfigure` can hot-swap the enforced policy on a live proxy.
   // The request handlers below close over these bindings, so reassigning them
@@ -568,6 +598,8 @@ export async function startLocalProxyRuntime({
   let managedItems = initialManagedItems;
   let rules = initialRules;
   let egressMode = initialEgressMode;
+  // Set via setSessionEnvPayloadJson right after startup (and on each reload).
+  let sessionEnvPayloadJson: string | undefined;
   // Only the public CA cert is written to disk (for child trust). Private keys
   // — the CA's and every per-host leaf's — stay in memory; see cert-authority.ts.
   const certsDir = await mkdtemp(path.join(os.tmpdir(), 'varlock-proxy-certs-'));
@@ -576,6 +608,35 @@ export async function startLocalProxyRuntime({
   const combinedCaPath = path.join(certsDir, 'combined-ca.pem');
   await writeFile(caCertPath, ca.certPem, 'utf8');
   await writeFile(combinedCaPath, `${ca.certPem}\n${tls.rootCertificates.join('\n')}\n`, 'utf8');
+
+  // Internal control endpoint: requests to the magic internal host are answered
+  // by the proxy itself (an attaching `proxy run` fetches the session env here).
+  // Handled before any egress/rule evaluation, never forwarded upstream, and
+  // deliberately not reported as egress activity (it is control plane, not
+  // traffic). Fail order: token first (an unauthenticated caller learns nothing,
+  // not even which paths exist), then path.
+  const handleInternalRequest = (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    t: ProxiedRequestTransport,
+  ) => {
+    if (!internalEndpointToken || !tokenMatches(req.headers[PROXY_TOKEN_HEADER], internalEndpointToken)) {
+      respondBlocked(res, 403, 'varlock proxy: invalid or missing session token', t.tunnelTeardown);
+      return;
+    }
+    if (t.method !== 'GET' || t.pathOnly !== SESSION_ENV_ENDPOINT_PATH) {
+      respondBlocked(res, 404, 'varlock proxy: unknown internal endpoint', t.tunnelTeardown);
+      return;
+    }
+    if (!sessionEnvPayloadJson) {
+      respondBlocked(res, 503, 'varlock proxy: session env not ready yet', t.tunnelTeardown);
+      return;
+    }
+    try {
+      res.writeHead(200, { 'content-type': 'application/json', connection: 'close' });
+      res.end(sessionEnvPayloadJson);
+    } catch { /* client went away */ }
+  };
 
   // Shared request pipeline for both transports (MITM tunnel + absolute-form http):
   // egress gate → per-call policy (block) → cleartext guard → approval gate →
@@ -586,6 +647,11 @@ export async function startLocalProxyRuntime({
     res: http.ServerResponse,
     t: ProxiedRequestTransport,
   ) => {
+    if (normalizeHost(t.host) === VARLOCK_INTERNAL_HOST) {
+      handleInternalRequest(req, res, t);
+      return;
+    }
+
     const baseActivity = {
       host: t.host, method: t.method, path: t.pathOnly, url: t.requestTarget,
     };
@@ -932,6 +998,9 @@ export async function startLocalProxyRuntime({
       REQUESTS_CA_BUNDLE: combinedCaPath,
       CURL_CA_BUNDLE: combinedCaPath,
       GIT_SSL_CAINFO: combinedCaPath,
+    },
+    setSessionEnvPayloadJson: (payloadJson) => {
+      sessionEnvPayloadJson = payloadJson;
     },
     reconfigure: (next) => {
       managedItems = next.managedItems;
