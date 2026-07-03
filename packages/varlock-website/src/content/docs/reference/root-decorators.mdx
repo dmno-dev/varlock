@@ -305,7 +305,7 @@ See the [Caching guide](/guides/caching/) for mode selection guidance by environ
 
 Code-generation decorators turn your schema into generated code — TypeScript type declarations or ready-to-use env modules for other languages — and [plugins](/guides/plugins/) can register generators that emit other kinds of code. See the [Code generation guide](/guides/code-generation/) for the full picture, and [Other languages](/integrations/other-languages/) for per-language usage.
 
-Every `@generate*` decorator is a root decorator that _can be called multiple times_ (one per output file) and shares these common args:
+Every `@generate*` decorator below is a root decorator that _can be called multiple times_ (one per output file) and shares these common args:
 
 - `path`: Relative filepath to write the generated file to.
 - `auto`: Controls whether generation runs automatically on every load (defaults to `true`). Set to `false` to generate only when you run [`varlock codegen`](/reference/cli-commands/#codegen) explicitly — useful in a CI pipeline or a dedicated build step.
@@ -314,10 +314,12 @@ Every `@generate*` decorator is a root decorator that _can be called multiple ti
 :::tip
 Usually these decorators live in your primary `.env.schema` file, and are ignored within imported files. To override this, set `executeWhenImported` to `true`.
 :::
+</div>
 
-#### `@generateTsTypes()`
+<div>
+### `@generateTsTypes()`
 
-TypeScript type declarations — makes `import { ENV } from 'varlock/env'` typed and augments `process.env` / `import.meta.env`. In addition to the common args, it accepts:
+TypeScript type declarations — makes `import { ENV } from 'varlock/env'` typed and augments `process.env` / `import.meta.env`. In addition to the [common code-generation args](#code-generation), it accepts:
 
 - `env`: how the coerced `ENV` object is exposed (defaults to `augment`).
   - `augment` — globally augment `varlock/env` so `import { ENV } from 'varlock/env'` is typed.
@@ -331,43 +333,52 @@ TypeScript type declarations — makes `import { ENV } from 'varlock/env'` typed
 # monorepo-friendly: importable ENV, no globals
 # @generateTsTypes(path=./env.ts, env=module, processEnv=none, importMetaEnv=none)
 ```
+</div>
 
-#### `@generatePythonEnv()`
+<div>
+### `@generatePythonEnv()`
 
-A self-contained Python module — a `CoercedEnvSchema` `TypedDict`, a `load_env()` that parses the injected env, an eager typed `ENV`, and a `SENSITIVE_KEYS` constant.
+A self-contained Python module — a `CoercedEnvSchema` `TypedDict`, a `load_env()` that parses the injected env, an eager typed `ENV`, and a `SENSITIVE_KEYS` constant. See [Python usage](/integrations/other-languages/).
 
 ```env-spec
 # @generatePythonEnv(path=./env.py)
 ```
+</div>
 
-#### `@generateRustEnv()`
+<div>
+### `@generateRustEnv()`
 
-A self-contained Rust module — a serde-derived `Env` struct, a `load()` function, and a `SENSITIVE_KEYS` constant. Requires the `serde` and `serde_json` crates.
+A self-contained Rust module — a serde-derived `Env` struct, a `load()` function, and a `SENSITIVE_KEYS` constant. Requires the `serde` and `serde_json` crates. See [Rust usage](/integrations/other-languages/).
 
 ```env-spec
 # @generateRustEnv(path=./src/env.rs)
 ```
+</div>
 
-#### `@generateGoEnv()`
+<div>
+### `@generateGoEnv()`
 
-A self-contained Go package — an `Env` struct, a `Load()` function, and a `SensitiveKeys` map.
+A self-contained Go package — an `Env` struct, a `Load()` function, and a `SensitiveKeys` map. See [Go usage](/integrations/other-languages/).
 
 ```env-spec
 # @generateGoEnv(path=./env/env.go)
 ```
+</div>
 
-#### `@generatePhpEnv()`
+<div>
+### `@generatePhpEnv()`
 
-A self-contained PHP class — a readonly `Env` with a static `load()` and a `SENSITIVE_KEYS` constant. Requires PHP 8.1+.
+A self-contained PHP class — a readonly `Env` with a static `load()` and a `SENSITIVE_KEYS` constant. Requires PHP 8.1+. See [PHP usage](/integrations/other-languages/).
 
 ```env-spec
 # @generatePhpEnv(path=./Env.php)
 ```
+</div>
 
-#### `@generateTypes()` (deprecated)
+<div>
+### `@generateTypes()` (deprecated)
 
 Deprecated TypeScript-only alias for [`@generateTsTypes`](#generatetstypes). `@generateTypes(lang=ts, path=...)` still works; for other languages use the matching `@generate*Env` decorator (`@generateTypes(lang=py, ...)` errors with a pointer to `@generatePythonEnv`).
-
 </div>
 
 <div>
