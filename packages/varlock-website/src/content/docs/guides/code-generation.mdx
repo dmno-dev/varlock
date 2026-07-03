@@ -35,16 +35,16 @@ See the [`@generateTsTypes` reference](/reference/root-decorators/#generatetstyp
 
 ## Other languages
 
-Varlock ships generators for several languages, each emitting a coerced-schema type and a raw-string-schema type:
+Varlock ships generators for several languages. Each emits a **self-contained, idiomatic module** — a typed value object, a loader that reads the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant (so you can build your own redaction or leak-scanning) — usable out of the box, no hand-rolled parsing:
 
-| Language | Decorator |
-| --- | --- |
-| Python | `@generatePythonTypes` |
-| Rust | `@generateRustTypes` |
-| Go | `@generateGoTypes` |
-| PHP | `@generatePhpTypes` |
+| Language | Decorator | Use it via |
+| --- | --- | --- |
+| Python | `@generatePythonTypes` | `from env_types import ENV, SENSITIVE_KEYS` |
+| Rust | `@generateRustTypes` | `env::load()` |
+| Go | `@generateGoTypes` | `env.Load()` |
+| PHP | `@generatePhpTypes` | `Env::load()` |
 
-For usage examples (parsing the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob into typed values), see [Other languages](/integrations/other-languages/).
+For full usage examples per language, see [Other languages](/integrations/other-languages/).
 
 ## Disabling automatic generation
 
