@@ -86,7 +86,7 @@ Varlock chooses the best available backend automatically:
 | Platform | Backend | Key Storage | Biometric |
 |----------|---------|-------------|-----------|
 | macOS | Secure Enclave | Hardware Secure Enclave | Touch ID |
-| Windows | DPAPI + Windows Hello | Windows credential store | Windows Hello (face/fingerprint/PIN) |
+| Windows | NCrypt TPM + Windows Hello | TPM (when available), else DPAPI | Windows Hello (face/fingerprint/PIN) |
 | Linux | TPM2 / Secret Service | TPM2 and/or system key store | Yes (when configured via polkit/PAM) |
 | All platforms | File-based fallback | `~/.varlock/` directory | No |
 
@@ -105,13 +105,18 @@ If native capabilities are unavailable, varlock falls back to file-based local e
 
 ### Windows
 
-- Native helper with DPAPI-based key protection
-- Windows native and WSL workflows are both supported
+- Native helper with **TPM-sealed** key protection when a TPM 2.0 chip is available (via NCrypt / Platform Crypto Provider)
+- Falls back to **DPAPI** (user-session-scoped) when TPM sealing is unavailable
+- **Windows Hello** gates interactive decrypts (fingerprint/face/PIN) — separate from at-rest protection, same as before
+- Windows native and **WSL** workflows are both supported (WSL uses the Windows `.exe` via `--via-daemon`; Hello + TPM behavior is identical)
 - Automated daemon startup/installation behavior is built in for biometric session flows
 - WSL decrypt flows use a native bridge to the Windows daemon path
-- Biometric-capable session behavior where Windows Hello is available
 
 ✅ No additional install/setup steps required
+
+#### Upgrading existing keys to TPM
+
+New keys automatically use TPM sealing when available. Existing **DPAPI** keys are **auto-upgraded to TPM sealing on the next successful decrypt** (public key unchanged — no re-encryption of `.env` values). To upgrade without decrypting, use `varlock-local-encrypt rewrap-key --key-id varlock-default`.
 
 #### Windows Defender false positives
 

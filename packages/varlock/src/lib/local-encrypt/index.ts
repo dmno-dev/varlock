@@ -5,8 +5,8 @@
  * available backend on the current platform:
  *
  *   1. macOS Secure Enclave (Swift binary) — hardware-backed, Touch ID
- *   2. Windows TPM/Hello (Rust binary) — hardware-backed, Windows Hello (TODO)
- *   3. Linux TPM2 (Rust binary) — hardware-backed (TODO)
+ *   2. Windows NCrypt TPM + Hello (Rust binary) — TPM at-rest; Hello presence gate
+ *   3. Linux TPM2 / Secret Service (Rust binary) — hardware-backed on TPM hosts; polkit/PAM presence
  *   4. File-based (pure JS) — universal fallback, no native binary needed
  */
 
