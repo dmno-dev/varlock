@@ -372,8 +372,9 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
   {
     id: 'mise',
     title: 'mise',
-    // simple-icons:mise isn't in the bundled icon set yet; mdi:tools is a safe stand-in
-    icon: 'mdi:tools',
+    // simple-icons has no mise; this is the real brand logo (full-color, like the other
+    // brand-logo tiles akeyless/doppler/opencode)
+    icon: 'vscode-icons:file-type-mise',
     href: '/integrations/mise/',
     category: 'deployments',
   },
