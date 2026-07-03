@@ -28,10 +28,10 @@ Output is regenerated automatically on [`varlock load`](/reference/cli-commands/
 
 You can control what it emits:
 
-- **`env`** — how the coerced `ENV` object is exposed: `augment` (default, global `varlock/env`), `module` (a package-local importable `ENV`, ideal for monorepos), or `none`.
+- **`exposeEnv`** — where the coerced `ENV` object lives: `global` (default, augments `varlock/env`), `local` (export a package-local `ENV` from the generated file, ideal for monorepos), or `none`.
 - **`processEnv`** / **`importMetaEnv`** — `strict` (only defined keys), `loose` (also allow extra keys), or `none` (don't augment).
 
-See the [`@generateTsTypes` reference](/reference/root-decorators/#generatetstypes) for details. In monorepos where multiple packages have different schemas, prefer `env=module` to avoid global augmentation clashes — see [Typed `ENV` across packages](/guides/monorepos/#typed-env-across-packages).
+See the [`@generateTsTypes` reference](/reference/root-decorators/#generatetstypes) for details. In monorepos where multiple packages have different schemas, prefer `exposeEnv=local` to avoid global augmentation clashes — see [Typed `ENV` across packages](/guides/monorepos/#typed-env-across-packages).
 
 ## Other languages
 

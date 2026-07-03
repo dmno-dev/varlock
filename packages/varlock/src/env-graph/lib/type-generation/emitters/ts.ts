@@ -108,14 +108,15 @@ async function getTsDefinitionForField(field: ResolvedFieldType, indentLevel = 0
 
 /**
  * How the coerced `ENV` object is exposed to TypeScript:
- * - `augment` (default): globally augment `varlock/env` so `import { ENV } from 'varlock/env'` is typed.
+ * - `global` (default): globally augment `varlock/env` so `import { ENV } from 'varlock/env'` is typed.
  *   Simple, but in monorepos every in-scope package's schema merges into the one global module.
- * - `module`: emit a package-local importable `ENV` (re-exports the runtime proxy, typed to this
- *   package's schema). No global augmentation, so nothing merges across packages. Requires a
- *   `.ts`/`.js` output path (a `.d.ts` has no runtime binding).
+ * - `local`: export a package-local typed `ENV` from the generated file (re-exports the runtime proxy,
+ *   typed to this package's schema). No global augmentation, so nothing merges across packages.
+ *   You import from the generated file (e.g. `import { ENV } from './env'`); requires a `.ts`/`.js`
+ *   output path (a `.d.ts` has no runtime binding).
  * - `none`: emit only the type definitions, no `ENV` binding.
  */
-export type TsEnvExposure = 'augment' | 'module' | 'none';
+export type TsEnvExposure = 'global' | 'local' | 'none';
 /**
  * How a global env object (`process.env` / `import.meta.env`) is augmented:
  * - `loose`: typed defined keys but also allow arbitrary extra string keys.
@@ -125,21 +126,21 @@ export type TsEnvExposure = 'augment' | 'module' | 'none';
  */
 export type TsGlobalAugment = 'strict' | 'loose' | 'none';
 export type TsGenOptions = {
-  env?: TsEnvExposure;
+  exposeEnv?: TsEnvExposure;
   processEnv?: TsGlobalAugment;
   importMetaEnv?: TsGlobalAugment;
 };
 
-// defaults preserve the historical output: augment `varlock/env`, and augment both globals with
-// only the defined keys (`strict`). Note: `@types/node` gives `process.env` a base string index
+// defaults preserve the historical output: globally augment `varlock/env`, and augment both globals
+// with only the defined keys (`strict`). Note: `@types/node` gives `process.env` a base string index
 // signature we can't remove, so extra keys remain allowed there regardless.
 const DEFAULT_TS_GEN_OPTIONS = {
-  env: 'augment',
+  exposeEnv: 'global',
   processEnv: 'strict',
   importMetaEnv: 'strict',
 } satisfies Required<TsGenOptions>;
 
-const TS_ENV_EXPOSURE_VALUES: ReadonlyArray<TsEnvExposure> = ['augment', 'module', 'none'];
+const TS_ENV_EXPOSURE_VALUES: ReadonlyArray<TsEnvExposure> = ['global', 'local', 'none'];
 const TS_GLOBAL_AUGMENT_VALUES: ReadonlyArray<TsGlobalAugment> = ['strict', 'loose', 'none'];
 
 function coerceOption<T extends string>(
@@ -156,7 +157,7 @@ function coerceOption<T extends string>(
 /** Parse+validate raw decorator args into resolved TS generator options. */
 function resolveTsGenOptions(options: Record<string, any> = {}): Required<TsGenOptions> {
   return {
-    env: coerceOption(options.env, TS_ENV_EXPOSURE_VALUES, DEFAULT_TS_GEN_OPTIONS.env, 'env'),
+    exposeEnv: coerceOption(options.exposeEnv, TS_ENV_EXPOSURE_VALUES, DEFAULT_TS_GEN_OPTIONS.exposeEnv, 'exposeEnv'),
     processEnv: coerceOption(options.processEnv, TS_GLOBAL_AUGMENT_VALUES, DEFAULT_TS_GEN_OPTIONS.processEnv, 'processEnv'),
     importMetaEnv: coerceOption(options.importMetaEnv, TS_GLOBAL_AUGMENT_VALUES, DEFAULT_TS_GEN_OPTIONS.importMetaEnv, 'importMetaEnv'),
   };
@@ -177,8 +178,8 @@ export async function generateTsTypesSrc(fields: Array<ResolvedFieldType>, optio
     '/* eslint-disable */',
   ];
 
-  // module mode re-exports the runtime ENV proxy, so we need to import it
-  if (opts.env === 'module') {
+  // `local` exposure re-exports the runtime ENV proxy, so we need to import it
+  if (opts.exposeEnv === 'local') {
     tsSrc.push("import { ENV as _ENV } from 'varlock/env';", '');
   }
 
@@ -203,7 +204,7 @@ export async function generateTsTypesSrc(fields: Array<ResolvedFieldType>, optio
   }
 
   // globally augment `varlock/env` so `import { ENV } from 'varlock/env'` is typed
-  if (opts.env === 'augment') {
+  if (opts.exposeEnv === 'global') {
     tsSrc.push(`
 declare module 'varlock/env' {
   export interface TypedEnvSchema extends Readonly<${schemaAlias}> {}
@@ -222,10 +223,10 @@ export type EnvSchemaAsStrings = {
 
   tsSrc.push(`type ${stringsAlias} = EnvSchemaAsStrings;`);
 
-  // module mode: emit a package-local importable ENV typed to *this* package's schema.
+  // `local` exposure: export a package-local ENV typed to *this* package's schema.
   // runtime is identical (still the shared proxy from 'varlock/env'); types stay file-scoped
   // so nothing merges across packages — safe for monorepos.
-  if (opts.env === 'module') {
+  if (opts.exposeEnv === 'local') {
     tsSrc.push(`
 export type PublicCoercedEnvSchema = Readonly<Pick<CoercedEnvSchema, '${exposedNonSensitiveKeys.join("' | '")}'>>;
 

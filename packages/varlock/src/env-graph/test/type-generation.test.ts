@@ -742,9 +742,9 @@ describe('type generation', () => {
       expect(src).not.toContain('import { ENV as _ENV }');
     });
 
-    test('env=none omits the varlock/env augmentation and ENV export', async () => {
+    test('exposeEnv=none omits the varlock/env augmentation and ENV export', async () => {
       const { items } = await loadFixtureFields();
-      const src = await generateTsTypesSrc(resolveFieldTypes(items), { env: 'none' });
+      const src = await generateTsTypesSrc(resolveFieldTypes(items), { exposeEnv: 'none' });
       expect(src).not.toContain("declare module 'varlock/env'");
       expect(src).not.toContain('export const ENV');
       // types are still emitted
@@ -766,9 +766,9 @@ describe('type generation', () => {
       expect(src).toContain('[key: string]: string | undefined;');
     });
 
-    test('env=module emits a package-local importable ENV, no global augmentation', async () => {
+    test('exposeEnv=local emits a package-local importable ENV, no global augmentation', async () => {
       const { items } = await loadFixtureFields();
-      const src = await generateTsTypesSrc(resolveFieldTypes(items), { env: 'module' });
+      const src = await generateTsTypesSrc(resolveFieldTypes(items), { exposeEnv: 'local' });
       expect(src).toContain("import { ENV as _ENV } from 'varlock/env';");
       expect(src).toContain('export const ENV = _ENV as unknown as Readonly<CoercedEnvSchema>;');
       expect(src).toContain('export type PublicCoercedEnvSchema');
@@ -777,14 +777,14 @@ describe('type generation', () => {
 
     test('rejects invalid option values', async () => {
       const { items } = await loadFixtureFields();
-      await expect(generateTsTypesSrc(resolveFieldTypes(items), { env: 'bogus' as any })).rejects.toThrow('invalid `env` value');
+      await expect(generateTsTypesSrc(resolveFieldTypes(items), { exposeEnv: 'bogus' as any })).rejects.toThrow('invalid `exposeEnv` value');
       await expect(generateTsTypesSrc(resolveFieldTypes(items), { processEnv: 'nope' as any })).rejects.toThrow('invalid `processEnv` value');
     });
 
-    test('@generateTsTypes env=module requires a non-.d.ts path', async () => {
+    test('@generateTsTypes exposeEnv=local requires a non-.d.ts path', async () => {
       const g = await loadGraph({
         envFile: outdent`
-          # @generateTsTypes(path=env.d.ts, env=module)
+          # @generateTsTypes(path=env.d.ts, exposeEnv=local)
           # ---
           ITEM=val
         `,

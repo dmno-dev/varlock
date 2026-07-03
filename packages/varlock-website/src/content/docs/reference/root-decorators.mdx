@@ -16,7 +16,7 @@ Root decorators appear in the _header_ section of a .env file - which is any com
 
 More details of the minutiae of decorator handling can be found in the [@env-spec reference](/env-spec/reference/#comments-and-decorators).
 
-## Built-in root decorators
+## General root decorators
 
 These are the root decorators that are built into Varlock. [Plugins](/guides/plugins/) may introduce more.
 
@@ -300,86 +300,6 @@ See the [Caching guide](/guides/caching/) for mode selection guidance by environ
 
 </div>
 
-<div>
-### Code generation ||code-generation||
-
-Code-generation decorators turn your schema into generated code — TypeScript type declarations or ready-to-use env modules for other languages — and [plugins](/guides/plugins/) can register generators that emit other kinds of code. See the [Code generation guide](/guides/code-generation/) for the full picture, and [Other languages](/integrations/other-languages/) for per-language usage.
-
-Every `@generate*` decorator below is a root decorator that _can be called multiple times_ (one per output file) and shares these common args:
-
-- `path`: Relative filepath to write the generated file to.
-- `auto`: Controls whether generation runs automatically on every load (defaults to `true`). Set to `false` to generate only when you run [`varlock codegen`](/reference/cli-commands/#codegen) explicitly — useful in a CI pipeline or a dedicated build step.
-- `executeWhenImported`: overrides the default of not executing when the containing file is imported (defaults to `false`).
-
-:::tip
-Usually these decorators live in your primary `.env.schema` file, and are ignored within imported files. To override this, set `executeWhenImported` to `true`.
-:::
-</div>
-
-<div>
-### `@generateTsTypes()`
-
-TypeScript type declarations — makes `import { ENV } from 'varlock/env'` typed and augments `process.env` / `import.meta.env`. In addition to the [common code-generation args](#code-generation), it accepts:
-
-- `env`: how the coerced `ENV` object is exposed (defaults to `augment`).
-  - `augment` — globally augment `varlock/env` so `import { ENV } from 'varlock/env'` is typed.
-  - `module` — emit a package-local importable `ENV` (typed to _this_ package's schema) with **no** global augmentation. Use this in monorepos where multiple packages have different schemas. Requires a `.ts` (or `.js`) output path, and you import from the generated file (e.g. `import { ENV } from './env'`).
-  - `none` — emit only the type definitions, no `ENV` binding.
-- `processEnv`: how `process.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`, but to `none` when [`@disableProcessEnvInjection`](#disableprocessenvinjection) is set, since values aren't put on `process.env` then). Note that `@types/node` declares a base string index signature that can't be removed, so extra keys remain allowed on `process.env` regardless.
-- `importMetaEnv`: how `import.meta.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`).
-
-```env-spec
-# @generateTsTypes(path=./env.d.ts)
-# monorepo-friendly: importable ENV, no globals
-# @generateTsTypes(path=./env.ts, env=module, processEnv=none, importMetaEnv=none)
-```
-</div>
-
-<div>
-### `@generatePythonEnv()`
-
-A self-contained Python module — a `CoercedEnvSchema` `TypedDict`, a `load_env()` that parses the injected env, an eager typed `ENV`, and a `SENSITIVE_KEYS` constant. See [Python usage](/integrations/other-languages/).
-
-```env-spec
-# @generatePythonEnv(path=./env.py)
-```
-</div>
-
-<div>
-### `@generateRustEnv()`
-
-A self-contained Rust module — a serde-derived `Env` struct, a `load()` function, and a `SENSITIVE_KEYS` constant. Requires the `serde` and `serde_json` crates. See [Rust usage](/integrations/other-languages/).
-
-```env-spec
-# @generateRustEnv(path=./src/env.rs)
-```
-</div>
-
-<div>
-### `@generateGoEnv()`
-
-A self-contained Go package — an `Env` struct, a `Load()` function, and a `SensitiveKeys` map. See [Go usage](/integrations/other-languages/).
-
-```env-spec
-# @generateGoEnv(path=./env/env.go)
-```
-</div>
-
-<div>
-### `@generatePhpEnv()`
-
-A self-contained PHP class — a readonly `Env` with a static `load()` and a `SENSITIVE_KEYS` constant. Requires PHP 8.1+. See [PHP usage](/integrations/other-languages/).
-
-```env-spec
-# @generatePhpEnv(path=./Env.php)
-```
-</div>
-
-<div>
-### `@generateTypes()` (deprecated)
-
-Deprecated TypeScript-only alias for [`@generateTsTypes`](#generatetstypes). `@generateTypes(lang=ts, path=...)` still works; for other languages use the matching `@generate*Env` decorator (`@generateTypes(lang=py, ...)` errors with a pointer to `@generatePythonEnv`).
-</div>
 
 <div>
 ### `@redactLogs`
@@ -534,6 +454,88 @@ API_KEY=
 # ---
 API_KEY=
 ```
+</div>
+
+</div>
+
+## Code generation ||code-generation||
+
+Code-generation decorators turn your schema into generated code — TypeScript type declarations or ready-to-use env modules for other languages — and [plugins](/guides/plugins/) can register generators that emit other kinds of code. See the [Code generation guide](/guides/code-generation/) for the full picture, and [Other languages](/integrations/other-languages/) for per-language usage.
+
+Every `@generate*` decorator below is a root decorator that _can be called multiple times_ (one per output file) and shares these common args:
+
+- `path`: Relative filepath to write the generated file to.
+- `auto`: Controls whether generation runs automatically on every load (defaults to `true`). Set to `false` to generate only when you run [`varlock codegen`](/reference/cli-commands/#codegen) explicitly — useful in a CI pipeline or a dedicated build step.
+- `executeWhenImported`: overrides the default of not executing when the containing file is imported (defaults to `false`).
+
+:::tip
+Usually these decorators live in your primary `.env.schema` file, and are ignored within imported files. To override this, set `executeWhenImported` to `true`.
+:::
+
+<div class="reference-docs">
+<div>
+### `@generateTsTypes()`
+
+TypeScript type declarations — makes `import { ENV } from 'varlock/env'` typed and augments `process.env` / `import.meta.env`. In addition to the [common code-generation args](#code-generation), it accepts:
+
+- `exposeEnv`: where the coerced `ENV` object lives (defaults to `global`).
+  - `global` — globally augment `varlock/env` so `import { ENV } from 'varlock/env'` is typed.
+  - `local` — export a package-local typed `ENV` from the generated file (with **no** global augmentation). Use this in monorepos where multiple packages have different schemas. Requires a `.ts` (or `.js`) output path, and you import from the generated file (e.g. `import { ENV } from './env'`).
+  - `none` — emit only the type definitions, no `ENV` binding.
+- `processEnv`: how `process.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`, but to `none` when [`@disableProcessEnvInjection`](#disableprocessenvinjection) is set, since values aren't put on `process.env` then). Note that `@types/node` declares a base string index signature that can't be removed, so extra keys remain allowed on `process.env` regardless.
+- `importMetaEnv`: how `import.meta.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`).
+
+```env-spec
+# @generateTsTypes(path=./env.d.ts)
+# monorepo-friendly: importable local ENV, no globals
+# @generateTsTypes(path=./env.ts, exposeEnv=local, processEnv=none, importMetaEnv=none)
+```
+</div>
+
+<div>
+### `@generatePythonEnv()`
+
+A self-contained Python module — a `CoercedEnvSchema` `TypedDict`, a `load_env()` that parses the injected env, an eager typed `ENV`, and a `SENSITIVE_KEYS` constant. See [Python usage](/integrations/other-languages/).
+
+```env-spec
+# @generatePythonEnv(path=./env.py)
+```
+</div>
+
+<div>
+### `@generateRustEnv()`
+
+A self-contained Rust module — a serde-derived `Env` struct, a `load()` function, and a `SENSITIVE_KEYS` constant. Requires the `serde` and `serde_json` crates. See [Rust usage](/integrations/other-languages/).
+
+```env-spec
+# @generateRustEnv(path=./src/env.rs)
+```
+</div>
+
+<div>
+### `@generateGoEnv()`
+
+A self-contained Go package — an `Env` struct, a `Load()` function, and a `SensitiveKeys` map. See [Go usage](/integrations/other-languages/).
+
+```env-spec
+# @generateGoEnv(path=./env/env.go)
+```
+</div>
+
+<div>
+### `@generatePhpEnv()`
+
+A self-contained PHP class — a readonly `Env` with a static `load()` and a `SENSITIVE_KEYS` constant. Requires PHP 8.1+. See [PHP usage](/integrations/other-languages/).
+
+```env-spec
+# @generatePhpEnv(path=./Env.php)
+```
+</div>
+
+<div>
+### `@generateTypes()` (deprecated)
+
+Deprecated TypeScript-only alias for [`@generateTsTypes`](#generatetstypes). `@generateTypes(lang=ts, path=...)` still works; for other languages use the matching `@generate*Env` decorator (`@generateTypes(lang=py, ...)` errors with a pointer to `@generatePythonEnv`).
 </div>
 
 </div>

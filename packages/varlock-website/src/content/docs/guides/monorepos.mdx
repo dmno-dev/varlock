@@ -109,10 +109,10 @@ Services that do not need a framework integration can start with [`varlock run`]
 
 By default, [`@generateTsTypes`](/reference/root-decorators/#generatetstypes) globally augments the `varlock/env` module so `import { ENV } from 'varlock/env'` is typed. There is only one `varlock/env` module in a TypeScript program, so when several packages each generate types with **different** schemas, their augmentations merge — a package can end up seeing keys it never declared, or hit conflicting types.
 
-To keep each package's `ENV` isolated, use module mode. It emits a package-local file that re-exports the runtime `ENV` typed to *that* package's schema, with no global augmentation:
+To keep each package's `ENV` isolated, set `exposeEnv=local`. It emits a package-local file that re-exports the runtime `ENV` typed to *that* package's schema, with no global augmentation:
 
 ```env-spec title="packages/api/.env.schema"
-# @generateTsTypes(path=./env.ts, env=module)
+# @generateTsTypes(path=./env.ts, exposeEnv=local)
 ```
 
 Then import from the generated file instead of `varlock/env`:

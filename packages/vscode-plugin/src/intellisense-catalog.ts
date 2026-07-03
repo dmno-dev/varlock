@@ -76,8 +76,8 @@ export const ROOT_DECORATORS: Array<DecoratorInfo> = [
     summary: 'Generates TypeScript types from the schema.',
     documentation: [
       'Example: `# @generateTsTypes(path=./env.d.ts)`.',
-      'Options: `env` (`augment` | `module` | `none`) controls how the coerced `ENV` object is exposed —',
-      'use `module` (with a `.ts` path) for monorepos to avoid global augmentation clashes.',
+      'Options: `exposeEnv` (`global` | `local` | `none`) controls where the coerced `ENV` object lives —',
+      'use `local` (with a `.ts` path) for monorepos to avoid global augmentation clashes.',
       '`processEnv` / `importMetaEnv` (`strict` | `loose` | `none`) control global env augmentation.',
     ].join(' '),
     insertText: '@generateTsTypes(path=${1:./env.d.ts})',

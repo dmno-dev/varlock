@@ -56,9 +56,9 @@ const LANG_TO_DECORATOR: Record<string, string> = {
 };
 
 function generateTsFile(ctx: CodeGenContext): Promise<string> {
-  if (ctx.options.env === 'module' && ctx.outputPath.endsWith('.d.ts')) {
+  if (ctx.options.exposeEnv === 'local' && ctx.outputPath.endsWith('.d.ts')) {
     throw new Error(
-      '@generateTsTypes - `env=module` emits a runtime re-export, so it needs a `.ts` (or `.js`) output path, not `.d.ts`.',
+      '@generateTsTypes - `exposeEnv=local` emits a runtime re-export, so it needs a `.ts` (or `.js`) output path, not `.d.ts`.',
     );
   }
 

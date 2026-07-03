@@ -419,7 +419,7 @@ describe('CLI Commands', () => {
       }
     });
 
-    test('varlock typegen env=module emits an importable ENV without global augmentation', () => {
+    test('varlock codegen exposeEnv=local emits an importable ENV without global augmentation', () => {
       const moduleDir = join(SMOKE_TESTS_DIR, 'smoke-test-typegen-module');
       const outputPath = join(moduleDir, 'env.ts');
       if (existsSync(outputPath)) rmSync(outputPath);
