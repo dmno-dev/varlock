@@ -154,6 +154,81 @@ Requires PHP 8.1+ (readonly promoted properties).
   </TabItem>
 </Tabs>
 
+## Passing the env around
+
+The loader returns a **named, exported type** — a struct, class, or `TypedDict` — not an anonymous shape. So you load it once and thread it through your own functions, and the types (plus autocomplete and checker support) come along for free. Reference the type name alongside the loader.
+
+<Tabs syncKey="polyglot-env-blob">
+  <TabItem label="Python">
+
+```python
+from env_types import load_env, CoercedEnvSchema
+
+def connect(cfg: CoercedEnvSchema) -> None:
+    port = cfg["DB_PORT"]   # checker knows this is int
+    ...
+
+connect(load_env())
+```
+
+  </TabItem>
+
+  <TabItem label="Rust">
+
+```rust
+mod env;
+
+fn connect(cfg: &env::Env) {
+    let _port = cfg.db_port;   // Option<i64>, fully typed
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let e = env::load()?;
+    connect(&e);
+    Ok(())
+}
+```
+
+  </TabItem>
+
+  <TabItem label="Go">
+
+```go
+package main
+
+import "myapp/env"
+
+func connect(cfg env.Env) {
+    _ = cfg.DbPort   // *int64, fully typed
+}
+
+func main() {
+    e, err := env.Load()
+    if err != nil {
+        panic(err)
+    }
+    connect(e)
+}
+```
+
+  </TabItem>
+
+  <TabItem label="PHP">
+
+```php
+<?php
+require 'Env.php';
+
+function connect(Env $cfg): void {
+    $port = $cfg->DB_PORT;   // ?int, IDE knows the readonly props
+}
+
+connect(Env::load());
+```
+
+  </TabItem>
+</Tabs>
+
 :::note[Raw string env vars]
 Individual config keys are also injected as plain environment variables, but those values are always strings (uncoerced). Prefer the generated loader / `__VARLOCK_ENV` when you want coerced types.
 :::
