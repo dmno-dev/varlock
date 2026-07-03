@@ -123,6 +123,10 @@ varlock proxy run -- python tool.py
 
 That's it. The child inherits everything it needs (proxy address + CA trust) automatically.
 
+:::note[Using the proxy with Claude Code]
+Wire Claude Code's credential as [`ANTHROPIC_API_KEY`](/guides/ai-tools/) (an `sk-ant-api…` key). `CLAUDE_CODE_OAUTH_TOKEN` (a subscription token from `claude setup-token`) only works for headless `claude -p` requests: the interactive TUI rejects a static token, so through the proxy it fails with a `401` regardless of your egress setting.
+:::
+
 :::caution[Put `@proxy` on the item, not in the header]
 `@proxy(domain=...)` on a **config item** routes _that item's_ secret to the domain. The same decorator in the **header** creates a _detached_ policy rule for a domain with **no** secret injection (useful for `block` rules). A common mistake is to write `@proxy` in the header and expect a separate item to be injected, but it won't be. See [Routing rules](#routing-rules).
 :::

@@ -66,7 +66,7 @@ Varlock does not auto-load a global schema (that would make two developers' mach
   <TabItem label="Claude">
     [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) is Anthropic's CLI tool for AI-assisted coding.
 
-    **Environment variable:** `ANTHROPIC_API_KEY` — see [supported env variables](https://docs.claude.com/en/docs/claude-code/settings#environment-variables).
+    **Environment variable:** `ANTHROPIC_API_KEY` (see [supported env variables](https://docs.claude.com/en/docs/claude-code/settings#environment-variables)). Use the API key, not `CLAUDE_CODE_OAUTH_TOKEN`: that (from `claude setup-token`) only works for headless `claude -p` requests, not the interactive TUI.
 
     **In a project** — add to `.env.schema`:
 
