@@ -5,7 +5,7 @@ description: Use varlock with Python (FastAPI, uvicorn, Poetry), a generated typ
 
 import { Steps } from "@astrojs/starlight/components";
 
-Varlock's first-class integrations target JavaScript and TypeScript runtimes, but the CLI works with **any language** that reads environment variables. For Python projects, install the [standalone binary](/getting-started/installation/#as-a-binary) and boot your app with [`varlock run`](/reference/cli-commands/#run).
+Varlock's runtime helpers (plugins, build-time replacement) target JavaScript and TypeScript, but the CLI works with **any language**. For Python you boot your app with [`varlock run`](/reference/cli-commands/#run) — which loads, validates, and injects your config — and then read that config either from a **[generated typed module](#generated-typed-module)** (coerced `int`/`bool`/etc.) or from the plain environment variables with your existing settings library. Install the [standalone binary](/getting-started/installation/#as-a-binary) to get started.
 
 :::tip[Why the standalone binary?]
 Python projects typically don't have a `package.json`, so the npm-distributed `varlock` package isn't the natural install path. The standalone binary gives you the same CLI — load, validate, run, and plugin support — without adding a Node.js dependency to your repo.
@@ -145,9 +145,9 @@ Keys whose names aren't valid Python identifiers (they contain `.` or `-`) are o
 
 ---
 
-## Reading env in Python
+## Reading env with a settings library
 
-Varlock injects plain environment variables. Use whichever settings library you already prefer — both patterns below assume vars arrive via `varlock run`, not from a committed `.env` file.
+Prefer a typed, coerced object? Use the [generated module](#generated-typed-module) above. If you'd rather keep the settings library you already use, varlock also injects every key as a plain environment variable — so Pydantic, environs, and friends work unchanged. Note these read the **raw string** values (e.g. `"5432"`, `"true"`), so your settings class is what coerces them. Both patterns below assume vars arrive via `varlock run`, not from a committed `.env` file.
 
 ### Pydantic Settings
 
@@ -166,6 +166,9 @@ DATABASE_URL=
 
 # @type=string(startsWith=sk-) @sensitive
 OPENAI_API_KEY=
+
+# @type=boolean
+DEBUG=false
 ```
 
 ```python title="settings.py"
