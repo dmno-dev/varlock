@@ -274,7 +274,7 @@ Every `varlock proxy` command operates on a **session**: one running proxy with 
 - **By id:** pass `--session <id>` to any command (`proxy env --session abc12`, `proxy stop --session abc12`, etc.).
 - **Auto-discovered:** with no `--session`, the command resolves one for you:
   - `proxy run` attaches to the running `proxy start` daemon **for the current directory** (a session whose directory is this one or a parent of it). If there isn't one it starts its own proxy; pass `--new` to always start a fresh, separate one.
-  - `env` / `status` / `audit` / `refresh` / `stop` use the **single active session**. If more than one is running they ask you to pass `--session <id>`; commands run from inside a proxied child target that child's own session automatically.
+  - `env` / `status` / `audit` / `reload` / `stop` use the **single active session**. If more than one is running they ask you to pass `--session <id>`; commands run from inside a proxied child target that child's own session automatically.
 
 Sessions are durable records: they persist after the proxy stops (visible with `proxy status --all`) so their [audit log](#auditing) stays available.
 
@@ -320,8 +320,10 @@ varlock proxy start            # or: varlock proxy run -- <command>
 
 A one-shot `varlock proxy run` already re-reads the schema on its next invocation, so just re-run it.
 
-:::note[Hot-reload is opt-in]
-You can start a daemon with `varlock proxy start --allow-reload` to enable `varlock proxy refresh`, which re-resolves the schema and swaps the live policy without restarting. It's **off by default**: the reload channel is unauthenticated on a shared uid, so a same-uid agent could trigger a refresh to self-approve its own schema edit. Only enable it behind a sandbox (or once a real out-of-band approver ships).
+:::note[Hot-reload]
+A running proxy can hot-reload your schema without a restart: run `varlock proxy reload` from a **trusted terminal** and it re-resolves the schema and swaps the live policy. A reload requested from **inside** the proxied agent is refused (so the agent can't self-approve its own schema edit) and the attempt is surfaced in the `proxy start` log.
+
+Whether reload is available is set by [`@proxyConfig={reload=...}`](/reference/root-decorators/#proxyconfig) (`off` / `manual` / `auto`, default `auto`), and can be overridden per run with `--allow-reload` / `--no-allow-reload`. `auto` is conservative: it enables `manual` reload only for an interactive `varlock proxy start` (a human is there to apply it and watch the log) and stays `off` for headless runs or a one-shot `varlock proxy run`. On a shared uid the agent-refusal is a bar-raiser, not a hard boundary (a marker-stripping agent evades it), so `auto` only widens toward agent-triggered reload once containment (a sandbox) or a real out-of-band approver makes it safe.
 :::
 
 ## Limitations
@@ -332,7 +334,7 @@ The proxy is a local, same-machine tool. Know what it does and doesn't cover bef
 - **Response scrubbing is best-effort.** Responses are scrubbed back to placeholders only for **small, uncompressed text** bodies. **Compressed (gzip/br) or large (>2&nbsp;MB) response bodies are passed through unscrubbed**: the proxy can't scan into them. This only matters if an upstream *reflects your secret back in its response* (uncommon); the primary protection (the agent only ever holds a placeholder) is unaffected.
 - **Injection requires a verified public-TLS host.** Secrets are injected only onto connections whose TLS identity is verified against public CAs. The proxy refuses to inject over cleartext `http://` or into a self-signed/local upstream, by design.
 - **Default egress is not containment.** `egress=permissive` (the default) does not restrict where the agent can connect; it just never injects to unmatched hosts. Use `egress=strict` (and ideally a sandbox) if you want to constrain egress.
-- **Hot-reload is unauthenticated (and off by default).** `proxy refresh` only works when the daemon was started with `--allow-reload`. Even then, any process running as your user can trigger it, so on a shared uid it is not a trust boundary; a real out-of-band approver is planned to close it.
+- **Hot-reload is human-applied (and off by default).** `proxy reload` only works when the daemon was started with `--allow-reload`, and a reload requested from inside the proxied agent is refused and logged so the agent can't self-approve a schema edit. But that refusal is a self-reported signal, not authentication: an agent that strips its proxy markers (or runs out-of-tree) can still trigger a reload on a shared uid. A real out-of-band approver is planned to close this; until then, enable it only behind a sandbox.
 - **Only proxy-aware clients are covered.** The child is pointed at the proxy via standard `HTTP(S)_PROXY` / CA env vars. A client that ignores those (or pins its own CA) bypasses the proxy entirely; it just won't get a working secret.
 
 ## Reference

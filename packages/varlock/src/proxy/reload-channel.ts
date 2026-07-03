@@ -8,10 +8,10 @@ import { dirname, join } from 'node:path';
 import { getProxySessionDir } from './session-registry';
 
 /**
- * File-based request/result channel between `varlock proxy refresh` and the
+ * File-based request/result channel between `varlock proxy reload` and the
  * process that owns a live proxy runtime (a `proxy start` daemon or a
- * self-owned `proxy run`). The refresh process writes a request; the owner polls
- * for it, hot-reloads its policy, and writes back a result the refresh process
+ * self-owned `proxy run`). The reload process writes a request; the owner polls
+ * for it, hot-reloads its policy, and writes back a result the reload process
  * blocks on. Cross-platform (no signals) and holds no secret values.
  *
  * This is interim plumbing: when the native app / phone approver lands it talks
@@ -26,10 +26,20 @@ export type ProxyReloadRequest = {
   requestedAt: string;
   /** Entry paths to resolve from; falls back to the session's stored paths. */
   entryPaths?: Array<string>;
+  /**
+   * Set when the reload was requested from inside the proxied agent (self-reported
+   * via the proxy-context markers). The owner refuses these so an agent can't
+   * self-approve its own schema edit; a human must run `proxy reload` from a
+   * trusted terminal. Not a hard boundary on a shared uid (a marker-stripping
+   * agent evades it, same as the other in-tree guards), but it catches the
+   * honest path and surfaces the attempt in the owner's log. The out-of-band
+   * approver is the real gate.
+   */
+  requestedFromProxyChild?: boolean;
 };
 
-/** Both terminal. A future approver adds `denied` (+ a pending phase). */
-export type ProxyReloadStatus = 'done' | 'error';
+/** All terminal. `denied` = the owner refused it (today: requested from inside the agent). */
+export type ProxyReloadStatus = 'done' | 'error' | 'denied';
 
 export type ProxyReloadResult = {
   requestId: string;

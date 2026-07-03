@@ -23,7 +23,7 @@ export function isProxyChildProcess(env: NodeJS.ProcessEnv = process.env): boole
  * can't defeat by clearing the marker. When the marker is absent but ancestry
  * says we're proxied, that's a likely bypass probe — logged as a signal.
  */
-async function isInProxyContext(env: NodeJS.ProcessEnv): Promise<boolean> {
+export async function isInProxyContext(env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
   if (isProxyChildProcess(env)) return true;
 
   const session = await getActiveProxySession(env);
@@ -51,7 +51,7 @@ export async function enforceProxyContextGuards(rawArgs: Array<string>, env: Nod
       throw new CliExitError(
         `Command blocked in proxied context: \`varlock proxy ${action}\` is disabled to prevent nested proxy execution.`,
         {
-          suggestion: 'Use `varlock proxy env`, `varlock proxy status`, or `varlock proxy refresh` from within proxied sessions.',
+          suggestion: 'Use `varlock proxy env` or `varlock proxy status` from within proxied sessions. (Applying a schema edit with `varlock proxy reload` must be done from a trusted terminal, not the agent.)',
         },
       );
     }

@@ -35,7 +35,7 @@ export type ProxyRuntimeContext = {
   env: NodeJS.ProcessEnv;
   /**
    * Hot-swap the policy a running proxy enforces (rules, managed items, egress
-   * mode) without restarting — used by `proxy refresh` to apply schema edits to
+   * mode) without restarting — used by `proxy reload` to apply schema edits to
    * a live daemon. Takes effect on the next request; in-flight requests keep the
    * snapshot they already resolved. The proxy address and CA are unchanged.
    */

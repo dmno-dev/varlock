@@ -49,6 +49,22 @@ describe('proxy reload channel', () => {
     expect(res).toMatchObject({ requestId, status: 'done', managedItemCount: 3 });
   });
 
+  test('carries the requestedFromProxyChild flag and a denied result (agent self-approval refusal)', async () => {
+    const uuid = 'sess-denied';
+    await writeReloadRequest(uuid, {
+      requestId: 'c', requestedAt: '2026-06-16T00:00:00.000Z', requestedFromProxyChild: true,
+    });
+    expect((await readReloadRequest(uuid))?.requestedFromProxyChild).toBe(true);
+
+    await writeReloadResult(uuid, {
+      requestId: 'c',
+      status: 'denied',
+      completedAt: '2026-06-16T00:00:01.000Z',
+      error: 'reload requested from inside the proxied agent; apply it from a trusted terminal instead',
+    });
+    expect((await readReloadResult(uuid))?.status).toBe('denied');
+  });
+
   test('returns undefined when no request/result exists', async () => {
     expect(await readReloadRequest('missing')).toBeUndefined();
     expect(await readReloadResult('missing')).toBeUndefined();

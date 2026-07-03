@@ -26,7 +26,7 @@ export type ProxySessionRecord = {
   updatedAt: string;
   /** Set once the session's process has stopped. A session dir is a durable record; it's marked ended, not deleted. */
   endedAt?: string;
-  /** A long-lived `proxy start` daemon that can hot-reload its policy on `proxy refresh` (via the file reload channel). One-shot `proxy run` sessions are not reloadable. */
+  /** A long-lived `proxy start` daemon that can hot-reload its policy on `proxy reload` (via the file reload channel). One-shot `proxy run` sessions are not reloadable. */
   reloadable?: boolean;
   /**
    * Pids of `proxy run` processes that attached to this (shared daemon) session.

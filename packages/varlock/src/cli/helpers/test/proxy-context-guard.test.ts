@@ -44,6 +44,6 @@ describe('enforceProxyContextGuards', () => {
   test('allows non-launch proxy commands in proxied context', async () => {
     await expect(enforceProxyContextGuards(['proxy', 'status'], proxiedEnv)).resolves.toBeUndefined();
     await expect(enforceProxyContextGuards(['proxy', 'env'], proxiedEnv)).resolves.toBeUndefined();
-    await expect(enforceProxyContextGuards(['proxy', 'refresh'], proxiedEnv)).resolves.toBeUndefined();
+    await expect(enforceProxyContextGuards(['proxy', 'reload'], proxiedEnv)).resolves.toBeUndefined();
   });
 });

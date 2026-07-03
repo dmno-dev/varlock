@@ -654,14 +654,14 @@ Every subcommand operates on a [session](/guides/proxy/#sessions). Target one wi
 - `env`: Print the proxy + CA environment for a session, to source into another shell (`eval "$(varlock proxy env)"`).
 - `status`: List active proxy sessions.
 - `audit`: Print a session's request audit log (no secret values).
-- `refresh`: Hot-reload a daemon started with `--allow-reload` after an intentional schema edit; re-resolves and swaps the live policy without restarting. (Off by default; otherwise restart the proxy to apply schema changes.)
+- `reload`: Re-resolve the schema and swap a running proxy's live policy without restarting, after an intentional schema edit. Must be run from a **trusted terminal**: a reload requested from inside the proxied agent is refused and logged. Requires the proxy's reload posture to allow it (see `--allow-reload` / [`@proxyConfig={reload=...}`](/reference/root-decorators/#proxyconfig)); otherwise restart the proxy to apply schema changes.
 - `stop`: Stop a session.
 
 **Options:**
 - `--session <id>`: Target a specific session by id.
 - `--new`: For `run`, force a fresh proxy instead of attaching to a running one.
 - `--all`: For `status`/`stop`, include all sessions (`status` also shows ended sessions).
-- `--allow-reload`: For `start`/`run`, enable live policy hot-reload via `proxy refresh` (off by default; the reload channel is unauthenticated on a shared uid, so only enable behind a sandbox).
+- `--allow-reload` / `--no-allow-reload`: For `start`/`run`, override the reload posture. `--allow-reload` forces `manual` (human-applied from a trusted terminal; agent-context reloads refused), `--no-allow-reload` forces `off`. Otherwise [`@proxyConfig={reload=...}`](/reference/root-decorators/#proxyconfig) applies, defaulting to `auto` (manual for an interactive `proxy start`, off for headless or one-shot `proxy run`). On a shared uid this is a bar-raiser, not a hard boundary, so prefer a sandbox.
 - `--inject <all｜vars｜blob>`: For `run`, control what is injected into the child env (default `all`).
 - `--redact-stdout` / `--no-redact-stdout`: For `run`, override the automatic per-stream redaction. By default output is redacted only when piped or redirected; streams attached to an interactive terminal pass through as a raw TTY, so interactive tools like `claude` work. `--no-redact-stdout` disables redaction entirely; `--redact-stdout` forces it for piped output (and errors on a TTY). Also settable via `_VARLOCK_REDACT_STDOUT`.
 - `--watch`: For `status`, continuously refresh.

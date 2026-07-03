@@ -65,6 +65,8 @@ export type SerializedEnvGraph = {
     encryptInjectedEnv?: boolean;
     disableProcessEnvInjection?: boolean;
     proxyEgress?: ProxyEgressMode;
+    /** `@proxyConfig={reload=...}` posture; the proxy resolves `auto` at launch. */
+    proxyReload?: 'off' | 'manual' | 'auto';
   },
   config: Record<string, {
     value: any;
@@ -786,6 +788,9 @@ export class EnvGraph {
     serializedGraph.settings.disableProcessEnvInjection = this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
     const proxyConfig = this.getRootDec('proxyConfig')?.resolvedValue;
     serializedGraph.settings.proxyEgress = proxyConfig?.egress === 'strict' ? 'strict' : 'permissive';
+    // Store the raw reload posture (off/manual/auto); the proxy command resolves `auto`
+    // at launch from context. Absent = undefined, and the command defaults it to `auto`.
+    if (proxyConfig?.reload) serializedGraph.settings.proxyReload = proxyConfig.reload;
 
     // collect all errors into a single nested object
     const errors: SerializedEnvGraphErrors = {};

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../../../env-graph';
-import { computeProxyChildView, isCwdWithin } from '../proxy.command.js';
+import { computeProxyChildView, isCwdWithin, resolveReloadMode } from '../proxy.command.js';
 
 async function loadGraph(envFile: string) {
   const graph = new EnvGraph();
@@ -16,6 +16,47 @@ async function childView(graph: EnvGraph) {
   const managedItems = await graph.getProxyManagedItems();
   return computeProxyChildView(graph, managedItems);
 }
+
+describe('resolveReloadMode', () => {
+  test('the flag wins: --allow-reload -> manual, --no-allow-reload -> off', () => {
+    // flag overrides schema and context in both directions
+    expect(resolveReloadMode({
+      flag: true, schema: 'off', isStart: false, hasTty: false,
+    }))
+      .toEqual({ mode: 'manual', resolvedFromAuto: false });
+    expect(resolveReloadMode({
+      flag: false, schema: 'manual', isStart: true, hasTty: true,
+    }))
+      .toEqual({ mode: 'off', resolvedFromAuto: false });
+  });
+
+  test('an explicit schema value (off/manual) is used verbatim', () => {
+    expect(resolveReloadMode({
+      flag: undefined, schema: 'manual', isStart: false, hasTty: false,
+    }))
+      .toEqual({ mode: 'manual', resolvedFromAuto: false });
+    expect(resolveReloadMode({
+      flag: undefined, schema: 'off', isStart: true, hasTty: true,
+    }))
+      .toEqual({ mode: 'off', resolvedFromAuto: false });
+  });
+
+  test('auto (explicit or defaulted) resolves conservatively from launch context', () => {
+    const auto = (isStart: boolean, hasTty: boolean) => resolveReloadMode({
+      flag: undefined, schema: 'auto', isStart, hasTty,
+    });
+    // manual only for an interactive `proxy start`; off everywhere else
+    expect(auto(true, true)).toEqual({ mode: 'manual', resolvedFromAuto: true });
+    expect(auto(true, false)).toEqual({ mode: 'off', resolvedFromAuto: true }); // headless daemon
+    expect(auto(false, true)).toEqual({ mode: 'off', resolvedFromAuto: true }); // one-shot `proxy run`
+    expect(auto(false, false)).toEqual({ mode: 'off', resolvedFromAuto: true });
+    // no schema value defaults to auto
+    expect(resolveReloadMode({
+      flag: undefined, schema: undefined, isStart: true, hasTty: true,
+    }))
+      .toEqual({ mode: 'manual', resolvedFromAuto: true });
+  });
+});
 
 describe('computeProxyChildView', () => {
   test('gives an unmanaged sensitive key a placeholder by default (not omitted)', async () => {

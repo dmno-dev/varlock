@@ -49,8 +49,10 @@ import {
   readReloadResult,
   writeReloadRequest,
   writeReloadResult,
+  type ProxyReloadRequest,
   type ProxyReloadResult,
 } from '../../proxy/reload-channel';
+import { isInProxyContext } from '../helpers/proxy-context-guard';
 import type { ProxyManagedItem, ProxyRule } from '../../proxy/types';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
@@ -109,9 +111,11 @@ export const commandSpec = define({
     },
     'allow-reload': {
       type: 'boolean',
-      description: 'For `proxy start`/`run`: enable live policy hot-reload via `proxy refresh`. Off by default; '
-        + 'the reload channel is unauthenticated on a shared uid, so a same-uid agent could self-approve a schema '
-        + 'edit. Only enable it alongside a sandbox (or once the out-of-band approver ships).',
+      negatable: true,
+      description: 'Override the reload posture for this `proxy start`/`run`: `--allow-reload` forces `manual` '
+        + '(human-applied from a trusted terminal; reloads requested from inside the agent are refused), '
+        + '`--no-allow-reload` forces `off`. Otherwise `@proxyConfig={reload=...}` applies, defaulting to `auto` '
+        + '(manual for an interactive `proxy start`, off for headless or one-shot `proxy run`).',
     },
   },
   examples: `
@@ -124,7 +128,7 @@ Proxy command surface:
   varlock proxy env --session abc12
   varlock proxy status
   varlock proxy audit --session abc12
-  varlock proxy refresh --session abc12
+  varlock proxy reload --session abc12
   varlock proxy stop --session abc12
   varlock proxy stop --all
   `.trim(),
@@ -288,7 +292,7 @@ function getAction(ctx: any): string {
   if (!action) {
     throw new CliExitError(
       'Missing proxy action.',
-      { suggestion: 'Use one of: run, start, rules, env, status, audit, refresh, stop' },
+      { suggestion: 'Use one of: run, start, rules, env, status, audit, reload, stop' },
     );
   }
   return action;
@@ -315,7 +319,7 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
   const envGraph = await loadVarlockEnvGraph({
     entryFilePaths,
     // The proxy command manages the session fingerprint itself; don't subject
-    // its own loads to the nested-context guard (would block `proxy refresh`).
+    // its own loads to the nested-context guard (would block `proxy reload`).
     skipProxyFingerprintGuard: true,
   });
   checkForSchemaErrors(envGraph);
@@ -449,7 +453,7 @@ async function createRuntimeAndSession(opts: {
   approvalProvider: ApprovalProvider;
   /** Persist session/duration approval scopes as standing grants (interactive sessions only). */
   enableApprovalGrants?: boolean;
-  /** Mark the session as a hot-reloadable daemon (so `proxy refresh` can reload it). */
+  /** Mark the session as a hot-reloadable daemon (so `proxy reload` can reload it). */
   reloadable?: boolean;
   /** Print a live per-request/response log to stderr (for the `proxy start` terminal). */
   logRequests?: boolean;
@@ -581,6 +585,43 @@ export function isCwdWithin(cwd: string, sessionCwd: string): boolean {
   return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
+export type ReloadMode = 'off' | 'manual';
+export type ReloadSetting = 'off' | 'manual' | 'auto';
+
+/**
+ * Resolve the effective reload posture at launch. Precedence: the
+ * `--allow-reload` / `--no-allow-reload` flag, then `@proxyConfig={reload=...}`,
+ * then the default `auto`.
+ *
+ * `auto` errs conservative today: a human-applied (`manual`) reload only for an
+ * interactive `proxy start` (a person is there to run `proxy reload` and watch the
+ * refusal log), and `off` for headless runs or a one-shot `proxy run` (which
+ * re-reads the schema on its next invocation anyway). `auto` is agent-resistant
+ * because it reads the launcher's context, which the not-yet-running agent can't
+ * influence, and it only ever widens when it is safe to:
+ *   TODO(sandbox-detect): a detected sandbox closes the escape, so allow agent-triggered reload.
+ *   TODO(approval): an out-of-band approver resolves `auto` to an `approval` mode.
+ */
+export function resolveReloadMode(opts: {
+  flag: boolean | undefined;
+  schema: ReloadSetting | undefined;
+  isStart: boolean;
+  hasTty: boolean;
+}): { mode: ReloadMode; resolvedFromAuto: boolean } {
+  let setting: ReloadSetting;
+  if (opts.flag === true) setting = 'manual';
+  else if (opts.flag === false) setting = 'off';
+  else setting = opts.schema ?? 'auto';
+
+  if (setting !== 'auto') return { mode: setting, resolvedFromAuto: false };
+  return { mode: opts.isStart && opts.hasTty ? 'manual' : 'off', resolvedFromAuto: true };
+}
+
+/** Whether a human terminal is attached, the signal reload `auto` uses. */
+function isHumanAttended(): boolean {
+  return !!(process.stdout.isTTY || process.stderr.isTTY || process.stdin.isTTY);
+}
+
 /**
  * Resolve the running proxy session to attach `proxy run` to: an explicit
  * `--session`, else the single session whose cwd contains this one. Returns
@@ -618,7 +659,7 @@ async function resolveAttachSession(ctx: any, schemaFingerprint: string): Promis
       `The running proxy session ${candidate.id} was started with a different .env.schema.`,
       {
         details: "Its placeholders and rules no longer match this directory's schema.",
-        suggestion: 'Restart it (or run `varlock proxy refresh`), or use --new to start a separate proxy.',
+        suggestion: 'Restart it (or run `varlock proxy reload`), or use --new to start a separate proxy.',
       },
     );
   }
@@ -627,15 +668,15 @@ async function resolveAttachSession(ctx: any, schemaFingerprint: string): Promis
 
 /** How often a proxy owner polls for a reload request. */
 const RELOAD_POLL_INTERVAL_MS = 500;
-/** How often `proxy refresh` polls for its result, and how long it waits. */
-const REFRESH_POLL_INTERVAL_MS = 250;
-const REFRESH_TIMEOUT_MS = 15 * 60_000;
+/** How often `proxy reload` polls for its result, and how long it waits. */
+const RELOAD_RESULT_POLL_INTERVAL_MS = 250;
+const RELOAD_TIMEOUT_MS = 15 * 60_000;
 
 /**
  * Poll the session's reload-request file and, when a new request appears,
  * hot-reload the live runtime: re-resolve the schema in this (trusted) process,
  * swap the policy via `runtime.reconfigure`, update the session record, and write
- * a result the blocking `proxy refresh` reads. Returns `stop()` to clear the poller.
+ * a result the blocking `proxy reload` reads. Returns `stop()` to clear the poller.
  *
  * No approval step yet — the reload is applied directly. When the native/phone
  * approver lands it inserts a gate at the marked point (the out-of-band approver
@@ -651,10 +692,30 @@ function startReloadServicer(opts: {
   let initialized = false;
   let busy = false;
 
-  const apply = async (requestId: string, entryPaths?: Array<string>): Promise<ProxyReloadResult> => {
+  const apply = async (request: ProxyReloadRequest): Promise<ProxyReloadResult> => {
+    const { requestId } = request;
+    // Refuse a reload requested from inside the proxied agent: applying it would let the
+    // agent self-approve its own schema edit (re-blessing the fingerprint the guard pins).
+    // A human must run `varlock proxy reload` from a trusted terminal. Surface the attempt
+    // in the owner's log so a watching user sees it. (Self-reported signal, so a
+    // marker-stripping agent evades it, same as the other in-tree guards; the out-of-band
+    // approver is the real gate on a shared uid.)
+    if (request.requestedFromProxyChild) {
+      opts.log(
+        `⚠️  Refused a schema reload requested from inside the proxied agent (session ${opts.session.id}). `
+        + 'This stops the agent from self-approving its own schema edit. If you made this change, run '
+        + '`varlock proxy reload` yourself from a trusted terminal to apply it.',
+      );
+      return {
+        requestId,
+        status: 'denied',
+        completedAt: new Date().toISOString(),
+        error: 'reload requested from inside the proxied agent; apply it from a trusted terminal instead',
+      };
+    }
     try {
       const latest = await getProxySessionByToken(opts.session.uuid).catch(() => undefined);
-      const paths = entryPaths ?? latest?.entryPaths ?? opts.defaultEntryPaths;
+      const paths = request.entryPaths ?? latest?.entryPaths ?? opts.defaultEntryPaths;
       // TODO(approval): when a native/phone approver exists, request approval for
       // this schema change here and return status 'denied' if refused. Today the
       // reload is applied directly.
@@ -689,7 +750,7 @@ function startReloadServicer(opts: {
     lastRequestId = request.requestId;
     busy = true;
     try {
-      const result = await apply(request.requestId, request.entryPaths);
+      const result = await apply(request);
       await writeReloadResult(opts.session.uuid, result).catch(() => undefined);
     } finally {
       busy = false;
@@ -749,10 +810,16 @@ async function runAction(ctx: any) {
       await removeProxySessionAttachment(session.uuid, process.pid).catch(() => undefined);
     };
   } else {
-    // Hot-reload is opt-in (see startAction). For a one-shot `proxy run` it's
-    // rarely needed — the next invocation re-reads the schema — so it stays off
-    // unless `--allow-reload` is passed.
-    const allowReload = ctx.values['allow-reload'] === true;
+    // Reload posture (see resolveReloadMode). A one-shot `proxy run` re-reads the
+    // schema on its next invocation, so `auto` resolves to off here; the flag or
+    // `@proxyConfig={reload="manual"}` can still opt this self-owned run in.
+    const { mode: reloadMode } = resolveReloadMode({
+      flag: ctx.values['allow-reload'],
+      schema: policy.serializedGraph.settings?.proxyReload,
+      isStart: false,
+      hasTty: isHumanAttended(),
+    });
+    const allowReload = reloadMode === 'manual';
     const created = await createRuntimeAndSession({
       policy,
       entryPaths: ctx.values.path,
@@ -766,7 +833,7 @@ async function runAction(ctx: any) {
     session = created.session;
     statsWriter = created.statsWriter;
     console.error(`Proxy session ${session.id} active. Monitor with \`varlock proxy status --session ${session.id} --watch\`.`);
-    // This run owns its proxy, so it services its own `proxy refresh` reloads when
+    // This run owns its proxy, so it services its own `proxy reload` reloads when
     // enabled. Notices go to stderr (the child owns stdout).
     const reloadServicer = allowReload
       ? startReloadServicer({
@@ -878,11 +945,17 @@ async function runAction(ctx: any) {
 }
 
 async function startAction(ctx: any) {
-  // Hot-reload is opt-in: the reload channel is unauthenticated on a shared uid,
-  // so a same-uid agent could `proxy refresh` to self-approve a schema edit and
-  // defeat the fingerprint guard. Off by default; restart to change policy.
-  const allowReload = ctx.values['allow-reload'] === true;
   const policy = await prepareProxyPolicy(ctx.values.path);
+  // Reload posture, resolved at launch (see resolveReloadMode). `manual` runs the
+  // reload servicer so a human can `proxy reload` from this terminal; a reload
+  // requested from inside the agent is refused (it would re-bless the fingerprint).
+  const { mode: reloadMode, resolvedFromAuto } = resolveReloadMode({
+    flag: ctx.values['allow-reload'],
+    schema: policy.serializedGraph.settings?.proxyReload,
+    isStart: true,
+    hasTty: isHumanAttended(),
+  });
+  const allowReload = reloadMode === 'manual';
   const {
     runtime, session, statsWriter, auditLog,
   } = await createRuntimeAndSession({
@@ -902,14 +975,15 @@ async function startAction(ctx: any) {
   console.log(`Started proxy session ${session.id} (${session.uuid})`);
   console.log(`Use \`varlock proxy env --session ${session.id}\` to print env exports.`);
   console.log(`Use \`varlock proxy status --session ${session.id} --watch\` to monitor activity.`);
+  const autoNote = resolvedFromAuto ? ' (auto)' : '';
   if (allowReload) {
-    console.log(`Use \`varlock proxy refresh --session ${session.id}\` to reload after editing your schema.`);
+    console.log(`Reload: manual${autoNote}. Run \`varlock proxy reload --session ${session.id}\` from this terminal after editing your schema; reloads requested from inside the agent are refused.`);
   } else {
-    console.log('Schema edits require a restart (hot-reload disabled; enable with `--allow-reload`).');
+    console.log(`Reload: off${autoNote}. Schema edits need a restart. Enable live reload with \`--allow-reload\` or \`@proxyConfig={reload="manual"}\`.`);
   }
   console.log('Live request log (→ request · ← response):');
 
-  // Service `proxy refresh` requests: hot-reload the live policy without dropping
+  // Service `proxy reload` requests: hot-reload the live policy without dropping
   // the proxy. The daemon owns this terminal, so reload notices print here. Only
   // runs when reload is explicitly enabled.
   const reloadServicer = allowReload
@@ -1021,7 +1095,7 @@ async function statusAction(ctx: any) {
   process.off('SIGTERM', stopWatching);
 }
 
-async function refreshAction(ctx: any) {
+async function reloadAction(ctx: any) {
   const session = await resolveProxySessionForCommand({
     explicitSession: ctx.values.session,
     env: process.env,
@@ -1038,9 +1112,9 @@ async function refreshAction(ctx: any) {
     throw new CliExitError(
       `Proxy session ${session.id} has hot-reload disabled.`,
       {
-        suggestion: 'Restart the proxy to pick up schema edits, or start it with '
-          + '`varlock proxy start --allow-reload` to enable live reloads. Note: the reload '
-          + 'channel is unauthenticated on a shared uid, so only enable it behind a sandbox.',
+        suggestion: 'Restart the proxy to pick up schema edits, or enable live reload with '
+          + '`varlock proxy start --allow-reload` (or `@proxyConfig={reload="manual"}`). On a shared uid the '
+          + 'reload channel is only a bar-raiser, so prefer running behind a sandbox.',
       },
     );
   }
@@ -1050,8 +1124,8 @@ async function refreshAction(ctx: any) {
 
   // Validate the new schema here (in this context) so an obviously broken edit
   // fails loudly at the call site, not only in the owner's logs.
-  const refreshPaths = ctx.values.path ?? session.entryPaths;
-  await prepareProxyPolicy(refreshPaths).catch((error) => {
+  const reloadPaths = ctx.values.path ?? session.entryPaths;
+  await prepareProxyPolicy(reloadPaths).catch((error) => {
     throw new CliExitError(`Schema does not resolve: ${(error as Error).message}`);
   });
 
@@ -1059,10 +1133,16 @@ async function refreshAction(ctx: any) {
   // then block until it reports a result. (When the native/phone approver lands,
   // the wait also spans the approval step — same blocking contract.)
   const requestId = newReloadRequestId();
+  // Self-report whether this reload was invoked from inside the proxied agent. The owner
+  // refuses those (a human must apply schema edits from a trusted terminal) and logs the
+  // attempt. We send the request through anyway, rather than blocking locally, so the owner
+  // surfaces it to a watching user and hands back the explanation handled below.
+  const requestedFromProxyChild = await isInProxyContext(process.env);
   await writeReloadRequest(session.uuid, {
     requestId,
     requestedAt: new Date().toISOString(),
     ...(ctx.values.path?.length ? { entryPaths: ctx.values.path } : {}),
+    ...(requestedFromProxyChild ? { requestedFromProxyChild: true } : {}),
   });
 
   let interrupted = false;
@@ -1072,7 +1152,7 @@ async function refreshAction(ctx: any) {
   process.on('SIGINT', onInterrupt);
   process.on('SIGTERM', onInterrupt);
 
-  const deadline = Date.now() + REFRESH_TIMEOUT_MS;
+  const deadline = Date.now() + RELOAD_TIMEOUT_MS;
   let result: ProxyReloadResult | undefined;
   try {
     console.log(`Requested reload of proxy session ${session.id}; waiting…`);
@@ -1088,7 +1168,7 @@ async function refreshAction(ctx: any) {
         throw new CliExitError(`Proxy session ${session.id} stopped before the reload completed.`);
       }
       await new Promise<void>((resolve) => {
-        setTimeout(resolve, REFRESH_POLL_INTERVAL_MS);
+        setTimeout(resolve, RELOAD_RESULT_POLL_INTERVAL_MS);
       });
     }
   } finally {
@@ -1103,6 +1183,16 @@ async function refreshAction(ctx: any) {
   if (!result) {
     throw new CliExitError(`Timed out waiting for proxy session ${session.id} to reload.`);
   }
+  if (result.status === 'denied') {
+    throw new CliExitError(
+      'Reload refused: this reload was requested from inside the proxied agent.',
+      {
+        details: result.error ? [result.error] : undefined,
+        suggestion: 'Schema edits must be applied by a human from a trusted terminal: run '
+          + '`varlock proxy reload` outside `varlock proxy run` so an agent cannot self-approve its own edit.',
+      },
+    );
+  }
   if (result.status === 'error') {
     throw new CliExitError(`Proxy reload failed: ${result.error ?? 'unknown error'}`);
   }
@@ -1110,7 +1200,7 @@ async function refreshAction(ctx: any) {
   console.log(`✓ Schema change reloaded for proxy session ${session.id}.`);
   console.log('  • New requests through the proxy use the updated rules and secrets.');
   console.log('  • Newly launched `varlock proxy run -- …` children pick up the change; an already-running');
-  console.log('    child keeps the env it started with (restart it to refresh its variables).');
+  console.log('    child keeps the env it started with (restart it to pick up new variables).');
 }
 
 async function stopAction(ctx: any) {
@@ -1304,14 +1394,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       return await statusAction(ctx);
     case 'audit':
       return await auditAction(ctx);
-    case 'refresh':
-      return await refreshAction(ctx);
+    case 'reload':
+      return await reloadAction(ctx);
     case 'stop':
       return await stopAction(ctx);
     default:
       throw new CliExitError(
         `Unknown proxy action "${action}".`,
-        { suggestion: 'Use one of: run, start, rules, env, status, audit, refresh, stop' },
+        { suggestion: 'Use one of: run, start, rules, env, status, audit, reload, stop' },
       );
   }
 };

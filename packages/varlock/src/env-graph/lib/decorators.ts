@@ -554,15 +554,23 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
         throw new SchemaError('@proxyConfig must be set to an options object, for example @proxyConfig={egress="strict"}');
       }
       for (const key in decValue.objArgs) {
-        if (key !== 'egress') {
-          throw new SchemaError(`@proxyConfig: unknown option "${key}" (only "egress" is supported)`);
+        if (key !== 'egress' && key !== 'reload') {
+          throw new SchemaError(`@proxyConfig: unknown option "${key}" (supported: egress, reload)`);
         }
       }
       const egressResolver = decValue.objArgs.egress;
-      if (!egressResolver || !egressResolver.isStatic) return;
-      const egressValue = egressResolver.staticValue;
-      if (egressValue !== 'permissive' && egressValue !== 'strict') {
-        throw new SchemaError('@proxyConfig: egress must be "permissive" or "strict"');
+      if (egressResolver?.isStatic) {
+        const egressValue = egressResolver.staticValue;
+        if (egressValue !== 'permissive' && egressValue !== 'strict') {
+          throw new SchemaError('@proxyConfig: egress must be "permissive" or "strict"');
+        }
+      }
+      const reloadResolver = decValue.objArgs.reload;
+      if (reloadResolver?.isStatic) {
+        const reloadValue = reloadResolver.staticValue;
+        if (reloadValue !== 'off' && reloadValue !== 'manual' && reloadValue !== 'auto') {
+          throw new SchemaError('@proxyConfig: reload must be "off", "manual", or "auto"');
+        }
       }
     },
   },

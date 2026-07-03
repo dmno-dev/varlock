@@ -487,16 +487,21 @@ API_KEY=
 
 <div>
 ### `@proxyConfig`
-**Value type:** `{egress?: "permissive" | "strict"}`
+**Value type:** `{egress?: "permissive" | "strict", reload?: "off" | "manual" | "auto"}`
 
-Configures [credential proxy](/guides/proxy/) egress. The proxy is driven by [`@proxy`](/reference/item-decorators/#proxy) decorators on your items, so this header decorator is **optional**: it exists only to change the egress mode from the default. It is a single-use, object-value decorator (`@proxyConfig={...}`), not a function call.
+Configures proxy-wide [credential proxy](/guides/proxy/) settings. The proxy is driven by [`@proxy`](/reference/item-decorators/#proxy) decorators on your items, so this header decorator is **optional**. It is a single-use, object-value decorator (`@proxyConfig={...}`), not a function call.
 
-The `egress` option controls requests that don't match any [`@proxy`](#proxy) rule:
+`egress` controls requests that don't match any [`@proxy`](#proxy) rule:
 - `permissive` _(default)_: unmatched hosts pass through untouched.
 - `strict`: only requests matching a `@proxy` rule are allowed; everything else is blocked.
 
+`reload` controls live [hot-reload](/guides/proxy/#editing-the-schema-while-a-session-is-running) of the running proxy after a schema edit:
+- `off`: no reload; restart the proxy to pick up schema changes.
+- `manual`: a human applies it by running `varlock proxy reload` from a trusted terminal; a reload requested from inside the proxied agent is refused and logged.
+- `auto` _(default)_: resolved at launch. Conservative today: `manual` for an interactive `varlock proxy start`, `off` for headless runs or a one-shot `varlock proxy run`. It only widens (toward agent-triggered reload behind an approver) when that becomes safe, e.g. inside a sandbox. The `--allow-reload` / `--no-allow-reload` flag overrides it per run.
+
 ```env-spec
-# @proxyConfig={egress="strict"}
+# @proxyConfig={egress="strict", reload="manual"}
 # ---
 # @proxy(domain="api.openai.com")
 OPENAI_API_KEY=sk-...
