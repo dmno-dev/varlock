@@ -27,6 +27,8 @@ describe('generateGoEnvSrc', () => {
 
     expect(src).toContain('var SensitiveKeys = map[string]bool{"API_KEY": true}');
     expect(src).toContain('func Load() (Env, error) {');
+    // cached accessor: parses once, no re-parse per access
+    expect(src).toContain('var Get = sync.OnceValue(');
     expect(src).toContain('os.Getenv("__VARLOCK_ENV")');
   });
 });

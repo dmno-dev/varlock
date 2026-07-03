@@ -8,11 +8,7 @@ import (
 )
 
 func main() {
-	e, err := env.Load()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	e := env.Get() // cached; loads once
 	if e.Port != 8080 || !e.Debug {
 		fmt.Fprintf(os.Stderr, "unexpected: port=%d debug=%t\n", e.Port, e.Debug)
 		os.Exit(1)

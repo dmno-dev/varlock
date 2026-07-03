@@ -24,6 +24,8 @@ describe('generateRustEnvSrc', () => {
 
     expect(src).toContain('pub const SENSITIVE_KEYS: &[&str] = &["API_KEY"];');
     expect(src).toContain('pub fn load() -> Result<Env, Box<dyn std::error::Error>> {');
+    // cached accessor: parses once, no re-parse per access
+    expect(src).toContain('pub static ENV: LazyLock<Env>');
     expect(src).toContain('std::env::var("__VARLOCK_ENV")');
   });
 });

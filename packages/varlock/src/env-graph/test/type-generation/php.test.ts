@@ -25,6 +25,8 @@ describe('generatePhpEnvSrc', () => {
     expect(src).toContain('@var array<string, mixed>|null');
 
     expect(src).toContain('public static function load(): self');
+    // cached accessor: parses once, no re-parse per access
+    expect(src).toContain('public static function instance(): self');
     expect(src).toContain("getenv('__VARLOCK_ENV')");
   });
 });

@@ -71,12 +71,11 @@ varlock run -- python main.py
 ```rust
 mod env;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let e = env::load()?;
-    let port = e.db_port;   // Option<i64>
-    let debug = e.debug;    // Option<bool>
+fn main() {
+    // `env::ENV` is loaded once and cached; use `env::load()` if you'd rather handle errors
+    let port = env::ENV.db_port;   // Option<i64>
+    let debug = env::ENV.debug;    // Option<bool>
     println!("{:?} {:?}", port, debug);
-    Ok(())
 }
 ```
 
@@ -102,17 +101,11 @@ varlock run -- cargo run
 ```go
 package main
 
-import (
-    "log"
-
-    "myapp/env"
-)
+import "myapp/env"
 
 func main() {
-    e, err := env.Load()
-    if err != nil {
-        log.Fatal(err)
-    }
+    // env.Get() is loaded once and cached; use env.Load() if you'd rather handle errors
+    e := env.Get()
     _ = e.DbPort   // *int64
     _ = e.Debug    // *bool
 }
@@ -134,7 +127,8 @@ varlock run -- go run .
 <?php
 require 'Env.php';
 
-$env = Env::load();
+// Env::instance() is loaded once and cached; use Env::load() for a fresh parse
+$env = Env::instance();
 $port = $env->DB_PORT;    // ?int
 $debug = $env->DEBUG;     // ?bool
 
