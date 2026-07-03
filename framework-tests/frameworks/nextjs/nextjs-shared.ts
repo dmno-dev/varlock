@@ -109,6 +109,12 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
 
       const buildCommand = `next build ${buildToolFlag}`;
 
+      // Turbopack production builds only became stable in Next 16, and on v15 there
+      // is no persistent build cache, so every build scenario is a slow cold compile
+      // (25-54s each vs 5-10s on v16). Real-world v15 turbopack usage is dev-only,
+      // so only run the dev scenarios there.
+      const runBuildScenarios = !(nextVersion === 15 && webpackOrTurbo === 'turbopack');
+
       describe(`bundler=${webpackOrTurbo}`, () => {
         const devPort = 14000 + (nextVersion * 10) + (webpackOrTurbo === 'turbopack' ? 1 : 0);
         const devCommand = `next dev ${buildToolFlag} --port ${devPort}`.replace(/\s+/g, ' ').trim();
@@ -168,7 +174,7 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
           ],
         });
 
-        describe('output=export', () => {
+        describe.skipIf(!runBuildScenarios)('output=export', () => {
           nextEnv.describeScenario('basic page', {
             command: buildCommand,
             templateFiles: {
@@ -257,7 +263,7 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
           });
         });
 
-        describe('default output mode', () => {
+        describe.skipIf(!runBuildScenarios)('default output mode', () => {
           nextEnv.describeScenario('basic static page', {
             command: buildCommand,
             templateFiles: {
