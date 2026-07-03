@@ -33,7 +33,7 @@ Each generated file is a small, self-contained module you can use directly — n
 - a **loader** that reads the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob and returns those typed values
 - a **`SENSITIVE_KEYS`** constant listing which keys hold sensitive values, so you can build your own redaction or leak-scanning
 
-Files are generated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly via [`varlock typegen`](/reference/cli-commands/#typegen). The loader reads `__VARLOCK_ENV`, so run your program under [`varlock run`](/reference/cli-commands/#run).
+Files are generated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly via [`varlock codegen`](/reference/cli-commands/#codegen). The loader reads `__VARLOCK_ENV`, so run your program under [`varlock run`](/reference/cli-commands/#run).
 
 ## Using the generated module
 

@@ -314,7 +314,7 @@ Code-generation decorators turn your schema into generated code, and [plugins](/
 Each of these is a root decorator that _can be called multiple times_. They share these common args:
 
 - `path`: Relative filepath to write the generated file to.
-- `auto`: Controls whether generation runs automatically on every load (defaults to `true`). Set to `false` to disable automatic generation and instead run [`varlock typegen`](/reference/cli-commands/#typegen) explicitly.
+- `auto`: Controls whether generation runs automatically on every load (defaults to `true`). Set to `false` to disable automatic generation and instead run [`varlock codegen`](/reference/cli-commands/#codegen) explicitly.
 - `executeWhenImported`: overrides the default behaviour of not executing when the containing file is imported (defaults to `false`).
 
 ```env-spec
@@ -327,7 +327,7 @@ Usually these decorators live in your primary `.env.schema` file, and are ignore
 :::
 
 :::note[Disabling automatic generation]
-If you prefer to generate manually rather than on every load, set `auto=false` and run [`varlock typegen`](/reference/cli-commands/#typegen) explicitly:
+If you prefer to generate manually rather than on every load, set `auto=false` and run [`varlock codegen`](/reference/cli-commands/#codegen) explicitly:
 
 ```env-spec
 # @generateTsTypes(path=./env.d.ts, auto=false)

@@ -4,7 +4,7 @@ import {
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  varlockLoad, varlockRun, varlockPrintenv, varlockTypegen, runVarlock, VARLOCK_CLI,
+  varlockLoad, varlockRun, varlockPrintenv, varlockCodegen, runVarlock, VARLOCK_CLI,
 } from '../helpers/run-varlock.js';
 
 const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
@@ -403,7 +403,7 @@ describe('CLI Commands', () => {
         if (existsSync(polyglotOutputPath)) rmSync(polyglotOutputPath);
       }
 
-      const result = varlockTypegen({ cwd: 'smoke-test-typegen-polyglot' });
+      const result = varlockCodegen({ cwd: 'smoke-test-typegen-polyglot' });
       expect(result.exitCode).toBe(0);
 
       for (const testCase of cases) {
@@ -424,7 +424,7 @@ describe('CLI Commands', () => {
       const outputPath = join(moduleDir, 'env.ts');
       if (existsSync(outputPath)) rmSync(outputPath);
 
-      const result = varlockTypegen({ cwd: 'smoke-test-typegen-module' });
+      const result = varlockCodegen({ cwd: 'smoke-test-typegen-module' });
       expect(result.exitCode).toBe(0);
       expect(existsSync(outputPath)).toBe(true);
 
@@ -433,6 +433,14 @@ describe('CLI Commands', () => {
       expect(src).toContain('export const ENV = _ENV as unknown as Readonly<CoercedEnvSchema>;');
       // module mode must NOT globally augment varlock/env
       expect(src).not.toContain("declare module 'varlock/env'");
+    });
+
+    test('varlock typegen still works as a deprecated alias for codegen', () => {
+      if (existsSync(typeFilePath)) rmSync(typeFilePath);
+      const result = runVarlock(['typegen'], { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('deprecated');
+      expect(existsSync(typeFilePath)).toBe(true);
     });
   });
 

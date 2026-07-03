@@ -594,7 +594,7 @@ See the [Caching guide](/guides/caching/) for cache mode strategy and troublesho
 </div>
 
 <div>
-### `varlock typegen` ||typegen||
+### `varlock codegen` ||codegen||
 
 Runs the [code-generation decorators](/reference/root-decorators/#code-generation) in your schema — typed env accessors like `@generateTsTypes` (type declarations) and `@generatePythonEnv` (a loadable module), plus any generators contributed by plugins. Uses only your schema definitions, so output is deterministic regardless of which environment is active. Keys (and decorators) that come only from value files like `.env` or `.env.local` are ignored — only items declared in your `.env.schema` (or imported into it) are included. When run directly, the command reports any keys found only in a plain `.env` so you can move them into your schema if they belong there.
 
@@ -602,8 +602,12 @@ Add a per-language decorator for each output file you want: `@generateTsTypes`, 
 
 This command is particularly useful when you have set `auto=false` on a generator decorator to disable automatic generation during `varlock load` or `varlock run`.
 
+:::note
+`varlock typegen` is a deprecated alias for `varlock codegen` — it still works but prints a warning.
+:::
+
 ```bash
-varlock typegen [options]
+varlock codegen [options]
 ```
 
 **Options:**
@@ -611,14 +615,14 @@ varlock typegen [options]
 
 **Examples:**
 ```bash
-# Generate types using the default schema
-varlock typegen
+# Generate using the default schema
+varlock codegen
 
-# Generate types from a specific .env file
-varlock typegen --path .env.prod
+# Generate from a specific .env file
+varlock codegen --path .env.prod
 
-# Generate types from multiple directories
-varlock typegen -p ./envs -p ./overrides
+# Generate from multiple directories
+varlock codegen -p ./envs -p ./overrides
 ```
 
 </div>

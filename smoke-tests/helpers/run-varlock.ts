@@ -72,8 +72,8 @@ export function varlockPrintenv(varName: string, options?: {
   return runVarlock(args, { cwd: options?.cwd });
 }
 
-export function varlockTypegen(options?: { cwd?: string; paths?: Array<string> }) {
-  const args = ['typegen'];
+export function varlockCodegen(options?: { cwd?: string; paths?: Array<string> }) {
+  const args = ['codegen'];
   if (options?.paths) {
     for (const p of options.paths) {
       args.push('--path', p);
