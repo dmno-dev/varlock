@@ -380,7 +380,7 @@ describe('CLI Commands', () => {
       const cases = [
         {
           outputFile: 'env_types.py',
-          markers: ['class CoercedEnvSchema(TypedDict):', 'DEBUG: NotRequired[bool]', 'DB_PORT: NotRequired[int]', 'PUBLIC_VAR: str', 'def load_env() -> CoercedEnvSchema:'],
+          markers: ['class Env(TypedDict):', 'DEBUG: NotRequired[bool]', 'DB_PORT: NotRequired[int]', 'PUBLIC_VAR: str', 'def load_env() -> Env:'],
           sensitiveMarker: 'SENSITIVE_KEYS: frozenset[str] = frozenset({"SECRET_TOKEN"})',
         },
         {
@@ -389,8 +389,10 @@ describe('CLI Commands', () => {
           sensitiveMarker: 'pub const SENSITIVE_KEYS: &[&str] = &["SECRET_TOKEN"];',
         },
         {
+          // struct fields are gofmt-aligned (padded), so match name and type separately rather than
+          // depending on the exact gap between them; `package env` comes from the `package=` override
           outputFile: 'env_types.go',
-          markers: ['package env', 'type Env struct {', 'Debug *bool', 'DbPort *int64', 'func Load() (Env, error) {'],
+          markers: ['package env', 'type Env struct {', 'DbPort', '*int64', 'Debug', '*bool', 'func Load() (Env, error) {'],
           sensitiveMarker: 'var SensitiveKeys = map[string]bool{"SECRET_TOKEN": true}',
         },
         {

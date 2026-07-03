@@ -210,9 +210,11 @@ export async function generateTsTypesSrc(fields: Array<ResolvedFieldType>, optio
     if (!field.isSensitive) exposedNonSensitiveKeys.push(field.key);
   }
   // the public schema is the non-sensitive keys picked off the full schema; when there are none
-  // (every key is sensitive), `Pick<T, ''>` would be invalid — use an empty object type instead
+  // (every key is sensitive), `Pick<T, ''>` would be invalid — use an empty object type instead.
+  // keys are grammar-constrained to [A-Za-z_][A-Za-z0-9_.-]* (no quotes/backslashes), so plain
+  // single-quoting is safe — same as the rest of this emitter.
   const pickPublic = (schemaType: string) => (exposedNonSensitiveKeys.length
-    ? `Pick<${schemaType}, '${exposedNonSensitiveKeys.map((k) => k.replace(/'/g, "\\'")).join("' | '")}'>`
+    ? `Pick<${schemaType}, '${exposedNonSensitiveKeys.join("' | '")}'>`
     : 'Record<string, never>');
 
   // globally augment `varlock/env` so `import { ENV } from 'varlock/env'` is typed
