@@ -331,8 +331,19 @@
     },
 
     "post-value-comment": {
-      "comment": "Post-value comment",
-      "begin": "(#)\\s?",
+      "comment": "Post-value comment — decorator styling only applies when the comment starts with `@` (mirrors the parser, which only treats such comments as decorator comments)",
+      "patterns": [
+        {
+          "include": "#post-value-comment--decorators"
+        },
+        {
+          "include": "#post-value-comment--plain"
+        }
+      ]
+    },
+    "post-value-comment--decorators": {
+      "comment": "Post-value comment starting with a decorator",
+      "begin": "(#)\\s?(?=@)",
       "end": "(\\s*#.*)?$",
       "name": "comment.line.env-spec",
       "beginCaptures": {
@@ -350,6 +361,22 @@
         {
           "include": "#decorator"
         },
+        {
+          "include": "#comment-markup"
+        }
+      ]
+    },
+    "post-value-comment--plain": {
+      "comment": "Post-value comment - plain text (an email-like `foo@bar` must not highlight as a decorator)",
+      "begin": "(#)\\s?",
+      "end": "$",
+      "name": "comment.line.env-spec",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.comment"
+        }
+      },
+      "patterns": [
         {
           "include": "#comment-markup"
         }
