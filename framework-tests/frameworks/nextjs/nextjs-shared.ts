@@ -22,18 +22,24 @@ const EXPORT_CONFIG = {
 function getBuildToolFlag(nextVersion: number, bundler: string): string {
   if (nextVersion === 14) return bundler === 'turbopack' ? '--turbo' : '';
   if (nextVersion === 15) return bundler === 'turbopack' ? '--turbopack' : '';
-  if (nextVersion === 16) return bundler === 'turbopack' ? '' : '--webpack';
+  if (nextVersion >= 16) return bundler === 'turbopack' ? '' : '--webpack';
   throw new Error(`Unsupported Next.js version: ${nextVersion}`);
 }
 
-export function defineNextjsTests(nextVersion: number, testDir: string) {
-  describe(`Next.js v${nextVersion}`, () => {
+export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: string) {
+  const isCanary = versionOrCanary === 'canary';
+  // canary follows the newest major's CLI flags / bundler defaults;
+  // 99 keeps the version-derived dev ports out of the pinned versions' range
+  const nextVersion = isCanary ? 99 : versionOrCanary;
+  const label = isCanary ? 'canary' : `v${versionOrCanary}`;
+
+  describe(`Next.js ${label}`, () => {
     const nextEnv = new FrameworkTestEnv({
       testDir,
-      framework: `next-v${nextVersion}`,
+      framework: `next-${label}`,
       packageManager: 'pnpm',
       dependencies: {
-        next: `^${nextVersion}`,
+        next: isCanary ? 'canary' : `^${versionOrCanary}`,
         react: '^19',
         'react-dom': '^19',
         '@types/react': '^19',
