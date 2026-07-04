@@ -17,10 +17,17 @@ import type * as NodeCrypto from 'node:crypto';
 let cachedNodeCrypto: typeof NodeCrypto | undefined;
 function getNodeCrypto(): typeof NodeCrypto {
   if (!cachedNodeCrypto) {
-    cachedNodeCrypto = (globalThis as any).process?.getBuiltinModule?.('node:crypto')
-      // fallback for CJS bundles running on node < 22.3 (no process.getBuiltinModule)
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      ?? (typeof require === 'function' ? require('node:crypto') : undefined);
+    cachedNodeCrypto = (globalThis as any).process?.getBuiltinModule?.('node:crypto');
+    if (!cachedNodeCrypto) {
+      try {
+        // fallback for CJS bundles running on node < 22.3 (no process.getBuiltinModule)
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        cachedNodeCrypto = typeof require === 'function' ? require('node:crypto') : undefined;
+      } catch {
+        // bundlers may replace require with a shim that throws instead of resolving —
+        // swallow so the clear error below is what surfaces
+      }
+    }
     if (!cachedNodeCrypto) {
       throw new Error('[varlock] node:crypto is not available in this runtime — use decryptEnvBlobAsync instead');
     }
