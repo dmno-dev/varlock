@@ -256,10 +256,35 @@ export function scanForLeaks(
 
 // --------------
 
-let initializedEnv = false;
-let configHasErrors = false;
-const envValues = {} as Record<string, any>;
-export const varlockSettings = {} as Record<string, any>;
+// Like the redaction state above, env state lives on globalThis so all module instances
+// share it. Bundlers can create multiple copies of this module in one process (e.g. Next.js
+// bundles it into the app-router server code AND the pages-router code, while @next/env
+// uses the node_modules copy) — env loads/reloads happen via one instance and ENV reads
+// via another, so instance-local state would go stale or appear uninitialized.
+type EnvState = {
+  initialized: boolean,
+  configHasErrors: boolean,
+  // NOTE: these objects are mutated in place, never replaced — module instances
+  // capture references to them at load time
+  values: Record<string, any>,
+  settings: Record<string, any>,
+};
+const ENV_STATE_KEY = '__varlockEnvState';
+function getEnvState(): EnvState {
+  if (!(globalThis as any)[ENV_STATE_KEY]) {
+    (globalThis as any)[ENV_STATE_KEY] = {
+      initialized: false,
+      configHasErrors: false,
+      values: {},
+      settings: {},
+    } satisfies EnvState;
+  }
+  return (globalThis as any)[ENV_STATE_KEY];
+}
+
+const envState = getEnvState();
+const envValues = envState.values;
+export const varlockSettings = envState.settings;
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -268,13 +293,13 @@ let varlockInjectedProcessEnvKeys: Array<string> | undefined;
 export function initVarlockEnv(opts?: {
   allowFail?: boolean,
 }) {
-  debug('⚡️ INIT VARLOCK ENV!', initializedEnv, !!(globalThis as any).__varlockLoadedEnv, !!globalThis.process?.env.__VARLOCK_ENV);
+  debug('⚡️ INIT VARLOCK ENV!', envState.initialized, !!(globalThis as any).__varlockLoadedEnv, !!globalThis.process?.env.__VARLOCK_ENV);
 
   // normally we can just bail if we detect we are in the browser
   // however when front-end related tests, it may appear that we are in the browser but it is not
   // also some frameworks inject a process polyfill, others do not
   if (isBrowser && !globalThis.process?.env.__VARLOCK_ENV) {
-    initializedEnv = true;
+    envState.initialized = true;
     return;
   }
 
@@ -300,7 +325,7 @@ export function initVarlockEnv(opts?: {
     throw new Error('initVarlockEnv failed');
   }
   Object.assign(varlockSettings, serializedEnvData.settings);
-  configHasErrors = !!(serializedEnvData as any).errors;
+  envState.configHasErrors = !!(serializedEnvData as any).errors;
   resetRedactionMap(serializedEnvData);
 
   const setProcessEnv = processExists && !serializedEnvData.settings?.disableProcessEnvInjection;
@@ -324,13 +349,13 @@ export function initVarlockEnv(opts?: {
       process.env[itemKey] = itemValue === undefined ? '' : String(itemValue);
     }
   }
-  initializedEnv = true;
+  envState.initialized = true;
 }
 
 // we will attempt to call initVarlockEnv automatically, but in most cases it should be called explicitly
 // note that if this is being imported in the browser, process.env may not exist, so we do this in a try/catch
 try {
-  if (!initializedEnv) {
+  if (!envState.initialized) {
     // if we are automatically loading because __VARLOCK_ENV is already set
     // then we assume process.env vars have also already been set (although might not harm anything?)
     initVarlockEnv({ allowFail: true });
@@ -366,14 +391,14 @@ const EnvProxy = new Proxy<TypedEnvSchema>({}, {
     // special cases to avoid throwing on invalid keys
     if (IGNORED_PROXY_KEYS.includes(prop)) return;
 
-    if (!initializedEnv) {
+    if (!envState.initialized) {
       throw new Error(
         'varlock ENV not initialized — make sure varlock is set up correctly.\n'
         + 'See https://varlock.dev/docs/get-started for setup instructions.',
       );
     }
 
-    if (configHasErrors) {
+    if (envState.configHasErrors) {
       // eslint-disable-next-line no-console
       console.error(`[varlock] ⚠️ ENV.${prop} accessed but config has errors — values may be missing or incorrect`);
       return undefined;

@@ -4,11 +4,29 @@
  * Uses AES-256-GCM with a 12-byte random IV.
  * Encrypted format: "varlock:v1:" + base64(iv[12] + ciphertext + authTag[16])
  *
- * Sync versions use Node.js `node:crypto` (build-time + init-server).
- * Async version uses Web Crypto API (init-edge, where node:crypto is unavailable).
+ * Sync versions use Node.js `node:crypto` (loaded lazily — see getNodeCrypto below).
+ * Async version uses Web Crypto API, for runtimes without node:crypto.
  */
 
-import crypto from 'node:crypto';
+import type * as NodeCrypto from 'node:crypto';
+
+// node:crypto is loaded lazily so that merely evaluating this module doesn't touch node
+// builtins — the self-contained init bundles (init-server/init-edge) include this file and
+// can get evaluated inside edge sandboxes (e.g. Next.js dev middleware) where an eager
+// require('crypto') throws, even when nothing ever gets encrypted/decrypted
+let cachedNodeCrypto: typeof NodeCrypto | undefined;
+function getNodeCrypto(): typeof NodeCrypto {
+  if (!cachedNodeCrypto) {
+    cachedNodeCrypto = (globalThis as any).process?.getBuiltinModule?.('node:crypto')
+      // fallback for CJS bundles running on node < 22.3 (no process.getBuiltinModule)
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      ?? (typeof require === 'function' ? require('node:crypto') : undefined);
+    if (!cachedNodeCrypto) {
+      throw new Error('[varlock] node:crypto is not available in this runtime — use decryptEnvBlobAsync instead');
+    }
+  }
+  return cachedNodeCrypto;
+}
 
 const ENCRYPTED_PREFIX = 'varlock:v1:';
 const IV_LENGTH = 12;
@@ -36,6 +54,7 @@ function hexToBytes(hex: string): Uint8Array {
 // -- Sync (Node.js node:crypto) ------------------------------------------
 
 export function encryptEnvBlobSync(json: string, hexKey: string): string {
+  const crypto = getNodeCrypto();
   validateHexKey(hexKey);
   const keyBytes = hexToBytes(hexKey);
   const iv = crypto.randomBytes(IV_LENGTH);
@@ -47,6 +66,7 @@ export function encryptEnvBlobSync(json: string, hexKey: string): string {
 }
 
 export function decryptEnvBlobSync(encrypted: string, hexKey: string): string {
+  const crypto = getNodeCrypto();
   validateHexKey(hexKey);
   if (!isEncryptedBlob(encrypted)) {
     throw new Error('[varlock] expected encrypted blob with varlock:v1: prefix');
@@ -97,5 +117,5 @@ export async function decryptEnvBlobAsync(encrypted: string, hexKey: string): Pr
 // -- Key generation -------------------------------------------------------
 
 export function generateEncryptionKeyHex(): string {
-  return (crypto.randomBytes(32) as Buffer).toString('hex');
+  return (getNodeCrypto().randomBytes(32) as Buffer).toString('hex');
 }
