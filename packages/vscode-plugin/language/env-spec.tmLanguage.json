@@ -7,6 +7,9 @@
       "include": "#divider"
     },
     {
+      "include": "#hash-rich"
+    },
+    {
       "include": "#hash"
     },
     {
@@ -143,9 +146,31 @@
       "name": "string.unquoted.env-spec",
       "match": "(?<=[^ \\t\\n\\r])#[^ \\t\\n,)}\\]]*"
     },
+    "hash-rich": {
+      "name": "comment.line.env-spec",
+      "begin": "((?<![^ \\t\\n\\r])#)(?=[ \\t]*(?:(?:(?<![^ \\t\\n\\r#])@[a-zA-Z][^ \\t\\n=()#@]*(?=[ \\t\\n=()#]|$))))",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.comment.env-spec"
+        }
+      },
+      "end": "$",
+      "patterns": [
+        {
+          "include": "$self"
+        }
+      ]
+    },
     "hash": {
       "name": "comment.line.env-spec",
-      "match": "(?<![^ \\t\\n\\r])#"
+      "begin": "((?<![^ \\t\\n\\r])#)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.comment.env-spec"
+        }
+      },
+      "end": "$",
+      "patterns": []
     },
     "export": {
       "name": "keyword.control.export.env-spec",
@@ -418,6 +443,9 @@
       "patterns": [
         {
           "include": "#divider"
+        },
+        {
+          "include": "#hash-rich"
         },
         {
           "include": "#hash"

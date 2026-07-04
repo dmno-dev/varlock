@@ -78,11 +78,14 @@ NO_SPACE_COMMENT_VAR=test
 
 # @type(
 #   string,
-#   ^^^^^^ string.unquoted.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^^ comment.line.env-spec
 #   number
-#   ^^^^^^ string.unquoted.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^ comment.line.env-spec
 # )
-# ^ punctuation.definition.parameters.end.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^ comment.line.env-spec
 MULTI_DEC_VAR=test
 
 # @dec(fn())
@@ -220,13 +223,13 @@ LIST_ML=fn([
   ONE,
 # ^^^ string.unquoted.env-spec
   # TWO disabled
-# ^ comment.line.env-spec
-#   ^^^^^^^^^^^^ string.unquoted.env-spec
+# ^ punctuation.definition.comment.env-spec
+#  ^^^^^^^^^^^^^ comment.line.env-spec
   THREE, # last
 # ^^^^^ string.unquoted.env-spec
 #      ^ punctuation.separator.comma.env-spec
-#        ^ comment.line.env-spec
-#          ^^^^ string.unquoted.env-spec
+#        ^ punctuation.definition.comment.env-spec
+#         ^^^^^ comment.line.env-spec
 ])
 # <- punctuation.definition.array.end.env-spec
 #^ punctuation.definition.parameters.end.env-spec
@@ -239,23 +242,21 @@ AFTER_LIST=ok
 COL0_ML=fn({
   items=[
 # col-0 comment inside nested array
-# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ string.unquoted.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
     ONE,
 #   ^^^ string.unquoted.env-spec
   ],
 # count=3 disabled at column 0
-# <- comment.line.env-spec
-# ^^^^^ entity.name.tag.env-spec
-#      ^ keyword.operator.assignment.env-spec
-#       ^ constant.numeric.env-spec
-#         ^^^^^^^^^^^^^^^^^^^^ string.unquoted.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
   timeout=30, # trailing note
 # ^^^^^^^ entity.name.tag.env-spec
 #        ^ keyword.operator.assignment.env-spec
 #         ^^ constant.numeric.env-spec
 #           ^ punctuation.separator.comma.env-spec
-#             ^ comment.line.env-spec
-#               ^^^^^^^^^^^^^ string.unquoted.env-spec
+#             ^ punctuation.definition.comment.env-spec
+#              ^^^^^^^^^^^^^^ comment.line.env-spec
 })
 AFTER_COL0=ok
 #^^^^^^^^^ entity.name.tag.env-spec
@@ -268,14 +269,16 @@ FN_ML=fn(
   ONE,
 # ^^^ string.unquoted.env-spec
   # TWO disabled (indented comment)
-#   ^^^^^^^^^^^^ string.unquoted.env-spec
+# ^ punctuation.definition.comment.env-spec
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
 # THREE disabled (column-0 comment)
-# ^^^^^^^^^^^^^^ string.unquoted.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
   FOUR, # trailing note
 # ^^^^ string.unquoted.env-spec
 #     ^ punctuation.separator.comma.env-spec
-#       ^ comment.line.env-spec
-#         ^^^^^^^^^^^^^ string.unquoted.env-spec
+#       ^ punctuation.definition.comment.env-spec
+#        ^^^^^^^^^^^^^^ comment.line.env-spec
 )
 # <- punctuation.definition.parameters.end.env-spec
 AFTER_FN_ML=ok
@@ -283,21 +286,17 @@ AFTER_FN_ML=ok
 
 # @import(pick=[
 #   ALPHA,
-#   ^^^^^ string.unquoted.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^ comment.line.env-spec
 #   # disabled,
-# <- comment.line.env-spec
-#   ^ comment.line.env-spec
-#     ^^^^^^^^ string.unquoted.env-spec
-#             ^ punctuation.separator.comma.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^^^^^^ comment.line.env-spec
 #   BETA, # primary
-# <- comment.line.env-spec
-#   ^^^^ string.unquoted.env-spec
-#       ^ punctuation.separator.comma.env-spec
-#         ^ comment.line.env-spec
-#           ^^^^^^^ string.unquoted.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^^^^^^^^^^ comment.line.env-spec
 # ])
-# ^ punctuation.definition.array.end.env-spec
-#  ^ punctuation.definition.parameters.end.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^ comment.line.env-spec
 IMPORT_ML=test
 #^^^^^^^^ entity.name.tag.env-spec
 

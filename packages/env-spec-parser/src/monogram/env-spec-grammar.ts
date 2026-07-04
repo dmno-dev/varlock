@@ -45,23 +45,6 @@ const DIVIDER = token(
   seq('#', star(hspace), repeat(oneOf('-', '=', '*', '#'), 3), star(noneOf('\r', '\n'))),
   { scope: 'comment.line' },
 );
-// a comment/continuation `#` only appears at line start or after whitespace; a glued
-// `#` is GLUED_HASH_TEXT (keeps `fn(unq#uoted)` and URL fragments as text)
-const HASH = token(
-  seq(notPrecededBy(noneOf(' ', '\t', '\n', '\r')), '#'),
-  { scope: 'comment.line' },
-);
-
-const EXPORT = token(seq('export', notFollowedBy(wordChar)), { scope: 'keyword.control.export' });
-const ASSIGN_KEY = token(seq(identStart, star(identChar), followedBy('=')), { scope: 'entity.name.tag' });
-const FUNCTION_NAME = token(
-  seq(alpha, star(wordChar), followedBy(seq(star(hspace), '('))),
-  { scope: 'variable.function' },
-);
-const IDENT = token(
-  seq(identStart, star(identChar), followedBy(altPattern(oneOf(' ', '\t', '\n', '#', '=', '(', ')', ',', '}', ']'), end()))),
-  { scope: 'variable.other.readwrite' },
-);
 // only a `@` at line start or after whitespace / `#` is a decorator name — a glued `@`
 // (`email@asdf.com`) is plain text, both for parsing and highlighting
 const DEC_NAME = token(
@@ -73,6 +56,27 @@ const DEC_NAME = token(
     followedBy(altPattern(oneOf(' ', '\t', '\n', '=', '(', ')', '#'), end())),
   ),
   { scope: 'variable.annotation' },
+);
+
+// a comment/continuation `#` only appears at line start or after whitespace; a glued
+// `#` is GLUED_HASH_TEXT (keeps `fn(unq#uoted)` and URL fragments as text).
+// `lineComment` (highlight-only): the `#` introduces a comment running to end-of-line —
+// generators emit a to-EOL region so comment prose dims, while decorator-led comments
+// (`# @dec...`) keep full token highlighting.
+const HASH = token(
+  seq(notPrecededBy(noneOf(' ', '\t', '\n', '\r')), '#'),
+  { scope: 'comment.line', lineComment: { richStarters: [DEC_NAME] } },
+);
+
+const EXPORT = token(seq('export', notFollowedBy(wordChar)), { scope: 'keyword.control.export' });
+const ASSIGN_KEY = token(seq(identStart, star(identChar), followedBy('=')), { scope: 'entity.name.tag' });
+const FUNCTION_NAME = token(
+  seq(alpha, star(wordChar), followedBy(seq(star(hspace), '('))),
+  { scope: 'variable.function' },
+);
+const IDENT = token(
+  seq(identStart, star(identChar), followedBy(altPattern(oneOf(' ', '\t', '\n', '#', '=', '(', ')', ',', '}', ']'), end()))),
+  { scope: 'variable.other.readwrite' },
 );
 const DEC_VALUE_TEXT = token(
   seq(
