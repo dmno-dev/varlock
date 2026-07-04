@@ -318,7 +318,12 @@ export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
 
         // inject loader rules
         const loaderRule = {
-          loaders: [require.resolve('./loader')],
+          loaders: [
+            {
+              loader: require.resolve('./loader'),
+              options: { bundler: 'turbopack', dev: !isBuild },
+            },
+          ],
         };
         turbopackConfig.rules ||= {};
         turbopackConfig.rules['*.{js,jsx,ts,tsx,mjs,mts}'] = loaderRule;

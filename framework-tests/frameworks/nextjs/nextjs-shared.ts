@@ -121,13 +121,6 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
         const devPort = 14000 + (nextVersion * 10) + (webpackOrTurbo === 'turbopack' ? 1 : 0);
         const devCommand = `next dev ${buildToolFlag} --port ${devPort}`.replace(/\s+/g, ' ').trim();
 
-        // KNOWN GAP: after changing an extra env file, the updated value is served
-        // on webpack dev for next <= 15, but on turbopack dev and all of next 16
-        // the stale value is served indefinitely (Next never fires its env reload).
-        // Only assert the updated value where the behavior currently works, so a
-        // regression there still fails loudly.
-        const devEnvReloadWorks = nextVersion <= 15 && webpackOrTurbo === 'webpack';
-
         // One dev-server session covers both env file watching behaviors:
         // rewriting the file with identical content must not churn the server,
         // and actually changing the content must reload env and serve the new value.
@@ -159,19 +152,14 @@ export function defineNextjsTests(nextVersion: number, testDir: string) {
               },
             },
             {
-              label: devEnvReloadWorks
-                ? 'change to content: env is reloaded, updated value served'
-                : 'change to content: server keeps serving (env reload gap, see comment)',
+              label: 'change to content: env is reloaded, updated value served',
               path: '/',
               fileEdits: {
                 '.env.dev': 'ENV_SPECIFIC_VAR=env-specific-var--dev-updated',
               },
               fileEditDelay: 2500,
               bodyAssertions: {
-                shouldContain: [
-                  'Varlock Framework Test - Next.js',
-                  ...devEnvReloadWorks ? ['env-specific-var--dev-updated'] : [],
-                ],
+                shouldContain: ['Varlock Framework Test - Next.js', 'env-specific-var--dev-updated'],
               },
             },
           ],
