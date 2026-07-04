@@ -65,7 +65,15 @@ const DEC_NAME = token(
 // (`# @dec...`) keep full token highlighting.
 const HASH = token(
   seq(notPrecededBy(noneOf(' ', '\t', '\n', '\r')), '#'),
-  { scope: 'comment.line', lineComment: { richStarters: [DEC_NAME] } },
+  {
+    scope: 'comment.line',
+    lineComment: {
+      richStarters: [DEC_NAME],
+      // multi-line decorator fn calls / literals: an open bracket continues the
+      // construct across `#`-prefixed lines (the `#` becomes a continuation marker)
+      continuationBrackets: [['(', ')'], ['[', ']'], ['{', '}']],
+    },
+  },
 );
 
 const EXPORT = token(seq('export', notFollowedBy(wordChar)), { scope: 'keyword.control.export' });

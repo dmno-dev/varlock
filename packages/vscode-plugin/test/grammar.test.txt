@@ -89,42 +89,42 @@ NO_SPACE_COMMENT_VAR=test
 MULTI_DEC_VAR=test
 
 # @dec(fn())
-#     ^ punctuation.definition.parameters.begin.env-spec
+#     ^ comment.line.env-spec
 #      ^^ variable.function.env-spec
-#        ^ punctuation.definition.parameters.begin.env-spec
-#         ^ punctuation.definition.parameters.end.env-spec
-#          ^ punctuation.definition.parameters.end.env-spec
+#        ^ comment.line.env-spec
+#         ^ comment.line.env-spec
+#          ^ comment.line.env-spec
 NESTED_FN_DEC_VAR=test
 
 # @dec(fn(arg))
-#     ^ punctuation.definition.parameters.begin.env-spec
+#     ^ comment.line.env-spec
 #      ^^ variable.function.env-spec
-#        ^ punctuation.definition.parameters.begin.env-spec
+#        ^ comment.line.env-spec
 #         ^^^ string.unquoted.env-spec
-#            ^ punctuation.definition.parameters.end.env-spec
-#             ^ punctuation.definition.parameters.end.env-spec
+#            ^ comment.line.env-spec
+#             ^ comment.line.env-spec
 NESTED_FN_ARG_DEC_VAR=test
 
 # @dec(key=fn())
-#     ^ punctuation.definition.parameters.begin.env-spec
+#     ^ comment.line.env-spec
 #      ^^^ entity.name.tag.env-spec
 #         ^ keyword.operator.assignment.env-spec
 #          ^^ variable.function.env-spec
-#            ^ punctuation.definition.parameters.begin.env-spec
-#             ^ punctuation.definition.parameters.end.env-spec
-#              ^ punctuation.definition.parameters.end.env-spec
+#            ^ comment.line.env-spec
+#             ^ comment.line.env-spec
+#              ^ comment.line.env-spec
 KWARG_FN_DEC_VAR=test
 
 # @dec(a, fn(), b)
-#     ^ punctuation.definition.parameters.begin.env-spec
+#     ^ comment.line.env-spec
 #      ^ string.unquoted.env-spec
 #       ^ punctuation.separator.comma.env-spec
 #         ^^ variable.function.env-spec
-#           ^ punctuation.definition.parameters.begin.env-spec
-#            ^ punctuation.definition.parameters.end.env-spec
+#           ^ comment.line.env-spec
+#            ^ comment.line.env-spec
 #             ^ punctuation.separator.comma.env-spec
 #               ^ string.unquoted.env-spec
-#                ^ punctuation.definition.parameters.end.env-spec
+#                ^ comment.line.env-spec
 MULTI_ARG_FN_DEC_VAR=test
 
 # ======================
@@ -192,20 +192,20 @@ UNDEFINED_VAL=undefined
 # ======================
 
 # @dec=[a, b]
-#      ^ punctuation.definition.array.begin.env-spec
+#      ^ comment.line.env-spec
 #       ^ string.unquoted.env-spec
 #          ^ string.unquoted.env-spec
-#           ^ punctuation.definition.array.end.env-spec
+#           ^ comment.line.env-spec
 
 ARR_DEC=test
 #^^^^^^ entity.name.tag.env-spec
 
 # @sensitive={ preventLeaks=false }
-#            ^ punctuation.definition.dictionary.begin.env-spec
+#            ^ comment.line.env-spec
 #              ^^^^^^^^^^^^ entity.name.tag.env-spec
 #                          ^ keyword.operator.assignment.env-spec
 #                           ^^^^^ constant.language.boolean.env-spec
-#                                 ^ punctuation.definition.dictionary.end.env-spec
+#                                 ^ comment.line.env-spec
 
 OBJ_DEC=test
 #^^^^^^ entity.name.tag.env-spec

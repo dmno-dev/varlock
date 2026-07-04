@@ -146,6 +146,97 @@
       "name": "string.unquoted.env-spec",
       "match": "(?<=[^ \\t\\n\\r])#[^ \\t\\n,)}\\]]*"
     },
+    "hash-rich-cont-marker": {
+      "match": "^[ \\t]*((?<![^ \\t\\n\\r])#)",
+      "captures": {
+        "1": {
+          "name": "comment.line.env-spec punctuation.definition.comment.env-spec"
+        }
+      }
+    },
+    "hash-rich-cont-comment": {
+      "name": "comment.line.env-spec",
+      "begin": "((?<![^ \\t\\n\\r])#)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.comment.env-spec"
+        }
+      },
+      "end": "$",
+      "patterns": []
+    },
+    "hash-rich-cont-28": {
+      "begin": "\\(",
+      "end": "\\)",
+      "patterns": [
+        {
+          "include": "#hash-rich-cont-marker"
+        },
+        {
+          "include": "#hash-rich-cont-comment"
+        },
+        {
+          "include": "#hash-rich-cont-28"
+        },
+        {
+          "include": "#hash-rich-cont-5b"
+        },
+        {
+          "include": "#hash-rich-cont-7b"
+        },
+        {
+          "include": "$self"
+        }
+      ]
+    },
+    "hash-rich-cont-5b": {
+      "begin": "\\[",
+      "end": "\\]",
+      "patterns": [
+        {
+          "include": "#hash-rich-cont-marker"
+        },
+        {
+          "include": "#hash-rich-cont-comment"
+        },
+        {
+          "include": "#hash-rich-cont-28"
+        },
+        {
+          "include": "#hash-rich-cont-5b"
+        },
+        {
+          "include": "#hash-rich-cont-7b"
+        },
+        {
+          "include": "$self"
+        }
+      ]
+    },
+    "hash-rich-cont-7b": {
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        {
+          "include": "#hash-rich-cont-marker"
+        },
+        {
+          "include": "#hash-rich-cont-comment"
+        },
+        {
+          "include": "#hash-rich-cont-28"
+        },
+        {
+          "include": "#hash-rich-cont-5b"
+        },
+        {
+          "include": "#hash-rich-cont-7b"
+        },
+        {
+          "include": "$self"
+        }
+      ]
+    },
     "hash-rich": {
       "name": "comment.line.env-spec",
       "begin": "((?<![^ \\t\\n\\r])#)(?=[ \\t]*(?:(?:(?<![^ \\t\\n\\r#])@[a-zA-Z][^ \\t\\n=()#@]*(?=[ \\t\\n=()#]|$))))",
@@ -156,6 +247,15 @@
       },
       "end": "$",
       "patterns": [
+        {
+          "include": "#hash-rich-cont-28"
+        },
+        {
+          "include": "#hash-rich-cont-5b"
+        },
+        {
+          "include": "#hash-rich-cont-7b"
+        },
         {
           "include": "$self"
         }
