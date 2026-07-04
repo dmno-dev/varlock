@@ -195,6 +195,9 @@
           "include": "#ctx-scope-0-assign_key"
         },
         {
+          "include": "#hash-rich-cont-call"
+        },
+        {
           "include": "#hash-rich-cont-28"
         },
         {
@@ -222,6 +225,9 @@
           "include": "#ctx-scope-0-assign_key"
         },
         {
+          "include": "#hash-rich-cont-call"
+        },
+        {
           "include": "#hash-rich-cont-28"
         },
         {
@@ -238,6 +244,49 @@
     "hash-rich-cont-7b": {
       "begin": "\\{",
       "end": "\\}",
+      "patterns": [
+        {
+          "include": "#hash-rich-cont-marker"
+        },
+        {
+          "include": "#hash-rich-cont-comment"
+        },
+        {
+          "include": "#ctx-scope-0-assign_key"
+        },
+        {
+          "include": "#hash-rich-cont-call"
+        },
+        {
+          "include": "#hash-rich-cont-28"
+        },
+        {
+          "include": "#hash-rich-cont-5b"
+        },
+        {
+          "include": "#hash-rich-cont-7b"
+        },
+        {
+          "include": "$self"
+        }
+      ]
+    },
+    "hash-rich-cont-call": {
+      "begin": "([a-zA-Z][a-zA-Z0-9_]*(?=[ \\t]*\\())\\s*(\\()",
+      "beginCaptures": {
+        "1": {
+          "name": "variable.function.env-spec"
+        },
+        "2": {
+          "name": "punctuation.definition.parameters.begin.env-spec"
+        }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.parameters.end.env-spec"
+        }
+      },
       "patterns": [
         {
           "include": "#hash-rich-cont-marker"
@@ -272,6 +321,9 @@
       },
       "end": "$",
       "patterns": [
+        {
+          "include": "#hash-rich-cont-call"
+        },
         {
           "include": "#hash-rich-cont-28"
         },
