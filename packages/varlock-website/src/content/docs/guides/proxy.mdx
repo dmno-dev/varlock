@@ -245,6 +245,10 @@ varlock proxy run -- <command>
 
 Starts a proxy, runs the command through it, and tears down when the command exits. The single most common way to use the feature. If a `proxy start` daemon is already running for this directory, `proxy run` **attaches** to it (so its terminal owns the live request log and any prompts); otherwise it runs a self-contained proxy. Pass `--new` to force a fresh, separate proxy.
 
+:::caution[Approval rules fail closed in one-shot mode]
+A self-contained `proxy run` has no terminal to prompt in (the child owns its stdio), so requests matching an approval-required rule are denied with a 403. For interactive approvals, run `proxy start` in one terminal and let `proxy run` attach from another.
+:::
+
 ### Daemon + attach: `proxy start`
 
 ```bash
@@ -288,6 +292,8 @@ Sessions are durable records: they persist after the proxy stops (visible with `
 - **CA trust:** `NODE_EXTRA_CA_CERTS` (Node.js), `REQUESTS_CA_BUNDLE` (Python `requests`), `CURL_CA_BUNDLE` (curl), `GIT_SSL_CAINFO` (git), and `SSL_CERT_FILE` (OpenSSL-based tools).
 
 The proxy uses an **ephemeral, in-memory certificate authority** generated per run; only its public certificate is written to a temp file for the child to trust. The CA private key and all per-host certificates never leave memory.
+
+**Stdout/stderr redaction** is decided per stream: a stream attached to an interactive terminal passes through raw (so TUIs like `claude` render correctly), while a piped or redirected stream is scrubbed of sensitive values, including the real values the proxy injects at the wire, in case an upstream response echoes one back. Override with `--redact-stdout` / `--no-redact-stdout`.
 
 :::note[Clients that don't read these env vars]
 Tools that ignore the standard proxy/CA environment variables (many GUI apps, browsers, and some language runtimes with their own trust stores) won't be transparently proxied. The target here is CLI tools and agents, which generally do respect them.
