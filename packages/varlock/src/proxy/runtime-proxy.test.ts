@@ -469,19 +469,29 @@ describe('varlock.internal session-env endpoint', () => {
 
   async function startWithEndpoint(opts?: { egressMode?: 'permissive' | 'strict'; skipPayload?: boolean }) {
     const activities: Array<ProxyActivity> = [];
+    const authFailures: Array<true> = [];
+    const served: Array<{ passthroughCount?: number } | undefined> = [];
     const runtime = await startLocalProxyRuntime({
       managedItems: [],
       rules: [],
       egressMode: opts?.egressMode ?? 'permissive',
-      internalEndpointToken: TOKEN,
+      internalEndpoint: {
+        token: TOKEN,
+        onAuthFailure: () => authFailures.push(true),
+        onServed: (meta) => served.push(meta),
+      },
       onActivity: (a) => activities.push(a),
     });
-    if (!opts?.skipPayload) runtime.setSessionEnvPayloadJson(PAYLOAD_JSON);
-    return { runtime, activities };
+    if (!opts?.skipPayload) runtime.setSessionEnvPayloadJson(PAYLOAD_JSON, { passthroughCount: 2 });
+    return {
+      runtime, activities, authFailures, served,
+    };
   }
 
   test('serves the current payload with a valid token, without reporting egress activity', async () => {
-    const { runtime, activities } = await startWithEndpoint();
+    const {
+      runtime, activities, served, authFailures,
+    } = await startWithEndpoint();
     const res = await requestViaProxy(runtime.env.HTTP_PROXY!, 'http://varlock.internal/session-env', {
       host: 'varlock.internal',
       'x-varlock-proxy-token': TOKEN,
@@ -491,6 +501,9 @@ describe('varlock.internal session-env endpoint', () => {
     expect(JSON.parse(res.body)).toEqual(JSON.parse(PAYLOAD_JSON));
     // control plane, not traffic: never counted as egress
     expect(activities).toEqual([]);
+    // owner visibility: served callback fires with the payload's meta, no auth failures
+    expect(served).toEqual([{ passthroughCount: 2 }]);
+    expect(authFailures).toEqual([]);
     await runtime.stop();
   });
 
@@ -506,8 +519,8 @@ describe('varlock.internal session-env endpoint', () => {
     await runtime.stop();
   });
 
-  test('refuses a missing or wrong token with 403 and serves nothing', async () => {
-    const { runtime } = await startWithEndpoint();
+  test('refuses a missing or wrong token with 403, serves nothing, and surfaces the attempt', async () => {
+    const { runtime, authFailures, served } = await startWithEndpoint();
     const noToken = await requestViaProxy(runtime.env.HTTP_PROXY!, 'http://varlock.internal/session-env', {
       host: 'varlock.internal',
     });
@@ -518,6 +531,9 @@ describe('varlock.internal session-env endpoint', () => {
       'x-varlock-proxy-token': 'wrong-token-same-length--',
     });
     expect(wrongToken.statusCode).toBe(403);
+    // both attempts surfaced to the owner; nothing served
+    expect(authFailures).toEqual([true, true]);
+    expect(served).toEqual([]);
     await runtime.stop();
   });
 

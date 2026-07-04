@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { watch as fsWatch, existsSync, statSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 
@@ -55,6 +56,7 @@ import {
   type ProxyReloadResult,
 } from '../../proxy/reload-channel';
 import { isInProxyContext } from '../helpers/proxy-context-guard';
+import { buildInjectedBlobEnv } from '../helpers/injected-env-blob';
 import {
   buildSessionEnvPayload,
   decodeSessionEnvPayload,
@@ -409,7 +411,13 @@ export function buildProxiedChildEnv(opts: {
     [PROXY_PARENT_PID_ENV_VAR]: String(opts.parentPid),
     ...(opts.injectVars ? opts.payload.env : {}),
     __VARLOCK_RUN: '1',
-    ...(opts.injectBlob ? { __VARLOCK_ENV: JSON.stringify(opts.payload.serializedGraph) } : {}),
+    // honors @encryptInjectedEnv in blob-only mode; reuses/forwards an ambient key
+    ...buildInjectedBlobEnv({
+      serializedGraph: opts.payload.serializedGraph,
+      injectVars: opts.injectVars,
+      injectBlob: opts.injectBlob,
+      ambientEnvKey: opts.baseEnv._VARLOCK_ENV_KEY,
+    }),
   };
 
   // An omitted key must be absent from the child env entirely, even when the
@@ -418,11 +426,18 @@ export function buildProxiedChildEnv(opts: {
     delete fullInjectedEnv[key];
   }
 
-  if (opts.injectBlob && !opts.injectVars && opts.baseEnv._VARLOCK_ENV_KEY) {
-    fullInjectedEnv._VARLOCK_ENV_KEY = opts.baseEnv._VARLOCK_ENV_KEY;
-  }
-
   return fullInjectedEnv;
+}
+
+/**
+ * Count of sensitive items whose REAL value the child (and the session-env
+ * payload) carries: `@proxy=passthrough` items. Placeholdered items are in
+ * `placeholderByKey`; omitted ones are already deleted from the graph.
+ */
+function countPassthroughSecrets(policy: PreparedProxyPolicy): number {
+  return Object.entries(policy.serializedGraph.config as Record<string, { isSensitive?: boolean }>)
+    .filter(([key, item]) => item.isSensitive && !(key in policy.placeholderByKey))
+    .length;
 }
 
 /**
@@ -519,6 +534,9 @@ async function fetchSessionEnvPayload(session: ProxySessionRecord): Promise<Sess
   } catch {
     throw unreachable('Its record has no usable proxy address.');
   }
+  if (!session.endpointToken) {
+    throw unreachable('Its record has no endpoint token.');
+  }
 
   const raw = await new Promise<string>((resolve, reject) => {
     // `timer` and `req` reference each other (timer destroys req; req's handlers
@@ -533,7 +551,7 @@ async function fetchSessionEnvPayload(session: ProxySessionRecord): Promise<Sess
       path: `http://${VARLOCK_INTERNAL_HOST}${SESSION_ENV_ENDPOINT_PATH}`,
       headers: {
         host: VARLOCK_INTERNAL_HOST,
-        [PROXY_TOKEN_HEADER]: session.uuid,
+        [PROXY_TOKEN_HEADER]: session.endpointToken,
       },
     }, (res) => {
       if (res.statusCode !== 200) {
@@ -683,6 +701,11 @@ async function createRuntimeAndSession(opts: {
   grantStore?: ApprovalGrantStore;
 }> {
   const identity = await reserveProxySessionIdentity();
+  // Bearer credential for the varlock.internal endpoint. Separate from the uuid
+  // on purpose: the uuid is a DISPLAYED identifier (status output, child env),
+  // this token is never printed anywhere (0600 record + owner memory only).
+  const endpointToken = randomUUID();
+  let lastEndpointAuthWarnAt = 0;
   const statsWriter = createSessionStatsWriter(identity.uuid, EMPTY_PROXY_SESSION_STATS);
   // When grants are enabled, a session/duration approval is remembered so future
   // matching requests auto-approve without re-prompting (the seam the phone
@@ -715,11 +738,33 @@ async function createRuntimeAndSession(opts: {
     onResponse: opts.logRequests
       ? (info) => emitProxyLog(formatProxyResponseLog(info))
       : undefined,
-    internalEndpointToken: identity.uuid,
+    internalEndpoint: {
+      token: endpointToken,
+      onAuthFailure: () => {
+        // Throttled: a misbehaving prober shouldn't be able to flood the owner's log.
+        if (Date.now() - lastEndpointAuthWarnAt < 5000) return;
+        lastEndpointAuthWarnAt = Date.now();
+        emitProxyLog(
+          '⚠️  Refused a request to this session\'s control endpoint (bad or missing token). '
+          + 'Another process on this machine may be probing the proxy.',
+        );
+      },
+      onServed: (meta) => {
+        // Visibility when real secrets leave the owner: placeholders/non-secrets are
+        // routine (the attach watcher already logs the client), passthrough is not.
+        if (!meta?.passthroughCount) return;
+        emitProxyLog(
+          `${ansis.green('⊕')} served session env to an attaching client ${ansis.dim(`(includes ${meta.passthroughCount} passthrough secret${meta.passthroughCount === 1 ? '' : 's'})`)}`,
+        );
+      },
+    },
   });
   // Serve the child view to attaching `proxy run` processes (adopt semantics);
   // applyTrustedReload re-sets this after each reload so fetches stay current.
-  runtime.setSessionEnvPayloadJson(encodeSessionEnvPayload(buildSessionEnvPayload(opts.policy)));
+  runtime.setSessionEnvPayloadJson(
+    encodeSessionEnvPayload(buildSessionEnvPayload(opts.policy)),
+    { passthroughCount: countPassthroughSecrets(opts.policy) },
+  );
   const session = await createProxySessionRecord({
     id: identity.id,
     uuid: identity.uuid,
@@ -727,6 +772,7 @@ async function createRuntimeAndSession(opts: {
     cwd: process.cwd(),
     startedAt: now,
     egressMode: opts.policy.egressMode,
+    endpointToken,
     schemaFingerprint: opts.policy.schemaFingerprint,
     placeholderOverrides: opts.policy.placeholderByKey,
     ...(opts.policy.omittedKeys.length ? { omittedKeys: opts.policy.omittedKeys } : {}),
@@ -904,7 +950,10 @@ async function applyTrustedReload(opts: {
     });
     // Keep the varlock.internal endpoint serving the CURRENT child view, so a
     // post-reload attach adopts the reloaded env, not the launch-time one.
-    opts.runtime.setSessionEnvPayloadJson(encodeSessionEnvPayload(buildSessionEnvPayload(next)));
+    opts.runtime.setSessionEnvPayloadJson(
+      encodeSessionEnvPayload(buildSessionEnvPayload(next)),
+      { passthroughCount: countPassthroughSecrets(next) },
+    );
     await updateProxySessionRecord(opts.session.uuid, {
       schemaFingerprint: next.schemaFingerprint,
       egressMode: next.egressMode,

@@ -46,10 +46,10 @@ export type ProxyRuntimeContext = {
   reconfigure: (next: ProxyReconfigureInput) => void;
   /**
    * Set/replace the encoded session-env payload the `varlock.internal` endpoint
-   * serves (see `internalEndpointToken`). Called once after startup and again on
+   * serves (see `internalEndpoint`). Called once after startup and again on
    * every reload so attach fetches are always current.
    */
-  setSessionEnvPayloadJson: (payloadJson: string) => void;
+  setSessionEnvPayloadJson: (payloadJson: string, meta?: SessionEnvPayloadMeta) => void;
   stop: () => Promise<void>;
 };
 
@@ -83,10 +83,25 @@ export type StartLocalProxyRuntimeInput = {
    * attaching `proxy run` can adopt this session's env without resolving
    * anything itself. Requests to the internal host are answered by the proxy,
    * never forwarded upstream, and not reported as egress activity. The token is
-   * the session token from the 0600 record, so this gates at same-uid — the same
-   * trust level as the record itself, not a hard boundary.
+   * a dedicated endpoint credential stored in the 0600 session record (never
+   * displayed anywhere), so this gates at same-uid — the same trust level as
+   * the record itself, not a hard boundary. Loopback peers only, asserted even
+   * though the listener is loopback-bound, so a future non-loopback data-plane
+   * bind (sandbox bridging) can't silently expose the control plane.
    */
-  internalEndpointToken?: string;
+  internalEndpoint?: {
+    token: string;
+    /** A request presented a missing/invalid token (or came from a non-loopback peer) — surface to the owner. */
+    onAuthFailure?: () => void;
+    /** The session env payload was served; meta comes from the matching setSessionEnvPayloadJson call. */
+    onServed?: (meta?: SessionEnvPayloadMeta) => void;
+  };
+};
+
+/** Command-side metadata attached to the served payload (for owner-terminal visibility). */
+export type SessionEnvPayloadMeta = {
+  /** Count of sensitive items served with their REAL value (@proxy=passthrough). */
+  passthroughCount?: number;
 };
 
 type HostInfo = { host: string, port: number };
@@ -304,6 +319,11 @@ function tokenMatches(provided: unknown, expected: string): boolean {
   const expectedBuf = Buffer.from(expected);
   if (providedBuf.length !== expectedBuf.length) return false;
   return timingSafeEqual(providedBuf, expectedBuf);
+}
+
+function isLoopbackAddress(addr: string | undefined): boolean {
+  if (!addr) return false;
+  return addr === '::1' || addr === '::ffff:127.0.0.1' || addr.startsWith('127.');
 }
 
 /** Transport-specific inputs for a proxied request, shared by the MITM-tunnel and
@@ -590,7 +610,7 @@ export async function startLocalProxyRuntime({
   onActivity,
   onResponse,
   approvalProvider,
-  internalEndpointToken,
+  internalEndpoint,
 }: StartLocalProxyRuntimeInput): Promise<ProxyRuntimeContext> {
   // Mutable so `reconfigure` can hot-swap the enforced policy on a live proxy.
   // The request handlers below close over these bindings, so reassigning them
@@ -600,6 +620,7 @@ export async function startLocalProxyRuntime({
   let egressMode = initialEgressMode;
   // Set via setSessionEnvPayloadJson right after startup (and on each reload).
   let sessionEnvPayloadJson: string | undefined;
+  let sessionEnvPayloadMeta: SessionEnvPayloadMeta | undefined;
   // Only the public CA cert is written to disk (for child trust). Private keys
   // — the CA's and every per-host leaf's — stay in memory; see cert-authority.ts.
   const certsDir = await mkdtemp(path.join(os.tmpdir(), 'varlock-proxy-certs-'));
@@ -620,7 +641,16 @@ export async function startLocalProxyRuntime({
     res: http.ServerResponse,
     t: ProxiedRequestTransport,
   ) => {
-    if (!internalEndpointToken || !tokenMatches(req.headers[PROXY_TOKEN_HEADER], internalEndpointToken)) {
+    // Loopback peers only. Redundant today (the listener binds 127.0.0.1) but
+    // deliberate: a future non-loopback data-plane bind (sandbox bridging) must
+    // not silently expose the control plane to a network segment.
+    if (!isLoopbackAddress(req.socket.remoteAddress)) {
+      internalEndpoint?.onAuthFailure?.();
+      respondBlocked(res, 403, 'varlock proxy: internal endpoint is loopback-only', t.tunnelTeardown);
+      return;
+    }
+    if (!internalEndpoint || !tokenMatches(req.headers[PROXY_TOKEN_HEADER], internalEndpoint.token)) {
+      internalEndpoint?.onAuthFailure?.();
       respondBlocked(res, 403, 'varlock proxy: invalid or missing session token', t.tunnelTeardown);
       return;
     }
@@ -635,6 +665,7 @@ export async function startLocalProxyRuntime({
     try {
       res.writeHead(200, { 'content-type': 'application/json', connection: 'close' });
       res.end(sessionEnvPayloadJson);
+      internalEndpoint.onServed?.(sessionEnvPayloadMeta);
     } catch { /* client went away */ }
   };
 
@@ -910,6 +941,18 @@ export async function startLocalProxyRuntime({
       return;
     }
 
+    // A CONNECT tunnel to the internal host reaches handleInternalRequest via a
+    // local MITM pipe, where the original peer address is no longer visible — so
+    // the loopback-only assertion for the control plane must happen here.
+    // clientSocket is typed as Duplex but is a net.Socket at runtime
+    const connectPeer = (clientSocket as net.Socket).remoteAddress;
+    if (normalizeHost(hostInfo.host) === VARLOCK_INTERNAL_HOST && !isLoopbackAddress(connectPeer)) {
+      internalEndpoint?.onAuthFailure?.();
+      clientSocket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      clientSocket.destroy();
+      return;
+    }
+
     const shouldRewrite = hostMatchesProxyRules(hostInfo.host, rules);
     const shouldAllowEgress = egressMode === 'permissive' || shouldRewrite;
     if (!shouldAllowEgress) {
@@ -999,8 +1042,9 @@ export async function startLocalProxyRuntime({
       CURL_CA_BUNDLE: combinedCaPath,
       GIT_SSL_CAINFO: combinedCaPath,
     },
-    setSessionEnvPayloadJson: (payloadJson) => {
+    setSessionEnvPayloadJson: (payloadJson, meta) => {
       sessionEnvPayloadJson = payloadJson;
+      sessionEnvPayloadMeta = meta;
     },
     reconfigure: (next) => {
       managedItems = next.managedItems;

@@ -38,6 +38,14 @@ export type ProxySessionRecord = {
    */
   attachedPids?: Array<number>;
   egressMode: ProxyEgressMode;
+  /**
+   * Bearer credential for the session's `varlock.internal` control endpoint.
+   * Deliberately SEPARATE from `uuid`: the uuid is a display identifier (printed
+   * by `proxy status`, exported into the child env) while this token is never
+   * shown anywhere — it lives only in this 0600 record and the owner's memory,
+   * so a pasted status output or shared screen can't leak endpoint access.
+   */
+  endpointToken?: string;
   schemaFingerprint?: string;
   /**
    * Sensitive item key → placeholder shown to the child. Covers `@proxy`-managed
@@ -137,6 +145,7 @@ function parseSessionRecord(raw: string): ProxySessionRecord | undefined {
         ? { attachedPids: parsed.attachedPids.map((v) => Number(v)).filter((n) => Number.isFinite(n)) }
         : {}),
       egressMode: parsed.egressMode as ProxyEgressMode,
+      ...(parsed.endpointToken ? { endpointToken: String(parsed.endpointToken) } : {}),
       ...(parsed.schemaFingerprint ? { schemaFingerprint: String(parsed.schemaFingerprint) } : {}),
       ...(parsed.placeholderOverrides && typeof parsed.placeholderOverrides === 'object'
         ? {

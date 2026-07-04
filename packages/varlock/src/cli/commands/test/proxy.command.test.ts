@@ -334,6 +334,28 @@ describe('buildProxiedChildEnv', () => {
     expect(env.__VARLOCK_ENV).toBeDefined();
   });
 
+  test('blob-only mode honors @encryptInjectedEnv: blob encrypted, ephemeral key alongside', async () => {
+    const { isEncryptedBlob, decryptEnvBlobSync } = await import('../../../runtime/crypto');
+    const payload = {
+      ...PAYLOAD,
+      serializedGraph: { ...PAYLOAD.serializedGraph, settings: { encryptInjectedEnv: true } },
+    };
+    const env = buildProxiedChildEnv({
+      payload,
+      sessionExportEnv: SESSION_EXPORT,
+      parentPid: 1,
+      injectVars: false,
+      injectBlob: true,
+      baseEnv: {},
+    });
+    expect(isEncryptedBlob(env.__VARLOCK_ENV!)).toBe(true);
+    expect(env._VARLOCK_ENV_KEY).toBeDefined();
+    // the runtime can decrypt it transparently
+    const decrypted = JSON.parse(decryptEnvBlobSync(env.__VARLOCK_ENV!, env._VARLOCK_ENV_KEY!));
+    expect(decrypted.settings.encryptInjectedEnv).toBe(true);
+    expect(decrypted.config.API_KEY.value).toBe('vlk_placeholder_API_KEY_abc');
+  });
+
   test('inject mode vars-only skips the blob', () => {
     const env = buildProxiedChildEnv({
       payload: PAYLOAD,
