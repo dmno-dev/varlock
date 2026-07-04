@@ -8,7 +8,7 @@ import { captureUsageContextFromEnvGraph, captureTelemetryGraphLoadFailure } fro
 import { runWithWorkspaceInfo } from './workspace-utils';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { createDebug } from './debug';
-import { parseOverrideProvenanceMetadata, selectOverrideValuesFromEnv } from './injected-env-provenance';
+import { parseBlobOverrideKeys, selectOverrideValuesFromEnv } from './injected-env-provenance';
 import { getActiveProxySession, getProxyResolutionViewForEnv } from '../proxy/session-registry';
 import { PROXY_CHILD_ENV_VAR } from '../proxy/env-vars';
 import { enforceProxySchemaFingerprint } from '../cli/helpers/proxy-schema-fingerprint';
@@ -16,9 +16,9 @@ import { enforceProxySchemaFingerprint } from '../cli/helpers/proxy-schema-finge
 const debug = createDebug('varlock:load');
 
 function getGraphEnvOverridesFromRuntimeEnv() {
-  const provenance = parseOverrideProvenanceMetadata(process.env.__VARLOCK_ENV);
-  if (!provenance) return undefined;
-  return selectOverrideValuesFromEnv(process.env, provenance.overrideKeys);
+  const overrideKeys = parseBlobOverrideKeys(process.env.__VARLOCK_ENV);
+  if (!overrideKeys) return undefined;
+  return selectOverrideValuesFromEnv(process.env, overrideKeys);
 }
 
 function normalizePkgLoadPath(pkgLoadPath: string | Array<string>): Array<string> {

@@ -82,7 +82,7 @@ describe('serialized graph excludes reserved _VARLOCK_ keys', () => {
         _VARLOCK_REDACT_STDOUT: 'true', // reserved infra key → must not be recorded
       },
     );
-    const overrideKeys = g.getSerializedGraph().__varlockOverrideMeta?.overrideKeys ?? [];
+    const overrideKeys = g.getSerializedGraph().overrideKeys ?? [];
 
     expect(overrideKeys).toContain('FOO');
     expect(overrideKeys).not.toContain('PATH');

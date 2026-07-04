@@ -25,7 +25,7 @@ import { runWithResolutionContext, getResolutionContext } from './resolution-con
 import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
 import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
 import { isVarlockReservedKey } from './reserved-vars';
-import { buildOverrideProvenanceMetadata, type OverrideProvenanceMetadata } from '../../lib/injected-env-provenance';
+import { normalizeOverrideKeys } from '../../lib/injected-env-provenance';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import {
   PROXY_APPROVAL_EACH_VALUES,
@@ -76,8 +76,8 @@ export type SerializedEnvGraph = {
     /** true = used only by varlock, not injected into the app. Only present in inspection output (never in the blob). */
     isInternal?: boolean;
   }>;
-  /** provenance metadata for process.env overrides across nested invocations */
-  __varlockOverrideMeta?: OverrideProvenanceMetadata;
+  /** Keys that were genuine process.env overrides at this invocation, so nested varlock invocations re-apply exactly those (and nothing else) as overrides. */
+  overrideKeys?: Array<string>;
   /** Present only when config has errors — consumers can check `if (data.errors)` */
   errors?: SerializedEnvGraphErrors;
 };
@@ -775,7 +775,7 @@ export class EnvGraph {
     // list would mirror every env var (PATH, HOME, ...) — pure noise that also leaks the
     // caller's full env var name list into the blob. Reserved _VARLOCK_* keys configure
     // varlock itself and are never overrides, so exclude them even if defined in the schema.
-    serializedGraph.__varlockOverrideMeta = buildOverrideProvenanceMetadata(
+    serializedGraph.overrideKeys = normalizeOverrideKeys(
       Object.keys(this.overrideValues).filter(
         (k) => k in this.configSchema && !isVarlockReservedKey(k),
       ),
