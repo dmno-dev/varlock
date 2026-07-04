@@ -372,9 +372,8 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
   {
     id: 'mise',
     title: 'mise',
-    // simple-icons has no mise; this is the real brand logo (full-color, like the other
-    // brand-logo tiles akeyless/doppler/opencode)
-    icon: 'vscode-icons:file-type-mise',
+    // local brand mark (simple-icons has no mise) — monochrome, themes like the other tiles
+    icon: 'mise-logo',
     href: '/integrations/mise/',
     category: 'deployments',
   },
