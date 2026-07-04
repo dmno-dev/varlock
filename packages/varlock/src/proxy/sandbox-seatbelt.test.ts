@@ -15,7 +15,7 @@ import {
   isBuiltinSandboxSupported,
   wrapCommandWithSandbox,
   SANDBOX_EXEC_PATH,
-} from './sandbox-profile';
+} from './sandbox-seatbelt';
 
 describe('buildSeatbeltProfile', () => {
   test('emits an allow-default base with the loopback-only egress jail', () => {

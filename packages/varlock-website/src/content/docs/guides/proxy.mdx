@@ -352,11 +352,31 @@ Adds `--sandbox` to a self-owned `proxy run` to run the child inside a minimal, 
 - **Credential material** — reads of the user varlock dir (the encryption key + local-encrypt socket, plugin/credential cache, and the proxy session/reload channel) are denied.
 - **Warm credential agents** — `mach-lookup` to the 1Password helper (and similar) is denied, so the agent can't drive a warm `op` session directly.
 
-It's **opt-in** by design (a jail that's too tight silently breaks an agent, so we don't force it on). macOS only today; on Linux/Windows use the bring-your-own path below. It applies to a self-owned one-shot run — when a `proxy start` daemon is running, `--sandbox` on the attaching `proxy run` still sandboxes the child it spawns.
+It's **opt-in** by design (a jail that's too tight silently breaks an agent, so we don't force it on). Bare `--sandbox` is macOS-only today; on Linux (or for stronger isolation) use `--sandbox=docker` below.
 
-### Bring-your-own: containers & VMs
+### Container: `--sandbox=docker`
 
-For stronger isolation (or on Linux/Windows), run the agent inside a container or VM (Docker, a devcontainer, Apple `container`, microsandbox) with all egress routed through the proxy on a host-reachable address. This is the VM-grade tier and covers the filesystem and process table too, not just network + credentials. See the sandbox guide for per-runtime recipes.
+```bash
+varlock proxy run --sandbox=docker --sandbox-image <image> -- claude
+```
+
+Runs the child in a container (`docker`, or `--sandbox=podman`) whose **only** network egress is the proxy, while your secrets and the resolution machinery stay on the host. varlock wires this up for you:
+
+- The agent container runs on an **`--internal` network** — it has no route to the internet at all, so raw egress fails closed.
+- A tiny **forwarder** container (a `socat` byte-relay holding no secrets) sits on that network as `varlock-proxy` and bridges to the host proxy. The agent's `HTTPS_PROXY` points at it, so every request goes host proxy → policy check → wire injection.
+- Your cwd is mounted as the working directory and the proxy's public CA is mounted read-only so the container trusts the MITM.
+
+Secrets never enter any container: the host proxy resolves them (keeping your encryption key, keychain/enclave, warm `op` session, and interactive approvals on the host) and injects the real value onto the wire; the container only ever holds placeholders. Both networks and the forwarder are torn down when the command exits.
+
+`--sandbox-image` is required — it must be an image that contains your command (e.g. a devcontainer image with `claude` installed); varlock can't know your toolchain. The first run pulls a small `socat` image for the forwarder.
+
+:::note[Why not "run the proxy on the host and point the container at it"?]
+An `--internal` docker network can't reach the host at all (that's what makes it a real egress boundary), so the proxy has to be reachable *as a peer on that network*. The forwarder is the minimal way to do that without moving secret custody off the host.
+:::
+
+### Other runtimes & VMs
+
+For Apple `container`, microsandbox, or a full VM, run the agent inside it with egress routed through the proxy on a host-reachable address. This is the VM-grade tier and covers the filesystem and process table too. See the sandbox guide for per-runtime recipes.
 
 ## Limitations
 

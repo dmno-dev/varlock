@@ -67,7 +67,11 @@ import {
   VARLOCK_INTERNAL_HOST,
   type SessionEnvPayload,
 } from '../../proxy/session-env-payload';
-import { isBuiltinSandboxSupported, wrapCommandWithSandbox } from '../../proxy/sandbox-profile';
+import { wrapCommandWithSandbox } from '../../proxy/sandbox-seatbelt';
+import { runContainerSandbox } from '../../proxy/sandbox-docker';
+import {
+  parseSandboxSpec, isContainerKind, checkSandboxAvailable, type SandboxSpec,
+} from '../../proxy/sandbox';
 import type { ProxyManagedItem, ProxyRule } from '../../proxy/types';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
@@ -125,10 +129,18 @@ export const commandSpec = define({
       description: 'For `proxy run`: start a fresh proxy instead of attaching to a running one for this directory',
     },
     sandbox: {
-      type: 'boolean',
-      description: 'For `proxy run`: run the child inside a minimal OS sandbox (macOS `sandbox-exec`) — a '
-        + 'credential + egress jail that forces all network egress through the proxy and denies access to '
-        + 'key material and warm credential agents. Closes the same-uid escape; opt-in.',
+      type: 'custom',
+      // Bare `--sandbox` → built-in; `--sandbox=docker|podman` → container backend.
+      parse: (value: string) => (value === '' || value == null ? 'builtin' : value),
+      description: 'For `proxy run`: run the child in a sandbox whose only egress is the proxy. Bare '
+        + '`--sandbox` uses the built-in minimal OS jail (macOS `sandbox-exec`); `--sandbox=docker` (or '
+        + '`=podman`) runs the child in a container on an internal network, with a dumb forwarder bridging '
+        + 'to the host proxy (secrets stay on the host). Opt-in.',
+    },
+    'sandbox-image': {
+      type: 'string',
+      description: 'For `proxy run --sandbox=docker|podman`: the container image the child runs in (must '
+        + 'contain your command, e.g. a devcontainer image with `claude` installed).',
     },
     'allow-reload': {
       type: 'boolean',
@@ -145,6 +157,7 @@ Proxy command surface:
   varlock proxy run --session abc12 -- claude   # attach to a specific session (approvals prompt in its terminal)
   varlock proxy run --new -- claude             # force a fresh, separate proxy
   varlock proxy run --sandbox -- claude         # run the child in a minimal OS sandbox (macOS)
+  varlock proxy run --sandbox=docker --sandbox-image my-agent -- claude   # run the child in a container
   varlock proxy start
   varlock proxy rules                           # summarize the effective @proxy config (no proxy started)
   varlock proxy env --session abc12
@@ -1289,16 +1302,27 @@ async function runAction(ctx: any) {
   const commandArgsOnly = commandToRunAsArgs.slice(1);
   const commandToRunStr = commandToRunAsArgs.join(' ');
 
-  const sandbox = Boolean(ctx.values.sandbox);
-  if (sandbox && !isBuiltinSandboxSupported()) {
-    throw new CliExitError(
-      'The built-in `--sandbox` is only available on macOS.',
-      {
-        suggestion: 'On other platforms, run the proxy inside a container/VM (Docker, devcontainer, '
-          + 'Apple `container`) with egress routed through it. See the sandbox guide.',
-      },
-    );
+  let sandboxSpec: SandboxSpec | undefined;
+  try {
+    sandboxSpec = parseSandboxSpec(ctx.values.sandbox);
+  } catch (err) {
+    throw new CliExitError((err as Error).message);
   }
+  if (sandboxSpec) {
+    const availability = checkSandboxAvailable(sandboxSpec);
+    if (!availability.ok) {
+      throw new CliExitError(availability.reason, {
+        suggestion: 'See the proxy sandbox guide for the available options on your platform.',
+      });
+    }
+    if (isContainerKind(sandboxSpec.kind) && !ctx.values['sandbox-image']) {
+      throw new CliExitError(
+        `\`--sandbox=${sandboxSpec.kind}\` needs an image to run your command in.`,
+        { suggestion: 'Pass `--sandbox-image <image>` (an image that contains your command).' },
+      );
+    }
+  }
+  const sandboxIsContainer = sandboxSpec != null && isContainerKind(sandboxSpec.kind);
 
   // Attach to a running proxy for this directory (a `proxy start` daemon) when
   // possible — its terminal handles approvals — instead of a new auto-deny proxy.
@@ -1379,19 +1403,46 @@ async function runAction(ctx: any) {
   }
 
   const { injectVars, injectBlob } = resolveInjectMode(ctx.values.inject);
-  const commandProcess = spawnProxiedChild({
-    payload,
-    session,
-    rawCommand,
-    commandArgsOnly,
-    injectVars,
-    injectBlob,
-    redactStdoutFlag: ctx.values['redact-stdout'],
-    redactionManagedItems,
-    sandbox,
-  });
-  if (sandbox) {
-    console.error('Running the child inside the built-in sandbox (credential + egress jail).');
+
+  let commandProcess: ReturnType<typeof spawnProxiedChild>;
+  let sandboxTeardown: (() => void) | undefined;
+
+  if (sandboxIsContainer) {
+    const runtime = sandboxSpec!.kind as 'docker' | 'podman';
+    const hostProxyUrl = session.env.HTTPS_PROXY ?? session.env.https_proxy;
+    if (!hostProxyUrl) {
+      throw new CliExitError('Proxy session is missing its URL; cannot set up the container sandbox.');
+    }
+    console.error(`Running the child in a ${runtime} sandbox (egress via the proxy; secrets stay on the host).`);
+    const started = runContainerSandbox({
+      runtime,
+      image: ctx.values['sandbox-image'],
+      command: rawCommand,
+      commandArgs: commandArgsOnly,
+      workdir: process.cwd(),
+      sessionId: session.id,
+      hostProxyUrl,
+      childEnv: payload.env,
+      sessionProxyEnv: session.env,
+      hasTty: Boolean(process.stdout.isTTY && process.stdin.isTTY),
+    });
+    commandProcess = started.child;
+    sandboxTeardown = started.teardown;
+  } else {
+    commandProcess = spawnProxiedChild({
+      payload,
+      session,
+      rawCommand,
+      commandArgsOnly,
+      injectVars,
+      injectBlob,
+      redactStdoutFlag: ctx.values['redact-stdout'],
+      redactionManagedItems,
+      sandbox: sandboxSpec?.kind === 'builtin',
+    });
+    if (sandboxSpec?.kind === 'builtin') {
+      console.error('Running the child inside the built-in sandbox (credential + egress jail).');
+    }
   }
 
   if (commandProcess.pid && !attachSession) {
@@ -1400,11 +1451,15 @@ async function runAction(ctx: any) {
 
   process.on('exit', () => {
     commandProcess?.kill(9);
+    // Sync best-effort container cleanup: the `finally` below may not run when
+    // gracefulExit tears the process down on a signal.
+    sandboxTeardown?.();
   });
 
   ['SIGTERM', 'SIGINT'].forEach((signal) => {
     process.on(signal, () => {
       commandProcess?.kill(9);
+      sandboxTeardown?.();
       gracefulExit(1);
     });
   });
@@ -1424,6 +1479,15 @@ async function runAction(ctx: any) {
       exitCode = (error as any).exitCode || 1;
     }
   } finally {
+    // Tear down the container sandbox (forwarder + networks) before stopping the
+    // host proxy, so nothing lingers if teardown races the proxy shutdown.
+    if (sandboxTeardown) {
+      try {
+        sandboxTeardown();
+      } catch {
+        // best-effort cleanup
+      }
+    }
     await cleanup();
     if (statsWriter) {
       const stats = statsWriter.stats;
