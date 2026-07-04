@@ -61,7 +61,7 @@
       "devDependencies": {
         "@types/node": "catalog:",
         "ansis": "catalog:",
-        "monogram": "github:dmno-dev/monogram#0195ef0d",
+        "monogram": "github:dmno-dev/monogram#6bfa8aff",
         "outdent": "catalog:",
         "tsup": "catalog:",
         "vitest": "catalog:",
@@ -2551,7 +2551,7 @@
 
     "modern-tar": ["modern-tar@0.7.6", "", {}, "sha512-sweCIVXzx1aIGTCdzcMlSZt1h8k5Tmk08VNAuRk3IU28XamGiOH5ypi11g6De2CH7PhYqSSnGy2A/EFhbWnVKg=="],
 
-    "monogram": ["monogram@github:dmno-dev/monogram#0195ef0", {}, "dmno-dev-monogram-0195ef0", "sha512-dFenRJJHyySkga4kTeX5Ciu1SFwwK19xpubQgN9Y5KUkU2dVX0rPSCir0QXBxWIazA0AQdEvEiUEap+FQlqu7Q=="],
+    "monogram": ["monogram@github:dmno-dev/monogram#6bfa8af", {}, "dmno-dev-monogram-6bfa8af", "sha512-Ip/G8LJGupeTGitM/Uy0i3BXyQq6mMnuwj+rtnCOWDsL0YEzZvYj3ZPXoyTkDl3Wn8T9/vm1HxSQvDSTZnLwsQ=="],
 
     "mrmime": ["mrmime@2.0.1", "", {}, "sha512-Y3wQdFg2Va6etvQ5I82yUhGdsKrcYox6p7FfL1LbK2J4V01F9TGlepTIhnK24t7koZibmg82KGglhA1XK5IsLQ=="],
 

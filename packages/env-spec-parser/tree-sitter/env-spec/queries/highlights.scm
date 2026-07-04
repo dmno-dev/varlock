@@ -47,3 +47,8 @@
 [
   "," "(" ")" "{" "}" "[" "]"
 ] @punctuation.delimiter
+
+;; Contextual token scopes (grammar.contextualScopes).
+(function_arg_key_value (assign_key) @attribute)
+(object_literal_entry (assign_key) @attribute)
+(decorator_arg_key (assign_key) @attribute)

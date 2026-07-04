@@ -107,7 +107,7 @@ NESTED_FN_ARG_DEC_VAR=test
 
 # @dec(key=fn())
 #     ^ comment.line.env-spec
-#      ^^^ entity.name.tag.env-spec
+#      ^^^ entity.other.attribute-name.env-spec
 #         ^ keyword.operator.assignment.env-spec
 #          ^^ variable.function.env-spec
 #            ^ comment.line.env-spec
@@ -202,7 +202,7 @@ ARR_DEC=test
 
 # @sensitive={ preventLeaks=false }
 #            ^ comment.line.env-spec
-#              ^^^^^^^^^^^^ entity.name.tag.env-spec
+#              ^^^^^^^^^^^^ entity.other.attribute-name.env-spec
 #                          ^ keyword.operator.assignment.env-spec
 #                           ^^^^^ constant.language.boolean.env-spec
 #                                 ^ comment.line.env-spec
@@ -251,7 +251,7 @@ COL0_ML=fn({
 # <- punctuation.definition.comment.env-spec
 #^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
   timeout=30, # trailing note
-# ^^^^^^^ entity.name.tag.env-spec
+# ^^^^^^^ entity.other.attribute-name.env-spec
 #        ^ keyword.operator.assignment.env-spec
 #         ^^ constant.numeric.env-spec
 #           ^ punctuation.separator.comma.env-spec

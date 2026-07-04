@@ -13,6 +13,9 @@
       "include": "#hash"
     },
     {
+      "include": "#ctx-call-args"
+    },
+    {
       "include": "#assign_key"
     },
     {
@@ -122,6 +125,10 @@
     }
   ],
   "repository": {
+    "ctx-scope-0-assign_key": {
+      "match": "[a-zA-Z_][a-zA-Z0-9._\\-]*(?==)",
+      "name": "entity.other.attribute-name.env-spec"
+    },
     "ws": {
       "name": "meta.whitespace.env-spec",
       "match": "[ \\t]+"
@@ -163,7 +170,16 @@
         }
       },
       "end": "$",
-      "patterns": []
+      "patterns": [
+        {
+          "match": "\\*\\*[^*\\n]*\\*\\*",
+          "name": "markup.bold.env-spec"
+        },
+        {
+          "match": "__[^_\\n]*__",
+          "name": "markup.italic.env-spec"
+        }
+      ]
     },
     "hash-rich-cont-28": {
       "begin": "\\(",
@@ -174,6 +190,9 @@
         },
         {
           "include": "#hash-rich-cont-comment"
+        },
+        {
+          "include": "#ctx-scope-0-assign_key"
         },
         {
           "include": "#hash-rich-cont-28"
@@ -200,6 +219,9 @@
           "include": "#hash-rich-cont-comment"
         },
         {
+          "include": "#ctx-scope-0-assign_key"
+        },
+        {
           "include": "#hash-rich-cont-28"
         },
         {
@@ -222,6 +244,9 @@
         },
         {
           "include": "#hash-rich-cont-comment"
+        },
+        {
+          "include": "#ctx-scope-0-assign_key"
         },
         {
           "include": "#hash-rich-cont-28"
@@ -270,7 +295,16 @@
         }
       },
       "end": "$",
-      "patterns": []
+      "patterns": [
+        {
+          "match": "\\*\\*[^*\\n]*\\*\\*",
+          "name": "markup.bold.env-spec"
+        },
+        {
+          "match": "__[^_\\n]*__",
+          "name": "markup.italic.env-spec"
+        }
+      ]
     },
     "export": {
       "name": "keyword.control.export.env-spec",
@@ -495,6 +529,93 @@
         }
       }
     },
+    "ctx-pair-5b": {
+      "begin": "\\[",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.array.begin.env-spec"
+        }
+      },
+      "end": "\\]",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.array.end.env-spec"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#ctx-scope-0-assign_key"
+        },
+        {
+          "include": "#ctx-pair-5b"
+        },
+        {
+          "include": "#ctx-pair-7b"
+        },
+        {
+          "include": "$self"
+        }
+      ]
+    },
+    "ctx-pair-7b": {
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.dictionary.begin.env-spec"
+        }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.dictionary.end.env-spec"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#ctx-scope-0-assign_key"
+        },
+        {
+          "include": "#ctx-pair-5b"
+        },
+        {
+          "include": "#ctx-pair-7b"
+        },
+        {
+          "include": "$self"
+        }
+      ]
+    },
+    "ctx-call-args": {
+      "begin": "([a-zA-Z][a-zA-Z0-9_]*(?=[ \\t]*\\())\\s*(\\()",
+      "beginCaptures": {
+        "1": {
+          "name": "variable.function.env-spec"
+        },
+        "2": {
+          "name": "punctuation.definition.parameters.begin.env-spec"
+        }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.parameters.end.env-spec"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#ctx-scope-0-assign_key"
+        },
+        {
+          "include": "#ctx-pair-5b"
+        },
+        {
+          "include": "#ctx-pair-7b"
+        },
+        {
+          "include": "$self"
+        }
+      ]
+    },
     "object-method-key": {
       "match": "((?!))(?=\\s*:\\s*(?:\\w+\\s+)?[\\(])",
       "captures": {
@@ -549,6 +670,9 @@
         },
         {
           "include": "#hash"
+        },
+        {
+          "include": "#ctx-call-args"
         },
         {
           "include": "#assign_key"

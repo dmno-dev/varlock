@@ -72,6 +72,11 @@ const HASH = token(
       // multi-line decorator fn calls / literals: an open bracket continues the
       // construct across `#`-prefixed lines (the `#` becomes a continuation marker)
       continuationBrackets: [['(', ')'], ['[', ']'], ['{', '}']],
+      // doc markup inside plain comment text
+      markup: [
+        { pattern: seq('**', star(noneOf('*', '\n')), '**'), scope: 'markup.bold' },
+        { pattern: seq('__', star(noneOf('_', '\n')), '__'), scope: 'markup.italic' },
+      ],
     },
   },
 );
@@ -593,6 +598,9 @@ export const envSpecGrammar = defineGrammar({
     'punctuation.definition.array.begin': ['['],
     'punctuation.definition.array.end': [']'],
   },
+  // arg/option keys inside fn calls and literals style as attribute names, distinct
+  // from top-level env var keys (highlight-only; see monogram contextualScopes)
+  contextualScopes: [{ token: ASSIGN_KEY, within: [FunctionArgKeyValue, ObjectLiteralEntry, DecoratorArgKey], scope: 'entity.other.attribute-name' }],
   indent: {
     indentToken: 'INDENT',
     dedentToken: 'DEDENT',
