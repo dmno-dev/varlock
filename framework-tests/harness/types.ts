@@ -153,6 +153,13 @@ export interface DevServerRequest {
    * config file dependency changes) or HMR updates where the server doesn't restart.
    */
   fileEditDelay?: number;
+  /**
+   * Tolerate a network-level request failure (e.g. the server killing the response
+   * mid-stream when runtime leak detection fires). Records status 0 with an empty
+   * body instead of failing the scenario. When set, the status assertion is skipped
+   * unless `expectedStatus` is set explicitly.
+   */
+  allowRequestFailure?: boolean;
 }
 
 /** Result of a single HTTP request to the dev server */

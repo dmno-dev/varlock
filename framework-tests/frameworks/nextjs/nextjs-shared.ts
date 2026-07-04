@@ -141,6 +141,7 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
           templateFiles: {
             'app/page.tsx': 'pages/basic-page.tsx',
             'pages/pages-ssr.tsx': 'pages-router/ssr-page.tsx',
+            'pages/leaky-ssr.tsx': 'pages-router/leaky-ssr-page.tsx',
             'middleware.ts': 'middleware/middleware.ts',
           },
           requests: [
@@ -208,6 +209,24 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
               bodyAssertions: {
                 shouldContain: ['Varlock Pages Router SSR Page', 'env-specific-var--dev-updated'],
               },
+            },
+            {
+              // Runtime leak detection: getServerSideProps leaks a secret at request
+              // time (invisible to build scans). The response scanner fails closed —
+              // the connection is killed mid-stream, so no bytes reach the client.
+              label: 'runtime leak detection blocks secret in SSR response',
+              path: '/leaky-ssr',
+              allowRequestFailure: true,
+              bodyAssertions: {
+                shouldNotContain: ['super-secret-var'],
+              },
+            },
+          ],
+          outputAssertions: [
+            {
+              description: 'runtime secret logs are redacted, leak detection fires, no raw secret in dev logs',
+              shouldContain: ['runtime-secret-log-test:', 'DETECTED LEAKED SENSITIVE CONFIG'],
+              shouldNotContain: ['super-secret-var'],
             },
           ],
         });
