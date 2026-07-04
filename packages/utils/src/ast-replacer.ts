@@ -1,17 +1,27 @@
 /*
+  AST-based static replacement of expressions (e.g. `ENV.SOME_KEY` -> literal values).
+
   Used https://www.npmjs.com/package/rollup-plugin-define as a starting point
   Initially we were using @rollup/plugin-replace, but it would replace text in strings
 
-  This instead replaces nodes in a parsed AST rather than text in a string.
-  But we've simplified things slightly and removed some dependencies.
+  This instead replaces nodes in a parsed AST rather than text in a string,
+  so references inside string literals, comments, and template literal text
+  are never touched.
+
+  Shared by the vite integration (which passes rollup's `parse`) and the
+  nextjs integration's turbopack loader (which passes @babel/parser).
+  The parser just needs to produce an estree-compliant tree with node
+  start/end offsets (ast-matcher also accepts @babel/parser `File` nodes).
 */
-import type { PluginContext, TransformPluginContext } from 'rollup';
 
 import MagicString from 'magic-string';
 import astMatcher from 'ast-matcher';
 
 type Edit = [number, number];
 type AstNode = { start: number; end: number };
+
+/** parse fn producing an estree-compliant AST with start/end offsets on nodes */
+export type AstParseFn = (code: string, opts?: any) => any;
 
 function escapeStringRegexp(string: string) {
   if (typeof string !== 'string') throw new TypeError('Expected a string');
@@ -48,9 +58,8 @@ export function createReplacerTransformFn(opts: {
   const findAnyReplacementRegex = new RegExp(`(?:${keys.map(escapeStringRegexp).join('|')})`, 'g');
 
   return function transform(
-    rollupPluginCtx: {
-      parse: TransformPluginContext['parse'];
-      warn: TransformPluginContext['warn']
+    parserCtx: {
+      parse: AstParseFn;
     },
     code: string,
     id: string,
@@ -62,9 +71,9 @@ export function createReplacerTransformFn(opts: {
 
     if (code.search(findAnyReplacementRegex) === -1) return null;
 
-    const parse = (codeToParse: string, source = code): ReturnType<PluginContext['parse']> => {
+    const parse = (codeToParse: string, source = code): any => {
       try {
-        return rollupPluginCtx.parse(codeToParse, undefined);
+        return parserCtx.parse(codeToParse, undefined);
       } catch (error) {
         (error as Error).message += ` in ${source}`;
         throw error;

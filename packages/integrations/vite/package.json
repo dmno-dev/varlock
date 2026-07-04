@@ -47,8 +47,8 @@
     "vite": ">=5"
   },
   "devDependencies": {
+    "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
-    "ast-matcher": "^1.2.0",
     "magic-string": "^0.30.17",
     "rollup": "^4.46.2",
     "tsup": "catalog:",

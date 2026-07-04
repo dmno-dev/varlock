@@ -18,6 +18,8 @@
   "scripts": {
     "dev": "tsup --watch",
     "build": "rm -rf dist && tsup",
+    "test": "vitest",
+    "test:ci": "vitest --run",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
@@ -44,6 +46,8 @@
     "next": ">=14"
   },
   "devDependencies": {
+    "@babel/parser": "^7.29.3",
+    "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
     "tsup": "catalog:",
     "varlock": "workspace:^",
