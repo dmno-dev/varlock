@@ -18,7 +18,7 @@ import {
 import type { ProxyActivity } from './audit';
 import { createEphemeralCa, createHostCert } from './cert-authority';
 import {
-  describeRule, evaluateProxyPolicy, getRequestScopedManagedItems, type RequestFacts,
+  describeRule, domainMatches, evaluateProxyPolicy, getRequestScopedManagedItems, normalizeHost, type RequestFacts,
 } from './policy';
 import {
   PROXY_TOKEN_HEADER, SESSION_ENV_ENDPOINT_PATH, VARLOCK_INTERNAL_HOST,
@@ -123,20 +123,6 @@ function parseHostPort(value: string): HostInfo | null {
   } catch {
     return null;
   }
-}
-
-function normalizeHost(host: string): string {
-  return host.toLowerCase().trim();
-}
-
-function domainMatches(domainPattern: string, host: string): boolean {
-  const pattern = normalizeHost(domainPattern);
-  const normalizedHost = normalizeHost(host);
-  if (pattern.startsWith('*.')) {
-    const suffix = pattern.slice(2);
-    return normalizedHost === suffix || normalizedHost.endsWith(`.${suffix}`);
-  }
-  return normalizedHost === pattern;
 }
 
 function hostMatchesProxyRules(host: string, rules: Array<ProxyRule>): boolean {
@@ -595,10 +581,6 @@ async function readBody(req: http.IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function buildPathnameAndQuery(input: string, managedItems: Array<ProxyManagedItem>): string {
-  return replacePlaceholdersWithReal(input, managedItems);
-}
-
 /**
  * Local MITM proxy runtime for `varlock proxy run`.
  * Rewrites placeholder values to real values for requests matching @proxy domains.
@@ -765,7 +747,7 @@ export async function startLocalProxyRuntime({
       ? Buffer.from(replacePlaceholdersWithReal(body.toString('utf8'), hostItems), 'utf8')
       : body;
     const rewrittenPath = shouldRewrite
-      ? buildPathnameAndQuery(t.requestTarget, hostItems)
+      ? replacePlaceholdersWithReal(t.requestTarget, hostItems)
       : t.requestTarget;
 
     const upstreamHeaders = transformHeaders(

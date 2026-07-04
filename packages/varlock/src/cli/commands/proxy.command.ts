@@ -57,6 +57,7 @@ import {
 } from '../../proxy/reload-channel';
 import { isInProxyContext } from '../helpers/proxy-context-guard';
 import { buildInjectedBlobEnv } from '../helpers/injected-env-blob';
+import { resolveInjectMode } from '../helpers/inject-mode';
 import {
   buildSessionEnvPayload,
   decodeSessionEnvPayload,
@@ -328,7 +329,13 @@ function getRunCommandArgs(): Array<string> {
   return rest;
 }
 
-async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<PreparedProxyPolicy> {
+/**
+ * Load + resolve + validate the schema in the proxy command's own (trusted)
+ * context, throwing on any schema/config error. This is the part `proxy reload`
+ * needs to fail loudly on a broken edit; `prepareProxyPolicy` builds the full
+ * policy on top of it.
+ */
+async function loadResolvedProxyGraph(entryFilePaths?: Array<string>) {
   const envGraph = await loadVarlockEnvGraph({
     entryFilePaths,
     // The proxy command manages the session fingerprint itself; don't subject
@@ -341,6 +348,11 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
   await envGraph.generateTypesIfNeeded();
   await envGraph.resolveEnvValues();
   checkForConfigErrors(envGraph);
+  return envGraph;
+}
+
+async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<PreparedProxyPolicy> {
+  const envGraph = await loadResolvedProxyGraph(entryFilePaths);
 
   const resolvedEnv = envGraph.getResolvedEnvObject();
   const serializedGraph = envGraph.getSerializedGraph();
@@ -787,22 +799,6 @@ async function createRuntimeAndSession(opts: {
 
   return {
     runtime, session, statsWriter, auditLog, grantStore,
-  };
-}
-
-function applyInjectModeFromFlags(ctx: any): {
-  injectVars: boolean;
-  injectBlob: boolean;
-} {
-  const injectMode = ctx.values.inject ?? 'all';
-  const validModes = ['all', 'vars', 'blob'];
-  if (!validModes.includes(injectMode)) {
-    throw new CliExitError(`Invalid --inject mode: "${injectMode}". Must be one of: ${validModes.join(', ')}`);
-  }
-
-  return {
-    injectVars: injectMode === 'all' || injectMode === 'vars',
-    injectBlob: injectMode === 'all' || injectMode === 'blob',
   };
 }
 
@@ -1354,7 +1350,7 @@ async function runAction(ctx: any) {
     };
   }
 
-  const { injectVars, injectBlob } = applyInjectModeFromFlags(ctx);
+  const { injectVars, injectBlob } = resolveInjectMode(ctx.values.inject);
   const commandProcess = spawnProxiedChild({
     payload,
     session,
@@ -1623,9 +1619,11 @@ async function reloadAction(ctx: any) {
   }
 
   // Validate the new schema here (in this context) so an obviously broken edit
-  // fails loudly at the call site, not only in the owner's logs.
+  // fails loudly at the call site, not only in the owner's logs. Only the
+  // load/resolve/validate is needed; the owner recomputes the full policy when
+  // it applies the reload.
   const reloadPaths = ctx.values.path ?? session.entryPaths;
-  await prepareProxyPolicy(reloadPaths).catch((error) => {
+  await loadResolvedProxyGraph(reloadPaths).catch((error) => {
     throw new CliExitError(`Schema does not resolve: ${(error as Error).message}`);
   });
 

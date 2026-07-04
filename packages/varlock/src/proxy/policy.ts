@@ -20,11 +20,11 @@ export type PolicyDecision = {
   reason?: string;
 };
 
-function normalizeHost(host: string): string {
+export function normalizeHost(host: string): string {
   return host.toLowerCase().trim();
 }
 
-function domainMatches(domainPattern: string, host: string): boolean {
+export function domainMatches(domainPattern: string, host: string): boolean {
   const pattern = normalizeHost(domainPattern);
   const normalizedHost = normalizeHost(host);
   if (pattern.startsWith('*.')) {

@@ -9,6 +9,7 @@ import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import { REDACT_STDOUT_ARG, resolveStdoutRedaction, pipeRedactedStreams } from '../helpers/stdout-redaction';
 import { buildInjectedBlobEnv } from '../helpers/injected-env-blob';
+import { resolveInjectMode } from '../helpers/inject-mode';
 
 export const commandSpec = define({
   name: 'run',
@@ -201,13 +202,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     console.warn('[varlock] ⚠️  --no-inject-graph is deprecated, use --inject vars instead');
     injectDefault = 'vars';
   }
-  const injectMode = ctx.values.inject ?? injectDefault;
-  const validModes = ['all', 'vars', 'blob'];
-  if (!validModes.includes(injectMode)) {
-    throw new CliExitError(`Invalid --inject mode: "${injectMode}". Must be one of: ${validModes.join(', ')}`);
-  }
-  const injectVars = injectMode === 'all' || injectMode === 'vars';
-  const injectBlob = injectMode === 'all' || injectMode === 'blob';
+  const { injectVars, injectBlob } = resolveInjectMode(ctx.values.inject, injectDefault as 'all' | 'vars');
 
   const fullInjectedEnv: NodeJS.ProcessEnv = {
     ...process.env,
