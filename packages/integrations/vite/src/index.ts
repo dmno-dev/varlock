@@ -12,7 +12,7 @@ import { createDebug, type SerializedEnvGraph } from 'varlock';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 
-import { createReplacerTransformFn, SUPPORTED_FILES } from './transform';
+import { createReplacerTransformFn, SUPPORTED_FILES } from '@env-spec/utils/ast-replacer';
 
 import { ansiToHtml } from './ansi-to-html';
 export { ansiToHtml };

@@ -199,6 +199,10 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
                   'next-prefixed-public-var',
                   'unprefixed-public-var',
                   'env-specific-var--dev',
+                  // ENV refs in string/template-literal text render verbatim (inlining must not rewrite them)
+                  'ENV.PUBLIC_VAR mentioned in a string',
+                  'ENV.PUBLIC_VAR in template text, interpolated: unprefixed-public-var',
+                  'ENV.PUBLIC_VAR as jsx text',
                 ],
               },
               {
@@ -280,6 +284,10 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
                   'next-prefixed-public-var',
                   'unprefixed-public-var',
                   'env-specific-var--dev',
+                  // ENV refs in string/template-literal text render verbatim (inlining must not rewrite them)
+                  'ENV.PUBLIC_VAR mentioned in a string',
+                  'ENV.PUBLIC_VAR in template text, interpolated: unprefixed-public-var',
+                  'ENV.PUBLIC_VAR as jsx text',
                 ],
               },
               {

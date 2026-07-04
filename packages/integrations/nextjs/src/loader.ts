@@ -1,3 +1,5 @@
+import { parse as babelParse, type ParserPlugin } from '@babel/parser';
+import { createReplacerTransformFn } from '@env-spec/utils/ast-replacer';
 import type { SerializedEnvGraph } from 'varlock';
 
 function debug(...args: Array<any>) {
@@ -53,6 +55,77 @@ function parseEnvGraphCached(rawEnv: string): SerializedEnvGraph | undefined {
     }
   }
   return cachedEnvGraph;
+}
+
+// replacer is derived from the env graph, so cache it alongside (keyed on graph identity)
+let cachedReplacerGraph: SerializedEnvGraph | undefined;
+let cachedReplacerTransform: ReturnType<typeof createReplacerTransformFn> | undefined;
+function getReplacerTransformCached(envGraph: SerializedEnvGraph) {
+  if (envGraph !== cachedReplacerGraph) {
+    cachedReplacerGraph = envGraph;
+    const replacements: Record<string, string> = {};
+    for (const [key, item] of Object.entries(envGraph.config)) {
+      if (item.isSensitive) continue;
+      // 'undefined' as a string so it gets spliced in as a literal
+      replacements[`ENV.${key}`] = item.value === undefined ? 'undefined' : JSON.stringify(item.value);
+    }
+    cachedReplacerTransform = createReplacerTransformFn({ replacements });
+  }
+  return cachedReplacerTransform!;
+}
+
+/** babel parse ctx with plugins appropriate for the file extension */
+function makeBabelParseCtx(filePath: string) {
+  const fileExt = filePath.split('?')[0].split('#')[0].split('.').pop() || '';
+  const plugins: Array<ParserPlugin> = ['decorators-legacy', 'importAttributes'];
+  if (fileExt === 'ts' || fileExt === 'mts' || fileExt === 'cts') {
+    plugins.push('typescript');
+  } else if (fileExt === 'tsx') {
+    plugins.push('typescript', 'jsx');
+  } else {
+    plugins.push('jsx');
+  }
+  return {
+    parse: (code: string) => babelParse(code, {
+      sourceType: 'unambiguous',
+      plugins,
+      // still produce an AST when possible for code with recoverable errors
+      errorRecovery: true,
+    }),
+  };
+}
+
+const parseFailureWarnedFiles = new Set<string>();
+
+/**
+ * Replace `ENV.KEY` member expressions with literal values via AST matching
+ * (shared with the vite integration) so references inside string literals,
+ * comments, and template literal text are never touched.
+ * Falls back to regex replacement if the file fails to parse.
+ */
+function inlineEnvValues(source: string, filePath: string, envGraph: SerializedEnvGraph): string {
+  const replacerTransform = getReplacerTransformCached(envGraph);
+  try {
+    const magicString = replacerTransform(makeBabelParseCtx(filePath), source, filePath);
+    return magicString ? magicString.toString() : source;
+  } catch (err) {
+    if (!parseFailureWarnedFiles.has(filePath)) {
+      parseFailureWarnedFiles.add(filePath);
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[varlock] failed to parse ${filePath} for ENV replacement — falling back to regex replacement`,
+        err instanceof Error ? `(${err.message})` : '',
+      );
+    }
+    let result = source;
+    for (const [key, item] of Object.entries(envGraph.config)) {
+      if (item.isSensitive) continue;
+      // match ENV.KEY as a member expression (word boundary before ENV, not followed by more identifier chars)
+      const pattern = new RegExp(`\\bENV\\.${escapeRegExp(key)}(?![\\w$])`, 'g');
+      result = result.replace(pattern, item.value === undefined ? 'undefined' : JSON.stringify(item.value));
+    }
+    return result;
+  }
 }
 
 /** Prepend code after any directive prologue (e.g. 'use server') to avoid breaking it */
@@ -152,15 +225,7 @@ function webpackLoader(this: LoaderContext, source: string) {
     if (inlineStaticValues) {
       // disable caching only for files that embed ENV values — their output depends on env values
       this.cacheable(false);
-      for (const [key, item] of Object.entries(envGraph.config)) {
-        if (item.isSensitive) continue;
-
-        // TODO: smarter replacement (vite version uses AST?)
-
-        // match ENV.KEY as a member expression (word boundary before ENV, not followed by more identifier chars)
-        const pattern = new RegExp(`\\bENV\\.${escapeRegExp(key)}(?![\\w$])`, 'g');
-        result = result.replace(pattern, JSON.stringify(item.value));
-      }
+      result = inlineEnvValues(result, this.resourcePath, envGraph);
     }
   }
 
