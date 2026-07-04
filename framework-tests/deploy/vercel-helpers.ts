@@ -54,7 +54,7 @@ function vercelCliBase(): string {
  * workspace-packed varlock tarballs vendored in via relative file: paths so
  * Vercel's remote build can install them.
  */
-export function buildDeployFixture(opts?: { usePublished?: boolean }): string {
+export function buildDeployFixture(opts?: { usePublished?: boolean, encrypted?: boolean }): string {
   const dir = join(FRAMEWORK_TESTS_DIR, '.test-projects', VERCEL_PROJECT_NAME);
   if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
@@ -84,6 +84,19 @@ export function buildDeployFixture(opts?: { usePublished?: boolean }): string {
     'export function middleware() {',
     "export function middleware() {\n  console.log('mw-secret-log-test:', ENV.SENSITIVE_VAR);",
   ));
+
+  // optionally enable encrypted deployments — the recommended setup on Vercel:
+  // the build encrypts the injected env blob, and it is decrypted at boot using
+  // _VARLOCK_ENV_KEY (passed per-deployment by deployToVercel). A build without
+  // the key fails loudly, so a green run proves the decorator was honored and
+  // decryption worked.
+  if (opts?.encrypted) {
+    const schemaPath = join(dir, '.env.schema');
+    writeFileSync(schemaPath, readFileSync(schemaPath, 'utf8').replace(
+      '# ---',
+      '# @encryptInjectedEnv\n# ---',
+    ));
+  }
 
   let varlockDep: string;
   let integrationDep: string;
@@ -140,14 +153,31 @@ export function buildDeployFixture(opts?: { usePublished?: boolean }): string {
   return dir;
 }
 
-/** Deploy the fixture as a preview; resolves with the deployment URL. */
-export function deployToVercel(dir: string): { url: string, output: string } {
-  const output = execSync(`${vercelCliBase()} deploy --yes`, {
-    cwd: dir,
-    stdio: 'pipe',
-    timeout: 10 * 60_000,
-    env: { ...process.env, VERCEL_TELEMETRY_DISABLED: '1' },
-  }).toString();
+/**
+ * Deploy the fixture as a preview; resolves with the deployment URL.
+ * When `envKey` is provided it is passed as _VARLOCK_ENV_KEY for both build
+ * (encrypt) and runtime (decrypt) — scoped to this single deployment, so an
+ * ephemeral per-run key works and nothing needs to be stored anywhere.
+ */
+export function deployToVercel(dir: string, opts?: { envKey?: string }): { url: string, output: string } {
+  const keyArgs = opts?.envKey
+    ? ` --build-env _VARLOCK_ENV_KEY=${opts.envKey} --env _VARLOCK_ENV_KEY=${opts.envKey}`
+    : '';
+  let output: string;
+  try {
+    output = execSync(`${vercelCliBase()} deploy --yes${keyArgs}`, {
+      cwd: dir,
+      stdio: 'pipe',
+      timeout: 10 * 60_000,
+      env: { ...process.env, VERCEL_TELEMETRY_DISABLED: '1' },
+    }).toString();
+  } catch (err: any) {
+    // execSync errors embed the full command line — scrub the token so it never
+    // lands in test output / CI logs / local log files
+    const scrubbed = String(err.message || err).replace(/--token "[^"]+"/g, '--token "<redacted>"');
+    throw new Error(`vercel deploy failed: ${scrubbed}
+${(err.stderr || '').toString().slice(-2000)}`);
+  }
   const url = output.match(/https:\/\/[a-z0-9-]+\.vercel\.app/g)?.pop();
   if (!url) throw new Error(`could not find deployment url in vercel output:\n${output.slice(-2000)}`);
   return { url, output };
