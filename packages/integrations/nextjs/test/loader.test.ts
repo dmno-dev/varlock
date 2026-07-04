@@ -104,6 +104,12 @@ describe('static ENV.x replacement (turbopack)', () => {
     expect(result).toContain('const c = ENVX.PUBLIC_VAR;');
   });
 
+  it('does NOT replace matches inside JSX text', () => {
+    const source = `${USE_CLIENT}const el = <p>ENV.PUBLIC_VAR as jsx text: {ENV.PUBLIC_VAR}</p>;`;
+    const result = runLoader(source);
+    expect(result).toContain('<p>ENV.PUBLIC_VAR as jsx text: {"public-value"}</p>');
+  });
+
   it('does NOT replace nested member expressions like foo.ENV.KEY', () => {
     const source = `${USE_CLIENT}const a = someObj.ENV.PUBLIC_VAR;`;
     expect(runLoader(source)).toContain('const a = someObj.ENV.PUBLIC_VAR;');

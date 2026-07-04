@@ -21,6 +21,7 @@ export default function ClientPage() {
       <p>Has sensitive: {hasSensitive ? 'yes' : 'no'}</p>
       <p>String ref: {envRefInString}</p>
       <p>Template ref: {envRefInTemplate}</p>
+      <p>Jsx text ref: ENV.PUBLIC_VAR as jsx text</p>
     </main>
   );
 }
