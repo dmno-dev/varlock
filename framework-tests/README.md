@@ -84,19 +84,24 @@ log redaction inside Vercel's build + runtime log pipelines.
 
 They run weekly (and via manual dispatch) through
 `.github/workflows/deploy-tests.yaml` — failures are informational and never
-block PRs. Run locally (uses your `vercel login`):
+block PRs. Auth dogfoods varlock: `deploy/.env.schema` resolves `VERCEL_TOKEN`
+from 1Password (service account in CI via the existing `OP_CI_TOKEN` secret,
+desktop app auth locally), so run them wrapped in `varlock run`:
 
 ```bash
 cd framework-tests
-VERCEL_DEPLOY_TESTS=1 bunx vitest run deploy/
+VERCEL_DEPLOY_TESTS=1 varlock run --path ./deploy -- bunx vitest run deploy/
 ```
+
+(Without the wrapper, the helpers fall back to your `vercel login` — but that
+targets your account's scope rather than the shared varlockdev project.)
 
 | Variable | Description |
 |---|---|
 | `VERCEL_DEPLOY_TESTS` | Required gate — tests are skipped without it |
 | `DEPLOY_TESTS_PUBLISHED` | Test latest published packages instead of workspace code |
-| `VERCEL_TOKEN` | Auth for CI; local runs fall back to the Vercel CLI login |
+| `VERCEL_TOKEN` / `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` | Resolved by `deploy/.env.schema`; identify the varlockdev-owned project |
 
-The Vercel project (`varlock-deploy-test`) is a throwaway with fake env values
-only; the suite disables deployment protection on it so routes can be asserted
-without SSO.
+The Vercel project (`varlock-deploy-test`, under the varlockdev account) is a
+throwaway with fake env values only; deployment protection is disabled on it so
+routes can be asserted without SSO.

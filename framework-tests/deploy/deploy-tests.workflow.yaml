@@ -16,8 +16,14 @@ name: Real Deployment Tests
 # emulate prod with `next start`) structurally cannot.
 #
 # Runs on a weekly schedule / manual dispatch — failures are informational and
-# never block PRs. Requires the VERCEL_TOKEN secret (a token scoped to the
-# throwaway varlock-deploy-test project's team).
+# never block PRs.
+#
+# Secrets: dogfoods varlock — the Vercel token is resolved from 1Password via
+# framework-tests/deploy/.env.schema, so the only GitHub secret needed is the
+# existing OP_CI_TOKEN (1Password service account). The `varlock run` wrapper
+# also redacts the token from CI logs. If this ever grows multiple steps that
+# need the Vercel auth, switch to dmno-dev/varlock-action (which exports the
+# resolved env to the job) instead of wrapping each step.
 
 on:
   schedule:
@@ -58,14 +64,20 @@ jobs:
       - name: Enable turborepo build cache
         uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
 
+      # builds the packed tarballs under test AND the varlock CLI used below
       - name: Build libraries
         run: bun run build:libs
 
       - name: Run Vercel deployment tests
-        run: cd framework-tests && bun install && VERCEL_DEPLOY_TESTS=1 bun run test -- --reporter=verbose deploy/
-        timeout-minutes: 20
+        # varlock resolves VERCEL_TOKEN (+ project scoping vars) from 1Password
+        # via deploy/.env.schema and injects them into the test process
+        run: |
+          cd framework-tests && bun install
+          node ../packages/varlock/dist/cli/cli-executable.js run --path ./deploy -- bun run test -- --reporter=verbose deploy/
+        timeout-minutes: 25
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+          VERCEL_DEPLOY_TESTS: '1'
           DEPLOY_TESTS_PUBLISHED: ${{ github.event.inputs.use-published == 'true' && '1' || '' }}
           NEXT_TELEMETRY_DISABLED: '1'
           VERCEL_TELEMETRY_DISABLED: '1'

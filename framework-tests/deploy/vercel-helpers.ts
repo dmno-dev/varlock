@@ -157,9 +157,16 @@ export function deployToVercel(dir: string): { url: string, output: string } {
  * These are throwaway test projects with fake values only — disable deployment
  * protection so the test can hit routes without SSO (idempotent).
  */
+function teamIdQuery(): string {
+  // when running with the CI token, the project lives under the varlockdev team
+  // (VERCEL_ORG_ID from deploy/.env.schema); without it, the local CLI login's
+  // default scope applies
+  return process.env.VERCEL_ORG_ID ? `?teamId=${process.env.VERCEL_ORG_ID}` : '';
+}
+
 export async function disableDeploymentProtection(): Promise<void> {
   const token = getVercelToken();
-  const resp = await fetch(`https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}`, {
+  const resp = await fetch(`https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}${teamIdQuery()}`, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ ssoProtection: null }),
@@ -202,7 +209,7 @@ export async function waitForRoute(
 async function getDeploymentInfo(url: string): Promise<{ id: string, projectId: string }> {
   const token = getVercelToken();
   const host = url.replace(/^https:\/\//, '');
-  const resp = await fetch(`https://api.vercel.com/v13/deployments/${host}`, {
+  const resp = await fetch(`https://api.vercel.com/v13/deployments/${host}${teamIdQuery()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!resp.ok) throw new Error(`failed to look up deployment ${host}: ${resp.status}`);
@@ -223,7 +230,7 @@ async function fetchRuntimeLogs(url: string, readMs = 8_000): Promise<string> {
   const chunks: Array<string> = [];
   try {
     const resp = await fetch(
-      `https://api.vercel.com/v1/projects/${projectId}/deployments/${id}/runtime-logs?format=json`,
+      `https://api.vercel.com/v1/projects/${projectId}/deployments/${id}/runtime-logs?format=json${process.env.VERCEL_ORG_ID ? `&teamId=${process.env.VERCEL_ORG_ID}` : ''}`,
       { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal },
     );
     if (!resp.ok || !resp.body) throw new Error(`runtime-logs request failed: ${resp.status}`);
