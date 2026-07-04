@@ -10,7 +10,7 @@ type LoaderContext = {
   cacheable(flag: boolean): void;
   resourcePath: string;
   rootContext: string;
-  getOptions?(): { bundler?: 'webpack' | 'turbopack'; isEdge?: boolean };
+  getOptions?(): { bundler?: 'webpack' | 'turbopack'; isEdge?: boolean; dev?: boolean };
 };
 
 function isTurbopackWorker() {
@@ -30,9 +30,30 @@ function escapeRegExp(str: string) {
 // uses [^\S\n]* (horizontal whitespace) instead of \s* to avoid exponential backtracking
 const USE_CLIENT_RE = /^(?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/[^\S\n]*\n|[^\S\n]*\n)*[^\S\n]*['"]use client['"]/;
 
+// detect files compiled for the edge runtime — turbopack has a single global
+// loader rule (no per-compiler split like webpack), so we sniff the source
+const EDGE_RUNTIME_RE = /export\s+const\s+runtime\s*=\s*['"](?:edge|experimental-edge)['"]/;
+const MIDDLEWARE_FILE_RE = /(?:^|[\\/])middleware\.(?:ts|js|mts|mjs)$/;
+
 // match directive prologue ('use server', 'use client', etc.) + optional trailing semicolons/newlines
 // captures the directive block so we can inject code after it
 const DIRECTIVE_PROLOGUE_RE = /^((?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/[^\S\n]*\n|[^\S\n]*\n)*[^\S\n]*['"]use (?:server|client|strict)['"][^\S\n]*;?[^\S\n]*\n?)/;
+
+// the loader runs for every project file, so cache the env graph parse
+// (keyed on the raw string — env reloads produce a new string)
+let cachedRawEnv: string | undefined;
+let cachedEnvGraph: SerializedEnvGraph | undefined;
+function parseEnvGraphCached(rawEnv: string): SerializedEnvGraph | undefined {
+  if (rawEnv !== cachedRawEnv) {
+    cachedRawEnv = rawEnv;
+    try {
+      cachedEnvGraph = JSON.parse(rawEnv);
+    } catch {
+      cachedEnvGraph = undefined;
+    }
+  }
+  return cachedEnvGraph;
+}
 
 /** Prepend code after any directive prologue (e.g. 'use server') to avoid breaking it */
 function prependAfterDirectives(source: string, codeToPrepend: string): string {
@@ -76,13 +97,8 @@ function webpackLoader(this: LoaderContext, source: string) {
     throw new Error('expected __VARLOCK_ENV to be set');
   }
 
-  // TODO: avoid parsing on every file
-  let envGraph: SerializedEnvGraph;
-  try {
-    envGraph = JSON.parse(rawEnv);
-  } catch {
-    return source;
-  }
+  const envGraph = parseEnvGraphCached(rawEnv);
+  if (!envGraph) return source;
 
   const loaderOptions = this.getOptions?.() ?? {};
 
@@ -120,16 +136,31 @@ function webpackLoader(this: LoaderContext, source: string) {
   // static replacements for non-sensitive env vars
   // webpack uses DefinePlugin for this, so only needed for turbopack
   if (isTurbopack && source.includes('ENV.')) {
-    // disable caching only for files that reference ENV — their output depends on env values
-    this.cacheable(false);
-    for (const [key, item] of Object.entries(envGraph.config)) {
-      if (item.isSensitive) continue;
+    const isDev = loaderOptions.dev ?? process.env.NODE_ENV === 'development';
+    const isEdgeFile = isEdge
+      || EDGE_RUNTIME_RE.test(source)
+      || MIDDLEWARE_FILE_RE.test(this.resourcePath);
 
-      // TODO: smarter replacement (vite version uses AST?)
+    // In dev, server-side (node runtime) files read env through the runtime
+    // proxy instead, which stays fresh when env files change and reload —
+    // inlined values can't be refreshed without a recompile, which turbopack
+    // won't do for env-only changes. Inlining is still required for client
+    // components (the browser can't read server env) and edge files (env is
+    // injected at sandbox init), and for all files during builds.
+    const inlineStaticValues = !isDev || isClientComponent || isEdgeFile;
 
-      // match ENV.KEY as a member expression (word boundary before ENV, not followed by more identifier chars)
-      const pattern = new RegExp(`\\bENV\\.${escapeRegExp(key)}(?![\\w$])`, 'g');
-      result = result.replace(pattern, JSON.stringify(item.value));
+    if (inlineStaticValues) {
+      // disable caching only for files that embed ENV values — their output depends on env values
+      this.cacheable(false);
+      for (const [key, item] of Object.entries(envGraph.config)) {
+        if (item.isSensitive) continue;
+
+        // TODO: smarter replacement (vite version uses AST?)
+
+        // match ENV.KEY as a member expression (word boundary before ENV, not followed by more identifier chars)
+        const pattern = new RegExp(`\\bENV\\.${escapeRegExp(key)}(?![\\w$])`, 'g');
+        result = result.replace(pattern, JSON.stringify(item.value));
+      }
     }
   }
 
