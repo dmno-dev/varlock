@@ -336,11 +336,33 @@ A running proxy can hot-reload your schema without a restart: run `varlock proxy
 Whether reload is available is set by [`@proxyConfig={reload=...}`](/reference/root-decorators/#proxyconfig) (`off` / `manual` / `auto`, default `auto`), and can be overridden per run with `--allow-reload` / `--no-allow-reload`. `auto` is conservative: it enables `manual` reload only for an interactive `varlock proxy start` (a human is there to apply it and watch the log) and stays `off` for headless runs or a one-shot `varlock proxy run`. On a shared uid the agent-refusal is a bar-raiser, not a hard boundary (a marker-stripping agent evades it), so `auto` only widens toward agent-triggered reload once containment (a sandbox) or a real out-of-band approver makes it safe.
 :::
 
+## Sandboxing
+
+On its own the proxy runs as the same user as the agent, so its in-tree guards (placeholder isolation, the schema-fingerprint check) raise the bar but are **not a hard boundary** — a determined agent can spawn a process outside the proxy's view (e.g. reparented via `setsid`) and reach a secret's source directly. Wrapping the agent in an OS sandbox closes this: it removes the *capability* to reach a resolution source or egress off-loopback, so evading process detection buys nothing.
+
+### Built-in: `--sandbox` (macOS)
+
+```bash
+varlock proxy run --sandbox -- claude
+```
+
+Adds `--sandbox` to a self-owned `proxy run` to run the child inside a minimal, built-in **credential + egress jail** (macOS `sandbox-exec`, no install). The jail keeps the agent, varlock, and integrations fully working while denying exactly the escape routes:
+
+- **Egress** — only loopback is reachable, so the proxy on `127.0.0.1` becomes the child's *sole* path to the network. A process that scrubs its `HTTPS_PROXY`/`HTTP_PROXY` env to bypass the proxy simply can't connect.
+- **Credential material** — reads of the user varlock dir (the encryption key + local-encrypt socket, plugin/credential cache, and the proxy session/reload channel) are denied.
+- **Warm credential agents** — `mach-lookup` to the 1Password helper (and similar) is denied, so the agent can't drive a warm `op` session directly.
+
+It's **opt-in** by design (a jail that's too tight silently breaks an agent, so we don't force it on). macOS only today; on Linux/Windows use the bring-your-own path below. It applies to a self-owned one-shot run — when a `proxy start` daemon is running, `--sandbox` on the attaching `proxy run` still sandboxes the child it spawns.
+
+### Bring-your-own: containers & VMs
+
+For stronger isolation (or on Linux/Windows), run the agent inside a container or VM (Docker, a devcontainer, Apple `container`, microsandbox) with all egress routed through the proxy on a host-reachable address. This is the VM-grade tier and covers the filesystem and process table too, not just network + credentials. See the sandbox guide for per-runtime recipes.
+
 ## Limitations
 
 The proxy is a local, same-machine tool. Know what it does and doesn't cover before relying on it:
 
-- **Same host, same user.** The proxy runs as you, and so does the agent. It stops the agent from *trivially reading* a secret it's *using*, but it is **not a sandbox**: it doesn't isolate the filesystem, other processes, or memory. A determined agent can spawn a process outside the proxy's view (e.g. reparented via `setsid`) and resolve secrets directly from their source; the in-tree guards (placeholder isolation, the schema-fingerprint check) raise the bar but are not a hard boundary. Pair the proxy with an OS sandbox/container for real isolation.
+- **Same host, same user.** The proxy runs as you, and so does the agent. It stops the agent from *trivially reading* a secret it's *using*, but on its own it is **not a sandbox**: it doesn't isolate the filesystem, other processes, or memory. A determined agent can spawn a process outside the proxy's view (e.g. reparented via `setsid`) and resolve secrets directly from their source; the in-tree guards (placeholder isolation, the schema-fingerprint check) raise the bar but are not a hard boundary. Add [`--sandbox`](#sandboxing) (or a container/VM) for a real isolation boundary.
 - **Response scrubbing is best-effort.** Responses are scrubbed back to placeholders only for **small, uncompressed text** bodies. **Compressed (gzip/br) or large (>2&nbsp;MB) response bodies are passed through unscrubbed**: the proxy can't scan into them. This only matters if an upstream *reflects your secret back in its response* (uncommon); the primary protection (the agent only ever holds a placeholder) is unaffected.
 - **Injection requires a verified public-TLS host.** Secrets are injected only onto connections whose TLS identity is verified against public CAs. The proxy refuses to inject over cleartext `http://` or into a self-signed/local upstream, by design.
 - **Default egress is not containment.** `egress=permissive` (the default) does not restrict where the agent can connect; it just never injects to unmatched hosts. Use `egress=strict` (and ideally a sandbox) if you want to constrain egress.

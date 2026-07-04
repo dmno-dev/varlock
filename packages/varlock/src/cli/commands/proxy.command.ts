@@ -67,6 +67,7 @@ import {
   VARLOCK_INTERNAL_HOST,
   type SessionEnvPayload,
 } from '../../proxy/session-env-payload';
+import { isBuiltinSandboxSupported, wrapCommandWithSandbox } from '../../proxy/sandbox-profile';
 import type { ProxyManagedItem, ProxyRule } from '../../proxy/types';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
@@ -123,6 +124,12 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'For `proxy run`: start a fresh proxy instead of attaching to a running one for this directory',
     },
+    sandbox: {
+      type: 'boolean',
+      description: 'For `proxy run`: run the child inside a minimal OS sandbox (macOS `sandbox-exec`) — a '
+        + 'credential + egress jail that forces all network egress through the proxy and denies access to '
+        + 'key material and warm credential agents. Closes the same-uid escape; opt-in.',
+    },
     'allow-reload': {
       type: 'boolean',
       negatable: true,
@@ -137,6 +144,7 @@ Proxy command surface:
   varlock proxy run -- claude                   # attaches to a running proxy for this dir, else starts one
   varlock proxy run --session abc12 -- claude   # attach to a specific session (approvals prompt in its terminal)
   varlock proxy run --new -- claude             # force a fresh, separate proxy
+  varlock proxy run --sandbox -- claude         # run the child in a minimal OS sandbox (macOS)
   varlock proxy start
   varlock proxy rules                           # summarize the effective @proxy config (no proxy started)
   varlock proxy env --session abc12
@@ -472,6 +480,8 @@ function spawnProxiedChild(opts: {
    * which the serialized graph already covers).
    */
   redactionManagedItems?: Array<ProxyManagedItem>;
+  /** Wrap the child in the built-in minimal OS sandbox (`--sandbox`). */
+  sandbox?: boolean;
 }) {
   const fullInjectedEnv = buildProxiedChildEnv({
     payload: opts.payload,
@@ -509,8 +519,15 @@ function spawnProxiedChild(opts: {
     resetRedactionMap(redactionGraph);
   }
 
+  // Optionally wrap the child in the built-in credential + egress jail. This
+  // must be the outermost layer: the sandbox has to constrain the command AND
+  // any process it spawns, so we sandbox the command itself (not varlock).
+  const { command: execCommand, args: execArgs } = opts.sandbox
+    ? wrapCommandWithSandbox(opts.rawCommand, opts.commandArgsOnly)
+    : { command: opts.rawCommand, args: opts.commandArgsOnly };
+
   // An inherited stream (both false) yields raw TTY pass-through, same as stdio: 'inherit'.
-  const commandProcess = exec(opts.rawCommand, opts.commandArgsOnly, {
+  const commandProcess = exec(execCommand, execArgs, {
     stdin: 'inherit',
     stdout: redactStdout ? 'pipe' : 'inherit',
     stderr: redactStderr ? 'pipe' : 'inherit',
@@ -1272,6 +1289,17 @@ async function runAction(ctx: any) {
   const commandArgsOnly = commandToRunAsArgs.slice(1);
   const commandToRunStr = commandToRunAsArgs.join(' ');
 
+  const sandbox = Boolean(ctx.values.sandbox);
+  if (sandbox && !isBuiltinSandboxSupported()) {
+    throw new CliExitError(
+      'The built-in `--sandbox` is only available on macOS.',
+      {
+        suggestion: 'On other platforms, run the proxy inside a container/VM (Docker, devcontainer, '
+          + 'Apple `container`) with egress routed through it. See the sandbox guide.',
+      },
+    );
+  }
+
   // Attach to a running proxy for this directory (a `proxy start` daemon) when
   // possible — its terminal handles approvals — instead of a new auto-deny proxy.
   // --new forces a fresh proxy.
@@ -1360,7 +1388,11 @@ async function runAction(ctx: any) {
     injectBlob,
     redactStdoutFlag: ctx.values['redact-stdout'],
     redactionManagedItems,
+    sandbox,
   });
+  if (sandbox) {
+    console.error('Running the child inside the built-in sandbox (credential + egress jail).');
+  }
 
   if (commandProcess.pid && !attachSession) {
     await updateProxySessionRecord(session.uuid, { childPid: commandProcess.pid });
