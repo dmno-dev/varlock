@@ -39,6 +39,22 @@ const MIDDLEWARE_FILE_RE = /(?:^|[\\/])middleware\.(?:ts|js|mts|mjs)$/;
 // captures the directive block so we can inject code after it
 const DIRECTIVE_PROLOGUE_RE = /^((?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/[^\S\n]*\n|[^\S\n]*\n)*[^\S\n]*['"]use (?:server|client|strict)['"][^\S\n]*;?[^\S\n]*\n?)/;
 
+// the loader runs for every project file, so cache the env graph parse
+// (keyed on the raw string — env reloads produce a new string)
+let cachedRawEnv: string | undefined;
+let cachedEnvGraph: SerializedEnvGraph | undefined;
+function parseEnvGraphCached(rawEnv: string): SerializedEnvGraph | undefined {
+  if (rawEnv !== cachedRawEnv) {
+    cachedRawEnv = rawEnv;
+    try {
+      cachedEnvGraph = JSON.parse(rawEnv);
+    } catch {
+      cachedEnvGraph = undefined;
+    }
+  }
+  return cachedEnvGraph;
+}
+
 /** Prepend code after any directive prologue (e.g. 'use server') to avoid breaking it */
 function prependAfterDirectives(source: string, codeToPrepend: string): string {
   const match = source.match(DIRECTIVE_PROLOGUE_RE);
@@ -81,13 +97,8 @@ function webpackLoader(this: LoaderContext, source: string) {
     throw new Error('expected __VARLOCK_ENV to be set');
   }
 
-  // TODO: avoid parsing on every file
-  let envGraph: SerializedEnvGraph;
-  try {
-    envGraph = JSON.parse(rawEnv);
-  } catch {
-    return source;
-  }
+  const envGraph = parseEnvGraphCached(rawEnv);
+  if (!envGraph) return source;
 
   const loaderOptions = this.getOptions?.() ?? {};
 
