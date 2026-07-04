@@ -557,12 +557,20 @@ export function parseWithMonogram(source: string): ParsedEnvSpecFile {
   const cst = monogramParser.parse(normalizedSource) as CstNode;
   const starts = lineStarts(normalizedSource);
   const lines = normalizedSource.split('\n');
-  const statementByOffset = new Map<number, CstNode>();
+  const statementByLine = new Map<number, CstNode>();
   for (const child of cst.children) {
     if (!isNode(child) || child.rule !== 'Line') continue;
     const statement = child.children.find((lineChild) => isNode(lineChild) && lineChild.rule === 'Statement') as CstNode | undefined;
     if (statement) {
-      statementByOffset.set(statement.offset, statement);
+      const statementLine = offsetToLineIndex(starts, statement.offset);
+      // a statement must be the first thing on its line (leading whitespace allowed);
+      // anything else means content leaked past the previous statement — fail loudly
+      // rather than silently dropping it
+      const linePrefix = normalizedSource.slice(starts[statementLine], statement.offset);
+      if (linePrefix.trim() !== '' || statementByLine.has(statementLine)) {
+        throw new Error(`Unexpected content on line ${statementLine + 1}`);
+      }
+      statementByLine.set(statementLine, statement);
     }
   }
 
@@ -574,7 +582,7 @@ export function parseWithMonogram(source: string): ParsedEnvSpecFile {
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const line = lines[lineIndex];
     const startOffset = starts[lineIndex] ?? 0;
-    const statement = statementByOffset.get(startOffset);
+    const statement = statementByLine.get(lineIndex);
 
     if (!statement) {
       if (line.trim() === '') {

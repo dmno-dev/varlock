@@ -133,3 +133,11 @@ it('preserves trailing whitespace on lines inside a multi-line string', () => {
   expect((item as ParsedEnvSpecConfigItem).value?.data?.rawValue)
     .toBe('"""\nline1   \nline2\t\n"""');
 });
+
+it('allows leading whitespace before a config item key', generalTest({
+  input: '  FOO=foo\n\tBAR=bar\n',
+  expected: {
+    FOO: 'foo',
+    BAR: 'bar',
+  },
+}));

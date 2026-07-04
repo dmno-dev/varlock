@@ -10,6 +10,7 @@ import {
   never,
   noneOf,
   notFollowedBy,
+  notPrecededBy,
   oneOf,
   opt,
   optPattern,
@@ -56,8 +57,16 @@ const IDENT = token(
   seq(identStart, star(identChar), followedBy(altPattern(oneOf(' ', '\t', '\n', '#', '=', '(', ')', ',', '}', ']'), end()))),
   { scope: 'variable.other.readwrite' },
 );
+// only a `@` at line start or after whitespace / `#` is a decorator name — a glued `@`
+// (`email@asdf.com`) is plain text, both for parsing and highlighting
 const DEC_NAME = token(
-  seq('@', alpha, star(noneOf(' ', '\t', '\n', '=', '(', ')', '#', '@')), followedBy(altPattern(oneOf(' ', '\t', '\n', '=', '(', ')', '#'), end()))),
+  seq(
+    notPrecededBy(noneOf(' ', '\t', '\n', '\r', '#')),
+    '@',
+    alpha,
+    star(noneOf(' ', '\t', '\n', '=', '(', ')', '#', '@')),
+    followedBy(altPattern(oneOf(' ', '\t', '\n', '=', '(', ')', '#'), end())),
+  ),
 );
 const DEC_VALUE_TEXT = token(
   seq(
@@ -236,6 +245,9 @@ const decFill = () => many(alt(
   FlowComment,
 ));
 
+// A top-level unquoted value runs to `#` / end-of-line and may contain nearly anything
+// (peggy: `[^#\n]+`), so this includes the structural tokens too — the value text is
+// reassembled from the source slice.
 const StaticValuePart = rule((_self) => [
   TRIPLE_DOUBLE,
   TRIPLE_TICK,
@@ -248,14 +260,21 @@ const StaticValuePart = rule((_self) => [
   UNDEFINED,
   EXPANSION,
   SLASH_TEXT,
+  EXPORT,
+  ASSIGN_KEY,
+  FUNCTION_NAME,
   IDENT,
+  DEC_NAME,
   '(',
   ')',
   '{',
   '}',
   '[',
   ']',
+  '=',
+  ',',
   UNQUOTED_TEXT,
+  ARG_UNQUOTED_TEXT,
 ]);
 
 const FunctionArgValuePart = rule((_self) => [

@@ -31,7 +31,7 @@ module.exports = grammar({
 
     flow_comment: $ => seq($.hash, repeat($.flow_comment_part)),
 
-    static_value_part: $ => choice($.triple_double, $.triple_tick, $.dq_string, $.sq_string, $.bt_string, $.quote_chunk, $.number, $.bool, $.undefined, $.expansion, $.slash_text, $.ident, "(", ")", "{", "}", "[", "]", $.unquoted_text),
+    static_value_part: $ => choice($.triple_double, $.triple_tick, $.dq_string, $.sq_string, $.bt_string, $.quote_chunk, $.number, $.bool, $.undefined, $.expansion, $.slash_text, $.export, $.assign_key, $.function_name, $.ident, $.dec_name, "(", ")", "{", "}", "[", "]", "=", ",", $.unquoted_text, $.arg_unquoted_text),
 
     function_arg_value_part: $ => choice($.object_literal, $.array_literal, $.function_call, $.triple_double, $.triple_tick, $.dq_string, $.sq_string, $.bt_string, $.number, $.bool, $.undefined, $.expansion, $.slash_text, $.unquoted_text, $.ident, $.arg_unquoted_text, $.glued_hash_text),
 

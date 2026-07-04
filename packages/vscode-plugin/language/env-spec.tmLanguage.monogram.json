@@ -165,7 +165,7 @@
     },
     "dec_name": {
       "name": "variable.other.env-spec",
-      "match": "@[a-zA-Z][^ \\t\\n=()#@]*(?=[ \\t\\n=()#]|$)"
+      "match": "(?<![^ \\t\\n\\r#])@[a-zA-Z][^ \\t\\n=()#@]*(?=[ \\t\\n=()#]|$)"
     },
     "number": {
       "name": "constant.numeric.env-spec",
