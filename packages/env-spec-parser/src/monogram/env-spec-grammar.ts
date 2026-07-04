@@ -45,7 +45,12 @@ const DIVIDER = token(
   seq('#', star(hspace), repeat(oneOf('-', '=', '*', '#'), 3), star(noneOf('\r', '\n'))),
   { scope: 'comment.line' },
 );
-const HASH = token('#', { scope: 'comment.line' });
+// a comment/continuation `#` only appears at line start or after whitespace; a glued
+// `#` is GLUED_HASH_TEXT (keeps `fn(unq#uoted)` and URL fragments as text)
+const HASH = token(
+  seq(notPrecededBy(noneOf(' ', '\t', '\n', '\r')), '#'),
+  { scope: 'comment.line' },
+);
 
 const EXPORT = token(seq('export', notFollowedBy(wordChar)), { scope: 'keyword.control.export' });
 const ASSIGN_KEY = token(seq(identStart, star(identChar), followedBy('=')), { scope: 'entity.name.tag' });
@@ -67,11 +72,15 @@ const DEC_NAME = token(
     star(noneOf(' ', '\t', '\n', '=', '(', ')', '#', '@')),
     followedBy(altPattern(oneOf(' ', '\t', '\n', '=', '(', ')', '#'), end())),
   ),
+  { scope: 'variable.annotation' },
 );
 const DEC_VALUE_TEXT = token(
   seq(
     notFollowedBy(fnCallAhead),
-    noneOf('#', ' ', '\t', '\n', '=', '(', ')', ',', '"', "'", '`', '$', '{', '[', '}', ']'),
+    altPattern(
+      seq(precededBy(noneOf(' ', '\t', '\n', '\r', '#')), '@'),
+      noneOf('#', ' ', '\t', '\n', '=', '(', ')', ',', '"', "'", '`', '$', '{', '[', '}', ']', '@'),
+    ),
     star(noneOf('#', ' ', '\t', '\n', '=', '(', ')', ',', '$', '}', ']')),
   ),
   { scope: 'string.unquoted' },
@@ -79,7 +88,10 @@ const DEC_VALUE_TEXT = token(
 const DEC_ARG_TEXT = token(
   seq(
     notFollowedBy(fnCallAhead),
-    noneOf(' ', '\t', '\n', ',', '(', ')', '#', '=', '"', "'", '`', '$', '{', '[', '}', ']'),
+    altPattern(
+      seq(precededBy(noneOf(' ', '\t', '\n', '\r', '#')), '@'),
+      noneOf(' ', '\t', '\n', ',', '(', ')', '#', '=', '"', "'", '`', '$', '{', '[', '}', ']', '@'),
+    ),
     star(noneOf(' ', '\t', '\n', ',', '(', ')', '#', '=', '$', '}', ']')),
   ),
   { scope: 'string.unquoted' },
@@ -168,10 +180,17 @@ const SLASH_TEXT = token(
   ))),
   { scope: 'string.unquoted' },
 );
+// a LEADING `@` is only unquoted text when glued to preceding content (`VAL=@foo` after
+// `=`); a whitespace-preceded `@` belongs to DEC_NAME. The lexer's token order already
+// prefers DEC_NAME, but the flat TextMate rule list tries unquoted text first, so the
+// guard must live in the pattern itself.
 const UNQUOTED_TEXT = token(
   seq(
     notFollowedBy(fnCallAhead),
-    noneOf('#', '=', ',', '\r', '\n', '(', ')', '$', '"', "'", '`', '\t', ' ', '{', '[', '}', ']'),
+    altPattern(
+      seq(precededBy(noneOf(' ', '\t', '\n', '\r', '#')), '@'),
+      noneOf('#', '=', ',', '\r', '\n', '(', ')', '$', '"', "'", '`', '\t', ' ', '{', '[', '}', ']', '@'),
+    ),
     star(noneOf('#', '=', ',', '\r', '\n', '(', ')', '$', '}', ']')),
   ),
   { scope: 'string.unquoted' },

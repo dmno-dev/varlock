@@ -15,6 +15,7 @@
 (assign_key) @constructor
 (function_name) @variable
 (ident) @variable
+(dec_name) @variable
 (number) @number
 (bool) @constant.builtin
 (undefined) @constant.builtin

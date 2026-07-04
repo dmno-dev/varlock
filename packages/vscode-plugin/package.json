@@ -84,7 +84,7 @@
     "build": "tsup",
     "install:local": "bun run build && bun run scripts/install-local.ts",
     "test": "vitest",
-    "test:grammar": "vscode-tmgrammar-test -g ./language/env-spec.tmLanguage.monogram.json ./test/grammar.test.txt",
+    "test:grammar": "vscode-tmgrammar-test -g ./language/env-spec.tmLanguage.json ./test/grammar.test.txt",
     "test:snap": "vscode-tmgrammar-snap -s source.env-spec -g ./language/env-spec.tmLanguage.json \"test/fixtures/.env.*\"",
     "test:snap:update": "vscode-tmgrammar-snap -u -s source.env-spec -g ./language/env-spec.tmLanguage.json \"test/fixtures/.env.*\"",
     "test:ci": "vitest --run && bun run test:grammar && bun run test:snap",

@@ -145,13 +145,13 @@ module.exports = grammar({
 
     slash_text: $ => token(/\/(?:\[[^\]\r\n]*\]|\{[^}\r\n]*\}|[^#=,\r\n(){\[}\]])*/),
 
-    unquoted_text: $ => token(/[^#=,\r\n()$"'`\t {\[}\]][^#=,\r\n()$}\]]*/),
+    unquoted_text: $ => token(/(?:@|[^#=,\r\n()$"'`\t {\[}\]@])[^#=,\r\n()$}\]]*/),
 
     arg_unquoted_text: $ => token(/[^ \t\n,()=#{\[}\]][^ \t\n,)}\]]*/),
 
-    dec_value_text: $ => token(/[^# \t\n=(),"'`${\[}\]][^# \t\n=(),$}\]]*/),
+    dec_value_text: $ => token(/(?:@|[^# \t\n=(),"'`${\[}\]@])[^# \t\n=(),$}\]]*/),
 
-    dec_arg_text: $ => token(/[^ \t\n,()#="'`${\[}\]][^ \t\n,()#=$}\]]*/),
+    dec_arg_text: $ => token(/(?:@|[^ \t\n,()#="'`${\[}\]@])[^ \t\n,()#=$}\]]*/),
 
     dec_text: $ => token(/[^@#= \t\n\r\f(),"'`${\[}\]][^@#= \t\n\r\f(),"'`${\[}\]]*/),
 
