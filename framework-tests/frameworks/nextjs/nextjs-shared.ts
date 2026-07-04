@@ -132,13 +132,8 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
         // and actually changing the content must reload env and serve the new value.
         // The same session also covers the pages-router SSR path (getServerSideProps)
         // and edge middleware, which read env through different code paths.
-        // KNOWN ISSUE: on Next 15 + turbopack, applying the integration's JS loader rule
-        // to edge-context files (middleware) generates a fatal analysis issue in
-        // turbopack's own loader-runner (process.cwd/path.sep are unavailable in the edge
-        // environment), which 500s every page render in dev. Fixed upstream in Next 16.
-        // Until the integration works around it, skip middleware for that combo.
-        const middlewareBreaksDev = nextVersion === 15 && webpackOrTurbo === 'turbopack';
-
+        // NOTE: on Next 15.5 + turbopack this exercises the plugin's conditioned loader
+        // rule (edge files excluded) — middleware env comes through the runtime proxy.
         nextEnv.describeDevScenario('dev: extra env file watching', {
           command: devCommand,
           readyPattern: /Ready in|Starting\.\.\./,
@@ -146,9 +141,7 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
           templateFiles: {
             'app/page.tsx': 'pages/basic-page.tsx',
             'pages/pages-ssr.tsx': 'pages-router/ssr-page.tsx',
-            ...!middlewareBreaksDev && {
-              'middleware.ts': 'middleware/middleware.ts',
-            },
+            'middleware.ts': 'middleware/middleware.ts',
           },
           requests: [
             {
@@ -172,22 +165,20 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
                 shouldNotContain: ['super-secret-var'],
               },
             },
-            ...!middlewareBreaksDev ? [
-              {
-                label: 'edge middleware reads env',
-                path: '/middleware-test',
-                bodyAssertions: {
-                  shouldContain: [
-                    'varlock-middleware-response',
-                    'next-prefixed-public-var',
-                    'unprefixed-public-var',
-                    'env-specific-var--dev',
-                    'middleware-sensitive-available',
-                  ],
-                  shouldNotContain: ['super-secret-var'],
-                },
+            {
+              label: 'edge middleware reads env',
+              path: '/middleware-test',
+              bodyAssertions: {
+                shouldContain: [
+                  'varlock-middleware-response',
+                  'next-prefixed-public-var',
+                  'unprefixed-public-var',
+                  'env-specific-var--dev',
+                  'middleware-sensitive-available',
+                ],
+                shouldNotContain: ['super-secret-var'],
               },
-            ] : [],
+            },
             {
               label: 'rewrite with unchanged content: does not reload, same value served',
               path: '/',
