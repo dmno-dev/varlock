@@ -8,6 +8,7 @@ import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import { REDACT_STDOUT_ARG, resolveStdoutRedaction, pipeRedactedStreams } from '../helpers/stdout-redaction';
+import { buildInjectedBlobEnv } from '../helpers/injected-env-blob';
 
 export const commandSpec = define({
   name: 'run',
@@ -212,7 +213,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     ...process.env,
     ...(injectVars ? resolvedEnv : {}),
     __VARLOCK_RUN: '1', // flag for a child process to detect it is running via `varlock run`
-    ...(injectBlob ? { __VARLOCK_ENV: JSON.stringify(serializedGraph) } : {}),
+    // honors @encryptInjectedEnv in blob-only mode; reuses/forwards an ambient key
+    ...buildInjectedBlobEnv({
+      serializedGraph,
+      injectVars,
+      injectBlob,
+      ambientEnvKey: process.env._VARLOCK_ENV_KEY,
+    }),
   };
 
   // @internal items must not reach the application. The spread of process.env above can carry
@@ -222,12 +229,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     for (const itemKey of envGraph.sortedConfigKeys) {
       if (envGraph.configSchema[itemKey].isInternal) delete fullInjectedEnv[itemKey];
     }
-  }
-
-  // when only injecting the blob, also inject the encryption key so the
-  // child process can decrypt it (if encrypted)
-  if (injectBlob && !injectVars && process.env._VARLOCK_ENV_KEY) {
-    fullInjectedEnv._VARLOCK_ENV_KEY = process.env._VARLOCK_ENV_KEY;
   }
 
   // Per-stream TTY auto-detect (interactive terminal -> raw inherit; piped/redirected ->

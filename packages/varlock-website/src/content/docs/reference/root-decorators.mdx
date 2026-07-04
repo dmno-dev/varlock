@@ -402,6 +402,8 @@ Controls whether the injected env blob in server-side build output is encrypted.
 
 This is primarily relevant for serverless deployments (Vercel, Netlify, etc.) where varlock injects resolved env data into the build output. The blob only appears in server-side code and is generally safe, but encryption provides extra protection — particularly against secrets leaking via sourcemaps.
 
+It also applies when `varlock run` / `varlock proxy run` spawn a child in blob-only inject mode (`--inject blob`): the injected blob is encrypted with an ephemeral key carried alongside it, so resolved values never sit as plaintext in the child's environment. Since the key rides next to the ciphertext, this protects against accidental leaks (crash reporters, env dumps, logs), not against an attacker who can read the full environment.
+
 **Options:**
 - `false` (default): Blob is injected as plaintext JSON
 - `true`: Blob is encrypted, `_VARLOCK_ENV_KEY` required at build time and runtime
