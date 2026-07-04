@@ -73,3 +73,30 @@ Each scenario uses `describeScenario()` which:
 - **Astro** — tests static builds and SSR dev server, verifying env injection, leak detection in static output / client scripts / server pages / API endpoints, log redaction, and env vars in astro config
 - **Next.js** — tests multiple versions (14, 15, 16) and bundlers (webpack, turbopack), verifying env injection, leak detection, log redaction, and sourcemap scrubbing
 - **Expo** — tests the babel plugin transform pipeline, verifying static replacement of public vars, protection of sensitive vars, and correct handling of server (+api) routes
+
+## Real deployment tests (`deploy/`)
+
+Not part of normal test runs. These deploy the nextjs smoke app to a throwaway
+Vercel project (**remote** build) and assert behavior that local tests
+structurally can't reach: SSR on a real lambda (no varlock binary at runtime),
+middleware on the real Edge runtime, runtime leak detection in production, and
+log redaction inside Vercel's build + runtime log pipelines.
+
+They run weekly (and via manual dispatch) through
+`.github/workflows/deploy-tests.yaml` — failures are informational and never
+block PRs. Run locally (uses your `vercel login`):
+
+```bash
+cd framework-tests
+VERCEL_DEPLOY_TESTS=1 bunx vitest run deploy/
+```
+
+| Variable | Description |
+|---|---|
+| `VERCEL_DEPLOY_TESTS` | Required gate — tests are skipped without it |
+| `DEPLOY_TESTS_PUBLISHED` | Test latest published packages instead of workspace code |
+| `VERCEL_TOKEN` | Auth for CI; local runs fall back to the Vercel CLI login |
+
+The Vercel project (`varlock-deploy-test`) is a throwaway with fake env values
+only; the suite disables deployment protection on it so routes can be asserted
+without SSO.
