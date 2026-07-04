@@ -1,0 +1,45 @@
+name: Bumpy issue note
+
+# When a PR that closes linked issues is merged, GitHub auto-closes those
+# issues — but the fix isn't published yet. This workflow leaves a note on each
+# auto-closed issue clarifying that the change ships in the next release.
+#
+# SECURITY: runs on `pull_request_target` (trusted context with an `issues:write`
+# token) and NEVER checks out or executes PR code — it only calls `gh`, resolving
+# the linked issues from the trusted event payload.
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  issues: write
+
+jobs:
+  note:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment on auto-closed issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          issues=$(gh api graphql \
+            -f query='
+              query($owner: String!, $repo: String!, $pr: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $pr) {
+                    closingIssuesReferences(first: 50) { nodes { number } }
+                  }
+                }
+              }' \
+            -f owner="${REPO%/*}" -f repo="${REPO#*/}" -F pr="$PR" \
+            --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[].number')
+          [ -z "$issues" ] && { echo "PR #$PR closed no linked issues."; exit 0; }
+          for n in $issues; do
+            gh issue comment "$n" --repo "$REPO" --body \
+          "✅ A fix has been merged to \`main\` in #${PR} and will ship in the next release. GitHub auto-closed this issue on merge, but the change isn't published yet."
+          done
