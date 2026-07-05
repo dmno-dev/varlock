@@ -1,12 +1,3 @@
-# MOVE ME: this belongs at .github/workflows/deploy-tests.yaml
-#
-# It is parked here because creating workflow files requires a git credential
-# with the GitHub `workflow` scope, which the automation that authored this
-# branch didn't have. To activate:
-#
-#   git mv framework-tests/deploy/deploy-tests.workflow.yaml .github/workflows/deploy-tests.yaml
-#   git commit && git push   # from a terminal with full credentials
-#
 name: Real Deployment Tests
 
 # Deploys the nextjs smoke app to a throwaway Vercel project (remote build) and
