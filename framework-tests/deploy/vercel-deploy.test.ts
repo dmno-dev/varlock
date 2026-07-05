@@ -29,6 +29,7 @@ import {
 import {
   buildDeployFixture, deployToVercel, disableDeploymentProtection,
   getBuildLogs, captureRuntimeLogs, removeDeployment, cleanupFixture, waitForRoute,
+  setProjectEnvKey, removeProjectEnvKey,
 } from './vercel-helpers.js';
 
 const SECRET_VALUE = 'super-secret-var';
@@ -48,10 +49,20 @@ function defineDeploymentTests(label: string, opts: { encrypted: boolean }) {
       await disableDeploymentProtection().catch(() => {
         // project may not exist yet on the very first deploy — retried after
       });
-      // ephemeral key, scoped to this single deployment (build encrypt + runtime decrypt)
-      const deployed = deployToVercel(fixtureDir, {
-        envKey: opts.encrypted ? randomBytes(32).toString('hex') : undefined,
-      });
+      // ephemeral key for the encrypted variant: set on the project just for the
+      // duration of the deploy (env is snapshotted into the deployment). The
+      // plaintext variant must NOT see a key — presence alone triggers encryption.
+      if (opts.encrypted) {
+        await setProjectEnvKey(randomBytes(32).toString('hex'));
+      } else {
+        await removeProjectEnvKey().catch(() => { /* may not exist yet */ });
+      }
+      let deployed;
+      try {
+        deployed = deployToVercel(fixtureDir);
+      } finally {
+        if (opts.encrypted) await removeProjectEnvKey().catch(() => { /* best effort */ });
+      }
       url = deployed.url;
       buildOutput = deployed.output;
       await disableDeploymentProtection();
@@ -101,26 +112,16 @@ function defineDeploymentTests(label: string, opts: { encrypted: boolean }) {
       expect(body).not.toContain(SECRET_VALUE);
     });
 
-    if (!opts.encrypted) {
-      test('middleware on the real Edge runtime reads env (incl. sensitive)', async () => {
-        const body = await (await fetch(`${url}/middleware-test`)).text();
-        expect(body).toContain('varlock-middleware-response');
-        expect(body).toContain('unprefixed-public-var');
-        expect(body).toContain('middleware-sensitive-available');
-        expect(body).not.toContain(SECRET_VALUE);
-      });
-    } else {
-      test('KNOWN LIMITATION: middleware cannot decrypt on the Edge runtime', async () => {
-        // Vercel's edge-light runtime has no node:crypto (no process.getBuiltinModule,
-        // no resolvable require), so decryptEnvBlobSync fails at boot and middleware
-        // 500s with a clear "[varlock] node:crypto is not available" error. Fixing
-        // this needs an async WebCrypto decrypt path in init-edge. When that lands,
-        // this test will fail — replace it with the full middleware assertions above.
-        const resp = await fetch(`${url}/middleware-test`);
-        expect(resp.status).toBe(500);
-        expect(await resp.text()).not.toContain(SECRET_VALUE);
-      });
-    }
+    test('middleware on the real Edge runtime reads env (incl. sensitive)', async () => {
+      // in the encrypted variant this exercises init-edge's async WebCrypto
+      // decrypt fallback (Vercel Edge has no node:crypto) with handler
+      // invocation gated until env is ready
+      const body = await (await fetch(`${url}/middleware-test`)).text();
+      expect(body).toContain('varlock-middleware-response');
+      expect(body).toContain('unprefixed-public-var');
+      expect(body).toContain('middleware-sensitive-available');
+      expect(body).not.toContain(SECRET_VALUE);
+    });
 
     test('runtime leak detection blocks a request-time leak on lambda', async () => {
       // getServerSideProps leaks the secret — invisible to build scans, must be
@@ -145,12 +146,7 @@ function defineDeploymentTests(label: string, opts: { encrypted: boolean }) {
     });
 
     test('runtime logs: secrets redacted, leak detection fires', async () => {
-      // middleware's redacted secret log only exists where middleware runs
-      // (see the KNOWN LIMITATION above for the encrypted variant)
-      const expectedMarkers = [
-        'DETECTED LEAKED SENSITIVE CONFIG',
-        ...opts.encrypted ? [] : ['mw-secret-log-test:'],
-      ];
+      const expectedMarkers = ['DETECTED LEAKED SENSITIVE CONFIG', 'mw-secret-log-test:'];
       const logs = await captureRuntimeLogs(url, async () => {
         await fetch(`${url}/middleware-test`).catch(() => undefined);
         await fetch(`${url}/leaky-ssr`).catch(() => undefined);

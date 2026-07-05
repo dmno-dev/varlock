@@ -34,6 +34,8 @@ SECRET_KEY= # @sensitive
 3. At **runtime**, `initVarlockEnv()` detects the encrypted prefix and decrypts using `_VARLOCK_ENV_KEY` from the runtime environment
 4. The key is **never baked into the build** — it must always come from the runtime environment
 
+Decryption uses `node:crypto` where available; edge runtimes without it (e.g. Vercel Edge middleware) automatically fall back to asynchronous Web Crypto, with request handling gated until the env is ready.
+
 ## Key management
 
 The encryption key (`_VARLOCK_ENV_KEY`) is managed differently depending on your platform:

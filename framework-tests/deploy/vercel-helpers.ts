@@ -87,9 +87,9 @@ export function buildDeployFixture(opts?: { usePublished?: boolean, encrypted?: 
 
   // optionally enable encrypted deployments — the recommended setup on Vercel:
   // the build encrypts the injected env blob, and it is decrypted at boot using
-  // _VARLOCK_ENV_KEY (passed per-deployment by deployToVercel). A build without
-  // the key fails loudly, so a green run proves the decorator was honored and
-  // decryption worked.
+  // _VARLOCK_ENV_KEY (an ephemeral key set on the project around the deploy —
+  // see setProjectEnvKey). A build without the key fails loudly, so a green run
+  // proves the decorator was honored and decryption worked.
   if (opts?.encrypted) {
     const schemaPath = join(dir, '.env.schema');
     writeFileSync(schemaPath, readFileSync(schemaPath, 'utf8').replace(
@@ -153,19 +153,11 @@ export function buildDeployFixture(opts?: { usePublished?: boolean, encrypted?: 
   return dir;
 }
 
-/**
- * Deploy the fixture as a preview; resolves with the deployment URL.
- * When `envKey` is provided it is passed as _VARLOCK_ENV_KEY for both build
- * (encrypt) and runtime (decrypt) — scoped to this single deployment, so an
- * ephemeral per-run key works and nothing needs to be stored anywhere.
- */
-export function deployToVercel(dir: string, opts?: { envKey?: string }): { url: string, output: string } {
-  const keyArgs = opts?.envKey
-    ? ` --build-env _VARLOCK_ENV_KEY=${opts.envKey} --env _VARLOCK_ENV_KEY=${opts.envKey}`
-    : '';
+/** Deploy the fixture as a preview; resolves with the deployment URL. */
+export function deployToVercel(dir: string): { url: string, output: string } {
   let output: string;
   try {
-    output = execSync(`${vercelCliBase()} deploy --yes${keyArgs}`, {
+    output = execSync(`${vercelCliBase()} deploy --yes`, {
       cwd: dir,
       stdio: 'pipe',
       timeout: 10 * 60_000,
@@ -192,6 +184,44 @@ function teamIdQuery(): string {
   // (VERCEL_ORG_ID from deploy/.env.schema); without it, the local CLI login's
   // default scope applies
   return process.env.VERCEL_ORG_ID ? `?teamId=${process.env.VERCEL_ORG_ID}` : '';
+}
+
+/**
+ * Set/remove the ephemeral _VARLOCK_ENV_KEY on the project via the API.
+ * `vercel deploy --env` rejects keys with a leading underscore ("must begin
+ * with a letter"), so per-deployment env flags can't carry it — instead the
+ * encrypted variant sets a project-level key just before deploying and removes
+ * it right after. Env is snapshotted into a deployment at creation, so the
+ * deployed lambda/edge keep decrypting after removal, and the plaintext
+ * variant (which must NOT see a key — its mere presence triggers encryption)
+ * clears it defensively before deploying.
+ */
+export async function setProjectEnvKey(value: string): Promise<void> {
+  const token = getVercelToken();
+  const upsertSep = process.env.VERCEL_ORG_ID ? '&' : '?';
+  const resp = await fetch(`https://api.vercel.com/v10/projects/${VERCEL_PROJECT_NAME}/env${teamIdQuery()}${upsertSep}upsert=true`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      key: '_VARLOCK_ENV_KEY', value, type: 'sensitive', target: ['preview', 'production'],
+    }),
+  });
+  if (!resp.ok) throw new Error(`failed to set _VARLOCK_ENV_KEY: ${resp.status} ${await resp.text()}`);
+}
+
+export async function removeProjectEnvKey(): Promise<void> {
+  const token = getVercelToken();
+  const list = await (await fetch(`https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}/env${teamIdQuery()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })).json() as { envs?: Array<{ id: string, key: string }> };
+  for (const env of list.envs ?? []) {
+    if (env.key === '_VARLOCK_ENV_KEY') {
+      await fetch(`https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}/env/${env.id}${teamIdQuery()}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
+  }
 }
 
 export async function disableDeploymentProtection(): Promise<void> {

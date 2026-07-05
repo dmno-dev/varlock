@@ -312,6 +312,13 @@ export function initVarlockEnv(opts?: {
 
   // otherwise if we inject via `varlock run` or have already loaded, it will be in process.env
   } else if (processExists && process.env.__VARLOCK_ENV) {
+    // may still be an encrypted blob if edge init is decrypting asynchronously
+    // (runtimes without node:crypto) — treat as not-yet-available rather than
+    // exploding in JSON.parse
+    if (process.env.__VARLOCK_ENV.startsWith('varlock:v1:')) {
+      if (opts?.allowFail) return;
+      throw new Error('[varlock] env blob is still encrypted — decryption has not completed yet');
+    }
     serializedEnvData = JSON.parse(process.env.__VARLOCK_ENV);
   } else {
     if (opts?.allowFail) return;
