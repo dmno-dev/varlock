@@ -105,3 +105,26 @@ targets your account's scope rather than the shared varlockdev project.)
 The Vercel project (`varlock-deploy-test`, under the varlockdev account) is a
 throwaway with fake env values only; deployment protection is disabled on it so
 routes can be asserted without SSO.
+
+### Debugging real-deployment failures
+
+Hard-won techniques (see `deploy/` helpers for implementations):
+
+- **Edge failures**: don't iterate via deploys — Vercel runtime logs give
+  messages without stacks. Run `vercel build` locally, then execute the exact
+  deployed artifact in an edge-light-faithful VM with full stack traces:
+  `node --experimental-vm-modules deploy/edge-sim.ts .vercel/output/functions/middleware.func/index.js --env _VARLOCK_ENV_KEY=... --path /middleware-test`.
+  The sim encodes real edge-light behavior: no node:crypto (via
+  `getBuiltinModule` OR `require`), read-only-ish `process.env`, eager
+  microtask module instantiation, `_ENTRIES` handler registration shapes.
+- **Silent remote build exits**: `next build` swallows type-check setup errors
+  (`.catch(() => process.exit(1))` in next's type-check.js) — a missing
+  `typescript`/`@types/node` dep dies with zero output right after "Skipping
+  validation of types". Surface it by shipping a script that patches the catch
+  to log (run via a temporary `vercel.json` `buildCommand`), or run
+  `vercel build` locally where hoisting differences don't apply.
+- **Runtime logs**: use the runtime-logs REST API with bounded reads + marker
+  polling (`captureRuntimeLogs`) — streaming `vercel logs` is unreliable under
+  vitest and the pipeline can lag by tens of seconds.
+- **Failed deployments are kept** (passing ones are removed) — inspect them
+  with `vercel inspect --logs <url>` and by re-requesting routes.
