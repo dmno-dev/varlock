@@ -423,6 +423,14 @@ export class FrameworkTestEnv {
           for (const str of req.bodyAssertions?.shouldNotContain ?? []) {
             expect(resp.body, `Response body should NOT contain "${str}"`).not.toContain(str);
           }
+          for (const [headerName, expected] of Object.entries(req.headerAssertions ?? {})) {
+            const actual = resp.headers[headerName];
+            if (expected instanceof RegExp) {
+              expect(actual, `Header "${headerName}" should match ${expected}`).toMatch(expected);
+            } else {
+              expect(actual, `Header "${headerName}" should be "${expected}"`).toBe(expected);
+            }
+          }
         });
       }
 

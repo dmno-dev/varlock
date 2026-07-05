@@ -141,6 +141,11 @@ export interface DevServerRequest {
     shouldNotContain?: Array<string>;
   };
   /**
+   * Assertions on response headers (keys are lowercase header names).
+   * String values assert an exact match, RegExp values a pattern match.
+   */
+  headerAssertions?: Record<string, string | RegExp>;
+  /**
    * Files to write before this request (triggers env reload / server restart).
    * Keys are paths relative to project root, values are file content.
    * After writing, waits for the server's readyPattern to appear again before making the request.
@@ -166,6 +171,8 @@ export interface DevServerRequest {
 export interface DevServerRequestResult {
   status: number;
   body: string;
+  /** response headers, lowercase keys */
+  headers: Record<string, string>;
 }
 
 /** Configuration for a dev server scenario */

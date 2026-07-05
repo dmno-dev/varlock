@@ -221,6 +221,19 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
                 shouldNotContain: ['super-secret-var'],
               },
             },
+            {
+              // The fail-closed kill must only affect that one response — the dev
+              // server has to keep serving afterwards. The gzip header assertion
+              // pins that responses actually flow through the compressed scan path
+              // (the leak scanner decodes gzip; if dev ever stopped compressing,
+              // the leak scenario above would silently degrade to the plaintext path).
+              label: 'dev server still serves (gzipped) after leak detection kills a response',
+              path: '/pages-ssr',
+              headerAssertions: { 'content-encoding': 'gzip' },
+              bodyAssertions: {
+                shouldContain: ['Varlock Pages Router SSR Page'],
+              },
+            },
           ],
           outputAssertions: [
             {

@@ -100,6 +100,11 @@ if (rawEnvBlob && isEncryptedBlob(rawEnvBlob)) {
       } catch { /* frozen process.env — the globalThis channel covers init */ }
       initNow();
     });
+    // mark rejections handled so a bad key / corrupt blob doesn't surface as an
+    // unhandled rejection (fatal on some edge runtimes) before any request runs —
+    // gated handlers still await `ready` and surface the real error per-request
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    ready.catch(() => {});
     (globalThis as any).__varlockEnvReady = ready;
     gateEdgeEntriesUntilReady(ready);
   }
