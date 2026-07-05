@@ -9,6 +9,8 @@ export const commandSpec = define({
   description: '(deprecated) alias for `varlock codegen`',
   args: codegenCommandSpec.args,
   examples: 'Deprecated alias for `varlock codegen` — kept for back-compat. Use `varlock codegen` instead.',
+  // hide from `varlock help` — still runnable, but we only advertise `codegen`
+  internal: true,
 });
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
