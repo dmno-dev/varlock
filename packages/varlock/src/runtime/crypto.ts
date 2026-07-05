@@ -88,9 +88,8 @@ export function decryptEnvBlobSync(encrypted: string, hexKey: string): string {
 }
 
 // -- Async (Web Crypto API, edge-compatible) ------------------------------
-// Currently unused — all init paths use the sync version since every major edge
-// runtime now supports node:crypto (Vercel Edge, Cloudflare with nodejs_compat, Deno).
-// Kept as a public export in case consumers need to decrypt in a pure Web Crypto context.
+// Used by init-edge as the fallback on runtimes with no node:crypto at all
+// (e.g. Vercel Edge). Also a public export for pure Web Crypto contexts.
 
 export async function decryptEnvBlobAsync(encrypted: string, hexKey: string): Promise<string> {
   validateHexKey(hexKey);

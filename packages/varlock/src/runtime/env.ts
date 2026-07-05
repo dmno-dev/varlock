@@ -268,7 +268,14 @@ type EnvState = {
   // capture references to them at load time
   values: Record<string, any>,
   settings: Record<string, any>,
+  /** snapshot of process.env before any varlock injection (captured by the first instance to load) */
+  originalProcessEnv: Record<string, string | undefined>,
+  /** keys injected into process.env by the last init/reload (undefined = never injected) */
+  injectedProcessEnvKeys: Array<string> | undefined,
 };
+
+const processExists = !!globalThis.process;
+
 const ENV_STATE_KEY = '__varlockEnvState';
 function getEnvState(): EnvState {
   if (!(globalThis as any)[ENV_STATE_KEY]) {
@@ -277,18 +284,20 @@ function getEnvState(): EnvState {
       configHasErrors: false,
       values: {},
       settings: {},
+      originalProcessEnv: { ...processExists && process.env },
+      injectedProcessEnvKeys: undefined,
     } satisfies EnvState;
   }
-  return (globalThis as any)[ENV_STATE_KEY];
+  const state: EnvState = (globalThis as any)[ENV_STATE_KEY];
+  // the state object may have been created by an older copy of this module that
+  // didn't track process.env injection — fill in what we can
+  state.originalProcessEnv ||= { ...processExists && process.env };
+  return state;
 }
 
 const envState = getEnvState();
 const envValues = envState.values;
 export const varlockSettings = envState.settings;
-
-const processExists = !!globalThis.process;
-const originalProcessEnv = { ...processExists && process.env };
-let varlockInjectedProcessEnvKeys: Array<string> | undefined;
 
 export function initVarlockEnv(opts?: {
   allowFail?: boolean,
@@ -335,22 +344,30 @@ export function initVarlockEnv(opts?: {
   envState.configHasErrors = !!(serializedEnvData as any).errors;
   resetRedactionMap(serializedEnvData);
 
+  // on reload, drop values for keys no longer in the config (deleted in place —
+  // module instances hold references to the values object)
+  for (const staleKey of Object.keys(envValues)) {
+    if (!(staleKey in serializedEnvData.config)) delete envValues[staleKey];
+  }
+
   const setProcessEnv = processExists && !serializedEnvData.settings?.disableProcessEnvInjection;
 
   // if we've already injected process.env vars in the past, we'll reset those now
+  // (injection bookkeeping lives on the shared state so a reload flowing through a
+  // different module instance than the one that injected still cleans up removed keys)
   if (setProcessEnv) {
-    if (varlockInjectedProcessEnvKeys) {
-      for (const key of varlockInjectedProcessEnvKeys) delete process.env[key];
-      for (const key of Object.keys(originalProcessEnv)) process.env[key] = originalProcessEnv[key];
+    if (envState.injectedProcessEnvKeys) {
+      for (const key of envState.injectedProcessEnvKeys) delete process.env[key];
+      for (const key of Object.keys(envState.originalProcessEnv)) process.env[key] = envState.originalProcessEnv[key];
     }
-    varlockInjectedProcessEnvKeys = [];
+    envState.injectedProcessEnvKeys = [];
   }
 
   for (const itemKey in serializedEnvData.config) {
     const itemValue = serializedEnvData.config[itemKey].value;
     envValues[itemKey] = itemValue;
     if (setProcessEnv) {
-      varlockInjectedProcessEnvKeys?.push(itemKey);
+      envState.injectedProcessEnvKeys?.push(itemKey);
       // when re-injecting into process.env, we treat undefined as empty string
       // this more closely matches expected behaviour from other .env loaders
       process.env[itemKey] = itemValue === undefined ? '' : String(itemValue);
