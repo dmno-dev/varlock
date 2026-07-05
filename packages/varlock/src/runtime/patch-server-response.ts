@@ -69,26 +69,25 @@ export function patchGlobalServerResponse(opts?: {
       chunkType = 'encoded';
       const decoder = new TextDecoder();
       chunkStr = decoder.decode(rawChunk);
-    } else if (compressionType === 'gzip') {
+    } else if (compressionType === 'gzip' || compressionType === 'deflate') {
       chunkType = 'gzip';
-      // first chunk of data contains only compression headers
-      if (!(this as any)._zlibChunks) {
-        // (this as any)._zlibHeadersChunk = rawChunk;
-        (this as any)._zlibChunks = [rawChunk];
-      } else {
-        // TODO: figure out how we can unzip one chunk at a time instead of storing everything
-        (this as any)._zlibChunks?.push(rawChunk);
-        try {
-          const unzippedChunk = zlib.unzipSync(Buffer.concat((this as any)._zlibChunks || []), {
-            flush: zlib.constants.Z_SYNC_FLUSH,
-            finishFlush: zlib.constants.Z_SYNC_FLUSH,
-          });
-          const fullUnzippedData = unzippedChunk.toString('utf-8');
-          chunkStr = fullUnzippedData.substring((this as any)._lastChunkEndIndex || 0);
-          (this as any)._lastChunkEndIndex = fullUnzippedData.length;
-        } catch (err) {
-          // console.log('error unzipping chunk', err);
-        }
+      // TODO: figure out how we can unzip one chunk at a time instead of storing everything
+      (this as any)._zlibChunks ||= [];
+      (this as any)._zlibChunks.push(rawChunk);
+      // NOTE - we must attempt to decode from the very FIRST chunk: small responses
+      // arrive as a single complete gzip chunk, so skipping it means never scanning
+      // at all (and browsers always send Accept-Encoding: gzip). A genuinely partial
+      // stream fails to decode here and gets scanned once more chunks arrive.
+      try {
+        const unzippedChunk = zlib.unzipSync(Buffer.concat((this as any)._zlibChunks || []), {
+          flush: zlib.constants.Z_SYNC_FLUSH,
+          finishFlush: zlib.constants.Z_SYNC_FLUSH,
+        });
+        const fullUnzippedData = unzippedChunk.toString('utf-8');
+        chunkStr = fullUnzippedData.substring((this as any)._lastChunkEndIndex || 0);
+        (this as any)._lastChunkEndIndex = fullUnzippedData.length;
+      } catch (err) {
+        // partial gzip data that doesn't decode yet — scanned when more chunks arrive
       }
     }
     // TODO: we may want to support other compression schemes? but currently only used in nextjs which is using gzip
@@ -109,13 +108,11 @@ export function patchGlobalServerResponse(opts?: {
             const encoder = new TextEncoder();
             args[0] = encoder.encode(chunkStr);
           } else if (chunkType === 'gzip') {
-            // currently unable to scrub gzip chunks
-            // this works sometimes, but othertimes causes decoding error
-            // we'll need to pass through chunks from a new gzip stream, because we don't have access to the underlying one
-            // args[0] = zlib.gzipSync(chunkStr, {
-            //   flush: zlib.constants.Z_SYNC_FLUSH,
-            //   finishFlush: zlib.constants.Z_SYNC_FLUSH,
-            // });
+            // we can't reliably scrub inside a compressed stream (re-gzipping a single
+            // chunk corrupts the stream state), so fail closed — killing the response
+            // beats serving the secret, even in dev
+            // TODO: pass chunks through our own gzip stream so we can scrub + re-encode
+            throw err;
           } else {
             throw new Error(`unable to scrub - unknown chunk type ${chunkType}`);
           }

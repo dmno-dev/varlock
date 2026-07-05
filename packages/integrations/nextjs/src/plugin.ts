@@ -52,6 +52,22 @@ if (IS_TURBOPACK && varlockSettings.preventLeaks) {
   });
 }
 
+function getNextVersion(): [number, number] {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const version: string = require('next/package.json').version;
+    const [major, minor] = version.split('.').map((part) => parseInt(part, 10));
+    return [major || 0, minor || 0];
+  } catch {
+    return [0, 0];
+  }
+}
+
+function hasMiddlewareFile(): boolean {
+  return ['middleware.ts', 'middleware.js', 'src/middleware.ts', 'src/middleware.js']
+    .some((f) => fs.existsSync(path.resolve(process.cwd(), f)));
+}
+
 const IS_WORKER = !!process.env.NEXT_PRIVATE_WORKER;
 function debug(...args: Array<any>) {
   if (!process.env.DEBUG_VARLOCK_NEXT_INTEGRATION) return;
@@ -326,7 +342,27 @@ export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
           ],
         };
         turbopackConfig.rules ||= {};
-        turbopackConfig.rules['*.{js,jsx,ts,tsx,mjs,mts}'] = loaderRule;
+
+        // On Next 15, applying JS loaders to edge-context files (middleware, edge routes)
+        // triggers a fatal analysis issue in turbopack's own loader-runner (it uses
+        // process.cwd/path.sep, which don't exist in the edge environment), and every dev
+        // page render 500s. Next 15.5 added per-condition rules, so we scope the loader to
+        // node + browser contexts there — edge files read env through the runtime ENV
+        // proxy instead (env is available in the edge sandbox), they just lose static
+        // inlining. Next 16 fixed the underlying analysis, so it keeps the flat rule
+        // (edge files still need the loader for inlining during turbopack builds).
+        const [nextMajor, nextMinor] = getNextVersion();
+        if (nextMajor === 15 && nextMinor >= 5) {
+          turbopackConfig.rules['*.{js,jsx,ts,tsx,mjs,mts}'] = { node: loaderRule, browser: loaderRule };
+        } else {
+          turbopackConfig.rules['*.{js,jsx,ts,tsx,mjs,mts}'] = loaderRule;
+          if (nextMajor === 15 && hasMiddlewareFile()) {
+            console.warn(
+              '[varlock] ⚠️ middleware + `next dev --turbopack` breaks page rendering on Next 15.0-15.4 '
+              + '(turbopack cannot apply JS loaders to edge files). Upgrade to next@^15.5, or run dev without --turbopack.',
+            );
+          }
+        }
 
         // Turbopack can't resolve symlinked packages (e.g. link: or workspace: installs).
         // If varlock is symlinked, we copy dist files into node_modules/.varlock/ as real

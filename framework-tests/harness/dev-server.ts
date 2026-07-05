@@ -330,6 +330,13 @@ export async function runDevServer(
         log(`Response: status=${result.status}, body=${result.body.length} bytes`);
         responses.push(result);
       } catch (err) {
+        if (req.allowRequestFailure) {
+          // e.g. runtime leak detection kills the response mid-stream — record a
+          // synthetic result so scenario/log assertions can still run
+          log(`Request failed (allowed): ${(err as Error).message}`);
+          responses.push({ status: 0, body: '' });
+          continue;
+        }
         logError(`Request failed: ${(err as Error).message}`);
         dumpOutput();
         throw err;

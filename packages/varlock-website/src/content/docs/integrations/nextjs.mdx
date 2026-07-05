@@ -375,6 +375,8 @@ Almost all setup issues come down to the `@next/env` override not being applied.
   - Re-run your package manager's install command, then re-verify the banner.
 - ❌ `Error [ERR_REQUIRE_ESM]: require() of ES Module ...`
   <br/>💡 Varlock requires node v22 or higher - which has better CJS/ESM interoperability
+- ❌ Every page 500s in dev with a `[turbopack-node]/transforms/transforms.ts ... lint TP1006` error, but only when the project has a `middleware.ts` file (Next 15.0–15.4 + Turbopack)
+  <br/>💡 Turbopack on those versions cannot apply JS loaders (which varlock uses) to edge-context files like middleware without breaking dev page rendering. Upgrade to `next@^15.5` (where varlock scopes its loader away from edge files automatically) or Next 16 (which fixed the underlying issue), or run `next dev` without `--turbopack`.
 - ❌ `Property 'SOMEVAR' does not exist on type 'TypedEnvSchema'`
   <br/>💡 If the item does exist in your schema, then the generated types are not being loaded properly by TypeScript
   - make sure the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) is enabled

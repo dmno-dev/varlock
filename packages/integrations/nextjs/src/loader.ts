@@ -41,6 +41,10 @@ const MIDDLEWARE_FILE_RE = /(?:^|[\\/])middleware\.(?:ts|js|mts|mjs)$/;
 // captures the directive block so we can inject code after it
 const DIRECTIVE_PROLOGUE_RE = /^((?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/[^\S\n]*\n|[^\S\n]*\n)*[^\S\n]*['"]use (?:server|client|strict)['"][^\S\n]*;?[^\S\n]*\n?)/;
 
+// rough check for ES module syntax (a line starting with import/export) — used to decide
+// whether the injected init guard can use import statements instead of require()
+const ESM_SYNTAX_RE = /^[^\S\n]*(?:import|export)\b/m;
+
 // the loader runs for every project file, so cache the env graph parse
 // (keyed on the raw string — env reloads produce a new string)
 let cachedRawEnv: string | undefined;
@@ -193,17 +197,33 @@ function webpackLoader(this: LoaderContext, source: string) {
       // which the init-edge bundle exposes. The init guard is skipped since edge init
       // is handled by the runtime file injection (processAssets hook).
       initGuard = 'if(globalThis.__varlockPatchConsole)globalThis.__varlockPatchConsole();';
+      result = prependAfterDirectives(result, initGuard);
+    } else if (isWebpack && ESM_SYNTAX_RE.test(source)) {
+      // Webpack compiles pages-router files in the "pages layer", which keeps
+      // node_modules external — and since varlock is ESM-only, an injected
+      // require() of it is a webpack build error (import-esm-externals).
+      // For ES modules we inject import statements instead: imports hoist, so
+      // evaluation order is the same as the require() version (user imports
+      // still evaluate first, guard runs before any module statements).
+      initGuard = [
+        'import {initVarlockEnv as __varlock$init} from \'varlock/env\';',
+        'import {patchGlobalConsole as __varlock$patchConsole} from \'varlock/patch-console\';',
+        'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;__varlock$init();__varlock$patchConsole();}',
+        // React wraps console for RSC dev replay AFTER our initial patch in the
+        // runtime file. Re-patching outside the once-guard ensures our redaction
+        // wraps React's wrapper so secrets are redacted before React captures them.
+        // patchGlobalConsole() no-ops if console.log still has _varlockPatchedFn.
+        '__varlock$patchConsole();',
+      ].join('');
+      result = prependAfterDirectives(result, initGuard);
     } else {
       initGuard = 'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;require(\'varlock/env\').initVarlockEnv();require(\'varlock/patch-console\').patchGlobalConsole();}';
-      // When used from webpack, React wraps console for RSC dev replay AFTER our initial
-      // patch in the runtime file. Re-patching outside the once-guard ensures our redaction
-      // wraps React's wrapper so secrets are redacted before React captures them.
-      // patchGlobalConsole() no-ops if console.log still has _varlockPatchedFn.
+      // (see comment above about re-patching console for webpack RSC dev replay)
       if (isWebpack) {
         initGuard += 'require(\'varlock/patch-console\').patchGlobalConsole();';
       }
+      result = prependAfterDirectives(result, initGuard);
     }
-    result = prependAfterDirectives(result, initGuard);
   }
 
   // static replacements for non-sensitive env vars
