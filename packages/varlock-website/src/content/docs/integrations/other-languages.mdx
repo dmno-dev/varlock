@@ -28,6 +28,8 @@ It exposes just these primitives — no global singleton or imposed caching — 
 
 Files are generated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly via [`varlock codegen`](/reference/cli-commands/#codegen). The loaders read `__VARLOCK_ENV`, so run your program under [`varlock run`](/reference/cli-commands/#run) — which always injects a **plaintext** blob. The generated loaders don't decrypt, so they don't support [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) (a JS/SSR build-output feature); if a loader is handed an encrypted blob it fails with a clear message rather than a raw parse error.
 
+Note that `varlock run --inject vars` strips the `__VARLOCK_ENV` blob from the child process, so the generated loaders can't work under it — use the default injection mode (or `--inject blob`) when your program loads a generated module.
+
 ## Languages without a generated module
 
 For a language that doesn't have a `@generate*Env` decorator yet, you have two options — both work under `varlock run`:
@@ -55,7 +57,7 @@ Keys whose names aren't valid identifiers (they contain `.` or `-`) are **omitte
 :::
 
 :::caution[Sensitive values in the blob]
-`__VARLOCK_ENV` includes resolved sensitive values and metadata used by varlock integrations. For interactive shells or workflows where subprocesses inspect the environment, use [`--no-inject-graph`](/reference/cli-commands/#run) and read individual vars (as strings) instead.
+`__VARLOCK_ENV` includes resolved sensitive values and metadata used by varlock integrations. For interactive shells or workflows where subprocesses inspect the environment, use [`--inject vars`](/reference/cli-commands/#run) and read individual vars (as strings) instead — but note this also disables the generated loaders, which need the blob.
 :::
 
 **We are planning deeper integrations with other languages. Want to help us build these? Join our <a href={process.env.PUBLIC_DISCORD_URL}>Discord</a>.**

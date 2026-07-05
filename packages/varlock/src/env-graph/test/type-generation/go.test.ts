@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 
 import { generateGoEnvSrc } from '../../index';
+import { resolveGoPackageName } from '../../lib/type-generation/emitters/go';
 import { loadFixtureFields } from './helpers';
 
 describe('generateGoEnvSrc', () => {
@@ -48,6 +49,31 @@ describe('generateGoEnvSrc', () => {
     const { fields } = await loadFixtureFields();
     expect(generateGoEnvSrc(fields, { packageName: 'config' })).toContain('package config');
     expect(generateGoEnvSrc(fields)).toContain('package env');
+  });
+
+  test('an explicit package= override that sanitizes to nothing is an error', () => {
+    expect(() => resolveGoPackageName('env/env.go', '---'))
+      .toThrow('`package` must contain at least one letter');
+    // no override → fall back to the directory name
+    expect(resolveGoPackageName('env/env.go')).toBe('env');
+  });
+
+  test('numeric enums are typed by their member kind (blob carries the coerced value)', async () => {
+    const { fields } = await loadFixtureFields(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @type=enum(1, 2, 3)
+      INT_ENUM=2         # @required @public
+      # @type=enum(0.5, 1.5)
+      FLOAT_ENUM=0.5     # @optional @public
+      # @type=enum(one, 2)
+      MIXED_ENUM=one     # @required @public
+    `);
+    const src = generateGoEnvSrc(fields).replace(/ +/g, ' ');
+    expect(src).toContain('IntEnum int64');
+    expect(src).toContain('FloatEnum *float64');
+    // mixed member kinds → `any` (already nilable, so no pointer even when optional)
+    expect(src).toContain('MixedEnum any');
   });
 
   test('skips keys that are not valid identifiers (still tracked as sensitive)', async () => {

@@ -1,7 +1,7 @@
 import _ from '@env-spec/utils/my-dash';
 import path from 'node:path';
 import fs from 'node:fs';
-import { ConfigItem, type TypeGenItemInfo } from './config-item';
+import { ConfigItem } from './config-item';
 import {
   EnvGraphDataSource, FileBasedDataSource, ImportAliasSource,
   keyPassesImportFilter,
@@ -246,18 +246,15 @@ export class EnvGraph {
     this.dataTypesRegistry[factory.dataTypeName] = factory;
   }
 
-  // the `generate` prefix is reserved for code generators (registered via registerCodeGenerator),
-  // giving a bidirectional guarantee: a `@generate*` decorator always writes generated output
-  private assertNotReservedGeneratePrefix(name: string, kind: string) {
-    if (name.startsWith('generate')) {
-      throw new SchemaError(`${kind} "${name}" — the "generate" prefix is reserved for code generators (use registerCodeGenerator)`);
-    }
-  }
+  // `generate[A-Z]*` root decorator names are reserved for code generators (registered via
+  // registerCodeGenerator), giving a bidirectional guarantee: a `@generate*` root decorator always
+  // writes generated output. Scoped to root decorators only (a code generator can never be an item
+  // decorator) and to the camelCase `generate` prefix (so names like `@generatedBy` stay usable).
+  private static RESERVED_GENERATE_PREFIX = /^generate[A-Z]/;
 
   itemDecoratorsRegistry: Record<string, ItemDecoratorDef> = {};
   registerItemDecorator(decoratorDef: ItemDecoratorDef) {
     const name = decoratorDef.name;
-    this.assertNotReservedGeneratePrefix(name, 'Item decorator');
     if (name in this.itemDecoratorsRegistry) {
       throw new SchemaError(`Item decorator "${name}" already registered`);
     }
@@ -267,7 +264,9 @@ export class EnvGraph {
   rootDecoratorsRegistry: Record<string, RootDecoratorDef> = {};
   registerRootDecorator(decoratorDef: RootDecoratorDef) {
     const name = decoratorDef.name;
-    this.assertNotReservedGeneratePrefix(name, 'Root decorator');
+    if (EnvGraph.RESERVED_GENERATE_PREFIX.test(name)) {
+      throw new SchemaError(`Root decorator "${name}" — "generate*" names are reserved for code generators (use registerCodeGenerator)`);
+    }
     if (name in this.rootDecoratorsRegistry) {
       throw new SchemaError(`Root decorator "${name}" already registered`);
     }
@@ -280,14 +279,15 @@ export class EnvGraph {
     const name = generatorDef.decoratorName;
     // code-gen decorators must be `@generate*` — a consistent, self-documenting convention that
     // separates them from behavior decorators (@cache, @import, ...) and avoids accidental collisions
-    if (!name.startsWith('generate')) {
-      throw new SchemaError(`Code generator decorator names must start with "generate" (got "${name}")`);
+    if (!EnvGraph.RESERVED_GENERATE_PREFIX.test(name)) {
+      throw new SchemaError(`Code generator decorator names must match "generate[A-Z]..." (got "${name}")`);
+    }
+    if (name in this.codeGeneratorsRegistry) {
+      throw new SchemaError(`Code generator "${name}" already registered`);
     }
     // ensure a root decorator exists for this generator (plugins get one for free).
     // insert directly — registerRootDecorator reserves the `generate` prefix for exactly this path.
-    if (!(name in this.rootDecoratorsRegistry)) {
-      this.rootDecoratorsRegistry[name] = { name, isFunction: true };
-    }
+    this.rootDecoratorsRegistry[name] ??= { name, isFunction: true };
     this.codeGeneratorsRegistry[name] = generatorDef;
   }
 
@@ -850,11 +850,16 @@ export class EnvGraph {
    */
   async runCodeGeneratorsIfNeeded(opts?: { ignoreAutoFalse?: boolean }) {
     let generatedCount = 0;
+    // decorators seen but skipped because they live in an imported file without
+    // `executeWhenImported` — lets `varlock codegen` explain a zero count accurately
+    let skippedImportOnlyCount = 0;
 
-    // the item/field lists are the same across all generators — build them lazily, once,
+    // the field list is the same across all generators — build it lazily, once,
     // and only if at least one generator actually runs
-    let items: Array<TypeGenItemInfo> | undefined;
     let fields: Array<ResolvedFieldType> | undefined;
+
+    // options handled by this shared loop, valid on every code-gen decorator
+    const commonOptions = ['path', 'auto', 'executeWhenImported'];
 
     for (const decoratorName of Object.keys(this.codeGeneratorsRegistry)) {
       const generator = this.codeGeneratorsRegistry[decoratorName];
@@ -863,37 +868,57 @@ export class EnvGraph {
         const settings = await dec.resolve();
 
         // skip if the decorator came from an imported file, unless `executeWhenImported` is set
-        if (dec.dataSource.isImport && !settings.obj.executeWhenImported) continue;
-        // skip if auto=false unless explicitly overridden (e.g. `varlock typegen`)
+        if (dec.dataSource.isImport && !settings.obj.executeWhenImported) {
+          skippedImportOnlyCount++;
+          continue;
+        }
+        // skip if auto=false unless explicitly overridden (e.g. `varlock codegen`)
         if (settings.obj.auto === false && !opts?.ignoreAutoFalse) continue;
 
         if (!settings.obj.path) throw new Error(`@${decoratorName} - must set \`path\` arg`);
         if (!_.isString(settings.obj.path)) throw new Error(`@${decoratorName} - \`path\` arg must be a string`);
 
+        // catch misspelled options (e.g. `exposEnv=`) instead of silently ignoring them
+        if (generator.knownOptions) {
+          const allowed = new Set([...commonOptions, ...generator.knownOptions]);
+          const unknown = Object.keys(settings.obj).filter((key) => !allowed.has(key));
+          if (unknown.length) {
+            throw new SchemaError(
+              `@${decoratorName} - unknown option${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}. `
+              + `Allowed: ${Array.from(allowed).join(', ')}`,
+            );
+          }
+        }
+
         const sourceDir = dec.dataSource instanceof FileBasedDataSource
           ? path.resolve(dec.dataSource.fullPath, '..')
           : process.cwd();
-        const outputPath = dec.dataSource instanceof FileBasedDataSource
-          ? path.resolve(sourceDir, settings.obj.path)
-          : settings.obj.path;
+        const outputPath = path.resolve(sourceDir, settings.obj.path);
 
-        items ||= await collectTypeGenItems(this);
-        fields ||= resolveFieldTypes(items);
+        fields ||= resolveFieldTypes(await collectTypeGenItems(this));
 
         const src = await generator.generate({
           graph: this,
-          fields,
+          // fresh copy per call — a generator that sorts/mutates its input must not
+          // corrupt what later generators receive
+          fields: fields.map((f) => ({ ...f })),
           options: settings.obj,
           outputPath,
           sourceDir,
         });
-        // ensure the target directory exists (e.g. `path=env/env.go` or `path=src/env.rs`)
-        await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
-        await fs.promises.writeFile(outputPath, src, 'utf-8');
+
+        // skip the write when content is unchanged — rewriting bumps the mtime, which forces
+        // spurious work downstream (cargo recompiles, tsc/vite watcher churn) on every load/run
+        const existing = await fs.promises.readFile(outputPath, 'utf-8').catch(() => undefined);
+        if (existing !== src) {
+          // ensure the target directory exists (e.g. `path=env/env.go` or `path=src/env.rs`)
+          await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
+          await fs.promises.writeFile(outputPath, src, 'utf-8');
+        }
         generatedCount++;
       }
     }
-    return generatedCount;
+    return { generatedCount, skippedImportOnlyCount };
   }
 
   getRootDec(decoratorName: string) {

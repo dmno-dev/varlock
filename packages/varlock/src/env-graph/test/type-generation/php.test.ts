@@ -54,6 +54,24 @@ describe('generatePhpEnvSrc', () => {
     expect(() => generatePhpEnvSrc(fields, { namespace: '9bad' })).toThrow(/namespace/);
   });
 
+  test('numeric enums are typed by their member kind (blob carries the coerced value)', async () => {
+    const { fields } = await loadFixtureFields(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @type=enum(1, 2, 3)
+      INT_ENUM=2         # @required @public
+      # @type=enum(0.5, 1.5)
+      FLOAT_ENUM=0.5     # @optional @public
+      # @type=enum(one, 2)
+      MIXED_ENUM=one     # @optional @public
+    `);
+    const src = generatePhpEnvSrc(fields);
+    expect(src).toContain('public readonly int $INT_ENUM,');
+    expect(src).toContain('public readonly ?float $FLOAT_ENUM = null,');
+    // mixed member kinds → a PHP 8 union; `?` shorthand is illegal on unions, so nullable spells |null
+    expect(src).toContain('public readonly string|int|null $MIXED_ENUM = null,');
+  });
+
   test('escapes `*/` in enum @var so a value cannot break out of the docblock', async () => {
     const g = await loadGraph({
       envFile: outdent`

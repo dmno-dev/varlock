@@ -359,6 +359,14 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
   },
   {
     name: 'disableProcessEnvInjection',
+    // static-only: code generation reads this flag (it controls whether process.env is typed as
+    // populated), so an env-dependent value like forEnv(...) would make generated output differ
+    // per active environment
+    process: (decVal) => {
+      if (!decVal.isStatic || !_.isBoolean(decVal.staticValue)) {
+        throw new Error('@disableProcessEnvInjection must be a static boolean — env-dependent values would make generated code differ per environment');
+      }
+    },
   },
   {
     name: 'auditIgnorePaths',

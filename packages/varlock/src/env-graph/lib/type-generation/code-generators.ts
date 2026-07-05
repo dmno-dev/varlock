@@ -28,6 +28,13 @@ export type CodeGenContext = {
 export type CodeGeneratorDef = {
   /** root decorator name that triggers this generator, e.g. `generateTsTypes` */
   decoratorName: string;
+  /**
+   * option (named-arg) names this generator accepts, beyond the shared `path`/`auto`/
+   * `executeWhenImported`. When set, unknown option names on the decorator are a schema error —
+   * catching typos like `exposEnv=` that would otherwise be silently ignored. Omit to accept
+   * anything (the deprecated `@generateTypes` alias does this for back-compat).
+   */
+  knownOptions?: Array<string>;
   /** produce the file contents for one decorator instance */
   generate: (ctx: CodeGenContext) => string | Promise<string>;
 };
@@ -56,9 +63,12 @@ const LANG_TO_DECORATOR: Record<string, string> = {
 };
 
 function generateTsFile(ctx: CodeGenContext): Promise<string> {
-  if (ctx.options.exposeEnv === 'local' && ctx.outputPath.endsWith('.d.ts')) {
+  // local mode emits a runtime re-export (TypeScript syntax) — a `.d.ts` has no runtime binding,
+  // and anything else (`.js`, ...) would not parse, so require a real `.ts` module
+  if (ctx.options.exposeEnv === 'local'
+    && (!ctx.outputPath.endsWith('.ts') || ctx.outputPath.endsWith('.d.ts'))) {
     throw new Error(
-      '@generateTsTypes - `exposeEnv=local` emits a runtime re-export, so it needs a `.ts` (or `.js`) output path, not `.d.ts`.',
+      '@generateTsTypes - `exposeEnv=local` emits a runtime re-export, so it needs a `.ts` output path (not `.d.ts`).',
     );
   }
 
@@ -73,24 +83,31 @@ function generateTsFile(ctx: CodeGenContext): Promise<string> {
 }
 
 export const builtInCodeGenerators: Array<CodeGeneratorDef> = [
-  { decoratorName: 'generateTsTypes', generate: generateTsFile },
-  { decoratorName: 'generatePythonEnv', generate: (ctx) => generatePythonEnvSrc(ctx.fields) },
-  { decoratorName: 'generateRustEnv', generate: (ctx) => generateRustEnvSrc(ctx.fields) },
+  {
+    decoratorName: 'generateTsTypes',
+    knownOptions: ['exposeEnv', 'processEnv', 'importMetaEnv'],
+    generate: generateTsFile,
+  },
+  { decoratorName: 'generatePythonEnv', knownOptions: [], generate: (ctx) => generatePythonEnvSrc(ctx.fields) },
+  { decoratorName: 'generateRustEnv', knownOptions: [], generate: (ctx) => generateRustEnvSrc(ctx.fields) },
   {
     decoratorName: 'generateGoEnv',
+    knownOptions: ['package'],
     generate: (ctx) => generateGoEnvSrc(ctx.fields, {
       packageName: resolveGoPackageName(ctx.outputPath, ctx.options.package),
     }),
   },
   {
     decoratorName: 'generatePhpEnv',
+    knownOptions: ['namespace', 'class'],
     generate: (ctx) => generatePhpEnvSrc(ctx.fields, {
       namespace: ctx.options.namespace,
       className: ctx.options.class,
     }),
   },
   {
-    // deprecated ts-only alias — kept for back-compat with existing schemas that still use it
+    // deprecated ts-only alias — kept for back-compat with existing schemas that still use it.
+    // no knownOptions: it historically ignored unknown args, so stay lenient
     decoratorName: 'generateTypes',
     generate: (ctx) => {
       const { lang } = ctx.options;

@@ -435,8 +435,10 @@ describe('CLI Commands', () => {
       const src = readFileSync(outputPath, 'utf-8');
       expect(src).toContain("import { ENV as _ENV } from 'varlock/env';");
       expect(src).toContain('export const ENV = _ENV as unknown as Readonly<CoercedEnvSchema>;');
-      // module mode must NOT globally augment varlock/env
+      // module mode must NOT globally augment varlock/env — and the process.env / import.meta.env
+      // augmentations default off too, so nothing from this package merges into the global scope
       expect(src).not.toContain("declare module 'varlock/env'");
+      expect(src).not.toContain('declare global {');
     });
 
     test('varlock typegen still works as a deprecated alias for codegen', () => {

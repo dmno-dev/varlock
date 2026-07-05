@@ -408,20 +408,15 @@ When set, [`@generateTsTypes`](#generatetstypes) stops augmenting `process.env` 
 **Options:**
 - `false` (default): Values are injected into `process.env` as usual
 - `true`: Values are only accessible via `ENV`
-- `forEnv(...)`: Conditionally enable based on the current environment
+
+The value must be static (`true`/`false`) — because code generation reads this flag, an
+environment-dependent value would make generated output differ per environment.
 
 ```env-spec
 # @disableProcessEnvInjection
 # ---
 SECRET_KEY= # @sensitive
 PUBLIC_URL=
-```
-
-```env-spec
-# disable process.env injection only in production
-# @disableProcessEnvInjection=forEnv(prod)
-# ---
-SECRET_KEY= # @sensitive
 ```
 
 :::caution
@@ -480,15 +475,15 @@ TypeScript type declarations — makes `import { ENV } from 'varlock/env'` typed
 
 - `exposeEnv`: where the coerced `ENV` object lives (defaults to `global`).
   - `global` — globally augment `varlock/env` so `import { ENV } from 'varlock/env'` is typed.
-  - `local` — export a package-local typed `ENV` from the generated file (with **no** global augmentation). Use this in monorepos where multiple packages have different schemas. Requires a `.ts` (or `.js`) output path, and you import from the generated file (e.g. `import { ENV } from './env'`).
+  - `local` — export a package-local typed `ENV` from the generated file (with **no** global augmentation — `processEnv`/`importMetaEnv` default to `none` too, so nothing merges across packages). Use this in monorepos where multiple packages have different schemas. Requires a `.ts` output path (not `.d.ts` — it contains a runtime re-export), and you import from the generated file (e.g. `import { ENV } from './env'`).
   - `none` — emit only the type definitions, no `ENV` binding.
-- `processEnv`: how `process.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`, but to `none` when [`@disableProcessEnvInjection`](#disableprocessenvinjection) is set, since values aren't put on `process.env` then). Note that `@types/node` declares a base string index signature that can't be removed, so extra keys remain allowed on `process.env` regardless.
-- `importMetaEnv`: how `import.meta.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`).
+- `processEnv`: how `process.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`; to `none` when `exposeEnv=local`, or when [`@disableProcessEnvInjection`](#disableprocessenvinjection) is set, since values aren't put on `process.env` then). Note that `@types/node` declares a base string index signature that can't be removed, so extra keys remain allowed on `process.env` regardless.
+- `importMetaEnv`: how `import.meta.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`; to `none` when `exposeEnv=local`).
 
 ```env-spec
 # @generateTsTypes(path=./env.d.ts)
 # monorepo-friendly: importable local ENV, no globals
-# @generateTsTypes(path=./env.ts, exposeEnv=local, processEnv=none, importMetaEnv=none)
+# @generateTsTypes(path=./env.ts, exposeEnv=local)
 ```
 </div>
 

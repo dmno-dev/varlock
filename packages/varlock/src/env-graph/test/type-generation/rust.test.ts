@@ -47,11 +47,33 @@ describe('generateRustEnvSrc', () => {
       # ---
       TYPE=a       # @required @public
       MATCH=b      # @optional @public
+      TRY=c        # @required @public
+      YIELD=d      # @optional @public
     `);
     const src = generateRustEnvSrc(fields);
     expect(src).toContain('#[serde(rename = "TYPE")]');
     expect(src).toContain('pub r#type: String,');
     expect(src).toContain('pub r#match: Option<String>,');
+    // reserved-but-unused keywords (2018+) also need escaping or the file won't compile
+    expect(src).toContain('pub r#try: String,');
+    expect(src).toContain('pub r#yield: Option<String>,');
+  });
+
+  test('numeric enums are typed by their member kind (blob carries the coerced value)', async () => {
+    const { fields } = await loadFixtureFields(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @type=enum(1, 2, 3)
+      INT_ENUM=2         # @required @public
+      # @type=enum(0.5, 1.5)
+      FLOAT_ENUM=0.5     # @required @public
+      # @type=enum(one, 2)
+      MIXED_ENUM=one     # @required @public
+    `);
+    const src = generateRustEnvSrc(fields);
+    expect(src).toContain('pub int_enum: i64,');
+    expect(src).toContain('pub float_enum: f64,');
+    expect(src).toContain('pub mixed_enum: serde_json::Value,');
   });
 
   test('skips keys that are not valid identifiers (still tracked as sensitive)', async () => {

@@ -10,7 +10,7 @@
 
 import crypto from 'node:crypto';
 
-const ENCRYPTED_PREFIX = 'varlock:v1:';
+export const ENCRYPTED_PREFIX = 'varlock:v1:';
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 const KEY_LENGTH_HEX = 64; // 32 bytes = 64 hex chars

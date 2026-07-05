@@ -1,3 +1,4 @@
+import { ENCRYPTED_PREFIX } from '../../../runtime/crypto';
 import type { TypeGenItemInfo } from '../config-item';
 
 export type CoercedType = | 'string'
@@ -101,11 +102,48 @@ export function getSensitiveKeys(fields: Array<ResolvedFieldType>): Array<string
 }
 
 /**
- * The `varlock:v1:` prefix marks an encrypted `__VARLOCK_ENV` blob (see runtime/crypto). Generated
- * modules can't decrypt (no key handling in the target language), so loaders detect it and fail with
- * a clear message rather than a raw JSON-parse error. Exported so emitters share one source of truth.
+ * The prefix marking an encrypted `__VARLOCK_ENV` blob (re-exported from runtime/crypto — the
+ * format's owner). Generated modules can't decrypt (no key handling in the target language), so
+ * loaders detect it and fail with a clear message rather than a raw JSON-parse error.
  */
-export const ENCRYPTED_BLOB_PREFIX = 'varlock:v1:';
+export const ENCRYPTED_BLOB_PREFIX = ENCRYPTED_PREFIX;
+
+/**
+ * Loader error messages shared by every generated language module — one source of truth so the
+ * wording can't drift between emitters. The missing-blob message calls out `--inject vars`
+ * because `varlock run` itself recommends that mode, but it strips exactly the blob these
+ * generated loaders parse.
+ */
+export const BLOB_MISSING_MSG = '__VARLOCK_ENV is not set — run your program via `varlock run` '
+  + '(note: `--inject vars` omits the blob this module needs)';
+export const BLOB_ENCRYPTED_MSG = '__VARLOCK_ENV is encrypted and this generated module cannot '
+  + 'decrypt it — disable @encryptInjectedEnv for processes using a generated env module';
+
+/**
+ * The scalar kind shared by every member of an enum: all-integer members → 'int', numeric with
+ * fractions → 'number', uniform 'string'/'boolean', or 'mixed'. Languages without literal-union
+ * types (Go/Rust/PHP) use this to type the field so the loader can actually deserialize the
+ * coerced wire value (a numeric enum's blob value is a number — typing it `string` would make
+ * the generated loader fail at runtime).
+ */
+export function getEnumMemberKind(
+  options: Array<string | number | boolean>,
+): 'string' | 'int' | 'number' | 'boolean' | 'mixed' {
+  const kinds = new Set(options.map((o) => typeof o));
+  if (kinds.size > 1) return 'mixed';
+  if (kinds.has('string')) return 'string';
+  if (kinds.has('boolean')) return 'boolean';
+  return options.every((o) => Number.isInteger(o)) ? 'int' : 'number';
+}
+
+/**
+ * Neutralize the comment-closing star-slash sequence inside content flowing into a C-style block
+ * comment (jsdoc/phpdoc) — otherwise a description or enum value could close the comment early,
+ * a generated-source-injection primitive.
+ */
+export function escapeBlockCommentEnd(text: string): string {
+  return text.replace(/\*\//g, '* /');
+}
 
 // A key usable verbatim as an identifier (a struct field / class property / TypedDict class-syntax
 // name). @env-spec allows `.` and `-`, which are not — those keys can't be represented this way.

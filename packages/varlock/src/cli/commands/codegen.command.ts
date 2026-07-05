@@ -46,9 +46,17 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   checkForNoEnvFiles(envGraph);
 
   // Force generation even if auto=false is set
-  const generatedCount = await envGraph.runCodeGeneratorsIfNeeded({ ignoreAutoFalse: true });
+  const { generatedCount, skippedImportOnlyCount } = await envGraph.runCodeGeneratorsIfNeeded({
+    ignoreAutoFalse: true,
+  });
 
   if (generatedCount === 0) {
+    // decorators may exist but only in @import-ed files — that's a different fix than "add one"
+    if (skippedImportOnlyCount > 0) {
+      throw new CliExitError('Code-generation decorators were found only in imported files, which are skipped by default', {
+        suggestion: 'Add `executeWhenImported=true` to the decorator in the imported file, or add a decorator to this schema directly.',
+      });
+    }
     throw new CliExitError('No code-generation decorator found in your schema', {
       suggestion: 'Add `@generateTsTypes(path=env.d.ts)` (or `@generatePythonEnv(path=env.py)`, etc.) to your .env.schema file.',
     });

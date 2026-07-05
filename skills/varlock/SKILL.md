@@ -23,7 +23,7 @@ Basic `.env.schema` example:
 ```env-spec
 # @defaultSensitive=false @defaultRequired=infer
 # @currentEnv=$APP_ENV
-# @generateTypes(lang=ts, path=env.d.ts)
+# @generateTsTypes(path=env.d.ts)
 # ---
 
 # @type=enum(dev, staging, prod)
@@ -118,7 +118,8 @@ Root decorators go in comment blocks at the top of the file, before the first it
 | `@currentEnv=$VAR` | Sets which item determines the active environment | — |
 | `@defaultRequired=bool\|infer` | Default required state for items in this file | `infer` |
 | `@defaultSensitive=bool\|inferFromPrefix(PREFIX)` | Default sensitive state for items in this file | `true` |
-| `@generateTypes(lang=ts, path=./env.d.ts)` | Auto-generate typed env declarations | — |
+| `@generateTsTypes(path=./env.d.ts)` | Auto-generate TypeScript env declarations (deprecated alias: `@generateTypes(lang=ts)`) | — |
+| `@generatePythonEnv` / `@generateRustEnv` / `@generateGoEnv` / `@generatePhpEnv` `(path=...)` | Generate a typed env module for that language | — |
 | `@import(path, ...keys?)` | Import schema/values from another .env file or directory | — |
 | `@plugin(@varlock/name-plugin)` | Load a plugin | — |
 | `@setValuesBulk(resolver)` | Inject multiple values from an external source | — |
@@ -333,7 +334,7 @@ Run `varlock --help` or `varlock <command> --help` for full flags and options.
 | `varlock encrypt` | Encrypt values (single or `--file` for bulk) |
 | `varlock scan` | Scan files for leaked secrets (`--staged` for pre-commit, `--install-hook` to set up) |
 | `varlock audit` | Detect drift between schema and code usage |
-| `varlock typegen` | Explicitly trigger type generation from schema (usually triggered automatically) |
+| `varlock codegen` | Explicitly trigger code generation from schema (usually triggered automatically; `typegen` is a deprecated alias) |
 | `varlock lock` | Lock biometric session (requires re-auth on next decrypt) |
 
 ## Updating an existing project
@@ -343,7 +344,7 @@ Keep `.env.schema` as the source of truth. Edit schema and tracked `.env.[env]` 
 1. **Schema changes** — add/remove/rename items in `.env.schema`, update code to match, then `varlock load --agent`
 2. **Secrets** — leave sensitive values empty in schema; ask the user to set them locally or in their secret provider
 3. **Plugins** — add `@plugin()` in the header and prefer plugin resolvers over raw `exec()` when available
-4. **Types** — `@generateTypes` runs on load by default; use `auto=false` and `varlock typegen` if you need explicit control
+4. **Codegen** — `@generateTsTypes` (and the other `@generate*Env` decorators) run on load by default; use `auto=false` and `varlock codegen` if you need explicit control
 5. **Before commit** — `varlock load --agent`, then `varlock scan --staged`; run `varlock audit` if you renamed keys or suspect drift
 
 See [Schema](https://varlock.dev/guides/schema/), [Secrets](https://varlock.dev/guides/secrets/), and [Monorepos](https://varlock.dev/guides/monorepos/) for deeper patterns.

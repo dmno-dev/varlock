@@ -109,7 +109,7 @@ Services that do not need a framework integration can start with [`varlock run`]
 
 By default, [`@generateTsTypes`](/reference/root-decorators/#generatetstypes) globally augments the `varlock/env` module so `import { ENV } from 'varlock/env'` is typed. There is only one `varlock/env` module in a TypeScript program, so when several packages each generate types with **different** schemas, their augmentations merge — a package can end up seeing keys it never declared, or hit conflicting types.
 
-To keep each package's `ENV` isolated, set `exposeEnv=local`. It emits a package-local file that re-exports the runtime `ENV` typed to *that* package's schema, with no global augmentation:
+To keep each package's `ENV` isolated, set `exposeEnv=local`. It emits a package-local file that re-exports the runtime `ENV` typed to *that* package's schema, with no global augmentation — the `process.env` / `import.meta.env` augmentations default off too, so nothing from this package merges into the global type scope:
 
 ```env-spec title="packages/api/.env.schema"
 # @generateTsTypes(path=./env.ts, exposeEnv=local)
@@ -121,7 +121,7 @@ Then import from the generated file instead of `varlock/env`:
 import { ENV } from '../env'; // typed to this package's schema only
 ```
 
-Runtime behavior is identical (it's the same underlying proxy); only the types are scoped locally. The output path must be a `.ts`/`.js` file (not `.d.ts`) since it contains a runtime re-export.
+Runtime behavior is identical (it's the same underlying proxy); only the types are scoped locally. The output path must be a `.ts` file (not `.d.ts`) since it contains a runtime re-export.
 
 ## Mixed stacks (JavaScript and other languages)
 

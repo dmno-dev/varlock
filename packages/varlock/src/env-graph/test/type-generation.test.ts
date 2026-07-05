@@ -811,6 +811,18 @@ describe('type generation', () => {
       expect(src).toContain('export const ENV = _ENV as unknown as Readonly<CoercedEnvSchema>;');
       expect(src).toContain('export type PublicCoercedEnvSchema');
       expect(src).not.toContain("declare module 'varlock/env'");
+      // local mode exists to keep the schema out of the global scope, so the process.env /
+      // import.meta.env augmentations default off too — nothing merges across packages
+      expect(src).not.toContain('declare global {');
+      expect(src).not.toContain('namespace NodeJS');
+      expect(src).not.toContain('interface ImportMetaEnv');
+    });
+
+    test('exposeEnv=local global augmentations can be explicitly re-enabled', async () => {
+      const { items } = await loadFixtureFields();
+      const src = await generateTsTypesSrc(resolveFieldTypes(items), { exposeEnv: 'local', processEnv: 'strict' });
+      expect(src).toContain('namespace NodeJS');
+      expect(src).not.toContain('interface ImportMetaEnv'); // still defaulted off
     });
 
     test('rejects invalid option values', async () => {
@@ -819,15 +831,17 @@ describe('type generation', () => {
       await expect(generateTsTypesSrc(resolveFieldTypes(items), { processEnv: 'nope' as any })).rejects.toThrow('invalid `processEnv` value');
     });
 
-    test('@generateTsTypes exposeEnv=local requires a non-.d.ts path', async () => {
-      const g = await loadGraph({
-        envFile: outdent`
-          # @generateTsTypes(path=env.d.ts, exposeEnv=local)
-          # ---
-          ITEM=val
-        `,
-      });
-      await expect(g.runCodeGeneratorsIfNeeded()).rejects.toThrow('needs a `.ts` (or `.js`) output path');
+    test('@generateTsTypes exposeEnv=local requires a real .ts path (not .d.ts or .js)', async () => {
+      for (const badPath of ['env.d.ts', 'env.js']) {
+        const g = await loadGraph({
+          envFile: outdent`
+            # @generateTsTypes(path=${badPath}, exposeEnv=local)
+            # ---
+            ITEM=val
+          `,
+        });
+        await expect(g.runCodeGeneratorsIfNeeded()).rejects.toThrow('needs a `.ts` output path');
+      }
     });
   });
 
@@ -875,6 +889,19 @@ describe('type generation', () => {
       }
     });
 
+    test('@disableProcessEnvInjection rejects dynamic values (codegen must stay deterministic)', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @disableProcessEnvInjection=forEnv(prod)
+          # ---
+          ITEM=val
+        `,
+      });
+      const dec = g.getRootDec('disableProcessEnvInjection');
+      expect(dec).toBeDefined();
+      expect(dec!.schemaErrors.map((e) => e.message).join('\n')).toContain('must be a static boolean');
+    });
+
     test('explicit processEnv= overrides the @disableProcessEnvInjection default', async () => {
       const currentDir = path.dirname(expect.getState().testPath!);
       const relPath = '.tmp-disable-injection-override.d.ts';
@@ -918,8 +945,8 @@ describe('type generation', () => {
       await g.finishLoad();
 
       try {
-        const count = await g.runCodeGeneratorsIfNeeded();
-        expect(count).toBe(1);
+        const { generatedCount } = await g.runCodeGeneratorsIfNeeded();
+        expect(generatedCount).toBe(1);
         expect(generate).toHaveBeenCalledTimes(1);
         const fs = await import('node:fs');
         expect(await fs.promises.readFile(outputPath, 'utf-8')).toBe('FAKE GENERATED OUTPUT');
@@ -931,13 +958,73 @@ describe('type generation', () => {
     test('rejects code generators whose decorator name does not start with "generate"', () => {
       const g = new EnvGraph();
       expect(() => g.registerCodeGenerator({ decoratorName: 'zodSchema', generate: () => '' }))
-        .toThrow('must start with "generate"');
+        .toThrow('must match "generate[A-Z]..."');
+    });
+
+    test('rejects duplicate code generator registrations instead of silently overwriting', () => {
+      const g = new EnvGraph();
+      // built-in generateTsTypes is registered in the constructor
+      expect(() => g.registerCodeGenerator({ decoratorName: 'generateTsTypes', generate: () => '' }))
+        .toThrow('already registered');
     });
 
     test('reserves the "generate" prefix — a non-codegen root decorator cannot use it', () => {
       const g = new EnvGraph();
       expect(() => g.registerRootDecorator({ name: 'generateReport' }))
         .toThrow('reserved for code generators');
+    });
+
+    test('the reservation only covers camelCase generate* root decorators', () => {
+      const g = new EnvGraph();
+      // names like @generatedBy are legitimate English words, not code generators
+      expect(() => g.registerRootDecorator({ name: 'generatedBy' })).not.toThrow();
+      // item decorators can never be code generators, so the prefix is fine there
+      expect(() => g.registerItemDecorator({ name: 'generateKeyOnInit' } as any)).not.toThrow();
+    });
+
+    test('rejects unknown options on code-gen decorators (typo protection)', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @generateTsTypes(path=env.d.ts, exposEnv=local)
+          # ---
+          ITEM=val
+        `,
+      });
+      await expect(g.runCodeGeneratorsIfNeeded()).rejects.toThrow('unknown option: exposEnv');
+    });
+
+    test('skips rewriting the output file when content is unchanged (preserves mtime)', async () => {
+      const currentDir = path.dirname(expect.getState().testPath!);
+      vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
+      const relPath = '.tmp-skip-rewrite.txt';
+      const outputPath = path.join(currentDir, relPath);
+
+      const g = new EnvGraph();
+      g.registerCodeGenerator({ decoratorName: 'generateStableThing', generate: () => 'STABLE OUTPUT' });
+      await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @generateStableThing(path=${relPath})
+          # ---
+          ITEM=val
+        `,
+      }));
+      await g.finishLoad();
+
+      const fs = await import('node:fs');
+      try {
+        await g.runCodeGeneratorsIfNeeded();
+        const statBefore = await fs.promises.stat(outputPath);
+        // backdate mtime so an unwanted rewrite is detectable even on coarse-grained filesystems
+        const past = new Date(Date.now() - 60_000);
+        await fs.promises.utimes(outputPath, past, past);
+
+        const { generatedCount } = await g.runCodeGeneratorsIfNeeded();
+        expect(generatedCount).toBe(1); // still counts as generated...
+        const statAfter = await fs.promises.stat(outputPath);
+        expect(statAfter.mtimeMs).toBeLessThan(statBefore.mtimeMs); // ...but the file was not rewritten
+      } finally {
+        await fs.promises.rm(outputPath, { force: true });
+      }
     });
   });
 
@@ -1084,8 +1171,8 @@ describe('type generation', () => {
       });
 
       try {
-        const count = await g.runCodeGeneratorsIfNeeded();
-        expect(count).toBe(1);
+        const { generatedCount } = await g.runCodeGeneratorsIfNeeded();
+        expect(generatedCount).toBe(1);
         const fs = await import('node:fs');
         const src = await fs.promises.readFile(outputPath, 'utf-8');
         // collapse runs of spaces — Go struct fields are gofmt-aligned (padded), so the gap between
