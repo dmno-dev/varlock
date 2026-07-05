@@ -182,6 +182,12 @@ function webpackLoader(this: LoaderContext, source: string) {
   const isWebpack = loaderOptions.bundler === 'webpack';
   const isTurbopack = loaderOptions.bundler === 'turbopack' || isTurbopackWorker();
   const isEdge = loaderOptions.isEdge ?? false;
+  // webpack signals edge via a per-compilation loader option; turbopack has a
+  // single global rule, so edge files are detected by sniffing the source /
+  // file path (middleware and `export const runtime = 'edge'` routes)
+  const isEdgeFile = isEdge
+    || EDGE_RUNTIME_RE.test(source)
+    || MIDDLEWARE_FILE_RE.test(this.resourcePath);
 
   let result = source;
 
@@ -192,10 +198,14 @@ function webpackLoader(this: LoaderContext, source: string) {
     // patchGlobalConsole() run once per process — the globalThis guard makes it
     // idempotent, and turbopack deduplicates the require() targets.
     let initGuard: string;
-    if (isEdge) {
-      // Edge compilation: can't use require(), so use globalThis.__varlockPatchConsole
-      // which the init-edge bundle exposes. The init guard is skipped since edge init
-      // is handled by the runtime file injection (processAssets hook).
+    if (isEdgeFile) {
+      // Edge context: no direct initVarlockEnv() call — env init is owned by the
+      // injected init-edge bundle, which may decrypt an encrypted env blob
+      // ASYNCHRONOUSLY (runtimes without node:crypto, e.g. Vercel Edge). A direct
+      // init here would race that decrypt and JSON.parse the still-encrypted blob.
+      // We only re-patch console via globalThis.__varlockPatchConsole (exposed by
+      // init-edge); in dev (no runtime injection) the bundled env module
+      // self-initializes from the sandbox's process.env instead.
       initGuard = 'if(globalThis.__varlockPatchConsole)globalThis.__varlockPatchConsole();';
       result = prependAfterDirectives(result, initGuard);
     } else if (isWebpack && ESM_SYNTAX_RE.test(source)) {
@@ -230,9 +240,6 @@ function webpackLoader(this: LoaderContext, source: string) {
   // webpack uses DefinePlugin for this, so only needed for turbopack
   if (isTurbopack && source.includes('ENV.')) {
     const isDev = loaderOptions.dev ?? process.env.NODE_ENV === 'development';
-    const isEdgeFile = isEdge
-      || EDGE_RUNTIME_RE.test(source)
-      || MIDDLEWARE_FILE_RE.test(this.resourcePath);
 
     // In dev, server-side (node runtime) files read env through the runtime
     // proxy instead, which stays fresh when env files change and reload —
