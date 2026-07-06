@@ -92,6 +92,35 @@ Varlock chooses the best available backend automatically:
 
 If native capabilities are unavailable, varlock falls back to file-based local encryption.
 
+## Unattended decryption (headless servers & CI)
+
+Local encryption isn't just for laptops. On a headless host with a TPM — a home server, a CI runner, a container host — varlock seals the key to the machine's TPM and decrypts automatically at load with **no prompt**. That makes it a good way to store a "secret-zero" (like a 1Password service account token) that bootstraps the rest of your secrets:
+
+```env-spec title=".env.schema"
+# @type=opServiceAccountToken @sensitive @internal
+OP_TOKEN=varlock("local:...")
+```
+
+On Linux this requires `tpm2-tools` and a TPM (see [Linux setup](#linux) below). The sealed value survives reboots and is bound to that specific machine — it can't be copied to another host.
+
+This unattended path applies to backends whose key is unsealed to the host — Linux (TPM2) and Windows (NCrypt/TPM). **macOS is different:** Secure Enclave keys never leave the enclave, and every decrypt requires user presence (Touch ID or password), so there is no unattended decrypt on macOS. A headless Mac or CI runner falls back to file-based encryption instead.
+
+### What this protects (and what it doesn't)
+
+Hardware-backed encryption protects your secrets **at rest**: a stolen disk, a leaked backup, or an env file committed by mistake can't be decrypted off the machine.
+
+It does **not** protect against an attacker who is already running code as your user on that machine — they can ask the TPM to unseal the value exactly like varlock does. This is the same trade-off as tools like [`systemd-creds`](https://www.freedesktop.org/software/systemd/man/latest/systemd-creds.html), and it's inherent to unattended decryption: if no human is present to approve, anything running as you can decrypt.
+
+If you want a presence gate (fingerprint / password / YubiKey via polkit + PAM) on every decrypt, register the policy:
+
+```bash
+sudo varlock-local-encrypt setup --linux-biometrics
+```
+
+Once configured, varlock's normal decrypt flow requires user presence, so everyday loads are no longer unattended — enable this only on interactive machines, not headless servers.
+
+Treat this gate as a **consent prompt**, not an at-rest boundary. On Linux the TPM unseal isn't bound to polkit, so — as noted above — other code already running as your user can still unseal directly. It means "a human approved this load," not "only a human can ever decrypt."
+
 ## Platform details & setup
 
 ### macOS
