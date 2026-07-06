@@ -12,7 +12,7 @@
         "@types/node": "catalog:",
         "@typescript-eslint/eslint-plugin": "^8.56.1",
         "@typescript-eslint/parser": "^8.56.1",
-        "@varlock/bumpy": "^1.18.0",
+        "@varlock/bumpy": "^1.18.1",
         "@varlock/tsconfig": "workspace:*",
         "eslint": "^10.0.2",
         "eslint-plugin-es-x": "^9.5.0",
@@ -133,6 +133,8 @@
       "name": "@varlock/nextjs-integration",
       "version": "1.1.3",
       "devDependencies": {
+        "@babel/parser": "^7.29.3",
+        "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
         "tsup": "catalog:",
         "varlock": "workspace:^",
@@ -147,8 +149,8 @@
       "name": "@varlock/vite-integration",
       "version": "1.2.0",
       "devDependencies": {
+        "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
-        "ast-matcher": "^1.2.0",
         "magic-string": "^0.30.17",
         "rollup": "^4.46.2",
         "tsup": "catalog:",
@@ -425,6 +427,8 @@
       "version": "0.0.0",
       "dependencies": {
         "@sindresorhus/is": "catalog:",
+        "ast-matcher": "^1.2.0",
+        "magic-string": "^0.30.17",
       },
       "devDependencies": {
         "@types/node": "catalog:",
@@ -1437,7 +1441,7 @@
 
     "@varlock/bitwarden-plugin": ["@varlock/bitwarden-plugin@workspace:packages/plugins/bitwarden"],
 
-    "@varlock/bumpy": ["@varlock/bumpy@1.18.0", "", { "bin": { "bumpy": "dist/cli.mjs" } }, "sha512-0LBdmKG28V9xgg2clbxZbZG2Z94X/TEJ2sMgercYX0INj2Z84xPpk4/vy83i2+xA0kDxvafqDI7DetRnPGPIzw=="],
+    "@varlock/bumpy": ["@varlock/bumpy@1.18.1", "", { "bin": { "bumpy": "dist/cli.mjs" } }, "sha512-u6PHUr+laAgWWm/c3wdExHBCcvYkkTb+KsiRNR9GCFIbCDrCN9CyOZO/crtRZ5u4KWMKtUTeA7U/s+AA0k7Dcg=="],
 
     "@varlock/ci-env-info": ["@varlock/ci-env-info@workspace:packages/ci-env-info"],
 

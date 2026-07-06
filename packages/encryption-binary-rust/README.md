@@ -2,7 +2,7 @@
 
 Cross-platform local encryption binary for Varlock (Windows and Linux).
 
-Provides DPAPI key protection on Windows (with optional Windows Hello biometric), and TPM2 key protection on Linux, with a file-based plaintext fallback on both.
+Provides **NCrypt TPM-sealed** key protection on Windows when a TPM is available (with optional Windows Hello biometric), **DPAPI** as fallback, and TPM2 key protection on Linux, with a file-based plaintext fallback on both.
 
 ## Prerequisites
 
@@ -51,8 +51,11 @@ The build script automatically applies UPX compression on Linux (not macOS or Wi
 - `src/main.rs` — CLI interface (generate-key, encrypt, decrypt, status, daemon)
 - `src/crypto.rs` — ECIES encryption using pure Rust crates (no OpenSSL)
 - `src/key_store/` — Platform-specific key protection:
-  - `windows.rs` — DPAPI + Windows Hello
+  - `windows_tpm.rs` — NCrypt TPM seal (Platform Crypto Provider)
+  - `windows.rs` — DPAPI fallback
+  - `windows_hello.rs` — Windows Hello presence gate (daemon)
   - `linux.rs` — TPM2 via tpm2-tools
+  - `scalar.rs` — shared P-256 scalar ↔ PKCS8 helpers
 - `src/daemon.rs` — Long-lived IPC daemon for biometric session caching
 - `src/ipc.rs` — IPC server (Unix socket on Linux, named pipe on Windows)
 - `src/daemon_client.rs` — Named pipe client for `--via-daemon` mode (WSL2 support)
@@ -64,6 +67,27 @@ When running from WSL2, the TypeScript side calls this Windows `.exe` directly (
 - `decrypt --via-daemon` routes requests through a Windows named-pipe daemon for biometric session caching.
 - The WSL caller prestarts the daemon from native PowerShell and then polls readiness via `ping-daemon` before the first decrypt. This avoids first-invocation startup timeouts.
 - `start-daemon` remains available for manual troubleshooting from native Windows terminals.
+
+### WSL2 manual test checklist
+
+After changes to Windows key storage or daemon behavior, verify:
+
+1. **Native Windows + Hello + TPM:** `varlock-local-encrypt status` shows `hardwareBacked: true`; decrypt prompts Hello; warm session skips re-prompt for ~5 min
+2. **WSL2 decrypt:** from a Linux shell, `varlock run` / load path triggers fingerprint via Windows UI; `--via-daemon` path unchanged
+3. **Cold WSL start:** no daemon running → first decrypt prestarts via PowerShell → succeeds
+4. **Auto-rewrap:** existing DPAPI keys upgrade to `ncrypt` on the next decrypt (no `.env` changes)
+
+## Native helper commands
+
+The `varlock-local-encrypt` binary (bundled with varlock on Windows/Linux) exposes additional commands:
+
+```powershell
+# Optional: re-wrap without decrypting (normally happens automatically on decrypt)
+varlock-local-encrypt rewrap-key --key-id varlock-default
+
+# Check platform capabilities
+varlock-local-encrypt status
+```
 
 ## CI
 

@@ -147,6 +147,20 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   console.log(`Using ${backend.type} backend (${backend.hardwareBacked ? 'hardware-backed' : 'file-based'})`);
 
+  // Hardware-backed but no presence gate → decryption is unattended (headless/CI hosts).
+  if (backend.hardwareBacked && !backend.biometricAvailable) {
+    let platformHint = '';
+    if (process.platform === 'linux') {
+      platformHint = '\nTo require presence on decrypt, run: sudo varlock-local-encrypt setup --linux-biometrics';
+    } else if (process.platform === 'win32' || process.env.WSL_DISTRO_NAME) {
+      platformHint = '\nConfigure Windows Hello to require fingerprint/PIN on interactive decrypts.';
+    }
+    console.log(
+      '\nNote: no presence gate is configured, so values decrypt unattended (suitable for headless/CI hosts).'
+      + `\nThis protects secrets at rest, but not against a process already running as your user.${platformHint}`,
+    );
+  }
+
   const filePath = ctx.values.file;
 
   // --file mode: encrypt all sensitive plaintext values in a .env file

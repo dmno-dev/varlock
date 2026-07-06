@@ -391,7 +391,9 @@ You can also set it up manually -- see the [Secrets guide](/guides/secrets/#scan
 
 Encrypts sensitive values using device-local encryption. Encrypted values are stored in `.env` files using the `varlock()` resolver function and are automatically decrypted at load time.
 
-On macOS, encryption is hardware-backed via the Secure Enclave (with Touch ID / biometric authentication). On Windows and Linux, platform-specific secure storage is used. A pure-JavaScript file-based fallback is available on all platforms.
+On macOS, encryption is hardware-backed via the Secure Enclave (with Touch ID / biometric authentication). On Windows, keys are TPM-sealed when a TPM is available (Windows Hello gates interactive decrypts). On Linux, TPM2 and/or Secret Service is used. A pure-JavaScript file-based fallback is available on all platforms.
+
+See the [local encryption guide](/guides/local-encryption/) for platform details. On Windows, existing DPAPI keys are automatically upgraded to TPM sealing on the next decrypt.
 
 ```bash
 varlock encrypt [options]

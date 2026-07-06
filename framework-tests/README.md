@@ -73,3 +73,58 @@ Each scenario uses `describeScenario()` which:
 - **Astro** — tests static builds and SSR dev server, verifying env injection, leak detection in static output / client scripts / server pages / API endpoints, log redaction, and env vars in astro config
 - **Next.js** — tests multiple versions (14, 15, 16) and bundlers (webpack, turbopack), verifying env injection, leak detection, log redaction, and sourcemap scrubbing
 - **Expo** — tests the babel plugin transform pipeline, verifying static replacement of public vars, protection of sensitive vars, and correct handling of server (+api) routes
+
+## Real deployment tests (`deploy/`)
+
+Not part of normal test runs. These deploy the nextjs smoke app to a throwaway
+Vercel project (**remote** build) and assert behavior that local tests
+structurally can't reach: SSR on a real lambda (no varlock binary at runtime),
+middleware on the real Edge runtime, runtime leak detection in production, and
+log redaction inside Vercel's build + runtime log pipelines.
+
+They run weekly (and via manual dispatch) through
+`.github/workflows/deploy-tests.yaml` — failures are informational and never
+block PRs. Auth dogfoods varlock: `deploy/.env.schema` resolves `VERCEL_TOKEN`
+from 1Password (service account in CI via the existing `OP_CI_TOKEN` secret,
+desktop app auth locally), so run them wrapped in `varlock run`:
+
+```bash
+cd framework-tests
+VERCEL_DEPLOY_TESTS=1 varlock run --path ./deploy -- bunx vitest run deploy/
+```
+
+(Without the wrapper, the helpers fall back to your `vercel login` — but that
+targets your account's scope rather than the shared varlockdev project.)
+
+| Variable | Description |
+|---|---|
+| `VERCEL_DEPLOY_TESTS` | Required gate — tests are skipped without it |
+| `DEPLOY_TESTS_PUBLISHED` | Test latest published packages instead of workspace code |
+| `VERCEL_TOKEN` / `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` | Resolved by `deploy/.env.schema`; identify the varlockdev-owned project |
+
+The Vercel project (`varlock-deploy-test`, under the varlockdev account) is a
+throwaway with fake env values only; deployment protection is disabled on it so
+routes can be asserted without SSO.
+
+### Debugging real-deployment failures
+
+Hard-won techniques (see `deploy/` helpers for implementations):
+
+- **Edge failures**: don't iterate via deploys — Vercel runtime logs give
+  messages without stacks. Run `vercel build` locally, then execute the exact
+  deployed artifact in an edge-light-faithful VM with full stack traces:
+  `node --experimental-vm-modules deploy/edge-sim.ts .vercel/output/functions/middleware.func/index.js --env _VARLOCK_ENV_KEY=... --path /middleware-test`.
+  The sim encodes real edge-light behavior: no node:crypto (via
+  `getBuiltinModule` OR `require`), read-only-ish `process.env`, eager
+  microtask module instantiation, `_ENTRIES` handler registration shapes.
+- **Silent remote build exits**: `next build` swallows type-check setup errors
+  (`.catch(() => process.exit(1))` in next's type-check.js) — a missing
+  `typescript`/`@types/node` dep dies with zero output right after "Skipping
+  validation of types". Surface it by shipping a script that patches the catch
+  to log (run via a temporary `vercel.json` `buildCommand`), or run
+  `vercel build` locally where hoisting differences don't apply.
+- **Runtime logs**: use the runtime-logs REST API with bounded reads + marker
+  polling (`captureRuntimeLogs`) — streaming `vercel logs` is unreliable under
+  vitest and the pipeline can lag by tens of seconds.
+- **Failed deployments are kept** (passing ones are removed) — inspect them
+  with `vercel inspect --logs <url>` and by re-requesting routes.

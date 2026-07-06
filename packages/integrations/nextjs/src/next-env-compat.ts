@@ -136,6 +136,20 @@ const NEXT_WATCHED_ENV_FILES = ['.env', '.env.local', '.env.development', '.env.
 const watchedExtraFiles = new Set<string>();
 const pendingReloadFiles = new Set<string>();
 
+// Exactly one process should own the extra-file watchers. Which process calls
+// loadEnvConfig varies by Next version: on next <= 15 the router server loads
+// env itself (before spawning render workers), but on next 16 ONLY the render
+// worker ever calls loadEnvConfig. The first process to install watchers claims
+// ownership via this env var — child processes inherit it at spawn and skip,
+// so we don't end up with multiple processes touching the trigger file.
+const WATCHER_OWNER_ENV_KEY = '__VARLOCK_NEXT_ENV_WATCHER_PID';
+function claimExtraFileWatcherOwnership(): boolean {
+  const ownerPid = process.env[WATCHER_OWNER_ENV_KEY];
+  if (ownerPid && ownerPid !== String(process.pid)) return false;
+  process.env[WATCHER_OWNER_ENV_KEY] = String(process.pid);
+  return true;
+}
+
 function formatChangedFilesSummary(paths: Array<string>): string {
   if (!paths.length) return 'no files';
   const displayPaths = paths.map((filePath) => {
@@ -162,7 +176,8 @@ function getEnvFromNextCommand(dev: boolean): string {
 }
 
 function enableExtraFileWatchers(sources: SerializedEnvGraph['sources'], basePath?: string) {
-  if (IS_WORKER || !rootDir) return;
+  if (!rootDir) return;
+  if (!claimExtraFileWatcherOwnership()) return;
 
   // Collect absolute paths of source files that Next.js does NOT already watch
   const nextWatchedAbsolute = new Set(NEXT_WATCHED_ENV_FILES.map((f) => path.join(rootDir!, f)));
