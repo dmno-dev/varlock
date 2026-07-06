@@ -10,7 +10,7 @@
 //!   - Encrypted to the current user's master key (derived from password)
 //!   - Cannot be decrypted by other users or on other machines
 //!   - Survives reboots (unlike Linux keyring)
-//!   - Does NOT require TPM (software-only, but user-scoped)
+//!   - Does NOT use TPM directly (see windows_tpm.rs for NCrypt/TPM sealing)
 
 use windows::Win32::Security::Cryptography::{
     CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB,
