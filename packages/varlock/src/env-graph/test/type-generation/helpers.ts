@@ -7,6 +7,7 @@ import {
   resolveFieldTypes,
   type TypeGenItemInfo,
 } from '../../index';
+import type { EnvGraphDataTypeFactory } from '../../lib/data-types';
 
 /** Schema fixture covering string, number, boolean, enum, and object types. */
 export const NON_STRING_TYPE_FIXTURE = outdent`
@@ -29,11 +30,14 @@ export async function loadGraph(spec: {
   files?: Record<string, string>;
   overrideValues?: Record<string, string>;
   fallbackEnv?: string;
+  /** extra data types to register, as a plugin's registerDataType would */
+  dataTypes?: Array<EnvGraphDataTypeFactory>;
 }) {
   const currentDir = path.dirname(expect.getState().testPath!);
   vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
 
   const g = new EnvGraph();
+  for (const dataType of spec.dataTypes ?? []) g.registerDataType(dataType);
   if (spec.overrideValues) g.overrideValues = spec.overrideValues;
   if (spec.fallbackEnv) g.envFlagFallback = spec.fallbackEnv;
 
@@ -55,8 +59,11 @@ export async function getTypeGenInfoMap(g: EnvGraph) {
   return infos;
 }
 
-export async function loadFixtureFields(envFile = NON_STRING_TYPE_FIXTURE) {
-  const g = await loadGraph({ envFile });
+export async function loadFixtureFields(
+  envFile = NON_STRING_TYPE_FIXTURE,
+  opts?: { dataTypes?: Array<EnvGraphDataTypeFactory> },
+) {
+  const g = await loadGraph({ envFile, dataTypes: opts?.dataTypes });
   const items: Array<TypeGenItemInfo> = [];
   for (const key of g.sortedConfigKeys) {
     items.push(await g.configSchema[key].getTypeGenInfo());

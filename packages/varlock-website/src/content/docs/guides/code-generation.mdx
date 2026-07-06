@@ -82,3 +82,15 @@ Once registered, users trigger it from their schema like any other generator:
 ```
 
 The `decoratorName` must start with `generate` (e.g. `generateZodSchema`) — a shared convention that keeps code-generation decorators recognizable and separate from behavior decorators. Generators also get the common `path`, `auto`, and `executeWhenImported` args automatically — your `generate` function only handles turning the schema into code.
+
+Plugins that register custom data types can also declare `coercedType` — what their `coerce()` function outputs (`'string'`, `'int'`, `'number'`, `'boolean'`, `'object'`, or `{ enum: [...] }`) — so generated code types those fields correctly in every language:
+
+```ts title="my-plugin.ts"
+plugin.registerDataType({
+  name: 'retryCount',
+  coercedType: 'int',
+  coerce: (val) => parseInt(val, 10),
+});
+```
+
+Data types that don't declare a `coercedType` are treated as strings.
