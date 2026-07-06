@@ -39,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 varlock run -- cargo run
 ```
 
-The struct derives a **redacting `Debug`** — sensitive fields print as `<redacted>`, so `{:?}` won't leak secrets.
+`load()` returns a clear error if `__VARLOCK_ENV` is missing (e.g. you forgot `varlock run`) or if a required key is absent. The struct derives a **redacting `Debug`** — sensitive fields print as `<redacted>`, so `{:?}` won't leak secrets.
 
 ## Sharing one instance
 
