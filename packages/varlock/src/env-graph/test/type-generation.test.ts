@@ -1,5 +1,5 @@
 import {
-  describe, expect, test, vi,
+  afterEach, describe, expect, test, vi,
 } from 'vitest';
 import outdent from 'outdent';
 import path from 'node:path';
@@ -10,6 +10,7 @@ import {
   generateTsTypesSrc,
   resolveFieldType,
   resolveFieldTypes,
+  type ResolvedFieldType,
   type TypeGenItemInfo,
 } from '../index';
 import { getTypeGenInfoMap, loadFixtureFields, loadGraph } from './type-generation/helpers';
@@ -1048,6 +1049,85 @@ describe('type generation', () => {
         expect(statAfter.mtimeMs).toBeLessThan(statBefore.mtimeMs); // ...but the file was not rewritten
       } finally {
         await fs.promises.rm(outputPath, { force: true });
+      }
+    });
+  });
+
+  describe('@icon fetching', () => {
+    const ICON_CACHE_FOLDER = '/tmp/varlock-icon-cache';
+    // unique per-run icon names so stale disk-cache entries / the module-level caches
+    // from other tests can't interfere
+    const uniqueIconName = (label: string) => `fake-test:${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const iconCachePath = (iconName: string) => path.join(ICON_CACHE_FOLDER, `${iconName}-20.svg`);
+
+    function iconField(icon: string): ResolvedFieldType {
+      return {
+        key: 'ICON_ITEM',
+        coerced: 'string',
+        isRequired: true,
+        isSensitive: false,
+        docs: { isDeprecated: false, docsLinks: [], icon },
+      };
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    test('non-200 responses are not embedded or cached, and are not retried within the process', async () => {
+      const iconName = uniqueIconName('non-200');
+      const fetchMock = vi.fn(async () => new Response('404', { status: 404 }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const src = await generateTsTypesSrc([iconField(iconName)]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // the error body must not end up in the generated jsdoc...
+      expect(src).not.toContain('![icon]');
+      // ...nor be written to the (expiry-less) disk cache
+      const fs = await import('node:fs');
+      expect(fs.existsSync(iconCachePath(iconName))).toBe(false);
+
+      // negative cache: even if iconify recovers, the same failed icon is not refetched this run
+      fetchMock.mockResolvedValue(new Response('<svg>ok currentColor</svg>', { status: 200 }));
+      const src2 = await generateTsTypesSrc([iconField(iconName)]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(src2).not.toContain('![icon]');
+    });
+
+    test('network failures (incl. timeout aborts) are swallowed and negative-cached', async () => {
+      const iconName = uniqueIconName('net-fail');
+      const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit): Promise<Response> => {
+        throw new DOMException('The operation timed out.', 'TimeoutError');
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const src = await generateTsTypesSrc([iconField(iconName)]);
+      expect(src).not.toContain('![icon]');
+      expect(src).toContain('ICON_ITEM: string;'); // generation itself is unaffected
+      // fetch is given an abort signal so a hung request can't stall the load forever
+      expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+
+      await generateTsTypesSrc([iconField(iconName)]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    test('successful fetches are embedded and disk-cached', async () => {
+      const iconName = uniqueIconName('success');
+      const fetchMock = vi.fn(async () => new Response('<svg fill="currentColor"></svg>', { status: 200 }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const fs = await import('node:fs');
+      try {
+        const src = await generateTsTypesSrc([iconField(iconName)]);
+        expect(src).toContain('![icon](data:image/svg+xml;utf-8,');
+        expect(src).toContain(encodeURIComponent('#808080')); // currentColor replaced
+        expect(fs.existsSync(iconCachePath(iconName))).toBe(true);
+
+        // second generation hits the in-memory cache — no refetch
+        await generateTsTypesSrc([iconField(iconName)]);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      } finally {
+        await fs.promises.rm(iconCachePath(iconName), { force: true });
       }
     });
   });
