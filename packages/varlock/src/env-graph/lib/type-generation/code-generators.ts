@@ -111,7 +111,12 @@ export const builtInCodeGenerators: Array<CodeGeneratorDef> = [
     decoratorName: 'generateTypes',
     generate: (ctx) => {
       const { lang } = ctx.options;
-      if (lang && lang !== 'ts') {
+      // `lang` was always required — a missing one must not silently fall through to TypeScript
+      // output (which would overwrite e.g. an `env.py` path with TS declarations)
+      if (!lang) {
+        throw new Error('@generateTypes - must set `lang` arg (or use @generateTsTypes(path=...))');
+      }
+      if (lang !== 'ts') {
         const suggestion = LANG_TO_DECORATOR[lang];
         throw new Error(
           `@generateTypes only supports \`lang=ts\`.${suggestion ? ` For \`${lang}\`, use @${suggestion}(path=...).` : ''}`,

@@ -54,6 +54,14 @@ describe('generatePhpEnvSrc', () => {
     expect(() => generatePhpEnvSrc(fields, { namespace: '9bad' })).toThrow(/namespace/);
   });
 
+  test('rejects PHP reserved words as class or namespace names (case-insensitive)', async () => {
+    const { fields } = await loadFixtureFields();
+    // `class List` is a parse error, `class String` a fatal error — catch both at generation time
+    expect(() => generatePhpEnvSrc(fields, { className: 'List' })).toThrow(/class/);
+    expect(() => generatePhpEnvSrc(fields, { className: 'string' })).toThrow(/class/);
+    expect(() => generatePhpEnvSrc(fields, { namespace: 'App\\List' })).toThrow(/namespace/);
+  });
+
   test('numeric enums are typed by their member kind (blob carries the coerced value)', async () => {
     const { fields } = await loadFixtureFields(outdent`
       # @defaultSensitive=false

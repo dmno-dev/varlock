@@ -35,6 +35,10 @@ function snakeCaseToPascalCase(key: string): string {
   return key.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()).join('');
 }
 
+// an exported Go struct field must start with an uppercase letter — a key like `_2FA_SECRET`
+// (identifier-safe, but Pascal-cases to the digit-leading `2faSecret`) or a bare `_` can't be one
+const GO_EXPORTED_FIELD_NAME = /^[A-Z][A-Za-z0-9]*$/;
+
 // maps and `any` are already nullable in Go (nil means "absent"), so they don't get a pointer
 function goFieldType(baseType: string, isRequired: boolean): string {
   if (isRequired || baseType.startsWith('map[') || baseType === 'any') return baseType;
@@ -75,6 +79,35 @@ function formatGoStruct(
   return lines;
 }
 
+// Go keywords are not identifiers, so they can't be package names (`package type` won't compile)
+const GO_KEYWORDS = new Set([
+  'break',
+  'case',
+  'chan',
+  'const',
+  'continue',
+  'default',
+  'defer',
+  'else',
+  'fallthrough',
+  'for',
+  'func',
+  'go',
+  'goto',
+  'if',
+  'import',
+  'interface',
+  'map',
+  'package',
+  'range',
+  'return',
+  'select',
+  'struct',
+  'switch',
+  'type',
+  'var',
+]);
+
 /**
  * Go requires the package name to match the output directory (`path=config/env.go` → `package config`).
  * Derive it from the dir, sanitized to a legal identifier, with an explicit `package=` override winning.
@@ -83,6 +116,7 @@ export function resolveGoPackageName(outputPath: string, override?: unknown): st
   const sanitize = (raw: string): string => {
     let name = raw.toLowerCase().replace(/[^a-z0-9_]/g, '');
     if (name && /^[0-9]/.test(name)) name = `_${name}`;
+    if (GO_KEYWORDS.has(name)) name = `${name}_`;
     return name;
   };
   if (override !== undefined) {
@@ -98,7 +132,10 @@ export function resolveGoPackageName(outputPath: string, override?: unknown): st
 
 export function generateGoEnvSrc(fields: Array<ResolvedFieldType>, opts?: { packageName?: string }): string {
   // struct/loader cover representable keys; skipped keys stay as raw env vars (os.Getenv)
-  const { safe, skipped } = partitionRepresentableKeys(fields);
+  const { safe, skipped } = partitionRepresentableKeys(
+    fields,
+    (k) => !GO_EXPORTED_FIELD_NAME.test(snakeCaseToPascalCase(k)),
+  );
   assertNoFieldNameCollisions(safe, snakeCaseToPascalCase, 'Go');
   const packageName = opts?.packageName || 'env';
   // SensitiveKeys covers every sensitive key (incl. skipped ones) so redaction doesn't miss them

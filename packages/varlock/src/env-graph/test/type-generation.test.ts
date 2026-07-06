@@ -993,6 +993,30 @@ describe('type generation', () => {
       await expect(g.runCodeGeneratorsIfNeeded()).rejects.toThrow('unknown option: exposEnv');
     });
 
+    test('typo protection fires even when auto=false skips generation', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @generateTsTypes(path=env.d.ts, auto=false, exposEnv=local)
+          # ---
+          ITEM=val
+        `,
+      });
+      // the decorator is skipped on load, but its options must still be validated —
+      // otherwise the typo sits undetected until someone explicitly runs `varlock codegen`
+      await expect(g.runCodeGeneratorsIfNeeded()).rejects.toThrow('unknown option: exposEnv');
+    });
+
+    test('cross-registry decorator name collisions are rejected at registration', () => {
+      const g = new EnvGraph();
+      // `example` is a built-in item decorator; a root decorator with that name would register
+      // fine but be unusable (placement validation resolves item names first)
+      expect(() => g.registerRootDecorator({ name: 'example' }))
+        .toThrow('conflicts with an item decorator');
+      g.registerRootDecorator({ name: 'someRootDec' });
+      expect(() => g.registerItemDecorator({ name: 'someRootDec' } as any))
+        .toThrow('conflicts with a root decorator');
+    });
+
     test('skips rewriting the output file when content is unchanged (preserves mtime)', async () => {
       const currentDir = path.dirname(expect.getState().testPath!);
       vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
@@ -1113,9 +1137,6 @@ describe('type generation', () => {
       expect(flagField.coerced).toBe('boolean');
       expect(configField.coerced).toBe('object');
       expect(appEnvField.coerced).toEqual({ enum: ['dev', 'staging', 'prod'] });
-      expect(appEnvField.rawString).toEqual({ enum: ['dev', 'staging', 'prod'] });
-      expect(flagField.rawString).toEqual({ boolean: true });
-      expect(numField.rawString).toBe('string');
     });
   });
 
@@ -1145,6 +1166,20 @@ describe('type generation', () => {
 
       await expect(g.runCodeGeneratorsIfNeeded()).rejects.toThrow(
         '@generateTypes only supports `lang=ts`',
+      );
+    });
+
+    test('@generateTypes requires the `lang` arg — no silent TypeScript fallback', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @generateTypes(path=env.py)
+          # ---
+          ITEM=val
+        `,
+      });
+
+      await expect(g.runCodeGeneratorsIfNeeded()).rejects.toThrow(
+        '@generateTypes - must set `lang` arg',
       );
     });
 

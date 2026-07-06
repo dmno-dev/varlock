@@ -37,6 +37,25 @@ describe('generatePythonEnvSrc', () => {
     expect(src).toContain('is encrypted');
   });
 
+  test('float and mixed enums fall back to unions (PEP 586 forbids float Literals)', async () => {
+    const { fields } = await loadFixtureFields(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @type=enum(0.5, 1.5)
+      FLOAT_ENUM=0.5     # @required @public
+      # @type=enum(low, 1.5)
+      MIXED_ENUM=low     # @required @public
+      # @type=enum(one, 2)
+      INT_MIX_ENUM=one   # @required @public
+    `);
+    const src = generatePythonEnvSrc(fields);
+    expect(src).toContain('FLOAT_ENUM: float');
+    // the runtime value can be the string member — bare `float` would be wrong
+    expect(src).toContain('MIXED_ENUM: str | float');
+    // mixed without floats can still be narrowed to a Literal
+    expect(src).toContain('INT_MIX_ENUM: Literal["one", 2]');
+  });
+
   test('skips keys that are not valid identifiers (still tracked as sensitive)', async () => {
     const g = await loadGraph({
       envFile: outdent`

@@ -84,6 +84,99 @@ function phpConstructorParam(field: ResolvedFieldType): Array<string> {
 // one or more identifiers joined by backslashes, e.g. `App` or `App\Config`
 const PHP_NAMESPACE = /^[A-Za-z_][A-Za-z0-9_]*(\\[A-Za-z_][A-Za-z0-9_]*)*$/;
 
+// words PHP won't accept as a class name or namespace segment (case-insensitive): keywords
+// (`class List` is a parse error) plus reserved type names (`class String` is a fatal error)
+const PHP_RESERVED_WORDS = new Set([
+  // keywords
+  'abstract',
+  'and',
+  'array',
+  'as',
+  'break',
+  'callable',
+  'case',
+  'catch',
+  'class',
+  'clone',
+  'const',
+  'continue',
+  'declare',
+  'default',
+  'die',
+  'do',
+  'echo',
+  'else',
+  'elseif',
+  'empty',
+  'enddeclare',
+  'endfor',
+  'endforeach',
+  'endif',
+  'endswitch',
+  'endwhile',
+  'eval',
+  'exit',
+  'extends',
+  'final',
+  'finally',
+  'fn',
+  'for',
+  'foreach',
+  'function',
+  'global',
+  'goto',
+  'if',
+  'implements',
+  'include',
+  'include_once',
+  'instanceof',
+  'insteadof',
+  'interface',
+  'isset',
+  'list',
+  'match',
+  'namespace',
+  'new',
+  'or',
+  'print',
+  'private',
+  'protected',
+  'public',
+  'require',
+  'require_once',
+  'return',
+  'static',
+  'switch',
+  'throw',
+  'trait',
+  'try',
+  'unset',
+  'use',
+  'var',
+  'while',
+  'xor',
+  'yield',
+  // reserved class/type names
+  'bool',
+  'false',
+  'float',
+  'int',
+  'iterable',
+  'mixed',
+  'never',
+  'null',
+  'object',
+  'parent',
+  'self',
+  'string',
+  'true',
+  'void',
+]);
+
+function isPhpReservedWord(name: string): boolean {
+  return PHP_RESERVED_WORDS.has(name.toLowerCase());
+}
+
 export function generatePhpEnvSrc(
   fields: Array<ResolvedFieldType>,
   opts?: { namespace?: unknown, className?: unknown },
@@ -93,13 +186,13 @@ export function generatePhpEnvSrc(
 
   // optional `class=` / `namespace=` for Composer/PSR-4 projects (default: global `Env`)
   const className = opts?.className === undefined ? 'Env' : String(opts.className);
-  if (!IDENTIFIER_SAFE_KEY.test(className)) {
+  if (!IDENTIFIER_SAFE_KEY.test(className) || isPhpReservedWord(className)) {
     throw new Error(`@generatePhpEnv - \`class\` must be a valid PHP class name (got ${JSON.stringify(opts?.className)})`);
   }
   let namespace: string | undefined;
   if (opts?.namespace !== undefined && String(opts.namespace).trim() !== '') {
     namespace = String(opts.namespace).trim();
-    if (!PHP_NAMESPACE.test(namespace)) {
+    if (!PHP_NAMESPACE.test(namespace) || namespace.split('\\').some(isPhpReservedWord)) {
       throw new Error(`@generatePhpEnv - \`namespace\` must be a valid PHP namespace (got ${JSON.stringify(opts?.namespace)})`);
     }
   }

@@ -103,8 +103,9 @@ function fieldDocComment(field: ResolvedFieldType): Array<string> {
 }
 
 export function generateRustEnvSrc(fields: Array<ResolvedFieldType>): string {
-  // struct/loader cover representable keys; skipped keys stay as raw env vars (std::env::var)
-  const { safe, skipped } = partitionRepresentableKeys(fields);
+  // struct/loader cover representable keys; skipped keys stay as raw env vars (std::env::var).
+  // a bare `_` is the wildcard pattern, not an identifier — it can't be a field name
+  const { safe, skipped } = partitionRepresentableKeys(fields, (k) => k === '_');
   assertNoFieldNameCollisions(safe, envKeyToRustFieldName, 'Rust');
   // SENSITIVE_KEYS covers every sensitive key (incl. skipped ones) so redaction doesn't miss them
   const sensitiveKeys = getSensitiveKeys(fields);

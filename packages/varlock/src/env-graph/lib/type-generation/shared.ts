@@ -8,13 +8,8 @@ export type CoercedType = | 'string'
   | 'object'
   | { enum: Array<string | number | boolean> };
 
-export type RawStringType = | 'string'
-  | { enum: Array<string> }
-  | { boolean: true };
-
 export type FieldDocs = {
   description?: string;
-  isSensitive: boolean;
   isDeprecated: boolean;
   deprecationMessage?: string;
   docsLinks: Array<{ url: string, description?: string }>;
@@ -24,7 +19,6 @@ export type FieldDocs = {
 export type ResolvedFieldType = {
   key: string;
   coerced: CoercedType;
-  rawString: RawStringType;
   isRequired: boolean;
   isSensitive: boolean;
   docs: FieldDocs;
@@ -61,29 +55,15 @@ function resolveCoercedType(info: TypeGenItemInfo): CoercedType {
   return 'string';
 }
 
-function resolveRawStringType(coerced: CoercedType): RawStringType {
-  if (coerced === 'boolean') return { boolean: true };
-  if (typeof coerced === 'object' && 'enum' in coerced) {
-    const stringOptions = coerced.enum.filter((option): option is string => typeof option === 'string');
-    if (stringOptions.length === coerced.enum.length && stringOptions.length > 0) {
-      return { enum: stringOptions };
-    }
-    return 'string';
-  }
-  return 'string';
-}
-
 export function resolveFieldType(info: TypeGenItemInfo): ResolvedFieldType {
   const coerced = resolveCoercedType(info);
   return {
     key: info.key,
     coerced,
-    rawString: resolveRawStringType(coerced),
     isRequired: info.isRequired && !info.isRequiredDynamic,
     isSensitive: info.isSensitive,
     docs: {
       description: info.description,
-      isSensitive: info.isSensitive,
       isDeprecated: info.isDeprecated,
       deprecationMessage: info.deprecationMessage,
       docsLinks: info.docsLinks,

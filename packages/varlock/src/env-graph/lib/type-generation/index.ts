@@ -7,7 +7,6 @@ export {
   resolveFieldType,
   resolveFieldTypes,
   type CoercedType,
-  type RawStringType,
   type ResolvedFieldType,
 } from './shared';
 export {

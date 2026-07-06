@@ -58,6 +58,25 @@ describe('generateGoEnvSrc', () => {
     expect(resolveGoPackageName('env/env.go')).toBe('env');
   });
 
+  test('a package name that lands on a Go keyword is escaped (`package type` cannot compile)', () => {
+    expect(resolveGoPackageName('type/env.go')).toBe('type_');
+    expect(resolveGoPackageName('env/env.go', 'map')).toBe('map_');
+  });
+
+  test('skips keys that cannot become an exported field name', async () => {
+    const { fields } = await loadFixtureFields(outdent`
+      # @defaultSensitive=false
+      # ---
+      OK_KEY=a           # @required @public
+      _2FA_SECRET=s      # @required @sensitive
+    `);
+    const src = generateGoEnvSrc(fields);
+    // `_2FA_SECRET` Pascal-cases to the digit-leading `2faSecret` — not a legal Go identifier
+    expect(src).not.toContain('2faSecret');
+    expect(src).toContain('Keys omitted from this typed module (not valid identifiers): _2FA_SECRET');
+    expect(src).toContain('"_2FA_SECRET": true');
+  });
+
   test('numeric enums are typed by their member kind (blob carries the coerced value)', async () => {
     const { fields } = await loadFixtureFields(outdent`
       # @defaultSensitive=false

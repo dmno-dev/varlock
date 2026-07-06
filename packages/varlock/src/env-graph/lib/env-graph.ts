@@ -252,11 +252,17 @@ export class EnvGraph {
   // decorator) and to the camelCase `generate` prefix (so names like `@generatedBy` stay usable).
   private static RESERVED_GENERATE_PREFIX = /^generate[A-Z]/;
 
+  // item and root decorators share one `@name` syntax, and placement validation resolves item
+  // names first — a cross-registry duplicate would register fine but be unusable (or shadowed),
+  // so both register fns reject names taken by either registry
   itemDecoratorsRegistry: Record<string, ItemDecoratorDef> = {};
   registerItemDecorator(decoratorDef: ItemDecoratorDef) {
     const name = decoratorDef.name;
     if (name in this.itemDecoratorsRegistry) {
       throw new SchemaError(`Item decorator "${name}" already registered`);
+    }
+    if (name in this.rootDecoratorsRegistry) {
+      throw new SchemaError(`Item decorator "${name}" conflicts with a root decorator of the same name`);
     }
     this.itemDecoratorsRegistry[decoratorDef.name] = decoratorDef;
   }
@@ -269,6 +275,9 @@ export class EnvGraph {
     }
     if (name in this.rootDecoratorsRegistry) {
       throw new SchemaError(`Root decorator "${name}" already registered`);
+    }
+    if (name in this.itemDecoratorsRegistry) {
+      throw new SchemaError(`Root decorator "${name}" conflicts with an item decorator of the same name`);
     }
     this.rootDecoratorsRegistry[decoratorDef.name] = decoratorDef;
   }
@@ -284,6 +293,9 @@ export class EnvGraph {
     }
     if (name in this.codeGeneratorsRegistry) {
       throw new SchemaError(`Code generator "${name}" already registered`);
+    }
+    if (name in this.itemDecoratorsRegistry) {
+      throw new SchemaError(`Code generator "${name}" conflicts with an item decorator of the same name`);
     }
     // ensure a root decorator exists for this generator (plugins get one for free).
     // insert directly — registerRootDecorator reserves the `generate` prefix for exactly this path.
@@ -867,14 +879,8 @@ export class EnvGraph {
       for (const dec of decs) {
         const settings = await dec.resolve();
 
-        // skip if the decorator came from an imported file, unless `executeWhenImported` is set
-        if (dec.dataSource.isImport && !settings.obj.executeWhenImported) {
-          skippedImportOnlyCount++;
-          continue;
-        }
-        // skip if auto=false unless explicitly overridden (e.g. `varlock codegen`)
-        if (settings.obj.auto === false && !opts?.ignoreAutoFalse) continue;
-
+        // validate before the skips below — a typo'd option or missing path on an `auto=false`
+        // decorator should be a loud error on every load, not sit undetected until `varlock codegen`
         if (!settings.obj.path) throw new Error(`@${decoratorName} - must set \`path\` arg`);
         if (!_.isString(settings.obj.path)) throw new Error(`@${decoratorName} - \`path\` arg must be a string`);
 
@@ -890,6 +896,14 @@ export class EnvGraph {
           }
         }
 
+        // skip if the decorator came from an imported file, unless `executeWhenImported` is set
+        if (dec.dataSource.isImport && !settings.obj.executeWhenImported) {
+          skippedImportOnlyCount++;
+          continue;
+        }
+        // skip if auto=false unless explicitly overridden (e.g. `varlock codegen`)
+        if (settings.obj.auto === false && !opts?.ignoreAutoFalse) continue;
+
         const sourceDir = dec.dataSource instanceof FileBasedDataSource
           ? path.resolve(dec.dataSource.fullPath, '..')
           : process.cwd();
@@ -899,9 +913,9 @@ export class EnvGraph {
 
         const src = await generator.generate({
           graph: this,
-          // fresh copy per call — a generator that sorts/mutates its input must not
-          // corrupt what later generators receive
-          fields: fields.map((f) => ({ ...f })),
+          // fresh deep copy per call — a generator (incl. plugin-contributed ones) that
+          // sorts/mutates its input, at any depth, must not corrupt what later generators receive
+          fields: structuredClone(fields),
           options: settings.obj,
           outputPath,
           sourceDir,

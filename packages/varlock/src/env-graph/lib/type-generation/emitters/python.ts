@@ -58,9 +58,17 @@ function getPythonCoercedTypeString(coerced: CoercedType): string {
   if (coerced === 'object') return 'dict[str, Any]';
   if (typeof coerced === 'object' && 'enum' in coerced) {
     if (!coerced.enum.length) return 'str';
-    // PEP 586 forbids float literals in `Literal[...]`, so a float-valued enum can't be a Literal —
-    // fall back to plain `float` (the coerced values are still floats, just not narrowed)
-    if (coerced.enum.some((option) => typeof option === 'number' && !Number.isInteger(option))) return 'float';
+    // PEP 586 forbids float literals in `Literal[...]`, so an enum with any float member can't be
+    // a Literal — fall back to the union of the member kinds present (just `float` when uniform,
+    // e.g. `str | float` when mixed — the runtime value can still be a string member)
+    if (coerced.enum.some((option) => typeof option === 'number' && !Number.isInteger(option))) {
+      const memberKinds = new Set(coerced.enum.map((option) => {
+        if (typeof option === 'string') return 'str';
+        if (typeof option === 'boolean') return 'bool';
+        return Number.isInteger(option) ? 'int' : 'float';
+      }));
+      return (['str', 'int', 'float', 'bool'] as const).filter((k) => memberKinds.has(k)).join(' | ');
+    }
     const options = coerced.enum.map((option) => {
       if (typeof option === 'string') return JSON.stringify(option);
       if (typeof option === 'boolean') return option ? 'True' : 'False';
@@ -123,9 +131,10 @@ export function generatePythonEnvSrc(fields: Array<ResolvedFieldType>): string {
   // Literal / Any (and subscripts like dict[str, Any]) are never evaluated at runtime — the module
   // imports on any Python 3.7+, while type checkers still read the real types from the source. The
   // type-only symbols therefore live under `TYPE_CHECKING` (imported only when actually used).
+  const typeStrings = safe.map((f) => getPythonCoercedTypeString(f.coerced));
   const typeOnlyImports: Array<string> = [];
-  if (safe.some((f) => f.coerced === 'object')) typeOnlyImports.push('Any');
-  if (safe.some((f) => typeof f.coerced === 'object' && 'enum' in f.coerced && f.coerced.enum.length)) typeOnlyImports.push('Literal');
+  if (typeStrings.some((t) => t.includes('Any'))) typeOnlyImports.push('Any');
+  if (typeStrings.some((t) => t.startsWith('Literal['))) typeOnlyImports.push('Literal');
   if (safe.some((f) => !f.isRequired)) typeOnlyImports.push('NotRequired');
   typeOnlyImports.sort();
 

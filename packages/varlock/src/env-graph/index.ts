@@ -27,6 +27,5 @@ export {
   type CodeGenContext,
   type CodeGeneratorDef,
   type CoercedType,
-  type RawStringType,
   type ResolvedFieldType,
 } from './lib/type-generation';
