@@ -27,9 +27,13 @@ function getItemTsTypeString(coerced: CoercedType): string {
 }
 
 const ICON_SIZE = 20;
+const ICON_FETCH_TIMEOUT_MS = 2000;
 
 let iconCacheFolderInit = false;
 const iconInMemoryCache: Record<string, string> = {};
+// negative cache — icons that failed to fetch (non-200, timeout, network error) are not
+// retried within this process, so an offline/broken iconify doesn't stall every field
+const iconFetchFailedNames = new Set<string>();
 
 async function fetchIconSvg(
   iconifyName: string,
@@ -50,14 +54,21 @@ async function fetchIconSvg(
     const svgFileBuffer = await fs.promises.readFile(iconPath, 'utf-8');
     svgSrc = svgFileBuffer.toString();
     iconInMemoryCache[iconPath] = svgSrc;
+  } else if (iconFetchFailedNames.has(iconifyName)) {
+    return;
   } else {
     try {
-      const iconSvg = await fetch(`https://api.iconify.design/${iconifyName.replace(':', '/')}.svg?height=${ICON_SIZE}`);
+      const iconSvg = await fetch(`https://api.iconify.design/${iconifyName.replace(':', '/')}.svg?height=${ICON_SIZE}`, {
+        signal: AbortSignal.timeout(ICON_FETCH_TIMEOUT_MS),
+      });
+      // an error body (e.g. the literal text "404") must never be cached or embedded
+      if (!iconSvg.ok) throw new Error(`icon fetch failed: ${iconSvg.status}`);
       svgSrc = await iconSvg.text();
+      if (!svgSrc) throw new Error('icon fetch returned empty body');
     } catch {
+      iconFetchFailedNames.add(iconifyName);
       return;
     }
-    if (!svgSrc) return;
     await fs.promises.writeFile(iconPath, svgSrc, 'utf-8');
     iconInMemoryCache[iconPath] = svgSrc;
   }
