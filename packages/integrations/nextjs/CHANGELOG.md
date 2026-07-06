@@ -9,6 +9,17 @@
 
 
 
+
+## 1.1.4
+<sub>2026-07-06</sub>
+
+- [#857](https://github.com/dmno-dev/varlock/pull/857)  *(patch)*
+  Fix dev-server env file reloading on turbopack and Next 16. Two issues: (1) on Next 16 only the render worker calls `loadEnvConfig`, so the extra env-file watchers were never installed — watcher ownership is now claimed by whichever process loads env first; (2) on turbopack, non-sensitive `ENV.x` values were statically inlined into server files at compile time, so reloaded values were never served — in dev, server-side (node runtime) files now read env through the runtime proxy, which stays fresh across reloads. Client components and edge files still inline values (required), so those keep needing a page refresh after a full recompile.
+- [#860](https://github.com/dmno-dev/varlock/pull/860)  *(patch)*
+  fix turbopack static ENV replacement corrupting ENV.x references inside string literals and comments — replacement is now AST-based, matching the vite integration
+- [#861](https://github.com/dmno-dev/varlock/pull/861)  *(patch)*
+  Fix pages router and middleware support: webpack builds no longer fail on pages-router files, pages-router SSR picks up reloaded env values in turbopack dev, middleware no longer crashes the dev server or gets rejected by Vercel's edge bundle analyzer, works with turbopack dev on Next 15.5+, and encrypted deployments now work in middleware and edge routes
+
 ## 1.1.3
 <sub>2026-06-03</sub>
 

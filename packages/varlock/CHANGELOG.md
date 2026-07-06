@@ -15,6 +15,26 @@
 
 
 
+
+## 1.10.0
+<sub>2026-07-06</sub>
+
+- [#849](https://github.com/dmno-dev/varlock/pull/849)  *(minor)*
+  Generate code for Python, Rust, Go, and PHP with new per-language decorators (`@generatePythonEnv`, `@generateRustEnv`, `@generateGoEnv`, `@generatePhpEnv`). Each emits a self-contained, idiomatic module — typed coerced values, a loader that parses the injected env, and a `SENSITIVE_KEYS` constant — so it's usable out of the box. The TypeScript generator moves to `@generateTsTypes` and gains options to control `process.env`/`import.meta.env` augmentation and a monorepo-friendly `exposeEnv=local` mode. `@generateTypes(lang=ts)` still works as a deprecated alias. The `varlock typegen` command is renamed to `varlock codegen` (with `typegen` kept as a deprecated alias). Note: `@disableProcessEnvInjection` now requires a static `true`/`false` value — env-dependent values like `forEnv(prod)` are a schema error, since generated code must not differ per environment.
+- [#853](https://github.com/dmno-dev/varlock/pull/853)  *(patch)* - Reject unknown or misspelled CLI flags with a did-you-mean suggestion instead of silently ignoring them
+- [#861](https://github.com/dmno-dev/varlock/pull/861)  *(patch)*
+  Runtime leak detection now catches secrets in compressed responses: gzipped responses that fit in a single chunk (i.e. most pages) were never scanned, so browsers — which always send `Accept-Encoding: gzip` — could receive leaked sensitive values the scanner should have blocked. Brotli and zstd responses are now scanned too, and compressed chunks containing a leak fail closed (the response is killed) instead of passing through.
+
+  Note: since most browser traffic previously bypassed the scanner, an app with an existing undetected leak will start seeing those responses blocked after upgrading — look for `DETECTED LEAKED SENSITIVE CONFIG` in server logs, which names the offending config key.
+- [#861](https://github.com/dmno-dev/varlock/pull/861)  *(patch)*
+  Runtime fixes: env state is now shared across bundled copies of `varlock/env` (fixes stale values after env reloads when a bundler duplicates the module, including cleanup of `process.env` keys removed between reloads), and `node:crypto` is loaded lazily — with encrypted env blobs decrypting via WebCrypto on edge runtimes that lack it entirely (e.g. Vercel Edge). Minimum supported Node version is now 22.3.
+- [#854](https://github.com/dmno-dev/varlock/pull/854)  *(patch)*
+  Windows local encryption now uses TPM-sealed keys via NCrypt when available; existing DPAPI keys auto-upgrade on the next decrypt.
+- [#865](https://github.com/dmno-dev/varlock/pull/865)  *(patch)*
+  icon fetching during type generation now ignores failed responses, times out after 2s, and doesn't retry failed icons within a run
+- [#866](https://github.com/dmno-dev/varlock/pull/866)  *(patch)*
+  plugin-registered data types can now declare `coercedType` so generated env modules type their fields correctly (previously they always emitted as strings)
+
 ## 1.9.0
 <sub>2026-06-25</sub>
 
