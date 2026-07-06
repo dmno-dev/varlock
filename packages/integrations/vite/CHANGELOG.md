@@ -7,6 +7,12 @@
 
 
 
+
+## 1.2.1
+<sub>2026-07-06</sub>
+
+- [#860](https://github.com/dmno-dev/varlock/pull/860)  *(patch)* - internal refactor: static ENV.x replacement code moved to a shared internal package (no behavior change)
+
 ## 1.2.0
 <sub>2026-06-23</sub>
 
