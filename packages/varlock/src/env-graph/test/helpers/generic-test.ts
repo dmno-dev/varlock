@@ -45,7 +45,7 @@ export function envFilesTest(spec: {
   expectSerializedMatches?: any;
   /**
    * Simulate calling getTypeGenInfo() on all items before resolveEnvValues(),
-   * which mirrors what the CLI does (generateTypesIfNeeded before resolveEnvValues).
+   * which mirrors what the CLI does (runCodeGeneratorsIfNeeded before resolveEnvValues).
    * This is used to reproduce bugs where early type-gen resolution corrupts cached state.
    */
   runTypeGeneration?: boolean;

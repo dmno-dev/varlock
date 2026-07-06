@@ -87,7 +87,7 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
     id: 'python',
     title: 'Python',
     icon: 'simple-icons:python',
-    href: '/integrations/other-languages/',
+    href: '/integrations/python/',
     category: 'languages',
   },
   {
@@ -98,17 +98,24 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
     category: 'languages',
   },
   {
+    id: 'rust',
+    title: 'Rust',
+    icon: 'simple-icons:rust',
+    href: '/integrations/rust/',
+    category: 'languages',
+  },
+  {
     id: 'go',
     title: 'Go',
     icon: 'simple-icons:go',
-    href: '/integrations/other-languages/',
+    href: '/integrations/go/',
     category: 'languages',
   },
   {
     id: 'php',
     title: 'PHP',
     icon: 'simple-icons:php',
-    href: '/integrations/other-languages/',
+    href: '/integrations/php/',
     category: 'languages',
   },
   {
@@ -263,6 +270,13 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
     category: 'secrets',
   },
   {
+    id: 'kubernetes',
+    title: 'Kubernetes',
+    icon: 'simple-icons:kubernetes',
+    href: '/plugins/kubernetes/',
+    category: 'secrets',
+  },
+  {
     id: 'macos-keychain',
     title: 'macOS Keychain',
     icon: 'simple-icons:apple',
@@ -353,6 +367,14 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
     title: 'direnv',
     icon: 'mdi:folder-home-outline',
     href: '/integrations/direnv/',
+    category: 'deployments',
+  },
+  {
+    id: 'mise',
+    title: 'mise',
+    // local brand mark (simple-icons has no mise) — monochrome, themes like the other tiles
+    icon: 'mise-logo',
+    href: '/integrations/mise/',
     category: 'deployments',
   },
 ];

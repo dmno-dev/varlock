@@ -201,10 +201,10 @@ If you are not using the `varlockNextConfigPlugin`, only `process.env` will work
 
 ### Type-safety and IntelliSense
 
-To enable type-safety and IntelliSense for your env vars, enable the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
+To enable type-safety and IntelliSense for your env vars, enable the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
 
 ```diff lang="env-spec" title=".env.schema"
-+# @generateTypes(lang='ts', path='env.d.ts')
++# @generateTsTypes(path='env.d.ts')
 # ---
 # your config items...
 ```
@@ -379,7 +379,7 @@ Almost all setup issues come down to the `@next/env` override not being applied.
   <br/>💡 Turbopack on those versions cannot apply JS loaders (which varlock uses) to edge-context files like middleware without breaking dev page rendering. Upgrade to `next@^15.5` (where varlock scopes its loader away from edge files automatically) or Next 16 (which fixed the underlying issue), or run `next dev` without `--turbopack`.
 - ❌ `Property 'SOMEVAR' does not exist on type 'TypedEnvSchema'`
   <br/>💡 If the item does exist in your schema, then the generated types are not being loaded properly by TypeScript
-  - make sure the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) is enabled
+  - make sure the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) is enabled
   - ensure the path to the generated types file is included in your `tsconfig.json`
 
 

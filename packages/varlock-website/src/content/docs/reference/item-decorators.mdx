@@ -116,7 +116,7 @@ PUBLIC_API_URL=https://api.example.com
 ### `@internal`
 **Value type:** `boolean`
 
-Marks an item as used **only internally by varlock** — not by your application. Internal items are still resolved and can be referenced by other items (e.g. via [`ref()`](/reference/functions/#ref) or string expansion), but they are **excluded** from everything that reaches your app: the injected env vars, the [serialized graph](/reference/root-decorators/#generatetypes) blob, and generated types.
+Marks an item as used **only internally by varlock** — not by your application. Internal items are still resolved and can be referenced by other items (e.g. via [`ref()`](/reference/functions/#ref) or string expansion), but they are **excluded** from everything that reaches your app: the injected env vars, the [serialized graph](/reference/reserved-variables/#__varlock_env) blob, and generated types.
 
 The most common use is a "secret zero" — a credential used only to fetch _other_ secrets (for example a vault/secrets-manager token). Your application never needs it, and keeping it out of the process environment reduces your attack surface.
 
@@ -184,7 +184,7 @@ SECRET_KEY=
 ### `@docs()`
 **Arg types:** `[ url: string ] | [ description: string, url: string ]`
 
-URL of documentation related to the item. Will be included in [generated types](/reference/root-decorators/#generatetypes). _Can be called multiple times._
+URL of documentation related to the item. Will be included in [generated types](/reference/root-decorators/#code-generation). _Can be called multiple times._
 
 ```env-spec
 # @docs(https://xyz.com/docs/api-keys)
