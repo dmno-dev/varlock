@@ -7,8 +7,6 @@ import { WORKS_WITH_TILES } from './works-with-tiles';
 /** Pages without a homepage tile */
 const EXTRA_PAGE_ICONS: Record<string, string> = {
   'plugins/kubernetes': 'simple-icons:kubernetes',
-  'integrations/python': 'simple-icons:python',
-  'integrations/mise': 'mdi:chef-hat',
 };
 
 /**
