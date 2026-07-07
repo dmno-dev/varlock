@@ -1,5 +1,7 @@
 # @varlock/doppler-plugin
 
+[![npm version](https://img.shields.io/npm/v/@varlock/doppler-plugin.svg)](https://npmx.dev/package/@varlock/doppler-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/doppler-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+
 Load secrets from [Doppler](https://www.doppler.com/) into your Varlock configuration.
 
 ## Features

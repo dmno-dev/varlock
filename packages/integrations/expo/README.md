@@ -1,5 +1,7 @@
 # @varlock/expo-integration
 
+[![npm version](https://img.shields.io/npm/v/@varlock/expo-integration.svg)](https://npmx.dev/package/@varlock/expo-integration) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/expo-integration.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+
 This package helps you integrate [varlock](https://varlock.dev) into an [Expo](https://expo.dev) or [React Native CLI](https://github.com/react-native-community/cli) project.
 
 It provides a **Babel plugin** for compile-time replacement of `ENV.xxx` references, and a **Metro config wrapper** that initializes the `ENV` proxy at runtime for server routes (Expo Router `+api` files).
