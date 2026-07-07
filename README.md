@@ -122,6 +122,8 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 | [@varlock/aws-secrets-plugin](packages/plugins/aws-secrets) | [![npm version](https://img.shields.io/npm/v/@varlock/aws-secrets-plugin.svg)](https://npmx.dev/package/@varlock/aws-secrets-plugin) |
 | [@varlock/azure-key-vault-plugin](packages/plugins/azure-key-vault) | [![npm version](https://img.shields.io/npm/v/@varlock/azure-key-vault-plugin.svg)](https://npmx.dev/package/@varlock/azure-key-vault-plugin) |
 | [@varlock/bitwarden-plugin](packages/plugins/bitwarden) | [![npm version](https://img.shields.io/npm/v/@varlock/bitwarden-plugin.svg)](https://npmx.dev/package/@varlock/bitwarden-plugin) |
+| [@varlock/dashlane-plugin](packages/plugins/dashlane) | [![npm version](https://img.shields.io/npm/v/@varlock/dashlane-plugin.svg)](https://npmx.dev/package/@varlock/dashlane-plugin) |
+| [@varlock/doppler-plugin](packages/plugins/doppler) | [![npm version](https://img.shields.io/npm/v/@varlock/doppler-plugin.svg)](https://npmx.dev/package/@varlock/doppler-plugin) |
 | [@varlock/google-secret-manager-plugin](packages/plugins/google-secret-manager) | [![npm version](https://img.shields.io/npm/v/@varlock/google-secret-manager-plugin.svg)](https://npmx.dev/package/@varlock/google-secret-manager-plugin) |
 | [@varlock/hashicorp-vault-plugin](packages/plugins/hashicorp-vault) | [![npm version](https://img.shields.io/npm/v/@varlock/hashicorp-vault-plugin.svg)](https://npmx.dev/package/@varlock/hashicorp-vault-plugin) |
 | [@varlock/infisical-plugin](packages/plugins/infisical) | [![npm version](https://img.shields.io/npm/v/@varlock/infisical-plugin.svg)](https://npmx.dev/package/@varlock/infisical-plugin) |
@@ -135,6 +137,8 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 | Package | Published listing page |
 | --- | --- |
 | [@varlock/astro-integration](packages/integrations/astro) | [![npm version](https://img.shields.io/npm/v/@varlock/astro-integration.svg)](https://npmx.dev/package/@varlock/astro-integration) |
+| [@varlock/cloudflare-integration](packages/integrations/cloudflare) | [![npm version](https://img.shields.io/npm/v/@varlock/cloudflare-integration.svg)](https://npmx.dev/package/@varlock/cloudflare-integration) |
+| [@varlock/expo-integration](packages/integrations/expo) | [![npm version](https://img.shields.io/npm/v/@varlock/expo-integration.svg)](https://npmx.dev/package/@varlock/expo-integration) |
 | [@varlock/nextjs-integration](packages/integrations/nextjs) | [![npm version](https://img.shields.io/npm/v/@varlock/nextjs-integration.svg)](https://npmx.dev/package/@varlock/nextjs-integration) |
 | [@varlock/vite-integration](packages/integrations/vite) | [![npm version](https://img.shields.io/npm/v/@varlock/vite-integration.svg)](https://npmx.dev/package/@varlock/vite-integration) |
 
