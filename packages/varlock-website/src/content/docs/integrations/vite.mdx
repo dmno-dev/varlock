@@ -12,7 +12,7 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
   <Badge npmPackage="@varlock/vite-integration" />
 </div>
 
-Some frameworks use Vite under the hood, and some projects use Vite directly. Either way, often there is some [automatic loading of .env files](https://vite.dev/guide/env-and-mode.html) happening, but it is fairly limited. To integrate varlock into a Vite-powered application, you must use our [`@varlock/vite-integration`](https://www.npmjs.com/package/@varlock/vite-integration) package, which is a [Vite plugin](https://vite.dev/guide/using-plugins.html).
+Some frameworks use Vite under the hood, and some projects use Vite directly. Either way, often there is some [automatic loading of .env files](https://vite.dev/guide/env-and-mode.html) happening, but it is fairly limited. To integrate varlock into a Vite-powered application, you must use our [`@varlock/vite-integration`](https://npmx.dev/package/@varlock/vite-integration) package, which is a [Vite plugin](https://vite.dev/guide/using-plugins.html).
 
 This plugin does a few things:
 - Loading and validating your .env files using varlock, injecting resolved env into process.env at build/dev time

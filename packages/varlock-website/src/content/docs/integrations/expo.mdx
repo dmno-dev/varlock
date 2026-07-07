@@ -14,7 +14,7 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
 
 Expo and [React Native CLI](https://github.com/react-native-community/cli) projects both use the [Metro bundler](https://metrobundler.dev/), which has its own approach to environment variables. Varlock integrates via a **Babel plugin** that replaces `ENV.xxx` references with their resolved values at compile time, and a **Metro config wrapper** that initializes the `ENV` proxy at runtime.
 
-Both stacks use the same [`@varlock/expo-integration`](https://www.npmjs.com/package/@varlock/expo-integration) package. Only the Babel preset and Metro base config differ between Expo and React Native CLI projects.
+Both stacks use the same [`@varlock/expo-integration`](https://npmx.dev/package/@varlock/expo-integration) package. Only the Babel preset and Metro base config differ between Expo and React Native CLI projects.
 
 This integration does a few things:
 - Loads and validates your `.env` files using varlock at bundle time
