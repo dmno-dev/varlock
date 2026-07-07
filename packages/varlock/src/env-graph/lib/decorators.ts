@@ -404,8 +404,8 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
         const createMissingResolver = argsVal.objArgs.createMissing;
         if (createMissingResolver?.isStatic) {
           const cmVal = createMissingResolver.staticValue;
-          if (cmVal !== true && cmVal !== false) {
-            throw new SchemaError('@setValuesBulk: createMissing must be true or false');
+          if (cmVal !== true && cmVal !== false && cmVal !== 'sensitive') {
+            throw new SchemaError('@setValuesBulk: createMissing must be true, false, or "sensitive"');
           }
         }
       }
@@ -445,6 +445,9 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
       const dataString = resolved.arr[0];
       const format = resolved.obj?.format as string | undefined;
       const createMissing = resolved.obj?.createMissing ?? false;
+      if (createMissing !== true && createMissing !== false && createMissing !== 'sensitive') {
+        throw new SchemaError('@setValuesBulk: createMissing must be true, false, or "sensitive"');
+      }
 
       if (dataString === undefined || dataString === null || dataString === '') {
         return; // empty data is a no-op
@@ -491,11 +494,14 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
           };
         }
 
-        // if key doesn't exist in configSchema and createMissing is true, create a new ConfigItem
+        // if key doesn't exist in configSchema and createMissing is truthy, create a new ConfigItem
         if (!existsInSchema && createMissing) {
           const newItem = new ConfigItem(graph, key);
           graph.configSchema[key] = newItem;
           await newItem.process();
+          // createMissing="sensitive" forces created items to be sensitive, overriding
+          // whatever @defaultSensitive / prefix rules would otherwise infer
+          if (createMissing === 'sensitive') newItem._forceSensitive = true;
         }
       }
     },

@@ -169,7 +169,7 @@ IMPORTED_ITEM=overridden-value
 <div>
 ### `@setValuesBulk()`
 **Arg types:** `[ data: string ]`
-**Named args:** `format?: "json" | "env"`, `createMissing?: boolean`, `enabled?: boolean`, `pick?: string[]`, `omit?: string[]`
+**Named args:** `format?: "json" | "env"`, `createMissing?: boolean | "sensitive"`, `enabled?: boolean`, `pick?: string[]`, `omit?: string[]`
 
 Injects multiple config values at once from an external data source. The first argument is a resolver that produces a string, typically a bulk resolver from a [secrets provider plugin](/plugins/overview/) such as [`opLoadEnvironment()`](/plugins/1password/#oploadenvironment) (1Password), [`infisicalBulk()`](/plugins/infisical/), or [`vaultSecret(…, raw=true)`](/plugins/hashicorp-vault/) (HashiCorp Vault). The string is parsed and injected as definitions within the file containing the decorator.
 
@@ -177,7 +177,7 @@ Bulk values participate in the normal file override chain: `process.env` still o
 
 **Options:**
 - `format`: How to parse the data string. `json` expects a flat JSON object, `env` expects `.env` file format. If not specified, auto-detected by checking if the string starts with `{`.
-- `createMissing`: If `true`, keys in the bulk data that don't already exist in your schema will be created as new config items. Defaults to `false` (unknown keys are silently skipped).
+- `createMissing`: If `true`, keys in the bulk data that don't already exist in your schema will be created as new config items. Set to `"sensitive"` to also mark every created item as sensitive, so their values are redacted in `varlock load` output regardless of any `@defaultSensitive` setting. Defaults to `false` (unknown keys are silently skipped).
 - `enabled`: If `false`, the bulk data resolver is skipped entirely. Accepts any boolean expression, including dynamic references to other config items. Defaults to `true`.
 - `pick`: An array of key names to inject, an **allowlist**. Only matching keys are injected; everything else from the source is ignored.
 - `omit`: An array of key names to skip, a **denylist**. Every key _except_ the matches is injected.
