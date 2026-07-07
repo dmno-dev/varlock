@@ -59,6 +59,16 @@ This is a monorepo managed with bun workspaces and Turborepo:
 - When pushing new commits to an open PR, update the PR description if the changes alter what it says
 - If a change affects user-facing behavior, update the docs in `packages/varlock-website/src/content/docs/` (guides and/or reference) in the same PR
 
+## Documentation
+
+Docs content lives in `packages/varlock-website/src/content/docs/` (`.mdx`). When writing or editing docs prose, keep the tone plain and direct, like an engineer wrote it:
+
+- No em dashes (`—`). Rewrite into separate sentences, commas, colons, or parentheses instead. Do not swap in a spaced hyphen (` - `). (En dashes for genuine numeric ranges like `15.0–15.4` are fine.)
+- Avoid marketing and AI-flavored filler: `seamless`, `comprehensive`, `powerful`, `robust`, `leverage`, `out of the box`, `by design`, `effortless`, `unlock` (metaphorical), "whether you need X, Y, or Z", "instead of wrestling with", and similar. Say what the thing does plainly.
+- Be concise, but never at the cost of completeness. Keep every flag, command, caveat, and link a user or their agent needs to stay unblocked.
+- Never edit code fences, `ansi`/`diff` blocks, generated fixtures, frontmatter structure, or MDX component markup for tone. Prose only.
+- Run `bun run --filter varlock-website astro build` to confirm the docs still build after non-trivial edits.
+
 ## Linting
 
 - Run **`bun run lint:fix`** from the repo root after completing a significant chunk of work (new feature, refactor, bug fix, etc.)
