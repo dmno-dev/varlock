@@ -15,6 +15,7 @@ import { CliExitError } from '../helpers/exit-error';
 import { multiselect, password } from '../helpers/prompts';
 import { gracefulExit } from 'exit-hook';
 import * as localEncrypt from '../../lib/local-encrypt';
+import { buildVarlockReference } from '../../lib/local-encrypt/builtin-resolver';
 import { writeBackValue } from '../../lib/local-encrypt/write-back';
 
 export const commandSpec = define({
@@ -23,12 +24,7 @@ export const commandSpec = define({
   args: {
     'key-id': {
       type: 'string',
-      description: 'Encryption key ID',
-      default: 'varlock-default',
-      // Hidden until multi-key round-trips: the varlock("local:...") reference does not
-      // encode a keyId, and the load-time resolver always decrypts with the default key,
-      // so encrypting with a non-default key produces values that cannot be loaded back.
-      hidden: true,
+      description: 'Encryption key id (defaults to the project\'s @defaultLocalKey, or "varlock-default")',
     },
     file: {
       type: 'string',
@@ -42,14 +38,32 @@ producing a varlock("local:...") reference that is safe to commit.
 Single-value mode reads from stdin (or prompts interactively) so secrets stay out of
 shell history. --file mode encrypts all @sensitive plaintext values in a .env file in place.
 
+The encryption key defaults to the project's @defaultLocalKey root decorator (or
+"varlock-default"). Passing a different --key-id emits a reference with an explicit
+key= arg so it round-trips at load time.
+
 Examples:
   echo "$MY_SECRET" | varlock encrypt    # Encrypt a value from stdin (non-interactive, agent-friendly)
   varlock encrypt                        # Prompt interactively for a value
   varlock encrypt --file .env.local      # Encrypt @sensitive plaintext values in a file in-place
+  varlock encrypt --key-id ci            # Encrypt with a specific key (see \`varlock keys\`)
 `.trim(),
 });
 
-async function encryptFile(keyId: string, filePath: string) {
+/**
+ * Read the project's default local key (@defaultLocalKey) — best-effort, since
+ * `varlock encrypt` can be run outside any project.
+ */
+async function getProjectDefaultKeyId(): Promise<string> {
+  try {
+    const envGraph = await loadVarlockEnvGraph();
+    return envGraph.defaultLocalKeyId;
+  } catch {
+    return 'varlock-default';
+  }
+}
+
+async function encryptFile(explicitKeyId: string | undefined, filePath: string) {
   const resolvedPath = path.resolve(filePath);
   if (!fs.existsSync(resolvedPath)) {
     throw new CliExitError(`File not found: ${resolvedPath}`);
@@ -58,6 +72,12 @@ async function encryptFile(keyId: string, filePath: string) {
   // Load the full env graph and resolve to get sensitivity info from the schema
   const envGraph = await loadVarlockEnvGraph();
   await envGraph.resolveEnvValues();
+
+  const projectDefaultKeyId = envGraph.defaultLocalKeyId;
+  const keyId = explicitKeyId ?? projectDefaultKeyId;
+  // only a non-default explicit key needs to be recorded in the written reference
+  const referenceKeyId = keyId !== projectDefaultKeyId ? keyId : undefined;
+  await localEncrypt.ensureKey(keyId);
 
   // Find the data source matching the target file
   const targetSource = envGraph.sortedDataSources.find(
@@ -121,7 +141,7 @@ async function encryptFile(keyId: string, filePath: string) {
   let encryptedCount = 0;
   for (const item of filteredItems) {
     const ciphertext = await localEncrypt.encryptValue(item.value, keyId);
-    const result = writeBackValue(item.key, `varlock("local:${ciphertext}")`, resolvedPath);
+    const result = writeBackValue(item.key, buildVarlockReference(ciphertext, referenceKeyId), resolvedPath);
 
     if (result.updated) {
       encryptedCount++;
@@ -133,8 +153,30 @@ async function encryptFile(keyId: string, filePath: string) {
 }
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
-  const keyId = String(ctx.values['key-id'] || 'varlock-default');
+  const explicitKeyId = ctx.values['key-id'] ? String(ctx.values['key-id']) : undefined;
+  if (explicitKeyId && !localEncrypt.isValidKeyId(explicitKeyId)) {
+    throw new CliExitError(`"${explicitKeyId}" is not a valid key id`, {
+      suggestion: localEncrypt.KEY_ID_REQUIREMENTS_MESSAGE,
+    });
+  }
   const backend = localEncrypt.getBackendInfo();
+
+  const filePath = ctx.values.file;
+
+  // --file mode: encrypt all sensitive plaintext values in a .env file.
+  // It loads the graph itself (to read the project default key + sensitivity), so
+  // hand off before doing the single-value key/ensureKey work below.
+  if (filePath) {
+    await encryptFile(explicitKeyId, filePath);
+    return;
+  }
+
+  // Single-value mode. Resolve the effective key: explicit --key-id, else the
+  // project's @defaultLocalKey (best-effort — encrypt may run outside a project).
+  const projectDefaultKeyId = await getProjectDefaultKeyId();
+  const keyId = explicitKeyId ?? projectDefaultKeyId;
+  // only a non-default explicit key needs to be recorded in the emitted reference
+  const referenceKeyId = keyId !== projectDefaultKeyId ? keyId : undefined;
 
   try {
     await localEncrypt.ensureKey(keyId);
@@ -145,7 +187,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     );
   }
 
-  console.log(`Using ${backend.type} backend (${backend.hardwareBacked ? 'hardware-backed' : 'file-based'})`);
+  console.log(`Using ${backend.type} backend (${backend.hardwareBacked ? 'hardware-backed' : 'file-based'})${keyId !== 'varlock-default' ? ` with key "${keyId}"` : ''}`);
 
   // Hardware-backed but no presence gate → decryption is unattended (headless/CI hosts).
   if (backend.hardwareBacked && !backend.biometricAvailable) {
@@ -159,14 +201,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       '\nNote: no presence gate is configured, so values decrypt unattended (suitable for headless/CI hosts).'
       + `\nThis protects secrets at rest, but not against a process already running as your user.${platformHint}`,
     );
-  }
-
-  const filePath = ctx.values.file;
-
-  // --file mode: encrypt all sensitive plaintext values in a .env file
-  if (filePath) {
-    await encryptFile(keyId, filePath);
-    return;
   }
 
   // Single-value mode — read from stdin if piped, otherwise prompt interactively.
@@ -216,5 +250,5 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   console.log('\nCopy this into your .env.local file and rename the key appropriately:\n');
-  console.log(`SOME_SENSITIVE_KEY=varlock("local:${ciphertext}")`);
+  console.log(`SOME_SENSITIVE_KEY=${buildVarlockReference(ciphertext, referenceKeyId)}`);
 };

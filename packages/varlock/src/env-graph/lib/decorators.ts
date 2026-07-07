@@ -316,6 +316,21 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     },
   },
   {
+    // sets the default local encryption key used by varlock("local:...") values
+    // and the encrypted disk cache. Must be static — it is consumed before any
+    // values resolve (cache store construction), so it cannot reference other items.
+    name: 'defaultLocalKey',
+    process: async (decVal) => {
+      if (!decVal.isStatic || typeof decVal.staticValue !== 'string' || !decVal.staticValue) {
+        throw new Error('@defaultLocalKey must be set to a static, non-empty string (a local encryption key id)');
+      }
+      const { isValidKeyId, KEY_ID_REQUIREMENTS_MESSAGE } = await import('../../lib/local-encrypt');
+      if (!isValidKeyId(decVal.staticValue)) {
+        throw new Error(`@defaultLocalKey is not a valid key id - ${KEY_ID_REQUIREMENTS_MESSAGE}`);
+      }
+    },
+  },
+  {
     name: 'disable',
   },
   // NOTE: `@generate*` decorators (@generateTsTypes, @generatePythonEnv, the deprecated

@@ -23,6 +23,8 @@ const PLUGIN_ICON = 'mdi:fingerprint';
 
 type VarlockBatchEntry = {
   kind: 'prompt' | 'decrypt';
+  /** effective local encryption key id for this entry */
+  keyId: string;
   resolve: (value: string) => void;
   reject: (reason: unknown) => void;
 } & (
@@ -46,18 +48,18 @@ function enqueueBatchEntry(entry: VarlockBatchEntry) {
   }
 }
 
-function enqueueDecrypt(ciphertext: string): Promise<string> {
+function enqueueDecrypt(ciphertext: string, keyId: string): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     enqueueBatchEntry({
-      kind: 'decrypt', ciphertext, resolve, reject,
+      kind: 'decrypt', ciphertext, keyId, resolve, reject,
     });
   });
 }
 
-function enqueuePrompt(execute: () => Promise<string>): Promise<string> {
+function enqueuePrompt(keyId: string, execute: () => Promise<string>): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     enqueueBatchEntry({
-      kind: 'prompt', execute, resolve, reject,
+      kind: 'prompt', keyId, execute, resolve, reject,
     });
   });
 }
@@ -79,14 +81,20 @@ async function executeBatch() {
     return a.kind === 'prompt' ? -1 : 1;
   });
 
-  // Ensure encryption key exists before processing any items
-  await localEncrypt.ensureKey();
+  // Ensure keys used for encryption (prompt mode) exist before processing.
+  // Decrypt keys are deliberately NOT auto-created: a value encrypted with a
+  // missing key can never decrypt, and generating a fresh key here would only
+  // pollute the key store and turn "key not found" into a confusing crypto error.
+  const promptKeyIds = new Set(batch.filter((e) => e.kind === 'prompt').map((e) => e.keyId));
+  for (const keyId of promptKeyIds) {
+    await localEncrypt.ensureKey(keyId);
+  }
 
   for (let i = 0; i < batch.length; i++) {
     const entry = batch[i];
     try {
       if (entry.kind === 'decrypt') {
-        const plaintext = await localEncrypt.decryptValue(entry.ciphertext);
+        const plaintext = await localEncrypt.decryptValue(entry.ciphertext, entry.keyId);
         entry.resolve(plaintext);
       } else {
         const result = await entry.execute();
@@ -111,19 +119,34 @@ async function executeBatch() {
 type VarlockResolverState = {
   mode: 'decrypt';
   payload: string;
+  /** key id from an explicit key= arg (project/default fallback applied at resolve time) */
+  explicitKeyId?: string;
 } | {
   mode: 'prompt';
   itemKey: string;
   sourceFilePath: string | undefined;
+  explicitKeyId?: string;
 };
+
+/** Build the reference string written back into env files */
+export function buildVarlockReference(ciphertext: string, explicitKeyId?: string) {
+  const prefixedCiphertext = `${LOCAL_PREFIX}${ciphertext}`;
+  // only an explicit key= arg is written back — the project default
+  // (@defaultLocalKey) is applied at load time, keeping references portable
+  // within the project
+  if (explicitKeyId) {
+    return `varlock("${prefixedCiphertext}", key="${explicitKeyId}")`;
+  }
+  return `varlock("${prefixedCiphertext}")`;
+}
 
 function writeBackEncryptedValue(
   itemKey: string,
   ciphertext: string,
   sourceFilePath: string | undefined,
+  explicitKeyId?: string,
 ) {
-  const prefixedCiphertext = `${LOCAL_PREFIX}${ciphertext}`;
-  return writeBackValue(itemKey, `varlock("${prefixedCiphertext}")`, sourceFilePath);
+  return writeBackValue(itemKey, buildVarlockReference(ciphertext, explicitKeyId), sourceFilePath);
 }
 
 
@@ -137,6 +160,21 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
     arrayMinLength: 0,
   },
   process(): VarlockResolverState {
+    // Optional key= arg selects a non-default local encryption key,
+    // e.g. varlock("local:...", key="ci"). Must be static — key selection
+    // happens before values resolve.
+    let explicitKeyId: string | undefined;
+    const keyArg = this.objArgs?.key;
+    if (keyArg) {
+      if (!keyArg.isStatic || typeof keyArg.staticValue !== 'string' || !keyArg.staticValue) {
+        throw new SchemaError('varlock() key argument must be a static, non-empty string (a local encryption key id)');
+      }
+      if (!localEncrypt.isValidKeyId(keyArg.staticValue)) {
+        throw new SchemaError(`varlock() key argument is not a valid key id - ${localEncrypt.KEY_ID_REQUIREMENTS_MESSAGE}`);
+      }
+      explicitKeyId = keyArg.staticValue;
+    }
+
     // Check for prompt mode: varlock(prompt=1) or varlock(prompt)
     const promptArg = this.objArgs?.prompt;
     const isPromptPositional = this.arrArgs?.length === 1
@@ -148,7 +186,9 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
       const itemKey = parent?.key || 'unknown';
       const dataSource = this.dataSource as any;
       const sourceFilePath = dataSource?.fullPath as string | undefined;
-      return { mode: 'prompt', itemKey, sourceFilePath };
+      return {
+        mode: 'prompt', itemKey, sourceFilePath, explicitKeyId,
+      };
     }
 
     // Normal mode: varlock("encrypted-payload")
@@ -162,27 +202,35 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
     if (typeof payload !== 'string') {
       throw new SchemaError('varlock() expects a string argument');
     }
-    return { mode: 'decrypt', payload };
+    return { mode: 'decrypt', payload, explicitKeyId };
   },
   async resolve(state: VarlockResolverState) {
+    // Effective key: explicit key= arg > @defaultLocalKey root decorator > built-in default
+    const graphDefaultKeyId = (this as any).envGraph?.defaultLocalKeyId as string | undefined;
+    const keyId = state.explicitKeyId ?? graphDefaultKeyId ?? 'varlock-default';
+
     if (state.mode === 'decrypt') {
       let ciphertext = state.payload;
       if (ciphertext.startsWith(LOCAL_PREFIX)) {
         ciphertext = ciphertext.slice(LOCAL_PREFIX.length);
       }
       try {
-        return await enqueueDecrypt(ciphertext);
+        return await enqueueDecrypt(ciphertext, keyId);
       } catch (err) {
         // Re-throw ResolutionErrors (e.g. batch cancellation) as-is
         if (err instanceof ResolutionError) throw err;
 
         const backend = localEncrypt.getBackendInfo();
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const keyMissing = /not found/i.test(errMsg);
         throw new ResolutionError(
-          `Decryption failed: ${err instanceof Error ? err.message : err}`,
+          `Decryption failed: ${errMsg}`,
           {
             tip: [
               `Backend: ${backend.type} (${backend.hardwareBacked ? 'hardware-backed' : 'file-based'})`,
-              'This usually means the value was encrypted with a different key or backend.',
+              keyMissing
+                ? `This value was encrypted with key "${keyId}", which does not exist on this device. Local keys are device-bound — create it with \`varlock keys create ${keyId}\` and re-encrypt, or set a new value.`
+                : 'This usually means the value was encrypted with a different key or backend.',
               'Set a new value using `varlock encrypt` or `KEY=varlock(prompt)`.',
             ].join('\n'),
           },
@@ -192,8 +240,8 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
 
     // Prompt mode: enqueued into the unified batch so prompts run before decrypts
     // and cancellation propagates to all remaining items.
-    const { itemKey, sourceFilePath } = state;
-    return enqueuePrompt(async () => {
+    const { itemKey, sourceFilePath, explicitKeyId } = state;
+    return enqueuePrompt(keyId, async () => {
       const backend = localEncrypt.getBackendInfo();
 
       // Use daemon's native dialog on macOS Secure Enclave
@@ -201,6 +249,7 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
         const client = localEncrypt.getDaemonClient();
         const ciphertext = await client.promptSecret({
           itemKey,
+          keyId,
           message: `Enter the secret value for ${itemKey}:`,
         });
 
@@ -210,7 +259,7 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
           });
         }
 
-        const writeBackResult = writeBackEncryptedValue(itemKey, ciphertext, sourceFilePath);
+        const writeBackResult = writeBackEncryptedValue(itemKey, ciphertext, sourceFilePath, explicitKeyId);
         if (!writeBackResult.updated) {
           if (writeBackResult.reason === 'missing-source-file') {
             throw new ResolutionError(`Unable to persist encrypted value for ${itemKey}`, {
@@ -223,7 +272,7 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
           });
         }
 
-        return localEncrypt.decryptValue(ciphertext);
+        return localEncrypt.decryptValue(ciphertext, keyId);
       }
 
       // Terminal prompt for file-based backend
@@ -244,8 +293,8 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
         });
       }
 
-      const ciphertext = await localEncrypt.encryptValue(rawValue);
-      const writeBackResult = writeBackEncryptedValue(itemKey, ciphertext, sourceFilePath);
+      const ciphertext = await localEncrypt.encryptValue(rawValue, keyId);
+      const writeBackResult = writeBackEncryptedValue(itemKey, ciphertext, sourceFilePath, explicitKeyId);
 
       if (!writeBackResult.updated) {
         if (writeBackResult.reason === 'missing-source-file') {

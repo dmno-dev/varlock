@@ -64,10 +64,21 @@ export interface KeychainSetResult {
   updated: boolean;
 }
 
+/** Per-key metadata reported by a native binary (status / list-keys) */
+export interface NativeKeyDetail {
+  keyId: string;
+  /** Should decrypts of this key require user-presence verification when a gate is available? */
+  requireAuth: boolean;
+  protection?: string;
+  createdAt?: string;
+}
+
 /** Result from the status command of a native binary */
 export interface NativeStatusResult {
   backend: string;
   hardwareBacked: boolean;
   biometricAvailable: boolean;
   keys: Array<string>;
+  /** Present on binaries that support per-key metadata (older binaries omit it) */
+  keyDetails?: Array<NativeKeyDetail>;
 }

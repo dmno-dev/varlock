@@ -16,11 +16,21 @@ import { resolveNativeBinary } from './binary-resolver';
 import { DaemonClient } from './daemon-client';
 import * as fileBackend from './file-backend';
 import { isWSL } from './wsl-detect';
-import type { BackendInfo, BackendType, NativeStatusResult } from './types';
+import type {
+  BackendInfo, BackendType, NativeKeyDetail, NativeStatusResult,
+} from './types';
 
-export type { BackendInfo, BackendType } from './types';
+export type { BackendInfo, BackendType, NativeKeyDetail } from './types';
 
 const DEFAULT_KEY_ID = 'varlock-default';
+export { DEFAULT_KEY_ID };
+
+/** Key ids become filenames in the key store, so restrict to a safe charset */
+const KEY_ID_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+export function isValidKeyId(keyId: string): boolean {
+  return KEY_ID_REGEX.test(keyId);
+}
+export const KEY_ID_REQUIREMENTS_MESSAGE = 'key ids must start with a letter or number and contain only letters, numbers, ".", "_", and "-"';
 
 /** Debug logger — prints to stderr when VARLOCK_DEBUG is set */
 function debug(msg: string) {
@@ -297,6 +307,8 @@ function runNativeBinaryJson<T = Record<string, unknown>>(
 let cachedBackendInfo: BackendInfo | undefined;
 /** Keys reported by the status command — avoids a separate key-exists .exe spawn on WSL2 */
 let cachedStatusKeys: Array<string> | undefined;
+/** Per-key metadata reported by the status command (older binaries omit it) */
+let cachedKeyDetails: Array<NativeKeyDetail> | undefined;
 
 function detectBackendType(): { type: BackendType; isFileFallback: boolean } {
   const binaryPath = resolveNativeBinary();
@@ -331,6 +343,7 @@ export function getBackendInfo(): BackendInfo {
       const status = runNativeBinaryJson<NativeStatusResult>(['status']);
       debug(`getBackendInfo: status result: hardwareBacked=${status.hardwareBacked}, biometricAvailable=${status.biometricAvailable}, backend=${status.backend}, keys=${status.keys?.join(',')}`);
       cachedStatusKeys = status.keys;
+      cachedKeyDetails = status.keyDetails;
       cachedBackendInfo = {
         type,
         platform: process.platform,
@@ -403,21 +416,62 @@ export function keyExists(keyId: string = DEFAULT_KEY_ID): boolean {
   return result.exists;
 }
 
+/**
+ * Whether decrypts of this key should require user-presence verification
+ * (when the machine has a gate at all). Unknown keys and keys from older
+ * binaries without per-key metadata default to true — prompting is the
+ * safe direction to fail in.
+ */
+function keyRequiresAuth(keyId: string): boolean {
+  const detail = cachedKeyDetails?.find((d) => d.keyId === keyId);
+  return detail?.requireAuth ?? true;
+}
+
 /** Generate a new encryption key. */
-export async function generateKey(keyId: string = DEFAULT_KEY_ID): Promise<{ keyId: string; publicKey: string }> {
+export async function generateKey(
+  keyId: string = DEFAULT_KEY_ID,
+  opts?: { requireAuth?: boolean },
+): Promise<{ keyId: string; publicKey: string }> {
   const backend = getBackendInfo();
   if (backend.type === 'file') {
     warnIfFileFallback(backend);
+    // requireAuth is not applicable to the file backend (it has no presence gate)
     return fileBackend.generateKey(keyId);
   }
-  return runNativeBinaryJson<{ keyId: string; publicKey: string }>(['generate-key', '--key-id', keyId]);
+  const requireAuth = opts?.requireAuth ?? true;
+  const args = ['generate-key', '--key-id', keyId];
+  if (!requireAuth) args.push('--no-auth');
+  const result = runNativeBinaryJson<{ keyId: string; publicKey: string }>(args);
+  // Keep the status-derived caches coherent so key lookups in this same
+  // process (keyExists, decrypt routing) see the new key immediately
+  cachedStatusKeys?.push(keyId);
+  cachedKeyDetails?.push({ keyId, requireAuth });
+  return result;
 }
 
 /** Ensure a key exists, generating one if necessary. */
-export async function ensureKey(keyId: string = DEFAULT_KEY_ID): Promise<void> {
+export async function ensureKey(
+  keyId: string = DEFAULT_KEY_ID,
+  opts?: { requireAuth?: boolean },
+): Promise<void> {
   if (!keyExists(keyId)) {
-    await generateKey(keyId);
+    await generateKey(keyId, opts);
   }
+}
+
+/**
+ * List all local encryption keys with their metadata.
+ * Queries the native binary fresh (not the status cache) so CLI listings reflect current state.
+ */
+export function listKeyDetails(): Array<NativeKeyDetail> {
+  const backend = getBackendInfo();
+  if (backend.type === 'file') {
+    // The file backend has no presence gate, so no key ever prompts
+    return fileBackend.listKeys().map((keyId) => ({ keyId, requireAuth: false }));
+  }
+  const result = runNativeBinaryJson<{ keys: Array<string>; keyDetails?: Array<NativeKeyDetail> }>(['list-keys']);
+  // Older binaries only return key ids — all their keys predate --no-auth
+  return result.keyDetails ?? result.keys.map((keyId) => ({ keyId, requireAuth: true }));
 }
 
 // ── Encrypt / Decrypt ──────────────────────────────────────────────────
@@ -467,9 +521,11 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
     return fileBackend.decryptValue(ciphertext, keyId);
   }
 
-  // Use daemon client for biometric backends (session caching)
+  // Use daemon client for biometric backends (session caching).
+  // Keys generated with --no-auth opt out of the presence gate entirely and
+  // take the one-shot path below, even when the machine has a gate.
   // In WSL2, the .exe handles daemon management internally via --via-daemon
-  if (backend.biometricAvailable) {
+  if (backend.biometricAvailable && keyRequiresAuth(keyId)) {
     if (isWSL()) {
       debug('decryptValue: WSL2 biometric decrypt via --via-daemon');
       const binaryPath = resolveNativeBinary();
@@ -533,7 +589,8 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
     return client.decrypt(ciphertext, keyId);
   }
 
-  // Non-biometric native backend (e.g., Linux TPM without polkit) — one-shot
+  // One-shot decrypt: non-biometric native backend (e.g., Linux TPM without
+  // polkit) or a key that opted out of the presence gate (--no-auth)
   debug('decryptValue: non-biometric one-shot decrypt');
   const result = runNativeBinaryJson<{ plaintext: string }>(
     ['decrypt', '--key-id', keyId, '--data', ciphertext],

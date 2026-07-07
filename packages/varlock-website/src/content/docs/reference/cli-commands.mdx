@@ -401,6 +401,7 @@ varlock encrypt [options]
 
 **Options:**
 - `--file`:    Path to a `.env` file — encrypts all sensitive plaintext values in-place
+- `--key-id`:  Encryption key id to use (defaults to the project's [`@defaultLocalKey`](/reference/root-decorators/#defaultlocalkey), or `varlock-default`). See [`varlock keys`](#keys).
 
 **Examples:**
 ```bash
@@ -413,6 +414,9 @@ varlock encrypt < secret.txt
 
 # Encrypt all sensitive plaintext values in a .env file
 varlock encrypt --file .env.local
+
+# Encrypt with a specific key (emits a key= arg so it round-trips at load)
+printf '%s' "$SECRET" | varlock encrypt --key-id ci
 ```
 
 In single-value mode, you'll either be prompted to enter a value (hidden input) or the value will be read from stdin when piped. The encrypted output is printed for you to copy into your `.env.local` file:
@@ -433,6 +437,31 @@ Use `varlock encrypt --file .env.local` after adding new secrets to quickly encr
 :::note[Alternative: prompt mode]
 Instead of encrypting values ahead of time, you can use `varlock(prompt)` as a placeholder in your `.env` files. On first load, varlock will prompt you to enter the secret and automatically replace the placeholder with the encrypted value. See the [`varlock()` function reference](/reference/functions/#varlock) for details.
 :::
+
+</div>
+
+<div>
+### `varlock keys` ||keys||
+
+Manage the device-local encryption keys behind [`varlock("local:...")`](/reference/functions/#varlock) values and the encrypted cache. Keys are device-bound (Secure Enclave / TPM / DPAPI) and never leave the machine.
+
+Each key records whether decrypting requires **presence verification** (Touch ID / Windows Hello / polkit), chosen at creation and fixed for the life of the key. See the [local encryption guide](/guides/local-encryption/#choosing-a-key).
+
+```bash
+varlock keys                       # list keys (same as `varlock keys list`)
+varlock keys list                  # list keys and their presence-gate settings
+varlock keys create <name>         # create a key that prompts on decrypt
+varlock keys create <name> --no-auth  # create a key for unattended use (servers/CI)
+```
+
+**`varlock keys create` options:**
+- `--no-auth`: Opt the key out of presence verification, so it always decrypts unattended. On macOS the key is still Secure Enclave–backed at rest; on Windows/Linux the presence gate is skipped by varlock's own decrypt flow.
+
+:::note
+Presence settings are fixed at creation. To change whether a key prompts, create a new key and re-encrypt the values that use it. A value is encrypted to one device's key, so keys don't transfer between machines.
+:::
+
+Point a project at a key with the [`@defaultLocalKey`](/reference/root-decorators/#defaultlocalkey) root decorator, or select one per-value with `varlock("local:...", key="...")`.
 
 </div>
 

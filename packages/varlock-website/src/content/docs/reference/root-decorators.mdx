@@ -111,6 +111,26 @@ OTHER_BAR=  # not sensitive (explicit)
 </div>
 
 <div>
+### `@defaultLocalKey`
+**Value type:** `string` (a [local encryption](/guides/local-encryption/) key id)
+
+Sets the default device-local encryption key used by [`varlock("local:...")`](/reference/functions/#varlock) values that don't specify their own `key=` arg, and by the [encrypted disk cache](/reference/root-decorators/#cache). Defaults to `varlock-default`.
+
+Must be a **static** string — it is read before any values resolve, so it cannot reference other items. The key itself is device-bound and is created with [`varlock keys create`](/reference/cli-commands/#keys) (or automatically on first use).
+
+Values encrypted with the project default key are written as bare `varlock("local:...")` references (the key comes from this decorator), keeping them portable within the project. A value encrypted with a different key carries an explicit `key=` arg.
+
+```env-spec
+# @defaultLocalKey=ci
+# ---
+# decrypted with the "ci" key:
+DATABASE_URL=varlock("local:...")
+# decrypted with a different key (explicit override):
+OTHER=varlock("local:...", key="deploy")
+```
+</div>
+
+<div>
 ### `@disable`
 **Value type:** `boolean`
 
