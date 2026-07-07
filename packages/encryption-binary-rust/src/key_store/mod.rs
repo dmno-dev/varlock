@@ -89,6 +89,29 @@ pub struct StoredKey {
     /// How the private key is protected
     pub protection: Protection,
     pub created_at: String,
+    /// Per-key presence-gate intent: should decrypts of this key require
+    /// user-presence verification (polkit / Windows Hello) when a gate is
+    /// available on the machine?
+    ///
+    /// This is a *policy tag* consulted by varlock's own decrypt routing —
+    /// on Windows/Linux the underlying seal is not presence-bound, so it is
+    /// consent-grade, not a cryptographic guarantee.
+    ///
+    /// `None` (legacy keys, pre-dating this field) behaves as `true`:
+    /// prompt whenever the machine has a gate — the historical behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub require_auth: Option<bool>,
+}
+
+/// Public (non-secret) metadata about a stored key, for status/list output.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyMeta {
+    pub key_id: String,
+    pub protection: Protection,
+    /// Effective presence-gate intent (legacy `None` normalized to `true`)
+    pub require_auth: bool,
+    pub created_at: String,
 }
 
 /// Information about what key protection is available on this platform.
@@ -414,7 +437,9 @@ pub fn list_keys() -> Vec<String> {
 
 /// Generate a new key pair and store it with platform-specific protection.
 /// Returns the base64 public key.
-pub fn generate_key(key_id: &str) -> Result<String, String> {
+///
+/// `require_auth` records the key's presence-gate intent (see [`StoredKey::require_auth`]).
+pub fn generate_key(key_id: &str, require_auth: bool) -> Result<String, String> {
     let key_pair = crate::crypto::generate_key_pair()?;
 
     // Decode the private key to protect it
@@ -430,11 +455,35 @@ pub fn generate_key(key_id: &str) -> Result<String, String> {
         protected_private_key: protected,
         protection,
         created_at: now_iso8601(),
+        require_auth: Some(require_auth),
     };
 
     write_stored_key(&stored)?;
 
     Ok(key_pair.public_key)
+}
+
+/// Read a key's public metadata (no secret material). Legacy keys without
+/// a `requireAuth` field normalize to `require_auth: true`.
+pub fn get_key_meta(key_id: &str) -> Result<KeyMeta, String> {
+    let path = get_key_file_path(key_id);
+    let data = fs::read_to_string(&path).map_err(|_| format!("Key not found: {key_id}"))?;
+    let stored: StoredKey =
+        serde_json::from_str(&data).map_err(|e| format!("Corrupted key file: {e}"))?;
+    Ok(KeyMeta {
+        key_id: stored.key_id,
+        protection: stored.protection,
+        require_auth: stored.require_auth.unwrap_or(true),
+        created_at: stored.created_at,
+    })
+}
+
+/// List metadata for all stored keys (skips unreadable/corrupted files).
+pub fn list_key_meta() -> Vec<KeyMeta> {
+    list_keys()
+        .iter()
+        .filter_map(|key_id| get_key_meta(key_id).ok())
+        .collect()
 }
 
 /// Re-wrap an existing key with the best available protection (e.g. DPAPI → NCrypt).
@@ -596,13 +645,50 @@ fn is_leap_year(y: i64) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{protection_rank, scalar, Protection};
+    use super::{protection_rank, scalar, Protection, StoredKey};
     use crate::crypto;
 
     #[test]
     fn protection_ncrypt_serializes_as_kebab_case() {
         let json = serde_json::to_string(&Protection::Ncrypt).unwrap();
         assert_eq!(json, "\"ncrypt\"");
+    }
+
+    #[test]
+    fn legacy_key_file_without_require_auth_deserializes_as_none() {
+        // Key files written before the requireAuth field must load cleanly
+        // and normalize to "requires auth" (the historical behavior).
+        let json = r#"{
+            "keyId": "varlock-default",
+            "publicKey": "cHVi",
+            "protectedPrivateKey": "cHJpdg==",
+            "protection": "dpapi",
+            "createdAt": "2024-01-01T00:00:00Z"
+        }"#;
+        let stored: StoredKey = serde_json::from_str(json).unwrap();
+        assert_eq!(stored.require_auth, None);
+        assert!(stored.require_auth.unwrap_or(true));
+    }
+
+    #[test]
+    fn require_auth_round_trips_and_is_omitted_when_none() {
+        let stored = StoredKey {
+            key_id: "k".into(),
+            public_key: "cHVi".into(),
+            protected_private_key: String::new(),
+            protection: Protection::None,
+            created_at: "2024-01-01T00:00:00Z".into(),
+            require_auth: Some(false),
+        };
+        let json = serde_json::to_string(&stored).unwrap();
+        assert!(json.contains("\"requireAuth\":false"));
+        let back: StoredKey = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.require_auth, Some(false));
+
+        // None must be omitted entirely (keeps legacy readers happy)
+        let legacy_style = StoredKey { require_auth: None, ..stored };
+        let json = serde_json::to_string(&legacy_style).unwrap();
+        assert!(!json.contains("requireAuth"));
     }
 
     #[test]

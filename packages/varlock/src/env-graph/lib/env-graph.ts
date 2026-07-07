@@ -522,19 +522,38 @@ export class EnvGraph {
                 { isWarning: true },
               ));
             }
-            diskStore = new CacheStore();
+            diskStore = new CacheStore(this.defaultLocalKeyId);
           }
           this._cacheMode = 'disk';
           this._cacheStore = diskStore;
         } else if (cacheMode === 'auto') {
           if (!this._cacheStore) {
             if (this._cacheMode === 'memory') this._cacheStore = new InMemoryCacheStore();
-            else if (this._cacheMode === 'disk') this._cacheStore = new CacheStore();
+            else if (this._cacheMode === 'disk') this._cacheStore = new CacheStore(this.defaultLocalKeyId);
           }
         }
       }
     } else if (this._skipCacheMode) {
       this._cacheStore = undefined;
+    }
+
+    // Thread @defaultLocalKey into the disk cache: the auto-policy store was
+    // constructed before the schema was parsed (loader.ts), so a project-level
+    // default key requires swapping it here. Only applies to localEncrypt-backed
+    // stores — an env-key store (_VARLOCK_CACHE_KEY) keeps precedence, and the
+    // key never affects memory stores.
+    {
+      const defaultLocalKey = this.defaultLocalKeyId;
+      if (defaultLocalKey !== 'varlock-default') {
+        const { CacheStore } = await import('../../lib/cache');
+        if (
+          this._cacheStore instanceof CacheStore
+          && this._cacheStore.localEncryptKeyId
+          && this._cacheStore.localEncryptKeyId !== defaultLocalKey
+        ) {
+          this._cacheStore = new CacheStore(defaultLocalKey);
+        }
+      }
     }
 
     // check declared standardVars against the environment
@@ -945,6 +964,18 @@ export class EnvGraph {
       if (dec) return dec;
     }
     return undefined;
+  }
+
+  /**
+   * Default local encryption key id for this project — set via the
+   * `@defaultLocalKey` root decorator (static-only, so it is readable as soon
+   * as schema files are parsed). Used by varlock("local:...") values without
+   * an explicit key= arg, and by the encrypted disk cache.
+   */
+  get defaultLocalKeyId(): string {
+    const dec = this.getRootDec('defaultLocalKey');
+    const val = dec?.decValueResolver?.isStatic ? dec.decValueResolver.staticValue : undefined;
+    return (typeof val === 'string' && val) ? val : 'varlock-default';
   }
   getRootDecFns(decoratorName: string) {
     const allDecs: Array<RootDecoratorInstance> = [];

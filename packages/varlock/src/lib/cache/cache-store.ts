@@ -171,9 +171,17 @@ export class CacheStore {
   private codec: CacheValueCodec;
   private static warnedWriteFailure = false;
 
+  /**
+   * Local encryption key id backing this store, or undefined when a custom
+   * codec is supplied (e.g. the env-key store). Lets the graph swap the
+   * auto-policy store when `@defaultLocalKey` selects a different key.
+   */
+  readonly localEncryptKeyId?: string;
+
   constructor(keyId: string = 'varlock-default', codec?: CacheValueCodec) {
     const cacheDir = path.join(getUserVarlockDir(), 'cache');
     this.filePath = path.join(cacheDir, `${keyId}.json`);
+    if (!codec) this.localEncryptKeyId = keyId;
     this.codec = codec ?? {
       ensureReady: () => localEncrypt.ensureKey(keyId),
       encrypt: (plaintext) => localEncrypt.encryptValue(plaintext, keyId),

@@ -27,6 +27,13 @@ final class SecureEnclaveManager {
         return keyStorePath + "/\(keyId).keydata"
     }
 
+    /// Sidecar metadata file for a key. The Secure Enclave access-control flags
+    /// can't be read back from a key's data representation, so we persist the
+    /// choice made at generation time (currently just `requireAuth`).
+    private static func metaFilePath(for keyId: String) -> String {
+        return keyStorePath + "/\(keyId).meta.json"
+    }
+
     // MARK: - Key Management
 
     /// Create a new Secure Enclave P-256 key.
@@ -87,17 +94,62 @@ final class SecureEnclaveManager {
             ofItemAtPath: filePath
         )
 
+        // Persist generation-time metadata (the SE ACL is write-only, so this
+        // sidecar is the only record of whether the key requires presence).
+        let meta: [String: Any] = [
+            "keyId": keyId,
+            "requireAuth": requireAuth,
+            "createdAt": ISO8601DateFormatter().string(from: Date()),
+        ]
+        if let metaData = try? JSONSerialization.data(withJSONObject: meta) {
+            let metaPath = metaFilePath(for: keyId)
+            try? metaData.write(to: URL(fileURLWithPath: metaPath))
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: metaPath
+            )
+        }
+
         return Data(privateKey.publicKey.x963Representation)
     }
 
-    /// Delete a key by removing its data representation file.
+    /// Delete a key by removing its data representation file (and metadata sidecar).
     static func deleteKey(keyId: String) -> Bool {
         let filePath = keyFilePath(for: keyId)
+        try? FileManager.default.removeItem(atPath: metaFilePath(for: keyId))
         do {
             try FileManager.default.removeItem(atPath: filePath)
             return true
         } catch {
             return false
+        }
+    }
+
+    /// Does this key require user-presence verification on decrypt?
+    /// Legacy keys (no metadata sidecar) were always generated with the
+    /// `.userPresence` ACL flag, so they normalize to `true`.
+    static func keyRequiresAuth(keyId: String) -> Bool {
+        guard let data = FileManager.default.contents(atPath: metaFilePath(for: keyId)),
+              let meta = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let requireAuth = meta["requireAuth"] as? Bool else {
+            return true
+        }
+        return requireAuth
+    }
+
+    /// Public (non-secret) metadata for all keys, for status/list-keys output.
+    static func listKeyDetails() -> [[String: Any]] {
+        return listKeys().map { keyId in
+            var detail: [String: Any] = [
+                "keyId": keyId,
+                "requireAuth": keyRequiresAuth(keyId: keyId),
+            ]
+            if let data = FileManager.default.contents(atPath: metaFilePath(for: keyId)),
+               let meta = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let createdAt = meta["createdAt"] as? String {
+                detail["createdAt"] = createdAt
+            }
+            return detail
         }
     }
 

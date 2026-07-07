@@ -121,6 +121,46 @@ Once configured, varlock's normal decrypt flow requires user presence, so everyd
 
 Treat this gate as a **consent prompt**, not an at-rest boundary. On Linux the TPM unseal isn't bound to polkit, so — as noted above — other code already running as your user can still unseal directly. It means "a human approved this load," not "only a human can ever decrypt."
 
+## Choosing a key
+
+Most projects use a single key and never think about this — a default key (`varlock-default`) is created automatically on first use. But you can create additional named keys, each with its own presence behavior, and select which one a project or value uses.
+
+Create keys with [`varlock keys`](/reference/cli-commands/#keys):
+
+```bash
+varlock keys                       # list keys and their presence settings
+varlock keys create deploy         # prompts for presence on decrypt (where a gate exists)
+varlock keys create ci --no-auth   # always decrypts unattended (servers / CI)
+```
+
+A key's presence behavior is decided at creation and fixed for its life:
+
+- **default** — decrypting prompts for presence wherever a gate is available (Touch ID on macOS, Windows Hello, polkit/PAM on Linux). Where no gate exists, it decrypts unattended.
+- **`--no-auth`** — never prompts, anywhere. Still hardware-backed at rest (e.g. Secure Enclave / TPM), but chosen explicitly for unattended use instead of inferred from "no gate is set up". This is the clean way to say "this key is for a server."
+
+On macOS the `--no-auth` choice is enforced by the Secure Enclave key itself; on Windows and Linux it's a policy varlock's own decrypt flow honors (consent-grade, matching the trade-off above).
+
+### Selecting which key to use
+
+Set a project-wide default with the [`@defaultLocalKey`](/reference/root-decorators/#defaultlocalkey) root decorator in your schema:
+
+```env-spec title=".env.schema"
+# @defaultLocalKey=ci
+# ---
+DATABASE_URL=varlock("local:...")   # decrypted with the "ci" key
+```
+
+Values encrypted with the project default stay as bare `varlock("local:...")` references. To use a different key for a single value, pass a `key=` arg — this is written automatically when you `varlock encrypt --key-id <name>`:
+
+```env-spec
+DATABASE_URL=varlock("local:...")               # project default key
+DEPLOY_TOKEN=varlock("local:...", key="deploy") # explicit override
+```
+
+The default key also encrypts the [disk cache](/reference/root-decorators/#cache), so a `--no-auth` project key gives you an unattended cache, and a presence-gated one gives you a gated cache.
+
+Because a value is encrypted to one device's key, keys don't move between machines — a reference that names a key the current device doesn't have will fail to decrypt with a hint to re-encrypt or create the key.
+
 ## Platform details & setup
 
 ### macOS

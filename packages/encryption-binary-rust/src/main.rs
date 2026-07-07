@@ -77,14 +77,19 @@ fn json_success(result: serde_json::Value) -> ! {
 
 fn cmd_generate_key(args: &[String]) {
     let key_id = get_key_id(args);
+    // --no-auth: record that decrypts of this key should NOT require user-presence
+    // verification even when a gate (polkit / Windows Hello) is available.
+    // Matches the Swift binary's flag of the same name.
+    let require_auth = !args.contains(&"--no-auth".to_string());
 
-    match key_store::generate_key(&key_id) {
+    match key_store::generate_key(&key_id, require_auth) {
         Ok(public_key) => {
             let pub_bytes = BASE64.decode(&public_key).unwrap_or_default();
             json_success(json!({
                 "keyId": key_id,
                 "publicKey": public_key,
                 "publicKeyBytes": pub_bytes.len(),
+                "requireAuth": require_auth,
             }));
         }
         Err(e) => json_error(&e),
@@ -114,7 +119,8 @@ fn cmd_rewrap_key(args: &[String]) {
 
 fn cmd_list_keys() {
     let keys = key_store::list_keys();
-    json_success(json!({"keys": keys}));
+    let key_details = key_store::list_key_meta();
+    json_success(json!({"keys": keys, "keyDetails": key_details}));
 }
 
 fn cmd_key_exists(args: &[String]) {
@@ -221,6 +227,7 @@ fn cmd_decrypt(args: &[String]) {
 fn cmd_status() {
     let info = key_store::get_platform_info();
     let keys = key_store::list_keys();
+    let key_details = key_store::list_key_meta();
 
     #[allow(unused_mut)]
     let mut result = json!({
@@ -231,6 +238,7 @@ fn cmd_status() {
         "platform": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         "keys": keys,
+        "keyDetails": key_details,
     });
 
     // Include setup hints for optional features.

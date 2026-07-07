@@ -63,6 +63,7 @@ case "generate-key":
             "keyId": keyId,
             "publicKey": pubKeyData.base64EncodedString(),
             "publicKeyBytes": pubKeyData.count,
+            "requireAuth": !noAuth,
         ])
     } catch {
         jsonError(error.localizedDescription)
@@ -79,7 +80,7 @@ case "delete-key":
 
 case "list-keys":
     let keys = SecureEnclaveManager.listKeys()
-    jsonSuccess(["keys": keys])
+    jsonSuccess(["keys": keys, "keyDetails": SecureEnclaveManager.listKeyDetails()])
 
 // MARK: - key-exists
 
@@ -166,6 +167,7 @@ case "status":
             #endif
         }(),
         "keys": SecureEnclaveManager.listKeys(),
+        "keyDetails": SecureEnclaveManager.listKeyDetails(),
     ])
 
 // MARK: - daemon
@@ -230,7 +232,13 @@ case "daemon":
             let keyId = (payload["keyId"] as? String) ?? defaultKeyId
 
             do {
-                let context = try sessionManager.getAuthenticatedContext(sessionId: sessionId)
+                // Keys generated with --no-auth have no .userPresence ACL flag and
+                // opt out of the explicit presence prompt. Skipping the session
+                // context here also means a no-auth decrypt never warms the
+                // session for auth-required keys.
+                let context = SecureEnclaveManager.keyRequiresAuth(keyId: keyId)
+                    ? try sessionManager.getAuthenticatedContext(sessionId: sessionId)
+                    : nil
                 let decrypted = try SecureEnclaveManager.decrypt(
                     payload: ciphertext,
                     keyId: keyId,

@@ -119,4 +119,85 @@ describe('VarlockResolver with file fallback', () => {
     const results = await Promise.all(resolvers.map((r) => r.resolve()));
     expect(results).toEqual(values);
   });
+
+  it('decrypts with an explicit key= arg using the matching key', async () => {
+    await localEncrypt.ensureKey('ci');
+    const plaintext = 'ci-only-secret';
+    const ciphertext = await localEncrypt.encryptValue(plaintext, 'ci');
+
+    const resolver = new VarlockResolver(
+      [new StaticValueResolver(`local:${ciphertext}`)],
+      { key: new StaticValueResolver('ci') },
+    );
+    resolver.process();
+    expect(resolver.schemaErrors).toHaveLength(0);
+    expect(await resolver.resolve()).toBe(plaintext);
+  });
+
+  it('a value encrypted with a named key does NOT decrypt without key= (wrong key)', async () => {
+    await localEncrypt.ensureKey(); // default key
+    await localEncrypt.ensureKey('ci');
+    const ciphertext = await localEncrypt.encryptValue('ci-secret', 'ci');
+
+    // no key= arg → default key → mismatched → decrypt fails
+    const resolver = new VarlockResolver([new StaticValueResolver(`local:${ciphertext}`)]);
+    resolver.process();
+    await expect(resolver.resolve()).rejects.toThrow(/Decryption failed/);
+  });
+
+  it('rejects an invalid key= arg with a SchemaError', () => {
+    const resolver = new VarlockResolver(
+      [new StaticValueResolver('local:whatever')],
+      { key: new StaticValueResolver('bad key!') },
+    );
+    resolver.process();
+    expect(resolver.schemaErrors.length).toBeGreaterThan(0);
+    expect(resolver.schemaErrors[0].message).toMatch(/not a valid key id/);
+  });
+
+  it('surfaces a device-bound hint when the requested key is missing', async () => {
+    await localEncrypt.ensureKey(); // only the default key exists
+    const ciphertext = await localEncrypt.encryptValue('x'); // encrypted with default
+    // reference asks for a key that does not exist on this device
+    const resolver = new VarlockResolver(
+      [new StaticValueResolver(`local:${ciphertext}`)],
+      { key: new StaticValueResolver('does-not-exist') },
+    );
+    resolver.process();
+    const err = await resolver.resolve().then(() => undefined, (e) => e);
+    expect(err).toBeDefined();
+    expect(err.message).toMatch(/Decryption failed/);
+    // the actionable "keys are device-bound" hint lands on the error tip, keyed by the missing key id
+    expect(err.tip).toMatch(/device-bound/);
+    expect(err.tip).toContain('does-not-exist');
+  });
+});
+
+describe('buildVarlockReference', () => {
+  it('omits key= for the default key and includes it for a named key', async () => {
+    const { buildVarlockReference } = await import('./builtin-resolver');
+    expect(buildVarlockReference('CT')).toBe('varlock("local:CT")');
+    expect(buildVarlockReference('CT', undefined)).toBe('varlock("local:CT")');
+    expect(buildVarlockReference('CT', 'ci')).toBe('varlock("local:CT", key="ci")');
+  });
+});
+
+describe('local-encrypt key metadata (file backend)', () => {
+  it('validates key ids', () => {
+    expect(localEncrypt.isValidKeyId('ci')).toBe(true);
+    expect(localEncrypt.isValidKeyId('varlock-default')).toBe(true);
+    expect(localEncrypt.isValidKeyId('deploy_2024.v1')).toBe(true);
+    expect(localEncrypt.isValidKeyId('bad key')).toBe(false);
+    expect(localEncrypt.isValidKeyId('../escape')).toBe(false);
+    expect(localEncrypt.isValidKeyId('')).toBe(false);
+  });
+
+  it('lists generated keys (file-backend keys never require presence auth)', async () => {
+    await localEncrypt.ensureKey('alpha');
+    await localEncrypt.ensureKey('beta');
+    const details = localEncrypt.listKeyDetails();
+    const ids = details.map((d) => d.keyId).sort();
+    expect(ids).toEqual(['alpha', 'beta']);
+    expect(details.every((d) => d.requireAuth === false)).toBe(true);
+  });
 });

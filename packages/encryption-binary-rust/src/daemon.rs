@@ -199,12 +199,25 @@ fn handle_decrypt(
         .and_then(|v| v.as_str())
         .unwrap_or(DEFAULT_KEY_ID);
 
-    // Check if biometric verification is needed
-    let needs_bio = sm.lock().map(|s| s.needs_biometric(tty_id)).unwrap_or(false);
+    // Per-key presence-gate intent: keys generated with --no-auth opt out of
+    // user-presence verification even when a gate is available on the machine.
+    // Legacy keys (no requireAuth field) keep the historical prompt-when-available behavior.
+    let key_requires_auth = key_store::get_key_meta(key_id)
+        .map(|m| m.require_auth)
+        .unwrap_or(true);
 
+    // Check if biometric verification is needed
+    let session_was_warm = sm.lock().map(|s| s.is_session_warm(tty_id)).unwrap_or(false);
+    let needs_bio = key_requires_auth
+        && sm.lock().map(|s| s.needs_biometric(tty_id)).unwrap_or(false);
+
+    // Track whether presence was actually verified in THIS call — a decrypt that
+    // skipped verification due to key policy must NOT warm the session, or a
+    // no-auth key decrypt would let a later auth-required key skip its prompt.
+    let mut presence_verified = false;
     if needs_bio {
         match verify_user_presence() {
-            Ok(true) => {} // Verified — proceed
+            Ok(true) => presence_verified = true, // Verified — proceed
             Ok(false) => return json!({"error": "User verification cancelled"}),
             Err(e) => return json!({"error": format!("Biometric verification failed: {e}")}),
         }
@@ -225,9 +238,14 @@ fn handle_decrypt(
                 Ok(plaintext_bytes) => {
                     match String::from_utf8(plaintext_bytes) {
                         Ok(plaintext) => {
-                            // Mark session as warm
-                            if let Ok(mut session) = sm.lock() {
-                                session.mark_session_warm(tty_id);
+                            // Mark/extend the warm session — but only when presence was
+                            // actually proven (this call or an earlier one in the session).
+                            // A decrypt that skipped verification due to key policy must
+                            // not grant warmth to auth-required keys.
+                            if presence_verified || session_was_warm {
+                                if let Ok(mut session) = sm.lock() {
+                                    session.mark_session_warm(tty_id);
+                                }
                             }
                             json!({"result": plaintext})
                         }
