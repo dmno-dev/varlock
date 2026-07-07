@@ -5,7 +5,7 @@
 </p>
 <br/>
 <p align="center">
-  <a href="https://npmjs.com/package/varlock"><img src="https://img.shields.io/npm/v/varlock.svg" alt="npm package"></a>
+  <a href="https://npmx.dev/package/varlock"><img src="https://img.shields.io/npm/v/varlock.svg" alt="npm package"></a>
   <a href="/LICENSE.md"><img src="https://img.shields.io/npm/l/varlock.svg" alt="license"></a>
   <a href="https://nodejs.org/en/about/previous-releases"><img src="https://img.shields.io/node/v/varlock.svg" alt="node compatibility"></a>
   <a href="https://github.com/dmno-dev/varlock/actions/workflows/test.yaml"><img src="https://img.shields.io/github/actions/workflow/status/dmno-dev/varlock/test.yaml?style=flat&logo=github&label=CI" alt="build status"></a>
@@ -110,33 +110,33 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 ### Core
 | Package | Published listing page |
 | --- | --- |
-| [varlock](packages/varlock) | [![npm version](https://img.shields.io/npm/v/varlock.svg)](https://npmjs.com/package/varlock) |
-| [@env-spec/parser](packages/env-spec-parser) | [![npm version](https://img.shields.io/npm/v/@env-spec/parser.svg)](https://npmjs.com/package/@env-spec/parser) |
+| [varlock](packages/varlock) | [![npm version](https://img.shields.io/npm/v/varlock.svg)](https://npmx.dev/package/varlock) |
+| [@env-spec/parser](packages/env-spec-parser) | [![npm version](https://img.shields.io/npm/v/@env-spec/parser.svg)](https://npmx.dev/package/@env-spec/parser) |
 | [@env-spec VSCode extension](packages/vscode-plugin) | [VSCode Marketplace](https://marketplace.visualstudio.com/items?itemName=varlock.env-spec-language), [Open VSX Registry](https://open-vsx.org/extension/varlock/env-spec-language) |
 | [varlock Docker image](Dockerfile) | [GitHub Container Registry](https://github.com/orgs/dmno-dev/packages/container/package/varlock) |
 
 ### Plugins
 | Package | Published listing page |
 | --- | --- |
-| [@varlock/1password-plugin](packages/plugins/1password) | [![npm version](https://img.shields.io/npm/v/@varlock/1password-plugin.svg)](https://npmjs.com/package/@varlock/1password-plugin) |
-| [@varlock/aws-secrets-plugin](packages/plugins/aws-secrets) | [![npm version](https://img.shields.io/npm/v/@varlock/aws-secrets-plugin.svg)](https://npmjs.com/package/@varlock/aws-secrets-plugin) |
-| [@varlock/azure-key-vault-plugin](packages/plugins/azure-key-vault) | [![npm version](https://img.shields.io/npm/v/@varlock/azure-key-vault-plugin.svg)](https://npmjs.com/package/@varlock/azure-key-vault-plugin) |
-| [@varlock/bitwarden-plugin](packages/plugins/bitwarden) | [![npm version](https://img.shields.io/npm/v/@varlock/bitwarden-plugin.svg)](https://npmjs.com/package/@varlock/bitwarden-plugin) |
-| [@varlock/google-secret-manager-plugin](packages/plugins/google-secret-manager) | [![npm version](https://img.shields.io/npm/v/@varlock/google-secret-manager-plugin.svg)](https://npmjs.com/package/@varlock/google-secret-manager-plugin) |
-| [@varlock/hashicorp-vault-plugin](packages/plugins/hashicorp-vault) | [![npm version](https://img.shields.io/npm/v/@varlock/hashicorp-vault-plugin.svg)](https://npmjs.com/package/@varlock/hashicorp-vault-plugin) |
-| [@varlock/infisical-plugin](packages/plugins/infisical) | [![npm version](https://img.shields.io/npm/v/@varlock/infisical-plugin.svg)](https://npmjs.com/package/@varlock/infisical-plugin) |
-| [@varlock/keepass-plugin](packages/plugins/keepass) | [![npm version](https://img.shields.io/npm/v/@varlock/keepass-plugin.svg)](https://npmjs.com/package/@varlock/keepass-plugin) |
-| [@varlock/kubernetes-plugin](packages/plugins/kubernetes) | [![npm version](https://img.shields.io/npm/v/@varlock/kubernetes-plugin.svg)](https://npmjs.com/package/@varlock/kubernetes-plugin) |
-| [@varlock/pass-plugin](packages/plugins/pass) | [![npm version](https://img.shields.io/npm/v/@varlock/pass-plugin.svg)](https://npmjs.com/package/@varlock/pass-plugin) |
-| [@varlock/passbolt-plugin](packages/plugins/passbolt) | [![npm version](https://img.shields.io/npm/v/@varlock/passbolt-plugin.svg)](https://npmjs.com/package/@varlock/passbolt-plugin) |
-| [@varlock/proton-pass-plugin](packages/plugins/proton-pass) | [![npm version](https://img.shields.io/npm/v/@varlock/proton-pass-plugin.svg)](https://npmjs.com/package/@varlock/proton-pass-plugin) |
+| [@varlock/1password-plugin](packages/plugins/1password) | [![npm version](https://img.shields.io/npm/v/@varlock/1password-plugin.svg)](https://npmx.dev/package/@varlock/1password-plugin) |
+| [@varlock/aws-secrets-plugin](packages/plugins/aws-secrets) | [![npm version](https://img.shields.io/npm/v/@varlock/aws-secrets-plugin.svg)](https://npmx.dev/package/@varlock/aws-secrets-plugin) |
+| [@varlock/azure-key-vault-plugin](packages/plugins/azure-key-vault) | [![npm version](https://img.shields.io/npm/v/@varlock/azure-key-vault-plugin.svg)](https://npmx.dev/package/@varlock/azure-key-vault-plugin) |
+| [@varlock/bitwarden-plugin](packages/plugins/bitwarden) | [![npm version](https://img.shields.io/npm/v/@varlock/bitwarden-plugin.svg)](https://npmx.dev/package/@varlock/bitwarden-plugin) |
+| [@varlock/google-secret-manager-plugin](packages/plugins/google-secret-manager) | [![npm version](https://img.shields.io/npm/v/@varlock/google-secret-manager-plugin.svg)](https://npmx.dev/package/@varlock/google-secret-manager-plugin) |
+| [@varlock/hashicorp-vault-plugin](packages/plugins/hashicorp-vault) | [![npm version](https://img.shields.io/npm/v/@varlock/hashicorp-vault-plugin.svg)](https://npmx.dev/package/@varlock/hashicorp-vault-plugin) |
+| [@varlock/infisical-plugin](packages/plugins/infisical) | [![npm version](https://img.shields.io/npm/v/@varlock/infisical-plugin.svg)](https://npmx.dev/package/@varlock/infisical-plugin) |
+| [@varlock/keepass-plugin](packages/plugins/keepass) | [![npm version](https://img.shields.io/npm/v/@varlock/keepass-plugin.svg)](https://npmx.dev/package/@varlock/keepass-plugin) |
+| [@varlock/kubernetes-plugin](packages/plugins/kubernetes) | [![npm version](https://img.shields.io/npm/v/@varlock/kubernetes-plugin.svg)](https://npmx.dev/package/@varlock/kubernetes-plugin) |
+| [@varlock/pass-plugin](packages/plugins/pass) | [![npm version](https://img.shields.io/npm/v/@varlock/pass-plugin.svg)](https://npmx.dev/package/@varlock/pass-plugin) |
+| [@varlock/passbolt-plugin](packages/plugins/passbolt) | [![npm version](https://img.shields.io/npm/v/@varlock/passbolt-plugin.svg)](https://npmx.dev/package/@varlock/passbolt-plugin) |
+| [@varlock/proton-pass-plugin](packages/plugins/proton-pass) | [![npm version](https://img.shields.io/npm/v/@varlock/proton-pass-plugin.svg)](https://npmx.dev/package/@varlock/proton-pass-plugin) |
 
 ### Framework Integrations
 | Package | Published listing page |
 | --- | --- |
-| [@varlock/astro-integration](packages/integrations/astro) | [![npm version](https://img.shields.io/npm/v/@varlock/astro-integration.svg)](https://npmjs.com/package/@varlock/astro-integration) |
-| [@varlock/nextjs-integration](packages/integrations/nextjs) | [![npm version](https://img.shields.io/npm/v/@varlock/nextjs-integration.svg)](https://npmjs.com/package/@varlock/nextjs-integration) |
-| [@varlock/vite-integration](packages/integrations/vite) | [![npm version](https://img.shields.io/npm/v/@varlock/vite-integration.svg)](https://npmjs.com/package/@varlock/vite-integration) |
+| [@varlock/astro-integration](packages/integrations/astro) | [![npm version](https://img.shields.io/npm/v/@varlock/astro-integration.svg)](https://npmx.dev/package/@varlock/astro-integration) |
+| [@varlock/nextjs-integration](packages/integrations/nextjs) | [![npm version](https://img.shields.io/npm/v/@varlock/nextjs-integration.svg)](https://npmx.dev/package/@varlock/nextjs-integration) |
+| [@varlock/vite-integration](packages/integrations/vite) | [![npm version](https://img.shields.io/npm/v/@varlock/vite-integration.svg)](https://npmx.dev/package/@varlock/vite-integration) |
 
 
 ## MCP Servers

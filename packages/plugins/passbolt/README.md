@@ -1,6 +1,6 @@
 # @varlock/passbolt-plugin
 
-[![npm version](https://img.shields.io/npm/v/@varlock/passbolt-plugin.svg)](https://www.npmjs.com/package/@varlock/passbolt-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/passbolt-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@varlock/passbolt-plugin.svg)](https://npmx.dev/package/@varlock/passbolt-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/passbolt-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
 
 This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading data from [Passbolt Secrets Manager](https://www.passbolt.com/) into your configuration.
 
