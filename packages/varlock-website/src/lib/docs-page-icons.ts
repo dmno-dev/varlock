@@ -9,13 +9,18 @@ const EXTRA_PAGE_ICONS: Record<string, string> = {
   'plugins/kubernetes': 'simple-icons:kubernetes',
 };
 
+/** Integration-like pages that live outside `integrations/` for content reasons */
+const EXTRA_INTEGRATION_LIKE_PAGES = new Set(['guides/docker']);
+
 /**
  * Look up the icon for a docs page by its Starlight route id (e.g. `plugins/1password`).
  * Only plugin and integration pages get icons.
  */
 export function getDocsPageIcon(routeId: string): string | undefined {
   const id = routeId.replace(/^\/+|\/+$/g, '');
-  if (!id.startsWith('plugins/') && !id.startsWith('integrations/')) return undefined;
+  const isIntegrationLike = id.startsWith('plugins/') || id.startsWith('integrations/')
+    || EXTRA_INTEGRATION_LIKE_PAGES.has(id);
+  if (!isIntegrationLike) return undefined;
   if (EXTRA_PAGE_ICONS[id]) return EXTRA_PAGE_ICONS[id];
 
   // prefer a tile whose id matches the page slug (e.g. `other-languages`),
