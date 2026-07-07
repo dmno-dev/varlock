@@ -1,5 +1,7 @@
 # @varlock/dashlane-plugin
 
+[![npm version](https://img.shields.io/npm/v/@varlock/dashlane-plugin.svg)](https://npmx.dev/package/@varlock/dashlane-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/dashlane-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+
 This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading secrets from [Dashlane](https://www.dashlane.com/) into your configuration. It wraps the [Dashlane CLI (`dcli`)](https://github.com/Dashlane/dashlane-cli) to resolve secrets via `dl://` references.
 
 > **Requires `dcli` installed and available in your `PATH`.** See [installation docs](https://cli.dashlane.com/installation).

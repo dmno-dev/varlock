@@ -12,6 +12,15 @@ varlock: none
 "@varlock/keeper-plugin": none
 "@varlock/pass-plugin": none
 "@varlock/passbolt-plugin": none
+"@varlock/dashlane-plugin": none
+"@varlock/doppler-plugin": none
+"@varlock/kubernetes-plugin": none
+"@varlock/proton-pass-plugin": none
+"@varlock/astro-integration": none
+"@varlock/cloudflare-integration": none
+"@varlock/expo-integration": none
+"@varlock/nextjs-integration": none
+"@varlock/vite-integration": none
 ---
 
 point README npm badges to npmx.dev

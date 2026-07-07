@@ -1,5 +1,7 @@
 # @varlock/kubernetes-plugin
 
+[![npm version](https://img.shields.io/npm/v/@varlock/kubernetes-plugin.svg)](https://npmx.dev/package/@varlock/kubernetes-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/kubernetes-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+
 Load values from Kubernetes [Secrets](https://kubernetes.io/docs/concepts/configuration/secret/) and [ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/) into your Varlock configuration.
 
 ## Scope

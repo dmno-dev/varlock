@@ -1,5 +1,7 @@
 # @varlock/astro-integration
 
+[![npm version](https://img.shields.io/npm/v/@varlock/astro-integration.svg)](https://npmx.dev/package/@varlock/astro-integration) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/astro-integration.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+
 This package helps you integrate [varlock](https://varlock.dev) into an [Astro](https://astro.build) project.
 
 > See [our docs site](https://varlock.dev/integrations/astro/) for complete installation and usage instructions.
