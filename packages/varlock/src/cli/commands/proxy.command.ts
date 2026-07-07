@@ -31,11 +31,15 @@ import {
   addProxySessionAttachment,
   cleanupStaleProxySessions,
   createProxySessionRecord,
+  deleteProxySession,
   markProxySessionEnded,
   getProxySessionByToken,
   getProxySessionExportEnv,
+  getProxySessionPort,
   isProcessRunning,
+  isProxySessionAlive,
   listProxySessions,
+  pruneEndedProxySessions,
   removeProxySessionAttachment,
   reserveProxySessionIdentity,
   resolveProxySessionForCommand,
@@ -67,6 +71,8 @@ import {
   VARLOCK_INTERNAL_HOST,
   type SessionEnvPayload,
 } from '../../proxy/session-env-payload';
+import { isCancel } from '@clack/prompts';
+import { select } from '../helpers/prompts';
 import { wrapCommandWithSandbox } from '../../proxy/sandbox-seatbelt';
 import { runContainerSandbox } from '../../proxy/sandbox-docker';
 import {
@@ -98,6 +104,11 @@ export const commandSpec = define({
     all: {
       type: 'boolean',
       description: 'Target all sessions (supported by stop/status)',
+    },
+    yes: {
+      type: 'boolean',
+      short: 'y',
+      description: 'Skip the confirmation prompt (for `proxy prune`)',
     },
     format: {
       type: 'string',
@@ -166,6 +177,8 @@ Proxy command surface:
   varlock proxy reload --session abc12
   varlock proxy stop --session abc12
   varlock proxy stop --all
+  varlock proxy prune                           # delete ALL ended session records (+ audit logs)
+  varlock proxy prune --session abc12           # delete one session's record
   `.trim(),
 });
 
@@ -327,7 +340,7 @@ function getAction(ctx: any): string {
   if (!action) {
     throw new CliExitError(
       'Missing proxy action.',
-      { suggestion: 'Use one of: run, start, rules, env, status, audit, reload, stop' },
+      { suggestion: 'Use one of: run, start, rules, env, status, audit, reload, stop, prune' },
     );
   }
   return action;
@@ -832,18 +845,90 @@ async function createRuntimeAndSession(opts: {
   };
 }
 
-function formatSessionStatus(session: ProxySessionRecord): string {
-  const child = session.childPid ? ` child=${session.childPid}` : '';
-  const stats = session.stats ?? EMPTY_PROXY_SESSION_STATS;
-  const last = stats.lastActivityAt ? ` last=${stats.lastActivityAt}` : '';
-  const state = session.endedAt ? ` ended=${session.endedAt}` : '';
-  return `[${session.id}] ${session.uuid} pid=${session.ownerPid}${child} egress=${session.egressMode} `
-    + `cwd=${session.cwd} req=${stats.totalRequests} matched=${stats.matchedRequests} `
-    + `blocked=${stats.blockedRequests}${last}${state}`;
+function timeAgo(iso?: string): string {
+  if (!iso) return '-';
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '-';
+  const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
 }
 
-function printSessionStatus(session: ProxySessionRecord) {
-  console.log(formatSessionStatus(session));
+/** A running session is `idle` once its last request is older than this. */
+const SESSION_IDLE_AFTER_MS = 30 * 60 * 1000;
+
+/**
+ * Short activity descriptor for a running session (creation time is shown
+ * separately):
+ *  - `new`           — never served a request
+ *  - `active Xm ago` — served a request recently
+ *  - `idle Xd ago`   — running but no traffic for a while (spots forgotten daemons)
+ */
+function sessionActivityHint(s: ProxySessionRecord): string {
+  if ((s.stats?.totalRequests ?? 0) === 0) return 'new';
+  const last = s.stats?.lastActivityAt;
+  const sinceMs = last ? Date.now() - Date.parse(last) : NaN;
+  if (!Number.isFinite(sinceMs)) return 'idle';
+  return sinceMs > SESSION_IDLE_AFTER_MS ? `idle ${timeAgo(last)}` : `active ${timeAgo(last)}`;
+}
+
+/** The `LAST` column cell: `ended Xd ago` for stopped sessions, else the activity hint. */
+function lastActivityCell(s: ProxySessionRecord): string {
+  if (s.endedAt) return `ended ${timeAgo(s.endedAt)}`;
+  return sessionActivityHint(s);
+}
+
+function shortenPath(p: string, max = 44): string {
+  const home = process.env.HOME;
+  let out = home && p.startsWith(home) ? `~${p.slice(home.length)}` : p;
+  if (out.length > max) out = `…${out.slice(-(max - 1))}`;
+  return out;
+}
+
+/** Render sessions as an aligned, colorized table (falls back to plain when not a TTY). */
+function renderSessionsTable(sessions: Array<ProxySessionRecord>): string {
+  const color = process.stdout.isTTY;
+  const dim = (s: string) => (color ? ansis.dim(s) : s);
+  const headers = ['', 'ID', 'PID', 'PORT', 'EGRESS', 'REQ', 'MATCH', 'BLOCK', 'CREATED', 'LAST', 'DIR'];
+  const rows = sessions.map((s) => {
+    const stats = s.stats ?? EMPTY_PROXY_SESSION_STATS;
+    const running = !s.endedAt;
+    const dot = running ? '●' : '○';
+    return {
+      running,
+      cells: [
+        dot,
+        s.id,
+        String(s.ownerPid),
+        String(getProxySessionPort(s) ?? '-'),
+        s.egressMode,
+        String(stats.totalRequests),
+        String(stats.matchedRequests),
+        String(stats.blockedRequests),
+        timeAgo(s.startedAt),
+        lastActivityCell(s),
+        shortenPath(s.cwd),
+      ],
+    };
+  });
+
+  const widths = headers.map((h, i) => Math.max(
+    h.length,
+    ...rows.map((r) => r.cells[i]!.length),
+  ));
+  const pad = (cells: Array<string>) => cells.map((c, i) => c.padEnd(widths[i]!)).join('  ').trimEnd();
+
+  const lines = [dim(pad(headers))];
+  for (const r of rows) {
+    const line = pad(r.cells);
+    if (!color) lines.push(line);
+    else lines.push(r.running ? line.replace('●', ansis.green('●')) : ansis.dim(line));
+  }
+  return lines.join('\n');
 }
 
 function parseStatusWatchInterval(ctx: any): number {
@@ -917,6 +1002,65 @@ function isHumanAttended(): boolean {
 }
 
 /**
+ * Build picker rows that are self-describing at a glance: each label is an
+ * aligned `id  activity  created  [dir]` line (only the focused row shows a hint
+ * in clack's select, so the distinguishing info has to live in the label). The
+ * hint adds the OS process detail (pid · port) for the focused row — compact and
+ * what actually disambiguates two sessions in the same directory.
+ *
+ * `showCwd` is false when the candidates were all matched *by* the current
+ * directory (attach), where the dir is the same for every row and just noise.
+ */
+function buildSessionPickerOptions(
+  sessions: Array<ProxySessionRecord>,
+  opts?: { showCwd?: boolean },
+) {
+  const showCwd = opts?.showCwd ?? true;
+  const cols = sessions.map((s) => ({
+    s,
+    activity: sessionActivityHint(s),
+    created: `created ${timeAgo(s.startedAt)}`,
+  }));
+  const idW = Math.max(...cols.map((c) => c.s.id.length));
+  const actW = Math.max(...cols.map((c) => c.activity.length));
+  const createdW = Math.max(...cols.map((c) => c.created.length));
+  return cols.map(({ s, activity, created }) => {
+    const parts = [s.id.padEnd(idW), activity.padEnd(actW), created.padEnd(createdW)];
+    if (showCwd) parts.push(shortenPath(s.cwd, 40));
+    return {
+      value: s.uuid,
+      label: parts.join('  '),
+      hint: `pid ${s.ownerPid} · port ${getProxySessionPort(s) ?? '-'}`,
+    };
+  });
+}
+
+/**
+ * Disambiguate between multiple candidate sessions. On an interactive terminal,
+ * prompt the user to pick one; otherwise (script/pipe) throw a clear error so
+ * behavior stays deterministic. `--session <id>` always bypasses this.
+ */
+async function pickSession(
+  sessions: Array<ProxySessionRecord>,
+  opts: { message: string; noneError: string; showCwd?: boolean },
+): Promise<ProxySessionRecord> {
+  if (sessions.length === 1) return sessions[0]!;
+  if (sessions.length === 0) throw new CliExitError(opts.noneError);
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new CliExitError(
+      `${opts.message} ${sessions.map((s) => s.id).join(', ')}.`,
+      { suggestion: 'Pass `--session <id>` to choose one (or run interactively to pick from a list).' },
+    );
+  }
+  const chosen = await select<string>({
+    message: opts.message,
+    options: buildSessionPickerOptions(sessions, { showCwd: opts.showCwd }),
+  });
+  if (isCancel(chosen)) throw new CliExitError('Cancelled.', { silent: true });
+  return sessions.find((s) => s.uuid === chosen)!;
+}
+
+/**
  * Resolve the running proxy session to attach `proxy run` to: an explicit
  * `--session`, else the single session whose cwd contains this one. Returns
  * undefined (→ start a fresh proxy) when nothing matches.
@@ -943,13 +1087,11 @@ async function resolveAttachSession(ctx: any): Promise<ProxySessionRecord | unde
   const cwd = process.cwd();
   const matches = (await listProxySessions()).filter((s) => isCwdWithin(cwd, s.cwd));
   if (matches.length === 0) return undefined; // → start a fresh proxy
-  if (matches.length > 1) {
-    throw new CliExitError(
-      `Multiple proxy sessions match this directory: ${matches.map((s) => s.id).join(', ')}.`,
-      { suggestion: 'Pass --session <id> to choose one, or --new to start a separate proxy.' },
-    );
-  }
-  return matches[0];
+  return pickSession(matches, {
+    message: 'Multiple proxy sessions match this directory — attach to which?',
+    noneError: 'No proxy session matches this directory.',
+    showCwd: false,
+  });
 }
 
 /**
@@ -1587,7 +1729,18 @@ async function startAction(ctx: any) {
 
   await new Promise<void>((resolve) => {
     const close = () => {
-      cleanup().finally(resolve);
+      // Bound cleanup so a hung shutdown can't keep the daemon alive, then force
+      // exit — after resolve, lingering handles could otherwise stop the process
+      // from exiting, so `proxy stop`'s SIGTERM would appear ignored.
+      Promise.race([
+        cleanup(),
+        new Promise<void>((r) => {
+          setTimeout(r, 4000);
+        }),
+      ]).finally(() => {
+        resolve();
+        gracefulExit(0);
+      });
     };
 
     process.on('SIGINT', close);
@@ -1635,15 +1788,22 @@ async function envAction(ctx: any) {
 
 async function statusAction(ctx: any) {
   const watch = ctx.values.watch ?? false;
+  const asJson = (ctx.values.format ?? '').toLowerCase() === 'json';
   const printSnapshot = async () => {
     await cleanupStaleProxySessions();
     const sessions = await collectStatusSessions(ctx);
+    if (asJson) {
+      console.log(JSON.stringify(sessions, null, 2));
+      return sessions.length > 0;
+    }
     if (!sessions.length) {
-      console.log('No active proxy sessions.');
+      console.log(ctx.values.all ? 'No proxy sessions.' : 'No active proxy sessions. (Use `--all` to include ended ones.)');
       return false;
     }
-    for (const session of sessions) {
-      printSessionStatus(session);
+    console.log(renderSessionsTable(sessions));
+    if (!ctx.values.all) {
+      const ended = (await listProxySessions({ includeEnded: true })).filter((s) => s.endedAt).length;
+      if (ended > 0) console.log(ansis.dim(`\n${ended} ended session${ended === 1 ? '' : 's'} hidden — \`proxy status --all\` to show, \`proxy prune\` to delete.`));
     }
     return true;
   };
@@ -1797,6 +1957,72 @@ async function reloadAction(ctx: any) {
   console.log('    child keeps the env it started with (restart it to pick up new variables).');
 }
 
+/**
+ * Stop one session. Only signals the owner pid when the session is *actually*
+ * alive (its proxy port responds) — never a bare pid check, so we can't SIGTERM
+ * an unrelated process that recycled a dead proxy's pid. A non-alive record is
+ * just marked ended.
+ */
+/** Poll liveness until the session is gone or the deadline passes. */
+async function waitForSessionExit(session: ProxySessionRecord, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!(await isProxySessionAlive(session))) return true;
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 150);
+    });
+  }
+  return !(await isProxySessionAlive(session));
+}
+
+/**
+ * Stop one session and VERIFY it actually died. A daemon can wedge in its
+ * SIGTERM cleanup (e.g. `server.close()` blocking on a lingering connection), so
+ * "sent SIGTERM" is not "stopped" — we send SIGTERM, wait, and escalate to
+ * SIGKILL if it hasn't exited. Only signals when the port confirms the session
+ * is live, so we never touch an unrelated process that reused a dead proxy's pid.
+ */
+async function stopOneSession(session: ProxySessionRecord): Promise<void> {
+  if (session.endedAt) {
+    console.log(`Proxy session ${session.id} is already ended.`);
+    return;
+  }
+  if (!(await isProxySessionAlive(session))) {
+    await markProxySessionEnded(session.uuid);
+    console.log(`Marked proxy session ${session.id} ended (was not running).`);
+    return;
+  }
+
+  const signal = async (sig: NodeJS.Signals): Promise<boolean> => {
+    try {
+      process.kill(session.ownerPid, sig);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  await signal('SIGTERM');
+  if (await waitForSessionExit(session, 3000)) {
+    await markProxySessionEnded(session.uuid);
+    console.log(`Stopped proxy session ${session.id}.`);
+    return;
+  }
+
+  // Wedged in cleanup — force it.
+  console.log(`Proxy session ${session.id} did not exit on SIGTERM; sending SIGKILL…`);
+  await signal('SIGKILL');
+  if (await waitForSessionExit(session, 2000)) {
+    await markProxySessionEnded(session.uuid);
+    console.log(`Stopped proxy session ${session.id} (forced).`);
+    return;
+  }
+  throw new CliExitError(
+    `Could not stop proxy session ${session.id} (pid ${session.ownerPid}).`,
+    { suggestion: `Kill it manually: \`kill -9 ${session.ownerPid}\`.` },
+  );
+}
+
 async function stopAction(ctx: any) {
   await cleanupStaleProxySessions();
 
@@ -1814,33 +2040,67 @@ async function stopAction(ctx: any) {
       console.log('No active proxy sessions.');
       return;
     }
-
     for (const session of sessions) {
-      try {
-        process.kill(session.ownerPid, 'SIGTERM');
-        console.log(`Sent SIGTERM to proxy session ${session.id} (pid ${session.ownerPid}).`);
-      } catch {
-        await markProxySessionEnded(session.uuid);
-      }
+      await stopOneSession(session);
     }
     return;
   }
 
-  const session = await resolveProxySessionForCommand({
-    explicitSession: ctx.values.session,
-    env: process.env,
-    defaultToSingleActive: true,
-  }).catch((error) => {
-    throw new CliExitError((error as Error).message);
-  });
-
-  try {
-    process.kill(session.ownerPid, 'SIGTERM');
-    console.log(`Sent SIGTERM to proxy session ${session.id} (pid ${session.ownerPid}).`);
-  } catch {
-    await markProxySessionEnded(session.uuid);
-    console.log(`Marked stale proxy session ${session.id} ended.`);
+  // Explicit id targets ANY session (live, ghost, or already-ended) so you can
+  // always clean up a specific one by id. No --session → pick from active ones.
+  const session = ctx.values.session
+    ? await getProxySessionByToken(ctx.values.session, { includeEnded: true })
+    : await pickSession(await listProxySessions(), {
+      message: 'Which proxy session to stop?',
+      noneError: 'No active proxy sessions.',
+    });
+  if (!session) {
+    throw new CliExitError(`Proxy session "${ctx.values.session}" not found.`);
   }
+
+  await stopOneSession(session);
+}
+
+async function pruneAction(ctx: any) {
+  await cleanupStaleProxySessions();
+
+  // Prune one specific session by id (any state, once it isn't running).
+  if (ctx.values.session) {
+    const target = await getProxySessionByToken(ctx.values.session, { includeEnded: true });
+    if (!target) {
+      throw new CliExitError(`Proxy session "${ctx.values.session}" not found.`);
+    }
+    if (!target.endedAt && await isProxySessionAlive(target)) {
+      throw new CliExitError(
+        `Proxy session ${target.id} is still running.`,
+        { suggestion: `Stop it first: \`varlock proxy stop --session ${target.id}\`.` },
+      );
+    }
+    await deleteProxySession(target.uuid);
+    console.log(`Pruned proxy session ${target.id}.`);
+    return;
+  }
+
+  const ended = (await listProxySessions({ includeEnded: true })).filter((s) => s.endedAt);
+  if (!ended.length) {
+    console.log('No ended proxy sessions to prune.');
+    return;
+  }
+  if (process.stdin.isTTY && process.stdout.isTTY && !ctx.values.yes) {
+    const ok = await select<boolean>({
+      message: `Delete ${ended.length} ended proxy session record${ended.length === 1 ? '' : 's'} (records + audit logs)?`,
+      options: [
+        { value: false, label: 'Cancel' },
+        { value: true, label: `Delete ${ended.length}`, hint: 'permanent' },
+      ],
+    });
+    if (isCancel(ok) || !ok) {
+      console.log('Nothing pruned.');
+      return;
+    }
+  }
+  const removed = await pruneEndedProxySessions();
+  console.log(`Pruned ${removed.length} ended proxy session${removed.length === 1 ? '' : 's'}.`);
 }
 
 function formatAuditEntry(entry: ProxyAuditEntry): string {
@@ -1992,10 +2252,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       return await reloadAction(ctx);
     case 'stop':
       return await stopAction(ctx);
+    case 'prune':
+      return await pruneAction(ctx);
     default:
       throw new CliExitError(
         `Unknown proxy action "${action}".`,
-        { suggestion: 'Use one of: run, start, rules, env, status, audit, reload, stop' },
+        { suggestion: 'Use one of: run, start, rules, env, status, audit, reload, stop, prune' },
       );
   }
 };

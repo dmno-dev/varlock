@@ -1,3 +1,4 @@
+import net from 'node:net';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -8,9 +9,14 @@ import {
 
 import {
   createProxySessionRecord,
+  deleteProxySession,
+  getProxySessionByToken,
   getProxySessionDir,
+  getProxySessionPort,
+  isProxySessionAlive,
   listProxySessions,
   markProxySessionEnded,
+  pruneEndedProxySessions,
   type ProxySessionRecord,
 } from './session-registry';
 
@@ -44,6 +50,84 @@ function record(overrides: Partial<ProxySessionRecord> = {}): Omit<ProxySessionR
     ...overrides,
   };
 }
+
+describe('proxy session liveness (PID-reuse-safe)', () => {
+  test('getProxySessionPort parses the loopback proxy port from the env', () => {
+    expect(getProxySessionPort(record({ env: { HTTPS_PROXY: 'http://127.0.0.1:58633' } }) as ProxySessionRecord)).toBe(58633);
+    expect(getProxySessionPort(record({ env: {} }) as ProxySessionRecord)).toBeUndefined();
+  });
+
+  test('a live pid whose proxy port is dead is NOT alive (the ghost / PID-reuse case)', async () => {
+    // ownerPid = this process (alive), but nothing listens on the recorded port.
+    const ghost = record({ env: { HTTPS_PROXY: 'http://127.0.0.1:1' } }) as ProxySessionRecord;
+    expect(await isProxySessionAlive(ghost)).toBe(false);
+  });
+
+  test('a live pid WITH a listening proxy port is alive', async () => {
+    const server = net.createServer();
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const port = (server.address() as net.AddressInfo).port;
+    try {
+      const live = record({ env: { HTTPS_PROXY: `http://127.0.0.1:${port}` } }) as ProxySessionRecord;
+      expect(await isProxySessionAlive(live)).toBe(true);
+    } finally {
+      server.close();
+    }
+  });
+
+  test('an ended session is never alive', async () => {
+    const ended = record({ endedAt: '2026-06-13T00:00:00.000Z' }) as ProxySessionRecord;
+    expect(await isProxySessionAlive(ended)).toBe(false);
+  });
+});
+
+describe('targeting a session by id for cleanup', () => {
+  test('getProxySessionByToken finds an ended session only with includeEnded', async () => {
+    await createProxySessionRecord(record({ uuid: 'uuid-1', id: 'abc12' }));
+    await markProxySessionEnded('uuid-1');
+
+    expect(await getProxySessionByToken('abc12')).toBeUndefined();
+    const found = await getProxySessionByToken('abc12', { includeEnded: true });
+    expect(found?.id).toBe('abc12');
+    expect(found?.endedAt).toBeTruthy();
+  });
+
+  test('deleteProxySession removes one specific record', async () => {
+    await createProxySessionRecord(record({ uuid: 'uuid-keep', id: 'keepp' }));
+    await createProxySessionRecord(record({ uuid: 'uuid-drop', id: 'dropp' }));
+
+    await deleteProxySession('uuid-drop');
+
+    expect(existsSync(getProxySessionDir('uuid-drop'))).toBe(false);
+    expect(existsSync(getProxySessionDir('uuid-keep'))).toBe(true);
+  });
+});
+
+describe('pruneEndedProxySessions', () => {
+  test('deletes ended session directories, keeps active ones', async () => {
+    await createProxySessionRecord(record({ uuid: 'uuid-active', env: { HTTPS_PROXY: 'http://127.0.0.1:1' } }));
+    await createProxySessionRecord(record({ uuid: 'uuid-ended' }));
+    await markProxySessionEnded('uuid-ended');
+
+    const removed = await pruneEndedProxySessions();
+
+    expect(removed).toEqual(['abc12']); // the ended one's display id
+    expect(existsSync(getProxySessionDir('uuid-ended'))).toBe(false);
+    expect(existsSync(getProxySessionDir('uuid-active'))).toBe(true);
+  });
+
+  test('olderThanMs keeps recently-ended sessions', async () => {
+    await createProxySessionRecord(record({ uuid: 'uuid-recent' }));
+    await markProxySessionEnded('uuid-recent'); // ended just now
+
+    const removed = await pruneEndedProxySessions({ olderThanMs: 60_000 });
+
+    expect(removed).toEqual([]);
+    expect(existsSync(getProxySessionDir('uuid-recent'))).toBe(true);
+  });
+});
 
 describe('proxy session registry (session-as-record)', () => {
   test('creates a per-session directory holding session.json', async () => {

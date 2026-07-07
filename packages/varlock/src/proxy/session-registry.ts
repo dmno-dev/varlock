@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
+import net from 'node:net';
 import { existsSync } from 'node:fs';
 import {
-  mkdir, readdir, readFile, rename, writeFile,
+  mkdir, readdir, readFile, rename, rm, writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
@@ -202,6 +203,52 @@ export function isProcessRunning(pid: number): boolean {
   }
 }
 
+/** The loopback port a session's proxy listens on (from `HTTPS_PROXY=http://127.0.0.1:PORT`). */
+export function getProxySessionPort(session: ProxySessionRecord): number | undefined {
+  const url = session.env?.HTTPS_PROXY ?? session.env?.https_proxy;
+  if (!url) return undefined;
+  try {
+    const port = Number(new URL(url).port);
+    return Number.isInteger(port) && port > 0 ? port : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Resolves true if something is accepting connections on the loopback port. */
+function isPortAccepting(port: number, timeoutMs = 400): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: '127.0.0.1', port });
+    let settled = false;
+    const finish = (alive: boolean) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(alive);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+  });
+}
+
+/**
+ * Authoritative liveness for a session. A bare pid check (`isProcessRunning`) is
+ * fooled by **PID reuse**: when a proxy dies, the OS can recycle its pid to an
+ * unrelated process and the record then looks "active" forever (a ghost). We
+ * also probe the session's proxy port — a dead proxy isn't listening, so the
+ * ghost is caught. Both must hold (pid recycled AND that random high port
+ * re-bound by something else is vanishingly unlikely).
+ */
+export async function isProxySessionAlive(session: ProxySessionRecord): Promise<boolean> {
+  if (session.endedAt) return false;
+  if (!isProcessRunning(session.ownerPid)) return false;
+  const port = getProxySessionPort(session);
+  if (port == null) return true; // no port to probe (older record) — trust the pid
+  return isPortAccepting(port);
+}
+
 /**
  * List proxy session records. By default returns only **active** sessions —
  * not ended and with a live owner process. Pass `{ includeEnded: true }` to
@@ -260,11 +307,37 @@ export async function markProxySessionEnded(uuid: string) {
  */
 export async function cleanupStaleProxySessions() {
   const all = await listProxySessions({ includeEnded: true });
+  await Promise.all(all.map(async (session) => {
+    if (session.endedAt) return;
+    if (await isProxySessionAlive(session)) return;
+    await markProxySessionEnded(session.uuid);
+  }));
+}
+
+/**
+ * Permanently delete a single session's directory (record + audit + grants) by
+ * uuid. Used to clean up one specific session; callers ensure it isn't live.
+ */
+export async function deleteProxySession(uuid: string): Promise<void> {
+  await rm(getProxySessionDir(uuid), { recursive: true, force: true });
+}
+
+/**
+ * Permanently delete the durable directories of ended sessions (record + audit +
+ * grants). Active sessions are never touched. Returns the ids removed. Optional
+ * `olderThanMs` keeps recent history (e.g. prune only sessions ended > 24h ago).
+ */
+export async function pruneEndedProxySessions(opts?: { olderThanMs?: number }): Promise<Array<string>> {
+  const all = await listProxySessions({ includeEnded: true });
+  const cutoff = opts?.olderThanMs != null ? Date.now() - opts.olderThanMs : undefined;
+  const removed: Array<string> = [];
   for (const session of all) {
-    if (!session.endedAt && !isProcessRunning(session.ownerPid)) {
-      await markProxySessionEnded(session.uuid);
-    }
+    if (!session.endedAt) continue;
+    if (cutoff != null && new Date(session.endedAt).getTime() > cutoff) continue;
+    await deleteProxySession(session.uuid).catch(() => undefined);
+    removed.push(session.id);
   }
+  return removed;
 }
 
 export async function reserveProxySessionIdentity(): Promise<{ id: string; uuid: string }> {
@@ -286,10 +359,15 @@ export async function createProxySessionRecord(session: Omit<ProxySessionRecord,
   return next;
 }
 
-export async function getProxySessionByToken(token: string): Promise<ProxySessionRecord | undefined> {
-  const sessions = await listProxySessions();
-  const direct = sessions.find((s) => s.uuid === token || s.id === token);
-  return direct;
+export async function getProxySessionByToken(
+  token: string,
+  opts?: { includeEnded?: boolean },
+): Promise<ProxySessionRecord | undefined> {
+  // Default active-only (callers like env/reload act on live sessions). Explicit
+  // lookups (stop/prune by id) pass includeEnded so you can always target a
+  // record by its id — including a ghost cleanup just marked ended.
+  const sessions = await listProxySessions({ includeEnded: opts?.includeEnded });
+  return sessions.find((s) => s.uuid === token || s.id === token);
 }
 
 /**

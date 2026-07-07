@@ -1034,6 +1034,12 @@ export async function startLocalProxyRuntime({
       egressMode = next.egressMode;
     },
     stop: async () => {
+      // `server.close()` only calls back once every connection has drained, and
+      // an idle keep-alive socket never closes on its own — so without forcing
+      // connections closed, stop() (and the daemon's SIGTERM cleanup) hangs
+      // forever. Destroy live sockets first so close() resolves promptly.
+      proxyServer.closeAllConnections?.();
+      for (const { server } of hostMitmServers.values()) server.closeAllConnections?.();
       await Promise.all([
         new Promise<void>((resolve) => {
           proxyServer.close(() => resolve());
