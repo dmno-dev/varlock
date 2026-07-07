@@ -3,7 +3,7 @@ title: Code generation
 description: Generate types and other code from your env schema, and extend it with plugins
 ---
 
-Your `.env.schema` is the single source of truth for your environment variables — their names, types, and metadata. Varlock can turn that schema into **generated code**: strongly-typed definitions for your language, and, via plugins, anything else you can derive from a schema.
+Your `.env.schema` is the single source of truth for your environment variables: their names, types, and metadata. Varlock can turn that schema into **generated code**: strongly-typed definitions for your language, and, via plugins, anything else you can derive from a schema.
 
 Generation is driven by per-language root decorators in your schema. Each one writes its own output file:
 
@@ -20,7 +20,7 @@ Output is regenerated automatically on [`varlock load`](/reference/cli-commands/
 
 ## TypeScript
 
-[`@generateTsTypes`](/reference/root-decorators/#generatetstypes) is the default for JavaScript/TypeScript projects. Out of the box it makes `import { ENV } from 'varlock/env'` fully typed, and augments `process.env` / `import.meta.env`:
+[`@generateTsTypes`](/reference/root-decorators/#generatetstypes) is the default for JavaScript/TypeScript projects. It makes `import { ENV } from 'varlock/env'` fully typed, and augments `process.env` / `import.meta.env`:
 
 ```env-spec title=".env.schema"
 # @generateTsTypes(path=./env.d.ts)
@@ -28,14 +28,14 @@ Output is regenerated automatically on [`varlock load`](/reference/cli-commands/
 
 You can control what it emits:
 
-- **`exposeEnv`** — where the coerced `ENV` object lives: `global` (default, augments `varlock/env`), `local` (export a package-local `ENV` from the generated file, ideal for monorepos), or `none`.
-- **`processEnv`** / **`importMetaEnv`** — `strict` (only defined keys), `loose` (also allow extra keys), or `none` (don't augment).
+- **`exposeEnv`**: where the coerced `ENV` object lives: `global` (default, augments `varlock/env`), `local` (export a package-local `ENV` from the generated file, ideal for monorepos), or `none`.
+- **`processEnv`** / **`importMetaEnv`**: `strict` (only defined keys), `loose` (also allow extra keys), or `none` (don't augment).
 
-See the [`@generateTsTypes` reference](/reference/root-decorators/#generatetstypes) for details. In monorepos where multiple packages have different schemas, prefer `exposeEnv=local` to avoid global augmentation clashes — see [Typed `ENV` across packages](/guides/monorepos/#typed-env-across-packages).
+See the [`@generateTsTypes` reference](/reference/root-decorators/#generatetstypes) for details. In monorepos where multiple packages have different schemas, prefer `exposeEnv=local` to avoid global augmentation clashes. See [Typed `ENV` across packages](/guides/monorepos/#typed-env-across-packages).
 
 ## Other languages
 
-Varlock ships generators for several languages. Each emits a **self-contained, idiomatic module** — a typed value object, a loader that reads the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant (so you can build your own redaction or leak-scanning) — usable out of the box, no hand-rolled parsing:
+Varlock ships generators for several languages. Each emits a **self-contained, idiomatic module**: a typed value object, a loader that reads the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant (so you can build your own redaction or leak-scanning). No hand-rolled parsing required:
 
 | Language | Decorator | Loader | Guide |
 | --- | --- | --- | --- |
@@ -48,7 +48,7 @@ For a language without a generated module, see [Other languages](/integrations/o
 
 ## Disabling automatic generation
 
-Set `auto=false` on any generator to skip it during `load`/`run`, then regenerate on demand with [`varlock codegen`](/reference/cli-commands/#codegen) — useful for CI or a dedicated build step:
+Set `auto=false` on any generator to skip it during `load`/`run`, then regenerate on demand with [`varlock codegen`](/reference/cli-commands/#codegen), useful for CI or a dedicated build step:
 
 ```env-spec title=".env.schema"
 # @generateTsTypes(path=./env.d.ts, auto=false)
@@ -81,9 +81,9 @@ Once registered, users trigger it from their schema like any other generator:
 # @generateZodSchema(path=./env.schema.ts)
 ```
 
-The `decoratorName` must start with `generate` (e.g. `generateZodSchema`) — a shared convention that keeps code-generation decorators recognizable and separate from behavior decorators. Generators also get the common `path`, `auto`, and `executeWhenImported` args automatically — your `generate` function only handles turning the schema into code.
+The `decoratorName` must start with `generate` (e.g. `generateZodSchema`), a shared convention that keeps code-generation decorators recognizable and separate from behavior decorators. Generators also get the common `path`, `auto`, and `executeWhenImported` args automatically, so your `generate` function only handles turning the schema into code.
 
-Plugins that register custom data types can also declare `coercedType` — what their `coerce()` function outputs (`'string'`, `'int'`, `'number'`, `'boolean'`, `'object'`, or `{ enum: [...] }`) — so generated code types those fields correctly in every language:
+Plugins that register custom data types can also declare `coercedType` (what their `coerce()` function outputs: `'string'`, `'int'`, `'number'`, `'boolean'`, `'object'`, or `{ enum: [...] }`) so generated code types those fields correctly in every language:
 
 ```ts title="my-plugin.ts"
 plugin.registerDataType({

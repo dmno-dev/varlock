@@ -136,16 +136,16 @@ FOO=bar  # will be ignored
 
 Imports other `.env` file(s) - useful for sharing config across monorepos and splitting up large schemas. _Can be called multiple times._
 
-You may import a specific file, or a directory of files. Importing a **directory** (trailing `/`) brings everything that directory would load on its own — its `.env.schema` plus sibling `.env`, `.env.local`, and environment-specific files, resolved by the current environment flag — whereas importing a single file brings only that file. To pull in a sibling or root package's values (not just its schema), import the directory.
+You may import a specific file, or a directory of files. Importing a **directory** (trailing `/`) brings everything that directory would load on its own (its `.env.schema` plus sibling `.env`, `.env.local`, and environment-specific files, resolved by the current environment flag), whereas importing a single file brings only that file. To pull in a sibling or root package's values (not just its schema), import the directory.
 
 The optional `enabled` parameter allows conditional imports based on boolean expressions. It defaults to `true` if not specified.
 
 The optional `allowMissing` parameter makes the import optional - if set to `true`, the import will be silently skipped if the file or directory doesn't exist instead of causing a loading error. It defaults to `false` if not specified.
 
-**Filtering keys:** by default every key from the imported file(s) is brought in. Use `pick` to import only an allowlist of keys, or `omit` to import everything except a denylist. You can't use both in one import, and both accept simple globs (`*`, `?`). Across nested imports, filters intersect — a key must pass every filter in the chain.
+**Filtering keys:** by default every key from the imported file(s) is brought in. Use `pick` to import only an allowlist of keys, or `omit` to import everything except a denylist. You can't use both in one import, and both accept simple globs (`*`, `?`). Across nested imports, filters intersect: a key must pass every filter in the chain.
 
 :::caution[Positional keys are deprecated]
-Listing keys as positional args (`@import(./.env.other, KEY1, KEY2)`) is **deprecated** — use `pick=[KEY1, KEY2]` instead. The positional form still works (exact-match only, no globs) but will warn.
+Listing keys as positional args (`@import(./.env.other, KEY1, KEY2)`) is **deprecated**; use `pick=[KEY1, KEY2]` instead. The positional form still works (exact-match only, no globs) but will warn.
 :::
 
 See the [imports guide](/guides/import/) for more details and advanced usage.
@@ -171,20 +171,20 @@ IMPORTED_ITEM=overridden-value
 **Arg types:** `[ data: string ]`
 **Named args:** `format?: "json" | "env"`, `createMissing?: boolean`, `enabled?: boolean`, `pick?: string[]`, `omit?: string[]`
 
-Injects multiple config values at once from an external data source. The first argument is a resolver that produces a string — typically a bulk resolver from a [secrets provider plugin](/plugins/overview/) such as [`opLoadEnvironment()`](/plugins/1password/#oploadenvironment) (1Password), [`infisicalBulk()`](/plugins/infisical/), or [`vaultSecret(…, raw=true)`](/plugins/hashicorp-vault/) (HashiCorp Vault) — which is parsed and injected as definitions within the file containing the decorator.
+Injects multiple config values at once from an external data source. The first argument is a resolver that produces a string, typically a bulk resolver from a [secrets provider plugin](/plugins/overview/) such as [`opLoadEnvironment()`](/plugins/1password/#oploadenvironment) (1Password), [`infisicalBulk()`](/plugins/infisical/), or [`vaultSecret(…, raw=true)`](/plugins/hashicorp-vault/) (HashiCorp Vault). The string is parsed and injected as definitions within the file containing the decorator.
 
-Bulk values participate in the normal file override chain — `process.env` still overrides everything, higher-precedence files (`.env.local`, `.env.production`, etc.) override bulk values, and bulk values override schema-defined defaults in the same file. You control precedence by choosing which file to put `@setValuesBulk` in.
+Bulk values participate in the normal file override chain: `process.env` still overrides everything, higher-precedence files (`.env.local`, `.env.production`, etc.) override bulk values, and bulk values override schema-defined defaults in the same file. You control precedence by choosing which file to put `@setValuesBulk` in.
 
 **Options:**
 - `format`: How to parse the data string. `json` expects a flat JSON object, `env` expects `.env` file format. If not specified, auto-detected by checking if the string starts with `{`.
 - `createMissing`: If `true`, keys in the bulk data that don't already exist in your schema will be created as new config items. Defaults to `false` (unknown keys are silently skipped).
 - `enabled`: If `false`, the bulk data resolver is skipped entirely. Accepts any boolean expression, including dynamic references to other config items. Defaults to `true`.
-- `pick`: An array of key names to inject — an **allowlist**. Only matching keys are injected; everything else from the source is ignored.
-- `omit`: An array of key names to skip — a **denylist**. Every key _except_ the matches is injected.
+- `pick`: An array of key names to inject, an **allowlist**. Only matching keys are injected; everything else from the source is ignored.
+- `omit`: An array of key names to skip, a **denylist**. Every key _except_ the matches is injected.
 
-By default (neither `pick` nor `omit`) every key from the source is injected. You can't use `pick` and `omit` together. Both accept simple glob patterns — `*` matches any run of characters and `?` matches a single character (e.g. `pick=[API_*]`).
+By default (neither `pick` nor `omit`) every key from the source is injected. You can't use `pick` and `omit` together. Both accept simple glob patterns: `*` matches any run of characters and `?` matches a single character (e.g. `pick=[API_*]`).
 
-_Can be called multiple times — later calls overwrite earlier ones for the same keys._
+_Can be called multiple times; later calls overwrite earlier ones for the same keys._
 
 ```env-spec title=".env.schema"
 # Load all values from a 1Password environment
@@ -207,7 +207,7 @@ DB_PASSWORD=
 ```
 
 ```env-spec title=".env.schema"
-# Allowlist — only inject these keys (globs allowed, e.g. API_*)
+# Allowlist: only inject these keys (globs allowed, e.g. API_*)
 # @setValuesBulk(opLoadEnvironment(your-environment-id), pick=[API_KEY, DB_PASSWORD])
 # ---
 API_KEY=
@@ -215,7 +215,7 @@ DB_PASSWORD=
 ```
 
 ```env-spec title=".env.schema"
-# Denylist — inject everything except these keys
+# Denylist: inject everything except these keys
 # @setValuesBulk(infisicalBulk(), omit=[LEGACY_TOKEN, DEBUG_*])
 ```
 
@@ -232,14 +232,14 @@ API_KEY=
 APP_ENV=dev
 ```
 
-If a plugin doesn't exist for your provider, any CLI tool works via [`exec()`](/reference/functions/#exec) — e.g. `@setValuesBulk(exec("my-secrets-cli export --format=json"), format=json)`.
+If a plugin doesn't exist for your provider, any CLI tool works via [`exec()`](/reference/functions/#exec), e.g. `@setValuesBulk(exec("my-secrets-cli export --format=json"), format=json)`.
 
 :::note
 When using `format=env`, function calls like `$VAR` references in unquoted values are not supported and will cause an error. Use single quotes for literal `$` signs (e.g., `'$LITERAL'`) or use `format=json` instead.
 :::
 
 :::caution[`createMissing` and type generation]
-Items created via `createMissing=true` — those that don't already exist in your schema — **will not be included in generated TypeScript types**. Type generation happens at build/schema-load time before values are fetched, so dynamically created keys are invisible to the type generator.
+Items created via `createMissing=true` (those that don't already exist in your schema) **will not be included in generated TypeScript types**. Type generation happens at build/schema-load time before values are fetched, so dynamically created keys are invisible to the type generator.
 
 For this reason, **`createMissing=true` is not recommended**. Instead, declare all expected items explicitly in your schema (with an empty value) so they are known at type-generation time.
 :::
@@ -278,7 +278,7 @@ Sets global cache mode for [`cache()`](/reference/functions/#cache) and plugin c
 - `disabled`: disable caching globally
 - `auto` (default): uses `disk` when a native encryption backend is available outside CI; otherwise uses `disk` encrypted with `_VARLOCK_CACHE_KEY` if that env var is set, falling back to `memory` (see the [Caching guide](/guides/caching/))
 
-The value can also be set dynamically with a function — for example to change cache mode per environment. A function that resolves to no value falls back to `auto`.
+The value can also be set dynamically with a function, for example to change cache mode per environment. A function that resolves to no value falls back to `auto`.
 
 ```env-spec
 # @cache=memory
@@ -369,7 +369,7 @@ See note on [`@redactLogs`](#redactlogs) about potential performance impact.
 
 Controls whether the injected env blob in server-side build output is encrypted. When enabled, varlock encrypts the blob with AES-256-GCM using the `_VARLOCK_ENV_KEY` environment variable.
 
-This is primarily relevant for serverless deployments (Vercel, Netlify, etc.) where varlock injects resolved env data into the build output. The blob only appears in server-side code and is generally safe, but encryption provides extra protection — particularly against secrets leaking via sourcemaps.
+This is primarily relevant for serverless deployments (Vercel, Netlify, etc.) where varlock injects resolved env data into the build output. The blob only appears in server-side code and is generally safe, but encryption provides extra protection, particularly against secrets leaking via sourcemaps.
 
 **Options:**
 - `false` (default): Blob is injected as plaintext JSON
@@ -390,16 +390,16 @@ SECRET_KEY= # @sensitive
 ```
 
 **Key management:**
-- For **Cloudflare Workers**, the key is auto-generated and uploaded as a secret binding — no manual setup needed
+- For **Cloudflare Workers**, the key is auto-generated and uploaded as a secret binding, so no manual setup is needed
 - For **local dev**, a temporary key is auto-generated when running dev servers
-- For **production deploys** to other platforms, you must set `_VARLOCK_ENV_KEY` on your platform — see the [encrypted deployments guide](/guides/encrypted-deployments/)
+- For **production deploys** to other platforms, you must set `_VARLOCK_ENV_KEY` on your platform (see the [encrypted deployments guide](/guides/encrypted-deployments/))
 </div>
 
 <div>
 ### `@disableProcessEnvInjection`
 **Value type:** `boolean`
 
-Prevents varlock from injecting resolved values into `process.env`. When enabled, env vars are only accessible via the `ENV` proxy — `process.env.MY_VAR` will not contain varlock-resolved values.
+Prevents varlock from injecting resolved values into `process.env`. When enabled, env vars are only accessible via the `ENV` proxy; `process.env.MY_VAR` will not contain varlock-resolved values.
 
 This is useful for security hardening. Combined with [`@encryptInjectedEnv`](#encryptinjectedenv), it ensures that no plaintext secrets exist in `process.env` at all.
 
@@ -409,7 +409,7 @@ When set, [`@generateTsTypes`](#generatetstypes) stops augmenting `process.env` 
 - `false` (default): Values are injected into `process.env` as usual
 - `true`: Values are only accessible via `ENV`
 
-The value must be static (`true`/`false`) — because code generation reads this flag, an
+The value must be static (`true`/`false`). Because code generation reads this flag, an
 environment-dependent value would make generated output differ per environment.
 
 ```env-spec
@@ -424,7 +424,7 @@ When enabled, any code that reads from `process.env` directly (including third-p
 :::
 
 :::note
-This decorator only affects the runtime `initVarlockEnv()` behavior — it does **not** affect [`varlock run`](/reference/cli-commands/#run), which always injects individual env vars into the child process by default. Use `varlock run --no-inject-vars` if you also want to skip individual var injection when using `varlock run`.
+This decorator only affects the runtime `initVarlockEnv()` behavior. It does **not** affect [`varlock run`](/reference/cli-commands/#run), which always injects individual env vars into the child process by default. Use `varlock run --no-inject-vars` if you also want to skip individual var injection when using `varlock run`.
 :::
 </div>
 
@@ -432,7 +432,7 @@ This decorator only affects the runtime `initVarlockEnv()` behavior — it does 
 ### `@auditIgnorePaths()`
 **Arg types:** `[ ...paths: string[] ]`
 
-Excludes directories from the [`varlock audit`](/reference/cli-commands/#audit) code scanner. Paths are relative to the file containing the decorator. _Can be called multiple times — paths are merged additively._
+Excludes directories from the [`varlock audit`](/reference/cli-commands/#audit) code scanner. Paths are relative to the file containing the decorator. _Can be called multiple times; paths are merged additively._
 
 Useful for excluding generated code, vendored dependencies, or directories that contain env var references you don't want to audit.
 
@@ -443,7 +443,7 @@ API_KEY=
 ```
 
 ```env-spec
-# called multiple times — paths are merged
+# called multiple times, paths are merged
 # @auditIgnorePaths(vendor)
 # @auditIgnorePaths(generated/config, scripts/setup)
 # ---
@@ -455,12 +455,12 @@ API_KEY=
 
 ## Code generation ||code-generation||
 
-Code-generation decorators turn your schema into generated code — TypeScript type declarations or ready-to-use env modules for other languages — and [plugins](/guides/plugins/) can register generators that emit other kinds of code. See the [Code generation guide](/guides/code-generation/) for the full picture, and [Other languages](/integrations/other-languages/) for per-language usage.
+Code-generation decorators turn your schema into generated code, such as TypeScript type declarations or ready-to-use env modules for other languages, and [plugins](/guides/plugins/) can register generators that emit other kinds of code. See the [Code generation guide](/guides/code-generation/) for the full picture, and [Other languages](/integrations/other-languages/) for per-language usage.
 
 Every `@generate*` decorator below is a root decorator that _can be called multiple times_ (one per output file) and shares these common args:
 
 - `path`: Relative filepath to write the generated file to.
-- `auto`: Controls whether generation runs automatically on every load (defaults to `true`). Set to `false` to generate only when you run [`varlock codegen`](/reference/cli-commands/#codegen) explicitly — useful in a CI pipeline or a dedicated build step.
+- `auto`: Controls whether generation runs automatically on every load (defaults to `true`). Set to `false` to generate only when you run [`varlock codegen`](/reference/cli-commands/#codegen) explicitly, useful in a CI pipeline or a dedicated build step.
 - `executeWhenImported`: overrides the default of not executing when the containing file is imported (defaults to `false`).
 
 :::tip
@@ -471,14 +471,14 @@ Usually these decorators live in your primary `.env.schema` file, and are ignore
 <div>
 ### `@generateTsTypes()`
 
-TypeScript type declarations — makes `import { ENV } from 'varlock/env'` typed and augments `process.env` / `import.meta.env`. In addition to the [common code-generation args](#code-generation), it accepts:
+TypeScript type declarations. Makes `import { ENV } from 'varlock/env'` typed and augments `process.env` / `import.meta.env`. In addition to the [common code-generation args](#code-generation), it accepts:
 
 - `exposeEnv`: where the coerced `ENV` object lives (defaults to `global`).
-  - `global` — globally augment `varlock/env` so `import { ENV } from 'varlock/env'` is typed.
-  - `local` — export a package-local typed `ENV` from the generated file (with **no** global augmentation — `processEnv`/`importMetaEnv` default to `none` too, so nothing merges across packages). Use this in monorepos where multiple packages have different schemas. Requires a `.ts` output path (not `.d.ts` — it contains a runtime re-export), and you import from the generated file (e.g. `import { ENV } from './env'`).
-  - `none` — emit only the type definitions, no `ENV` binding.
-- `processEnv`: how `process.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`; to `none` when `exposeEnv=local`, or when [`@disableProcessEnvInjection`](#disableprocessenvinjection) is set, since values aren't put on `process.env` then). Note that `@types/node` declares a base string index signature that can't be removed, so extra keys remain allowed on `process.env` regardless.
-- `importMetaEnv`: how `import.meta.env` is typed — `strict`, `loose`, or `none` (defaults to `strict`; to `none` when `exposeEnv=local`).
+  - `global`: globally augment `varlock/env` so `import { ENV } from 'varlock/env'` is typed.
+  - `local`: export a package-local typed `ENV` from the generated file (with **no** global augmentation, since `processEnv`/`importMetaEnv` default to `none` too, so nothing merges across packages). Use this in monorepos where multiple packages have different schemas. Requires a `.ts` output path (not `.d.ts`, since it contains a runtime re-export), and you import from the generated file (e.g. `import { ENV } from './env'`).
+  - `none`: emit only the type definitions, no `ENV` binding.
+- `processEnv`: how `process.env` is typed: `strict`, `loose`, or `none` (defaults to `strict`; to `none` when `exposeEnv=local`, or when [`@disableProcessEnvInjection`](#disableprocessenvinjection) is set, since values aren't put on `process.env` then). Note that `@types/node` declares a base string index signature that can't be removed, so extra keys remain allowed on `process.env` regardless.
+- `importMetaEnv`: how `import.meta.env` is typed: `strict`, `loose`, or `none` (defaults to `strict`; to `none` when `exposeEnv=local`).
 
 ```env-spec
 # @generateTsTypes(path=./env.d.ts)
@@ -490,7 +490,7 @@ TypeScript type declarations — makes `import { ENV } from 'varlock/env'` typed
 <div>
 ### `@generatePythonEnv()`
 
-A self-contained Python module — a coerced `Env` `TypedDict`, a `load_env()` that parses the injected env, and a `SENSITIVE_KEYS` constant. See [Python usage](/integrations/python/).
+A self-contained Python module: a coerced `Env` `TypedDict`, a `load_env()` that parses the injected env, and a `SENSITIVE_KEYS` constant. See [Python usage](/integrations/python/).
 
 ```env-spec
 # @generatePythonEnv(path=./env.py)
@@ -500,7 +500,7 @@ A self-contained Python module — a coerced `Env` `TypedDict`, a `load_env()` t
 <div>
 ### `@generateRustEnv()`
 
-A self-contained Rust module — a serde-derived `Env` struct, a `load()` function, and a `SENSITIVE_KEYS` constant. Requires the `serde` and `serde_json` crates. See [Rust usage](/integrations/rust/).
+A self-contained Rust module: a serde-derived `Env` struct, a `load()` function, and a `SENSITIVE_KEYS` constant. Requires the `serde` and `serde_json` crates. See [Rust usage](/integrations/rust/).
 
 ```env-spec
 # @generateRustEnv(path=./src/env.rs)
@@ -510,7 +510,7 @@ A self-contained Rust module — a serde-derived `Env` struct, a `load()` functi
 <div>
 ### `@generateGoEnv()`
 
-A self-contained Go package — an `Env` struct, a `Load()` function, and a `SensitiveKeys` map. See [Go usage](/integrations/go/).
+A self-contained Go package: an `Env` struct, a `Load()` function, and a `SensitiveKeys` map. See [Go usage](/integrations/go/).
 
 ```env-spec
 # @generateGoEnv(path=./env/env.go)
@@ -522,7 +522,7 @@ The package name defaults to the output directory (e.g. `path=env/env.go` → `p
 <div>
 ### `@generatePhpEnv()`
 
-A self-contained PHP class — a readonly `Env` with a static `load()` and a `SENSITIVE_KEYS` constant. Requires PHP 8.1+. See [PHP usage](/integrations/php/).
+A self-contained PHP class: a readonly `Env` with a static `load()` and a `SENSITIVE_KEYS` constant. Requires PHP 8.1+. See [PHP usage](/integrations/php/).
 
 ```env-spec
 # @generatePhpEnv(path=./Env.php)

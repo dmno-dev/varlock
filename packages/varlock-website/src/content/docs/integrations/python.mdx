@@ -3,9 +3,9 @@ title: Python
 description: Use varlock with Python via a generated typed env module, Pydantic Settings, or environs
 ---
 
-To use varlock with Python, [install the standalone binary](/getting-started/installation/#as-a-binary) and run your app under [`varlock run`](/reference/cli-commands/#run) — it loads and validates your env, then injects it into the process.
+To use varlock with Python, [install the standalone binary](/getting-started/installation/#as-a-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
 
-Add [`@generatePythonEnv`](/reference/root-decorators/#generatepythonenv) to your schema to generate a small, self-contained module — a coerced `Env` [`TypedDict`](https://docs.python.org/3/library/typing.html#typing.TypedDict), a `load_env()` function that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
+Add [`@generatePythonEnv`](/reference/root-decorators/#generatepythonenv) to your schema to generate a small, self-contained module: a coerced `Env` [`TypedDict`](https://docs.python.org/3/library/typing.html#typing.TypedDict), a `load_env()` function that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
 
 ```env-spec title=".env.schema"
 # @generatePythonEnv(path=env.py)
@@ -15,7 +15,7 @@ The file is regenerated automatically on [`varlock load`](/reference/cli-command
 
 ## Reading values
 
-Call `load_env()` once, then read keys off the dict — values are coerced (`int`/`bool`/etc.), not raw strings:
+Call `load_env()` once, then read keys off the dict. Values are coerced (`int`/`bool`/etc.), not raw strings:
 
 ```python
 from env import load_env, SENSITIVE_KEYS
@@ -36,7 +36,7 @@ varlock run -- python main.py
 
 ## Sharing one instance
 
-Every `load_env()` call re-parses the blob. To avoid reloading, load once in a config module and share it — the idiomatic "settings module" pattern:
+Every `load_env()` call re-parses the blob. To avoid reloading, load once in a config module and share it, the idiomatic "settings module" pattern:
 
 ```python
 # config.py
@@ -54,7 +54,7 @@ port = env["DB_PORT"]   # int
 
 ## Running your server
 
-[`varlock run`](/reference/cli-commands/#run) wraps any command, so boot your ASGI server, task runner, or scripts through it — local dev, CI, and production all use the same schema:
+[`varlock run`](/reference/cli-commands/#run) wraps any command, so boot your ASGI server, task runner, or scripts through it. Local dev, CI, and production all use the same schema:
 
 ```bash
 varlock run -- uvicorn main:app --reload
@@ -68,7 +68,7 @@ Environment variables in the command itself are expanded by your shell **before*
 
 ## Using a settings library
 
-If you'd rather keep the settings library you already use, every key is also injected as a plain environment variable — so [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/), [environs](https://github.com/sloria/environs), and friends work unchanged. They read the **raw string** values (e.g. `"5432"`, `"true"`), so your settings class is what coerces them:
+If you'd rather keep the settings library you already use, every key is also injected as a plain environment variable, so [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/), [environs](https://github.com/sloria/environs), and friends work unchanged. They read the **raw string** values (e.g. `"5432"`, `"true"`), so your settings class is what coerces them:
 
 ```python title="settings.py"
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -89,16 +89,16 @@ settings = Settings()
 from environs import Env
 
 env = Env()
-# Do not call env.read_env() — varlock run already populated os.environ
+# Do not call env.read_env(); varlock run already populated os.environ
 
 DATABASE_URL = env.str("DATABASE_URL")
 DEBUG = env.bool("DEBUG", default=False)
 ```
 
 :::note[Skip `.env` file loading in Python]
-When using varlock, don't also load `.env` from Python (`python-dotenv`, Pydantic's `env_file=`, etc.) unless you intentionally want a second source of truth. Varlock is the single resolver — your schema, plugins, and environment files all flow through it before Python starts.
+When using varlock, don't also load `.env` from Python (`python-dotenv`, Pydantic's `env_file=`, etc.) unless you intentionally want a second source of truth. Varlock is the single resolver: your schema, plugins, and environment files all flow through it before Python starts.
 :::
 
 :::note
-Every key is also injected as a plain environment variable, so you can read any of them with `os.environ` (raw strings) if you don't need the typed module. Keys whose names aren't valid identifiers (they contain `.` or `-`) can't be `TypedDict` fields — read those from the env var directly. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
+Every key is also injected as a plain environment variable, so you can read any of them with `os.environ` (raw strings) if you don't need the typed module. Keys whose names aren't valid identifiers (they contain `.` or `-`) can't be `TypedDict` fields, so read those from the env var directly. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
 :::

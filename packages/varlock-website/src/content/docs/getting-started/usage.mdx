@@ -43,10 +43,10 @@ By default, `varlock load` prints a human-readable summary to **stdout**. Schema
   packages/varlock-website/examples/load-output/ and contain raw ANSI escape
   bytes, so don't hand-edit them. To regenerate (run inside that fixture dir):
 
-    # success block — warm the cache first so the cached hint shows:
+    # success block, warm the cache first so the cached hint shows:
     APP_ENV=production FORCE_COLOR=1 varlock load >/dev/null 2>&1
     APP_ENV=production FORCE_COLOR=1 varlock load
-    # error block — key genuinely unset:
+    # error block, key genuinely unset:
     mv .env .env.bak; APP_ENV=production FORCE_COLOR=1 varlock load; mv .env.bak .env
 
   Paste each capture into the matching block, then normalize the volatile
@@ -102,7 +102,7 @@ Each item line shows:
 
 - A status icon (`✅` valid, or an error/warning icon if something failed)
 - The key name, with `*` if [`@required`](/reference/item-decorators/#required)
-- `🔐 sensitive` when the item is marked [`@sensitive`](/reference/item-decorators/#sensitive) — values are redacted in the summary
+- `🔐 sensitive` when the item is marked [`@sensitive`](/reference/item-decorators/#sensitive); values are redacted in the summary
 - The resolved value (quoted strings, colored booleans/numbers)
 - Inline hints such as `📦` (cached), `🟡 process.env` (overridden by the shell), or `< coerced from ...` when a value was coerced
 

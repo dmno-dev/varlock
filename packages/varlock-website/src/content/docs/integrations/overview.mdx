@@ -7,36 +7,36 @@ Varlock ships with official integrations that wire the CLI, runtime helpers, and
 
 If you are working in a monorepo, start with the [Monorepos guide](/guides/monorepos/) for schema layout, root-level dependency overrides, and CI patterns before picking per-framework integrations below.
 
-Integrations allow you to:
+Integrations let you:
 - load and validate `.env` files automatically during dev and use them in CI/CD and production
 - inject config into your code at build or request time
 - enable runtime protections such as leak prevention, and log redaction
 
 ## Official integrations
-- [JavaScript / Node.js](/integrations/javascript/) — use `varlock` in custom toolchains, scripts, and servers
-- [Bun](/integrations/bun/) — instructions to set up Varlock with Bun
-- [Next.js](/integrations/nextjs/) — drop-in replacement for `@next/env`
-- [Vite](/integrations/vite/) — Vite plugin that validates and replaces at build time
-- [Qwik](/integrations/vite/) — use the Vite integration
-- [React Router](/integrations/vite/) — use the Vite integration
-- [Cloudflare Workers](/integrations/cloudflare/) — use the Vite integration or Wrangler vars/secrets directly
-- [Astro](/integrations/astro/) — Astro integration built on top of our Vite plugin
-- [SvelteKit](/integrations/sveltekit/) — use the Vite integration, or the Cloudflare integration's SvelteKit plugin when deploying to Workers
-- [TanStack Start](/integrations/tanstack-start/) — use the Vite integration, or the Cloudflare integration when deploying to Workers
-- [Expo / React Native](/integrations/expo/) — Expo and React Native CLI: Babel plugin + Metro config wrapper with compile-time replacements and server route support (Expo only)
-- [GitHub Actions](/integrations/github-action/) — validate your `.env.schema` in GitHub Actions workflows
-- [Python](/integrations/python/) — `varlock run` + a generated typed env module (also Pydantic Settings / environs)
-- [Rust](/integrations/rust/) — a generated, serde-derived env module
-- [Go](/integrations/go/) — a generated env package
-- [PHP](/integrations/php/) — a generated, typed env class
-- [Other languages](/integrations/other-languages/) — generated-module overview + guidance for any other non-JS runtime
-- [Docker](/guides/docker/) — a Docker wrapper around the varlock CLI including examples
-- [mise](/integrations/mise/) — install varlock and wire validated env vars into your tasks
-- [direnv](/integrations/direnv/) — load validated env vars directly into your shell session
+- [JavaScript / Node.js](/integrations/javascript/): use `varlock` in custom toolchains, scripts, and servers
+- [Bun](/integrations/bun/): instructions to set up Varlock with Bun
+- [Next.js](/integrations/nextjs/): drop-in replacement for `@next/env`
+- [Vite](/integrations/vite/): Vite plugin that validates and replaces at build time
+- [Qwik](/integrations/vite/): use the Vite integration
+- [React Router](/integrations/vite/): use the Vite integration
+- [Cloudflare Workers](/integrations/cloudflare/): use the Vite integration or Wrangler vars/secrets directly
+- [Astro](/integrations/astro/): Astro integration built on top of our Vite plugin
+- [SvelteKit](/integrations/sveltekit/): use the Vite integration, or the Cloudflare integration's SvelteKit plugin when deploying to Workers
+- [TanStack Start](/integrations/tanstack-start/): use the Vite integration, or the Cloudflare integration when deploying to Workers
+- [Expo / React Native](/integrations/expo/): Expo and React Native CLI: Babel plugin + Metro config wrapper with compile-time replacements and server route support (Expo only)
+- [GitHub Actions](/integrations/github-action/): validate your `.env.schema` in GitHub Actions workflows
+- [Python](/integrations/python/): `varlock run` + a generated typed env module (also Pydantic Settings / environs)
+- [Rust](/integrations/rust/): a generated, serde-derived env module
+- [Go](/integrations/go/): a generated env package
+- [PHP](/integrations/php/): a generated, typed env class
+- [Other languages](/integrations/other-languages/): generated-module overview + guidance for any other non-JS runtime
+- [Docker](/guides/docker/): a Docker wrapper around the varlock CLI including examples
+- [mise](/integrations/mise/): install varlock and wire validated env vars into your tasks
+- [direnv](/integrations/direnv/): load validated env vars directly into your shell session
 
 
 ## Coming soon
-We’re actively working on additional first-party integrations for popular runtimes, frameworks and hosting platforms. If yours isn’t listed yet, let us know!
+We’re working on more first-party integrations for popular runtimes, frameworks and hosting platforms. If yours isn’t listed yet, let us know!
 
 :::note[Request an integration]
 Join us on [Discord](https://chat.dmno.dev) or open a GitHub issue describing your use case so we can prioritize it.

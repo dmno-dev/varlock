@@ -3,9 +3,9 @@ title: Rust
 description: Use varlock with Rust via a generated, serde-derived env module
 ---
 
-To use varlock with Rust, [install the standalone binary](/getting-started/installation/#as-a-binary) and run your app under [`varlock run`](/reference/cli-commands/#run) — it loads and validates your env, then injects it into the process.
+To use varlock with Rust, [install the standalone binary](/getting-started/installation/#as-a-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
 
-Add [`@generateRustEnv`](/reference/root-decorators/#generaterustenv) to your schema to generate a small, self-contained module — a serde-derived `Env` struct, a `load()` function that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
+Add [`@generateRustEnv`](/reference/root-decorators/#generaterustenv) to your schema to generate a small, self-contained module: a serde-derived `Env` struct, a `load()` function that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
 
 ```env-spec title=".env.schema"
 # @generateRustEnv(path=src/env.rs)
@@ -20,7 +20,7 @@ cargo add serde_json
 
 ## Reading values
 
-Call `load()` once, then read fields off the struct — required fields are the plain type, optional ones are `Option<T>`:
+Call `load()` once, then read fields off the struct. Required fields are the plain type, optional ones are `Option<T>`:
 
 ```rust
 mod env;
@@ -39,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 varlock run -- cargo run
 ```
 
-`load()` returns a clear error if `__VARLOCK_ENV` is missing (e.g. you forgot `varlock run`) or if a required key is absent. The struct derives a **redacting `Debug`** — sensitive fields print as `<redacted>`, so `{:?}` won't leak secrets.
+`load()` returns a clear error if `__VARLOCK_ENV` is missing (e.g. you forgot `varlock run`) or if a required key is absent. The struct derives a **redacting `Debug`**: sensitive fields print as `<redacted>`, so `{:?}` won't leak secrets.
 
 ## Sharing one instance
 
@@ -61,8 +61,8 @@ use crate::config::ENV;
 let port = ENV.db_port;   // Option<i64>
 ```
 
-Prefer no globals? Call `env::load()?` once in `main` and pass `&Env` through your app state — the type comes along either way.
+Prefer no globals? Call `env::load()?` once in `main` and pass `&Env` through your app state. The type comes along either way.
 
 :::note
-Every key is also injected as a plain environment variable, so you can read any of them with `std::env::var` (raw strings) if you don't need the typed module. Enums become plain `String` (Rust has no string-literal type), and keys whose names aren't valid identifiers (they contain `.` or `-`) can't be struct fields — read those from the env var directly. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
+Every key is also injected as a plain environment variable, so you can read any of them with `std::env::var` (raw strings) if you don't need the typed module. Enums become plain `String` (Rust has no string-literal type), and keys whose names aren't valid identifiers (they contain `.` or `-`) can't be struct fields, so read those from the env var directly. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
 :::
