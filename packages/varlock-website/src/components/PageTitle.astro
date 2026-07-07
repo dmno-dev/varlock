@@ -1,0 +1,46 @@
+---
+/**
+ * Starlight PageTitle override — adds the matching "works with" icon
+ * next to the title on plugin/integration pages.
+ */
+import Default from '@astrojs/starlight/components/PageTitle.astro';
+import { Icon } from 'astro-iconify';
+import { getDocsPageIcon } from '@/lib/docs-page-icons';
+
+const icon = getDocsPageIcon(Astro.locals.starlightRoute.id);
+---
+
+{
+  icon ? (
+    <div class="page-title-with-icon">
+      <Icon name={icon} class="page-title-icon" aria-hidden="true" />
+      <Default>
+        <slot />
+      </Default>
+    </div>
+  ) : (
+    <Default>
+      <slot />
+    </Default>
+  )
+}
+
+<style>
+  .page-title-with-icon {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1rem;
+  }
+
+  .page-title-with-icon :global(h1) {
+    margin-top: 0;
+  }
+
+  .page-title-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    flex-shrink: 0;
+    color: var(--brand-purple);
+  }
+</style>
