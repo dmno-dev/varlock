@@ -8,12 +8,12 @@ import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
 
 The varlock CLI supports tab completion for subcommands and flags. There are two ways to get it, depending on how varlock is installed:
 
-- **`varlock` on your PATH** (standalone binary or global npm install) — install varlock's own completion script. See [Setup](#setup) below.
-- **varlock as a local project dependency** (run via `pnpm exec`, `npm exec`, `bun x`, scripts, etc.) — completion comes from your package manager's completion instead. See [Local project installs](#local-project-installs).
+- **`varlock` on your PATH** (standalone binary or global npm install): install varlock's own completion script. See [Setup](#setup) below.
+- **varlock as a local project dependency** (run via `pnpm exec`, `npm exec`, `bun x`, scripts, etc.): completion comes from your package manager's completion instead. See [Local project installs](#local-project-installs).
 
 ## Setup
 
-Use this when `varlock` is on your PATH — installed via the [standalone binary](/getting-started/installation/#as-a-standalone-binary) (Homebrew or cURL) or a global npm install (`npm install -g varlock`).
+Use this when `varlock` is on your PATH, installed via the [standalone binary](/getting-started/installation/#as-a-standalone-binary) (Homebrew or cURL) or a global npm install (`npm install -g varlock`).
 
 Generate a completion script with `varlock complete <shell>`, then install it using the instructions below for your shell.
 
@@ -44,7 +44,7 @@ After upgrading varlock, re-run `varlock complete <shell>` if new commands or fl
     varlock complete fish > ~/.config/fish/completions/varlock.fish
     ```
 
-    Fish loads completions automatically — restart your shell or open a new terminal to pick them up.
+    Fish loads completions automatically. Restart your shell or open a new terminal to pick them up.
   </TabItem>
   <TabItem label="PowerShell">
     ```powershell
@@ -56,7 +56,7 @@ After upgrading varlock, re-run `varlock complete <shell>` if new commands or fl
 
 ## Local project installs
 
-When varlock is only a local dependency (not on your PATH), you run it through your package manager — `pnpm exec varlock …`, `npm exec varlock …`, `bun x varlock …`, or a `package.json` script. In that case completion comes from **your package manager's** completion, which delegates to varlock automatically. You don't install anything varlock-specific — varlock already speaks the completion protocol that package-manager completion uses.
+When varlock is only a local dependency (not on your PATH), you run it through your package manager: `pnpm exec varlock …`, `npm exec varlock …`, `bun x varlock …`, or a `package.json` script. In that case completion comes from **your package manager's** completion, which delegates to varlock automatically. You don't install anything varlock-specific; varlock already speaks the completion protocol that package-manager completion uses.
 
 Set up completion for your package manager once, using [`@bomb.sh/tab`](https://bomb.sh/docs/tab/#package-manager-completions):
 
@@ -78,7 +78,7 @@ Completion is registered against the package-manager binary (`npm`, `pnpm`, `yar
 
 Tab completion covers varlock **subcommands** and **static flags** (including enum choices like `load --format`).
 
-Dynamic values — such as env var names from your schema — are not completed yet.
+Dynamic values, such as env var names from your schema, are not completed yet.
 
 ## Troubleshooting
 

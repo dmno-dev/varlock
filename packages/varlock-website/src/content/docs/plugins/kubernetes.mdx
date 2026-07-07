@@ -14,30 +14,30 @@ Our Kubernetes plugin enables loading values from Kubernetes [Secrets](https://k
 
 ## Scope
 
-This plugin is **read-only**. It performs `get` requests on Secrets and ConfigMaps in a configured namespace and surfaces the values to your `.env` schema — nothing more. It does **not** create, update, or delete cluster resources, generate or template manifests, watch for changes, or manage deployments.
+This plugin is **read-only**. It performs `get` requests on Secrets and ConfigMaps in a configured namespace and surfaces the values to your `.env` schema, nothing more. It does **not** create, update, or delete cluster resources, generate or template manifests, watch for changes, or manage deployments.
 
 **Typical use cases:**
-- **Local development** — pull dev/staging Secrets and ConfigMaps from a cluster into your local app without copying values by hand
-- **In-cluster runtime** — read additional Secrets/ConfigMaps at runtime that aren't already mounted into the pod via `envFrom` / `valueFrom`
-- **CI/CD** — read Secrets/ConfigMaps from a cluster using an explicit service account token
+- **Local development**: pull dev/staging Secrets and ConfigMaps from a cluster into your local app without copying values by hand
+- **In-cluster runtime**: read additional Secrets/ConfigMaps at runtime that aren't already mounted into the pod via `envFrom` / `valueFrom`
+- **CI/CD**: read Secrets/ConfigMaps from a cluster using an explicit service account token
 
 It supports local kubeconfig, in-cluster service account credentials, and explicit API server + token authentication.
 
 :::note[Want deeper Kubernetes integration?]
-We're considering broader Kubernetes support (manifest generation, schema-to-deployment validation, change watching, etc.). If you have a use case this plugin doesn't cover, or feedback from running it in production, come chat on [Discord](https://chat.dmno.dev) — we'd love to hear from you.
+We're considering broader Kubernetes support (manifest generation, schema-to-deployment validation, change watching, etc.). If you have a use case this plugin doesn't cover, or feedback from running it in production, come chat on [Discord](https://chat.dmno.dev). We'd love to hear from you.
 :::
 
 ## Features
 
-- **Zero-config local development** - Automatically uses your default kubeconfig (`~/.kube/config`)
-- **In-cluster authentication** - Auto-detects the mounted service account when running inside a pod
-- **Explicit auth** - Provide a cluster API URL and bearer token directly
+- **Zero-config local development**: automatically uses your default kubeconfig (`~/.kube/config`)
+- **In-cluster authentication**: auto-detects the mounted service account when running inside a pod
+- **Explicit auth**: provide a cluster API URL and bearer token directly
 - **Fetch Secret keys** with `k8sSecret()` (values are automatically base64-decoded)
 - **Fetch ConfigMap keys** with `k8sConfigMap()` (including `binaryData`)
 - **Bulk-load** whole Secrets or ConfigMaps with `k8sSecretBulk()` / `k8sConfigMapBulk()`
 - **Auto-infer keys** from environment variable names
 - **Multiple instances** for different namespaces or clusters
-- **Read-only** — the plugin never mutates cluster state
+- **Read-only**: the plugin never mutates cluster state
 
 ## Installation and setup
 
@@ -83,7 +83,7 @@ If your kubeconfig has multiple contexts, you can select one explicitly:
 
 ### Explicit cluster server and token
 
-If you don't want to rely on a kubeconfig file — for example, in CI/CD or other deployed environments — provide the API server URL and a bearer token directly:
+If you don't want to rely on a kubeconfig file (for example, in CI/CD or other deployed environments), provide the API server URL and a bearer token directly:
 
 <Steps>
 1. **Create a service account and RBAC** in your cluster (see Kubernetes Setup section below)
@@ -110,7 +110,7 @@ For clusters that present self-signed or custom-CA certificates, you can disable
 
 ### Raw kubeconfig
 
-You can also pass an entire kubeconfig as a string (YAML or JSON) — useful when injecting credentials from a secret manager or platform env var:
+You can also pass an entire kubeconfig as a string (YAML or JSON), useful when injecting credentials from a secret manager or platform env var:
 
 ```env-spec title=".env.schema"
 # @initKubernetes(kubeconfig=$KUBECONFIG_DATA)
@@ -155,10 +155,10 @@ data:
 
 So fetching a value is always a two-level lookup: which Secret/ConfigMap (`name`), and which key inside it (`key`). The resolvers reflect this directly:
 
-- `k8sSecret(name, key)` — read `name.data.key`
-- `k8sConfigMap(name, key)` — read `name.data.key` (or `name.binaryData.key`)
+- `k8sSecret(name, key)`: read `name.data.key`
+- `k8sConfigMap(name, key)`: read `name.data.key` (or `name.binaryData.key`)
 
-When `key` is omitted, the plugin uses the config item's name as the key — this works well when your Secret keys already match your env var names.
+When `key` is omitted, the plugin uses the config item's name as the key. This works well when your Secret keys already match your env var names.
 
 ### Secret keys
 
@@ -216,7 +216,7 @@ STRIPE_KEY=k8sSecret(key=stripe_api_key)
 SHARED_TOKEN=k8sSecret(shared-secrets, AUTH_TOKEN)
 ```
 
-You can mix positional and named arguments, but you can't provide the same field twice — e.g., `k8sSecret(app-secrets, name=other-secrets)` is a schema error.
+You can mix positional and named arguments, but you can't provide the same field twice. For example, `k8sSecret(app-secrets, name=other-secrets)` is a schema error.
 
 ### Bulk loading
 
@@ -234,7 +234,7 @@ API_KEY=
 PUBLIC_API_HOST=
 ```
 
-Only items declared in your schema will be populated — any extra keys in the Secret or ConfigMap are ignored.
+Only items declared in your schema will be populated; any extra keys in the Secret or ConfigMap are ignored.
 
 Bulk resolvers also pick up `defaultSecret`/`defaultConfigMap`, so the names can be omitted entirely:
 
@@ -401,7 +401,7 @@ Initialize a Kubernetes plugin instance for `k8sSecret()`, `k8sConfigMap()`, `k8
 <div>
 #### `kubernetesBearerToken`
 
-This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly, for example to write secrets back or fetch additional secrets at runtime.
 
 
 Represents a Kubernetes bearer token used for API server authentication (typically a service account token). This type is marked as `@sensitive`.
@@ -534,7 +534,7 @@ Fetch all keys from a Kubernetes ConfigMap as a JSON object string. Designed to 
 
 ### Secret or ConfigMap not found (404)
 - Verify the resource exists: `kubectl get secret <name> -n <namespace>` or `kubectl get configmap <name> -n <namespace>`
-- Double-check the namespace — the plugin reads only from the configured namespace
+- Double-check the namespace; the plugin reads only from the configured namespace
 - Resource names are case-sensitive and namespace-scoped
 - If the resource is genuinely optional, set `allowMissing=true` on `@initKubernetes()` and `@required=false` on the item
 
@@ -551,7 +551,7 @@ Fetch all keys from a Kubernetes ConfigMap as a JSON object string. Designed to 
 ### Connection refused or TLS errors
 - Verify the cluster API URL is reachable from your machine/pod
 - For clusters with self-signed certificates and explicit auth, set `skipTlsVerify=true` (development only)
-- If using `kubectl` works but the plugin doesn't, your kubeconfig may rely on an [exec credential plugin](https://kubernetes.io/docs/reference/config-api/client-authentication.v1beta1/) (e.g., `aws eks get-token`, `gke-gcloud-auth-plugin`, `kubelogin`) — ensure the helper binary is on your `$PATH`
+- If using `kubectl` works but the plugin doesn't, your kubeconfig may rely on an [exec credential plugin](https://kubernetes.io/docs/reference/config-api/client-authentication.v1beta1/) (e.g., `aws eks get-token`, `gke-gcloud-auth-plugin`, `kubelogin`). Ensure the helper binary is on your `$PATH`
 
 ### Wrong namespace
 - The plugin uses (in order): the explicit `namespace` argument, the current kubeconfig context's namespace, the pod's mounted SA namespace, or `default`

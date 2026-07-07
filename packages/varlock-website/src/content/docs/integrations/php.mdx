@@ -3,9 +3,9 @@ title: PHP
 description: Use varlock with PHP via a generated, typed env class
 ---
 
-To use varlock with PHP, [install the standalone binary](/getting-started/installation/#as-a-binary) and run your app under [`varlock run`](/reference/cli-commands/#run) — it loads and validates your env, then injects it into the process.
+To use varlock with PHP, [install the standalone binary](/getting-started/installation/#as-a-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
 
-Add [`@generatePhpEnv`](/reference/root-decorators/#generatephpenv) to your schema to generate a small, self-contained class — a readonly `Env` with typed promoted properties, a static `load()` that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
+Add [`@generatePhpEnv`](/reference/root-decorators/#generatephpenv) to your schema to generate a small, self-contained class: a readonly `Env` with typed promoted properties, a static `load()` that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
 
 ```env-spec title=".env.schema"
 # @generatePhpEnv(path=Env.php)
@@ -15,11 +15,11 @@ The file is regenerated automatically on [`varlock load`](/reference/cli-command
 
 ## Reading values
 
-Call `load()` once, then read fields off the object — required fields are the plain type, optional ones are nullable (`?type`):
+Call `load()` once, then read fields off the object. Required fields are the plain type, optional ones are nullable (`?type`):
 
 ```php
 <?php
-require_once 'Env.php';   // require_once — a second require would fatal
+require_once 'Env.php';   // require_once, since a second require would fatal
 
 $env = Env::load();       // call once, hold or inject $env
 $port = $env->DB_PORT;    // ?int
@@ -37,7 +37,7 @@ varlock run -- php main.php
 
 ## Sharing one instance
 
-Every `load()` call re-parses the blob. To avoid reloading, bind the loaded instance wherever your app keeps shared services — e.g. your DI container:
+Every `load()` call re-parses the blob. To avoid reloading, bind the loaded instance wherever your app keeps shared services, e.g. your DI container:
 
 ```php
 // bootstrap.php
@@ -70,5 +70,5 @@ By default the class is a global `final class Env` loaded via `require_once`. Fo
 Under PHP-FPM, make sure the pool passes `__VARLOCK_ENV` through (`clear_env = no`).
 
 :::note
-Every key is also injected as a plain environment variable, so you can read any of them with `getenv()` (raw strings) if you don't need the typed module. Keys whose names aren't valid identifiers (they contain `.` or `-`) can't be properties — read those from the env var directly. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
+Every key is also injected as a plain environment variable, so you can read any of them with `getenv()` (raw strings) if you don't need the typed module. Keys whose names aren't valid identifiers (they contain `.` or `-`) can't be properties, so read those from the env var directly. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
 :::

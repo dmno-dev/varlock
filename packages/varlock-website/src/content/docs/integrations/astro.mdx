@@ -76,7 +76,7 @@ console.log(ENV.SOMEVAR);             // ✨ recommended
 - Enables future DX improvements and tighter control over what is bundled
 
 ### Within `astro.config.*`
-It's often useful to be able to access env vars in your Astro config. Without varlock, it's a bit awkward, but varlock makes it dead simple - in fact it's already available! Just import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
+It's often useful to be able to access env vars in your Astro config. Without varlock, it's a bit awkward, but varlock makes it easy. In fact it's already available: import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
 
 ```diff lang="ts" title="astro.config.ts"
 import { defineConfig } from 'astro/config';
@@ -171,7 +171,7 @@ When deploying SSR Astro apps to serverless platforms, varlock injects the resol
 
 ## Deploying to Cloudflare Workers
 
-If you deploy your SSR Astro app to Cloudflare Workers via [`@astrojs/cloudflare`](https://docs.astro.build/en/guides/integrations-guide/cloudflare/), install [`@varlock/cloudflare-integration`](/integrations/cloudflare/) alongside the Astro integration. The Astro integration **auto-detects** the Cloudflare adapter and wires up env injection into the worker — there's no extra Vite or adapter config to write, and you keep using `astro dev` as normal.
+If you deploy your SSR Astro app to Cloudflare Workers via [`@astrojs/cloudflare`](https://docs.astro.build/en/guides/integrations-guide/cloudflare/), install [`@varlock/cloudflare-integration`](/integrations/cloudflare/) alongside the Astro integration. The Astro integration **auto-detects** the Cloudflare adapter and wires up env injection into the worker. There's no extra Vite or adapter config to write, and you keep using `astro dev` as normal.
 
 <Steps>
 
@@ -181,7 +181,7 @@ If you deploy your SSR Astro app to Cloudflare Workers via [`@astrojs/cloudflare
 
 1. **Use the Cloudflare adapter as usual**
 
-    No varlock-specific Cloudflare setup is needed — just the standard adapter alongside `varlockAstroIntegration()`:
+    No varlock-specific Cloudflare setup is needed. Use the standard adapter alongside `varlockAstroIntegration()`:
 
     ```ts title="astro.config.ts"
     import { defineConfig } from 'astro/config';
@@ -216,7 +216,7 @@ Varlock relies on a handful of `node:*` built-ins at runtime, so your worker mus
 :::
 
 :::caution[Remove `.dev.vars`]
-Varlock manages env injection automatically — delete any `.dev.vars` file in your project root, or the dev server will error.
+Varlock manages env injection automatically. Delete any `.dev.vars` file in your project root, or the dev server will error.
 :::
 
 See the [Cloudflare Workers integration docs](/integrations/cloudflare/) for full details on how dev injection, deployment, CI/CD, and `varlock-wrangler` work.

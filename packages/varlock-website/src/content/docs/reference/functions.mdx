@@ -1,6 +1,6 @@
 ---
 title: Resolver functions
-description: A comprehensive reference of all available function resolvers in varlock
+description: A reference of all available function resolvers in varlock
 ---
 
 You may use _resolver functions_ instead of static values within both config items and decorator values.
@@ -66,7 +66,7 @@ Many CLI tools output an additional newline. `exec()` will trim this automatical
 :::
 
 :::tip[Prefer a plugin when one exists]
-If varlock has a [plugin](/plugins/overview/) for your provider (1Password, AWS, Vault, …), use its resolver (e.g. `op()`) instead of shelling out — plugins handle auth, caching, and validation. Reach for `exec()` only for tools without a plugin, or for custom logic.
+If varlock has a [plugin](/plugins/overview/) for your provider (1Password, AWS, Vault, …), use its resolver (e.g. `op()`) instead of shelling out. Plugins handle auth, caching, and validation. Reach for `exec()` only for tools without a plugin, or for custom logic.
 :::
 
 Expansion equivalent: `exec(command)` === `$(command)`
@@ -113,7 +113,7 @@ APP_ENV=remap($CI_BRANCH, "main", production, /.*/, preview, undefined, developm
 :::caution[Quoting path-like values]
 An unquoted match value that looks like a valid regex (i.e., `/something/` with optional flags) will be treated as a regex pattern. If you need to match a literal string containing slashes (like a file path), wrap it in quotes.
 ```env-spec
-# /usr/local/ looks like a valid regex — use quotes to match it literally
+# /usr/local/ looks like a valid regex, so use quotes to match it literally
 ITEM=remap($PATH_VAR, "/usr/local/", found, default)
 ```
 :::
@@ -156,14 +156,14 @@ API_URL=ifs(
 <div>
 ### Regex-like strings
 
-Certain functions like `remap()` and type options like `matches` support regex pattern matching. You can use JavaScript-style regex syntax (`/pattern/flags`) as an unquoted value — these will be automatically detected and treated as regular expressions.
+Certain functions like `remap()` and type options like `matches` support regex pattern matching. You can use JavaScript-style regex syntax (`/pattern/flags`) as an unquoted value. These will be automatically detected and treated as regular expressions.
 
 A string is treated as a regex when it:
 - Starts and ends with `/` (with optional flags like `i`, `g`, `m`, `s`, `u`, `y` after the closing `/`)
 - Is **not** wrapped in quotes
 
 ```env-spec
-# regex pattern in remap — matches case-insensitively
+# regex pattern in remap, matches case-insensitively
 ENV_TYPE=remap($APP_ENV, /^dev.*/i, dev, "production", prod)
 
 # regex pattern in type options
@@ -177,17 +177,17 @@ API_URL=
 :::caution[Paths vs regex ambiguity]
 Since `/something/` looks like a valid regex, values like `/usr/lib/` will be treated as regex patterns in contexts that support them (like `remap()` match values). To use a literal string containing slashes, wrap it in quotes:
 ```env-spec
-# unquoted — treated as regex pattern matching "usr/lib"
+# unquoted, treated as regex pattern matching "usr/lib"
 ITEM=remap($VAR, /usr/lib/, matched)
 
-# quoted — treated as the literal string "/usr/lib/"
+# quoted, treated as the literal string "/usr/lib/"
 ITEM=remap($VAR, "/usr/lib/", matched)
 ```
 Note that as a top-level config value (e.g., `MY_PATH=/usr/local/bin`), slash-containing strings are always treated as plain strings.
 :::
 
 :::note[`regex()` function]
-The older `regex("pattern")` function wrapper is still supported but the `/pattern/` literal syntax is preferred — it's more concise and supports flags.
+The older `regex("pattern")` function wrapper is still supported but the `/pattern/` literal syntax is preferred, since it's more concise and supports flags.
 
 ```env-spec
 # older style - still works
@@ -327,7 +327,7 @@ SESSION_SECRET=cache(randomHex())
 # @sensitive
 ENCRYPTION_KEY=cache(randomHex(64))
 
-# 32 bytes (= 64 hex chars) — byte-length mode
+# 32 bytes (= 64 hex chars), byte-length mode
 # @sensitive
 HMAC_KEY=cache(randomHex(32, bytes=true))
 
@@ -411,13 +411,13 @@ Plugin authors can also use the cache API via `plugin.cache.getOrSet()` (or `get
 
 Decrypts a locally encrypted value, or prompts for a new secret to encrypt. This is the built-in resolver for varlock's [device-local encryption](/guides/local-encryption/) feature.
 
-**Decrypt mode** — pass an encrypted payload to decrypt at load time:
+**Decrypt mode**: pass an encrypted payload to decrypt at load time:
 ```env-spec "varlock"
 # @sensitive
 API_KEY=varlock("local:<encrypted-payload>")
 ```
 
-**Prompt mode** — prompts the user to enter a secret, encrypts it, and writes the encrypted value back to the source file:
+**Prompt mode**: prompts the user to enter a secret, encrypts it, and writes the encrypted value back to the source file:
 ```env-spec "varlock"
 # @sensitive
 API_KEY=varlock(prompt)
@@ -427,7 +427,7 @@ API_KEY=varlock(prompt=1)
 
 On first run with `prompt` mode, you'll be asked to enter the secret value. Once entered, the file is automatically updated with the encrypted payload. On macOS with Secure Enclave, a native dialog with biometric authentication is used.
 
-Values are encrypted using the best available backend on your platform — see the [Local encryption guide](/guides/local-encryption/) for details.
+Values are encrypted using the best available backend on your platform. See the [Local encryption guide](/guides/local-encryption/) for details.
 
 Encrypted payload lifecycle:
 - Store encrypted payloads (`varlock("local:...")`) in local override files (typically `.env.local`)
@@ -459,7 +459,7 @@ DATABASE_PASSWORD=keychain("com.company.database")
 # Named service with account
 ADMIN_PW=keychain("com.company.db", account="admin")
 
-# Interactive picker mode — writes back resolved reference
+# Interactive picker mode, writes back resolved reference
 NEW_SECRET=keychain(prompt)
 ```
 

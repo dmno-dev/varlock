@@ -61,7 +61,7 @@ Decorators are used within comments to attach structured data to specific config
 
 - Each decorator has a name and optional value (`@name=value`) or is a bare function call `@func()`
 - The two forms carry a meaning: **bare function calls `@func(...)` may be used multiple times** (their args accumulate, e.g. multiple `@docs(...)` links), while **decorators with a value `@name=value` are single-use**
-- A decorator value may itself be a function call (`@name=func(args)`), an object literal (`@name={key=value}`), or an array literal (`@name=[a, b, c]`) — these are all single-use values, not bare function calls
+- A decorator value may itself be a function call (`@name=func(args)`), an object literal (`@name={key=value}`), or an array literal (`@name=[a, b, c]`). These are all single-use values, not bare function calls
 - Using the name only is equivalent to setting the value to true -- `@required` === `@required=true`
 - Multiple decorators may be specified on the same line
 - Decorator values will be parsed using the common value-handling rules (see below)
@@ -175,7 +175,7 @@ Values are interpreted similarly for config item values, decorator values, and v
 
 ### Regex literals
 
-Regex literals use JavaScript-style `/pattern/flags` syntax and can be used anywhere a value is expected — for example, as function arguments or decorator option values.
+Regex literals use JavaScript-style `/pattern/flags` syntax and can be used anywhere a value is expected, for example as function arguments or decorator option values.
 
 - The pattern is delimited by `/` characters
 - Forward slashes within the pattern must be escaped as `\/`
@@ -211,11 +211,11 @@ NOT_FN_CALL="fn()" # treated as string
 
 Standalone objects and arrays use distinct brackets, keeping them unambiguous from function calls (which use `()`):
 
-- `{ key=value, ... }` is an **object** — keys use `=` (as elsewhere in the spec), not `:`
+- `{ key=value, ... }` is an **object**, where keys use `=` (as elsewhere in the spec), not `:`
 - `[ value, ... ]` is an **array**
 - they may be nested, and used as decorator values or as function-call arguments
 - they are parsed using the common value-handling rules, and may span multiple lines (see [Multi-line literals](#multi-line-literals) below)
-- they are **not yet supported as standalone config item values** (e.g. `ITEM={...}`) — for now an item value that starts with `{`/`[` is still treated as a string
+- they are **not yet supported as standalone config item values** (e.g. `ITEM={...}`). For now an item value that starts with `{`/`[` is still treated as a string
 
 ```env-spec
 # @dec={ key1=v1, key2="v2", nested={ a=1 } }
@@ -224,16 +224,16 @@ Standalone objects and arrays use distinct brackets, keeping them unambiguous fr
 ITEM=
 ```
 
-This is why per-item options are written `@sensitive={preventLeaks=false}` rather than `@sensitive(...)` — the latter (a bare function call) is reserved for repeatable decorators.
+This is why per-item options are written `@sensitive={preventLeaks=false}` rather than `@sensitive(...)`. The latter (a bare function call) is reserved for repeatable decorators.
 
 #### When to reach for a literal (and when not to)
 
 Object/array literals earn their place only where there is **no function-call `()` already carrying the structure**. In practice that means two situations:
 
-1. **The value of a non-function decorator** — e.g. `@sensitive={preventLeaks=false}`. These decorators can't take bare `()` args (that syntax is reserved for repeatable decorators), so an object value is the only way to attach options.
-2. **A single argument that is itself a nested object or list**, sitting alongside other args — e.g. `fn(retry={count=3, backoff=2})`.
+1. **The value of a non-function decorator**, e.g. `@sensitive={preventLeaks=false}`. These decorators can't take bare `()` args (that syntax is reserved for repeatable decorators), so an object value is the only way to attach options.
+2. **A single argument that is itself a nested object or list**, sitting alongside other args, e.g. `fn(retry={count=3, backoff=2})`.
 
-Do **not** wrap a function's (or function-decorator's) own named arguments in a literal — the parentheses already _are_ the options bag. The following are correct as written, and the literal-wrapped versions are redundant:
+Do **not** wrap a function's (or function-decorator's) own named arguments in a literal. The parentheses already _are_ the options bag. The following are correct as written, and the literal-wrapped versions are redundant:
 
 | Prefer | Avoid |
 | --- | --- |
@@ -243,8 +243,8 @@ Do **not** wrap a function's (or function-decorator's) own named arguments in a 
 
 Also prefer the existing positional/comma forms for:
 
-- **ordered pairs** — `ifs(cond1, val1, cond2, val2, default)` and `remap($VAR, match1, result1, ...)` read like a spreadsheet `IFS()`/lookup and stay flat. Crucially, `remap` match keys may be **regexes or non-identifier strings**, which cannot be object keys (keys must match `/[a-zA-Z][a-zA-Z0-9_]*/`), so an object would be strictly less expressive.
-- **value lists** — `@type=enum(dev, staging, prod)` already reads as a list; `enum([...])` only adds brackets.
+- **ordered pairs**: `ifs(cond1, val1, cond2, val2, default)` and `remap($VAR, match1, result1, ...)` read like a spreadsheet `IFS()`/lookup and stay flat. Crucially, `remap` match keys may be **regexes or non-identifier strings**, which cannot be object keys (keys must match `/[a-zA-Z][a-zA-Z0-9_]*/`), so an object would be strictly less expressive.
+- **value lists**: `@type=enum(dev, staging, prod)` already reads as a list; `enum([...])` only adds brackets.
 
 #### Multi-line literals
 
@@ -284,7 +284,7 @@ and depends on where the literal lives:
 
 A trailing comma is allowed. If a `#`-prefixed continuation is omitted in a decorator,
 the bracket simply falls back to a plain string value and the following lines remain
-independent config items — they are never silently absorbed into the literal.
+independent config items. They are never silently absorbed into the literal.
 
 Within a multi-line literal (or function call), `#` introduces a comment that runs to the
 end of the line, so entries can be commented out or annotated. This applies the same way

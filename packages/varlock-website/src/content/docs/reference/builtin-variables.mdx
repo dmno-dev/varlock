@@ -3,7 +3,7 @@ title: "Builtin variables"
 description: Auto-detected VARLOCK_* variables for CI platform, branch, commit, and environment info
 ---
 
-Varlock provides a set of **builtin `VARLOCK_*` variables** that are automatically populated with information about the current CI/deploy platform, git branch, commit, and inferred deployment environment. They are entirely **opt-in** — they only exist in your schema when you reference them.
+Varlock provides a set of **builtin `VARLOCK_*` variables** that are automatically populated with information about the current CI/deploy platform, git branch, commit, and inferred deployment environment. They are entirely **opt-in**: they only exist in your schema when you reference them.
 
 ## Usage
 
@@ -20,14 +20,14 @@ DB_URL=if(
 )
 ```
 
-If you want to include a builtin variable in your resolved env without referencing it from another item, just define it with an empty value — varlock will populate it automatically:
+If you want to include a builtin variable in your resolved env without referencing it from another item, define it with an empty value and varlock will populate it automatically:
 
 ```env-spec title=".env.schema"
 VARLOCK_BRANCH=
 VARLOCK_COMMIT_SHA_SHORT=
 ```
 
-You can also use `VARLOCK_ENV` as your environment flag with `@currentEnv`, which means you don't need to create your own `APP_ENV` variable — Varlock will auto-detect the environment for you.
+You can also use `VARLOCK_ENV` as your environment flag with `@currentEnv`, which means you don't need to create your own `APP_ENV` variable. Varlock will auto-detect the environment for you.
 
 :::caution[Verify detection works for your setup]
 Auto-detection is based on environment variables set by each CI/deploy platform. Different platforms expose different information, and detection heuristics (especially branch-to-environment inference) may not match your conventions.
@@ -40,15 +40,15 @@ Auto-detection is based on environment variables set by each CI/deploy platform.
 
 ### `VARLOCK_ENV`
 
-**Type:** `string` — one of `development`, `preview`, `staging`, `production`, `test`
+**Type:** `string`, one of `development`, `preview`, `staging`, `production`, `test`
 
 The inferred deployment environment. Detection follows this priority:
 
-1. **Test environment** — detected from `NODE_ENV=test`, `VITEST`, `JEST_WORKER_ID`, or `VITEST_POOL_ID`
-2. **Platform-provided** — uses the platform's own environment concept (e.g., Vercel's `VERCEL_ENV`, Netlify's `CONTEXT`)
-3. **Branch inference** — in CI, infers from branch name: `main`/`master`/`production`/`prod` &rarr; `production`, `staging`/`stage`/`develop`/`dev` &rarr; `staging`, `qa`/`test` &rarr; `test`, anything else &rarr; `preview`
-4. **CI fallback** — if in CI but no branch info is available, defaults to `preview`
-5. **Local fallback** — if not in CI, defaults to `development`
+1. **Test environment**: detected from `NODE_ENV=test`, `VITEST`, `JEST_WORKER_ID`, or `VITEST_POOL_ID`
+2. **Platform-provided**: uses the platform's own environment concept (e.g., Vercel's `VERCEL_ENV`, Netlify's `CONTEXT`)
+3. **Branch inference**: in CI, infers from branch name: `main`/`master`/`production`/`prod` &rarr; `production`, `staging`/`stage`/`develop`/`dev` &rarr; `staging`, `qa`/`test` &rarr; `test`, anything else &rarr; `preview`
+4. **CI fallback**: if in CI but no branch info is available, defaults to `preview`
+5. **Local fallback**: if not in CI, defaults to `development`
 
 #### Using with `@currentEnv`
 
@@ -63,7 +63,7 @@ DB_URL="postgres://$DB_HOST/$DB_NAME"
 #### Test environment caveat
 
 :::caution[Test runners and `VARLOCK_ENV`]
-Many test runners (Vitest, Jest, etc.) set `NODE_ENV=test` **after** the process has started — often after varlock has already loaded and resolved your env vars. This means `VARLOCK_ENV` may not detect `test` automatically in all setups.
+Many test runners (Vitest, Jest, etc.) set `NODE_ENV=test` **after** the process has started, often after varlock has already loaded and resolved your env vars. This means `VARLOCK_ENV` may not detect `test` automatically in all setups.
 
 If you depend on `VARLOCK_ENV=test` to load `.env.test` or toggle behavior via `forEnv(test)`, **explicitly pass it** when running tests:
 
@@ -73,7 +73,7 @@ VARLOCK_ENV=test bun run test
 VARLOCK_ENV=test varlock run -- vitest
 ```
 
-This is the same pattern recommended for any environment flag — see the [environments guide](/guides/environments/) for more details.
+This is the same pattern recommended for any environment flag. See the [environments guide](/guides/environments/) for more details.
 :::
 
 

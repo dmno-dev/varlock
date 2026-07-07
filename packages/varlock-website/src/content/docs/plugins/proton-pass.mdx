@@ -10,14 +10,14 @@ import Badge from '@/components/Badge.astro';
   <Badge npmPackage="@varlock/proton-pass-plugin" />
 </div>
 
-Our [Proton Pass](https://proton.me/pass) plugin enables secure loading of secrets from Proton Pass using declarative instructions within your `.env` files.
+Our [Proton Pass](https://proton.me/pass) plugin loads secrets from Proton Pass using declarative instructions within your `.env` files.
 
 It shells out to the official Proton Pass CLI (`pass-cli`) to resolve secret references in the format `pass://vault/item/field`.
 
 ## Features
 
 - **Secret references via `pass://` URIs** (`pass://vault/item/field`)
-- **Personal access token login** for CI (`PROTON_PASS_PERSONAL_ACCESS_TOKEN`) — non-interactive, scoped, no full account credentials
+- **Personal access token login** for CI (`PROTON_PASS_PERSONAL_ACCESS_TOKEN`): non-interactive, scoped, no full account credentials
 - **Non-interactive password login** using environment variables (`PROTON_PASS_PASSWORD`, `PROTON_PASS_TOTP`, `PROTON_PASS_EXTRA_PASSWORD`)
 - **In-session caching** per resolution run
 - **Helpful error messages** with resolution tips
@@ -42,22 +42,22 @@ See: [Proton Pass CLI overview](https://protonpass.github.io/pass-cli/).
 ### Configure the plugin
 
 In production/CI you typically want a fully non-interactive login. The plugin supports two
-authentication methods — a **personal access token** (recommended) or a **username + password**.
+authentication methods: a **personal access token** (recommended) or a **username + password**.
 
 :::note[Login credentials are `@internal` by default]
-The login credential types (`protonPassPersonalAccessToken`, `protonPassPassword`, `protonPassTotp`, `protonPassExtraPassword`) are marked [`@internal`](/reference/item-decorators/#internal) — varlock uses them to authenticate but does **not** inject them into your application. Override with `@internal=false` if needed.
+The login credential types (`protonPassPersonalAccessToken`, `protonPassPassword`, `protonPassTotp`, `protonPassExtraPassword`) are marked [`@internal`](/reference/item-decorators/#internal): varlock uses them to authenticate but does **not** inject them into your application. Override with `@internal=false` if needed.
 :::
 
 #### Personal access token (recommended)
 
 A [personal access token](https://protonpass.github.io/pass-cli/commands/login/#personal-access-token-login)
-is a scoped, non-interactive credential — it never needs a username, password, or TOTP, which makes it
+is a scoped, non-interactive credential. It never needs a username, password, or TOTP, which makes it
 the cleanest option for CI.
 
 Create one with the Proton Pass CLI, then grant it access to the vaults/items it needs:
 
 ```bash
-# Create a token (the full value is only shown once — save it somewhere safe)
+# Create a token (the full value is only shown once, so save it somewhere safe)
 pass-cli pat create --name "deploy-bot" --expiration 3m
 # PROTON_PASS_PERSONAL_ACCESS_TOKEN=pst_xxxx...xxxx::TOKENKEY
 
@@ -80,13 +80,13 @@ pass-cli pat access grant ...
 PROTON_PASS_PERSONAL_ACCESS_TOKEN=
 ```
 
-When a `personalAccessToken` is provided it takes precedence — the plugin runs `pass-cli login`
+When a `personalAccessToken` is provided it takes precedence: the plugin runs `pass-cli login`
 with the token and ignores `username`/`password`/`totp`/`extraPassword`.
 
 :::note[Token expiration]
 Personal access tokens have a **mandatory expiration** set when you create them (`1d`, `1w`, `1m`, `3m`, `6m`, or `1y`)
 and do **not** auto-renew. When a token expires, mint a new one with `pass-cli pat renew` (or `pat create`) and update
-the value in your config — there is nothing for the plugin to refresh or cache on your behalf.
+the value in your config. There is nothing for the plugin to refresh or cache on your behalf.
 :::
 
 #### Username + password

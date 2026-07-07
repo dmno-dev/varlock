@@ -39,7 +39,7 @@ You can configure varlock's default behavior by adding a `varlock` key to your `
 
 | Option | Description |
 |--------|-------------|
-| `loadPath` | Path (or array of paths) to a directory or specific `.env` file to use as the default entry point. Defaults to the current working directory if not set. Use a **directory path** (with trailing `/`) to automatically load all relevant files (`.env.schema`, `.env`, `.env.local`, etc.); a file path only loads that file and its explicit imports. When an array is provided, all paths are loaded and combined — later entries take higher precedence. Can be overridden by the `--path` CLI flag. Varlock looks for this config in the `package.json` in the current working directory only. |
+| `loadPath` | Path (or array of paths) to a directory or specific `.env` file to use as the default entry point. Defaults to the current working directory if not set. Use a **directory path** (with trailing `/`) to automatically load all relevant files (`.env.schema`, `.env`, `.env.local`, etc.); a file path only loads that file and its explicit imports. When an array is provided, all paths are loaded and combined, with later entries taking higher precedence. Can be overridden by the `--path` CLI flag. Varlock looks for this config in the `package.json` in the current working directory only. |
 
 
 :::note[Plugins]
@@ -50,7 +50,7 @@ While plugins cannot add additional CLI commands, they can extend varlock with a
 
 Several commands share these flags. They behave identically wherever they appear, except where a command's own section calls out a deviation.
 
-- `--path` / `-p` `<path>`: Path to a specific `.env` file or directory to use as the entry point (overrides `varlock.loadPath` in `package.json`). Can be specified multiple times to load from multiple paths — later paths take higher precedence. _(For [`scan`](#scan) and [`audit`](#audit) this is the **schema** entry point used to resolve sensitive values; `audit` accepts a single path only.)_
+- `--path` / `-p` `<path>`: Path to a specific `.env` file or directory to use as the entry point (overrides `varlock.loadPath` in `package.json`). Can be specified multiple times to load from multiple paths, where later paths take higher precedence. _(For [`scan`](#scan) and [`audit`](#audit) this is the **schema** entry point used to resolve sensitive values; `audit` accepts a single path only.)_
 - `--env <env>`: Resolve in the context of a specific environment (e.g., `--env production`). Overridden by `@currentEnv` if it is set in your `.env.schema`.
 - `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (when combined with `--skip-cache`, the cache is cleared first, then reads and writes are skipped for the run).
 - `--skip-cache`: Skip cache entirely for this invocation (no reads or writes). This overrides `@cache=disk`/`@cache=memory`.
@@ -98,7 +98,7 @@ varlock load [options]
 
 **Options:**
 - `--format`:     Format of output [pretty|json|env|shell|json-full]
-- `--agent`:      Agent-safe mode — defaults to JSON output and redacts sensitive values. Not compatible with `--format env` or `--format shell`.
+- `--agent`:      Agent-safe mode: defaults to JSON output and redacts sensitive values. Not compatible with `--format env` or `--format shell`.
 - `--compact`:    Compact output (json-full: no indentation, env/shell: skip undefined values)
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - [Common options](#common-options): `--env`, `--path` / `-p`, `--clear-cache`, `--skip-cache`
@@ -144,12 +144,12 @@ varlock load --agent
 - non-zero when validation fails (missing required values, failed coercion, or resolver errors)
 
 **Output formats (for scripts & agents):**
-- `--format json` — a flat `{ "KEY": value }` map of resolved values on stdout
-- `--agent` — the same flat map, but `@sensitive` values are redacted (e.g. `"su▒▒▒▒▒"`), so it is safe to print in logs or agent transcripts. Implies JSON output; not compatible with `--format env`/`shell`. Combine with `--agent --format json-full` to get the redacted full graph.
-- `--format json-full` — the full serialized graph: top-level `basePath`, `sources`, `config` (per-item metadata including resolved value, validation state, and sensitivity), `settings`. Use this when you need per-item validation/error detail rather than just values. ⚠️ This includes **raw resolved secret values** — add `--agent` (`--agent --format json-full`) to redact them before logging or feeding to an agent.
-- `--format env` / `--format shell` — dotenv lines / shell `export` statements with **raw** values. Never pipe these somewhere that gets logged when secrets are involved.
+- `--format json`: a flat `{ "KEY": value }` map of resolved values on stdout
+- `--agent`: the same flat map, but `@sensitive` values are redacted (e.g. `"su▒▒▒▒▒"`), so it is safe to print in logs or agent transcripts. Implies JSON output; not compatible with `--format env`/`shell`. Combine with `--agent --format json-full` to get the redacted full graph.
+- `--format json-full`: the full serialized graph: top-level `basePath`, `sources`, `config` (per-item metadata including resolved value, validation state, and sensitivity), `settings`. Use this when you need per-item validation/error detail rather than just values. ⚠️ This includes **raw resolved secret values**, so add `--agent` (`--agent --format json-full`) to redact them before logging or feeding to an agent.
+- `--format env` / `--format shell`: dotenv lines / shell `export` statements with **raw** values. Never pipe these somewhere that gets logged when secrets are involved.
 
-When emitting machine-readable output, add `--summary-stderr` (or `--summary-file`) to get a human-readable, redacted summary on **stderr** while keeping clean JSON on **stdout** — handy for agents and CI.
+When emitting machine-readable output, add `--summary-stderr` (or `--summary-file`) to get a human-readable, redacted summary on **stderr** while keeping clean JSON on **stdout**. This is handy for agents and CI.
 
 :::caution
 Setting `@currentEnv` in your `.env.schema` will override the `--env` flag.
@@ -170,8 +170,8 @@ varlock run -- <command>
 
 **Options:**
 - `--redact-stdout` / `--no-redact-stdout`: Override automatic stdout/stderr redaction. `--redact-stdout` forces redaction of piped/redirected output (e.g., to override `@redactLogs=false`) and errors if output is attached to an interactive terminal, where redaction is not possible without breaking TTY behavior. `--no-redact-stdout` disables redaction entirely.
-- `--inject <mode>` / `-i`: Control what gets injected into the child process environment — `all` (default: individual vars plus the `__VARLOCK_ENV` serialized config graph blob), `vars` (individual vars only, no blob), or `blob` (only the `__VARLOCK_ENV` blob, no individual vars)
-- `--include-internal`: Pass [`@internal`](/reference/item-decorators/#internal) items through to the child process. By default they are stripped from the child env — even if set in the ambient environment — so a secret-zero token never reaches your app. Use this for a _nested_ `varlock run` whose own resolution needs the internal value.
+- `--inject <mode>` / `-i`: Control what gets injected into the child process environment: `all` (default: individual vars plus the `__VARLOCK_ENV` serialized config graph blob), `vars` (individual vars only, no blob), or `blob` (only the `__VARLOCK_ENV` blob, no individual vars)
+- `--include-internal`: Pass [`@internal`](/reference/item-decorators/#internal) items through to the child process. By default they are stripped from the child env, even if set in the ambient environment, so a secret-zero token never reaches your app. Use this for a _nested_ `varlock run` whose own resolution needs the internal value.
 - [Common options](#common-options): `--path` / `-p`, `--clear-cache`, `--skip-cache`
 
 **Examples:**
@@ -200,10 +200,10 @@ varlock run -- sh -c 'echo $MY_VAR' # ✅ will work
 :::note[Interactive tools and TTY detection]
 `varlock run` automatically detects where each output stream is going:
 
-- **Interactive terminal (TTY)**: output passes straight through, preserving raw TTY behavior — interactive tools like `psql` and `claude` just work, with no flags needed. A human at the terminal already has access to the secrets, so redaction adds little there.
+- **Interactive terminal (TTY)**: output passes straight through, preserving raw TTY behavior. Interactive tools like `psql` and `claude` work with no flags needed. A human at the terminal already has access to the secrets, so redaction adds little there.
 - **Piped or redirected output** (CI logs, files, `| tee`, etc.): output is piped through a redaction filter, since that's where leaked secrets would persist.
 
-Detection is per stream — for example `varlock run -- node app.js | tee log.txt` redacts stdout (piped) while stderr (still attached to your terminal) passes through.
+Detection is per stream. For example `varlock run -- node app.js | tee log.txt` redacts stdout (piped) while stderr (still attached to your terminal) passes through.
 
 To override the auto-detection:
 ```bash
@@ -216,7 +216,7 @@ varlock run --redact-stdout -- node app.js > log.txt
 
 Redacting a TTY-attached stream is not possible without piping it (which would break interactive tools), so `--redact-stdout` errors if output is attached to an interactive terminal rather than silently degrading the experience.
 
-The same override can be set via the [`_VARLOCK_REDACT_STDOUT`](/reference/reserved-variables/#_varlock_redact_stdout) environment variable (`true`/`1` to force on, `false`/`0` to force off), which is handy when you can't easily change the command being run — for example in a wrapper script or CI config. The CLI flag always takes precedence over the env var.
+The same override can be set via the [`_VARLOCK_REDACT_STDOUT`](/reference/reserved-variables/#_varlock_redact_stdout) environment variable (`true`/`1` to force on, `false`/`0` to force off), which is handy when you can't easily change the command being run, for example in a wrapper script or CI config. The CLI flag always takes precedence over the env var.
 :::
 
 :::note[Preventing sensitive value exposure via env inspection]
@@ -239,7 +239,7 @@ Note: When the `__VARLOCK_ENV` blob is omitted, framework integrations that rely
 
 This makes `varlock run` safe to use as a container `ENTRYPOINT` (including PID 1), so `docker stop` / pod termination reaches your app gracefully instead of waiting out the grace period and being `SIGKILL`ed.
 
-By default varlock forwards and then waits indefinitely for the child — it does **not** impose its own kill deadline, leaving that decision to the orchestrator or operator (a forwarded signal isn't always terminal — e.g. many programs use `SIGHUP` to reload). If you want varlock to escalate to `SIGKILL` when the child hasn't exited within a grace period, set the `_VARLOCK_FORCE_KILL_TIMEOUT_MS` environment variable to a number of milliseconds.
+By default varlock forwards and then waits indefinitely for the child. It does **not** impose its own kill deadline, leaving that decision to the orchestrator or operator (a forwarded signal isn't always terminal, since many programs use `SIGHUP` to reload). If you want varlock to escalate to `SIGKILL` when the child hasn't exited within a grace period, set the `_VARLOCK_FORCE_KILL_TIMEOUT_MS` environment variable to a number of milliseconds.
 :::
 
 </div>
@@ -258,7 +258,7 @@ varlock printenv <VAR_NAME> [options]
 ```
 
 **Positional arguments:**
-- `<VAR_NAME>`: The variable to print. Required — printenv errors if omitted.
+- `<VAR_NAME>`: The variable to print. Required; printenv errors if omitted.
 
 **Options:**
 - [Common options](#common-options): `--path` / `-p`, `--clear-cache`, `--skip-cache`
@@ -293,7 +293,7 @@ sh -c 'echo $(varlock printenv MY_VAR)'  # ✅ embed in a larger command
 <div>
 ### `varlock explain` ||explain||
 
-Shows detailed information about how a single config item is resolved — all of its definitions, sources, overrides, and the final resolved value. This is the go-to command for debugging *why* a value is what it is (and an agent-friendly way to inspect resolution without dumping every value).
+Shows detailed information about how a single config item is resolved: all of its definitions, sources, overrides, and the final resolved value. This is the go-to command for debugging *why* a value is what it is (and an agent-friendly way to inspect resolution without dumping every value).
 
 Sensitive values are redacted in the output.
 
@@ -304,7 +304,7 @@ varlock explain <VAR_NAME> [options]
 ```
 
 **Positional arguments:**
-- `<VAR_NAME>`: The config item to explain. Required — explain errors if omitted.
+- `<VAR_NAME>`: The config item to explain. Required; explain errors if omitted.
 
 **Options:**
 - [Common options](#common-options): `--env`, `--path` / `-p`
@@ -334,13 +334,13 @@ varlock scan [paths...] [options]
 ```
 
 **Positional arguments:**
-- `[paths...]`: Optional list of file paths, directories, or glob patterns to scan. When provided, only these targets are scanned — git filtering (`--staged`, `--include-ignored`) is bypassed and build-output directories that are normally skipped (such as `dist`, `.next`, `build`) are included.
+- `[paths...]`: Optional list of file paths, directories, or glob patterns to scan. When provided, only these targets are scanned: git filtering (`--staged`, `--include-ignored`) is bypassed and build-output directories that are normally skipped (such as `dist`, `.next`, `build`) are included.
 
 **Options:**
 - `--staged`:           Only scan staged git files (ignored when explicit paths are provided)
 - `--include-ignored`:  Include git-ignored files in the scan (ignored when explicit paths are provided)
 - `--install-hook`:     Set up `varlock scan` as a git pre-commit hook
-- [Common options](#common-options): `--path` / `-p` — here it sets the **schema** entry point used to resolve sensitive values
+- [Common options](#common-options): `--path` / `-p` (here it sets the **schema** entry point used to resolve sensitive values)
 
 **Examples:**
 ```bash
@@ -381,7 +381,7 @@ This will detect if you are using a hook manager (like husky or lefthook) and pr
 
 If varlock is installed as a project dependency, the hook command will be automatically prefixed with your package manager (e.g., `npx varlock scan`).
 
-You can also set it up manually -- see the [Secrets guide](/guides/secrets/#scanning-for-leaked-secrets) for more details.
+You can also set it up manually. See the [Secrets guide](/guides/secrets/#scanning-for-leaked-secrets) for more details.
 :::
 
 </div>
@@ -400,7 +400,7 @@ varlock encrypt [options]
 ```
 
 **Options:**
-- `--file`:    Path to a `.env` file — encrypts all sensitive plaintext values in-place
+- `--file`:    Path to a `.env` file; encrypts all sensitive plaintext values in-place
 
 **Examples:**
 ```bash
@@ -499,7 +499,7 @@ This command reports two drift categories:
 - **Missing in schema**: key is used in code but not declared in schema
 - **Unused in schema**: key is declared in schema but not referenced in code
 
-Pure execution-environment plumbing — variables that reflect *where/how* the process runs (e.g. `PATH`, `HOME`, `SHELL`, `NODE_OPTIONS`, `npm_*`) — is read from `process.env` in normal code but is never part of your schema, so it is **not** reported as missing. Semantically meaningful variables your app or CI may depend on (e.g. `NODE_ENV`, `CI`, GitHub Actions vars) are still reported, so you can decide whether to declare them or suppress them with [`@auditIgnore`](/reference/item-decorators/#auditignore).
+Pure execution-environment plumbing, meaning variables that reflect *where/how* the process runs (e.g. `PATH`, `HOME`, `SHELL`, `NODE_OPTIONS`, `npm_*`), is read from `process.env` in normal code but is never part of your schema, so it is **not** reported as missing. Semantically meaningful variables your app or CI may depend on (e.g. `NODE_ENV`, `CI`, GitHub Actions vars) are still reported, so you can decide whether to declare them or suppress them with [`@auditIgnore`](/reference/item-decorators/#auditignore).
 
 Exit codes:
 - `0` when schema and code are in sync
@@ -513,7 +513,7 @@ varlock audit [paths...] [options]
 - `[paths...]`: Optional list of directories to scan. When provided, only these directories are scanned instead of the auto-detected scan root.
 
 **Options:**
-- [Common options](#common-options): `--path` / `-p` — here it sets the **schema** entry point (single path only)
+- [Common options](#common-options): `--path` / `-p` (here it sets the **schema** entry point, single path only)
 - `--ignore` / `-i`: Directory to exclude from code scanning (can be specified multiple times)
 
 **Examples:**
@@ -542,7 +542,7 @@ When `--path` points to a directory, code scanning is scoped to that directory t
 :::
 
 :::note[Monorepos]
-Code scanning does not descend into nested projects — any subdirectory that contains its own `package.json` or `.env.schema` is treated as a separate package and skipped. This keeps a parent package's audit from picking up env var references that belong to child packages, and works even in a fresh monorepo where the child packages haven't run `varlock init` yet. Run `varlock audit` inside each package to audit it against its own schema.
+Code scanning does not descend into nested projects. Any subdirectory that contains its own `package.json` or `.env.schema` is treated as a separate package and skipped. This keeps a parent package's audit from picking up env var references that belong to child packages, and works even in a fresh monorepo where the child packages haven't run `varlock init` yet. Run `varlock audit` inside each package to audit it against its own schema.
 :::
 
 :::tip[Suppressing false positives]
@@ -562,8 +562,8 @@ varlock cache [status|clear] [options]
 ```
 
 **Sub-commands:**
-- `status` — print a non-interactive cache status summary (location, file size, entry counts by group)
-- `clear` — remove cache entries. Requires `--yes` for non-interactive use.
+- `status`: print a non-interactive cache status summary (location, file size, entry counts by group)
+- `clear`: remove cache entries. Requires `--yes` for non-interactive use.
 
 **Options:**
 - `--plugin <name>`: When clearing, only remove entries for a specific plugin
@@ -598,14 +598,14 @@ See the [Caching guide](/guides/caching/) for cache mode strategy and troublesho
 <div>
 ### `varlock codegen` ||codegen||
 
-Runs the [code-generation decorators](/reference/root-decorators/#code-generation) in your schema — typed env accessors like `@generateTsTypes` (type declarations) and `@generatePythonEnv` (a loadable module), plus any generators contributed by plugins. Uses only your schema definitions, so output is deterministic regardless of which environment is active. Keys (and decorators) that come only from value files like `.env` or `.env.local` are ignored — only items declared in your `.env.schema` (or imported into it) are included. When run directly, the command reports any keys found only in a plain `.env` so you can move them into your schema if they belong there.
+Runs the [code-generation decorators](/reference/root-decorators/#code-generation) in your schema: typed env accessors like `@generateTsTypes` (type declarations) and `@generatePythonEnv` (a loadable module), plus any generators contributed by plugins. Uses only your schema definitions, so output is deterministic regardless of which environment is active. Keys (and decorators) that come only from value files like `.env` or `.env.local` are ignored. Only items declared in your `.env.schema` (or imported into it) are included. When run directly, the command reports any keys found only in a plain `.env` so you can move them into your schema if they belong there.
 
 Add a per-language decorator for each output file you want: `@generateTsTypes`, `@generatePythonEnv`, `@generateRustEnv`, `@generateGoEnv`, or `@generatePhpEnv`. Each generates its own file.
 
 This command is particularly useful when you have set `auto=false` on a generator decorator to disable automatic generation during `varlock load` or `varlock run`.
 
 :::note
-`varlock typegen` is a deprecated alias for `varlock codegen` — it still works but prints a warning.
+`varlock typegen` is a deprecated alias for `varlock codegen`. It still works but prints a warning.
 :::
 
 ```bash
@@ -660,7 +660,7 @@ See the [Next.js](/integrations/nextjs/#encrypting-the-env-blob) and [Vite](/int
 <div>
 ### `varlock install-plugin` ||install-plugin||
 
-Pre-downloads a plugin from npm into the local varlock plugin cache so it is available without an interactive confirmation prompt. This is mainly for the **standalone binary** in CI or other non-interactive environments — when varlock runs as a package.json dependency, plugins resolve through your normal node_modules instead.
+Pre-downloads a plugin from npm into the local varlock plugin cache so it is available without an interactive confirmation prompt. This is mainly for the **standalone binary** in CI or other non-interactive environments. When varlock runs as a package.json dependency, plugins resolve through your normal node_modules instead.
 
 The plugin must be specified with an exact version (`name@version`).
 

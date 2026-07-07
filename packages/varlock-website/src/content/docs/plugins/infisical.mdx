@@ -10,7 +10,7 @@ import Badge from '@/components/Badge.astro';
   <Badge npmPackage="@varlock/infisical-plugin" />
 </div>
 
-Our [Infisical](https://infisical.com/) plugin enables secure loading of secrets from Infisical using declarative instructions within your `.env` files.
+Our [Infisical](https://infisical.com/) plugin loads secrets from Infisical using declarative instructions within your `.env` files.
 
 The plugin uses machine identities with Universal Auth or [OIDC workload identity](/guides/oidc/) for programmatic access to your Infisical secrets, making it suitable for both CI/CD and production environments.
 
@@ -19,7 +19,7 @@ The plugin uses machine identities with Universal Auth or [OIDC workload identit
 - **Fetch secrets** from Infisical projects and environments
 - **Bulk-load secrets** with `infisicalBulk()` via `@setValuesBulk`
 - **Universal Auth** with Client ID and Client Secret
-- **[OIDC authentication](/guides/oidc/)** - Authenticate using platform OIDC tokens (Vercel, GitHub Actions, etc.)
+- **[OIDC authentication](/guides/oidc/)**: Authenticate using platform OIDC tokens (Vercel, GitHub Actions, etc.)
 - **Support for self-hosted** Infisical instances
 - **Secret paths** for hierarchical organization
 - **Filter by tag** to load only matching secrets
@@ -128,7 +128,7 @@ For deployments on platforms that issue OIDC tokens (Vercel, GitHub Actions, Git
 # )
 ```
 
-No `clientId` or `clientSecret` is needed — the `identityId` parameter triggers OIDC authentication. For platforms not auto-detected, pass an explicit token via `oidcToken`.
+No `clientId` or `clientSecret` is needed. The `identityId` parameter triggers OIDC authentication. For platforms not auto-detected, pass an explicit token via `oidcToken`.
 
 ### Self-hosted Infisical
 
@@ -145,7 +145,7 @@ For self-hosted Infisical instances, specify the `siteUrl`:
 # )
 ```
 
-`siteUrl` can also be set dynamically — pass a reference like `siteUrl=$INFISICAL_SITE_URL` to point at different Infisical instances per environment.
+`siteUrl` can also be set dynamically. Pass a reference like `siteUrl=$INFISICAL_SITE_URL` to point at different Infisical instances per environment.
 
 ### Multiple instances
 
@@ -177,7 +177,7 @@ API_KEY=infisical()
 STRIPE_SECRET=infisical("STRIPE_SECRET_KEY")
 ```
 
-When called without arguments, `infisical()` automatically uses the config item key as the secret name in Infisical. This provides a convenient convention-over-configuration approach.
+When called without arguments, `infisical()` uses the config item key as the secret name in Infisical.
 
 ### Using secret paths
 
@@ -293,7 +293,7 @@ INFISICAL_CLIENT_ID=
 <div>
 #### `infisicalClientSecret`
 
-This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly, for example to write secrets back or fetch additional secrets at runtime.
 
 
 Represents an Infisical Universal Auth Client Secret. This type is marked as `@sensitive`.

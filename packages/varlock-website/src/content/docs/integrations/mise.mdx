@@ -8,9 +8,9 @@ import { Steps, Tabs, TabItem } from "@astrojs/starlight/components";
 [mise](https://mise.jdx.dev/) (mise-en-place) is a polyglot tool manager, environment manager, and task runner. You can use it to install the `varlock` CLI itself, and to wire varlock into the commands you run during development.
 
 :::tip[Inject into commands, not your shell]
-mise can load environment variables into your shell session (via `[env]`), but we **don't recommend** loading your varlock-managed env — especially secrets — that way. Once values live in your shell, every process inherits them, they show up in `env`, and varlock's [log redaction](/guides/secrets/#redaction-in-varlock-run) is bypassed.
+mise can load environment variables into your shell session (via `[env]`), but we **don't recommend** loading your varlock-managed env (especially secrets) that way. Once values live in your shell, every process inherits them, they show up in `env`, and varlock's [log redaction](/guides/secrets/#redaction-in-varlock-run) is bypassed.
 
-Instead, integrate varlock at the point where each program runs — either by wrapping the command with [`varlock run`](/reference/cli-commands/#run) (works for anything), or with one of varlock's [framework/runtime integrations](/integrations/overview/) (for JS/TS apps). Both approaches let you load env vars in different configurations per context — a different [environment](/guides/environments/) per command, build-time vs. runtime resolution, redacted output, leak protection — rather than forcing one global set into the shell where everything sees the same thing.
+Instead, integrate varlock at the point where each program runs: either by wrapping the command with [`varlock run`](/reference/cli-commands/#run) (works for anything), or with one of varlock's [framework/runtime integrations](/integrations/overview/) (for JS/TS apps). Both approaches let you load env vars in different configurations per context (a different [environment](/guides/environments/) per command, build-time vs. runtime resolution, redacted output, leak protection) rather than forcing one global set into the shell where everything sees the same thing.
 
 See [Loading into your shell](#loading-env-vars-into-your-shell-advanced) for the narrow cases where shell injection still makes sense.
 :::
@@ -20,7 +20,7 @@ See [Loading into your shell](#loading-env-vars-into-your-shell-advanced) for th
 mise can install and version-manage the `varlock` CLI alongside the rest of your toolchain.
 
 :::note[Already using varlock in a JS project?]
-If varlock is already a dependency of your JavaScript/TypeScript project, you **don't need any mise integration to install it** — keep installing it with your package manager (`npm`/`pnpm`/`yarn`/`bun`) and run it via `npx varlock` / `bun run varlock` as usual. mise's job there is just managing your runtime (e.g. `node` or `bun`) and, optionally, [running your scripts as tasks](#running-your-commands-as-tasks). The backends below are for installing the standalone `varlock` CLI itself — useful for non-JS projects, or for sharing one varlock version across a team's machines.
+If varlock is already a dependency of your JavaScript/TypeScript project, you **don't need any mise integration to install it**. Keep installing it with your package manager (`npm`/`pnpm`/`yarn`/`bun`) and run it via `npx varlock` / `bun run varlock` as usual. mise's job there is managing your runtime (e.g. `node` or `bun`) and, optionally, [running your scripts as tasks](#running-your-commands-as-tasks). The backends below are for installing the standalone `varlock` CLI itself, useful for non-JS projects, or for sharing one varlock version across a team's machines.
 :::
 
 <Tabs>
@@ -56,7 +56,7 @@ mise applies a default 24-hour `minimum_release_age` delay to releases as a supp
 </TabItem>
 <TabItem label="npm package">
 
-The `npm` backend installs varlock from npm. This **requires a Node.js runtime** — mise uses Node's `npm` under the hood, so declare `node` in the same `[tools]` table (mise will not provide it automatically):
+The `npm` backend installs varlock from npm. This **requires a Node.js runtime**, since mise uses Node's `npm` under the hood, so declare `node` in the same `[tools]` table (mise will not provide it automatically):
 
 ```toml title="mise.toml"
 [tools]
@@ -69,10 +69,10 @@ mise install
 varlock --version
 ```
 
-Prefer the standalone binary above when you only need the CLI — it avoids the Node dependency and starts faster.
+Prefer the standalone binary above when you only need the CLI. It avoids the Node dependency and starts faster.
 
 :::note[Using Bun?]
-mise's `npm` backend can't be driven by Bun alone (it still needs Node for `npm`). If your project uses Bun or Node already, you typically wouldn't install varlock as a mise *tool* at all — add it as a project dependency and run it through [tasks](#running-your-commands-as-tasks) with your project's runtime. See the [Bun](/integrations/bun/) and [JavaScript / Node.js](/integrations/javascript/) integrations.
+mise's `npm` backend can't be driven by Bun alone (it still needs Node for `npm`). If your project uses Bun or Node already, you typically wouldn't install varlock as a mise *tool* at all. Add it as a project dependency and run it through [tasks](#running-your-commands-as-tasks) with your project's runtime. See the [Bun](/integrations/bun/) and [JavaScript / Node.js](/integrations/javascript/) integrations.
 :::
 
 </TabItem>
@@ -84,7 +84,7 @@ mise's `npm` backend can't be driven by Bun alone (it still needs Node for `npm`
 
 ### When varlock is already wired into the command
 
-Often it is. A `package.json` script may already call [`varlock run`](/reference/cli-commands/#run), or your app may use a [framework/runtime integration](/integrations/overview/) (Next.js, Vite, Astro, Node, etc.) that loads and validates env on startup. In that case the mise task just runs the command as-is — nothing varlock-specific belongs here:
+Often it is. A `package.json` script may already call [`varlock run`](/reference/cli-commands/#run), or your app may use a [framework/runtime integration](/integrations/overview/) (Next.js, Vite, Astro, Node, etc.) that loads and validates env on startup. In that case the mise task just runs the command as-is, and nothing varlock-specific belongs here:
 
 ```toml title="mise.toml"
 [tasks.dev]
@@ -97,7 +97,7 @@ mise run dev
 
 ### When the command doesn't load varlock on its own
 
-For a raw binary, a shell script, or a one-off command that isn't already varlock-aware, wrap it with `varlock run` so it gets a resolved, validated environment with redacted output — scoped to that one subprocess, never your shell:
+For a raw binary, a shell script, or a one-off command that isn't already varlock-aware, wrap it with `varlock run` so it gets a resolved, validated environment with redacted output, scoped to that one subprocess, never your shell:
 
 ```toml title="mise.toml"
 [tools]
@@ -110,11 +110,11 @@ run = "varlock run -- ./scripts/migrate.sh"
 run = "varlock run -- psql"
 ```
 
-Declaring varlock in `[tools]` lets mise install it and put it on `PATH` before the task runs. If varlock is instead a dependency of your JS project, call the project-local version through your package manager and drop it from `[tools]` — e.g. `run = "npx varlock run -- ./scripts/migrate.sh"` or `run = "bun run varlock run -- ./scripts/migrate.sh"`.
+Declaring varlock in `[tools]` lets mise install it and put it on `PATH` before the task runs. If varlock is instead a dependency of your JS project, call the project-local version through your package manager and drop it from `[tools]`, e.g. `run = "npx varlock run -- ./scripts/migrate.sh"` or `run = "bun run varlock run -- ./scripts/migrate.sh"`.
 
 ## Loading env vars into your shell (advanced)
 
-Sometimes you genuinely want a value available to any command you type in the terminal — typically **non-secret** config like `NODE_ENV` or a public base URL. You can do this without a plugin using mise's `env._.source`, which captures variables exported by a script.
+Sometimes you genuinely want a value available to any command you type in the terminal, typically **non-secret** config like `NODE_ENV` or a public base URL. You can do this without a plugin using mise's `env._.source`, which captures variables exported by a script.
 
 Create a small script that emits varlock's resolved env in shell format:
 
@@ -132,16 +132,16 @@ _.source = "./.mise/load-env.sh"
 `varlock load --format shell` outputs `export KEY='value'` lines; `--compact` skips undefined optional values.
 
 :::caution[This puts values in your shell]
-Anything loaded this way lives in your shell session and is inherited by every process you launch — and varlock's [log redaction](/guides/secrets/#redaction-in-varlock-run) does **not** apply, since it only protects the output of `varlock run`. Scope a dedicated file to just the non-secret values you want ambient (and keep secrets in [tasks](#running-your-commands-as-tasks)), or use [direnv](/integrations/direnv/) if you specifically want enter/leave shell loading.
+Anything loaded this way lives in your shell session and is inherited by every process you launch, and varlock's [log redaction](/guides/secrets/#redaction-in-varlock-run) does **not** apply, since it only protects the output of `varlock run`. Scope a dedicated file to just the non-secret values you want ambient (and keep secrets in [tasks](#running-your-commands-as-tasks)), or use [direnv](/integrations/direnv/) if you specifically want enter/leave shell loading.
 :::
 
 :::note[mise's `redact` isn't a substitute for `varlock run`]
-mise has its own [redactions](https://mise.jdx.dev/environments/#redactions) (`redact = true`, or a `redactions` list) that hide values from `mise run` task logs. But mise can only redact a value it manages as an env var, and — by its own docs — redaction "does not prevent the values from being exported to child processes." So it's log hygiene, not isolation: the value still flows to everything. For real secrets, prefer [`varlock run`](#running-your-commands-as-tasks), which both scopes the value to a single subprocess **and** redacts its output before mise (or anything else) ever sees it.
+mise has its own [redactions](https://mise.jdx.dev/environments/#redactions) (`redact = true`, or a `redactions` list) that hide values from `mise run` task logs. But mise can only redact a value it manages as an env var, and by its own docs, redaction "does not prevent the values from being exported to child processes." So it's log hygiene, not isolation: the value still flows to everything. For real secrets, prefer [`varlock run`](#running-your-commands-as-tasks), which both scopes the value to a single subprocess **and** redacts its output before mise (or anything else) ever sees it.
 :::
 
 ## Validate when entering a project
 
-If you just want a fast failure when a project's environment is missing or invalid — without injecting anything into your shell — use a [hook](https://mise.jdx.dev/hooks.html) instead of `[env]`:
+If you just want a fast failure when a project's environment is missing or invalid, without injecting anything into your shell, use a [hook](https://mise.jdx.dev/hooks.html) instead of `[env]`:
 
 ```toml title="mise.toml"
 [hooks]
