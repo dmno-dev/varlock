@@ -58,19 +58,26 @@ Several commands share these flags. They behave identically wherever they appear
 
 ### Filtering items ||filtering-items||
 
-`--filter` takes a comma-separated list of selectors. An item is included when it matches at least one non-negated selector (or none are given) and no negated selector:
+`--filter` takes a comma-separated list of selectors:
 
 - a key name or glob, e.g. `STRIPE_*` (matches `*` and `?`)
 - `!selector` to negate any of the below, e.g. `!STRIPE_DEBUG_KEY`
 - `@sensitive` / `@required` to select by decorator
 - `#tagname` to select items tagged via [`@tag(tagname)`](/reference/item-decorators/#tag)
 
+**How selectors combine:** every non-negated selector is OR'd together into one inclusion set, regardless of kind — mixing a glob, a `@decorator`, and a `#tag` in the same filter just widens that set. Anything matching a negated (`!`) selector is then subtracted from that set, again regardless of kind. If a filter has no non-negated selectors at all, the inclusion set starts as "everything" before negations are subtracted.
+
 ```bash
 varlock load --filter="KEY1,!NOT_THIS,STRIPE_*"  # KEY1 and STRIPE_* keys, except NOT_THIS
 varlock load --filter="@sensitive"               # only items marked @sensitive
 varlock load --filter="@required"                # only required items
 varlock load --filter="#billing"                 # only items tagged @tag(billing)
+varlock load --filter="@sensitive,#billing"       # sensitive items OR billing-tagged items
+varlock load --filter="STRIPE_*,!@sensitive"      # STRIPE_* keys, minus any that are sensitive
+varlock load --filter="!#debug"                   # everything except items tagged @tag(debug)
 ```
+
+There's no way to express an intersection (e.g. "`STRIPE_*` AND `@sensitive`") — only unions of non-negated selectors minus unions of negated ones. A negated selector always subtracts from the whole inclusion set; it isn't scoped to only the positive selector(s) that happened to include a given item.
 
 On `run`, `--filter` also strips excluded items from the `__VARLOCK_ENV` blob, so a filtered-out var can't leak to the child process via env inspection either.
 
