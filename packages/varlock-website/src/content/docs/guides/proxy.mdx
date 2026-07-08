@@ -61,7 +61,7 @@ The credential proxy is an early preview. Its core protection (placeholder isola
 ```diff lang="env-spec" title=".env.schema"
 # @sensitive
 +# @proxy(domain="api.openai.com") @placeholder=sk-proj-000000000000000000000000
-OPENAI_API_KEY=yourPreferredPlugin() # load from secure vault
+OPENAI_API_KEY=yourPreferredPlugin() # from a plugin or built-in encryption — never a plaintext secret
 ```
 
 ```bash
@@ -93,11 +93,11 @@ Mark the item [`@sensitive`](/reference/item-decorators/#sensitive) and add [`@p
 # @sensitive
 # @proxy(domain="api.openai.com")
 # @placeholder=sk-proj-000000000000000000000000
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=yourPreferredPlugin()
 
 # @sensitive
 # @proxy(domain="api.stripe.com")
-STRIPE_SECRET_KEY=sk_live_...
+STRIPE_SECRET_KEY=yourPreferredPlugin()
 ```
 
 `@proxy` already implies [`@sensitive`](/reference/item-decorators/#sensitive) (and varlock treats items as sensitive by default), so the `@sensitive` line is optional. We show it explicitly here because being clear about what is a secret is good practice.
@@ -154,7 +154,7 @@ A `@proxy(...)` rule supports more than just a domain:
 # Match either host, any method:
 # @sensitive
 # @proxy(domain=[api.stripe.com, api.stripe-test.com])
-STRIPE_SECRET_KEY=sk_live_...
+STRIPE_SECRET_KEY=yourPreferredPlugin()
 ```
 
 ### Grouping rules for one domain
@@ -169,7 +169,7 @@ When one host needs several path/method policies, write the `domain` once and li
 #   {path="/v1/refunds/**", method=[POST, DELETE], block=true},
 #   {path="/v1/payouts/**", block=true},
 # ])
-STRIPE_SECRET_KEY=sk_live_...
+STRIPE_SECRET_KEY=yourPreferredPlugin()
 ```
 
 This injects `STRIPE_SECRET_KEY` across `api.stripe.com` and blocks refunds and payouts. The parent `@proxy(...)` still controls injection (where the secret goes); each `rules` entry is a policy-only refinement that inherits the `domain` and injects nothing on its own, so [precedence](#routing-rules) (block over allow) does the rest. An entry may set `path`, `method`, `block`, and `approval`, but not `domain` or `keys` (those stay on the parent).
@@ -195,7 +195,7 @@ By default, varlock applies **least privilege** to the proxied child:
 - Non-sensitive items → passed through normally.
 
 :::note[varlock treats items as sensitive by default]
-Unless an item is marked [`@public`](/reference/item-decorators/#sensitive) (or made non-sensitive by a [`@type`](/reference/item-decorators/#type) / `@defaultSensitive` rule), varlock considers it sensitive, so it becomes a **placeholder** in the proxied child. If your agent needs to read a non-secret config value (an API base URL, a feature flag), mark it `@public` so it passes through with its real value.
+Unless an item is marked [`@sensitive=false`](/reference/item-decorators/#sensitive) (shorthand: `@public`), or made non-sensitive by a [`@type`](/reference/item-decorators/#type) / `@defaultSensitive` rule, varlock considers it sensitive, so it becomes a **placeholder** in the proxied child. If your agent needs to read a non-secret config value (an API base URL, a feature flag), mark it `@sensitive=false` so it passes through with its real value.
 :::
 
 Because every sensitive item resolves to a placeholder inside a proxied session, an agent can't **trivially** recover a secret by re-running `varlock load` / `varlock printenv` from within the proxied session; it gets the same placeholder back, not the real value. (A determined agent on the same machine can still escape this; see [Limitations](#limitations) and pair the proxy with a sandbox for a real boundary.)
@@ -205,11 +205,11 @@ To override the default for an item, use the value form of `@proxy`:
 ```env-spec title=".env.schema"
 # @sensitive
 # @proxy=passthrough   # inject the REAL value into the child (escape hatch)
-LEGACY_TOKEN=...
+LEGACY_TOKEN=yourPreferredPlugin()
 
 # @proxy=omit          # withhold entirely: absent from the child env, and
                        # resolves to "unset" (not the real value) if re-resolved
-UNUSED_SECRET=...
+UNUSED_SECRET=yourPreferredPlugin()
 ```
 
 `@proxy=passthrough` and `@proxy=omit` are the **value form** of the decorator and cannot be combined with the function form (`@proxy(...)`) on the same item.
@@ -230,7 +230,7 @@ If you see the generic-placeholder warning, add an `@placeholder` or a typed for
 # @sensitive
 # @proxy(domain="api.openai.com")
 # @placeholder=sk-proj-000000000000000000000000
-OPENAI_API_KEY=sk-proj-...
+OPENAI_API_KEY=yourPreferredPlugin()
 ```
 
 ## Running modes
