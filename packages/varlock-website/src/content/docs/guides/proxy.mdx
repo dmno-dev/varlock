@@ -55,7 +55,7 @@ Most other credential brokers require you to store secrets in their tool, or wor
 </figure>
 
 :::caution[Preview]
-The credential proxy is an early preview. Its core protection (placeholder isolation + verified-identity wire injection) is solid, but on its own it runs as the same user as the agent, so it raises the bar rather than being a hard boundary. Pair it with an OS sandbox or container and it becomes a real one. Read [Limitations](#limitations) before relying on it as a security boundary.
+The credential proxy is an early preview, and its API is not yet stable: while in preview its flags, decorators, and behavior may change (including breaking changes) in minor releases before it's finalized in a future major, so pin your varlock version if you depend on it. Its core protection (placeholder isolation + verified-identity wire injection) is solid, but on its own it runs as the same user as the agent, so it raises the bar rather than being a hard boundary. Pair it with an OS sandbox or container and it becomes a real one. Read [Limitations](#limitations) before relying on it as a security boundary.
 :::
 
 ```diff lang="env-spec" title=".env.schema"
