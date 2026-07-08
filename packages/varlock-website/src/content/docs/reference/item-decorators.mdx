@@ -198,6 +198,23 @@ XYZ_API_KEY=
 </div>
 
 <div>
+### `@tag()`
+**Arg types:** `[ tag: string, ... ]`
+
+Attaches one or more tags to the item. Tags don't affect resolution or validation; they're used to select items with the [`--filter` CLI flag](/reference/cli-commands/#filtering-items) on `varlock load`/`varlock run`, and with the [`filter=` arg](/reference/root-decorators/#code-generation) on `@generate*` code-generation decorators (e.g. `--filter="#billing"`, `@generateTsTypes(filter=#billing)`). _Can be called multiple times; tags from every call accumulate._
+
+```env-spec
+# @tag(billing)
+# @tag(prod, critical)
+STRIPE_SECRET_KEY=
+```
+
+```bash
+varlock load --filter="#billing"
+```
+</div>
+
+<div>
 ### `@docsUrl` (deprecated) ||docsurl||
 **Value type:** `string`
 

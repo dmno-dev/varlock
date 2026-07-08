@@ -5,6 +5,7 @@ import { gracefulExit } from 'exit-hook';
 import { exec } from '../../lib/exec';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
+import { resolveItemFilterKeys } from '../helpers/item-filter';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 
@@ -36,6 +37,10 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'Pass @internal items through to the child process (by default they are stripped, even when set in the ambient env). Use this for a nested `varlock run` whose own resolution needs the internal value (e.g. a secret-zero token).',
     },
+    filter: {
+      type: 'string',
+      description: 'Filter which items are injected: comma-separated key names/globs (e.g. STRIPE_*), negations (!KEY), decorator selectors (@sensitive, @required), and tag selectors (#tagname, set via @tag(tagname))',
+    },
     path: {
       type: 'string',
       short: 'p',
@@ -64,6 +69,7 @@ Examples:
   varlock run --path .env.prod -- node app.js   # Use a specific .env file
   varlock run --path ./config/ -- node app.js   # Use a specific directory
   varlock run -p ./envs -p ./overrides -- node app.js  # Use multiple directories
+  varlock run --filter="STRIPE_*,!STRIPE_DEBUG_KEY" -- node app.js  # Only inject STRIPE_* keys, excluding one
 
 📍 Important: Use -- to separate varlock options from your command
 
@@ -202,8 +208,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // by default @internal items are never handed to the child; --include-internal opts out
   // (e.g. a nested `varlock run` whose own resolution needs a secret-zero token)
   const includeInternal = !!ctx.values['include-internal'];
-  const resolvedEnv = envGraph.getResolvedEnvObject({ includeInternal });
-  const serializedGraph = envGraph.getSerializedGraph();
+  const filterKeys = resolveItemFilterKeys(Object.values(envGraph.configSchema), ctx.values.filter);
+  const resolvedEnv = envGraph.getResolvedEnvObject({ includeInternal, filterKeys });
+  const serializedGraph = envGraph.getSerializedGraph({ filterKeys });
   const { resetRedactionMap } = await import('../../runtime/env');
   const { createRedactedStreamWriter } = await import('../../runtime/lib/redact-stream');
   // console.log(resolvedEnv);

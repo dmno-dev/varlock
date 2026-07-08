@@ -7,6 +7,7 @@ import {
   keyPassesImportFilter,
 } from './data-source';
 import { type KeyFilter } from './key-filter';
+import { computeFilteredKeys } from './item-filter';
 
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
@@ -739,19 +740,21 @@ export class EnvGraph {
     return keys;
   }
 
-  getResolvedEnvObject(opts?: { includeInternal?: boolean }) {
+  getResolvedEnvObject(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }) {
     const envObject: Record<string, any> = {};
     for (const itemKey of this.sortedConfigKeys) {
       const item = this.configSchema[itemKey];
       // @internal items are used only by varlock (e.g. to resolve other items) and are
       // never injected into the application — exclude them from the resolved env output
       if (item.isInternal && !opts?.includeInternal) continue;
+      // when set (e.g. via the CLI `--filter` flag), only include selected keys
+      if (opts?.filterKeys && !opts.filterKeys.has(itemKey)) continue;
       envObject[itemKey] = item.resolvedValue;
     }
     return envObject;
   }
 
-  getSerializedGraph(opts?: { includeInternal?: boolean }): SerializedEnvGraph {
+  getSerializedGraph(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
       basePath: this.basePath,
       sources: [],
@@ -777,6 +780,8 @@ export class EnvGraph {
       // process via __VARLOCK_ENV) must exclude them entirely. Inspection callers
       // (e.g. `load --format json-full`) opt in via includeInternal to show them, flagged.
       if (item.isInternal && !opts?.includeInternal) continue;
+      // when set (e.g. via the CLI `--filter` flag), only include selected keys
+      if (opts?.filterKeys && !opts.filterKeys.has(itemKey)) continue;
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,
         isSensitive: item.isSensitive,
@@ -866,12 +871,15 @@ export class EnvGraph {
     // `executeWhenImported` — lets `varlock codegen` explain a zero count accurately
     let skippedImportOnlyCount = 0;
 
-    // the field list is the same across all generators — build it lazily, once,
-    // and only if at least one generator actually runs
-    let fields: Array<ResolvedFieldType> | undefined;
+    // the unfiltered field list is the same across all generators — build it lazily, once,
+    // and only if at least one generator actually runs without its own `filter=`
+    let unfilteredFields: Array<ResolvedFieldType> | undefined;
+    // per-filter-string cache, so multiple decorators sharing the same `filter=` don't
+    // recompute the same subset
+    const filteredFieldsByFilterStr = new Map<string, Array<ResolvedFieldType>>();
 
     // options handled by this shared loop, valid on every code-gen decorator
-    const commonOptions = ['path', 'auto', 'executeWhenImported'];
+    const commonOptions = ['path', 'auto', 'executeWhenImported', 'filter'];
 
     for (const decoratorName of Object.keys(this.codeGeneratorsRegistry)) {
       const generator = this.codeGeneratorsRegistry[decoratorName];
@@ -883,6 +891,9 @@ export class EnvGraph {
         // decorator should be a loud error on every load, not sit undetected until `varlock codegen`
         if (!settings.obj.path) throw new Error(`@${decoratorName} - must set \`path\` arg`);
         if (!_.isString(settings.obj.path)) throw new Error(`@${decoratorName} - \`path\` arg must be a string`);
+        if (settings.obj.filter !== undefined && !_.isString(settings.obj.filter)) {
+          throw new SchemaError(`@${decoratorName} - \`filter\` arg must be a string`);
+        }
 
         // catch misspelled options (e.g. `exposEnv=`) instead of silently ignoring them
         if (generator.knownOptions) {
@@ -909,7 +920,22 @@ export class EnvGraph {
           : process.cwd();
         const outputPath = path.resolve(sourceDir, settings.obj.path);
 
-        fields ||= resolveFieldTypes(await collectTypeGenItems(this));
+        const filterStr: string | undefined = settings.obj.filter;
+        let fields: Array<ResolvedFieldType>;
+        if (filterStr) {
+          if (!filteredFieldsByFilterStr.has(filterStr)) {
+            const filterKeys = computeFilteredKeys(
+              _.values(this.configSchema),
+              filterStr,
+              `@${decoratorName} filter`,
+            );
+            filteredFieldsByFilterStr.set(filterStr, resolveFieldTypes(await collectTypeGenItems(this, filterKeys)));
+          }
+          fields = filteredFieldsByFilterStr.get(filterStr)!;
+        } else {
+          unfilteredFields ||= resolveFieldTypes(await collectTypeGenItems(this));
+          fields = unfilteredFields;
+        }
 
         const src = await generator.generate({
           graph: this,

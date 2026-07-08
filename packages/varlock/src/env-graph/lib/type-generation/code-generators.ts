@@ -39,8 +39,15 @@ export type CodeGeneratorDef = {
   generate: (ctx: CodeGenContext) => string | Promise<string>;
 };
 
-/** Collect the items that belong in generated output — schema-only, non-env-specific. */
-export async function collectTypeGenItems(graph: EnvGraph): Promise<Array<TypeGenItemInfo>> {
+/**
+ * Collect the items that belong in generated output — schema-only, non-env-specific.
+ * `filterKeys`, when set (via a decorator's `filter=` arg), restricts output to that key set —
+ * used to generate a subset file, e.g. `@generateTsTypes(path=billing.d.ts, filter=#billing)`.
+ */
+export async function collectTypeGenItems(
+  graph: EnvGraph,
+  filterKeys?: Set<string>,
+): Promise<Array<TypeGenItemInfo>> {
   const items: Array<TypeGenItemInfo> = [];
   for (const itemKey of graph.sortedConfigKeys) {
     // _VARLOCK_* keys are varlock infrastructure — not accessed via the ENV proxy
@@ -49,6 +56,7 @@ export async function collectTypeGenItems(graph: EnvGraph): Promise<Array<TypeGe
     if (!configItem.defsForTypeGeneration.length) continue;
     // @internal items are not injected into the app, so they shouldn't appear in the typed ENV
     if (configItem.isInternal) continue;
+    if (filterKeys && !filterKeys.has(itemKey)) continue;
     items.push(await configItem.getTypeGenInfo());
   }
   return items;

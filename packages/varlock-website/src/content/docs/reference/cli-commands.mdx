@@ -54,6 +54,25 @@ Several commands share these flags. They behave identically wherever they appear
 - `--env <env>`: Resolve in the context of a specific environment (e.g., `--env production`). Overridden by `@currentEnv` if it is set in your `.env.schema`.
 - `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (when combined with `--skip-cache`, the cache is cleared first, then reads and writes are skipped for the run).
 - `--skip-cache`: Skip cache entirely for this invocation (no reads or writes). This overrides `@cache=disk`/`@cache=memory`.
+- `--filter` (on [`load`](#load) and [`run`](#run)): Filter which items are shown/injected. See [Filtering items](#filtering-items) below.
+
+### Filtering items ||filtering-items||
+
+`--filter` takes a comma-separated list of selectors. An item is included when it matches at least one non-negated selector (or none are given) and no negated selector:
+
+- a key name or glob, e.g. `STRIPE_*` (matches `*` and `?`)
+- `!selector` to negate any of the below, e.g. `!STRIPE_DEBUG_KEY`
+- `@sensitive` / `@required` to select by decorator
+- `#tagname` to select items tagged via [`@tag(tagname)`](/reference/item-decorators/#tag)
+
+```bash
+varlock load --filter="KEY1,!NOT_THIS,STRIPE_*"  # KEY1 and STRIPE_* keys, except NOT_THIS
+varlock load --filter="@sensitive"               # only items marked @sensitive
+varlock load --filter="@required"                # only required items
+varlock load --filter="#billing"                 # only items tagged @tag(billing)
+```
+
+On `run`, `--filter` also strips excluded items from the `__VARLOCK_ENV` blob, so a filtered-out var can't leak to the child process via env inspection either.
 
 ## Commands reference
 
@@ -102,7 +121,7 @@ varlock load [options]
 - `--compact`:    Compact output (json-full: no indentation, env/shell: skip undefined values)
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - `--include-internal`: Include [`@internal`](/reference/item-decorators/#internal) items in `--format json-full` output. Excluded by default (`json-full` is commonly consumed programmatically, e.g. by framework integrations, not just for local human inspection) - pass this for local debugging of a secret-zero credential.
-- [Common options](#common-options): `--env`, `--path` / `-p`, `--clear-cache`, `--skip-cache`
+- [Common options](#common-options): `--env`, `--path` / `-p`, `--clear-cache`, `--skip-cache`, `--filter`
 
 **Examples:**
 ```bash
@@ -138,6 +157,15 @@ varlock load -p ./envs -p ./overrides
 
 # Agent-safe JSON output with sensitive values redacted
 varlock load --agent
+
+# Only show STRIPE_* keys, excluding one
+varlock load --filter="STRIPE_*,!STRIPE_DEBUG_KEY"
+
+# Only show items marked @sensitive
+varlock load --filter="@sensitive"
+
+# Only show items tagged with @tag(billing)
+varlock load --filter="#billing"
 ```
 
 **Exit codes:**
@@ -173,7 +201,7 @@ varlock run -- <command>
 - `--redact-stdout` / `--no-redact-stdout`: Override automatic stdout/stderr redaction. `--redact-stdout` forces redaction of piped/redirected output (e.g., to override `@redactLogs=false`) and errors if output is attached to an interactive terminal, where redaction is not possible without breaking TTY behavior. `--no-redact-stdout` disables redaction entirely.
 - `--inject <mode>` / `-i`: Control what gets injected into the child process environment: `all` (default: individual vars plus the `__VARLOCK_ENV` serialized config graph blob), `vars` (individual vars only, no blob), or `blob` (only the `__VARLOCK_ENV` blob, no individual vars)
 - `--include-internal`: Pass [`@internal`](/reference/item-decorators/#internal) items through to the child process. By default they are stripped from the child env, even if set in the ambient environment, so a secret-zero token never reaches your app. Use this for a _nested_ `varlock run` whose own resolution needs the internal value.
-- [Common options](#common-options): `--path` / `-p`, `--clear-cache`, `--skip-cache`
+- [Common options](#common-options): `--path` / `-p`, `--clear-cache`, `--skip-cache`, `--filter`
 
 **Examples:**
 ```bash
@@ -188,6 +216,9 @@ varlock run --path ./config/ -- node app.js
 
 # Use multiple directories as entry points
 varlock run -p ./envs -p ./overrides -- node app.js
+
+# Only inject STRIPE_* keys, excluding one (also strips them from the __VARLOCK_ENV blob)
+varlock run --filter="STRIPE_*,!STRIPE_DEBUG_KEY" -- node app.js
 ```
 
 :::note[Shell expansion of env vars in commands]

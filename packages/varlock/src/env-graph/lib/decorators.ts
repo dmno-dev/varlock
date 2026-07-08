@@ -547,6 +547,10 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
     isFunction: true,
   },
   {
+    name: 'tag',
+    isFunction: true,
+  },
+  {
     name: 'icon',
   },
   {

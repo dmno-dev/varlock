@@ -185,6 +185,15 @@ export class ConfigItem {
     return links;
   }
 
+  /**
+   * Tags attached via one or more `@tag(...)` calls, used by the `--filter` CLI flag and the
+   * `filter=` codegen decorator arg (e.g. `--filter="#tag1"`, `filter=#tag1`). Resolved eagerly in
+   * `process()` — unlike `docsLinks` (read lazily after full resolution) — because code generation
+   * needs tags before `resolveEnvValues()` runs, and `@tag(...)` args are always static tag names.
+   */
+  _tags: Array<string> = [];
+  get tags(): Array<string> { return this._tags; }
+
   /** Whether the resolved value came from a process.env override rather than file definitions */
   get isOverridden() {
     return this.key in this.envGraph.overrideValues;
@@ -317,6 +326,14 @@ export class ConfigItem {
           this.effectiveDecorators[dec.name] ||= dec;
         }
         decKeysInThisDef.add(dec.name);
+      }
+    }
+
+    // resolve @tag(...) eagerly - see the `tags` getter comment for why
+    for (const tagDec of this.getDecFns('tag')) {
+      const decVal = await tagDec.resolve();
+      if (decVal?.arr && _.isArray(decVal.arr)) {
+        this._tags.push(...decVal.arr.map((t: any) => String(t)));
       }
     }
 

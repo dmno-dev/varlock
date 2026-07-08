@@ -462,6 +462,12 @@ Every `@generate*` decorator below is a root decorator that _can be called multi
 - `path`: Relative filepath to write the generated file to.
 - `auto`: Controls whether generation runs automatically on every load (defaults to `true`). Set to `false` to generate only when you run [`varlock codegen`](/reference/cli-commands/#codegen) explicitly, useful in a CI pipeline or a dedicated build step.
 - `executeWhenImported`: overrides the default of not executing when the containing file is imported (defaults to `false`).
+- `filter`: Restrict this generated file to a subset of items, using the same selector language as the CLI [`--filter` flag](/reference/cli-commands/#filtering-items): key names/globs, `!negations`, `@sensitive`/`@required`, and `#tagname` (set via [`@tag()`](/reference/item-decorators/#tag)). Quote the value if it has more than one comma-separated selector (the decorator parser splits args on unquoted commas), e.g. `filter="STRIPE_*,!STRIPE_DEBUG_KEY"`. Call the same decorator multiple times with different `path`/`filter` pairs to emit several subset files from one schema.
+
+```env-spec
+# only ship billing-tagged keys to the billing package's generated types
+# @generateTsTypes(path=./billing/env.d.ts, filter=#billing)
+```
 
 :::tip
 Usually these decorators live in your primary `.env.schema` file, and are ignored within imported files. To override this, set `executeWhenImported` to `true`.
