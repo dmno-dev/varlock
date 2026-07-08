@@ -1,7 +1,7 @@
 import _ from '@env-spec/utils/my-dash';
 import path from 'node:path';
 import fs from 'node:fs';
-import { ConfigItem } from './config-item';
+import { ConfigItem, type TypeGenItemInfo } from './config-item';
 import {
   EnvGraphDataSource, FileBasedDataSource, ImportAliasSource,
   keyPassesImportFilter,
@@ -871,8 +871,9 @@ export class EnvGraph {
     // `executeWhenImported` — lets `varlock codegen` explain a zero count accurately
     let skippedImportOnlyCount = 0;
 
-    // the unfiltered field list is the same across all generators — build it lazily, once,
-    // and only if at least one generator actually runs without its own `filter=`
+    // the full (unfiltered) item list is the same across all generators — build it lazily,
+    // once, and only if at least one generator actually runs
+    let allTypeGenItems: Array<TypeGenItemInfo> | undefined;
     let unfilteredFields: Array<ResolvedFieldType> | undefined;
     // per-filter-string cache, so multiple decorators sharing the same `filter=` don't
     // recompute the same subset
@@ -924,16 +925,18 @@ export class EnvGraph {
         let fields: Array<ResolvedFieldType>;
         if (filterStr) {
           if (!filteredFieldsByFilterStr.has(filterStr)) {
-            const filterKeys = computeFilteredKeys(
-              _.values(this.configSchema),
-              filterStr,
-              `@${decoratorName} filter`,
-            );
-            filteredFieldsByFilterStr.set(filterStr, resolveFieldTypes(await collectTypeGenItems(this, filterKeys)));
+            // filter against TypeGenItemInfo (pre-resolution isSensitive/isRequired, computed by
+            // getTypeGenInfo()), NOT bare ConfigItems — those getters aren't populated correctly
+            // until resolveEnvValues() runs, which happens after code generation
+            allTypeGenItems ||= await collectTypeGenItems(this);
+            const filterKeys = computeFilteredKeys(allTypeGenItems, filterStr, `@${decoratorName} filter`);
+            const filteredItems = allTypeGenItems.filter((info) => !filterKeys || filterKeys.has(info.key));
+            filteredFieldsByFilterStr.set(filterStr, resolveFieldTypes(filteredItems));
           }
           fields = filteredFieldsByFilterStr.get(filterStr)!;
         } else {
-          unfilteredFields ||= resolveFieldTypes(await collectTypeGenItems(this));
+          allTypeGenItems ||= await collectTypeGenItems(this);
+          unfilteredFields ||= resolveFieldTypes(allTypeGenItems);
           fields = unfilteredFields;
         }
 

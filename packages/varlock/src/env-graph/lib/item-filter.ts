@@ -1,4 +1,3 @@
-import type { ConfigItem } from './config-item';
 import { SchemaError } from './errors';
 import { globToRegExp } from './glob';
 
@@ -10,9 +9,20 @@ import { globToRegExp } from './glob';
  * - `!selector` to negate any of the below (e.g. `!DEBUG_*`)
  * - `@sensitive` / `@required` to select by decorator
  * - `#tagname` to select items tagged via `@tag(tagname)`
+ *
+ * Structural rather than tied to `ConfigItem`: the CLI filters `ConfigItem`s (accurate only
+ * *after* `resolveEnvValues()`), while code generation filters `TypeGenItemInfo`s — `isSensitive`/
+ * `isRequired` on a bare `ConfigItem` are unreliable before resolution, so codegen must use its own
+ * pre-resolution computation (`getTypeGenInfo()`) instead of a raw `ConfigItem` list.
  */
+export type FilterableItem = {
+  key: string;
+  isSensitive: boolean;
+  isRequired: boolean;
+  tags: Array<string>;
+};
 
-const DECORATOR_PREDICATES: Record<string, (item: ConfigItem) => boolean> = {
+const DECORATOR_PREDICATES: Record<string, (item: FilterableItem) => boolean> = {
   sensitive: (item) => item.isSensitive,
   required: (item) => item.isRequired,
 };
@@ -53,7 +63,7 @@ function parseItemFilter(filterStr: string, label: string): Array<FilterToken> {
   });
 }
 
-function tokenMatches(item: ConfigItem, token: FilterToken): boolean {
+function tokenMatches(item: FilterableItem, token: FilterToken): boolean {
   if (token.kind === 'key') return globToRegExp(token.pattern).test(item.key);
   if (token.kind === 'decorator') return DECORATOR_PREDICATES[token.name](item);
   return item.tags.includes(token.tag);
@@ -67,7 +77,7 @@ function tokenMatches(item: ConfigItem, token: FilterToken): boolean {
  * `label` prefixes any thrown `SchemaError` (e.g. `--filter` or `@generateTsTypes filter`).
  */
 export function computeFilteredKeys(
-  items: Array<ConfigItem>,
+  items: Array<FilterableItem>,
   filterStr: string | undefined,
   label: string,
 ): Set<string> | undefined {

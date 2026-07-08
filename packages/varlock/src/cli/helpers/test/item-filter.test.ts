@@ -87,3 +87,46 @@ describe('resolveItemFilterKeys', () => {
     expect(() => resolveItemFilterKeys(items, '#')).toThrow();
   });
 });
+
+describe('resolveItemFilterKeys - mixed-kind selector interaction', () => {
+  // deliberately overlapping in only one dimension, so a union across kinds is
+  // distinguishable from an intersection
+  const mixedItems = [
+    makeItem('ALPHA', { isSensitive: false, tags: ['grp'] }), // tag only
+    makeItem('BETA', { isSensitive: true, tags: [] }), // decorator only
+    makeItem('GAMMA', { isSensitive: true, tags: ['grp'] }), // both
+    makeItem('DELTA', { isSensitive: false, tags: [] }), // neither
+  ];
+
+  it('ORs a decorator selector with a tag selector, regardless of kind', () => {
+    // ALPHA only matches via #grp, BETA only matches via @sensitive - both must survive,
+    // proving this is a union and not an intersection of the two selectors
+    const keys = resolveItemFilterKeys(mixedItems, '@sensitive,#grp');
+    expect(keys).toEqual(new Set(['ALPHA', 'BETA', 'GAMMA']));
+  });
+
+  it('a negated selector subtracts from the whole pool, not just matches of its own kind', () => {
+    // positive pool (by #grp) is {ALPHA, GAMMA}; the negation is a @decorator selector,
+    // not a tag - it still removes GAMMA from that pool
+    const keys = resolveItemFilterKeys(mixedItems, '#grp,!@sensitive');
+    expect(keys).toEqual(new Set(['ALPHA']));
+  });
+
+  it('negation-only by decorator keeps everything except matches', () => {
+    const keys = resolveItemFilterKeys(mixedItems, '!@sensitive');
+    expect(keys).toEqual(new Set(['ALPHA', 'DELTA']));
+  });
+
+  it('negation-only by tag keeps everything except matches', () => {
+    const keys = resolveItemFilterKeys(mixedItems, '!#grp');
+    expect(keys).toEqual(new Set(['BETA', 'DELTA']));
+  });
+
+  it('has no way to express an intersection - only union-minus-negation', () => {
+    // there is no syntax for "@sensitive AND #grp" - the closest expression is still a
+    // union, so an item matching only one side (BETA) is included, not excluded
+    const keys = resolveItemFilterKeys(mixedItems, '@sensitive,#grp');
+    expect(keys!.has('BETA')).toBe(true); // sensitive but NOT tagged grp
+    expect(keys!.has('ALPHA')).toBe(true); // tagged grp but NOT sensitive
+  });
+});

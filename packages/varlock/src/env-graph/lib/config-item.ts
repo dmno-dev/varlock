@@ -962,6 +962,7 @@ export class ConfigItem {
       docsLinks,
       isDeprecated: this.isDeprecated,
       deprecationMessage: this.deprecationMessage,
+      tags: this.tags,
     };
   }
 }
@@ -978,4 +979,6 @@ export type TypeGenItemInfo = {
   docsLinks: Array<{ url: string, description?: string }>;
   isDeprecated: boolean;
   deprecationMessage?: string;
+  /** tags from `@tag(...)` - resolved eagerly in `process()`, so safe to read here */
+  tags: Array<string>;
 };
