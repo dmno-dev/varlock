@@ -172,7 +172,7 @@ When one host needs several path/method policies, write the `domain` once and li
 STRIPE_SECRET_KEY=yourPreferredPlugin()
 ```
 
-This injects `STRIPE_SECRET_KEY` across `api.stripe.com` and blocks refunds and payouts. The parent `@proxy(...)` still controls injection (where the secret goes); each `rules` entry is a policy-only refinement that inherits the `domain` and injects nothing on its own, so [precedence](#routing-rules) (block over allow) does the rest. An entry may set `path`, `method`, `block`, and `approval`, but not `domain` or `keys` (those stay on the parent).
+This injects `STRIPE_SECRET_KEY` across `api.stripe.com` and blocks refunds and payouts. The parent `@proxy(...)` still controls injection (where the secret goes); each `rules` entry is a policy-only refinement that inherits the `domain` and injects nothing on its own, so [precedence](#routing-rules) (block over allow) does the rest. An entry may set `path`, `method`, and `block`, but not `domain` or `keys` (those stay on the parent).
 
 ### Attached vs detached rules
 
@@ -243,11 +243,7 @@ There are three ways to drive the proxy, trading convenience for interactivity.
 varlock proxy run -- <command>
 ```
 
-Starts a proxy, runs the command through it, and tears down when the command exits. The single most common way to use the feature. If a `proxy start` daemon is already running for this directory, `proxy run` **attaches** to it (so its terminal owns the live request log and any prompts); otherwise it runs a self-contained proxy. Pass `--new` to force a fresh, separate proxy.
-
-:::caution[Approval rules fail closed in one-shot mode]
-A self-contained `proxy run` has no terminal to prompt in (the child owns its stdio), so requests matching an approval-required rule are denied with a 403. For interactive approvals, run `proxy start` in one terminal and let `proxy run` attach from another.
-:::
+Starts a proxy, runs the command through it, and tears down when the command exits. The single most common way to use the feature. If a `proxy start` daemon is already running for this directory, `proxy run` **attaches** to it (so its terminal owns the live request log); otherwise it runs a self-contained proxy. Pass `--new` to force a fresh, separate proxy.
 
 ### Daemon + attach: `proxy start`
 
@@ -366,7 +362,7 @@ Runs the child in a container (`docker`, or `--sandbox=podman`) whose **only** n
 - A tiny **forwarder** container (a `socat` byte-relay holding no secrets) sits on that network as `varlock-proxy` and bridges to the host proxy. The agent's `HTTPS_PROXY` points at it, so every request goes host proxy → policy check → wire injection.
 - Your cwd is mounted as the working directory and the proxy's public CA is mounted read-only so the container trusts the MITM.
 
-Secrets never enter any container: the host proxy resolves them (keeping your encryption key, keychain/enclave, warm `op` session, and interactive approvals on the host) and injects the real value onto the wire; the container only ever holds placeholders. Both networks and the forwarder are torn down when the command exits.
+Secrets never enter any container: the host proxy resolves them (keeping your encryption key, keychain/enclave, and warm `op` session on the host) and injects the real value onto the wire; the container only ever holds placeholders. Both networks and the forwarder are torn down when the command exits.
 
 `--sandbox-image` is required — it must be an image that contains your command (e.g. a devcontainer image with `claude` installed); varlock can't know your toolchain. The first run pulls a small `socat` image for the forwarder.
 
