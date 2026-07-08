@@ -30,10 +30,14 @@ const info2 = getCiEnv({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'owner/repo'
 - **`EnvRecord`** – `Record<string, string | undefined>`.
 - **`CiEnvInfo`** – `isCI`, `name`, `docsUrl`, `isPR`, `repo`, `fullRepoName`, `branch`, `prNumber`, `commitSha`, `commitShaShort`, `environment`, `runId`, `buildUrl`, `workflowName`, `actor`, `eventName`, `raw`.
 - **`DeploymentEnvironment`** – `'development' | 'preview' | 'staging' | 'production' | 'test'`.
+- **`detectRuntime(globalObj?): RuntimeInfo`** – Detects the current JS runtime (`node`, `deno`, `bun`, `workerd`, `fastly`, `netlify`, `edge-light`, `browser`). Reads ambient globals, not env vars; pass a custom object for testing.
+- **`detectOs(processObj?): OsInfo`** – Detects the OS (`darwin`, `win32`, `linux`) from `process.platform`.
 
 ## Supported platforms
 
-GitHub Actions, GitLab CI, Vercel, Netlify, Cloudflare Pages, Cloudflare Workers, AWS CodeBuild, Azure Pipelines, Bitbucket Pipelines, Buildkite, CircleCI, Jenkins, Render, Travis CI, and many more.
+GitHub Actions, GitLab CI, Vercel, Netlify, Cloudflare Pages, Cloudflare Workers, AWS Amplify, AWS CodeBuild, Azure Pipelines, Bitbucket Pipelines, Buildkite, CircleCI, Jenkins, Railway, Render, Travis CI, Google Cloud Run, Deno Deploy, Zeabur, Firebase App Hosting, and many more.
+
+Also detects interactive dev sandboxes (CodeSandbox, StackBlitz, GitHub Codespaces, Gitpod, Replit) with `isCI: false`, since they aren't a CI pipeline but are still useful to identify.
 
 Platforms are defined in TypeScript with no external dependencies. Detection uses environment variables specific to each platform.
 

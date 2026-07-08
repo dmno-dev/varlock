@@ -289,6 +289,18 @@ describe('VARLOCK_* builtin variables', () => {
       },
       expectValues: { VARLOCK_REPO: 'my-org/my-repo' },
     }));
+
+    test('VARLOCK_OS returns the current process platform', envFilesTest({
+      envFile: 'MY_VAR=$VARLOCK_OS',
+      processEnv: {},
+      expectValues: { VARLOCK_OS: process.platform },
+    }));
+
+    test('VARLOCK_RUNTIME returns a JS runtime name', envFilesTest({
+      envFile: 'MY_VAR=$VARLOCK_RUNTIME',
+      processEnv: {},
+      expectValues: { VARLOCK_RUNTIME: expect.stringMatching(/^(node|bun|deno)$/) },
+    }));
   });
 
   describe('builtin vars in string interpolation', () => {

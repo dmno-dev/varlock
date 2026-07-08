@@ -1,4 +1,5 @@
 import type { DeploymentEnvironment, RepoParts } from './normalize';
+import type { OsInfo, RuntimeInfo } from './runtime';
 
 /** Env-like object: keys are variable names, values are string or undefined (missing). */
 export type EnvRecord = Record<string, string | undefined>;
@@ -26,6 +27,10 @@ export interface CiEnvInfo {
   /** Event type (e.g. push, pull_request, workflow_dispatch) */
   eventName?: string;
   raw?: Record<string, string>;
+  /** Ambient JS runtime info (not derived from the env record; see `detectRuntime`) */
+  runtime: RuntimeInfo;
+  /** Ambient OS info (not derived from the env record; see `detectOs`) */
+  os: OsInfo;
 }
 
 export type DetectFn = (env: EnvRecord) => boolean;
@@ -46,6 +51,8 @@ export interface PlatformDefinition {
   name: string;
   docsUrl?: string;
   detect: Detect;
+  /** Set to `false` for interactive dev sandboxes (CodeSandbox, StackBlitz, ...) that aren't a CI pipeline. Defaults to `true`. */
+  ci?: boolean;
   /** Optional: env var name (truthy = PR) or function to detect PR (else inferred from prNumber) */
   isPR?: string | DetectFn;
   repo?: Extractor<RepoParts>;

@@ -76,7 +76,7 @@ describe('getCiEnv', () => {
     );
   });
 
-  it('detects GitHub Actions PR and extracts prNumber', () => {
+  it('detects GitHub Actions PR and extracts prNumber from GITHUB_REF', () => {
     expectCiEnv(
       {
         GITHUB_ACTIONS: 'true',
@@ -84,7 +84,6 @@ describe('getCiEnv', () => {
         GITHUB_REF: 'refs/pull/42/merge',
         GITHUB_SHA: 'abc123',
         GITHUB_EVENT_NAME: 'pull_request',
-        GITHUB_EVENT_NUMBER: '42',
       },
       {
         isCI: true,
@@ -106,7 +105,6 @@ describe('getCiEnv', () => {
         GITHUB_HEAD_REF: 'feat-init-infra',
         GITHUB_SHA: 'abc123',
         GITHUB_EVENT_NAME: 'pull_request',
-        GITHUB_EVENT_NUMBER: '42',
       },
       {
         isCI: true,
@@ -116,6 +114,39 @@ describe('getCiEnv', () => {
         branch: 'feat-init-infra',
         fullRepoName: 'owner/repo',
       },
+    );
+  });
+
+  it('does not misparse a digit-suffixed branch name as a PR number on push builds', () => {
+    expectCiEnv(
+      {
+        GITHUB_ACTIONS: 'true',
+        GITHUB_REPOSITORY: 'owner/repo',
+        GITHUB_REF: 'refs/heads/feature-123',
+        GITHUB_REF_NAME: 'feature-123',
+        GITHUB_SHA: 'abc123',
+        GITHUB_EVENT_NAME: 'push',
+      },
+      {
+        isCI: true,
+        isPR: false,
+        prNumber: undefined,
+        branch: 'feature-123',
+      },
+    );
+  });
+
+  it('prefers GITHUB_REF_NAME for branch when GITHUB_HEAD_REF is absent', () => {
+    expectCiEnv(
+      {
+        GITHUB_ACTIONS: 'true',
+        GITHUB_REPOSITORY: 'owner/repo',
+        GITHUB_REF: 'refs/heads/feat/foo',
+        GITHUB_REF_NAME: 'feat/foo',
+        GITHUB_SHA: 'abc123',
+        GITHUB_EVENT_NAME: 'push',
+      },
+      { branch: 'feat/foo' },
     );
   });
 
@@ -159,7 +190,7 @@ describe('getCiEnv', () => {
         COMMIT_REF: 'abc123def',
         CONTEXT: 'production',
         BUILD_ID: 'build-abc-123',
-        DEPLOY_URL: 'random-name-123.netlify.app',
+        DEPLOY_URL: 'https://random-name-123.netlify.app',
       },
       {
         isCI: true,
@@ -203,13 +234,16 @@ describe('getCiEnv', () => {
         CI_PROJECT_PATH: 'group/subgroup/project',
         CI_COMMIT_REF_NAME: 'main',
         CI_COMMIT_SHA: 'abc123',
-        CI_MERGE_REQUEST_ID: '10',
+        CI_MERGE_REQUEST_ID: '99999',
+        CI_MERGE_REQUEST_IID: '10',
       },
       {
         isCI: true,
         name: 'GitLab CI',
         repo: { owner: 'group/subgroup', name: 'project' },
         fullRepoName: 'group/subgroup/project',
+        isPR: true,
+        prNumber: 10,
       },
     );
   });
@@ -252,6 +286,87 @@ describe('getCiEnv', () => {
     );
   });
 
+  it('detects Semaphore and extracts prNumber from SEMAPHORE_GIT_PR_NUMBER', () => {
+    expectCiEnv(
+      {
+        SEMAPHORE: 'true',
+        SEMAPHORE_GIT_REPO_SLUG: 'owner/repo',
+        SEMAPHORE_GIT_BRANCH: 'main',
+        SEMAPHORE_GIT_SHA: 'abc123',
+        SEMAPHORE_GIT_PR_NUMBER: '7',
+      },
+      {
+        isCI: true,
+        name: 'Semaphore',
+        isPR: true,
+        prNumber: 7,
+      },
+    );
+  });
+
+  it('prefers SYSTEM_PULLREQUEST_PULLREQUESTNUMBER over PULLREQUESTID on Azure Pipelines', () => {
+    expectCiEnv(
+      {
+        TF_BUILD: 'true',
+        BUILD_REASON: 'PullRequest',
+        SYSTEM_PULLREQUEST_PULLREQUESTID: '99999',
+        SYSTEM_PULLREQUEST_PULLREQUESTNUMBER: '42',
+      },
+      {
+        isCI: true,
+        name: 'Azure Pipelines',
+        isPR: true,
+        prNumber: 42,
+      },
+    );
+  });
+
+  it('falls back to SYSTEM_PULLREQUEST_PULLREQUESTID when PULLREQUESTNUMBER is absent (Azure Repos)', () => {
+    expectCiEnv(
+      {
+        TF_BUILD: 'true',
+        BUILD_REASON: 'PullRequest',
+        SYSTEM_PULLREQUEST_PULLREQUESTID: '15',
+      },
+      { prNumber: 15 },
+    );
+  });
+
+  it('extracts Bitbucket repo owner from BITBUCKET_WORKSPACE', () => {
+    expectCiEnv(
+      {
+        BITBUCKET_COMMIT: 'abc123',
+        BITBUCKET_WORKSPACE: 'my-workspace',
+        BITBUCKET_REPO_FULL_NAME: 'legacy-owner/repo',
+        BITBUCKET_BRANCH: 'main',
+      },
+      {
+        isCI: true,
+        name: 'Bitbucket Pipelines',
+        repo: { owner: 'my-workspace', name: 'repo' },
+        fullRepoName: 'my-workspace/repo',
+      },
+    );
+  });
+
+  it('detects Bitrise and extracts repo from BITRISEIO_GIT_REPOSITORY_OWNER/_SLUG', () => {
+    expectCiEnv(
+      {
+        BITRISE_IO: 'true',
+        BITRISEIO_GIT_REPOSITORY_OWNER: 'owner',
+        BITRISEIO_GIT_REPOSITORY_SLUG: 'repo',
+        BITRISE_GIT_BRANCH: 'main',
+        BITRISE_GIT_COMMIT: 'abc123',
+      },
+      {
+        isCI: true,
+        name: 'Bitrise',
+        repo: { owner: 'owner', name: 'repo' },
+        fullRepoName: 'owner/repo',
+      },
+    );
+  });
+
   it('includes raw env vars when extractors use string keys', () => {
     expectCiEnv(
       {
@@ -266,6 +381,145 @@ describe('getCiEnv', () => {
           BUILDKITE_COMMIT: 'abc123',
         },
       },
+    );
+  });
+
+  it('detects Railway and extracts repo, branch, commit, environment, buildUrl', () => {
+    expectCiEnv(
+      {
+        RAILWAY_ENVIRONMENT_ID: 'env-uuid',
+        RAILWAY_ENVIRONMENT_NAME: 'production',
+        RAILWAY_GIT_REPO_OWNER: 'owner',
+        RAILWAY_GIT_REPO_NAME: 'repo',
+        RAILWAY_GIT_BRANCH: 'main',
+        RAILWAY_GIT_COMMIT_SHA: 'abc123',
+        RAILWAY_DEPLOYMENT_ID: 'deploy-uuid',
+        RAILWAY_PUBLIC_DOMAIN: 'my-app.up.railway.app',
+      },
+      {
+        isCI: true,
+        name: 'Railway',
+        fullRepoName: 'owner/repo',
+        branch: 'main',
+        commitSha: 'abc123',
+        runId: 'deploy-uuid',
+        buildUrl: 'https://my-app.up.railway.app',
+        environment: 'production',
+      },
+    );
+  });
+
+  it('detects AWS Amplify and extracts branch, commit, PR, runId', () => {
+    expectCiEnv(
+      {
+        AWS_APP_ID: 'app-id',
+        AWS_BRANCH: 'main',
+        AWS_COMMIT_ID: 'abc123',
+        AWS_JOB_ID: 'job-1',
+        AWS_PULL_REQUEST_ID: '42',
+      },
+      {
+        isCI: true,
+        name: 'AWS Amplify',
+        branch: 'main',
+        commitSha: 'abc123',
+        runId: 'job-1',
+        isPR: true,
+        prNumber: 42,
+      },
+    );
+  });
+
+  it('detects Google Cloud Run', () => {
+    expectCiEnv(
+      {
+        K_SERVICE: 'my-service',
+        K_REVISION: 'my-service-00001-abc',
+      },
+      {
+        isCI: true,
+        name: 'Google Cloud Run',
+        runId: 'my-service-00001-abc',
+      },
+    );
+  });
+
+  it('detects Deno Deploy', () => {
+    expectCiEnv(
+      {
+        DENO_DEPLOYMENT_ID: 'deployment-uuid',
+      },
+      {
+        isCI: true,
+        name: 'Deno Deploy',
+        runId: 'deployment-uuid',
+      },
+    );
+  });
+
+  it('detects Zeabur and extracts repo, branch, commit', () => {
+    expectCiEnv(
+      {
+        ZEABUR_SERVICE_ID: 'service-id',
+        ZEABUR_GIT_REPO_OWNER: 'owner',
+        ZEABUR_GIT_REPO_NAME: 'repo',
+        ZEABUR_GIT_BRANCH: 'main',
+        ZEABUR_GIT_COMMIT_SHA: 'abc123',
+      },
+      {
+        isCI: true,
+        name: 'Zeabur',
+        fullRepoName: 'owner/repo',
+        branch: 'main',
+        commitSha: 'abc123',
+      },
+    );
+  });
+
+  it('detects Firebase App Hosting', () => {
+    expectCiEnv(
+      {
+        FIREBASE_APP_HOSTING: 'true',
+      },
+      {
+        isCI: true,
+        name: 'Firebase App Hosting',
+      },
+    );
+  });
+
+  it('detects CodeSandbox as isCI: false', () => {
+    expectCiEnv(
+      { CODESANDBOX_SSE: 'true' },
+      { isCI: false, name: 'CodeSandbox' },
+    );
+  });
+
+  it('detects GitHub Codespaces as isCI: false and extracts repo', () => {
+    expectCiEnv(
+      { CODESPACES: 'true', GITHUB_REPOSITORY: 'owner/repo' },
+      { isCI: false, name: 'GitHub Codespaces', fullRepoName: 'owner/repo' },
+    );
+  });
+
+  it('detects Gitpod as isCI: false', () => {
+    expectCiEnv(
+      { GITPOD_WORKSPACE_ID: 'workspace-id' },
+      { isCI: false, name: 'Gitpod' },
+    );
+  });
+
+  it('detects Replit as isCI: false', () => {
+    expectCiEnv(
+      { REPL_ID: 'repl-id' },
+      { isCI: false, name: 'Replit' },
+    );
+  });
+
+  it('detects StackBlitz as isCI: false', () => {
+    expectCiEnv(
+      { SHELL: '/bin/jsh' },
+      { isCI: false, name: 'StackBlitz' },
     );
   });
 });

@@ -8,6 +8,7 @@ import {
   shortSha,
 } from './normalize';
 import { PLATFORMS } from './platforms';
+import { detectOs, detectRuntime } from './runtime';
 
 const VALID_ENVIRONMENTS: Set<string> = new Set(
   ['development', 'preview', 'staging', 'production', 'test'],
@@ -88,9 +89,11 @@ function buildRaw(
  */
 export function getCiEnv(env: EnvRecord): CiEnvInfo {
   const e = env;
+  const runtime = detectRuntime();
+  const os = detectOs();
 
   if (e.CI === 'false') {
-    return { isCI: false };
+    return { isCI: false, runtime, os };
   }
 
   for (const platform of PLATFORMS) {
@@ -105,7 +108,7 @@ export function getCiEnv(env: EnvRecord): CiEnvInfo {
       isPR = runExtractor<number>(platform, 'prNumber', e) !== undefined;
     }
     const info: CiEnvInfo = {
-      isCI: true,
+      isCI: platform.ci !== false,
       name: platform.name,
       docsUrl: platform.docsUrl,
       isPR,
@@ -122,6 +125,8 @@ export function getCiEnv(env: EnvRecord): CiEnvInfo {
       actor: runExtractor<string>(platform, 'actor', e),
       eventName: runExtractor<string>(platform, 'eventName', e),
       raw: buildRaw(platform, e),
+      runtime,
+      os,
     };
     return info;
   }
@@ -139,6 +144,8 @@ export function getCiEnv(env: EnvRecord): CiEnvInfo {
 
   return {
     isCI: !!isCI,
+    runtime,
+    os,
   };
 }
 
