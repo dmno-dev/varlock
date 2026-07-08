@@ -34,6 +34,14 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'When load is failing, show all items rather than only failing items',
     },
+    sensitive: {
+      type: 'boolean',
+      description: 'Only include sensitive items in the output',
+    },
+    'non-sensitive': {
+      type: 'boolean',
+      description: 'Only include non-sensitive items in the output',
+    },
     env: {
       type: 'string',
       description: 'Set the environment (e.g., production, development, etc) - will be overridden by @currentEnv in the schema if present',
@@ -77,6 +85,7 @@ Examples:
   varlock load --format json-full --summary-stderr   # JSON on stdout + redacted human summary on stderr
   varlock load --format json-full --summary-file /tmp/summary.txt   # JSON on stdout + redacted human summary written to file
   varlock load --agent            # Agent-safe JSON output with sensitive values redacted
+  varlock load --format env --sensitive | fly secrets import   # Pipe only secrets to another tool
 `.trim(),
 });
 
@@ -93,12 +102,16 @@ export function formatShellValue(value: string): string {
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const {
     format, compact, 'show-all': showAll, 'summary-stderr': summaryStderr, 'summary-file': summaryFile, agent,
+    sensitive, 'non-sensitive': nonSensitive,
   } = ctx.values;
   // --agent defaults to json if no explicit --format was set, but respects --format if provided
   const outputFormat = agent && format === 'pretty' ? 'json' : format;
 
   if (agent && (outputFormat === 'env' || outputFormat === 'shell')) {
     throw new Error(`--agent is not compatible with --format ${outputFormat}`);
+  }
+  if (sensitive && nonSensitive) {
+    throw new Error('--sensitive and --non-sensitive are mutually exclusive');
   }
 
   const envGraph = await loadVarlockEnvGraph({
@@ -141,8 +154,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   }
 
+  /** true if the item passes the --sensitive / --non-sensitive filter (no flag = everything passes) */
+  function matchesSensitiveFilter(key: string) {
+    if (!sensitive && !nonSensitive) return true;
+    return !!envGraph.configSchema[key]?.isSensitive === !!sensitive;
+  }
+
   if ((summaryStderr || summaryFile) && outputFormat !== 'pretty') {
-    const summaryLines = envGraph.sortedConfigKeys.map(
+    const summaryLines = envGraph.sortedConfigKeys.filter(matchesSensitiveFilter).map(
       (key) => getItemSummary(envGraph.configSchema[key]),
     );
     const summaryStr = `${summaryLines.join('\n')}\n`;
@@ -181,17 +200,24 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
     console.error(ansis.bold.green('-- Resolved config --'));
     for (const itemKey of envGraph.sortedConfigKeys) {
+      if (!matchesSensitiveFilter(itemKey)) continue;
       const item = envGraph.configSchema[itemKey];
       console.log(getItemSummary(item));
     }
   } else if (outputFormat === 'json') {
-    const env = agent ? getRedactedEnvObject() : envGraph.getResolvedEnvObject();
+    const fullEnv: Record<string, unknown> = agent ? getRedactedEnvObject() : envGraph.getResolvedEnvObject();
+    const env = Object.fromEntries(
+      Object.entries(fullEnv).filter(([key]) => matchesSensitiveFilter(key)),
+    );
     console.log(JSON.stringify(env, null, 2));
   } else if (outputFormat === 'json-full') {
     const indent = compact ? 0 : 2;
     // this is an inspection dump (not the injected blob), so include @internal items —
     // they're flagged with isInternal and redacted below like any other sensitive value
     const serialized = envGraph.getSerializedGraph({ includeInternal: true });
+    for (const key in serialized.config) {
+      if (!matchesSensitiveFilter(key)) delete serialized.config[key];
+    }
     if (agent) {
       for (const key in serialized.config) {
         const item = serialized.config[key];
@@ -214,6 +240,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     const prefix = outputFormat === 'shell' ? 'export ' : '';
 
     for (const key in resolvedEnv) {
+      if (!matchesSensitiveFilter(key)) continue;
       const value = resolvedEnv[key];
 
       if (value === undefined && skipUndefined) {

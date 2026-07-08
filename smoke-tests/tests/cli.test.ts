@@ -116,6 +116,27 @@ describe('CLI Commands', () => {
     expect(() => JSON.parse(result.stdout)).not.toThrow();
   });
 
+  describe('--sensitive / --non-sensitive filters', () => {
+    test('--sensitive only outputs sensitive items', () => {
+      const result = runVarlock(['load', '--format', 'json', '--sensitive'], { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).toBe(0);
+      const vars = JSON.parse(result.stdout);
+      expect(Object.keys(vars)).toEqual(['SECRET_TOKEN']);
+    });
+
+    test('--non-sensitive excludes sensitive items', () => {
+      const result = runVarlock(['load', '--format', 'env', '--non-sensitive'], { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('PUBLIC_VAR=');
+      expect(result.stdout).not.toContain('SECRET_TOKEN');
+    });
+
+    test('--sensitive and --non-sensitive together fails', () => {
+      const result = runVarlock(['load', '--sensitive', '--non-sensitive'], { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).not.toBe(0);
+    });
+  });
+
   test('varlock load --format shell should output export statements', () => {
     const result = varlockLoad({ cwd: 'smoke-test-basic', format: 'shell' });
     expect(result.exitCode).toBe(0);

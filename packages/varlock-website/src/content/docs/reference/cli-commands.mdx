@@ -101,6 +101,8 @@ varlock load [options]
 - `--agent`:      Agent-safe mode: defaults to JSON output and redacts sensitive values. Not compatible with `--format env` or `--format shell`.
 - `--compact`:    Compact output (json-full: no indentation, env/shell: skip undefined values)
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
+- `--sensitive`:  Only include sensitive items in the output. Not compatible with `--non-sensitive`.
+- `--non-sensitive`: Only include non-sensitive items in the output. Not compatible with `--sensitive`.
 - [Common options](#common-options): `--env`, `--path` / `-p`, `--clear-cache`, `--skip-cache`
 
 **Examples:**
@@ -137,6 +139,9 @@ varlock load -p ./envs -p ./overrides
 
 # Agent-safe JSON output with sensitive values redacted
 varlock load --agent
+
+# Pipe only secrets to another tool (e.g. import into Fly.io)
+varlock load --format env --sensitive | fly secrets import
 ```
 
 **Exit codes:**
