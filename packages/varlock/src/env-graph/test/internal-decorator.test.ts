@@ -139,4 +139,52 @@ describe('@internal item decorator', () => {
     expect(src).not.toContain('OP_TOKEN');
     expect(src).toContain('PUBLIC_VAR');
   });
+
+  describe('interaction with --filter / filter=', () => {
+    it('stays excluded from getResolvedEnvObject even when filterKeys explicitly names it', async () => {
+      const g = await loadSchema(outdent`
+        # @internal
+        OP_TOKEN=abc123
+        PUBLIC_VAR=hello
+      `);
+      // an exact-name filter match must not override the default internal exclusion -
+      // only the dedicated includeInternal option can do that
+      const env = g.getResolvedEnvObject({ filterKeys: new Set(['OP_TOKEN', 'PUBLIC_VAR']) });
+      expect(env).not.toHaveProperty('OP_TOKEN');
+      expect(env).toHaveProperty('PUBLIC_VAR', 'hello');
+    });
+
+    it('stays excluded from getSerializedGraph even when filterKeys explicitly names it', async () => {
+      const g = await loadSchema(outdent`
+        # @internal
+        OP_TOKEN=abc123
+        PUBLIC_VAR=hello
+      `);
+      const blob = g.getSerializedGraph({ filterKeys: new Set(['OP_TOKEN', 'PUBLIC_VAR']) });
+      expect(blob.config).not.toHaveProperty('OP_TOKEN');
+      expect(blob.config).toHaveProperty('PUBLIC_VAR');
+    });
+
+    it('an internal+sensitive item is never a candidate for a codegen filter=@sensitive selector', async () => {
+      const g = new EnvGraph();
+      await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @internal @sensitive
+          OP_TOKEN=abc123
+          API_TOKEN=xyz  # @sensitive
+          PUBLIC_VAR=hello  # @public
+        `,
+      }));
+      await g.finishLoad();
+
+      const { collectTypeGenItems } = await import('../lib/type-generation');
+      const { computeFilteredKeys } = await import('../lib/item-filter');
+      // collectTypeGenItems already excludes @internal items - filtering operates on
+      // what's left, so OP_TOKEN can never resurface no matter what it would otherwise match
+      const items = await collectTypeGenItems(g);
+      expect(items.map((i) => i.key)).not.toContain('OP_TOKEN');
+      const filterKeys = computeFilteredKeys(items, '@sensitive', 'test filter');
+      expect(filterKeys).toEqual(new Set(['API_TOKEN']));
+    });
+  });
 });
