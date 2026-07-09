@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import {
+  describe, it, expect, afterEach, vi,
+} from 'vitest';
 import { resolveItemFilterKeys } from '../item-filter';
 import type { ConfigItem } from '../../../env-graph/lib/config-item';
 
@@ -85,6 +87,29 @@ describe('resolveItemFilterKeys', () => {
 
   it('throws on empty tag', () => {
     expect(() => resolveItemFilterKeys(items, '#')).toThrow();
+  });
+});
+
+describe('resolveItemFilterKeys - _VARLOCK_FILTER env var fallback', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('falls back to _VARLOCK_FILTER when --filter is unset', () => {
+    vi.stubEnv('_VARLOCK_FILTER', 'STRIPE_*');
+    const keys = resolveItemFilterKeys(items, undefined);
+    expect(keys).toEqual(new Set(['STRIPE_KEY', 'STRIPE_DEBUG_KEY']));
+  });
+
+  it('an explicit --filter value takes precedence over _VARLOCK_FILTER', () => {
+    vi.stubEnv('_VARLOCK_FILTER', 'STRIPE_*');
+    const keys = resolveItemFilterKeys(items, '#prod');
+    expect(keys).toEqual(new Set(['PUBLIC_URL']));
+  });
+
+  it('no filtering when neither --filter nor _VARLOCK_FILTER is set', () => {
+    vi.stubEnv('_VARLOCK_FILTER', '');
+    expect(resolveItemFilterKeys(items, undefined)).toBeUndefined();
   });
 });
 

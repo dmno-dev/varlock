@@ -36,6 +36,14 @@ Overrides [`varlock run`](/reference/cli-commands/#run) output redaction:
 
 The `--redact-stdout` / `--no-redact-stdout` flags take precedence over this env var. Useful when you can't easily change the command being run, for example in a wrapper script or CI config.
 
+### `_VARLOCK_FILTER`
+
+Fallback for the [`--filter`](/reference/cli-commands/#filtering-items) flag on [`varlock load`](/reference/cli-commands/#load) / [`varlock run`](/reference/cli-commands/#run). An explicit `--filter` flag takes precedence over this env var. Useful when you can't easily pass a CLI flag, for example a wrapper script, CI config, or a build-time integration that invokes varlock's loading APIs directly.
+
+```bash
+_VARLOCK_FILTER="#billing" varlock load --format json
+```
+
 {/*
   Intentionally NOT documented for end users; internal/testing only.
   Kept here (and in VARLOCK_CONFIG_ENV_VARS with internal:true) for maintainer reference.

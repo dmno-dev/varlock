@@ -39,7 +39,7 @@ export const commandSpec = define({
     },
     filter: {
       type: 'string',
-      description: 'Filter which items are injected: comma-separated key names/globs (e.g. STRIPE_*), negations (!KEY), decorator selectors (@sensitive, @required), and tag selectors (#tagname, set via @tag(tagname))',
+      description: 'Filter which items are injected: comma-separated key names/globs (e.g. STRIPE_*), negations (!KEY), decorator selectors (@sensitive, @required), and tag selectors (#tagname, set via @tag(tagname)). Can also be set via the _VARLOCK_FILTER env var (this flag takes precedence)',
     },
     path: {
       type: 'string',

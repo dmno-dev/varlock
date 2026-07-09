@@ -38,6 +38,10 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
     description: 'Overrides `varlock run` output redaction. `true`/`1` forces redaction on, `false`/`0` forces it off. The `--redact-stdout` / `--no-redact-stdout` flags take precedence.',
   },
   {
+    name: '_VARLOCK_FILTER',
+    description: 'Fallback for the `--filter` flag on `varlock load`/`run`, for use when a CLI flag can\'t easily be passed (e.g. a wrapper script, CI config, or build-time integration). The `--filter` flag takes precedence when both are set.',
+  },
+  {
     name: '_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK',
     description: 'Forces the file-based local encryption fallback instead of the native binary. Intended for testing/debugging.',
     internal: true,
