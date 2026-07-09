@@ -86,6 +86,44 @@ describe('evaluateProxyPolicy', () => {
   });
 });
 
+describe('evaluateProxyPolicy — strict egress', () => {
+  // A host with a rule scoped to one path; requests to other paths on the same host.
+  const rules = [rule({ domain: ['api.stripe.com'], path: '/v1/charges/**', itemKeys: ['STRIPE_KEY'] })];
+
+  test('strict blocks a ruled host on a non-matching path (the fix)', () => {
+    const d = evaluateProxyPolicy(facts('api.stripe.com', 'GET', '/v1/refunds'), rules, 'strict');
+    expect(d.verdict).toBe('deny');
+    expect(d.denyKind).toBe('egress-strict');
+  });
+
+  test('permissive allows the same request (passthrough, no injection)', () => {
+    expect(evaluateProxyPolicy(facts('api.stripe.com', 'GET', '/v1/refunds'), rules, 'permissive').verdict).toBe('allow');
+  });
+
+  test('strict allows a request that matches the allow rule', () => {
+    const d = evaluateProxyPolicy(facts('api.stripe.com', 'POST', '/v1/charges/42'), rules, 'strict');
+    expect(d.verdict).toBe('allow');
+    expect(d.matchedRule).toBeDefined();
+  });
+
+  test('block still wins over allow under strict (denyKind=block, not egress-strict)', () => {
+    const both = [
+      rule({ domain: ['api.x.com'], path: '/v1/**', itemKeys: ['K'] }), // allow
+      rule({ domain: ['api.x.com'], path: '/v1/refunds/**', block: true }), // block subset
+    ];
+    const d = evaluateProxyPolicy(facts('api.x.com', 'POST', '/v1/refunds/9'), both, 'strict');
+    expect(d.verdict).toBe('deny');
+    expect(d.denyKind).toBe('block');
+  });
+
+  test('strict + a matching approval rule still requires approval (not egress-deny)', () => {
+    const approveRules = [rule({ domain: ['api.x.com'], path: '/admin/**', approval: {} })];
+    expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/admin/x'), approveRules, 'strict').verdict).toBe('require-approval');
+    // a non-matching path on the same host is egress-denied under strict
+    expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/other'), approveRules, 'strict').denyKind).toBe('egress-strict');
+  });
+});
+
 describe('getRequestScopedManagedItems', () => {
   const items: Array<ProxyManagedItem> = [{ key: 'K', placeholder: 'PH', realValue: 'REAL' }];
 

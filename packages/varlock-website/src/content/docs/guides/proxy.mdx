@@ -183,8 +183,10 @@ This injects `STRIPE_SECRET_KEY` across `api.stripe.com` and blocks refunds and 
 
 The [`@proxyConfig={egress=...}`](/reference/root-decorators/#proxyconfig) header decorator controls what happens to requests that **don't** match any rule. It's the only reason to write `@proxyConfig` at all: the proxy works without it, and `egress` defaults to `permissive`.
 
-- `permissive` _(default, no decorator needed)_: unmatched hosts pass through untouched (no injection, no blocking). Good for getting started.
-- `strict`: add `@proxyConfig={egress="strict"}` to the header so only requests matching a `@proxy` rule are allowed; everything else is blocked. This is the recommended posture once your rules are dialed in, since it prevents the agent from reaching arbitrary hosts.
+- `permissive` _(default, no decorator needed)_: an unmatched request passes through untouched (no injection, no blocking). Good for getting started.
+- `strict`: add `@proxyConfig={egress="strict"}` to the header so only requests that match an allow (`@proxy`) rule are allowed; everything else is blocked — **including a request to a host that has `@proxy` rules but none matching this path/method**. This is the recommended posture once your rules are dialed in, since it prevents the agent from reaching arbitrary hosts (or arbitrary endpoints on a routed host).
+
+A matching `block` rule **always wins over an allow rule**, in either egress mode — so a `block=true` rule denies a request even if a broader `@proxy` allow rule also matches it. (To allow only a subset of a host and deny the rest, use `strict` egress with a specific allow rule, rather than a broad `block` with a narrow allow.)
 
 ## Controlling what the agent sees
 

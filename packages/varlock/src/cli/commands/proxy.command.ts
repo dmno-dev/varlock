@@ -91,6 +91,7 @@ import {
   checkForSchemaErrors,
 } from '../helpers/error-checks';
 import { buildProxySchemaFingerprint } from '../helpers/proxy-schema-fingerprint';
+import { logLines } from '../helpers/pretty-format';
 
 export const commandSpec = define({
   name: 'proxy',
@@ -1670,13 +1671,22 @@ async function startAction(ctx: any) {
 
   const autoNote = resolvedFromAuto ? ' (auto)' : '';
   const canKeypressReload = allowReload && !!process.stdin.isTTY;
-  console.log(`Started proxy session ${fmtSessionId(session.id)}`);
-  console.log(ansis.dim(`  · \`env\` / \`reload\` / \`stop\` run from this folder target it automatically (or pass \`--session ${session.id}\` elsewhere)`));
+  console.log(ansis.bold(`Started proxy session ${fmtSessionId(session.id)}`));
+  console.log([
+    '· run other proxy commands in this folder to target it automatically',
+    ansis.dim(`  (or pass \`--session ${session.id}\` elsewhere)`),
+  ].join('\n'));
   if (allowReload) {
-    const keyHint = canKeypressReload ? ' (or press `r`, then `y`)' : '';
-    console.log(ansis.dim(`  · reload: manual${autoNote} — edit your schema, then \`varlock proxy reload\` from another shell here${keyHint}; reloads from inside the agent are refused`));
+    logLines([
+      `· reload: manual${autoNote}`,
+      ansis.dim('  to reload schema, run `varlock proxy reload` from another shell'),
+      canKeypressReload && ansis.dim('  or in this terminal, press `r`, then `y`'),
+    ]);
   } else {
-    console.log(ansis.dim(`  · reload: off${autoNote} — schema edits need a restart (enable with \`--allow-reload\` or \`@proxyConfig={reload="manual"}\`)`));
+    logLines([
+      `· reload: off${autoNote}`,
+      ansis.dim('  schema edits need a restart'),
+    ]);
   }
   console.log(ansis.dim('─'.repeat(52)));
   console.log(ansis.dim('Live request log  (→ request · ← response · ⊕ client)'));

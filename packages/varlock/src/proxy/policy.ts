@@ -1,4 +1,4 @@
-import type { ProxyManagedItem, ProxyRule } from './types';
+import type { ProxyEgressMode, ProxyManagedItem, ProxyRule } from './types';
 
 /**
  * Normalized facts extracted from a request, the input to every policy
@@ -18,6 +18,13 @@ export type PolicyDecision = {
   verdict: PolicyVerdict;
   matchedRule?: ProxyRule;
   reason?: string;
+  /**
+   * For a `deny`, why it was denied:
+   *  - `block`: an explicit `@proxy(block=true)` rule matched (denylist).
+   *  - `egress-strict`: strict egress and no allow rule matched this request
+   *    (the host may have `@proxy` rules, just none for this method + path).
+   */
+  denyKind?: 'block' | 'egress-strict';
 };
 
 export function normalizeHost(host: string): string {
@@ -81,29 +88,44 @@ export function describeRule(rule: ProxyRule): string {
 
 /**
  * Evaluate the policy for a request. Precedence (most restrictive wins):
- *   1. any matching `block` rule → deny
- *   2. else the most-specific tier of non-block rules decides: an `approval` rule
- *      in that tier → require-approval, otherwise allow
- *   3. no matching rule → allow (injection scoping is handled separately, so an
- *      allow verdict doesn't imply a secret is injected)
+ *   1. any matching `block` rule → deny. **Block always wins over allow**,
+ *      regardless of rule order or specificity — so a specific allow cannot carve
+ *      an exception out of a matching block. (To allow a subset and deny the rest,
+ *      use strict egress + a specific allow rule, not a broad block + narrow allow.)
+ *   2. else the most-specific tier of non-block (allow) rules decides: an
+ *      `approval` rule in that tier → require-approval, otherwise allow.
+ *   3. no matching rule:
+ *      - `permissive` egress → allow (injection scoping is handled separately, so
+ *        an allow verdict doesn't imply a secret is injected).
+ *      - `strict` egress → deny (`egress-strict`): only requests matching an allow
+ *        rule may pass, so a ruled host on a non-matching method/path is blocked.
  *
- * Tie-break is deliberately conservative: within the most-specific tier an
- * `approval` rule beats a plain allow, so a broad allow can't silently downgrade a
- * specific require-approval, and a specific allow can still exempt a safe path
- * from a broad approval.
+ * Tie-break within the most-specific allow tier is conservative: an `approval` rule
+ * beats a plain allow, so a broad allow can't silently downgrade a specific
+ * require-approval, and a specific allow can still exempt a safe path from a broad
+ * approval.
  */
-export function evaluateProxyPolicy(facts: RequestFacts, rules: Array<ProxyRule>): PolicyDecision {
+export function evaluateProxyPolicy(
+  facts: RequestFacts,
+  rules: Array<ProxyRule>,
+  egressMode: ProxyEgressMode = 'permissive',
+): PolicyDecision {
   const matching = rules.filter((rule) => ruleMatchesFacts(rule, facts));
 
   const blockRule = matching
     .filter((rule) => rule.block)
     .sort((a, b) => ruleSpecificity(b) - ruleSpecificity(a))[0];
   if (blockRule) {
-    return { verdict: 'deny', matchedRule: blockRule, reason: 'blocked by @proxy(block=true) rule' };
+    return {
+      verdict: 'deny', matchedRule: blockRule, reason: 'blocked by @proxy(block=true) rule', denyKind: 'block',
+    };
   }
 
   const nonBlock = matching.filter((rule) => !rule.block);
   if (nonBlock.length === 0) {
+    if (egressMode === 'strict') {
+      return { verdict: 'deny', reason: 'no allow rule matches this request (strict egress)', denyKind: 'egress-strict' };
+    }
     return { verdict: 'allow' };
   }
   const maxSpecificity = Math.max(...nonBlock.map(ruleSpecificity));
