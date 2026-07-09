@@ -79,6 +79,8 @@ varlock load --filter="!#debug"                   # everything except items tagg
 
 There's no way to express an intersection (e.g. "`STRIPE_*` AND `@sensitive`") — only unions of non-negated selectors minus unions of negated ones. A negated selector always subtracts from the whole inclusion set; it isn't scoped to only the positive selector(s) that happened to include a given item.
 
+[`@internal`](/reference/item-decorators/#internal) items are always excluded, regardless of `--filter` — even if a selector would otherwise match them (e.g. by exact key name) — except where `load` already shows internal items for debugging/inspection: the default `pretty` format, `--format json-full`, and `--agent` (which shows them redacted). `--filter` only narrows those views further; it never causes internal items to appear anywhere they wouldn't otherwise. Everywhere else on `load` (plain `json`, `env`, `shell`) and on `run`'s injected env / `__VARLOCK_ENV` blob, internal items stay excluded no matter what `--filter` says — only `--include-internal` (on `run`) opts them back in, and even then they still have to satisfy `--filter` if one is set.
+
 On `run`, `--filter` also strips excluded items from the `__VARLOCK_ENV` blob, so a filtered-out var can't leak to the child process via env inspection either.
 
 Can also be set via the [`_VARLOCK_FILTER`](/reference/reserved-variables/#_varlock_filter) env var, for wrapper scripts, CI config, or anywhere else passing a CLI flag is inconvenient. An explicit `--filter` flag takes precedence.
