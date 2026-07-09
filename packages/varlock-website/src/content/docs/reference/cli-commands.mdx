@@ -101,6 +101,7 @@ varlock load [options]
 - `--agent`:      Agent-safe mode: defaults to JSON output and redacts sensitive values. Not compatible with `--format env` or `--format shell`.
 - `--compact`:    Compact output (json-full: no indentation, env/shell: skip undefined values)
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
+- `--include-internal`: Include [`@internal`](/reference/item-decorators/#internal) items in `--format json-full` output. Excluded by default (`json-full` is commonly consumed programmatically, e.g. by framework integrations, not just for local human inspection) - pass this for local debugging of a secret-zero credential.
 - [Common options](#common-options): `--env`, `--path` / `-p`, `--clear-cache`, `--skip-cache`
 
 **Examples:**
@@ -146,7 +147,7 @@ varlock load --agent
 **Output formats (for scripts & agents):**
 - `--format json`: a flat `{ "KEY": value }` map of resolved values on stdout
 - `--agent`: the same flat map, but `@sensitive` values are redacted (e.g. `"su▒▒▒▒▒"`), so it is safe to print in logs or agent transcripts. Implies JSON output; not compatible with `--format env`/`shell`. Combine with `--agent --format json-full` to get the redacted full graph.
-- `--format json-full`: the full serialized graph: top-level `basePath`, `sources`, `config` (per-item metadata including resolved value, validation state, and sensitivity), `settings`. Use this when you need per-item validation/error detail rather than just values. ⚠️ This includes **raw resolved secret values**, so add `--agent` (`--agent --format json-full`) to redact them before logging or feeding to an agent.
+- `--format json-full`: the full serialized graph: top-level `basePath`, `sources`, `config` (per-item metadata including resolved value, validation state, and sensitivity), `settings`. Use this when you need per-item validation/error detail rather than just values. ⚠️ This includes **raw resolved secret values**, so add `--agent` (`--agent --format json-full`) to redact them before logging or feeding to an agent. [`@internal`](/reference/item-decorators/#internal) items are excluded unless you pass `--include-internal`.
 - `--format env` / `--format shell`: dotenv lines / shell `export` statements with **raw** values. Never pipe these somewhere that gets logged when secrets are involved.
 
 When emitting machine-readable output, add `--summary-stderr` (or `--summary-file`) to get a human-readable, redacted summary on **stderr** while keeping clean JSON on **stdout**. This is handy for agents and CI.

@@ -317,6 +317,29 @@ describe('CLI Commands', () => {
       expect(result.exitCode).toBe(0);
     });
 
+    test('--format json-full excludes @internal vars by default', () => {
+      // framework integrations shell out to exactly this command to get their injected config -
+      // an @internal secret-zero credential must not appear here unless explicitly requested
+      const result = runVarlock(['load', '--format', 'json-full'], {
+        cwd: 'smoke-test-internal',
+        env: { OP_TOKEN: 'secret-zero' },
+      });
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.config).not.toHaveProperty('OP_TOKEN');
+      expect(parsed.config.PUBLIC_VAR.value).toBe('visible');
+    });
+
+    test('--format json-full --include-internal includes @internal vars, flagged', () => {
+      const result = runVarlock(['load', '--format', 'json-full', '--include-internal'], {
+        cwd: 'smoke-test-internal',
+        env: { OP_TOKEN: 'secret-zero' },
+      });
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.config.OP_TOKEN).toMatchObject({ value: 'secret-zero', isInternal: true });
+    });
+
     // `--no-inject-graph` is deprecated and hidden from help, but still supported for
     // back-compat. Guard that it keeps working and omits the __VARLOCK_ENV blob.
     test('--no-inject-graph still works and omits the __VARLOCK_ENV blob', () => {
