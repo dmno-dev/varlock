@@ -3,7 +3,33 @@ import http from 'node:http';
 import { URL } from 'node:url';
 
 import type { ProxyActivity } from './audit';
-import { replacePlaceholdersWithReal, startLocalProxyRuntime } from './runtime-proxy';
+import { findUninjectedPlaceholder, replacePlaceholdersWithReal, startLocalProxyRuntime } from './runtime-proxy';
+
+describe('findUninjectedPlaceholder (helpful-failure guard)', () => {
+  const items = [
+    { key: 'A', placeholder: 'vlk_ph_A', realValue: 'RA' },
+    { key: 'B', placeholder: 'vlk_ph_B', realValue: 'RB' },
+  ] as any;
+
+  test('flags a placeholder present in the request that is NOT injected here', () => {
+    // A is being injected on this route; B's placeholder is present but not injected.
+    const found = findUninjectedPlaceholder(['authorization: Bearer vlk_ph_B'], items, [items[0]]);
+    expect(found?.key).toBe('B');
+  });
+
+  test('does not flag a placeholder that WILL be injected on this route', () => {
+    expect(findUninjectedPlaceholder(['Bearer vlk_ph_A'], items, [items[0]])).toBeUndefined();
+  });
+
+  test('does not flag a request with no managed placeholder (permissive passthrough stays clean)', () => {
+    expect(findUninjectedPlaceholder(['authorization: Bearer sk-users-own-key'], items, [])).toBeUndefined();
+  });
+
+  test('scans all parts (target, headers, body) and ignores empty placeholders', () => {
+    const withEmpty = [...items, { key: 'C', placeholder: '', realValue: 'RC' }] as any;
+    expect(findUninjectedPlaceholder(['/p', '{}', 'body has vlk_ph_A'], withEmpty, [])?.key).toBe('A');
+  });
+});
 
 describe('replacePlaceholdersWithReal', () => {
   test('substitutes the longest placeholder first so substring placeholders are not corrupted', () => {

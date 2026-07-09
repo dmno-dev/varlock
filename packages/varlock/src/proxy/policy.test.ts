@@ -9,55 +9,150 @@ const rule = (partial: Partial<ProxyRule>): ProxyRule => ({
   domain: [], itemKeys: [], ...partial,
 });
 const facts = (host: string, method: string, path: string): RequestFacts => ({ host, method, path });
+const keysOf = (items: Array<ProxyManagedItem>) => items.map((i) => i.key);
 
-describe('proxy policy matching', () => {
-  test('matches on domain + path glob + method', () => {
-    const r = rule({ domain: ['api.x.com'], path: '/v1/customers/*', method: ['GET'] });
-    expect(ruleMatchesFacts(r, facts('api.x.com', 'GET', '/v1/customers/42'))).toBe(true);
-    // method mismatch
-    expect(ruleMatchesFacts(r, facts('api.x.com', 'POST', '/v1/customers/42'))).toBe(false);
-    // `*` is a single segment — does not cross `/`
-    expect(ruleMatchesFacts(r, facts('api.x.com', 'GET', '/v1/customers/42/charges'))).toBe(false);
-    // domain mismatch
-    expect(ruleMatchesFacts(r, facts('evil.com', 'GET', '/v1/customers/42'))).toBe(false);
+// ─────────────────────────────────────────────────────────────────────────────
+// Matching primitives (domain / path / method) — security-critical: a wrong
+// match injects a secret to (or opens egress toward) the wrong place.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('domain matching', () => {
+  const matchesHost = (domain: string, host: string) => ruleMatchesFacts(rule({ domain: [domain] }), facts(host, 'GET', '/'));
+
+  test('exact host, case-insensitive, only that host', () => {
+    expect(matchesHost('api.x.com', 'api.x.com')).toBe(true);
+    expect(matchesHost('api.x.com', 'API.X.COM')).toBe(true);
+    expect(matchesHost('api.x.com', 'sub.api.x.com')).toBe(false);
+    expect(matchesHost('api.x.com', 'api.x.com.evil.com')).toBe(false);
+    expect(matchesHost('api.x.com', 'notapi.x.com')).toBe(false);
   });
 
-  test('`**` matches across segments; method lists; domain-only matches any path/method', () => {
-    expect(ruleMatchesFacts(rule({ domain: ['api.x.com'], path: '/v1/**' }), facts('api.x.com', 'GET', '/v1/a/b/c'))).toBe(true);
-    expect(ruleMatchesFacts(rule({ domain: ['api.x.com'], method: ['GET', 'POST'] }), facts('api.x.com', 'POST', '/any'))).toBe(true);
-    expect(ruleMatchesFacts(rule({ domain: ['api.x.com'] }), facts('api.x.com', 'DELETE', '/whatever'))).toBe(true);
+  test('`*.example.com` matches the apex and any subdomain depth', () => {
+    expect(matchesHost('*.example.com', 'example.com')).toBe(true);
+    expect(matchesHost('*.example.com', 'api.example.com')).toBe(true);
+    expect(matchesHost('*.example.com', 'a.b.example.com')).toBe(true);
+  });
+
+  test('`*.example.com` does NOT match look-alikes (no suffix confusion)', () => {
+    expect(matchesHost('*.example.com', 'evilexample.com')).toBe(false);
+    expect(matchesHost('*.example.com', 'example.com.evil.com')).toBe(false);
+    expect(matchesHost('*.example.com', 'notexample.com')).toBe(false);
+  });
+
+  test('a domain array matches if any entry matches', () => {
+    const r = rule({ domain: ['api.a.com', 'api.b.com'] });
+    expect(ruleMatchesFacts(r, facts('api.b.com', 'GET', '/'))).toBe(true);
+    expect(ruleMatchesFacts(r, facts('api.c.com', 'GET', '/'))).toBe(false);
   });
 });
 
-describe('evaluateProxyPolicy', () => {
-  const rules = [
-    rule({ domain: ['api.stripe.com'], itemKeys: ['STRIPE_KEY'] }),
-    rule({
-      domain: ['api.stripe.com'], path: '/v1/charges', method: ['POST'], block: true,
-    }),
-  ];
+describe('path matching', () => {
+  const matchesPath = (pattern: string, path: string) => ruleMatchesFacts(rule({ domain: ['x'], path: pattern }), facts('x', 'GET', path));
 
-  test('block rule denies the specific endpoint, allows the rest', () => {
-    expect(evaluateProxyPolicy(facts('api.stripe.com', 'POST', '/v1/charges'), rules).verdict).toBe('deny');
-    expect(evaluateProxyPolicy(facts('api.stripe.com', 'GET', '/v1/customers'), rules).verdict).toBe('allow');
+  test('exact path is anchored (no prefix/suffix bleed)', () => {
+    expect(matchesPath('/v1/charges', '/v1/charges')).toBe(true);
+    expect(matchesPath('/v1/charges', '/v1/charges/42')).toBe(false);
+    expect(matchesPath('/v1/charges', '/v1/chargesX')).toBe(false);
+    expect(matchesPath('/v1/charges', '/prefix/v1/charges')).toBe(false);
   });
 
-  test('block wins even when an allow rule also matches', () => {
-    const both = [
-      rule({ domain: ['api.x.com'], itemKeys: ['K'] }),
-      rule({ domain: ['api.x.com'], path: '/danger', block: true }),
+  test('`*` matches within one segment, not across `/`', () => {
+    expect(matchesPath('/v1/*', '/v1/x')).toBe(true);
+    expect(matchesPath('/v1/*', '/v1/x/y')).toBe(false);
+    expect(matchesPath('/v1/*', '/v1/')).toBe(true);
+  });
+
+  test('`**` matches across segments', () => {
+    expect(matchesPath('/v1/**', '/v1/x/y/z')).toBe(true);
+    expect(matchesPath('/v1/**', '/v1/')).toBe(true);
+    expect(matchesPath('/**', '/anything/at/all')).toBe(true);
+  });
+
+  test('regex metacharacters in the pattern are literal', () => {
+    // `.` must be a literal dot, not "any char"
+    expect(matchesPath('/file.txt', '/file.txt')).toBe(true);
+    expect(matchesPath('/file.txt', '/fileXtxt')).toBe(false);
+    // `+`, `(`, `)` literal too
+    expect(matchesPath('/a+b', '/a+b')).toBe(true);
+    expect(matchesPath('/a+b', '/aaab')).toBe(false);
+  });
+
+  test('undefined path matches any path', () => {
+    expect(ruleMatchesFacts(rule({ domain: ['x'] }), facts('x', 'GET', '/anything/here'))).toBe(true);
+  });
+});
+
+describe('method matching', () => {
+  const matchesMethod = (methods: Array<string> | undefined, method: string) => ruleMatchesFacts(rule({ domain: ['x'], ...(methods ? { method: methods } : {}) }), facts('x', method, '/'));
+
+  test('case-insensitive, list membership', () => {
+    expect(matchesMethod(['GET', 'POST'], 'post')).toBe(true);
+    expect(matchesMethod(['GET'], 'DELETE')).toBe(false);
+  });
+
+  test('undefined or empty method list matches any method', () => {
+    expect(matchesMethod(undefined, 'PATCH')).toBe(true);
+    expect(matchesMethod([], 'PATCH')).toBe(true);
+  });
+});
+
+describe('ruleMatchesFacts — all constraints must hold', () => {
+  test('domain + path + method combined', () => {
+    const r = rule({ domain: ['api.x.com'], path: '/v1/customers/*', method: ['GET'] });
+    expect(ruleMatchesFacts(r, facts('api.x.com', 'GET', '/v1/customers/42'))).toBe(true);
+    expect(ruleMatchesFacts(r, facts('api.x.com', 'POST', '/v1/customers/42'))).toBe(false); // method
+    expect(ruleMatchesFacts(r, facts('api.x.com', 'GET', '/v1/customers/42/charges'))).toBe(false); // path (`*`)
+    expect(ruleMatchesFacts(r, facts('evil.com', 'GET', '/v1/customers/42'))).toBe(false); // domain
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Precedence: allow < require-approval < block (block always wins).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('evaluateProxyPolicy — precedence (allow < approval < block)', () => {
+  test('block wins over a matching allow rule, regardless of order/specificity', () => {
+    const broadBlockNarrowAllow = [
+      rule({ domain: ['api.x.com'], block: true }), // broad block
+      rule({ domain: ['api.x.com'], path: '/ok', itemKeys: ['K'] }), // specific allow
     ];
-    expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/danger'), both).verdict).toBe('deny');
+    expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/ok'), broadBlockNarrowAllow).verdict).toBe('deny');
+
+    const narrowBlockBroadAllow = [
+      rule({ domain: ['api.x.com'], itemKeys: ['K'] }), // broad allow
+      rule({ domain: ['api.x.com'], path: '/danger', block: true }), // specific block
+    ];
+    expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/danger'), narrowBlockBroadAllow).verdict).toBe('deny');
+    expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/safe'), narrowBlockBroadAllow).verdict).toBe('allow');
   });
 
-  test('an approve rule yields require-approval', () => {
-    const approveRules = [rule({ domain: ['api.x.com'], path: '/v1/refunds/**', approval: {} })];
-    expect(evaluateProxyPolicy(facts('api.x.com', 'POST', '/v1/refunds/42'), approveRules).verdict).toBe('require-approval');
-    // a non-matching path falls through to allow
-    expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/v1/customers'), approveRules).verdict).toBe('allow');
+  test('block wins over a matching approval rule', () => {
+    const both = [
+      rule({ domain: ['api.x.com'], path: '/admin/**', approval: {} }),
+      rule({ domain: ['api.x.com'], path: '/admin/wipe', block: true }),
+    ];
+    expect(evaluateProxyPolicy(facts('api.x.com', 'POST', '/admin/wipe'), both).verdict).toBe('deny');
+    expect(evaluateProxyPolicy(facts('api.x.com', 'POST', '/admin/list'), both).verdict).toBe('require-approval');
   });
 
-  test('block beats require-approval beats allow', () => {
+  test('approval wins over allow within the most-specific tier', () => {
+    const tied = [
+      rule({ domain: ['api.x.com'], path: '/v1/*' }),
+      rule({ domain: ['api.x.com'], path: '/v1/*', approval: {} }),
+    ];
+    expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/v1/x'), tied).verdict).toBe('require-approval');
+  });
+
+  test('a more-specific allow exempts a path from a broad approval', () => {
+    const broadApprove = [
+      rule({ domain: ['api.x.com'], approval: {} }), // approve everything
+      rule({ domain: ['api.x.com'], path: '/health' }), // ...except this safe path
+    ];
+    expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/anything'), broadApprove).verdict).toBe('require-approval');
+    expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/health'), broadApprove).verdict).toBe('allow');
+  });
+
+  test('full three-tier layering: block > approval > allow', () => {
     const layered = [
       rule({ domain: ['api.x.com'] }), // broad allow
       rule({ domain: ['api.x.com'], path: '/admin/**', approval: {} }),
@@ -67,79 +162,102 @@ describe('evaluateProxyPolicy', () => {
     expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/admin/settings'), layered).verdict).toBe('require-approval');
     expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/public'), layered).verdict).toBe('allow');
   });
-
-  test('a more-specific allow exempts a path from a broad approve', () => {
-    const broadApprove = [
-      rule({ domain: ['api.x.com'], approval: {} }), // approve everything by default
-      rule({ domain: ['api.x.com'], path: '/health' }), // ...except this safe path
-    ];
-    expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/anything'), broadApprove).verdict).toBe('require-approval');
-    expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/health'), broadApprove).verdict).toBe('allow');
-  });
-
-  test('on a specificity tie, require-approval wins over allow (more restrictive)', () => {
-    const tied = [
-      rule({ domain: ['api.x.com'], path: '/v1/*' }),
-      rule({ domain: ['api.x.com'], path: '/v1/*', approval: {} }),
-    ];
-    expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/v1/x'), tied).verdict).toBe('require-approval');
-  });
 });
 
-describe('evaluateProxyPolicy — strict egress', () => {
-  // A host with a rule scoped to one path; requests to other paths on the same host.
-  const rules = [rule({ domain: ['api.stripe.com'], path: '/v1/charges/**', itemKeys: ['STRIPE_KEY'] })];
+// ─────────────────────────────────────────────────────────────────────────────
+// Egress model (single dial): permissive = allow unmatched · strict = allowlist.
+// A blanket `@proxy(domain=X)` opens the whole domain; scoped rules allowlist it.
+// ─────────────────────────────────────────────────────────────────────────────
 
-  test('strict blocks a ruled host on a non-matching path (the fix)', () => {
-    const d = evaluateProxyPolicy(facts('api.stripe.com', 'GET', '/v1/refunds'), rules, 'strict');
+describe('evaluateProxyPolicy — egress model', () => {
+  const blanket = [rule({ domain: ['example.com'], itemKeys: ['K'] })]; // blanket allow
+  const scoped = [rule({ domain: ['api.stripe.com'], path: '/v1/charges/**', itemKeys: ['K'] })];
+
+  test('blanket allow opens every route on the domain (both modes)', () => {
+    for (const mode of ['permissive', 'strict'] as const) {
+      expect(evaluateProxyPolicy(facts('example.com', 'GET', '/whatever/here'), blanket, mode).verdict).toBe('allow');
+    }
+  });
+
+  test('blanket + a specific block denies just that route, allows the rest', () => {
+    const withBlock = [...blanket, rule({ domain: ['example.com'], path: '/dangerous/**', block: true })];
+    expect(evaluateProxyPolicy(facts('example.com', 'POST', '/dangerous/x'), withBlock, 'strict').verdict).toBe('deny');
+    expect(evaluateProxyPolicy(facts('example.com', 'GET', '/safe'), withBlock, 'strict').verdict).toBe('allow');
+  });
+
+  test('scoped rule: matching route allowed; other routes on the SAME host blocked under strict', () => {
+    expect(evaluateProxyPolicy(facts('api.stripe.com', 'POST', '/v1/charges/42'), scoped, 'strict').verdict).toBe('allow');
+    const d = evaluateProxyPolicy(facts('api.stripe.com', 'GET', '/v1/refunds'), scoped, 'strict');
     expect(d.verdict).toBe('deny');
     expect(d.denyKind).toBe('egress-strict');
   });
 
-  test('permissive allows the same request (passthrough, no injection)', () => {
-    expect(evaluateProxyPolicy(facts('api.stripe.com', 'GET', '/v1/refunds'), rules, 'permissive').verdict).toBe('allow');
+  test('permissive lets an unmatched route pass through (single-dial: permissive means permissive)', () => {
+    expect(evaluateProxyPolicy(facts('api.stripe.com', 'GET', '/v1/refunds'), scoped, 'permissive').verdict).toBe('allow');
   });
 
-  test('strict allows a request that matches the allow rule', () => {
-    const d = evaluateProxyPolicy(facts('api.stripe.com', 'POST', '/v1/charges/42'), rules, 'strict');
-    expect(d.verdict).toBe('allow');
-    expect(d.matchedRule).toBeDefined();
-  });
-
-  test('block still wins over allow under strict (denyKind=block, not egress-strict)', () => {
+  test('block still wins under strict (denyKind=block, not egress-strict)', () => {
     const both = [
-      rule({ domain: ['api.x.com'], path: '/v1/**', itemKeys: ['K'] }), // allow
-      rule({ domain: ['api.x.com'], path: '/v1/refunds/**', block: true }), // block subset
+      rule({ domain: ['api.x.com'], path: '/v1/**', itemKeys: ['K'] }),
+      rule({ domain: ['api.x.com'], path: '/v1/refunds/**', block: true }),
     ];
     const d = evaluateProxyPolicy(facts('api.x.com', 'POST', '/v1/refunds/9'), both, 'strict');
     expect(d.verdict).toBe('deny');
     expect(d.denyKind).toBe('block');
   });
 
-  test('strict + a matching approval rule still requires approval (not egress-deny)', () => {
+  test('a matching approval rule still requires approval under strict; a non-matching route is egress-denied', () => {
     const approveRules = [rule({ domain: ['api.x.com'], path: '/admin/**', approval: {} })];
     expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/admin/x'), approveRules, 'strict').verdict).toBe('require-approval');
-    // a non-matching path on the same host is egress-denied under strict
     expect(evaluateProxyPolicy(facts('api.x.com', 'GET', '/other'), approveRules, 'strict').denyKind).toBe('egress-strict');
   });
 });
 
-describe('getRequestScopedManagedItems', () => {
-  const items: Array<ProxyManagedItem> = [{ key: 'K', placeholder: 'PH', realValue: 'REAL' }];
+// ─────────────────────────────────────────────────────────────────────────────
+// Injection scoping: a key is injected ONLY for the rule(s) it's attached to,
+// scoped by domain + path + method — never for the domain in general.
+// ─────────────────────────────────────────────────────────────────────────────
 
-  test('injects only when domain + path + method all match', () => {
+describe('getRequestScopedManagedItems — per-rule key scoping', () => {
+  const items: Array<ProxyManagedItem> = [
+    { key: 'A', placeholder: 'PH_A', realValue: 'RA' },
+    { key: 'B', placeholder: 'PH_B', realValue: 'RB' },
+  ];
+
+  test('each key injects only on its own rule’s route, not across the shared domain', () => {
+    const rules = [
+      rule({ domain: ['api.x.com'], path: '/a/**', itemKeys: ['A'] }),
+      rule({ domain: ['api.x.com'], path: '/b/**', itemKeys: ['B'] }),
+    ];
+    expect(keysOf(getRequestScopedManagedItems(facts('api.x.com', 'GET', '/a/1'), rules, items))).toEqual(['A']);
+    // B's key is NOT injected on /a even though both rules share the domain
+    expect(keysOf(getRequestScopedManagedItems(facts('api.x.com', 'GET', '/b/1'), rules, items))).toEqual(['B']);
+    // a route matching neither rule injects nothing
+    expect(getRequestScopedManagedItems(facts('api.x.com', 'GET', '/c/1'), rules, items)).toEqual([]);
+  });
+
+  test('scoping honors path AND method', () => {
     const rules = [
       rule({
-        domain: ['api.x.com'], path: '/v1/read/*', method: ['GET'], itemKeys: ['K'],
+        domain: ['api.x.com'], path: '/v1/read/*', method: ['GET'], itemKeys: ['A'],
       }),
     ];
-    expect(getRequestScopedManagedItems(facts('api.x.com', 'GET', '/v1/read/1'), rules, items).map((i) => i.key)).toEqual(['K']);
-    expect(getRequestScopedManagedItems(facts('api.x.com', 'POST', '/v1/read/1'), rules, items)).toEqual([]);
-    expect(getRequestScopedManagedItems(facts('api.x.com', 'GET', '/v1/write/1'), rules, items)).toEqual([]);
+    expect(keysOf(getRequestScopedManagedItems(facts('api.x.com', 'GET', '/v1/read/1'), rules, items))).toEqual(['A']);
+    expect(getRequestScopedManagedItems(facts('api.x.com', 'POST', '/v1/read/1'), rules, items)).toEqual([]); // method
+    expect(getRequestScopedManagedItems(facts('api.x.com', 'GET', '/v1/write/1'), rules, items)).toEqual([]); // path
+  });
+
+  test('a rule can inject several keys (keys=[...]); union across matching rules', () => {
+    const rules = [rule({ domain: ['api.x.com'], path: '/combined', itemKeys: ['A', 'B'] })];
+    expect(keysOf(getRequestScopedManagedItems(facts('api.x.com', 'GET', '/combined'), rules, items)).sort()).toEqual(['A', 'B']);
   });
 
   test('a block rule never contributes injection items', () => {
-    const rules = [rule({ domain: ['api.x.com'], block: true, itemKeys: ['K'] })];
+    const rules = [
+      rule({
+        domain: ['api.x.com'], block: true, itemKeys: ['A'],
+      }),
+    ];
     expect(getRequestScopedManagedItems(facts('api.x.com', 'GET', '/'), rules, items)).toEqual([]);
   });
 });

@@ -258,6 +258,27 @@ function detectInjectedKeys(parts: Array<string>, hostItems: Array<ProxyManagedI
   return keys;
 }
 
+/**
+ * Find a managed placeholder present in the outbound request that is NOT being
+ * injected on this route (`injectHere`). Such a placeholder would reach the
+ * upstream un-substituted and fail with a cryptic auth error, and the cause is
+ * the proxy rules (wrong path/method, or wrong host) — so we catch it and
+ * explain, rather than forwarding a doomed request. Placeholders are unique
+ * per item, so a match is unambiguous (no false positives).
+ */
+export function findUninjectedPlaceholder(
+  parts: Array<string>,
+  managedItems: Array<ProxyManagedItem>,
+  injectHere: Array<ProxyManagedItem>,
+): ProxyManagedItem | undefined {
+  const injectedKeys = new Set(injectHere.map((item) => item.key));
+  return managedItems.find(
+    (item) => item.placeholder.length > 0
+      && !injectedKeys.has(item.key)
+      && parts.some((part) => part.includes(item.placeholder)),
+  );
+}
+
 function replaceRealWithPlaceholders(value: string, managedItems: Array<ProxyManagedItem>): string {
   let next = value;
   const sortedByRealLength = [...managedItems]
@@ -715,9 +736,28 @@ export async function startLocalProxyRuntime({
     }
 
     const body = await readBody(req);
-    const injectedKeys = shouldRewrite
-      ? detectInjectedKeys([t.requestTarget, JSON.stringify(req.headers), body.toString('utf8')], hostItems)
-      : [];
+    const scanParts = [t.requestTarget, JSON.stringify(req.headers), body.toString('utf8')];
+    const injectedKeys = shouldRewrite ? detectInjectedKeys(scanParts, hostItems) : [];
+
+    // Helpful-failure guard: when NO rule injects anything on this route yet the
+    // request carries a managed placeholder, the real value won't be substituted
+    // and the upstream would reject it with a cryptic auth error — and the cause
+    // is the proxy rules (wrong path/method, or wrong host). Explain it instead of
+    // forwarding a doomed request. Scoped to `hostItems.length === 0` so a request
+    // that DOES inject on this route can still carry an unrelated placeholder
+    // (e.g. another item's, bound for a different host) through untouched.
+    const leaked = hostItems.length === 0
+      ? findUninjectedPlaceholder(scanParts, managedItems, hostItems)
+      : undefined;
+    if (leaked) {
+      onActivity?.({
+        ...baseActivity, ...ruleId, matched: shouldRewrite, blocked: true, decision: 'blocked-uninjected',
+      });
+      respondBlocked(res, 403, `Blocked by the varlock credential proxy: this request to ${t.host}${t.pathOnly} carries the placeholder for ${leaked.key}, `
+        + 'but no @proxy rule injects it here — the real value was not substituted and the request would fail upstream. '
+        + 'Add or broaden a @proxy rule so it matches this request (host + path + method).', t.tunnelTeardown);
+      return;
+    }
 
     // Invariant #8: a require-approval rule holds the request for an out-of-band,
     // request-bound decision. Fail closed (deny) unless explicitly approved.
