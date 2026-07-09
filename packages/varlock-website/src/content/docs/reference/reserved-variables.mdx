@@ -58,7 +58,7 @@ These are injected automatically so that varlock state survives across process b
 
 ### `__VARLOCK_ENV`
 
-The serialized env graph (resolved config values plus metadata) injected by [`varlock run`](/reference/cli-commands/#run) and build-time integrations, so the runtime can load your config without re-invoking the CLI.
+The serialized env graph (resolved config values plus metadata) injected by [`varlock run`](/reference/cli-commands/#run) and build-time integrations, so the runtime can load your config without re-invoking the CLI. [`@internal`](/reference/item-decorators/#internal) items are excluded from this blob by default everywhere it's built, including framework integrations.
 
 ### `__VARLOCK_RUN`
 
