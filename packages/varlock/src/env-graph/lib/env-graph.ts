@@ -707,6 +707,20 @@ export class EnvGraph {
     await this.resolveEnvValues([...transitiveDeps, key]);
   }
 
+  /**
+   * Unions `keys` with the transitive dependencies of each — the key set `resolveEnvValues()`
+   * needs to correctly resolve every one of `keys` (it does not expand dependencies itself; see
+   * `resolveItemWithDeps()` above for the single-key precedent this generalizes).
+   */
+  expandKeysWithTransitiveDeps(keys: Iterable<string>): Set<string> {
+    const expanded = new Set<string>();
+    for (const key of keys) {
+      expanded.add(key);
+      for (const dep of getTransitiveDeps(key, this.graphAdjacencyList)) expanded.add(dep);
+    }
+    return expanded;
+  }
+
   /** config keys with builtin vars first, then user-defined in schema order */
   get sortedConfigKeys() {
     const builtinKeys: Array<string> = [];

@@ -85,6 +85,8 @@ On `run`, `--filter` also strips excluded items from the `__VARLOCK_ENV` blob, s
 
 Can also be set via the [`_VARLOCK_FILTER`](/reference/reserved-variables/#_varlock_filter) env var, for wrapper scripts, CI config, or anywhere else passing a CLI flag is inconvenient. An explicit `--filter` flag takes precedence.
 
+**A key name/glob/tag-only filter also scopes resolution and validation**, not just output: only items it selects (plus their dependencies) are resolved, so an unrelated broken item outside the filter won't block `load`/`run` — useful for scoping validation differently across contexts, e.g. a build step that only needs `--filter="#frontend"` shouldn't fail because an unrelated backend-only var is misconfigured. `@sensitive`/`@required` selectors can't be scoped this way (which items match isn't knowable until the graph is already resolved), so a filter using either falls back to resolving and validating everything, same as no `--filter` at all.
+
 ## Commands reference
 
 <div class="reference-docs">

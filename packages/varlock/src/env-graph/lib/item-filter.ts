@@ -97,3 +97,17 @@ export function computeFilteredKeys(
   }
   return result;
 }
+
+/**
+ * Whether a `filter=`/`--filter` string uses a `@sensitive`/`@required` decorator selector.
+ *
+ * `isSensitive`/`isRequired` on a bare `ConfigItem` are only reliable *after*
+ * `resolveEnvValues()` has run, unlike key/glob/tag selectors (resolvable from the schema alone,
+ * before resolution). Callers that want to resolve only the keys a filter selects — to skip
+ * resolving/validating everything else — must check this first: a filter using a decorator
+ * selector needs the whole graph resolved before its matches can even be determined, so there's
+ * nothing to scope down to. `label` prefixes any thrown `SchemaError` (e.g. `--filter`).
+ */
+export function filterUsesDecoratorSelector(filterStr: string, label: string): boolean {
+  return parseItemFilter(filterStr, label).some((t) => t.kind === 'decorator');
+}

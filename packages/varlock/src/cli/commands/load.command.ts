@@ -8,7 +8,7 @@ import { redactString } from '../../runtime/lib/redaction';
 import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
-import { resolveItemFilterKeys } from '../helpers/item-filter';
+import { planFilterResolution, resolveItemFilterKeys } from '../helpers/item-filter';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import ansis from 'ansis';
 
@@ -146,7 +146,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // Generate types before resolving values — uses only non-env-specific schema info
     await envGraph.runCodeGeneratorsIfNeeded();
 
-    await envGraph.resolveEnvValues();
+    // A --filter using only keys/globs/tags can be resolved (and known-invalid) before
+    // resolveEnvValues() runs, so we only resolve (and validate) what it selects plus
+    // dependencies — an unrelated broken item outside the filter won't block this load.
+    // @sensitive/@required selectors can't be scoped this way (see planFilterResolution),
+    // so those fall back to resolving everything, same as an unset --filter.
+    const filterPlan = planFilterResolution(envGraph, ctx.values.filter);
+    await envGraph.resolveEnvValues(filterPlan.resolveKeys);
 
     if (outputFormat === 'json-full') {
       checkForConfigErrors(envGraph, { showAll, noThrow: true });

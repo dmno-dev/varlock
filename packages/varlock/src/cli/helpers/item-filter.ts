@@ -1,6 +1,7 @@
 import type { ConfigItem } from '../../env-graph/lib/config-item';
+import type { EnvGraph } from '../../env-graph/lib/env-graph';
 import { SchemaError } from '../../env-graph/lib/errors';
-import { computeFilteredKeys } from '../../env-graph/lib/item-filter';
+import { computeFilteredKeys, filterUsesDecoratorSelector } from '../../env-graph/lib/item-filter';
 import { CliExitError } from './exit-error';
 
 /**
@@ -25,4 +26,40 @@ export function resolveItemFilterKeys(
     }
     throw err;
   }
+}
+
+export type FilterResolutionPlan = {
+  /** keys to pass to `resolveEnvValues()` (already includes transitive deps); `undefined` = resolve everything */
+  resolveKeys: Array<string> | undefined;
+};
+
+/**
+ * Decides how much of the graph `--filter` actually needs resolved, so `load`/`run` can skip
+ * resolving (and validating) items outside the filter entirely — e.g. a build step scoped to
+ * `--filter="#frontend"` doesn't need an unrelated broken backend-only var to be valid.
+ *
+ * `@sensitive`/`@required` selectors can't be scoped this way — their matches aren't knowable
+ * until the graph is resolved (see {@link filterUsesDecoratorSelector}), so a filter using either
+ * falls back to resolving everything, same as today.
+ */
+export function planFilterResolution(
+  graph: EnvGraph,
+  filterStr: string | undefined,
+): FilterResolutionPlan {
+  const effectiveFilterStr = filterStr ?? process.env._VARLOCK_FILTER;
+  if (!effectiveFilterStr) return { resolveKeys: undefined };
+
+  let usesDecoratorSelector: boolean;
+  try {
+    usesDecoratorSelector = filterUsesDecoratorSelector(effectiveFilterStr, '--filter');
+  } catch (err) {
+    if (err instanceof SchemaError) {
+      throw new CliExitError(err.message, err.tip ? { suggestion: err.tip } : undefined);
+    }
+    throw err;
+  }
+  if (usesDecoratorSelector) return { resolveKeys: undefined };
+
+  const matchedKeys = resolveItemFilterKeys(Object.values(graph.configSchema), effectiveFilterStr)!;
+  return { resolveKeys: [...graph.expandKeysWithTransitiveDeps(matchedKeys)] };
 }
