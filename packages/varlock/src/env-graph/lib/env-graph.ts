@@ -58,6 +58,7 @@ export type SerializedEnvGraph = {
     redactLogs?: boolean;
     preventLeaks?: boolean;
     encryptInjectedEnv?: boolean;
+    excludeSensitiveFromInjectedEnv?: boolean;
     disableProcessEnvInjection?: boolean;
   },
   config: Record<string, {
@@ -67,6 +68,8 @@ export type SerializedEnvGraph = {
     preventLeaks?: boolean;
     /** true = used only by varlock, not injected into the app. Only present in inspection output (never in the blob). */
     isInternal?: boolean;
+    /** true = value stripped from the bundle-embedded blob (via @excludeSensitiveFromInjectedEnv); the runtime reads it from process.env. Only set by the Vite resolved-env injection, never by getSerializedGraph. */
+    valueExcluded?: boolean;
   }>;
   /** provenance metadata for process.env overrides across nested invocations */
   __varlockOverrideMeta?: OverrideProvenanceMetadata;
@@ -596,6 +599,7 @@ export class EnvGraph {
     await this.getRootDec('redactLogs')?.resolve();
     await this.getRootDec('preventLeaks')?.resolve();
     await this.getRootDec('encryptInjectedEnv')?.resolve();
+    await this.getRootDec('excludeSensitiveFromInjectedEnv')?.resolve();
     await this.getRootDec('disableProcessEnvInjection')?.resolve();
   }
 
@@ -800,6 +804,7 @@ export class EnvGraph {
     serializedGraph.settings.redactLogs = this.getRootDec('redactLogs')?.resolvedValue ?? true;
     serializedGraph.settings.preventLeaks = this.getRootDec('preventLeaks')?.resolvedValue ?? true;
     serializedGraph.settings.encryptInjectedEnv = this.getRootDec('encryptInjectedEnv')?.resolvedValue ?? false;
+    serializedGraph.settings.excludeSensitiveFromInjectedEnv = this.getRootDec('excludeSensitiveFromInjectedEnv')?.resolvedValue ?? false;
     serializedGraph.settings.disableProcessEnvInjection = this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
 
     // collect all errors into a single nested object

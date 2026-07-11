@@ -358,6 +358,9 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     name: 'encryptInjectedEnv',
   },
   {
+    name: 'excludeSensitiveFromInjectedEnv',
+  },
+  {
     name: 'disableProcessEnvInjection',
     // static-only: code generation reads this flag (it controls whether process.env is typed as
     // populated), so an env-dependent value like forEnv(...) would make generated output differ

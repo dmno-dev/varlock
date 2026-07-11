@@ -364,7 +364,16 @@ export function initVarlockEnv(opts?: {
   }
 
   for (const itemKey in serializedEnvData.config) {
-    const itemValue = serializedEnvData.config[itemKey].value;
+    const item = serializedEnvData.config[itemKey];
+    // Items stripped from the blob via @excludeSensitiveFromInjectedEnv carry no value — the
+    // runtime platform provides it (platform env, Cloudflare binding, etc). Read it from
+    // process.env and leave process.env untouched, so we never clobber that value with ''
+    // and never register the key for injection cleanup on reload.
+    if (item.valueExcluded) {
+      envValues[itemKey] = processExists ? process.env[itemKey] : undefined;
+      continue;
+    }
+    const itemValue = item.value;
     envValues[itemKey] = itemValue;
     if (setProcessEnv) {
       envState.injectedProcessEnvKeys?.push(itemKey);

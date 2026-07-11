@@ -13,7 +13,7 @@ import {
 const ENV_STATE_KEY = '__varlockEnvState';
 const REDACTION_STATE_KEY = '__varlockRedactionState';
 
-const TEST_KEYS = ['EST_FOO', 'EST_BAR'];
+const TEST_KEYS = ['EST_FOO', 'EST_BAR', 'EST_EXCLUDED', 'EST_SECRET'];
 
 function makeEnvBlob(config: Record<string, string | undefined>) {
   return JSON.stringify({
@@ -21,6 +21,24 @@ function makeEnvBlob(config: Record<string, string | undefined>) {
     settings: {},
     config: Object.fromEntries(
       Object.entries(config).map(([key, value]) => [key, { value, isSensitive: false }]),
+    ),
+  });
+}
+
+type ConfigItemInput = { value?: any, isSensitive?: boolean, valueExcluded?: boolean };
+function makeConfigBlob(config: Record<string, ConfigItemInput>) {
+  return JSON.stringify({
+    sources: [],
+    settings: {},
+    config: Object.fromEntries(
+      Object.entries(config).map(([key, item]) => [
+        key, {
+          isSensitive: item.isSensitive ?? false,
+          // omit `value` entirely for excluded items — the runtime reads it from process.env
+          ...('value' in item ? { value: item.value } : {}),
+          ...(item.valueExcluded ? { valueExcluded: true } : {}),
+        },
+      ]),
     ),
   });
 }
@@ -95,5 +113,41 @@ describe('env state shared across module copies', () => {
     expect(() => envModule.initVarlockEnv()).toThrow(/still encrypted/);
     // and env should not be marked initialized
     expect(() => (envModule.ENV as any).ANYTHING).toThrow(/not initialized/);
+  });
+});
+
+describe('excluded sensitive values fall back to process.env', () => {
+  it('reads the platform-provided process.env value and does not clobber it', async () => {
+    process.env.EST_EXCLUDED = 'from-platform';
+    process.env.__VARLOCK_ENV = makeConfigBlob({
+      EST_EXCLUDED: { isSensitive: true, valueExcluded: true },
+    });
+    const copy = await importFreshEnvModuleCopy();
+    copy.initVarlockEnv();
+    expect((copy.ENV as any).EST_EXCLUDED).toBe('from-platform');
+    // the platform-provided value must survive init, not be overwritten with ''
+    expect(process.env.EST_EXCLUDED).toBe('from-platform');
+  });
+
+  it('yields undefined when process.env has no value for the excluded key', async () => {
+    delete process.env.EST_EXCLUDED;
+    process.env.__VARLOCK_ENV = makeConfigBlob({
+      EST_EXCLUDED: { isSensitive: true, valueExcluded: true },
+    });
+    const copy = await importFreshEnvModuleCopy();
+    copy.initVarlockEnv();
+    expect((copy.ENV as any).EST_EXCLUDED).toBeUndefined();
+    // must not materialize the key as an empty string in process.env
+    expect('EST_EXCLUDED' in process.env).toBe(false);
+  });
+
+  it('a normal sensitive item with a value is still injected as before', async () => {
+    process.env.__VARLOCK_ENV = makeConfigBlob({
+      EST_SECRET: { isSensitive: true, value: 'real-secret' },
+    });
+    const copy = await importFreshEnvModuleCopy();
+    copy.initVarlockEnv();
+    expect((copy.ENV as any).EST_SECRET).toBe('real-secret');
+    expect(process.env.EST_SECRET).toBe('real-secret');
   });
 });
