@@ -14,6 +14,7 @@ Load secrets from [Infisical](https://infisical.com/) into your Varlock configur
 - ✅ Secret paths and hierarchical organization
 - ✅ Filter secrets by tag
 - ✅ Multiple plugin instances for different projects/environments
+- ✅ **`allowMissing`** option for optional secrets
 - ✅ Helpful error messages with resolution tips
 
 ## Installation
@@ -93,6 +94,7 @@ See the [OIDC Workload Identity guide](https://varlock.dev/guides/oidc/) for ful
 - **`siteUrl`** (optional): Custom Infisical instance URL (defaults to `https://app.infisical.com`)
 - **`secretPath`** (optional): Default secret path for all secrets (defaults to `/`)
 - **`cacheTtl`** (optional): Cache resolved values for the specified duration (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching
+- **`allowMissing`** (optional): When `true`, missing secrets return `undefined` instead of throwing. Can be a dynamic value (e.g., `allowMissing=forEnv(development)`). Other errors (auth failures, permission errors, etc.) still throw.
 - **`id`** (optional): Instance identifier for using multiple instances
 
 ## Usage
@@ -114,6 +116,24 @@ STRIPE_SECRET=infisical("STRIPE_SECRET_KEY")
 ```
 
 When called without arguments, `infisical()` automatically uses the config item key as the secret name in Infisical. This provides a convenient convention-over-configuration approach.
+
+### Optional secrets
+
+Use `allowMissing=true` on `infisical()` to return `undefined` when a secret doesn't exist in Infisical, then combine with `fallback()` to provide a default value:
+
+```env-spec
+# If present in Infisical, use it; if missing, fall back to undefined or a default
+RESEND_API_KEY=fallback(infisical(allowMissing=true), undefined)
+SOME_OPTIONAL_KEY=fallback(infisical(allowMissing=true), "")
+```
+
+You can also set `allowMissing` on `@initInfisical()` to apply it to all `infisical()` calls for that instance. It can be a dynamic value, e.g. `forEnv(development)` to only allow missing secrets in dev:
+
+```env-spec
+# @initInfisical(projectId=my-project, environment=dev, clientId=$ID, clientSecret=$SECRET, allowMissing=forEnv(development))
+```
+
+When `allowMissing` is enabled, mark optional items with `@required=false` or wrap the resolver with `fallback()` so validation does not fail.
 
 ### Using Secret Paths
 
@@ -217,6 +237,7 @@ Root decorator to initialize an Infisical plugin instance.
 - `siteUrl?: string` - Custom Infisical instance URL
 - `secretPath?: string` - Default secret path
 - `cacheTtl?: string | number` - Cache resolved values for the provided TTL
+- `allowMissing?: boolean` - When `true`, all `infisical()` calls for this instance return `undefined` instead of throwing when the secret is not found. Can be a dynamic value (e.g., `allowMissing=forEnv(development)`). Other errors still throw.
 - `id?: string` - Instance identifier (static)
 
 ### `infisical()`
@@ -229,8 +250,13 @@ Resolver function to fetch secret values.
 - `infisical(secretName, secretPath)` - Fetch with custom path from default instance
 - `infisical(instanceId, secretName)` - Fetch from named instance
 - `infisical(instanceId, secretName, secretPath)` - Full form with named instance
+- `infisical(secretName, allowMissing=true)` - Return `undefined` if the secret is not found
+- `infisical(instanceId, secretName, allowMissing=true)` - Same, with a specific instance
 
-**Returns:** The secret value as a string
+**Named args:**
+- `allowMissing?: boolean` - When `true`, returns `undefined` instead of throwing if the secret is not found. Can be a dynamic value (e.g., `allowMissing=forEnv(development)`). Useful when combined with `fallback()` to provide a default value. Other errors (auth failures, permission errors, etc.) still throw.
+
+**Returns:** The secret value as a string, or `undefined` when `allowMissing` is enabled and the secret is missing
 
 **Note:** When called without arguments, the config item key is automatically used as the secret name in Infisical. For example, `DATABASE_URL=infisical()` will fetch a secret named `DATABASE_URL` from Infisical.
 
