@@ -13,7 +13,7 @@ This lets us express a declarative schema of our environment variables in a fami
 ```env-spec title=".env.schema"
 # Stripe secret api key
 # @required @sensitive @type=string(startsWith="sk_")
-# @docsUrl=https://docs.stripe.com/keys
+# @docs(https://docs.stripe.com/keys)
 STRIPE_SECRET_KEY=encrypted("asdfqwerqwe2374298374lksdjflksdjf981273948okjdfksdl")
 ```
 

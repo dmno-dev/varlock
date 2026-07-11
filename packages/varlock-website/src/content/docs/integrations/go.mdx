@@ -3,7 +3,7 @@ title: Go
 description: Use varlock with Go via a generated env package
 ---
 
-To use varlock with Go, [install the standalone binary](/getting-started/installation/#as-a-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
+To use varlock with Go, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
 
 Add [`@generateGoEnv`](/reference/root-decorators/#generategoenv) to your schema to generate a small, self-contained package: an `Env` struct, a `Load()` function that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SensitiveKeys` map.
 

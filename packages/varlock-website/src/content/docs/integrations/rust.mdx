@@ -3,7 +3,7 @@ title: Rust
 description: Use varlock with Rust via a generated, serde-derived env module
 ---
 
-To use varlock with Rust, [install the standalone binary](/getting-started/installation/#as-a-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
+To use varlock with Rust, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
 
 Add [`@generateRustEnv`](/reference/root-decorators/#generaterustenv) to your schema to generate a small, self-contained module: a serde-derived `Env` struct, a `load()` function that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
 
