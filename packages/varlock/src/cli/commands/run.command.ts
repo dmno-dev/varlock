@@ -3,6 +3,7 @@ import { define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
 import { exec } from '../../lib/exec';
+import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { planFilterResolution, resolveItemFilterKeys } from '../helpers/item-filter';
@@ -248,6 +249,18 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   if (!includeInternal) {
     for (const itemKey of envGraph.sortedConfigKeys) {
       if (envGraph.configSchema[itemKey].isInternal) delete fullInjectedEnv[itemKey];
+    }
+  }
+
+  // Same ambient-carry problem for --filter: an excluded schema key set in the calling env
+  // (e.g. `STRIPE_DEBUG_KEY=x varlock run --filter='!STRIPE_DEBUG_KEY' ...`) would otherwise pass
+  // straight through the process.env spread — and since excluded items are also left out of the
+  // redaction map, it would even print unredacted. Reserved _VARLOCK_* keys configure varlock's
+  // own behavior (incl. in nested runs) and are never subject to --filter.
+  if (filterKeys) {
+    for (const itemKey of envGraph.sortedConfigKeys) {
+      if (isVarlockReservedKey(itemKey)) continue;
+      if (!filterKeys.has(itemKey)) delete fullInjectedEnv[itemKey];
     }
   }
 

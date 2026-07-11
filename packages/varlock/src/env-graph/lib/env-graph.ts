@@ -809,9 +809,12 @@ export class EnvGraph {
     // list would mirror every env var (PATH, HOME, ...) — pure noise that also leaks the
     // caller's full env var name list into the blob. Reserved _VARLOCK_* keys configure
     // varlock itself and are never overrides, so exclude them even if defined in the schema.
+    // items excluded by filterKeys aren't in the blob's config, so their override provenance
+    // would be pure noise — and would leak the excluded key's name into the blob
     serializedGraph.__varlockOverrideMeta = buildOverrideProvenanceMetadata(
       Object.keys(this.overrideValues).filter(
-        (k) => k in this.configSchema && !isVarlockReservedKey(k),
+        (k) => k in this.configSchema && !isVarlockReservedKey(k)
+          && (!opts?.filterKeys || opts.filterKeys.has(k)),
       ),
     );
 
