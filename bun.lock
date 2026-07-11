@@ -314,6 +314,7 @@
         "@env-spec/utils": "workspace:^",
         "@infisical/sdk": "^5.0.2",
         "@types/node": "catalog:",
+        "outdent": "catalog:",
         "tsup": "catalog:",
         "varlock": "workspace:^",
         "vitest": "catalog:",
