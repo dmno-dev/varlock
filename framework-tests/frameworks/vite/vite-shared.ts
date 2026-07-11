@@ -289,6 +289,33 @@ export function defineViteTests(
       });
     });
 
+    // ---- Exclude sensitive from injected env ----
+
+    describe('exclude sensitive from injected env', () => {
+      viteEnv.describeScenario('SSR build strips @sensitive values from the resolved-env blob', {
+        command: 'vite build --ssr src/ssr-entry.ts',
+        templateFiles: {
+          'vite.config.ts': 'vite-configs/vite.config.resolved-env.ts',
+          '.env.schema': 'schemas/.env.schema.exclude-sensitive',
+          'index.html': 'html/basic.html',
+          'src/ssr-entry.ts': 'pages/ssr-entry.ts',
+        },
+        expectSuccess: true,
+        fileAssertions: [
+          {
+            description: 'SSR output still carries the resolved env blob with public values',
+            fileGlob: 'dist/*.js',
+            shouldContain: ['__varlockLoadedEnv', 'public-test-value'],
+          },
+          {
+            description: 'sensitive value is stripped from the blob',
+            fileGlob: 'dist/*.js',
+            shouldNotContain: ['super-secret-value'],
+          },
+        ],
+      });
+    });
+
     // ---- Dev server ----
 
     describe('dev server', () => {

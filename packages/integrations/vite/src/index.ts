@@ -77,6 +77,32 @@ function resetStaticReplacements() {
 }
 
 
+/**
+ * Returns a shallow copy of the serialized env graph with plaintext values removed from every
+ * @sensitive item that has one, replaced by a `valueExcluded: true` flag. The runtime reads
+ * those keys from process.env instead (see initVarlockEnv in varlock/env). Never mutates the
+ * input: `varlockLoadedEnv` is exported and read by other consumers.
+ *
+ * This strip lives in the integration, not in `getSerializedGraph()`, because other
+ * serialization channels legitimately need the values: `varlock run` passes them to the child
+ * process env, varlock-wrangler uploads them as the runtime `__VARLOCK_ENV` secret binding, and
+ * `load --format json-full` shows them for inspection. Only this bundle-embedded copy, which
+ * lands in the deploy artifact, must not carry sensitive values.
+ */
+function stripSensitiveValues(graph: SerializedEnvGraph): SerializedEnvGraph {
+  const strippedConfig: SerializedEnvGraph['config'] = {};
+  for (const itemKey in graph.config) {
+    const item = graph.config[itemKey];
+    if (item.isSensitive && item.value !== undefined) {
+      // drop the value (JSON.stringify omits the undefined key from the blob) and flag it
+      strippedConfig[itemKey] = { ...item, value: undefined, valueExcluded: true };
+    } else {
+      strippedConfig[itemKey] = item;
+    }
+  }
+  return { ...graph, config: strippedConfig };
+}
+
 let loadCount = 0;
 let activeIntegrationTelemetry = {
   name: __VARLOCK_INTEGRATION_NAME__,
@@ -212,12 +238,21 @@ export function varlockVitePlugin(
             );
           }
         }
-        const serialized = JSON.stringify(varlockLoadedEnv);
+        const excludeSensitive = varlockLoadedEnv?.settings?.excludeSensitiveFromInjectedEnv;
+
+        // strip @sensitive values from the blob when opted in, so they never land in the deploy
+        // artifact. Skip in dev (the bundle isn't a deploy artifact and the values are needed
+        // in-process, mirroring how the encryption path also special-cases dev). Strip before
+        // encrypting so the serialized string is computed once from the possibly-stripped graph.
+        const envForBlob = excludeSensitive && !isDevCommand
+          ? stripSensitiveValues(varlockLoadedEnv)
+          : varlockLoadedEnv;
+        const serialized = JSON.stringify(envForBlob);
         if (encryptionKey) {
           const encrypted = encryptEnvBlobSync(serialized, encryptionKey);
           lines.push(`globalThis.__varlockEncryptedEnv = ${JSON.stringify(encrypted)};`);
         } else {
-          lines.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
+          lines.push(`globalThis.__varlockLoadedEnv = ${serialized};`);
         }
       }
 
