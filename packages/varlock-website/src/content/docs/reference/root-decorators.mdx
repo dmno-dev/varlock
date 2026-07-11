@@ -396,6 +396,28 @@ SECRET_KEY= # @sensitive
 </div>
 
 <div>
+### `@excludeSensitiveFromInjectedEnv`
+**Value type:** `boolean`
+
+Keeps `@sensitive` values out of the env blob that the [Vite integration](/integrations/vite/) injects into server-side build output in `ssrInjectMode: 'resolved-env'`. When enabled, each sensitive item is written to the blob without its value, and `ENV` falls back to `process.env` at runtime.
+
+Use this when the runtime platform supplies the sensitive values itself: platform env vars, Cloudflare bindings, or the `varlock-wrangler` `__VARLOCK_ENV` secret binding, which overrides the embedded blob at runtime anyway. The values are then never stored in the deploy artifact. This is an alternative to [`@encryptInjectedEnv`](#encryptinjectedenv) and needs no key management.
+
+**Options:**
+- `false` (default): Sensitive values are injected into the blob
+- `true`: Sensitive values are stripped from the blob; the runtime reads them from `process.env`
+- `forEnv(...)`: Conditionally enable based on the current environment
+
+```env-spec
+# @excludeSensitiveFromInjectedEnv
+# ---
+SECRET_KEY= # @sensitive
+```
+
+Dev mode is unaffected: values stay embedded so the dev server has them in-process. Non-sensitive values are always kept in the blob.
+</div>
+
+<div>
 ### `@disableProcessEnvInjection`
 **Value type:** `boolean`
 

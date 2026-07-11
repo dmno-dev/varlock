@@ -247,6 +247,10 @@ All non-sensitive items are bundled at build time via `ENV`, while `import.meta.
 When using `ssrInjectMode: 'resolved-env'`, Varlock injects the fully resolved env data into your SSR build output. By default, this blob is plaintext JSON, meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
 :::
 
+:::note[Excluding sensitive values]
+If your runtime supplies sensitive values itself (platform env vars, Cloudflare bindings, or the `varlock-wrangler` secret binding), set the [`@excludeSensitiveFromInjectedEnv`](/reference/root-decorators/#excludesensitivefrominjectedenv) root decorator to keep them out of the build output entirely. For each excluded item, `ENV` falls back to `process.env` at runtime. Dev mode is unaffected: values stay embedded so the dev server has them in-process.
+:::
+
 ---
 
 ## Reference

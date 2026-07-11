@@ -9,6 +9,8 @@ When deploying SSR applications to **serverless platforms** (like Vercel, Netlif
 
 By default, this blob is **plaintext JSON**. Since it only appears in server-side code, it's generally safe: your secrets are not exposed to the client. However, encrypting the blob adds protection against secrets leaking via **sourcemaps** that may be uploaded to error tracking services.
 
+If the runtime platform already supplies the sensitive values (platform env vars, Cloudflare bindings, or the `varlock-wrangler` secret binding), you can leave them out of the build output entirely with [`@excludeSensitiveFromInjectedEnv`](/reference/root-decorators/#excludesensitivefrominjectedenv) instead. `ENV` falls back to `process.env` for the excluded items, and there is no key to manage.
+
 ## Enabling encryption
 
 Add the [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) root decorator to your `.env.schema`:
