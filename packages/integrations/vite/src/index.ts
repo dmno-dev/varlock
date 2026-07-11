@@ -53,6 +53,8 @@ let lastErrorAt = 0;
 let configHookCalled = false;
 // one-time guard for the SvelteKit+Cloudflare auto-detection notice
 let cfDetectNoticeLogged = false;
+// one-time guard for the plaintext-sensitive-values-in-build-output notice
+let plaintextEnvNoticeLogged = false;
 let staticReplacements: Record<string, any> = {};
 let replacerFn: ReturnType<typeof createReplacerTransformFn>;
 
@@ -239,6 +241,21 @@ export function varlockVitePlugin(
           }
         }
         const excludeSensitive = varlockLoadedEnv?.settings?.excludeSensitiveFromInjectedEnv;
+
+        // warn once when @sensitive values will be embedded in plaintext in the build output
+        // (no encryption, no exclusion). Skipped in dev — the bundle isn't a deploy artifact there.
+        if (
+          !plaintextEnvNoticeLogged
+          && !encryptionKey
+          && !excludeSensitive
+          && !isDevCommand
+          && Object.values(varlockLoadedEnv?.config ?? {}).some(
+            (item) => item.isSensitive && typeof item.value === 'string' && item.value.length > 0,
+          )
+        ) {
+          plaintextEnvNoticeLogged = true;
+          console.warn('\x1b[36m🔒 [varlock] sensitive values are embedded in plaintext in the SSR build output. Encrypt the blob or set @excludeSensitiveFromInjectedEnv if the runtime provides them. See https://varlock.dev/integrations/vite/#encrypting-the-env-blob\x1b[0m');
+        }
 
         // strip @sensitive values from the blob when opted in, so they never land in the deploy
         // artifact. Skip in dev (the bundle isn't a deploy artifact and the values are needed
