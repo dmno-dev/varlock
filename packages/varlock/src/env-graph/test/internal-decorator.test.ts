@@ -69,7 +69,7 @@ describe('@internal item decorator', () => {
       OP_TOKEN=abc123
       DB_URL=concat("x-", ref(OP_TOKEN))
     `);
-    // inspection output (e.g. `load --format json-full`) opts in and tags the item
+    // inspection output (e.g. `load --format json-full --include-internal`) opts in and tags the item
     const inspect = g.getSerializedGraph({ includeInternal: true });
     expect(inspect.config.OP_TOKEN).toMatchObject({ value: 'abc123', isInternal: true });
     // non-internal items are not tagged

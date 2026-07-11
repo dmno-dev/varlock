@@ -34,6 +34,10 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'When load is failing, show all items rather than only failing items',
     },
+    'include-internal': {
+      type: 'boolean',
+      description: 'Include @internal items in --format json-full output (excluded by default, since json-full is commonly consumed programmatically - e.g. by framework integrations - not just for local human inspection)',
+    },
     env: {
       type: 'string',
       description: 'Set the environment (e.g., production, development, etc) - will be overridden by @currentEnv in the schema if present',
@@ -77,6 +81,7 @@ Examples:
   varlock load --format json-full --summary-stderr   # JSON on stdout + redacted human summary on stderr
   varlock load --format json-full --summary-file /tmp/summary.txt   # JSON on stdout + redacted human summary written to file
   varlock load --agent            # Agent-safe JSON output with sensitive values redacted
+  varlock load --format json-full --include-internal   # Include @internal items for local debugging
 `.trim(),
 });
 
@@ -93,6 +98,7 @@ export function formatShellValue(value: string): string {
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const {
     format, compact, 'show-all': showAll, 'summary-stderr': summaryStderr, 'summary-file': summaryFile, agent,
+    'include-internal': includeInternal,
   } = ctx.values;
   // --agent defaults to json if no explicit --format was set, but respects --format if provided
   const outputFormat = agent && format === 'pretty' ? 'json' : format;
@@ -189,9 +195,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     console.log(JSON.stringify(env, null, 2));
   } else if (outputFormat === 'json-full') {
     const indent = compact ? 0 : 2;
-    // this is an inspection dump (not the injected blob), so include @internal items —
-    // they're flagged with isInternal and redacted below like any other sensitive value
-    const serialized = envGraph.getSerializedGraph({ includeInternal: true });
+    // @internal items are excluded by default, same as every other format — json-full is
+    // routinely consumed programmatically (framework integrations shell out to this exact
+    // command to get their injected config), so a secret-zero credential must not appear here
+    // unless explicitly requested. Pass --include-internal for local human inspection.
+    const serialized = envGraph.getSerializedGraph({ includeInternal: !!includeInternal });
     if (agent) {
       for (const key in serialized.config) {
         const item = serialized.config[key];

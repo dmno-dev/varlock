@@ -146,6 +146,8 @@ Because internal items still resolve and validate, marking a variable internal d
 :::
 
 `varlock run` strips internal items from the child process environment **even if they were set in the ambient environment** (e.g. `OP_TOKEN=xxx varlock run ...`), so a secret-zero token never leaks into your app. If a _nested_ `varlock run` needs the internal value for its own resolution, pass [`--include-internal`](/reference/cli-commands/#run) to keep it in the child env.
+
+`varlock load --format json-full` excludes internal items by default too, since that format is commonly consumed programmatically (framework integrations shell out to this exact command to get their injected config) - pass [`--include-internal`](/reference/cli-commands/#load) there for local debugging.
 </div>
 
 <div>
