@@ -301,7 +301,7 @@ APP_ENV=remap($WORKERS_CI_BRANCH,
 
 Next.js uses the `NEXT_PUBLIC_` prefix to determine which env vars are public (bundled for the browser). Varlock lets you control this using decorators.
 
-Set [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) and mark specific items [@senstive](/reference/item-decorators/#sensitive):
+Set [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) and mark specific items [`@sensitive`](/reference/item-decorators/#sensitive):
 
 ```diff lang="env-spec" title=".env.schema"
 +# @defaultSensitive=true

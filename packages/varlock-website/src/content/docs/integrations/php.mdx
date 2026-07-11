@@ -3,7 +3,7 @@ title: PHP
 description: Use varlock with PHP via a generated, typed env class
 ---
 
-To use varlock with PHP, [install the standalone binary](/getting-started/installation/#as-a-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
+To use varlock with PHP, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
 
 Add [`@generatePhpEnv`](/reference/root-decorators/#generatephpenv) to your schema to generate a small, self-contained class: a readonly `Env` with typed promoted properties, a static `load()` that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
 
