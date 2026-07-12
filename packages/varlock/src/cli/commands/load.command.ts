@@ -8,7 +8,7 @@ import { redactString } from '../../runtime/lib/redaction';
 import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
-import { planFilterResolution, resolveItemFilterKeys } from '../helpers/item-filter';
+import { getCliItemFilter } from '../helpers/item-filter';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import ansis from 'ansis';
 
@@ -108,6 +108,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     format, compact, 'show-all': showAll, 'summary-stderr': summaryStderr, 'summary-file': summaryFile, agent,
     'include-internal': includeInternal,
   } = ctx.values;
+  // parse --filter (or the _VARLOCK_FILTER env var) up front, so a bad filter string errors
+  // before any loading/resolution work happens
+  const itemFilter = getCliItemFilter(ctx.values.filter);
   // --agent defaults to json if no explicit --format was set, but respects --format if provided
   const outputFormat = agent && format === 'pretty' ? 'json' : format;
 
@@ -146,13 +149,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // Generate types before resolving values — uses only non-env-specific schema info
     await envGraph.runCodeGeneratorsIfNeeded();
 
-    // A --filter using only keys/globs/tags can be resolved (and known-invalid) before
-    // resolveEnvValues() runs, so we only resolve (and validate) what it selects plus
-    // dependencies — an unrelated broken item outside the filter won't block this load.
-    // @sensitive/@required selectors can't be scoped this way (see planFilterResolution),
-    // so those fall back to resolving everything, same as an unset --filter.
-    const filterPlan = planFilterResolution(envGraph, ctx.values.filter);
-    await envGraph.resolveEnvValues(filterPlan.resolveKeys);
+    // A --filter using only keys/globs/tags scopes resolution (and validation) to what it
+    // selects plus dependencies — an unrelated broken item outside the filter won't block this
+    // load. @sensitive/@required selectors can't be scoped this way (see getResolveKeys), so
+    // those fall back to resolving everything, same as an unset --filter.
+    await envGraph.resolveEnvValues(itemFilter?.getResolveKeys(envGraph));
 
     if (outputFormat === 'json-full') {
       checkForConfigErrors(envGraph, { showAll, noThrow: true });
@@ -161,7 +162,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   }
 
-  const filterKeys = resolveItemFilterKeys(Object.values(envGraph.configSchema), ctx.values.filter);
+  const filterKeys = itemFilter?.getFilterKeys(Object.values(envGraph.configSchema));
   const sortedConfigKeys = filterKeys
     ? envGraph.sortedConfigKeys.filter((key) => filterKeys.has(key))
     : envGraph.sortedConfigKeys;

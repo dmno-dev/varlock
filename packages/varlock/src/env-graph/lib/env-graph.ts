@@ -891,10 +891,9 @@ export class EnvGraph {
     // the full (unfiltered) item list is the same across all generators — build it lazily,
     // once, and only if at least one generator actually runs
     let allTypeGenItems: Array<TypeGenItemInfo> | undefined;
-    let unfilteredFields: Array<ResolvedFieldType> | undefined;
-    // per-filter-string cache, so multiple decorators sharing the same `filter=` don't
-    // recompute the same subset
-    const filteredFieldsByFilterStr = new Map<string, Array<ResolvedFieldType>>();
+    // per-filter-string field cache ('' = unfiltered), so multiple decorators sharing the
+    // same `filter=` (or lack of one) don't recompute the same field list
+    const fieldsByFilterStr = new Map<string, Array<ResolvedFieldType>>();
 
     // options handled by this shared loop, valid on every code-gen decorator
     const commonOptions = ['path', 'auto', 'executeWhenImported', 'filter'];
@@ -939,23 +938,16 @@ export class EnvGraph {
         const outputPath = path.resolve(sourceDir, settings.obj.path);
 
         const filterStr: string | undefined = settings.obj.filter;
-        let fields: Array<ResolvedFieldType>;
-        if (filterStr) {
-          if (!filteredFieldsByFilterStr.has(filterStr)) {
-            // filter against TypeGenItemInfo (pre-resolution isSensitive/isRequired, computed by
-            // getTypeGenInfo()), NOT bare ConfigItems — those getters aren't populated correctly
-            // until resolveEnvValues() runs, which happens after code generation
-            allTypeGenItems ||= await collectTypeGenItems(this);
-            const filterKeys = computeFilteredKeys(allTypeGenItems, filterStr, `@${decoratorName} filter`);
-            const filteredItems = allTypeGenItems.filter((info) => !filterKeys || filterKeys.has(info.key));
-            filteredFieldsByFilterStr.set(filterStr, resolveFieldTypes(filteredItems));
-          }
-          fields = filteredFieldsByFilterStr.get(filterStr)!;
-        } else {
+        if (!fieldsByFilterStr.has(filterStr ?? '')) {
+          // filter against TypeGenItemInfo (pre-resolution isSensitive/isRequired, computed by
+          // getTypeGenInfo()), NOT bare ConfigItems — those getters aren't populated correctly
+          // until resolveEnvValues() runs, which happens after code generation
           allTypeGenItems ||= await collectTypeGenItems(this);
-          unfilteredFields ||= resolveFieldTypes(allTypeGenItems);
-          fields = unfilteredFields;
+          const filterKeys = computeFilteredKeys(allTypeGenItems, filterStr, `@${decoratorName} filter`);
+          const items = filterKeys ? allTypeGenItems.filter((info) => filterKeys.has(info.key)) : allTypeGenItems;
+          fieldsByFilterStr.set(filterStr ?? '', resolveFieldTypes(items));
         }
+        const fields = fieldsByFilterStr.get(filterStr ?? '')!;
 
         const src = await generator.generate({
           graph: this,

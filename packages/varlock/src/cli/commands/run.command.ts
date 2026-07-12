@@ -6,7 +6,7 @@ import { exec } from '../../lib/exec';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
-import { planFilterResolution, resolveItemFilterKeys } from '../helpers/item-filter';
+import { getCliItemFilter } from '../helpers/item-filter';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 
@@ -201,13 +201,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // Generate types before resolving values — uses only non-env-specific schema info
   await envGraph.runCodeGeneratorsIfNeeded();
 
-  // A --filter using only keys/globs/tags can be resolved (and known-invalid) before
-  // resolveEnvValues() runs, so we only resolve (and validate) what it selects plus
-  // dependencies — an unrelated broken item outside the filter won't block this run.
-  // @sensitive/@required selectors can't be scoped this way (see planFilterResolution),
-  // so those fall back to resolving everything, same as an unset --filter.
-  const filterPlan = planFilterResolution(envGraph, ctx.values.filter);
-  await envGraph.resolveEnvValues(filterPlan.resolveKeys);
+  // A --filter using only keys/globs/tags scopes resolution (and validation) to what it
+  // selects plus dependencies — an unrelated broken item outside the filter won't block this
+  // run. @sensitive/@required selectors can't be scoped this way (see getResolveKeys), so
+  // those fall back to resolving everything, same as an unset --filter.
+  const itemFilter = getCliItemFilter(ctx.values.filter);
+  await envGraph.resolveEnvValues(itemFilter?.getResolveKeys(envGraph));
   checkForConfigErrors(envGraph);
 
   // will fail above if there are any errors
@@ -215,7 +214,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // by default @internal items are never handed to the child; --include-internal opts out
   // (e.g. a nested `varlock run` whose own resolution needs a secret-zero token)
   const includeInternal = !!ctx.values['include-internal'];
-  const filterKeys = resolveItemFilterKeys(Object.values(envGraph.configSchema), ctx.values.filter);
+  const filterKeys = itemFilter?.getFilterKeys(Object.values(envGraph.configSchema));
   const resolvedEnv = envGraph.getResolvedEnvObject({ includeInternal, filterKeys });
   const serializedGraph = envGraph.getSerializedGraph({ filterKeys });
   const { resetRedactionMap } = await import('../../runtime/env');

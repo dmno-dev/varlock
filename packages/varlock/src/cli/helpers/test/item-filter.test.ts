@@ -1,8 +1,13 @@
 import {
   describe, it, expect, afterEach, vi,
 } from 'vitest';
-import { resolveItemFilterKeys } from '../item-filter';
+import { getCliItemFilter } from '../item-filter';
 import type { ConfigItem } from '../../../env-graph/lib/config-item';
+
+/** parse + evaluate in one step, mirroring how the commands use getCliItemFilter */
+function resolveItemFilterKeys(items: Array<ConfigItem>, filterStr: string | undefined) {
+  return getCliItemFilter(filterStr)?.getFilterKeys(items);
+}
 
 function makeItem(key: string, opts?: {
   isSensitive?: boolean, isRequired?: boolean, tags?: Array<string>,
@@ -22,7 +27,7 @@ const items = [
   makeItem('NOT_THIS', { isRequired: true }),
 ];
 
-describe('resolveItemFilterKeys', () => {
+describe('getCliItemFilter', () => {
   it('returns undefined when unset (no filtering)', () => {
     expect(resolveItemFilterKeys(items, undefined)).toBeUndefined();
   });
@@ -90,7 +95,7 @@ describe('resolveItemFilterKeys', () => {
   });
 });
 
-describe('resolveItemFilterKeys - _VARLOCK_FILTER env var fallback', () => {
+describe('getCliItemFilter - _VARLOCK_FILTER env var fallback', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
@@ -113,7 +118,7 @@ describe('resolveItemFilterKeys - _VARLOCK_FILTER env var fallback', () => {
   });
 });
 
-describe('resolveItemFilterKeys - mixed-kind selector interaction', () => {
+describe('getCliItemFilter - mixed-kind selector interaction', () => {
   // deliberately overlapping in only one dimension, so a union across kinds is
   // distinguishable from an intersection
   const mixedItems = [

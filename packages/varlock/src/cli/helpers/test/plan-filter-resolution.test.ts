@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import outdent from 'outdent';
 import { EnvGraph, DotEnvFileDataSource } from '../../../env-graph';
-import { planFilterResolution } from '../item-filter';
+import { getCliItemFilter } from '../item-filter';
+
+/** parse + plan in one step, mirroring how the commands use getCliItemFilter */
+function planResolveKeys(g: EnvGraph, filterStr: string | undefined) {
+  return getCliItemFilter(filterStr)?.getResolveKeys(g);
+}
 
 async function loadGraph(envFile: string) {
   const g = new EnvGraph();
@@ -10,10 +15,10 @@ async function loadGraph(envFile: string) {
   return g;
 }
 
-describe('planFilterResolution', () => {
+describe('getCliItemFilter getResolveKeys', () => {
   it('resolves everything (resolveKeys undefined) when --filter is unset', async () => {
     const g = await loadGraph('FOO=bar');
-    expect(planFilterResolution(g, undefined).resolveKeys).toBeUndefined();
+    expect(planResolveKeys(g, undefined)).toBeUndefined();
   });
 
   it('scopes to matched keys plus transitive deps for a key filter', async () => {
@@ -22,8 +27,8 @@ describe('planFilterResolution', () => {
       STRIPE_SUFFIX=abc
       OTHER_VAR=hello
     `);
-    const plan = planFilterResolution(g, 'STRIPE_KEY');
-    expect(new Set(plan.resolveKeys)).toEqual(new Set(['STRIPE_KEY', 'STRIPE_SUFFIX']));
+    const resolveKeys = planResolveKeys(g, 'STRIPE_KEY');
+    expect(new Set(resolveKeys)).toEqual(new Set(['STRIPE_KEY', 'STRIPE_SUFFIX']));
   });
 
   it('scopes to matched keys for a glob filter (no deps here)', async () => {
@@ -32,8 +37,8 @@ describe('planFilterResolution', () => {
       STRIPE_SECRET=def
       OTHER_VAR=hello
     `);
-    const plan = planFilterResolution(g, 'STRIPE_*');
-    expect(new Set(plan.resolveKeys)).toEqual(new Set(['STRIPE_KEY', 'STRIPE_SECRET']));
+    const resolveKeys = planResolveKeys(g, 'STRIPE_*');
+    expect(new Set(resolveKeys)).toEqual(new Set(['STRIPE_KEY', 'STRIPE_SECRET']));
   });
 
   it('scopes to matched keys for a #tag filter', async () => {
@@ -42,8 +47,8 @@ describe('planFilterResolution', () => {
       FRONTEND_VAR=hello
       BACKEND_VAR=world
     `);
-    const plan = planFilterResolution(g, '#frontend');
-    expect(new Set(plan.resolveKeys)).toEqual(new Set(['FRONTEND_VAR']));
+    const resolveKeys = planResolveKeys(g, '#frontend');
+    expect(new Set(resolveKeys)).toEqual(new Set(['FRONTEND_VAR']));
   });
 
   it('falls back to full resolution when the filter uses @sensitive', async () => {
@@ -52,19 +57,19 @@ describe('planFilterResolution', () => {
       SECRET_VAR=abc
       PUBLIC_VAR=def
     `);
-    expect(planFilterResolution(g, '@sensitive').resolveKeys).toBeUndefined();
+    expect(planResolveKeys(g, '@sensitive')).toBeUndefined();
   });
 
   it('falls back to full resolution when the filter mixes a decorator selector with others', async () => {
     const g = await loadGraph(outdent`
       FOO=bar
     `);
-    expect(planFilterResolution(g, 'FOO,@required').resolveKeys).toBeUndefined();
+    expect(planResolveKeys(g, 'FOO,@required')).toBeUndefined();
   });
 
   it('throws for invalid filter syntax', async () => {
     const g = await loadGraph('FOO=bar');
-    expect(() => planFilterResolution(g, '@bogus')).toThrow(/unknown decorator selector/);
+    expect(() => planResolveKeys(g, '@bogus')).toThrow(/unknown decorator selector/);
   });
 });
 
@@ -77,8 +82,7 @@ describe('scoped resolution skips validating filtered-out items', () => {
       # @required
       BACKEND_SECRET=
     `);
-    const plan = planFilterResolution(g, '#frontend');
-    await g.resolveEnvValues(plan.resolveKeys);
+    await g.resolveEnvValues(planResolveKeys(g, '#frontend'));
 
     expect(g.configSchema.FRONTEND_VAR.isResolved).toBe(true);
     expect(g.configSchema.FRONTEND_VAR.validationState).toBe('valid');
@@ -92,8 +96,7 @@ describe('scoped resolution skips validating filtered-out items', () => {
       # @tag(frontend) @required
       FRONTEND_SECRET=
     `);
-    const plan = planFilterResolution(g, '#frontend');
-    await g.resolveEnvValues(plan.resolveKeys);
+    await g.resolveEnvValues(planResolveKeys(g, '#frontend'));
 
     expect(g.configSchema.FRONTEND_SECRET.isResolved).toBe(true);
     expect(g.configSchema.FRONTEND_SECRET.validationState).toBe('error');
@@ -107,8 +110,7 @@ describe('scoped resolution skips validating filtered-out items', () => {
       # @required
       BACKEND_SECRET=
     `);
-    const plan = planFilterResolution(g, '@sensitive');
-    await g.resolveEnvValues(plan.resolveKeys);
+    await g.resolveEnvValues(planResolveKeys(g, '@sensitive'));
 
     expect(g.configSchema.BACKEND_SECRET.isResolved).toBe(true);
     expect(g.configSchema.BACKEND_SECRET.validationState).toBe('error');
