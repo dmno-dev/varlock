@@ -50,7 +50,14 @@ export function getCliItemFilter(flagValue: string | undefined): CliItemFilter |
       return [...graph.expandKeysWithTransitiveDeps(matchedKeys)];
     },
     getFilterKeys(items) {
-      return parsed.computeKeys(items);
+      const keys = parsed.computeKeys(items);
+      if (!keys.size) {
+        // a typo'd key/tag would otherwise silently produce empty output (or a child process
+        // with no schema vars on `run`) - warn on stderr, which stays out of piped stdout
+        const source = flagValue ? '--filter' : '_VARLOCK_FILTER env var';
+        console.error(`[varlock] ⚠️  ${source} "${filterStr}" matched no items`);
+      }
+      return keys;
     },
   };
 }
