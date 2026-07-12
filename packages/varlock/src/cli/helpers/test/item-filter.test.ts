@@ -102,21 +102,21 @@ describe('getCliItemFilter - zero-match warning', () => {
   });
 
   it('warns on stderr when the filter matches no items', () => {
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const keys = resolveItemFilterKeys(items, '#no-such-tag');
     expect(keys).toEqual(new Set());
     expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('--filter "#no-such-tag" matched no items'));
   });
 
   it('names the _VARLOCK_FILTER env var when the filter came from it', () => {
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.stubEnv('_VARLOCK_FILTER', '#no-such-tag');
     resolveItemFilterKeys(items, undefined);
     expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('_VARLOCK_FILTER env var "#no-such-tag" matched no items'));
   });
 
   it('does not warn when the filter matches items', () => {
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     resolveItemFilterKeys(items, '#billing');
     expect(errSpy).not.toHaveBeenCalled();
   });
