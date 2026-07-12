@@ -27,7 +27,7 @@ function varlockAstroIntegration(
           ...integrationOptions,
         };
 
-        if (['@astrojs/netlify', '@astrojs/vercel', '@astrojs/cloudflare'].includes(adapterName || '')) {
+        if (['@astrojs/netlify', '@astrojs/vercel'].includes(adapterName || '')) {
           ssrInjectMode ??= 'resolved-env';
         } else if (adapterName === '@astrojs/node') {
           ssrInjectMode ??= 'auto-load';
@@ -36,7 +36,12 @@ function varlockAstroIntegration(
         if (adapterName === '@astrojs/cloudflare') {
           // @astrojs/cloudflare runs SSR in workerd via @cloudflare/vite-plugin.
           // Inject varlock init into the CF worker entry and load env from bindings
-          // at runtime in production (via varlock-wrangler deploy).
+          // at runtime in production (via varlock-wrangler deploy). We deliberately
+          // do NOT default ssrInjectMode to 'resolved-env' here (leaving it
+          // 'init-only' unless the user overrides it): the runtime loader below
+          // already hydrates env from Cloudflare bindings, so baking the resolved
+          // env into the bundle as well would be redundant and ship secrets in
+          // the worker artifact that are never read.
           let cloudflareSsrEntryCode: string;
           let logVarlockEnvInjectionNotice: () => void;
           try {
@@ -62,6 +67,7 @@ function varlockAstroIntegration(
               '\0virtual:cloudflare/worker-entry',
             ],
             ssrEntryCode: vitePluginOptions.ssrEntryCode ?? [cloudflareSsrEntryCode],
+            isCloudflareTarget: true,
           };
 
           // Print a varlock notice at server start, in place of wrangler's

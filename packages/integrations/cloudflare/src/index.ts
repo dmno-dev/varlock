@@ -307,6 +307,7 @@ export function varlockCloudflareVitePlugin(
     ssrEdgeRuntime: true,
     ssrEntryModuleIds: ['\0virtual:cloudflare/worker-entry'],
     ssrEntryCode: [CLOUDFLARE_SSR_ENTRY_CODE],
+    isCloudflareTarget: true,
     integrationTelemetry: {
       name: __VARLOCK_INTEGRATION_NAME__,
       version: __VARLOCK_INTEGRATION_VERSION__,

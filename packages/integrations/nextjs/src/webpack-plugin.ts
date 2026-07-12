@@ -11,6 +11,9 @@ import type { NextConfig } from 'next';
 
 const WEBPACK_PLUGIN_NAME = 'VarlockNextWebpackPlugin';
 
+// one-time guard for the Vercel unencrypted resolved-env warning
+let vercelUnencryptedWarningLogged = false;
+
 // We use a proxy object for the static replacements that we pass to webpack.DefinePlugin
 // because this plugin/webpack code is not invoked again when env files change
 // instead next is direcly messing with the existing plugins for their own changes
@@ -181,6 +184,18 @@ export function createWebpackConfigFn(
             '[varlock] @encryptInjectedEnv is enabled but _VARLOCK_ENV_KEY is not set.\n'
             + 'Generate a key with `varlock generate-key` and set it on your platform.\n'
             + 'See https://varlock.dev/guides/encrypted-deployments/ for details.',
+          );
+        }
+        // Vercel has no native runtime-binding mechanism, so baking the resolved
+        // env into the build is the correct approach there — but plaintext means
+        // secrets sit as JSON in the build artifact. Nudge (don't block) users
+        // who haven't opted into `@encryptInjectedEnv`.
+        if (process.env.VERCEL === '1' && !encryptionRequired && !dev && !vercelUnencryptedWarningLogged) {
+          vercelUnencryptedWarningLogged = true;
+          // eslint-disable-next-line no-console
+          console.warn(
+            '[varlock] ⚠️ Deploying to Vercel ships your resolved env as plaintext JSON in the build artifact. '
+            + 'Consider enabling `@encryptInjectedEnv` — see https://varlock.dev/guides/encrypted-deployments/',
           );
         }
         let envPayload = rawEnv;

@@ -5,9 +5,9 @@ description: Encrypt the env blob in your build output so secrets are never stor
 import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
 
-When deploying SSR applications to **serverless platforms** (like Vercel, Netlify, or Cloudflare Workers), varlock injects the fully resolved env data into your server-side build output so it's available at runtime without needing the CLI or filesystem access. This is necessary because serverless environments don't give you control over how the application boots.
+When deploying SSR applications to **serverless platforms** (like Vercel or Netlify) that don't give you control over how the application boots, varlock injects the fully resolved env data into your server-side build output (`ssrInjectMode: 'resolved-env'`) so it's available at runtime without needing the CLI or filesystem access. Cloudflare Workers is different: `varlock-wrangler deploy` uploads the (optionally encrypted) blob as a runtime secret binding instead of baking it into the build output, so the same encryption story applies but with no build-time step involved. See the [Cloudflare Workers](#cloudflare-workers) section below.
 
-By default, this blob is **plaintext JSON**. Since it only appears in server-side code, it's generally safe: your secrets are not exposed to the client. However, encrypting the blob adds protection against secrets leaking via **sourcemaps** that may be uploaded to error tracking services.
+By default, this blob is **plaintext JSON**. Since it only appears in server-side code, it's generally safe: your secrets are not exposed to the client. However, encrypting the blob adds protection against secrets leaking via **sourcemaps** that may be uploaded to error tracking services. If you deploy to Vercel with `ssrInjectMode: 'resolved-env'` and haven't enabled encryption, varlock warns you about this at build time.
 
 ## Enabling encryption
 
