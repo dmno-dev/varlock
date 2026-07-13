@@ -14,7 +14,7 @@ This lets us express a declarative schema of our environment variables in a fami
 # Stripe secret api key
 # @required @sensitive @type=string(startsWith="sk_")
 # @docs(https://docs.stripe.com/keys)
-STRIPE_SECRET_KEY=encrypted("asdfqwerqwe2374298374lksdjflksdjf981273948okjdfksdl")
+STRIPE_SECRET_KEY=varlock(local:abc123...)
 ```
 
 ### Why is this useful?

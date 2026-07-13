@@ -11,7 +11,7 @@ _Here is a short illustrative example:_
 # Stripe secret api key
 # @required @sensitive @type=string(startsWith="sk_")
 # @docs(https://docs.stripe.com/keys)
-STRIPE_SECRET_KEY=encrypted("asdfqwerqwe2374298374lksdjflksdjf981273948okjdfksdl")
+STRIPE_SECRET_KEY=fetchSecret("stripe/secret-key")
 ```
 
 This structured data can be used by libraries to provide:
@@ -155,7 +155,7 @@ Values are interpreted similarly for config item values, decorator values, and v
 
 ### Function calls
 
-If a value is not wrapped in quotes and looks like a function call - for example `encrypted(ASDF123...)` - we will interpret it as a `FunctionCall`. This is relevant both for config item values and decorator values.
+If a value is not wrapped in quotes and looks like a function call - for example `varlock(ASDF123...)` - we will interpret it as a `FunctionCall`. This is relevant both for config item values and decorator values.
 
 - function names must start with a letter, and can then contain letters, numbers, and underscores `/[a-ZA-Z][a-ZA-Z0-9_]*/`
 - function args are always interpreted as either an array or object
