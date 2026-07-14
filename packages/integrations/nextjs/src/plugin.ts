@@ -80,8 +80,9 @@ function debug(...args: Array<any>) {
 }
 debug('✨ LOADED @varlock/next-integration/plugin module!');
 
-type VarlockPluginOptions = {
-  // injectResolvedConfigAtBuildTime: boolean,
+export type VarlockPluginOptions = {
+  /** Skip live watching of extra env source files (e.g. when sources are FIFOs). */
+  disableWatch?: boolean;
 };
 
 let scannedStaticFiles = false;
@@ -271,7 +272,15 @@ export type NextConfigFunction = (
 
 
 // we make this a plugin a function because we'll likely end up adding some options
-export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
+export function varlockNextConfigPlugin(pluginOptions?: VarlockPluginOptions) {
+  if (pluginOptions?.disableWatch) {
+    // Next.js detects this process.env mutation after loading next.config and
+    // forwards the delta to @next/env via updateInitialEnv — that is how
+    // next-env-compat learns to tear down already-installed watchers.
+    process.env.__VARLOCK_NEXT_DISABLE_WATCH = '1';
+    debug('disableWatch: set __VARLOCK_NEXT_DISABLE_WATCH');
+  }
+
   // nextjs doesnt have a proper plugin system :(
   // so we use a function which takes in a config object and returns an augmented one
   return (nextConfig: any | NextConfig | NextConfigFunction): NextConfigFunction => {

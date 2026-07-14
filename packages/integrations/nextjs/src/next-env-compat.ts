@@ -143,6 +143,25 @@ const pendingReloadFiles = new Set<string>();
 // ownership via this env var — child processes inherit it at spawn and skip,
 // so we don't end up with multiple processes touching the trigger file.
 const WATCHER_OWNER_ENV_KEY = '__VARLOCK_NEXT_ENV_WATCHER_PID';
+const DISABLE_WATCH_ENV_KEY = '__VARLOCK_NEXT_DISABLE_WATCH';
+
+function isExtraFileWatchDisabled(): boolean {
+  return !!process.env[DISABLE_WATCH_ENV_KEY];
+}
+
+function unwatchAllExtraFiles() {
+  if (!watchedExtraFiles.size) {
+    debug('disableWatch: unwatchAllExtraFiles (no active watchers)');
+    return;
+  }
+  debug('disableWatch: unwatchAllExtraFiles', [...watchedExtraFiles]);
+  for (const filePath of watchedExtraFiles) {
+    fs.unwatchFile(filePath);
+  }
+  watchedExtraFiles.clear();
+  pendingReloadFiles.clear();
+}
+
 function claimExtraFileWatcherOwnership(): boolean {
   const ownerPid = process.env[WATCHER_OWNER_ENV_KEY];
   if (ownerPid && ownerPid !== String(process.pid)) return false;
@@ -177,6 +196,11 @@ function getEnvFromNextCommand(dev: boolean): string {
 
 function enableExtraFileWatchers(sources: SerializedEnvGraph['sources'], basePath?: string) {
   if (!rootDir) return;
+  if (isExtraFileWatchDisabled()) {
+    unwatchAllExtraFiles();
+    debug('extra file watchers disabled');
+    return;
+  }
   if (!claimExtraFileWatcherOwnership()) return;
 
   // Collect absolute paths of source files that Next.js does NOT already watch
@@ -378,6 +402,15 @@ function writeResolvedEnvFile() {
 export function updateInitialEnv(newEnv: Env) {
   if (!Object.keys(newEnv).length) return;
   debug('updateInitialEnv', newEnv);
+
+  // Next.js calls this after evaluating next.config with any process.env keys
+  // that changed during config load. That is how disableWatch reaches this module
+  // (plugin sets the flag; Next forwards the delta here).
+  if (DISABLE_WATCH_ENV_KEY in newEnv || isExtraFileWatchDisabled()) {
+    process.env[DISABLE_WATCH_ENV_KEY] ||= '1';
+    unwatchAllExtraFiles();
+  }
+
   // Only merge keys that were already in initialEnv or are Next.js internal vars.
   // Varlock-managed keys injected into process.env by initVarlockEnv should NOT
   // pollute initialEnv — otherwise they get treated as process.env overrides on reload.
@@ -397,7 +430,8 @@ function replaceProcessEnv(sourceEnv: Env) {
   Object.keys(process.env).forEach((key) => {
     // Allow mutating internal Next.js env variables after the server has initiated.
     // This is necessary for dynamic things like the IPC server port.
-    if (!key.startsWith('__NEXT_PRIVATE')) {
+    // Also preserve varlock next-integration control flags (watcher ownership, disableWatch).
+    if (!key.startsWith('__NEXT_PRIVATE') && !key.startsWith('__VARLOCK_NEXT_')) {
       if (sourceEnv[key] === undefined || sourceEnv[key] === '') {
         delete process.env[key];
       }

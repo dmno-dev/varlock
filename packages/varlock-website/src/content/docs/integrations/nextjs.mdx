@@ -159,6 +159,12 @@ To integrate varlock into a Next.js application, use our [`@varlock/nextjs-integ
     +export default withVarlock(nextConfig);
     ```
 
+    If env sources are FIFOs (or other paths that change constantly under `fs.watchFile`), pass `{ disableWatch: true }` to turn off varlock's extra-file watch and auto-reload. This does not disable Next.js's own watching of `.env`, `.env.local`, and related files.
+
+    ```ts title="next.config.ts"
+    const withVarlock = varlockNextConfigPlugin({ disableWatch: true });
+    ```
+
 1. **Verify the override is active**
 
     Start your dev server (or run a build) and look at the startup output. When the override is working, varlock reports the `.env` files it loaded with a banner:
