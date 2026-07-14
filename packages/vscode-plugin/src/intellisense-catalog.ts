@@ -243,7 +243,7 @@ export const ITEM_DECORATORS: Array<DecoratorInfo> = [
     name: 'tag',
     scope: 'item',
     summary: 'Attaches one or more tags to an item, for selection with filters.',
-    documentation: 'Tags don\'t affect resolution or validation; select tagged items with `--filter="#tagname"` on `varlock load`/`run`, or `filter=#tagname` on `@generate*` decorators. Accepts multiple tags per call and may be used multiple times — tags accumulate. Tag names must start with a letter or number, followed by letters, numbers, `_`, `-`, or `.`.',
+    documentation: 'Tags don\'t affect resolution or validation; select tagged items with `--filter="#tagname"` on `varlock load`/`run`, or `filter=#tagname` on `@generate*` decorators. Accepts multiple tags per call and may be used multiple times — tags accumulate. Tag names must start with a letter or number, followed by letters, numbers, `_`, or `-`.',
     insertText: '@tag(${1:tagname})',
     isFunction: true,
   },

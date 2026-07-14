@@ -32,8 +32,8 @@ const DECORATOR_PREDICATES: Record<string, (item: FilterableItem) => boolean> = 
  * selectable via `#tagname`: the filter language reserves `,` (separator), leading `!`/`@`/`#`
  * (selector prefixes), whitespace (trimmed around selectors), and `*`/`?` (globs).
  */
-export const TAG_NAME_REGEX = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
-export const TAG_NAME_RULES = 'Tag names must start with a letter or number, followed by letters, numbers, "_", "-", or "."';
+export const TAG_NAME_REGEX = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+export const TAG_NAME_RULES = 'Tag names must start with a letter or number, followed by letters, numbers, "_", or "-"';
 
 type FilterToken = | { negate: boolean, kind: 'key', regex: RegExp }
   | { negate: boolean, kind: 'decorator', name: string }

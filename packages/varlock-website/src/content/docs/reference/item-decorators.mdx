@@ -203,7 +203,7 @@ XYZ_API_KEY=
 
 Attaches one or more tags to the item. Tags don't affect resolution or validation; they're used to select items with the [`--filter` CLI flag](/reference/cli-commands/#filtering-items) on `varlock load`/`varlock run`, and with the [`filter=` arg](/reference/root-decorators/#code-generation) on `@generate*` code-generation decorators (e.g. `--filter="#billing"`, `@generateTsTypes(filter=#billing)`). _Can be called multiple times; tags from every call accumulate (duplicates collapse)._
 
-Tag names must start with a letter or number, followed by letters, numbers, `_`, `-`, or `.`. This keeps every tag selectable with a `#tagname` filter, which reserves characters like `,`, `!`, and `*`. An invalid tag name is a schema error.
+Tag names must start with a letter or number, followed by letters, numbers, `_`, or `-`. This keeps every tag selectable with a `#tagname` filter, which reserves characters like `,`, `!`, and `*`. An invalid tag name is a schema error.
 
 ```env-spec
 # @tag(billing)

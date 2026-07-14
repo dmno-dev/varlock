@@ -70,6 +70,7 @@ describe('@tag name validation', () => {
     ['!leading-bang', '"!leading-bang"'],
     ['#leading-hash', '"#leading-hash"'],
     ['glob*char', '"glob*char"'],
+    ['dotted.name', '"dotted.name"'],
   ])('rejects invalid tag name %s', async (tag, quoted) => {
     const g = await loadSchema(`ITEM=val # @tag(${quoted})`);
     const item = g.configSchema.ITEM;
@@ -78,10 +79,10 @@ describe('@tag name validation', () => {
     expect(item.tags).toEqual([]);
   });
 
-  test('accepts letters, numbers, "_", "-", and "."', async () => {
-    const g = await loadSchema('ITEM=val # @tag(billing, v2, my-app, my_app, ns.sub)');
+  test('accepts letters, numbers, "_", and "-"', async () => {
+    const g = await loadSchema('ITEM=val # @tag(billing, v2, my-app, my_app)');
     expect(g.configSchema.ITEM.validationState).toBe('valid');
-    expect(g.configSchema.ITEM.tags).toEqual(['billing', 'v2', 'my-app', 'my_app', 'ns.sub']);
+    expect(g.configSchema.ITEM.tags).toEqual(['billing', 'v2', 'my-app', 'my_app']);
   });
 
   test('rejects an empty @tag() call', async () => {
