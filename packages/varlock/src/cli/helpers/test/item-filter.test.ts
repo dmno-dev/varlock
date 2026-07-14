@@ -93,6 +93,11 @@ describe('getCliItemFilter', () => {
   it('throws on empty tag', () => {
     expect(() => resolveItemFilterKeys(items, '#')).toThrow();
   });
+
+  it('throws on an invalid tag selector', () => {
+    expect(() => resolveItemFilterKeys(items, '#bill*')).toThrow(/invalid tag selector/);
+    expect(() => resolveItemFilterKeys(items, '#@nested')).toThrow(/invalid tag selector/);
+  });
 });
 
 describe('getCliItemFilter - zero-match warning', () => {

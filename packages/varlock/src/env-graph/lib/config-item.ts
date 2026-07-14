@@ -10,6 +10,7 @@ import {
   CoercionError, EmptyRequiredValueError, ResolutionError, SchemaError,
   ValidationError,
 } from './errors';
+import { TAG_NAME_REGEX, TAG_NAME_RULES } from './item-filter';
 import type { CacheHitInfo } from './resolution-context';
 
 import { EnvGraphDataSource } from './data-source';
@@ -332,8 +333,18 @@ export class ConfigItem {
     // resolve @tag(...) eagerly - see the `tags` getter comment for why
     for (const tagDec of this.getDecFns('tag')) {
       const decVal = await tagDec.resolve();
-      if (decVal?.arr && _.isArray(decVal.arr)) {
-        this._tags.push(...decVal.arr.map((t: any) => String(t)));
+      const tags: Array<string> = decVal?.arr && _.isArray(decVal.arr) ? decVal.arr.map((t: any) => String(t)) : [];
+      if (!tags.length) {
+        this._schemaErrors.push(new SchemaError('@tag requires at least one tag name, e.g. @tag(billing)'));
+        continue;
+      }
+      for (const tag of tags) {
+        // enforce selector-safe tag names, so every tag stays reachable via a `#tagname` filter
+        if (!TAG_NAME_REGEX.test(tag)) {
+          this._schemaErrors.push(new SchemaError(`@tag - invalid tag name "${tag}"`, { tip: TAG_NAME_RULES }));
+        } else if (!this._tags.includes(tag)) {
+          this._tags.push(tag); // duplicates (e.g. across multiple @tag calls) collapse silently
+        }
       }
     }
 

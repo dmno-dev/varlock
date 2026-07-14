@@ -27,6 +27,14 @@ const DECORATOR_PREDICATES: Record<string, (item: FilterableItem) => boolean> = 
   required: (item) => item.isRequired,
 };
 
+/**
+ * Valid tag names for `@tag(...)`, enforced when the decorator is processed so every tag stays
+ * selectable via `#tagname`: the filter language reserves `,` (separator), leading `!`/`@`/`#`
+ * (selector prefixes), whitespace (trimmed around selectors), and `*`/`?` (globs).
+ */
+export const TAG_NAME_REGEX = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+export const TAG_NAME_RULES = 'Tag names must start with a letter or number, followed by letters, numbers, "_", "-", or "."';
+
 type FilterToken = | { negate: boolean, kind: 'key', regex: RegExp }
   | { negate: boolean, kind: 'decorator', name: string }
   | { negate: boolean, kind: 'tag', tag: string };
@@ -79,6 +87,9 @@ export class ParsedItemFilter {
       if (token.startsWith('#')) {
         const tag = token.slice(1);
         if (!tag) throw new SchemaError(`${label}: empty tag in "${raw}"`);
+        if (!TAG_NAME_REGEX.test(tag)) {
+          throw new SchemaError(`${label}: invalid tag selector "#${tag}"`, { tip: TAG_NAME_RULES });
+        }
         return { negate, kind: 'tag' as const, tag };
       }
       return { negate, kind: 'key' as const, regex: globToRegExp(token) };
