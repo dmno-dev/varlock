@@ -150,9 +150,10 @@ describe('getCiEnv', () => {
     );
   });
 
-  it('detects Vercel and extracts environment and buildUrl', () => {
+  it('detects Vercel build and extracts environment and buildUrl', () => {
     expectCiEnv(
       {
+        NOW_BUILDER: '1',
         VERCEL: '1',
         VERCEL_GIT_REPO_OWNER: 'dmno-dev',
         VERCEL_GIT_REPO_SLUG: 'varlock',
@@ -176,8 +177,15 @@ describe('getCiEnv', () => {
 
   it('detects Vercel preview environment', () => {
     expectCiEnv(
-      { VERCEL: '1', VERCEL_ENV: 'preview' },
+      { NOW_BUILDER: '1', VERCEL: '1', VERCEL_ENV: 'preview' },
       { environment: 'preview' },
+    );
+  });
+
+  it('detects local `vercel dev` as isCI: false (no NOW_BUILDER)', () => {
+    expectCiEnv(
+      { VERCEL: '1', VERCEL_ENV: 'development' },
+      { isCI: false, name: 'Vercel' },
     );
   });
 
@@ -203,6 +211,13 @@ describe('getCiEnv', () => {
         runId: 'build-abc-123',
         buildUrl: 'https://random-name-123.netlify.app',
       },
+    );
+  });
+
+  it('detects local `netlify dev` as isCI: false (NETLIFY_LOCAL set)', () => {
+    expectCiEnv(
+      { NETLIFY: 'true', NETLIFY_LOCAL: 'true' },
+      { isCI: false, name: 'Netlify CI' },
     );
   });
 
@@ -516,10 +531,25 @@ describe('getCiEnv', () => {
     );
   });
 
-  it('detects StackBlitz as isCI: false', () => {
+  it('does not detect StackBlitz from SHELL alone (matches std-env: requires the WebContainer marker too)', () => {
     expectCiEnv(
       { SHELL: '/bin/jsh' },
-      { isCI: false, name: 'StackBlitz' },
+      { name: undefined },
     );
+  });
+
+  it('detects StackBlitz when SHELL and the WebContainer runtime marker are both present', () => {
+    const versions = process.versions as Record<string, string | undefined>;
+    const original = versions.webcontainer;
+    versions.webcontainer = '1.0.0';
+    try {
+      expectCiEnv(
+        { SHELL: '/bin/jsh' },
+        { isCI: false, name: 'StackBlitz' },
+      );
+    } finally {
+      if (original === undefined) delete versions.webcontainer;
+      else versions.webcontainer = original;
+    }
   });
 });

@@ -41,14 +41,17 @@ export function detectRuntime(globalObj: any = globalThis): RuntimeInfo {
   const isFastly = typeof g.fastly !== 'undefined';
   const isNetlify = typeof g.Netlify !== 'undefined';
   const isEdgeLight = typeof g.EdgeRuntime !== 'undefined';
-  const isNode = !isDeno && !isBun && !!process?.versions?.node;
+  // Matches std-env: true whenever a Node-compatible `process.versions.node` exists, even under
+  // Bun/Deno's Node compat mode. The mutually-exclusive `runtime` name below still picks Bun/Deno first.
+  const isNode = !!process?.versions?.node;
   const isBrowser = typeof g.window !== 'undefined' && typeof g.document !== 'undefined';
 
+  // Priority order matches std-env's runtimeChecks.
   let runtime: JsRuntime;
-  if (isWorkerd) runtime = 'workerd';
-  else if (isFastly) runtime = 'fastly';
-  else if (isNetlify) runtime = 'netlify';
+  if (isNetlify) runtime = 'netlify';
   else if (isEdgeLight) runtime = 'edge-light';
+  else if (isWorkerd) runtime = 'workerd';
+  else if (isFastly) runtime = 'fastly';
   else if (isDeno) runtime = 'deno';
   else if (isBun) runtime = 'bun';
   else if (isNode) runtime = 'node';

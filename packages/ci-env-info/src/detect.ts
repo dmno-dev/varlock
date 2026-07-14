@@ -107,8 +107,9 @@ export function getCiEnv(env: EnvRecord): CiEnvInfo {
     } else {
       isPR = runExtractor<number>(platform, 'prNumber', e) !== undefined;
     }
+    const isPlatformCI = typeof platform.ci === 'function' ? platform.ci(e) : platform.ci !== false;
     const info: CiEnvInfo = {
-      isCI: platform.ci !== false,
+      isCI: isPlatformCI,
       name: platform.name,
       docsUrl: platform.docsUrl,
       isPR,

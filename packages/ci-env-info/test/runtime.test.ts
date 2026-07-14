@@ -14,7 +14,14 @@ describe('detectRuntime', () => {
 
   it('detects deno and takes priority over node-like process', () => {
     const info = detectRuntime({ Deno: {}, process: { versions: { node: '22.0.0' } } });
-    expect(info).toMatchObject({ runtime: 'deno', isDeno: true, isNode: false });
+    // isNode stays true in Deno's Node-compat mode (matches std-env); `runtime` is still the
+    // exclusive, mutually-exclusive name and correctly prefers 'deno' over 'node'.
+    expect(info).toMatchObject({ runtime: 'deno', isDeno: true, isNode: true });
+  });
+
+  it('prefers netlify over other runtimes when multiple globals are present', () => {
+    const info = detectRuntime({ Netlify: {}, EdgeRuntime: 'x', navigator: { userAgent: 'Cloudflare-Workers' } });
+    expect(info).toMatchObject({ runtime: 'netlify', isNetlify: true });
   });
 
   it('detects Cloudflare Workers (workerd) via navigator.userAgent', () => {

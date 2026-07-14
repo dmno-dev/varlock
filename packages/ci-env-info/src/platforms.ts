@@ -86,6 +86,8 @@ export const PLATFORMS: Array<PlatformDefinition> = [
     name: 'Netlify CI',
     docsUrl: 'https://docs.netlify.com/configure-builds/environment-variables',
     detect: 'NETLIFY',
+    // `netlify dev` (local dev server) also sets NETLIFY_LOCAL
+    ci: (env) => env.NETLIFY_LOCAL === undefined,
     isPR: (env) => env.PULL_REQUEST !== undefined && env.PULL_REQUEST !== 'false',
     repo: (env) => parseRepoSlug(env.REPOSITORY_URL),
     branch: (env) => env.HEAD ?? env.BRANCH,
@@ -106,6 +108,8 @@ export const PLATFORMS: Array<PlatformDefinition> = [
     name: 'Vercel',
     docsUrl: 'https://vercel.com/docs/environment-variables/system-environment-variables',
     detect: envAny('NOW_BUILDER', 'VERCEL'),
+    // `vercel dev` (local dev server) also sets VERCEL/VERCEL_ENV; only NOW_BUILDER means a real build
+    ci: (env) => !!env.NOW_BUILDER,
     isPR: 'VERCEL_GIT_PULL_REQUEST_ID',
     prNumber: 'VERCEL_GIT_PULL_REQUEST_ID',
     repo: (env) => {
@@ -464,8 +468,9 @@ export const PLATFORMS: Array<PlatformDefinition> = [
   {
     name: 'StackBlitz',
     docsUrl: 'https://developer.stackblitz.com/guides/user-guide/environment-variables',
-    // WebContainers don't set a dedicated env var; this is the same best-effort signal std-env uses
-    detect: (env) => env.SHELL === '/bin/jsh',
+    // WebContainers don't set a dedicated env var. Match std-env exactly: SHELL alone is too weak
+    // a signal (some unrelated environments use /bin/jsh), so also require the WebContainer runtime marker.
+    detect: (env) => env.SHELL === '/bin/jsh' && !!(globalThis as any).process?.versions?.webcontainer,
     ci: false,
   },
 ];

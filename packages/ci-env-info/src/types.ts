@@ -51,8 +51,12 @@ export interface PlatformDefinition {
   name: string;
   docsUrl?: string;
   detect: Detect;
-  /** Set to `false` for interactive dev sandboxes (CodeSandbox, StackBlitz, ...) that aren't a CI pipeline. Defaults to `true`. */
-  ci?: boolean;
+  /**
+   * Whether a match means we're actually in CI. Defaults to `true`.
+   * Set to `false` for interactive dev sandboxes (CodeSandbox, StackBlitz, ...), or use a function
+   * when the same platform is used both in CI and locally (e.g. `vercel dev`, `netlify dev`).
+   */
+  ci?: boolean | DetectFn;
   /** Optional: env var name (truthy = PR) or function to detect PR (else inferred from prNumber) */
   isPR?: string | DetectFn;
   repo?: Extractor<RepoParts>;
