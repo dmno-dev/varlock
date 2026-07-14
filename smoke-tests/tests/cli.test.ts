@@ -340,6 +340,30 @@ describe('CLI Commands', () => {
       expect(parsed.config.OP_TOKEN).toMatchObject({ value: 'secret-zero', isInternal: true });
     });
 
+    test('run --filter strips excluded vars from the child env even when set ambiently', () => {
+      // child exits 0 only if DROP_VAR is ABSENT and KEEP_VAR is present - the ambient value
+      // must not slip through the process.env spread just because it was excluded by --filter
+      const probe = 'process.exit(!process.env.DROP_VAR && process.env.KEEP_VAR === "kept" ? 0 : 1)';
+      const result = runVarlock(['run', '--filter', 'KEEP_VAR', '--', 'node', '-e', probe], {
+        cwd: 'smoke-test-filter',
+        env: { DROP_VAR: 'ambient-value' },
+      });
+      expect(result.exitCode).toBe(0);
+    });
+
+    test('run --filter strips excluded vars from the __VARLOCK_ENV blob, including override provenance', () => {
+      const probe = 'process.stdout.write(JSON.stringify(JSON.parse(process.env.__VARLOCK_ENV)))';
+      const result = runVarlock(['run', '--filter', 'KEEP_VAR', '--', 'node', '-e', probe], {
+        cwd: 'smoke-test-filter',
+        env: { DROP_VAR: 'ambient-value' },
+      });
+      expect(result.exitCode).toBe(0);
+      const blob = JSON.parse(result.stdout);
+      expect(blob.config).toHaveProperty('KEEP_VAR');
+      expect(blob.config).not.toHaveProperty('DROP_VAR');
+      expect(blob.__varlockOverrideMeta?.overrideKeys ?? []).not.toContain('DROP_VAR');
+    });
+
     // `--no-inject-graph` is deprecated and hidden from help, but still supported for
     // back-compat. Guard that it keeps working and omits the __VARLOCK_ENV blob.
     test('--no-inject-graph still works and omits the __VARLOCK_ENV blob', () => {

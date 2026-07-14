@@ -3,8 +3,10 @@ import { define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
 import { exec } from '../../lib/exec';
+import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
+import { getCliItemFilter } from '../helpers/item-filter';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 
@@ -36,6 +38,10 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'Pass @internal items through to the child process (by default they are stripped, even when set in the ambient env). Use this for a nested `varlock run` whose own resolution needs the internal value (e.g. a secret-zero token).',
     },
+    filter: {
+      type: 'string',
+      description: 'Filter which items are injected: comma-separated key names/globs (e.g. STRIPE_*), negations (!KEY), decorator selectors (@sensitive, @required), and tag selectors (#tagname, set via @tag(tagname)). Can also be set via the _VARLOCK_FILTER env var (this flag takes precedence)',
+    },
     path: {
       type: 'string',
       short: 'p',
@@ -64,6 +70,7 @@ Examples:
   varlock run --path .env.prod -- node app.js   # Use a specific .env file
   varlock run --path ./config/ -- node app.js   # Use a specific directory
   varlock run -p ./envs -p ./overrides -- node app.js  # Use multiple directories
+  varlock run --filter="STRIPE_*,!STRIPE_DEBUG_KEY" -- node app.js  # Only inject STRIPE_* keys, excluding one
 
 📍 Important: Use -- to separate varlock options from your command
 
@@ -194,7 +201,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // Generate types before resolving values — uses only non-env-specific schema info
   await envGraph.runCodeGeneratorsIfNeeded();
 
-  await envGraph.resolveEnvValues();
+  // A --filter using only keys/globs/tags scopes resolution (and validation) to what it
+  // selects plus dependencies — an unrelated broken item outside the filter won't block this
+  // run. @sensitive/@required selectors can't be scoped this way (see getResolveKeys), so
+  // those fall back to resolving everything, same as an unset --filter.
+  const itemFilter = getCliItemFilter(ctx.values.filter);
+  await envGraph.resolveEnvValues(itemFilter?.getResolveKeys(envGraph));
   checkForConfigErrors(envGraph);
 
   // will fail above if there are any errors
@@ -202,8 +214,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // by default @internal items are never handed to the child; --include-internal opts out
   // (e.g. a nested `varlock run` whose own resolution needs a secret-zero token)
   const includeInternal = !!ctx.values['include-internal'];
-  const resolvedEnv = envGraph.getResolvedEnvObject({ includeInternal });
-  const serializedGraph = envGraph.getSerializedGraph();
+  const filterKeys = itemFilter?.getFilterKeys(Object.values(envGraph.configSchema));
+  const resolvedEnv = envGraph.getResolvedEnvObject({ includeInternal, filterKeys });
+  const serializedGraph = envGraph.getSerializedGraph({ filterKeys });
   const { resetRedactionMap } = await import('../../runtime/env');
   const { createRedactedStreamWriter } = await import('../../runtime/lib/redact-stream');
   // console.log(resolvedEnv);
@@ -235,6 +248,18 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   if (!includeInternal) {
     for (const itemKey of envGraph.sortedConfigKeys) {
       if (envGraph.configSchema[itemKey].isInternal) delete fullInjectedEnv[itemKey];
+    }
+  }
+
+  // Same ambient-carry problem for --filter: an excluded schema key set in the calling env
+  // (e.g. `STRIPE_DEBUG_KEY=x varlock run --filter='!STRIPE_DEBUG_KEY' ...`) would otherwise pass
+  // straight through the process.env spread — and since excluded items are also left out of the
+  // redaction map, it would even print unredacted. Reserved _VARLOCK_* keys configure varlock's
+  // own behavior (incl. in nested runs) and are never subject to --filter.
+  if (filterKeys) {
+    for (const itemKey of envGraph.sortedConfigKeys) {
+      if (isVarlockReservedKey(itemKey)) continue;
+      if (!filterKeys.has(itemKey)) delete fullInjectedEnv[itemKey];
     }
   }
 

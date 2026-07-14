@@ -10,6 +10,7 @@ import {
   CoercionError, EmptyRequiredValueError, ResolutionError, SchemaError,
   ValidationError,
 } from './errors';
+import { TAG_NAME_REGEX, TAG_NAME_RULES } from './item-filter';
 import type { CacheHitInfo } from './resolution-context';
 
 import { EnvGraphDataSource } from './data-source';
@@ -185,6 +186,15 @@ export class ConfigItem {
     return links;
   }
 
+  /**
+   * Tags attached via one or more `@tag(...)` calls, used by the `--filter` CLI flag and the
+   * `filter=` codegen decorator arg (e.g. `--filter="#tag1"`, `filter=#tag1`). Resolved eagerly in
+   * `process()` — unlike `docsLinks` (read lazily after full resolution) — because code generation
+   * needs tags before `resolveEnvValues()` runs, and `@tag(...)` args are always static tag names.
+   */
+  _tags: Array<string> = [];
+  get tags(): Array<string> { return this._tags; }
+
   /** Whether the resolved value came from a process.env override rather than file definitions */
   get isOverridden() {
     return this.key in this.envGraph.overrideValues;
@@ -317,6 +327,24 @@ export class ConfigItem {
           this.effectiveDecorators[dec.name] ||= dec;
         }
         decKeysInThisDef.add(dec.name);
+      }
+    }
+
+    // resolve @tag(...) eagerly - see the `tags` getter comment for why
+    for (const tagDec of this.getDecFns('tag')) {
+      const decVal = await tagDec.resolve();
+      const tags: Array<string> = decVal?.arr && _.isArray(decVal.arr) ? decVal.arr.map((t: any) => String(t)) : [];
+      if (!tags.length) {
+        this._schemaErrors.push(new SchemaError('@tag requires at least one tag name, e.g. @tag(billing)'));
+        continue;
+      }
+      for (const tag of tags) {
+        // enforce selector-safe tag names, so every tag stays reachable via a `#tagname` filter
+        if (!TAG_NAME_REGEX.test(tag)) {
+          this._schemaErrors.push(new SchemaError(`@tag - invalid tag name "${tag}"`, { tip: TAG_NAME_RULES }));
+        } else if (!this._tags.includes(tag)) {
+          this._tags.push(tag); // duplicates (e.g. across multiple @tag calls) collapse silently
+        }
       }
     }
 
@@ -945,6 +973,7 @@ export class ConfigItem {
       docsLinks,
       isDeprecated: this.isDeprecated,
       deprecationMessage: this.deprecationMessage,
+      tags: this.tags,
     };
   }
 }
@@ -961,4 +990,6 @@ export type TypeGenItemInfo = {
   docsLinks: Array<{ url: string, description?: string }>;
   isDeprecated: boolean;
   deprecationMessage?: string;
+  /** tags from `@tag(...)` - resolved eagerly in `process()`, so safe to read here */
+  tags: Array<string>;
 };

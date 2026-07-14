@@ -116,7 +116,7 @@ PUBLIC_API_URL=https://api.example.com
 ### `@internal`
 **Value type:** `boolean`
 
-Marks an item as used **only internally by varlock**, not by your application. Internal items are still resolved and can be referenced by other items (e.g. via [`ref()`](/reference/functions/#ref) or string expansion), but they are **excluded** from everything that reaches your app: the injected env vars, the [serialized graph](/reference/reserved-variables/#__varlock_env) blob, and generated types.
+Marks an item as used **only internally by varlock**, not by your application. Internal items are still resolved and can be referenced by other items (e.g. via [`ref()`](/reference/functions/#ref) or string expansion), but they are **excluded** from everything that reaches your app: the injected env vars, the [serialized graph](/reference/reserved-variables/#__varlock_env) blob, and generated types. Framework integrations (Vite, Next.js, Astro, Cloudflare) inherit this exclusion too, since they all source their config from the same CLI output.
 
 The most common use is a "secret zero": a credential used only to fetch _other_ secrets (for example a vault/secrets-manager token). Your application never needs it, and keeping it out of the process environment reduces your attack surface.
 
@@ -195,6 +195,25 @@ XYZ_API_KEY=
 ```
 
 <img src={docsImg.src} alt="example of docs() in generated types" style="max-width:280px"/>_example of `docs()` info in generated types / IntelliSense_
+</div>
+
+<div>
+### `@tag()`
+**Arg types:** `[ tag: string, ... ]`
+
+Attaches one or more tags to the item. Tags don't affect resolution or validation; they're used to select items with the [`--filter` CLI flag](/reference/cli-commands/#filtering-items) on `varlock load`/`varlock run`, and with the [`filter=` arg](/reference/root-decorators/#code-generation) on `@generate*` code-generation decorators (e.g. `--filter="#billing"`, `@generateTsTypes(filter=#billing)`). _Can be called multiple times; tags from every call accumulate (duplicates collapse)._
+
+Tag names must start with a letter or number, followed by letters, numbers, `_`, or `-`. This keeps every tag selectable with a `#tagname` filter, which reserves characters like `,`, `!`, and `*`. An invalid tag name is a schema error.
+
+```env-spec
+# @tag(billing)
+# @tag(prod, critical)
+STRIPE_SECRET_KEY=
+```
+
+```bash
+varlock load --filter="#billing"
+```
 </div>
 
 <div>

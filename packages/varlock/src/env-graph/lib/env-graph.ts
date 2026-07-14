@@ -1,12 +1,13 @@
 import _ from '@env-spec/utils/my-dash';
 import path from 'node:path';
 import fs from 'node:fs';
-import { ConfigItem } from './config-item';
+import { ConfigItem, type TypeGenItemInfo } from './config-item';
 import {
   EnvGraphDataSource, FileBasedDataSource, ImportAliasSource,
   keyPassesImportFilter,
 } from './data-source';
 import { type KeyFilter } from './key-filter';
+import { computeFilteredKeys } from './item-filter';
 
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
@@ -706,6 +707,20 @@ export class EnvGraph {
     await this.resolveEnvValues([...transitiveDeps, key]);
   }
 
+  /**
+   * Unions `keys` with the transitive dependencies of each — the key set `resolveEnvValues()`
+   * needs to correctly resolve every one of `keys` (it does not expand dependencies itself; see
+   * `resolveItemWithDeps()` above for the single-key precedent this generalizes).
+   */
+  expandKeysWithTransitiveDeps(keys: Iterable<string>): Set<string> {
+    const expanded = new Set<string>();
+    for (const key of keys) {
+      expanded.add(key);
+      for (const dep of getTransitiveDeps(key, this.graphAdjacencyList)) expanded.add(dep);
+    }
+    return expanded;
+  }
+
   /** config keys with builtin vars first, then user-defined in schema order */
   get sortedConfigKeys() {
     const builtinKeys: Array<string> = [];
@@ -739,19 +754,21 @@ export class EnvGraph {
     return keys;
   }
 
-  getResolvedEnvObject(opts?: { includeInternal?: boolean }) {
+  getResolvedEnvObject(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }) {
     const envObject: Record<string, any> = {};
     for (const itemKey of this.sortedConfigKeys) {
       const item = this.configSchema[itemKey];
       // @internal items are used only by varlock (e.g. to resolve other items) and are
       // never injected into the application — exclude them from the resolved env output
       if (item.isInternal && !opts?.includeInternal) continue;
+      // when set (e.g. via the CLI `--filter` flag), only include selected keys
+      if (opts?.filterKeys && !opts.filterKeys.has(itemKey)) continue;
       envObject[itemKey] = item.resolvedValue;
     }
     return envObject;
   }
 
-  getSerializedGraph(opts?: { includeInternal?: boolean }): SerializedEnvGraph {
+  getSerializedGraph(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
       basePath: this.basePath,
       sources: [],
@@ -777,6 +794,8 @@ export class EnvGraph {
       // process via __VARLOCK_ENV) must exclude them entirely. Inspection callers
       // (e.g. `load --format json-full`) opt in via includeInternal to show them, flagged.
       if (item.isInternal && !opts?.includeInternal) continue;
+      // when set (e.g. via the CLI `--filter` flag), only include selected keys
+      if (opts?.filterKeys && !opts.filterKeys.has(itemKey)) continue;
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,
         isSensitive: item.isSensitive,
@@ -790,9 +809,12 @@ export class EnvGraph {
     // list would mirror every env var (PATH, HOME, ...) — pure noise that also leaks the
     // caller's full env var name list into the blob. Reserved _VARLOCK_* keys configure
     // varlock itself and are never overrides, so exclude them even if defined in the schema.
+    // items excluded by filterKeys aren't in the blob's config, so their override provenance
+    // would be pure noise — and would leak the excluded key's name into the blob
     serializedGraph.__varlockOverrideMeta = buildOverrideProvenanceMetadata(
       Object.keys(this.overrideValues).filter(
-        (k) => k in this.configSchema && !isVarlockReservedKey(k),
+        (k) => k in this.configSchema && !isVarlockReservedKey(k)
+          && (!opts?.filterKeys || opts.filterKeys.has(k)),
       ),
     );
 
@@ -866,12 +888,15 @@ export class EnvGraph {
     // `executeWhenImported` — lets `varlock codegen` explain a zero count accurately
     let skippedImportOnlyCount = 0;
 
-    // the field list is the same across all generators — build it lazily, once,
-    // and only if at least one generator actually runs
-    let fields: Array<ResolvedFieldType> | undefined;
+    // the full (unfiltered) item list is the same across all generators — build it lazily,
+    // once, and only if at least one generator actually runs
+    let allTypeGenItems: Array<TypeGenItemInfo> | undefined;
+    // per-filter-string field cache ('' = unfiltered), so multiple decorators sharing the
+    // same `filter=` (or lack of one) don't recompute the same field list
+    const fieldsByFilterStr = new Map<string, Array<ResolvedFieldType>>();
 
     // options handled by this shared loop, valid on every code-gen decorator
-    const commonOptions = ['path', 'auto', 'executeWhenImported'];
+    const commonOptions = ['path', 'auto', 'executeWhenImported', 'filter'];
 
     for (const decoratorName of Object.keys(this.codeGeneratorsRegistry)) {
       const generator = this.codeGeneratorsRegistry[decoratorName];
@@ -883,6 +908,9 @@ export class EnvGraph {
         // decorator should be a loud error on every load, not sit undetected until `varlock codegen`
         if (!settings.obj.path) throw new Error(`@${decoratorName} - must set \`path\` arg`);
         if (!_.isString(settings.obj.path)) throw new Error(`@${decoratorName} - \`path\` arg must be a string`);
+        if (settings.obj.filter !== undefined && !_.isString(settings.obj.filter)) {
+          throw new SchemaError(`@${decoratorName} - \`filter\` arg must be a string`);
+        }
 
         // catch misspelled options (e.g. `exposEnv=`) instead of silently ignoring them
         if (generator.knownOptions) {
@@ -909,7 +937,17 @@ export class EnvGraph {
           : process.cwd();
         const outputPath = path.resolve(sourceDir, settings.obj.path);
 
-        fields ||= resolveFieldTypes(await collectTypeGenItems(this));
+        const filterStr: string | undefined = settings.obj.filter;
+        if (!fieldsByFilterStr.has(filterStr ?? '')) {
+          // filter against TypeGenItemInfo (pre-resolution isSensitive/isRequired, computed by
+          // getTypeGenInfo()), NOT bare ConfigItems — those getters aren't populated correctly
+          // until resolveEnvValues() runs, which happens after code generation
+          allTypeGenItems ||= await collectTypeGenItems(this);
+          const filterKeys = computeFilteredKeys(allTypeGenItems, filterStr, `@${decoratorName} filter`);
+          const items = filterKeys ? allTypeGenItems.filter((info) => filterKeys.has(info.key)) : allTypeGenItems;
+          fieldsByFilterStr.set(filterStr ?? '', resolveFieldTypes(items));
+        }
+        const fields = fieldsByFilterStr.get(filterStr ?? '')!;
 
         const src = await generator.generate({
           graph: this,

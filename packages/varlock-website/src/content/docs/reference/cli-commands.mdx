@@ -54,6 +54,40 @@ Several commands share these flags. They behave identically wherever they appear
 - `--env <env>`: Resolve in the context of a specific environment (e.g., `--env production`). Overridden by `@currentEnv` if it is set in your `.env.schema`.
 - `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (when combined with `--skip-cache`, the cache is cleared first, then reads and writes are skipped for the run).
 - `--skip-cache`: Skip cache entirely for this invocation (no reads or writes). This overrides `@cache=disk`/`@cache=memory`.
+- `--filter` (on [`load`](#load) and [`run`](#run)): Filter which items are shown/injected. See [Filtering items](#filtering-items) below.
+
+### Filtering items ||filtering-items||
+
+`--filter` takes a comma-separated list of selectors:
+
+- a key name or glob, e.g. `STRIPE_*` (matches `*` and `?`)
+- `!selector` to negate any of the below, e.g. `!STRIPE_DEBUG_KEY`
+- `@sensitive` / `@required` to select by decorator
+- `#tagname` to select items tagged via [`@tag(tagname)`](/reference/item-decorators/#tag)
+
+**How selectors combine:** every non-negated selector is OR'd together into one inclusion set, regardless of kind: mixing a glob, a `@decorator`, and a `#tag` in the same filter just widens that set. Anything matching a negated (`!`) selector is then subtracted from that set, again regardless of kind. If a filter has no non-negated selectors at all, the inclusion set starts as "everything" before negations are subtracted.
+
+```bash
+varlock load --filter="KEY1,!NOT_THIS,STRIPE_*"  # KEY1 and STRIPE_* keys, except NOT_THIS
+varlock load --filter="@sensitive"               # only items marked @sensitive
+varlock load --filter="@required"                # only required items
+varlock load --filter="#billing"                 # only items tagged @tag(billing)
+varlock load --filter="@sensitive,#billing"       # sensitive items OR billing-tagged items
+varlock load --filter="STRIPE_*,!@sensitive"      # STRIPE_* keys, minus any that are sensitive
+varlock load --filter="!#debug"                   # everything except items tagged @tag(debug)
+```
+
+There's no way to express an intersection (e.g. "`STRIPE_*` AND `@sensitive`"): only unions of non-negated selectors minus unions of negated ones. A negated selector always subtracts from the whole inclusion set; it isn't scoped to only the positive selector(s) that happened to include a given item.
+
+[`@internal`](/reference/item-decorators/#internal) items follow their usual visibility rules: `--filter` can only narrow a view further, never cause an internal item to appear somewhere it otherwise wouldn't (even if a selector matches it by exact key name). On plain `json`, `env`, and `shell` output, and in `run`'s injected env / `__VARLOCK_ENV` blob, internal items are always excluded. The views that can show internal items keep doing so under a filter: the default `pretty` format always shows them, `--agent` shows them redacted, and `--format json-full` (on `load`) and `run` include them only with `--include-internal`. In every case, internal items still have to satisfy `--filter` to appear.
+
+On `run`, `--filter` doesn't just skip injection: excluded schema keys are also stripped from the `__VARLOCK_ENV` blob and removed from the child environment even when set in the ambient environment (same treatment as `@internal` items), so a filtered-out var can't reach the child process at all.
+
+Can also be set via the [`_VARLOCK_FILTER`](/reference/reserved-variables/#_varlock_filter) env var, for wrapper scripts, CI config, or anywhere else passing a CLI flag is inconvenient. An explicit `--filter` flag takes precedence.
+
+A filter that matches no items (e.g. a typo'd key or tag) prints a warning to stderr. The command still succeeds, with empty output on `load` or no schema vars injected on `run`.
+
+**A key name/glob/tag-only filter also scopes resolution and validation**, not just output: only items it selects (plus their dependencies) are resolved, so an unrelated broken item outside the filter won't block `load`/`run`. This is useful for scoping validation differently across contexts, e.g. a build step that only needs `--filter="#frontend"` shouldn't fail because an unrelated backend-only var is misconfigured. `@sensitive`/`@required` selectors can't be scoped this way (which items match isn't knowable until the graph is already resolved), so a filter using either falls back to resolving and validating everything, same as no `--filter` at all.
 
 ## Commands reference
 
@@ -102,7 +136,7 @@ varlock load [options]
 - `--compact`:    Compact output (json-full: no indentation, env/shell: skip undefined values)
 - `--show-all`:   Shows all items, not just failing ones, when validation is failing
 - `--include-internal`: Include [`@internal`](/reference/item-decorators/#internal) items in `--format json-full` output. Excluded by default (`json-full` is commonly consumed programmatically, e.g. by framework integrations, not just for local human inspection) - pass this for local debugging of a secret-zero credential.
-- [Common options](#common-options): `--env`, `--path` / `-p`, `--clear-cache`, `--skip-cache`
+- [Common options](#common-options): `--env`, `--path` / `-p`, `--clear-cache`, `--skip-cache`, `--filter`
 
 **Examples:**
 ```bash
@@ -138,6 +172,15 @@ varlock load -p ./envs -p ./overrides
 
 # Agent-safe JSON output with sensitive values redacted
 varlock load --agent
+
+# Only show STRIPE_* keys, excluding one
+varlock load --filter="STRIPE_*,!STRIPE_DEBUG_KEY"
+
+# Only show items marked @sensitive
+varlock load --filter="@sensitive"
+
+# Only show items tagged with @tag(billing)
+varlock load --filter="#billing"
 ```
 
 **Exit codes:**
@@ -173,7 +216,7 @@ varlock run -- <command>
 - `--redact-stdout` / `--no-redact-stdout`: Override automatic stdout/stderr redaction. `--redact-stdout` forces redaction of piped/redirected output (e.g., to override `@redactLogs=false`) and errors if output is attached to an interactive terminal, where redaction is not possible without breaking TTY behavior. `--no-redact-stdout` disables redaction entirely.
 - `--inject <mode>` / `-i`: Control what gets injected into the child process environment: `all` (default: individual vars plus the `__VARLOCK_ENV` serialized config graph blob), `vars` (individual vars only, no blob), or `blob` (only the `__VARLOCK_ENV` blob, no individual vars)
 - `--include-internal`: Pass [`@internal`](/reference/item-decorators/#internal) items through to the child process. By default they are stripped from the child env, even if set in the ambient environment, so a secret-zero token never reaches your app. Use this for a _nested_ `varlock run` whose own resolution needs the internal value.
-- [Common options](#common-options): `--path` / `-p`, `--clear-cache`, `--skip-cache`
+- [Common options](#common-options): `--path` / `-p`, `--clear-cache`, `--skip-cache`, `--filter`
 
 **Examples:**
 ```bash
@@ -188,6 +231,9 @@ varlock run --path ./config/ -- node app.js
 
 # Use multiple directories as entry points
 varlock run -p ./envs -p ./overrides -- node app.js
+
+# Only inject STRIPE_* keys, excluding one (also strips them from the __VARLOCK_ENV blob)
+varlock run --filter="STRIPE_*,!STRIPE_DEBUG_KEY" -- node app.js
 ```
 
 :::note[Shell expansion of env vars in commands]
@@ -601,7 +647,7 @@ See the [Caching guide](/guides/caching/) for cache mode strategy and troublesho
 
 Runs the [code-generation decorators](/reference/root-decorators/#code-generation) in your schema: typed env accessors like `@generateTsTypes` (type declarations) and `@generatePythonEnv` (a loadable module), plus any generators contributed by plugins. Uses only your schema definitions, so output is deterministic regardless of which environment is active. Keys (and decorators) that come only from value files like `.env` or `.env.local` are ignored. Only items declared in your `.env.schema` (or imported into it) are included. When run directly, the command reports any keys found only in a plain `.env` so you can move them into your schema if they belong there.
 
-Add a per-language decorator for each output file you want: `@generateTsTypes`, `@generatePythonEnv`, `@generateRustEnv`, `@generateGoEnv`, or `@generatePhpEnv`. Each generates its own file.
+Add a per-language decorator for each output file you want: `@generateTsTypes`, `@generatePythonEnv`, `@generateRustEnv`, `@generateGoEnv`, or `@generatePhpEnv`. Each generates its own file. Each decorator can also take a `filter=` arg to scope its output to a subset of items, using the same selectors as the [`--filter` CLI flag](#filtering-items); see the [code generation reference](/reference/root-decorators/#code-generation).
 
 This command is particularly useful when you have set `auto=false` on a generator decorator to disable automatic generation during `varlock load` or `varlock run`.
 
