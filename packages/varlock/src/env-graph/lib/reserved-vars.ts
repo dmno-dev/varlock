@@ -27,7 +27,7 @@ export type ReservedVarInfo = {
 export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
   {
     name: '_VARLOCK_ENV_KEY',
-    description: 'Encryption key used to decrypt the injected env blob and any `encrypted()` values at runtime. Typically set in deploy environments.',
+    description: 'Encryption key used to decrypt the injected env blob at runtime. Typically set in deploy environments.',
   },
   {
     name: '_VARLOCK_CACHE_KEY',

@@ -32,9 +32,9 @@ Note that `varlock run --inject vars` strips the `__VARLOCK_ENV` blob from the c
 
 ## Languages without a generated module
 
-For a language that doesn't have a `@generate*Env` decorator yet, you have two options, both of which work under `varlock run`:
+For languages without a `@generate*Env` decorator yet (Ruby, Java, C#, Elixir, and others), you have two options, both of which work under `varlock run`:
 
-**Read individual env vars.** Every config key is injected as a plain environment variable, so read them the way you normally would (`os.environ`, `getenv`, etc.). These values are always **strings** (uncoerced), so parse numbers/booleans yourself.
+**Read individual env vars.** Every config key is injected as a plain environment variable, so read them the way you normally would (`ENV['KEY']` in Ruby, `os.environ`, `getenv`, etc.). These values are always **strings** (uncoerced), so parse numbers/booleans yourself.
 
 **Parse the blob yourself.** For coerced values and metadata, read the [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) environment variable, a JSON object with a `config` map keyed by env var name. Skip entries with no `value` (unset optionals), and use `isSensitive` to build redaction:
 
