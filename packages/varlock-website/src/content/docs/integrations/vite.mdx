@@ -118,10 +118,14 @@ varlockVitePlugin({ ssrInjectMode: 'auto-load' })
 
 - `init-only` - injects varlock initialization code, but does not load the env vars. You must still boot your app via `varlock run` in this mode.
 - `auto-load` - injects `import 'varlock/auto-load';` to load your resolved env via the varlock CLI
-- `resolved-env` - injects the fully resolved env data into your built code. This is useful in environments like Vercel/Cloudflare/etc where you have no control over your build command, and limited access to use CLI commands or the filesystem. See the [encrypting the env blob](#encrypting-the-env-blob) section for more information.
+- `resolved-env` - injects the fully resolved env data into your built code. This is useful in environments like Vercel where you have no control over your build command, and limited access to use CLI commands or the filesystem. See the [encrypting the env blob](#encrypting-the-env-blob) section for more information.
 
 **If not specified, we will attempt to infer the correct mode based on the presence of other vite plugins and environment variables, which give us hints about how your application will be run.**
 Otherwise defaulting to `init-only`.
+
+:::caution[Don't use `resolved-env` on Cloudflare builds]
+On Cloudflare Workers, production env is injected at runtime from bindings via [`varlock-wrangler`](/integrations/cloudflare/) — not baked into the bundle. If Cloudflare is detected (via `@varlock/cloudflare-integration` or SvelteKit's `@sveltejs/adapter-cloudflare`) and `ssrInjectMode` is explicitly set to `'resolved-env'` for a production build, the plugin throws rather than silently shipping resolved (and possibly sensitive) values into the worker artifact for no reason. This only applies to builds — some adapters (e.g. Astro's `@astrojs/cloudflare`) run SSR in workerd during their own dev server with no binding-injection hook available, so `resolved-env` is still used there by default.
+:::
 
 
 ## Accessing environment variables
