@@ -10,6 +10,7 @@ import { spawn, execSync } from 'node:child_process';
 
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
+import { getFileMtimeMs, shouldIgnoreUnchangedMtime } from './watch-mtime';
 
 const isWindows = process.platform === 'win32';
 const debugEnabled = !!process.env.VARLOCK_DEBUG;
@@ -595,7 +596,10 @@ async function handleDev(args: Array<string>) {
           const changedMsg = changedFileList.length
             ? `change detected in ${changedFileList.length} env source file${changedFileList.length === 1 ? '' : 's'}`
             : 'change detected in env source files';
-          console.log(`[varlock-wrangler] ${changedMsg}; reloaded env, no changes found, skipping restart.`);
+          // Quiet by default: same-content saves (mtime changed, graph unchanged)
+          // and any residual no-ops. Spurious mtime-unchanged events are filtered
+          // before scheduleRestart runs.
+          debug(`${changedMsg}; reloaded env, no changes found, skipping restart.`);
           restartTimeout = undefined;
           return;
         }
@@ -638,12 +642,25 @@ async function handleDev(args: Array<string>) {
   }
 
   // set up watchers on env source files
+  // Track mtimes so we can ignore macOS/editor fs.watch noise that fires when a
+  // file is opened or inspected without being rewritten (mtime stays the same).
+  const sourceMtimes = new Map<string, number | undefined>();
   if (loaded.graph.basePath) {
     for (const source of loaded.graph.sources) {
       if (!source.enabled || !source.path) continue;
       const fullPath = join(loaded.graph.basePath, source.path);
       try {
-        const w = watch(fullPath, () => scheduleRestart(fullPath));
+        sourceMtimes.set(fullPath, getFileMtimeMs(fullPath));
+        const w = watch(fullPath, () => {
+          const nextMtime = getFileMtimeMs(fullPath);
+          const prevMtime = sourceMtimes.get(fullPath);
+          if (shouldIgnoreUnchangedMtime(prevMtime, nextMtime)) {
+            debug('dev: ignoring watch event with unchanged mtime', fullPath);
+            return;
+          }
+          sourceMtimes.set(fullPath, nextMtime);
+          scheduleRestart(fullPath);
+        });
         watchers.push(w);
         debug('dev: watching', fullPath);
       } catch {
