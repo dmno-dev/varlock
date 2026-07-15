@@ -39,7 +39,7 @@ const MIDDLEWARE_FILE_RE = /(?:^|[\\/])middleware\.(?:ts|js|mts|mjs)$/;
 
 // match directive prologue ('use server', 'use client', etc.) + optional trailing semicolons/newlines
 // captures the directive block so we can inject code after it
-const DIRECTIVE_PROLOGUE_RE = /^((?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/[^\S\n]*\n|[^\S\n]*\n)*[^\S\n]*['"]use (?:server|client|strict|cache)['"][^\S\n]*;?[^\S\n]*\n?)/;
+const DIRECTIVE_PROLOGUE_RE = /^((?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/[^\S\n]*\n|[^\S\n]*\n)*[^\S\n]*['"]use (?:server|client|strict|cache|workflow|memo|no memo)['"][^\S\n]*;?[^\S\n]*\n?)/;
 
 // rough check for ES module syntax (a line starting with import/export) — used to decide
 // whether the injected init guard can use import statements instead of require()
