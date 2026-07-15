@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import { parseEnvSpecDotEnvFile } from '@env-spec/parser';
 
-type WriteBackResult = { updated: boolean; reason?: 'missing-source-file' | 'item-not-found' };
+type WriteBackResult = { updated: boolean; reason?: 'missing-source-file' | 'non-regular-source-file' | 'item-not-found' };
 
 /**
  * Update a config item's value in a .env file using AST-based replacement.
@@ -18,6 +18,17 @@ export function writeBackValue(
   sourceFilePath: string | undefined,
 ): WriteBackResult {
   if (!sourceFilePath) {
+    return { updated: false, reason: 'missing-source-file' };
+  }
+
+  // A source that is not a regular file (e.g. a FIFO served by 1Password
+  // Environments) cannot be rewritten in place — reading it may block and
+  // writing to it would fight with whatever process is serving it.
+  try {
+    if (!fs.statSync(sourceFilePath).isFile()) {
+      return { updated: false, reason: 'non-regular-source-file' };
+    }
+  } catch {
     return { updated: false, reason: 'missing-source-file' };
   }
 
