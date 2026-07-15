@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 
 import {
-  writeFileSync, unlinkSync, watch, existsSync,
+  writeFileSync, unlinkSync, watch, existsSync, statSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -643,7 +643,32 @@ async function handleDev(args: Array<string>) {
       if (!source.enabled || !source.path) continue;
       const fullPath = join(loaded.graph.basePath, source.path);
       try {
-        const w = watch(fullPath, () => scheduleRestart(fullPath));
+        // Sources that are not regular files (e.g. a FIFO served by 1Password
+        // Environments) cannot be watched: their stat churns whenever they are
+        // read, and each reload re-reads every source, so watching one creates
+        // an endless reload loop. Live reload is disabled for those sources.
+        const initialStat = statSync(fullPath);
+        if (!initialStat.isFile()) {
+          console.log(`ℹ️ [varlock-wrangler] ${source.path} is not a regular file (FIFO/pipe), live reload is disabled for it`);
+          continue;
+        }
+        let lastMtimeMs = initialStat.mtimeMs;
+        const w = watch(fullPath, () => {
+          // macOS fs.watch emits spurious change events when another local tool
+          // merely opens/inspects the file (issue #845). A real save always
+          // updates mtime, so ignore events where mtime is unchanged.
+          try {
+            const currentMtimeMs = statSync(fullPath).mtimeMs;
+            if (currentMtimeMs === lastMtimeMs) {
+              debug('dev: ignoring watch event with unchanged mtime', fullPath);
+              return;
+            }
+            lastMtimeMs = currentMtimeMs;
+          } catch {
+            // file may have been deleted/renamed — treat as a change
+          }
+          scheduleRestart(fullPath);
+        });
         watchers.push(w);
         debug('dev: watching', fullPath);
       } catch {

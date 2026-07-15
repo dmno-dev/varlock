@@ -1,5 +1,6 @@
 /* eslint-disable no-console */
 
+import fs from 'node:fs';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 import MagicString from 'magic-string';
@@ -76,6 +77,27 @@ function resetStaticReplacements() {
   });
 }
 
+
+// Env sources may not be regular files — e.g. 1Password Environments serves
+// `.env` as a FIFO (named pipe) that is re-served on every read. Watching such
+// a file is meaningless (its stat churns whenever it is read) and registering
+// it in `configFileDependencies` would make vite restart the dev server in a
+// loop, since each restart re-reads the pipe and fires new fs events.
+function isExistingNonRegularFile(filePath: string): boolean {
+  try {
+    return !fs.statSync(filePath).isFile();
+  } catch {
+    return false; // missing files keep their current handling
+  }
+}
+
+const warnedNonRegularSources = new Set<string>();
+function warnNonRegularSourceOnce(absPath: string, basePath?: string) {
+  if (warnedNonRegularSources.has(absPath)) return;
+  warnedNonRegularSources.add(absPath);
+  const displayPath = basePath ? (path.relative(basePath, absPath) || absPath) : absPath;
+  console.log(`ℹ️ [varlock] ${displayPath} is not a regular file (FIFO/pipe), live reload is disabled for it`);
+}
 
 let loadCount = 0;
 let activeIntegrationTelemetry = {
@@ -417,7 +439,12 @@ See https://varlock.dev/integrations/vite/ for more details.
       for (const varlockSource of varlockLoadedEnv.sources) {
         if (!varlockSource.enabled) continue;
         if (varlockLoadedEnv.basePath && varlockSource.path) {
-          config.configFileDependencies.push(path.resolve(varlockLoadedEnv.basePath, varlockSource.path));
+          const absPath = path.resolve(varlockLoadedEnv.basePath, varlockSource.path);
+          if (isExistingNonRegularFile(absPath)) {
+            warnNonRegularSourceOnce(absPath, varlockLoadedEnv.basePath);
+            continue;
+          }
+          config.configFileDependencies.push(absPath);
         }
       }
     },
