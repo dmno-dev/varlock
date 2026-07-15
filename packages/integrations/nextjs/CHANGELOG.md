@@ -10,6 +10,14 @@
 
 
 
+
+## 1.1.5
+<sub>2026-07-15</sub>
+
+- [#884](https://github.com/dmno-dev/varlock/pull/884)  *(patch)*
+  Detect FIFO/non-regular env sources (e.g. 1Password Environments) and disable watching and reload checks for them, fixing dev-server hangs and repeated reload logs
+- [#881](https://github.com/dmno-dev/varlock/pull/881)  *(patch)* - Warn when deploying to Vercel without encryption enabled for the injected env blob
+
 ## 1.1.4
 <sub>2026-07-06</sub>
 

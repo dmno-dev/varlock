@@ -31,7 +31,7 @@
     },
     "packages/ci-env-info": {
       "name": "@varlock/ci-env-info",
-      "version": "0.0.2",
+      "version": "0.1.0",
       "devDependencies": {
         "@types/node": "catalog:",
         "tsup": "catalog:",
@@ -69,7 +69,7 @@
     },
     "packages/integrations/astro": {
       "name": "@varlock/astro-integration",
-      "version": "1.1.1",
+      "version": "1.2.0",
       "devDependencies": {
         "@types/node": "catalog:",
         "@varlock/cloudflare-integration": "workspace:*",
@@ -80,7 +80,7 @@
         "vitest": "catalog:",
       },
       "peerDependencies": {
-        "@varlock/cloudflare-integration": "^1.2.1",
+        "@varlock/cloudflare-integration": "^1.3.0",
         "astro": ">=4",
         "varlock": "workspace:^",
       },
@@ -90,7 +90,7 @@
     },
     "packages/integrations/cloudflare": {
       "name": "@varlock/cloudflare-integration",
-      "version": "1.2.1",
+      "version": "1.3.0",
       "bin": {
         "varlock-wrangler": "./bin/varlock-wrangler.js",
       },
@@ -98,13 +98,13 @@
         "@types/node": "catalog:",
         "@varlock/vite-integration": "workspace:^",
         "tsup": "catalog:",
-        "varlock": "workspace:^1.10.0",
+        "varlock": "workspace:^1.11.0",
         "vite": "^7.1.0",
         "vitest": "catalog:",
       },
       "peerDependencies": {
         "@cloudflare/vite-plugin": ">=1",
-        "varlock": "workspace:^1.10.0",
+        "varlock": "workspace:^1.11.0",
         "vite": ">=5",
         "wrangler": ">=3",
       },
@@ -131,7 +131,7 @@
     },
     "packages/integrations/nextjs": {
       "name": "@varlock/nextjs-integration",
-      "version": "1.1.4",
+      "version": "1.1.5",
       "devDependencies": {
         "@babel/parser": "^7.29.3",
         "@env-spec/utils": "workspace:^",
@@ -147,7 +147,7 @@
     },
     "packages/integrations/vite": {
       "name": "@varlock/vite-integration",
-      "version": "1.2.1",
+      "version": "1.3.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -309,7 +309,7 @@
     },
     "packages/plugins/infisical": {
       "name": "@varlock/infisical-plugin",
-      "version": "2.0.1",
+      "version": "2.1.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@infisical/sdk": "^5.0.2",
@@ -439,7 +439,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "1.10.0",
+      "version": "1.11.0",
       "bin": {
         "varlock": "./bin/cli.js",
       },
@@ -513,7 +513,7 @@
     },
     "packages/vscode-plugin": {
       "name": "env-spec-language",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "devDependencies": {
         "@types/node": "catalog:",
         "@types/vscode": "^1.99.0",
