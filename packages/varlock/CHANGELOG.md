@@ -16,6 +16,24 @@
 
 
 
+
+## 1.11.0
+<sub>2026-07-15</sub>
+
+- [#873](https://github.com/dmno-dev/varlock/pull/873)  *(minor)*
+  Add `--filter` flag to `load`/`run` for selecting env vars by key/glob, `@sensitive`/`@required`, or tags (new `@tag()` item decorator). Also add a matching `filter=` arg to `@generate*` code-generation decorators, so a single schema can emit multiple generated files scoped to different subsets.
+- [#871](https://github.com/dmno-dev/varlock/pull/871)  *(minor)*
+  Add detection for Railway, AWS Amplify, Google Cloud Run, Deno Deploy, Zeabur, and Firebase App Hosting; detect dev sandboxes (CodeSandbox, StackBlitz, GitHub Codespaces, Gitpod, Replit) with isCI: false; add detectRuntime/detectOs and expose them as VARLOCK_RUNTIME/VARLOCK_OS builtin variables.
+
+  Also fixes several incorrect env var names found during a std-env doc audit: GitHub Actions PR number (was reading a non-existent variable), GitLab MR number (was using the instance-wide ID instead of the IID), Netlify build URL (double `https://`), Semaphore PR number (Classic-only variable), Azure Pipelines PR number (prefers the GitHub-facing number), and Bitbucket repo owner (deprecated variable). Adds repo extraction for Bitrise.
+
+  A second pass against std-env's actual detection logic found three more real gaps: Vercel and Netlify now report `isCI: false` when running their local dev servers (`vercel dev`, `netlify dev`) instead of always reporting CI; StackBlitz detection now also requires the WebContainer runtime marker (matching std-env) instead of a weak SHELL-only heuristic that could misfire; and `detectRuntime`'s `isNode` flag now matches std-env's semantics (stays `true` under Bun/Deno's Node-compat mode).
+- [#874](https://github.com/dmno-dev/varlock/pull/874)  *(patch)*
+  Fix: `varlock load --format json-full` no longer includes `@internal` items by default (pass `--include-internal` to opt in for local debugging). Framework integrations shell out to this exact command to get their injected config, so this closes a leak where an `@internal` secret-zero credential could reach client/SSR runtime code.
+- [#882](https://github.com/dmno-dev/varlock/pull/882)  *(patch)*
+  Docs: clarify that _VARLOCK_ENV_KEY encrypts the injected env blob (not an encrypted() resolver), and drop the stale plugin count from the package README
+- [#884](https://github.com/dmno-dev/varlock/pull/884)  *(patch)* - Refuse to write back encrypted values to non-regular source files (FIFO/pipe) with a clear error instead of blocking
+
 ## 1.10.0
 <sub>2026-07-06</sub>
 

@@ -12,6 +12,15 @@
 
 
 
+
+## 1.3.0
+<sub>2026-07-15</sub>
+
+- [#881](https://github.com/dmno-dev/varlock/pull/881)  *(minor)*
+  Cascaded from @varlock/vite-integration: no longer defaults ssrInjectMode to resolved-env for the Cloudflare adapter (redundant with the native runtime binding loader)
+- [#884](https://github.com/dmno-dev/varlock/pull/884)  *(patch)*
+  varlock-wrangler dev: skip watching FIFO/non-regular env sources (fixes endless no-op reload logs), and ignore spurious watch events where file mtime is unchanged
+
 ## 1.2.1
 <sub>2026-07-06</sub>
 

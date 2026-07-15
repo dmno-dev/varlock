@@ -6,6 +6,13 @@
 
 
 
+
+## 0.2.6
+<sub>2026-07-15</sub>
+
+- [#873](https://github.com/dmno-dev/varlock/pull/873)  *(patch)*
+  Add editor autocomplete and hover docs for the new `@tag()` decorator, the `filter=` arg on `@generate*` decorators, and `@internal`
+
 ## 0.2.5
 <sub>2026-07-06</sub>
 
