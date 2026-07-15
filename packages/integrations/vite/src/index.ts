@@ -209,7 +209,13 @@ export function varlockVitePlugin(
       lines.push("import 'varlock/auto-load';");
     } else {
       if (ssrInjectMode === 'resolved-env') {
-        if (resolvedIsCloudflareTarget) {
+        // Only reject this for production builds. In dev, some adapters (e.g.
+        // Astro's @astrojs/cloudflare) run SSR inside workerd via a plugin-owned
+        // miniflare instance with no binding-injection hook for varlock to use,
+        // so resolved-env is the only way to get real values into the worker —
+        // it's the composed integration's own default there, not shipped in a
+        // deploy artifact.
+        if (resolvedIsCloudflareTarget && !isDevCommand) {
           throw new Error(
             "[varlock] ssrInjectMode: 'resolved-env' is redundant on Cloudflare Workers and ships resolved "
             + '(possibly sensitive) values into the worker bundle unnecessarily. Cloudflare deploys get their '

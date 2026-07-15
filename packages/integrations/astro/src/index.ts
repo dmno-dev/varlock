@@ -13,9 +13,17 @@ function varlockAstroIntegration(
   // re-expose all options from vite plugin
   integrationOptions?: Parameters<typeof varlockVitePlugin>[0],
 ): AstroIntegration {
+  // captured in astro:config:setup (the only hook that exposes it) and read
+  // in astro:config:done, which is where we know the adapter
+  let command: 'dev' | 'build' | 'preview' | 'sync' = 'build';
+
   return {
     name: 'varlock-astro-integration',
     hooks: {
+      'astro:config:setup': (opts) => {
+        command = opts.command;
+      },
+
       // docs say to use astro:config:setup hook to adjust vite config
       // but we wait to until here because we don't know the adapter yet
       // and we want to use that to infer ssrInjectMode
@@ -36,12 +44,18 @@ function varlockAstroIntegration(
         if (adapterName === '@astrojs/cloudflare') {
           // @astrojs/cloudflare runs SSR in workerd via @cloudflare/vite-plugin.
           // Inject varlock init into the CF worker entry and load env from bindings
-          // at runtime in production (via varlock-wrangler deploy). We deliberately
-          // do NOT default ssrInjectMode to 'resolved-env' here (leaving it
-          // 'init-only' unless the user overrides it): the runtime loader below
-          // already hydrates env from Cloudflare bindings, so baking the resolved
-          // env into the bundle as well would be redundant and ship secrets in
-          // the worker artifact that are never read.
+          // at runtime in production (via varlock-wrangler deploy) — so we
+          // deliberately don't default ssrInjectMode to 'resolved-env' for builds,
+          // since the runtime loader below already hydrates env from Cloudflare
+          // bindings and baking would just ship secrets in the worker artifact
+          // that are never read.
+          // In `astro dev`, though, @astrojs/cloudflare owns its own
+          // @cloudflare/vite-plugin instance with no binding-injection hook for
+          // varlock to use (that only exists inside `varlockCloudflareVitePlugin`,
+          // which Astro doesn't use) — resolved-env is the only way to get real
+          // values into the dev worker, so default to it there.
+          if (command === 'dev') ssrInjectMode ??= 'resolved-env';
+
           let cloudflareSsrEntryCode: string;
           let logVarlockEnvInjectionNotice: () => void;
           try {
