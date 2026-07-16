@@ -37,9 +37,19 @@ const USE_CLIENT_RE = /^(?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]
 const EDGE_RUNTIME_RE = /export\s+const\s+runtime\s*=\s*['"](?:edge|experimental-edge)['"]/;
 const MIDDLEWARE_FILE_RE = /(?:^|[\\/])middleware\.(?:ts|js|mts|mjs)$/;
 
-// match directive prologue ('use server', 'use client', etc.) + optional trailing semicolons/newlines
-// captures the directive block so we can inject code after it
-const DIRECTIVE_PROLOGUE_RE = /^((?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/[^\S\n]*\n|[^\S\n]*\n)*[^\S\n]*['"]use (?:server|client|strict)['"][^\S\n]*;?[^\S\n]*\n?)/;
+// match the directive prologue ('use server', 'use client', 'use cache: remote', etc.)
+// captures the whole block - including interleaved comments/blank lines and repeated
+// directives - so injected code lands after all of them. a directive that is not the
+// last thing in the prologue stops being a directive, so we must not inject between them.
+// any 'use ...' string is matched rather than an allowlist, so new framework directives
+// keep working. requiring end-of-line after the directive keeps us from matching a string
+// that continues into a larger expression (`'use x' + y`).
+// uses [^\S\n]* (horizontal whitespace) instead of \s* to avoid exponential backtracking
+const COMMENT_OR_BLANK_LINE_RE_STR = String.raw`[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/[^\S\n]*\n|[^\S\n]*\n`;
+const DIRECTIVE_RE_STR = String.raw`[^\S\n]*['"]use [^'"\n]*['"][^\S\n]*;?[^\S\n]*(?:\n|$)`;
+const DIRECTIVE_PROLOGUE_RE = new RegExp(
+  String.raw`^((?:${COMMENT_OR_BLANK_LINE_RE_STR})*(?:(?:${DIRECTIVE_RE_STR})(?:${COMMENT_OR_BLANK_LINE_RE_STR})*)+)`,
+);
 
 // rough check for ES module syntax (a line starting with import/export) — used to decide
 // whether the injected init guard can use import statements instead of require()
@@ -136,7 +146,10 @@ function inlineEnvValues(source: string, filePath: string, envGraph: SerializedE
 function prependAfterDirectives(source: string, codeToPrepend: string): string {
   const match = source.match(DIRECTIVE_PROLOGUE_RE);
   if (match) {
-    return `${match[1] + codeToPrepend}\n${source.slice(match[1].length)}`;
+    // the last directive may end at EOF with no trailing newline, in which case the
+    // injected code would be glued onto it (`'use server'if(...)`)
+    const separator = match[1].endsWith('\n') ? '' : '\n';
+    return `${match[1] + separator + codeToPrepend}\n${source.slice(match[1].length)}`;
   }
   return `${codeToPrepend}\n${source}`;
 }
