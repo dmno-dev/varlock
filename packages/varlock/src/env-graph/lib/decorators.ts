@@ -128,13 +128,18 @@ export abstract class DecoratorInstance {
         }
         if (!this.decoratorDef.isFunction && this.isFunctionCall) {
           // bare fn-call syntax `@name(...)` is reserved for repeatable decorators (e.g. @docs()).
-          // @sensitive and @proxyConfig are single-use but accept an options-object value, so guide
-          // users who tried to pass options as a bare call toward the object form `@name={...}`.
-          if (this.name === 'sensitive' || this.name === 'proxyConfig') {
-            const fallback = this.name === 'sensitive' ? '{preventLeaks=false}' : '{egress="strict"}';
-            const optsStr = this.parsedDecorator.bareFnArgs
-              ? `{${this.parsedDecorator.bareFnArgs.values.map((v) => v.toString()).join(', ')}}`
-              : fallback;
+          // A single-use decorator that accepts an options-object value declares an
+          // `objectValueExample`; use it to guide users who tried `@name(...)` toward the
+          // object form `@name={...}`, so the per-decorator knowledge stays on the def.
+          const { objectValueExample } = this.decoratorDef;
+          if (objectValueExample) {
+            // Echo the options the user actually passed; fall back to the def's
+            // example when they called it with none (`@name()`), so the suggestion
+            // is always a usable object form rather than `@name={}`.
+            const providedArgs = this.parsedDecorator.bareFnArgs?.values ?? [];
+            const optsStr = providedArgs.length
+              ? `{${providedArgs.map((v) => v.toString()).join(', ')}}`
+              : objectValueExample;
             throw new SchemaError(
               `@${this.name} is single-use and cannot be called like @${this.name}(...). To pass options, use an object value: @${this.name}=${optsStr}`,
             );
@@ -310,6 +315,13 @@ export type RootDecoratorDef<Processed = any> = {
   inert?: boolean;
   deprecated?: boolean | string;
   incompatibleWith?: Array<string>;
+  /**
+   * A single-use decorator whose value is an options OBJECT (`@name={a=b}`). Set to an
+   * example options string (e.g. `{egress="strict"}`): when someone mistakenly calls it as
+   * `@name(...)`, the generic validation uses this to point them at the object form, so
+   * this per-decorator detail lives on the def instead of in the shared handler.
+   */
+  objectValueExample?: string;
   process?: (decoratorValue: Resolver) => (Processed | Promise<Processed>);
   execute?: (executeInput: Processed) => void | Promise<void>;
   useFnArgsResolver?: boolean,
@@ -564,6 +576,7 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     // driven by @proxy decorators on items; @proxyConfig only tunes proxy-wide
     // settings (currently just egress). Value/object form: @proxyConfig={egress="strict"}.
     name: 'proxyConfig',
+    objectValueExample: '{egress="strict"}',
     process: (decValue) => {
       if (decValue.objArgs === undefined) {
         throw new SchemaError('@proxyConfig must be set to an options object, for example @proxyConfig={egress="strict"}');
@@ -752,6 +765,8 @@ export type ItemDecoratorDef<T = any> = {
    */
   isFunctionOrValue?: boolean;
   deprecated?: boolean | string;
+  /** See {@link RootDecoratorDef.objectValueExample}. */
+  objectValueExample?: string;
   process?: (decoratorValue: Resolver) => T | Promise<T>;
   execute?: (executeInput: T) => void | Promise<void>;
   useFnArgsResolver?: boolean,
@@ -767,6 +782,7 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
   },
   {
     name: 'sensitive',
+    objectValueExample: '{preventLeaks=false}',
   },
   {
     name: 'public',

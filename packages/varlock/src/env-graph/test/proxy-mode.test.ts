@@ -354,3 +354,39 @@ describe('proxy resolution view (proxied re-resolution)', () => {
     expect(item.validationErrors).toBeUndefined();
   });
 });
+
+// A single-use object-value decorator called as `@name(...)` is guided toward the
+// object form. The per-decorator wording is driven by the decorator def
+// (`objectValueExample`), not by names hardcoded in the shared handler — so the
+// same generic path serves a root decorator (@proxyConfig) and an item one (@sensitive).
+describe('single-use object-value decorators point at the object form', () => {
+  test('a bare `@proxyConfig()` (root) suggests the def\'s example options', async () => {
+    const graph = await loadGraph(outdent`
+      # @proxyConfig()
+      # ---
+      FOO=1
+    `);
+    const errors = graph.sortedDataSources.flatMap((s) => s.errors);
+    expect(errors.some((e) => /@proxyConfig is single-use and cannot be called like @proxyConfig\(\.\.\.\)\. To pass options, use an object value: @proxyConfig=\{egress="strict"\}/.test(e.message))).toBe(true);
+  });
+
+  test('a bare `@sensitive()` (item) suggests its own example via the same generic path', async () => {
+    const graph = await loadGraph(outdent`
+      # ---
+      # @sensitive()
+      SECRET=x
+    `);
+    const errors = graph.configSchema.SECRET.decoratorSchemaErrors;
+    expect(errors.some((e) => /@sensitive is single-use and cannot be called like @sensitive\(\.\.\.\)\. To pass options, use an object value: @sensitive=\{preventLeaks=false\}/.test(e.message))).toBe(true);
+  });
+
+  test('provided options are echoed back (not the example)', async () => {
+    const graph = await loadGraph(outdent`
+      # @proxyConfig(egress="permissive")
+      # ---
+      FOO=1
+    `);
+    const errors = graph.sortedDataSources.flatMap((s) => s.errors);
+    expect(errors.some((e) => /use an object value: @proxyConfig=\{egress="permissive"\}/.test(e.message))).toBe(true);
+  });
+});
