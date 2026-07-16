@@ -472,7 +472,7 @@ Configures proxy-wide [credential proxy](/guides/proxy/) settings. The proxy is 
 # @proxyConfig={egress="strict", reload="manual"}
 # ---
 # @proxy(domain="api.openai.com")
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=yourPreferredPlugin()
 ```
 
 See the [credential proxy guide](/guides/proxy/) for the full workflow.
@@ -493,9 +493,9 @@ This is the header (root) form of the decorator. To inject a specific secret int
 # @proxy(domain="api.stripe.com", keys=[STRIPE_KEY, WEBHOOK_SECRET])
 # ---
 # @sensitive
-STRIPE_KEY=sk_live_...
+STRIPE_KEY=yourPreferredPlugin()
 # @sensitive
-WEBHOOK_SECRET=whsec_...
+WEBHOOK_SECRET=yourPreferredPlugin()
 ```
 </div>
 

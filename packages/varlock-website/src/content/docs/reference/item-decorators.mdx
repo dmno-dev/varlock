@@ -267,7 +267,7 @@ Without an explicit `@placeholder`, varlock derives one from the item's [`@type`
 ```env-spec
 # @proxy(domain="api.openai.com")
 # @placeholder=sk-proj-000000000000000000000000
-OPENAI_API_KEY=sk-proj-...
+OPENAI_API_KEY=yourPreferredPlugin()
 ```
 </div>
 
@@ -295,11 +295,11 @@ The same decorator in the **header** creates a _detached_ policy rule (no inject
 
 ```env-spec
 # @proxy(domain="api.stripe.com", path="/v1/**")
-STRIPE_SECRET_KEY=sk_live_...
+STRIPE_SECRET_KEY=yourPreferredPlugin()
 
 # @sensitive
 # @proxy=passthrough
-LEGACY_TOKEN=...
+LEGACY_TOKEN=yourPreferredPlugin()
 ```
 
 See the [credential proxy guide](/guides/proxy/) for the full workflow.
