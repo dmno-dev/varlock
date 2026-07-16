@@ -93,96 +93,6 @@ import {
 import { buildProxySchemaFingerprint } from '../helpers/proxy-schema-fingerprint';
 import { logLines } from '../helpers/pretty-format';
 
-export const commandSpec = define({
-  name: 'proxy',
-  description: 'Manage proxy sessions for placeholder-based agent workflows',
-  args: {
-    session: {
-      type: 'string',
-      short: 's',
-      description: 'Proxy session ID/alias',
-    },
-    all: {
-      type: 'boolean',
-      description: 'Target all sessions (supported by stop/status)',
-    },
-    yes: {
-      type: 'boolean',
-      short: 'y',
-      description: 'Skip the confirmation prompt (for `proxy prune`)',
-    },
-    format: {
-      type: 'string',
-      short: 'f',
-      description: 'Output format: `proxy env` → shell (default) or json; `proxy audit` → text (default) or json',
-    },
-    watch: {
-      type: 'boolean',
-      description: 'Continuously refresh status output (used by `proxy status`).',
-    },
-    interval: {
-      type: 'string',
-      description: 'Polling interval in milliseconds for `proxy status --watch` (default: 1000).',
-    },
-    path: {
-      type: 'string',
-      short: 'p',
-      multiple: true,
-      description: 'Path to a specific .env file or directory to use as the entry point (can be specified multiple times)',
-    },
-    ...REDACT_STDOUT_ARG,
-    inject: {
-      type: 'string',
-      short: 'i',
-      description: 'Control what gets injected into child env for `proxy run`: "all" (default), "vars", or "blob"',
-    },
-    new: {
-      type: 'boolean',
-      description: 'For `proxy run`: start a fresh proxy instead of attaching to a running one for this directory',
-    },
-    sandbox: {
-      type: 'custom',
-      // Bare `--sandbox` → built-in; `--sandbox=docker|podman` → container backend.
-      parse: (value: string) => (value === '' || value == null ? 'builtin' : value),
-      description: 'For `proxy run`: run the child in a sandbox whose only egress is the proxy. Bare '
-        + '`--sandbox` uses the built-in minimal OS jail (macOS `sandbox-exec`); `--sandbox=docker` (or '
-        + '`=podman`) runs the child in a container on an internal network, with a dumb forwarder bridging '
-        + 'to the host proxy (secrets stay on the host). Opt-in.',
-    },
-    'sandbox-image': {
-      type: 'string',
-      description: 'For `proxy run --sandbox=docker|podman`: the container image the child runs in (must '
-        + 'contain your command, e.g. a devcontainer image with `claude` installed).',
-    },
-    'allow-reload': {
-      type: 'boolean',
-      negatable: true,
-      description: 'Override the reload posture for this `proxy start`/`run`: `--allow-reload` forces `manual` '
-        + '(human-applied from a trusted terminal; reloads requested from inside the agent are refused), '
-        + '`--no-allow-reload` forces `off`. Otherwise `@proxyConfig={reload=...}` applies, defaulting to `auto` '
-        + '(manual for an interactive `proxy start`, off for headless or one-shot `proxy run`).',
-    },
-  },
-  examples: `
-Proxy command surface:
-  varlock proxy run -- claude                   # attaches to a running proxy for this dir, else starts one
-  varlock proxy run --session abc12 -- claude   # attach to a specific session (approvals prompt in its terminal)
-  varlock proxy run --new -- claude             # force a fresh, separate proxy
-  varlock proxy run --sandbox -- claude         # run the child in a minimal OS sandbox (macOS)
-  varlock proxy run --sandbox=docker --sandbox-image my-agent -- claude   # run the child in a container
-  varlock proxy start
-  varlock proxy rules                           # summarize the effective @proxy config (no proxy started)
-  varlock proxy env --session abc12
-  varlock proxy status
-  varlock proxy audit --session abc12
-  varlock proxy reload --session abc12
-  varlock proxy stop --session abc12
-  varlock proxy stop --all
-  varlock proxy prune                           # delete ALL ended session records (+ audit logs)
-  varlock proxy prune --session abc12           # delete one session's record
-  `.trim(),
-});
-
 type PreparedProxyPolicy = {
   resolvedEnv: Record<string, string>;
   serializedGraph: any;
@@ -335,17 +245,6 @@ function toShellExports(env: Record<string, string>): string {
     .join('\n');
 }
 
-function getAction(ctx: any): string {
-  const positionals = (ctx.positionals ?? []).slice(ctx.commandPath?.length ?? 0);
-  const action = positionals[0];
-  if (!action) {
-    throw new CliExitError(
-      'Missing proxy action.',
-      { suggestion: 'Use one of: run, start, rules, env, status, audit, reload, stop, prune' },
-    );
-  }
-  return action;
-}
 
 function getRunCommandArgs(): Array<string> {
   const argv = process.argv.slice(2);
@@ -2242,32 +2141,232 @@ async function rulesAction(ctx: any) {
   }
 }
 
-export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
-  const action = getAction(ctx);
+// Flags shared by several subcommands. Kept as small fragments spread into each
+// subcommand's args so every verb declares only the flags it actually reads;
+// native gunshi subcommands then give per-verb help + shell completion, which a
+// single flat arg bag can't.
+const sessionArg = {
+  session: {
+    type: 'string',
+    short: 's',
+    description: 'Proxy session ID/alias',
+  },
+} as const;
 
-  switch (action) {
-    case 'run':
-      return await runAction(ctx);
-    case 'start':
-      return await startAction(ctx);
-    case 'rules':
-      return await rulesAction(ctx);
-    case 'env':
-      return await envAction(ctx);
-    case 'status':
-      return await statusAction(ctx);
-    case 'audit':
-      return await auditAction(ctx);
-    case 'reload':
-      return await reloadAction(ctx);
-    case 'stop':
-      return await stopAction(ctx);
-    case 'prune':
-      return await pruneAction(ctx);
-    default:
-      throw new CliExitError(
-        `Unknown proxy action "${action}".`,
-        { suggestion: 'Use one of: run, start, rules, env, status, audit, reload, stop, prune' },
-      );
+const pathArg = {
+  path: {
+    type: 'string',
+    short: 'p',
+    multiple: true,
+    description: 'Path to a specific .env file or directory to use as the entry point (repeatable)',
+  },
+} as const;
+
+const allowReloadArg = {
+  'allow-reload': {
+    type: 'boolean',
+    negatable: true,
+    description: 'Force the reload posture: `--allow-reload` = `manual` (human-applied from a trusted terminal; '
+      + 'reloads requested from inside the agent are refused), `--no-allow-reload` = `off`. Otherwise '
+      + '`@proxyConfig={reload=...}` applies, defaulting to `auto` (manual for an interactive `proxy start`, off '
+      + 'for headless or one-shot `proxy run`).',
+  },
+} as const;
+
+const runCommand = define({
+  name: 'run',
+  description: 'Run a command through the proxy: attach to this directory\'s session, or start one',
+  args: {
+    ...sessionArg,
+    ...pathArg,
+    ...allowReloadArg,
+    new: {
+      type: 'boolean',
+      description: 'Start a fresh proxy instead of attaching to a running one for this directory',
+    },
+    sandbox: {
+      type: 'custom',
+      // Bare `--sandbox` → built-in; `--sandbox=docker|podman` → container backend.
+      parse: (value: string) => (value === '' || value == null ? 'builtin' : value),
+      description: 'Run the child in a sandbox whose only egress is the proxy. Bare `--sandbox` uses the '
+        + 'built-in minimal OS jail (macOS `sandbox-exec`); `--sandbox=docker` (or `=podman`) runs the child in '
+        + 'a container on an internal network, with a dumb forwarder bridging to the host proxy (secrets stay on '
+        + 'the host). Opt-in.',
+    },
+    'sandbox-image': {
+      type: 'string',
+      description: 'For `--sandbox=docker|podman`: the container image the child runs in (must contain your '
+        + 'command, e.g. a devcontainer image with `claude` installed).',
+    },
+    inject: {
+      type: 'string',
+      short: 'i',
+      description: 'Control what gets injected into the child env: "all" (default), "vars", or "blob"',
+    },
+    ...REDACT_STDOUT_ARG,
+  },
+  examples: `
+  varlock proxy run -- claude                   # attach to a running proxy for this dir, else start one
+  varlock proxy run --session abc12 -- claude   # attach to a specific session (approvals prompt in its terminal)
+  varlock proxy run --new -- claude             # force a fresh, separate proxy
+  varlock proxy run --sandbox -- claude         # run the child in a minimal OS sandbox (macOS)
+  varlock proxy run --sandbox=docker --sandbox-image my-agent -- claude   # run the child in a container
+  `.trim(),
+  run: (ctx: any) => runAction(ctx),
+});
+
+const startCommand = define({
+  name: 'start',
+  description: 'Start a proxy daemon with a live request log that `proxy run` can attach to',
+  args: {
+    ...pathArg,
+    ...allowReloadArg,
+  },
+  run: (ctx: any) => startAction(ctx),
+});
+
+const rulesCommand = define({
+  name: 'rules',
+  description: 'Summarize the effective @proxy config for this schema (no proxy started)',
+  args: {
+    ...pathArg,
+  },
+  run: (ctx: any) => rulesAction(ctx),
+});
+
+const envCommand = define({
+  name: 'env',
+  description: 'Print a running session\'s proxy env (shell exports or json)',
+  args: {
+    ...sessionArg,
+    format: {
+      type: 'string',
+      short: 'f',
+      description: 'Output format: shell (default) or json',
+    },
+  },
+  run: (ctx: any) => envAction(ctx),
+});
+
+const statusCommand = define({
+  name: 'status',
+  description: 'Show proxy session status',
+  args: {
+    ...sessionArg,
+    all: {
+      type: 'boolean',
+      description: 'Include ended sessions',
+    },
+    format: {
+      type: 'string',
+      short: 'f',
+      description: 'Output json instead of the table',
+    },
+    watch: {
+      type: 'boolean',
+      description: 'Continuously refresh the status output',
+    },
+    interval: {
+      type: 'string',
+      description: 'Polling interval in milliseconds for `--watch` (default: 1000)',
+    },
+  },
+  run: (ctx: any) => statusAction(ctx),
+});
+
+const auditCommand = define({
+  name: 'audit',
+  description: 'Show a proxy session\'s audit log',
+  args: {
+    ...sessionArg,
+    format: {
+      type: 'string',
+      short: 'f',
+      description: 'Output format: text (default) or json',
+    },
+  },
+  run: (ctx: any) => auditAction(ctx),
+});
+
+const reloadCommand = define({
+  name: 'reload',
+  description: 'Re-resolve the schema and hot-swap a running session\'s policy',
+  args: {
+    ...sessionArg,
+    ...pathArg,
+  },
+  run: (ctx: any) => reloadAction(ctx),
+});
+
+const stopCommand = define({
+  name: 'stop',
+  description: 'Stop one or all proxy sessions',
+  args: {
+    ...sessionArg,
+    all: {
+      type: 'boolean',
+      description: 'Stop all sessions',
+    },
+  },
+  run: (ctx: any) => stopAction(ctx),
+});
+
+const pruneCommand = define({
+  name: 'prune',
+  description: 'Delete ended session records (and their audit logs)',
+  args: {
+    ...sessionArg,
+    yes: {
+      type: 'boolean',
+      short: 'y',
+      description: 'Skip the confirmation prompt',
+    },
+  },
+  run: (ctx: any) => pruneAction(ctx),
+});
+
+export const commandSpec = define({
+  name: 'proxy',
+  description: 'Manage proxy sessions for placeholder-based agent workflows',
+  subCommands: {
+    run: runCommand,
+    start: startCommand,
+    rules: rulesCommand,
+    env: envCommand,
+    status: statusCommand,
+    audit: auditCommand,
+    reload: reloadCommand,
+    stop: stopCommand,
+    prune: pruneCommand,
+  },
+  examples: `
+Proxy command surface:
+  varlock proxy run -- claude                   # attaches to a running proxy for this dir, else starts one
+  varlock proxy run --session abc12 -- claude   # attach to a specific session (approvals prompt in its terminal)
+  varlock proxy run --new -- claude             # force a fresh, separate proxy
+  varlock proxy run --sandbox -- claude         # run the child in a minimal OS sandbox (macOS)
+  varlock proxy run --sandbox=docker --sandbox-image my-agent -- claude   # run the child in a container
+  varlock proxy start
+  varlock proxy rules                           # summarize the effective @proxy config (no proxy started)
+  varlock proxy env --session abc12
+  varlock proxy status
+  varlock proxy audit --session abc12
+  varlock proxy reload --session abc12
+  varlock proxy stop --session abc12
+  varlock proxy stop --all
+  varlock proxy prune                           # delete ALL ended session records (+ audit logs)
+  varlock proxy prune --session abc12           # delete one session's record
+  `.trim(),
+});
+
+// The real verbs are handled by `subCommands`. This parent runs only for a bare
+// `varlock proxy` or an unrecognized verb, so it just points at the surface.
+export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
+  const positionals = ((ctx as any).positionals ?? []).slice((ctx as any).commandPath?.length ?? 0);
+  const unknown = positionals[0];
+  const suggestion = 'Use one of: run, start, rules, env, status, audit, reload, stop, prune';
+  if (unknown) {
+    throw new CliExitError(`Unknown proxy action "${unknown}".`, { suggestion });
   }
+  throw new CliExitError('Missing proxy action.', { suggestion });
 };
