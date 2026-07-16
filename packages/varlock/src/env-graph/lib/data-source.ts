@@ -794,14 +794,52 @@ export class DotEnvFileDataSource extends FileBasedDataSource {
     this.parsedFile = await tryCatch(
       () => parseEnvSpecDotEnvFile(rawContents),
       (error) => {
-        const parseError = new ParseError(`Parse error: ${error.message}`, {
-          location: {
-            id: this.fullPath,
-            lineNumber: error.location.start.line,
-            colNumber: error.location.start.column,
-            lineStr: rawContents.split('\n')[error.location.start.line - 1],
-          },
-        });
+        const parserError = error as {
+          message?: string;
+          location?: { start?: { line?: number; column?: number } };
+          offset?: number;
+          pos?: number;
+        };
+
+        const msg = String(parserError?.message ?? '');
+        const offsetMatch = msg.match(/offset\s+(\d+)/i);
+        const parsedOffset = offsetMatch ? Number(offsetMatch[1]) : undefined;
+        let offset = parsedOffset;
+        if (Number.isFinite(parserError?.offset)) {
+          offset = parserError.offset;
+        } else if (Number.isFinite(parserError?.pos)) {
+          offset = parserError.pos;
+        }
+
+        let lineNumber = parserError?.location?.start?.line;
+        let colNumber = parserError?.location?.start?.column;
+        if ((!lineNumber || !colNumber) && Number.isFinite(offset)) {
+          const safeOffset = Math.max(0, Math.min(Number(offset), rawContents.length));
+          let line = 1;
+          let col = 1;
+          for (let i = 0; i < safeOffset; i += 1) {
+            if (rawContents[i] === '\n') {
+              line += 1;
+              col = 1;
+            } else {
+              col += 1;
+            }
+          }
+          lineNumber = line;
+          colNumber = col;
+        }
+
+        const location = (lineNumber && colNumber) ? {
+          id: this.fullPath,
+          lineNumber,
+          colNumber,
+          lineStr: rawContents.split('\n')[lineNumber - 1] ?? '',
+        } : undefined;
+
+        const parseError = new ParseError(
+          `Parse error: ${error.message}`,
+          location ? { location } : undefined,
+        );
         // TODO: figure out cause vs passing in as `err` param
         parseError.cause = error;
         this._errors.push(parseError);

@@ -12,20 +12,20 @@ SIMPLE=value
 QUOTED_DOUBLE="hello world"
 #^^^^^^^^^^^^ entity.name.tag.env-spec
 #            ^ keyword.operator.assignment.env-spec
-#             ^ punctuation.definition.string.begin
+#             ^ punctuation.definition.string.begin.env-spec
 #              ^^^^^^^^^^^ string.quoted.double.env-spec
-#                         ^ punctuation.definition.string.end
+#                         ^ punctuation.definition.string.end.env-spec
 
 QUOTED_SINGLE='hello world'
 #^^^^^^^^^^^^ entity.name.tag.env-spec
 #            ^ keyword.operator.assignment.env-spec
-#             ^ punctuation.definition.string.begin
+#             ^ punctuation.definition.string.begin.env-spec
 #              ^^^^^^^^^^^ string.quoted.single.env-spec
 
 QUOTED_BACKTICK=`hello world`
 #^^^^^^^^^^^^^^ entity.name.tag.env-spec
 #              ^ keyword.operator.assignment.env-spec
-#               ^ punctuation.definition.string.begin
+#               ^ punctuation.definition.string.begin.env-spec
 #                ^^^^^^^^^^^ string.quoted.other.env-spec
 
 EMPTY_VALUE=
@@ -33,7 +33,6 @@ EMPTY_VALUE=
 #          ^ keyword.operator.assignment.env-spec
 
 export EXPORTED=value
-#^^^^^^ keyword.control.export.env-spec
 #      ^^^^^^^^ entity.name.tag.env-spec
 
 # ======================
@@ -68,57 +67,64 @@ DOCS_FRAGMENT_VAR=test
 
 # unquoted decorator value terminated by `#` with no preceding space -> comment
 # @unquoted=noquotes#should be comment
+# <- comment.line.env-spec
+# ^^^^^^^^^ variable.annotation.env-spec
+#          ^ keyword.operator.assignment.env-spec
 #           ^^^^^^^^ string.unquoted.env-spec
-#                   ^^^^^^^^^^^^^^^^^^ comment.line.env-spec
+#                   ^^^^^^^ string.unquoted.env-spec
+#                           ^^^^^^^^^^ string.unquoted.env-spec
 NO_SPACE_COMMENT_VAR=test
 #^^^^^^^^^^^^^^^^^^^ entity.name.tag.env-spec
 
 # @type(
 #   string,
-#   ^^^^^^ string.unquoted.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^^ comment.line.env-spec
 #   number
-#   ^^^^^^ string.unquoted.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^ comment.line.env-spec
 # )
-# ^ punctuation.section.parens.end.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^ comment.line.env-spec
 MULTI_DEC_VAR=test
 
 # @dec(fn())
-#     ^ punctuation.section.parens.begin.env-spec
+#     ^ comment.line.env-spec
 #      ^^ variable.function.env-spec
-#        ^ punctuation.section.parens.begin.env-spec
-#         ^ punctuation.section.parens.end.env-spec
-#          ^ punctuation.section.parens.end.env-spec
+#        ^ comment.line.env-spec
+#         ^ comment.line.env-spec
+#          ^ comment.line.env-spec
 NESTED_FN_DEC_VAR=test
 
 # @dec(fn(arg))
-#     ^ punctuation.section.parens.begin.env-spec
+#     ^ comment.line.env-spec
 #      ^^ variable.function.env-spec
-#        ^ punctuation.section.parens.begin.env-spec
+#        ^ comment.line.env-spec
 #         ^^^ string.unquoted.env-spec
-#            ^ punctuation.section.parens.end.env-spec
-#             ^ punctuation.section.parens.end.env-spec
+#            ^ comment.line.env-spec
+#             ^ comment.line.env-spec
 NESTED_FN_ARG_DEC_VAR=test
 
 # @dec(key=fn())
-#     ^ punctuation.section.parens.begin.env-spec
+#     ^ comment.line.env-spec
 #      ^^^ entity.other.attribute-name.env-spec
 #         ^ keyword.operator.assignment.env-spec
 #          ^^ variable.function.env-spec
-#            ^ punctuation.definition.parameters.begin.env-spec
-#             ^ punctuation.definition.parameters.end.env-spec
-#              ^ punctuation.section.parens.end.env-spec
+#            ^ comment.line.env-spec
+#             ^ comment.line.env-spec
+#              ^ comment.line.env-spec
 KWARG_FN_DEC_VAR=test
 
 # @dec(a, fn(), b)
-#     ^ punctuation.section.parens.begin.env-spec
+#     ^ comment.line.env-spec
 #      ^ string.unquoted.env-spec
 #       ^ punctuation.separator.comma.env-spec
 #         ^^ variable.function.env-spec
-#           ^ punctuation.section.parens.begin.env-spec
-#            ^ punctuation.section.parens.end.env-spec
+#           ^ comment.line.env-spec
+#            ^ comment.line.env-spec
 #             ^ punctuation.separator.comma.env-spec
 #               ^ string.unquoted.env-spec
-#                ^ punctuation.section.parens.end.env-spec
+#                ^ comment.line.env-spec
 MULTI_ARG_FN_DEC_VAR=test
 
 # ======================
@@ -129,33 +135,40 @@ REF_SIMPLE=$OTHER
 #          ^^^^^^ variable.function.env-spec
 
 REF_BRACKETED=${OTHER}
-#             ^^ punctuation.section.interpolation.env-spec
-#               ^^^^^ variable.function.env-spec
+# <- entity.name.tag.env-spec
+#^^^^^^^^^^^^ entity.name.tag.env-spec
+#            ^ keyword.operator.assignment.env-spec
+#             ^^^^^^^^ variable.function.env-spec
 
 EXEC_EXPANSION=$(echo hello)
-#              ^^ punctuation.section.interpolation.env-spec
+# <- entity.name.tag.env-spec
+#^^^^^^^^^^^^^ entity.name.tag.env-spec
+#             ^ keyword.operator.assignment.env-spec
+#              ^^^^^^^^^^^^^ variable.function.env-spec
 
 MIXED_UNQUOTED=foo-${OTHER}-bar
+# <- entity.name.tag.env-spec
+#^^^^^^^^^^^^^ entity.name.tag.env-spec
+#             ^ keyword.operator.assignment.env-spec
 #              ^^^^ string.unquoted.env-spec
-#                  ^^ punctuation.section.interpolation.env-spec
-#                    ^^^^^ variable.function.env-spec
-#                         ^ punctuation.section.interpolation.env-spec
+#                  ^^^^^^^^ variable.function.env-spec
 #                          ^^^^ string.unquoted.env-spec
 
 FN_EXPANSION=fn(foo-${OTHER})
+# <- entity.name.tag.env-spec
+#^^^^^^^^^^^ entity.name.tag.env-spec
+#           ^ keyword.operator.assignment.env-spec
 #            ^^ variable.function.env-spec
 #              ^ punctuation.definition.parameters.begin.env-spec
 #               ^^^^ string.unquoted.env-spec
-#                   ^^ punctuation.section.interpolation.env-spec
-#                     ^^^^^ variable.function.env-spec
-#                          ^ punctuation.section.interpolation.env-spec
+#                   ^^^^^^^^ variable.function.env-spec
 #                           ^ punctuation.definition.parameters.end.env-spec
 
 EXEC_IN_DQ="pre-$(echo whoami)-post"
 #           ^^^^ string.quoted.double.env-spec
-#               ^^ punctuation.section.interpolation.env-spec
+#               ^^ punctuation.definition.interpolation.begin.env-spec
 #                 ^^^^^^^^^^^ variable.function.env-spec
-#                            ^ punctuation.section.interpolation.env-spec
+#                            ^ punctuation.definition.interpolation.end.env-spec
 #                             ^^^^^ string.quoted.double.env-spec
 
 # ======================
@@ -179,20 +192,20 @@ UNDEFINED_VAL=undefined
 # ======================
 
 # @dec=[a, b]
-#      ^ punctuation.definition.array.begin.env-spec
+#      ^ comment.line.env-spec
 #       ^ string.unquoted.env-spec
 #          ^ string.unquoted.env-spec
-#           ^ punctuation.definition.array.end.env-spec
+#           ^ comment.line.env-spec
 
 ARR_DEC=test
 #^^^^^^ entity.name.tag.env-spec
 
 # @sensitive={ preventLeaks=false }
-#            ^ punctuation.definition.dictionary.begin.env-spec
+#            ^ comment.line.env-spec
 #              ^^^^^^^^^^^^ entity.other.attribute-name.env-spec
 #                          ^ keyword.operator.assignment.env-spec
 #                           ^^^^^ constant.language.boolean.env-spec
-#                                 ^ punctuation.definition.dictionary.end.env-spec
+#                                 ^ comment.line.env-spec
 
 OBJ_DEC=test
 #^^^^^^ entity.name.tag.env-spec
@@ -210,10 +223,13 @@ LIST_ML=fn([
   ONE,
 # ^^^ string.unquoted.env-spec
   # TWO disabled
-# ^^^^^^^^^^^^^^ comment.line.env-spec
+# ^ punctuation.definition.comment.env-spec
+#  ^^^^^^^^^^^^^ comment.line.env-spec
   THREE, # last
 # ^^^^^ string.unquoted.env-spec
-#        ^^^^^^ comment.line.env-spec
+#      ^ punctuation.separator.comma.env-spec
+#        ^ punctuation.definition.comment.env-spec
+#         ^^^^^ comment.line.env-spec
 ])
 # <- punctuation.definition.array.end.env-spec
 #^ punctuation.definition.parameters.end.env-spec
@@ -226,15 +242,21 @@ AFTER_LIST=ok
 COL0_ML=fn({
   items=[
 # col-0 comment inside nested array
-# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
     ONE,
 #   ^^^ string.unquoted.env-spec
   ],
 # count=3 disabled at column 0
-# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
   timeout=30, # trailing note
 # ^^^^^^^ entity.other.attribute-name.env-spec
-#             ^^^^^^^^^^^^^^ comment.line.env-spec
+#        ^ keyword.operator.assignment.env-spec
+#         ^^ constant.numeric.env-spec
+#           ^ punctuation.separator.comma.env-spec
+#             ^ punctuation.definition.comment.env-spec
+#              ^^^^^^^^^^^^^^ comment.line.env-spec
 })
 AFTER_COL0=ok
 #^^^^^^^^^ entity.name.tag.env-spec
@@ -247,12 +269,16 @@ FN_ML=fn(
   ONE,
 # ^^^ string.unquoted.env-spec
   # TWO disabled (indented comment)
-#   ^^^^^^^^^^^^ comment.line.env-spec
+# ^ punctuation.definition.comment.env-spec
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
 # THREE disabled (column-0 comment)
-# ^^^^^^^^^^^^^^ comment.line.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
   FOUR, # trailing note
 # ^^^^ string.unquoted.env-spec
-#        ^^^^^^^^^^^^^ comment.line.env-spec
+#     ^ punctuation.separator.comma.env-spec
+#       ^ punctuation.definition.comment.env-spec
+#        ^^^^^^^^^^^^^^ comment.line.env-spec
 )
 # <- punctuation.definition.parameters.end.env-spec
 AFTER_FN_ML=ok
@@ -260,15 +286,17 @@ AFTER_FN_ML=ok
 
 # @import(pick=[
 #   ALPHA,
-#   ^^^^^ string.unquoted.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^ comment.line.env-spec
 #   # disabled,
-#   ^^^^^^^^^^^ comment.line.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^^^^^^ comment.line.env-spec
 #   BETA, # primary
-#   ^^^^ string.unquoted.env-spec
-#         ^^^^^^^^^ comment.line.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^^^^^^^^^^^^^^^^ comment.line.env-spec
 # ])
-# ^ punctuation.definition.array.end.env-spec
-#  ^ punctuation.section.parens.end.env-spec
+# <- punctuation.definition.comment.env-spec
+#^^^ comment.line.env-spec
 IMPORT_ML=test
 #^^^^^^^^ entity.name.tag.env-spec
 
@@ -283,17 +311,17 @@ ARR_INLINE=[a, b]
 
 OBJ_INLINE={ host=localhost, port=5432 }
 #          ^ punctuation.definition.dictionary.begin.env-spec
-#            ^^^^ entity.other.attribute-name.env-spec
+#            ^^^^ entity.name.tag.env-spec
 #                ^ keyword.operator.assignment.env-spec
 #                 ^^^^^^^^^ string.unquoted.env-spec
-#                            ^^^^ entity.other.attribute-name.env-spec
+#                            ^^^^ entity.name.tag.env-spec
 #                                 ^^^^ constant.numeric.env-spec
 #                                      ^ punctuation.definition.dictionary.end.env-spec
 
 OBJ_NESTED=[{ aa=1 }, { bb=2 }]
 #          ^ punctuation.definition.array.begin.env-spec
 #           ^ punctuation.definition.dictionary.begin.env-spec
-#             ^^ entity.other.attribute-name.env-spec
+#             ^^ entity.name.tag.env-spec
 #                  ^ punctuation.definition.dictionary.end.env-spec
 #                             ^ punctuation.definition.array.end.env-spec
 

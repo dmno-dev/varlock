@@ -538,3 +538,78 @@ describe('decorator parsing', () => {
     });
   });
 });
+
+describe('object/array literal edge cases (decorator context)', () => {
+  function decOf(input: string, name = 'dec') {
+    const result = parseEnvSpecDotEnvFile(input);
+    return result.configItems[0].decoratorsObject[name];
+  }
+
+  it('parses empty literals', () => {
+    expect((decOf('# @dec={}\nVAL=').value as ParsedEnvSpecObjectLiteral).simplifiedValue).toEqual({});
+    expect((decOf('# @dec=[]\nVAL=').value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual([]);
+  });
+
+  it('allows a trailing comma on a single line', () => {
+    expect((decOf('# @dec=[a, b,]\nVAL=').value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['a', 'b']);
+    expect((decOf('# @dec={a=1,}\nVAL=').value as ParsedEnvSpecObjectLiteral).simplifiedValue).toEqual({ a: 1 });
+  });
+
+  it('quoted elements can contain structural characters', () => {
+    const dec = decOf('# @dec=["a b", \'c,d\', `e]f`, "g#h"]\nVAL=');
+    expect((dec.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['a b', 'c,d', 'e]f', 'g#h']);
+  });
+
+  it('regex-like elements survive char classes and quantifiers', () => {
+    const dec = decOf('# @dec=[/^a$/, /^[A-Z]{2,3}$/i]\nVAL=');
+    expect((dec.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['/^a$/', '/^[A-Z]{2,3}$/i']);
+  });
+
+  it('function calls as literal elements', () => {
+    const dec = decOf('# @dec=[myFn(1), b]\nVAL=');
+    const values = (dec.value as ParsedEnvSpecArrayLiteral).values;
+    expectInstanceOf(values[0], ParsedEnvSpecFunctionCall);
+    expect((values[0] as ParsedEnvSpecFunctionCall).name).toBe('myFn');
+  });
+
+  it('another decorator can follow a literal on the same line', () => {
+    const result = parseEnvSpecDotEnvFile('# @sensitive={preventLeaks=false} @required\nVAL=');
+    const decs = result.configItems[0].decoratorsObject;
+    expect((decs.sensitive.value as ParsedEnvSpecObjectLiteral).simplifiedValue).toEqual({ preventLeaks: false });
+    expect(decs.required.value?.value).toBe(true);
+  });
+
+  it('`{` without valid continuation falls back to plain text (like `[`)', () => {
+    const result = parseEnvSpecDotEnvFile('# @dec={\nKEY1=v1\nVAL=');
+    expect(result.configItems.map((i) => i.key)).toEqual(['KEY1', 'VAL']);
+  });
+
+  it('multi-line literal with CRLF newlines', () => {
+    const dec = decOf('# @dec=[\r\n#   a,\r\n#   b,\r\n# ]\r\nVAL=');
+    expect((dec.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['a', 'b']);
+  });
+
+  it('continuation lines may be indented', () => {
+    const dec = decOf('# @dec=[\n  #   a,\n  #   b,\n# ]\nVAL=');
+    expect((dec.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['a', 'b']);
+  });
+
+  it('tolerates an empty `#` continuation line', () => {
+    const dec = decOf('# @dec=[\n#\n#   a,\n# ]\nVAL=');
+    expect((dec.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['a']);
+  });
+
+  it('literal in an inline (post-value) decorator comment', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=foo # @dec=[a, b]\n');
+    const dec = result.configItems[0].decoratorsObject.dec;
+    expect((dec.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['a', 'b']);
+  });
+
+  it('multi-line fn-call literal in an inline decorator comment', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=foo # @import(pick=[\n#   A,\n#   B,\n# ])\n');
+    const args = result.configItems[0].decoratorsObject.import.bareFnArgs!;
+    const pick = args.values[0] as any;
+    expect(pick.key).toBe('pick');
+    expect((pick.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['A', 'B']);
+  });
+});

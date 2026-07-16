@@ -225,3 +225,34 @@ describe('regex-like strings and paths with slashes', () => {
     expect(args[0].value.value).toEqual('/^https:\\/\\//');
   });
 });
+
+// Top-level unquoted values run to `#` / end-of-line and may contain almost anything
+// (grammar: `[^#\n]+`) — these lock parity for characters that are structural elsewhere.
+describe('unquoted values with special characters', basicValueTests([
+  ['a=b', 'a=b'],
+  ['a, b', 'a, b'],
+  ['[1, 2]', '[1, 2]'],
+  ['{not="a literal"}', '{not="a literal"}'],
+  ['@foo', '@foo'],
+  ['user@host.com', 'user@host.com'],
+  ['export foo', 'export foo'],
+  ['foo bar(1)', 'foo bar(1)'],
+  ['1 B=2', '1 B=2'],
+]));
+
+describe('email-like text in comments is not a decorator', () => {
+  it('standalone comment', () => {
+    const result = parseEnvSpecDotEnvFile('# email@asdf.com\nVAL=foo\n');
+    const item = result.configItems[0];
+    expect(Object.keys(item.decoratorsObject)).toEqual([]);
+    expect(item.description).toBe('email@asdf.com');
+  });
+
+  it('trailing comment', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=foo # contact email@asdf.com\n');
+    const item = result.configItems[0];
+    expect(Object.keys(item.decoratorsObject)).toEqual([]);
+    expect(item.value?.value).toBe('foo');
+    expect(item.data.postComment?.toString()).toContain('email@asdf.com');
+  });
+});

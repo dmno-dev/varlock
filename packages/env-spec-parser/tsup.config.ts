@@ -11,4 +11,5 @@ export default defineConfig({
   format: ['esm', 'cjs'], // Output format(s)
   splitting: true,
   keepNames: true, // stops build from prefixing our class names with `_` in some cases
+  noExternal: ['monogram'],
 });

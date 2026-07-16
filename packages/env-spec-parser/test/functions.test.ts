@@ -335,3 +335,35 @@ describe('object/array literals in item values (multi-line + comments)', () => {
     expect((arg as ParsedEnvSpecObjectLiteral).simplifiedValue).toEqual({ items: [1, 3] });
   });
 });
+
+describe('object/array literal edge cases (item-value context)', () => {
+  function firstArg(input: string) {
+    const file = parseEnvSpecDotEnvFile(input);
+    const fn = file.configItems[0].value as ParsedEnvSpecFunctionCall;
+    expect(fn).toBeInstanceOf(ParsedEnvSpecFunctionCall);
+    return fn.data.args.values[0];
+  }
+
+  it('coerces numbers/bools/undefined inside literals', () => {
+    const arg = firstArg('ITEM=fn([1, 2.5, true, undefined])');
+    expect((arg as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual([1, 2.5, true, undefined]);
+  });
+
+  it('nested single-line object in a keyword arg', () => {
+    const file = parseEnvSpecDotEnvFile('ITEM=fn(retry={count=3, backoff=[1, 2]})');
+    const fn = file.configItems[0].value as ParsedEnvSpecFunctionCall;
+    const kv = fn.data.args.values[0] as any;
+    expect(kv.key).toBe('retry');
+    expect((kv.value as ParsedEnvSpecObjectLiteral).simplifiedValue).toEqual({ count: 3, backoff: [1, 2] });
+  });
+
+  it('a glued `#` stays part of a literal element', () => {
+    const arg = firstArg('ITEM=fn([a#b, c])');
+    expect((arg as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['a#b', 'c']);
+  });
+
+  it('whitespace-only interior lines do not break a multi-line literal', () => {
+    const arg = firstArg('ITEM=fn([\n  a,\n   \n  b,\n])');
+    expect((arg as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['a', 'b']);
+  });
+});

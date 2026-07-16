@@ -1,6 +1,6 @@
 {
   "name": "@env-spec/parser",
-  "version": "0.4.1",
+  "version": "0.3.3",
   "description": "Parser for @env-spec enabled dotenv files",
   "homepage": "https://varlock.dev",
   "bugs": "https://github.com/dmno-dev/varlock/issues",
@@ -20,16 +20,14 @@
     }
   },
   "scripts": {
-    "dev": "bun run --parallel dev:grammar dev:ts",
-    "dev:grammar": "bun run build:grammar:watch",
+    "dev": "bun run dev:ts",
     "dev:ts": "tsup --watch",
-    "build:grammar": "peggy -c peggy.config.cjs",
-    "build:grammar:watch": "peggy -c peggy.config.cjs -w",
     "build:lib": "tsup",
-    "build": "bun run build:grammar && bun run build:lib",
-    "test": "bun run --parallel build:grammar:watch _test:watch",
-    "_test:watch": "vitest",
-    "test:ci": "bun run build:grammar && vitest --run",
+    "build": "bun run build:lib",
+    "generate:monogram": "bun run scripts/generate-monogram-artifacts.ts",
+    "bench:parsers": "bun run scripts/benchmark-parsers.ts",
+    "test": "vitest",
+    "test:ci": "vitest --run",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
@@ -50,9 +48,10 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "ansis": "catalog:",
+    "monogram": "github:dmno-dev/monogram#1f1f4c2c",
     "outdent": "catalog:",
-    "peggy": "^5.0.6",
     "tsup": "catalog:",
     "vitest": "catalog:"
-  }
+  },
+  "dependencies": {}
 }
