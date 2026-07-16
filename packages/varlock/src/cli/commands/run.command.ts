@@ -8,7 +8,6 @@ import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { getCliItemFilter } from '../helpers/item-filter';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
-import { CliExitError } from '../helpers/exit-error';
 import { REDACT_STDOUT_ARG, resolveStdoutRedaction, pipeRedactedStreams } from '../helpers/stdout-redaction';
 import { buildInjectedBlobEnv } from '../helpers/injected-env-blob';
 import { resolveInjectMode } from '../helpers/inject-mode';
@@ -157,9 +156,6 @@ function signalChild(signal: NodeJS.Signals | number) {
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   // if "--" is present, split the args into our command and the rest, which will be another external command
   const argv = process.argv.slice(2);
-  if (argv.includes('--proxy')) {
-    throw new CliExitError('`varlock run` no longer supports `--proxy`.');
-  }
   let restCommandArgs: Array<string> = [];
   if (argv.includes('--')) {
     const doubleDashIndex = argv.indexOf('--');
