@@ -131,7 +131,7 @@
     },
     "packages/integrations/nextjs": {
       "name": "@varlock/nextjs-integration",
-      "version": "1.1.5",
+      "version": "1.1.6",
       "devDependencies": {
         "@babel/parser": "^7.29.3",
         "@env-spec/utils": "workspace:^",

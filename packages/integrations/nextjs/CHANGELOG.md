@@ -11,6 +11,13 @@
 
 
 
+
+## 1.1.6
+<sub>2026-07-16</sub>
+
+- [#886](https://github.com/dmno-dev/varlock/pull/886)  *(patch)* Thanks [@mhornbacher](https://github.com/mhornbacher)!
+  Preserve all "use ..." directives (e.g. "use cache", "use cache: remote", "use workflow", "use memo") including stacked ones, instead of only a fixed set
+
 ## 1.1.5
 <sub>2026-07-15</sub>
 
