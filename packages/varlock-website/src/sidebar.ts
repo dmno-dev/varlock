@@ -35,6 +35,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
       { label: 'MCP', slug: 'guides/mcp' },
       { label: 'AI Tools', slug: 'guides/ai-tools' },
       { label: 'Credential proxy', slug: 'guides/proxy', badge: 'new' },
+      { label: 'Sandboxing', slug: 'guides/sandboxing', badge: 'new' },
     ],
   },
   {

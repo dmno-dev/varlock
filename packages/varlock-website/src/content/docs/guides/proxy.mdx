@@ -55,7 +55,7 @@ Most other credential brokers require you to store secrets in their tool, or wor
 </figure>
 
 :::caution[Preview]
-The credential proxy is an early preview, and its API is not yet stable: while in preview its flags, decorators, and behavior may change (including breaking changes) in minor releases before it's finalized in a future major, so pin your varlock version if you depend on it. Its core protection (placeholder isolation + verified-identity wire injection) is solid, but on its own it runs as the same user as the agent, so it raises the bar rather than being a hard boundary. Pair it with an OS sandbox or container and it becomes a real one. Read [Limitations](#limitations) before relying on it as a security boundary.
+The credential proxy is an early preview, and its API is not yet stable: while in preview its flags, decorators, and behavior may change (including breaking changes) in minor releases before it's finalized in a future major, so pin your varlock version if you depend on it. Its core protection (placeholder isolation + verified-identity wire injection) is solid, but on its own it runs as the same user as the agent, so it raises the bar rather than being a hard boundary. Pair it with an OS sandbox or container and it becomes a real one. See [Sandboxing](/guides/sandboxing/), and read [Limitations](#limitations) before relying on it as a security boundary.
 :::
 
 ```diff lang="env-spec" title=".env.schema"
@@ -354,52 +354,19 @@ Whether reload is available is set by [`@proxyConfig={reload=...}`](/reference/r
 
 ## Sandboxing
 
-On its own the proxy runs as the same user as the agent, so its in-tree guards (placeholder isolation, the schema-fingerprint check) raise the bar but are **not a hard boundary** — a determined agent can spawn a process outside the proxy's view (e.g. reparented via `setsid`) and reach a secret's source directly. Wrapping the agent in an OS sandbox closes this: it removes the *capability* to reach a resolution source or egress off-loopback, so evading process detection buys nothing.
-
-### Built-in: `--sandbox` (macOS)
+On its own the proxy raises the bar but is not a hard boundary: a determined same-uid agent can still reach a secret's source. Close that with `--sandbox` so the child's only network path is the proxy:
 
 ```bash
 varlock proxy run --sandbox -- claude
 ```
 
-Adds `--sandbox` to a self-owned `proxy run` to run the child inside a minimal, built-in **credential + egress jail** (macOS `sandbox-exec`, no install). The jail keeps the agent, varlock, and integrations fully working while denying exactly the escape routes:
-
-- **Egress** — only loopback is reachable, so the proxy on `127.0.0.1` becomes the child's *sole* path to the network. A process that scrubs its `HTTPS_PROXY`/`HTTP_PROXY` env to bypass the proxy simply can't connect.
-- **Credential material** — reads of the user varlock dir (the encryption key, plugin/credential cache, and the proxy session/reload channel) are denied, and so are unix-socket connections into it. The daemon that decrypts local secrets listens on a socket under that dir; a file-read deny does not gate a socket connection, so that connection is blocked separately, otherwise a child could reach the warm daemon and have it decrypt for them.
-- **The macOS keychain** — `mach-lookup` to the keychain daemons (`securityd` / `SecurityServer`) is denied, so the agent can't read keychain secrets directly (via `security` or `SecItemCopyMatching`). TLS trust evaluation (`trustd`) is left allowed, so HTTPS still works.
-- **Warm credential agents** — `mach-lookup` to the 1Password helper (and similar) is denied, so the agent can't drive a warm `op` session directly.
-
-It's **opt-in** by design (a jail that's too tight silently breaks an agent, so we don't force it on). Bare `--sandbox` is macOS-only today; on Linux (or for stronger isolation) use `--sandbox=docker` below.
-
-### Container: `--sandbox=docker`
-
-```bash
-varlock proxy run --sandbox=docker --sandbox-image <image> -- claude
-```
-
-Runs the child in a container (`docker`, or `--sandbox=podman`) whose **only** network egress is the proxy, while your secrets and the resolution machinery stay on the host. varlock wires this up for you:
-
-- The agent container runs on an **`--internal` network** — it has no route to the internet at all, so raw egress fails closed.
-- A tiny **forwarder** container (a `socat` byte-relay holding no secrets) sits on that network as `varlock-proxy` and bridges to the host proxy. The agent's `HTTPS_PROXY` points at it, so every request goes host proxy → policy check → wire injection.
-- Your cwd is mounted as the working directory and the proxy's public CA is mounted read-only so the container trusts the MITM.
-
-Secrets never enter any container: the host proxy resolves them (keeping your encryption key, keychain/enclave, and warm `op` session on the host) and injects the real value onto the wire; the container only ever holds placeholders. Both networks and the forwarder are torn down when the command exits.
-
-`--sandbox-image` is required — it must be an image that contains your command (e.g. a devcontainer image with `claude` installed); varlock can't know your toolchain. The first run pulls a small `socat` image for the forwarder.
-
-:::note[Why not "run the proxy on the host and point the container at it"?]
-An `--internal` docker network can't reach the host at all (that's what makes it a real egress boundary), so the proxy has to be reachable *as a peer on that network*. The forwarder is the minimal way to do that without moving secret custody off the host.
-:::
-
-### Other runtimes & VMs
-
-For Apple `container`, microsandbox, or a full VM, run the agent inside it with egress routed through the proxy on a host-reachable address. This is the VM-grade tier and covers the filesystem and process table too. See the sandbox guide for per-runtime recipes.
+Bare `--sandbox` is a built-in macOS jail (loopback-only egress + credential-path and keychain denials). Use `--sandbox=docker` (or `=podman`) for a container whose only egress is the host proxy. Details, flags, and third-party recipes: [Sandboxing](/guides/sandboxing/).
 
 ## Limitations
 
 The proxy is a local, same-machine tool. Know what it does and doesn't cover before relying on it:
 
-- **Same host, same user.** The proxy runs as you, and so does the agent. It stops the agent from *trivially reading* a secret it's *using*, but on its own it is **not a sandbox**: it doesn't isolate the filesystem, other processes, or memory. A determined agent can spawn a process outside the proxy's view (e.g. reparented via `setsid`) and resolve secrets directly from their source; the in-tree guards (placeholder isolation, the schema-fingerprint check) raise the bar but are not a hard boundary. Add [`--sandbox`](#sandboxing) (or a container/VM) for a real isolation boundary.
+- **Same host, same user.** The proxy runs as you, and so does the agent. It stops the agent from *trivially reading* a secret it's *using*, but on its own it is **not a sandbox**: it doesn't isolate the filesystem, other processes, or memory. A determined agent can spawn a process outside the proxy's view (e.g. reparented via `setsid`) and resolve secrets directly from their source; the in-tree guards (placeholder isolation, the schema-fingerprint check) raise the bar but are not a hard boundary. Add [`--sandbox`](/guides/sandboxing/#built-in-sandbox) (or a container/VM; see [Sandboxing](/guides/sandboxing/)) for a real isolation boundary.
 - **Response scrubbing is best-effort.** Responses are scrubbed back to placeholders only for **small, uncompressed text** bodies. **Compressed (gzip/br) or large (>2&nbsp;MB) response bodies are passed through unscrubbed**: the proxy can't scan into them. This only matters if an upstream *reflects your secret back in its response* (uncommon); the primary protection (the agent only ever holds a placeholder) is unaffected.
 - **Injection requires a verified public-TLS host.** Secrets are injected only onto connections whose TLS identity is verified against public CAs. The proxy refuses to inject over cleartext `http://` or into a self-signed/local upstream, by design.
 - **Default egress is not containment.** `egress=permissive` (the default) does not restrict where the agent can connect; it just never injects to unmatched hosts. Use `egress=strict` (and ideally a sandbox) if you want to constrain egress.
@@ -411,4 +378,5 @@ The proxy is a local, same-machine tool. Know what it does and doesn't cover bef
 - [`@proxyConfig`](/reference/root-decorators/#proxyconfig) and [`@proxy`](/reference/root-decorators/#proxy) root decorators
 - [`@proxy`](/reference/item-decorators/#proxy) item decorator
 - [`varlock proxy`](/reference/cli-commands/#proxy) CLI commands
+- [Sandboxing](/guides/sandboxing/)
 - [AI Tools guide](/guides/ai-tools/)

@@ -1,0 +1,396 @@
+---
+title: Sandboxing
+description: Pair the credential proxy with an OS sandbox so agents get isolation while secrets stay as placeholders until varlock injects them at the wire.
+---
+
+The [credential proxy](/guides/proxy/) stops an agent from *trivially reading* secrets it needs to *use*. On its own it still runs as you on the same machine, so it raises the bar rather than drawing a hard boundary. Pair it with an OS sandbox and you get both: the sandbox contains the agent; varlock holds the real credentials and injects them only on verified upstream connections.
+
+## Why sandbox + proxy
+
+On its own the proxy's in-tree guards (placeholder isolation, the schema-fingerprint check) raise the bar but are **not a hard boundary**: a determined agent can spawn a process outside the proxy's view (for example reparented via `setsid`) and reach a secret's source directly. Wrapping the agent in an OS sandbox closes this. It removes the *capability* to reach a resolution source or egress off-loopback, so evading process detection buys nothing.
+
+| Layer | Job |
+|---|---|
+| **Sandbox** | Isolate filesystem, processes, and (where configured) network from the rest of your machine |
+| **Credential proxy** (varlock) | Give the agent placeholders; swap in real secrets only toward allowlisted hosts |
+
+A sandbox without a credential broker often still puts real keys in the guest (env files, keychain pinholes, mounted config). A proxy without a sandbox leaves a determined agent on your uid with paths around the proxy. Use both.
+
+## Built-in sandbox
+
+Start here when you want isolation without installing a third-party sandbox. Add `--sandbox` to a self-owned `proxy run` (it does not apply when attaching to an existing `proxy start` session).
+
+### macOS: `--sandbox`
+
+```bash
+varlock proxy run --sandbox -- claude
+```
+
+Runs the child inside a minimal, built-in **credential + egress jail** (macOS `sandbox-exec`, no install). The jail keeps the agent, varlock, and integrations working while denying exactly the escape routes:
+
+- **Egress**: only loopback is reachable, so the proxy on `127.0.0.1` becomes the child's *sole* path to the network. A process that scrubs its `HTTPS_PROXY` / `HTTP_PROXY` env to bypass the proxy simply cannot connect.
+- **Credential material**: reads of the user varlock dir (the encryption key + local-encrypt socket, plugin/credential cache, and the proxy session/reload channel) are denied.
+- **Warm credential agents**: `mach-lookup` to the 1Password helper (and similar) is denied, so the agent cannot drive a warm `op` session directly.
+
+It's **opt-in** by design (a jail that's too tight silently breaks an agent, so we don't force it on). Bare `--sandbox` is macOS-only today; on Linux (or for stronger isolation) use `--sandbox=docker` below.
+
+### Container: `--sandbox=docker`
+
+```bash
+varlock proxy run --sandbox=docker --sandbox-image <image> -- claude
+```
+
+Runs the child in a container (`docker`, or `--sandbox=podman`) whose **only** network egress is the proxy, while your secrets and the resolution machinery stay on the host. varlock wires this up for you:
+
+- The agent container runs on an **`--internal` network**: it has no route to the internet at all, so raw egress fails closed.
+- A tiny **forwarder** container (a `socat` byte-relay holding no secrets) sits on that network as `varlock-proxy` and bridges to the host proxy. The agent's `HTTPS_PROXY` points at it, so every request goes host proxy → policy check → wire injection.
+- Your cwd is mounted as the working directory and the proxy's public CA is mounted read-only so the container trusts the MITM.
+
+Secrets never enter any container: the host proxy resolves them (keeping your encryption key, keychain/enclave, and warm `op` session on the host) and injects the real value onto the wire; the container only ever holds placeholders. Both networks and the forwarder are torn down when the command exits.
+
+`--sandbox-image` is required. It must be an image that contains your command (for example a devcontainer image with `claude` installed); varlock can't know your toolchain. The first run pulls a small `socat` image for the forwarder.
+
+:::note[Why not "run the proxy on the host and point the container at it"?]
+An `--internal` docker network can't reach the host at all (that's what makes it a real egress boundary), so the proxy has to be reachable *as a peer on that network*. The forwarder is the minimal way to do that without moving secret custody off the host.
+:::
+
+## Third-party sandboxes
+
+The sections below cover open-source, easy-to-install sandboxes that do **not** ship their own credential broker, so varlock stays the wire injector. Prefer [built-in `--sandbox`](#built-in-sandbox) when it fits; use these when you already run that tool, need Windows, or want a different isolation model.
+
+| Sandbox | Isolation | Platforms |
+|---|---|---|
+| [Minimal](#minimal) | Task / microVM or process sandbox | macOS, Linux |
+| [Fence](#fence) | Seatbelt / bubblewrap + domain allowlist | macOS, Linux |
+| [yolobox](#yolobox) | Container (home dir stays on the host) | macOS, Linux |
+| [Agent Safehouse](#agent-safehouse) | Deny-first Seatbelt profiles | macOS |
+| [bubblewrap](#bubblewrap) | Linux namespaces (DIY) | Linux |
+| [MXC](#mxc-windows) | Windows AppContainer (`processcontainer`) | Windows 11 |
+
+Tools that already broker credentials at the network boundary (Docker Sandboxes, microsandbox, Anthropic `srt` credential `mask`, and similar) are out of scope here: use those on their own, or wait for varlock host bridging if you want varlock as the broker inside a microVM that cannot reach host loopback.
+
+### Shared setup
+
+1. Varlock [installed](/getting-started/installation/) with a working `.env.schema` whose secrets resolve (plugin, encrypted local values, or similar).
+2. Familiarity with the [credential proxy](/guides/proxy/) quick start: mark items with [`@proxy(domain=...)`](/reference/item-decorators/#proxy).
+3. The sandbox CLI for the section you follow (install commands are inline below).
+
+```env-spec title=".env.schema"
+# @proxyConfig={egress="strict"}
+# ---
+# @sensitive
+# @proxy(domain="api.anthropic.com")
+# @placeholder=sk-ant-api03-000000000000000000000000
+ANTHROPIC_API_KEY=yourPreferredPlugin()
+```
+
+Use `@placeholder` when the agent or SDK checks key shape at startup. See [Placeholders](/guides/proxy/#placeholders) and the [Claude Code note](/guides/proxy/#quick-start) on the proxy guide. Wire Claude through [`ANTHROPIC_API_KEY`](/guides/ai-tools/), not a subscription OAuth token.
+
+For recipes that pass env into an external sandbox (rather than `proxy run --sandbox`), start a durable proxy session on the host first:
+
+```bash
+varlock proxy start
+```
+
+## Minimal
+
+[Minimal](https://minimal.dev/) runs tasks in an isolated sandbox ([task sandbox](https://docs.minimal.dev/concepts/sandboxing)). Start varlock on the **host**, pass the proxy/CA/placeholder environment into the Minimal task, then run the agent inside Minimal so outbound HTTPS goes through varlock.
+
+```bash
+eval "$(varlock proxy env)"
+minimal run claude   # or: minimal run <your-agent-task>
+```
+
+`varlock proxy env` prints the child view for the active session: placeholder values for proxied secrets, plus `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`, `NO_PROXY`, and CA trust vars (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, and related). Sourcing it before `minimal run` forwards that environment when Minimal inherits the launching shell's env.
+
+:::tip[One-shot alternative]
+```bash
+varlock proxy run -- minimal run claude
+```
+
+Prefer `proxy start` + `proxy env` when you want a durable session log while you iterate on the sandbox task.
+:::
+
+Confirm the agent sees placeholders, not real secrets:
+
+```bash
+# inside the Minimal task / agent shell, after env was passed through
+printenv ANTHROPIC_API_KEY
+# expect something like sk-ant-api03-0000… (your @placeholder), not the vault value
+```
+
+### Verify on your install
+
+Minimal's isolation mode affects whether the guest can reach the host proxy:
+
+- **Linux process sandboxing** that still shares host loopback can use `HTTP_PROXY=http://127.0.0.1:<port>` as emitted by `proxy env`.
+- **microVM** isolation typically cannot reach the host's `127.0.0.1`. Varlock's proxy currently binds loopback only; non-loopback "sandbox bridging" is not available yet. If `minimal run` cannot connect through the proxy on your platform, that is the gap to watch, not a misconfigured schema.
+
+If HTTPS clients inside the sandbox fail TLS handshake, confirm the CA bundle vars from `proxy env` were actually present in the task environment (not only on the host shell that launched Minimal).
+
+### Claude Code and host key pinholes
+
+Minimal's `claude-code` package can wire host paths such as `~/.claude` into the task sandbox so Claude can keep state and find an API key on disk. That pinhole is useful for agent state, but it undercuts credential isolation if the real key lives there.
+
+For secrets you mark with `@proxy`, prefer the placeholder + proxy path above, and avoid relying on a real key file inside the sandbox for those same credentials.
+
+## Fence
+
+[Fence](https://github.com/fencesandbox/fence) wraps agents in Seatbelt (macOS) or bubblewrap (Linux), with filesystem rules, command denies, and a domain allowlist proxy. It does **not** inject credentials; that stays varlock's job.
+
+### Install
+
+```bash
+brew tap fencesandbox/tap
+brew install fencesandbox/tap/fence
+```
+
+On Linux, also install `bubblewrap` and `socat` (for example `sudo apt install bubblewrap socat`).
+
+### Wire Fence through varlock
+
+Fence's own proxy enforces domain policy. Important detail from Fence's [upstream proxy docs](https://github.com/fencesandbox/fence/blob/main/docs/configuration.md): traffic that matches `allowedDomains` goes **direct** to the origin and **bypasses** `upstreamProxy`. Hosts that need varlock injection must therefore sit in the grey zone (not listed in `allowedDomains`), with `defaultAction: "proxy"` and `upstreamProxy` pointed at varlock.
+
+1. Start varlock (`varlock proxy start`) and read its URL:
+
+```bash
+VARLOCK_PROXY=$(varlock proxy env --format json | jq -r .HTTPS_PROXY)
+echo "$VARLOCK_PROXY"   # e.g. http://127.0.0.1:54321
+```
+
+2. Project `fence.json` (extends the `code` template; keep package registries on the allowlist so they stay direct; leave model API hosts for varlock):
+
+```json title="fence.json"
+{
+  "$schema": "https://raw.githubusercontent.com/fencesandbox/fence/main/docs/schema/fence.schema.json",
+  "extends": "code",
+  "network": {
+    "allowedDomains": [
+      "github.com",
+      "*.npmjs.org",
+      "registry.yarnpkg.com",
+      "registry.npmjs.org"
+    ],
+    "deniedDomains": ["169.254.169.254"],
+    "defaultAction": "proxy",
+    "upstreamProxy": "http://127.0.0.1:54321"
+  }
+}
+```
+
+Replace `upstreamProxy` with the live `$VARLOCK_PROXY` value each session (or generate `fence.json` from a small script). Only `http://` upstream URLs are supported by Fence today.
+
+3. Export placeholders + CA trust, then launch:
+
+```bash
+eval "$(varlock proxy env)"
+fence --settings ./fence.json -- claude
+```
+
+The agent talks to Fence's local proxy first. Grey-zone hosts (including `api.anthropic.com` when it is not in `allowedDomains`) forward to varlock, which injects secrets under your `@proxy` rules. Keep `@proxyConfig={egress="strict"}` so unmatched grey-zone destinations die at varlock instead of leaking outbound.
+
+:::note[CA trust]
+Varlock MITMs HTTPS with an ephemeral CA. Keep the CA env vars from `proxy env` in the process Fence launches (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, and related). If TLS handshakes fail after wiring `upstreamProxy`, confirm those vars survived into the sandboxed agent.
+:::
+
+## yolobox
+
+[yolobox](https://yolobox.dev/) runs the agent inside a container with your project mounted at its real path and your home directory left on the host. It has optional credential *forwarding* (real env into the box); skip that and use varlock placeholders instead.
+
+### Install
+
+```bash
+brew install finbarr/tap/yolobox
+# or: curl -fsSL https://raw.githubusercontent.com/finbarr/yolobox/master/install.sh | bash
+```
+
+### Launch with proxy env
+
+```bash
+eval "$(varlock proxy env)"
+yolobox claude
+```
+
+By default yolobox can pass host env into the container. That is what you want for `HTTP_PROXY`, CA paths, and placeholders. Do **not** use yolobox flags that forward real API keys or mount host secret dirs for credentials you already marked `@proxy`.
+
+:::caution[Container loopback]
+The guest's `127.0.0.1` is not the host's. Varlock binds loopback only today, so `HTTP_PROXY=http://127.0.0.1:<port>` from `proxy env` may not reach the host proxy from inside the container. Verify on your runtime (Docker Desktop `host.docker.internal`, Podman host gateway, or Apple container networking). Until varlock supports non-loopback sandbox bridging, treat yolobox + proxy as "works when the container can dial the host proxy address."
+:::
+
+For a tighter box, still exclude project secret files you do not want the agent to read:
+
+```bash
+eval "$(varlock proxy env)"
+yolobox claude --exclude ".env*" --exclude "secrets/**"
+```
+
+## Agent Safehouse
+
+[Agent Safehouse](https://github.com/eugene1g/agent-safehouse) is a macOS Seatbelt wrapper with deny-first, composable profiles for coding agents. It hardens filesystem access; it does not broker credentials.
+
+### Install
+
+```bash
+brew install eugene1g/safehouse/agent-safehouse
+```
+
+### Launch with proxy env
+
+Seatbelt shares the host network, so host loopback from `proxy env` works:
+
+```bash
+eval "$(varlock proxy env)"
+safehouse claude --dangerously-skip-permissions
+```
+
+Or a shell alias that always sources the proxy session first:
+
+```bash
+# ~/.zshrc
+safe-claude() {
+  eval "$(varlock proxy env)"
+  safehouse claude --dangerously-skip-permissions "$@"
+}
+```
+
+Tune profiles with `--add-dirs-ro`, `--append-profile`, and the [Safehouse docs](https://agent-safehouse.dev/docs/) so the agent can only read what it needs; keep real secrets out of those paths when they are proxied via varlock.
+
+## bubblewrap
+
+[bubblewrap](https://github.com/containers/bubblewrap) is the Linux namespace primitive behind Fence and many other sandboxes. Use it directly when you want a minimal DIY jail without Fence's policy layer.
+
+### Install
+
+```bash
+# Debian / Ubuntu
+sudo apt install bubblewrap
+
+# Fedora
+sudo dnf install bubblewrap
+```
+
+For a higher-level wrapper around per-project bubblewrap configs, see [sandbox-run](https://codeberg.org/Grauwolf/sandbox-run).
+
+### Launch with proxy env
+
+Share the host network so the jail can reach varlock on loopback, bind your project read-write, and keep the rest of `$HOME` out:
+
+```bash
+eval "$(varlock proxy env)"
+
+bwrap \
+  --die-with-parent \
+  --unshare-pid \
+  --share-net \
+  --ro-bind /usr /usr \
+  --ro-bind /bin /bin \
+  --ro-bind /lib /lib \
+  --ro-bind /lib64 /lib64 \
+  --ro-bind /etc /etc \
+  --bind "$PWD" "$PWD" \
+  --chdir "$PWD" \
+  --dev /dev \
+  --proc /proc \
+  --tmpfs /tmp \
+  -- claude
+```
+
+Adjust binds for your distro layout and tools (`node`, agent binaries under `/home`, etc.). Prefer Fence if you want packaged agent templates and domain allowlisting without maintaining a long `bwrap` line.
+
+:::note
+`--share-net` is what keeps `HTTP_PROXY=http://127.0.0.1:…` meaningful. A fully unshared network namespace cannot dial the host loopback proxy without extra bridging.
+:::
+
+## MXC (Windows)
+
+[Microsoft eXecution Containers (MXC)](https://github.com/microsoft/mxc) is an open-source (MIT), policy-driven sandbox SDK. On Windows 11 24H2+ its default backend is `processcontainer` (AppContainer-style process isolation). It does **not** broker credentials; it can force outbound HTTP(S) through a localhost proxy, which is the hook for varlock.
+
+:::caution[Preview]
+MXC is an early public preview. Microsoft documents that some generated policies are still overly permissive and should not be treated as a hard security boundary yet. Pair it with varlock for credential isolation, and keep tightening MXC filesystem policy as the project matures.
+:::
+
+### Install
+
+Requires Windows 11 24H2+ (build 26100+) for `processcontainer`, and Node.js 18+.
+
+```powershell
+npm install @microsoft/mxc-sdk
+```
+
+### Wire MXC through varlock
+
+1. Start the proxy on the host (`varlock proxy start`).
+2. In PowerShell, load placeholders + CA trust from JSON (bash-style `eval "$(varlock proxy env)"` is for Unix shells; on Windows prefer `--format json`):
+
+```powershell
+$envMap = varlock proxy env --format json | ConvertFrom-Json
+$envMap.PSObject.Properties | ForEach-Object { Set-Item -Path "Env:$($_.Name)" -Value $_.Value }
+$port = ([uri]$env:HTTPS_PROXY).Port
+Write-Host "varlock proxy port: $port"
+```
+
+3. Point MXC's process-container network at that port. MXC's [external proxy example](https://github.com/microsoft/mxc/blob/main/docs/examples.md) routes sandbox traffic to `localhost:<port>`:
+
+```json title="mxc-agent.json"
+{
+  "script": "claude",
+  "timeout": 0,
+  "processContainer": {
+    "name": "varlock-agent",
+    "capabilities": ["internetClient"]
+  },
+  "filesystem": {
+    "readwritePaths": ["C:\\path\\to\\your\\project"]
+  },
+  "network": {
+    "proxy": { "localhost": 54321 }
+  }
+}
+```
+
+Replace `54321` with `$port` from step 2, and set `readwritePaths` to your project. Keep `@proxyConfig={egress="strict"}` in `.env.schema` so only declared hosts get secrets. Host allow/block lists are not enforced on Windows yet in MXC; varlock's egress rules cover injection scope.
+
+4. Launch with a small Node script (or `wxc-exec.exe` if you build the native binary from the [MXC repo](https://github.com/microsoft/mxc)):
+
+```typescript title="run-sandboxed-agent.ts"
+import { readFileSync } from 'node:fs';
+import { spawnSandboxFromConfig } from '@microsoft/mxc-sdk';
+
+const proxyUrl = process.env.HTTPS_PROXY;
+if (!proxyUrl) {
+  throw new Error('Load varlock proxy env first (HTTPS_PROXY missing)');
+}
+const port = Number(new URL(proxyUrl).port);
+
+const config = JSON.parse(readFileSync('./mxc-agent.json', 'utf8'));
+config.network = { proxy: { localhost: port } };
+config.script = process.argv.slice(2).join(' ') || config.script;
+
+const child = spawnSandboxFromConfig(config, { usePty: true });
+child.on('exit', (code: number | null) => process.exit(code ?? 1));
+```
+
+```powershell
+npx tsx run-sandboxed-agent.ts claude
+```
+
+The child inherits the placeholder + CA environment you set in PowerShell. MXC's `network.proxy` steers AppContainer egress at varlock on loopback, which the host process can reach.
+
+:::tip[WSL on Windows]
+If you already develop under WSL2, you can run the [Fence](#fence) or [bubblewrap](#bubblewrap) recipes inside the distro instead. Start `varlock proxy` in the same WSL environment (or confirm the Windows-side loopback address the distro can reach) so `HTTP_PROXY` still points at a reachable proxy.
+:::
+
+## What's next
+
+For Apple `container`, microsandbox, or a full VM, run the agent inside it with egress routed through the proxy on a host-reachable address. That is the VM-grade tier and covers the filesystem and process table too.
+
+MicroVM-style sandboxes that cannot reach host loopback (and products that already run their own credential proxy) need varlock reachable on the guest data plane. Until that bridging exists, prefer [built-in `--sandbox`](#built-in-sandbox), the process / Seatbelt / AppContainer recipes above, or container tools only when you have confirmed a host-gateway path to the proxy.
+
+## Reference
+
+- [Credential proxy](/guides/proxy/)
+- [`varlock proxy`](/reference/cli-commands/#proxy) CLI
+- [`@proxy`](/reference/item-decorators/#proxy) / [`@proxyConfig`](/reference/root-decorators/#proxyconfig)
+- [Minimal sandboxing](https://docs.minimal.dev/concepts/sandboxing)
+- [Fence](https://github.com/fencesandbox/fence) / [yolobox](https://yolobox.dev/) / [Agent Safehouse](https://agent-safehouse.dev/) / [bubblewrap](https://github.com/containers/bubblewrap) / [MXC](https://github.com/microsoft/mxc)
+- [AI Tools](/guides/ai-tools/)
