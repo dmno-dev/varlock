@@ -260,4 +260,38 @@ describe('getRequestScopedManagedItems — per-rule key scoping', () => {
     ];
     expect(getRequestScopedManagedItems(facts('api.x.com', 'GET', '/'), rules, items)).toEqual([]);
   });
+
+  describe('approval-gated keys are withheld from a non-approval verdict', () => {
+    // A broad approval rule carrying A, plus a more-specific plain-allow rule
+    // exempting /health. On /health the verdict is `allow` (specificity wins), so
+    // the approval gate is skipped — A must NOT be injected without a prompt.
+    const rules = [
+      rule({ domain: ['api.x.com'], itemKeys: ['A'], approval: { each: 'endpoint' } }),
+      rule({ domain: ['api.x.com'], path: '/health', itemKeys: [] }),
+    ];
+
+    test('withheld by default (approval not in effect)', () => {
+      expect(getRequestScopedManagedItems(facts('api.x.com', 'GET', '/health'), rules, items)).toEqual([]);
+      // even on a path with no exempting rule, the default (approval-not-granted) withholds it
+      expect(getRequestScopedManagedItems(facts('api.x.com', 'POST', '/charge'), rules, items)).toEqual([]);
+    });
+
+    test('included only when the caller signals approval is in effect', () => {
+      expect(keysOf(getRequestScopedManagedItems(
+        facts('api.x.com', 'POST', '/charge'),
+        rules,
+        items,
+        { includeApprovalGatedKeys: true },
+      ))).toEqual(['A']);
+    });
+
+    test('a key also reachable via a plain-allow rule stays unconditional', () => {
+      const mixed = [
+        rule({ domain: ['api.x.com'], itemKeys: ['A'], approval: { each: 'endpoint' } }),
+        rule({ domain: ['api.x.com'], path: '/health', itemKeys: ['A'] }),
+      ];
+      // On /health, A is contributed by the plain-allow rule too → injected with no approval.
+      expect(keysOf(getRequestScopedManagedItems(facts('api.x.com', 'GET', '/health'), mixed, items))).toEqual(['A']);
+    });
+  });
 });

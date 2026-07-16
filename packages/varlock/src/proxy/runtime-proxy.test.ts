@@ -422,6 +422,65 @@ describe('startLocalProxyRuntime', () => {
     });
   });
 
+  test('approval downgrade closed: an approval-gated key is not injected on a plain-allow-exempted path', async () => {
+    let upstreamHit = false;
+    let approvalCalls = 0;
+    const upstream = http.createServer((_req, res) => {
+      upstreamHit = true;
+      res.end('ok');
+    });
+    await new Promise<void>((resolve) => {
+      upstream.listen(0, '127.0.0.1', () => resolve());
+    });
+    const addr = upstream.address();
+    if (!addr || typeof addr === 'string') throw new Error('Failed to start test upstream');
+
+    const activities: Array<ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [{ key: 'SECRET', placeholder: 'PH_SECRET', realValue: 'REAL_SECRET_VALUE' }],
+      rules: [
+        // Broad rule carrying SECRET, gated behind approval.
+        { domain: ['127.0.0.1'], itemKeys: ['SECRET'], approval: {} },
+        // More-specific plain-allow rule exempting /health — this decides the
+        // verdict (specificity), so the approval gate is skipped on /health.
+        { domain: ['127.0.0.1'], path: '/health', itemKeys: [] },
+      ],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+      // Would approve if ever asked — proving the point that it is NOT asked, and
+      // the secret is still withheld rather than smuggled in without a prompt.
+      approvalProvider: {
+        async requestApproval(r) {
+          approvalCalls += 1;
+          return { approved: true, nonce: r.nonce };
+        },
+      },
+    });
+
+    const response = await requestViaProxy(
+      runtime.env.HTTP_PROXY!,
+      `http://127.0.0.1:${addr.port}/health`,
+      { authorization: 'Bearer PH_SECRET' },
+    );
+
+    // The real value never reaches (or is echoed by) the upstream, the approval
+    // gate was correctly skipped (verdict = allow), and — the regression this
+    // guards — SECRET was WITHHELD from injection scope, so the request is blocked
+    // as uninjected rather than being injected without a prompt. Before the fix,
+    // SECRET leaked into scope and the cleartext guard fired instead
+    // (decision 'blocked-cleartext').
+    expect(response.statusCode).toBe(403);
+    expect(response.body).not.toContain('REAL_SECRET_VALUE');
+    expect(upstreamHit).toBe(false);
+    expect(approvalCalls).toBe(0);
+    expect(activities.at(-1)).toMatchObject({ decision: 'blocked-uninjected', blocked: true, path: '/health' });
+
+    await runtime.stop();
+    await new Promise<void>((resolve) => {
+      upstream.close(() => resolve());
+    });
+  });
+
   test('streams text/event-stream responses through incrementally (no buffering)', async () => {
     const INTER_CHUNK_DELAY = 200;
     const upstream = http.createServer((_req, res) => {

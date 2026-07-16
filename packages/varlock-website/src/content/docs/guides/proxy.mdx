@@ -351,7 +351,7 @@ varlock proxy run --sandbox -- claude
 Adds `--sandbox` to a self-owned `proxy run` to run the child inside a minimal, built-in **credential + egress jail** (macOS `sandbox-exec`, no install). The jail keeps the agent, varlock, and integrations fully working while denying exactly the escape routes:
 
 - **Egress** — only loopback is reachable, so the proxy on `127.0.0.1` becomes the child's *sole* path to the network. A process that scrubs its `HTTPS_PROXY`/`HTTP_PROXY` env to bypass the proxy simply can't connect.
-- **Credential material** — reads of the user varlock dir (the encryption key + local-encrypt socket, plugin/credential cache, and the proxy session/reload channel) are denied.
+- **Credential material** — reads of the user varlock dir (the encryption key, plugin/credential cache, and the proxy session/reload channel) are denied, and so are unix-socket connections into it. The daemon that decrypts local secrets listens on a socket under that dir; a file-read deny does not gate a socket connection, so that connection is blocked separately, otherwise a child could reach the warm daemon and have it decrypt for them.
 - **Warm credential agents** — `mach-lookup` to the 1Password helper (and similar) is denied, so the agent can't drive a warm `op` session directly.
 
 It's **opt-in** by design (a jail that's too tight silently breaks an agent, so we don't force it on). Bare `--sandbox` is macOS-only today; on Linux (or for stronger isolation) use `--sandbox=docker` below.

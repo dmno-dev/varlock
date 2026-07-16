@@ -722,7 +722,15 @@ export async function startLocalProxyRuntime({
       return;
     }
 
-    const hostItems = shouldRewrite ? getRequestScopedManagedItems(facts, rules, managedItems) : [];
+    // Approval-gated keys (contributed only by `@proxy(approval)` rules) are
+    // withheld unless the verdict actually routes through the approval gate below.
+    // A plain-`allow` verdict from a more-specific rule must NOT smuggle a broader
+    // approval rule's secret in without a prompt (see getRequestScopedManagedItems).
+    const hostItems = shouldRewrite
+      ? getRequestScopedManagedItems(facts, rules, managedItems, {
+        includeApprovalGatedKeys: policyDecision?.verdict === 'require-approval',
+      })
+      : [];
 
     // Invariant #2/#5: never inject a secret into a cleartext (non-TLS) connection —
     // no cert means no verifiable identity. Fail closed. (MITM is always https, so

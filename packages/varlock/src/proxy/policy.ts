@@ -146,18 +146,39 @@ export function evaluateProxyPolicy(
  * non-block rule whose full match (domain + path + method) holds for the facts.
  * This extends per-item domain scoping with path/method scoping, so a credential
  * can be limited to specific endpoints/methods, not just a host.
+ *
+ * Approval-awareness (Invariant #8): a key contributed *only* by rules that
+ * require approval is **approval-gated** and is withheld unless
+ * `includeApprovalGatedKeys` is set — which the caller does only when the policy
+ * verdict is `require-approval` (i.e. the approval gate runs and must pass before
+ * anything is injected). This closes a downgrade: the policy verdict is decided by
+ * the single most-specific rule tier, so a more-specific plain-allow rule (e.g.
+ * exempting `/health`) yields an `allow` verdict and skips the approval gate — but
+ * a broader `@proxy(approval)` rule still matches the request. Unioning its keys
+ * unconditionally would inject an approval-gated secret with no prompt. A key that
+ * is *also* reachable via any plain-allow rule stays unconditional (the author
+ * granted it a non-approval path), so exempting a path still works — you just have
+ * to attach the key to the exempting rule to inject it there without approval.
  */
 export function getRequestScopedManagedItems(
   facts: RequestFacts,
   rules: Array<ProxyRule>,
   managedItems: Array<ProxyManagedItem>,
+  opts?: { includeApprovalGatedKeys?: boolean },
 ): Array<ProxyManagedItem> {
-  const allowedKeys = new Set<string>();
+  const unconditionalKeys = new Set<string>();
+  const approvalGatedKeys = new Set<string>();
   for (const rule of rules) {
     if (rule.block) continue;
-    if (ruleMatchesFacts(rule, facts)) {
-      for (const key of rule.itemKeys) allowedKeys.add(key);
+    if (!ruleMatchesFacts(rule, facts)) continue;
+    for (const key of rule.itemKeys) {
+      if (rule.approval) approvalGatedKeys.add(key);
+      else unconditionalKeys.add(key);
     }
+  }
+  const allowedKeys = unconditionalKeys;
+  if (opts?.includeApprovalGatedKeys) {
+    for (const key of approvalGatedKeys) allowedKeys.add(key);
   }
   if (allowedKeys.size === 0) return [];
   return managedItems.filter((item) => allowedKeys.has(item.key));

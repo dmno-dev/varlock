@@ -13,9 +13,14 @@ import { getUserVarlockDir } from '../lib/user-config-dir';
  * routes, by removing:
  *   - direct non-loopback network (the proxy on 127.0.0.1 becomes the sole
  *     egress; every request is then subject to proxy policy),
- *   - reads/writes of the user varlock dir (encryption key + local-encrypt
- *     daemon socket, plugin/credential cache, and the proxy session dir whose
- *     `session.json` is the privileged token/reload channel), and
+ *   - reads/writes of the user varlock dir (encryption key, plugin/credential
+ *     cache, and the proxy session dir whose `session.json` is the privileged
+ *     token/reload channel),
+ *   - unix-socket *connections* into the user varlock dir, denied SEPARATELY
+ *     from the file-read/write deny because a file deny does NOT gate a socket
+ *     `connect()`. The local-encrypt daemon listens on a socket under this dir;
+ *     without this deny an escaped child could connect to the warm daemon and
+ *     have it decrypt secrets (no Touch ID), bypassing the jail entirely, and
  *   - mach lookups to warm credential agents (1Password, ...).
  *
  * Removing the *capability* is what makes the same-uid "out-of-tree escape"
@@ -68,9 +73,14 @@ function toRealPath(p: string): string {
  * Build the SBPL (Seatbelt) profile string passed to `sandbox-exec -p`.
  *
  * Base posture is allow-all; we subtract the credential + egress capabilities.
- * The network tokens are exact on purpose: `(remote unix)` (NOT `unix-socket`,
- * which silently re-opens all egress) plus loopback-only inbound/outbound/bind,
- * so the child reaches the proxy on 127.0.0.1 and nothing else.
+ * The network tokens are exact on purpose: `(allow network* (remote unix))`
+ * keeps local unix sockets working (DNS via mDNSResponder, syslog, etc. — the
+ * agent and varlock need them) while loopback-only IP inbound/outbound/bind make
+ * the proxy on 127.0.0.1 the only reachable *network* endpoint. Off-loopback IP
+ * egress is denied. The one unix socket that must NOT stay reachable — the
+ * local-encrypt daemon under the varlock dir — is carved back out by the
+ * path-scoped `unix-socket` deny in the credential-jail section below (a broad
+ * `unix-socket` token would re-open all egress, so the deny is scoped by path).
  */
 export function buildSeatbeltProfile(inputs: SeatbeltProfileInputs = {}): string {
   const denyPaths = (inputs.denyPaths ?? [getUserVarlockDir()]).map(toRealPath);
@@ -92,6 +102,14 @@ export function buildSeatbeltProfile(inputs: SeatbeltProfileInputs = {}): string
     lines.push('', ';; --- credential jail: key material, caches, session/reload channel ---');
     for (const p of denyPaths) {
       lines.push(`(deny file-read* file-write* (subpath ${sbplString(p)}))`);
+      // A file-read/write deny does NOT gate a unix-socket `connect()`. The
+      // local-encrypt daemon socket lives under this dir, so this second deny is
+      // what actually stops an escaped child from reaching the warm daemon and
+      // having it decrypt secrets. Emitted AFTER `(allow network* (remote unix))`
+      // above so it wins (SBPL is last-match-wins). Uses the `unix-socket` filter
+      // scoped to this subpath — the broad token would re-open all egress, but a
+      // path-scoped deny only removes egress to sockets under this dir.
+      lines.push(`(deny network-outbound (remote unix-socket (subpath ${sbplString(p)})))`);
     }
   }
 
