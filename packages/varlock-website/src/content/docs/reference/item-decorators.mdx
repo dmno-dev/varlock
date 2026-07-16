@@ -11,7 +11,7 @@ A comment block is broken by either an empty line or a divider (`# ---` is optio
 
 ```env-spec
 # @required @sensitive @type=string(startsWith=sk-)
-# @docsUrl=https://docs.servicex.com/api-keys
+# @docs(https://docs.servicex.com/api-keys)
 SERVICE_X_API_KEY=
 ```
 
@@ -68,7 +68,7 @@ Sets whether the item should be considered _sensitive_ - meaning it cannot be ex
 
 Default behavior for all items can be set using the [`@defaultSensitive` root decorator](/reference/root-decorators/#defaultsensitive)
 
-Sensitivity may also be implied by the item's [data type](/reference/data-types) — for example plugin "secret-zero" credential types (like a [1Password `opServiceAccountToken`](/plugins/1password/)) are sensitive by default, so you don't need to add `@sensitive` explicitly (use `@public` or `@sensitive=false` to override). An explicit `@sensitive` on the item always wins.
+Sensitivity may also be implied by the item's [data type](/reference/data-types). For example, plugin "secret-zero" credential types (like a [1Password `opServiceAccountToken`](/plugins/1password/)) are sensitive by default, so you don't need to add `@sensitive` explicitly (use `@public` or `@sensitive=false` to override). An explicit `@sensitive` on the item always wins.
 
 📖 See the [secrets management guide](/guides/secrets/) for best practices on handling sensitive values, and how to use plugins to fetch them from secret management platforms.
 
@@ -81,8 +81,8 @@ SERVICE_X_CLIENT_ID=
 
 **Per-item options:** pass an object value to tune protection for a single sensitive item:
 
-- `enabled` (`boolean`, default `true`) — whether the item is sensitive. Lets you keep options while toggling sensitivity, including dynamically via a function (e.g. `enabled=forEnv(production)`). `@sensitive={enabled=false}` is equivalent to `@sensitive=false`.
-- `preventLeaks` (`boolean`, default `true`) — when `false`, this item's value is excluded from [leak detection](/reference/root-decorators/#preventleaks), so it will _not_ trigger an error if it appears in a response. Useful when an endpoint legitimately returns a secret to another system. The value is still redacted in logs.
+- `enabled` (`boolean`, default `true`): whether the item is sensitive. Lets you keep options while toggling sensitivity, including dynamically via a function (e.g. `enabled=forEnv(production)`). `@sensitive={enabled=false}` is equivalent to `@sensitive=false`.
+- `preventLeaks` (`boolean`, default `true`): when `false`, this item's value is excluded from [leak detection](/reference/root-decorators/#preventleaks), so it will _not_ trigger an error if it appears in a response. Useful when an endpoint legitimately returns a secret to another system. The value is still redacted in logs.
 
 ```env-spec
 # @sensitive={preventLeaks=false}
@@ -94,7 +94,7 @@ PARTNER_TOKEN=
 ```
 
 :::caution[Use `preventLeaks=false` sparingly]
-Leak detection is a safety net that stops a secret from accidentally being sent in a response. Setting `preventLeaks=false` removes that net for this item, so only use it when a secret is _deliberately_ meant to leave the system (e.g. an endpoint forwarding a token to another service) — never just to silence a leak-detection error. Prefer disabling it for a single item like this over turning off [`@preventLeaks`](/reference/root-decorators/#preventleaks) globally.
+Leak detection is a safety net that stops a secret from accidentally being sent in a response. Setting `preventLeaks=false` removes that net for this item, so only use it when a secret is _deliberately_ meant to leave the system (e.g. an endpoint forwarding a token to another service), never just to silence a leak-detection error. Prefer disabling it for a single item like this over turning off [`@preventLeaks`](/reference/root-decorators/#preventleaks) globally.
 :::
 </div>
 
@@ -116,9 +116,9 @@ PUBLIC_API_URL=https://api.example.com
 ### `@internal`
 **Value type:** `boolean`
 
-Marks an item as used **only internally by varlock** — not by your application. Internal items are still resolved and can be referenced by other items (e.g. via [`ref()`](/reference/functions/#ref) or string expansion), but they are **excluded** from everything that reaches your app: the injected env vars, the [serialized graph](/reference/root-decorators/#generatetypes) blob, and generated types.
+Marks an item as used **only internally by varlock**, not by your application. Internal items are still resolved and can be referenced by other items (e.g. via [`ref()`](/reference/functions/#ref) or string expansion), but they are **excluded** from everything that reaches your app: the injected env vars, the [serialized graph](/reference/reserved-variables/#__varlock_env) blob, and generated types. Framework integrations (Vite, Next.js, Astro, Cloudflare) inherit this exclusion too, since they all source their config from the same CLI output.
 
-The most common use is a "secret zero" — a credential used only to fetch _other_ secrets (for example a vault/secrets-manager token). Your application never needs it, and keeping it out of the process environment reduces your attack surface.
+The most common use is a "secret zero": a credential used only to fetch _other_ secrets (for example a vault/secrets-manager token). Your application never needs it, and keeping it out of the process environment reduces your attack surface.
 
 ```env-spec
 # the token below is only used to resolve the secrets that follow it
@@ -130,7 +130,7 @@ OP_TOKEN=
 DATABASE_URL=exec(`op read "op://app/db/url"`)
 ```
 
-Some plugin data types are **internal by default** — for example a [1Password `opServiceAccountToken`](/plugins/1password/) or other secrets-manager credential, which authenticates varlock but is rarely needed in app code. You can opt back in with `@internal=false`:
+Some plugin data types are **internal by default**. For example, a [1Password `opServiceAccountToken`](/plugins/1password/) or other secrets-manager credential authenticates varlock but is rarely needed in app code. You can opt back in with `@internal=false`:
 
 ```env-spec
 # @type=opServiceAccountToken @internal=false
@@ -138,14 +138,16 @@ OP_TOKEN=
 ```
 
 :::caution[Marking something internal stops injecting it]
-Because internal items still resolve and validate, marking a variable internal does **not** produce an error if your application actually reads it — the value simply won't be in the environment at runtime. If your app uses one of these credentials directly (e.g. to write secrets back, renew Vault leases, or fetch more secrets at runtime), set `@internal=false` so it keeps being injected.
+Because internal items still resolve and validate, marking a variable internal does **not** produce an error if your application actually reads it. The value simply won't be in the environment at runtime. If your app uses one of these credentials directly (e.g. to write secrets back, renew Vault leases, or fetch more secrets at runtime), set `@internal=false` so it keeps being injected.
 :::
 
 :::note
-`@internal` controls what varlock _injects_, not what it shows. Internal items still appear (redacted) in inspection output — the `varlock load` summary and `varlock load --agent` — so they can be set and debugged.
+`@internal` controls what varlock _injects_, not what it shows. Internal items still appear (redacted) in inspection output (the `varlock load` summary and `varlock load --agent`), so they can be set and debugged.
 :::
 
 `varlock run` strips internal items from the child process environment **even if they were set in the ambient environment** (e.g. `OP_TOKEN=xxx varlock run ...`), so a secret-zero token never leaks into your app. If a _nested_ `varlock run` needs the internal value for its own resolution, pass [`--include-internal`](/reference/cli-commands/#run) to keep it in the child env.
+
+`varlock load --format json-full` excludes internal items by default too, since that format is commonly consumed programmatically (framework integrations shell out to this exact command to get their injected config) - pass [`--include-internal`](/reference/cli-commands/#load) there for local debugging.
 </div>
 
 <div>
@@ -184,7 +186,7 @@ SECRET_KEY=
 ### `@docs()`
 **Arg types:** `[ url: string ] | [ description: string, url: string ]`
 
-URL of documentation related to the item. Will be included in [generated types](/reference/root-decorators/#generatetypes). _Can be called multiple times._
+URL of documentation related to the item. Will be included in [generated types](/reference/root-decorators/#code-generation). _Can be called multiple times._
 
 ```env-spec
 # @docs(https://xyz.com/docs/api-keys)
@@ -193,6 +195,25 @@ XYZ_API_KEY=
 ```
 
 <img src={docsImg.src} alt="example of docs() in generated types" style="max-width:280px"/>_example of `docs()` info in generated types / IntelliSense_
+</div>
+
+<div>
+### `@tag()`
+**Arg types:** `[ tag: string, ... ]`
+
+Attaches one or more tags to the item. Tags don't affect resolution or validation; they're used to select items with the [`--filter` CLI flag](/reference/cli-commands/#filtering-items) on `varlock load`/`varlock run`, and with the [`filter=` arg](/reference/root-decorators/#code-generation) on `@generate*` code-generation decorators (e.g. `--filter="#billing"`, `@generateTsTypes(filter=#billing)`). _Can be called multiple times; tags from every call accumulate (duplicates collapse)._
+
+Tag names must start with a letter or number, followed by letters, numbers, `_`, or `-`. This keeps every tag selectable with a `#tagname` filter, which reserves characters like `,`, `!`, and `*`. An invalid tag name is a schema error.
+
+```env-spec
+# @tag(billing)
+# @tag(prod, critical)
+STRIPE_SECRET_KEY=
+```
+
+```bash
+varlock load --filter="#billing"
+```
 </div>
 
 <div>

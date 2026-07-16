@@ -20,7 +20,7 @@ March included a large set of core changes across features, reliability, and DX 
 
 - **Single-file ESM and TypeScript plugins** - Plugin authors can now write single-file plugins in `.mjs` and `.ts` (in addition to `.js`/`.cjs`). See the [plugin guide](/guides/plugins).
 - **Explicit `plugin` imports** - Plugins now import `plugin` directly from `varlock/plugin-lib`, with better compatibility across regular installs and Bun-compiled binaries.
-- **`varlock typegen` command** - Added environment-independent type generation as a first-class command. See [`varlock typegen` docs](/reference/cli-commands/#typegen).
+- **`varlock typegen` command** - Added environment-independent type generation as a first-class command. (Since renamed to [`varlock codegen`](/reference/cli-commands/#codegen), with `typegen` kept as a deprecated alias.)
 - **`ifs()` function and improved `remap()`** - New Excel-style conditional function plus positional arg pairs for `remap()`. See [`ifs()` docs](/reference/functions#ifs) and [`remap()` docs](/reference/functions#remap).
 - **`@setValuesBulk(enabled=...)`** - Bulk value loading can now be conditionally enabled. See [`@setValuesBulk()` docs](/reference/root-decorators/#setvaluesbulk).
 - **Custom env load path via `package.json`** - More flexible loading behavior for app/workspace setups. See [`varlock.loadPath` docs](/reference/cli-commands/#packagejson-configuration).

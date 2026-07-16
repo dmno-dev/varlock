@@ -14,15 +14,15 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
 
 Expo and [React Native CLI](https://github.com/react-native-community/cli) projects both use the [Metro bundler](https://metrobundler.dev/), which has its own approach to environment variables. Varlock integrates via a **Babel plugin** that replaces `ENV.xxx` references with their resolved values at compile time, and a **Metro config wrapper** that initializes the `ENV` proxy at runtime.
 
-Both stacks use the same [`@varlock/expo-integration`](https://www.npmjs.com/package/@varlock/expo-integration) package — only the Babel preset and Metro base config differ between Expo and React Native CLI projects.
+Both stacks use the same [`@varlock/expo-integration`](https://npmx.dev/package/@varlock/expo-integration) package. Only the Babel preset and Metro base config differ between Expo and React Native CLI projects.
 
 This integration does a few things:
 - Loads and validates your `.env` files using varlock at bundle time
 - Replaces `ENV.xxx` references to non-sensitive config items with their literal values at compile time
-- Sensitive values are **never** inlined into your bundle — in Expo projects they are accessible at runtime only in [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/) (`+api` files)
+- Sensitive values are **never** inlined into your bundle. In Expo projects they are accessible at runtime only in [Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/) (`+api` files)
 - Patches the global console to redact sensitive values from logs
 
-No CLI command wrapping is needed — env loads when Metro/Babel start. Run `expo start`, `npx react-native start`, or your usual build commands as normal.
+No CLI command wrapping is needed. Env loads when Metro/Babel start. Run `expo start`, `npx react-native start`, or your usual build commands as normal.
 
 ## Setup
 
@@ -123,7 +123,7 @@ Rather than using `process.env.SOMEVAR` directly, use varlock's `ENV` object for
 import { ENV } from 'varlock/env';
 
 // Non-sensitive values are inlined at bundle time:
-const apiUrl = ENV.API_URL;   // ✨ recommended — replaced at compile time
+const apiUrl = ENV.API_URL;   // ✨ recommended, replaced at compile time
 
 // process.env still works, but loses type-safety and compile-time replacement:
 const legacyUrl = process.env.API_URL; // 🆗 still works
@@ -152,14 +152,14 @@ const port = 3000;
 const debug = false;
 ```
 
-Sensitive items (marked with `@sensitive` in your `.env.schema`) are **never** replaced — they remain as `ENV.xxx` references. In Expo Router `+api` server routes they resolve at runtime via the proxy; in all other code they throw at runtime.
+Sensitive items (marked with `@sensitive` in your `.env.schema`) are **never** replaced. They remain as `ENV.xxx` references. In Expo Router `+api` server routes they resolve at runtime via the proxy; in all other code they throw at runtime.
 
 ### Type-safety and IntelliSense
 
-To enable type-safety and IntelliSense for your env vars, enable the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
+To enable type-safety and IntelliSense for your env vars, enable the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
 
 ```diff lang="env-spec" title=".env.schema"
-+# @generateTypes(lang='ts', path='env.d.ts')
++# @generateTsTypes(path='env.d.ts')
 # ---
 # your config items...
 ```
@@ -210,7 +210,7 @@ See the [environments guide](/guides/environments) for more information.
 
 ## Managing sensitive config values
 
-Sensitive values (marked with `@sensitive`) are **never** statically inlined into your bundle — regardless of any prefix conventions. You control this with the [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) root decorator and the [`@sensitive`](/reference/item-decorators/#sensitive) item decorator. See the [secrets guide](/guides/secrets) for more information.
+Sensitive values (marked with `@sensitive`) are **never** statically inlined into your bundle, regardless of any prefix conventions. You control this with the [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) root decorator and the [`@sensitive`](/reference/item-decorators/#sensitive) item decorator. See the [secrets guide](/guides/secrets) for more information.
 
 Set a default and explicitly mark items:
 
@@ -229,7 +229,7 @@ Non-sensitive items are inlined into your JavaScript bundle. Anyone who extracts
 ### Sensitive values in server routes (Expo only)
 
 :::note[Expo Router only]
-[Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/) (`+api` files) are an **Expo-only** feature. React Native CLI apps have no server-side JS runtime — skip to the next section.
+[Expo Router API routes](https://docs.expo.dev/router/reference/api-routes/) (`+api` files) are an **Expo-only** feature. React Native CLI apps have no server-side JS runtime, so skip to the next section.
 :::
 
 If you use Expo Router API routes (`+api` files), sensitive values **are** accessible at runtime via the `ENV` proxy. These files run server-side in the Metro process where `withVarlockMetroConfig` has initialized the environment.
@@ -246,19 +246,19 @@ export function GET() {
 
 ### Sensitive values in native code
 
-In native app code (anything that isn't an Expo Router `+api` server route), sensitive values are **not available**. React Native apps run entirely on the device — there is no server to keep secrets safe. Accessing a sensitive value in native code will **throw at runtime**.
+In native app code (anything that isn't an Expo Router `+api` server route), sensitive values are **not available**. React Native apps run entirely on the device, so there is no server to keep secrets safe. Accessing a sensitive value in native code will **throw at runtime**.
 
 The Babel plugin also emits a **build-time warning** when it detects a sensitive `ENV.xxx` reference in a non-server file, helping you catch these issues early. This applies to **all** React Native code, including React Native CLI projects where every screen and component is client-side.
 
 ```ts title="src/screens/Home.tsx"
 import { ENV } from 'varlock/env';
 
-const url = ENV.API_URL;     // ✅ non-sensitive — inlined at build time
+const url = ENV.API_URL;     // ✅ non-sensitive, inlined at build time
 const key = ENV.SECRET_KEY;  // ❌ throws at runtime, build-time warning
 ```
 
 :::note[Expo pages are universal]
-Unlike Next.js Server Components, Expo Router page components run on **both** the server (SSR) and the client (hydration). This means you cannot safely access sensitive values in page components — use `+api` server routes instead.
+Unlike Next.js Server Components, Expo Router page components run on **both** the server (SSR) and the client (hydration). This means you cannot safely access sensitive values in page components. Use `+api` server routes instead.
 :::
 
 ---

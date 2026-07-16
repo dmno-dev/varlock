@@ -11,7 +11,7 @@ Rather than caching environment variable values, it is a general key-value store
 
 Plugins have access to cache helpers that can be used to avoid repeated network round trips, or to hold short-lived tokens. They will usually expose params (like `cacheTtl`) to let the user opt into caching. This still respects global cache mode and CLI flags. Each plugin can decide how to cache things and it will often depend on the shape of the external API.
 
-`cacheTtl` can be set dynamically — for example `cacheTtl=forEnv(dev, "1h")` to cache only in development. Setting it to `false` (or an empty string) disables caching for that plugin instance.
+`cacheTtl` can be set dynamically, for example `cacheTtl=forEnv(dev, "1h")` to cache only in development. Setting it to `false` (or an empty string) disables caching for that plugin instance.
 
 ## Common `cache()` use case: stable generated values
 

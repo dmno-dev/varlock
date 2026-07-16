@@ -32,6 +32,7 @@ import type {
   DecoratorInstance, ItemDecoratorDef, RootDecoratorDef, RootDecoratorInstance,
 } from './decorators';
 import { createEnvGraphDataType } from './data-types';
+import type { CodeGeneratorDef } from './type-generation';
 
 import { createDebug, type Debugger } from '../../lib/debug';
 import { getWorkspaceInfo } from '../../lib/workspace-utils';
@@ -247,6 +248,17 @@ export class VarlockPlugin {
   registerRootDecorator<T>(decoratorDef: RootDecoratorDef<T>) {
     this.debug('registerRootDecorator', decoratorDef.name);
     this.rootDecorators!.push(decoratorDef);
+  }
+
+  readonly codeGenerators?: Array<CodeGeneratorDef> = [];
+  /**
+   * Register a code generator contributed by this plugin. Each generator is triggered by a root
+   * decorator (named `decoratorName`) and produces a file — the same mechanism the built-in
+   * ts/py/rs/go/php generators use.
+   */
+  registerCodeGenerator(generatorDef: CodeGeneratorDef) {
+    this.debug('registerCodeGenerator', generatorDef.decoratorName);
+    this.codeGenerators!.push(generatorDef);
   }
 
   readonly itemDecorators?: Array<ItemDecoratorDef<any>> = [];
@@ -506,6 +518,9 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
   // register decorators, resolvers, data types from this plugin
   for (const rootDec of plugin.rootDecorators || []) {
     graph.registerRootDecorator(rootDec);
+  }
+  for (const codeGen of plugin.codeGenerators || []) {
+    graph.registerCodeGenerator(codeGen);
   }
   for (const itemDec of plugin.itemDecorators || []) {
     graph.registerItemDecorator(itemDec);

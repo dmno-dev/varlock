@@ -18,7 +18,7 @@ The plugin supports multiple authentication methods including explicit tokens, A
 
 - **Zero-config authentication** - Automatically uses Vault token from CLI login
 - **AppRole authentication** - For automated and CI/CD workflows
-- **Vault CLI integration** - Works seamlessly with `vault login` for local development
+- **Vault CLI integration** - Works with `vault login` for local development
 - **OpenBao compatible** - Works with OpenBao (detects `~/.bao-token` automatically)
 - **Auto-infer secret keys** from environment variable names
 - **JSON key extraction** from secrets using `#` syntax or named `key` parameter
@@ -239,7 +239,7 @@ DB_PASSWORD=
 API_KEY=
 ```
 
-This fetches all keys stored at `secret/myapp/config` and maps them to matching item keys. Only items declared in your schema will be populated — any extra keys in the Vault secret are ignored.
+This fetches all keys stored at `secret/myapp/config` and maps them to matching item keys. Only items declared in your schema will be populated; any extra keys in the Vault secret are ignored.
 
 ---
 
@@ -371,7 +371,7 @@ Initialize a HashiCorp Vault / OpenBao plugin instance.
 <div>
 #### `vaultToken`
 
-This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly, for example to write secrets back or fetch additional secrets at runtime.
 
 
 Represents a HashiCorp Vault authentication token. This type is marked as `@sensitive`.

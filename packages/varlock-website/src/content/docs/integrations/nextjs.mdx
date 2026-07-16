@@ -12,9 +12,9 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
   <Badge npmPackage="@varlock/nextjs-integration" />
 </div>
 
-Varlock provides a huge upgrade over the [default Next.js environment variable tooling](https://nextjs.org/docs/pages/guides/environment-variables) - adding validation, type safety, flexible multi-environment management, log redaction, leak detection, and more.
+Varlock is a big upgrade over the [default Next.js environment variable tooling](https://nextjs.org/docs/pages/guides/environment-variables), adding validation, type safety, multi-environment management, log redaction, leak detection, and more.
 
-To integrate varlock into a Next.js application, you must use our [`@varlock/nextjs-integration`](https://www.npmjs.com/package/@varlock/nextjs-integration) package. This package provides a drop-in replacement for [`@next/env`](https://www.npmjs.com/package/@next/env), the internal package that handles .env loading, plus a small config plugin which injects our additional security features.
+To integrate varlock into a Next.js application, use our [`@varlock/nextjs-integration`](https://npmx.dev/package/@varlock/nextjs-integration) package. It provides a drop-in replacement for [`@next/env`](https://www.npmjs.com/package/@next/env), the internal package that handles .env loading, plus a small config plugin that injects our additional security features.
 
 ## Setup
 
@@ -54,7 +54,7 @@ To integrate varlock into a Next.js application, you must use our [`@varlock/nex
         ```
 
         :::caution[npm may not apply the override on a plain `npm install`]
-        npm can be inconsistent about applying `overrides` for nested scoped packages like `@next/env`, especially when an existing `package-lock.json` has it pinned to a stale location. If after installing you hit `Cannot find module '@next/env'` or don't see the varlock banner, you'll need to delete both `node_modules` and `package-lock.json` and reinstall — see [Troubleshooting](#troubleshooting).
+        npm can be inconsistent about applying `overrides` for nested scoped packages like `@next/env`, especially when an existing `package-lock.json` has it pinned to a stale location. If after installing you hit `Cannot find module '@next/env'` or don't see the varlock banner, delete both `node_modules` and `package-lock.json` and reinstall. See [Troubleshooting](#troubleshooting).
         :::
       </TabItem>
 
@@ -168,10 +168,10 @@ To integrate varlock into a Next.js application, you must use our [`@varlock/nex
                        ✨ loaded by varlock ✨
     ```
 
-    If you **don't** see `✨ loaded by varlock ✨` — or you get `Cannot find module '@next/env'` or `__VARLOCK_ENV is not set` — the override didn't take effect. See [Troubleshooting](#troubleshooting) below.
+    If you **don't** see `✨ loaded by varlock ✨`, or you get `Cannot find module '@next/env'` or `__VARLOCK_ENV is not set`, the override didn't take effect. See [Troubleshooting](#troubleshooting) below.
 
     :::note[The override only needs to apply at build/dev time]
-    On serverless platforms (e.g. Vercel, Cloudflare), the fully-resolved env is baked into your build output by the config plugin, so the production server does not re-load `.env` files. This means you only need the `@next/env` override to be active when you run `next dev` and `next build` — there is no separate runtime config to set on the platform.
+    On serverless platforms (e.g. Vercel, Cloudflare), the fully-resolved env is baked into your build output by the config plugin, so the production server does not re-load `.env` files. This means you only need the `@next/env` override to be active when you run `next dev` and `next build`. There is no separate runtime config to set on the platform.
     :::
 
 </Steps>
@@ -180,7 +180,7 @@ To integrate varlock into a Next.js application, you must use our [`@varlock/nex
 
 ## Monorepos
 
-In a [monorepo](/guides/monorepos/), the `@next/env` override from setup step 3 must live at the **workspace root** so every Next.js app resolves the same replacement. Package-manager overrides apply to **all** Next.js packages in the workspace — only add the override once each app you run has its own `.env.schema` and `varlockNextConfigPlugin`.
+In a [monorepo](/guides/monorepos/), the `@next/env` override from setup step 3 must live at the **workspace root** so every Next.js app resolves the same replacement. Package-manager overrides apply to **all** Next.js packages in the workspace, so only add the override once each app you run has its own `.env.schema` and `varlockNextConfigPlugin`.
 
 ---
 
@@ -201,10 +201,10 @@ If you are not using the `varlockNextConfigPlugin`, only `process.env` will work
 
 ### Type-safety and IntelliSense
 
-To enable type-safety and IntelliSense for your env vars, enable the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
+To enable type-safety and IntelliSense for your env vars, enable the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
 
 ```diff lang="env-spec" title=".env.schema"
-+# @generateTypes(lang='ts', path='env.d.ts')
++# @generateTsTypes(path='env.d.ts')
 # ---
 # your config items...
 ```
@@ -235,7 +235,7 @@ Instead, we recommend explicitly setting your own environment flag using the [`@
 :::note[Loading `.env.local` in `test` environment]
 Next.js makes [a special exception](https://nextjs.org/docs/pages/guides/environment-variables#test-environment-variables) to skip loading `.env.local` if the current environment is `test`.
 
-Varlock does not (following Vite's lead) - but you may explicitly recreate that behavior:
+Varlock does not (following Vite's lead), but you may explicitly recreate that behavior:
 
 ```env-spec title=".env.local"
 # @disable=forEnv(test)
@@ -301,7 +301,7 @@ APP_ENV=remap($WORKERS_CI_BRANCH,
 
 Next.js uses the `NEXT_PUBLIC_` prefix to determine which env vars are public (bundled for the browser). Varlock lets you control this using decorators.
 
-Set [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) and mark specific items [@senstive](/reference/item-decorators/#sensitive):
+Set [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) and mark specific items [`@sensitive`](/reference/item-decorators/#sensitive):
 
 ```diff lang="env-spec" title=".env.schema"
 +# @defaultSensitive=true
@@ -352,17 +352,17 @@ varlock run -- node .next/standalone/server.js
 ---
 
 :::note[Encrypting the env blob]
-When deploying to serverless platforms like Vercel, Varlock injects the fully resolved env data into your server-side build output. By default, this blob is plaintext JSON — meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
+When deploying to serverless platforms like Vercel, Varlock injects the fully resolved env data into your server-side build output. By default, this blob is plaintext JSON, meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
 :::
 
 ---
 ## Troubleshooting
 
-Almost all setup issues come down to the `@next/env` override not being applied. The fixes below are ordered by the symptom you see — work top to bottom.
+Almost all setup issues come down to the `@next/env` override not being applied. The fixes below are ordered by the symptom you see. Work top to bottom.
 
 - ❌ `Error: Cannot find module '@next/env'` (or no `✨ loaded by varlock ✨` banner)
-  <br/>💡 The override was recorded in your lockfile but your package manager didn't materialize it correctly. This is a known package-manager issue with `overrides`/`resolutions` for nested scoped packages — npm in particular can create a dangling symlink under `node_modules/next/node_modules/@next/env`, or skip it entirely, when installing against a stale lockfile.
-  - Delete **both** `node_modules` **and** your lockfile, then reinstall — deleting the lockfile alone is not enough:
+  <br/>💡 The override was recorded in your lockfile but your package manager didn't materialize it correctly. This is a known package-manager issue with `overrides`/`resolutions` for nested scoped packages. npm in particular can create a dangling symlink under `node_modules/next/node_modules/@next/env`, or skip it entirely, when installing against a stale lockfile.
+  - Delete **both** `node_modules` **and** your lockfile, then reinstall. Deleting the lockfile alone is not enough:
     - npm: `rm -rf node_modules package-lock.json && npm install`
     - pnpm: `rm -rf node_modules pnpm-lock.yaml && pnpm install`
     - yarn: `rm -rf node_modules yarn.lock && yarn install`
@@ -370,14 +370,16 @@ Almost all setup issues come down to the `@next/env` override not being applied.
   - Commit the regenerated lockfile.
   - Re-verify with the banner above, or directly: `cat node_modules/@next/env/package.json` should show `"name": "@varlock/nextjs-integration"`.
 - ❌ `process.env.__VARLOCK_ENV is not set`
-  <br/>💡 The override is missing or in the wrong place — Next loaded its own `@next/env` instead of ours.
-  - Confirm the override config is present and in the **correct file** for your package manager (see [step 3](#setup)) — for pnpm it must be in `pnpm-workspace.yaml` (v10) or `package.json#pnpm.overrides` (v9), and in a monorepo it must be at the repo root.
+  <br/>💡 The override is missing or in the wrong place, so Next loaded its own `@next/env` instead of ours.
+  - Confirm the override config is present and in the **correct file** for your package manager (see [step 3](#setup)). For pnpm it must be in `pnpm-workspace.yaml` (v10) or `package.json#pnpm.overrides` (v9), and in a monorepo it must be at the repo root.
   - Re-run your package manager's install command, then re-verify the banner.
 - ❌ `Error [ERR_REQUIRE_ESM]: require() of ES Module ...`
-  <br/>💡 Varlock requires node v22 or higher - which has better CJS/ESM interoperability
+  <br/>💡 Varlock requires node v22 or higher, which has better CJS/ESM interoperability
+- ❌ Every page 500s in dev with a `[turbopack-node]/transforms/transforms.ts ... lint TP1006` error, but only when the project has a `middleware.ts` file (Next 15.0–15.4 + Turbopack)
+  <br/>💡 Turbopack on those versions cannot apply JS loaders (which varlock uses) to edge-context files like middleware without breaking dev page rendering. Upgrade to `next@^15.5` (where varlock scopes its loader away from edge files automatically) or Next 16 (which fixed the underlying issue), or run `next dev` without `--turbopack`.
 - ❌ `Property 'SOMEVAR' does not exist on type 'TypedEnvSchema'`
   <br/>💡 If the item does exist in your schema, then the generated types are not being loaded properly by TypeScript
-  - make sure the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) is enabled
+  - make sure the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) is enabled
   - ensure the path to the generated types file is included in your `tsconfig.json`
 
 

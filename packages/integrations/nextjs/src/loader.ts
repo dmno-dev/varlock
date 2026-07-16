@@ -37,9 +37,23 @@ const USE_CLIENT_RE = /^(?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]
 const EDGE_RUNTIME_RE = /export\s+const\s+runtime\s*=\s*['"](?:edge|experimental-edge)['"]/;
 const MIDDLEWARE_FILE_RE = /(?:^|[\\/])middleware\.(?:ts|js|mts|mjs)$/;
 
-// match directive prologue ('use server', 'use client', etc.) + optional trailing semicolons/newlines
-// captures the directive block so we can inject code after it
-const DIRECTIVE_PROLOGUE_RE = /^((?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/[^\S\n]*\n|[^\S\n]*\n)*[^\S\n]*['"]use (?:server|client|strict)['"][^\S\n]*;?[^\S\n]*\n?)/;
+// match the directive prologue ('use server', 'use client', 'use cache: remote', etc.)
+// captures the whole block - including interleaved comments/blank lines and repeated
+// directives - so injected code lands after all of them. a directive that is not the
+// last thing in the prologue stops being a directive, so we must not inject between them.
+// any 'use ...' string is matched rather than an allowlist, so new framework directives
+// keep working. requiring end-of-line after the directive keeps us from matching a string
+// that continues into a larger expression (`'use x' + y`).
+// uses [^\S\n]* (horizontal whitespace) instead of \s* to avoid exponential backtracking
+const COMMENT_OR_BLANK_LINE_RE_STR = String.raw`[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/[^\S\n]*\n|[^\S\n]*\n`;
+const DIRECTIVE_RE_STR = String.raw`[^\S\n]*['"]use [^'"\n]*['"][^\S\n]*;?[^\S\n]*(?:\n|$)`;
+const DIRECTIVE_PROLOGUE_RE = new RegExp(
+  String.raw`^((?:${COMMENT_OR_BLANK_LINE_RE_STR})*(?:(?:${DIRECTIVE_RE_STR})(?:${COMMENT_OR_BLANK_LINE_RE_STR})*)+)`,
+);
+
+// rough check for ES module syntax (a line starting with import/export) — used to decide
+// whether the injected init guard can use import statements instead of require()
+const ESM_SYNTAX_RE = /^[^\S\n]*(?:import|export)\b/m;
 
 // the loader runs for every project file, so cache the env graph parse
 // (keyed on the raw string — env reloads produce a new string)
@@ -132,7 +146,10 @@ function inlineEnvValues(source: string, filePath: string, envGraph: SerializedE
 function prependAfterDirectives(source: string, codeToPrepend: string): string {
   const match = source.match(DIRECTIVE_PROLOGUE_RE);
   if (match) {
-    return `${match[1] + codeToPrepend}\n${source.slice(match[1].length)}`;
+    // the last directive may end at EOF with no trailing newline, in which case the
+    // injected code would be glued onto it (`'use server'if(...)`)
+    const separator = match[1].endsWith('\n') ? '' : '\n';
+    return `${match[1] + separator + codeToPrepend}\n${source.slice(match[1].length)}`;
   }
   return `${codeToPrepend}\n${source}`;
 }
@@ -178,6 +195,12 @@ function webpackLoader(this: LoaderContext, source: string) {
   const isWebpack = loaderOptions.bundler === 'webpack';
   const isTurbopack = loaderOptions.bundler === 'turbopack' || isTurbopackWorker();
   const isEdge = loaderOptions.isEdge ?? false;
+  // webpack signals edge via a per-compilation loader option; turbopack has a
+  // single global rule, so edge files are detected by sniffing the source /
+  // file path (middleware and `export const runtime = 'edge'` routes)
+  const isEdgeFile = isEdge
+    || EDGE_RUNTIME_RE.test(source)
+    || MIDDLEWARE_FILE_RE.test(this.resourcePath);
 
   let result = source;
 
@@ -188,31 +211,48 @@ function webpackLoader(this: LoaderContext, source: string) {
     // patchGlobalConsole() run once per process — the globalThis guard makes it
     // idempotent, and turbopack deduplicates the require() targets.
     let initGuard: string;
-    if (isEdge) {
-      // Edge compilation: can't use require(), so use globalThis.__varlockPatchConsole
-      // which the init-edge bundle exposes. The init guard is skipped since edge init
-      // is handled by the runtime file injection (processAssets hook).
+    if (isEdgeFile) {
+      // Edge context: no direct initVarlockEnv() call — env init is owned by the
+      // injected init-edge bundle, which may decrypt an encrypted env blob
+      // ASYNCHRONOUSLY (runtimes without node:crypto, e.g. Vercel Edge). A direct
+      // init here would race that decrypt and JSON.parse the still-encrypted blob.
+      // We only re-patch console via globalThis.__varlockPatchConsole (exposed by
+      // init-edge); in dev (no runtime injection) the bundled env module
+      // self-initializes from the sandbox's process.env instead.
       initGuard = 'if(globalThis.__varlockPatchConsole)globalThis.__varlockPatchConsole();';
+      result = prependAfterDirectives(result, initGuard);
+    } else if (isWebpack && ESM_SYNTAX_RE.test(source)) {
+      // Webpack compiles pages-router files in the "pages layer", which keeps
+      // node_modules external — and since varlock is ESM-only, an injected
+      // require() of it is a webpack build error (import-esm-externals).
+      // For ES modules we inject import statements instead: imports hoist, so
+      // evaluation order is the same as the require() version (user imports
+      // still evaluate first, guard runs before any module statements).
+      initGuard = [
+        'import {initVarlockEnv as __varlock$init} from \'varlock/env\';',
+        'import {patchGlobalConsole as __varlock$patchConsole} from \'varlock/patch-console\';',
+        'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;__varlock$init();__varlock$patchConsole();}',
+        // React wraps console for RSC dev replay AFTER our initial patch in the
+        // runtime file. Re-patching outside the once-guard ensures our redaction
+        // wraps React's wrapper so secrets are redacted before React captures them.
+        // patchGlobalConsole() no-ops if console.log still has _varlockPatchedFn.
+        '__varlock$patchConsole();',
+      ].join('');
+      result = prependAfterDirectives(result, initGuard);
     } else {
       initGuard = 'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;require(\'varlock/env\').initVarlockEnv();require(\'varlock/patch-console\').patchGlobalConsole();}';
-      // When used from webpack, React wraps console for RSC dev replay AFTER our initial
-      // patch in the runtime file. Re-patching outside the once-guard ensures our redaction
-      // wraps React's wrapper so secrets are redacted before React captures them.
-      // patchGlobalConsole() no-ops if console.log still has _varlockPatchedFn.
+      // (see comment above about re-patching console for webpack RSC dev replay)
       if (isWebpack) {
         initGuard += 'require(\'varlock/patch-console\').patchGlobalConsole();';
       }
+      result = prependAfterDirectives(result, initGuard);
     }
-    result = prependAfterDirectives(result, initGuard);
   }
 
   // static replacements for non-sensitive env vars
   // webpack uses DefinePlugin for this, so only needed for turbopack
   if (isTurbopack && source.includes('ENV.')) {
     const isDev = loaderOptions.dev ?? process.env.NODE_ENV === 'development';
-    const isEdgeFile = isEdge
-      || EDGE_RUNTIME_RE.test(source)
-      || MIDDLEWARE_FILE_RE.test(this.resourcePath);
 
     // In dev, server-side (node runtime) files read env through the runtime
     // proxy instead, which stays fresh when env files change and reload —

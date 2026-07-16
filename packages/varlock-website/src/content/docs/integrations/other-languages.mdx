@@ -3,19 +3,61 @@ title: Other languages
 description: Integrating varlock into other languages
 ---
 
-import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
-
-To use varlock with other languages, you'll likely want to [install the standalone binary](/getting-started/installation/#as-a-binary), rather than using a JS package manager.
-
-To use it with your application code, you must use [`varlock run`](/reference/cli-commands/#run) to load and validate your environment variables, then run the command you provided with those environment variables injected into the process.
+To use varlock with other languages, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) rather than a JS package manager, and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your environment, then runs your command with the resolved values injected into the process.
 
 ```bash
 varlock run -- <your-command>
 ```
 
-We are working on language-specific helper libraries, that will make this integration better, and provide additional security features like we do in JavaScript.
+## Generated env modules
 
-We will also be implementing automatic type-generation based on your schema for various languages.
+Varlock can generate a typed env module from your schema for several languages via per-language [`@generate*Env`](/reference/root-decorators/#code-generation) root decorators (see the [Code generation guide](/guides/code-generation/) for the full picture). Each generated file is a small, self-contained module with no hand-rolled JSON parsing, containing:
 
-**Want to help us build these integrations? Join our <a href={process.env.PUBLIC_DISCORD_URL}>Discord</a>.**
+- a **typed, coerced env** object/type (numbers, booleans, parsed objects, not raw strings)
+- a **loader** that reads the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob and returns those typed values
+- a **`SENSITIVE_KEYS`** constant listing which keys hold sensitive values, so you can build your own redaction or leak-scanning
 
+It exposes only these primitives (no global singleton or imposed caching), so it stays idiomatic in each language. Pick your language for setup and usage:
+
+| Language | Decorator | Guide |
+| --- | --- | --- |
+| Python | `@generatePythonEnv` | [Python](/integrations/python/) |
+| Rust | `@generateRustEnv` | [Rust](/integrations/rust/) |
+| Go | `@generateGoEnv` | [Go](/integrations/go/) |
+| PHP | `@generatePhpEnv` | [PHP](/integrations/php/) |
+
+Files are generated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly via [`varlock codegen`](/reference/cli-commands/#codegen). The loaders read `__VARLOCK_ENV`, so run your program under [`varlock run`](/reference/cli-commands/#run), which always injects a **plaintext** blob. The generated loaders don't decrypt, so they don't support [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) (a JS/SSR build-output feature); if a loader is handed an encrypted blob it fails with a clear message rather than a raw parse error.
+
+Note that `varlock run --inject vars` strips the `__VARLOCK_ENV` blob from the child process, so the generated loaders can't work under it. Use the default injection mode (or `--inject blob`) when your program loads a generated module.
+
+## Languages without a generated module
+
+For languages without a `@generate*Env` decorator yet (Ruby, Java, C#, Elixir, and others), you have two options, both of which work under `varlock run`:
+
+**Read individual env vars.** Every config key is injected as a plain environment variable, so read them the way you normally would (`ENV['KEY']` in Ruby, `os.environ`, `getenv`, etc.). These values are always **strings** (uncoerced), so parse numbers/booleans yourself.
+
+**Parse the blob yourself.** For coerced values and metadata, read the [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) environment variable, a JSON object with a `config` map keyed by env var name. Skip entries with no `value` (unset optionals), and use `isSensitive` to build redaction:
+
+```jsonc
+// shape of __VARLOCK_ENV
+{
+  "config": {
+    "DB_PORT": { "value": 5432, "isSensitive": false },
+    "API_KEY": { "value": "…", "isSensitive": true }
+  }
+}
+```
+
+The generated modules above do exactly this, and they're the fastest path if your language is supported. We're planning first-class helper libraries and more generated languages.
+
+:::note[Raw string env vars]
+Individual config keys are also injected as plain environment variables, but those values are always strings (uncoerced). Prefer the generated loader / `__VARLOCK_ENV` when you want coerced types.
+
+Keys whose names aren't valid identifiers (they contain `.` or `-`) are **omitted from the typed value** in Python, Rust, Go, and PHP, since they can't be a struct field / property. Read them from the raw environment variable instead (they're still injected, and still listed in `SENSITIVE_KEYS`). TypeScript keeps them, accessible as `ENV['MY-KEY']`.
+:::
+
+:::caution[Sensitive values in the blob]
+`__VARLOCK_ENV` includes resolved sensitive values and metadata used by varlock integrations. For interactive shells or workflows where subprocesses inspect the environment, use [`--inject vars`](/reference/cli-commands/#run) and read individual vars (as strings) instead. Note that this also disables the generated loaders, which need the blob.
+:::
+
+**We are planning deeper integrations with other languages. Want to help us build these? Join our <a href={process.env.PUBLIC_DISCORD_URL}>Discord</a>.**

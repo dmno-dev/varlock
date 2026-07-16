@@ -1,15 +1,15 @@
 ---
 title: AI Tools
-description: Varlock is purpose-built for the AI era — your schema gives agents full context, your secrets never touch AI servers
+description: Your schema gives AI agents full context, while your secrets never touch AI servers
 ---
 import { TabItem, Tabs } from "@astrojs/starlight/components";
 
-Varlock is purpose-built for the AI era. Your `.env.schema` gives AI agents full context on your configuration — variable names, types, validation rules, descriptions — while your secret values never leave your machine or touch AI servers.
+Your `.env.schema` gives AI agents full context on your configuration (variable names, types, validation rules, descriptions), while your secret values never leave your machine or touch AI servers.
 
-This solves two critical problems with AI-assisted development:
+This solves two problems with AI-assisted development:
 
-1. **Secret exposure** — AI tools read your project files, including `.env` files. With varlock, secrets are never stored in plain text — they're fetched at runtime from secure providers.
-2. **AI-generated leaks** — AI agents may hardcode secrets or log sensitive values in generated code. `varlock scan` catches these leaks before they're committed, and runtime protection redacts secrets from logs and responses.
+1. **Secret exposure**: AI tools read your project files, including `.env` files. With varlock, secrets are never stored in plain text. They're fetched at runtime from secure providers.
+2. **AI-generated leaks**: AI agents may hardcode secrets or log sensitive values in generated code. `varlock scan` catches these leaks before they're committed, and runtime protection redacts secrets from logs and responses.
 
 ## Securely inject secrets into AI CLI tools
 
@@ -40,7 +40,7 @@ GOOGLE_API_KEY=op(op://api-local/google/api-key)
 Store the actual secret values in your preferred [secret provider](/plugins/overview/). The examples above use the [1Password plugin](/plugins/1password/)'s `op()` resolver, but any provider plugin works the same way ([AWS Secrets Manager](/plugins/aws-secrets/), [and more](/plugins/overview/)). If you'd rather not depend on an external provider, keep encrypted values in a gitignored `.env.local` using [device-local encryption](/guides/local-encryption/). See also the [Secrets guide](/guides/secrets/#loading-secrets-from-external-sources).
 
 :::tip
-You can use any secrets provider you want, but we like 1Password since it uses biometric authentication for local access. All the examples in this guide use the [1Password plugin](/plugins/1password/) (`op()`) as a means of showing more real world examples — see that page for plugin setup and auth options.
+You can use any secrets provider you want, but we like 1Password since it uses biometric authentication for local access. All the examples in this guide use the [1Password plugin](/plugins/1password/) (`op()`) to show more real world examples. See that page for plugin setup and auth options.
 :::
 
 ### 3. Run your tool via `varlock run`
@@ -57,8 +57,8 @@ See [AI CLI tool examples](#ai-cli-tool-examples) below for tool-specific setup.
 
 Popular AI coding CLIs differ in which env vars they need and how they authenticate. Varlock supports two patterns:
 
-- **Project setup** — define secrets in the repo's `.env.schema` (steps 1-2 above) and run `varlock run -- <tool>` from the project directory.
-- **Personal setup** — keep a schema in your home directory (for example `~/.env.claude`) and pass it with [`-p`](/reference/cli-commands/#run) when launching a tool from any directory (usually using an alias).
+- **Project setup**: define secrets in the repo's `.env.schema` (steps 1-2 above) and run `varlock run -- <tool>` from the project directory.
+- **Personal setup**: keep a schema in your home directory (for example `~/.env.claude`) and pass it with [`-p`](/reference/cli-commands/#run) when launching a tool from any directory (usually using an alias).
 
 Varlock does not auto-load a global schema (that would make two developers' machines behave differently for the same repo).
 
@@ -68,7 +68,7 @@ Varlock does not auto-load a global schema (that would make two developers' mach
 
     **Environment variable:** `ANTHROPIC_API_KEY` (see [supported env variables](https://docs.claude.com/en/docs/claude-code/settings#environment-variables)). Use the API key, not `CLAUDE_CODE_OAUTH_TOKEN`: that (from `claude setup-token`) only works for headless `claude -p` requests, not the interactive TUI.
 
-    **In a project** — add to `.env.schema`:
+    **In a project**, add to `.env.schema`:
 
     ```env-spec
     # @sensitive @required
@@ -79,7 +79,7 @@ Varlock does not auto-load a global schema (that would make two developers' mach
     varlock run -- claude
     ```
 
-    **From any directory** — personal schema at `~/.env.claude`:
+    **From any directory**, personal schema at `~/.env.claude`:
 
     ```env-spec title="~/.env.claude"
     # @sensitive @required
@@ -103,11 +103,11 @@ Varlock does not auto-load a global schema (that would make two developers' mach
     [Opencode](https://opencode.ai/) is a provider-agnostic AI coding assistant that works in your terminal.
 
     **Environment variables:**
-    - `ANTHROPIC_API_KEY` — for Claude models
-    - `OPENAI_API_KEY` — for OpenAI models
-    - `OPENCODE_CONFIG` — path to custom config file (optional)
+    - `ANTHROPIC_API_KEY` for Claude models
+    - `OPENAI_API_KEY` for OpenAI models
+    - `OPENCODE_CONFIG` path to custom config file (optional)
 
-    **Auth configuration** — run `opencode auth login` once. When prompted for an API key, paste an env reference instead:
+    **Auth configuration:** run `opencode auth login` once. When prompted for an API key, paste an env reference instead:
 
     `{"env:ANTHROPIC_API_KEY"}`
 
@@ -122,7 +122,7 @@ Varlock does not auto-load a global schema (that would make two developers' mach
     }
     ```
 
-    **In a project** — add to `.env.schema`:
+    **In a project**, add to `.env.schema`:
 
     ```env-spec
     # @sensitive @required
@@ -139,7 +139,7 @@ Varlock does not auto-load a global schema (that would make two developers' mach
     varlock run -- opencode --model claude-3-5-sonnet
     ```
 
-    **From any directory** — personal schema at `~/.env.opencode`:
+    **From any directory**, personal schema at `~/.env.opencode`:
 
     ```env-spec title="~/.env.opencode"
     # @sensitive @required
@@ -166,7 +166,7 @@ Varlock does not auto-load a global schema (that would make two developers' mach
   </TabItem>
 
   <TabItem label="Antigravity">
-    [Antigravity CLI](https://antigravity.google/docs/cli-getting-started) is Google's agent-first terminal experience — the successor to [Gemini CLI](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/), which has been phased out.
+    [Antigravity CLI](https://antigravity.google/docs/cli-getting-started) is Google's agent-first terminal experience, the successor to [Gemini CLI](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/), which has been phased out.
 
     **Launch command:** `agy`
 
@@ -176,7 +176,7 @@ Varlock does not auto-load a global schema (that would make two developers' mach
     varlock run -- agy
     ```
 
-    **From any directory** — personal schema at `~/.env.antigravity` for project-agnostic defaults:
+    **From any directory**, personal schema at `~/.env.antigravity` for project-agnostic defaults:
 
     ```env-spec title="~/.env.antigravity"
     # @type=enum(development, staging, production)
@@ -201,7 +201,7 @@ Varlock does not auto-load a global schema (that would make two developers' mach
 
 ## Install the Varlock skill
 
-Give your AI agent project-scoped instructions for working with Varlock — security rules, schema checklists, and CLI guidance. Install using one of:
+Give your AI agent project-scoped instructions for working with Varlock: security rules, schema checklists, and CLI guidance. Install using one of:
 
 <Tabs>
   <TabItem label="skills">
@@ -279,10 +279,10 @@ Drop the `--agent` flag when you need human-readable output to show the user dir
 
 When an agent needs to consume varlock output rather than show it to a user, prefer machine-readable formats and branch on exit codes:
 
-- **`varlock load --agent`** — flat `{ "KEY": value }` JSON on stdout with `@sensitive` values redacted. Safe to keep in a transcript.
-- **`varlock load --agent --format json-full`** — the full serialized graph (sources, per-item validation state, sensitivity) with sensitive values redacted, for when you need to reason about *why* something is invalid, not just the values. Always keep `--agent` here: plain `--format json-full` emits **raw secret values** and must not go into an agent transcript.
-- **Exit codes** — `varlock load` exits non-zero when config is invalid, `varlock run` forwards the child command's exit code, and `varlock scan` exits `1` when it finds a leaked secret. Check the code instead of parsing prose.
-- **stdout vs stderr** — pass `--summary-stderr` (or `--summary-file`) so the redacted human summary goes to stderr while stdout stays clean JSON for parsing.
+- **`varlock load --agent`**: flat `{ "KEY": value }` JSON on stdout with `@sensitive` values redacted. Safe to keep in a transcript.
+- **`varlock load --agent --format json-full`**: the full serialized graph (sources, per-item validation state, sensitivity) with sensitive values redacted, for when you need to reason about *why* something is invalid, not just the values. Always keep `--agent` here: plain `--format json-full` emits **raw secret values** and must not go into an agent transcript.
+- **Exit codes**: `varlock load` exits non-zero when config is invalid, `varlock run` forwards the child command's exit code, and `varlock scan` exits `1` when it finds a leaked secret. Check the code instead of parsing prose.
+- **stdout vs stderr**: pass `--summary-stderr` (or `--summary-file`) so the redacted human summary goes to stderr while stdout stays clean JSON for parsing.
 
 See the [CLI commands reference](/reference/cli-commands/#load) for the full output-format and exit-code details.
 
@@ -310,7 +310,7 @@ If your tool supports custom rules, you can use our own varlock [Cursor rule fil
 
 ## Scan for leaked secrets
 
-AI agents can sometimes hardcode secret values or leak them into generated code. Use `varlock scan` to proactively detect leaked secrets in your codebase:
+AI agents can sometimes hardcode secret values or leak them into generated code. Use `varlock scan` to detect leaked secrets in your codebase:
 
 ```bash
 # Scan the current directory for leaked secret values
@@ -327,7 +327,7 @@ You can also set up `varlock scan` as a git pre-commit hook to automatically cat
 varlock scan --staged
 ```
 
-This is especially valuable when working with AI coding tools — the scan command compares your resolved secret values against your codebase to find any that may have been accidentally included in plain text.
+This is especially useful when working with AI coding tools. The scan command compares your resolved secret values against your codebase to find any that may have been accidentally included in plain text.
 
 ## Varlock Docs MCP
 

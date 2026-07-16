@@ -27,7 +27,7 @@ export type ReservedVarInfo = {
 export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
   {
     name: '_VARLOCK_ENV_KEY',
-    description: 'Encryption key used to decrypt the injected env blob and any `encrypted()` values at runtime. Typically set in deploy environments.',
+    description: 'Encryption key used to decrypt the injected env blob at runtime. Typically set in deploy environments.',
   },
   {
     name: '_VARLOCK_CACHE_KEY',
@@ -36,6 +36,10 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
   {
     name: '_VARLOCK_REDACT_STDOUT',
     description: 'Overrides `varlock run` output redaction. `true`/`1` forces redaction on, `false`/`0` forces it off. The `--redact-stdout` / `--no-redact-stdout` flags take precedence.',
+  },
+  {
+    name: '_VARLOCK_FILTER',
+    description: 'Fallback for the `--filter` flag on `varlock load`/`run`, for use when a CLI flag can\'t easily be passed (e.g. a wrapper script, CI config, or build-time integration). The `--filter` flag takes precedence when both are set.',
   },
   {
     name: '_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK',

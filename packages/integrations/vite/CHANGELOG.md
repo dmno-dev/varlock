@@ -7,6 +7,21 @@
 
 
 
+
+
+## 1.3.0
+<sub>2026-07-15</sub>
+
+- [#881](https://github.com/dmno-dev/varlock/pull/881)  *(minor)*
+  Warn when deploying to Vercel with resolved env injection and no encryption enabled; throw if resolved-env is combined with a detected Cloudflare target (redundant with native runtime binding injection)
+- [#884](https://github.com/dmno-dev/varlock/pull/884)  *(patch)*
+  Detect FIFO/non-regular env sources (e.g. 1Password Environments) and skip registering them for dev-server restart watching, with a one-time notice
+
+## 1.2.1
+<sub>2026-07-06</sub>
+
+- [#860](https://github.com/dmno-dev/varlock/pull/860)  *(patch)* - internal refactor: static ENV.x replacement code moved to a shared internal package (no behavior change)
+
 ## 1.2.0
 <sub>2026-06-23</sub>
 

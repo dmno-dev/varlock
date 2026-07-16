@@ -15,7 +15,7 @@ OP_TOKEN=
 XYZ_API_KEY=op(op://api-prod/xyz/api-key) # custom resolver function
 ```
 
-This unlocks use cases like:
+This enables use cases like:
 - loading values from cloud providers or locally running services
 - adding domain-specific validation/coercion logic via custom data types
 - generating values dynamically via custom resolver functions
@@ -35,7 +35,7 @@ In a JavaScript project (where a `package.json` file is present), you must insta
 # @plugin(@varlock/a-plugin) # uses the locally installed version
 ```
 
-You can optionally add a version specifier to validate that the installed version satisfies a [semver range](https://devhints.io/semver) — but the local version is always what gets loaded. If the installed version doesn't match the specified range, an error will be thrown.
+You can optionally add a version specifier to validate that the installed version satisfies a [semver range](https://devhints.io/semver), but the local version is always what gets loaded. If the installed version doesn't match the specified range, an error will be thrown.
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/a-plugin@^2.3.4) # validates installed version is >=2.3.4 <3.0.0

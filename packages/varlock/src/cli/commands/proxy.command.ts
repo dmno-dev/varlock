@@ -380,7 +380,7 @@ async function loadResolvedProxyGraph(entryFilePaths?: Array<string>) {
   checkForSchemaErrors(envGraph);
   checkForNoEnvFiles(envGraph);
 
-  await envGraph.generateTypesIfNeeded();
+  await envGraph.runCodeGeneratorsIfNeeded();
   await envGraph.resolveEnvValues();
   checkForConfigErrors(envGraph);
   return envGraph;

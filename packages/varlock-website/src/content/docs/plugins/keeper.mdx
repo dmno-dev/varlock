@@ -10,18 +10,18 @@ import Badge from '@/components/Badge.astro';
   <Badge npmPackage="@varlock/keeper-plugin" />
 </div>
 
-Our [Keeper Security](https://keepersecurity.com/) plugin enables secure loading of secrets from Keeper vaults via the [Keeper Secrets Manager](https://docs.keeper.io/secrets-manager/) SDK.
+Our [Keeper Security](https://keepersecurity.com/) plugin loads secrets from Keeper vaults via the [Keeper Secrets Manager](https://docs.keeper.io/secrets-manager/) SDK.
 
 The plugin uses base64-encoded configuration tokens for programmatic access to your Keeper secrets, making it suitable for both CI/CD and production environments.
 
 ## Features
 
-- **SDK-based authentication** - Secure access via base64-encoded Secrets Manager config tokens
-- **Flexible secret access** - Fetch by record UID, title, `#field` selector, or [Keeper notation](https://docs.keeper.io/secrets-manager/secrets-manager/developer-sdk-library/javascript-sdk#notation)
-- **Standard and custom fields** - Access any field type including password, login, URL, notes, and custom fields
-- **Multiple instances** - Connect to different Keeper applications or vaults simultaneously
-- **Opt-in secret caching** via `cacheTtl` - see the [Caching guide](/guides/caching/)
-- **Comprehensive error handling** with helpful tips
+- **SDK-based authentication**: access via base64-encoded Secrets Manager config tokens
+- **Secret access** by record UID, title, `#field` selector, or [Keeper notation](https://docs.keeper.io/secrets-manager/secrets-manager/developer-sdk-library/javascript-sdk#notation)
+- **Standard and custom fields**: access any field type including password, login, URL, notes, and custom fields
+- **Multiple instances**: connect to different Keeper applications or vaults at once
+- **Opt-in secret caching** via `cacheTtl`: see the [Caching guide](/guides/caching/)
+- **Error handling** with helpful tips
 
 ## Installation and setup
 
@@ -199,7 +199,7 @@ KSM_CONFIG=
 <div>
 #### `keeperSmToken`
 
-This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly, for example to write secrets back or fetch additional secrets at runtime.
 
 
 Represents a base64-encoded configuration token for the Keeper Secrets Manager SDK. Validation ensures the value is a valid base64-encoded JSON string.
@@ -260,7 +260,7 @@ PROD_SECRET=keeper(prod, "XXXXXXXXXXXXXXXXXXXX")
 ### Access denied
 - Verify the Secrets Manager application has not been revoked
 - Check that the shared folder permissions are still active
-- The one-time token may have expired before being used — generate a new one
+- The one-time token may have expired before being used; generate a new one
 
 ### Record not found
 - Verify the record UID or title is correct
@@ -275,7 +275,7 @@ PROD_SECRET=keeper(prod, "XXXXXXXXXXXXXXXXXXXX")
 ### Config token issues
 - One-time access tokens can only be used once to initialize a device
 - If you need a new config, create a new device in the application settings
-- Config tokens contain encrypted keys — do not modify them manually
+- Config tokens contain encrypted keys; do not modify them manually
 
 ## Resources
 

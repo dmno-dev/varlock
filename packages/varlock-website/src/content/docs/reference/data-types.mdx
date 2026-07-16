@@ -4,7 +4,7 @@ description: A reference page of available data types to be used with the `@type
 ---
 import Decorator from '@/components/decorator-doc-entry.astro'
 
-The [`@type` item decorator](/reference/item-decorators/#type) sets the data type associated with an item. The data type affects coercion, validation, and [generated type files](/reference/root-decorators/#generatetypes).
+The [`@type` item decorator](/reference/item-decorators/#type) sets the data type associated with an item. The data type affects coercion, validation, and [generated type files](/reference/root-decorators/#code-generation).
 
 ### Additional data type options
 All types (except `enum`) can be used without any arguments, but most take optional arguments that further narrow the type's behavior.
@@ -57,7 +57,7 @@ In any slightly ambiguous situation, it is better to explicitly add a `@type` de
 
 ## Built-in data types
 
-These are the built-in data types. [Plugins](/guides/plugins/) may register additional data types.
+These are the built-in data types. [Plugins](/guides/plugins/) may register additional data types, which appear in [generated code](/guides/code-generation/#extending-with-plugins) according to the coerced type they declare (as strings if they don't declare one).
 
 <div class="reference-docs">
 <div>
@@ -68,7 +68,7 @@ These are the built-in data types. [Plugins](/guides/plugins/) may register addi
 - `isLength` (number): Exact length required
 - `startsWith` (string): Required starting substring
 - `endsWith` (string): Required ending substring
-- `matches` (string|RegExp): Regular expression pattern to match — use `/pattern/flags` syntax or a quoted string pattern (see [regex-like strings](/reference/functions#regex-like-strings))
+- `matches` (string|RegExp): Regular expression pattern to match. Use `/pattern/flags` syntax or a quoted string pattern (see [regex-like strings](/reference/functions#regex-like-strings))
 - `toUpperCase` (boolean): Convert to uppercase
 - `toLowerCase` (boolean): Convert to lowercase
 - `allowEmpty` (boolean): Allow empty string (default: false)
@@ -121,7 +121,7 @@ MY_BOOL=true
 - `prependHttps` (boolean): Automatically prepend "https://" if no protocol is specified
 - `allowedDomains` (string[]): List of allowed domains
 - `noTrailingSlash` (boolean): Disallow a trailing slash on the URL path (except root `/`)
-- `matches` (string|RegExp): Regular expression pattern the full URL must match — use `/pattern/flags` syntax or a quoted string pattern (see [regex-like strings](/reference/functions#regex-like-strings))
+- `matches` (string|RegExp): Regular expression pattern the full URL must match. Use `/pattern/flags` syntax or a quoted string pattern (see [regex-like strings](/reference/functions#regex-like-strings))
 
 ```env-spec
 # @type=url(prependHttps=true)
@@ -232,18 +232,18 @@ MY_OBJECT={"key": "value"}
 <div>
 ### `duration`
 
-Flexible duration type. Accepts human-readable strings (`"1h"`, `"30m"`, `"500ms"`, `"2days"`) or bare numbers (interpreted as milliseconds — plain decimals only, no hex/exponent/`Infinity` notation), and outputs a number in the unit you specify.
+Flexible duration type. Accepts human-readable strings (`"1h"`, `"30m"`, `"500ms"`, `"2days"`) or bare numbers (interpreted as milliseconds, plain decimals only, no hex/exponent/`Infinity` notation), and outputs a number in the unit you specify.
 
 **Options:**
-- `output` — output unit: `ms` (default), `seconds`, `minutes`, `hours`, `days`, or `weeks`
-- `min` / `max` — bounds in any duration format (e.g. `min="1s"`, `max="1d"`)
+- `output`: output unit: `ms` (default), `seconds`, `minutes`, `hours`, `days`, or `weeks`
+- `min` / `max`: bounds in any duration format (e.g. `min="1s"`, `max="1d"`)
 
 ```env-spec
 # Default: output is milliseconds
 # @type=duration
 REQUEST_TIMEOUT=30s
 
-# Output in seconds — typical for HTTP client configs
+# Output in seconds, typical for HTTP client configs
 # @type=duration(output="seconds")
 HTTP_TIMEOUT=1h
 

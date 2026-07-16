@@ -8,24 +8,24 @@ import { Steps, Icon, Aside } from '@astrojs/starlight/components';
 The built-in `keychain()` resolver lets you load secrets directly from the **macOS Keychain** using declarative instructions in your `.env` files. It communicates with the Keychain through Varlock's native Swift daemon, which enforces biometric authentication (Touch ID) and per-session access control.
 
 :::note[Built-in support]
-No plugin installation is required — `keychain()` is built into Varlock and available out of the box on macOS.
+No plugin installation is required. `keychain()` is built into Varlock and available on macOS.
 :::
 
 :::tip[Or use `varlock()`]
-If you don't already have secrets stored in your macOS Keychain, you may want to use the [`varlock()` resolver](/guides/local-encryption) instead. It provides the same biometric-gated, device-local encryption benefits without needing to manage Keychain items — and it works cross-platform.
+If you don't already have secrets stored in your macOS Keychain, you may want to use the [`varlock()` resolver](/guides/local-encryption) instead. It provides the same biometric-gated, device-local encryption benefits without needing to manage Keychain items, and it works cross-platform.
 
 See the [local encryption guide](/guides/local-encryption/) for more details.
 :::
 
 ## Features
 
-- **Built-in** — No plugin or extra dependency needed
-- **Biometric gating** — Access is protected by Touch ID via Varlock's native daemon
-- **Interactive picker** — Use `keychain(prompt)` to browse and select items via a native dialog
-- **Auto-write-back** — Prompt mode writes the resolved reference back to your config file
-- **Named or positional syntax** — Flexible argument styles for quick or precise lookups
-- **Field selection** — Extract specific fields from keychain items
-- **Multiple keychain support** — Access the login, System, or custom keychains
+- **Built-in**: no plugin or extra dependency needed
+- **Biometric gating**: access is protected by Touch ID via Varlock's native daemon
+- **Interactive picker**: use `keychain(prompt)` to browse and select items via a native dialog
+- **Auto-write-back**: prompt mode writes the resolved reference back to your config file
+- **Named or positional syntax** for quick or precise lookups
+- **Field selection**: extract specific fields from keychain items
+- **Multiple keychain support**: access the login, System, or custom keychains
 
 :::caution
 `keychain()` is only supported on **macOS**. It will throw an error on other platforms. If your team includes non-Mac developers, consider wrapping keychain items with a fallback or using a cross-platform secrets source for shared configs.
@@ -47,7 +47,7 @@ If you already have sensitive plaintext values in a local `.env` file, import th
 varlock keychain import .env --profile jb
 ```
 
-By default this **edits the file in place** — each sensitive plaintext value is replaced by its `keychain(...)` ref, so the secret no longer lives on disk. Comments and non-sensitive values are left untouched. To write the refs to a *different* file instead and leave the source as-is, pass `--write-to`:
+By default this **edits the file in place**: each sensitive plaintext value is replaced by its `keychain(...)` ref, so the secret no longer lives on disk. Comments and non-sensitive values are left untouched. To write the refs to a *different* file instead and leave the source as-is, pass `--write-to`:
 
 ```sh
 varlock keychain import .env --profile jb --write-to .env.jb
@@ -55,7 +55,7 @@ varlock keychain import .env --profile jb --write-to .env.jb
 
 Import requires an existing `.env.schema` file for the input env file so Varlock knows which input variables are secrets and which are not. It only imports variables marked `@sensitive` in that schema and never prints secret values. Re-running is safe: values already converted to `keychain(...)` refs are skipped. By default, Varlock refuses to overwrite an existing Keychain item (or, with `--write-to`, an existing ref in the target file); pass `--force` to overwrite.
 
-The file you name must be one Varlock loads as part of your env setup — it resolves your normal env graph (from `package.json` `varlock.loadPath`, or the files in the current directory) to read sensitivity from your schema, the same way `varlock encrypt --file` works. An arbitrary file outside that setup can't be imported. The value stored in Keychain is taken from the file you named specifically; an override of the same variable in another file (such as `.env.local`) does not change what gets imported.
+The file you name must be one Varlock loads as part of your env setup. It resolves your normal env graph (from `package.json` `varlock.loadPath`, or the files in the current directory) to read sensitivity from your schema, the same way `varlock encrypt --file` works. An arbitrary file outside that setup can't be imported. The value stored in Keychain is taken from the file you named specifically; an override of the same variable in another file (such as `.env.local`) does not change what gets imported.
 
 Generated refs use `service="varlock"` and account names like `<project>:<profile>:<ENV_VAR>`. The project defaults to the current directory name and can be overridden:
 

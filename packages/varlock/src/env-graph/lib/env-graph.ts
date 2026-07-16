@@ -1,17 +1,22 @@
 import _ from '@env-spec/utils/my-dash';
 import path from 'node:path';
-import { ConfigItem } from './config-item';
+import fs from 'node:fs';
+import { ConfigItem, type TypeGenItemInfo } from './config-item';
 import {
   EnvGraphDataSource, FileBasedDataSource, ImportAliasSource,
   keyPassesImportFilter,
 } from './data-source';
 import { type KeyFilter } from './key-filter';
+import { computeFilteredKeys } from './item-filter';
 
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, getTransitiveDeps, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
-import { generateTypes } from './type-generation';
+import {
+  builtInCodeGenerators, collectTypeGenItems, resolveFieldTypes,
+  type CodeGeneratorDef, type ResolvedFieldType,
+} from './type-generation';
 
 import {
   builtInItemDecorators, builtInRootDecorators,
@@ -273,11 +278,26 @@ export class EnvGraph {
     this.dataTypesRegistry[factory.dataTypeName] = factory;
   }
 
+  // `generate[A-Z]*` root decorator names are reserved for code generators (registered via
+  // registerCodeGenerator), giving a bidirectional guarantee: a `@generate*` root decorator always
+  // writes generated output. Scoped to root decorators only (a code generator can never be an item
+  // decorator) and to the camelCase `generate` prefix (so names like `@generatedBy` stay usable).
+  private static RESERVED_GENERATE_PREFIX = /^generate[A-Z]/;
+
+  // item and root decorators share one `@name` syntax, so a cross-registry duplicate is
+  // rejected as an accidental collision — it would otherwise be shadowed by placement
+  // validation. The exception is an INTENTIONAL dual placement (`@proxy`: detached rules in
+  // the header + attached rules on an item), which both defs must opt into via
+  // `allowDualPlacement`; `_validateDecoratorPlacement` then routes each use to the right def.
   itemDecoratorsRegistry: Record<string, ItemDecoratorDef> = {};
   registerItemDecorator(decoratorDef: ItemDecoratorDef) {
     const name = decoratorDef.name;
     if (name in this.itemDecoratorsRegistry) {
       throw new SchemaError(`Item decorator "${name}" already registered`);
+    }
+    const rootDec = this.rootDecoratorsRegistry[name];
+    if (rootDec && !(decoratorDef.allowDualPlacement && rootDec.allowDualPlacement)) {
+      throw new SchemaError(`Item decorator "${name}" conflicts with a root decorator of the same name`);
     }
     this.itemDecoratorsRegistry[decoratorDef.name] = decoratorDef;
   }
@@ -285,10 +305,38 @@ export class EnvGraph {
   rootDecoratorsRegistry: Record<string, RootDecoratorDef> = {};
   registerRootDecorator(decoratorDef: RootDecoratorDef) {
     const name = decoratorDef.name;
-    if (name in this.itemDecoratorsRegistry) {
+    if (EnvGraph.RESERVED_GENERATE_PREFIX.test(name)) {
+      throw new SchemaError(`Root decorator "${name}" — "generate*" names are reserved for code generators (use registerCodeGenerator)`);
+    }
+    if (name in this.rootDecoratorsRegistry) {
       throw new SchemaError(`Root decorator "${name}" already registered`);
     }
+    const itemDec = this.itemDecoratorsRegistry[name];
+    if (itemDec && !(decoratorDef.allowDualPlacement && itemDec.allowDualPlacement)) {
+      throw new SchemaError(`Root decorator "${name}" conflicts with an item decorator of the same name`);
+    }
     this.rootDecoratorsRegistry[decoratorDef.name] = decoratorDef;
+  }
+
+  /** Registered code generators, keyed by the root decorator name that triggers them. */
+  codeGeneratorsRegistry: Record<string, CodeGeneratorDef> = {};
+  registerCodeGenerator(generatorDef: CodeGeneratorDef) {
+    const name = generatorDef.decoratorName;
+    // code-gen decorators must be `@generate*` — a consistent, self-documenting convention that
+    // separates them from behavior decorators (@cache, @import, ...) and avoids accidental collisions
+    if (!EnvGraph.RESERVED_GENERATE_PREFIX.test(name)) {
+      throw new SchemaError(`Code generator decorator names must match "generate[A-Z]..." (got "${name}")`);
+    }
+    if (name in this.codeGeneratorsRegistry) {
+      throw new SchemaError(`Code generator "${name}" already registered`);
+    }
+    if (name in this.itemDecoratorsRegistry) {
+      throw new SchemaError(`Code generator "${name}" conflicts with an item decorator of the same name`);
+    }
+    // ensure a root decorator exists for this generator (plugins get one for free).
+    // insert directly — registerRootDecorator reserves the `generate` prefix for exactly this path.
+    this.rootDecoratorsRegistry[name] ??= { name, isFunction: true };
+    this.codeGeneratorsRegistry[name] = generatorDef;
   }
 
   constructor() {
@@ -307,6 +355,11 @@ export class EnvGraph {
     // base item decorators (required, sensitive, docs, etc)
     for (const itemDec of builtInItemDecorators) {
       this.registerItemDecorator(itemDec);
+    }
+    // base code generators (ts/py/rs/go/php + deprecated generateTypes alias)
+    // registered via the same API plugins use
+    for (const codeGen of builtInCodeGenerators) {
+      this.registerCodeGenerator(codeGen);
     }
 
     this.overrideValues = originalProcessEnv;
@@ -691,6 +744,20 @@ export class EnvGraph {
     await this.resolveEnvValues([...transitiveDeps, key]);
   }
 
+  /**
+   * Unions `keys` with the transitive dependencies of each — the key set `resolveEnvValues()`
+   * needs to correctly resolve every one of `keys` (it does not expand dependencies itself; see
+   * `resolveItemWithDeps()` above for the single-key precedent this generalizes).
+   */
+  expandKeysWithTransitiveDeps(keys: Iterable<string>): Set<string> {
+    const expanded = new Set<string>();
+    for (const key of keys) {
+      expanded.add(key);
+      for (const dep of getTransitiveDeps(key, this.graphAdjacencyList)) expanded.add(dep);
+    }
+    return expanded;
+  }
+
   /** config keys with builtin vars first, then user-defined in schema order */
   get sortedConfigKeys() {
     const builtinKeys: Array<string> = [];
@@ -724,19 +791,21 @@ export class EnvGraph {
     return keys;
   }
 
-  getResolvedEnvObject(opts?: { includeInternal?: boolean }) {
+  getResolvedEnvObject(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }) {
     const envObject: Record<string, any> = {};
     for (const itemKey of this.sortedConfigKeys) {
       const item = this.configSchema[itemKey];
       // @internal items are used only by varlock (e.g. to resolve other items) and are
       // never injected into the application — exclude them from the resolved env output
       if (item.isInternal && !opts?.includeInternal) continue;
+      // when set (e.g. via the CLI `--filter` flag), only include selected keys
+      if (opts?.filterKeys && !opts.filterKeys.has(itemKey)) continue;
       envObject[itemKey] = item.resolvedValue;
     }
     return envObject;
   }
 
-  getSerializedGraph(opts?: { includeInternal?: boolean }): SerializedEnvGraph {
+  getSerializedGraph(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
       basePath: this.basePath,
       sources: [],
@@ -762,6 +831,8 @@ export class EnvGraph {
       // process via __VARLOCK_ENV) must exclude them entirely. Inspection callers
       // (e.g. `load --format json-full`) opt in via includeInternal to show them, flagged.
       if (item.isInternal && !opts?.includeInternal) continue;
+      // when set (e.g. via the CLI `--filter` flag), only include selected keys
+      if (opts?.filterKeys && !opts.filterKeys.has(itemKey)) continue;
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,
         isSensitive: item.isSensitive,
@@ -775,9 +846,12 @@ export class EnvGraph {
     // list would mirror every env var (PATH, HOME, ...) — pure noise that also leaks the
     // caller's full env var name list into the blob. Reserved _VARLOCK_* keys configure
     // varlock itself and are never overrides, so exclude them even if defined in the schema.
+    // items excluded by filterKeys aren't in the blob's config, so their override provenance
+    // would be pure noise — and would leak the excluded key's name into the blob
     serializedGraph.overrideKeys = normalizeOverrideKeys(
       Object.keys(this.overrideValues).filter(
-        (k) => k in this.configSchema && !isVarlockReservedKey(k),
+        (k) => k in this.configSchema && !isVarlockReservedKey(k)
+          && (!opts?.filterKeys || opts.filterKeys.has(k)),
       ),
     );
 
@@ -830,46 +904,115 @@ export class EnvGraph {
     return _.some(_.values(this.configSchema), (i) => !i.isValid);
   }
 
-  async generateTypes(lang: string, outputPath: string) {
-    await generateTypes(this, lang, outputPath);
+  /**
+   * True when `@disableProcessEnvInjection` is set — resolved values are NOT mirrored into
+   * `process.env`, so type generation should not type `process.env` as populated.
+   * Resolved during finishLoad(), so this is available before code generation runs.
+   */
+  get isProcessEnvInjectionDisabled(): boolean {
+    return this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
   }
 
   /**
-   * Resolve @generateTypes decorators and generate type files.
+   * Resolve every registered code-generation decorator (@generateTsTypes, @generatePythonEnv,
+   * plugin-contributed ones, and the deprecated @generateTypes) and write their output files.
    * This should be called after finishLoad() but before resolveEnvValues().
-   * The @generateTypes decorator args (lang, path) are static, so we can resolve them
-   * without needing full env resolution. Type info is computed from non-env-specific
-   * definitions only, so the output is deterministic regardless of environment.
+   * Decorator args (path, options) are static, so we can resolve them without full env resolution.
+   * Type info is computed from non-env-specific definitions only, so output is deterministic
+   * regardless of the active environment.
    *
-   * @param opts.ignoreAutoFalse - if true, generate types even if `auto=false` is set.
+   * @param opts.ignoreAutoFalse - if true, generate even if `auto=false` is set.
    *   Used by the `varlock typegen` command to force generation.
    */
-  async generateTypesIfNeeded(opts?: { ignoreAutoFalse?: boolean }) {
-    const generateTypesDecs = this.getRootDecFns('generateTypes');
+  async runCodeGeneratorsIfNeeded(opts?: { ignoreAutoFalse?: boolean }) {
     let generatedCount = 0;
-    for (const generateTypesDec of generateTypesDecs) {
-      const typeGenSettings = await generateTypesDec.resolve();
+    // decorators seen but skipped because they live in an imported file without
+    // `executeWhenImported` — lets `varlock codegen` explain a zero count accurately
+    let skippedImportOnlyCount = 0;
 
-      // we skip generating types if `@generateTypes` was not in the main file
-      // unless the `executeWhenImported` flag is set
-      if (generateTypesDec.dataSource.isImport && !typeGenSettings.obj.executeWhenImported) continue;
+    // the full (unfiltered) item list is the same across all generators — build it lazily,
+    // once, and only if at least one generator actually runs
+    let allTypeGenItems: Array<TypeGenItemInfo> | undefined;
+    // per-filter-string field cache ('' = unfiltered), so multiple decorators sharing the
+    // same `filter=` (or lack of one) don't recompute the same field list
+    const fieldsByFilterStr = new Map<string, Array<ResolvedFieldType>>();
 
-      // skip if auto=false unless explicitly overridden (e.g., `varlock typegen`)
-      if (typeGenSettings.obj.auto === false && !opts?.ignoreAutoFalse) continue;
+    // options handled by this shared loop, valid on every code-gen decorator
+    const commonOptions = ['path', 'auto', 'executeWhenImported', 'filter'];
 
-      if (!typeGenSettings.obj.lang) throw new Error('@generateTypes - must set `lang` arg');
-      if (typeGenSettings.obj.lang !== 'ts') throw new Error(`@generateTypes - unsupported language: ${typeGenSettings.obj.lang}`);
-      if (!typeGenSettings.obj.path) throw new Error('@generateTypes - must set `path` arg');
-      if (!_.isString(typeGenSettings.obj.path)) throw new Error('@generateTypes - `path` arg must be a string');
+    for (const decoratorName of Object.keys(this.codeGeneratorsRegistry)) {
+      const generator = this.codeGeneratorsRegistry[decoratorName];
+      const decs = this.getRootDecFns(decoratorName);
+      for (const dec of decs) {
+        const settings = await dec.resolve();
 
-      const outputPath = generateTypesDec.dataSource instanceof FileBasedDataSource
-        ? path.resolve(generateTypesDec.dataSource.fullPath, '..', typeGenSettings.obj.path)
-        : typeGenSettings.obj.path;
+        // validate before the skips below — a typo'd option or missing path on an `auto=false`
+        // decorator should be a loud error on every load, not sit undetected until `varlock codegen`
+        if (!settings.obj.path) throw new Error(`@${decoratorName} - must set \`path\` arg`);
+        if (!_.isString(settings.obj.path)) throw new Error(`@${decoratorName} - \`path\` arg must be a string`);
+        if (settings.obj.filter !== undefined && !_.isString(settings.obj.filter)) {
+          throw new SchemaError(`@${decoratorName} - \`filter\` arg must be a string`);
+        }
 
-      await this.generateTypes(typeGenSettings.obj.lang, outputPath);
-      generatedCount++;
+        // catch misspelled options (e.g. `exposEnv=`) instead of silently ignoring them
+        if (generator.knownOptions) {
+          const allowed = new Set([...commonOptions, ...generator.knownOptions]);
+          const unknown = Object.keys(settings.obj).filter((key) => !allowed.has(key));
+          if (unknown.length) {
+            throw new SchemaError(
+              `@${decoratorName} - unknown option${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}. `
+              + `Allowed: ${Array.from(allowed).join(', ')}`,
+            );
+          }
+        }
+
+        // skip if the decorator came from an imported file, unless `executeWhenImported` is set
+        if (dec.dataSource.isImport && !settings.obj.executeWhenImported) {
+          skippedImportOnlyCount++;
+          continue;
+        }
+        // skip if auto=false unless explicitly overridden (e.g. `varlock codegen`)
+        if (settings.obj.auto === false && !opts?.ignoreAutoFalse) continue;
+
+        const sourceDir = dec.dataSource instanceof FileBasedDataSource
+          ? path.resolve(dec.dataSource.fullPath, '..')
+          : process.cwd();
+        const outputPath = path.resolve(sourceDir, settings.obj.path);
+
+        const filterStr: string | undefined = settings.obj.filter;
+        if (!fieldsByFilterStr.has(filterStr ?? '')) {
+          // filter against TypeGenItemInfo (pre-resolution isSensitive/isRequired, computed by
+          // getTypeGenInfo()), NOT bare ConfigItems — those getters aren't populated correctly
+          // until resolveEnvValues() runs, which happens after code generation
+          allTypeGenItems ||= await collectTypeGenItems(this);
+          const filterKeys = computeFilteredKeys(allTypeGenItems, filterStr, `@${decoratorName} filter`);
+          const items = filterKeys ? allTypeGenItems.filter((info) => filterKeys.has(info.key)) : allTypeGenItems;
+          fieldsByFilterStr.set(filterStr ?? '', resolveFieldTypes(items));
+        }
+        const fields = fieldsByFilterStr.get(filterStr ?? '')!;
+
+        const src = await generator.generate({
+          graph: this,
+          // fresh deep copy per call — a generator (incl. plugin-contributed ones) that
+          // sorts/mutates its input, at any depth, must not corrupt what later generators receive
+          fields: structuredClone(fields),
+          options: settings.obj,
+          outputPath,
+          sourceDir,
+        });
+
+        // skip the write when content is unchanged — rewriting bumps the mtime, which forces
+        // spurious work downstream (cargo recompiles, tsc/vite watcher churn) on every load/run
+        const existing = await fs.promises.readFile(outputPath, 'utf-8').catch(() => undefined);
+        if (existing !== src) {
+          // ensure the target directory exists (e.g. `path=env/env.go` or `path=src/env.rs`)
+          await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
+          await fs.promises.writeFile(outputPath, src, 'utf-8');
+        }
+        generatedCount++;
+      }
     }
-    return generatedCount;
+    return { generatedCount, skippedImportOnlyCount };
   }
 
   getRootDec(decoratorName: string) {

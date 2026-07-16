@@ -23,6 +23,7 @@ import { findEnvFiles } from '../helpers/find-env-files';
 import { tryCatch } from '@env-spec/utils/try-catch';
 import { scanCodeForEnvVars } from '../helpers/env-var-scanner';
 import { isWellKnownEnvKey } from '../helpers/well-known-env-keys';
+import { detectTypegenDecorator } from '../helpers/typegen-lang-detect';
 
 export const commandSpec = define({
   name: 'init',
@@ -147,8 +148,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     ].join('\n'));
     envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, 'defaultRequired', 'infer', { explicitTrue: true });
     envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, 'defaultSensitive', 'false', { explicitTrue: true });
-    // TODO: detect js/ts project before adding this
-    envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, 'generateTypes', 'lang=ts, path=env.d.ts', { bareFnArgs: true });
+    // pick a code-gen decorator matching the detected primary project language (ts/py/go/rs/php)
+    const typegen = await detectTypegenDecorator();
+    envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, typegen.decorator, typegen.args, { bareFnArgs: true });
     // envSpecUpdater.setRootDecorator(parsedEnvFile, 'envFlag', 'APP_ENV', { comment: 'controls automatic loading of env-specific files (e.g. .env.test, .env.prod, etc.)' });
 
     // add example item

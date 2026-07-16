@@ -12,7 +12,7 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
   <Badge npmPackage="@varlock/vite-integration" />
 </div>
 
-Some frameworks use Vite under the hood, and some projects use Vite directly. Either way, often there is some [automatic loading of .env files](https://vite.dev/guide/env-and-mode.html) happening, but it is fairly limited. To integrate varlock into a Vite-powered application, you must use our [`@varlock/vite-integration`](https://www.npmjs.com/package/@varlock/vite-integration) package, which is a [Vite plugin](https://vite.dev/guide/using-plugins.html).
+Some frameworks use Vite under the hood, and some projects use Vite directly. Either way, often there is some [automatic loading of .env files](https://vite.dev/guide/env-and-mode.html) happening, but it is fairly limited. To integrate varlock into a Vite-powered application, you must use our [`@varlock/vite-integration`](https://npmx.dev/package/@varlock/vite-integration) package, which is a [Vite plugin](https://vite.dev/guide/using-plugins.html).
 
 This plugin does a few things:
 - Loading and validating your .env files using varlock, injecting resolved env into process.env at build/dev time
@@ -25,11 +25,11 @@ For [Astro](https://astro.build) - which is also powered by Vite - you should us
 ::::
 
 :::note[SvelteKit users]
-For [SvelteKit](https://svelte.dev/docs/kit), the plain Vite integration below works for most adapters. If you're deploying to Cloudflare Workers via `@sveltejs/adapter-cloudflare`, see our [SvelteKit guide](/integrations/sveltekit/) — it points you at the Cloudflare-specific plugin.
+For [SvelteKit](https://svelte.dev/docs/kit), the plain Vite integration below works for most adapters. If you're deploying to Cloudflare Workers via `@sveltejs/adapter-cloudflare`, see our [SvelteKit guide](/integrations/sveltekit/), which points you at the Cloudflare-specific plugin.
 ::::
 
 :::caution[Deploying a non-static site to Cloudflare Workers?]
-If your project has an SSR/server component that runs on Cloudflare Workers, the plain Vite integration won't wire up runtime secrets correctly — secrets would end up bundled into the worker instead of being stored as Cloudflare secrets. Use the [Cloudflare integration](/integrations/cloudflare/) (or the [SvelteKit guide](/integrations/sveltekit/) for SvelteKit) instead. This page is fine for **static-only** Vite sites.
+If your project has an SSR/server component that runs on Cloudflare Workers, the plain Vite integration won't wire up runtime secrets correctly: secrets would end up bundled into the worker instead of being stored as Cloudflare secrets. Use the [Cloudflare integration](/integrations/cloudflare/) (or the [SvelteKit guide](/integrations/sveltekit/) for SvelteKit) instead. This page is fine for **static-only** Vite sites.
 :::
 
 ## Frameworks that use Vite ||frameworks||
@@ -82,7 +82,7 @@ By default, varlock loads `.env` files from the current working directory. If yo
 }
 ```
 
-This works for all varlock commands and integrations, not just Vite. The `loadPath` can point to a directory (trailing `/` recommended) or a specific `.env` file. The varlock CLI `--path` flag overrides this setting when provided. Varlock looks for this config in the `package.json` in the current working directory only — it does not walk up to parent directories.
+This works for all varlock commands and integrations, not just Vite. The `loadPath` can point to a directory (trailing `/` recommended) or a specific `.env` file. The varlock CLI `--path` flag overrides this setting when provided. Varlock looks for this config in the `package.json` in the current working directory only; it does not walk up to parent directories.
 
 :::tip[Directory vs file path]
 Point `loadPath` to a **directory** if you want varlock to automatically load all relevant files (`.env.schema`, `.env`, `.env.local`, etc.). Pointing to a specific file will only load that file and anything it explicitly imports via `@import`.
@@ -90,7 +90,7 @@ Point `loadPath` to a **directory** if you want varlock to automatically load al
 
 ### Loading from multiple directories
 
-You can also provide an array of paths to combine env vars from multiple locations — useful in monorepos where different packages each have their own `.env` files:
+You can also provide an array of paths to combine env vars from multiple locations, useful in monorepos where different packages each have their own `.env` files:
 
 ```json title="package.json"
 {
@@ -118,10 +118,14 @@ varlockVitePlugin({ ssrInjectMode: 'auto-load' })
 
 - `init-only` - injects varlock initialization code, but does not load the env vars. You must still boot your app via `varlock run` in this mode.
 - `auto-load` - injects `import 'varlock/auto-load';` to load your resolved env via the varlock CLI
-- `resolved-env` - injects the fully resolved env data into your built code. This is useful in environments like Vercel/Cloudflare/etc where you have no control over your build command, and limited access to use CLI commands or the filesystem. See the [encrypting the env blob](#encrypting-the-env-blob) section for more information.
+- `resolved-env` - injects the fully resolved env data into your built code. This is useful in environments like Vercel where you have no control over your build command, and limited access to use CLI commands or the filesystem. See the [encrypting the env blob](#encrypting-the-env-blob) section for more information.
 
 **If not specified, we will attempt to infer the correct mode based on the presence of other vite plugins and environment variables, which give us hints about how your application will be run.**
 Otherwise defaulting to `init-only`.
+
+:::caution[Don't use `resolved-env` on Cloudflare builds]
+On Cloudflare Workers, production env is injected at runtime from bindings via [`varlock-wrangler`](/integrations/cloudflare/) — not baked into the bundle. If Cloudflare is detected (via `@varlock/cloudflare-integration` or SvelteKit's `@sveltejs/adapter-cloudflare`) and `ssrInjectMode` is explicitly set to `'resolved-env'` for a production build, the plugin throws rather than silently shipping resolved (and possibly sensitive) values into the worker artifact for no reason. This only applies to builds — some adapters (e.g. Astro's `@astrojs/cloudflare`) run SSR in workerd during their own dev server with no binding-injection hook available, so `resolved-env` is still used there by default.
+:::
 
 
 ## Accessing environment variables
@@ -142,7 +146,7 @@ console.log(ENV.SOMEVAR);             // ✨ recommended
 - Enables future DX improvements and tighter control over what is bundled
 
 ### Within `vite.config.*`
-It's often useful to be able to access env vars in your Vite config. Without varlock, it's a bit awkward, but varlock makes it dead simple - in fact it's already available! Just import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
+It's often useful to be able to access env vars in your Vite config. Without varlock, it's a bit awkward, but with varlock it's already available. Import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
 
 ```diff lang="ts" title="vite.config.ts"
 import { defineConfig } from 'vite';
@@ -179,10 +183,10 @@ You can use [`varlock run`](/reference/cli-commands/#run) to inject resolved con
 
 ### Type-safety and IntelliSense
 
-To enable type-safety and IntelliSense for your env vars, enable the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
+To enable type-safety and IntelliSense for your env vars, enable the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
 
 ```diff lang="env-spec" title=".env.schema"
-+# @generateTypes(lang='ts', path='env.d.ts')
++# @generateTsTypes(path='env.d.ts')
 # ---
 # your config items...
 ```
@@ -244,7 +248,7 @@ All non-sensitive items are bundled at build time via `ENV`, while `import.meta.
 ---
 
 :::note[Encrypting the env blob]
-When using `ssrInjectMode: 'resolved-env'`, Varlock injects the fully resolved env data into your SSR build output. By default, this blob is plaintext JSON — meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
+When using `ssrInjectMode: 'resolved-env'`, Varlock injects the fully resolved env data into your SSR build output. By default, this blob is plaintext JSON, meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
 :::
 
 ---

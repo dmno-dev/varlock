@@ -2,7 +2,7 @@
 title: Schema
 description: Using the schema to manage your environment variables
 ---
-One of the core features of Varlock is its schema-driven approach to environment variables — which is best when shared with your team and committed to version control. We recommend creating a new `.env.schema` file to hold schema info set by [config item decorators](/reference/item-decorators/), non-sensitive default values, and [root decorators](/reference/root-decorators/) to specify global settings that affect the `varlock` CLI itself.
+One of the core features of Varlock is its schema-driven approach to environment variables, which is best when shared with your team and committed to version control. We recommend creating a new `.env.schema` file to hold schema info set by [config item decorators](/reference/item-decorators/), non-sensitive default values, and [root decorators](/reference/root-decorators/) to specify global settings that affect the `varlock` CLI itself.
 
 This schema should include all of the environment variables that your application depends on, along with comments and documentation about them, and decorators which affect coercion, validation, and generated types / documentation.
 
@@ -20,7 +20,7 @@ The _header_ section of a `.env` file is any comment block(s) at the beginning o
 # This is the header, and may contain root decorators
 # @currentEnv=$APP_ENV
 # @defaultSensitive=false @defaultRequired=false
-# @generateTypes(lang=ts, path=env.d.ts)
+# @generateTsTypes(path=env.d.ts)
 # ---
 
 # This is a config item comment block and may contain decorators which affect only the item
@@ -35,7 +35,7 @@ More details:
 
 Config items are the environment variables that your application depends on. Like normal `.env` syntax, each item is a key-value pair of the form `KEY=value`. The key is the name of the environment variable, and a value may be specified or not.
 
-While simply enumerating all of them in your `.env.schema` is useful (like a `.env.example` file), [@env-spec](/env-spec/overview/) allows us to attach additional comments and [item decorators](/reference/item-decorators/), making our schema much more powerful.
+While simply enumerating all of them in your `.env.schema` is useful (like a `.env.example` file), [@env-spec](/env-spec/overview/) allows us to attach additional comments and [item decorators](/reference/item-decorators/), making our schema much more capable.
 
 
 ### Item Values

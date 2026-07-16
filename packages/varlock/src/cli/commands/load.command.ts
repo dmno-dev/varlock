@@ -8,6 +8,7 @@ import { redactString } from '../../runtime/lib/redaction';
 import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
+import { getCliItemFilter } from '../helpers/item-filter';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import ansis from 'ansis';
 import {
@@ -39,6 +40,14 @@ export const commandSpec = define({
     'show-all': {
       type: 'boolean',
       description: 'When load is failing, show all items rather than only failing items',
+    },
+    'include-internal': {
+      type: 'boolean',
+      description: 'Include @internal items in --format json-full output (excluded by default, since json-full is commonly consumed programmatically - e.g. by framework integrations - not just for local human inspection)',
+    },
+    filter: {
+      type: 'string',
+      description: 'Filter which items are shown: comma-separated key names/globs (e.g. STRIPE_*), negations (!KEY), decorator selectors (@sensitive, @required), and tag selectors (#tagname, set via @tag(tagname)). Can also be set via the _VARLOCK_FILTER env var (this flag takes precedence)',
     },
     env: {
       type: 'string',
@@ -83,6 +92,10 @@ Examples:
   varlock load --format json-full --summary-stderr   # JSON on stdout + redacted human summary on stderr
   varlock load --format json-full --summary-file /tmp/summary.txt   # JSON on stdout + redacted human summary written to file
   varlock load --agent            # Agent-safe JSON output with sensitive values redacted
+  varlock load --format json-full --include-internal   # Include @internal items for local debugging
+  varlock load --filter="STRIPE_*,!STRIPE_DEBUG_KEY"  # Only STRIPE_* keys, excluding one
+  varlock load --filter="@sensitive"  # Only items marked @sensitive
+  varlock load --filter="#billing"    # Only items tagged @tag(billing)
 `.trim(),
 });
 
@@ -99,7 +112,11 @@ export function formatShellValue(value: string): string {
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const {
     format, compact, 'show-all': showAll, 'summary-stderr': summaryStderr, 'summary-file': summaryFile, agent,
+    'include-internal': includeInternal,
   } = ctx.values;
+  // parse --filter (or the _VARLOCK_FILTER env var) up front, so a bad filter string errors
+  // before any loading/resolution work happens
+  const itemFilter = getCliItemFilter(ctx.values.filter);
   // --agent defaults to json if no explicit --format was set, but respects --format if provided
   const outputFormat = agent && format === 'pretty' ? 'json' : format;
 
@@ -136,9 +153,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // errors would just be noise caused by the parse/schema failure
   if (!hasSchemaErrors) {
     // Generate types before resolving values — uses only non-env-specific schema info
-    await envGraph.generateTypesIfNeeded();
+    await envGraph.runCodeGeneratorsIfNeeded();
 
-    await envGraph.resolveEnvValues();
+    // A --filter using only keys/globs/tags scopes resolution (and validation) to what it
+    // selects plus dependencies — an unrelated broken item outside the filter won't block this
+    // load. @sensitive/@required selectors can't be scoped this way (see getResolveKeys), so
+    // those fall back to resolving everything, same as an unset --filter.
+    await envGraph.resolveEnvValues(itemFilter?.getResolveKeys(envGraph));
 
     if (outputFormat === 'json-full') {
       checkForConfigErrors(envGraph, { showAll, noThrow: true });
@@ -147,8 +168,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   }
 
+  const filterKeys = itemFilter?.getFilterKeys(Object.values(envGraph.configSchema));
+  const sortedConfigKeys = filterKeys
+    ? envGraph.sortedConfigKeys.filter((key) => filterKeys.has(key))
+    : envGraph.sortedConfigKeys;
+
   if ((summaryStderr || summaryFile) && outputFormat !== 'pretty') {
-    const summaryLines = envGraph.sortedConfigKeys.map(
+    const summaryLines = sortedConfigKeys.map(
       (key) => getItemSummary(envGraph.configSchema[key]),
     );
     const summaryStr = `${summaryLines.join('\n')}\n`;
@@ -166,7 +192,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // include @internal items here: they aren't injected, but an agent inspecting the env
     // still needs to see they exist (redacted) to help set/debug them
     const resolvedEnv = envGraph.getResolvedEnvObject({ includeInternal: true });
-    for (const itemKey of envGraph.sortedConfigKeys) {
+    for (const itemKey of sortedConfigKeys) {
       const item = envGraph.configSchema[itemKey];
       const value = resolvedEnv[itemKey];
       if (item.isSensitive && typeof value === 'string') {
@@ -186,18 +212,20 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       console.error();
     }
     console.error(ansis.bold.green('-- Resolved config --'));
-    for (const itemKey of envGraph.sortedConfigKeys) {
+    for (const itemKey of sortedConfigKeys) {
       const item = envGraph.configSchema[itemKey];
       console.log(getItemSummary(item));
     }
   } else if (outputFormat === 'json') {
-    const env = agent ? getRedactedEnvObject() : envGraph.getResolvedEnvObject();
+    const env = agent ? getRedactedEnvObject() : envGraph.getResolvedEnvObject({ filterKeys });
     console.log(JSON.stringify(env, null, 2));
   } else if (outputFormat === 'json-full') {
     const indent = compact ? 0 : 2;
-    // this is an inspection dump (not the injected blob), so include @internal items —
-    // they're flagged with isInternal and redacted below like any other sensitive value
-    const serialized = envGraph.getSerializedGraph({ includeInternal: true });
+    // @internal items are excluded by default, same as every other format — json-full is
+    // routinely consumed programmatically (framework integrations shell out to this exact
+    // command to get their injected config), so a secret-zero credential must not appear here
+    // unless explicitly requested. Pass --include-internal for local human inspection.
+    const serialized = envGraph.getSerializedGraph({ includeInternal: !!includeInternal, filterKeys });
     // Detect the proxy context via the unified resolver (env marker → session
     // token → ancestry), so the annotation is accurate even if the child scrubbed
     // the env marker.
@@ -228,7 +256,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       gracefulExit(1);
     }
   } else if (outputFormat === 'env' || outputFormat === 'shell') {
-    const resolvedEnv = envGraph.getResolvedEnvObject();
+    const resolvedEnv = envGraph.getResolvedEnvObject({ filterKeys });
     const skipUndefined = compact === true;
     const prefix = outputFormat === 'shell' ? 'export ' : '';
 

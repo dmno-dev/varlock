@@ -1,6 +1,6 @@
 # @varlock/akeyless-plugin
 
-[![npm version](https://img.shields.io/npm/v/@varlock/akeyless-plugin.svg)](https://www.npmjs.com/package/@varlock/akeyless-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/akeyless-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@varlock/akeyless-plugin.svg)](https://npmx.dev/package/@varlock/akeyless-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/akeyless-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
 
 This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading secrets from [Akeyless Platform](https://www.akeyless.io/) into your configuration.
 

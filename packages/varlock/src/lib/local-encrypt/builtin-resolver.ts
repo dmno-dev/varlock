@@ -217,6 +217,11 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
               tip: 'varlock(prompt=1) can only persist values from file-backed sources. Use `varlock encrypt` to generate an encrypted value manually.',
             });
           }
+          if (writeBackResult.reason === 'non-regular-source-file') {
+            throw new ResolutionError(`Unable to persist encrypted value for ${itemKey}`, {
+              tip: `${sourceFilePath} is not a regular file (FIFO/pipe), so varlock cannot write back to it.`,
+            });
+          }
 
           throw new ResolutionError(`Unable to persist encrypted value for ${itemKey}`, {
             tip: `Could not find a writable \`${itemKey}=varlock(...)\` entry to update in ${sourceFilePath}.`,
@@ -251,6 +256,11 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
         if (writeBackResult.reason === 'missing-source-file') {
           throw new ResolutionError(`Unable to persist encrypted value for ${itemKey}`, {
             tip: 'varlock(prompt=1) can only persist values from file-backed sources. Use `varlock encrypt` to generate an encrypted value manually.',
+          });
+        }
+        if (writeBackResult.reason === 'non-regular-source-file') {
+          throw new ResolutionError(`Unable to persist encrypted value for ${itemKey}`, {
+            tip: `${sourceFilePath} is not a regular file (FIFO/pipe), so varlock cannot write back to it.`,
           });
         }
 

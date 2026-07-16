@@ -58,7 +58,7 @@ async function fetchWithRetry(
     try {
       const resp = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
       const body = await resp.text();
-      return { status: resp.status, body };
+      return { status: resp.status, body, headers: Object.fromEntries(resp.headers.entries()) };
     } catch {
       if (i < retries - 1) {
         await new Promise<void>((r) => {
@@ -70,7 +70,7 @@ async function fetchWithRetry(
   // final attempt — let it throw
   const resp = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
   const body = await resp.text();
-  return { status: resp.status, body };
+  return { status: resp.status, body, headers: Object.fromEntries(resp.headers.entries()) };
 }
 
 /**
@@ -330,6 +330,13 @@ export async function runDevServer(
         log(`Response: status=${result.status}, body=${result.body.length} bytes`);
         responses.push(result);
       } catch (err) {
+        if (req.allowRequestFailure) {
+          // e.g. runtime leak detection kills the response mid-stream — record a
+          // synthetic result so scenario/log assertions can still run
+          log(`Request failed (allowed): ${(err as Error).message}`);
+          responses.push({ status: 0, body: '', headers: {} });
+          continue;
+        }
         logError(`Request failed: ${(err as Error).message}`);
         dumpOutput();
         throw err;

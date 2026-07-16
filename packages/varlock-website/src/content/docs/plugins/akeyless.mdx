@@ -84,7 +84,7 @@ For deployments on platforms that issue OIDC tokens (Vercel, GitHub Actions, Git
 # @initAkeyless(oidcAccessId="p-your-access-id")
 ```
 
-No `accessKey` is needed — the `oidcAccessId` parameter triggers OIDC authentication. For platforms not auto-detected, pass an explicit token via `oidcToken`.
+No `accessKey` is needed. The `oidcAccessId` parameter triggers OIDC authentication. For platforms not auto-detected, pass an explicit token via `oidcToken`.
 
 ### Using an Akeyless Gateway
 
@@ -158,7 +158,7 @@ DB_USER=akeyless("/MyApp/DynamicDBSecret#user", type=dynamic)
 DB_PASS=akeyless("/MyApp/DynamicDBSecret#password", type=dynamic)
 ```
 
-Multiple items that reference the same dynamic secret path are cached — only one API call is made, and each item extracts its key from the cached response.
+Multiple items that reference the same dynamic secret path are cached: only one API call is made, and each item extracts its key from the cached response.
 
 ### Rotated secrets
 
@@ -231,7 +231,7 @@ Initialize an Akeyless plugin instance.
 - `apiUrl` (optional): Akeyless API URL (defaults to `https://api.akeyless.io`). Use this for self-hosted Akeyless Gateway.
 - `pathPrefix` (optional): Prefix automatically prepended to all secret paths
 - `id` (optional): Instance identifier for multiple instances
-- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/). Only `static` secrets are cached — `dynamic` and `rotated` secrets are designed to change per fetch and are never cached.
+- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/). Only `static` secrets are cached. `dynamic` and `rotated` secrets change per fetch and are never cached.
 
 ```env-spec "@initAkeyless"
 # @initAkeyless(accessId=$AKEYLESS_ACCESS_ID, accessKey=$AKEYLESS_ACCESS_KEY, pathPrefix="/MyApp")
@@ -254,7 +254,7 @@ AKEYLESS_ACCESS_ID=
 <div>
 #### `akeylessAccessKey`
 
-This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly, for example to write secrets back or fetch additional secrets at runtime.
 
 
 Represents an Akeyless Access Key for API Key authentication. This type is marked as `@sensitive`.
@@ -278,13 +278,13 @@ Fetch a secret from Akeyless Platform.
 - `secretName` (optional): full path to the secret, optionally with `#KEY` to extract a JSON key (e.g., `"/MyApp/Secret#username"`). If omitted, uses the item key (variable name) as the secret name.
 
 **Named args:**
-- `type` (optional): secret type — `static` (default), `dynamic`, or `rotated`
+- `type` (optional): secret type, one of `static` (default), `dynamic`, or `rotated`
 - `key` (optional): JSON key to extract from the secret value (overrides `#KEY` syntax)
 
 **Secret types:**
-- `static` — Simple key/value secrets (default). If the value is JSON, use `#KEY` or `key=` to extract individual keys.
-- `dynamic` — On-demand generated credentials (database, cloud, etc.). Returns JSON by default, or extract a specific key with `#KEY` or `key=`.
-- `rotated` — Auto-rotated credentials managed by Akeyless. Returns JSON by default, or extract a specific key with `#KEY` or `key=`.
+- `static`: Simple key/value secrets (default). If the value is JSON, use `#KEY` or `key=` to extract individual keys.
+- `dynamic`: On-demand generated credentials (database, cloud, etc.). Returns JSON by default, or extract a specific key with `#KEY` or `key=`.
+- `rotated`: Auto-rotated credentials managed by Akeyless. Returns JSON by default, or extract a specific key with `#KEY` or `key=`.
 
 **Caching:** Multiple items referencing the same secret path (and type) share a single API call. This is especially useful for dynamic and rotated secrets where you need to extract multiple keys from the same response.
 

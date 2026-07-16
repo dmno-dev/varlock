@@ -1,5 +1,6 @@
 /* eslint-disable no-console */
 
+import fs from 'node:fs';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 import MagicString from 'magic-string';
@@ -53,6 +54,8 @@ let lastErrorAt = 0;
 let configHookCalled = false;
 // one-time guard for the SvelteKit+Cloudflare auto-detection notice
 let cfDetectNoticeLogged = false;
+// one-time guard for the Vercel unencrypted resolved-env warning
+let vercelUnencryptedWarningLogged = false;
 let staticReplacements: Record<string, any> = {};
 let replacerFn: ReturnType<typeof createReplacerTransformFn>;
 
@@ -76,6 +79,27 @@ function resetStaticReplacements() {
   });
 }
 
+
+// Env sources may not be regular files — e.g. 1Password Environments serves
+// `.env` as a FIFO (named pipe) that is re-served on every read. Watching such
+// a file is meaningless (its stat churns whenever it is read) and registering
+// it in `configFileDependencies` would make vite restart the dev server in a
+// loop, since each restart re-reads the pipe and fires new fs events.
+function isExistingNonRegularFile(filePath: string): boolean {
+  try {
+    return !fs.statSync(filePath).isFile();
+  } catch {
+    return false; // missing files keep their current handling
+  }
+}
+
+const warnedNonRegularSources = new Set<string>();
+function warnNonRegularSourceOnce(absPath: string, basePath?: string) {
+  if (warnedNonRegularSources.has(absPath)) return;
+  warnedNonRegularSources.add(absPath);
+  const displayPath = basePath ? (path.relative(basePath, absPath) || absPath) : absPath;
+  console.log(`ℹ️ [varlock] ${displayPath} is not a regular file (FIFO/pipe), live reload is disabled for it`);
+}
 
 let loadCount = 0;
 let activeIntegrationTelemetry = {
@@ -153,6 +177,13 @@ export interface VarlockVitePluginOptions {
   ssrEntryModuleIds?: Array<string>,
   /** override integration identity for CLI telemetry (used by composed integrations like Astro) */
   integrationTelemetry?: { name: string, version: string },
+  /**
+   * set by composed integrations (e.g. `@varlock/cloudflare-integration`, the
+   * Astro Cloudflare adapter branch) when the CF runtime env loader has been
+   * injected via `ssrEntryCode`. Used to reject `ssrInjectMode: 'resolved-env'`
+   * as redundant — the loader already hydrates env from Cloudflare bindings.
+   */
+  isCloudflareTarget?: boolean,
 }
 
 // Return type is `any` instead of `Plugin` to avoid symlink type conflicts.
@@ -179,6 +210,7 @@ export function varlockVitePlugin(
   // when the virtual init module is loaded — always after `configResolved`.
   let resolvedSsrEdgeRuntime = vitePluginOptions?.ssrEdgeRuntime ?? false;
   let resolvedSsrEntryCode = vitePluginOptions?.ssrEntryCode;
+  let resolvedIsCloudflareTarget = vitePluginOptions?.isCloudflareTarget ?? false;
 
   // Build the virtual init module content once. This module is imported
   // by SSR entry points and evaluates before any user code because it
@@ -199,6 +231,35 @@ export function varlockVitePlugin(
       lines.push("import 'varlock/auto-load';");
     } else {
       if (ssrInjectMode === 'resolved-env') {
+        // Only reject this for production builds. In dev, some adapters (e.g.
+        // Astro's @astrojs/cloudflare) run SSR inside workerd via a plugin-owned
+        // miniflare instance with no binding-injection hook for varlock to use,
+        // so resolved-env is the only way to get real values into the worker —
+        // it's the composed integration's own default there, not shipped in a
+        // deploy artifact.
+        if (resolvedIsCloudflareTarget && !isDevCommand) {
+          throw new Error(
+            "[varlock] ssrInjectMode: 'resolved-env' is redundant on Cloudflare Workers and ships resolved "
+            + '(possibly sensitive) values into the worker bundle unnecessarily. Cloudflare deploys get their '
+            + 'env injected at runtime from bindings via `varlock-wrangler` — remove the `ssrInjectMode` override '
+            + "(or set it to 'init-only') and let the Cloudflare integration handle it.\n"
+            + 'See https://varlock.dev/integrations/cloudflare/ for details.',
+          );
+        }
+        // Vercel has no native runtime-binding mechanism like Cloudflare's, so
+        // `resolved-env` is the correct approach there — but plaintext means
+        // secrets sit as JSON in the build artifact. Nudge (don't block) users
+        // who haven't opted into `@encryptInjectedEnv`.
+        if (process.env.VERCEL === '1' && !encryptionRequired && !isDevCommand) {
+          if (!vercelUnencryptedWarningLogged) {
+            vercelUnencryptedWarningLogged = true;
+            console.warn(
+              "\x1b[33m[varlock] ⚠️ ssrInjectMode: 'resolved-env' on Vercel ships your resolved env as plaintext JSON "
+              + 'in the build artifact. Consider enabling `@encryptInjectedEnv` — '
+              + 'see https://varlock.dev/guides/encrypted-deployments/\x1b[0m',
+            );
+          }
+        }
         if (encryptionRequired && !encryptionKey) {
           if (isDevCommand) {
             // auto-generate a temporary key for local dev
@@ -296,6 +357,7 @@ export function varlockVitePlugin(
       const { CLOUDFLARE_SSR_ENTRY_CODE } = await import(cfEntryCodeModule) as { CLOUDFLARE_SSR_ENTRY_CODE: string };
       resolvedSsrEntryCode = [CLOUDFLARE_SSR_ENTRY_CODE];
       resolvedSsrEdgeRuntime = true;
+      resolvedIsCloudflareTarget = true;
       debug('detected SvelteKit + Cloudflare adapter — injecting edge env loader');
       // Surface the auto-detection so it isn't silent magic in the build output.
       if (!cfDetectNoticeLogged) {
@@ -417,7 +479,12 @@ See https://varlock.dev/integrations/vite/ for more details.
       for (const varlockSource of varlockLoadedEnv.sources) {
         if (!varlockSource.enabled) continue;
         if (varlockLoadedEnv.basePath && varlockSource.path) {
-          config.configFileDependencies.push(path.resolve(varlockLoadedEnv.basePath, varlockSource.path));
+          const absPath = path.resolve(varlockLoadedEnv.basePath, varlockSource.path);
+          if (isExistingNonRegularFile(absPath)) {
+            warnNonRegularSourceOnce(absPath, varlockLoadedEnv.basePath);
+            continue;
+          }
+          config.configFileDependencies.push(absPath);
         }
       }
     },

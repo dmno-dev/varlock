@@ -298,6 +298,14 @@ export type RootDecoratorDef<Processed = any> = {
   name: string,
   description?: string;
   isFunction?: boolean;
+  /**
+   * Opt in to sharing this `@name` with an item decorator of the same name. Both defs must
+   * set it, and placement validation then routes header uses here and item uses to the item
+   * def (see `_validateDecoratorPlacement`). Used by `@proxy`: detached rules in the header,
+   * attached rules on an item. Without this, a cross-registry name is rejected as an
+   * accidental collision, since it would otherwise be shadowed.
+   */
+  allowDualPlacement?: boolean;
   /** Purely informational (no effect on resolved values/behavior) → excluded from the schema fingerprint. */
   inert?: boolean;
   deprecated?: boolean | string;
@@ -501,10 +509,9 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
   {
     name: 'disable',
   },
-  {
-    name: 'generateTypes',
-    isFunction: true,
-  },
+  // NOTE: `@generate*` decorators (@generateTsTypes, @generatePythonEnv, the deprecated
+  // @generateTypes alias, plugin generators) are registered via the code-generator registry,
+  // not here — the `generate` prefix is reserved for code generators.
   {
     name: 'import',
     isFunction: true,
@@ -543,6 +550,14 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
   },
   {
     name: 'disableProcessEnvInjection',
+    // static-only: code generation reads this flag (it controls whether process.env is typed as
+    // populated), so an env-dependent value like forEnv(...) would make generated output differ
+    // per active environment
+    process: (decVal) => {
+      if (!decVal.isStatic || !_.isBoolean(decVal.staticValue)) {
+        throw new Error('@disableProcessEnvInjection must be a static boolean — env-dependent values would make generated code differ per environment');
+      }
+    },
   },
   {
     // Single-use header config for the credential proxy. The proxy itself is
@@ -577,6 +592,8 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
   {
     name: 'proxy',
     isFunction: true,
+    // detached rules in the header; the item decorator of the same name handles attached rules
+    allowDualPlacement: true,
     useFnArgsResolver: true,
     process: (argsVal) => validateProxyFunctionArgs(argsVal),
   },
@@ -719,6 +736,11 @@ export type ItemDecoratorDef<T = any> = {
   name: string,
   incompatibleWith?: Array<string>;
   isFunction?: boolean;
+  /**
+   * Opt in to sharing this `@name` with a root decorator of the same name — see
+   * `RootDecoratorDef.allowDualPlacement`. Both defs must set it.
+   */
+  allowDualPlacement?: boolean;
   /** Purely informational (no effect on resolved values/behavior) → excluded from the schema fingerprint. */
   inert?: boolean;
   /**
@@ -772,6 +794,10 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
     inert: true,
   },
   {
+    name: 'tag',
+    isFunction: true,
+  },
+  {
     name: 'icon',
     inert: true,
   },
@@ -794,6 +820,8 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
     name: 'proxy',
     isFunction: true,
     isFunctionOrValue: true,
+    // attached rules on an item; the root decorator of the same name handles detached rules
+    allowDualPlacement: true,
     useFnArgsResolver: true,
     process: (decVal) => {
       // Value form: @proxy=passthrough (inject the real value) or @proxy=omit

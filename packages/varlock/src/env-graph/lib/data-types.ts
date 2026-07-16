@@ -9,6 +9,19 @@ import {
 
 type MaybePromise<T> = T | Promise<T>;
 
+/**
+ * The runtime shape a data type's `coerce()` produces — consumed by code generation to type the
+ * generated fields in each target language. `'int'` vs `'number'` matters for languages that
+ * distinguish them (Go/Rust/PHP; JS/TS just uses `number`); an enum carries its member values so
+ * emitters can build literal-union types. Types that don't declare one are treated as strings.
+ */
+export type CoercedType = | 'string'
+  | 'int' // integer number
+  | 'number' // general (possibly fractional) number
+  | 'boolean'
+  | 'object'
+  | { enum: Array<string | number | boolean> };
+
 type EnvGraphDataTypeDef<CoerceReturnType, ValidateInputType = FallbackIfUnknown<CoerceReturnType, string>> = {
   /** this will be the name of the type, used to reference it when using it in a schema */
   name: string;
@@ -41,6 +54,12 @@ type EnvGraphDataTypeDef<CoerceReturnType, ValidateInputType = FallbackIfUnknown
    * Return undefined when no valid-and-unique form exists for this type.
    */
   generatePlaceholder?: (seed: string) => string | undefined;
+
+  /**
+   * what shape `coerce` outputs — lets code generation emit properly typed fields
+   * (e.g. `int` in Go) instead of assuming `string`. Omit for string-valued types.
+   */
+  coercedType?: CoercedType;
 
   // asyncValidate? - async validation function, meant to be called more sparingly
   // for example, when could validate an API key is currently valid
@@ -81,6 +100,8 @@ export class EnvGraphDataType {
   get isSensitive() { return this.def.sensitive; }
   get isInternal() { return this.def.internal; }
   get docsEntries() { return this.def.docs; }
+  get coercedType() { return this.def.coercedType; }
+
   generatePlaceholder(seed: string) {
     return this.def.generatePlaceholder?.(seed);
   }
@@ -264,6 +285,8 @@ const NumberDataType = createEnvGraphDataType(
   )) => ({
     name: 'number',
     icon: 'carbon:string-integer',
+    // an integer only when constrained (isInt / precision=0) — coerce() rounds in that case
+    coercedType: (settings?.isInt === true || settings?.precision === 0) ? 'int' : 'number',
     coerce(rawVal) {
       let numVal = coerceToNumber(rawVal);
       if (settings?.coerceToMinMaxRange) {
@@ -301,6 +324,7 @@ const NumberDataType = createEnvGraphDataType(
 const BooleanDataType = createEnvGraphDataType({
   name: 'boolean',
   icon: 'carbon:boolean',
+  coercedType: 'boolean',
   // probably want allow some settings
   // - more strict about coercion or adding additional true/false values
   // - coercing to other values - like 0,1
@@ -383,6 +407,7 @@ const UrlDataType = createEnvGraphDataType(
 const SimpleObjectDataType = createEnvGraphDataType({
   name: 'simple-object',
   icon: 'tabler:code-dots', // curly brackets with nothing inside
+  coercedType: 'object',
   coerce(val) {
     if (_.isPlainObject(val)) return val;
     // if value is a string, we'll try to JSON.parse and see if that is an object
@@ -414,6 +439,7 @@ const EnumDataType = createEnvGraphDataType(
   (...enumOptions: Array<PossibleEnumValues>) => ({
     name: 'enum',
     icon: 'material-symbols-light:category', // a few shapes... not sure about this one
+    coercedType: { enum: enumOptions },
     coerce(val) {
       if (_.isString(val) || _.isNumber(val) || _.isBoolean(val)) return val;
       return new CoercionError('Value must be a string, number, or boolean');
@@ -426,7 +452,6 @@ const EnumDataType = createEnvGraphDataType(
         });
       }
     },
-    _rawEnumOptions: enumOptions,
   }),
 );
 
@@ -487,6 +512,7 @@ const PortDataType = createEnvGraphDataType(
     name: 'port',
     icon: 'material-symbols:captive-portal', //! globe with arrow - not sure about this one
     typeDescription: 'valid port number between 0 and 65535',
+    coercedType: 'int',
     coerce(rawVal) {
       if (_.isString(rawVal)) {
         if (rawVal.includes('.')) throw new CoercionError('Port number must be an integer');
@@ -593,6 +619,8 @@ const DurationDataType = createEnvGraphDataType(
     name: 'duration',
     icon: 'mdi:timer-outline',
     typeDescription: 'flexible duration (accepts "1h", "30m", "500ms", "2days", etc. — outputs ms by default)',
+    // can be fractional after unit conversion (e.g. "90s" output in minutes), so a general number
+    coercedType: 'number',
     coerce(rawVal) {
       if (rawVal === undefined || rawVal === null) return undefined;
       const output = settings?.output ?? 'ms';

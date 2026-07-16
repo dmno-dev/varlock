@@ -256,25 +256,59 @@ export function scanForLeaks(
 
 // --------------
 
-let initializedEnv = false;
-let configHasErrors = false;
-const envValues = {} as Record<string, any>;
-export const varlockSettings = {} as Record<string, any>;
+// Like the redaction state above, env state lives on globalThis so all module instances
+// share it. Bundlers can create multiple copies of this module in one process (e.g. Next.js
+// bundles it into the app-router server code AND the pages-router code, while @next/env
+// uses the node_modules copy) — env loads/reloads happen via one instance and ENV reads
+// via another, so instance-local state would go stale or appear uninitialized.
+type EnvState = {
+  initialized: boolean,
+  configHasErrors: boolean,
+  // NOTE: these objects are mutated in place, never replaced — module instances
+  // capture references to them at load time
+  values: Record<string, any>,
+  settings: Record<string, any>,
+  /** snapshot of process.env before any varlock injection (captured by the first instance to load) */
+  originalProcessEnv: Record<string, string | undefined>,
+  /** keys injected into process.env by the last init/reload (undefined = never injected) */
+  injectedProcessEnvKeys: Array<string> | undefined,
+};
 
 const processExists = !!globalThis.process;
-const originalProcessEnv = { ...processExists && process.env };
-let varlockInjectedProcessEnvKeys: Array<string> | undefined;
+
+const ENV_STATE_KEY = '__varlockEnvState';
+function getEnvState(): EnvState {
+  if (!(globalThis as any)[ENV_STATE_KEY]) {
+    (globalThis as any)[ENV_STATE_KEY] = {
+      initialized: false,
+      configHasErrors: false,
+      values: {},
+      settings: {},
+      originalProcessEnv: { ...processExists && process.env },
+      injectedProcessEnvKeys: undefined,
+    } satisfies EnvState;
+  }
+  const state: EnvState = (globalThis as any)[ENV_STATE_KEY];
+  // the state object may have been created by an older copy of this module that
+  // didn't track process.env injection — fill in what we can
+  state.originalProcessEnv ||= { ...processExists && process.env };
+  return state;
+}
+
+const envState = getEnvState();
+const envValues = envState.values;
+export const varlockSettings = envState.settings;
 
 export function initVarlockEnv(opts?: {
   allowFail?: boolean,
 }) {
-  debug('⚡️ INIT VARLOCK ENV!', initializedEnv, !!(globalThis as any).__varlockLoadedEnv, !!globalThis.process?.env.__VARLOCK_ENV);
+  debug('⚡️ INIT VARLOCK ENV!', envState.initialized, !!(globalThis as any).__varlockLoadedEnv, !!globalThis.process?.env.__VARLOCK_ENV);
 
   // normally we can just bail if we detect we are in the browser
   // however when front-end related tests, it may appear that we are in the browser but it is not
   // also some frameworks inject a process polyfill, others do not
   if (isBrowser && !globalThis.process?.env.__VARLOCK_ENV) {
-    initializedEnv = true;
+    envState.initialized = true;
     return;
   }
 
@@ -287,6 +321,13 @@ export function initVarlockEnv(opts?: {
 
   // otherwise if we inject via `varlock run` or have already loaded, it will be in process.env
   } else if (processExists && process.env.__VARLOCK_ENV) {
+    // may still be an encrypted blob if edge init is decrypting asynchronously
+    // (runtimes without node:crypto) — treat as not-yet-available rather than
+    // exploding in JSON.parse
+    if (process.env.__VARLOCK_ENV.startsWith('varlock:v1:')) {
+      if (opts?.allowFail) return;
+      throw new Error('[varlock] env blob is still encrypted — decryption has not completed yet');
+    }
     serializedEnvData = JSON.parse(process.env.__VARLOCK_ENV);
   } else {
     if (opts?.allowFail) return;
@@ -300,37 +341,45 @@ export function initVarlockEnv(opts?: {
     throw new Error('initVarlockEnv failed');
   }
   Object.assign(varlockSettings, serializedEnvData.settings);
-  configHasErrors = !!(serializedEnvData as any).errors;
+  envState.configHasErrors = !!(serializedEnvData as any).errors;
   resetRedactionMap(serializedEnvData);
+
+  // on reload, drop values for keys no longer in the config (deleted in place —
+  // module instances hold references to the values object)
+  for (const staleKey of Object.keys(envValues)) {
+    if (!(staleKey in serializedEnvData.config)) delete envValues[staleKey];
+  }
 
   const setProcessEnv = processExists && !serializedEnvData.settings?.disableProcessEnvInjection;
 
   // if we've already injected process.env vars in the past, we'll reset those now
+  // (injection bookkeeping lives on the shared state so a reload flowing through a
+  // different module instance than the one that injected still cleans up removed keys)
   if (setProcessEnv) {
-    if (varlockInjectedProcessEnvKeys) {
-      for (const key of varlockInjectedProcessEnvKeys) delete process.env[key];
-      for (const key of Object.keys(originalProcessEnv)) process.env[key] = originalProcessEnv[key];
+    if (envState.injectedProcessEnvKeys) {
+      for (const key of envState.injectedProcessEnvKeys) delete process.env[key];
+      for (const key of Object.keys(envState.originalProcessEnv)) process.env[key] = envState.originalProcessEnv[key];
     }
-    varlockInjectedProcessEnvKeys = [];
+    envState.injectedProcessEnvKeys = [];
   }
 
   for (const itemKey in serializedEnvData.config) {
     const itemValue = serializedEnvData.config[itemKey].value;
     envValues[itemKey] = itemValue;
     if (setProcessEnv) {
-      varlockInjectedProcessEnvKeys?.push(itemKey);
+      envState.injectedProcessEnvKeys?.push(itemKey);
       // when re-injecting into process.env, we treat undefined as empty string
       // this more closely matches expected behaviour from other .env loaders
       process.env[itemKey] = itemValue === undefined ? '' : String(itemValue);
     }
   }
-  initializedEnv = true;
+  envState.initialized = true;
 }
 
 // we will attempt to call initVarlockEnv automatically, but in most cases it should be called explicitly
 // note that if this is being imported in the browser, process.env may not exist, so we do this in a try/catch
 try {
-  if (!initializedEnv) {
+  if (!envState.initialized) {
     // if we are automatically loading because __VARLOCK_ENV is already set
     // then we assume process.env vars have also already been set (although might not harm anything?)
     initVarlockEnv({ allowFail: true });
@@ -366,14 +415,14 @@ const EnvProxy = new Proxy<TypedEnvSchema>({}, {
     // special cases to avoid throwing on invalid keys
     if (IGNORED_PROXY_KEYS.includes(prop)) return;
 
-    if (!initializedEnv) {
+    if (!envState.initialized) {
       throw new Error(
         'varlock ENV not initialized — make sure varlock is set up correctly.\n'
         + 'See https://varlock.dev/docs/get-started for setup instructions.',
       );
     }
 
-    if (configHasErrors) {
+    if (envState.configHasErrors) {
       // eslint-disable-next-line no-console
       console.error(`[varlock] ⚠️ ENV.${prop} accessed but config has errors — values may be missing or incorrect`);
       return undefined;

@@ -5,8 +5,19 @@ out/
 .astro/
 .turbo/
 
-# Generated types
+# Generated types / modules
 env.d.ts
+env.ts
+env_types.*
+smoke-test-lang-python/env.py
+smoke-test-lang-go/env/
+smoke-test-lang-rust/src/env.rs
+smoke-test-lang-php/Env.php
+
+# Language build artifacts (from compile-run smoke tests)
+smoke-test-lang-rust/target/
+smoke-test-lang-rust/Cargo.lock
+__pycache__/
 
 # Test artifacts
 node_modules/

@@ -5,7 +5,7 @@ export default defineConfig({
     testTimeout: 120_000,
     hookTimeout: 180_000,
     globals: true,
-    include: ['frameworks/**/*.test.ts'],
+    include: ['frameworks/**/*.test.ts', 'deploy/**/*.test.ts'],
     pool: 'forks',
     poolOptions: {
       forks: {

@@ -45,6 +45,8 @@ class InfisicalPluginInstance {
   private oidcToken?: string;
   /** Optional default secret path */
   private secretPath?: string;
+  /** If true, missing secrets return undefined instead of throwing */
+  allowMissing?: boolean;
   /** optional cache TTL - when set, resolved values are cached */
   cacheTtl?: string | number;
 
@@ -71,6 +73,7 @@ class InfisicalPluginInstance {
     secretPath?: string,
     identityId?: any,
     oidcToken?: any,
+    allowMissing?: boolean,
   ) {
     if (projectId && typeof projectId === 'string') this.projectId = projectId;
     if (environment && typeof environment === 'string') this.environment = environment;
@@ -80,6 +83,7 @@ class InfisicalPluginInstance {
     if (oidcToken && typeof oidcToken === 'string') this.oidcToken = oidcToken;
     if (siteUrl && typeof siteUrl === 'string') this.siteUrl = siteUrl;
     this.secretPath = secretPath;
+    if (allowMissing !== undefined) this.allowMissing = allowMissing;
     debug('infisical instance', this.id, 'set auth - projectId:', projectId, 'environment:', environment, 'hasIdentityId:', !!identityId);
   }
 
@@ -311,6 +315,19 @@ class InfisicalPluginInstance {
 
 const pluginInstances: Record<string, InfisicalPluginInstance> = {};
 
+/** Returns true if the error represents a missing Infisical secret */
+function isNotFoundError(err: any): boolean {
+  if (err instanceof ResolutionError) {
+    const msg = err.message || '';
+    return msg.includes('not found') || msg.includes('NotFound');
+  }
+  const errorMsg = err?.message || String(err);
+  const statusCode = err?.statusCode || err?.response?.status;
+  return statusCode === 404
+    || errorMsg.includes('not found')
+    || errorMsg.includes('NotFound');
+}
+
 plugin.registerRootDecorator({
   name: 'initInfisical',
   description: 'Initialize an Infisical plugin instance for infisical() resolver',
@@ -370,6 +387,7 @@ plugin.registerRootDecorator({
     return {
       id,
       cacheTtlResolver: objArgs.cacheTtl,
+      allowMissingResolver: objArgs.allowMissing,
       siteUrlResolver: objArgs.siteUrl,
       secretPath,
       projectIdResolver: objArgs.projectId,
@@ -383,6 +401,7 @@ plugin.registerRootDecorator({
   async execute({
     id,
     cacheTtlResolver,
+    allowMissingResolver,
     siteUrlResolver,
     secretPath,
     projectIdResolver,
@@ -401,6 +420,7 @@ plugin.registerRootDecorator({
     const identityId = await identityIdResolver?.resolve();
     const oidcToken = await oidcTokenResolver?.resolve();
     const siteUrl = await siteUrlResolver?.resolve();
+    const allowMissing = await allowMissingResolver?.resolve();
 
     pluginInstances[id].setAuth(
       projectId,
@@ -411,6 +431,7 @@ plugin.registerRootDecorator({
       secretPath,
       identityId,
       oidcToken,
+      allowMissing as boolean | undefined,
     );
     const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
     if (cacheTtl !== undefined) {
@@ -451,7 +472,7 @@ plugin.registerResolverFunction({
   label: 'Fetch secret value from Infisical',
   icon: INFISICAL_ICON,
   argsSchema: {
-    type: 'array',
+    type: 'mixed',
     arrayMinLength: 0,
   },
   process() {
@@ -526,12 +547,14 @@ plugin.registerResolverFunction({
       }
     }
 
+    const allowMissingResolver = this.objArgs?.allowMissing;
+
     return {
-      instanceId, itemKey, secretNameResolver, secretPathResolver,
+      instanceId, itemKey, secretNameResolver, secretPathResolver, allowMissingResolver,
     };
   },
   async resolve({
-    instanceId, itemKey, secretNameResolver, secretPathResolver,
+    instanceId, itemKey, secretNameResolver, secretPathResolver, allowMissingResolver,
   }) {
     const selectedInstance = pluginInstances[instanceId];
 
@@ -558,17 +581,30 @@ plugin.registerResolverFunction({
       secretPath = resolvedPath;
     }
 
+    const allowMissing = allowMissingResolver ? !!(await allowMissingResolver.resolve()) : undefined;
+    const shouldAllowMissing = allowMissing ?? selectedInstance.allowMissing;
+
+    const fetchSecret = async () => {
+      try {
+        return await selectedInstance.getSecret(secretName, secretPath);
+      } catch (err) {
+        if (shouldAllowMissing && isNotFoundError(err)) {
+          return undefined;
+        }
+        throw err;
+      }
+    };
+
     if (selectedInstance.cacheTtl !== undefined && pluginCache) {
       const cacheKey = `infisical:${instanceId}:${selectedInstance.cacheKeyIdentity}:${secretPath || ''}:${secretName}`;
       return await pluginCache.getOrSet(
         cacheKey,
         selectedInstance.cacheTtl,
-        async () => await selectedInstance.getSecret(secretName, secretPath),
+        fetchSecret,
       );
     }
 
-    const secretValue = await selectedInstance.getSecret(secretName, secretPath);
-    return secretValue;
+    return await fetchSecret();
   },
 });
 

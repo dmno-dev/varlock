@@ -15,6 +15,44 @@
 
 
 
+
+
+## 1.11.0
+<sub>2026-07-15</sub>
+
+- [#873](https://github.com/dmno-dev/varlock/pull/873)  *(minor)*
+  Add `--filter` flag to `load`/`run` for selecting env vars by key/glob, `@sensitive`/`@required`, or tags (new `@tag()` item decorator). Also add a matching `filter=` arg to `@generate*` code-generation decorators, so a single schema can emit multiple generated files scoped to different subsets.
+- [#871](https://github.com/dmno-dev/varlock/pull/871)  *(minor)*
+  Add detection for Railway, AWS Amplify, Google Cloud Run, Deno Deploy, Zeabur, and Firebase App Hosting; detect dev sandboxes (CodeSandbox, StackBlitz, GitHub Codespaces, Gitpod, Replit) with isCI: false; add detectRuntime/detectOs and expose them as VARLOCK_RUNTIME/VARLOCK_OS builtin variables.
+
+  Also fixes several incorrect env var names found during a std-env doc audit: GitHub Actions PR number (was reading a non-existent variable), GitLab MR number (was using the instance-wide ID instead of the IID), Netlify build URL (double `https://`), Semaphore PR number (Classic-only variable), Azure Pipelines PR number (prefers the GitHub-facing number), and Bitbucket repo owner (deprecated variable). Adds repo extraction for Bitrise.
+
+  A second pass against std-env's actual detection logic found three more real gaps: Vercel and Netlify now report `isCI: false` when running their local dev servers (`vercel dev`, `netlify dev`) instead of always reporting CI; StackBlitz detection now also requires the WebContainer runtime marker (matching std-env) instead of a weak SHELL-only heuristic that could misfire; and `detectRuntime`'s `isNode` flag now matches std-env's semantics (stays `true` under Bun/Deno's Node-compat mode).
+- [#874](https://github.com/dmno-dev/varlock/pull/874)  *(patch)*
+  Fix: `varlock load --format json-full` no longer includes `@internal` items by default (pass `--include-internal` to opt in for local debugging). Framework integrations shell out to this exact command to get their injected config, so this closes a leak where an `@internal` secret-zero credential could reach client/SSR runtime code.
+- [#882](https://github.com/dmno-dev/varlock/pull/882)  *(patch)*
+  Docs: clarify that _VARLOCK_ENV_KEY encrypts the injected env blob (not an encrypted() resolver), and drop the stale plugin count from the package README
+- [#884](https://github.com/dmno-dev/varlock/pull/884)  *(patch)* - Refuse to write back encrypted values to non-regular source files (FIFO/pipe) with a clear error instead of blocking
+
+## 1.10.0
+<sub>2026-07-06</sub>
+
+- [#849](https://github.com/dmno-dev/varlock/pull/849)  *(minor)*
+  Generate code for Python, Rust, Go, and PHP with new per-language decorators (`@generatePythonEnv`, `@generateRustEnv`, `@generateGoEnv`, `@generatePhpEnv`). Each emits a self-contained, idiomatic module — typed coerced values, a loader that parses the injected env, and a `SENSITIVE_KEYS` constant — so it's usable out of the box. The TypeScript generator moves to `@generateTsTypes` and gains options to control `process.env`/`import.meta.env` augmentation and a monorepo-friendly `exposeEnv=local` mode. `@generateTypes(lang=ts)` still works as a deprecated alias. The `varlock typegen` command is renamed to `varlock codegen` (with `typegen` kept as a deprecated alias). Note: `@disableProcessEnvInjection` now requires a static `true`/`false` value — env-dependent values like `forEnv(prod)` are a schema error, since generated code must not differ per environment.
+- [#853](https://github.com/dmno-dev/varlock/pull/853)  *(patch)* - Reject unknown or misspelled CLI flags with a did-you-mean suggestion instead of silently ignoring them
+- [#861](https://github.com/dmno-dev/varlock/pull/861)  *(patch)*
+  Runtime leak detection now catches secrets in compressed responses: gzipped responses that fit in a single chunk (i.e. most pages) were never scanned, so browsers — which always send `Accept-Encoding: gzip` — could receive leaked sensitive values the scanner should have blocked. Brotli and zstd responses are now scanned too, and compressed chunks containing a leak fail closed (the response is killed) instead of passing through.
+
+  Note: since most browser traffic previously bypassed the scanner, an app with an existing undetected leak will start seeing those responses blocked after upgrading — look for `DETECTED LEAKED SENSITIVE CONFIG` in server logs, which names the offending config key.
+- [#861](https://github.com/dmno-dev/varlock/pull/861)  *(patch)*
+  Runtime fixes: env state is now shared across bundled copies of `varlock/env` (fixes stale values after env reloads when a bundler duplicates the module, including cleanup of `process.env` keys removed between reloads), and `node:crypto` is loaded lazily — with encrypted env blobs decrypting via WebCrypto on edge runtimes that lack it entirely (e.g. Vercel Edge). Minimum supported Node version is now 22.3.
+- [#854](https://github.com/dmno-dev/varlock/pull/854)  *(patch)*
+  Windows local encryption now uses TPM-sealed keys via NCrypt when available; existing DPAPI keys auto-upgrade on the next decrypt.
+- [#865](https://github.com/dmno-dev/varlock/pull/865)  *(patch)*
+  icon fetching during type generation now ignores failed responses, times out after 2s, and doesn't retry failed icons within a run
+- [#866](https://github.com/dmno-dev/varlock/pull/866)  *(patch)*
+  plugin-registered data types can now declare `coercedType` so generated env modules type their fields correctly (previously they always emitted as strings)
+
 ## 1.9.0
 <sub>2026-06-25</sub>
 

@@ -12,8 +12,8 @@ import Badge from '@/components/Badge.astro';
 
 Our Bitwarden plugin enables secure loading of secrets from Bitwarden using declarative instructions within your `.env` files. It supports two distinct Bitwarden products:
 
-- **[Secrets Manager](https://bitwarden.com/products/secrets-manager/)** — programmatic secret storage, accessed via machine account access tokens over the REST API. Best for CI/CD and production. Uses `@initBitwarden()` + `bitwarden()`.
-- **[Password Manager](https://bitwarden.com/products/personal/)** (and self-hosted **[Vaultwarden](https://github.com/dani-garcia/vaultwarden)**) — your personal/team password vault, accessed via the `bw` CLI. Best for local development. Uses `@initBwp()` + `bwp()`.
+- **[Secrets Manager](https://bitwarden.com/products/secrets-manager/)**: programmatic secret storage, accessed via machine account access tokens over the REST API. Best for CI/CD and production. Uses `@initBitwarden()` + `bitwarden()`.
+- **[Password Manager](https://bitwarden.com/products/personal/)** (and self-hosted **[Vaultwarden](https://github.com/dani-garcia/vaultwarden)**): your personal/team password vault, accessed via the `bw` CLI. Best for local development. Uses `@initBwp()` + `bwp()`.
 
 ## Features
 
@@ -21,7 +21,7 @@ Our Bitwarden plugin enables secure loading of secrets from Bitwarden using decl
 - **UUID-based secret access** - Fetch secrets by their unique identifiers
 - **Self-hosted Bitwarden support** - Configure custom API and identity URLs
 - **Multiple instances** - Connect to different organizations or self-hosted instances
-- **Comprehensive error handling** with helpful tips
+- **Helpful error handling** with resolution tips
 - **Lightweight implementation** using REST API (48 KB bundle, no native SDK dependencies)
 
 ## Installation and setup
@@ -205,11 +205,11 @@ This approach makes it easier to manage access to multiple secrets at once.
 
 ## Password Manager / Vaultwarden
 
-Separate from Secrets Manager, you can also load values from your personal or team **Bitwarden Password Manager** vault — or a self-hosted **Vaultwarden** server. This path uses the Bitwarden [`bw` CLI](https://bitwarden.com/help/cli/) rather than the REST API, so it's best suited to local development.
+Separate from Secrets Manager, you can also load values from your personal or team **Bitwarden Password Manager** vault, or a self-hosted **Vaultwarden** server. This path uses the Bitwarden [`bw` CLI](https://bitwarden.com/help/cli/) rather than the REST API, so it's best suited to local development.
 
 varlock acquires and caches a CLI **session token** for you: on first load it runs `bw unlock` (prompting for your master password), then caches the token in varlock's encrypted cache and reuses it on subsequent loads. You no longer need to manually unlock and paste a session token into a `.env` file.
 
-By default the token is cached indefinitely (`sessionTtl="forever"`). This is safe because the cached token is encrypted at rest with varlock's local key — biometric-gated (Touch ID / Windows Hello) on platforms with a secure enclave — so reading it requires *you*. Note the `bw` CLI session does **not** auto-lock on system sleep/lock/restart (those are app-only vault-timeout settings), so by default a fresh master-password unlock is only needed when the session is explicitly invalidated (`bw lock`/`bw logout`, an external `bw unlock`, or an account policy). Set a shorter `sessionTtl` if you want varlock to force periodic master-password re-auth.
+By default the token is cached indefinitely (`sessionTtl="forever"`). This is safe because the cached token is encrypted at rest with varlock's local key (biometric-gated with Touch ID / Windows Hello on platforms with a secure enclave), so reading it requires *you*. Note the `bw` CLI session does **not** auto-lock on system sleep/lock/restart (those are app-only vault-timeout settings), so by default a fresh master-password unlock is only needed when the session is explicitly invalidated (`bw lock`/`bw logout`, an external `bw unlock`, or an account policy). Set a shorter `sessionTtl` if you want varlock to force periodic master-password re-auth.
 
 ### Prerequisites
 
@@ -217,7 +217,7 @@ By default the token is cached indefinitely (`sessionTtl="forever"`). This is sa
 1. **Install the `bw` CLI** from a trusted source.
 
     :::caution[Install from trusted sources only]
-    Install the official CLI via a trusted channel and keep it up to date — supply-chain incidents have affected the broader Bitwarden CLI ecosystem in the past. varlock never installs `bw` for you; it only invokes whatever `bw` is already on your `PATH`.
+    Install the official CLI via a trusted channel and keep it up to date. Supply-chain incidents have affected the broader Bitwarden CLI ecosystem in the past. varlock never installs `bw` for you; it only invokes whatever `bw` is already on your `PATH`.
     :::
 
     ```bash
@@ -239,7 +239,7 @@ By default the token is cached indefinitely (`sessionTtl="forever"`). This is sa
     # bw config server https://vault.yourcompany.com
     ```
 
-    varlock handles unlocking from here on — you don't need to run `bw unlock` yourself.
+    varlock handles unlocking from here on, so you don't need to run `bw unlock` yourself.
 </Steps>
 
 ### Basic usage
@@ -256,12 +256,12 @@ By default the token is cached indefinitely (`sessionTtl="forever"`). This is sa
 DATABASE_PASSWORD=bwp("Production DB")
 ```
 
-On the first `varlock load`, you'll be prompted for your master password once; the resulting session token is cached and reused (`sessionTtl`, default `forever`). The `bw` CLI session does **not** lock on system sleep, lock, or restart — those vault-timeout settings apply to the Bitwarden apps and extension, not the CLI — so in practice you re-enter the master password only when the session is explicitly invalidated (see below) or when you set a shorter `sessionTtl`.
+On the first `varlock load`, you'll be prompted for your master password once; the resulting session token is cached and reused (`sessionTtl`, default `forever`). The `bw` CLI session does **not** lock on system sleep, lock, or restart (those vault-timeout settings apply to the Bitwarden apps and extension, not the CLI), so in practice you re-enter the master password only when the session is explicitly invalidated (see below) or when you set a shorter `sessionTtl`.
 
 :::note[Using `bw` outside varlock can invalidate the cached session]
-Each `bw unlock` (and `bw login`) issues a new session key and **invalidates any previously issued ones**; `bw lock` / `bw logout` invalidate them too. So if you run those commands in your own scripts or shell — or keep a `BW_SESSION` exported elsewhere — varlock's cached token gets invalidated (and vice-versa: varlock unlocking invalidates your shell's `BW_SESSION`). Plain reads (`bw get`, `bw list`, `bw sync`) are fine and don't invalidate anything.
+Each `bw unlock` (and `bw login`) issues a new session key and **invalidates any previously issued ones**; `bw lock` / `bw logout` invalidate them too. So if you run those commands in your own scripts or shell (or keep a `BW_SESSION` exported elsewhere), varlock's cached token gets invalidated (and vice-versa: varlock unlocking invalidates your shell's `BW_SESSION`). Plain reads (`bw get`, `bw list`, `bw sync`) are fine and don't invalidate anything.
 
-This is not fatal: the next `varlock` load detects the stale session and transparently re-unlocks once — the only cost is one extra master-password prompt. If you frequently `bw unlock` outside varlock, consider letting varlock own the unlock (don't re-unlock manually) or pass a shared `sessionToken=$BWP_SESSION` so both sides use the same token.
+This is not fatal: the next `varlock` load detects the stale session and re-unlocks once, at the cost of one extra master-password prompt. If you frequently `bw unlock` outside varlock, consider letting varlock own the unlock (don't re-unlock manually) or pass a shared `sessionToken=$BWP_SESSION` so both sides use the same token.
 :::
 
 ### Selecting a field
@@ -287,16 +287,16 @@ STRIPE_KEY=bwp("Stripe", field="secret-key")
 # @initBwp(sessionTtl="1h", cacheTtl="5m")
 ```
 
-- `sessionTtl` (default `forever`) — how long the unlocked CLI session token is cached before varlock forces a fresh `bw unlock`. `forever` keeps the token until the CLI session is invalidated externally (`bw lock`/`bw logout`, an external `bw unlock`, or account policy), at which point the next load re-unlocks automatically; set e.g. `"1h"` to force periodic master-password re-auth.
-- `cacheTtl` (optional) — additionally cache the **resolved item values**, avoiding a `bw` invocation per value within the window. See the [Caching guide](/guides/caching/).
+- `sessionTtl` (default `forever`): how long the unlocked CLI session token is cached before varlock forces a fresh `bw unlock`. `forever` keeps the token until the CLI session is invalidated externally (`bw lock`/`bw logout`, an external `bw unlock`, or account policy), at which point the next load re-unlocks automatically; set e.g. `"1h"` to force periodic master-password re-auth.
+- `cacheTtl` (optional): additionally cache the **resolved item values**, avoiding a `bw` invocation per value within the window. See the [Caching guide](/guides/caching/).
 
 ### Non-interactive loads
 
 Interactive unlock needs a TTY, so a non-interactive load (a dev server started by a tool that has no TTY, an editor task runner, etc.) can't show the master-password prompt. How you fix it depends on the environment:
 
-**Local dev, using auto-unlock** — if you're letting varlock unlock the vault itself (no `sessionToken` / `masterPassword` configured on `@initBwp()`), run `varlock load` once in a regular terminal (`npx varlock load`, `pnpm exec varlock load`, etc.). That performs the interactive unlock and caches the session token in varlock's encrypted cache, so subsequent non-interactive commands reuse it without prompting (until the session is invalidated — see `sessionTtl` above). This only applies to the auto-unlock flow — if you've configured `sessionToken=` or `masterPassword=`, no interactive `varlock load` is needed.
+**Local dev, using auto-unlock**: if you're letting varlock unlock the vault itself (no `sessionToken` / `masterPassword` configured on `@initBwp()`), run `varlock load` once in a regular terminal (`npx varlock load`, `pnpm exec varlock load`, etc.). That performs the interactive unlock and caches the session token in varlock's encrypted cache, so subsequent non-interactive commands reuse it without prompting (until the session is invalidated, see `sessionTtl` above). This only applies to the auto-unlock flow. If you've configured `sessionToken=` or `masterPassword=`, no interactive `varlock load` is needed.
 
-**CI / truly headless** — there's no terminal to unlock from, so provide credentials explicitly instead:
+**CI / truly headless**: there's no terminal to unlock from, so provide credentials explicitly instead:
 
 ```env-spec title=".env.schema"
 # Option A: pass a pre-obtained session token (from `bw unlock --raw`)
@@ -317,7 +317,7 @@ The `bw` CLI keeps **one logged-in account per data directory**, so to read from
 # @initBwp(id=personal, appDataDir=$BWP_PERSONAL_DIR)
 # @initBwp(id=work, appDataDir=$BWP_WORK_DIR)
 # ---
-# bw data dirs — set per-machine in .env.local (a leading ~ is expanded)
+# bw data dirs, set per-machine in .env.local (a leading ~ is expanded)
 BWP_PERSONAL_DIR=
 BWP_WORK_DIR=
 
@@ -328,11 +328,11 @@ WORK_DB=bwp(work, "Work DB", field=password)
 varlock unlocks and caches a session token **per account** (keyed by `appDataDir`), so the two accounts never share or invalidate each other's sessions.
 
 :::note[`appDataDir` is machine-specific]
-A data-dir path points at a directory on *your* machine, so avoid hardcoding it in a shared `.env.schema`. There's no way to override an already-declared instance's settings from another file, so make the **value** local rather than the instance: reference `appDataDir=$BWP_WORK_DIR` and set that var in your (gitignored) `.env.local`. If the whole multi-account workflow is personal, you can instead declare the entire `@initBwp(...)` in `.env.local` — root decorators are honored there too.
+A data-dir path points at a directory on *your* machine, so avoid hardcoding it in a shared `.env.schema`. There's no way to override an already-declared instance's settings from another file, so make the **value** local rather than the instance: reference `appDataDir=$BWP_WORK_DIR` and set that var in your (gitignored) `.env.local`. If the whole multi-account workflow is personal, you can instead declare the entire `@initBwp(...)` in `.env.local`; root decorators are honored there too.
 :::
 
 :::caution
-Without distinct `appDataDir`s, multiple instances all point at the same global `bw` account — `bwp(personal, …)` and `bwp(work, …)` would read the *same* vault. The `appDataDir` is what makes them separate. (This differs from Secrets Manager, where each instance has its own `accessToken`.)
+Without distinct `appDataDir`s, multiple instances all point at the same global `bw` account, so `bwp(personal, …)` and `bwp(work, …)` would read the *same* vault. The `appDataDir` is what makes them separate. (This differs from Secrets Manager, where each instance has its own `accessToken`.)
 :::
 
 ---
@@ -369,9 +369,9 @@ Initialize a Password Manager / Vaultwarden instance accessed via the `bw` CLI. 
 **Key/value args (all optional):**
 - `sessionToken`: a pre-obtained CLI session token (e.g. `$BWP_SESSION`). When provided and non-empty, it's used as-is instead of auto-unlocking.
 - `masterPassword`: master password used to unlock the vault non-interactively (e.g. in CI). Reference a `@sensitive` config item.
-- `sessionTtl`: how long the auto-unlocked session token is cached before a fresh `bw unlock` (default `forever` — kept until the CLI session is invalidated externally; e.g. `"1h"` to force periodic master-password re-auth).
+- `sessionTtl`: how long the auto-unlocked session token is cached before a fresh `bw unlock` (default `forever`, kept until the CLI session is invalidated externally; e.g. `"1h"` to force periodic master-password re-auth).
 - `cacheTtl`: cache resolved item values for the specified duration. See the [Caching guide](/guides/caching/).
-- `appDataDir`: bw CLI data directory (`BITWARDENCLI_APPDATA_DIR`) for this instance — point separate instances at separate dirs to read from different accounts/servers. A leading `~` is expanded. The dir must be set up independently (`bw config server` + `bw login`).
+- `appDataDir`: bw CLI data directory (`BITWARDENCLI_APPDATA_DIR`) for this instance. Point separate instances at separate dirs to read from different accounts/servers. A leading `~` is expanded. The dir must be set up independently (`bw config server` + `bw login`).
 - `id`: instance identifier for multiple instances.
 
 ```env-spec "@initBwp"
@@ -387,7 +387,7 @@ DB_PASSWORD=bwp("Production DB")
 <div>
 #### `bitwardenAccessToken`
 
-This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly, for example to write secrets back or fetch additional secrets at runtime.
 
 
 Represents a Bitwarden Secrets Manager machine account access token. Validation ensures the token is in the correct format (`0.<client_id>.<client_secret>:<encryption_key>`).
@@ -424,7 +424,7 @@ BITWARDEN_ORG_ID=87654321-4321-4321-4321-cba987654321
 <div>
 #### `bwSessionToken`
 
-This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly, for example to write secrets back or fetch additional secrets at runtime.
 
 Represents a Bitwarden CLI session token (the output of `bw unlock`). Only needed when supplying a token manually for non-interactive use. Marked `@sensitive`.
 
@@ -463,7 +463,7 @@ Fetch a field from a Password Manager / Vaultwarden vault item via the `bw` CLI.
 **Args:**
 - `instanceId` (optional, positional): instance identifier when multiple `@initBwp()` instances are initialized
 - `item` (required, positional): item name or UUID to look up
-- `field` (optional, key/value): which field to return — `password` (default), `username`, `notes`, `totp` (the stored TOTP secret/seed, not a generated code), `uri`, or a custom field name
+- `field` (optional, key/value): which field to return. One of `password` (default), `username`, `notes`, `totp` (the stored TOTP secret/seed, not a generated code), `uri`, or a custom field name
 
 ```env-spec /bwp\\(.*\\)/
 # Default field (password)
@@ -504,10 +504,10 @@ WORK_DB=bwp(work, "Work DB", field=password)
 - UUIDs should contain 32 hexadecimal characters and 4 hyphens
 
 ### Password Manager (`bwp()`)
-- **`bw` not found** — install the CLI from a trusted source and ensure it's on your `PATH`.
-- **Not logged in** — run `bw login` once (for Vaultwarden, also `bw config server <url>` first).
-- **Cannot unlock without an interactive terminal** — you're auto-unlocking (no `sessionToken` / `masterPassword` configured) in a non-TTY context. For local dev, run `varlock load` once in a regular terminal to unlock and cache the session token; for CI / headless, provide `sessionToken=$BWP_SESSION` or `masterPassword=...` to `@initBwp()`. See [Non-interactive loads](#non-interactive-loads).
-- **Item / field not found** — verify the item name or UUID; the error lists the item's available custom fields.
+- **`bw` not found**: install the CLI from a trusted source and ensure it's on your `PATH`.
+- **Not logged in**: run `bw login` once (for Vaultwarden, also `bw config server <url>` first).
+- **Cannot unlock without an interactive terminal**: you're auto-unlocking (no `sessionToken` / `masterPassword` configured) in a non-TTY context. For local dev, run `varlock load` once in a regular terminal to unlock and cache the session token; for CI / headless, provide `sessionToken=$BWP_SESSION` or `masterPassword=...` to `@initBwp()`. See [Non-interactive loads](#non-interactive-loads).
+- **Item / field not found**: verify the item name or UUID; the error lists the item's available custom fields.
 
 ## Resources
 

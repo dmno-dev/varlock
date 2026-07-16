@@ -123,6 +123,16 @@ export const BUILTIN_VARS: Record<string, BuiltinVarDef> = {
     description: 'Repository name in owner/repo format',
     resolver: (ciEnv) => ciEnv.fullRepoName,
   },
+  VARLOCK_RUNTIME: {
+    name: 'VARLOCK_RUNTIME',
+    description: 'Current JS runtime (e.g., "node", "bun", "deno", "workerd")',
+    resolver: (ciEnv) => ciEnv.runtime.runtime,
+  },
+  VARLOCK_OS: {
+    name: 'VARLOCK_OS',
+    description: 'Current OS platform (e.g., "darwin", "win32", "linux")',
+    resolver: (ciEnv) => ciEnv.os.platform,
+  },
 };
 
 /**

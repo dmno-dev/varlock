@@ -9,7 +9,7 @@ Monorepos often mix shared platform config with app-specific settings. Varlock s
 
 ## Schema layout
 
-The recommended pattern is **one `.env.schema` per project** — each app or service owns a schema next to its code and imports whatever shared config it needs from the repo root or sibling packages. Avoid funneling every variable into a single central env directory; keep each project's config with the project.
+The recommended pattern is **one `.env.schema` per project**. Each app or service owns a schema next to its code and imports whatever shared config it needs from the repo root or sibling packages. Avoid funneling every variable into a single central env directory; keep each project's config with the project.
 
 ### One schema per project (recommended)
 
@@ -22,7 +22,7 @@ packages/
   api/.env.schema
 ```
 
-Varlock resolves env files from each package's **current working directory** — it does not walk up to a parent directory automatically. Use [`@import()`](/guides/import/) when a package needs config defined elsewhere.
+Varlock resolves env files from each package's **current working directory**. It does not walk up to a parent directory automatically. Use [`@import()`](/guides/import/) when a package needs config defined elsewhere.
 
 :::tip[Packages with no env vars]
 A library or utility package that doesn't read any environment variables doesn't need a `.env.schema` at all. Only add one where a package actually loads config.
@@ -30,7 +30,7 @@ A library or utility package that doesn't read any environment variables doesn't
 
 ### Sharing config from the root or siblings
 
-Put cross-cutting config — database URLs used by many services, shared feature flags, platform identifiers — in a schema at the repo root, then **import the root directory** from each project that needs it:
+Put cross-cutting config (database URLs used by many services, shared feature flags, platform identifiers) in a schema at the repo root, then **import the root directory** from each project that needs it:
 
 ```env-spec title="packages/web/.env.schema"
 # Import only the shared keys this app needs
@@ -42,16 +42,16 @@ Put cross-cutting config — database URLs used by many services, shared feature
 PUBLIC_SITE_URL=
 ```
 
-By default every key in the imported source is brought in, but importing only the keys an app actually needs is usually the cleaner default — use `pick=[...]` (allowlist) or `omit=[...]` (denylist) so each schema declares exactly what it depends on.
+By default every key in the imported source is brought in, but importing only the keys an app actually needs is usually the cleaner default. Use `pick=[...]` (allowlist) or `omit=[...]` (denylist) so each schema declares exactly what it depends on.
 
-Importing the **directory** (`../../`) rather than the schema file (`../../.env.schema`) means all files like `.env.local` and [environment-specific](/guides/environments/) are loaded too — not just the schema — following the same precedence as the current directory. Imported definitions merge with the importing schema, and the importing file wins. See the [Imports guide](/guides/import/) for partial imports, precedence, and conditional loading.
+Importing the **directory** (`../../`) rather than the schema file (`../../.env.schema`) means all files like `.env.local` and [environment-specific](/guides/environments/) are loaded too, not just the schema, following the same precedence as the current directory. Imported definitions merge with the importing schema, and the importing file wins. See the [Imports guide](/guides/import/) for partial imports, precedence, and conditional loading.
 
 Use `@import()` to pull in a root or shared schema without copying keys, to split a large schema into focused files (e.g. `.env.database`, `.env.features`), or to share a directory of common env files across services (`# @import(../../shared-config/)`).
 
-You can also **import directly from a sibling package**, which lets you keep a config item with its logical owner instead of hoisting everything to the root. Define the item once in the package that owns it, then `pick` just what you need — like the `../api/` import in the example above.
+You can also **import directly from a sibling package**, which lets you keep a config item with its logical owner instead of hoisting everything to the root. Define the item once in the package that owns it, then `pick` just what you need, like the `../api/` import in the example above.
 
 :::caution[Avoid circular imports]
-Imports must flow in one direction — if `web` imports `api` and `api` also imports `web` (directly or through a chain), varlock detects the cycle and loading fails with an explicit error naming the chain (e.g. `Circular import detected: web/.env.schema -> api/.env.schema -> web/.env.schema`). Keep each shared item with a single owner and import one way; if two packages genuinely need each other's values, hoist those keys into a common file (e.g. the repo root) that both import.
+Imports must flow in one direction. If `web` imports `api` and `api` also imports `web` (directly or through a chain), varlock detects the cycle and loading fails with an explicit error naming the chain (e.g. `Circular import detected: web/.env.schema -> api/.env.schema -> web/.env.schema`). Keep each shared item with a single owner and import one way; if two packages genuinely need each other's values, hoist those keys into a common file (e.g. the repo root) that both import.
 :::
 
 :::note[Shared environment flag]
@@ -60,7 +60,7 @@ If several projects share an environment flag like `APP_ENV`, define it in the s
 
 ### Pointing varlock at the right directory
 
-In most cases you don't need anything here — a `.env.schema` in each package, loaded from its working directory, is the right default. Reach for the options below only when a package's env files live somewhere other than its cwd.
+In most cases you don't need anything here. A `.env.schema` in each package, loaded from its working directory, is the right default. Reach for the options below only when a package's env files live somewhere other than its cwd.
 
 When an app's env files live outside its default cwd (or you need multiple roots), set `varlock.loadPath` in that package's `package.json`:
 
@@ -72,7 +72,7 @@ When an app's env files live outside its default cwd (or you need multiple roots
 }
 ```
 
-You can also pass an explicit path on the CLI with `--path` (or `-p`) — useful in CI or scripts that run from the monorepo root:
+You can also pass an explicit path on the CLI with `--path` (or `-p`), useful in CI or scripts that run from the monorepo root:
 
 <ExecCommandWidget command="varlock load --path apps/web/" showBinary={false} />
 
@@ -80,11 +80,11 @@ For loading from multiple directories in one package, see [Loading from multiple
 
 ## Next.js apps
 
-Next.js requires a workspace-root `@next/env` override and has extra footguns when only some apps use varlock. See [Next.js in a monorepo](/integrations/nextjs/#monorepos) for package-manager overrides, incremental adoption, and troubleshooting — then return here for shared schema layout and CI patterns.
+Next.js requires a workspace-root `@next/env` override and has extra footguns when only some apps use varlock. See [Next.js in a monorepo](/integrations/nextjs/#monorepos) for package-manager overrides, incremental adoption, and troubleshooting, then return here for shared schema layout and CI patterns.
 
 ## Turborepo and strict env mode
 
-Turborepo v2+ enables **Strict Environment Mode** by default. Tasks only receive env vars that are listed in `turbo.json`, so any var varlock reads from the ambient environment — not just your `@currentEnv` flag — must be declared there, or it won't reach the task. This includes:
+Turborepo v2+ enables **Strict Environment Mode** by default. Tasks only receive env vars that are listed in `turbo.json`, so any var varlock reads from the ambient environment (not just your `@currentEnv` flag) must be declared there, or it won't reach the task. This includes:
 
 - your environment flag (e.g. `APP_ENV`), or varlock may load the wrong `.env.[currentEnv]` file
 - the **CI-detection vars** that built-ins like [`VARLOCK_ENV`](/reference/builtin-variables/#varlock_env) rely on (`CI`, `VERCEL`, `WORKERS_CI_BRANCH`, etc.)
@@ -96,14 +96,32 @@ Declare these in `globalEnv` (or per-task `env`) in `turbo.json`. Full explanati
 
 You do not need to migrate every package at once. A practical order:
 
-1. **Pick one app** — run `varlock init` in that package and commit its `.env.schema`.
+1. **Pick one app**: run `varlock init` in that package and commit its `.env.schema`.
 2. **Wire the integration** for that stack only (Next.js plugin, Vite plugin, or `varlock run` for scripts).
-3. **Expand shared config** — extract common keys to a root or shared schema and `@import()` them from apps as you go.
-4. **Leave untouched apps alone** — packages without a `.env.schema` should keep using their existing env loading until you migrate them.
+3. **Expand shared config**: extract common keys to a root or shared schema and `@import()` them from apps as you go.
+4. **Leave untouched apps alone**: packages without a `.env.schema` should keep using their existing env loading until you migrate them.
 
 :::tip[CLI-only services]
 Services that do not need a framework integration can start with [`varlock run`](/reference/cli-commands/#run) and a local `.env.schema` without changing root dependency overrides.
 :::
+
+## Typed `ENV` across packages
+
+By default, [`@generateTsTypes`](/reference/root-decorators/#generatetstypes) globally augments the `varlock/env` module so `import { ENV } from 'varlock/env'` is typed. There is only one `varlock/env` module in a TypeScript program, so when several packages each generate types with **different** schemas, their augmentations merge, so a package can end up seeing keys it never declared, or hit conflicting types.
+
+To keep each package's `ENV` isolated, set `exposeEnv=local`. It emits a package-local file that re-exports the runtime `ENV` typed to *that* package's schema, with no global augmentation. The `process.env` / `import.meta.env` augmentations default off too, so nothing from this package merges into the global type scope:
+
+```env-spec title="packages/api/.env.schema"
+# @generateTsTypes(path=./env.ts, exposeEnv=local)
+```
+
+Then import from the generated file instead of `varlock/env`:
+
+```ts title="packages/api/src/server.ts"
+import { ENV } from '../env'; // typed to this package's schema only
+```
+
+Runtime behavior is identical (it's the same underlying proxy); only the types are scoped locally. The output path must be a `.ts` file (not `.d.ts`) since it contains a runtime re-export.
 
 ## Mixed stacks (JavaScript and other languages)
 
@@ -115,8 +133,8 @@ Run the command from the service directory (or pass `--path` to its env folder).
 
 ## Container builds
 
-Container images often copy a single app directory, not the whole monorepo. If your schema uses `@import()` to pull files from sibling packages or the repo root, those paths must exist in the build context — otherwise the load graph fails at build time.
+Container images often copy a single app directory, not the whole monorepo. If your schema uses `@import()` to pull files from sibling packages or the repo root, those paths must exist in the build context, otherwise the load graph fails at build time.
 
 The [Docker guide](/guides/docker/) covers the official image, multi-stage copies of the varlock binary, and running `varlock run` as your container entrypoint.
 
-Today you may need to copy imported env files explicitly in your Dockerfile (mirroring the import tree). A planned **`varlock flatten`** command will collapse an import graph into local files for slim Docker contexts — see the [Docker guide](/guides/docker/#monorepos-and-partial-build-context).
+Today you may need to copy imported env files explicitly in your Dockerfile (mirroring the import tree). A planned **`varlock flatten`** command will collapse an import graph into local files for slim Docker contexts. See the [Docker guide](/guides/docker/#monorepos-and-partial-build-context).

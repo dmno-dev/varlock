@@ -10,7 +10,7 @@ import Badge from '@/components/Badge.astro';
   <Badge npmPackage="@varlock/infisical-plugin" />
 </div>
 
-Our [Infisical](https://infisical.com/) plugin enables secure loading of secrets from Infisical using declarative instructions within your `.env` files.
+Our [Infisical](https://infisical.com/) plugin loads secrets from Infisical using declarative instructions within your `.env` files.
 
 The plugin uses machine identities with Universal Auth or [OIDC workload identity](/guides/oidc/) for programmatic access to your Infisical secrets, making it suitable for both CI/CD and production environments.
 
@@ -19,12 +19,13 @@ The plugin uses machine identities with Universal Auth or [OIDC workload identit
 - **Fetch secrets** from Infisical projects and environments
 - **Bulk-load secrets** with `infisicalBulk()` via `@setValuesBulk`
 - **Universal Auth** with Client ID and Client Secret
-- **[OIDC authentication](/guides/oidc/)** - Authenticate using platform OIDC tokens (Vercel, GitHub Actions, etc.)
+- **[OIDC authentication](/guides/oidc/)**: Authenticate using platform OIDC tokens (Vercel, GitHub Actions, etc.)
 - **Support for self-hosted** Infisical instances
 - **Secret paths** for hierarchical organization
 - **Filter by tag** to load only matching secrets
 - **Multiple plugin instances** for different projects/environments
 - **Auto-infer secret names** from variable names for convenience
+- **`allowMissing`** option for optional secrets
 - **Helpful error messages** with resolution tips
 
 ## Installation and setup
@@ -128,7 +129,7 @@ For deployments on platforms that issue OIDC tokens (Vercel, GitHub Actions, Git
 # )
 ```
 
-No `clientId` or `clientSecret` is needed — the `identityId` parameter triggers OIDC authentication. For platforms not auto-detected, pass an explicit token via `oidcToken`.
+No `clientId` or `clientSecret` is needed. The `identityId` parameter triggers OIDC authentication. For platforms not auto-detected, pass an explicit token via `oidcToken`.
 
 ### Self-hosted Infisical
 
@@ -145,7 +146,7 @@ For self-hosted Infisical instances, specify the `siteUrl`:
 # )
 ```
 
-`siteUrl` can also be set dynamically — pass a reference like `siteUrl=$INFISICAL_SITE_URL` to point at different Infisical instances per environment.
+`siteUrl` can also be set dynamically. Pass a reference like `siteUrl=$INFISICAL_SITE_URL` to point at different Infisical instances per environment.
 
 ### Multiple instances
 
@@ -177,7 +178,24 @@ API_KEY=infisical()
 STRIPE_SECRET=infisical("STRIPE_SECRET_KEY")
 ```
 
-When called without arguments, `infisical()` automatically uses the config item key as the secret name in Infisical. This provides a convenient convention-over-configuration approach.
+When called without arguments, `infisical()` uses the config item key as the secret name in Infisical.
+
+### Optional secrets
+
+Use `allowMissing=true` on `infisical()` to return `undefined` when a secret doesn't exist in Infisical, then combine with `fallback()` to provide a default value:
+
+```env-spec title=".env.schema"
+RESEND_API_KEY=fallback(infisical(allowMissing=true), undefined)
+SOME_OPTIONAL_KEY=fallback(infisical(allowMissing=true), "")
+```
+
+You can also set `allowMissing` on `@initInfisical()` to apply it to all `infisical()` calls for that instance. It can be a dynamic value, e.g. `forEnv(development)` to only allow missing secrets in dev:
+
+```env-spec title=".env.schema"
+# @initInfisical(projectId=my-project, environment=dev, clientId=$ID, clientSecret=$SECRET, allowMissing=forEnv(development))
+```
+
+When `allowMissing` is enabled, mark optional items with `@required=false` or wrap the resolver with `fallback()` so validation does not fail.
 
 ### Using secret paths
 
@@ -257,6 +275,7 @@ Initialize an Infisical plugin instance for accessing secrets.
 - `oidcToken` (optional): Explicit OIDC JWT token (auto-detected from platform if omitted)
 - `secretPath` (optional): Default secret path for all secrets (defaults to `/`)
 - `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
+- `allowMissing` (optional): if `true`, missing secrets return `undefined` instead of throwing. Can be a dynamic value (e.g. `allowMissing=forEnv(development)`). Other errors (auth failures, permission errors, etc.) still throw.
 - `id` (optional): Instance identifier for multiple instances
 
 ```env-spec "@initInfisical"
@@ -293,7 +312,7 @@ INFISICAL_CLIENT_ID=
 <div>
 #### `infisicalClientSecret`
 
-This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly, for example to write secrets back or fetch additional secrets at runtime.
 
 
 Represents an Infisical Universal Auth Client Secret. This type is marked as `@sensitive`.
@@ -317,6 +336,9 @@ Fetch a secret from Infisical.
 - `secretName` (optional): secret name in Infisical. If omitted, uses the variable name.
 - `secretPath` (optional): path to the secret (overrides default path)
 
+**Key/value args:**
+- `allowMissing` (optional): if `true`, returns `undefined` instead of throwing when the secret is not found. Can be a dynamic value (e.g. `allowMissing=forEnv(development)`). Useful with `fallback()` to provide a default value. Other errors still throw.
+
 ```env-spec /infisical\\(.*\\)/
 # Auto-infer secret name from variable
 DATABASE_URL=infisical()
@@ -332,6 +354,9 @@ DEV_SECRET=infisical(dev, "DATABASE_URL")
 
 # Full form
 PROD_SECRET=infisical(prod, "DATABASE_URL", "/production")
+
+# Optional secret with fallback
+RESEND_API_KEY=fallback(infisical(allowMissing=true), undefined)
 ```
 </div>
 
@@ -427,6 +452,7 @@ EU_DATABASE=infisical(eu, "DATABASE_URL")
 - Check the secret name matches exactly (including case)
 - Verify the secret path is correct if using paths
 - Ensure your machine identity has access to the secret
+- If the secret is genuinely optional, set `allowMissing=true` on `infisical()` or `@initInfisical()` and use `@required=false` or `fallback()`
 
 ### Access denied
 - Check that your machine identity has been granted access to the project and environment

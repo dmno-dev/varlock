@@ -1,0 +1,77 @@
+---
+title: Go
+description: Use varlock with Go via a generated env package
+---
+
+To use varlock with Go, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
+
+Add [`@generateGoEnv`](/reference/root-decorators/#generategoenv) to your schema to generate a small, self-contained package: an `Env` struct, a `Load()` function that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SensitiveKeys` map.
+
+```env-spec title=".env.schema"
+# @generateGoEnv(path=env/env.go)
+```
+
+The package name follows the output directory (`env/env.go` → `package env`); override it with `package=`. The file is regenerated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly with [`varlock codegen`](/reference/cli-commands/#codegen). Requires **Go 1.18+** (the generated code uses `any`).
+
+## Reading values
+
+Call `Load()` once, then read fields off the struct. Required fields are the plain type, optional ones are pointers (deref when set):
+
+```go
+package main
+
+import (
+    "log"
+
+    "myapp/env"
+)
+
+func main() {
+    e, err := env.Load()   // call once, hold or pass `e` around
+    if err != nil {
+        log.Fatal(err)
+    }
+    host := e.DbHost       // string (required field)
+    if e.DbPort != nil {   // *int64 (optional field, deref when set)
+        log.Printf("%s:%d", host, *e.DbPort)
+    }
+}
+```
+
+```bash
+varlock run -- go run .
+```
+
+`Load()` returns a clear error if `__VARLOCK_ENV` is missing (e.g. you forgot `varlock run`) or if a required key is absent.
+
+## Sharing one instance
+
+Every `Load()` call re-parses the blob. To avoid reloading, expose it as a package-level var in your own package:
+
+```go
+// config/config.go
+package config
+
+import "myapp/env"
+
+var Env = mustLoad()
+
+func mustLoad() env.Env {
+    e, err := env.Load()
+    if err != nil {
+        panic(err)
+    }
+    return e
+}
+```
+
+```go
+// anywhere.go
+import "myapp/config"
+
+port := config.Env.DbPort   // *int64
+```
+
+:::note
+Every key is also injected as a plain environment variable, so you can read any of them with `os.Getenv` (raw strings) if you don't need the typed module. Enums become plain `string` (Go has no enum type), and keys whose names aren't valid identifiers (they contain `.` or `-`) can't be struct fields, so read those from the env var directly. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
+:::

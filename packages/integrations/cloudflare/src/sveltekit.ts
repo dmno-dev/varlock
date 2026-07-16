@@ -32,6 +32,7 @@ export function varlockSvelteKitCloudflarePlugin(): Array<any> {
     varlockVitePlugin({
       ssrEdgeRuntime: true,
       ssrEntryCode: [CLOUDFLARE_SSR_ENTRY_CODE],
+      isCloudflareTarget: true,
     }),
   ];
 }

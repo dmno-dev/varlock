@@ -24,7 +24,7 @@ of Varlock's features to improve your developer experience and security posture.
 
 Depending on your setup you will want to update your `.gitignore` to _not_ ignore your `.env.schema` file and any other `.env.xxx` files that can now be safely committed to your repo if they don't contain secrets (which they shouldn't).
 
-If using [generated types](/reference/root-decorators/#generatetypes), we also recommend that you ignore the generated file (usually `env.d.ts` in TypeScript) as it is dynamically generated based the hierarchy of env files being loaded on each individual machine.
+If using [generated types](/reference/root-decorators/#code-generation), we also recommend that you ignore the generated file (usually `env.d.ts` in TypeScript) since it is regenerated automatically from your schema (on `varlock load`/`run`), like other build artifacts.
 
 ```diff title=".gitignore"
 
@@ -60,7 +60,7 @@ Having a well architected multi-environment setup is key to healthy CI/CD workfl
 
 Because varlock supports loading environment variables from the environment itself or via a [function](/reference/functions/) in your `.env.schema`, there are a few different approaches.
 
-If you're already using your deployment platform's environment variable management, you may not need to do anything to benefit from varlock's validation and security features. If you have a multi-environment setup, you may need to set the `currentEnv` environment flag to the correct environment.
+If you're already using your deployment platform's environment variable management, you may not need to do anything to benefit from varlock's validation and security features. If you have a multi-environment setup, you may need to set your environment flag (the item referenced by [`@currentEnv`](/reference/root-decorators/#currentenv), e.g. `APP_ENV`) to the correct environment.
 
 ```bash
 APP_ENV=production varlock run -- your-production-command

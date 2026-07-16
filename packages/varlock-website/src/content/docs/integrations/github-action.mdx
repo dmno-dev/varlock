@@ -10,7 +10,7 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
 
 [![GitHub Actions Marketplace](https://img.shields.io/badge/GitHub%20Actions-Marketplace-blue?logo=github)](https://github.com/marketplace/actions/varlock-environment-loader)
 
-The Varlock GitHub Action provides a secure way to load and validate environment variables in your GitHub Actions workflows. It automatically detects and loads your `.env.schema` file and all relevant `.env.*` files, validates all environment variables against your schema, and exports them as either environment variables or a JSON blob for use in subsequent steps.
+The Varlock GitHub Action loads and validates environment variables in your GitHub Actions workflows. It automatically detects and loads your `.env.schema` file and all relevant `.env.*` files, validates all environment variables against your schema, and exports them as either environment variables or a JSON blob for use in subsequent steps.
 
 ## Features
 
@@ -37,7 +37,7 @@ If you do not have a `.env.schema` file, the action will only load `.env`, since
    ```env-spec title=".env.schema"
    # @currentEnv=$APP_ENV
    # @defaultSensitive=false @defaultRequired=false
-   # @generateTypes(lang='ts', path='env.d.ts')
+   # @generateTsTypes(path='env.d.ts')
    # ---
 
    # Environment flag
@@ -239,7 +239,7 @@ jobs:
 
 ## Error Handling
 
-The action provides comprehensive error handling and reporting:
+The action provides error handling and reporting:
 
 ### Validation Errors
 

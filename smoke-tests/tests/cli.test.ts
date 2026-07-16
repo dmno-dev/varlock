@@ -1,10 +1,10 @@
 import {
   describe, test, expect, beforeEach,
 } from 'vitest';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  varlockLoad, varlockRun, varlockPrintenv, runVarlock, VARLOCK_CLI,
+  varlockLoad, varlockRun, varlockPrintenv, varlockCodegen, runVarlock, VARLOCK_CLI,
 } from '../helpers/run-varlock.js';
 
 const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
@@ -317,6 +317,53 @@ describe('CLI Commands', () => {
       expect(result.exitCode).toBe(0);
     });
 
+    test('--format json-full excludes @internal vars by default', () => {
+      // framework integrations shell out to exactly this command to get their injected config -
+      // an @internal secret-zero credential must not appear here unless explicitly requested
+      const result = runVarlock(['load', '--format', 'json-full'], {
+        cwd: 'smoke-test-internal',
+        env: { OP_TOKEN: 'secret-zero' },
+      });
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.config).not.toHaveProperty('OP_TOKEN');
+      expect(parsed.config.PUBLIC_VAR.value).toBe('visible');
+    });
+
+    test('--format json-full --include-internal includes @internal vars, flagged', () => {
+      const result = runVarlock(['load', '--format', 'json-full', '--include-internal'], {
+        cwd: 'smoke-test-internal',
+        env: { OP_TOKEN: 'secret-zero' },
+      });
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.config.OP_TOKEN).toMatchObject({ value: 'secret-zero', isInternal: true });
+    });
+
+    test('run --filter strips excluded vars from the child env even when set ambiently', () => {
+      // child exits 0 only if DROP_VAR is ABSENT and KEEP_VAR is present - the ambient value
+      // must not slip through the process.env spread just because it was excluded by --filter
+      const probe = 'process.exit(!process.env.DROP_VAR && process.env.KEEP_VAR === "kept" ? 0 : 1)';
+      const result = runVarlock(['run', '--filter', 'KEEP_VAR', '--', 'node', '-e', probe], {
+        cwd: 'smoke-test-filter',
+        env: { DROP_VAR: 'ambient-value' },
+      });
+      expect(result.exitCode).toBe(0);
+    });
+
+    test('run --filter strips excluded vars from the __VARLOCK_ENV blob, including override provenance', () => {
+      const probe = 'process.stdout.write(JSON.stringify(JSON.parse(process.env.__VARLOCK_ENV)))';
+      const result = runVarlock(['run', '--filter', 'KEEP_VAR', '--', 'node', '-e', probe], {
+        cwd: 'smoke-test-filter',
+        env: { DROP_VAR: 'ambient-value' },
+      });
+      expect(result.exitCode).toBe(0);
+      const blob = JSON.parse(result.stdout);
+      expect(blob.config).toHaveProperty('KEEP_VAR');
+      expect(blob.config).not.toHaveProperty('DROP_VAR');
+      expect(blob.__varlockOverrideMeta?.overrideKeys ?? []).not.toContain('DROP_VAR');
+    });
+
     // `--no-inject-graph` is deprecated and hidden from help, but still supported for
     // back-compat. Guard that it keeps working and omits the __VARLOCK_ENV blob.
     test('--no-inject-graph still works and omits the __VARLOCK_ENV blob', () => {
@@ -344,15 +391,17 @@ describe('CLI Commands', () => {
       if (existsSync(typeFilePathAutoFalse)) rmSync(typeFilePathAutoFalse);
     });
 
+    // Note: no `expect(existsSync).toBe(false)` pre-check here — `smoke-test-basic` is a shared
+    // fixture that other test files (redaction/runtime/signals/…) also run load/run in, regenerating
+    // env.d.ts in parallel. The negative pre-check would race; asserting generation (toBe(true)) is
+    // the actual behavior under test. The auto=false tests below use an isolated dir, so they can.
     test('varlock load generates type file when @generateTypes is set', () => {
-      expect(existsSync(typeFilePath)).toBe(false);
       const result = varlockLoad({ cwd: 'smoke-test-basic' });
       expect(result.exitCode).toBe(0);
       expect(existsSync(typeFilePath)).toBe(true);
     });
 
     test('varlock run generates type file when @generateTypes is set', () => {
-      expect(existsSync(typeFilePath)).toBe(false);
       const result = varlockRun(['node', '-e', 'process.exit(0)'], { cwd: 'smoke-test-basic' });
       expect(result.exitCode).toBe(0);
       expect(existsSync(typeFilePath)).toBe(true);
@@ -370,6 +419,81 @@ describe('CLI Commands', () => {
       const result = varlockRun(['node', '-e', 'process.exit(0)'], { cwd: 'smoke-test-typegen-auto' });
       expect(result.exitCode).toBe(0);
       expect(existsSync(typeFilePathAutoFalse)).toBe(false);
+    });
+
+    test('varlock typegen generates polyglot types with non-string fields', () => {
+      const polyglotDir = join(SMOKE_TESTS_DIR, 'smoke-test-typegen-polyglot');
+      // each generated module: typed coerced fields + a loader + a SENSITIVE_KEYS constant
+      const cases = [
+        {
+          outputFile: 'env_types.py',
+          markers: ['class Env(TypedDict):', 'DEBUG: NotRequired[bool]', 'DB_PORT: NotRequired[int]', 'PUBLIC_VAR: str', 'def load_env() -> Env:'],
+          sensitiveMarker: 'SENSITIVE_KEYS: frozenset[str] = frozenset({"SECRET_TOKEN"})',
+        },
+        {
+          outputFile: 'env_types.rs',
+          markers: ['pub struct Env {', 'pub debug: Option<bool>,', 'pub db_port: Option<i64>,', 'pub fn load()'],
+          sensitiveMarker: 'pub const SENSITIVE_KEYS: &[&str] = &["SECRET_TOKEN"];',
+        },
+        {
+          // struct fields are gofmt-aligned (padded), so match name and type separately rather than
+          // depending on the exact gap between them; `package env` comes from the `package=` override
+          outputFile: 'env_types.go',
+          markers: ['package env', 'type Env struct {', 'DbPort', '*int64', 'Debug', '*bool', 'func Load() (Env, error) {'],
+          sensitiveMarker: 'var SensitiveKeys = map[string]bool{"SECRET_TOKEN": true}',
+        },
+        {
+          outputFile: 'env_types.php',
+          markers: ['final class Env', 'public readonly ?bool $DEBUG = null,', 'public readonly ?int $DB_PORT = null,', 'public static function load(): self'],
+          sensitiveMarker: "public const SENSITIVE_KEYS = ['SECRET_TOKEN'];",
+        },
+      ] as const;
+
+      for (const testCase of cases) {
+        const polyglotOutputPath = join(polyglotDir, testCase.outputFile);
+        if (existsSync(polyglotOutputPath)) rmSync(polyglotOutputPath);
+      }
+
+      const result = varlockCodegen({ cwd: 'smoke-test-typegen-polyglot' });
+      expect(result.exitCode).toBe(0);
+
+      for (const testCase of cases) {
+        const polyglotOutputPath = join(polyglotDir, testCase.outputFile);
+        expect(existsSync(polyglotOutputPath)).toBe(true);
+
+        const src = readFileSync(polyglotOutputPath, 'utf-8');
+        for (const marker of testCase.markers) {
+          expect(src).toContain(marker);
+        }
+        // sensitivity is exposed as a constant listing the sensitive keys
+        expect(src).toContain(testCase.sensitiveMarker);
+      }
+    });
+
+    test('varlock codegen exposeEnv=local emits an importable ENV without global augmentation', () => {
+      const moduleDir = join(SMOKE_TESTS_DIR, 'smoke-test-typegen-module');
+      const outputPath = join(moduleDir, 'env.ts');
+      if (existsSync(outputPath)) rmSync(outputPath);
+
+      const result = varlockCodegen({ cwd: 'smoke-test-typegen-module' });
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(outputPath)).toBe(true);
+
+      const src = readFileSync(outputPath, 'utf-8');
+      expect(src).toContain("import { ENV as _ENV } from 'varlock/env';");
+      expect(src).toContain('export const ENV = _ENV as unknown as Readonly<CoercedEnvSchema>;');
+      // module mode must NOT globally augment varlock/env — and the process.env / import.meta.env
+      // augmentations default off too, so nothing from this package merges into the global scope
+      expect(src).not.toContain("declare module 'varlock/env'");
+      expect(src).not.toContain('declare global {');
+    });
+
+    test('varlock typegen still works as a deprecated alias for codegen', () => {
+      if (existsSync(typeFilePath)) rmSync(typeFilePath);
+      const result = runVarlock(['typegen'], { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('deprecated');
+      expect(existsSync(typeFilePath)).toBe(true);
     });
   });
 
