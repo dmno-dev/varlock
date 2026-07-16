@@ -20,7 +20,11 @@ import { getUserVarlockDir } from '../lib/user-config-dir';
  *     from the file-read/write deny because a file deny does NOT gate a socket
  *     `connect()`. The local-encrypt daemon listens on a socket under this dir;
  *     without this deny an escaped child could connect to the warm daemon and
- *     have it decrypt secrets (no Touch ID), bypassing the jail entirely, and
+ *     have it decrypt secrets (no Touch ID), bypassing the jail entirely,
+ *   - mach lookups to the macOS keychain daemons (securityd / SecurityServer),
+ *     so a jailed process can't read keychain secrets directly (via `security`
+ *     or `SecItemCopyMatching`) — trustd is left allowed so TLS trust still
+ *     works, and
  *   - mach lookups to warm credential agents (1Password, ...).
  *
  * Removing the *capability* is what makes the same-uid "out-of-tree escape"
@@ -40,6 +44,23 @@ export const SANDBOX_EXEC_PATH = '/usr/bin/sandbox-exec';
 /** mach service prefixes for warm credential agents we deny lookups to by default. */
 const DEFAULT_DENY_MACH_PREFIXES = ['com.1password'];
 
+/**
+ * Exact mach service names denied by default: the macOS keychain daemons. The
+ * built-in `keychain()` resolver is a core resolver, and — separately — any
+ * jailed process can shell `security find-generic-password` or call
+ * `SecItemCopyMatching` to read ANY keychain item the uid can reach, all of which
+ * goes through these two daemons. Denying them closes that direct read path
+ * (verified: a jailed `security ... -w` returns "item could not be found").
+ *
+ * Deliberately EXACT `global-name`, not a `com.apple.Security` prefix, and
+ * `com.apple.trustd` is deliberately NOT denied: on modern macOS the daemons are
+ * split — securityd/SecurityServer serve the keychain (secrets), trustd serves
+ * TLS trust evaluation (`SecTrustEvaluate`). Denying only the keychain daemons
+ * keeps native Security.framework TLS working (verified: curl SecureTransport and
+ * Swift URLSession both complete an HTTPS handshake with these denied).
+ */
+const DEFAULT_DENY_MACH_NAMES = ['com.apple.securityd', 'com.apple.SecurityServer'];
+
 export type SeatbeltProfileInputs = {
   /**
    * Absolute dirs to deny all file reads/writes on. Defaults to the resolved
@@ -49,6 +70,8 @@ export type SeatbeltProfileInputs = {
   denyPaths?: Array<string>;
   /** mach service-name prefixes to deny lookups on (warm credential agents). */
   denyMachPrefixes?: Array<string>;
+  /** Exact mach service names to deny lookups on (e.g. the keychain daemons). */
+  denyMachNames?: Array<string>;
 };
 
 /** Escape a filesystem path / literal for a double-quoted SBPL string. */
@@ -85,6 +108,7 @@ function toRealPath(p: string): string {
 export function buildSeatbeltProfile(inputs: SeatbeltProfileInputs = {}): string {
   const denyPaths = (inputs.denyPaths ?? [getUserVarlockDir()]).map(toRealPath);
   const denyMachPrefixes = inputs.denyMachPrefixes ?? DEFAULT_DENY_MACH_PREFIXES;
+  const denyMachNames = inputs.denyMachNames ?? DEFAULT_DENY_MACH_NAMES;
 
   const lines: Array<string> = [
     '(version 1)',
@@ -113,8 +137,11 @@ export function buildSeatbeltProfile(inputs: SeatbeltProfileInputs = {}): string
     }
   }
 
-  if (denyMachPrefixes.length) {
-    lines.push('', ';; --- starve warm credential agents ---');
+  if (denyMachPrefixes.length || denyMachNames.length) {
+    lines.push('', ';; --- starve warm credential agents (incl. the keychain daemons) ---');
+    for (const name of denyMachNames) {
+      lines.push(`(deny mach-lookup (global-name ${sbplString(name)}))`);
+    }
     for (const prefix of denyMachPrefixes) {
       lines.push(`(deny mach-lookup (global-name-prefix ${sbplString(prefix)}))`);
     }

@@ -66,6 +66,25 @@ describe('buildSeatbeltProfile', () => {
     expect(profile).toContain('(subpath "');
     expect(profile).toContain('(deny mach-lookup (global-name-prefix "com.1password"))');
   });
+
+  test('baseline denies the keychain daemons (exact global-name) but NOT trustd', () => {
+    // The built-in keychain() resolver is core, and any jailed process can read
+    // keychain items directly via securityd. Deny the keychain daemons by EXACT
+    // name; leave trustd allowed so native Security.framework TLS trust still
+    // evaluates. (Both verified empirically on macOS 26.1.)
+    const profile = buildSeatbeltProfile();
+    expect(profile).toContain('(deny mach-lookup (global-name "com.apple.securityd"))');
+    expect(profile).toContain('(deny mach-lookup (global-name "com.apple.SecurityServer"))');
+    expect(profile).not.toContain('trustd');
+    // exact name, not a broad com.apple.Security* prefix that would also catch trustd
+    expect(profile).not.toContain('(global-name-prefix "com.apple.Security');
+  });
+
+  test('denyMachNames can be overridden (exact global-name entries)', () => {
+    const profile = buildSeatbeltProfile({ denyMachNames: ['com.example.broker'], denyMachPrefixes: [] });
+    expect(profile).toContain('(deny mach-lookup (global-name "com.example.broker"))');
+    expect(profile).not.toContain('com.apple.securityd');
+  });
 });
 
 describe('isBuiltinSandboxSupported', () => {
