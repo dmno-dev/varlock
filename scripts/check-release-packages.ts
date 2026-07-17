@@ -50,11 +50,9 @@ if (bumpyStatusRaw) {
       const branchReleasePaths = branchReleases
         .map((r: any) => path.resolve(MONOREPO_ROOT, r.dir));
 
-      // Also include transitive workspace dependencies of bumped packages
-      // (so preview packages that reference each other have consistent versions)
       const workspaces = await listWorkspaces(MONOREPO_ROOT);
       const workspacesByName = new Map(workspaces.map((ws) => [ws.name, ws]));
-      const allReleasePaths = new Set(bumpyReleases.map((r: any) => path.resolve(MONOREPO_ROOT, r.dir)));
+      const allReleasePaths = new Set<string>(bumpyReleases.map((r: any) => path.resolve(MONOREPO_ROOT, r.dir)));
 
       function getWorkspaceDeps(pkgPath: string): Array<string> {
         const pkgJsonPath = path.join(pkgPath, 'package.json');
@@ -74,11 +72,30 @@ if (bumpyStatusRaw) {
         }
       }
 
-      const neededPackages = new Set<string>();
-      const queue = [...branchReleasePaths];
+      const neededPackages = new Set<string>(branchReleasePaths);
+
+      // Include cascade-bumped dependents — packages bumpy wants to release
+      // because a package bumped in this branch is in their dependency tree
+      // (e.g. varlock cascades when @env-spec/parser is bumped)
+      const depsByPath = new Map(
+        [...allReleasePaths].map((p) => [p, getWorkspaceDeps(p)]),
+      );
+      let addedDependent = true;
+      while (addedDependent) {
+        addedDependent = false;
+        for (const [pkg, deps] of depsByPath) {
+          if (!neededPackages.has(pkg) && deps.some((dep) => neededPackages.has(dep))) {
+            neededPackages.add(pkg);
+            addedDependent = true;
+          }
+        }
+      }
+
+      // Also include transitive workspace dependencies of included packages
+      // (so preview packages that reference each other have consistent versions)
+      const queue = [...neededPackages];
       while (queue.length > 0) {
         const pkg = queue.pop()!;
-        if (neededPackages.has(pkg)) continue;
         neededPackages.add(pkg);
         for (const dep of getWorkspaceDeps(pkg)) {
           // Only include deps that bumpy also wants to release
@@ -90,7 +107,7 @@ if (bumpyStatusRaw) {
 
       releasePackagePaths = [...neededPackages];
       console.log('Packages bumped in this branch:', branchReleasePaths);
-      console.log('Packages to preview (+ dependencies):', releasePackagePaths);
+      console.log('Packages to preview (+ cascades + dependencies):', releasePackagePaths);
     } else {
       releasePackagePaths = bumpyReleases
         .map((r: any) => path.resolve(MONOREPO_ROOT, r.dir));
