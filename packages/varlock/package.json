@@ -143,7 +143,7 @@
     "@env-spec/utils": "workspace:*",
     "@gunshi/plugin-completion": "^0.35.1",
     "@gunshi/plugin-i18n": "^0.35.1",
-    "@peculiar/x509": "^1",
+    "@peculiar/x509": "^2.0.0",
     "@sindresorhus/is": "catalog:",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",

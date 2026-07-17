@@ -1,3 +1,8 @@
+// @peculiar/x509 v2 loads tsyringe at import time, which throws unless the reflect
+// polyfill is already present. Production loads it first via cert-authority's lazy
+// loader; this test imports x509 statically, so it must pull the polyfill first too.
+import 'reflect-metadata';
+
 import { describe, expect, test } from 'vitest';
 import tls from 'node:tls';
 
