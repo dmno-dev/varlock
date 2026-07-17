@@ -177,6 +177,7 @@ Examples:
   - instead you can use the `fallback` function directly `VAR=fallback(ref(FOO), ref(BAR))`
 - we do not support _unescaped_ quotes within exec expansion (ex: `VAR="$(echo "foo")"`)
   - we support backtick quotes, escaped quotes, or you can use `exec` function directly `VAR=exec(echo "foo")`
+- `$(...)` expansion supports nested parentheses and quoted `)` (ex: `$(jq -r '.address|join(".")')`)
 ------------------
 
 ## Local dev and testing workflow
