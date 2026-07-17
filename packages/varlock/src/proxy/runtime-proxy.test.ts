@@ -1,9 +1,30 @@
 import { describe, expect, test } from 'vitest';
 import http from 'node:http';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { URL } from 'node:url';
 
 import type { ProxyActivity } from './audit';
 import { findUninjectedPlaceholder, replacePlaceholdersWithReal, startLocalProxyRuntime } from './runtime-proxy';
+
+/** Bind an ephemeral port, capture it, release it — a free port for a fixed-port test. */
+function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.once('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const addr = srv.address();
+      if (!addr || typeof addr === 'string') {
+        reject(new Error('no port'));
+        return;
+      }
+      const { port } = addr;
+      srv.close(() => resolve(port));
+    });
+  });
+}
 
 describe('findUninjectedPlaceholder (helpful-failure guard)', () => {
   const items = [
@@ -661,5 +682,55 @@ describe('varlock.internal session-env endpoint', () => {
     });
     expect(res.statusCode).toBe(200);
     await runtime.stop();
+  });
+});
+
+describe('startLocalProxyRuntime — fixed port and cert dir', () => {
+  test('binds a caller-provided port (surfaced as HTTP(S)_PROXY)', async () => {
+    const port = await getFreePort();
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [], rules: [], egressMode: 'permissive', port,
+    });
+    expect(runtime.env.HTTP_PROXY).toBe(`http://127.0.0.1:${port}`);
+    expect(runtime.env.HTTPS_PROXY).toBe(`http://127.0.0.1:${port}`);
+    await runtime.stop();
+  });
+
+  test('a busy fixed port fails to start with a clear error', async () => {
+    const port = await getFreePort();
+    const blocker = net.createServer();
+    await new Promise<void>((resolve) => {
+      blocker.listen(port, '127.0.0.1', () => resolve());
+    });
+    try {
+      await expect(startLocalProxyRuntime({
+        managedItems: [], rules: [], egressMode: 'permissive', port,
+      })).rejects.toThrow(new RegExp(`port ${port} is already in use`));
+    } finally {
+      await new Promise<void>((resolve) => {
+        blocker.close(() => resolve());
+      });
+    }
+  });
+
+  test('writes the CA cert into a caller-provided dir; stop removes only its files, not the dir', async () => {
+    const certDir = mkdtempSync(path.join(os.tmpdir(), 'vlk-certdir-'));
+    try {
+      const runtime = await startLocalProxyRuntime({
+        managedItems: [], rules: [], egressMode: 'permissive', certDir,
+      });
+      const caCert = path.join(certDir, 'ca-cert.pem');
+      const combined = path.join(certDir, 'combined-ca.pem');
+      expect(existsSync(caCert)).toBe(true);
+      expect(existsSync(combined)).toBe(true);
+      expect(runtime.env.NODE_EXTRA_CA_CERTS).toBe(caCert); // known CA path a caller can wire up
+
+      await runtime.stop();
+      expect(existsSync(caCert)).toBe(false); // cert files we wrote are cleaned
+      expect(existsSync(combined)).toBe(false);
+      expect(existsSync(certDir)).toBe(true); // but the caller's dir is left alone
+    } finally {
+      rmSync(certDir, { recursive: true, force: true });
+    }
   });
 });

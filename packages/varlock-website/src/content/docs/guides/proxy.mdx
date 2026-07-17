@@ -301,6 +301,20 @@ The proxy uses an **ephemeral, in-memory certificate authority** generated per r
 Tools that ignore the standard proxy/CA environment variables (many GUI apps, browsers, and some language runtimes with their own trust stores) won't be transparently proxied. The target here is CLI tools and agents, which generally do respect them.
 :::
 
+### Pinning the port and CA location
+
+By default the proxy binds a random loopback port and writes its CA cert to a fresh temp dir. Both are discoverable after startup with `proxy env` / `proxy status`. When something needs to be wired up **before** the proxy starts (a config that points at a fixed `HTTP_PROXY`, or a tool told to trust a CA at a known path), pin them:
+
+```bash
+varlock proxy start --port 8080 --cert-dir ./.varlock-proxy
+```
+
+`--port <n>` fixes the loopback port, so `HTTP_PROXY` is `http://127.0.0.1:<n>`. If that port is already in use the proxy refuses to start instead of falling back to a random one.
+
+`--cert-dir <dir>` writes `ca-cert.pem` (and `combined-ca.pem`, the CA plus system roots) into `<dir>`, creating it if missing. The CA is still ephemeral and regenerated on each start; on stop, only the cert files varlock wrote are removed, never the directory itself.
+
+Both flags apply only when **starting** a proxy. They also work on `proxy run` when it starts its own proxy (with `--new`, or when no daemon is running for the directory). On a `proxy run` that attaches to an existing daemon they are rejected, since that daemon already fixed the port and cert location.
+
 ## Auditing
 
 Every request through the proxy is appended to a per-session, secrets-free audit log (host, method, path, a request hash, the matched rule, the decision, and which key names were injected, never any values).

@@ -715,6 +715,8 @@ Every subcommand operates on a [session](/guides/proxy/#sessions). Target one wi
 **Options:**
 - `--session <id>`: Target a specific session by id.
 - `--new`: For `run`, force a fresh proxy instead of attaching to a running one.
+- `--port <n>`: For `start`/`run` (when it starts a proxy), bind a fixed loopback port instead of a random one, so you can point tools at a known `HTTP_PROXY` before the proxy starts. Refuses to start if the port is already in use.
+- `--cert-dir <dir>`: For `start`/`run` (when it starts a proxy), write the CA cert (`ca-cert.pem` + `combined-ca.pem`) into a known directory instead of a temp one, so tools can trust it at a fixed path. Created if missing; only the cert files are removed on stop.
 - `--all`: For `status`/`stop`, include all sessions (`status` also shows ended sessions).
 - `--allow-reload` / `--no-allow-reload`: For `start`/`run`, override the reload posture. `--allow-reload` forces `manual` (human-applied from a trusted terminal; agent-context reloads refused), `--no-allow-reload` forces `off`. Otherwise [`@proxyConfig={reload=...}`](/reference/root-decorators/#proxyconfig) applies, defaulting to `auto` (manual for an interactive `proxy start`, off for headless or one-shot `proxy run`). On a shared uid this is a bar-raiser, not a hard boundary, so prefer a sandbox.
 - `--inject <all｜vars｜blob>`: For `run`, control what is injected into the child env (default `all`).

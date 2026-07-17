@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import {
-  mkdtemp, rm, writeFile,
+  mkdir, mkdtemp, rm, writeFile,
 } from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
@@ -96,6 +96,19 @@ export type StartLocalProxyRuntimeInput = {
     /** The session env payload was served; meta comes from the matching setSessionEnvPayloadJson call. */
     onServed?: (meta?: SessionEnvPayloadMeta) => void;
   };
+  /**
+   * Fixed loopback port for the proxy listener (the HTTP(S)_PROXY port a caller
+   * wires tools to). Omitted ⇒ an ephemeral port. A busy fixed port fails to start
+   * with a clear error rather than silently falling back.
+   */
+  port?: number;
+  /**
+   * Directory to write the CA cert into (`ca-cert.pem` + `combined-ca.pem`),
+   * instead of a fresh temp dir — so a caller can point tools at a known CA path
+   * before the proxy starts. Created if missing. On stop, only the cert files we
+   * wrote are removed (an ephemeral temp dir is removed whole).
+   */
+  certDir?: string;
 };
 
 /** Command-side metadata attached to the served payload (for owner-terminal visibility). */
@@ -614,6 +627,8 @@ export async function startLocalProxyRuntime({
   onResponse,
   approvalProvider,
   internalEndpoint,
+  port,
+  certDir,
 }: StartLocalProxyRuntimeInput): Promise<ProxyRuntimeContext> {
   // Mutable so `reconfigure` can hot-swap the enforced policy on a live proxy.
   // The request handlers below close over these bindings, so reassigning them
@@ -626,7 +641,11 @@ export async function startLocalProxyRuntime({
   let sessionEnvPayloadMeta: SessionEnvPayloadMeta | undefined;
   // Only the public CA cert is written to disk (for child trust). Private keys
   // — the CA's and every per-host leaf's — stay in memory; see cert-authority.ts.
-  const certsDir = await mkdtemp(path.join(os.tmpdir(), 'varlock-proxy-certs-'));
+  // A caller-provided certDir gives tools a known CA path to wire up before start;
+  // otherwise use a fresh temp dir. Track which so stop() cleans up appropriately.
+  const certDirIsUserProvided = certDir !== undefined;
+  const certsDir = certDir ?? await mkdtemp(path.join(os.tmpdir(), 'varlock-proxy-certs-'));
+  if (certDirIsUserProvided) await mkdir(certsDir, { recursive: true });
   const ca = await createEphemeralCa();
   const caCertPath = path.join(certsDir, 'ca-cert.pem');
   const combinedCaPath = path.join(certsDir, 'combined-ca.pem');
@@ -1048,9 +1067,16 @@ export async function startLocalProxyRuntime({
   });
 
   await new Promise<void>((resolve, reject) => {
-    proxyServer.once('error', reject);
-    proxyServer.listen(0, LOCALHOST, () => {
-      proxyServer.off('error', reject);
+    const onListenError = (err: NodeJS.ErrnoException) => {
+      if (port !== undefined && err.code === 'EADDRINUSE') {
+        reject(new Error(`varlock proxy: port ${port} is already in use. Choose a different --port or free it.`));
+      } else {
+        reject(err);
+      }
+    };
+    proxyServer.once('error', onListenError);
+    proxyServer.listen(port ?? 0, LOCALHOST, () => {
+      proxyServer.off('error', onListenError);
       resolve();
     });
   });
@@ -1108,7 +1134,14 @@ export async function startLocalProxyRuntime({
           ).then(() => resolve());
         }),
       ]);
-      await rm(certsDir, { recursive: true, force: true });
+      // A temp dir we created is removed wholesale; for a caller-provided dir,
+      // remove only the cert files we wrote so we don't delete a dir the user owns.
+      if (certDirIsUserProvided) {
+        await rm(caCertPath, { force: true });
+        await rm(combinedCaPath, { force: true });
+      } else {
+        await rm(certsDir, { recursive: true, force: true });
+      }
     },
   };
 }

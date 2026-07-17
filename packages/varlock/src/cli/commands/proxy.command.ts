@@ -648,6 +648,10 @@ async function createRuntimeAndSession(opts: {
   reloadable?: boolean;
   /** Print a live per-request/response log to stderr (for the `proxy start` terminal). */
   logRequests?: boolean;
+  /** Fixed loopback port for the proxy listener (else an ephemeral one). */
+  port?: number;
+  /** Directory to write the CA cert into (else a fresh temp dir). */
+  certDir?: string;
 }): Promise<{
   runtime: Awaited<ReturnType<typeof startLocalProxyRuntime>>;
   session: ProxySessionRecord;
@@ -684,6 +688,8 @@ async function createRuntimeAndSession(opts: {
     managedItems: opts.policy.proxyManagedItems,
     rules: opts.policy.proxyRules,
     egressMode: opts.policy.egressMode,
+    ...(opts.port !== undefined ? { port: opts.port } : {}),
+    ...(opts.certDir !== undefined ? { certDir: opts.certDir } : {}),
     approvalProvider,
     onActivity: (activity) => {
       statsWriter.onActivity(activity);
@@ -1338,6 +1344,26 @@ function startSchemaDriftWatcher(opts: {
   };
 }
 
+/**
+ * Read the fixed loopback `--port` and `--cert-dir` from a run/start invocation.
+ * Both are optional (ephemeral port + temp cert dir otherwise); they let a caller
+ * wire tools to a known proxy endpoint / CA path before the proxy boots.
+ */
+function resolveProxyBindOptions(ctx: any): { port?: number; certDir?: string } {
+  const out: { port?: number; certDir?: string } = {};
+  const portRaw = ctx.values.port;
+  if (portRaw !== undefined && portRaw !== '') {
+    const port = Number(portRaw);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new CliExitError(`Invalid --port "${portRaw}". Use an integer between 1 and 65535.`);
+    }
+    out.port = port;
+  }
+  const certDir = ctx.values['cert-dir'];
+  if (certDir) out.certDir = path.resolve(String(certDir));
+  return out;
+}
+
 async function runAction(ctx: any) {
   const commandToRunAsArgs = getRunCommandArgs();
   const rawCommand = commandToRunAsArgs[0]!;
@@ -1370,6 +1396,16 @@ async function runAction(ctx: any) {
   // possible — its terminal handles approvals — instead of a new auto-deny proxy.
   // --new forces a fresh proxy.
   const attachSession = ctx.values.new ? undefined : await resolveAttachSession(ctx);
+
+  // A fixed port / cert dir describe a proxy we START; when attaching they belong
+  // to the daemon already running, so reject them rather than silently ignore.
+  const bindOptions = resolveProxyBindOptions(ctx);
+  if (attachSession && (bindOptions.port !== undefined || bindOptions.certDir !== undefined)) {
+    throw new CliExitError(
+      '`--port` and `--cert-dir` only apply when starting a fresh proxy, but this run is attaching to an existing session.',
+      { suggestion: 'Pass `--new` to start a separate proxy, or set them on the `proxy start` daemon you are attaching to.' },
+    );
+  }
 
   let session: ProxySessionRecord;
   let payload: SessionEnvPayload;
@@ -1420,6 +1456,7 @@ async function runAction(ctx: any) {
       // for interactive approval.
       approvalProvider: createAutoDenyApprovalProvider(),
       reloadable: allowReload,
+      ...bindOptions,
     });
     session = created.session;
     statsWriter = created.statsWriter;
@@ -1552,11 +1589,13 @@ async function startAction(ctx: any) {
     hasTty: isHumanAttended(),
   });
   const allowReload = reloadMode === 'manual';
+  const bindOptions = resolveProxyBindOptions(ctx);
   const {
     runtime, session, statsWriter, auditLog,
   } = await createRuntimeAndSession({
     policy,
     entryPaths: ctx.values.path,
+    ...bindOptions,
     // The proxy owns this terminal (the agent runs elsewhere and routes through
     // it), so require-approval requests can prompt here — and session/duration
     // approvals can be remembered as standing grants. Wrapped so the live request
@@ -2173,6 +2212,22 @@ const allowReloadArg = {
   },
 } as const;
 
+// Fix the proxy's loopback port / CA-cert location so a caller can wire tools to a
+// known endpoint before it boots. Only meaningful when STARTING a proxy (proxy start,
+// or proxy run that isn't attaching), so only those verbs declare them.
+const bindArgs = {
+  port: {
+    type: 'string',
+    description: 'Fixed loopback port for the proxy (else an ephemeral one), so you can point tools at a known '
+      + 'HTTP(S)_PROXY before it starts. Fails to start if the port is in use.',
+  },
+  'cert-dir': {
+    type: 'string',
+    description: 'Directory to write the CA cert into (`ca-cert.pem` + `combined-ca.pem`), so tools can trust a '
+      + 'known CA path before the proxy starts (else a fresh temp dir).',
+  },
+} as const;
+
 const runCommand = define({
   name: 'run',
   description: 'Run a command through the proxy: attach to this directory\'s session, or start one',
@@ -2180,6 +2235,7 @@ const runCommand = define({
     ...sessionArg,
     ...pathArg,
     ...allowReloadArg,
+    ...bindArgs,
     new: {
       type: 'boolean',
       description: 'Start a fresh proxy instead of attaching to a running one for this directory',
@@ -2221,6 +2277,7 @@ const startCommand = define({
   args: {
     ...pathArg,
     ...allowReloadArg,
+    ...bindArgs,
   },
   run: (ctx: any) => startAction(ctx),
 });
