@@ -20,15 +20,21 @@ export class ParsedEnvSpecStaticValue {
     rawValue: any;
     quote?: '"' | "'" | '`' | undefined;
     isImplicit?: boolean;
+    /** Keep leading/trailing spaces (used by expansion slices so `$VAR` splits do not drop adjacent whitespace). */
+    skipTrim?: boolean;
     _location?: any;
   }) {
     if (!data.quote) {
-      // unquoted strings will get trimmed (leading/trailing spaces)
+      // unquoted strings will get trimmed (leading/trailing spaces), unless skipTrim is set
       if (typeof data.rawValue === 'string') {
-        const trimmed = data.rawValue.trim();
-        // trimmed empty string without quotes gets treated as undefined
-        if (trimmed === '') this.value = undefined;
-        else this.value = autoCoerce(trimmed);
+        if (data.skipTrim) {
+          this.value = autoCoerce(data.rawValue);
+        } else {
+          const trimmed = data.rawValue.trim();
+          // trimmed empty string without quotes gets treated as undefined
+          if (trimmed === '') this.value = undefined;
+          else this.value = autoCoerce(trimmed);
+        }
       } else {
         this.value = autoCoerce(data.rawValue);
       }

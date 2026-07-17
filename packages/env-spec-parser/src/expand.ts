@@ -6,17 +6,99 @@ import {
 // const EXPAND_VAR_REGEX_WITH_SIMPLE = /\$({([a-zA-Z_][a-zA-Z0-9_.]*)}|([a-zA-Z_][a-zA-Z0-9_]*))/g;
 const EXPAND_VAR_BRACKETED_REGEX = /(?<!\\)\${([a-zA-Z_][a-zA-Z0-9_.]*)((:?-)([^}]+))?}/g;
 const EXPAND_VAR_SIMPLE_REGEX = /(?<!\\)\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
-const EXPAND_EXEC_REGEX = /\$\(([^)]+)\)/g;
+
+type ExecExpansionMatch = {
+  index: number;
+  0: string;
+  1: string;
+};
+
+/**
+ * Find `$(...)` expansions with balanced parentheses and quote awareness.
+ * Unlike `/\$\(([^)]+)\)/g`, this does not stop at the first `)`.
+ */
+function findExecExpansions(str: string): Array<ExecExpansionMatch> {
+  const results: Array<ExecExpansionMatch> = [];
+  let i = 0;
+  while (i < str.length) {
+    // unescaped `$(`
+    if (
+      str[i] === '$'
+      && str[i + 1] === '('
+      && (i === 0 || str[i - 1] !== '\\')
+    ) {
+      const start = i;
+      i += 2;
+      let depth = 1;
+      let inQuote: '"' | "'" | '`' | null = null;
+      let escaped = false;
+      const cmdStart = i;
+
+      while (i < str.length && depth > 0) {
+        const c = str[i];
+        if (escaped) {
+          escaped = false;
+          i++;
+          continue;
+        }
+        if (c === '\\' && inQuote !== "'") {
+          escaped = true;
+          i++;
+          continue;
+        }
+        if (inQuote) {
+          if (c === inQuote) inQuote = null;
+        } else if (c === '"' || c === "'" || c === '`') {
+          inQuote = c;
+        } else if (c === '(') {
+          depth++;
+        } else if (c === ')') {
+          depth--;
+        }
+        i++;
+      }
+
+      if (depth === 0) {
+        results.push({
+          index: start,
+          0: str.slice(start, i),
+          1: str.slice(cmdStart, i - 1),
+        });
+      }
+      continue;
+    }
+    i++;
+  }
+  return results;
+}
+
+/** Build a StaticValue from an expansion slice, preserving whitespace when unquoted. */
+function staticFromExpansionSlice(
+  text: string,
+  quote: '"' | "'" | '`' | undefined,
+): ParsedEnvSpecStaticValue {
+  if (quote) {
+    return new ParsedEnvSpecStaticValue({
+      rawValue: `${quote}${text}${quote}`,
+      quote,
+    });
+  }
+  // Unquoted grammar values trim whitespace. Expansion slices must keep
+  // spaces adjacent to $refs (e.g. `drill -Q $HOST`).
+  return new ParsedEnvSpecStaticValue({
+    rawValue: text,
+    skipTrim: true,
+  });
+}
 
 
 function expandExecs(staticVal: ParsedEnvSpecStaticValue, _opts?: {}) {
   if (typeof staticVal.value !== 'string') return staticVal;
   const quote = staticVal.data.quote;
-  const quoteStr = quote ?? '';
   // single quoted strings are not expanded!
   if (quote === "'") return staticVal;
 
-  const execMatches = Array.from(staticVal.value.matchAll(EXPAND_EXEC_REGEX));
+  const execMatches = findExecExpansions(staticVal.value);
 
   // if no matches - we just return the original value
   if (execMatches.length === 0) return staticVal;
@@ -29,7 +111,7 @@ function expandExecs(staticVal: ParsedEnvSpecStaticValue, _opts?: {}) {
     // extract text before exec -- ex: `pretext-$(exec command)`
     if (lastIndex < match.index) {
       const preText = staticVal.value.slice(lastIndex, match.index);
-      parts.push(new ParsedEnvSpecStaticValue({ rawValue: `${quoteStr}${preText}${quoteStr}`, quote }));
+      parts.push(staticFromExpansionSlice(preText, quote));
     }
 
     // extract exec command
@@ -37,7 +119,7 @@ function expandExecs(staticVal: ParsedEnvSpecStaticValue, _opts?: {}) {
     parts.push(new ParsedEnvSpecFunctionCall({
       name: 'exec',
       args: new ParsedEnvSpecFunctionArgs({
-        values: [new ParsedEnvSpecStaticValue({ rawValue: `${quoteStr}${shellCmd}${quoteStr}`, quote })],
+        values: [staticFromExpansionSlice(shellCmd, quote)],
       }),
     }));
     lastIndex = match.index + match[0].length;
@@ -45,7 +127,7 @@ function expandExecs(staticVal: ParsedEnvSpecStaticValue, _opts?: {}) {
   // extract any remaining text after the last exec
   if (lastIndex < staticVal.value.length) {
     const postText = staticVal.value.slice(lastIndex);
-    parts.push(new ParsedEnvSpecStaticValue({ rawValue: `${quoteStr}${postText}${quoteStr}`, quote }));
+    parts.push(staticFromExpansionSlice(postText, quote));
   }
 
   // if there's only one part, we can just return it (ex: `VAR=$(whoami)`)
@@ -62,7 +144,6 @@ function expandExecs(staticVal: ParsedEnvSpecStaticValue, _opts?: {}) {
 function expandRefs(staticVal: ParsedEnvSpecStaticValue, mode: 'simple' | 'bracketed') {
   if (typeof staticVal.value !== 'string') return staticVal;
   const quote = staticVal.data.quote;
-  const quoteStr = quote ?? '';
   if (quote === "'") return staticVal;
 
   const varMatches = Array.from(staticVal.value.matchAll(mode === 'simple' ? EXPAND_VAR_SIMPLE_REGEX : EXPAND_VAR_BRACKETED_REGEX));
@@ -74,7 +155,7 @@ function expandRefs(staticVal: ParsedEnvSpecStaticValue, mode: 'simple' | 'brack
     // extract text before exec
     if (lastIndex < match.index) {
       const preText = staticVal.value.slice(lastIndex, match.index);
-      parts.push(new ParsedEnvSpecStaticValue({ rawValue: `${quoteStr}${preText}${quoteStr}`, quote }));
+      parts.push(staticFromExpansionSlice(preText, quote));
     }
 
     // extract var
@@ -97,7 +178,7 @@ function expandRefs(staticVal: ParsedEnvSpecStaticValue, mode: 'simple' | 'brack
       parts.push(new ParsedEnvSpecFunctionCall({
         name: 'fallback',
         args: new ParsedEnvSpecFunctionArgs({
-          values: [refFnCall, new ParsedEnvSpecStaticValue({ rawValue: `${quoteStr}${defaultVal}${quoteStr}`, quote })],
+          values: [refFnCall, staticFromExpansionSlice(defaultVal, quote)],
         }),
       }));
     } else {
@@ -107,7 +188,7 @@ function expandRefs(staticVal: ParsedEnvSpecStaticValue, mode: 'simple' | 'brack
   }
   if (lastIndex < staticVal.value.length) {
     const postText = staticVal.value.slice(lastIndex);
-    parts.push(new ParsedEnvSpecStaticValue({ rawValue: `${quoteStr}${postText}${quoteStr}`, quote }));
+    parts.push(staticFromExpansionSlice(postText, quote));
   }
 
   // if only a single part, just return it (ex: `VAR=${OTHERVAR}`)
