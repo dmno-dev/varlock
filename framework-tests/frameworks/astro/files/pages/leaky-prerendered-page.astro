@@ -1,0 +1,14 @@
+---
+export const prerender = true;
+import { ENV } from 'varlock/env';
+---
+
+<html>
+  <head>
+    <title>Leaky Prerendered Page</title>
+  </head>
+  <body>
+    <h1>Leaky Prerendered Page</h1>
+    <p>Sensitive: {ENV.SENSITIVE_VAR}</p>
+  </body>
+</html>

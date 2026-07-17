@@ -1,0 +1,18 @@
+---
+import { ENV } from 'varlock/env';
+import ReactHello from '../components/ReactHello';
+
+const publicVar = ENV.PUBLIC_VAR;
+const hasSensitive = !!ENV.SENSITIVE_VAR;
+---
+
+<html>
+  <head>
+    <title>Varlock Framework Test - Astro + React</title>
+  </head>
+  <body>
+    <h1>Varlock Framework Test - Astro + React</h1>
+    <ReactHello publicVar={publicVar} />
+    <p>Has sensitive: {hasSensitive ? 'sensitive-var-available' : 'X - not available'}</p>
+  </body>
+</html>

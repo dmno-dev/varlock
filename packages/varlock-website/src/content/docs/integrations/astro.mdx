@@ -173,6 +173,8 @@ When deploying SSR Astro apps to serverless platforms, varlock injects the resol
 
 If you deploy your SSR Astro app to Cloudflare Workers via [`@astrojs/cloudflare`](https://docs.astro.build/en/guides/integrations-guide/cloudflare/), install [`@varlock/cloudflare-integration`](/integrations/cloudflare/) alongside the Astro integration. The Astro integration **auto-detects** the Cloudflare adapter and wires up env injection into the worker. There's no extra Vite or adapter config to write, and you keep using `astro dev` as normal.
 
+Static and prerendered pages work too: they are rendered at build time with your resolved env, so a fully static site (`output: 'static'`) needs no vars or secrets uploaded to Cloudflare at all.
+
 <Steps>
 
 1. **Install the Cloudflare integration**
