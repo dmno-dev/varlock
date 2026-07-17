@@ -391,8 +391,8 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
               title=".env.schema"
               lang="env-spec"
               code=`
-# @sensitive @proxy(domain="api.openai.com")
-OPENAI_API_KEY=yourPreferredPlugin()
+# @sensitive @proxy(domain="api.stripe.com")
+STRIPE_SECRET_KEY=yourPreferredPlugin()
       `
             />
             <Code lang="bash" code={`varlock proxy run -- claude`} />

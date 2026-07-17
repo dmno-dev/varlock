@@ -60,17 +60,17 @@ The credential proxy is an early preview, and its API is not yet stable: while i
 
 ```diff lang="env-spec" title=".env.schema"
 # @sensitive
-+# @proxy(domain="api.openai.com") @placeholder=sk-proj-000000000000000000000000
-OPENAI_API_KEY=yourPreferredPlugin() # from a plugin or built-in encryption — never a plaintext secret
++# @proxy(domain="api.stripe.com") @placeholder=sk_test_00000000000000000000000000
+STRIPE_SECRET_KEY=yourPreferredPlugin() # from a plugin or built-in encryption — never a plaintext secret
 ```
 
 ```bash
 varlock proxy run -- claude
 ```
 
-The agent launched above sees `OPENAI_API_KEY=sk-proj-0000…`, a placeholder shaped like a real key. When it makes a request to `api.openai.com`, the proxy swaps the placeholder for the real key on the wire. If the agent prints the variable, exfiltrates its env, or sends it anywhere else, all it has is a useless placeholder.
+The agent launched above sees `STRIPE_SECRET_KEY=sk_test_0000…`, a placeholder shaped like a real key. When it makes a request to `api.stripe.com`, the proxy swaps the placeholder for the real key on the wire. If the agent prints the variable, exfiltrates its env, or sends it anywhere else, all it has is a useless placeholder.
 
-The `@placeholder` keeps the placeholder valid-looking so the OpenAI SDK's client-side key-format check passes. See [Placeholders](#placeholders) for when you need it.
+The `@placeholder` keeps the placeholder valid-looking so the Stripe SDK's client-side key-format check passes. See [Placeholders](#placeholders) for when you need it.
 
 ## How it works
 
@@ -91,18 +91,18 @@ Mark the item [`@sensitive`](/reference/item-decorators/#sensitive) and add [`@p
 
 ```env-spec title=".env.schema"
 # @sensitive
-# @proxy(domain="api.openai.com")
-# @placeholder=sk-proj-000000000000000000000000
-OPENAI_API_KEY=yourPreferredPlugin()
+# @proxy(domain="api.stripe.com")
+# @placeholder=sk_test_00000000000000000000000000
+STRIPE_SECRET_KEY=yourPreferredPlugin()
 
 # @sensitive
-# @proxy(domain="api.stripe.com")
-STRIPE_SECRET_KEY=yourPreferredPlugin()
+# @proxy(domain="api.github.com")
+GITHUB_TOKEN=yourPreferredPlugin()
 ```
 
 `@proxy` already implies [`@sensitive`](/reference/item-decorators/#sensitive) (and varlock treats items as sensitive by default), so the `@sensitive` line is optional. We show it explicitly here because being clear about what is a secret is good practice.
 
-The `@placeholder` on `OPENAI_API_KEY` makes the placeholder the agent sees look like a real key, so SDK key-format checks pass. Leave it off (like `STRIPE_SECRET_KEY` above) and the item gets a generic `vlk_placeholder_…`, which varlock warns about because it can fail a client-side key-format check (see [Placeholders](#placeholders)).
+The `@placeholder` on `STRIPE_SECRET_KEY` makes the placeholder the agent sees look like a real key, so SDK key-format checks pass. Leave it off (like `GITHUB_TOKEN` above) and the item gets a generic `vlk_placeholder_…`, which varlock warns about because it can fail a client-side key-format check (see [Placeholders](#placeholders)).
 
 That is all the proxy needs: there is no separate "enable" step. It runs in **permissive** mode by default (hosts that don't match a rule pass through untouched). Add [`@proxyConfig={egress="strict"}`](#egress-modes) to your schema header only when you want to block everything that isn't explicitly routed.
 
@@ -234,9 +234,9 @@ If you see the generic-placeholder warning, add an `@placeholder` or a typed for
 
 ```env-spec title=".env.schema"
 # @sensitive
-# @proxy(domain="api.openai.com")
-# @placeholder=sk-proj-000000000000000000000000
-OPENAI_API_KEY=yourPreferredPlugin()
+# @proxy(domain="api.stripe.com")
+# @placeholder=sk_test_00000000000000000000000000
+STRIPE_SECRET_KEY=yourPreferredPlugin()
 ```
 
 ## Running modes
