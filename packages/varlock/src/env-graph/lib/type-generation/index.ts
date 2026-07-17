@@ -3,6 +3,8 @@ export { generatePythonEnvSrc } from './emitters/python';
 export { generateRustEnvSrc } from './emitters/rust';
 export { generateGoEnvSrc } from './emitters/go';
 export { generatePhpEnvSrc } from './emitters/php';
+export { generateJavaEnvSrc } from './emitters/java';
+export { generateCsharpEnvSrc } from './emitters/csharp';
 export {
   resolveFieldType,
   resolveFieldTypes,

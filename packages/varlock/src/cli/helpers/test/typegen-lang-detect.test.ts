@@ -30,9 +30,24 @@ describe('detectTypegenDecorator', () => {
     [['go.mod'], 'generateGoEnv'],
     [['Cargo.toml'], 'generateRustEnv'],
     [['composer.json'], 'generatePhpEnv'],
+    [['pom.xml'], 'generateJavaEnv'],
+    [['build.gradle'], 'generateJavaEnv'],
+    [['build.gradle.kts'], 'generateJavaEnv'],
   ] as const)('detects %s -> @%s', async (files, decorator) => {
     const dir = await makeProjectDir([...files]);
     expect((await detectTypegenDecorator(dir)).decorator).toBe(decorator);
+  });
+
+  test('detects a .csproj as C#', async () => {
+    const dir = await makeProjectDir(['MyApp.csproj']);
+    const choice = await detectTypegenDecorator(dir);
+    expect(choice.decorator).toBe('generateCsharpEnv');
+    expect(choice.args).toContain('Env.cs');
+  });
+
+  test('detects a .sln as C#', async () => {
+    const dir = await makeProjectDir(['MyApp.sln']);
+    expect((await detectTypegenDecorator(dir)).decorator).toBe('generateCsharpEnv');
   });
 
   test('package.json (JS/TS) wins when multiple languages are present', async () => {

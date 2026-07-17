@@ -447,6 +447,16 @@ describe('CLI Commands', () => {
           markers: ['final class Env', 'public readonly ?bool $DEBUG = null,', 'public readonly ?int $DB_PORT = null,', 'public static function load(): self'],
           sensitiveMarker: "public const SENSITIVE_KEYS = ['SECRET_TOKEN'];",
         },
+        {
+          outputFile: 'env_types.java',
+          markers: ['public final class Env', 'public final Boolean debug;', 'public final Long dbPort;', 'public static Env load()'],
+          sensitiveMarker: 'public static final Set<String> SENSITIVE_KEYS = Set.of("SECRET_TOKEN");',
+        },
+        {
+          outputFile: 'env_types.cs',
+          markers: ['public sealed class Env', 'public bool? Debug { get; init; }', 'public long? DbPort { get; init; }', 'public static Env Load()'],
+          sensitiveMarker: 'public static readonly IReadOnlySet<string> SensitiveKeys = new HashSet<string> { "SECRET_TOKEN" };',
+        },
       ] as const;
 
       for (const testCase of cases) {

@@ -41,4 +41,20 @@ describe('generated language modules compile and run', () => {
     expect(result.output).toContain('OK');
     expect(result.exitCode).toBe(0);
   });
+
+  test.skipIf(!hasTool('java') || !hasTool('mvn'))('Java module compiles and runs', () => {
+    // package a shaded fat jar, then run it the usual way (`java -jar`)
+    const result = varlockRun(
+      ['bash', '-c', 'mvn -q -DskipTests package && java -jar target/app.jar'],
+      { cwd: 'smoke-test-lang-java' },
+    );
+    expect(result.output).toContain('OK');
+    expect(result.exitCode).toBe(0);
+  }, 300_000);
+
+  test.skipIf(!hasTool('dotnet'))('C# module compiles and runs', () => {
+    const result = varlockRun(['dotnet', 'run', '--nologo'], { cwd: 'smoke-test-lang-csharp' });
+    expect(result.output).toContain('OK');
+    expect(result.exitCode).toBe(0);
+  }, 300_000);
 });

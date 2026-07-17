@@ -1,0 +1,63 @@
+---
+title: C#
+description: Use varlock with C# via a generated, typed env class
+---
+
+To use varlock with C#, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
+
+Add [`@generateCsharpEnv`](/reference/root-decorators/#generatecsharpenv) to your schema to generate a small, self-contained class: a typed `Env` with init-only properties, a static `Load()` that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SensitiveKeys` set.
+
+```env-spec title=".env.schema"
+# @generateCsharpEnv(path=Env.cs)
+```
+
+The file is regenerated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly with [`varlock codegen`](/reference/cli-commands/#codegen). Requires **.NET 6+** (uses `System.Text.Json` from the BCL; no extra NuGet package). Optional `namespace=` and `class=` set the C# namespace and class name (default: no namespace, class `Env`). Property names are PascalCase (`DB_HOST` → `DbHost`).
+
+## Reading values
+
+Call `Load()` once, then read properties off the object. Required fields are the plain type, optional ones are nullable (`long?`, `bool?`, `string?`):
+
+```csharp
+var e = Env.Load();          // call once, hold or pass `e` around
+var host = e.DbHost;         // string (required field)
+if (e.DbPort is long port)   // long? (optional field)
+{
+    Console.WriteLine($"{host}:{port}");
+}
+```
+
+```bash
+varlock run -- dotnet run
+```
+
+`Load()` throws a clear error if `__VARLOCK_ENV` is missing (e.g. you forgot `varlock run`) or if a required key is absent.
+
+## Sharing one instance
+
+Every `Load()` call re-parses the blob. To avoid reloading, register the loaded instance in DI or expose it from a static holder:
+
+```csharp
+// Program.cs / startup
+builder.Services.AddSingleton(Env.Load());
+
+// elsewhere, inject Env
+public class MyService(Env env)
+{
+    public void Run() => Console.WriteLine(env.DbPort);
+}
+```
+
+No DI? A tiny static holder works:
+
+```csharp
+public static class Config
+{
+    public static Env Values { get; } = Env.Load();
+}
+
+// elsewhere: Config.Values.DbPort  (long?)
+```
+
+:::note
+Every key is also injected as a plain environment variable, so you can read any of them with `Environment.GetEnvironmentVariable` (raw strings) if you don't need the typed module. Keys whose names aren't valid identifiers (they contain `.` or `-`) can't be properties, so read those from the env var directly. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
+:::

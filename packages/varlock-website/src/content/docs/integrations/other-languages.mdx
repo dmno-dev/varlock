@@ -25,6 +25,8 @@ It exposes only these primitives (no global singleton or imposed caching), so it
 | Rust | `@generateRustEnv` | [Rust](/integrations/rust/) |
 | Go | `@generateGoEnv` | [Go](/integrations/go/) |
 | PHP | `@generatePhpEnv` | [PHP](/integrations/php/) |
+| Java | `@generateJavaEnv` | [Java](/integrations/java/) |
+| C# | `@generateCsharpEnv` | [C#](/integrations/csharp/) |
 
 Files are generated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly via [`varlock codegen`](/reference/cli-commands/#codegen). The loaders read `__VARLOCK_ENV`, so run your program under [`varlock run`](/reference/cli-commands/#run), which always injects a **plaintext** blob. The generated loaders don't decrypt, so they don't support [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) (a JS/SSR build-output feature); if a loader is handed an encrypted blob it fails with a clear message rather than a raw parse error.
 
@@ -32,7 +34,7 @@ Note that `varlock run --inject vars` strips the `__VARLOCK_ENV` blob from the c
 
 ## Languages without a generated module
 
-For languages without a `@generate*Env` decorator yet (Ruby, Java, C#, Elixir, and others), you have two options, both of which work under `varlock run`:
+For languages without a `@generate*Env` decorator yet (Ruby, Elixir, and others), you have two options, both of which work under `varlock run`:
 
 **Read individual env vars.** Every config key is injected as a plain environment variable, so read them the way you normally would (`ENV['KEY']` in Ruby, `os.environ`, `getenv`, etc.). These values are always **strings** (uncoerced), so parse numbers/booleans yourself.
 
@@ -53,7 +55,7 @@ The generated modules above do exactly this, and they're the fastest path if you
 :::note[Raw string env vars]
 Individual config keys are also injected as plain environment variables, but those values are always strings (uncoerced). Prefer the generated loader / `__VARLOCK_ENV` when you want coerced types.
 
-Keys whose names aren't valid identifiers (they contain `.` or `-`) are **omitted from the typed value** in Python, Rust, Go, and PHP, since they can't be a struct field / property. Read them from the raw environment variable instead (they're still injected, and still listed in `SENSITIVE_KEYS`). TypeScript keeps them, accessible as `ENV['MY-KEY']`.
+Keys whose names aren't valid identifiers (they contain `.` or `-`) are **omitted from the typed value** in Python, Rust, Go, PHP, Java, and C#, since they can't be a struct field / property. Read them from the raw environment variable instead (they're still injected, and still listed in `SENSITIVE_KEYS`). TypeScript keeps them, accessible as `ENV['MY-KEY']`.
 :::
 
 :::caution[Sensitive values in the blob]

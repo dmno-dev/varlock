@@ -58,6 +58,8 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
       { label: 'Rust', slug: 'integrations/rust' },
       { label: 'Go', slug: 'integrations/go' },
       { label: 'PHP', slug: 'integrations/php' },
+      { label: 'Java', slug: 'integrations/java' },
+      { label: 'C#', slug: 'integrations/csharp' },
       { label: 'Other languages', slug: 'integrations/other-languages' },
     ],
   },

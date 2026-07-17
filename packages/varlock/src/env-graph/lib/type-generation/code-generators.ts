@@ -1,7 +1,9 @@
 import type { EnvGraph } from '../env-graph';
 import type { TypeGenItemInfo } from '../config-item';
 import { isVarlockReservedKey } from '../reserved-vars';
+import { generateCsharpEnvSrc } from './emitters/csharp';
 import { generateGoEnvSrc, resolveGoPackageName } from './emitters/go';
+import { generateJavaEnvSrc } from './emitters/java';
 import { generatePhpEnvSrc } from './emitters/php';
 import { generatePythonEnvSrc } from './emitters/python';
 import { generateRustEnvSrc } from './emitters/rust';
@@ -60,6 +62,9 @@ const LANG_TO_DECORATOR: Record<string, string> = {
   rs: 'generateRustEnv',
   go: 'generateGoEnv',
   php: 'generatePhpEnv',
+  java: 'generateJavaEnv',
+  cs: 'generateCsharpEnv',
+  csharp: 'generateCsharpEnv',
 };
 
 function generateTsFile(ctx: CodeGenContext): Promise<string> {
@@ -101,6 +106,22 @@ export const builtInCodeGenerators: Array<CodeGeneratorDef> = [
     decoratorName: 'generatePhpEnv',
     knownOptions: ['namespace', 'class'],
     generate: (ctx) => generatePhpEnvSrc(ctx.fields, {
+      namespace: ctx.options.namespace,
+      className: ctx.options.class,
+    }),
+  },
+  {
+    decoratorName: 'generateJavaEnv',
+    knownOptions: ['package', 'class'],
+    generate: (ctx) => generateJavaEnvSrc(ctx.fields, {
+      packageName: ctx.options.package,
+      className: ctx.options.class,
+    }),
+  },
+  {
+    decoratorName: 'generateCsharpEnv',
+    knownOptions: ['namespace', 'class'],
+    generate: (ctx) => generateCsharpEnvSrc(ctx.fields, {
       namespace: ctx.options.namespace,
       className: ctx.options.class,
     }),
