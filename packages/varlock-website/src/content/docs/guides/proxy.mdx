@@ -222,15 +222,17 @@ UNUSED_SECRET=yourPreferredPlugin()
 
 ### Placeholders
 
+You don't have to define placeholders. If you don't set one, varlock generates a placeholder for every proxied item automatically. Its exact value usually doesn't matter, because the proxy injects the real secret on the wire regardless of what the placeholder looks like. It matters only when the client checks the key's format **locally, before sending** — typically an SDK (for example the OpenAI or Stripe client asserting an `sk-` / `sk_` prefix when you construct it). A raw HTTP client (curl, `fetch`, and most tools) accepts any placeholder, so the generated one is fine.
+
 The placeholder the agent sees is chosen in priority order:
 
 1. An explicit [`@placeholder`](/reference/item-decorators/#placeholder) value (always wins).
 2. A valid-and-unique value derived from the item's [`@type`](/reference/item-decorators/#type): e.g. `@type=url` → `https://vlk-placeholder-…invalid/`, `@type=email` / `uuid` / `md5` likewise, and `@type=string(startsWith=sk-, isLength=20)` yields an `sk-`-shaped placeholder.
-3. A generic fallback (`vlk_placeholder_<KEY>_…`): for a `@proxy`-routed (wire-injected) item varlock **warns** about these, because a generic placeholder can fail an SDK's client-side key-format check (e.g. an `sk-…` prefix assertion) before the request is ever made.
+3. A generic fallback (`vlk_placeholder_<KEY>_…`). For a `@proxy`-routed item varlock **warns** about this one, since it's the case that can fail an SDK's format check; if your client doesn't validate the format, it's harmless.
 
 Every placeholder is unique per item, so two different secrets can never collide on the wire.
 
-If you see the generic-placeholder warning, add an `@placeholder` or a typed format so the placeholder looks valid to the client:
+If an SDK rejects the generic placeholder, add an `@placeholder` or a typed format so it looks valid to the client:
 
 ```env-spec title=".env.schema"
 # @sensitive
