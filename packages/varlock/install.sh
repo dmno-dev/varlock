@@ -189,8 +189,8 @@ main() {
     linux)
       if is_wsl && [ "$FORCE_LINUX_ENC_BIN" = "false" ] && [ -f "${_temp_dir}/varlock-local-encrypt.exe" ]; then
         install "${_temp_dir}/varlock-local-encrypt.exe" "${INSTALL_DIR}/"
+        chmod u+x "${INSTALL_DIR}/varlock-local-encrypt.exe"
         echo "  Installed native encryption binary (varlock-local-encrypt.exe)"
-      elif [ -f "${_temp_dir}/varlock-local-encrypt" ]; then
         install "${_temp_dir}/varlock-local-encrypt" "${INSTALL_DIR}/"
         chmod u+x "${INSTALL_DIR}/varlock-local-encrypt"
         echo "  Installed native encryption binary (varlock-local-encrypt)"
