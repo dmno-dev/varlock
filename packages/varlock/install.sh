@@ -182,7 +182,10 @@ main() {
       fi
     ;;
     linux)
-      if [ -f "${_temp_dir}/varlock-local-encrypt" ]; then
+      if is_wsl && [ -f "${_temp_dir}/varlock-local-encrypt.exe" ]; then
+        install "${_temp_dir}/varlock-local-encrypt.exe" "${INSTALL_DIR}/"
+        echo "  Installed native encryption binary (varlock-local-encrypt.exe)"
+      elif [ -f "${_temp_dir}/varlock-local-encrypt" ]; then
         install "${_temp_dir}/varlock-local-encrypt" "${INSTALL_DIR}/"
         chmod u+x "${INSTALL_DIR}/varlock-local-encrypt"
         echo "  Installed native encryption binary (varlock-local-encrypt)"
@@ -246,6 +249,14 @@ get_architecture() {
       LIBC="musl-"
     fi
   fi
+}
+
+is_wsl() {
+	case "$(uname -r)" in
+	*microsoft* ) true ;; # WSL 2
+	*Microsoft* ) true ;; # WSL 1
+	* ) false;;
+	esac
 }
 
 # $1 - url for download. $2 - path to download
