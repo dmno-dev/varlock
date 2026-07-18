@@ -27,7 +27,7 @@ INSTALL_DIR="${VARLOCK_CONFIG_DIR}/bin"
 INSTALL_DIR_UNEXPANDED="\${XDG_CONFIG_HOME:-~/.config}/varlock/bin"
 REINSTALL=""
 FORCE_NO_BREW="false"
-FORCE_LINUX_ENC_BIN="false"
+SKIP_WIN_EXE="false"
 
 usage() {
   echo "Usage: $0 [options]"
@@ -39,7 +39,7 @@ usage() {
   echo "  --reinstall       reinstall even if already installed (default: false)"
   echo "  --version         version of varlock to install (defaults to latest)"
   echo "  --force-no-brew   force install without homebrew even when detected (default: false)"
-  echo "  --force-linux-enc-bin   force install the Linux native encryption binary, only applicable when running in WSL (default: false)"
+  echo "  --skip-win-exe   skip installing the Windows native encryption binary, only applicable when running in WSL (default: false)"
   echo ""
 }
 
@@ -59,8 +59,8 @@ parse_args() {
     force-no-brew | --force-no-brew)
       FORCE_NO_BREW="true"
     ;;
-    force-linux-enc-bin | --force-linux-enc-bin)
-      FORCE_LINUX_ENC_BIN="true"
+    skip-win-exe | --skip-win-exe)
+      SKIP_WIN_EXE="true"
     ;;
     help | --help)
       usage
@@ -187,13 +187,15 @@ main() {
       fi
     ;;
     linux)
-      if is_wsl && [ "$FORCE_LINUX_ENC_BIN" = "false" ] && [ -f "${_temp_dir}/varlock-local-encrypt.exe" ]; then
-        install "${_temp_dir}/varlock-local-encrypt.exe" "${INSTALL_DIR}/"
-        chmod u+x "${INSTALL_DIR}/varlock-local-encrypt.exe"
-        echo "  Installed native encryption binary (varlock-local-encrypt.exe)"
+      if [ -f "${_temp_dir}/varlock-local-encrypt" ]; then
         install "${_temp_dir}/varlock-local-encrypt" "${INSTALL_DIR}/"
         chmod u+x "${INSTALL_DIR}/varlock-local-encrypt"
         echo "  Installed native encryption binary (varlock-local-encrypt)"
+      fi
+      if is_wsl && [ "$SKIP_WIN_EXE" != "true" ] && [ -f "${_temp_dir}/varlock-local-encrypt.exe" ]; then
+        install "${_temp_dir}/varlock-local-encrypt.exe" "${INSTALL_DIR}/"
+        chmod u+x "${INSTALL_DIR}/varlock-local-encrypt.exe"
+        echo "  Installed WSL encryption binary (varlock-local-encrypt.exe)"
       fi
     ;;
     win-*)
