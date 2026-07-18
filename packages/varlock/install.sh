@@ -257,11 +257,21 @@ get_architecture() {
 }
 
 is_wsl() {
-	case "$(uname -r)" in
-	*microsoft* ) true ;; # WSL 2
-	*Microsoft* ) true ;; # WSL 1
-	* ) false;;
-	esac
+  # Fast path: WSL sets this env var
+  if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+    return 0
+  fi
+
+  # Fallback: check /proc/version for Microsoft/WSL signature
+  if [ -r /proc/version ] && grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null; then
+    return 0
+  fi
+
+  # Last resort: kernel release string
+  case "$(uname -r 2>/dev/null)" in
+    *[Mm]icrosoft*|*[Ww][Ss][Ll]*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # $1 - url for download. $2 - path to download
