@@ -164,6 +164,30 @@ describe('@setValuesBulk() root decorator', () => {
         NEW_KEY: 'new-val',
       },
     }));
+
+    test('createMissing=sensitive creates new items as sensitive', envFilesTest({
+      envFile: outdent`
+        # @defaultSensitive=false
+        # @setValuesBulk('{"NEW_KEY":"new-val"}', format=json, createMissing="sensitive")
+        # ---
+        API_KEY=val
+      `,
+      expectValues: {
+        NEW_KEY: 'new-val',
+      },
+      expectSensitive: {
+        NEW_KEY: true,
+        API_KEY: false,
+      },
+    }));
+
+    test('invalid createMissing value is an error', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"A":"val"}', format=json, createMissing="banana")
+        # ---
+      `,
+      expectError: true,
+    }));
   });
 
   describe('key filters', () => {

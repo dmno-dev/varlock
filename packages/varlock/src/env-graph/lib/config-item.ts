@@ -485,6 +485,8 @@ export class ConfigItem {
 
   _isSensitive: boolean = true;
   _sensitiveExplicitlySet = false;
+  /** externally-forced sensitivity (e.g. @setValuesBulk createMissing="sensitive") — wins over all inference */
+  _forceSensitive?: boolean;
   /** how sensitivity was determined (undefined = the global default that items are sensitive) */
   _sensitiveSource?: 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix';
   get isSensitive(): boolean {
@@ -514,6 +516,12 @@ export class ConfigItem {
     return this._preventLeaks;
   }
   private async processSensitive() {
+    if (this._forceSensitive !== undefined) {
+      this._isSensitive = this._forceSensitive;
+      this._sensitiveExplicitlySet = true;
+      this._sensitiveSource = 'explicit';
+      return;
+    }
     const sensitiveFromDataType = this.dataType?.isSensitive;
 
     // Pass 1: explicit per-item @sensitive / @public decorators take highest priority
