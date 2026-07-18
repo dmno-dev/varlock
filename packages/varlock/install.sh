@@ -27,6 +27,7 @@ INSTALL_DIR="${VARLOCK_CONFIG_DIR}/bin"
 INSTALL_DIR_UNEXPANDED="\${XDG_CONFIG_HOME:-~/.config}/varlock/bin"
 REINSTALL=""
 FORCE_NO_BREW="false"
+FORCE_LINUX_ENC_BIN="false"
 
 usage() {
   echo "Usage: $0 [options]"
@@ -38,6 +39,7 @@ usage() {
   echo "  --reinstall       reinstall even if already installed (default: false)"
   echo "  --version         version of varlock to install (defaults to latest)"
   echo "  --force-no-brew   force install without homebrew even when detected (default: false)"
+  echo "  --force-linux-enc-bin   force install the Linux native encryption binary, only applicable when running in WSL (default: false)"
   echo ""
 }
 
@@ -56,6 +58,9 @@ parse_args() {
     ;;
     force-no-brew | --force-no-brew)
       FORCE_NO_BREW="true"
+    ;;
+    force-linux-enc-bin | --force-linux-enc-bin)
+      FORCE_LINUX_ENC_BIN="true"
     ;;
     help | --help)
       usage
@@ -182,7 +187,7 @@ main() {
       fi
     ;;
     linux)
-      if is_wsl && [ -f "${_temp_dir}/varlock-local-encrypt.exe" ]; then
+      if is_wsl && [ "$FORCE_LINUX_ENC_BIN" = "false" ] && [ -f "${_temp_dir}/varlock-local-encrypt.exe" ]; then
         install "${_temp_dir}/varlock-local-encrypt.exe" "${INSTALL_DIR}/"
         echo "  Installed native encryption binary (varlock-local-encrypt.exe)"
       elif [ -f "${_temp_dir}/varlock-local-encrypt" ]; then
