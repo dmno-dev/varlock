@@ -137,7 +137,7 @@ Treat this gate as a **consent prompt**, not an at-rest boundary. On Linux the T
 - Native helper with **TPM-sealed** key protection when a TPM 2.0 chip is available (via NCrypt / Platform Crypto Provider)
 - Falls back to **DPAPI** (user-session-scoped) when TPM sealing is unavailable
 - **Windows Hello** gates interactive decrypts (fingerprint/face/PIN), separate from at-rest protection, same as before
-- Windows native and **WSL** workflows are both supported (WSL uses the Windows `.exe` via `--via-daemon`; Hello + TPM behavior is identical)
+- Windows native and **WSL** workflows are both supported (WSL uses the Windows `.exe` via `--via-daemon`; Hello + TPM behavior is identical). The standalone `install.sh` installs that `.exe` alongside the Linux helper when it detects WSL (pass `--skip-win-exe` to opt out).
 - Automated daemon startup/installation behavior is built in for biometric session flows
 - WSL decrypt flows use a native bridge to the Windows daemon path
 

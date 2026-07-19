@@ -27,6 +27,7 @@ INSTALL_DIR="${VARLOCK_CONFIG_DIR}/bin"
 INSTALL_DIR_UNEXPANDED="\${XDG_CONFIG_HOME:-~/.config}/varlock/bin"
 REINSTALL=""
 FORCE_NO_BREW="false"
+SKIP_WIN_EXE="false"
 
 usage() {
   echo "Usage: $0 [options]"
@@ -38,6 +39,7 @@ usage() {
   echo "  --reinstall       reinstall even if already installed (default: false)"
   echo "  --version         version of varlock to install (defaults to latest)"
   echo "  --force-no-brew   force install without homebrew even when detected (default: false)"
+  echo "  --skip-win-exe    on WSL, skip installing varlock-local-encrypt.exe (default: false)"
   echo ""
 }
 
@@ -56,6 +58,9 @@ parse_args() {
     ;;
     force-no-brew | --force-no-brew)
       FORCE_NO_BREW="true"
+    ;;
+    skip-win-exe | --skip-win-exe)
+      SKIP_WIN_EXE="true"
     ;;
     help | --help)
       usage
@@ -182,10 +187,18 @@ main() {
       fi
     ;;
     linux)
+      # Linux release archives include both the Linux helper and the Windows
+      # .exe (for WSL2 / Windows Hello + TPM). Always install the Linux binary;
+      # on WSL also install the .exe unless --skip-win-exe.
       if [ -f "${_temp_dir}/varlock-local-encrypt" ]; then
         install "${_temp_dir}/varlock-local-encrypt" "${INSTALL_DIR}/"
         chmod u+x "${INSTALL_DIR}/varlock-local-encrypt"
         echo "  Installed native encryption binary (varlock-local-encrypt)"
+      fi
+      if is_wsl && [ "$SKIP_WIN_EXE" = "false" ] && [ -f "${_temp_dir}/varlock-local-encrypt.exe" ]; then
+        install "${_temp_dir}/varlock-local-encrypt.exe" "${INSTALL_DIR}/"
+        chmod u+x "${INSTALL_DIR}/varlock-local-encrypt.exe"
+        echo "  Installed native encryption binary (varlock-local-encrypt.exe)"
       fi
     ;;
     win-*)
@@ -246,6 +259,22 @@ get_architecture() {
       LIBC="musl-"
     fi
   fi
+}
+
+# Match packages/varlock/src/lib/local-encrypt/wsl-detect.ts
+is_wsl() {
+  if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+    return 0
+  fi
+
+  if [ -r /proc/version ] && grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null; then
+    return 0
+  fi
+
+  case "$(uname -r 2>/dev/null)" in
+    *[Mm]icrosoft*|*[Ww][Ss][Ll]*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # $1 - url for download. $2 - path to download
