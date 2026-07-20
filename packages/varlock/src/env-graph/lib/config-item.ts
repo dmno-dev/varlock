@@ -374,8 +374,14 @@ export class ConfigItem {
     // if no type is set explicitly, we can try to use inferred type from the resolver
     // currently only static value resolver does this - but you can imagine another resolver knowing the type ahead of time
     // (maybe we only want to do this if the value is set in a schema file? or if all inferred types match?)
-    if (!dataTypeName && this.valueResolver?.inferredType) {
-      dataTypeName = this.valueResolver.inferredType;
+    if (!dataTypeName) {
+      // builtin vars declare an authoritative type on their internal resolver
+      // (e.g. VARLOCK_IS_CI is boolean), which wins over inference from a
+      // user-provided static value so VARLOCK_IS_CI=0 still coerces to false
+      const internalResolverType = this._internalDefs.find(
+        (d) => d.itemDef.resolver?.inferredType,
+      )?.itemDef.resolver?.inferredType;
+      dataTypeName = internalResolverType || this.valueResolver?.inferredType;
     }
     dataTypeName ||= 'string';
     dataTypeArgs ||= [];

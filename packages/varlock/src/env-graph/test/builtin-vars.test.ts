@@ -213,8 +213,9 @@ describe('VARLOCK_* builtin variables', () => {
         GITHUB_REPOSITORY: 'owner/repo',
       },
       // Number 0 must not be treated as empty; schema wins over builtin true.
-      // Coercion may leave it as 0 rather than boolean false.
-      expectValues: { VARLOCK_IS_CI: 0 },
+      // The builtin's declared boolean type also wins over the value's inferred
+      // number type, so 0 coerces to false.
+      expectValues: { VARLOCK_IS_CI: false },
     }));
   });
 
