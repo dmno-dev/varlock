@@ -42,6 +42,10 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
     description: 'Fallback for the `--filter` flag on `varlock load`/`run`, for use when a CLI flag can\'t easily be passed (e.g. a wrapper script, CI config, or build-time integration). The `--filter` flag takes precedence when both are set.',
   },
   {
+    name: '_VARLOCK_THROW_ON_LOAD_ERROR',
+    description: 'When set (`1`/`true`), `varlock/auto-load` throws the error on a load failure instead of exiting, so an already-initialized error tracker (e.g. Sentry) can capture it. Setting a `globalThis._varlockOnLoadError` hook enables the same throw behavior.',
+  },
+  {
     name: '_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK',
     description: 'Forces the file-based local encryption fallback instead of the native binary. Intended for testing/debugging.',
     internal: true,
