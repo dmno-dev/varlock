@@ -162,16 +162,42 @@ export function patchGlobalServerResponse(opts?: {
     const endChunk = args[0];
     // this just needs to work (so far) for nextjs sending json bodies, so does not need to handle all cases...
     let chunkStr: string | undefined;
+    let chunkType: 'string' | 'encoded' | null = null;
     if (endChunk && typeof endChunk === 'string') {
+      chunkType = 'string';
       chunkStr = endChunk;
     } else if (endChunk && (Buffer.isBuffer(endChunk) || endChunk instanceof Uint8Array)) {
       // decode Buffer/Uint8Array like write does when uncompressed
+      chunkType = 'encoded';
       const decoder = new TextDecoder();
       chunkStr = decoder.decode(endChunk);
     }
     if (chunkStr) {
-      // TODO: currently this throws the error and then things just hang... do we want to try to return an error type response instead?
-      scanForLeaks(chunkStr, { method: 'patched ServerResponse.end' });
+      try {
+        scanForLeaks(chunkStr, { method: 'patched ServerResponse.end' });
+      } catch (err) {
+        if (opts?.redactInsteadOfThrow) {
+          chunkStr = redactSensitiveConfig(chunkStr);
+          if (chunkType === 'string') {
+            args[0] = chunkStr;
+          } else if (chunkType === 'encoded') {
+            const encoder = new TextEncoder();
+            args[0] = encoder.encode(chunkStr);
+          }
+        } else {
+          // Finish the response so the client does not hang, then rethrow so
+          // callers still see the leak error (scanForLeaks already logged it).
+          if (!this.headersSent) {
+            this.statusCode = 500;
+            this.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            // @ts-ignore
+            serverResponseEnd.call(this, 'Internal Server Error');
+          } else {
+            this.destroy();
+          }
+          throw err;
+        }
+      }
     }
     // @ts-ignore
     return serverResponseEnd.apply(this, args);
