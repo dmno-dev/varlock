@@ -288,7 +288,8 @@ async function loadResolvedProxyGraph(entryFilePaths?: Array<string>) {
 async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<PreparedProxyPolicy> {
   const envGraph = await loadResolvedProxyGraph(entryFilePaths);
 
-  const resolvedEnv = envGraph.getResolvedEnvObject();
+  // string-serialized since this feeds the session env payload (child process.env)
+  const resolvedEnv = envGraph.getResolvedEnvStringObject() as Record<string, string>;
   const serializedGraph = envGraph.getSerializedGraph();
   const schemaFingerprint = buildProxySchemaFingerprint(envGraph);
   const proxyManagedItems = await envGraph.getProxyManagedItems();

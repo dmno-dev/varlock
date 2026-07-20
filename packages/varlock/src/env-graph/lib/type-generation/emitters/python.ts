@@ -76,6 +76,13 @@ function getPythonCoercedTypeString(coerced: CoercedType): string {
     });
     return `Literal[${options.join(', ')}]`;
   }
+  // the blob value is a real JSON array/object, so list/dict annotations match json.loads output
+  if (typeof coerced === 'object' && 'arrayOf' in coerced) {
+    return `list[${getPythonCoercedTypeString(coerced.arrayOf)}]`;
+  }
+  if (typeof coerced === 'object' && 'recordOf' in coerced) {
+    return `dict[str, ${coerced.recordOf.values ? getPythonCoercedTypeString(coerced.recordOf.values) : 'Any'}]`;
+  }
   return 'str';
 }
 
@@ -134,7 +141,8 @@ export function generatePythonEnvSrc(fields: Array<ResolvedFieldType>): string {
   const typeStrings = safe.map((f) => getPythonCoercedTypeString(f.coerced));
   const typeOnlyImports: Array<string> = [];
   if (typeStrings.some((t) => t.includes('Any'))) typeOnlyImports.push('Any');
-  if (typeStrings.some((t) => t.startsWith('Literal['))) typeOnlyImports.push('Literal');
+  // includes (not startsWith): Literal can be nested, e.g. list[Literal["a", "b"]]
+  if (typeStrings.some((t) => t.includes('Literal['))) typeOnlyImports.push('Literal');
   if (safe.some((f) => !f.isRequired)) typeOnlyImports.push('NotRequired');
   typeOnlyImports.sort();
 

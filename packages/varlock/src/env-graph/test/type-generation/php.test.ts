@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 
 import { resolveFieldTypes, generatePhpEnvSrc } from '../../index';
-import { loadFixtureFields, loadGraph } from './helpers';
+import { COMPOSITE_TYPE_FIXTURE, loadFixtureFields, loadGraph } from './helpers';
 
 describe('generatePhpEnvSrc', () => {
   test('emits a typed readonly class, SENSITIVE_KEYS, and a loader', async () => {
@@ -115,5 +115,12 @@ describe('generatePhpEnvSrc', () => {
     expect(src).not.toContain('$MY-KEY');
     expect(src).toContain('Keys omitted from this typed module (not valid identifiers): MY-KEY');
     expect(src).toContain("SENSITIVE_KEYS = ['MY-KEY']");
+  });
+  test('composite (array/object) types map to array with @var refinements', async () => {
+    const { fields } = await loadFixtureFields(COMPOSITE_TYPE_FIXTURE);
+    const src = generatePhpEnvSrc(fields);
+    expect(src).toContain('@var array<int, string>');
+    expect(src).toContain('@var array<int, float>|null');
+    expect(src).toContain('@var array<string, float>|null');
   });
 });

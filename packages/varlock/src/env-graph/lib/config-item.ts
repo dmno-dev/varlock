@@ -16,14 +16,17 @@ import type { CacheHitInfo } from './resolution-context';
 import { EnvGraphDataSource } from './data-source';
 import {
   convertParsedValueToResolvers, type ResolvedValue, Resolver, StaticValueResolver,
+  ArrayLiteralResolver, ObjectLiteralResolver,
 } from './resolver';
+import { buildDataTypeFromTypeDecorator } from './type-decorator';
 import { ItemDecoratorInstance } from './decorators';
 
 export type ConfigItemDef = {
   description?: string;
   // TODO: translate parser decorator class into our own generic version
   parsedDecorators?: Array<ParsedEnvSpecDecorator>;
-  parsedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+  parsedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
+    | ParsedEnvSpecArrayLiteral | ParsedEnvSpecObjectLiteral | undefined;
 
   resolver?: Resolver;
   decorators?: Array<ItemDecoratorInstance>;
@@ -361,37 +364,56 @@ export class ConfigItem {
     }
 
     const typeDec = this.getDec('type');
-    let dataTypeName: string | undefined;
-    let dataTypeArgs: any;
     // TODO: this will not currently support any resolver functions within type settings
     const typeDecParsedValue = typeDec?.parsedDecorator.value;
-    if (typeDecParsedValue instanceof ParsedEnvSpecStaticValue) {
-      dataTypeName = typeDecParsedValue.value;
-    } else if (typeDecParsedValue instanceof ParsedEnvSpecFunctionCall) {
-      dataTypeName = typeDecParsedValue.name;
-      dataTypeArgs = typeDecParsedValue.simplifiedArgs;
-    }
-    // if no type is set explicitly, we can try to use inferred type from the resolver
-    // currently only static value resolver does this - but you can imagine another resolver knowing the type ahead of time
-    // (maybe we only want to do this if the value is set in a schema file? or if all inferred types match?)
-    if (!dataTypeName) {
-      // builtin vars declare an authoritative type on their internal resolver
-      // (e.g. VARLOCK_IS_CI is boolean), which wins over inference from a
-      // user-provided static value so VARLOCK_IS_CI=0 still coerces to false
-      const internalResolverType = this._internalDefs.find(
-        (d) => d.itemDef.resolver?.inferredType,
-      )?.itemDef.resolver?.inferredType;
-      dataTypeName = internalResolverType || this.valueResolver?.inferredType;
-    }
-    dataTypeName ||= 'string';
-    dataTypeArgs ||= [];
-
-    if (!(dataTypeName in this.envGraph.dataTypesRegistry)) {
-      this._schemaErrors.push(new SchemaError(`unknown data type: ${dataTypeName}`));
+    if (typeDecParsedValue) {
+      try {
+        this.dataType = buildDataTypeFromTypeDecorator(this.envGraph.dataTypesRegistry, typeDecParsedValue);
+      } catch (err) {
+        this._schemaErrors.push(err instanceof SchemaError ? err : new SchemaError(err as Error));
+      }
     } else {
-      const dataTypeFactory = this.envGraph.dataTypesRegistry[dataTypeName];
-      this.dataType = dataTypeFactory(..._.isPlainObject(dataTypeArgs) ? [dataTypeArgs] : dataTypeArgs);
+      // if no type is set explicitly, we can try to use inferred type from the resolver
+      // currently only static value / literal resolvers do this - but you can imagine another
+      // resolver knowing the type ahead of time
+      // (maybe we only want to do this if the value is set in a schema file? or if all inferred types match?)
+      this.dataType = this.inferDataTypeFromResolver() ?? this.envGraph.dataTypesRegistry.string();
     }
+  }
+
+  /** infer a data type instance from the shape of the (untyped) value resolver */
+  private inferDataTypeFromResolver(): EnvGraphDataType | undefined {
+    const registry = this.envGraph.dataTypesRegistry;
+    const resolver = this.valueResolver;
+    if (!resolver) return undefined;
+
+    // a literal value (`ITEM=[a, b]` / `ITEM={k=v}`) implies a composite type - same
+    // principle as an unquoted `123` inferring number below
+    if (resolver instanceof ArrayLiteralResolver) {
+      // when every element infers the same scalar type (e.g. `[8080, 3000]`), carry it through
+      const elementTypes = _.uniq((resolver.arrArgs ?? []).map((r) => r.inferredType));
+      const elementTypeName = (
+        elementTypes.length === 1
+        && elementTypes[0] !== undefined
+        && ['number', 'boolean'].includes(elementTypes[0])
+      ) ? elementTypes[0] : 'string';
+      return registry.array({ element: registry[elementTypeName](), elementTypeName });
+    }
+    if (resolver instanceof ObjectLiteralResolver) {
+      return registry.object();
+    }
+
+    // builtin vars declare an authoritative type on their internal resolver
+    // (e.g. VARLOCK_IS_CI is boolean), which wins over inference from a
+    // user-provided static value so VARLOCK_IS_CI=0 still coerces to false
+    const internalResolverType = this._internalDefs.find(
+      (d) => d.itemDef.resolver?.inferredType,
+    )?.itemDef.resolver?.inferredType;
+    const inferredTypeName = internalResolverType || resolver.inferredType;
+    if (inferredTypeName && inferredTypeName in registry) {
+      return registry[inferredTypeName]();
+    }
+    return undefined;
   }
 
   get dependencyKeys() {
@@ -692,6 +714,17 @@ export class ConfigItem {
 
   get isCoerced() {
     return this.resolvedRawValue !== this.resolvedValue;
+  }
+
+  /**
+   * The resolved value serialized to its process.env string form (undefined stays
+   * undefined). Scalars stringify naturally; composite types (array/object) use their
+   * data type's serialize() (separator-joined or JSON).
+   */
+  get resolvedEnvStringValue(): string | undefined {
+    if (this.resolvedValue === undefined) return undefined;
+    if (this.dataType) return this.dataType.serialize(this.resolvedValue);
+    return typeof this.resolvedValue === 'string' ? this.resolvedValue : String(this.resolvedValue);
   }
 
   async resolve(reset = false) {

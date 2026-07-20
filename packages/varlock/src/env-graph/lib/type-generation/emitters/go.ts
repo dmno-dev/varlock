@@ -19,6 +19,13 @@ function getGoCoercedTypeString(coerced: CoercedType): string {
   if (coerced === 'number') return 'float64';
   if (coerced === 'boolean') return 'bool';
   if (coerced === 'object') return 'map[string]any';
+  // the blob value is a real JSON array/object, so slices/maps unmarshal natively
+  if (typeof coerced === 'object' && 'arrayOf' in coerced) {
+    return `[]${getGoCoercedTypeString(coerced.arrayOf)}`;
+  }
+  if (typeof coerced === 'object' && 'recordOf' in coerced) {
+    return `map[string]${coerced.recordOf.values ? getGoCoercedTypeString(coerced.recordOf.values) : 'any'}`;
+  }
   // Go has no literal-union types, so an enum field gets its members' scalar type — the blob
   // carries the *coerced* value, so a numeric enum must be numeric or Unmarshal fails at runtime
   if (typeof coerced === 'object' && 'enum' in coerced && coerced.enum.length) {
@@ -41,7 +48,8 @@ const GO_EXPORTED_FIELD_NAME = /^[A-Z][A-Za-z0-9]*$/;
 
 // maps and `any` are already nullable in Go (nil means "absent"), so they don't get a pointer
 function goFieldType(baseType: string, isRequired: boolean): string {
-  if (isRequired || baseType.startsWith('map[') || baseType === 'any') return baseType;
+  // maps/slices are already nilable — no pointer wrapping needed for optionals
+  if (isRequired || baseType.startsWith('map[') || baseType.startsWith('[]') || baseType === 'any') return baseType;
   return `*${baseType}`;
 }
 

@@ -27,6 +27,14 @@ function getRustCoercedTypeString(coerced: CoercedType): string {
     if (kind === 'boolean') return 'bool';
     if (kind === 'mixed') return 'serde_json::Value';
   }
+  // the blob value is a real JSON array, so Vec<T> deserializes natively; records stay
+  // serde_json::Value (a typed map would drag in a HashMap import for marginal benefit)
+  if (typeof coerced === 'object' && 'arrayOf' in coerced) {
+    return `Vec<${getRustCoercedTypeString(coerced.arrayOf)}>`;
+  }
+  if (typeof coerced === 'object' && 'recordOf' in coerced) {
+    return 'serde_json::Value';
+  }
   return 'String';
 }
 

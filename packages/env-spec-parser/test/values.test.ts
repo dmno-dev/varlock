@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import ansis from 'ansis';
 import {
   ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair,
-  ParsedEnvSpecStaticValue, parseEnvSpecDotEnvFile,
+  ParsedEnvSpecStaticValue, ParsedEnvSpecArrayLiteral, ParsedEnvSpecObjectLiteral,
+  parseEnvSpecDotEnvFile,
 } from '../src';
 import { expectInstanceOf } from './test-utils';
 
@@ -223,5 +224,114 @@ describe('regex-like strings and paths with slashes', () => {
     // The value includes the full unquoted string up to the closing )
     // In the env file: /^https:\/\// (the trailing / that was previously the regex closing delimiter is now part of the string)
     expect(args[0].value.value).toEqual('/^https:\\/\\//');
+  });
+});
+
+describe('array literal item values', () => {
+  it('parses [a, b] as an array literal', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=[a, b]');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecArrayLiteral);
+    expect(valNode.simplifiedValue).toEqual(['a', 'b']);
+  });
+
+  it('parses quoted elements in array literals', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=["a@example.com", "b@example.com"]');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecArrayLiteral);
+    expect(valNode.simplifiedValue).toEqual(['a@example.com', 'b@example.com']);
+  });
+
+  it('parses empty array literal', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=[]');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecArrayLiteral);
+    expect(valNode.simplifiedValue).toEqual([]);
+  });
+
+  it('auto-coerces unquoted scalar elements', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=[1, true, x]');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecArrayLiteral);
+    expect(valNode.simplifiedValue).toEqual([1, true, 'x']);
+  });
+
+  it('supports multi-line array literals with trailing comma', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=[\n  one,\n  two,\n]');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecArrayLiteral);
+    expect(valNode.simplifiedValue).toEqual(['one', 'two']);
+  });
+
+  // eslint-disable-next-line no-template-curly-in-string
+  it('expands ${REF} within array elements', () => {
+    // eslint-disable-next-line no-template-curly-in-string
+    const result = parseEnvSpecDotEnvFile('VAL=[a, ${OTHER}]');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecArrayLiteral);
+    const el1 = valNode.values[1];
+    expectInstanceOf(el1, ParsedEnvSpecFunctionCall);
+    expect(el1.name).toEqual('ref');
+  });
+
+  // eslint-disable-next-line no-template-curly-in-string
+  it('expands ${REF} with adjacent text into concat within elements', () => {
+    // eslint-disable-next-line no-template-curly-in-string
+    const result = parseEnvSpecDotEnvFile('VAL=[${A}-suffix, b]');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecArrayLiteral);
+    const el0 = valNode.values[0];
+    expectInstanceOf(el0, ParsedEnvSpecFunctionCall);
+    expect(el0.name).toEqual('concat');
+  });
+
+  it('supports nested arrays and objects', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=[a, [b, c], {k=v}]');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecArrayLiteral);
+    expect(valNode.simplifiedValue).toEqual(['a', ['b', 'c'], { k: 'v' }]);
+  });
+
+  it('supports post comments after array literals', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=[a, b] # comment');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecArrayLiteral);
+    expect(valNode.simplifiedValue).toEqual(['a', 'b']);
+  });
+});
+
+describe('object literal item values', () => {
+  it('parses {k=v} as an object literal', () => {
+    const result = parseEnvSpecDotEnvFile('VAL={k=v, n=2}');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecObjectLiteral);
+    expect(valNode.simplifiedValue).toEqual({ k: 'v', n: 2 });
+  });
+
+  it('parses empty object literal', () => {
+    const result = parseEnvSpecDotEnvFile('VAL={}');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecObjectLiteral);
+    expect(valNode.simplifiedValue).toEqual({});
+  });
+
+  // eslint-disable-next-line no-template-curly-in-string
+  it('expands ${REF} within object values', () => {
+    // eslint-disable-next-line no-template-curly-in-string
+    const result = parseEnvSpecDotEnvFile('VAL={url=${BASE}, n=2}');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecObjectLiteral);
+    const urlVal = valNode.values[0].value;
+    expectInstanceOf(urlVal, ParsedEnvSpecFunctionCall);
+    expect(urlVal.name).toEqual('ref');
+  });
+
+  it('JSON-style objects fall back to plain strings', () => {
+    // `:`-separated pairs are not env-spec object syntax, so the literal parse fails
+    // and the value falls through to a plain unquoted string (previous behavior)
+    const result = parseEnvSpecDotEnvFile('VAL={"json": "blob"}');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecStaticValue);
+    expect(valNode.value).toEqual('{"json": "blob"}');
   });
 });

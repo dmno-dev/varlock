@@ -3,7 +3,7 @@ import outdent from 'outdent';
 
 import { generateGoEnvSrc } from '../../index';
 import { resolveGoPackageName } from '../../lib/type-generation/emitters/go';
-import { loadFixtureFields } from './helpers';
+import { COMPOSITE_TYPE_FIXTURE, loadFixtureFields } from './helpers';
 
 describe('generateGoEnvSrc', () => {
   test('emits a buildable package with a struct, SensitiveKeys, and Load()', async () => {
@@ -108,5 +108,15 @@ describe('generateGoEnvSrc', () => {
     expect(src).not.toContain('My-key');
     expect(src).toContain('Keys omitted from this typed module (not valid identifiers): MY-KEY');
     expect(src).toContain('"MY-KEY": true');
+  });
+  test('composite (array/object) types map to slices and maps', async () => {
+    const { fields } = await loadFixtureFields(COMPOSITE_TYPE_FIXTURE);
+    const src = generateGoEnvSrc(fields);
+    expect(src).toMatch(/Hosts +\[\]string/);
+    // slices are already nilable — optionals get no pointer wrapping
+    expect(src).toMatch(/Scores +\[\]float64/);
+    expect(src).not.toContain('*[]float64');
+    expect(src).toMatch(/Modes +\[\]string/);
+    expect(src).toMatch(/Limits +map\[string\]float64/);
   });
 });

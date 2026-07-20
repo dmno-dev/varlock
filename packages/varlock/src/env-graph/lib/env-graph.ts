@@ -75,6 +75,12 @@ export type SerializedEnvGraph = {
   },
   config: Record<string, {
     value: any;
+    /**
+     * process.env-ready string form - present only for composite values (arrays/objects),
+     * whose flat form depends on the item's type settings (separator vs JSON). Consumers
+     * injecting into process.env should use `envStr ?? String(value)`.
+     */
+    envStr?: string;
     isSensitive: boolean;
     /** false = opted out of runtime leak detection (still redacted in logs). Omitted when true (the default). */
     preventLeaks?: boolean;
@@ -815,6 +821,22 @@ export class EnvGraph {
     return envObject;
   }
 
+  /**
+   * like getResolvedEnvObject, but values are serialized to their process.env string
+   * form (composite values become separator-joined or JSON strings). Undefined values
+   * stay undefined so callers can distinguish unset items.
+   */
+  getResolvedEnvStringObject(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }) {
+    const envObject: Record<string, string | undefined> = {};
+    for (const itemKey of this.sortedConfigKeys) {
+      const item = this.configSchema[itemKey];
+      if (item.isInternal && !opts?.includeInternal) continue;
+      if (opts?.filterKeys && !opts.filterKeys.has(itemKey)) continue;
+      envObject[itemKey] = item.resolvedEnvStringValue;
+    }
+    return envObject;
+  }
+
   getSerializedGraph(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
       basePath: this.basePath,
@@ -845,6 +867,10 @@ export class EnvGraph {
       if (opts?.filterKeys && !opts.filterKeys.has(itemKey)) continue;
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,
+        // composite values carry their flat string form, since re-deriving it requires
+        // the item's type settings (separator vs JSON) which don't travel in the blob
+        ...(typeof item.resolvedValue === 'object' && item.resolvedValue !== null)
+          ? { envStr: item.resolvedEnvStringValue } : {},
         isSensitive: item.isSensitive,
         ...item.isInternal ? { isInternal: true } : {},
         // only emit when opted out — keeps the common-case blob smaller

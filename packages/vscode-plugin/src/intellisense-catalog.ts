@@ -342,6 +342,26 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
     insertText: 'enum(${1:development}, ${2:preview}, ${3:production})',
   },
   {
+    name: 'array',
+    summary: 'Array of values, each validated with an element type.',
+    documentation: 'Example: `@type=array(email)` or `@type=array(enum(dev, staging, prod))`. Element type options go in a nested call: `array(email(normalize=true))`. Values can be native literals (`[a, b]`), JSON arrays, or separator-joined strings (default `,`).',
+    insertText: 'array(${1|string,email,number,boolean,url,port,uuid|})',
+    optionSnippets: [
+      { name: 'minLength', insertText: 'minLength=${1:1}', documentation: 'Minimum number of elements.' },
+      { name: 'maxLength', insertText: 'maxLength=${1:10}', documentation: 'Maximum number of elements.' },
+      { name: 'unique', insertText: 'unique=true', documentation: 'Reject duplicate elements.' },
+      { name: 'separator', insertText: 'separator=${1:","}', documentation: 'Separator used to split string input and join output (default ",").' },
+      { name: 'format', insertText: 'format=${1|separator,json|}', documentation: 'How the value serializes back into process.env (default separator-joined; json emits a JSON array).' },
+    ],
+  },
+  {
+    name: 'object',
+    summary: 'Object with typed values and optional key validation.',
+    documentation: 'Example: `@type=object(url)` validates every value as a url; `@type=object(url, keys=enum(us, eu))` also restricts keys. Bare `@type=object` accepts any object. Values can be native literals (`{k=v}`) or JSON objects; serializes to process.env as JSON.',
+    insertText: 'object(${1|string,url,number,boolean|})',
+    optionSnippets: [{ name: 'keys', insertText: 'keys=${1:enum(a, b)}', documentation: 'Type used to validate each key (e.g. enum, string(matches=...)).' }],
+  },
+  {
     name: 'email',
     summary: 'Email address.',
     documentation: 'Example: `@type=email(normalize=true)`.',

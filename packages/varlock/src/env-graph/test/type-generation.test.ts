@@ -237,6 +237,36 @@ describe('type generation', () => {
       expect(infos.APP_ENV.dataType?.name).toBe('enum');
     });
 
+    test('array and object types generate recursive TS types', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultRequired=false
+          # ---
+          # @type=array(email)
+          ALLOWED_EMAILS=[a@example.com, b@example.com]
+          # @type=array(number)
+          SCORES=[1, 2, 3]
+          # @type=array(enum(dev, staging, prod))
+          APP_MODES=[dev, staging]
+          # @type=object(url)
+          ENDPOINTS={api=https://example.com}
+          # @type=object(number, keys=enum(us, eu))
+          REGION_LIMITS={us=1}
+          # @type=object
+          FREEFORM={k=v}
+        `,
+      });
+
+      const items = await collectTypeGenItems(g);
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
+      expect(src).toContain('ALLOWED_EMAILS?: string[];');
+      expect(src).toContain('SCORES?: number[];');
+      expect(src).toContain('APP_MODES?: ("dev" | "staging" | "prod")[];');
+      expect(src).toContain('ENDPOINTS?: Record<string, string>;');
+      expect(src).toContain('REGION_LIMITS?: Partial<Record<"us" | "eu", number>>;');
+      expect(src).toContain('FREEFORM?: Record<string, any>;');
+    });
+
     test('boolean type gets correct TypeGenInfo', async () => {
       const g = await loadGraph({
         envFile: outdent`

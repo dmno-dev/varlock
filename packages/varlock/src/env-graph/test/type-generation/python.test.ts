@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 
 import { resolveFieldTypes, generatePythonEnvSrc } from '../../index';
-import { loadFixtureFields, loadGraph } from './helpers';
+import { COMPOSITE_TYPE_FIXTURE, loadFixtureFields, loadGraph } from './helpers';
 
 describe('generatePythonEnvSrc', () => {
   test('emits a typed TypedDict, SENSITIVE_KEYS, and a loader', async () => {
@@ -92,5 +92,15 @@ describe('generatePythonEnvSrc', () => {
 
     // rendered as a `#` comment — a triple-quote in the text can't break the file
     expect(src).toContain('QUOTED: str  # value with """ quotes inside');
+  });
+  test('composite (array/object) types map to list/dict annotations', async () => {
+    const { fields } = await loadFixtureFields(COMPOSITE_TYPE_FIXTURE);
+    const src = generatePythonEnvSrc(fields);
+    expect(src).toContain('HOSTS: list[str]');
+    expect(src).toContain('SCORES: NotRequired[list[float]]');
+    expect(src).toContain('MODES: NotRequired[list[Literal["dev", "prod"]]]');
+    expect(src).toContain('LIMITS: NotRequired[dict[str, float]]');
+    // Literal only appears nested here — the import detection must still catch it
+    expect(src).toContain('from typing import Literal');
   });
 });

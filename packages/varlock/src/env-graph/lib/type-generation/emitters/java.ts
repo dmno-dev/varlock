@@ -95,7 +95,7 @@ function isJavaReserved(name: string): boolean {
 /** one or more identifiers joined by dots, e.g. `com.example` or `Env` */
 const JAVA_PACKAGE = /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/;
 
-type JavaTypeKind = 'long' | 'double' | 'boolean' | 'String' | 'Map' | 'Object';
+type JavaTypeKind = 'long' | 'double' | 'boolean' | 'String' | 'Map' | 'List' | 'Object';
 
 function javaTypeKind(coerced: CoercedType): JavaTypeKind {
   if (coerced === 'int') return 'long';
@@ -109,12 +109,15 @@ function javaTypeKind(coerced: CoercedType): JavaTypeKind {
     if (kind === 'boolean') return 'boolean';
     if (kind === 'mixed') return 'Object';
   }
+  if (typeof coerced === 'object' && 'arrayOf' in coerced) return 'List';
+  if (typeof coerced === 'object' && 'recordOf' in coerced) return 'Map';
   return 'String';
 }
 
 /** Field type as written on the class (boxed when optional so null is representable). */
 function javaFieldType(kind: JavaTypeKind, isRequired: boolean): string {
   if (kind === 'Map') return 'Map<String, Object>';
+  if (kind === 'List') return 'List<Object>';
   if (kind === 'Object') return 'Object';
   if (kind === 'String') return 'String';
   if (isRequired) {
@@ -152,6 +155,7 @@ function javaLoadLocal(field: ResolvedFieldType): Array<string> {
 
   let readValue: string;
   if (kind === 'Map') readValue = `mapper.convertValue(${entry}.get("value"), MAP_TYPE)`;
+  else if (kind === 'List') readValue = `mapper.convertValue(${entry}.get("value"), LIST_TYPE)`;
   else if (kind === 'Object') readValue = `mapper.treeToValue(${entry}.get("value"), Object.class)`;
   else if (kind === 'String') readValue = `${entry}.get("value").asText()`;
   else if (kind === 'long') readValue = `${entry}.get("value").asLong()`;
@@ -199,6 +203,7 @@ export function generateJavaEnvSrc(
 
   const sensitiveKeys = getSensitiveKeys(fields);
   const needsMap = safe.some((f) => javaTypeKind(f.coerced) === 'Map');
+  const needsList = safe.some((f) => javaTypeKind(f.coerced) === 'List');
   const sensitiveInit = sensitiveKeys.length
     ? `Set.of(${sensitiveKeys.map(javaStringLiteral).join(', ')})`
     : 'Set.of()';
@@ -209,10 +214,10 @@ export function generateJavaEnvSrc(
     '',
     'import com.fasterxml.jackson.databind.JsonNode;',
     'import com.fasterxml.jackson.databind.ObjectMapper;',
-    ...(needsMap ? [
-      'import com.fasterxml.jackson.databind.type.MapType;',
-      'import com.fasterxml.jackson.databind.type.TypeFactory;',
-    ] : []),
+    ...(needsMap ? ['import com.fasterxml.jackson.databind.type.MapType;'] : []),
+    ...(needsList ? ['import com.fasterxml.jackson.databind.type.CollectionType;'] : []),
+    ...(needsMap || needsList ? ['import com.fasterxml.jackson.databind.type.TypeFactory;'] : []),
+    ...(needsList ? ['import java.util.List;'] : []),
     ...(needsMap ? ['import java.util.Map;'] : []),
     'import java.util.Set;',
     '',
@@ -224,6 +229,11 @@ export function generateJavaEnvSrc(
     ...(needsMap ? [
       '  private static final MapType MAP_TYPE = TypeFactory.defaultInstance()',
       '      .constructMapType(java.util.LinkedHashMap.class, String.class, Object.class);',
+      '',
+    ] : []),
+    ...(needsList ? [
+      '  private static final CollectionType LIST_TYPE = TypeFactory.defaultInstance()',
+      '      .constructCollectionType(java.util.ArrayList.class, Object.class);',
       '',
     ] : []),
     ...safe.flatMap((field) => {

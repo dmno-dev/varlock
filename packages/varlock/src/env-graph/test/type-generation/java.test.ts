@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 
 import { generateJavaEnvSrc } from '../../index';
-import { loadFixtureFields } from './helpers';
+import { COMPOSITE_TYPE_FIXTURE, loadFixtureFields } from './helpers';
 
 describe('generateJavaEnvSrc', () => {
   test('emits a typed class, SENSITIVE_KEYS, and a Jackson-based loader', async () => {
@@ -94,5 +94,14 @@ describe('generateJavaEnvSrc', () => {
     expect(src).not.toContain('2faSecret');
     expect(src).toContain('Keys omitted from this typed module (not valid identifiers): _2FA_SECRET');
     expect(src).toContain('"_2FA_SECRET"');
+  });
+  test('composite (array/object) types map to List/Map with Jackson plumbing', async () => {
+    const { fields } = await loadFixtureFields(COMPOSITE_TYPE_FIXTURE);
+    const src = generateJavaEnvSrc(fields);
+    expect(src).toContain('public final List<Object> hosts;');
+    expect(src).toContain('public final Map<String, Object> limits;');
+    expect(src).toContain('import java.util.List;');
+    expect(src).toContain('private static final CollectionType LIST_TYPE');
+    expect(src).toContain('mapper.convertValue(hostsEntry.get("value"), LIST_TYPE)');
   });
 });

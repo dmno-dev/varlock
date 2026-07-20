@@ -150,8 +150,14 @@ export abstract class DecoratorInstance {
         }
       }
 
-      // this is so we can deal with @type, where each data type is not a real resolver
-      // so instead we just make a new dummy resolver holding the args
+      // some decorators (currently @type) consume their raw parsed value directly rather
+      // than through the resolver system - nested type calls like array(enum(a, b)) are
+      // not resolver functions, so converting them would produce bogus "unknown function"
+      // errors. Those decorators opt out of value-resolver creation entirely.
+      if (this.decoratorDef.skipValueResolver) return;
+
+      // this is so we can deal with bare fn-call decorators, where args are not a single
+      // resolvable value - so instead we make a new dummy resolver holding the args
       if (
         this.decoratorDef.useFnArgsResolver
         && (
@@ -198,6 +204,11 @@ export abstract class DecoratorInstance {
     if (this.isResolved) return this.resolvedValue;
 
     await this.process();
+    // decorators that skip value-resolver creation (see process()) have nothing to resolve
+    if (this.decoratorDef?.skipValueResolver) {
+      this.isResolved = true;
+      return this.resolvedValue;
+    }
     if (!this.decValueResolver) {
       // process() already recorded schema errors, don't throw again
       if (this._errors.length) return;
@@ -325,6 +336,12 @@ export type RootDecoratorDef<Processed = any> = {
   process?: (decoratorValue: Resolver) => (Processed | Promise<Processed>);
   execute?: (executeInput: Processed) => void | Promise<void>;
   useFnArgsResolver?: boolean,
+  /**
+   * Skip value-resolver creation entirely - for decorators whose raw parsed value is
+   * consumed by other machinery (e.g. `@type`, where nested calls like `enum(a, b)`
+   * are type specs, not resolver functions).
+   */
+  skipValueResolver?: boolean,
 };
 
 /**
@@ -770,6 +787,8 @@ export type ItemDecoratorDef<T = any> = {
   process?: (decoratorValue: Resolver) => T | Promise<T>;
   execute?: (executeInput: T) => void | Promise<void>;
   useFnArgsResolver?: boolean,
+  /** See {@link RootDecoratorDef.skipValueResolver}. */
+  skipValueResolver?: boolean,
 };
 
 export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
@@ -793,7 +812,7 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
   },
   {
     name: 'type',
-    useFnArgsResolver: true,
+    skipValueResolver: true,
   },
   {
     name: 'example',

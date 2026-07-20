@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 
 import { generateRustEnvSrc } from '../../index';
-import { loadFixtureFields } from './helpers';
+import { COMPOSITE_TYPE_FIXTURE, loadFixtureFields } from './helpers';
 
 describe('generateRustEnvSrc', () => {
   test('emits a serde struct, SENSITIVE_KEYS, and a loader', async () => {
@@ -89,5 +89,12 @@ describe('generateRustEnvSrc', () => {
     expect(src).not.toContain('rename = "MY-KEY"');
     expect(src).toContain('Keys omitted from this typed module (not valid identifiers): MY-KEY');
     expect(src).toContain('&["MY-KEY"]');
+  });
+  test('composite (array/object) types map to Vec and serde_json::Value', async () => {
+    const { fields } = await loadFixtureFields(COMPOSITE_TYPE_FIXTURE);
+    const src = generateRustEnvSrc(fields);
+    expect(src).toContain('pub hosts: Vec<String>,');
+    expect(src).toContain('pub scores: Option<Vec<f64>>,');
+    expect(src).toContain('pub limits: Option<serde_json::Value>,');
   });
 });
