@@ -719,13 +719,13 @@ describe('@type arg handling (scalar types)', () => {
     expect(g.configSchema.ITEM.errors[0].message).toContain('cannot mix');
   });
 
-  it('rejects non-static option values with a clear error', async () => {
+  it('rejects unknown functions in option values with a clear error', async () => {
     const g = await loadAndResolve(outdent`
-      # @type=string(matches=fallback(a, b))
+      # @type=string(matches=notAFunction(a, b))
       ITEM=x
     `);
     expect(g.configSchema.ITEM.isValid).toBe(false);
-    expect(g.configSchema.ITEM.errors[0].message).toContain('must be a static value');
+    expect(g.configSchema.ITEM.errors[0].message).toContain('not a static value or a known resolver function');
   });
 
   it('rejects nested type calls on scalar types', async () => {
@@ -746,5 +746,121 @@ describe('@type arg handling (scalar types)', () => {
     `);
     expect(g.configSchema.GOOD.isValid).toBe(true);
     expect(g.configSchema.BAD.isValid).toBe(false);
+  });
+});
+
+describe('dynamic @type parts (resolver-valued)', () => {
+  describe('dynamic option values', () => {
+    it('resolves option values via if() with refs to other items', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=enum(sandbox, production)
+        APP_MODE=production
+        # @type=array(email, minLength=if(eq($APP_MODE, production), 2, 0))
+        ALLOWED_EMAILS=[only-one@example.com]
+      `);
+      expect(g.configSchema.ALLOWED_EMAILS.isValid).toBe(false);
+      const messages = (g.configSchema.ALLOWED_EMAILS.validationErrors ?? []).map((e) => e.message).join('\n');
+      expect(messages).toContain('at least 2');
+    });
+
+    it('dynamic option values pass when the resolved constraint is satisfied', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=enum(sandbox, production)
+        APP_MODE=sandbox
+        # @type=array(email, minLength=if(eq($APP_MODE, production), 2, 0))
+        ALLOWED_EMAILS=[only-one@example.com]
+      `);
+      expect(g.configSchema.ALLOWED_EMAILS.isValid).toBe(true);
+    });
+
+    it('supports dynamic options on scalar types', async () => {
+      const g = await loadAndResolve(outdent`
+        STRICT=true
+        # @type=string(minLength=if($STRICT, 10, 1))
+        TOKEN=short
+      `);
+      expect(g.configSchema.TOKEN.isValid).toBe(false);
+    });
+
+    it('rejects dynamic options that would change the generated type', async () => {
+      const g = await loadAndResolve(outdent`
+        FLAG=true
+        # @type=number(isInt=if($FLAG, true, false))
+        VAL=1.5
+      `);
+      expect(g.configSchema.VAL.isValid).toBe(false);
+      const messages = (g.configSchema.VAL.validationErrors ?? []).map((e) => e.message).join('\n');
+      expect(messages).toContain('generate the same type');
+    });
+  });
+
+  describe('dynamic whole types', () => {
+    it('switches the type via if() when candidates generate the same type', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=enum(dev, production)
+        APP_ENV=production
+        # @type=if(eq($APP_ENV, production), url, string)
+        SERVICE_HOST=not-a-url
+      `);
+      // in production the value must be a url
+      expect(g.configSchema.SERVICE_HOST.isValid).toBe(false);
+    });
+
+    it('relaxes validation when the dynamic type resolves to the looser candidate', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=enum(dev, production)
+        APP_ENV=dev
+        # @type=if(eq($APP_ENV, production), url, string)
+        SERVICE_HOST=not-a-url
+      `);
+      expect(g.configSchema.SERVICE_HOST.isValid).toBe(true);
+    });
+
+    it('keeps typegen deterministic - provisional type comes from static candidates', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=enum(dev, production)
+        APP_ENV=production
+        # @type=if(eq($APP_ENV, production), url, string)
+        SERVICE_HOST=https://example.com
+      `);
+      // the provisional (typegen-facing) instance stays the first candidate regardless of env
+      expect(g.configSchema.SERVICE_HOST.dataType?.name).toBe('url');
+      expect(g.configSchema.SERVICE_HOST.effectiveDataType?.name).toBe('url');
+      expect(g.configSchema.SERVICE_HOST.isValid).toBe(true);
+    });
+
+    it('rejects candidate types that generate different types at load time', async () => {
+      const g = await loadAndResolve(outdent`
+        FLAG=true
+        # @type=if($FLAG, number, string)
+        VAL=123
+      `);
+      expect(g.configSchema.VAL.isValid).toBe(false);
+      expect(g.configSchema.VAL.errors[0].message).toContain('do not all generate the same type');
+    });
+
+    it('rejects an opaque dynamic type resolving to a non-string-generating type', async () => {
+      const g = await loadAndResolve(outdent`
+        TYPE_NAME=number
+        # @type=fallback($TYPE_NAME, string)
+        VAL=123
+      `);
+      // fallback($TYPE_NAME, string) resolves to "number", whose generated type (number)
+      // differs from the provisional candidate (string) - rejected at resolution time
+      expect(g.configSchema.VAL.isValid).toBe(false);
+      const messages = (g.configSchema.VAL.validationErrors ?? []).map((e) => e.message).join('\n');
+      expect(messages).toContain('does not generate the same type');
+    });
+
+    it('errors when the dynamic type resolves to an unknown type name', async () => {
+      const g = await loadAndResolve(outdent`
+        TYPE_NAME=not-a-real-type
+        # @type=fallback($TYPE_NAME, string)
+        VAL=x
+      `);
+      expect(g.configSchema.VAL.isValid).toBe(false);
+      const messages = (g.configSchema.VAL.validationErrors ?? []).map((e) => e.message).join('\n');
+      expect(messages).toContain('invalid data type');
+    });
   });
 });

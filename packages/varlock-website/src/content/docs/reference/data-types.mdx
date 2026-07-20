@@ -16,6 +16,35 @@ NO_ARGS=
 WITH_ARGS=
 ```
 
+### Dynamic type options
+
+Type option values can be [resolver functions](/reference/functions/) instead of static values, so validation can vary per environment or based on other items:
+
+```env-spec
+# @type=enum(dev, production)
+APP_ENV=dev
+
+# stricter length requirement in production
+# @type=string(minLength=if(eq($APP_ENV, production), 32, 8))
+API_TOKEN=
+
+# require at least one entry only in production
+# @type=array(email, minLength=if(eq($APP_ENV, production), 1, 0))
+ALERT_EMAILS=[]
+```
+
+The whole type can also be dynamic, resolving to a type name:
+
+```env-spec
+# validate as a url in production, allow anything in dev
+# @type=if(eq($APP_ENV, production), url, string)
+SERVICE_HOST=localhost:3000
+```
+
+One constraint: dynamic parts may vary validation behavior, but not the **generated** types (generated code must not differ per environment). All possible types must generate the same type. A `url` and a `string` both generate a string, so switching between them is fine; switching between `number` and `string` is a schema error. For generated code, the first static candidate in the expression is used (`url` above). The same rule applies to options that affect generated types (e.g. `number(isInt=...)` must stay static).
+
+Dynamic whole types resolve to a bare type name; to combine a dynamic type with options, put the dynamic part in the option instead (e.g. `string(minLength=if(...))`).
+
 ### Coercion & validation process
 
 Once a raw value is resolved - which could from a static value in an `.env` file, a [function](/reference/functions/), or an override passed into the process - the raw value will be coerced and validated based on the type, respecting additional arguments provided to the type.

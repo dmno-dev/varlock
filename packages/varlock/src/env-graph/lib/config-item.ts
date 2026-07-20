@@ -18,7 +18,7 @@ import {
   convertParsedValueToResolvers, type ResolvedValue, Resolver, StaticValueResolver,
   ArrayLiteralResolver, ObjectLiteralResolver,
 } from './resolver';
-import { buildDataTypeFromTypeDecorator } from './type-decorator';
+import { buildTypeSpecPlan, coercedTypesMatch, type TypeSpecPlan } from './type-decorator';
 import { ItemDecoratorInstance } from './decorators';
 
 export type ConfigItemDef = {
@@ -272,10 +272,24 @@ export class ConfigItem {
   }
 
 
+  /**
+   * provisional (static/deterministic) data type instance - used for type generation.
+   * When the type spec has dynamic (resolver-valued) parts, the final instance is built
+   * during resolve() into _resolvedDataType; use `effectiveDataType` for coercion etc.
+   */
   dataType?: EnvGraphDataType;
+  /** final data type instance after dynamic type spec parts resolved (see dataType) */
+  _resolvedDataType?: EnvGraphDataType;
+  get effectiveDataType() { return this._resolvedDataType ?? this.dataType; }
+  /** parsed @type spec - carries deferred resolvers when parts are dynamic */
+  private _typeSpecPlan?: TypeSpecPlan;
+
   _schemaErrors: Array<SchemaError> = [];
   get resolverSchemaErrors() {
-    return this.valueResolver?.schemaErrors || [];
+    return [
+      ...this.valueResolver?.schemaErrors || [],
+      ...(this._typeSpecPlan?.deferred ?? []).flatMap((d) => d.resolver.schemaErrors),
+    ];
   }
   get decoratorSchemaErrors() {
     return _.values(this.allDecorators).flatMap((d) => d.schemaErrors);
@@ -364,11 +378,23 @@ export class ConfigItem {
     }
 
     const typeDec = this.getDec('type');
-    // TODO: this will not currently support any resolver functions within type settings
     const typeDecParsedValue = typeDec?.parsedDecorator.value;
     if (typeDecParsedValue) {
       try {
-        this.dataType = buildDataTypeFromTypeDecorator(this.envGraph.dataTypesRegistry, typeDecParsedValue);
+        this._typeSpecPlan = buildTypeSpecPlan({
+          registry: this.envGraph.dataTypesRegistry,
+          resolverFns: this.envGraph.registeredResolverFunctions,
+          dataSource: typeDec!.dataSource,
+        }, typeDecParsedValue);
+        // dynamic parts (option values / whole type) go through the normal resolver
+        // lifecycle - process now (validates args, registers deps), resolve during item
+        // resolution just before coercion
+        for (const d of this._typeSpecPlan.deferred) {
+          d.resolver.process(typeDec);
+        }
+        // provisional instance: deterministic (dynamic parts omitted/candidate-substituted),
+        // used for type generation and any pre-resolution introspection
+        this.dataType = this._typeSpecPlan.build();
       } catch (err) {
         this._schemaErrors.push(err instanceof SchemaError ? err : new SchemaError(err as Error));
       }
@@ -419,6 +445,8 @@ export class ConfigItem {
   get dependencyKeys() {
     return _.uniq([
       ...this.valueResolver?.deps || [],
+      // dynamic @type parts (e.g. minLength=if(eq($APP_MODE, ...), 1, 0)) may reference other items
+      ...(this._typeSpecPlan?.deferred ?? []).flatMap((d) => d.resolver.deps),
       ..._.values(this.effectiveDecorators).flatMap(
         (dec) => dec.decValueResolver?.deps || [],
       ),
@@ -723,7 +751,8 @@ export class ConfigItem {
    */
   get resolvedEnvStringValue(): string | undefined {
     if (this.resolvedValue === undefined) return undefined;
-    if (this.dataType) return this.dataType.serialize(this.resolvedValue);
+    const dataType = this.effectiveDataType;
+    if (dataType) return dataType.serialize(this.resolvedValue);
     return typeof this.resolvedValue === 'string' ? this.resolvedValue : String(this.resolvedValue);
   }
 
@@ -740,6 +769,7 @@ export class ConfigItem {
       this.validationErrors = undefined;
       this.resolvedRawValue = undefined;
       this.resolvedValue = undefined;
+      this._resolvedDataType = undefined;
     }
     if (this.isResolved) {
       // previously we would throw an error, now we resolve the envFlag early, so we can just return
@@ -826,11 +856,44 @@ export class ConfigItem {
       return;
     }
 
-    if (!this.dataType) throw new Error('expected dataType to be set');
+    // finalize a dynamic type spec - resolve deferred parts (option values / whole type)
+    // and rebuild the instance. The final type may vary validation behavior but must
+    // generate the same types as the provisional one (which is what codegen saw).
+    if (this._typeSpecPlan?.deferred.length) {
+      try {
+        const resolvedTypeParts = new Map<Resolver, any>();
+        for (const d of this._typeSpecPlan.deferred) {
+          resolvedTypeParts.set(d.resolver, await d.resolver.resolve());
+        }
+        const finalType = this._typeSpecPlan.build(resolvedTypeParts);
+        if (this.dataType && !coercedTypesMatch(this.dataType, finalType)) {
+          throw new SchemaError(
+            `dynamic @type resolved to "${finalType.name}", which does not generate the same type as "${this.dataType.name}"`,
+            { tip: 'a dynamic @type may vary validation but not the generated type - e.g. url vs string is ok, number vs string is not' },
+          );
+        }
+        this._resolvedDataType = finalType;
+      } catch (err) {
+        if (err instanceof ValidationError) {
+          this.validationErrors = [err];
+        } else if (err instanceof SchemaError) {
+          this.validationErrors = [new ValidationError(err.message, { tip: err.tip })];
+        } else if (err instanceof ResolutionError) {
+          this.resolutionError = err;
+        } else {
+          this.resolutionError = new ResolutionError(`error resolving dynamic @type parts: ${err}`);
+          this.resolutionError.cause = err as Error;
+        }
+        return;
+      }
+    }
+
+    const dataType = this.effectiveDataType;
+    if (!dataType) throw new Error('expected dataType to be set');
 
     // COERCE VALUE - often will do nothing, but gives us a chance to convert strings to numbers, etc
     try {
-      const coerceResult = this.dataType.coerce(this.resolvedRawValue);
+      const coerceResult = dataType.coerce(this.resolvedRawValue);
       if (coerceResult instanceof Error) throw coerceResult;
       this.resolvedValue = coerceResult;
     } catch (err) {
@@ -848,7 +911,7 @@ export class ConfigItem {
 
     // VALIDATE
     try {
-      const validateResult = await this.dataType.validate(this.resolvedValue);
+      const validateResult = await dataType.validate(this.resolvedValue);
       if (
         validateResult instanceof Error
         || (_.isArray(validateResult) && validateResult[0] instanceof Error)
