@@ -159,8 +159,8 @@ function coerceToNumber(rawVal: any) {
     }
     numVal = parsed;
   } else if (_.isNumber(rawVal)) {
-    if (numVal === Infinity || numVal === -Infinity) {
-      throw new CoercionError('Inifinity is not a valid number');
+    if (rawVal === Infinity || rawVal === -Infinity) {
+      throw new CoercionError('Infinity is not a valid number');
     }
     numVal = rawVal;
   } else {

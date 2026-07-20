@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { outdent } from 'outdent';
-import { DotEnvFileDataSource, EnvGraph } from '../index';
+import { DotEnvFileDataSource, EnvGraph, CoercionError } from '../index';
 
 async function loadAndResolve(envFileContent: string) {
   const g = new EnvGraph();
@@ -24,6 +24,25 @@ async function loadAndResolve(envFileContent: string) {
   await g.resolveEnvValues();
   return g;
 }
+
+describe('number data type - Infinity coercion', () => {
+  const numberType = () => new EnvGraph().dataTypesRegistry.number();
+
+  it('rejects numeric Infinity', () => {
+    expect(() => numberType().coerce(Infinity)).toThrow(CoercionError);
+    expect(() => numberType().coerce(Infinity)).toThrow(/Infinity is not a valid number/);
+  });
+
+  it('rejects numeric -Infinity', () => {
+    expect(() => numberType().coerce(-Infinity)).toThrow(CoercionError);
+    expect(() => numberType().coerce(-Infinity)).toThrow(/Infinity is not a valid number/);
+  });
+
+  it('rejects string Infinity and -Infinity', () => {
+    expect(() => numberType().coerce('Infinity')).toThrow(CoercionError);
+    expect(() => numberType().coerce('-Infinity')).toThrow(CoercionError);
+  });
+});
 
 describe('url data type', () => {
   describe('prependHttps', () => {
