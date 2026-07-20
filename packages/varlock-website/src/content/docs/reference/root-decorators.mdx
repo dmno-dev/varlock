@@ -586,6 +586,30 @@ Defaults to a global `final class Env`. For Composer/PSR-4 projects, set `namesp
 </div>
 
 <div>
+### `@generateJavaEnv()`
+
+A self-contained Java class: a typed `Env` with a static `load()` and a `SENSITIVE_KEYS` constant. Requires Java 17+ and Jackson (`jackson-databind`) on the classpath. See [Java usage](/integrations/java/).
+
+```env-spec
+# @generateJavaEnv(path=./Env.java)
+```
+
+Optional `package=` and `class=` (default: no package, class `Env`).
+</div>
+
+<div>
+### `@generateCsharpEnv()`
+
+A self-contained C# class: a typed `Env` with a static `Load()` and a `SensitiveKeys` set. Requires .NET 6+ (`System.Text.Json`). See [C# usage](/integrations/csharp/).
+
+```env-spec
+# @generateCsharpEnv(path=./Env.cs)
+```
+
+Optional `namespace=` and `class=` (default: no namespace, class `Env`).
+</div>
+
+<div>
 ### `@generateTypes()` (deprecated)
 
 Deprecated TypeScript-only alias for [`@generateTsTypes`](#generatetstypes). `@generateTypes(lang=ts, path=...)` still works; for other languages use the matching `@generate*Env` decorator (`@generateTypes(lang=py, ...)` errors with a pointer to `@generatePythonEnv`).

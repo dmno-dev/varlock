@@ -119,6 +119,20 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
     category: 'languages',
   },
   {
+    id: 'java',
+    title: 'Java',
+    icon: 'simple-icons:openjdk',
+    href: '/integrations/java/',
+    category: 'languages',
+  },
+  {
+    id: 'csharp',
+    title: 'C#',
+    icon: 'simple-icons:csharp',
+    href: '/integrations/csharp/',
+    category: 'languages',
+  },
+  {
     id: 'other-languages',
     title: 'Other languages',
     icon: 'mdi:earth',

@@ -17,7 +17,9 @@ export {
 export {
   builtInCodeGenerators,
   collectTypeGenItems,
+  generateCsharpEnvSrc,
   generateGoEnvSrc,
+  generateJavaEnvSrc,
   generatePhpEnvSrc,
   generatePythonEnvSrc,
   generateRustEnvSrc,

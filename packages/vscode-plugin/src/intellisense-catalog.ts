@@ -117,6 +117,22 @@ export const ROOT_DECORATORS: Array<DecoratorInfo> = [
     isFunction: true,
   },
   {
+    name: 'generateJavaEnv',
+    scope: 'root',
+    summary: 'Generates a Java env module (class + load() + SENSITIVE_KEYS) from the schema.',
+    documentation: 'Example: `# @generateJavaEnv(path=./Env.java)`. Optional `package=` and `class=` (default: `Env`). Requires Jackson on the classpath. `filter=` restricts output to a subset of items, using the same selectors as the CLI `--filter` flag (e.g. `filter=#billing`).',
+    insertText: '@generateJavaEnv(path=${1:./Env.java})',
+    isFunction: true,
+  },
+  {
+    name: 'generateCsharpEnv',
+    scope: 'root',
+    summary: 'Generates a C# env module (class + Load() + SensitiveKeys) from the schema.',
+    documentation: 'Example: `# @generateCsharpEnv(path=./Env.cs)`. Optional `namespace=` and `class=` (default: `Env`). Uses System.Text.Json (.NET 6+). `filter=` restricts output to a subset of items, using the same selectors as the CLI `--filter` flag (e.g. `filter=#billing`).',
+    insertText: '@generateCsharpEnv(path=${1:./Env.cs})',
+    isFunction: true,
+  },
+  {
     name: 'generateTypes',
     scope: 'root',
     summary: 'Deprecated — use @generateTsTypes (or a @generate*Env decorator).',

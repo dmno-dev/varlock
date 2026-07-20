@@ -119,7 +119,7 @@ Root decorators go in comment blocks at the top of the file, before the first it
 | `@defaultRequired=bool\|infer` | Default required state for items in this file | `infer` |
 | `@defaultSensitive=bool\|inferFromPrefix(PREFIX)` | Default sensitive state for items in this file | `true` |
 | `@generateTsTypes(path=./env.d.ts)` | Auto-generate TypeScript env declarations (deprecated alias: `@generateTypes(lang=ts)`) | — |
-| `@generatePythonEnv` / `@generateRustEnv` / `@generateGoEnv` / `@generatePhpEnv` `(path=...)` | Generate a typed env module for that language | — |
+| `@generatePythonEnv` / `@generateRustEnv` / `@generateGoEnv` / `@generatePhpEnv` / `@generateJavaEnv` / `@generateCsharpEnv` `(path=...)` | Generate a typed env module for that language | — |
 | `@import(path, ...keys?)` | Import schema/values from another .env file or directory | — |
 | `@plugin(@varlock/name-plugin)` | Load a plugin | — |
 | `@setValuesBulk(resolver)` | Inject multiple values from an external source | — |
