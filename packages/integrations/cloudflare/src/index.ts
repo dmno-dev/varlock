@@ -8,6 +8,7 @@ import {
 } from '@varlock/vite-integration';
 import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
 import { CLOUDFLARE_SSR_ENTRY_CODE, disableWranglerDotEnvAutoload, logVarlockEnvInjectionNotice } from './shared-ssr-entry-code';
+import { formatEnvLine } from './format-env-line';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 
 const isWindows = process.platform === 'win32';
@@ -65,14 +66,6 @@ function chunkString(str: string, maxBytes: number): Array<string> {
   }
   if (current) chunks.push(current);
   return chunks;
-}
-
-function formatEnvLine(key: string, value: string): string {
-  if (!value.includes("'")) {
-    return `${key}='${value}'`;
-  }
-  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
-  return `${key}="${escaped}"`;
 }
 
 function formatDevVarsContent(
