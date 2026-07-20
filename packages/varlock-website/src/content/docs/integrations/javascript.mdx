@@ -31,6 +31,41 @@ const FROM_PROCESS_ENV = process.env.MY_CONFIG_ITEM; // 🆗 still works
 If you are using [`dotenv`](https://www.npmjs.com/package/dotenv), or a package you are using is using it under the hood, you can swap in varlock using your package manager's override feature. See the [migrate from dotenv](/guides/migrate-from-dotenv) guide for more information.
 :::
 
+### Reporting load failures
+
+When validation fails, `varlock/auto-load` writes the error to `stderr` and exits with a non-zero code. Because it exits during module import, an error reporter like Sentry may never see the failure. You can opt in to having auto-load **throw** the error instead of exiting, so a reporter can pick it up. This is never enabled automatically, so nothing changes for apps that do not opt in.
+
+**If your reporter is already initialized before varlock loads** (for example Sentry started via `node --import ./instrument.mjs`, with its DSN in a real environment variable), set `_VARLOCK_THROW_ON_LOAD_ERROR=1`. auto-load then throws instead of exiting, and the reporter's existing `uncaughtException` handler catches it. Make sure the reporter is imported before varlock:
+
+```js title="index.js"
+import './instrument.js'; // initializes Sentry (registers its handler)
+import 'varlock/auto-load';
+```
+
+**If the DSN itself comes from varlock, or you init your reporter in app code,** set a `globalThis._varlockOnLoadError` hook. It is called with the error and a map of the values that did resolve (so you can read `SENTRY_DSN` even though the overall load failed):
+
+```js title="varlock-error-hook.js"
+import * as Sentry from '@sentry/node';
+
+globalThis._varlockOnLoadError = (err, env) => {
+  Sentry.init({ dsn: env.SENTRY_DSN });
+  Sentry.captureException(err);
+  return Sentry.close(2000); // return the promise; auto-load exits once it settles
+};
+```
+
+```js title="index.js"
+import './varlock-error-hook.js'; // must be imported BEFORE auto-load
+import 'varlock/auto-load';
+```
+
+Two things to keep in mind:
+
+- The hook must be registered **before** `varlock/auto-load` is imported. ES modules hoist all `import` statements, so register the hook via its own side-effect import placed above the auto-load import, not with an inline call between imports.
+- Reporting is best-effort. auto-load does not `await` your hook (that would change how env is injected), so it gives async work a short window and then forces the process to exit. Return a promise from the hook and auto-load will exit as soon as it settles.
+
+Only resolved values are available to the hook, so this does not help with `.env` **parse or schema errors**, where resolution is skipped entirely. To report those, the DSN must come from a real environment variable and be picked up by an already-initialized reporter.
+
 
 ## Boot via `varlock run`
 
