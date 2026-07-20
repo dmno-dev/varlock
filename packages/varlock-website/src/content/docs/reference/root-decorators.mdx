@@ -278,7 +278,7 @@ Sets global cache mode for [`cache()`](/reference/functions/#cache) and plugin c
 - `disabled`: disable caching globally
 - `auto` (default): uses `disk` when a native encryption backend is available outside CI; otherwise uses `disk` encrypted with `_VARLOCK_CACHE_KEY` if that env var is set, falling back to `memory` (see the [Caching guide](/guides/caching/))
 
-The value can also be set dynamically with a function, for example to change cache mode per environment. A function that resolves to no value falls back to `auto`.
+The value can also be set dynamically with a function, for example to change cache mode per environment, and it can reference other config items. A function that resolves to no value falls back to `auto`.
 
 ```env-spec
 # @cache=memory
@@ -288,8 +288,15 @@ SESSION_SECRET=cache(randomHex(32))
 
 ```env-spec
 # dynamic - only use disk caching in development
-# @cache=forEnv(dev, "disk")
+# @cache=if(forEnv(dev), "disk")
 # ---
+```
+
+```env-spec
+# dynamic - based on another config item
+# @cache=if($USE_CACHE, "memory", "disabled")
+# ---
+USE_CACHE=true
 ```
 
 :::note

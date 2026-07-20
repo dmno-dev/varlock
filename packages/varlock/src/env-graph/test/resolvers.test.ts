@@ -218,6 +218,25 @@ describe('ref()', functionValueTests({
   },
 }));
 
+describe('ref() unresolved dependency guard', () => {
+  it('errors loudly if resolved before its dependency (instead of silently returning undefined)', async () => {
+    const g = new EnvGraph();
+    const testDataSource = new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @defaultRequired=false
+        # ---
+        OTHER=otherval
+        ITEM=ref(OTHER)
+      `,
+    });
+    await g.setRootDataSource(testDataSource);
+    await g.finishLoad();
+    // simulate a buggy calling context that resolves ITEM without resolving its deps first
+    await g.configSchema.ITEM.resolve();
+    expect(g.configSchema.ITEM.resolutionError?.message).toContain('has not been resolved yet');
+  });
+});
+
 describe('regex()', functionValueTests({
   'error - regex used as value': {
     input: 'ITEM=regex(.*)',

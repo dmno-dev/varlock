@@ -225,6 +225,10 @@ export class Resolver {
     const depItem = this.envGraph?.configSchema[key];
     if (!depItem) throw new Error(`Referenced item "${key}" not found`);
     if (!depItem.isValid) throw new Error(`Referenced item "${key}" is not valid`);
+    // a valid-but-unresolved dep means the calling context forgot to resolve deps
+    // first (see earlyResolve / resolveEnvValues); returning resolvedValue here
+    // would silently produce undefined instead of the item's actual value
+    if (!depItem.isResolved) throw new Error(`Referenced item "${key}" has not been resolved yet`);
     return depItem.resolvedValue;
   }
 }
