@@ -161,9 +161,17 @@ export function patchGlobalServerResponse(opts?: {
     // console.log('⚡️ patched ServerResponse.end');
     const endChunk = args[0];
     // this just needs to work (so far) for nextjs sending json bodies, so does not need to handle all cases...
+    let chunkStr: string | undefined;
     if (endChunk && typeof endChunk === 'string') {
+      chunkStr = endChunk;
+    } else if (endChunk && (Buffer.isBuffer(endChunk) || endChunk instanceof Uint8Array)) {
+      // decode Buffer/Uint8Array like write does when uncompressed
+      const decoder = new TextDecoder();
+      chunkStr = decoder.decode(endChunk);
+    }
+    if (chunkStr) {
       // TODO: currently this throws the error and then things just hang... do we want to try to return an error type response instead?
-      scanForLeaks(endChunk, { method: 'patched ServerResponse.end' });
+      scanForLeaks(chunkStr, { method: 'patched ServerResponse.end' });
     }
     // @ts-ignore
     return serverResponseEnd.apply(this, args);
