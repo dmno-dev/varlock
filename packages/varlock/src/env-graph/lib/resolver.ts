@@ -583,16 +583,16 @@ export const ForEnvResolver: typeof Resolver = createResolver({
     arrayMinLength: 1,
   },
   process() {
-    // TODO: check if all options are static
-    // TODO: check against envFlag enum options?
-    const matchEnvs = this.arrArgs!.map((r) => String(r.staticValue));
-    return matchEnvs;
+    return this.arrArgs!;
   },
-  async resolve(matchEnvs) {
+  async resolve(matchEnvArgs) {
     // this will trigger resolution of the current env if not already done
     const currentEnv = await this.getCurrentEnv();
     if (!currentEnv) throw new SchemaError('current environment is not set');
-    return currentEnv && matchEnvs.includes(currentEnv || '');
+    const matchEnvs = await Promise.all(
+      matchEnvArgs.map(async (arg) => String(await arg.resolve())),
+    );
+    return matchEnvs.includes(currentEnv);
   },
 });
 

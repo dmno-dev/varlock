@@ -222,6 +222,41 @@ describe('required decorators', () => {
         REQ_FOR_DEV: SchemaError,
       },
     }));
+    test('`forEnv()` resolves $REF args', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @currentEnv=$APP_ENV @defaultRequired=false
+          # ---
+          APP_ENV=dev
+          TARGET=dev
+          OTHER=staging
+          REQ_FOR_TARGET= # @required=forEnv($TARGET)
+          REQ_FOR_OTHER=  # @required=forEnv($OTHER)
+        `,
+      },
+      expectRequired: {
+        REQ_FOR_TARGET: true,
+        REQ_FOR_OTHER: false,
+      },
+    }));
+    test('`forEnv()` resolves concat() and mixed args', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @currentEnv=$APP_ENV @defaultRequired=false
+          # ---
+          APP_ENV=dev
+          PREFIX=d
+          REQ_FOR_CONCAT=  # @required=forEnv(concat($PREFIX, "ev"))
+          REQ_FOR_MIXED=   # @required=forEnv(staging, concat($PREFIX, "ev"))
+          REQ_FOR_NOMATCH= # @required=forEnv(concat($PREFIX, "prod"))
+        `,
+      },
+      expectRequired: {
+        REQ_FOR_CONCAT: true,
+        REQ_FOR_MIXED: true,
+        REQ_FOR_NOMATCH: false,
+      },
+    }));
   });
   describe('explicit @required overrides @defaultRequired from other files', () => {
     test('@required in schema wins over @defaultRequired=false in local', envFilesTest({
