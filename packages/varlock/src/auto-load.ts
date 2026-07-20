@@ -80,37 +80,45 @@ try {
   // import ordered above `import 'varlock/auto-load'`, not an inline call.
   const onLoadError = (globalThis as any)._varlockOnLoadError;
   const hasHook = typeof onLoadError === 'function';
-  const throwEnabled = hasHook || !!process.env._VARLOCK_THROW_ON_LOAD_ERROR;
 
-  if (throwEnabled) {
-    // We can't `await` here without making auto-load async, which would change env-injection
-    // ordering (see note above about running synchronously). So reporting is best-effort:
-    // give any async work a bounded window, then guarantee the process still exits.
-    setTimeout(() => process.exit(exitCode), 2000).unref();
-
-    if (hasHook) {
-      // If nothing else would keep the event loop alive after we throw (no pre-registered
-      // uncaughtException handler, e.g. Sentry's), add a no-op one so Node doesn't perform its
-      // default immediate-exit and cut off the hook's async reporting. `once` keeps our global
-      // footprint minimal: it only neutralizes the throw below.
-      if (process.listenerCount('uncaughtException') === 0) {
-        process.once('uncaughtException', () => {
-          // no-op: keep the loop alive; the timer/hook-promise below drives the exit
-        });
-      }
-      try {
-        const result = onLoadError(err, getPartialResolvedEnv(err));
-        // Exit as soon as the hook settles (observing the promise, not awaiting it).
-        if (result && typeof result.then === 'function') {
-          result.then(() => process.exit(exitCode), () => process.exit(exitCode));
-        }
-      } catch {
-        // a broken hook must never mask the original load failure
-      }
+  if (hasHook) {
+    // Call the hook with the error and whatever values did resolve, then guarantee a non-zero
+    // exit. We can't `await` here without making auto-load async (which would change env-injection
+    // ordering — see note above about running synchronously), so we observe the returned promise
+    // instead: exit as soon as it settles, bounded by a timer, and let it flush before then.
+    let result: unknown;
+    try {
+      result = onLoadError(err, getPartialResolvedEnv(err));
+    } catch {
+      // a broken hook must never mask the original load failure
     }
 
-    // Throw so downstream code never runs with invalid/missing env. A registered
-    // uncaughtException handler (e.g. Sentry's) catches this and can flush; the timer bounds it.
+    if (result && typeof (result as any).then === 'function') {
+      // Async hook: keep the process alive until it settles (or a 2s bound), then exit non-zero.
+      // Throw so downstream code never runs with invalid env; a no-op uncaughtException handler
+      // (added only if nothing else would catch it) stops Node's immediate crash-exit so the
+      // promise/timer below drives the exit code. The timer is intentionally NOT unref'd — it must
+      // hold the loop open so the process can't drain and exit 0 before we report.
+      setTimeout(() => process.exit(exitCode), 2000);
+      (result as Promise<unknown>).then(() => process.exit(exitCode), () => process.exit(exitCode));
+      if (process.listenerCount('uncaughtException') === 0) {
+        process.once('uncaughtException', () => {
+          // no-op: keep the loop alive; the promise/timer above drives the exit
+        });
+      }
+      throw err;
+    }
+
+    // Sync hook: reporting is already done, so exit now. This also aborts downstream, and keeps
+    // the exit code correct (a thrown error swallowed by a no-op handler would exit 0).
+    process.exit(exitCode);
+  }
+
+  if (process.env._VARLOCK_THROW_ON_LOAD_ERROR) {
+    // No hook, but a tracker is already initialized (e.g. Sentry via `--import`). Throw so its
+    // uncaughtException handler captures the failure. Bound the flush and guarantee exit; if no
+    // handler is actually registered, Node's default behavior exits non-zero anyway.
+    setTimeout(() => process.exit(exitCode), 2000).unref();
     throw err;
   }
 
