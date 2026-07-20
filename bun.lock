@@ -97,6 +97,7 @@
       "devDependencies": {
         "@types/node": "catalog:",
         "@varlock/vite-integration": "workspace:^",
+        "dotenv": "^16.6.1",
         "tsup": "catalog:",
         "varlock": "workspace:^1.12.0",
         "vite": "^7.1.0",
