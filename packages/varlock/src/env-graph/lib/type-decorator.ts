@@ -7,7 +7,7 @@ import {
   ParsedEnvSpecStaticValue,
   type ParsedEnvSpecDecorator,
 } from '@env-spec/parser';
-import type { EnvGraphDataType, EnvGraphDataTypeFactory } from './data-types';
+import type { CoercedType, EnvGraphDataType, EnvGraphDataTypeFactory } from './data-types';
 import { convertParsedValueToResolvers, type Resolver } from './resolver';
 import type { EnvGraphDataSource } from './data-source';
 import { SchemaError } from './errors';
@@ -315,6 +315,72 @@ function extractScalarTypeArgs(
 }
 
 /**
+ * Enum gets a dedicated builder because its members may be resolver-valued -
+ * `enum($ALLOWED_MODES)` sources members from another item at resolution time, and a
+ * member that resolves to an ARRAY spreads its elements (the typed-array payoff).
+ *
+ * Typegen: a dynamic enum cannot produce a literal union deterministically, so its
+ * provisional instance is a plain string type - generated code widens to `string`,
+ * which stays valid since resolved members are required to be strings.
+ */
+function buildEnumTypePlan(
+  ctx: TypeSpecContext,
+  fnCall: ParsedEnvSpecFunctionCall,
+  context: string,
+): TypeSpecPlan {
+  const deferred: TypeSpecPlan['deferred'] = [];
+  const members: Array<any> = [];
+
+  for (const arg of fnCall.data.args.values) {
+    if (arg instanceof ParsedEnvSpecKeyValuePair) {
+      throw new SchemaError(`${context} - enum does not take named options, only a list of members`);
+    } else if (arg instanceof ParsedEnvSpecStaticValue) {
+      members.push(arg.value);
+    } else if (arg instanceof ParsedEnvSpecFunctionCall && arg.name in ctx.resolverFns) {
+      const resolver = convertParsedValueToResolvers(arg, ctx.dataSource, ctx.resolverFns);
+      if (!resolver) throw new SchemaError(`${context} - could not build resolver for enum member`);
+      deferred.push({ resolver, label: 'enum member' });
+      members.push(new DeferredValue(resolver));
+    } else {
+      throw new SchemaError(`${context} - enum members must be static values or resolver calls (e.g. $OTHER_ITEM)`);
+    }
+  }
+
+  return {
+    deferred,
+    build: (resolved) => {
+      if (!deferred.length) return ctx.registry.enum(...members);
+      // provisional build for a dynamic enum - membership unknown until resolution
+      if (!resolved) return ctx.registry.string();
+
+      const finalMembers: Array<any> = [];
+      for (const member of members) {
+        if (!(member instanceof DeferredValue)) {
+          finalMembers.push(member);
+          continue;
+        }
+        const resolvedVal = resolved.get(member.resolver);
+        if (Array.isArray(resolvedVal)) finalMembers.push(...resolvedVal);
+        else if (resolvedVal !== undefined) finalMembers.push(resolvedVal);
+      }
+      if (!finalMembers.length) {
+        throw new SchemaError(`${context} - dynamic enum members resolved to an empty list`);
+      }
+      for (const member of finalMembers) {
+        // generated code saw `string` (see provisional above), so members must be strings
+        if (typeof member !== 'string') {
+          throw new SchemaError(
+            `${context} - dynamic enum members must resolve to strings (got ${JSON.stringify(member)})`,
+            { tip: 'generated types treat a dynamic enum as a string, so non-string members would not round-trip' },
+          );
+        }
+      }
+      return ctx.registry.enum(...finalMembers);
+    },
+  };
+}
+
+/**
  * Build a plan from a `@type=...` call node whose name IS a registered data type.
  * The composite types (`array(...)`, `object(...)`) get strict option validation +
  * recursive element/key types; scalar types call their factory with either positional
@@ -330,6 +396,7 @@ function buildTypeCallPlan(
 
   if (name === 'array') return buildArrayTypePlan(ctx, fnCall, context);
   if (name === 'record') return buildRecordTypePlan(ctx, fnCall, context);
+  if (name === 'enum') return buildEnumTypePlan(ctx, fnCall, context);
 
   const deferred: TypeSpecPlan['deferred'] = [];
   const { positionals, settings } = extractScalarTypeArgs(fnCall, ctx, deferred, context);
@@ -428,7 +495,32 @@ export function buildTypeSpecPlan(
   throw new SchemaError('@type must be set to a type name (e.g. @type=number) or a type call (e.g. @type=enum(a, b))');
 }
 
-/** fingerprint comparison helper used by the caller's provisional-vs-final guard */
-export function coercedTypesMatch(a: EnvGraphDataType, b: EnvGraphDataType): boolean {
-  return coercedTypeFingerprint(a) === coercedTypeFingerprint(b);
+/**
+ * Structural compatibility for the provisional-vs-final guard: exact match, plus one
+ * safe widening - a resolved enum whose members are all strings stays assignable to a
+ * provisional plain-string type (dynamic enums generate `string`). Checked recursively
+ * so the widening also applies inside composites (e.g. `array(enum($MODES))`).
+ */
+function coercedTypeCompatible(provisional: CoercedType, final: CoercedType): boolean {
+  if (JSON.stringify(provisional) === JSON.stringify(final)) return true;
+  if (
+    provisional === 'string'
+    && typeof final === 'object' && 'enum' in final
+    && final.enum.every((m) => typeof m === 'string')
+  ) return true;
+  if (typeof provisional === 'object' && typeof final === 'object') {
+    if ('arrayOf' in provisional && 'arrayOf' in final) {
+      return coercedTypeCompatible(provisional.arrayOf, final.arrayOf);
+    }
+    if ('recordOf' in provisional && 'recordOf' in final) {
+      return coercedTypeCompatible(provisional.recordOf.values ?? 'string', final.recordOf.values ?? 'string')
+        && coercedTypeCompatible(provisional.recordOf.keys ?? 'string', final.recordOf.keys ?? 'string');
+    }
+  }
+  return false;
+}
+
+/** compatibility check used by the caller's provisional-vs-final guard */
+export function coercedTypesMatch(provisional: EnvGraphDataType, final: EnvGraphDataType): boolean {
+  return coercedTypeCompatible(provisional.coercedType ?? 'string', final.coercedType ?? 'string');
 }

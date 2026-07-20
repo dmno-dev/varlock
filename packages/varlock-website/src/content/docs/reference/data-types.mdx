@@ -45,6 +45,23 @@ One constraint: dynamic parts may vary validation behavior, but not the **genera
 
 Dynamic whole types resolve to a bare type name; to combine a dynamic type with options, put the dynamic part in the option instead (e.g. `string(minLength=if(...))`).
 
+Enum members can also be sourced from other items. A referenced array spreads its elements into the member list:
+
+```env-spec
+# @type=array(string)
+ALLOWED_MODES=[dev, staging, prod]
+
+# value must be one of the elements of ALLOWED_MODES
+# @type=enum($ALLOWED_MODES)
+APP_MODE=dev
+
+# static members and references can be mixed
+# @type=enum(local, $ALLOWED_MODES)
+BUILD_MODE=local
+```
+
+Since membership is only known at resolution time, generated code types a dynamic enum as a plain string, and members must resolve to strings.
+
 ### Coercion & validation process
 
 Once a raw value is resolved - which could from a static value in an `.env` file, a [function](/reference/functions/), or an override passed into the process - the raw value will be coerced and validated based on the type, respecting additional arguments provided to the type.
@@ -163,7 +180,7 @@ API_URL=https://api.example.com/v1
 
 <div>
 ### `enum`
-Checks a value is contained in a list of possible values - it must match one exactly.
+Checks a value is contained in a list of possible values - it must match one exactly. Members can also be sourced from other items (see [Dynamic type options](#dynamic-type-options)).
 
 **NOTE** - this is the only type that cannot be used without any additional arguments
 

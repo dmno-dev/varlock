@@ -767,13 +767,13 @@ describe('record data type', () => {
 });
 
 describe('@type arg handling (scalar types)', () => {
-  it('rejects mixing positional args and named options', async () => {
+  it('rejects named options on enum', async () => {
     const g = await loadAndResolve(outdent`
       # @type=enum(a, b, someOpt=true)
       ITEM=a
     `);
     expect(g.configSchema.ITEM.isValid).toBe(false);
-    expect(g.configSchema.ITEM.errors[0].message).toContain('cannot mix');
+    expect(g.configSchema.ITEM.errors[0].message).toContain('does not take named options');
   });
 
   it('rejects unknown functions in option values with a clear error', async () => {
@@ -1105,6 +1105,101 @@ describe('per-environment dynamic types via forEnv', () => {
     const g = await loadWithEnv('dev');
     expect(g.configSchema.API_TOKEN.isValid).toBe(true);
     expect(g.configSchema.SERVICE_HOST.isValid).toBe(true);
+  });
+});
+
+describe('enum members sourced from other items', () => {
+  it('validates against members spread from a referenced array item', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(string)
+      ALLOWED_MODES=[dev, staging, prod]
+      # @type=enum($ALLOWED_MODES)
+      APP_MODE=staging
+    `);
+    expect(g.configSchema.APP_MODE.isValid).toBe(true);
+    expect(g.configSchema.APP_MODE.resolvedValue).toBe('staging');
+  });
+
+  it('rejects values not in the referenced array', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(string)
+      ALLOWED_MODES=[dev, staging, prod]
+      # @type=enum($ALLOWED_MODES)
+      APP_MODE=nope
+    `);
+    expect(g.configSchema.APP_MODE.isValid).toBe(false);
+    const err = g.configSchema.APP_MODE.validationErrors?.[0];
+    expect(err?.message).toContain('not in list of possible values');
+    expect(err?.tip).toContain('dev');
+  });
+
+  it('supports mixing static members with referenced arrays', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(string)
+      EXTRA_MODES=[staging, preview]
+      # @type=enum(dev, $EXTRA_MODES, prod)
+      APP_MODE=preview
+    `);
+    expect(g.configSchema.APP_MODE.isValid).toBe(true);
+  });
+
+  it('a scalar reference contributes a single member', async () => {
+    const g = await loadAndResolve(outdent`
+      DEFAULT_MODE=dev
+      # @type=enum($DEFAULT_MODE, prod)
+      APP_MODE=dev
+    `);
+    expect(g.configSchema.APP_MODE.isValid).toBe(true);
+  });
+
+  it('the provisional (typegen-facing) type is a plain string', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(string)
+      ALLOWED_MODES=[dev, prod]
+      # @type=enum($ALLOWED_MODES)
+      APP_MODE=dev
+    `);
+    expect(g.configSchema.APP_MODE.dataType?.name).toBe('string');
+    expect(g.configSchema.APP_MODE.effectiveDataType?.name).toBe('enum');
+  });
+
+  it('rejects non-string dynamic members (typegen saw string)', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(number)
+      LEVELS=[1, 2, 3]
+      # @type=enum($LEVELS)
+      LEVEL=2
+    `);
+    expect(g.configSchema.LEVEL.isValid).toBe(false);
+    const messages = (g.configSchema.LEVEL.validationErrors ?? []).map((e) => e.message).join('\n');
+    expect(messages).toContain('must resolve to strings');
+  });
+
+  it('rejects an empty resolved member list', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(string)
+      ALLOWED_MODES=[]
+      # @type=enum($ALLOWED_MODES)
+      APP_MODE=dev
+    `);
+    expect(g.configSchema.APP_MODE.isValid).toBe(false);
+    const messages = (g.configSchema.APP_MODE.validationErrors ?? []).map((e) => e.message).join('\n');
+    expect(messages).toContain('empty list');
+  });
+
+  it('works as an array element type (array(enum($MODES)))', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(string)
+      ALLOWED_MODES=[dev, staging, prod]
+      # @type=array(enum($ALLOWED_MODES))
+      ACTIVE_MODES=[dev, prod]
+      # @type=array(enum($ALLOWED_MODES))
+      BAD_MODES=[dev, nope]
+    `);
+    expect(g.configSchema.ACTIVE_MODES.isValid).toBe(true);
+    expect(g.configSchema.ACTIVE_MODES.resolvedValue).toEqual(['dev', 'prod']);
+    expect(g.configSchema.BAD_MODES.isValid).toBe(false);
+    expect(g.configSchema.BAD_MODES.validationErrors?.[0]?.message).toContain('[1]');
   });
 });
 
