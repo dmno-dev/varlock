@@ -587,16 +587,23 @@ export const ForEnvResolver: typeof Resolver = createResolver({
     arrayMinLength: 1,
   },
   process() {
-    // TODO: check if all options are static
-    // TODO: check against envFlag enum options?
-    const matchEnvs = this.arrArgs!.map((r) => String(r.staticValue));
-    return matchEnvs;
+    return this.arrArgs!;
   },
-  async resolve(matchEnvs) {
+  async resolve(matchEnvArgs) {
     // this will trigger resolution of the current env if not already done
     const currentEnv = await this.getCurrentEnv();
     if (!currentEnv) throw new SchemaError('current environment is not set');
-    return currentEnv && matchEnvs.includes(currentEnv || '');
+    const matchEnvs: Array<string> = [];
+    for (const arg of matchEnvArgs) {
+      const argValue = await arg.resolve();
+      // stringifying undefined would give "undefined", which silently never matches
+      // (or false-matches an env literally named "undefined") - fail loudly instead
+      if (argValue === undefined) {
+        throw new SchemaError('argument resolved to undefined - check that any referenced variables are set');
+      }
+      matchEnvs.push(String(argValue));
+    }
+    return matchEnvs.includes(currentEnv);
   },
 });
 
