@@ -722,6 +722,8 @@ export type ArrayDataTypeSettings = {
   minLength?: number;
   /** maximum number of elements */
   maxLength?: number;
+  /** exact number of elements */
+  isLength?: number;
   /** reject duplicate elements */
   unique?: boolean;
   /**
@@ -803,6 +805,9 @@ const ArrayDataType = createEnvGraphDataType((settings?: ArrayDataTypeSettings) 
       }
       if (settings?.maxLength !== undefined && arr.length > settings.maxLength) {
         errors.push(new ValidationError(`Array must have at most ${settings.maxLength} element(s)`));
+      }
+      if (settings?.isLength !== undefined && arr.length !== settings.isLength) {
+        errors.push(new ValidationError(`Array must have exactly ${settings.isLength} element(s)`));
       }
       if (settings?.unique) {
         const seen = new Set<string | undefined>();

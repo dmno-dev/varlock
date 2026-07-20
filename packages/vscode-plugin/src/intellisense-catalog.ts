@@ -349,6 +349,7 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
     optionSnippets: [
       { name: 'minLength', insertText: 'minLength=${1:1}', documentation: 'Minimum number of elements.' },
       { name: 'maxLength', insertText: 'maxLength=${1:10}', documentation: 'Maximum number of elements.' },
+      { name: 'isLength', insertText: 'isLength=${1:2}', documentation: 'Exact number of elements.' },
       { name: 'unique', insertText: 'unique=true', documentation: 'Reject duplicate elements.' },
       { name: 'separator', insertText: 'separator=${1:","}', documentation: 'Separator used to split string input and join output (default ",").' },
       { name: 'format', insertText: 'format=${1|separator,json|}', documentation: 'How the value serializes back into process.env (default separator-joined; json emits a JSON array).' },

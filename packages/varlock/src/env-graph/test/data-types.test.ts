@@ -482,6 +482,21 @@ describe('array data type', () => {
       expect(g.configSchema.ITEM.isValid).toBe(false);
     });
 
+    it('enforces isLength (exact element count)', async () => {
+      const good = await loadAndResolve(outdent`
+        # @type=array(string, isLength=2)
+        ITEM=[a, b]
+      `);
+      expect(good.configSchema.ITEM.isValid).toBe(true);
+
+      const bad = await loadAndResolve(outdent`
+        # @type=array(string, isLength=2)
+        ITEM=[a, b, c]
+      `);
+      expect(bad.configSchema.ITEM.isValid).toBe(false);
+      expect(bad.configSchema.ITEM.validationErrors?.[0]?.message).toContain('exactly 2');
+    });
+
     it('enforces unique elements', async () => {
       const g = await loadAndResolve(outdent`
         # @type=array(string, unique=true)
@@ -932,6 +947,7 @@ describe('@type option validation error paths', () => {
     ['array(string, separator="")', 'separator must be a non-empty string'],
     ['array(string, format=yaml)', 'format must be "separator" or "json"'],
     ['array(string, minLength=abc)', 'minLength must be a number'],
+    ['array(string, isLength=abc)', 'isLength must be a number'],
     ['array(string, unique=maybe)', 'unique must be a boolean'],
     ['array(string, number)', 'single element type argument'],
     ['object(string, number)', 'single value type argument'],

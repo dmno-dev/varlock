@@ -62,7 +62,7 @@ function materializeSettings(
   return out;
 }
 
-const ARRAY_OPTION_KEYS = ['minLength', 'maxLength', 'unique', 'separator', 'format'] as const;
+const ARRAY_OPTION_KEYS = ['minLength', 'maxLength', 'isLength', 'unique', 'separator', 'format'] as const;
 const OBJECT_OPTION_KEYS = ['keys'] as const;
 
 function typeSpecDisplayName(node: TypeSpecNode): string {
@@ -132,7 +132,7 @@ function validateArraySettings(settings: Record<string, any>, context: string) {
   if (settings.format !== undefined && settings.format !== 'separator' && settings.format !== 'json') {
     throw new SchemaError(`${context} - format must be "separator" or "json"`);
   }
-  for (const lengthKey of ['minLength', 'maxLength'] as const) {
+  for (const lengthKey of ['minLength', 'maxLength', 'isLength'] as const) {
     if (settings[lengthKey] !== undefined && !_.isNumber(settings[lengthKey])) {
       throw new SchemaError(`${context} - ${lengthKey} must be a number`);
     }
