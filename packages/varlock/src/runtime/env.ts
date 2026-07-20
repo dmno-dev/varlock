@@ -332,13 +332,6 @@ export function getPreInjectionProcessEnv(): Record<string, string | undefined> 
   return getEnvState().originalProcessEnv;
 }
 
-/** blob values lacking a precomputed `envStr`: undefined → '', objects/arrays → JSON, scalars → String */
-function stringifyEnvValueFallback(value: any): string {
-  if (value === undefined) return '';
-  if (typeof value === 'object' && value !== null) return JSON.stringify(value);
-  return String(value);
-}
-
 export function initVarlockEnv(opts?: {
   allowFail?: boolean,
 }) {
@@ -411,10 +404,8 @@ export function initVarlockEnv(opts?: {
       // when re-injecting into process.env, we treat undefined as empty string
       // this more closely matches expected behaviour from other .env loaders.
       // composite values (arrays/objects) carry their flat string form in `envStr`
-      // (their serialization depends on type settings that don't travel in the blob);
-      // a composite WITHOUT envStr (a blob from an older CLI) falls back to JSON so
-      // an object value never degrades to "[object Object]" (see #900)
-      process.env[itemKey] = item.envStr ?? stringifyEnvValueFallback(item.value);
+      // (their serialization depends on type settings that don't travel in the blob)
+      process.env[itemKey] = item.envStr ?? (item.value === undefined ? '' : String(item.value));
     }
   }
   envState.initialized = true;

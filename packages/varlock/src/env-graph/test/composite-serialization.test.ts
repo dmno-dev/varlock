@@ -194,29 +194,4 @@ describe('simple-object serialization (issue #900)', () => {
     expect(g.configSchema.MY_OBJECT.resolvedEnvStringValue).toBe('{"key":"value"}');
     expect(g.getSerializedGraph().config.MY_OBJECT.envStr).toBe('{"key":"value"}');
   });
-
-  it('a blob from an older CLI (no envStr) still JSON-encodes composites on re-injection', async () => {
-    const g = await loadAndResolve(outdent`
-      # @type=simple-object
-      MY_OBJECT='{"key": "value"}'
-    `);
-    const { initVarlockEnv } = await import('../../runtime/env');
-
-    // simulate an older-CLI blob: composite value present, envStr field absent
-    const serialized = g.getSerializedGraph();
-    delete serialized.config.MY_OBJECT.envStr;
-
-    const prevBlob = process.env.__VARLOCK_ENV;
-    const prevVal = process.env.MY_OBJECT;
-    try {
-      process.env.__VARLOCK_ENV = JSON.stringify(serialized);
-      initVarlockEnv();
-      expect(process.env.MY_OBJECT).toBe('{"key":"value"}');
-    } finally {
-      if (prevBlob === undefined) delete process.env.__VARLOCK_ENV;
-      else process.env.__VARLOCK_ENV = prevBlob;
-      if (prevVal === undefined) delete process.env.MY_OBJECT;
-      else process.env.MY_OBJECT = prevVal;
-    }
-  });
 });
