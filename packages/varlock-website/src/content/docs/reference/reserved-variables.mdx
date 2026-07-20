@@ -44,6 +44,10 @@ Fallback for the [`--filter`](/reference/cli-commands/#filtering-items) flag on 
 _VARLOCK_FILTER="#billing" varlock load --format json
 ```
 
+### `_VARLOCK_THROW_ON_LOAD_ERROR`
+
+When set (`1` / `true`), [`varlock/auto-load`](/integrations/javascript/#reporting-load-failures) throws the error on a load failure instead of exiting, so an already-initialized error tracker (e.g. Sentry) can capture it via its `uncaughtException` handler. Setting a `globalThis._varlockOnLoadError` hook enables the same throw behavior. See [Reporting load failures](/integrations/javascript/#reporting-load-failures).
+
 {/*
   Intentionally NOT documented for end users; internal/testing only.
   Kept here (and in VARLOCK_CONFIG_ENV_VARS with internal:true) for maintainer reference.
