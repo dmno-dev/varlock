@@ -1,16 +1,14 @@
 import path from 'node:path';
 import {
-  existsSync, readdirSync, unlinkSync, writeFileSync,
+  existsSync, readdirSync, unlinkSync,
 } from 'node:fs';
-import { execSync, spawn, type ChildProcess } from 'node:child_process';
 import {
   varlockVitePlugin, varlockLoadedEnv, varlockLastError, buildErrorPageHtml,
 } from '@varlock/vite-integration';
 import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
 import { CLOUDFLARE_SSR_ENTRY_CODE, disableWranglerDotEnvAutoload, logVarlockEnvInjectionNotice } from './shared-ssr-entry-code';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
-
-const isWindows = process.platform === 'win32';
+import { serveFifoOrFile } from './serve-fifo-or-file';
 
 /** Name exposed by `@cloudflare/vite-plugin`'s main plugin object. */
 const CLOUDFLARE_PLUGIN_NAME = 'vite-plugin-cloudflare';
@@ -111,53 +109,6 @@ function formatDevVarsContent(
   }
   return lines.join('\n');
 }
-
-/**
- * Serves `content` at `filePath` for reading by miniflare.
- * On Unix: uses a FIFO (named pipe) so secrets never touch disk.
- * On Windows: falls back to a regular temp file.
- *
- * The FIFO child process writes to the pipe in a loop — each `readFileSync`
- * by wrangler/miniflare gets the content, and the child immediately starts
- * the next write so subsequent reads also work.
- */
-function serveFifoOrFile(filePath: string, content: string) {
-  let fifoProcess: ChildProcess | undefined;
-
-  if (isWindows) {
-    writeFileSync(filePath, content);
-  } else {
-    execSync(`mkfifo -m 0600 "${filePath}"`);
-    // Spawn a child process that writes to the FIFO in a loop.
-    // Content is passed as a base64-encoded argument instead of stdin
-    // to avoid a deadlock: wrangler's readFileSync blocks the parent's
-    // event loop, which would prevent stdin data from being flushed.
-    const encoded = Buffer.from(content).toString('base64');
-    const parentPid = process.pid;
-    fifoProcess = spawn(process.execPath, [
-      '-e', `
-      const fs = require('fs');
-      const content = Buffer.from('${encoded}', 'base64').toString();
-      // Exit if the parent process dies (orphan protection).
-      setInterval(() => {
-        try { process.kill(${parentPid}, 0); }
-        catch { process.exit(); }
-      }, 2000);
-      (function serve() {
-        try { fs.writeFileSync(${JSON.stringify(filePath)}, content); setImmediate(serve); }
-        catch { process.exit(); }
-      })();
-    `,
-    ], { stdio: ['ignore', 'ignore', 'ignore'] });
-  }
-
-  return {
-    stop() {
-      fifoProcess?.kill();
-    },
-  };
-}
-
 
 // --- main plugin -----------------------------------------------------------
 
@@ -331,7 +282,7 @@ export function varlockCloudflareVitePlugin(
     configResolved(config) {
       resolvedRoot = config.root;
     },
-    configurePreviewServer(server) {
+    async configurePreviewServer(server) {
       logVarlockEnvInjectionNotice();
       if (!resolvedRoot) return;
 
@@ -359,7 +310,7 @@ export function varlockCloudflareVitePlugin(
       // Write a temporary .dev.vars file for miniflare to pick up.
       // On Unix we use a FIFO (named pipe) so secrets stay in memory.
       // On Windows we fall back to a regular file.
-      const fifo = serveFifoOrFile(devVarsPath, content);
+      const fifo = await serveFifoOrFile(devVarsPath, content);
 
       // Clean up when the preview server shuts down.
       const origClose = server.close.bind(server);
