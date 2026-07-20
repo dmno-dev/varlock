@@ -507,6 +507,16 @@ export class EnvGraph {
     // when @plugin decorators execute below.
     const cacheDec = this.getRootDec('cache');
     if (cacheDec) {
+      // @cache is resolved before config items, so any refs in its value
+      // (e.g. if($USE_CACHE, "memory", "disabled")) must be early-resolved first,
+      // same as @disable does in finishInit. A missing ref is surfaced by the
+      // resolver itself when the decorator resolves below.
+      if (cacheDec.decValueResolver) {
+        for (const depKey of cacheDec.decValueResolver.deps) {
+          const depItem = this.configSchema[depKey];
+          if (depItem) await depItem.earlyResolve();
+        }
+      }
       const cacheSetting = await cacheDec.resolve();
       let cacheMode: 'auto' | 'memory' | 'disk' | 'disabled' = 'auto';
       if (cacheSetting === 'auto' || cacheSetting === 'memory' || cacheSetting === 'disk' || cacheSetting === 'disabled') {
