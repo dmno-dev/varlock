@@ -299,6 +299,20 @@ const envState = getEnvState();
 const envValues = envState.values;
 export const varlockSettings = envState.settings;
 
+/**
+ * Snapshot of process.env as it was before varlock injected any resolved values
+ * into it (captured on first load, before the module-level auto-init below).
+ *
+ * Callers that need the caller's *real* env, distinct from values varlock itself
+ * re-injected, must read this rather than the live `process.env`. In particular,
+ * a nested `varlock` running under a parent `varlock run` sees the parent blob's
+ * values re-injected into `process.env`, which would otherwise mask a
+ * command-local override (`FOO=bar varlock ...`).
+ */
+export function getPreInjectionProcessEnv(): Record<string, string | undefined> {
+  return getEnvState().originalProcessEnv;
+}
+
 export function initVarlockEnv(opts?: {
   allowFail?: boolean,
 }) {

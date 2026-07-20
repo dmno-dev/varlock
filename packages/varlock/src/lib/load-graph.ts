@@ -9,6 +9,7 @@ import { runWithWorkspaceInfo } from './workspace-utils';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { createDebug } from './debug';
 import { parseBlobOverrideKeys, selectOverrideValuesFromEnv } from './injected-env-provenance';
+import { getPreInjectionProcessEnv } from '../runtime/env';
 import { getActiveProxySession, getProxyResolutionViewForEnv } from '../proxy/session-registry';
 import { PROXY_CHILD_ENV_VAR } from '../proxy/env-vars';
 import { enforceProxySchemaFingerprint } from '../cli/helpers/proxy-schema-fingerprint';
@@ -18,7 +19,12 @@ const debug = createDebug('varlock:load');
 function getGraphEnvOverridesFromRuntimeEnv() {
   const overrideKeys = parseBlobOverrideKeys(process.env.__VARLOCK_ENV);
   if (!overrideKeys) return undefined;
-  return selectOverrideValuesFromEnv(process.env, overrideKeys);
+  // Select from the pre-injection process.env snapshot, not the live one: the
+  // runtime auto-init re-injects the parent blob's resolved values into
+  // process.env, which would otherwise clobber a command-local override
+  // (`FOO=bar varlock ...`) back to the parent's value when a nested `varlock`
+  // runs under a parent `varlock run`.
+  return selectOverrideValuesFromEnv(getPreInjectionProcessEnv(), overrideKeys);
 }
 
 function normalizePkgLoadPath(pkgLoadPath: string | Array<string>): Array<string> {
