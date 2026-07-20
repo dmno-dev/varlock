@@ -248,11 +248,11 @@ describe('type generation', () => {
           SCORES=[1, 2, 3]
           # @type=array(enum(dev, staging, prod))
           APP_MODES=[dev, staging]
-          # @type=object(url)
+          # @type=record(url)
           ENDPOINTS={api=https://example.com}
-          # @type=object(number, keyType=enum(us, eu))
+          # @type=record(number, keyType=enum(us, eu))
           REGION_LIMITS={us=1}
-          # @type=object
+          # @type=record
           FREEFORM={k=v}
         `,
       });

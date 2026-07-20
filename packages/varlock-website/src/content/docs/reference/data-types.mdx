@@ -251,7 +251,7 @@ MY_HASH=d41d8cd98f00b204e9800998ecf8427e
 
 <div>
 ### `simple-object`
-Validates and coerces JSON strings into objects. Equivalent to a bare [`object`](#object); prefer `object`, which can also validate keys and values.
+Validates and coerces JSON strings into objects. Equivalent to a bare [`record`](#record); prefer `record`, which can also validate keys and values.
 ```env-spec
 # @type=simple-object
 MY_OBJECT={"key": "value"}
@@ -323,11 +323,11 @@ An untyped item whose value is an array literal (e.g. `ITEM=[a, b]`) is inferred
 </div>
 
 <div>
-### `object`
+### `record`
 
-An object (string keys) whose values are coerced and validated with a value type, with optional key validation.
+An object (a keyed record) whose values are coerced and validated with a value type, with optional key validation. Named `record` (matching TS `Record` and zod convention) since it types ALL values uniformly rather than specific keys.
 
-**Value type** is the first positional argument, same forms as `array`. Bare `@type=object` accepts any object without per-value validation.
+**Value type** is the first positional argument, same forms as `array`. Bare `@type=record` accepts any object without per-value validation.
 
 **Object options:**
 - `keyType`: a type used to validate every key, e.g. `keyType=enum(us, eu)` or `keyType=string(matches="[a-z]+")`
@@ -335,22 +335,22 @@ An object (string keys) whose values are coerced and validated with a value type
 
 ```env-spec
 # every value must be a valid url
-# @type=object(url)
+# @type=record(url)
 ENDPOINTS={api=https://api.example.com, docs=https://docs.example.com}
 
 # keys restricted to an enum, values validated as numbers
-# @type=object(number, keyType=enum(us, eu))
+# @type=record(number, keyType=enum(us, eu))
 REGION_LIMITS={us=100, eu=50}
 
 # JSON object strings also work
-# @type=object(number)
+# @type=record(number)
 LIMITS='{"low": 1, "high": 100}'
 ```
 
 Validation errors are reported per entry (`"apac" is not a valid key - ...`).
 
-In application code, `ENV.ENDPOINTS` is a typed record (`Record<string, string>`; enum-constrained keys narrow further). In `process.env` the value is JSON.
+In application code, `ENV.ENDPOINTS` is typed as `Record<string, string>` (enum-constrained keys narrow further). In `process.env` the value is JSON.
 
-An untyped item whose value is an object literal (e.g. `ITEM={k=v}`) is inferred as an object automatically. The existing `simple-object` type behaves the same as a bare `object`.
+An untyped item whose value is an object literal (e.g. `ITEM={k=v}`) is inferred as a record automatically. The existing `simple-object` type behaves the same as a bare `record`.
 </div>
 </div>

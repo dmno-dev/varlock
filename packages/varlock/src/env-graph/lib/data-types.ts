@@ -841,8 +841,8 @@ const ArrayDataType = createEnvGraphDataType((settings?: ArrayDataTypeSettings) 
   };
 });
 
-export type ObjectDataTypeSettings = {
-  /** value type instance - built from the first positional arg of `@type=object(...)` */
+export type RecordDataTypeSettings = {
+  /** value type instance - built from the first positional arg of `@type=record(...)` */
   values?: EnvGraphDataType;
   /** value type display name for messages/descriptions */
   valuesTypeName?: string;
@@ -856,7 +856,7 @@ export type ObjectDataTypeSettings = {
   entriesIsLength?: number;
 };
 
-const ObjectDataType = createEnvGraphDataType((settings?: ObjectDataTypeSettings) => {
+const RecordDataType = createEnvGraphDataType((settings?: RecordDataTypeSettings) => {
   const valuesType = settings?.values;
   const keysType = settings?.keyType;
 
@@ -871,11 +871,11 @@ const ObjectDataType = createEnvGraphDataType((settings?: ObjectDataTypeSettings
   }
 
   return {
-    name: 'object',
+    name: 'record',
     icon: 'tabler:code-dots',
     typeDescription: valuesType
-      ? `object of ${settings?.valuesTypeName ?? valuesType.name} values`
-      : 'object',
+      ? `record of ${settings?.valuesTypeName ?? valuesType.name} values`
+      : 'record (untyped object)',
     coercedType,
     coerce(rawVal) {
       let obj: Record<string, unknown>;
@@ -978,5 +978,5 @@ export const BaseDataTypes: Array<EnvGraphDataTypeFactory> = [
   Md5DataType,
   DurationDataType,
   ArrayDataType,
-  ObjectDataType,
+  RecordDataType,
 ];

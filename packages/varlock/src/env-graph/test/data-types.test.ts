@@ -590,11 +590,11 @@ describe('array data type', () => {
   });
 });
 
-describe('object data type', () => {
+describe('record data type', () => {
   describe('input forms', () => {
     it('coerces native object literal values', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object
+        # @type=record
         ITEM={k=v, n=2}
       `);
       expect(g.configSchema.ITEM.isValid).toBe(true);
@@ -603,7 +603,7 @@ describe('object data type', () => {
 
     it('parses JSON object strings', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object
+        # @type=record
         ITEM='{"k": "v", "n": 2}'
       `);
       expect(g.configSchema.ITEM.isValid).toBe(true);
@@ -613,7 +613,7 @@ describe('object data type', () => {
     it('resolves refs within object literal values', async () => {
       const g = await loadAndResolve(outdent`
         BASE=https://example.com
-        # @type=object(url)
+        # @type=record(url)
         ENDPOINTS={api=\${BASE}, other=https://other.com}
       `);
       expect(g.configSchema.ENDPOINTS.isValid).toBe(true);
@@ -627,7 +627,7 @@ describe('object data type', () => {
   describe('value validation', () => {
     it('validates every value with the value type', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object(url)
+        # @type=record(url)
         ITEM={good=https://example.com, bad=not-a-url}
       `);
       expect(g.configSchema.ITEM.isValid).toBe(false);
@@ -636,7 +636,7 @@ describe('object data type', () => {
 
     it('coerces values with the value type', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object(number)
+        # @type=record(number)
         LIMITS={low=1, high=100}
       `);
       expect(g.configSchema.LIMITS.isValid).toBe(true);
@@ -647,7 +647,7 @@ describe('object data type', () => {
   describe('key validation', () => {
     it('validates keys against an enum', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object(url, keyType=enum(us, eu))
+        # @type=record(url, keyType=enum(us, eu))
         REGIONS={us=https://us.example.com, eu=https://eu.example.com}
       `);
       expect(g.configSchema.REGIONS.isValid).toBe(true);
@@ -655,7 +655,7 @@ describe('object data type', () => {
 
     it('rejects keys not in the enum', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object(url, keyType=enum(us, eu))
+        # @type=record(url, keyType=enum(us, eu))
         REGIONS={us=https://us.example.com, apac=https://apac.example.com}
       `);
       expect(g.configSchema.REGIONS.isValid).toBe(false);
@@ -664,7 +664,7 @@ describe('object data type', () => {
 
     it('validates keys with a pattern via string type options', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object(string, keyType=string(matches="[a-z]+"))
+        # @type=record(string, keyType=string(matches="[a-z]+"))
         ITEM={lower=ok, UPPER=bad}
       `);
       expect(g.configSchema.ITEM.isValid).toBe(false);
@@ -672,10 +672,10 @@ describe('object data type', () => {
     });
   });
 
-  describe('object options', () => {
-    it('rejects unknown object options', async () => {
+  describe('record options', () => {
+    it('rejects unknown record options', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object(string, whatever=true)
+        # @type=record(string, whatever=true)
         ITEM={k=v}
       `);
       expect(g.configSchema.ITEM.isValid).toBe(false);
@@ -684,7 +684,7 @@ describe('object data type', () => {
 
     it('allows empty objects', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object(string)
+        # @type=record(string)
         ITEM={}
       `);
       expect(g.configSchema.ITEM.isValid).toBe(true);
@@ -693,7 +693,7 @@ describe('object data type', () => {
 
     it('enforces entriesMinLength', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object(string, entriesMinLength=2)
+        # @type=record(string, entriesMinLength=2)
         ITEM={only=one}
       `);
       expect(g.configSchema.ITEM.isValid).toBe(false);
@@ -702,7 +702,7 @@ describe('object data type', () => {
 
     it('enforces entriesMaxLength', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object(string, entriesMaxLength=1)
+        # @type=record(string, entriesMaxLength=1)
         ITEM={a=1, b=2}
       `);
       expect(g.configSchema.ITEM.isValid).toBe(false);
@@ -711,13 +711,13 @@ describe('object data type', () => {
 
     it('enforces entriesIsLength (exact entry count)', async () => {
       const good = await loadAndResolve(outdent`
-        # @type=object(string, entriesIsLength=2)
+        # @type=record(string, entriesIsLength=2)
         ITEM={a=1, b=2}
       `);
       expect(good.configSchema.ITEM.isValid).toBe(true);
 
       const bad = await loadAndResolve(outdent`
-        # @type=object(string, entriesIsLength=2)
+        # @type=record(string, entriesIsLength=2)
         ITEM={a=1}
       `);
       expect(bad.configSchema.ITEM.isValid).toBe(false);
@@ -727,7 +727,7 @@ describe('object data type', () => {
     it('entry count options support dynamic values', async () => {
       const g = await loadAndResolve(outdent`
         STRICT=true
-        # @type=object(string, entriesMinLength=if($STRICT, 2, 0))
+        # @type=record(string, entriesMinLength=if($STRICT, 2, 0))
         ITEM={only=one}
       `);
       expect(g.configSchema.ITEM.isValid).toBe(false);
@@ -740,7 +740,7 @@ describe('object data type', () => {
         ITEM={k=v, n=2}
       `);
       expect(g.configSchema.ITEM.isValid).toBe(true);
-      expect(g.configSchema.ITEM.dataType?.name).toBe('object');
+      expect(g.configSchema.ITEM.dataType?.name).toBe('record');
       expect(g.configSchema.ITEM.resolvedValue).toEqual({ k: 'v', n: 2 });
     });
   });
@@ -748,7 +748,7 @@ describe('object data type', () => {
   describe('nesting composites', () => {
     it('supports arrays of objects (forced JSON serialization)', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=array(object)
+        # @type=array(record)
         ITEMS=[{name=a}, {name=b}]
       `);
       expect(g.configSchema.ITEMS.isValid).toBe(true);
@@ -757,7 +757,7 @@ describe('object data type', () => {
 
     it('supports objects of arrays', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object(array(number))
+        # @type=record(array(number))
         GROUPS={a=[1, 2], b=[3]}
       `);
       expect(g.configSchema.GROUPS.isValid).toBe(true);
@@ -946,7 +946,7 @@ describe('composite coercion error paths', () => {
 
   it('rejects a scalar value for an object type', async () => {
     const g = await loadAndResolve(outdent`
-      # @type=object(string)
+      # @type=record(string)
       ITEM=123
     `);
     expect(g.configSchema.ITEM.isValid).toBe(false);
@@ -954,7 +954,7 @@ describe('composite coercion error paths', () => {
 
   it('errors on malformed JSON object strings', async () => {
     const g = await loadAndResolve(outdent`
-      # @type=object(string)
+      # @type=record(string)
       ITEM='{"a": '
     `);
     expect(g.configSchema.ITEM.isValid).toBe(false);
@@ -963,7 +963,7 @@ describe('composite coercion error paths', () => {
 
   it('reports ALL invalid object values during coercion', async () => {
     const g = await loadAndResolve(outdent`
-      # @type=object(number)
+      # @type=record(number)
       LIMITS={a=x, b=2, c=y}
     `);
     expect(g.configSchema.LIMITS.isValid).toBe(false);
@@ -992,10 +992,10 @@ describe('@type option validation error paths', () => {
     ['array(string, isLength=abc)', 'isLength must be a number'],
     ['array(string, unique=maybe)', 'unique must be a boolean'],
     ['array(string, number)', 'single element type argument'],
-    ['object(string, number)', 'single value type argument'],
-    ['object(string, keyType={a=b})', 'keyType must be a type name or type call'],
-    ['object(string, keys=enum(a, b))', 'unknown object option "keys"'],
-    ['object(string, entriesMinLength=abc)', 'entriesMinLength must be a number'],
+    ['record(string, number)', 'single value type argument'],
+    ['record(string, keyType={a=b})', 'keyType must be a type name or type call'],
+    ['record(string, keys=enum(a, b))', 'unknown record option "keys"'],
+    ['record(string, entriesMinLength=abc)', 'entriesMinLength must be a number'],
   ] as const;
 
   for (const [spec, expectedError] of badSpecs) {
@@ -1008,6 +1008,16 @@ describe('@type option validation error paths', () => {
       expect(g.configSchema.ITEM.errors[0].message).toContain(expectedError);
     });
   }
+
+  it('points object users at record', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=object(url)
+      ITEM={k=v}
+    `);
+    expect(g.configSchema.ITEM.isValid).toBe(false);
+    expect(g.configSchema.ITEM.errors[0].message).toContain('unknown data type: object');
+    expect(g.configSchema.ITEM.errors[0].tip).toContain('record(...)');
+  });
 
   it('rejects a fn call that is neither a type nor a resolver', async () => {
     const g = await loadAndResolve(outdent`

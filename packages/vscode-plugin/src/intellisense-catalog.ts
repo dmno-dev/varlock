@@ -356,10 +356,10 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
     ],
   },
   {
-    name: 'object',
-    summary: 'Object with typed values and optional key validation.',
-    documentation: 'Example: `@type=object(url)` validates every value as a url; `@type=object(url, keyType=enum(us, eu))` also restricts keys. Bare `@type=object` accepts any object. Values can be native literals (`{k=v}`) or JSON objects; serializes to process.env as JSON.',
-    insertText: 'object(${1|string,url,number,boolean|})',
+    name: 'record',
+    summary: 'Object (keyed record) with typed values and optional key validation.',
+    documentation: 'Example: `@type=record(url)` validates every value as a url; `@type=record(url, keyType=enum(us, eu))` also restricts keys. Bare `@type=record` accepts any object. Values can be native literals (`{k=v}`) or JSON objects; serializes to process.env as JSON.',
+    insertText: 'record(${1|string,url,number,boolean|})',
     optionSnippets: [
       { name: 'keyType', insertText: 'keyType=${1:enum(a, b)}', documentation: 'Type used to validate each key (e.g. enum, string(matches=...)).' },
       { name: 'entriesMinLength', insertText: 'entriesMinLength=${1:1}', documentation: 'Minimum number of entries.' },

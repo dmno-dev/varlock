@@ -426,7 +426,7 @@ export class ConfigItem {
       return registry.array({ element: registry[elementTypeName](), elementTypeName });
     }
     if (resolver instanceof ObjectLiteralResolver) {
-      return registry.object();
+      return registry.record();
     }
 
     // builtin vars declare an authoritative type on their internal resolver

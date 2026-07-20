@@ -60,7 +60,7 @@ describe('composite value serialization', () => {
 
   it('arrays of composites force JSON regardless of format', async () => {
     const g = await loadAndResolve(outdent`
-      # @type=array(object)
+      # @type=array(record)
       ITEMS=[{name=a}, {name=b}]
     `);
     expect(g.configSchema.ITEMS.resolvedEnvStringValue).toBe('[{"name":"a"},{"name":"b"}]');
@@ -68,7 +68,7 @@ describe('composite value serialization', () => {
 
   it('objects serialize as JSON', async () => {
     const g = await loadAndResolve(outdent`
-      # @type=object(number)
+      # @type=record(number)
       LIMITS={low=1, high=100}
     `);
     expect(g.configSchema.LIMITS.resolvedEnvStringValue).toBe('{"low":1,"high":100}');
@@ -109,7 +109,7 @@ describe('serialized graph envStr', () => {
     const g = await loadAndResolve(outdent`
       # @type=array(string, separator=";")
       ITEM=[a, b]
-      # @type=object
+      # @type=record
       OBJ={k=v}
       # @type=number
       PORT=8080
@@ -136,7 +136,7 @@ describe('composite redaction', () => {
 
   it('registers nested object values of sensitive items', async () => {
     const g = await loadAndResolve(outdent`
-      # @type=object
+      # @type=record
       # @sensitive
       CREDS={user=admin-user-name-x, pass=super-secret-passphrase-1}
     `);
@@ -151,7 +151,7 @@ describe('runtime re-injection of composite values (initVarlockEnv)', () => {
     const g = await loadAndResolve(outdent`
       # @type=array(string, separator=";")
       HOSTS=[a.com, b.com]
-      # @type=object(number)
+      # @type=record(number)
       LIMITS={low=1}
       # @type=number
       PORT=8080

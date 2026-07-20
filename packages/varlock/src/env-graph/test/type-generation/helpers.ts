@@ -69,7 +69,7 @@ export const COMPOSITE_TYPE_FIXTURE = outdent`
   SCORES=[1, 2]
   # @type=array(enum(dev, prod))
   MODES=[dev]
-  # @type=object(number)
+  # @type=record(number)
   LIMITS={a=1}
 `;
 

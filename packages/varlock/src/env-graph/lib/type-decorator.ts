@@ -63,7 +63,15 @@ function materializeSettings(
 }
 
 const ARRAY_OPTION_KEYS = ['minLength', 'maxLength', 'isLength', 'unique', 'separator', 'format'] as const;
-const OBJECT_OPTION_KEYS = ['keyType', 'entriesMinLength', 'entriesMaxLength', 'entriesIsLength'] as const;
+const RECORD_OPTION_KEYS = ['keyType', 'entriesMinLength', 'entriesMaxLength', 'entriesIsLength'] as const;
+
+function unknownDataTypeError(name: string, context?: string): SchemaError {
+  return new SchemaError(`${context ? `${context} - ` : ''}unknown data type: ${name}`, {
+    // `object` is the natural guess for what varlock calls `record` (reserved for a
+    // possible future per-key shape type)
+    ...name === 'object' ? { tip: 'use record(...) for typed key/value maps, or simple-object for untyped JSON objects' } : {},
+  });
+}
 
 function typeSpecDisplayName(node: TypeSpecNode): string {
   return node instanceof ParsedEnvSpecFunctionCall ? node.name : String(node.value);
@@ -117,7 +125,7 @@ function buildNestedTypePlan(
 ): TypeSpecPlan {
   if (node instanceof ParsedEnvSpecStaticValue) {
     const name = String(node.value);
-    if (!(name in ctx.registry)) throw new SchemaError(`${context} - unknown data type: ${name}`);
+    if (!(name in ctx.registry)) throw unknownDataTypeError(name, context);
     return { deferred: [], build: () => ctx.registry[name]() };
   }
   // mutual recursion - nested composite types (array of objects, etc.) recurse back through here
@@ -198,7 +206,7 @@ function buildArrayTypePlan(
   };
 }
 
-function validateObjectSettings(settings: Record<string, any>, context: string) {
+function validateRecordSettings(settings: Record<string, any>, context: string) {
   for (const lengthKey of ['entriesMinLength', 'entriesMaxLength', 'entriesIsLength'] as const) {
     if (settings[lengthKey] !== undefined && !_.isNumber(settings[lengthKey])) {
       throw new SchemaError(`${context} - ${lengthKey} must be a number`);
@@ -206,7 +214,7 @@ function validateObjectSettings(settings: Record<string, any>, context: string) 
   }
 }
 
-function buildObjectTypePlan(
+function buildRecordTypePlan(
   ctx: TypeSpecContext,
   fnCall: ParsedEnvSpecFunctionCall,
   context: string,
@@ -218,10 +226,10 @@ function buildObjectTypePlan(
 
   for (const arg of fnCall.data.args.values) {
     if (arg instanceof ParsedEnvSpecKeyValuePair) {
-      if (!(OBJECT_OPTION_KEYS as ReadonlyArray<string>).includes(arg.key)) {
+      if (!(RECORD_OPTION_KEYS as ReadonlyArray<string>).includes(arg.key)) {
         throw new SchemaError(
-          `${context} - unknown object option "${arg.key}" (valid: ${OBJECT_OPTION_KEYS.join(', ')})`,
-          { tip: 'value type options go in a nested call, e.g. object(string(minLength=2))' },
+          `${context} - unknown record option "${arg.key}" (valid: ${RECORD_OPTION_KEYS.join(', ')})`,
+          { tip: 'value type options go in a nested call, e.g. record(string(minLength=2))' },
         );
       }
       if (arg.key === 'keyType') {
@@ -241,12 +249,12 @@ function buildObjectTypePlan(
     } else if (arg instanceof ParsedEnvSpecStaticValue || arg instanceof ParsedEnvSpecFunctionCall) {
       positionals.push(arg);
     } else {
-      throw new SchemaError(`${context} - invalid argument in object(...)`);
+      throw new SchemaError(`${context} - invalid argument in record(...)`);
     }
   }
 
   if (positionals.length > 1) {
-    throw new SchemaError(`${context} - object(...) takes a single value type argument`);
+    throw new SchemaError(`${context} - record(...) takes a single value type argument`);
   }
   let valuesPlan: TypeSpecPlan | undefined;
   let valuesTypeName: string | undefined;
@@ -257,19 +265,19 @@ function buildObjectTypePlan(
   }
 
   // validate the static settings upfront so schema errors surface at load time
-  validateObjectSettings(materializeSettings(settings), context);
+  validateRecordSettings(materializeSettings(settings), context);
 
   return {
     deferred,
     build: (resolved) => {
       const materialized = materializeSettings(settings, resolved);
-      validateObjectSettings(materialized, context);
+      validateRecordSettings(materialized, context);
       if (valuesPlan) {
         materialized.values = valuesPlan.build(resolved);
         materialized.valuesTypeName = valuesTypeName;
       }
       if (keyTypePlan) materialized.keyType = keyTypePlan.build(resolved);
-      return ctx.registry.object(materialized);
+      return ctx.registry.record(materialized);
     },
   };
 }
@@ -318,10 +326,10 @@ function buildTypeCallPlan(
   context: string,
 ): TypeSpecPlan {
   const name = fnCall.name;
-  if (!(name in ctx.registry)) throw new SchemaError(`${context} - unknown data type: ${name}`);
+  if (!(name in ctx.registry)) throw unknownDataTypeError(name, context);
 
   if (name === 'array') return buildArrayTypePlan(ctx, fnCall, context);
-  if (name === 'object') return buildObjectTypePlan(ctx, fnCall, context);
+  if (name === 'record') return buildRecordTypePlan(ctx, fnCall, context);
 
   const deferred: TypeSpecPlan['deferred'] = [];
   const { positionals, settings } = extractScalarTypeArgs(fnCall, ctx, deferred, context);
@@ -405,7 +413,7 @@ export function buildTypeSpecPlan(
 ): TypeSpecPlan {
   if (decoratorValue instanceof ParsedEnvSpecStaticValue) {
     const name = String(decoratorValue.value);
-    if (!(name in ctx.registry)) throw new SchemaError(`unknown data type: ${name}`);
+    if (!(name in ctx.registry)) throw unknownDataTypeError(name);
     return { deferred: [], build: () => ctx.registry[name]() };
   }
   if (decoratorValue instanceof ParsedEnvSpecFunctionCall) {
@@ -415,7 +423,7 @@ export function buildTypeSpecPlan(
     if (decoratorValue.name in ctx.resolverFns) {
       return buildDynamicTypePlan(ctx, decoratorValue);
     }
-    throw new SchemaError(`unknown data type: ${decoratorValue.name}`);
+    throw unknownDataTypeError(decoratorValue.name);
   }
   throw new SchemaError('@type must be set to a type name (e.g. @type=number) or a type call (e.g. @type=enum(a, b))');
 }
