@@ -250,7 +250,7 @@ describe('type generation', () => {
           APP_MODES=[dev, staging]
           # @type=object(url)
           ENDPOINTS={api=https://example.com}
-          # @type=object(number, keys=enum(us, eu))
+          # @type=object(number, keyType=enum(us, eu))
           REGION_LIMITS={us=1}
           # @type=object
           FREEFORM={k=v}

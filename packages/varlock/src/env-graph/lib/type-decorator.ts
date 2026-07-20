@@ -63,7 +63,7 @@ function materializeSettings(
 }
 
 const ARRAY_OPTION_KEYS = ['minLength', 'maxLength', 'isLength', 'unique', 'separator', 'format'] as const;
-const OBJECT_OPTION_KEYS = ['keys'] as const;
+const OBJECT_OPTION_KEYS = ['keyType', 'entriesMinLength', 'entriesMaxLength', 'entriesIsLength'] as const;
 
 function typeSpecDisplayName(node: TypeSpecNode): string {
   return node instanceof ParsedEnvSpecFunctionCall ? node.name : String(node.value);
@@ -198,6 +198,14 @@ function buildArrayTypePlan(
   };
 }
 
+function validateObjectSettings(settings: Record<string, any>, context: string) {
+  for (const lengthKey of ['entriesMinLength', 'entriesMaxLength', 'entriesIsLength'] as const) {
+    if (settings[lengthKey] !== undefined && !_.isNumber(settings[lengthKey])) {
+      throw new SchemaError(`${context} - ${lengthKey} must be a number`);
+    }
+  }
+}
+
 function buildObjectTypePlan(
   ctx: TypeSpecContext,
   fnCall: ParsedEnvSpecFunctionCall,
@@ -205,7 +213,8 @@ function buildObjectTypePlan(
 ): TypeSpecPlan {
   const deferred: TypeSpecPlan['deferred'] = [];
   const positionals: Array<TypeSpecNode> = [];
-  let keysPlan: TypeSpecPlan | undefined;
+  const settings: Record<string, any> = {};
+  let keyTypePlan: TypeSpecPlan | undefined;
 
   for (const arg of fnCall.data.args.values) {
     if (arg instanceof ParsedEnvSpecKeyValuePair) {
@@ -215,15 +224,19 @@ function buildObjectTypePlan(
           { tip: 'value type options go in a nested call, e.g. object(string(minLength=2))' },
         );
       }
-      // `keys=` takes a type spec (name or call), not a scalar
-      if (
-        arg.value instanceof ParsedEnvSpecStaticValue
-        || arg.value instanceof ParsedEnvSpecFunctionCall
-      ) {
-        keysPlan = buildNestedTypePlan(ctx, arg.value, context);
-        deferred.push(...keysPlan.deferred);
+      if (arg.key === 'keyType') {
+        // `keyType=` takes a type spec (name or call), not a scalar
+        if (
+          arg.value instanceof ParsedEnvSpecStaticValue
+          || arg.value instanceof ParsedEnvSpecFunctionCall
+        ) {
+          keyTypePlan = buildNestedTypePlan(ctx, arg.value, context);
+          deferred.push(...keyTypePlan.deferred);
+        } else {
+          throw new SchemaError(`${context} - keyType must be a type name or type call, e.g. keyType=enum(us, eu)`);
+        }
       } else {
-        throw new SchemaError(`${context} - keys must be a type name or type call, e.g. keys=enum(us, eu)`);
+        settings[arg.key] = optionValue(arg, ctx, deferred, context);
       }
     } else if (arg instanceof ParsedEnvSpecStaticValue || arg instanceof ParsedEnvSpecFunctionCall) {
       positionals.push(arg);
@@ -243,16 +256,20 @@ function buildObjectTypePlan(
     deferred.push(...valuesPlan.deferred);
   }
 
+  // validate the static settings upfront so schema errors surface at load time
+  validateObjectSettings(materializeSettings(settings), context);
+
   return {
     deferred,
     build: (resolved) => {
-      const settings: Record<string, any> = {};
+      const materialized = materializeSettings(settings, resolved);
+      validateObjectSettings(materialized, context);
       if (valuesPlan) {
-        settings.values = valuesPlan.build(resolved);
-        settings.valuesTypeName = valuesTypeName;
+        materialized.values = valuesPlan.build(resolved);
+        materialized.valuesTypeName = valuesTypeName;
       }
-      if (keysPlan) settings.keys = keysPlan.build(resolved);
-      return ctx.registry.object(settings);
+      if (keyTypePlan) materialized.keyType = keyTypePlan.build(resolved);
+      return ctx.registry.object(materialized);
     },
   };
 }

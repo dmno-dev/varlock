@@ -330,7 +330,8 @@ An object (string keys) whose values are coerced and validated with a value type
 **Value type** is the first positional argument, same forms as `array`. Bare `@type=object` accepts any object without per-value validation.
 
 **Object options:**
-- `keys`: a type used to validate every key, e.g. `keys=enum(us, eu)` or `keys=string(matches="[a-z]+")`
+- `keyType`: a type used to validate every key, e.g. `keyType=enum(us, eu)` or `keyType=string(matches="[a-z]+")`
+- `entriesMinLength` / `entriesMaxLength` / `entriesIsLength` (number): entry count bounds (or an exact count). Empty objects are valid by default
 
 ```env-spec
 # every value must be a valid url
@@ -338,7 +339,7 @@ An object (string keys) whose values are coerced and validated with a value type
 ENDPOINTS={api=https://api.example.com, docs=https://docs.example.com}
 
 # keys restricted to an enum, values validated as numbers
-# @type=object(number, keys=enum(us, eu))
+# @type=object(number, keyType=enum(us, eu))
 REGION_LIMITS={us=100, eu=50}
 
 # JSON object strings also work

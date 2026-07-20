@@ -358,9 +358,14 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
   {
     name: 'object',
     summary: 'Object with typed values and optional key validation.',
-    documentation: 'Example: `@type=object(url)` validates every value as a url; `@type=object(url, keys=enum(us, eu))` also restricts keys. Bare `@type=object` accepts any object. Values can be native literals (`{k=v}`) or JSON objects; serializes to process.env as JSON.',
+    documentation: 'Example: `@type=object(url)` validates every value as a url; `@type=object(url, keyType=enum(us, eu))` also restricts keys. Bare `@type=object` accepts any object. Values can be native literals (`{k=v}`) or JSON objects; serializes to process.env as JSON.',
     insertText: 'object(${1|string,url,number,boolean|})',
-    optionSnippets: [{ name: 'keys', insertText: 'keys=${1:enum(a, b)}', documentation: 'Type used to validate each key (e.g. enum, string(matches=...)).' }],
+    optionSnippets: [
+      { name: 'keyType', insertText: 'keyType=${1:enum(a, b)}', documentation: 'Type used to validate each key (e.g. enum, string(matches=...)).' },
+      { name: 'entriesMinLength', insertText: 'entriesMinLength=${1:1}', documentation: 'Minimum number of entries.' },
+      { name: 'entriesMaxLength', insertText: 'entriesMaxLength=${1:10}', documentation: 'Maximum number of entries.' },
+      { name: 'entriesIsLength', insertText: 'entriesIsLength=${1:2}', documentation: 'Exact number of entries.' },
+    ],
   },
   {
     name: 'email',

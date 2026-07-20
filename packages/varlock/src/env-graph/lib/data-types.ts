@@ -846,13 +846,19 @@ export type ObjectDataTypeSettings = {
   values?: EnvGraphDataType;
   /** value type display name for messages/descriptions */
   valuesTypeName?: string;
-  /** key validation type instance - built from the `keys=...` option (e.g. `keys=enum(a, b)`) */
-  keys?: EnvGraphDataType;
+  /** key validation type instance - built from the `keyType=...` option (e.g. `keyType=enum(a, b)`) */
+  keyType?: EnvGraphDataType;
+  /** minimum number of entries */
+  entriesMinLength?: number;
+  /** maximum number of entries */
+  entriesMaxLength?: number;
+  /** exact number of entries */
+  entriesIsLength?: number;
 };
 
 const ObjectDataType = createEnvGraphDataType((settings?: ObjectDataTypeSettings) => {
   const valuesType = settings?.values;
-  const keysType = settings?.keys;
+  const keysType = settings?.keyType;
 
   let coercedType: CoercedType = 'object';
   if (valuesType || keysType) {
@@ -917,6 +923,17 @@ const ObjectDataType = createEnvGraphDataType((settings?: ObjectDataTypeSettings
     async validate(val) {
       const obj = val as Record<string, unknown>;
       const errors: Array<ValidationError> = [];
+
+      const entryCount = Object.keys(obj).length;
+      if (settings?.entriesMinLength !== undefined && entryCount < settings.entriesMinLength) {
+        errors.push(new ValidationError(`Object must have at least ${settings.entriesMinLength} entry(s)`));
+      }
+      if (settings?.entriesMaxLength !== undefined && entryCount > settings.entriesMaxLength) {
+        errors.push(new ValidationError(`Object must have at most ${settings.entriesMaxLength} entry(s)`));
+      }
+      if (settings?.entriesIsLength !== undefined && entryCount !== settings.entriesIsLength) {
+        errors.push(new ValidationError(`Object must have exactly ${settings.entriesIsLength} entry(s)`));
+      }
 
       for (const [key, value] of Object.entries(obj)) {
         if (keysType) {

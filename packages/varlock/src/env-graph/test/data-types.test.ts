@@ -647,7 +647,7 @@ describe('object data type', () => {
   describe('key validation', () => {
     it('validates keys against an enum', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object(url, keys=enum(us, eu))
+        # @type=object(url, keyType=enum(us, eu))
         REGIONS={us=https://us.example.com, eu=https://eu.example.com}
       `);
       expect(g.configSchema.REGIONS.isValid).toBe(true);
@@ -655,7 +655,7 @@ describe('object data type', () => {
 
     it('rejects keys not in the enum', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object(url, keys=enum(us, eu))
+        # @type=object(url, keyType=enum(us, eu))
         REGIONS={us=https://us.example.com, apac=https://apac.example.com}
       `);
       expect(g.configSchema.REGIONS.isValid).toBe(false);
@@ -664,7 +664,7 @@ describe('object data type', () => {
 
     it('validates keys with a pattern via string type options', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=object(string, keys=string(matches="[a-z]+"))
+        # @type=object(string, keyType=string(matches="[a-z]+"))
         ITEM={lower=ok, UPPER=bad}
       `);
       expect(g.configSchema.ITEM.isValid).toBe(false);
@@ -689,6 +689,48 @@ describe('object data type', () => {
       `);
       expect(g.configSchema.ITEM.isValid).toBe(true);
       expect(g.configSchema.ITEM.resolvedValue).toEqual({});
+    });
+
+    it('enforces entriesMinLength', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=object(string, entriesMinLength=2)
+        ITEM={only=one}
+      `);
+      expect(g.configSchema.ITEM.isValid).toBe(false);
+      expect(g.configSchema.ITEM.validationErrors?.[0]?.message).toContain('at least 2');
+    });
+
+    it('enforces entriesMaxLength', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=object(string, entriesMaxLength=1)
+        ITEM={a=1, b=2}
+      `);
+      expect(g.configSchema.ITEM.isValid).toBe(false);
+      expect(g.configSchema.ITEM.validationErrors?.[0]?.message).toContain('at most 1');
+    });
+
+    it('enforces entriesIsLength (exact entry count)', async () => {
+      const good = await loadAndResolve(outdent`
+        # @type=object(string, entriesIsLength=2)
+        ITEM={a=1, b=2}
+      `);
+      expect(good.configSchema.ITEM.isValid).toBe(true);
+
+      const bad = await loadAndResolve(outdent`
+        # @type=object(string, entriesIsLength=2)
+        ITEM={a=1}
+      `);
+      expect(bad.configSchema.ITEM.isValid).toBe(false);
+      expect(bad.configSchema.ITEM.validationErrors?.[0]?.message).toContain('exactly 2');
+    });
+
+    it('entry count options support dynamic values', async () => {
+      const g = await loadAndResolve(outdent`
+        STRICT=true
+        # @type=object(string, entriesMinLength=if($STRICT, 2, 0))
+        ITEM={only=one}
+      `);
+      expect(g.configSchema.ITEM.isValid).toBe(false);
     });
   });
 
@@ -951,7 +993,9 @@ describe('@type option validation error paths', () => {
     ['array(string, unique=maybe)', 'unique must be a boolean'],
     ['array(string, number)', 'single element type argument'],
     ['object(string, number)', 'single value type argument'],
-    ['object(string, keys={a=b})', 'keys must be a type name or type call'],
+    ['object(string, keyType={a=b})', 'keyType must be a type name or type call'],
+    ['object(string, keys=enum(a, b))', 'unknown object option "keys"'],
+    ['object(string, entriesMinLength=abc)', 'entriesMinLength must be a number'],
   ] as const;
 
   for (const [spec, expectedError] of badSpecs) {
