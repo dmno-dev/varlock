@@ -6,6 +6,12 @@
 
 
 
+
+## 0.4.2
+<sub>2026-07-20</sub>
+
+- [#889](https://github.com/dmno-dev/varlock/pull/889)  *(patch)* - Fix $(...) truncation on nested parentheses and dropped spaces before $VAR/${VAR} inside unquoted exec expansion
+
 ## 0.4.1
 <sub>2026-06-17</sub>
 

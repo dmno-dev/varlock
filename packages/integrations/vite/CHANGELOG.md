@@ -9,6 +9,13 @@
 
 
 
+
+## 1.3.1
+<sub>2026-07-20</sub>
+
+- [#894](https://github.com/dmno-dev/varlock/pull/894)  *(patch)*
+  Fix Astro + Cloudflare static/prerendered builds: bake resolved env into the build-time prerender worker, and stop mis-injecting SSR init code into non-entry modules during builds (REQUIRE_TLA errors)
+
 ## 1.3.0
 <sub>2026-07-15</sub>
 

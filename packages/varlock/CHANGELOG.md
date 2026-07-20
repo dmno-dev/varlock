@@ -17,6 +17,22 @@
 
 
 
+
+## 1.12.0
+<sub>2026-07-20</sub>
+
+- [#892](https://github.com/dmno-dev/varlock/pull/892)  *(minor)* - Add `@generateJavaEnv` and `@generateCsharpEnv` loadable env modules (typed Env, loader, sensitive keys)
+- [#780](https://github.com/dmno-dev/varlock/pull/780)  *(patch)*
+  `@encryptInjectedEnv` is now honored when `varlock run` / `varlock proxy run` inject the env blob.
+
+  Previously the setting only applied to the library auto-load path and build-time integrations; the CLI spawn paths injected a plaintext `__VARLOCK_ENV` blob and merely forwarded a pre-existing key. In blob-only inject mode (`--inject blob`), the blob is now encrypted with an ephemeral key carried alongside it, so resolved values never sit in plaintext in the child's environment. This is leak resistance (crash reporters, env dumps, logs), not protection from an attacker who can read the full environment.
+- [#780](https://github.com/dmno-dev/varlock/pull/780)  *(patch)*
+  Add `varlock proxy`: a local credential proxy for AI agents (preview).
+
+  Run an agent (or any untrusted tool) through a local MITM proxy so it only ever sees placeholder secrets: real values are injected at the wire (bound to a verified upstream TLS identity), responses are scrubbed back to placeholders, and every request is policy-checked and audited. Mark a secret with `@proxy(domain="api.example.com")`; sensitive items are shown to the child as placeholders by default, with `@proxy=passthrough` / `@proxy=omit` escape hatches. Route with host/path/method rules (`block`, `approval`), set egress with `@proxyConfig={egress="strict"}`, and hot-reload live policy with `varlock proxy reload`. Sessions are durable and auditable (`varlock proxy status` / `rules` / `audit`); `proxy start` runs a daemon with a live request log that other `proxy run` invocations attach to. Add `proxy run --sandbox` to run the agent in a sandbox whose only egress is the proxy: a built-in macOS credential + egress jail, or `--sandbox=docker` (`=podman`) to run it in a container while your secrets stay on the host. Preview: on its own the proxy is same-uid and raises the bar rather than being a boundary; `--sandbox` (or a container) is what makes it one. See the [proxy guide](https://varlock.dev/guides/proxy/).
+- [#907](https://github.com/dmno-dev/varlock/pull/907)  *(patch)*
+  Fix nested `varlock run`: a command-local override (`FOO=bar varlock ...`) inside a parent `varlock run` now wins over the parent's injected value again, instead of being clobbered by the re-injected env blob.
+
 ## 1.11.0
 <sub>2026-07-15</sub>
 
