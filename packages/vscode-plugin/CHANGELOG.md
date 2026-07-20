@@ -7,6 +7,12 @@
 
 
 
+
+## 0.2.7
+<sub>2026-07-20</sub>
+
+- [#892](https://github.com/dmno-dev/varlock/pull/892)  *(patch)* - Add `@generateJavaEnv` and `@generateCsharpEnv` loadable env modules (typed Env, loader, sensitive keys)
+
 ## 0.2.6
 <sub>2026-07-15</sub>
 
