@@ -1107,3 +1107,57 @@ describe('per-environment dynamic types via forEnv', () => {
     expect(g.configSchema.SERVICE_HOST.isValid).toBe(true);
   });
 });
+
+describe('multi-line composite literal values', () => {
+  it('resolves multi-line array literals (trailing comma, comments, blank lines)', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(email)
+      ALLOWED_EMAILS=[
+        admin@example.com,
+        # ops folks
+        ops@example.com,
+
+        support@example.com,
+      ]
+      AFTER=still-parses
+    `);
+    expect(g.configSchema.ALLOWED_EMAILS.isValid).toBe(true);
+    expect(g.configSchema.ALLOWED_EMAILS.resolvedValue).toEqual([
+      'admin@example.com',
+      'ops@example.com',
+      'support@example.com',
+    ]);
+    expect(g.configSchema.AFTER.resolvedValue).toBe('still-parses');
+  });
+
+  it('resolves multi-line record literals with refs', async () => {
+    const g = await loadAndResolve(outdent`
+      BASE=https://api.example.com
+      # @type=record(url)
+      ENDPOINTS={
+        api=${'$'}{BASE},
+        docs=https://docs.example.com,
+      }
+    `);
+    expect(g.configSchema.ENDPOINTS.isValid).toBe(true);
+    expect(g.configSchema.ENDPOINTS.resolvedValue).toEqual({
+      api: 'https://api.example.com',
+      docs: 'https://docs.example.com',
+    });
+  });
+
+  it('resolves multi-line arrays of records', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(record)
+      ITEMS=[
+        {name=a, weight=1},
+        {name=b, weight=2},
+      ]
+    `);
+    expect(g.configSchema.ITEMS.isValid).toBe(true);
+    expect(g.configSchema.ITEMS.resolvedValue).toEqual([
+      { name: 'a', weight: 1 },
+      { name: 'b', weight: 2 },
+    ]);
+  });
+});

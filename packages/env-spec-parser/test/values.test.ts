@@ -315,6 +315,14 @@ describe('object literal item values', () => {
     expect(valNode.simplifiedValue).toEqual({});
   });
 
+
+  it('supports multi-line object literals with trailing comma', () => {
+    const result = parseEnvSpecDotEnvFile('VAL={\n  api=https://a.com,\n  # comment\n  docs=https://b.com,\n}');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecObjectLiteral);
+    expect(valNode.simplifiedValue).toEqual({ api: 'https://a.com', docs: 'https://b.com' });
+  });
+
   // eslint-disable-next-line no-template-curly-in-string
   it('expands ${REF} within object values', () => {
     // eslint-disable-next-line no-template-curly-in-string
