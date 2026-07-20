@@ -288,7 +288,7 @@ SESSION_SECRET=cache(randomHex(32))
 
 ```env-spec
 # dynamic - only use disk caching in development
-# @cache=forEnv(dev, "disk")
+# @cache=if(forEnv(dev), "disk")
 # ---
 ```
 
