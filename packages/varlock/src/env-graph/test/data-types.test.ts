@@ -864,3 +864,176 @@ describe('dynamic @type parts (resolver-valued)', () => {
     });
   });
 });
+
+describe('composite coercion error paths', () => {
+  it('reports ALL invalid elements during coercion, not just the first', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(number)
+      NUMS=[abc, 2, xyz]
+    `);
+    expect(g.configSchema.NUMS.isValid).toBe(false);
+    const msg = g.configSchema.NUMS.coercionError?.message ?? '';
+    expect(msg).toContain('[0]');
+    expect(msg).toContain('[2]');
+    expect(msg).not.toContain('[1]');
+  });
+
+  it('rejects a scalar non-string value for an array type', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(string)
+      ITEM=123
+    `);
+    expect(g.configSchema.ITEM.isValid).toBe(false);
+    expect(g.configSchema.ITEM.coercionError?.message).toContain('Cannot coerce');
+  });
+
+  it('rejects a scalar value for an object type', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=object(string)
+      ITEM=123
+    `);
+    expect(g.configSchema.ITEM.isValid).toBe(false);
+  });
+
+  it('errors on malformed JSON object strings', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=object(string)
+      ITEM='{"a": '
+    `);
+    expect(g.configSchema.ITEM.isValid).toBe(false);
+    expect(g.configSchema.ITEM.coercionError?.message).toContain('JSON');
+  });
+
+  it('reports ALL invalid object values during coercion', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=object(number)
+      LIMITS={a=x, b=2, c=y}
+    `);
+    expect(g.configSchema.LIMITS.isValid).toBe(false);
+    const msg = g.configSchema.LIMITS.coercionError?.message ?? '';
+    expect(msg).toContain('"a"');
+    expect(msg).toContain('"c"');
+    expect(msg).not.toContain('"b"');
+  });
+
+  it('whitespace-only string coerces to an empty array', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(string)
+      ITEM=" "
+    `);
+    expect(g.configSchema.ITEM.isValid).toBe(true);
+    expect(g.configSchema.ITEM.resolvedValue).toEqual([]);
+  });
+});
+
+describe('@type option validation error paths', () => {
+  const badSpecs = [
+    ['array(string, separator=7)', 'separator must be a non-empty string'],
+    ['array(string, separator="")', 'separator must be a non-empty string'],
+    ['array(string, format=yaml)', 'format must be "separator" or "json"'],
+    ['array(string, minLength=abc)', 'minLength must be a number'],
+    ['array(string, unique=maybe)', 'unique must be a boolean'],
+    ['array(string, number)', 'single element type argument'],
+    ['object(string, number)', 'single value type argument'],
+    ['object(string, keys={a=b})', 'keys must be a type name or type call'],
+  ] as const;
+
+  for (const [spec, expectedError] of badSpecs) {
+    it(`rejects ${spec}`, async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=${spec}
+        ITEM=[a]
+      `);
+      expect(g.configSchema.ITEM.isValid).toBe(false);
+      expect(g.configSchema.ITEM.errors[0].message).toContain(expectedError);
+    });
+  }
+
+  it('rejects a fn call that is neither a type nor a resolver', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=notARealThing(a, b)
+      ITEM=x
+    `);
+    expect(g.configSchema.ITEM.isValid).toBe(false);
+    expect(g.configSchema.ITEM.errors[0].message).toContain('unknown data type: notARealThing');
+  });
+
+  it('supports the deprecated regex() option form', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=regex("^[A-Z]+$"))
+      GOOD=ABC
+      # @type=string(matches=regex("^[A-Z]+$"))
+      BAD=abc
+    `);
+    expect(g.configSchema.GOOD.isValid).toBe(true);
+    expect(g.configSchema.BAD.isValid).toBe(false);
+  });
+
+  it('surfaces schema errors from resolver-valued options (bad arg counts)', async () => {
+    const g = await loadAndResolve(outdent`
+      OTHER=x
+      # @type=string(minLength=eq($OTHER))
+      ITEM=abc
+    `);
+    expect(g.configSchema.ITEM.isValid).toBe(false);
+    const messages = g.configSchema.ITEM.errors.map((e) => e.message).join('\n');
+    expect(messages).toContain('eq()');
+  });
+});
+
+describe('dynamic options within nested element types', () => {
+  it('resolves dynamic options inside array element types', async () => {
+    const g = await loadAndResolve(outdent`
+      STRICT=true
+      # @type=array(string(minLength=if($STRICT, 5, 1)))
+      ITEMS=[ok, toolongisfine, x]
+    `);
+    expect(g.configSchema.ITEMS.isValid).toBe(false);
+    const messages = (g.configSchema.ITEMS.validationErrors ?? []).map((e) => e.message).join('\n');
+    expect(messages).toContain('[0]');
+    expect(messages).toContain('[2]');
+  });
+
+  it('relaxes nested element constraints when the condition flips', async () => {
+    const g = await loadAndResolve(outdent`
+      STRICT=false
+      # @type=array(string(minLength=if($STRICT, 5, 1)))
+      ITEMS=[ok, toolongisfine, x]
+    `);
+    expect(g.configSchema.ITEMS.isValid).toBe(true);
+  });
+});
+
+describe('per-environment dynamic types via forEnv', () => {
+  async function loadWithEnv(appEnv: string) {
+    const g = new EnvGraph();
+    const testDataSource = new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @currentEnv=$APP_ENV @defaultRequired=false
+        # ---
+        # @type=enum(dev, production)
+        APP_ENV=${appEnv}
+        # @type=string(minLength=if(forEnv(production), 10, 1))
+        API_TOKEN=short
+        # @type=if(forEnv(production), url, string)
+        SERVICE_HOST=not a url
+      `,
+    });
+    await g.setRootDataSource(testDataSource);
+    await g.finishLoad();
+    await g.resolveEnvValues();
+    return g;
+  }
+
+  it('applies strict constraints in production', async () => {
+    const g = await loadWithEnv('production');
+    expect(g.configSchema.API_TOKEN.isValid).toBe(false);
+    expect(g.configSchema.SERVICE_HOST.isValid).toBe(false);
+  });
+
+  it('relaxes constraints outside production', async () => {
+    const g = await loadWithEnv('dev');
+    expect(g.configSchema.API_TOKEN.isValid).toBe(true);
+    expect(g.configSchema.SERVICE_HOST.isValid).toBe(true);
+  });
+});

@@ -267,6 +267,27 @@ describe('type generation', () => {
       expect(src).toContain('FREEFORM?: Record<string, any>;');
     });
 
+    test('dynamic @type parts generate from the provisional (static) type', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultRequired=false
+          # ---
+          # @type=enum(dev, production)
+          APP_ENV=dev
+          # @type=if(eq($APP_ENV, production), url, string)
+          SERVICE_HOST=localhost:3000
+          # @type=string(minLength=if(eq($APP_ENV, production), 32, 8))
+          API_TOKEN=abcdefgh
+        `,
+      });
+
+      const items = await collectTypeGenItems(g);
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
+      // both candidates (url/string) generate string - output is env-independent
+      expect(src).toContain('SERVICE_HOST?: string;');
+      expect(src).toContain('API_TOKEN?: string;');
+    });
+
     test('boolean type gets correct TypeGenInfo', async () => {
       const g = await loadGraph({
         envFile: outdent`

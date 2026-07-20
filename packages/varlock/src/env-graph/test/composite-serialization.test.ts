@@ -145,3 +145,41 @@ describe('composite redaction', () => {
     expect(redacted).not.toContain('super-secret-passphrase-1');
   });
 });
+
+describe('runtime re-injection of composite values (initVarlockEnv)', () => {
+  it('injects the envStr flat form into process.env, typed value into ENV', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(string, separator=";")
+      HOSTS=[a.com, b.com]
+      # @type=object(number)
+      LIMITS={low=1}
+      # @type=number
+      PORT=8080
+    `);
+    const { initVarlockEnv, ENV } = await import('../../runtime/env');
+
+    const prevBlob = process.env.__VARLOCK_ENV;
+    const prevKeys = { HOSTS: process.env.HOSTS, LIMITS: process.env.LIMITS, PORT: process.env.PORT };
+    try {
+      process.env.__VARLOCK_ENV = JSON.stringify(g.getSerializedGraph());
+      initVarlockEnv();
+
+      // process.env gets the flat string form (separator-joined / JSON)
+      expect(process.env.HOSTS).toBe('a.com;b.com');
+      expect(process.env.LIMITS).toBe('{"low":1}');
+      expect(process.env.PORT).toBe('8080');
+
+      // the ENV proxy exposes the real typed values
+      expect((ENV as any).HOSTS).toEqual(['a.com', 'b.com']);
+      expect((ENV as any).LIMITS).toEqual({ low: 1 });
+      expect((ENV as any).PORT).toBe(8080);
+    } finally {
+      if (prevBlob === undefined) delete process.env.__VARLOCK_ENV;
+      else process.env.__VARLOCK_ENV = prevBlob;
+      for (const [k, v] of Object.entries(prevKeys)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+});
