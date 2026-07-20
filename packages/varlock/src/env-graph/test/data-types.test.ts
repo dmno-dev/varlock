@@ -708,3 +708,43 @@ describe('object data type', () => {
     });
   });
 });
+
+describe('@type arg handling (scalar types)', () => {
+  it('rejects mixing positional args and named options', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=enum(a, b, someOpt=true)
+      ITEM=a
+    `);
+    expect(g.configSchema.ITEM.isValid).toBe(false);
+    expect(g.configSchema.ITEM.errors[0].message).toContain('cannot mix');
+  });
+
+  it('rejects non-static option values with a clear error', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=fallback(a, b))
+      ITEM=x
+    `);
+    expect(g.configSchema.ITEM.isValid).toBe(false);
+    expect(g.configSchema.ITEM.errors[0].message).toContain('must be a static value');
+  });
+
+  it('rejects nested type calls on scalar types', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(enum(a, b))
+      ITEM=x
+    `);
+    expect(g.configSchema.ITEM.isValid).toBe(false);
+    expect(g.configSchema.ITEM.errors[0].message).toContain('only supported as array/object element types');
+  });
+
+  it('still supports regex-like string patterns in options', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=/^[A-Z]+$/)
+      GOOD=ABC
+      # @type=string(matches=/^[A-Z]+$/)
+      BAD=abc
+    `);
+    expect(g.configSchema.GOOD.isValid).toBe(true);
+    expect(g.configSchema.BAD.isValid).toBe(false);
+  });
+});

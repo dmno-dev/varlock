@@ -1,7 +1,9 @@
 import _ from '@env-spec/utils/my-dash';
 import {
+  ParsedEnvSpecArrayLiteral,
   ParsedEnvSpecFunctionCall,
   ParsedEnvSpecKeyValuePair,
+  ParsedEnvSpecObjectLiteral,
   ParsedEnvSpecStaticValue,
   type ParsedEnvSpecDecorator,
 } from '@env-spec/parser';
@@ -141,10 +143,55 @@ function buildObjectDataType(
 }
 
 /**
- * Build a data type instance from a `@type=...` call node. Handles the composite types
- * (`array(...)`, `object(...)`) with strict option validation + recursive element/key
- * types; all other types keep the legacy arg handling (positional spread for enum,
- * settings object for named options).
+ * Extract a scalar type call's args into positional values + named settings. Same
+ * walk as the composite types use for their options, so every type call in a spec
+ * shares one arg-handling convention. Nested type calls are only meaningful as
+ * array/object element types, which have their own handling above.
+ */
+function extractScalarTypeArgs(
+  fnCall: ParsedEnvSpecFunctionCall,
+  context: string,
+): { positionals: Array<any>, settings: Record<string, any> } {
+  const positionals: Array<any> = [];
+  const settings: Record<string, any> = {};
+
+  for (const arg of fnCall.data.args.values) {
+    if (arg instanceof ParsedEnvSpecKeyValuePair) {
+      const val = arg.value;
+      if (val instanceof ParsedEnvSpecStaticValue) {
+        settings[arg.key] = val.value;
+      } else if (val instanceof ParsedEnvSpecObjectLiteral || val instanceof ParsedEnvSpecArrayLiteral) {
+        settings[arg.key] = val.simplifiedValue;
+      } else if (val instanceof ParsedEnvSpecFunctionCall && val.name === 'regex') {
+        // deprecated `regex("...")` option form, converted to a RegExp instance
+        const regexArgs = val.simplifiedArgs;
+        if (Array.isArray(regexArgs) && typeof regexArgs[0] === 'string') {
+          settings[arg.key] = new RegExp(regexArgs[0]);
+        } else {
+          throw new SchemaError(`${context} - invalid regex() in option "${arg.key}"`);
+        }
+      } else {
+        throw new SchemaError(`${context} - option "${arg.key}" must be a static value`);
+      }
+    } else if (arg instanceof ParsedEnvSpecStaticValue) {
+      positionals.push(arg.value);
+    } else if (arg instanceof ParsedEnvSpecFunctionCall) {
+      throw new SchemaError(
+        `${context} - nested type calls are only supported as array/object element types`,
+      );
+    } else {
+      throw new SchemaError(`${context} - invalid argument`);
+    }
+  }
+
+  return { positionals, settings };
+}
+
+/**
+ * Build a data type instance from a `@type=...` call node. The composite types
+ * (`array(...)`, `object(...)`) get strict option validation + recursive element/key
+ * types; scalar types call their factory with either positional args spread (e.g.
+ * enum members) or a single settings object (named options) - never both.
  */
 function buildDataTypeFromTypeSpec(
   registry: DataTypesRegistry,
@@ -157,11 +204,14 @@ function buildDataTypeFromTypeSpec(
   if (name === 'array') return buildArrayDataType(registry, fnCall, context);
   if (name === 'object') return buildObjectDataType(registry, fnCall, context);
 
-  // legacy handling for all scalar types - `simplifiedArgs` returns an array (all
-  // positional, e.g. enum members) or a plain object (all named options)
-  const args = fnCall.simplifiedArgs;
+  const { positionals, settings } = extractScalarTypeArgs(fnCall, context);
   const factory = registry[name];
-  return factory(..._.isPlainObject(args) ? [args] : args as Array<any>);
+  if (positionals.length && Object.keys(settings).length) {
+    throw new SchemaError(`${context} - cannot mix positional args and named options`);
+  }
+  if (positionals.length) return factory(...positionals);
+  if (Object.keys(settings).length) return factory(settings);
+  return factory();
 }
 
 /**
