@@ -1113,7 +1113,7 @@ describe('multi-line composite literal values', () => {
     const g = await loadAndResolve(outdent`
       # @type=array(email)
       ALLOWED_EMAILS=[
-        admin@example.com,
+        admin@example.com, # the boss
         # ops folks
         ops@example.com,
 

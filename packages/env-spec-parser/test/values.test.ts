@@ -300,6 +300,22 @@ describe('array literal item values', () => {
   });
 });
 
+describe('comments and hashes within array literals', () => {
+  it('supports trailing comments after elements', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=[\n  one, # first\n  two # last\n]');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecArrayLiteral);
+    expect(valNode.simplifiedValue).toEqual(['one', 'two']);
+  });
+
+  it('a hash glued to an unquoted element stays part of the value', () => {
+    const result = parseEnvSpecDotEnvFile('VAL=[color#1, plain]');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecArrayLiteral);
+    expect(valNode.simplifiedValue).toEqual(['color#1', 'plain']);
+  });
+});
+
 describe('object literal item values', () => {
   it('parses {k=v} as an object literal', () => {
     const result = parseEnvSpecDotEnvFile('VAL={k=v, n=2}');
@@ -315,6 +331,13 @@ describe('object literal item values', () => {
     expect(valNode.simplifiedValue).toEqual({});
   });
 
+
+  it('supports trailing comments after entries', () => {
+    const result = parseEnvSpecDotEnvFile('VAL={\n  api=https://a.com, # main api\n  docs=https://b.com # docs site\n}');
+    const valNode = result.configItems[0].value;
+    expectInstanceOf(valNode, ParsedEnvSpecObjectLiteral);
+    expect(valNode.simplifiedValue).toEqual({ api: 'https://a.com', docs: 'https://b.com' });
+  });
 
   it('supports multi-line object literals with trailing comma', () => {
     const result = parseEnvSpecDotEnvFile('VAL={\n  api=https://a.com,\n  # comment\n  docs=https://b.com,\n}');
