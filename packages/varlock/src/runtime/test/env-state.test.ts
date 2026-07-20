@@ -13,9 +13,9 @@ import {
 const ENV_STATE_KEY = '__varlockEnvState';
 const REDACTION_STATE_KEY = '__varlockRedactionState';
 
-const TEST_KEYS = ['EST_FOO', 'EST_BAR'];
+const TEST_KEYS = ['EST_FOO', 'EST_BAR', 'EST_OBJ'];
 
-function makeEnvBlob(config: Record<string, string | undefined>) {
+function makeEnvBlob(config: Record<string, unknown>) {
   return JSON.stringify({
     sources: [],
     settings: {},
@@ -95,5 +95,16 @@ describe('env state shared across module copies', () => {
     expect(() => envModule.initVarlockEnv()).toThrow(/still encrypted/);
     // and env should not be marked initialized
     expect(() => (envModule.ENV as any).ANYTHING).toThrow(/not initialized/);
+  });
+
+  it('JSON-encodes simple-object values when injecting into process.env', async () => {
+    process.env.__VARLOCK_ENV = makeEnvBlob({ EST_OBJ: { a: 1, b: true } });
+    const envModule = await importFreshEnvModuleCopy();
+    envModule.initVarlockEnv();
+
+    // ENV proxy keeps the real object
+    expect((envModule.ENV as any).EST_OBJ).toEqual({ a: 1, b: true });
+    // process.env gets JSON (not "[object Object]")
+    expect(process.env.EST_OBJ).toBe('{"a":1,"b":true}');
   });
 });

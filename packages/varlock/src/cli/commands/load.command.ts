@@ -4,6 +4,7 @@ import { gracefulExit } from 'exit-hook';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { getItemSummary } from '../../lib/formatting';
+import { envValueToProcessEnvString } from '../../lib/env-value-to-string';
 import { redactString } from '../../runtime/lib/redaction';
 import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
@@ -277,7 +278,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
           strValue = `"${value.replaceAll('"', '\\"').replaceAll('\n', '\\n')}"`;
         }
       } else {
-        strValue = JSON.stringify(value);
+        // numbers/booleans/objects — same encoding as process.env injection
+        strValue = envValueToProcessEnvString(value);
       }
       console.log(`${prefix}${key}=${strValue}`);
     }

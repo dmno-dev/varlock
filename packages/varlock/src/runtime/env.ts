@@ -2,6 +2,7 @@ import { redactString } from './lib/redaction';
 
 import type { SerializedEnvGraph } from '../env-graph';
 import { isBrowser } from '../lib/detect-runtime';
+import { envValueToProcessEnvString } from '../lib/env-value-to-string';
 import { debug } from './lib/debug';
 
 // TODO: would like to move all of the redaction utils out of this file
@@ -368,9 +369,8 @@ export function initVarlockEnv(opts?: {
     envValues[itemKey] = itemValue;
     if (setProcessEnv) {
       envState.injectedProcessEnvKeys?.push(itemKey);
-      // when re-injecting into process.env, we treat undefined as empty string
-      // this more closely matches expected behaviour from other .env loaders
-      process.env[itemKey] = itemValue === undefined ? '' : String(itemValue);
+      // undefined → ''; objects/arrays → JSON (matches `load --format env`)
+      process.env[itemKey] = envValueToProcessEnvString(itemValue);
     }
   }
   envState.initialized = true;

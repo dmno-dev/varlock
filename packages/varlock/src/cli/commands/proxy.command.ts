@@ -9,6 +9,7 @@ import { gracefulExit } from 'exit-hook';
 
 import { exec } from '../../lib/exec';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
+import { mapResolvedEnvToProcessEnv } from '../../lib/env-value-to-string';
 import { startLocalProxyRuntime, type ProxyResponseInfo } from '../../proxy/runtime-proxy';
 import {
   createProxyAuditLog,
@@ -324,7 +325,7 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
   }
 
   return {
-    resolvedEnv,
+    resolvedEnv: mapResolvedEnvToProcessEnv(resolvedEnv),
     serializedGraph,
     schemaFingerprint,
     proxyManagedItems,

@@ -3,6 +3,7 @@ import { define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
 import { exec } from '../../lib/exec';
+import { mapResolvedEnvToProcessEnv } from '../../lib/env-value-to-string';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
@@ -215,7 +216,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   const fullInjectedEnv: NodeJS.ProcessEnv = {
     ...process.env,
-    ...(injectVars ? resolvedEnv : {}),
+    ...(injectVars ? mapResolvedEnvToProcessEnv(resolvedEnv) : {}),
     __VARLOCK_RUN: '1', // flag for a child process to detect it is running via `varlock run`
     // honors @encryptInjectedEnv in blob-only mode; reuses/forwards an ambient key
     ...buildInjectedBlobEnv({
