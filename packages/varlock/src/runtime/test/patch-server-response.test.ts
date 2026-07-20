@@ -6,11 +6,11 @@
   captures its options at patch time, so redactInsteadOfThrow mode is covered in a
   separate test file (vitest isolates files into separate workers).
 */
+import http, { IncomingMessage, ServerResponse } from 'node:http';
 import zlib from 'node:zlib';
-import { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
 import {
-  describe, it, expect, beforeAll,
+  describe, it, expect, beforeAll, afterAll,
 } from 'vitest';
 
 import { patchGlobalServerResponse } from '../patch-server-response';
@@ -41,9 +41,46 @@ function makeRes(headers: Record<string, string> = {}) {
   return res;
 }
 
-beforeAll(() => {
+let endServer: http.Server;
+let endBaseUrl: string;
+
+beforeAll(async () => {
   resetRedactionMap(FAKE_GRAPH);
   patchGlobalServerResponse();
+
+  // Real HTTP server so we can assert end-leak responses finish (no hang)
+  endServer = http.createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    try {
+      if (req.url === '/end-string-leak') {
+        res.end(JSON.stringify({ leaked: SECRET }));
+      } else if (req.url === '/end-buffer-leak') {
+        res.end(Buffer.from(JSON.stringify({ leaked: SECRET })));
+      } else if (req.url === '/end-after-headers') {
+        res.write(JSON.stringify({ ok: true }));
+        res.end(JSON.stringify({ leaked: SECRET }));
+      } else {
+        res.end('not found');
+      }
+    } catch {
+      // patched end finishes the response before rethrowing; catch so the
+      // server handler does not become an uncaught exception
+    }
+  });
+  await new Promise<void>((resolve) => {
+    endServer.listen(0, () => resolve());
+  });
+  const address = endServer.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('expected address info');
+  }
+  endBaseUrl = `http://127.0.0.1:${address.port}`;
+});
+
+afterAll(async () => {
+  await new Promise<void>((resolve, reject) => {
+    endServer.close((err) => (err ? reject(err) : resolve()));
+  });
 });
 
 describe('patched ServerResponse.write - uncompressed', () => {
@@ -133,5 +170,35 @@ describe('patched ServerResponse.end', () => {
   it('throws when a sensitive value appears in a Buffer end chunk', () => {
     const res = makeRes({ 'content-type': 'application/json' });
     expect(() => res.end(Buffer.from(JSON.stringify({ leaked: SECRET })))).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+  });
+
+  it('finishes the HTTP response with 500 when end detects a string leak (no hang)', async () => {
+    const resp = await fetch(`${endBaseUrl}/end-string-leak`);
+    expect(resp.status).toBe(500);
+    const body = await resp.text();
+    expect(body).not.toContain(SECRET);
+    expect(body).toBe('Internal Server Error');
+  });
+
+  it('finishes the HTTP response with 500 when end detects a Buffer leak (no hang)', async () => {
+    const resp = await fetch(`${endBaseUrl}/end-buffer-leak`);
+    expect(resp.status).toBe(500);
+    const body = await resp.text();
+    expect(body).not.toContain(SECRET);
+    expect(body).toBe('Internal Server Error');
+  });
+
+  it('destroys the connection when headers were already sent before an end leak', async () => {
+    let failed = false;
+    let body = '';
+    try {
+      const resp = await fetch(`${endBaseUrl}/end-after-headers`);
+      body = await resp.text();
+    } catch {
+      failed = true;
+    }
+    // connection destroyed mid-response: fetch may error or return a truncated body
+    expect(failed || !body.includes(SECRET)).toBe(true);
+    expect(body).not.toContain(SECRET);
   });
 });

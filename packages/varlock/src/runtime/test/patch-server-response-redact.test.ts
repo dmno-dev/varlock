@@ -40,6 +40,12 @@ beforeAll(async () => {
     if (req.url === '/string-leak') {
       res.write(htmlWithSecret);
       res.end();
+    } else if (req.url === '/end-string-leak') {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ leaked: SECRET }));
+    } else if (req.url === '/end-buffer-leak') {
+      res.setHeader('content-type', 'application/json');
+      res.end(Buffer.from(JSON.stringify({ leaked: SECRET })));
     } else if (req.url === '/gzip-clean') {
       res.setHeader('content-encoding', 'gzip');
       const gz = zlib.gzipSync(htmlClean);
@@ -102,5 +108,21 @@ describe('patchGlobalServerResponse with redactInsteadOfThrow', () => {
     }
     expect(failed).toBe(true);
     expect(body).not.toContain(SECRET);
+  });
+
+  it('redacts a leaked secret in a string end chunk', async () => {
+    const resp = await fetch(`${baseUrl}/end-string-leak`);
+    expect(resp.status).toBe(200);
+    const body = await resp.text();
+    expect(body).not.toContain(SECRET);
+    expect(body).toContain('▒');
+  });
+
+  it('redacts a leaked secret in a Buffer end chunk', async () => {
+    const resp = await fetch(`${baseUrl}/end-buffer-leak`);
+    expect(resp.status).toBe(200);
+    const body = await resp.text();
+    expect(body).not.toContain(SECRET);
+    expect(body).toContain('▒');
   });
 });
