@@ -69,11 +69,11 @@ Usage: install.sh [options]
 install varlock binary
 
 Options:
-  --dir             directory to install varlock to (default: "$HOME/.config/varlock/bin")
+  --dir             directory to install varlock to (defaults to $XDG_CONFIG_HOME/varlock/bin, else ~/.varlock/bin if it exists, else ~/.config/varlock/bin)
   --reinstall       reinstall even if already installed (default: false)
   --version         version of varlock to install (defaults to latest)
   --force-no-brew   force install without homebrew even when detected (default: false)
-  --skip-win-exe   skip installing the Windows native encryption binary, only applicable when running in WSL (default: false)
+  --skip-win-exe    on WSL, skip installing the Windows encryption helper (varlock-local-encrypt.exe) (default: false)
 ```
 
 ## Varlock skill

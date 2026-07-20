@@ -39,7 +39,7 @@ usage() {
   echo "  --reinstall       reinstall even if already installed (default: false)"
   echo "  --version         version of varlock to install (defaults to latest)"
   echo "  --force-no-brew   force install without homebrew even when detected (default: false)"
-  echo "  --skip-win-exe   skip installing the Windows native encryption binary, only applicable when running in WSL (default: false)"
+  echo "  --skip-win-exe    on WSL, skip installing the Windows encryption helper (varlock-local-encrypt.exe) (default: false)"
   echo ""
 }
 
@@ -195,7 +195,7 @@ main() {
       if is_wsl && [ "$SKIP_WIN_EXE" != "true" ] && [ -f "${_temp_dir}/varlock-local-encrypt.exe" ]; then
         install "${_temp_dir}/varlock-local-encrypt.exe" "${INSTALL_DIR}/"
         chmod u+x "${INSTALL_DIR}/varlock-local-encrypt.exe"
-        echo "  Installed WSL encryption binary (varlock-local-encrypt.exe)"
+        echo "  Installed Windows encryption helper for WSL (varlock-local-encrypt.exe)"
       fi
     ;;
     win-*)

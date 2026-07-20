@@ -156,7 +156,7 @@ Treat this gate as a **consent prompt**, not an at-rest boundary. On Linux the T
 ✅ No additional install/setup steps required
 
 :::tip
-The standalone `install.sh` installs both `varlock-local-encrypt` and `varlock-local-encrypt.exe` encryption helpers by default. You can opt out by passing `--skip-win-exe` during installation.
+On WSL, the standalone `install.sh` installs the Windows encryption helper (`varlock-local-encrypt.exe`) alongside the Linux `varlock-local-encrypt` binary by default. Pass `--skip-win-exe` to install only the Linux binary. On regular Linux and macOS, only the native binary is installed.
 :::
 
 #### Upgrading existing keys to TPM
