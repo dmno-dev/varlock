@@ -192,6 +192,31 @@ describe('VARLOCK_* builtin variables', () => {
       },
       expectValues: { VARLOCK_IS_CI: true },
     }));
+
+    // Regression (#899): empty-static skip used truthiness (`!staticValue`), which
+    // also skipped boolean false / number 0 when a builtin internal resolver exists.
+    test('schema override VARLOCK_IS_CI=false wins over CI detection', envFilesTest({
+      envFile: 'VARLOCK_IS_CI=false',
+      processEnv: {
+        CI: 'true',
+        GITHUB_ACTIONS: 'true',
+        GITHUB_REPOSITORY: 'owner/repo',
+      },
+      expectValues: { VARLOCK_IS_CI: false },
+    }));
+
+    test('schema override VARLOCK_IS_CI=0 is not skipped as empty', envFilesTest({
+      envFile: 'VARLOCK_IS_CI=0',
+      processEnv: {
+        CI: 'true',
+        GITHUB_ACTIONS: 'true',
+        GITHUB_REPOSITORY: 'owner/repo',
+      },
+      // Number 0 must not be treated as empty; schema wins over builtin true.
+      // The builtin's declared boolean type also wins over the value's inferred
+      // number type, so 0 coerces to false.
+      expectValues: { VARLOCK_IS_CI: false },
+    }));
   });
 
   describe('CI platform variables', () => {
