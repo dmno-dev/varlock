@@ -209,10 +209,12 @@ export class ConfigItem {
     const hasInternalResolver = this._internalDefs.some((d) => d.itemDef.resolver);
     for (const def of this.defs) {
       if (def.itemDef.resolver) {
+        // Skip truly empty static values when an internal fallback exists
+        // (e.g. VARLOCK_ENV= to attach decorators). Do not treat false/0 as empty.
         if (
           hasInternalResolver
           && def.itemDef.resolver instanceof StaticValueResolver
-          && !def.itemDef.resolver.staticValue
+          && (def.itemDef.resolver.staticValue === undefined || def.itemDef.resolver.staticValue === '')
         ) {
           continue;
         }
@@ -230,12 +232,12 @@ export class ConfigItem {
     const hasInternalResolver = this._internalDefs.some((d) => d.itemDef.resolver);
     for (const def of this.defs) {
       if (def.itemDef.resolver) {
-        // Skip empty static values when an internal fallback resolver exists
-        // (e.g., user defines VARLOCK_ENV= to add decorators — the builtin resolver still applies)
+        // Skip truly empty static values when an internal fallback exists
+        // (e.g. VARLOCK_ENV= to attach decorators). Do not treat false/0 as empty.
         if (
           hasInternalResolver
           && def.itemDef.resolver instanceof StaticValueResolver
-          && !def.itemDef.resolver.staticValue
+          && (def.itemDef.resolver.staticValue === undefined || def.itemDef.resolver.staticValue === '')
         ) {
           continue;
         }
