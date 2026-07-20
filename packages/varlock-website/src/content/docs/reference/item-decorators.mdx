@@ -244,6 +244,33 @@ SERVICE_X_API_KEY=
 </div>
 
 <div>
+### `@deprecated`
+**Value type:** `boolean | string`
+
+Marks an item as deprecated. Does not affect resolution or validation: the item still resolves and stays valid. Use this when a variable should keep working during a migration, but callers should move off it.
+
+- bare `@deprecated` or `@deprecated=true`: marks the item deprecated (no message)
+- `@deprecated="message"`: marks it deprecated with a message (for example, what to use instead)
+- `@deprecated=false`: explicitly not deprecated
+
+Effects:
+
+- Pretty CLI output (e.g. `varlock load`): the key is struck through and a deprecated badge is shown
+- [Generated types](/reference/root-decorators/#code-generation): TypeScript gets a `@deprecated` JSDoc tag (with the message when set); other language emitters include a `Deprecated:` doc line
+
+```env-spec
+# @deprecated # same as @deprecated=true
+LEGACY_API_URL=
+
+# @deprecated="Use NEW_API_URL instead"
+OLD_API_URL=
+
+# @deprecated=false
+STILL_SUPPORTED=
+```
+</div>
+
+<div>
 ### `@auditIgnore`
 **Value type:** `boolean`
 
