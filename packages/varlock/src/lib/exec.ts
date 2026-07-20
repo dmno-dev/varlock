@@ -31,7 +31,7 @@ function signalExitCode(signal: NodeJS.Signals): number {
   return signalNumber ? 128 + signalNumber : 1;
 }
 
-interface ExecResult {
+export interface ExecResult {
   exitCode: number;
   signal?: NodeJS.Signals;
   stdout?: Readable;

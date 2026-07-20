@@ -31,7 +31,7 @@ describe('getSerializedGraph filterKeys', () => {
     const blob = g.getSerializedGraph({ filterKeys: new Set(['STRIPE_KEY']) });
     // OTHER_VAR isn't in the blob's config, so its override provenance would be pure
     // noise - and would leak the excluded key's name into the blob
-    expect(blob.__varlockOverrideMeta?.overrideKeys).toEqual(['STRIPE_KEY']);
+    expect(blob.overrideKeys).toEqual(['STRIPE_KEY']);
   });
 
   it('keeps full override provenance when no filter is set', async () => {
@@ -40,6 +40,6 @@ describe('getSerializedGraph filterKeys', () => {
       OTHER_VAR=def   # @public
     `, { STRIPE_KEY: 'from-env', OTHER_VAR: 'also-from-env' });
     const blob = g.getSerializedGraph();
-    expect(blob.__varlockOverrideMeta?.overrideKeys).toEqual(['STRIPE_KEY', 'OTHER_VAR']);
+    expect(blob.overrideKeys).toEqual(['STRIPE_KEY', 'OTHER_VAR']);
   });
 });

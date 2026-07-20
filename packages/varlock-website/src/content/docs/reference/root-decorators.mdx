@@ -371,6 +371,8 @@ Controls whether the injected env blob in server-side build output is encrypted.
 
 This is primarily relevant for serverless deployments (Vercel, Netlify, etc.) where varlock injects resolved env data into the build output. The blob only appears in server-side code and is generally safe, but encryption provides extra protection, particularly against secrets leaking via sourcemaps.
 
+When enabled, it also applies when `varlock run` / `varlock proxy run` spawn a child in blob-only inject mode (`--inject blob`): the injected blob is encrypted with an ephemeral key carried alongside it (an ambient `_VARLOCK_ENV_KEY` is reused when present, so nested runs share one key), and resolved values never sit as plaintext in the child's environment. Since the key rides next to the ciphertext, this protects against accidental leaks (crash reporters, env dumps, logs), not against an attacker who can read the full environment.
+
 **Options:**
 - `false` (default): Blob is injected as plaintext JSON
 - `true`: Blob is encrypted, `_VARLOCK_ENV_KEY` required at build time and runtime
@@ -448,6 +450,52 @@ API_KEY=
 # @auditIgnorePaths(generated/config, scripts/setup)
 # ---
 API_KEY=
+```
+</div>
+
+<div>
+### `@proxyConfig`
+**Value type:** `{egress?: "permissive" | "strict", reload?: "off" | "manual" | "auto"}`
+
+Configures proxy-wide [credential proxy](/guides/proxy/) settings. The proxy is driven by [`@proxy`](/reference/item-decorators/#proxy) decorators on your items, so this header decorator is **optional**. It is a single-use, object-value decorator (`@proxyConfig={...}`), not a function call.
+
+`egress` controls requests that don't match any [`@proxy`](#proxy) rule:
+- `permissive` _(default)_: unmatched hosts pass through untouched.
+- `strict`: only requests matching a `@proxy` rule are allowed; everything else is blocked.
+
+`reload` controls live [hot-reload](/guides/proxy/#editing-the-schema-while-a-session-is-running) of the running proxy after a schema edit:
+- `off`: no reload; restart the proxy to pick up schema changes.
+- `manual`: a human applies it by running `varlock proxy reload` from a trusted terminal; a reload requested from inside the proxied agent is refused and logged.
+- `auto` _(default)_: resolved at launch. Conservative today: `manual` for an interactive `varlock proxy start`, `off` for headless runs or a one-shot `varlock proxy run`. It only widens (toward agent-triggered reload behind an approver) when that becomes safe, e.g. inside a sandbox. The `--allow-reload` / `--no-allow-reload` flag overrides it per run.
+
+```env-spec
+# @proxyConfig={egress="strict", reload="manual"}
+# ---
+# @proxy(domain="api.openai.com")
+OPENAI_API_KEY=yourPreferredPlugin()
+```
+
+See the [credential proxy guide](/guides/proxy/) for the full workflow.
+</div>
+
+<div>
+### `@proxy()`
+**Arg types:** `(domain: string | string[], path?, method?: string | string[], block?, approval?, keys?: string[], rules?: object[], ...)`
+
+Defines a **detached** [credential proxy](/guides/proxy/) rule: a domain-level policy (match or `block`). It injects no secret on its own, but can inject named items via `keys=[...]`.
+
+This is the header (root) form of the decorator. To inject a specific secret into requests for a domain, put [`@proxy`](/reference/item-decorators/#proxy) on the **item** instead (an _attached_ rule). The two forms share the same options; see the [item decorator reference](/reference/item-decorators/#proxy).
+
+```env-spec
+# Block a dangerous endpoint regardless of which key would be used:
+# @proxy(domain="api.stripe.com", path="/v1/refunds/**", method=[POST, DELETE], block=true)
+# Inject several keys for a host:
+# @proxy(domain="api.stripe.com", keys=[STRIPE_KEY, WEBHOOK_SECRET])
+# ---
+# @sensitive
+STRIPE_KEY=yourPreferredPlugin()
+# @sensitive
+WEBHOOK_SECRET=yourPreferredPlugin()
 ```
 </div>
 

@@ -11,6 +11,12 @@ import {
 import { getCliItemFilter } from '../helpers/item-filter';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import ansis from 'ansis';
+import {
+  PROXY_CHILD_ENV_VAR,
+  PROXY_SESSION_ID_ENV_VAR,
+  PROXY_SESSION_UUID_ENV_VAR,
+} from '../../proxy/env-vars';
+import { getActiveProxySession } from '../../proxy/session-registry';
 
 export const commandSpec = define({
   name: 'load',
@@ -220,6 +226,19 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // command to get their injected config), so a secret-zero credential must not appear here
     // unless explicitly requested. Pass --include-internal for local human inspection.
     const serialized = envGraph.getSerializedGraph({ includeInternal: !!includeInternal, filterKeys });
+    // Detect the proxy context via the unified resolver (env marker → session
+    // token → ancestry), so the annotation is accurate even if the child scrubbed
+    // the env marker.
+    const proxySession = await getActiveProxySession().catch(() => undefined);
+    if (proxySession || process.env[PROXY_CHILD_ENV_VAR] === '1') {
+      (serialized as any).runtime = {
+        proxy: {
+          active: true,
+          sessionId: proxySession?.id ?? process.env[PROXY_SESSION_ID_ENV_VAR],
+          sessionUuid: proxySession?.uuid ?? process.env[PROXY_SESSION_UUID_ENV_VAR],
+        },
+      };
+    }
     if (agent) {
       for (const key in serialized.config) {
         const item = serialized.config[key];

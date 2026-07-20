@@ -1,56 +1,44 @@
 import { describe, expect, test } from 'vitest';
 import {
-  buildOverrideProvenanceMetadata,
-  parseOverrideProvenanceMetadata,
+  normalizeOverrideKeys,
+  parseBlobOverrideKeys,
   selectOverrideValuesFromEnv,
 } from '../injected-env-provenance';
 
-describe('injected env provenance', () => {
-  test('builds override metadata', () => {
-    const metadata = buildOverrideProvenanceMetadata(['A', 'B', 'A']);
-    expect(metadata.source).toBe('varlock');
-    expect(metadata.version).toBe(1);
-    expect(metadata.overrideKeys).toEqual(['A', 'B']);
+describe('injected env override keys', () => {
+  test('normalizes (dedupes, strings only)', () => {
+    expect(normalizeOverrideKeys(['A', 'B', 'A', 1 as any])).toEqual(['A', 'B']);
   });
 
-  test('parses current metadata shape', () => {
-    const parsed = parseOverrideProvenanceMetadata(JSON.stringify({
-      __varlockOverrideMeta: {
-        source: 'varlock',
-        version: 1,
-        overrideKeys: ['A', 'B', 'A'],
-      },
+  test('parses the plain overrideKeys field', () => {
+    const parsed = parseBlobOverrideKeys(JSON.stringify({
+      overrideKeys: ['A', 'B', 'A'],
       config: {},
       settings: {},
       sources: [],
     }));
-    expect(parsed?.source).toBe('varlock');
-    expect(parsed?.version).toBe(1);
-    expect(parsed?.overrideKeys).toEqual(['A', 'B']);
+    expect(parsed).toEqual(['A', 'B']);
   });
 
-  test('parses legacy run metadata shape', () => {
-    const parsed = parseOverrideProvenanceMetadata(JSON.stringify({
-      __varlockRunMeta: {
-        source: 'varlock-run',
-        version: 1,
-        overrideKeys: ['A'],
-      },
+  test('still reads the list out of older wrapped shapes', () => {
+    expect(parseBlobOverrideKeys(JSON.stringify({
+      __varlockOverrideMeta: { source: 'varlock', version: 1, overrideKeys: ['A'] },
       config: {},
-      settings: {},
-      sources: [],
-    }));
-    expect(parsed?.source).toBe('varlock');
-    expect(parsed?.version).toBe(1);
-    expect(parsed?.overrideKeys).toEqual(['A']);
+    }))).toEqual(['A']);
+    expect(parseBlobOverrideKeys(JSON.stringify({
+      __varlockRunMeta: { source: 'varlock-run', version: 1, overrideKeys: ['B'] },
+      config: {},
+    }))).toEqual(['B']);
   });
 
   test('returns undefined for malformed blob', () => {
-    expect(parseOverrideProvenanceMetadata('{not-json')).toBeUndefined();
+    expect(parseBlobOverrideKeys('{not-json')).toBeUndefined();
+    expect(parseBlobOverrideKeys('"str"')).toBeUndefined();
+    expect(parseBlobOverrideKeys(JSON.stringify({ overrideKeys: 'not-an-array' }))).toBeUndefined();
   });
 
-  test('returns undefined for missing metadata', () => {
-    expect(parseOverrideProvenanceMetadata(JSON.stringify({
+  test('returns undefined when no override keys are present', () => {
+    expect(parseBlobOverrideKeys(JSON.stringify({
       config: {},
       settings: {},
       sources: [],

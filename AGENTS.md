@@ -72,5 +72,9 @@ Docs content lives in `packages/varlock-website/src/content/docs/` (`.mdx`). Whe
 ## Linting
 
 - Run **`bun run lint:fix`** from the repo root after completing a significant chunk of work (new feature, refactor, bug fix, etc.)
-- The linter uses ESLint with `@stylistic` and other plugins — auto-fix handles most formatting issues
+- The linter uses ESLint with `@stylistic` and other plugins; auto-fix handles most formatting issues
 - Do not leave lint errors unresolved; fix any that `--fix` cannot handle automatically
+
+## Writing style
+
+- **Do not use em dashes (`—`) or en dashes (`–`)** in any prose you write: docs, code comments, commit messages, PR descriptions, changeset entries, or design notes. They read as an AI-writing tell. Rewrite with a colon, comma, semicolon, parentheses, two sentences, or a plain hyphen (`-`) where that reads naturally. Only the em/en dash characters are banned; a regular hyphen is fine.

@@ -255,4 +255,53 @@ Suppresses "unused in schema" warnings from [`varlock audit`](/reference/cli-com
 CI_DEPLOY_TOKEN=
 ```
 </div>
+
+<div>
+### `@placeholder`
+**Value type:** `string`
+
+Sets an explicit placeholder string for the item, used in place of the real value when the item is routed through the [credential proxy](/guides/proxy/). A placeholder is what an untrusted child process (e.g. an AI agent) sees instead of the secret.
+
+Without an explicit `@placeholder`, varlock derives one from the item's [`@type`](#type) format, falling back to a generic value. Set this when a generic placeholder would fail a client's key-format validation (e.g. an `sk-…` prefix check).
+
+```env-spec
+# @proxy(domain="api.openai.com")
+# @placeholder=sk-proj-000000000000000000000000
+OPENAI_API_KEY=yourPreferredPlugin()
+```
+</div>
+
+<div>
+### `@proxy`
+**Value type:** function `@proxy(domain=..., ...)` _or_ value `@proxy=passthrough｜omit`
+
+Routes an item's secret through the [credential proxy](/guides/proxy/) so an untrusted child process only ever sees a placeholder, while the real value is injected into matching outbound requests at the network boundary. Using `@proxy(...)` on an item implies [`@sensitive`](#sensitive).
+
+**Function form** `@proxy(domain=..., [path], [method], [block], [approval], [keys], [rules])`:
+
+| Option | Meaning |
+|---|---|
+| `domain` | **(required)** Host to match: a single host or an array (`[a.com, b.com]`); supports globs (`*.example.com`). |
+| `path` | Restrict to matching URL paths (glob), e.g. `"/v1/**"`. |
+| `method` | Restrict to one or more HTTP methods, e.g. `[GET, POST]`. |
+| `block` | `block=true` denies matching requests outright. |
+| `approval` | `approval=true` holds matching requests for an interactive yes/no in the `proxy start` terminal before they proceed. A self-contained one-shot `proxy run` has no terminal to prompt in and denies them. |
+| `keys` | Array of additional item names to inject for this rule, e.g. `keys=[OTHER_KEY]`. |
+| `rules` | Array of policy refinements sharing this rule's `domain`, e.g. `rules=[{path="/v1/**", block=true}]`. Each entry may set `path`/`method`/`block`/`approval` (not `domain`/`keys`) and injects nothing on its own. See the [Grouping rules guide](/guides/proxy/#grouping-rules-for-one-domain). |
+
+The same decorator in the **header** creates a _detached_ policy rule (no injection unless it lists `keys`).
+
+**Value form** `@proxy=passthrough` injects the real value into the child (escape hatch); `@proxy=omit` explicitly withholds it. The value and function forms are mutually exclusive on one item.
+
+```env-spec
+# @proxy(domain="api.stripe.com", path="/v1/**")
+STRIPE_SECRET_KEY=yourPreferredPlugin()
+
+# @sensitive
+# @proxy=passthrough
+LEGACY_TOKEN=yourPreferredPlugin()
+```
+
+See the [credential proxy guide](/guides/proxy/) for the full workflow.
+</div>
 </div>

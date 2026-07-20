@@ -330,6 +330,16 @@ export class ConfigItem {
       }
     }
 
+    // A dual-form decorator (function OR value, e.g. @proxy) is mutually exclusive
+    // per item: you can't both route with @proxy(...) and set @proxy=passthrough.
+    for (const [name, valueDec] of Object.entries(this.effectiveDecorators)) {
+      if (valueDec.isFunctionOrValue && this.effectiveDecoratorFns[name]?.length) {
+        valueDec._errors.push(new SchemaError(
+          `@${name} cannot be used as both a value (@${name}=...) and a function (@${name}(...)) on the same item`,
+        ));
+      }
+    }
+
     // resolve @tag(...) eagerly - see the `tags` getter comment for why
     for (const tagDec of this.getDecFns('tag')) {
       const decVal = await tagDec.resolve();
@@ -486,13 +496,13 @@ export class ConfigItem {
   _isSensitive: boolean = true;
   _sensitiveExplicitlySet = false;
   /** how sensitivity was determined (undefined = the global default that items are sensitive) */
-  _sensitiveSource?: 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix';
+  _sensitiveSource?: 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'proxy';
   get isSensitive(): boolean {
     return this._isSensitive;
   }
 
   /** how this item's sensitivity was determined — used by `varlock explain` */
-  get sensitiveSource(): 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'default' {
+  get sensitiveSource(): 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'proxy' | 'default' {
     return this._sensitiveSource ?? 'default';
   }
 
@@ -514,6 +524,28 @@ export class ConfigItem {
     return this._preventLeaks;
   }
   private async processSensitive() {
+    // Resolve the normal sensitivity signals first (so @sensitive/@public schema
+    // validation still runs), then force sensitivity for @proxy-managed items below.
+    await this.resolveSensitiveSource();
+
+    // @proxy-managed items are always sensitive: the proxied child only ever sees a
+    // placeholder while the real value is injected at the wire, so force sensitivity
+    // regardless of any @public / @sensitive=false signal.
+    if (this.getDecFns('proxy').length > 0) {
+      // If the author explicitly made it public, warn that @proxy wins — otherwise
+      // the override is silent and surprising.
+      if (this._sensitiveExplicitlySet && !this._isSensitive) {
+        this._schemaErrors.push(new SchemaError(
+          '@proxy implies @sensitive — the @public / @sensitive=false on this item is overridden (its value is still proxied as a placeholder).',
+          { isWarning: true },
+        ));
+      }
+      this._isSensitive = true;
+      this._sensitiveSource = 'proxy';
+    }
+  }
+
+  private async resolveSensitiveSource() {
     const sensitiveFromDataType = this.dataType?.isSensitive;
 
     // Pass 1: explicit per-item @sensitive / @public decorators take highest priority
@@ -677,6 +709,27 @@ export class ConfigItem {
     await this.resolveDecorators();
     await this.processRequired();
     await this.processSensitive();
+
+    // Proxy-child resolution view: inside a `varlock proxy` session, a sensitive
+    // item is forced to its placeholder (or omitted) instead of resolving the real
+    // value — so re-running `varlock load`/`printenv`/`run` can never surface a
+    // secret the proxy is meant to hide. Runs after decorators (so isSensitive,
+    // isRequired, etc. are correct for serialization) but short-circuits value
+    // resolution, coercion, validation and the required check: the real value was
+    // already validated upstream by the proxy daemon.
+    const proxyDirective = this.envGraph.proxyResolutionView?.[this.key];
+    if (proxyDirective) {
+      this.isResolved = true;
+      if (proxyDirective.kind === 'placeholder') {
+        this.resolvedRawValue = proxyDirective.value;
+        this.resolvedValue = proxyDirective.value;
+      } else {
+        this.resolvedRawValue = undefined;
+        this.resolvedValue = undefined;
+      }
+      this.isValidated = true;
+      return;
+    }
 
     // Resolver functions like varlock() and keychain() imply sensitivity —
     // override defaults but respect explicit per-item @sensitive=false / @public
@@ -909,6 +962,11 @@ export class ConfigItem {
       }
       if (!foundSensitive && sensitiveFromDataType !== undefined) {
         isSensitive = sensitiveFromDataType;
+      }
+      // @proxy forces sensitivity (same override as processSensitive) so generated
+      // types mark a @public @proxy item sensitive rather than contradicting runtime.
+      if (this.getDecFns('proxy').length > 0) {
+        isSensitive = true;
       }
     } catch {
       // on error, fall back to default (sensitive=true, safe default)

@@ -22,7 +22,8 @@ function describeSensitiveSource(item: ConfigItem): string {
     case 'resolver': return `inferred from the ${item.valueResolver?.fnName}() resolver`;
     case 'default-decorator': return 'from @defaultSensitive';
     case 'prefix': return 'from a @defaultSensitive prefix rule';
-    default: return 'default — items are sensitive unless marked @public';
+    case 'proxy': return 'forced sensitive by its @proxy rule, so the agent only sees a placeholder';
+    default: return 'default: items are sensitive unless marked @public';
   }
 }
 
