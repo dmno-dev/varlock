@@ -205,6 +205,7 @@ list passed in as args.
 **Requirements:**
 - Requires an [`@currentEnv`](/reference/root-decorators/#currentenv) to be set in your `.env.schema` file
 - Takes one or more environment names as arguments
+- Arguments can be static strings or dynamic values (for example `$OTHER_VAR` or `concat()`); an argument that resolves to undefined is an error
 
 ```env-spec /forEnv\\(.*\\)/
 # @currentEnv=$APP_ENV @defaultRequired=false

@@ -589,9 +589,16 @@ export const ForEnvResolver: typeof Resolver = createResolver({
     // this will trigger resolution of the current env if not already done
     const currentEnv = await this.getCurrentEnv();
     if (!currentEnv) throw new SchemaError('current environment is not set');
-    const matchEnvs = await Promise.all(
-      matchEnvArgs.map(async (arg) => String(await arg.resolve())),
-    );
+    const matchEnvs: Array<string> = [];
+    for (const arg of matchEnvArgs) {
+      const argValue = await arg.resolve();
+      // stringifying undefined would give "undefined", which silently never matches
+      // (or false-matches an env literally named "undefined") - fail loudly instead
+      if (argValue === undefined) {
+        throw new SchemaError('argument resolved to undefined - check that any referenced variables are set');
+      }
+      matchEnvs.push(String(argValue));
+    }
     return matchEnvs.includes(currentEnv);
   },
 });
