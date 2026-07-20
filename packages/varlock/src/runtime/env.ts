@@ -418,7 +418,7 @@ const EnvProxy = new Proxy<TypedEnvSchema>({}, {
     if (!envState.initialized) {
       throw new Error(
         'varlock ENV not initialized — make sure varlock is set up correctly.\n'
-        + 'See https://varlock.dev/docs/get-started for setup instructions.',
+        + 'See https://varlock.dev/getting-started/installation/ for setup instructions.',
       );
     }
 
