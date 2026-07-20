@@ -129,4 +129,9 @@ describe('patched ServerResponse.end', () => {
     const res = makeRes({ 'content-type': 'application/json' });
     expect(() => res.end(JSON.stringify({ leaked: SECRET }))).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
   });
+
+  it('throws when a sensitive value appears in a Buffer end chunk', () => {
+    const res = makeRes({ 'content-type': 'application/json' });
+    expect(() => res.end(Buffer.from(JSON.stringify({ leaked: SECRET })))).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+  });
 });
