@@ -22,3 +22,6 @@ eslint-output.txt
 
 # vitest coverage output
 coverage/
+
+# local throwaway experiments
+scratch/

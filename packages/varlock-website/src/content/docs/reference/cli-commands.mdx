@@ -287,6 +287,8 @@ Note: When the `__VARLOCK_ENV` blob is omitted, framework integrations that rely
 This makes `varlock run` safe to use as a container `ENTRYPOINT` (including PID 1), so `docker stop` / pod termination reaches your app gracefully instead of waiting out the grace period and being `SIGKILL`ed.
 
 By default varlock forwards and then waits indefinitely for the child. It does **not** impose its own kill deadline, leaving that decision to the orchestrator or operator (a forwarded signal isn't always terminal, since many programs use `SIGHUP` to reload). If you want varlock to escalate to `SIGKILL` when the child hasn't exited within a grace period, set the `_VARLOCK_FORCE_KILL_TIMEOUT_MS` environment variable to a number of milliseconds.
+
+Because the parent stays alive, container memory is roughly **CLI process + child process**. For the leanest footprint when you only need env injection at boot (no long-lived parent), resolve once and replace the shell with your app: `eval "$(varlock load --format shell --compact)" && exec node dist/server.js`.
 :::
 
 </div>
