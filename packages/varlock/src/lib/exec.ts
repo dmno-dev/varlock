@@ -5,7 +5,7 @@ import {
   join, delimiter, extname, isAbsolute,
 } from 'node:path';
 import {
-  existsSync, statSync, readFileSync, accessSync, constants as fsConstants,
+  existsSync, statSync, openSync, readSync, closeSync, accessSync, constants as fsConstants,
 } from 'node:fs';
 
 interface ExecOptions {
@@ -87,16 +87,32 @@ function isExecutableOnWindows(filePath: string): boolean {
 }
 
 /**
- * Read shebang from file (first 150 bytes)
+ * Read shebang from file (first 150 bytes only).
+ *
+ * Must not use readFileSync on the whole file: `varlock run -- node ...` resolves
+ * bare `node` via PATH and probes candidates for a shebang. Reading a ~100MB+
+ * Node binary into a UTF-8 string spikes the parent to hundreds of MiB and can
+ * OOM 256Mi containers.
  */
 function readShebang(filePath: string): string | null {
+  let fd: number | undefined;
   try {
-    const fd = readFileSync(filePath, { encoding: 'utf8', flag: 'r' });
-    const first150 = fd.slice(0, 150);
+    fd = openSync(filePath, 'r');
+    const buf = Buffer.alloc(150);
+    const bytesRead = readSync(fd, buf, 0, 150, 0);
+    const first150 = buf.toString('utf8', 0, bytesRead);
     const match = first150.match(/^#!([^\r\n]+)/);
     return match ? match[1].trim() : null;
   } catch {
     return null;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // ignore close errors
+      }
+    }
   }
 }
 

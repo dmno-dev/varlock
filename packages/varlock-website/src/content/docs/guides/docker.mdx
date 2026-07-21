@@ -46,6 +46,8 @@ CMD ["node", "dist/server.js"]
 
 Secrets are fetched when the container starts, not when the image is built.
 
+`varlock run` stays resident while your app runs (signal forwarding), so the container pays for two processes. That is usually fine once the CLI is a few tens of MiB. If you are on a very tight memory limit and only need env at boot, prefer resolve-then-`exec` so a single Node process remains: `eval "$(varlock load --format shell --compact)" && exec node dist/server.js`.
+
   </TabItem>
   <TabItem label="Build-time">
 
