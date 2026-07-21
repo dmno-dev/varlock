@@ -18,6 +18,26 @@
 
 
 
+
+## 1.13.0
+<sub>2026-07-21</sub>
+
+- [#918](https://github.com/dmno-dev/varlock/pull/918)  *(minor)*
+  Report load failures to error trackers. `varlock/auto-load` can now throw the load error (instead of exiting silently) so a reporter like Sentry can capture it. Opt in with a `globalThis._varlockOnLoadError` hook (called with the error and the values that did resolve), or set `_VARLOCK_THROW_ON_LOAD_ERROR=1` when a reporter is already initialized. Default behavior is unchanged.
+- [#917](https://github.com/dmno-dev/varlock/pull/917)  *(minor)*
+  Add array and object value types: `@type=array(...)` and `@type=record(...)` with per-element validation, native `[a, b]` / `{k=v}` literal values, JSON and separator string input, configurable serialization back to process.env, per-element redaction, and typed code generation across languages
+- [#908](https://github.com/dmno-dev/varlock/pull/908)  *(patch)* - Reject numeric Infinity/-Infinity in number coercion
+- [#910](https://github.com/dmno-dev/varlock/pull/910)  *(patch)* - Honor falsy schema overrides for builtin vars like VARLOCK_IS_CI
+- [#913](https://github.com/dmno-dev/varlock/pull/913)  *(patch)* - Scan Buffer chunks in ServerResponse.end for leaks
+- [#920](https://github.com/dmno-dev/varlock/pull/920)  *(patch)*
+  Fix refs in the `@cache` root decorator value (e.g. `@cache=if($USE_CACHE, "memory", "disabled")`) silently resolving as undefined
+- [#911](https://github.com/dmno-dev/varlock/pull/911)  *(patch)*
+  Resolve dynamic arguments in forEnv(); a forEnv() argument that resolves to undefined is now an error instead of silently comparing against "undefined"
+- [#895](https://github.com/dmno-dev/varlock/pull/895)  *(patch)* Thanks [@cturner8](https://github.com/cturner8)!
+  install.sh now installs varlock-local-encrypt.exe on WSL so local encryption can use the Windows TPM/Hello backend (pass --skip-win-exe to opt out)
+- [#923](https://github.com/dmno-dev/varlock/pull/923)  *(patch)* - Fix varlock run OOM when child command is a bare PATH binary like node (shebang probe no longer reads the whole file)
+- [#922](https://github.com/dmno-dev/varlock/pull/922)  *(patch)* - Add --plain flag to generate-key for piping into platform CLIs
+
 ## 1.12.0
 <sub>2026-07-20</sub>
 
