@@ -347,7 +347,7 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
     documentation: 'Example: `@type=array(email)` or `@type=array(enum(dev, staging, prod))`. Element type options go in a nested call: `array(email(normalize=true))`. Values can be native literals (`[a, b]`), JSON arrays, or separator-joined strings (default `,`).',
     insertText: 'array(${1|string,email,number,boolean,url,port,uuid|})',
     optionSnippets: [
-      { name: 'minLength', insertText: 'minLength=${1:1}', documentation: 'Minimum number of elements.' },
+      { name: 'minLength', insertText: 'minLength=${1:1}', documentation: 'Minimum number of elements (default 1; set 0 to allow an empty array).' },
       { name: 'maxLength', insertText: 'maxLength=${1:10}', documentation: 'Maximum number of elements.' },
       { name: 'isLength', insertText: 'isLength=${1:2}', documentation: 'Exact number of elements.' },
       { name: 'unique', insertText: 'unique=true', documentation: 'Reject duplicate elements.' },
@@ -362,7 +362,7 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
     insertText: 'record(${1|string,url,number,boolean|})',
     optionSnippets: [
       { name: 'keyType', insertText: 'keyType=${1:enum(a, b)}', documentation: 'Type used to validate each key (e.g. enum, string(matches=...)).' },
-      { name: 'entriesMinLength', insertText: 'entriesMinLength=${1:1}', documentation: 'Minimum number of entries.' },
+      { name: 'entriesMinLength', insertText: 'entriesMinLength=${1:1}', documentation: 'Minimum number of entries (default 1; set 0 to allow an empty object).' },
       { name: 'entriesMaxLength', insertText: 'entriesMaxLength=${1:10}', documentation: 'Maximum number of entries.' },
       { name: 'entriesIsLength', insertText: 'entriesIsLength=${1:2}', documentation: 'Exact number of entries.' },
     ],

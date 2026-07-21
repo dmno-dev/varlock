@@ -762,7 +762,9 @@ const ArrayDataType = createEnvGraphDataType((settings?: ArrayDataTypeSettings) 
       } else if (_.isString(rawVal)) {
         const trimmed = rawVal.trim();
         if (trimmed === '') {
-          arr = [];
+          // an empty/whitespace-only string means "missing value" - it never becomes an
+          // empty array (the explicit `[]` literal is the only way to express one)
+          return undefined;
         } else if (trimmed.startsWith('[')) {
           let parsed: unknown;
           try {
@@ -800,8 +802,14 @@ const ArrayDataType = createEnvGraphDataType((settings?: ArrayDataTypeSettings) 
       const arr = val as Array<unknown>;
       const errors: Array<ValidationError> = [];
 
-      if (settings?.minLength !== undefined && arr.length < settings.minLength) {
-        errors.push(new ValidationError(`Array must have at least ${settings.minLength} element(s)`));
+      if (settings?.minLength !== undefined) {
+        if (arr.length < settings.minLength) {
+          errors.push(new ValidationError(`Array must have at least ${settings.minLength} element(s)`));
+        }
+      } else if (settings?.isLength === undefined && arr.length === 0) {
+        // minLength defaults to 1 - an explicitly-empty array is usually a placeholder
+        // to fill in, so it must be sanctioned deliberately
+        errors.push(new ValidationError('Array must not be empty', { tip: 'set minLength=0 to allow an empty array' }));
       }
       if (settings?.maxLength !== undefined && arr.length > settings.maxLength) {
         errors.push(new ValidationError(`Array must have at most ${settings.maxLength} element(s)`));
@@ -884,7 +892,8 @@ const RecordDataType = createEnvGraphDataType((settings?: RecordDataTypeSettings
       } else if (_.isString(rawVal)) {
         const trimmed = rawVal.trim();
         if (trimmed === '') {
-          obj = {};
+          // empty/whitespace-only string means "missing value" - never an empty object
+          return undefined;
         } else if (trimmed.startsWith('{')) {
           let parsed: unknown;
           try {
@@ -925,8 +934,13 @@ const RecordDataType = createEnvGraphDataType((settings?: RecordDataTypeSettings
       const errors: Array<ValidationError> = [];
 
       const entryCount = Object.keys(obj).length;
-      if (settings?.entriesMinLength !== undefined && entryCount < settings.entriesMinLength) {
-        errors.push(new ValidationError(`Object must have at least ${settings.entriesMinLength} entry(s)`));
+      if (settings?.entriesMinLength !== undefined) {
+        if (entryCount < settings.entriesMinLength) {
+          errors.push(new ValidationError(`Object must have at least ${settings.entriesMinLength} entry(s)`));
+        }
+      } else if (settings?.entriesIsLength === undefined && entryCount === 0) {
+        // entriesMinLength defaults to 1 - see the array type's matching default
+        errors.push(new ValidationError('Object must not be empty', { tip: 'set entriesMinLength=0 to allow an empty object' }));
       }
       if (settings?.entriesMaxLength !== undefined && entryCount > settings.entriesMaxLength) {
         errors.push(new ValidationError(`Object must have at most ${settings.entriesMaxLength} entry(s)`));

@@ -4,7 +4,7 @@ import {
   ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue,
 } from '@env-spec/parser';
 
-import { EnvGraphDataType } from './data-types';
+import { EnvGraphDataType, isCompositeCoercedType } from './data-types';
 import { EnvGraph } from './env-graph';
 import {
   CoercionError, EmptyRequiredValueError, ResolutionError, SchemaError,
@@ -849,7 +849,14 @@ export class ConfigItem {
     // first deal with empty values and checking required
     if (this.resolvedRawValue === undefined || this.resolvedRawValue === '') {
       // we preserve undefined vs empty string - might want to change this?
-      this.resolvedValue = this.resolvedRawValue;
+      // EXCEPT for composite types (array/record), where an empty string means "missing" -
+      // preserving '' would misrepresent the item's type, and it must never become an
+      // empty container
+      if (this.resolvedRawValue === '' && isCompositeCoercedType(this.dataType?.coercedType)) {
+        this.resolvedValue = undefined;
+      } else {
+        this.resolvedValue = this.resolvedRawValue;
+      }
       if (this.isRequired) {
         this.validationErrors = [new EmptyRequiredValueError(undefined)];
       }
@@ -896,6 +903,15 @@ export class ConfigItem {
       const coerceResult = dataType.coerce(this.resolvedRawValue);
       if (coerceResult instanceof Error) throw coerceResult;
       this.resolvedValue = coerceResult;
+      // coercion may resolve a non-empty raw value to "missing" (e.g. a whitespace-only
+      // string on a composite type) - treat like the empty short-circuit above instead
+      // of running validation against undefined
+      if (this.resolvedValue === undefined) {
+        if (this.isRequired) {
+          this.validationErrors = [new EmptyRequiredValueError(undefined)];
+        }
+        return;
+      }
     } catch (err) {
       if (err instanceof CoercionError) {
         this.coercionError = err;

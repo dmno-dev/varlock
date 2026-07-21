@@ -457,9 +457,20 @@ describe('array data type', () => {
   });
 
   describe('array options', () => {
-    it('allows empty arrays by default', async () => {
+    it('rejects empty arrays by default', async () => {
       const g = await loadAndResolve(outdent`
         # @type=array(string)
+        ITEM=[]
+      `);
+      expect(g.configSchema.ITEM.isValid).toBe(false);
+      const err = g.configSchema.ITEM.validationErrors?.[0];
+      expect(err?.message).toContain('must not be empty');
+      expect(err?.tip).toContain('minLength=0');
+    });
+
+    it('allows empty arrays with explicit minLength=0', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=array(string, minLength=0)
         ITEM=[]
       `);
       expect(g.configSchema.ITEM.isValid).toBe(true);
@@ -682,9 +693,20 @@ describe('record data type', () => {
       expect(g.configSchema.ITEM.errors[0].message).toContain('whatever');
     });
 
-    it('allows empty objects', async () => {
+    it('rejects empty objects by default', async () => {
       const g = await loadAndResolve(outdent`
         # @type=record(string)
+        ITEM={}
+      `);
+      expect(g.configSchema.ITEM.isValid).toBe(false);
+      const err = g.configSchema.ITEM.validationErrors?.[0];
+      expect(err?.message).toContain('must not be empty');
+      expect(err?.tip).toContain('entriesMinLength=0');
+    });
+
+    it('allows empty objects with explicit entriesMinLength=0', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=record(string, entriesMinLength=0)
         ITEM={}
       `);
       expect(g.configSchema.ITEM.isValid).toBe(true);
@@ -973,13 +995,36 @@ describe('composite coercion error paths', () => {
     expect(msg).not.toContain('"b"');
   });
 
-  it('whitespace-only string coerces to an empty array', async () => {
+  it('empty/whitespace string input resolves to missing, never an empty array', async () => {
     const g = await loadAndResolve(outdent`
       # @type=array(string)
+      WHITESPACE=" "
+      # @type=array(string)
+      QUOTED_EMPTY=""
+    `);
+    expect(g.configSchema.WHITESPACE.isValid).toBe(true);
+    expect(g.configSchema.WHITESPACE.resolvedValue).toBe(undefined);
+    expect(g.configSchema.QUOTED_EMPTY.isValid).toBe(true);
+    expect(g.configSchema.QUOTED_EMPTY.resolvedValue).toBe(undefined);
+  });
+
+  it('required items reject empty/whitespace string input as missing', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(string)
+      # @required
       ITEM=" "
     `);
+    expect(g.configSchema.ITEM.isValid).toBe(false);
+    expect(g.configSchema.ITEM.validationErrors?.[0]?.message).toContain('required but is currently empty');
+  });
+
+  it('required items accept an explicitly non-empty array', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=array(string)
+      # @required
+      ITEM=[a]
+    `);
     expect(g.configSchema.ITEM.isValid).toBe(true);
-    expect(g.configSchema.ITEM.resolvedValue).toEqual([]);
   });
 });
 
@@ -1177,7 +1222,7 @@ describe('enum members sourced from other items', () => {
 
   it('rejects an empty resolved member list', async () => {
     const g = await loadAndResolve(outdent`
-      # @type=array(string)
+      # @type=array(string, minLength=0)
       ALLOWED_MODES=[]
       # @type=enum($ALLOWED_MODES)
       APP_MODE=dev

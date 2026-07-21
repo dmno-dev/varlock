@@ -311,7 +311,7 @@ A list of values, each coerced and validated with an element type.
 **Array options:**
 - `separator` (string, default `","`): splits plain-string input (e.g. a real environment variable override) and joins the value back into a string for `process.env`
 - `format` (`separator` | `json`, default `separator`): how the value serializes back into `process.env`. `json` emits a JSON array string. Arrays of objects/arrays always use JSON
-- `minLength` / `maxLength` / `isLength` (number): element count bounds (or an exact count). Empty arrays are valid by default; use `minLength=1` to require at least one element
+- `minLength` / `maxLength` / `isLength` (number): element count bounds (or an exact count). `minLength` defaults to 1, so an explicitly-empty `[]` is invalid unless you set `minLength=0` (an explicit `isLength` also overrides the default)
 - `unique` (boolean): reject duplicate elements
 
 Values can be written three ways:
@@ -336,6 +336,8 @@ A scalar element that contains the separator fails validation (it could not roun
 
 In application code, `ENV.ALLOWED_EMAILS` is a real typed array (`string[]`, `number[]`, etc. via [type generation](/guides/type-generation/)). In `process.env` the value is the flat string form (separator-joined, or JSON when `format=json`).
 
+An empty or whitespace-only string input resolves to a missing value (`undefined`), never an empty array; the only way to express an empty array is the explicit `[]` literal (sanctioned via `minLength=0`).
+
 An untyped item whose value is an array literal (e.g. `ITEM=[a, b]`) is inferred as an array automatically.
 </div>
 
@@ -348,7 +350,7 @@ An object (a keyed record) whose values are coerced and validated with a value t
 
 **Object options:**
 - `keyType`: a type used to validate every key, e.g. `keyType=enum(us, eu)` or `keyType=string(matches="[a-z]+")`
-- `entriesMinLength` / `entriesMaxLength` / `entriesIsLength` (number): entry count bounds (or an exact count). Empty objects are valid by default
+- `entriesMinLength` / `entriesMaxLength` / `entriesIsLength` (number): entry count bounds (or an exact count). `entriesMinLength` defaults to 1, so an explicitly-empty `{}` is invalid unless you set `entriesMinLength=0`
 
 ```env-spec
 # every value must be a valid url
