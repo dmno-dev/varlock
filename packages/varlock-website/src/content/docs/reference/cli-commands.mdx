@@ -748,9 +748,13 @@ Generates a random 256-bit encryption key for use with `_VARLOCK_ENV_KEY`. This 
 
 ```bash
 varlock generate-key
+varlock generate-key --plain
 ```
 
-See the [Next.js](/integrations/nextjs/#encrypting-the-env-blob) and [Vite](/integrations/vite/#encrypting-the-env-blob) integration docs for setup instructions.
+**Flags:**
+- `--plain`: Print only the key (no surrounding help text). Useful for piping into platform CLIs, e.g. `varlock generate-key --plain | vercel env add _VARLOCK_ENV_KEY production --sensitive`.
+
+See the [encrypted deployments guide](/guides/encrypted-deployments/) and the [Next.js](/integrations/nextjs/#encrypting-the-env-blob) / [Vite](/integrations/vite/#encrypting-the-env-blob) integration docs for setup instructions.
 
 </div>
 

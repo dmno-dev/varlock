@@ -162,6 +162,21 @@ describe('CLI Commands', () => {
     });
   });
 
+  describe('generate-key command', () => {
+    test('varlock generate-key prints a human-readable banner and key', () => {
+      const result = runVarlock(['generate-key']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Generated _VARLOCK_ENV_KEY');
+      expect(result.stdout).toMatch(/[0-9a-f]{64}/);
+    });
+
+    test('varlock generate-key --plain prints only the key', () => {
+      const result = runVarlock(['generate-key', '--plain']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toMatch(/^[0-9a-f]{64}\n$/);
+    });
+  });
+
   describe('explain command', () => {
     test('varlock explain <key> resolves a config item', () => {
       const result = runVarlock(['explain', 'PUBLIC_VAR'], { cwd: 'smoke-test-basic' });
