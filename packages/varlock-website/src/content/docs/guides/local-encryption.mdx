@@ -92,6 +92,18 @@ Varlock chooses the best available backend automatically:
 
 If native capabilities are unavailable, varlock falls back to file-based local encryption.
 
+**Verify encryption backend (macOS/Linux)**
+
+```bash
+varlock-local-encrypt status
+```
+
+**Verify encryption backend (Windows/WSL)**
+
+```bash
+varlock-local-encrypt.exe status
+```
+
 ## Unattended decryption (headless servers & CI)
 
 Local encryption isn't just for laptops. On a headless host with a TPM (a home server, a CI runner, a container host), varlock seals the key to the machine's TPM and decrypts automatically at load with **no prompt**. That makes it a good way to store a "secret-zero" (like a 1Password service account token) that bootstraps the rest of your secrets:
@@ -137,11 +149,15 @@ Treat this gate as a **consent prompt**, not an at-rest boundary. On Linux the T
 - Native helper with **TPM-sealed** key protection when a TPM 2.0 chip is available (via NCrypt / Platform Crypto Provider)
 - Falls back to **DPAPI** (user-session-scoped) when TPM sealing is unavailable
 - **Windows Hello** gates interactive decrypts (fingerprint/face/PIN), separate from at-rest protection, same as before
-- Windows native and **WSL** workflows are both supported (WSL uses the Windows `.exe` via `--via-daemon`; Hello + TPM behavior is identical)
+- Windows native and **WSL** workflows are both supported (WSL uses the Windows `varlock-local-encrypt.exe` via `--via-daemon`; Hello + TPM behavior is identical)
 - Automated daemon startup/installation behavior is built in for biometric session flows
 - WSL decrypt flows use a native bridge to the Windows daemon path
 
 ✅ No additional install/setup steps required
+
+:::tip
+On WSL, the standalone `install.sh` installs the Windows encryption helper (`varlock-local-encrypt.exe`) alongside the Linux `varlock-local-encrypt` binary by default. Pass `--skip-win-exe` to install only the Linux binary. On regular Linux and macOS, only the native binary is installed.
+:::
 
 #### Upgrading existing keys to TPM
 

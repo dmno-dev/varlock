@@ -27,6 +27,7 @@ INSTALL_DIR="${VARLOCK_CONFIG_DIR}/bin"
 INSTALL_DIR_UNEXPANDED="\${XDG_CONFIG_HOME:-~/.config}/varlock/bin"
 REINSTALL=""
 FORCE_NO_BREW="false"
+SKIP_WIN_EXE="false"
 
 usage() {
   echo "Usage: $0 [options]"
@@ -38,6 +39,7 @@ usage() {
   echo "  --reinstall       reinstall even if already installed (default: false)"
   echo "  --version         version of varlock to install (defaults to latest)"
   echo "  --force-no-brew   force install without homebrew even when detected (default: false)"
+  echo "  --skip-win-exe    on WSL, skip installing the Windows encryption helper (varlock-local-encrypt.exe) (default: false)"
   echo ""
 }
 
@@ -56,6 +58,9 @@ parse_args() {
     ;;
     force-no-brew | --force-no-brew)
       FORCE_NO_BREW="true"
+    ;;
+    skip-win-exe | --skip-win-exe)
+      SKIP_WIN_EXE="true"
     ;;
     help | --help)
       usage
@@ -187,6 +192,11 @@ main() {
         chmod u+x "${INSTALL_DIR}/varlock-local-encrypt"
         echo "  Installed native encryption binary (varlock-local-encrypt)"
       fi
+      if is_wsl && [ "$SKIP_WIN_EXE" != "true" ] && [ -f "${_temp_dir}/varlock-local-encrypt.exe" ]; then
+        install "${_temp_dir}/varlock-local-encrypt.exe" "${INSTALL_DIR}/"
+        chmod u+x "${INSTALL_DIR}/varlock-local-encrypt.exe"
+        echo "  Installed Windows encryption helper for WSL (varlock-local-encrypt.exe)"
+      fi
     ;;
     win-*)
       if [ -f "${_temp_dir}/varlock-local-encrypt.exe" ]; then
@@ -246,6 +256,24 @@ get_architecture() {
       LIBC="musl-"
     fi
   fi
+}
+
+is_wsl() {
+  # Fast path: WSL sets this env var
+  if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+    return 0
+  fi
+
+  # Fallback: check /proc/version for Microsoft/WSL signature
+  if [ -r /proc/version ] && grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null; then
+    return 0
+  fi
+
+  # Last resort: kernel release string
+  case "$(uname -r 2>/dev/null)" in
+    *[Mm]icrosoft*|*[Ww][Ss][Ll]*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # $1 - url for download. $2 - path to download
