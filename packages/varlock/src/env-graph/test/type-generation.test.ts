@@ -237,6 +237,57 @@ describe('type generation', () => {
       expect(infos.APP_ENV.dataType?.name).toBe('enum');
     });
 
+    test('array and object types generate recursive TS types', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultRequired=false
+          # ---
+          # @type=array(email)
+          ALLOWED_EMAILS=[a@example.com, b@example.com]
+          # @type=array(number)
+          SCORES=[1, 2, 3]
+          # @type=array(enum(dev, staging, prod))
+          APP_MODES=[dev, staging]
+          # @type=record(url)
+          ENDPOINTS={api=https://example.com}
+          # @type=record(number, keyType=enum(us, eu))
+          REGION_LIMITS={us=1}
+          # @type=record
+          FREEFORM={k=v}
+        `,
+      });
+
+      const items = await collectTypeGenItems(g);
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
+      expect(src).toContain('ALLOWED_EMAILS?: string[];');
+      expect(src).toContain('SCORES?: number[];');
+      expect(src).toContain('APP_MODES?: ("dev" | "staging" | "prod")[];');
+      expect(src).toContain('ENDPOINTS?: Record<string, string>;');
+      expect(src).toContain('REGION_LIMITS?: Partial<Record<"us" | "eu", number>>;');
+      expect(src).toContain('FREEFORM?: Record<string, any>;');
+    });
+
+    test('dynamic @type parts generate from the provisional (static) type', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultRequired=false
+          # ---
+          # @type=enum(dev, production)
+          APP_ENV=dev
+          # @type=if(eq($APP_ENV, production), url, string)
+          SERVICE_HOST=localhost:3000
+          # @type=string(minLength=if(eq($APP_ENV, production), 32, 8))
+          API_TOKEN=abcdefgh
+        `,
+      });
+
+      const items = await collectTypeGenItems(g);
+      const src = await generateTsTypesSrc(resolveFieldTypes(items));
+      // both candidates (url/string) generate string - output is env-independent
+      expect(src).toContain('SERVICE_HOST?: string;');
+      expect(src).toContain('API_TOKEN?: string;');
+    });
+
     test('boolean type gets correct TypeGenInfo', async () => {
       const g = await loadGraph({
         envFile: outdent`

@@ -200,7 +200,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // (e.g. a nested `varlock run` whose own resolution needs a secret-zero token)
   const includeInternal = !!ctx.values['include-internal'];
   const filterKeys = itemFilter?.getFilterKeys(Object.values(envGraph.configSchema));
-  const resolvedEnv = envGraph.getResolvedEnvObject({ includeInternal, filterKeys });
+  // string-serialized values (composites become separator-joined/JSON strings) since
+  // these are injected directly into the child's process.env
+  const resolvedEnv = envGraph.getResolvedEnvStringObject({ includeInternal, filterKeys });
   const serializedGraph = envGraph.getSerializedGraph({ filterKeys });
   const { resetRedactionMap } = await import('../../runtime/env');
   // console.log(resolvedEnv);

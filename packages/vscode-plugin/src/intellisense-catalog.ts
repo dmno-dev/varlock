@@ -342,6 +342,32 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
     insertText: 'enum(${1:development}, ${2:preview}, ${3:production})',
   },
   {
+    name: 'array',
+    summary: 'Array of values, each validated with an element type.',
+    documentation: 'Example: `@type=array(email)` or `@type=array(enum(dev, staging, prod))`. Element type options go in a nested call: `array(email(normalize=true))`. Values can be native literals (`[a, b]`), JSON arrays, or separator-joined strings (default `,`).',
+    insertText: 'array(${1|string,email,number,boolean,url,port,uuid|})',
+    optionSnippets: [
+      { name: 'minLength', insertText: 'minLength=${1:1}', documentation: 'Minimum number of elements (default 1; set 0 to allow an empty array).' },
+      { name: 'maxLength', insertText: 'maxLength=${1:10}', documentation: 'Maximum number of elements.' },
+      { name: 'isLength', insertText: 'isLength=${1:2}', documentation: 'Exact number of elements.' },
+      { name: 'unique', insertText: 'unique=true', documentation: 'Reject duplicate elements.' },
+      { name: 'separator', insertText: 'separator=${1:","}', documentation: 'Separator used to split string input and join output (default ",").' },
+      { name: 'format', insertText: 'format=${1|separator,json|}', documentation: 'How the value serializes back into process.env (default separator-joined; json emits a JSON array).' },
+    ],
+  },
+  {
+    name: 'record',
+    summary: 'Object (keyed record) with typed values and optional key validation.',
+    documentation: 'Example: `@type=record(url)` validates every value as a url; `@type=record(url, keyType=enum(us, eu))` also restricts keys. Bare `@type=record` accepts any object. Values can be native literals (`{k=v}`) or JSON objects; serializes to process.env as JSON.',
+    insertText: 'record(${1|string,url,number,boolean|})',
+    optionSnippets: [
+      { name: 'keyType', insertText: 'keyType=${1:enum(a, b)}', documentation: 'Type used to validate each key (e.g. enum, string(matches=...)).' },
+      { name: 'entriesMinLength', insertText: 'entriesMinLength=${1:1}', documentation: 'Minimum number of entries (default 1; set 0 to allow an empty object).' },
+      { name: 'entriesMaxLength', insertText: 'entriesMaxLength=${1:10}', documentation: 'Maximum number of entries.' },
+      { name: 'entriesIsLength', insertText: 'entriesIsLength=${1:2}', documentation: 'Exact number of entries.' },
+    ],
+  },
+  {
     name: 'email',
     summary: 'Email address.',
     documentation: 'Example: `@type=email(normalize=true)`.',

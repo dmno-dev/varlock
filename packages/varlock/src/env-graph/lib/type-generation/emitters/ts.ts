@@ -23,6 +23,22 @@ function getItemTsTypeString(coerced: CoercedType): string {
     if (!coerced.enum.length) return 'never';
     return coerced.enum.map((option) => JSON.stringify(option)).join(' | ');
   }
+  if (typeof coerced === 'object' && 'arrayOf' in coerced) {
+    const inner = getItemTsTypeString(coerced.arrayOf);
+    // parenthesize compound inner types so `("a" | "b")[]` doesn't become `"a" | "b"[]`
+    return /[|<\s]/.test(inner) ? `(${inner})[]` : `${inner}[]`;
+  }
+  if (typeof coerced === 'object' && 'recordOf' in coerced) {
+    const valuesType = coerced.recordOf.values ? getItemTsTypeString(coerced.recordOf.values) : 'any';
+    const keys = coerced.recordOf.keys;
+    // enum-constrained keys narrow the record's key union; Partial since the constraint
+    // limits which keys are allowed, not which must be present
+    if (keys && typeof keys === 'object' && 'enum' in keys && keys.enum.length) {
+      const keyUnion = keys.enum.map((option) => JSON.stringify(String(option))).join(' | ');
+      return `Partial<Record<${keyUnion}, ${valuesType}>>`;
+    }
+    return `Record<string, ${valuesType}>`;
+  }
   return 'string';
 }
 

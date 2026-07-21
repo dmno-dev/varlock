@@ -59,6 +59,20 @@ export async function getTypeGenInfoMap(g: EnvGraph) {
   return infos;
 }
 
+/** Schema fixture covering composite (array/object) types across required/optional. */
+export const COMPOSITE_TYPE_FIXTURE = outdent`
+  # @defaultSensitive=false @defaultRequired=false
+  # ---
+  # @type=array(string)
+  HOSTS=[a.com, b.com]        # @required @public
+  # @type=array(number)
+  SCORES=[1, 2]
+  # @type=array(enum(dev, prod))
+  MODES=[dev]
+  # @type=record(number)
+  LIMITS={a=1}
+`;
+
 export async function loadFixtureFields(
   envFile = NON_STRING_TYPE_FIXTURE,
   opts?: { dataTypes?: Array<EnvGraphDataTypeFactory> },

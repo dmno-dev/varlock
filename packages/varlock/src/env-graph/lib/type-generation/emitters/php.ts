@@ -41,6 +41,10 @@ function phpBaseType(coerced: CoercedType): string {
       return (['string', 'int', 'float', 'bool'] as const).filter((k) => phpKinds.has(k)).join('|');
     }
   }
+  // typed arrays/records both decode to PHP arrays; the @var refinement carries the detail
+  if (typeof coerced === 'object' && ('arrayOf' in coerced || 'recordOf' in coerced)) {
+    return 'array';
+  }
   return 'string';
 }
 
@@ -55,6 +59,15 @@ function phpVarType(coerced: CoercedType): string | undefined {
   if (coerced === 'object') return 'array<string, mixed>';
   if (typeof coerced === 'object' && 'enum' in coerced && coerced.enum.length) {
     return coerced.enum.map(phpEnumLiteral).join('|');
+  }
+  if (typeof coerced === 'object' && 'arrayOf' in coerced) {
+    const inner = phpVarType(coerced.arrayOf) ?? phpBaseType(coerced.arrayOf);
+    return `array<int, ${inner}>`;
+  }
+  if (typeof coerced === 'object' && 'recordOf' in coerced) {
+    const { values } = coerced.recordOf;
+    const inner = values ? (phpVarType(values) ?? phpBaseType(values)) : 'mixed';
+    return `array<string, ${inner}>`;
   }
   return undefined;
 }

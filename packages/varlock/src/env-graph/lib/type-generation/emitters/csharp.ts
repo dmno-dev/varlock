@@ -132,6 +132,10 @@ function csharpTypeKind(coerced: CoercedType): CsharpTypeKind {
     if (kind === 'boolean') return 'bool';
     if (kind === 'mixed') return 'object';
   }
+  // typed arrays/records surface as JsonElement - consumers deserialize to the shape they want
+  if (typeof coerced === 'object' && ('arrayOf' in coerced || 'recordOf' in coerced)) {
+    return 'json';
+  }
   return 'string';
 }
 

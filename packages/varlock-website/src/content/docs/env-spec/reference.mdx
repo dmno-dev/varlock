@@ -213,15 +213,21 @@ Standalone objects and arrays use distinct brackets, keeping them unambiguous fr
 
 - `{ key=value, ... }` is an **object**, where keys use `=` (as elsewhere in the spec), not `:`
 - `[ value, ... ]` is an **array**
-- they may be nested, and used as decorator values or as function-call arguments
+- they may be nested, and used as decorator values, function-call arguments, or standalone config item values
 - they are parsed using the common value-handling rules, and may span multiple lines (see [Multi-line literals](#multi-line-literals) below)
-- they are **not yet supported as standalone config item values** (e.g. `ITEM={...}`). For now an item value that starts with `{`/`[` is still treated as a string
+- as a config item value, a literal implies the item's type (or pair it with an explicit `@type=array(...)` / `@type=record(...)` for element validation - see [array](/reference/data-types/#array) and [record](/reference/data-types/#record))
+- an item value starting with `{`/`[` that does not parse as a literal (e.g. a JSON string using `:` pairs) still falls back to a plain string
 
 ```env-spec
 # @dec={ key1=v1, key2="v2", nested={ a=1 } }
 # @dec=[a, b, c]
 # @dec=fn(opts={ retries=3 }, tags=[x, y])
 ITEM=
+
+# @type=array(email)
+ALLOWED_EMAILS=[admin@example.com, support@example.com]
+# @type=record(url)
+ENDPOINTS={api=https://api.example.com, docs=https://docs.example.com}
 ```
 
 This is why per-item options are written `@sensitive={preventLeaks=false}` rather than `@sensitive(...)`. The latter (a bare function call) is reserved for repeatable decorators.

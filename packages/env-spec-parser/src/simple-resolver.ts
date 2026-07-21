@@ -1,7 +1,8 @@
 import { execSync } from 'node:child_process';
 import {
   ParsedEnvSpecFile, ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair,
-  ParsedEnvSpecStaticValue,
+  ParsedEnvSpecStaticValue, ParsedEnvSpecObjectLiteral, ParsedEnvSpecArrayLiteral,
+  type ParsedEnvSpecConfigItemValue,
 } from './classes.js';
 
 /**
@@ -18,9 +19,22 @@ export function simpleResolver(
   const resolved = {} as Record<string, any>;
 
   function valueResolver(
-    valOrFn: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall,
-  ): string | undefined {
+    valOrFn: ParsedEnvSpecConfigItemValue,
+  ): string | Array<unknown> | Record<string, unknown> | undefined {
     if (valOrFn instanceof ParsedEnvSpecStaticValue) return valOrFn.unescapedValue;
+    if (valOrFn instanceof ParsedEnvSpecArrayLiteral) {
+      return valOrFn.values.map((v) => {
+        if (v instanceof ParsedEnvSpecKeyValuePair) throw new Error('Unexpected key-value pair in array literal');
+        return valueResolver(v);
+      });
+    }
+    if (valOrFn instanceof ParsedEnvSpecObjectLiteral) {
+      const obj: Record<string, unknown> = {};
+      for (const kv of valOrFn.values) {
+        obj[kv.key] = valueResolver(kv.value);
+      }
+      return obj;
+    }
     if (valOrFn instanceof ParsedEnvSpecFunctionCall) {
       if (valOrFn.name === 'ref') {
         const args = valOrFn.simplifiedArgs;

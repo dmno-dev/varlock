@@ -16,6 +16,52 @@ NO_ARGS=
 WITH_ARGS=
 ```
 
+### Dynamic type options
+
+Type option values can be [resolver functions](/reference/functions/) instead of static values, so validation can vary per environment or based on other items:
+
+```env-spec
+# @type=enum(dev, production)
+APP_ENV=dev
+
+# stricter length requirement in production
+# @type=string(minLength=if(eq($APP_ENV, production), 32, 8))
+API_TOKEN=
+
+# require at least one entry only in production
+# @type=array(email, minLength=if(eq($APP_ENV, production), 1, 0))
+ALERT_EMAILS=[]
+```
+
+The whole type can also be dynamic, resolving to a type name:
+
+```env-spec
+# validate as a url in production, allow anything in dev
+# @type=if(eq($APP_ENV, production), url, string)
+SERVICE_HOST=localhost:3000
+```
+
+One constraint: dynamic parts may vary validation behavior, but not the **generated** types (generated code must not differ per environment). All possible types must generate the same type. A `url` and a `string` both generate a string, so switching between them is fine; switching between `number` and `string` is a schema error. For generated code, the first static candidate in the expression is used (`url` above). The same rule applies to options that affect generated types (e.g. `number(isInt=...)` must stay static).
+
+Dynamic whole types resolve to a bare type name; to combine a dynamic type with options, put the dynamic part in the option instead (e.g. `string(minLength=if(...))`).
+
+Enum members can also be sourced from other items. A referenced array spreads its elements into the member list:
+
+```env-spec
+# @type=array(string)
+ALLOWED_MODES=[dev, staging, prod]
+
+# value must be one of the elements of ALLOWED_MODES
+# @type=enum($ALLOWED_MODES)
+APP_MODE=dev
+
+# static members and references can be mixed
+# @type=enum(local, $ALLOWED_MODES)
+BUILD_MODE=local
+```
+
+Since membership is only known at resolution time, generated code types a dynamic enum as a plain string, and members must resolve to strings.
+
 ### Coercion & validation process
 
 Once a raw value is resolved - which could from a static value in an `.env` file, a [function](/reference/functions/), or an override passed into the process - the raw value will be coerced and validated based on the type, respecting additional arguments provided to the type.
@@ -134,7 +180,7 @@ API_URL=https://api.example.com/v1
 
 <div>
 ### `enum`
-Checks a value is contained in a list of possible values - it must match one exactly.
+Checks a value is contained in a list of possible values - it must match one exactly. Members can also be sourced from other items (see [Dynamic type options](#dynamic-type-options)).
 
 **NOTE** - this is the only type that cannot be used without any additional arguments
 
@@ -222,7 +268,7 @@ MY_HASH=d41d8cd98f00b204e9800998ecf8427e
 
 <div>
 ### `simple-object`
-Validates and coerces JSON strings into objects.
+Validates and coerces JSON strings into objects. Equivalent to a bare [`record`](#record); prefer `record`, which can also validate keys and values.
 ```env-spec
 # @type=simple-object
 MY_OBJECT={"key": "value"}
@@ -253,5 +299,77 @@ POLL_INTERVAL=15m
 ```
 
 Same parser is used by `cache(..., ttl=...)` and the plugin `cacheTtl` option, so any string that works there also works here. For cache mode behavior and troubleshooting, see the [Caching guide](/guides/caching/).
+</div>
+
+<div>
+### `array`
+
+A list of values, each coerced and validated with an element type.
+
+**Element type** is the first positional argument: a type name (`array(email)`) or a nested type call for types that take their own options or positional args (`array(email(normalize=true))`, `array(enum(dev, staging, prod))`). Omitting it defaults to string elements.
+
+**Array options:**
+- `separator` (string, default `","`): splits plain-string input (e.g. a real environment variable override) and joins the value back into a string for `process.env`
+- `format` (`separator` | `json`, default `separator`): how the value serializes back into `process.env`. `json` emits a JSON array string. Arrays of objects/arrays always use JSON
+- `minLength` / `maxLength` / `isLength` (number): element count bounds (or an exact count). `minLength` defaults to 1, so an explicitly-empty `[]` is invalid unless you set `minLength=0` (an explicit `isLength` also overrides the default)
+- `unique` (boolean): reject duplicate elements
+
+Values can be written three ways:
+
+```env-spec
+# native literal - elements support refs and function calls
+# @type=array(email)
+ALLOWED_EMAILS=[admin@example.com, ${SUPPORT_EMAIL}]
+
+# separator-joined string - how a real env var override arrives
+# @type=array(url, separator=";")
+SERVICE_URLS="https://a.example.com;https://b.example.com"
+
+# JSON array string
+# @type=array(number)
+SCORES='[10, 20, 30]'
+```
+
+Validation errors are reported per element (`[1] Current value is not in list of possible values`).
+
+A scalar element that contains the separator fails validation (it could not round-trip through `process.env`); set `format=json` or pick a different separator.
+
+In application code, `ENV.ALLOWED_EMAILS` is a real typed array (`string[]`, `number[]`, etc. via [type generation](/guides/type-generation/)). In `process.env` the value is the flat string form (separator-joined, or JSON when `format=json`).
+
+An empty or whitespace-only string input resolves to a missing value (`undefined`), never an empty array; the only way to express an empty array is the explicit `[]` literal (sanctioned via `minLength=0`).
+
+An untyped item whose value is an array literal (e.g. `ITEM=[a, b]`) is inferred as an array automatically.
+</div>
+
+<div>
+### `record`
+
+An object (a keyed record) whose values are coerced and validated with a value type, with optional key validation. Named `record` (matching TS `Record` and zod convention) since it types ALL values uniformly rather than specific keys.
+
+**Value type** is the first positional argument, same forms as `array`. Bare `@type=record` accepts any object without per-value validation.
+
+**Object options:**
+- `keyType`: a type used to validate every key, e.g. `keyType=enum(us, eu)` or `keyType=string(matches="[a-z]+")`
+- `entriesMinLength` / `entriesMaxLength` / `entriesIsLength` (number): entry count bounds (or an exact count). `entriesMinLength` defaults to 1, so an explicitly-empty `{}` is invalid unless you set `entriesMinLength=0`
+
+```env-spec
+# every value must be a valid url
+# @type=record(url)
+ENDPOINTS={api=https://api.example.com, docs=https://docs.example.com}
+
+# keys restricted to an enum, values validated as numbers
+# @type=record(number, keyType=enum(us, eu))
+REGION_LIMITS={us=100, eu=50}
+
+# JSON object strings also work
+# @type=record(number)
+LIMITS='{"low": 1, "high": 100}'
+```
+
+Validation errors are reported per entry (`"apac" is not a valid key - ...`).
+
+In application code, `ENV.ENDPOINTS` is typed as `Record<string, string>` (enum-constrained keys narrow further). In `process.env` the value is JSON.
+
+An untyped item whose value is an object literal (e.g. `ITEM={k=v}`) is inferred as a record automatically. The existing `simple-object` type behaves the same as a bare `record`.
 </div>
 </div>

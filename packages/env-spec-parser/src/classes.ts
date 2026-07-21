@@ -383,12 +383,15 @@ export class ParsedEnvSpecBlankLine {
 }
 
 
+export type ParsedEnvSpecConfigItemValue = ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
+  | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral;
+
 export class ParsedEnvSpecConfigItem {
-  value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+  value: ParsedEnvSpecConfigItemValue | undefined;
 
   constructor(public data: {
     key: string;
-    value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+    value: ParsedEnvSpecConfigItemValue | undefined;
     preComments: Array<ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment>;
     postComment: ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment | undefined;
     _location?: any;
@@ -399,8 +402,6 @@ export class ParsedEnvSpecConfigItem {
         throw new Error('Nested key-value pair found in config item');
       } else if (expanded instanceof ParsedEnvSpecFunctionArgs) {
         throw new Error('Top-level config item cannot be a bare function args');
-      } else if (expanded instanceof ParsedEnvSpecObjectLiteral || expanded instanceof ParsedEnvSpecArrayLiteral) {
-        throw new Error('Top-level config item value cannot be a bare object or array literal');
       }
       this.value = expanded;
     }

@@ -19,8 +19,19 @@ export type CoercedType = | 'string'
   | 'int' // integer number
   | 'number' // general (possibly fractional) number
   | 'boolean'
-  | 'object'
-  | { enum: Array<string | number | boolean> };
+  | 'object' // free-form object (no per-value typing)
+  | { enum: Array<string | number | boolean> }
+  | { arrayOf: CoercedType } // typed array (e.g. `array(email)` → { arrayOf: 'string' })
+  // typed record - `values` is the per-value type, `keys` restricts keys (e.g. an enum);
+  // either may be absent when that side is unconstrained
+  | { recordOf: { keys?: CoercedType, values?: CoercedType } };
+
+/** a composite coerced value (array/object shaped) cannot be losslessly joined into a
+ * flat separator string, so serialization for these always falls back to JSON */
+export function isCompositeCoercedType(ct: CoercedType | undefined): boolean {
+  if (ct === 'object') return true;
+  return !!ct && typeof ct === 'object' && ('arrayOf' in ct || 'recordOf' in ct);
+}
 
 type EnvGraphDataTypeDef<CoerceReturnType, ValidateInputType = FallbackIfUnknown<CoerceReturnType, string>> = {
   /** this will be the name of the type, used to reference it when using it in a schema */
@@ -60,6 +71,13 @@ type EnvGraphDataTypeDef<CoerceReturnType, ValidateInputType = FallbackIfUnknown
    * (e.g. `int` in Go) instead of assuming `string`. Omit for string-valued types.
    */
   coercedType?: CoercedType;
+
+  /**
+   * serialize a coerced value back to the string form injected into process.env.
+   * Defaults to `String(value)` — composite types (array/object) override this so
+   * child processes receive a usable flat string (separator-joined or JSON).
+   */
+  serialize?: (value: any) => string;
 
   // asyncValidate? - async validation function, meant to be called more sparingly
   // for example, when could validate an API key is currently valid
@@ -118,6 +136,13 @@ export class EnvGraphDataType {
 
   validate(val: any) {
     return this.def.validate ? this.def.validate(val) : true;
+  }
+
+  /** serialize a coerced value back to the string form injected into process.env */
+  serialize(val: any): string {
+    if (val === undefined || val === null) return '';
+    if (this.def.serialize) return this.def.serialize(val);
+    return typeof val === 'string' ? val : String(val);
   }
 }
 // but we can pass in a function if the data type accepts additional usage options
@@ -426,6 +451,8 @@ const SimpleObjectDataType = createEnvGraphDataType({
     if (_.isPlainObject(val)) return true;
     return new ValidationError('Value must be an object');
   },
+  // without this, process.env injection would stringify to "[object Object]"
+  serialize: (val) => JSON.stringify(val),
 });
 
 
@@ -659,6 +686,296 @@ const DurationDataType = createEnvGraphDataType(
 );
 
 
+/// COMPOSITE DATA TYPES (array / object) ///////////////////////////////////////////////
+
+/**
+ * Run a nested type's validate() and normalize every possible outcome (throw, returned
+ * error, returned array, `false`) into a flat list of ValidationErrors — mirrors the
+ * handling in ConfigItem.resolve() so element validation behaves like item validation.
+ */
+async function runNestedValidate(type: EnvGraphDataType, val: any): Promise<Array<ValidationError>> {
+  const asValidationError = (err: Error) => (
+    err instanceof ValidationError ? err : new ValidationError(err.message, { err })
+  );
+  try {
+    const result = await type.validate(val);
+    if (result instanceof Error) return [asValidationError(result)];
+    if (_.isArray(result)) return result.filter((e) => e instanceof Error).map(asValidationError);
+    if ((result as any) === false) return [new ValidationError('validation failed with `false` return value')];
+    return [];
+  } catch (err) {
+    if (_.isArray(err)) return err.filter((e) => e instanceof Error).map(asValidationError);
+    if (err instanceof Error) return [asValidationError(err)];
+    return [new ValidationError(`Unexpected non-error thrown during validation - ${err}`)];
+  }
+}
+
+/** re-wrap a nested validation error with a positional prefix (array index / object key) */
+function prefixValidationError(prefix: string, err: ValidationError): ValidationError {
+  return new ValidationError(`${prefix} ${err.message}`, { err, tip: err.tip });
+}
+
+const DEFAULT_ARRAY_SEPARATOR = ',';
+
+export type ArrayDataTypeSettings = {
+  /** minimum number of elements */
+  minLength?: number;
+  /** maximum number of elements */
+  maxLength?: number;
+  /** exact number of elements */
+  isLength?: number;
+  /** reject duplicate elements */
+  unique?: boolean;
+  /**
+   * separator used both to split plain-string input (e.g. a process.env override)
+   * and to join the value back into a string for process.env injection (default ",")
+   */
+  separator?: string;
+  /**
+   * how the value serializes back into process.env - "separator" (default) joins
+   * elements with the separator; "json" emits a JSON array string. Composite element
+   * types (arrays/objects) always use JSON regardless of this setting.
+   */
+  format?: 'separator' | 'json';
+  /** element type instance - built from the first positional arg of `@type=array(...)` */
+  element?: EnvGraphDataType;
+  /** element type display name (e.g. `enum`) for messages/descriptions */
+  elementTypeName?: string;
+};
+
+const ArrayDataType = createEnvGraphDataType((settings?: ArrayDataTypeSettings) => {
+  const element = settings?.element ?? StringDataType();
+  const elementTypeName = settings?.elementTypeName ?? element.name;
+  const separator = settings?.separator ?? DEFAULT_ARRAY_SEPARATOR;
+  // composite elements cannot round-trip through a separator-joined string
+  const jsonOnly = settings?.format === 'json' || isCompositeCoercedType(element.coercedType);
+
+  return {
+    name: 'array',
+    icon: 'tabler:brackets',
+    typeDescription: `array of ${elementTypeName}`,
+    coercedType: { arrayOf: element.coercedType ?? 'string' },
+    coerce(rawVal) {
+      let arr: Array<unknown>;
+      if (Array.isArray(rawVal)) {
+        arr = rawVal;
+      } else if (_.isString(rawVal)) {
+        const trimmed = rawVal.trim();
+        if (trimmed === '') {
+          // an empty/whitespace-only string means "missing value" - it never becomes an
+          // empty array (the explicit `[]` literal is the only way to express one)
+          return undefined;
+        } else if (trimmed.startsWith('[')) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(trimmed);
+          } catch (err) {
+            return new CoercionError('Error parsing string starting with `[` as a JSON array', { err: err as Error });
+          }
+          if (!Array.isArray(parsed)) return new CoercionError('JSON-parsed string value is not an array');
+          arr = parsed;
+        } else {
+          arr = trimmed.split(separator).map((part) => part.trim()).filter((part) => part !== '');
+        }
+      } else {
+        return new CoercionError('Cannot coerce value to an array');
+      }
+
+      // coerce each element with the element type, collecting ALL failures (not just the first)
+      const coerced: Array<unknown> = [];
+      const elementErrors: Array<string> = [];
+      for (let i = 0; i < arr.length; i++) {
+        try {
+          const result = element.coerce(arr[i]);
+          if (result instanceof Error) throw result;
+          coerced.push(result);
+        } catch (err) {
+          elementErrors.push(`[${i}] ${(err as Error).message}`);
+        }
+      }
+      if (elementErrors.length) {
+        return new CoercionError(`Invalid array element(s): ${elementErrors.join('; ')}`);
+      }
+      return coerced;
+    },
+    async validate(val) {
+      const arr = val as Array<unknown>;
+      const errors: Array<ValidationError> = [];
+
+      if (settings?.minLength !== undefined) {
+        if (arr.length < settings.minLength) {
+          errors.push(new ValidationError(`Array must have at least ${settings.minLength} element(s)`));
+        }
+      } else if (settings?.isLength === undefined && arr.length === 0) {
+        // minLength defaults to 1 - an explicitly-empty array is usually a placeholder
+        // to fill in, so it must be sanctioned deliberately
+        errors.push(new ValidationError('Array must not be empty', { tip: 'set minLength=0 to allow an empty array' }));
+      }
+      if (settings?.maxLength !== undefined && arr.length > settings.maxLength) {
+        errors.push(new ValidationError(`Array must have at most ${settings.maxLength} element(s)`));
+      }
+      if (settings?.isLength !== undefined && arr.length !== settings.isLength) {
+        errors.push(new ValidationError(`Array must have exactly ${settings.isLength} element(s)`));
+      }
+      if (settings?.unique) {
+        const seen = new Set<string | undefined>();
+        for (let i = 0; i < arr.length; i++) {
+          const key = JSON.stringify(arr[i]);
+          if (seen.has(key)) errors.push(new ValidationError(`[${i}] duplicate value`));
+          seen.add(key);
+        }
+      }
+
+      for (let i = 0; i < arr.length; i++) {
+        // a scalar element containing the separator would not survive the process.env
+        // round-trip (the child would re-split it differently), so we reject it upfront
+        if (!jsonOnly && String(arr[i]).includes(separator)) {
+          errors.push(new ValidationError(
+            `[${i}] value contains the "${separator}" separator and would not round-trip through process.env`,
+            { tip: 'set format=json, or use a different separator' },
+          ));
+        }
+        const elementErrors = await runNestedValidate(element, arr[i]);
+        errors.push(...elementErrors.map((e) => prefixValidationError(`[${i}]`, e)));
+      }
+
+      return errors.length ? errors : true;
+    },
+    serialize(val) {
+      const arr = val as Array<unknown>;
+      if (jsonOnly) return JSON.stringify(arr);
+      return arr.map((el) => element.serialize(el)).join(separator);
+    },
+  };
+});
+
+export type RecordDataTypeSettings = {
+  /** value type instance - built from the first positional arg of `@type=record(...)` */
+  values?: EnvGraphDataType;
+  /** value type display name for messages/descriptions */
+  valuesTypeName?: string;
+  /** key validation type instance - built from the `keyType=...` option (e.g. `keyType=enum(a, b)`) */
+  keyType?: EnvGraphDataType;
+  /** minimum number of entries */
+  entriesMinLength?: number;
+  /** maximum number of entries */
+  entriesMaxLength?: number;
+  /** exact number of entries */
+  entriesIsLength?: number;
+};
+
+const RecordDataType = createEnvGraphDataType((settings?: RecordDataTypeSettings) => {
+  const valuesType = settings?.values;
+  const keysType = settings?.keyType;
+
+  let coercedType: CoercedType = 'object';
+  if (valuesType || keysType) {
+    coercedType = {
+      recordOf: {
+        ...keysType?.coercedType !== undefined ? { keys: keysType.coercedType } : {},
+        ...valuesType ? { values: valuesType.coercedType ?? 'string' } : {},
+      },
+    };
+  }
+
+  return {
+    name: 'record',
+    icon: 'tabler:code-dots',
+    typeDescription: valuesType
+      ? `record of ${settings?.valuesTypeName ?? valuesType.name} values`
+      : 'record (untyped object)',
+    coercedType,
+    coerce(rawVal) {
+      let obj: Record<string, unknown>;
+      if (_.isPlainObject(rawVal)) {
+        obj = rawVal;
+      } else if (_.isString(rawVal)) {
+        const trimmed = rawVal.trim();
+        if (trimmed === '') {
+          // empty/whitespace-only string means "missing value" - never an empty object
+          return undefined;
+        } else if (trimmed.startsWith('{')) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(trimmed);
+          } catch (err) {
+            return new CoercionError('Error parsing string starting with `{` as a JSON object', { err: err as Error });
+          }
+          if (!_.isPlainObject(parsed)) return new CoercionError('JSON-parsed string value is not an object');
+          obj = parsed as Record<string, unknown>;
+        } else {
+          return new CoercionError('Cannot coerce value to an object');
+        }
+      } else {
+        return new CoercionError('Cannot coerce value to an object');
+      }
+
+      if (!valuesType) return obj;
+
+      // coerce each value with the values type, collecting ALL failures
+      const coerced: Record<string, unknown> = {};
+      const valueErrors: Array<string> = [];
+      for (const [key, value] of Object.entries(obj)) {
+        try {
+          const result = valuesType.coerce(value);
+          if (result instanceof Error) throw result;
+          coerced[key] = result;
+        } catch (err) {
+          valueErrors.push(`"${key}" ${(err as Error).message}`);
+        }
+      }
+      if (valueErrors.length) {
+        return new CoercionError(`Invalid object value(s): ${valueErrors.join('; ')}`);
+      }
+      return coerced;
+    },
+    async validate(val) {
+      const obj = val as Record<string, unknown>;
+      const errors: Array<ValidationError> = [];
+
+      const entryCount = Object.keys(obj).length;
+      if (settings?.entriesMinLength !== undefined) {
+        if (entryCount < settings.entriesMinLength) {
+          errors.push(new ValidationError(`Object must have at least ${settings.entriesMinLength} entry(s)`));
+        }
+      } else if (settings?.entriesIsLength === undefined && entryCount === 0) {
+        // entriesMinLength defaults to 1 - see the array type's matching default
+        errors.push(new ValidationError('Object must not be empty', { tip: 'set entriesMinLength=0 to allow an empty object' }));
+      }
+      if (settings?.entriesMaxLength !== undefined && entryCount > settings.entriesMaxLength) {
+        errors.push(new ValidationError(`Object must have at most ${settings.entriesMaxLength} entry(s)`));
+      }
+      if (settings?.entriesIsLength !== undefined && entryCount !== settings.entriesIsLength) {
+        errors.push(new ValidationError(`Object must have exactly ${settings.entriesIsLength} entry(s)`));
+      }
+
+      for (const [key, value] of Object.entries(obj)) {
+        if (keysType) {
+          // keys are always strings on the wire; run them through the key type's
+          // coerce+validate (e.g. enum membership, string pattern)
+          let keyErrors: Array<ValidationError>;
+          try {
+            const coercedKey = keysType.coerce(key);
+            if (coercedKey instanceof Error) throw coercedKey;
+            keyErrors = await runNestedValidate(keysType, coercedKey);
+          } catch (err) {
+            keyErrors = [err instanceof ValidationError ? err : new ValidationError((err as Error).message)];
+          }
+          errors.push(...keyErrors.map((e) => prefixValidationError(`"${key}" is not a valid key -`, e)));
+        }
+        if (valuesType) {
+          const valueErrors = await runNestedValidate(valuesType, value);
+          errors.push(...valueErrors.map((e) => prefixValidationError(`"${key}"`, e)));
+        }
+      }
+
+      return errors.length ? errors : true;
+    },
+    // objects have no meaningful flat-string form, so they always serialize as JSON
+    serialize: (val) => JSON.stringify(val),
+  };
+});
+
 export const BaseDataTypes: Array<EnvGraphDataTypeFactory> = [
   StringDataType,
   NumberDataType,
@@ -674,4 +991,6 @@ export const BaseDataTypes: Array<EnvGraphDataTypeFactory> = [
   UuidDataType,
   Md5DataType,
   DurationDataType,
+  ArrayDataType,
+  RecordDataType,
 ];

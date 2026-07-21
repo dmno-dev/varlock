@@ -257,6 +257,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   } else if (outputFormat === 'env' || outputFormat === 'shell') {
     const resolvedEnv = envGraph.getResolvedEnvObject({ filterKeys });
+    // env/shell output is destined for raw environment variables, so values are emitted
+    // in their process.env string form (composites become separator-joined/JSON strings);
+    // the typed object above still decides quoting (bare numbers/booleans stay unquoted)
+    const resolvedEnvStrings = envGraph.getResolvedEnvStringObject({ filterKeys });
     const skipUndefined = compact === true;
     const prefix = outputFormat === 'shell' ? 'export ' : '';
 
@@ -270,14 +274,16 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       let strValue: string;
       if (value === undefined) {
         strValue = '';
-      } else if (typeof value === 'string') {
+      } else if (typeof value === 'string' || typeof value === 'object') {
+        const stringForm = resolvedEnvStrings[key] ?? '';
         if (outputFormat === 'shell') {
-          strValue = formatShellValue(value);
+          strValue = formatShellValue(stringForm);
         } else {
-          strValue = `"${value.replaceAll('"', '\\"').replaceAll('\n', '\\n')}"`;
+          strValue = `"${stringForm.replaceAll('"', '\\"').replaceAll('\n', '\\n')}"`;
         }
       } else {
-        strValue = JSON.stringify(value);
+        // bare scalars (numbers/booleans) stay unquoted so re-reading infers the same type
+        strValue = String(value);
       }
       console.log(`${prefix}${key}=${strValue}`);
     }

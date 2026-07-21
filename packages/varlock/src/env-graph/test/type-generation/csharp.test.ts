@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 
 import { generateCsharpEnvSrc } from '../../index';
-import { loadFixtureFields } from './helpers';
+import { COMPOSITE_TYPE_FIXTURE, loadFixtureFields } from './helpers';
 
 describe('generateCsharpEnvSrc', () => {
   test('emits a typed class, SensitiveKeys, and a System.Text.Json loader', async () => {
@@ -96,5 +96,11 @@ describe('generateCsharpEnvSrc', () => {
     expect(src).not.toContain('2faSecret');
     expect(src).toContain('Keys omitted from this typed module (not valid identifiers): _2FA_SECRET');
     expect(src).toContain('"_2FA_SECRET"');
+  });
+  test('composite (array/object) types surface as JsonElement', async () => {
+    const { fields } = await loadFixtureFields(COMPOSITE_TYPE_FIXTURE);
+    const src = generateCsharpEnvSrc(fields);
+    expect(src).toContain('public required JsonElement Hosts { get; init; }');
+    expect(src).toContain('public JsonElement Limits { get; init; }');
   });
 });

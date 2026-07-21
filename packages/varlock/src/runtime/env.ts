@@ -38,19 +38,38 @@ function getRedactionState(): RedactionState {
   return (globalThis as any)[REDACTION_STATE_KEY];
 }
 
+/** collect every redactable string within a (possibly composite) sensitive value -
+ * for arrays/objects each string element registers individually, so leaking a single
+ * element (not just the whole serialized value) is still caught */
+function collectSensitiveStrings(value: any, collected: Array<string> = []): Array<string> {
+  if (isString(value) && value) {
+    collected.push(value as string);
+  } else if (Array.isArray(value)) {
+    for (const el of value) collectSensitiveStrings(el, collected);
+  } else if (value && typeof value === 'object') {
+    for (const key in value) collectSensitiveStrings(value[key], collected);
+  }
+  return collected;
+}
+
 export function resetRedactionMap(graph: SerializedEnvGraph) {
   const state = getRedactionState();
   // reset map of { [sensitive] => redacted }
   state.sensitiveSecretsMap = {};
   for (const itemKey in graph.config) {
     const item = graph.config[itemKey];
-    if (item.isSensitive && item.value && isString(item.value)) {
+    if (!item.isSensitive || !item.value) continue;
+    const sensitiveStrings = collectSensitiveStrings(item.value);
+    // the flat serialized form also registers (e.g. a JSON-encoded element may not
+    // match its raw form once escaped)
+    if (item.envStr) sensitiveStrings.push(item.envStr);
+    for (const sensitiveStr of sensitiveStrings) {
       // TODO: we want to respect masking settings from the schema (once added)
-      const redacted = redactString(item.value);
+      const redacted = redactString(sensitiveStr);
       // preventLeaks defaults to true; `@sensitive={preventLeaks=false}` opts the item
       // out of leak scanning while still keeping it redacted in logs
       if (redacted) {
-        state.sensitiveSecretsMap[item.value] = {
+        state.sensitiveSecretsMap[sensitiveStr] = {
           key: itemKey, redacted, preventLeaks: item.preventLeaks !== false,
         };
       }
@@ -378,13 +397,15 @@ export function initVarlockEnv(opts?: {
   }
 
   for (const itemKey in serializedEnvData.config) {
-    const itemValue = serializedEnvData.config[itemKey].value;
-    envValues[itemKey] = itemValue;
+    const item = serializedEnvData.config[itemKey];
+    envValues[itemKey] = item.value;
     if (setProcessEnv) {
       envState.injectedProcessEnvKeys?.push(itemKey);
       // when re-injecting into process.env, we treat undefined as empty string
-      // this more closely matches expected behaviour from other .env loaders
-      process.env[itemKey] = itemValue === undefined ? '' : String(itemValue);
+      // this more closely matches expected behaviour from other .env loaders.
+      // composite values (arrays/objects) carry their flat string form in `envStr`
+      // (their serialization depends on type settings that don't travel in the blob)
+      process.env[itemKey] = item.envStr ?? (item.value === undefined ? '' : String(item.value));
     }
   }
   envState.initialized = true;
