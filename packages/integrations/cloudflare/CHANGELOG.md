@@ -14,6 +14,14 @@
 
 
 
+
+## 1.3.2
+<sub>2026-07-21</sub>
+
+- [#916](https://github.com/dmno-dev/varlock/pull/916)  *(patch)*
+  Stop embedding `.dev.vars` contents in the preview FIFO helper's process argv. Secrets are passed on stdin with a control fd, matching `varlock-wrangler`.
+- [#915](https://github.com/dmno-dev/varlock/pull/915)  *(patch)* - Fix .dev.vars quoting so secrets with apostrophes, quotes, and backslashes round-trip correctly through Wrangler
+
 ## 1.3.1
 <sub>2026-07-20</sub>
 

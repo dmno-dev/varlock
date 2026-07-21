@@ -8,6 +8,13 @@
 
 
 
+
+## 0.3.0
+<sub>2026-07-21</sub>
+
+- [#917](https://github.com/dmno-dev/varlock/pull/917)  *(minor)*
+  Add array and object value types: `@type=array(...)` and `@type=record(...)` with per-element validation, native `[a, b]` / `{k=v}` literal values, JSON and separator string input, configurable serialization back to process.env, per-element redaction, and typed code generation across languages
+
 ## 0.2.7
 <sub>2026-07-20</sub>
 
