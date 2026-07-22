@@ -216,6 +216,30 @@ API_KEY=
 
 This fetches all keys from `secret/myapp/config` and maps them to matching item keys.
 
+### Exposing the client token
+
+Use `vaultToken()` when another tool needs the same Vault client token the plugin already authenticated with (for example OpenTofu OpenBao state encryption via `BAO_TOKEN`). The resolver returns the token from the active auth method and reuses the plugin's cached login.
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/hashicorp-vault-plugin@2.0.0)
+# @initHcpVault(
+#   url=$BAO_ADDR,
+#   jwtRole=$VAULT_ROLE,
+#   jwtAuthPath="gitlab",
+#   oidcToken=$GITLAB_OIDC
+# )
+# ---
+
+# @sensitive
+BAO_TOKEN=vaultToken()
+```
+
+Mark the item `@sensitive`. If you also use `@type=vaultToken`, set `@internal=false` so the value is injected for consumers (the type defaults to `@internal`).
+
+Prefer a consumer-specific name like `BAO_TOKEN` over `VAULT_TOKEN` when `VAULT_TOKEN` is already an input to `@initHcpVault(token=$VAULT_TOKEN)`, which would create a dependency cycle.
+
+With multiple instances, pass the instance id: `vaultToken(prod)`.
+
 ---
 
 ## Reference
@@ -267,6 +291,19 @@ By default, the item key (variable name) is used as the JSON key to extract from
 **How paths work:**
 
 Vault KV v2 stores key/value pairs at a path. Given a path like `secret/myapp/config`, the plugin calls `GET /v1/secret/data/myapp/config` (the first path segment is the mount point, and `/data/` is inserted for the KV v2 API).
+
+#### `vaultToken()`
+
+Returns the Vault client token for an initialized plugin instance. Useful when another tool needs the same short-lived credential the plugin already obtained.
+
+Always treated as sensitive. Reuses the plugin's existing auth cache instead of logging in again.
+
+**Signatures:**
+
+- `vaultToken()` - Token from the default instance
+- `vaultToken(instanceId)` - Token from a named instance
+
+If you use `@type=vaultToken`, also set `@internal=false` so the value is injected. Do not assign `vaultToken()` to `VAULT_TOKEN` when that same item is passed as `@initHcpVault(token=$VAULT_TOKEN)` (dependency cycle). Prefer a consumer-specific name such as `BAO_TOKEN`.
 
 ### Data Types
 
