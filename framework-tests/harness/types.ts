@@ -74,6 +74,13 @@ export interface TestFixtureConfig {
   templateFiles?: TemplateFileMap;
   /** Timeout for dependency installation in ms (default: 120_000) */
   installTimeout?: number;
+  /**
+   * Install varlock / `@varlock/*` from the npm registry using the versions in
+   * `dependencies`, instead of packing workspace tarballs. Also resolves
+   * `<packed:pkg>` override placeholders to `npm:pkg`.
+   * Used by release benchmarks that measure published packages.
+   */
+  usePublished?: boolean;
 }
 
 /**

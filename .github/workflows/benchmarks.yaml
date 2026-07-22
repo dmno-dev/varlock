@@ -1,0 +1,152 @@
+name: Benchmarks
+
+# Runs against published npm packages (+ optional SEA binary). Triggered after a
+# varlock publish (via release.yaml) or manually for iteration.
+on:
+  workflow_dispatch:
+    inputs:
+      varlock_version:
+        description: 'Published varlock version (empty = latest on npm)'
+        required: false
+        type: string
+        default: ''
+      only:
+        description: 'Optional comma-separated scenario groups (empty = all)'
+        required: false
+        type: string
+        default: ''
+      iterations:
+        description: 'Measured iterations per scenario'
+        required: false
+        type: string
+        default: '5'
+      release_dispatch:
+        description: 'Set to true when invoked from release.yaml after publish'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmarks-${{ github.event.inputs.varlock_version || 'latest' }}
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.BUMPY_GH_TOKEN }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: false
+
+      - name: Install benchmarks package deps
+        working-directory: benchmarks
+        run: bun install
+
+      - name: Resolve varlock version
+        id: ver
+        run: |
+          INPUT="${{ github.event.inputs.varlock_version }}"
+          if [[ -z "$INPUT" || "$INPUT" == "latest" ]]; then
+            V=$(npm view varlock version)
+          else
+            V="$INPUT"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Resolved varlock@$V"
+
+      - name: Wait for npm package
+        run: |
+          set -euo pipefail
+          V="${{ steps.ver.outputs.version }}"
+          for i in $(seq 1 30); do
+            if npm view "varlock@${V}" version >/dev/null 2>&1; then
+              echo "varlock@${V} is on npm"
+              exit 0
+            fi
+            echo "waiting for varlock@${V} on npm ($i)..."
+            sleep 10
+          done
+          echo "::error::Timed out waiting for varlock@${V} on npm"
+          exit 1
+
+      - name: Download SEA binary (linux-x64)
+        id: sea
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.ver.outputs.version }}"
+          TAG="varlock@${V}"
+          DEST="$RUNNER_TEMP/varlock-sea"
+          mkdir -p "$DEST"
+          if gh release download "$TAG" --pattern 'varlock-linux-x64.tar.gz' --dir "$DEST"; then
+            tar -xzf "$DEST/varlock-linux-x64.tar.gz" -C "$DEST"
+            BIN="$DEST/varlock"
+            chmod +x "$BIN"
+            echo "path=$BIN" >> "$GITHUB_OUTPUT"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            "$BIN" --version || true
+          else
+            echo "No SEA release asset for $TAG; continuing without SEA"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "path=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run benchmarks
+        working-directory: benchmarks
+        run: |
+          set -euo pipefail
+          V="${{ steps.ver.outputs.version }}"
+          if [[ "${{ github.event.inputs.release_dispatch }}" == "true" ]]; then
+            TRIGGER=release
+          else
+            TRIGGER=workflow_dispatch
+          fi
+          ARGS=(--version "$V" --trigger "$TRIGGER" --iterations "${{ github.event.inputs.iterations }}")
+          ONLY="${{ github.event.inputs.only }}"
+          if [[ -n "$ONLY" ]]; then
+            ARGS+=(--only "$ONLY")
+          fi
+          if [[ "${{ steps.sea.outputs.found }}" == "true" ]]; then
+            ARGS+=(--sea-path "${{ steps.sea.outputs.path }}")
+          fi
+          bun run src/run.ts "${ARGS[@]}"
+
+      - name: Commit results
+        working-directory: benchmarks
+        run: |
+          set -euo pipefail
+          RESULT_PATH=$(cat .work/last-result-path.txt)
+          REL="${RESULT_PATH#"$GITHUB_WORKSPACE"/}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Fetch latest main in case other commits landed during the long bench run
+          git pull --rebase origin main
+          git add -- "$REL"
+          if git diff --staged --quiet; then
+            echo "No results to commit"
+            exit 0
+          fi
+          V="${{ steps.ver.outputs.version }}"
+          git commit -m "chore(benchmarks): record varlock@${V} [skip ci]"
+          git push origin HEAD:main
