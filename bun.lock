@@ -295,7 +295,7 @@
     },
     "packages/plugins/hashicorp-vault": {
       "name": "@varlock/hashicorp-vault-plugin",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
