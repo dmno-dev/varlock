@@ -17,11 +17,15 @@ name: Bundle size check
 # do is produce a wrong size number, with no write capability to abuse.
 on:
   pull_request:
+    # Only when varlock core changes — i.e. the files that actually change its
+    # built bundle. Changes in bundled workspace deps (@env-spec/parser, utils)
+    # don't trigger a per-PR report; the release PR's "vs last published"
+    # comparison is the safety net that still catches dep-driven growth.
     paths:
-      - 'packages/varlock/**'
-      - 'packages/env-spec-parser/**'
-      - 'packages/utils/**'
-      - 'packages/ci-env-info/**'
+      - 'packages/varlock/src/**'
+      - 'packages/varlock/package.json'
+      - 'packages/varlock/tsup.config.ts'
+      - 'packages/varlock/tsconfig*.json'
       - 'scripts/report-bundle-size.ts'
       - '.github/workflows/bundle-size-check.yaml'
 
