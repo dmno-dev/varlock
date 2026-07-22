@@ -62,7 +62,7 @@ Several commands share these flags. They behave identically wherever they appear
 
 - a key name or glob, e.g. `STRIPE_*` (matches `*` and `?`)
 - `!selector` to negate any of the below, e.g. `!STRIPE_DEBUG_KEY`
-- `@sensitive` / `@required` to select by decorator
+- `@sensitive` / `@required` / `@dynamic` to select by decorator (negate for the opposite, e.g. `!@dynamic` selects static items)
 - `#tagname` to select items tagged via [`@tag(tagname)`](/reference/item-decorators/#tag)
 
 **How selectors combine:** every non-negated selector is OR'd together into one inclusion set, regardless of kind: mixing a glob, a `@decorator`, and a `#tag` in the same filter just widens that set. Anything matching a negated (`!`) selector is then subtracted from that set, again regardless of kind. If a filter has no non-negated selectors at all, the inclusion set starts as "everything" before negations are subtracted.
@@ -72,6 +72,8 @@ varlock load --filter="KEY1,!NOT_THIS,STRIPE_*"  # KEY1 and STRIPE_* keys, excep
 varlock load --filter="@sensitive"               # only items marked @sensitive
 varlock load --filter="@required"                # only required items
 varlock load --filter="#billing"                 # only items tagged @tag(billing)
+varlock load --filter="@dynamic"                 # only runtime-resolved (dynamic) items
+varlock load --filter="!@dynamic,!@sensitive"     # inlineable public items only
 varlock load --filter="@sensitive,#billing"       # sensitive items OR billing-tagged items
 varlock load --filter="STRIPE_*,!@sensitive"      # STRIPE_* keys, minus any that are sensitive
 varlock load --filter="!#debug"                   # everything except items tagged @tag(debug)
@@ -87,7 +89,9 @@ Can also be set via the [`_VARLOCK_FILTER`](/reference/reserved-variables/#_varl
 
 A filter that matches no items (e.g. a typo'd key or tag) prints a warning to stderr. The command still succeeds, with empty output on `load` or no schema vars injected on `run`.
 
-**A key name/glob/tag-only filter also scopes resolution and validation**, not just output: only items it selects (plus their dependencies) are resolved, so an unrelated broken item outside the filter won't block `load`/`run`. This is useful for scoping validation differently across contexts, e.g. a build step that only needs `--filter="#frontend"` shouldn't fail because an unrelated backend-only var is misconfigured. `@sensitive`/`@required` selectors can't be scoped this way (which items match isn't knowable until the graph is already resolved), so a filter using either falls back to resolving and validating everything, same as no `--filter` at all.
+**A `--filter` also scopes resolution and validation**, not just output: only items it selects (plus their dependencies) are resolved, so an unrelated broken item outside the filter won't block `load`/`run`, and excluded items' value resolvers (exec commands, secrets managers, etc.) never run. This is useful for scoping validation differently across contexts, e.g. a build step that only needs `--filter="#frontend"` shouldn't fail because an unrelated backend-only var is misconfigured, and `--filter="!@dynamic"` at build time skips runtime-only vars (e.g. platform-injected values that don't exist yet at build time) including their `@required` checks.
+
+Decorator selectors match on *computed* state, which can be value-dependent (e.g. `@required=forEnv(prod)`), so for those varlock resolves each candidate item's decorator metadata first (cheap - no value resolvers run), then matches exactly and only resolves values for selected items. Values that decorator functions themselves reference (e.g. `@required=eq($OTHER, x)` needs `OTHER`) are true dependencies of evaluating the filter and do get resolved.
 
 ## Commands reference
 

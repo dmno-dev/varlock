@@ -447,6 +447,18 @@ export class ConfigItem {
       ...this.valueResolver?.deps || [],
       // dynamic @type parts (e.g. minLength=if(eq($APP_MODE, ...), 1, 0)) may reference other items
       ...(this._typeSpecPlan?.deferred ?? []).flatMap((d) => d.resolver.deps),
+      ...this.metadataDependencyKeys,
+    ]);
+  }
+
+  /**
+   * Just the dependencies of this item's decorator resolvers (e.g. `@required=eq($OTHER, x)`
+   * needs OTHER's value) — the subset of {@link dependencyKeys} that must be resolved before
+   * {@link resolveMetadata} can run. Used by filtered resolution to resolve only what's needed
+   * to evaluate decorator-based filter selectors.
+   */
+  get metadataDependencyKeys() {
+    return _.uniq([
       ..._.values(this.effectiveDecorators).flatMap(
         (dec) => dec.decValueResolver?.deps || [],
       ),
@@ -805,6 +817,57 @@ export class ConfigItem {
     return typeof this.resolvedValue === 'string' ? this.resolvedValue : String(this.resolvedValue);
   }
 
+  /**
+   * Whether {@link resolveMetadata} has run — after which isRequired/isSensitive/isDynamic
+   * are accurate even though the value may not be resolved yet.
+   */
+  isMetadataResolved = false;
+
+  /**
+   * The metadata half of {@link resolve}: resolves this item's decorators and computes
+   * isRequired / isSensitive / isDynamic (including the resolver-implied sensitivity
+   * override), WITHOUT touching the value resolver. Any values the decorators themselves
+   * reference ({@link metadataDependencyKeys}) must already be resolved.
+   *
+   * Filtered resolution uses this to evaluate decorator-based `--filter` selectors
+   * exactly, then only resolve values for items the filter selects — so an excluded
+   * item's value resolver (exec calls, secrets managers, etc.) never runs.
+   */
+  async resolveMetadata() {
+    if (this.isMetadataResolved) return;
+    // bail early if we have real schema errors (warnings do not block resolution)
+    if (this._schemaErrors.some((e) => !e.isWarning)) return;
+    if (this.resolverSchemaErrors.some((e) => !e.isWarning)) return;
+    this.isMetadataResolved = true;
+
+    await this.resolveDecorators();
+    await this.processRequired();
+    await this.processSensitive();
+
+    // proxy-view items short-circuit before the impliesSensitive/processDynamic steps
+    // (see the value phase in resolve()) — keep metadata-only resolution identical
+    if (this.envGraph.proxyResolutionView?.[this.key]) return;
+
+    // Resolver functions like varlock() and keychain() imply sensitivity —
+    // override defaults but respect explicit per-item @sensitive=false / @public
+    if (this.valueResolver?.def?.impliesSensitive && !this._sensitiveExplicitlySet) {
+      const wasSensitive = this._isSensitive;
+      this._isSensitive = true;
+      if (!wasSensitive) {
+        // the resolver is what actually made this sensitive (it wasn't otherwise)
+        this._sensitiveSource = 'resolver';
+        const hasSchemaSource = this.defs.some((d) => d.source && d.source.type !== 'overrides');
+        if (hasSchemaSource) {
+          this._schemaErrors.push(new SchemaError(
+            'implicitly treated as @sensitive — add @sensitive to schema',
+            { isWarning: true },
+          ));
+        }
+      }
+    }
+    await this.processDynamic();
+  }
+
   async resolve(reset = false) {
     // bail early if we have real schema errors (warnings do not block resolution)
     if (this._schemaErrors.some((e) => !e.isWarning)) return;
@@ -813,6 +876,7 @@ export class ConfigItem {
     if (reset) {
       this.isResolved = false;
       this.isValidated = false;
+      this.isMetadataResolved = false;
       this.resolutionError = undefined;
       this.coercionError = undefined;
       this.validationErrors = undefined;
@@ -826,9 +890,7 @@ export class ConfigItem {
       return;
     }
 
-    await this.resolveDecorators();
-    await this.processRequired();
-    await this.processSensitive();
+    await this.resolveMetadata();
 
     // Proxy-child resolution view: inside a `varlock proxy` session, a sensitive
     // item is forced to its placeholder (or omitted) instead of resolving the real
@@ -850,25 +912,6 @@ export class ConfigItem {
       this.isValidated = true;
       return;
     }
-
-    // Resolver functions like varlock() and keychain() imply sensitivity —
-    // override defaults but respect explicit per-item @sensitive=false / @public
-    if (this.valueResolver?.def?.impliesSensitive && !this._sensitiveExplicitlySet) {
-      const wasSensitive = this._isSensitive;
-      this._isSensitive = true;
-      if (!wasSensitive) {
-        // the resolver is what actually made this sensitive (it wasn't otherwise)
-        this._sensitiveSource = 'resolver';
-        const hasSchemaSource = this.defs.some((d) => d.source && d.source.type !== 'overrides');
-        if (hasSchemaSource) {
-          this._schemaErrors.push(new SchemaError(
-            'implicitly treated as @sensitive — add @sensitive to schema',
-            { isWarning: true },
-          ));
-        }
-      }
-    }
-    await this.processDynamic();
 
     if (!this.valueResolver) {
       this.isResolved = true;

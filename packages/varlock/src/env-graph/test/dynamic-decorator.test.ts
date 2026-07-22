@@ -1,8 +1,11 @@
 import {
-  describe, test,
+  describe, test, expect,
 } from 'vitest';
 import outdent from 'outdent';
 import { envFilesTest } from './helpers/generic-test';
+import { EnvGraph } from '../index';
+import { DotEnvFileDataSource } from '../lib/data-source';
+import { computeFilteredKeys } from '../lib/item-filter';
 
 describe('@dynamic, @static, and @defaultDynamic', () => {
   test('default behavior: dynamic follows sensitivity', envFilesTest({
@@ -125,4 +128,27 @@ describe('@dynamic, @static, and @defaultDynamic', () => {
       },
     },
   }));
+
+  test('@dynamic/@static work as --filter decorator selectors', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        PUBLIC_STATIC=a   # @public
+        PUBLIC_DYNAMIC=b  # @public @dynamic
+        SECRET=c          # @sensitive
+        STATIC_SECRET=d   # @sensitive @static
+      `,
+    }));
+    await g.finishLoad();
+    await g.resolveEnvValues();
+    const items = Object.values(g.configSchema);
+
+    expect(computeFilteredKeys(items, '@dynamic', 'test filter'))
+      .toEqual(new Set(['PUBLIC_DYNAMIC', 'SECRET']));
+    // static = negated dynamic (no dedicated @static selector, matching @public/@optional)
+    expect(computeFilteredKeys(items, '!@dynamic', 'test filter'))
+      .toEqual(new Set(['PUBLIC_STATIC', 'STATIC_SECRET']));
+    expect(computeFilteredKeys(items, '@dynamic,!@sensitive', 'test filter'))
+      .toEqual(new Set(['PUBLIC_DYNAMIC']));
+  });
 });

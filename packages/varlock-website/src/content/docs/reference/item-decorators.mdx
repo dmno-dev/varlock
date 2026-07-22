@@ -158,6 +158,8 @@ Sets whether the item is _dynamic_ - meaning integrations should avoid replacing
 
 By default, dynamic behavior follows sensitivity (sensitive items are dynamic, non-sensitive items are static), but this can be overridden globally with [`@defaultDynamic`](/reference/root-decorators/#defaultdynamic).
 
+Items can also be selected by this state via the `@dynamic` selector (or `!@dynamic` for static items) in the [`--filter` language](/reference/cli-commands/#filtering-items). See the [Static vs Dynamic Config guide](/guides/dynamic-config/) for the full model.
+
 ```env-spec
 # @dynamic
 PUBLIC_RUNTIME_FLAG=

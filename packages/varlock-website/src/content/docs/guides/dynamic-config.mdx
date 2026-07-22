@@ -82,13 +82,39 @@ See framework-specific recipes:
 
 ## Prerender/build guardrails
 
-Dynamic config should not be consumed in static prerender/build contexts unless explicitly designed for it.
+Baking a public+dynamic value into prerendered output defeats its purpose: you marked it `@dynamic` because the build-time value should not be frozen. Varlock catches this per framework:
 
-Varlock runtime can detect this and warn/error when dynamic keys are accessed during prerender/build phases, helping catch accidental usage early.
+- **Next.js**: accessing a public+dynamic key during server rendering marks the route dynamic (it will not be statically prerendered), including access from nested components.
+- **Vite-based frameworks** (Astro, SvelteKit, etc.): accessing a public+dynamic key while a build/prerender is running throws an error. Set `_VARLOCK_DYNAMIC_BUILD_ACCESS_MODE=warn` to downgrade it to a warning (e.g. while migrating an existing app).
+
+Sensitive values are not subject to this guard. Reading a sensitive value server-side during a static build (e.g. using an API key to fetch data while generating pages) is fine; leak detection separately errors if the value itself ends up in the built output.
+
+## Filtering by static/dynamic
+
+The [`--filter` selector language](/reference/cli-commands/#filtering-items) supports a `@dynamic` selector (negate it for static items), so you can scope a load or a generated file to one side of the split:
+
+```bash
+varlock load --filter="!@dynamic"            # only build-time-inlineable items
+varlock load --filter="@dynamic"             # only runtime-resolved items
+varlock run --filter="@dynamic" -- node app  # inject only runtime values
+```
+
+```env-spec title=".env.schema"
+# generate a module covering only runtime public values
+# @generateTsTypes(path=public-runtime-env.d.ts, filter="@dynamic,!@sensitive")
+```
+
+Like all filters, `@dynamic` filters scope **resolution and validation**, not just output: varlock resolves each item's decorator metadata first (cheap), then only resolves and validates the items the filter selects. So a build-time load can skip runtime-only vars entirely, including their `@required` checks and any value resolvers they use:
+
+```bash
+# runtime-only vars (e.g. platform-injected at runtime) don't exist yet at build
+# time - exclude them so their @required checks don't fail the build
+varlock load --filter='!@dynamic'
+```
 
 ## Guidance
 
-- Start with `@defaultDynamic=inferFromSensitive` for predictable defaults.
+- The default (`@defaultDynamic=inferFromSensitive`) keeps today's behavior: sensitive stays out of bundles, public gets inlined. You only need decorators when you want something different.
 - Mark intentional runtime public values with `@dynamic`.
 - Keep dynamic+public loading scoped to only the parts of your app that need it.
 - Prefer one app-level endpoint/payload shape per app unless you have a strong reason to split.

@@ -7,7 +7,7 @@ import {
   keyPassesImportFilter,
 } from './data-source';
 import { type KeyFilter } from './key-filter';
-import { computeFilteredKeys } from './item-filter';
+import { computeFilteredKeys, type ParsedItemFilter } from './item-filter';
 
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
@@ -776,6 +776,56 @@ export class EnvGraph {
       for (const dep of getTransitiveDeps(key, this.graphAdjacencyList)) expanded.add(dep);
     }
     return expanded;
+  }
+
+  /**
+   * Resolve only what a `--filter` selects, so items outside the filter are neither resolved
+   * nor validated (an unrelated broken item won't block the load, and excluded items' value
+   * resolvers — exec calls, secrets managers, etc. — never run).
+   *
+   * Filters with only key/glob/tag selectors match immediately from the schema. Decorator
+   * selectors (`@sensitive`/`@required`/`@dynamic`) match on *computed* state, so for those
+   * this goes metadata-first:
+   * 1. items the filter definitely excludes regardless of decorator state are skipped entirely
+   * 2. for the rest, any values their decorators reference are resolved (they're true
+   *    dependencies of evaluating the filter), then their metadata is resolved (cheap - no
+   *    value resolvers run)
+   * 3. the filter is evaluated exactly against the resolved metadata, and only matched items
+   *    (plus transitive deps) get their values resolved and validated
+   */
+  async resolveEnvValuesForFilter(filter: ParsedItemFilter): Promise<void> {
+    const allItems = Object.values(this.configSchema);
+
+    if (!filter.usesDecoratorSelector) {
+      const matchedKeys = filter.computeKeys(allItems);
+      await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(matchedKeys)]);
+      return;
+    }
+
+    // pre-evaluate with decorator state unknown - definite yes/no verdicts need no metadata
+    const definitelyIncluded: Array<string> = [];
+    const undecidedItems: Array<ConfigItem> = [];
+    for (const item of allItems) {
+      const verdict = filter.preEvaluate(item);
+      if (verdict === 'yes') definitelyIncluded.push(item.key);
+      else if (verdict === 'unknown') undecidedItems.push(item);
+    }
+
+    // resolve any values the undecided items' decorators reference - true dependencies of
+    // evaluating the filter (e.g. `@required=eq($OTHER, x)` needs OTHER's value)
+    const metadataDepKeys = new Set<string>(undecidedItems.flatMap((item) => item.metadataDependencyKeys));
+    if (metadataDepKeys.size) {
+      await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(metadataDepKeys)]);
+    }
+    for (const item of undecidedItems) {
+      await item.resolveMetadata();
+    }
+
+    const matchedKeys = new Set([
+      ...definitelyIncluded,
+      ...undecidedItems.filter((item) => filter.matches(item)).map((item) => item.key),
+    ]);
+    await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(matchedKeys)]);
   }
 
   /** config keys with builtin vars first, then user-defined in schema order */

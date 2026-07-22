@@ -7,7 +7,8 @@ import { globToRegExp } from './glob';
  * separated list of selectors:
  * - a key name or glob (`STRIPE_*`) to select matching items
  * - `!selector` to negate any of the below (e.g. `!DEBUG_*`)
- * - `@sensitive` / `@required` to select by decorator
+ * - `@sensitive` / `@required` / `@dynamic` to select by decorator (negate for the
+ *   opposite, e.g. `!@dynamic` selects static items)
  * - `#tagname` to select items tagged via `@tag(tagname)`
  *
  * Structural rather than tied to `ConfigItem`: the CLI filters `ConfigItem`s (accurate only
@@ -19,12 +20,16 @@ export type FilterableItem = {
   key: string;
   isSensitive: boolean;
   isRequired: boolean;
+  isDynamic: boolean;
   tags: Array<string>;
 };
 
+// only the "positive" decorator of each pair gets a selector (like @sensitive
+// not @public, @required not @optional) - negate for the opposite, e.g. `!@dynamic`
 const DECORATOR_PREDICATES: Record<string, (item: FilterableItem) => boolean> = {
   sensitive: (item) => item.isSensitive,
   required: (item) => item.isRequired,
+  dynamic: (item) => item.isDynamic,
 };
 
 /**
@@ -49,14 +54,14 @@ export class ParsedItemFilter {
   private tokens: Array<FilterToken>;
 
   /**
-   * Whether this filter uses a `@sensitive`/`@required` decorator selector.
+   * Whether this filter uses a `@sensitive`/`@required`/`@dynamic` decorator selector.
    *
-   * `isSensitive`/`isRequired` on a bare `ConfigItem` are only reliable *after*
-   * `resolveEnvValues()` has run — they can be dynamic (e.g. `@required($APP_ENV == "prod")`) or
-   * come from env-specific files, unlike key/glob/tag selectors (resolvable from the schema alone).
-   * Callers that want to resolve only the keys a filter selects — to skip resolving/validating
-   * everything else — must check this first: a filter using a decorator selector needs the whole
-   * graph resolved before its matches can even be determined, so there's nothing to scope down to.
+   * These getters on a bare `ConfigItem` are only reliable after the item's *metadata* is
+   * resolved (`ConfigItem.resolveMetadata()`) — they can be value-dependent (e.g.
+   * `@required=forEnv(prod)`), unlike key/glob/tag selectors (knowable from the schema alone).
+   * Callers scoping resolution to a filter use this to pick a strategy: key/tag-only filters
+   * match immediately, while decorator filters resolve metadata first and then match exactly
+   * (see `EnvGraph.resolveEnvValuesForFilter()`).
    */
   readonly usesDecoratorSelector: boolean;
 
@@ -98,21 +103,61 @@ export class ParsedItemFilter {
   }
 
   /**
-   * The set of config keys that pass this filter. An item passes when it matches at least one
-   * non-negated selector (or there are none) and no negated selector.
+   * Whether a single item passes this filter: it matches at least one non-negated selector
+   * (or there are none) and no negated selector. Decorator selectors read the item's computed
+   * state, so this is only accurate once the item's metadata is resolved.
+   */
+  matches(item: FilterableItem): boolean {
+    const positiveTokens = this.tokens.filter((t) => !t.negate);
+    const included = positiveTokens.length
+      ? positiveTokens.some((t) => tokenMatches(item, t))
+      : true;
+    if (!included) return false;
+    return !this.tokens.some((t) => t.negate && tokenMatches(item, t));
+  }
+
+  /**
+   * Evaluate the filter for an item BEFORE its decorator metadata is resolved, treating
+   * decorator selectors as unknown. Returns `'no'` when the item cannot match regardless of
+   * decorator state, `'yes'` when it matches regardless, else `'unknown'`. Filtered resolution
+   * uses `'no'` to skip items entirely (not even resolving their metadata), matching how
+   * key/glob/tag-only filters have always behaved.
+   */
+  preEvaluate(item: Pick<FilterableItem, 'key' | 'tags'>): 'yes' | 'no' | 'unknown' {
+    let positiveCount = 0;
+    let anyKnownPositiveMatch = false;
+    let anyUnknownPositive = false;
+    let anyUnknownNegative = false;
+    for (const token of this.tokens) {
+      if (token.kind === 'decorator') {
+        if (token.negate) {
+          anyUnknownNegative = true;
+        } else {
+          positiveCount++;
+          anyUnknownPositive = true;
+        }
+        continue;
+      }
+      const match = tokenMatches(item as FilterableItem, token);
+      if (token.negate) {
+        if (match) return 'no';
+      } else {
+        positiveCount++;
+        if (match) anyKnownPositiveMatch = true;
+      }
+    }
+    const included = positiveCount === 0 ? true : anyKnownPositiveMatch;
+    if (!included) return anyUnknownPositive ? 'unknown' : 'no';
+    return anyUnknownNegative ? 'unknown' : 'yes';
+  }
+
+  /**
+   * The set of config keys that pass this filter (see {@link matches}).
    */
   computeKeys(items: Array<FilterableItem>): Set<string> {
-    const positiveTokens = this.tokens.filter((t) => !t.negate);
-    const negativeTokens = this.tokens.filter((t) => t.negate);
-
     const result = new Set<string>();
     for (const item of items) {
-      const included = positiveTokens.length
-        ? positiveTokens.some((t) => tokenMatches(item, t))
-        : true;
-      if (!included) continue;
-      if (negativeTokens.some((t) => tokenMatches(item, t))) continue;
-      result.add(item.key);
+      if (this.matches(item)) result.add(item.key);
     }
     return result;
   }
