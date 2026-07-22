@@ -137,4 +137,4 @@ Container images often copy a single app directory, not the whole monorepo. If y
 
 The [Docker guide](/guides/docker/) covers the official image, multi-stage copies of the varlock binary, and running `varlock run` as your container entrypoint.
 
-Today you may need to copy imported env files explicitly in your Dockerfile (mirroring the import tree). A planned **`varlock flatten`** command will collapse an import graph into local files for slim Docker contexts. See the [Docker guide](/guides/docker/#monorepos-and-partial-build-context).
+Run [`varlock flatten`](/reference/cli-commands/#flatten) while the full monorepo is available (e.g. in the builder stage of a multi-stage build) to collapse the import graph into a self-contained directory that travels with the package. See the [Docker guide](/guides/docker/#monorepos-and-partial-build-context) for the full workflow.
