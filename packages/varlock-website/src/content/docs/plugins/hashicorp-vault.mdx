@@ -241,6 +241,33 @@ API_KEY=
 
 This fetches all keys stored at `secret/myapp/config` and maps them to matching item keys. Only items declared in your schema will be populated; any extra keys in the Vault secret are ignored.
 
+### Exposing the client token
+
+Use `vaultToken()` when another tool needs the same Vault client token the plugin already authenticated with (for example OpenTofu OpenBao state encryption via `BAO_TOKEN`). The resolver returns the token from the active auth method (explicit token, AppRole, JWT/OIDC, or CLI file) and reuses the plugin's cached login instead of authenticating again.
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/hashicorp-vault-plugin@2.0.0)
+# @initHcpVault(
+#   url=$BAO_ADDR,
+#   jwtRole=$VAULT_ROLE,
+#   jwtAuthPath="gitlab",
+#   oidcToken=$GITLAB_OIDC
+# )
+# ---
+
+# @sensitive
+BAO_TOKEN=vaultToken()
+
+# @sensitive
+BAO_TOKEN_PROD=vaultToken(prod)
+```
+
+Mark the item `@sensitive`. If you also use `@type=vaultToken`, set `@internal=false` so the value is injected for consumers (the type defaults to `@internal`).
+
+Prefer a consumer-specific name like `BAO_TOKEN` over `VAULT_TOKEN` when `VAULT_TOKEN` is already an input to `@initHcpVault(token=$VAULT_TOKEN)`, which would create a dependency cycle.
+
+With multiple instances, pass the instance id: `vaultToken(prod)`.
+
 ---
 
 ## Vault Setup
@@ -426,6 +453,28 @@ DB_CONFIG=vaultSecret("secret/db/config", raw=true)
 # With instance ID
 PROD_SECRET=vaultSecret(prod, "secret/api/keys")
 ```
+</div>
+
+<div>
+#### `vaultToken()`
+
+Returns the Vault client token for an initialized plugin instance. Useful when another tool (for example OpenTofu OpenBao state encryption) needs the same short-lived credential the plugin already obtained.
+
+Always treated as sensitive. Reuses the plugin's existing auth cache (explicit token, AppRole, JWT/OIDC, or CLI file) instead of logging in again.
+
+**Array args:**
+- `instanceId` (optional): instance identifier when multiple plugin instances are initialized
+
+```env-spec /vaultToken\\(.*\\)/
+# @sensitive
+BAO_TOKEN=vaultToken()
+
+# With instance ID
+# @sensitive
+BAO_TOKEN_PROD=vaultToken(prod)
+```
+
+If you use `@type=vaultToken`, also set `@internal=false` so the value is injected. Do not assign `vaultToken()` to `VAULT_TOKEN` when that same item is passed as `@initHcpVault(token=$VAULT_TOKEN)` (dependency cycle). Prefer a consumer-specific name such as `BAO_TOKEN`.
 </div>
 </div>
 
