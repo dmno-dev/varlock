@@ -9,9 +9,9 @@ import { pathToFileURL } from 'node:url';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import ansis from 'ansis';
-import valid from 'semver/functions/valid';
-import validRange from 'semver/ranges/valid';
-import satisfies from 'semver/functions/satisfies';
+import semverValid from 'semver/functions/valid';
+import semverValidRange from 'semver/ranges/valid';
+import semverSatisfies from 'semver/functions/satisfies';
 import { isCancel } from '@clack/prompts';
 import _ from '@env-spec/utils/my-dash';
 import { pathExists } from '@env-spec/utils/fs-utils';
@@ -634,7 +634,7 @@ async function downloadPlugin(url: string) {
  * @returns the local cache directory the plugin was extracted into
  */
 export async function downloadPluginToCache(moduleName: string, versionDescriptor: string): Promise<string> {
-  if (!valid(versionDescriptor)) {
+  if (!semverValid(versionDescriptor)) {
     throw new Error(`"${versionDescriptor}" is not a fixed version — use an exact version like 1.2.3`);
   }
 
@@ -701,7 +701,7 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
             versionDescriptor = pluginSourceDescriptor.slice(atLocation + 1);
           }
 
-          const semverRange = validRange(versionDescriptor);
+          const semverRange = semverValidRange(versionDescriptor);
           if (versionDescriptor && !semverRange) {
             throw new SchemaError(`Bad @plugin version descriptor: ${versionDescriptor}`);
           } else if (semverRange === '*') {
@@ -730,7 +730,7 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
               const packageJsonString = await fs.readFile(pluginPackageJsonPath, 'utf-8');
               const packageJson = JSON.parse(packageJsonString);
               const packageVersion = packageJson.version;
-              if (versionDescriptor && !satisfies(packageVersion, versionDescriptor)) {
+              if (versionDescriptor && !semverSatisfies(packageVersion, versionDescriptor)) {
                 throw new SchemaError(`Installed plugin "${moduleName}" version "${packageVersion}" does not satisfy requested version "${versionDescriptor}"`, {
                   location: getErrorLocation(dataSource, pluginDecorator),
                 });
@@ -756,7 +756,7 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
               } else {
                 throw new SchemaError(`Plugin "${moduleName}" unable to resolve - set a fixed version (e.g., \`@plugin(${moduleName}@1.2.3)\`)`);
               }
-            } else if (!valid(versionDescriptor)) {
+            } else if (!semverValid(versionDescriptor)) {
               throw new SchemaError(`Plugin "${moduleName}" must use a fixed version when not installing via package.json (e.g., \`@plugin(${moduleName}@1.2.3)\`)`, {
                 location: getErrorLocation(dataSource, pluginDecorator),
               });

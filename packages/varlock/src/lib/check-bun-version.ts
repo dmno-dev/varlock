@@ -1,4 +1,4 @@
-import gte from 'semver/functions/gte';
+import semverGte from 'semver/functions/gte';
 
 /**
  * Minimum Bun version required for varlock to work correctly.
@@ -16,7 +16,7 @@ export function checkBunVersion() {
   const bunVersion = process.versions.bun;
   if (!bunVersion) return;
 
-  if (!gte(bunVersion, MIN_BUN_VERSION)) {
+  if (!semverGte(bunVersion, MIN_BUN_VERSION)) {
     throw new Error(
       `Varlock requires Bun >= ${MIN_BUN_VERSION}, but you are using Bun ${bunVersion}.\n`
       + 'Please upgrade Bun by running: `bun upgrade`\n'
