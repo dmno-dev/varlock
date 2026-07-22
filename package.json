@@ -16,6 +16,8 @@
     "build": "turbo build --filter=\"!smoke-test-*\"",
     "build:libs": "bun run build --filter=\"!@varlock/website\" --filter=\"!smoke-test-*\"",
     "build:swift": "bun run --filter=\"@varlock/encryption-binary-swift\" build:current",
+    "build:varlock": "turbo build --filter=varlock",
+    "bundle-size": "BUILD_TYPE=release bun run build:varlock && bun run scripts/report-bundle-size.ts",
     "test:ci": "turbo test:ci --filter=\"!smoke-test-*\"",
     "smoke-test": "cd smoke-tests && bun run test",
     "test:frameworks": "cd framework-tests && bun run test",
