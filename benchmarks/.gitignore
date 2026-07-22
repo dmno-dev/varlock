@@ -1,0 +1,5 @@
+.work/
+node_modules/
+fixtures/**/env.d.ts
+fixtures/**/env.py
+fixtures/**/env/

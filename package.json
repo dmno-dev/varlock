@@ -19,6 +19,7 @@
     "test:ci": "turbo test:ci --filter=\"!smoke-test-*\"",
     "smoke-test": "cd smoke-tests && bun run test",
     "test:frameworks": "cd framework-tests && bun run test",
+    "bench": "bun run --cwd benchmarks src/run.ts",
     "typecheck": "tsc --noEmit",
     "typecheck:all": "turbo typecheck --filter=\"!@varlock/website\" --filter=\"!smoke-test-*\" --filter=\"!varlock-docs-mcp\"",
     "check": "bun run lint && bun run typecheck:all && bun run build:libs && bun run test:ci",

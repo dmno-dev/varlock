@@ -58,6 +58,8 @@ export default tseslint.config(
       '.claude',
       'framework-tests/.test-projects',
       'framework-tests/.packed',
+      'benchmarks/.work',
+      'benchmarks/results/*.json',
     ],
   },
 
@@ -171,6 +173,7 @@ export default tseslint.config(
       'packages/varlock/scripts/**',
       'smoke-tests/**',
       'framework-tests/**',
+      'benchmarks/**',
       'packages/encryption-binary-swift/scripts/**',
       'packages/encryption-binary-rust/scripts/**',
       'packages/vscode-plugin/scripts/**',

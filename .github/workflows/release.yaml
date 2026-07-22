@@ -495,6 +495,15 @@ jobs:
         working-directory: packages/varlock/dist-sea
         run: gh release upload "${{ steps.ver.outputs.tag }}" *.{tar.gz,zip} checksums.txt ../SHA256SUMS.txt --clobber
 
+      - name: Dispatch benchmarks workflow
+        env:
+          GH_TOKEN: ${{ secrets.BUMPY_GH_TOKEN }}
+        run: |
+          gh workflow run benchmarks.yaml \
+            --ref main \
+            -f "varlock_version=${{ steps.ver.outputs.version }}" \
+            -f "release_dispatch=true"
+
       # Update the homebrew tap formula
       - name: Checkout homebrew tap repo
         uses: actions/checkout@v7

@@ -1,0 +1,15 @@
+{
+  "name": "varlock-benchmarks",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Release benchmarking suite for varlock (CLI, integrations, codegen)",
+  "scripts": {
+    "bench": "bun run src/run.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3"
+  }
+}
