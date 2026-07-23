@@ -193,9 +193,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     if (internallyReferenced.has(key)) continue;
 
     const item = envGraph.configSchema[key];
-    const itemDecorators = (item as any)?.decorators as Record<string, unknown> | undefined;
-    const isIgnored = (typeof item?.getDec === 'function' && (item.getDec('auditIgnore') as unknown) === true)
-      || (itemDecorators?.auditIgnore === true);
+    const auditIgnoreDec = typeof item?.getDec === 'function'
+      ? item.getDec('auditIgnore')
+      : undefined;
+    const isIgnored = auditIgnoreDec?.parsedDecorator.simplifiedValue === true;
     if (isIgnored) continue;
     unusedInSchema.push(key);
   }
