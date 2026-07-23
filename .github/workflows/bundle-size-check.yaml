@@ -1,0 +1,124 @@
+name: Bundle size check
+
+# PR half of a fork-safe bundle-size comment (mirrors the Bumpy check -> comment
+# split). Runs on plain `pull_request`, so fork PRs get a READ-ONLY token and
+# cannot post — that is intentional. This job builds varlock's dist in release
+# mode, measures it, compares against a baseline, writes the report to the job
+# summary, and uploads it as the `bundle-size-comment` artifact. The privileged
+# half (bundle-size-comment.yaml) runs on `workflow_run` and posts it.
+#
+# Baseline depends on the PR:
+#  - the bumpy version PR (`bumpy/version-packages`): the last published release,
+#    so the comment shows how the release changes the published dist.
+#  - any other PR: the base branch, built the same way, so the comment isolates
+#    this PR's own delta.
+#
+# Building PR code with a read-only token is safe: the worst a malicious fork can
+# do is produce a wrong size number, with no write capability to abuse.
+on:
+  pull_request:
+    # Only when varlock core changes — i.e. the files that actually change its
+    # built bundle. Changes in bundled workspace deps (@env-spec/parser, utils)
+    # don't trigger a per-PR report; the release PR's "vs last published"
+    # comparison is the safety net that still catches dep-driven growth.
+    paths:
+      - 'packages/varlock/src/**'
+      - 'packages/varlock/package.json'
+      - 'packages/varlock/tsup.config.ts'
+      - 'packages/varlock/tsconfig*.json'
+      - 'scripts/report-bundle-size.ts'
+      - '.github/workflows/bundle-size-check.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bundle-size-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.x"
+
+      - name: Install deps
+        run: bun install
+
+      - name: Build this PR (release mode)
+        run: BUILD_TYPE=release bun run build:varlock
+
+      # Produce "$RUNNER_TEMP/base.json" if we can. Any failure here is non-fatal:
+      # a missing baseline just means the report falls back to absolute sizes.
+      # HEAD_REF/BASE_REF go through env vars (never inline into the script) since
+      # a branch name is attacker-controllable — see actionlint's script-injection rule.
+      - name: Measure baseline
+        id: baseline
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$HEAD_REF" = "bumpy/version-packages" ]; then
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+            PKG_DIR=$(mktemp -d)
+            if ( cd "$PKG_DIR" && npm pack varlock@latest >/dev/null 2>&1 && tar -xzf varlock-*.tgz ); then
+              PUBLISHED=$(npm view varlock@latest version 2>/dev/null || echo latest)
+              echo "label=v$PUBLISHED (published)" >> "$GITHUB_OUTPUT"
+              bun run scripts/report-bundle-size.ts \
+                --dist "$PKG_DIR/package/dist" --json --out "$RUNNER_TEMP/base.json" > /dev/null \
+                || rm -f "$RUNNER_TEMP/base.json"
+            fi
+          else
+            echo "mode=branch" >> "$GITHUB_OUTPUT"
+            echo "label=$BASE_REF" >> "$GITHUB_OUTPUT"
+            BASE_DIR="$RUNNER_TEMP/base-src"
+            if git fetch --depth=1 origin "$BASE_REF" \
+              && git worktree add --detach "$BASE_DIR" FETCH_HEAD; then
+              # Build the base with its own tooling (it predates this PR's scripts).
+              if ( cd "$BASE_DIR" && bun install && BUILD_TYPE=release node_modules/.bin/turbo build --filter=varlock ); then
+                # Measure with HEAD's copy of the script, pointed at the base build.
+                bun run scripts/report-bundle-size.ts \
+                  --dist "$BASE_DIR/packages/varlock/dist" --json --out "$RUNNER_TEMP/base.json" > /dev/null \
+                  || rm -f "$RUNNER_TEMP/base.json"
+              fi
+            fi
+          fi
+
+      - name: Render report
+        env:
+          BASELINE_MODE: ${{ steps.baseline.outputs.mode }}
+          BASELINE_LABEL: ${{ steps.baseline.outputs.label }}
+        run: |
+          mkdir -p ./bundle-size-comment
+          if [ "$BASELINE_MODE" = "release" ]; then
+            TITLE="📦 Bundle size vs last published release"
+            CURRENT_LABEL="This release"
+          else
+            TITLE="📦 Bundle size"
+            CURRENT_LABEL="This PR"
+          fi
+          BASELINE_ARG=()
+          if [ -f "$RUNNER_TEMP/base.json" ]; then
+            BASELINE_ARG=(--baseline "$RUNNER_TEMP/base.json")
+          fi
+          bun run scripts/report-bundle-size.ts \
+            --dist packages/varlock/dist \
+            "${BASELINE_ARG[@]}" \
+            --title "$TITLE" \
+            --current-label "$CURRENT_LABEL" \
+            --baseline-label "$BASELINE_LABEL" \
+            | tee ./bundle-size-comment/comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report for the poster
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-size-comment
+          path: ./bundle-size-comment

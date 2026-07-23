@@ -55,6 +55,13 @@ export default defineConfig([
       options.define.__VARLOCK_SEA_BUILD__ = 'false';
       options.define.__VARLOCK_BUILD_TYPE__ = JSON.stringify(process.env.BUILD_TYPE || 'dev');
     },
+
+    // On release builds, drop embedded third-party source from the sourcemaps
+    // shipped in the npm tarball. Mappings stay intact (frames still resolve),
+    // and our own source stays embedded. Dev/local builds keep full maps.
+    onSuccess: process.env.BUILD_TYPE === 'release'
+      ? 'bun run scripts/strip-vendor-sourcemap-content.ts'
+      : undefined,
   },
   // Self-contained init bundles for framework integrations.
   // These are injected as raw JS (webpack) or imported from a copied location (turbopack).
