@@ -11,6 +11,8 @@ export type ProxyAuditDecision = | 'allow' // forwarded upstream (a secret may o
   | 'blocked-egress' // strict egress mode rejected a non-allowlisted host
   | 'blocked-uninjected' // request carried a placeholder no rule injects on this route (misconfig)
   | 'blocked-cleartext' // refused to inject a secret into a non-TLS connection
+  | 'blocked-location' // placeholder appeared in a request location the rule doesn't allow substituting in
+  | 'blocked-occurrences' // placeholder appeared more times than the rule's occurrence cap allows
   | 'approval-granted' // require-approval rule matched and the approver allowed it
   | 'approval-denied'; // require-approval rule matched and approval was denied/timed-out
 

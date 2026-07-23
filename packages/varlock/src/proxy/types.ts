@@ -8,6 +8,83 @@ export type ProxyApprovalEach = 'host' | 'endpoint' | 'request';
 
 export const PROXY_APPROVAL_EACH_VALUES: ReadonlyArray<ProxyApprovalEach> = ['host', 'endpoint', 'request'];
 
+/**
+ * Which part of a request a managed item's placeholder may be substituted into: a
+ * header value, the request target (path + query string), or the request body.
+ */
+export type ProxySubstitutionLocation = 'header' | 'query' | 'body';
+
+export const PROXY_SUBSTITUTION_LOCATION_VALUES: ReadonlyArray<ProxySubstitutionLocation> = ['header', 'query', 'body'];
+
+/**
+ * A specific place a placeholder is allowed to be substituted:
+ *  - `{ location: 'header' }` — any request header value.
+ *  - `{ location: 'header', name }` — only the named header (case-insensitive), e.g. `authorization`.
+ *  - `{ location: 'query' }` — anywhere in the request target (path + query string).
+ *  - `{ location: 'query', name }` — only the named query parameter's value.
+ *  - `{ location: 'body', path }` — only the value at the given body path (JSON dotted
+ *    path or form field). Body substitution ALWAYS requires a path — there is no
+ *    "anywhere in the body" form, since that is the easiest surface to exfiltrate from.
+ */
+export type ProxySubstitutionTarget = | { location: 'header'; name?: string }
+  | { location: 'query'; name?: string }
+  | { location: 'body'; path: string };
+
+/**
+ * Default target when a rule doesn't set `substituteIn`: any header. Most API
+ * secrets travel in an auth header (`Authorization`, `X-Api-Key`), and restricting
+ * to headers keeps a placeholder from being swapped for the real value inside a
+ * request body or query where it could be exfiltrated — e.g. a placeholder stuffed
+ * into an email body on an otherwise-allowed host. Widen with a specific target
+ * (`substituteIn=[header, body:client_secret]`) for APIs that carry the secret
+ * elsewhere (OAuth token exchange, some legacy `?api_key=` APIs).
+ */
+export const DEFAULT_PROXY_SUBSTITUTION_TARGETS: ReadonlyArray<ProxySubstitutionTarget> = [{ location: 'header' }];
+
+/** A stable key for de-duplicating / comparing targets (location + name/path). */
+export function proxySubstitutionTargetKey(target: ProxySubstitutionTarget): string {
+  if (target.location === 'body') return `body:${target.path}`;
+  return target.name ? `${target.location}:${target.name}` : target.location;
+}
+
+/** Result of parsing one `substituteIn` entry: the structured target, or an error message. */
+export type ParsedProxySubstitutionTarget = | { ok: true; target: ProxySubstitutionTarget }
+  | { ok: false; error: string };
+
+/**
+ * Parse one `substituteIn` entry (`header`, `header:authorization`, `query`,
+ * `query:api_key`, `body:client_secret`) into a structured target. Returns a
+ * discriminated result so both the schema validator and the runtime share one
+ * grammar. Header names are lower-cased (HTTP header names are case-insensitive);
+ * query params and body paths keep their case.
+ */
+export function parseProxySubstitutionTarget(raw: string): ParsedProxySubstitutionTarget {
+  const trimmed = raw.trim();
+  const sep = trimmed.indexOf(':');
+  const location = (sep === -1 ? trimmed : trimmed.slice(0, sep)).trim();
+  const arg = sep === -1 ? '' : trimmed.slice(sep + 1).trim();
+  const invalid = () => ({
+    ok: false as const,
+    error: `invalid substituteIn target ${JSON.stringify(raw)}. Valid forms: header, header:<name>, query, query:<param>, body:<path>`,
+  });
+  if (location === 'header') return { ok: true, target: arg ? { location: 'header', name: arg.toLowerCase() } : { location: 'header' } };
+  if (location === 'query') return { ok: true, target: arg ? { location: 'query', name: arg } : { location: 'query' } };
+  if (location === 'body') {
+    if (!arg) return { ok: false, error: 'substituteIn: body substitution requires a path, e.g. body:client_secret (there is no bare "body" form)' };
+    return { ok: true, target: { location: 'body', path: arg } };
+  }
+  return invalid();
+}
+
+/**
+ * Default cardinality cap when a rule doesn't set `maxOccurrences`: a placeholder
+ * may appear at most once per request. A valid request uses the secret a fixed
+ * number of times, so an extra occurrence is usually an exfiltration copy (the
+ * secret duplicated into an attacker-visible field while a valid call is still
+ * made).
+ */
+export const DEFAULT_PROXY_MAX_OCCURRENCES = 1;
+
 export type ProxyRule = {
   domain: Array<string>;
   itemKeys: Array<string>;
@@ -30,6 +107,20 @@ export type ProxyRule = {
      */
     maxDurationMs?: number;
   };
+  /**
+   * Where this rule's injected placeholders may be substituted for the real value,
+   * as raw `substituteIn` entries (`header`, `header:authorization`, `query`,
+   * `query:api_key`, `body:client_secret`). Validated at schema load; parsed into
+   * structured targets at request time. Omitted ⇒ `DEFAULT_PROXY_SUBSTITUTION_TARGETS`
+   * (any header). A placeholder that reaches a spot no target allows is treated as
+   * an anomaly and the request is blocked, rather than silently substituted.
+   */
+  substituteIn?: Array<string>;
+  /**
+   * Max times a single injected placeholder may appear in one request. Omitted ⇒
+   * `DEFAULT_PROXY_MAX_OCCURRENCES` (`1`). Exceeding it blocks the request.
+   */
+  maxOccurrences?: number;
 };
 
 export type ProxyManagedItem = {

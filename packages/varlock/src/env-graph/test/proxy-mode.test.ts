@@ -143,6 +143,63 @@ describe('proxy decorators', () => {
     expect(errors.some((e) => /path must be a non-empty string/.test(e.message))).toBe(true);
   });
 
+  test('substituteIn parses named targets onto the rule (single value and array literal)', async () => {
+    const graph = await loadGraph(outdent`
+      # @proxyConfig={egress="strict"}
+      # @proxy(domain="api.a.com", substituteIn="body:client_secret")
+      # @proxy(domain="api.b.com", substituteIn=[header, "body:token"])
+      # ---
+      BASELINE=1
+    `);
+    expect(await graph.getProxyRules()).toMatchObject([
+      { domain: ['api.a.com'], substituteIn: ['body:client_secret'] },
+      { domain: ['api.b.com'], substituteIn: ['header', 'body:token'] },
+    ]);
+  });
+
+  test('maxOccurrences parses onto the rule', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", maxOccurrences=2)
+      API_KEY=secret
+    `);
+    expect(await graph.getProxyRules()).toMatchObject([{ domain: ['api.a.com'], maxOccurrences: 2 }]);
+  });
+
+  test('an invalid substituteIn target is rejected', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", substituteIn=[header, cookie])
+      API_KEY=secret
+    `);
+    const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
+    expect(errors.some((e) => /invalid substituteIn target "cookie"/.test(e.message))).toBe(true);
+  });
+
+  test('bare body (no path) is rejected — body substitution must name a path', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", substituteIn=[header, body])
+      API_KEY=secret
+    `);
+    const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
+    expect(errors.some((e) => /body substitution requires a path/.test(e.message))).toBe(true);
+  });
+
+  test('a non-integer maxOccurrences is rejected', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", maxOccurrences=0)
+      API_KEY=secret
+    `);
+    const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
+    expect(errors.some((e) => /maxOccurrences must be an integer >= 1/.test(e.message))).toBe(true);
+  });
+
   test('a header-level (detached) @proxy is not rejected as a misplaced item decorator', async () => {
     const graph = await loadGraph(outdent`
       # @proxyConfig={egress="strict"}

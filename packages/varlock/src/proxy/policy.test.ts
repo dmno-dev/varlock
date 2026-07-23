@@ -294,4 +294,57 @@ describe('getRequestScopedManagedItems — per-rule key scoping', () => {
       expect(keysOf(getRequestScopedManagedItems(facts('api.x.com', 'GET', '/health'), mixed, items))).toEqual(['A']);
     });
   });
+
+  describe('substitution policy (targets + occurrence cap)', () => {
+    test('defaults to any-header, once, when the rule sets nothing', () => {
+      const rules = [rule({ domain: ['api.x.com'], itemKeys: ['A'] })];
+      const scoped = getRequestScopedManagedItems(facts('api.x.com', 'GET', '/'), rules, items);
+      expect(scoped[0]).toMatchObject({ key: 'A', targets: [{ location: 'header' }], maxOccurrences: 1 });
+    });
+
+    test('parses named targets (header:name, body:path) + maxOccurrences onto the scoped item', () => {
+      const rules = [
+        rule({
+          domain: ['api.x.com'], itemKeys: ['A'], substituteIn: ['header:authorization', 'body:client_secret'], maxOccurrences: 3,
+        }),
+      ];
+      const scoped = getRequestScopedManagedItems(facts('api.x.com', 'GET', '/'), rules, items);
+      expect(scoped[0]!.targets).toEqual([
+        { location: 'header', name: 'authorization' },
+        { location: 'body', path: 'client_secret' },
+      ]);
+      expect(scoped[0]!.maxOccurrences).toBe(3);
+    });
+
+    test('merges targets (union) and maxOccurrences (max) across matching rules', () => {
+      const rules = [
+        rule({ domain: ['api.x.com'], itemKeys: ['A'], substituteIn: ['header'] }),
+        rule({
+          domain: ['api.x.com'], path: '/**', itemKeys: ['A'], substituteIn: ['query:api_key'], maxOccurrences: 2,
+        }),
+      ];
+      const scoped = getRequestScopedManagedItems(facts('api.x.com', 'GET', '/x'), rules, items);
+      expect(scoped[0]!.targets).toEqual([
+        { location: 'header' },
+        { location: 'query', name: 'api_key' },
+      ]);
+      expect(scoped[0]!.maxOccurrences).toBe(2);
+    });
+
+    test('a withheld approval rule does not widen an unconditional key’s targets', () => {
+      // A is unconditional via the plain-allow rule (header). A broad approval rule
+      // also mentions A with a body path — but with approval not in effect, its
+      // wider target must NOT leak into the scoped item.
+      const rules = [
+        rule({
+          domain: ['api.x.com'], path: '/health', itemKeys: ['A'], substituteIn: ['header'],
+        }),
+        rule({
+          domain: ['api.x.com'], itemKeys: ['A'], substituteIn: ['body:secret'], approval: { each: 'endpoint' },
+        }),
+      ];
+      const scoped = getRequestScopedManagedItems(facts('api.x.com', 'GET', '/health'), rules, items);
+      expect(scoped[0]!.targets).toEqual([{ location: 'header' }]);
+    });
+  });
 });

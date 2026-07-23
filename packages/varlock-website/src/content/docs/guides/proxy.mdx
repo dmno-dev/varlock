@@ -142,6 +142,8 @@ A `@proxy(...)` rule supports more than just a domain:
 | `method` | Restrict to one or more HTTP methods, e.g. `method=[GET, POST]`. |
 | `block` | `block=true` denies matching requests outright (fail closed). |
 | `keys` | Array of additional item names to inject for this rule, e.g. `keys=[STRIPE_KEY, WEBHOOK_SECRET]`. |
+| `substituteIn` | Where the secret may be substituted: `header` (default), `header:<name>`, `query`, `query:<param>`, `body:<path>`, e.g. `substituteIn=[header, "body:client_secret"]` (see [Substitution surface](#substitution-surface)). |
+| `maxOccurrences` | How many times the placeholder may appear in one request before it's blocked (default `1`) (see [Substitution surface](#substitution-surface)). |
 | `rules` | Array of per-path/method policy refinements that share this rule's `domain` (see [Grouping rules for one domain](#grouping-rules-for-one-domain)). |
 
 `domain` and `method` take either a single value or an **array literal** for lists:
@@ -172,7 +174,7 @@ When one host needs several path/method policies, write the `domain` once and li
 STRIPE_SECRET_KEY=yourPreferredPlugin()
 ```
 
-This injects `STRIPE_SECRET_KEY` across `api.stripe.com` and blocks refunds and payouts. The parent `@proxy(...)` still controls injection (where the secret goes); each `rules` entry is a policy-only refinement that inherits the `domain` and injects nothing on its own, so [precedence](#routing-rules) (block over allow) does the rest. An entry may set `path`, `method`, and `block`, but not `domain` or `keys` (those stay on the parent).
+This injects `STRIPE_SECRET_KEY` across `api.stripe.com` and blocks refunds and payouts. The parent `@proxy(...)` still controls injection (where the secret goes); each `rules` entry is a policy-only refinement that inherits the `domain` and injects nothing on its own, so [precedence](#routing-rules) (block over allow) does the rest. An entry may set `path`, `method`, `block`, `substituteIn`, and `maxOccurrences`, but not `domain` or `keys` (those stay on the parent).
 
 ### Attached vs detached rules
 
@@ -191,6 +193,41 @@ A matching `block` rule **always wins over an allow rule**, in either egress mod
 :::note[Helpful failures instead of mystery 401s]
 Even in `permissive` mode, if a request carries a placeholder that **no rule injects on that route** (e.g. the agent hits `/v2/…` but your rule matched `/v1/…`), the proxy blocks it with a message naming the item and the rule gap — rather than forwarding the placeholder and letting the upstream reject it with a confusing `401`. So a mismatched path tells you *the proxy rule is the problem*, not "check your credentials."
 :::
+
+### Substitution surface
+
+Matching a rule decides **which host** a secret may go to. Two more guards decide **where inside the request** the placeholder gets swapped for the real value, and **how many times**. They exist because the proxy substitutes by finding the placeholder in the outbound bytes: without limits, an agent that was prompt-injected could place the placeholder somewhere the real value then leaks. The classic case is a request to an allowed host that forwards the value onward, e.g. asking a mail API to send an email whose body contains the placeholder.
+
+**`substituteIn` — where the swap may happen.** By default a secret is only substituted into request **headers** (any header). That covers the common case, since most APIs authenticate with an `Authorization` or `X-Api-Key` header. If the placeholder shows up anywhere a target doesn't allow, the request is **blocked** rather than substituted, so the real value never lands somewhere it could be exfiltrated. Targets can be as broad or as specific as you want:
+
+| Target | Allows substitution in |
+|---|---|
+| `header` | any request header value (the default) |
+| `header:authorization` | only the named header (case-insensitive) |
+| `query` | anywhere in the path + query string |
+| `query:api_key` | only the named query parameter's value |
+| `body:client_secret` | only the value at that body path (see below) |
+
+Pin as tightly as the API allows: `header:authorization` blocks the secret being swapped into any other header (some providers forward custom headers onward), and a body path blocks it landing in any other field.
+
+```env-spec title=".env.schema"
+# OAuth token exchange carries the secret in a form field:
+# @proxy(domain="api.example.com", path="/oauth/token", substituteIn=[header, "body:client_secret"])
+CLIENT_SECRET=yourPreferredPlugin()
+```
+
+**Body substitution always requires a path.** There is no bare `body` target: `substituteIn=[body]` is a schema error. This is deliberate. "Anywhere in the body" is the easiest surface to exfiltrate from (the email-body attack above), and `maxOccurrences` alone doesn't close it: the placeholder placed **once** in the wrong field still passes the count check. Naming the path (`body:client_secret`) is what actually pins the secret to the field it belongs in.
+
+A body path is a dotted path into a JSON body (`client_secret`, `data.token`, `items[0].key`) or a field name in an `application/x-www-form-urlencoded` body. The content type selects the parser; a body that can't be parsed as declared fails closed.
+
+**`maxOccurrences` — how many copies.** A valid request uses a secret a fixed number of times (almost always once). By default the placeholder may appear at most **once** per request; a second copy is treated as an exfiltration attempt (duplicate the token into an attacker-visible field while still making a working call) and the request is blocked. Raise it only for an API that legitimately repeats the same secret:
+
+```env-spec title=".env.schema"
+# @proxy(domain="api.example.com", substituteIn=["header:authorization", "body:signature"], maxOccurrences=2)
+SIGNING_KEY=yourPreferredPlugin()
+```
+
+Both guards fail closed and, like a route mismatch, produce a message naming the item, where it was found, and how to widen the rule if the placement is legitimate.
 
 ## Controlling what the agent sees
 

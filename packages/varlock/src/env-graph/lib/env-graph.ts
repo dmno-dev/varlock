@@ -34,6 +34,7 @@ import { normalizeOverrideKeys } from '../../lib/injected-env-provenance';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import {
   PROXY_APPROVAL_EACH_VALUES,
+  parseProxySubstitutionTarget,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule,
 } from '../../proxy/types';
 import { parseDuration } from '../../lib/duration';
@@ -1101,7 +1102,7 @@ export class EnvGraph {
     // doesn't fire for header/root @proxy decorators), so a typo like `blok=true`
     // fails loudly instead of silently producing a permissive rule. Entries that
     // reach the recursive call have already been filtered to the per-entry set.
-    const validOptions = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'rules'];
+    const validOptions = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'maxOccurrences', 'rules'];
     for (const key of Object.keys(obj ?? {})) {
       if (!validOptions.includes(key)) {
         throw new SchemaError(`@proxy: unknown option "${key}". Valid options: ${validOptions.join(', ')}`);
@@ -1141,6 +1142,24 @@ export class EnvGraph {
       }
     }
 
+    // `substituteIn` resolves to a target string or an array of them.
+    if (obj?.substituteIn !== undefined) {
+      const targets = EnvGraph.normalizeStringList(obj.substituteIn);
+      if (targets.length === 0) {
+        throw new SchemaError(`@proxy: substituteIn must resolve to one or more targets (header, header:<name>, query, query:<param>, body:<path>), got ${JSON.stringify(obj.substituteIn)}`);
+      }
+      for (const raw of targets) {
+        const parsed = parseProxySubstitutionTarget(raw);
+        if (!parsed.ok) throw new SchemaError(`@proxy: ${parsed.error}`);
+      }
+    }
+    if (obj?.maxOccurrences !== undefined) {
+      const val = obj.maxOccurrences;
+      if (!_.isNumber(val) || !Number.isInteger(val) || val < 1) {
+        throw new SchemaError(`@proxy: maxOccurrences must resolve to an integer >= 1, got ${JSON.stringify(val)}`);
+      }
+    }
+
     // `rules=[{...}]`: each entry is a policy refinement for the parent's domain.
     if (obj?.rules !== undefined) {
       if (!Array.isArray(obj.rules)) {
@@ -1151,8 +1170,8 @@ export class EnvGraph {
           throw new SchemaError(`@proxy: each rules entry must be an object, got ${JSON.stringify(entry)}`);
         }
         for (const key of Object.keys(entry)) {
-          if (!['path', 'method', 'block', 'approval'].includes(key)) {
-            throw new SchemaError(`@proxy: unknown option "${key}" in a rules entry. Valid entry options: path, method, block, approval (domain and keys are set on the parent @proxy)`);
+          if (!['path', 'method', 'block', 'approval', 'substituteIn', 'maxOccurrences'].includes(key)) {
+            throw new SchemaError(`@proxy: unknown option "${key}" in a rules entry. Valid entry options: path, method, block, approval, substituteIn, maxOccurrences (domain and keys are set on the parent @proxy)`);
           }
         }
         // reuse the per-option type checks for the entry (path/method/block/approval)
@@ -1195,12 +1214,18 @@ export class EnvGraph {
   /** Build one runtime ProxyRule from a resolved `@proxy(...)` arg object (or a `rules` entry). */
   private static buildProxyRuleFromObj(obj: any, domain: Array<string>, itemKeys: Array<string>): ProxyRule {
     const method = EnvGraph.normalizeStringList(obj?.method);
+    // Kept as raw target strings (validated above); parsed into structured targets
+    // at request time. Filter to entries the parser accepts as a defensive backstop.
+    const substituteIn = EnvGraph.normalizeStringList(obj?.substituteIn)
+      .filter((raw) => parseProxySubstitutionTarget(raw).ok);
     return {
       domain,
       itemKeys,
       ...(_.isString(obj?.path) ? { path: obj.path } : {}),
       ...(method.length ? { method } : {}),
       ...(_.isBoolean(obj?.block) ? { block: obj.block } : {}),
+      ...(substituteIn.length ? { substituteIn } : {}),
+      ...(_.isNumber(obj?.maxOccurrences) ? { maxOccurrences: obj.maxOccurrences } : {}),
       ...EnvGraph.buildProxyApprovalFields(obj),
     };
   }
