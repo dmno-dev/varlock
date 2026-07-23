@@ -160,10 +160,23 @@ describe('checkSubstitutionGuards', () => {
     expect(checkSubstitutionGuards(req, [allowed])).toBeUndefined();
   });
 
-  test('fails closed when a body target is set but the body cannot be parsed', () => {
+  test('fails closed when a body:path target is set but the body cannot be parsed', () => {
     const req = { ...emptyReq, body: 'vlk_ph_key not-json', contentType: 'application/json' };
     expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'body', path: 'client_secret' }] })]))
       .toMatchObject({ kind: 'location', location: 'body' });
+  });
+
+  test('body:* allows the placeholder anywhere in an unparseable (e.g. XML) body', () => {
+    const xml = '<soap:Envelope><auth><token>vlk_ph_key</token></auth></soap:Envelope>';
+    const req = { ...emptyReq, body: xml, contentType: 'application/xml' };
+    expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'body', path: '*' }] })])).toBeUndefined();
+  });
+
+  test('body:* still respects the occurrence cap', () => {
+    // Two copies in an unstructured body — anywhere is allowed, but the default cap is 1.
+    const req = { ...emptyReq, body: 'sig=vlk_ph_key&dup=vlk_ph_key', contentType: 'text/plain' };
+    expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'body', path: '*' }] })]))
+      .toMatchObject({ kind: 'occurrences', count: 2 });
   });
 
   test('ignores items with an empty placeholder', () => {

@@ -23,8 +23,12 @@ export const PROXY_SUBSTITUTION_LOCATION_VALUES: ReadonlyArray<ProxySubstitution
  *  - `{ location: 'query' }` — anywhere in the request target (path + query string).
  *  - `{ location: 'query', name }` — only the named query parameter's value.
  *  - `{ location: 'body', path }` — only the value at the given body path (JSON dotted
- *    path or form field). Body substitution ALWAYS requires a path — there is no
- *    "anywhere in the body" form, since that is the easiest surface to exfiltrate from.
+ *    path or form field). Body substitution ALWAYS requires a path, since "anywhere
+ *    in the body" is the easiest surface to exfiltrate from. The one exception is the
+ *    explicit wildcard `path: '*'` (`body:*`), an opt-in escape hatch for bodies we
+ *    can't parse into a path (XML/SOAP, protobuf, plain text); it allows the
+ *    placeholder anywhere in the body, so scope the rule tightly and keep the
+ *    occurrence cap low.
  */
 export type ProxySubstitutionTarget = | { location: 'header'; name?: string }
   | { location: 'query'; name?: string }
@@ -87,7 +91,12 @@ export function parseProxySubstitutionTarget(raw: string): ParsedProxySubstituti
   if (location === 'header') return { ok: true, target: arg ? { location: 'header', name: arg.toLowerCase() } : { location: 'header' } };
   if (location === 'query') return { ok: true, target: arg ? { location: 'query', name: arg } : { location: 'query' } };
   if (location === 'body') {
-    if (!arg) return { ok: false, error: 'substituteIn: body substitution requires a path, e.g. body:client_secret (there is no bare "body" form)' };
+    if (!arg) {
+      return {
+        ok: false,
+        error: 'substituteIn: body substitution requires a path (e.g. body:client_secret), or body:* to allow anywhere in the body. There is no bare "body" form',
+      };
+    }
     return { ok: true, target: { location: 'body', path: arg } };
   }
   return invalid();

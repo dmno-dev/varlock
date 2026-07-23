@@ -207,6 +207,7 @@ Matching a rule decides **which host** a secret may go to. Two more guards decid
 | `query` | anywhere in the path + query string |
 | `query:api_key` | only the named query parameter's value |
 | `body:client_secret` | only the value at that body path (see below) |
+| `body:*` | anywhere in the body (escape hatch for unparseable bodies, see below) |
 
 Pin as tightly as the API allows: `header:authorization` blocks the secret being swapped into any other header (some providers forward custom headers onward), and a body path blocks it landing in any other field.
 
@@ -221,6 +222,8 @@ CLIENT_SECRET=yourPreferredPlugin()
 **Body substitution always requires a path.** There is no bare `body` target: `substituteIn=[body]` is a schema error. This is deliberate. "Anywhere in the body" is the easiest surface to exfiltrate from (the email-body attack above), and `maxOccurrences` alone doesn't close it: the placeholder placed **once** in the wrong field still passes the count check. Naming the path (`body:client_secret`) is what actually pins the secret to the field it belongs in.
 
 A body path is a dotted path into a JSON body (`client_secret`, `data.token`, `items[0].key`) or a field name in an `application/x-www-form-urlencoded` body. The content type selects the parser; a body that can't be parsed as declared fails closed.
+
+For a body format varlock can't parse into a path (XML/SOAP, protobuf, plain text, a signed blob), use the wildcard `body:*`. It allows the placeholder anywhere in the body, so it reopens the "anywhere in the body" surface: only reach for it when a path won't work, scope the rule tightly with `path` and `method` to the one endpoint that needs it, and keep `maxOccurrences` low. Don't use it on an endpoint that echoes, forwards, or stores body content (a mail-send or note-create endpoint), where it would let a secret leak.
 
 **`maxOccurrences`, how many copies.** A valid request uses a secret a fixed number of times (almost always once). By default the placeholder may appear at most **once** per request; a second copy is treated as an exfiltration attempt (duplicate the token into an attacker-visible field while still making a working call) and the request is blocked. Raise it only for an API that legitimately repeats the same secret:
 

@@ -317,7 +317,7 @@ function bodyStringLeaves(body: string, contentType: string | undefined): Array<
 /** Human hint naming the current targets and how to allow the offending location, for the block message. */
 function locationSuggestion(location: ProxySubstitutionLocation, targets: Array<ProxySubstitutionTarget>): string {
   const current = targets.map(proxySubstitutionTargetKey);
-  const add = location === 'body' ? 'body:<path>' : location;
+  const add = location === 'body' ? 'body:<path> (or body:* to allow anywhere in the body)' : location;
   return `currently allowed: [${current.join(', ')}]. To allow it here, add ${add} to substituteIn`;
 }
 
@@ -368,6 +368,8 @@ export function checkSubstitutionGuards(
     const anyQuery = targets.some((t) => t.location === 'query' && !t.name);
     const queryNames = targets.flatMap((t) => (t.location === 'query' && t.name ? [t.name] : []));
     const bodyPaths = targets.flatMap((t) => (t.location === 'body' ? [t.path] : []));
+    // `body:*` is the explicit escape hatch for bodies we can't parse into a path.
+    const bodyAnywhere = bodyPaths.includes('*');
 
     // Headers: total occurrences vs. those in an allowed header. The any-header
     // default excludes a denylist of never-secret forward/log headers; an explicit
@@ -408,11 +410,14 @@ export function checkSubstitutionGuards(
       };
     }
 
-    // Body: total occurrences vs. those at an allowed path. Body always requires a
-    // path target, so an unparseable body (leaves === null) allows nothing.
+    // Body: total occurrences vs. those at an allowed path. `body:*` allows anywhere
+    // (no parse needed); otherwise an unparseable body (leaves === null) allows
+    // nothing, so a `body:<path>` target fails closed on a body we can't parse.
     const bodyTotal = countOccurrences(req.body, ph);
     let bodyAllowed = 0;
-    if (bodyTotal && bodyPaths.length) {
+    if (bodyTotal && bodyAnywhere) {
+      bodyAllowed = bodyTotal;
+    } else if (bodyTotal && bodyPaths.length) {
       const leaves = bodyStringLeaves(req.body, req.contentType);
       if (leaves) {
         for (const leaf of leaves) if (bodyPaths.includes(leaf.path)) bodyAllowed += countOccurrences(leaf.value, ph);

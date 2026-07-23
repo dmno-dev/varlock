@@ -148,12 +148,14 @@ describe('proxy decorators', () => {
       # @proxyConfig={egress="strict"}
       # @proxy(domain="api.a.com", substituteIn="body:client_secret")
       # @proxy(domain="api.b.com", substituteIn=[header, "body:token"])
+      # @proxy(domain="api.c.com", substituteIn="body:*")
       # ---
       BASELINE=1
     `);
     expect(await graph.getProxyRules()).toMatchObject([
       { domain: ['api.a.com'], substituteIn: ['body:client_secret'] },
       { domain: ['api.b.com'], substituteIn: ['header', 'body:token'] },
+      { domain: ['api.c.com'], substituteIn: ['body:*'] },
     ]);
   });
 
