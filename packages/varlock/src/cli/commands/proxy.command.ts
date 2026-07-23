@@ -1366,10 +1366,10 @@ function startSchemaDriftWatcher(opts: {
 }
 
 /**
- * Read the fixed `--port`, `--cert-dir`, and `--listen` address from a run/start
- * invocation. All optional (ephemeral port + temp cert dir + loopback bind
- * otherwise); they let a caller wire tools to a known proxy endpoint / CA path
- * before the proxy boots, and expose it off-loopback for a remote sandbox.
+ * Read the fixed `--port`, `--cert-dir`, and `--tunnel` bind address from a
+ * run/start invocation. All optional (ephemeral port + temp cert dir + loopback
+ * bind otherwise); they let a caller wire tools to a known proxy endpoint / CA
+ * path before the proxy boots, and serve the tunnel off-loopback for a remote client.
  */
 function resolveProxyBindOptions(ctx: any): { port?: number; certDir?: string; listenHost?: string } {
   const out: { port?: number; certDir?: string; listenHost?: string } = {};
@@ -1383,8 +1383,10 @@ function resolveProxyBindOptions(ctx: any): { port?: number; certDir?: string; l
   }
   const certDir = ctx.values['cert-dir'];
   if (certDir) out.certDir = path.resolve(String(certDir));
-  const listen = ctx.values.listen;
-  if (listen !== undefined && listen !== '') out.listenHost = String(listen);
+  // `--tunnel` (custom-parsed: bare → 0.0.0.0) is the off-loopback bind that also
+  // serves the WS tunnel + mints the data-plane token.
+  const tunnel = ctx.values.tunnel;
+  if (tunnel !== undefined && tunnel !== '') out.listenHost = String(tunnel);
   return out;
 }
 
@@ -1675,8 +1677,8 @@ async function startAction(ctx: any) {
     // guest needs — it is meant to travel (unlike the endpoint token), so it is
     // shown here so an orchestrator can hand it to `proxy run --url`.
     logLines([
-      `· tunnel: listening off-loopback (${bindOptions.listenHost})`,
-      ansis.dim('  a remote sandbox runs through it with:'),
+      `· tunnel: serving off-loopback (${bindOptions.listenHost})`,
+      ansis.dim('  a client elsewhere runs through it with:'),
       ansis.dim(`  varlock proxy run --url wss://<this-host> --token ${session.dataPlaneToken} -- <command>`),
     ]);
   }
@@ -1828,7 +1830,7 @@ async function envAction(ctx: any) {
 
 /**
  * Remote path of `proxy run`: reach a proxy running elsewhere (a broker started
- * with `--listen`) over the built-in tunnel, then run the command through it.
+ * with `--tunnel`) over the built-in tunnel, then run the command through it.
  * Self-wires from the broker's bootstrap (the same child-view payload a local
  * attach adopts, plus CA certs), so the guest holds only placeholders and no env
  * or certs need to be supplied out of band. Shares the spawn/redaction/teardown
@@ -1842,18 +1844,18 @@ async function runRemoteThroughTunnel(ctx: any, cmd: {
   const url = String(ctx.values.url);
   const token = ctx.values.token ?? process.env.VARLOCK_PROXY_TOKEN;
   if (!token) {
-    throw new CliExitError('Missing --token (or VARLOCK_PROXY_TOKEN). It is the broker\'s data-plane token (minted by `proxy start --listen`).');
+    throw new CliExitError('Missing --token (or VARLOCK_PROXY_TOKEN). It is the broker\'s data-plane token (minted by `proxy start --tunnel`).');
   }
   // Local-proxy flags don't apply when the proxy runs elsewhere.
-  if (ctx.values.sandbox !== undefined || ctx.values.port !== undefined || ctx.values['cert-dir'] !== undefined || ctx.values.listen !== undefined) {
-    throw new CliExitError('`--sandbox`, `--port`, `--cert-dir`, and `--listen` describe a local proxy and cannot be combined with `--url`.');
+  if (ctx.values.sandbox !== undefined || ctx.values.port !== undefined || ctx.values['cert-dir'] !== undefined || ctx.values.tunnel !== undefined) {
+    throw new CliExitError('`--sandbox`, `--port`, `--cert-dir`, and `--tunnel` describe a local proxy and cannot be combined with `--url`.');
   }
 
   // 1. Fetch the bootstrap (encoded child-view payload + CA certs) over the WS.
   const bootstrap = await fetchTunnelBootstrap(url, token).catch((error) => {
     throw new CliExitError(`Could not reach the broker tunnel at ${url}.`, {
       details: (error as Error).message,
-      suggestion: 'Check the URL and --token, and that the broker started with `--listen`.',
+      suggestion: 'Check the URL and --token, and that the broker started with `--tunnel`.',
     });
   });
   const payload = decodeSessionEnvPayload(bootstrap.payloadJson);
@@ -2385,11 +2387,14 @@ const bindArgs = {
     description: 'Directory to write the CA cert into (`ca-cert.pem` + `combined-ca.pem`), so tools can trust a '
       + 'known CA path before the proxy starts (else a fresh temp dir).',
   },
-  listen: {
-    type: 'string',
-    description: 'Address the proxy binds (default: 127.0.0.1). Use a non-loopback address (e.g. 0.0.0.0) to reach '
-      + 'the proxy from a remote sandbox; this mints a data-plane token that off-loopback clients must present '
-      + '(`varlock proxy env --full` embeds it). The control endpoint stays loopback-only.',
+  tunnel: {
+    type: 'custom',
+    // Bare `--tunnel` → bind 0.0.0.0; `--tunnel=<addr>` → a specific interface.
+    parse: (value: string) => (value === '' || value == null ? '0.0.0.0' : value),
+    description: 'Serve the built-in WebSocket tunnel so a client elsewhere can run through this proxy '
+      + '(`proxy run --url`). Binds off-loopback (bare `--tunnel` = 0.0.0.0; `--tunnel=<addr>` picks an interface) '
+      + 'and mints a per-session data-plane token clients must present (pin it with VARLOCK_PROXY_TOKEN). The '
+      + 'control endpoint stays loopback-only.',
   },
 } as const;
 
@@ -2397,7 +2402,7 @@ const bindArgs = {
 const remoteArgs = {
   url: {
     type: 'string',
-    description: 'Run through a proxy running elsewhere (a broker started with `--listen`): its tunnel URL '
+    description: 'Run through a proxy running elsewhere (a broker started with `--tunnel`): its tunnel URL '
       + '(wss://... or ws://...). Reached over the built-in WebSocket tunnel. Requires --token.',
   },
   token: {
@@ -2602,7 +2607,7 @@ Proxy command surface:
   varlock proxy rules                           # summarize the effective @proxy config (no proxy started)
   varlock proxy env --session abc12             # this session's wiring env (source locally)
   varlock proxy env --full --proxy-url http://127.0.0.1:8888 --cert-dir /home/user/certs --format json   # full env for a remote sandbox
-  varlock proxy start --listen 0.0.0.0                          # broker: bind off-loopback + serve the WS tunnel
+  varlock proxy start --tunnel                                  # broker: serve the WS tunnel off-loopback
   varlock proxy run --url wss://8000-abc.e2b.app --token TOKEN -- claude   # guest: run through a remote broker
   varlock proxy status
   varlock proxy audit --session abc12

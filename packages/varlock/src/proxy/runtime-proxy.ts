@@ -692,7 +692,7 @@ export async function startLocalProxyRuntime({
     // Belt-and-suspenders: the command layer mints a token whenever it passes a
     // non-loopback listenHost. If we got here without one, refuse to expose an
     // unauthenticated proxy off-loopback rather than fail open.
-    throw new Error('varlock proxy: a non-loopback listen address requires a data-plane token.');
+    throw new Error('varlock proxy: serving the tunnel off-loopback requires a data-plane token.');
   }
   // Mutable so `reconfigure` can hot-swap the enforced policy on a live proxy.
   // The request handlers below close over these bindings, so reassigning them

@@ -705,7 +705,7 @@ varlock proxy <subcommand> [options]
 Every subcommand operates on a [session](/guides/proxy/#sessions). Target one with `--session <id>`, or let it auto-resolve: `run` attaches to the daemon for the current directory (else starts its own), and the other subcommands use the single active session (asking for `--session` if more than one is running).
 
 **Subcommands:**
-- `run -- <command>`: Start a proxy, run `<command>` through it, and tear down on exit. Attaches to a running `proxy start` session for this directory if one exists; otherwise runs self-contained. With `--url` it instead runs through a proxy on **another machine** (a broker started with `--listen`), reached over the built-in WebSocket tunnel, self-wiring the placeholder env and CA certs from the broker. See the [E2B guide](/guides/e2b/).
+- `run -- <command>`: Start a proxy, run `<command>` through it, and tear down on exit. Attaches to a running `proxy start` session for this directory if one exists; otherwise runs self-contained. With `--url` it instead runs through a proxy on **another machine** (a broker started with `--tunnel`), reached over the built-in WebSocket tunnel, self-wiring the placeholder env and CA certs from the broker. See the [E2B guide](/guides/e2b/).
 - `start`: Start a long-lived proxy session that owns the terminal (a live request log appears here). Stop with `Ctrl+C`.
 - `rules`: Print a static summary of the effective `@proxy` configuration: the rules (host/path/method, block) and each secret's mode (proxied / placeholder / passthrough / omit), without starting a proxy.
 - `env`: Print the proxy + CA environment for a session, to source into another shell (`eval "$(varlock proxy env)"`). Add `--full` to emit the whole child-view env a proxied agent runs with (placeholders for secrets, real values for non-secrets), with `--proxy-url` / `--cert-dir` to repoint it for a remote sandbox.
@@ -719,8 +719,8 @@ Every subcommand operates on a [session](/guides/proxy/#sessions). Target one wi
 - `--new`: For `run`, force a fresh proxy instead of attaching to a running one.
 - `--port <n>`: For `start`/`run` (when it starts a proxy), bind a fixed loopback port instead of a random one, so you can point tools at a known `HTTP_PROXY` before the proxy starts. Refuses to start if the port is already in use.
 - `--cert-dir <dir>`: For `start`/`run` (when it starts a proxy), write the CA cert (`ca-cert.pem` + `combined-ca.pem`) into a known directory instead of a temp one, so tools can trust it at a fixed path. Created if missing; only the cert files are removed on stop.
-- `--listen <addr>`: For `start`/`run`, bind the proxy off-loopback (e.g. `0.0.0.0`) and serve the built-in WebSocket tunnel on its port so a remote sandbox can reach it via `run --url`. A non-loopback bind mints a per-session data-plane token (pin it with `VARLOCK_PROXY_TOKEN`) that off-loopback clients must present; loopback clients stay exempt and the control endpoint stays loopback-only.
-- `--url <wss>` + `--token <token>`: For `run`, target a proxy on another machine (a broker started with `--listen`) over the tunnel, instead of a local session. The token is the broker's data-plane token (also readable from `VARLOCK_PROXY_TOKEN`). The local-proxy flags (`--sandbox`, `--port`, `--cert-dir`, `--listen`) don't apply with `--url`.
+- `--tunnel` (optionally `--tunnel=<addr>`): For `start`/`run`, serve the built-in WebSocket tunnel so a client elsewhere can reach this proxy via `run --url`. Binds off-loopback (bare `--tunnel` = `0.0.0.0`; `--tunnel=<addr>` picks an interface) and mints a per-session data-plane token (pin it with `VARLOCK_PROXY_TOKEN`) that off-loopback clients must present; loopback clients stay exempt and the control endpoint stays loopback-only.
+- `--url <wss>` + `--token <token>`: For `run`, target a proxy on another machine (a broker started with `--tunnel`) over the tunnel, instead of a local session. The token is the broker's data-plane token (also readable from `VARLOCK_PROXY_TOKEN`). The local-proxy flags (`--sandbox`, `--port`, `--cert-dir`, `--tunnel`) don't apply with `--url`.
 - `--token` also pins `start`'s minted token to a known value (via `VARLOCK_PROXY_TOKEN`), so an orchestrator can hand the same token to the broker and its agents.
 - `--all`: For `status`/`stop`, include all sessions (`status` also shows ended sessions).
 - `--allow-reload` / `--no-allow-reload`: For `start`/`run`, override the reload posture. `--allow-reload` forces `manual` (human-applied from a trusted terminal; agent-context reloads refused), `--no-allow-reload` forces `off`. Otherwise [`@proxyConfig={reload=...}`](/reference/root-decorators/#proxyconfig) applies, defaulting to `auto` (manual for an interactive `proxy start`, off for headless or one-shot `proxy run`). On a shared uid this is a bar-raiser, not a hard boundary, so prefer a sandbox.
@@ -743,7 +743,7 @@ varlock proxy status
 varlock proxy audit --format json
 
 # Reach a broker proxy from another machine / a remote sandbox (see the E2B guide)
-varlock proxy start --listen 0.0.0.0
+varlock proxy start --tunnel
 varlock proxy run --url wss://8080-abc.e2b.app --token "$VARLOCK_PROXY_TOKEN" -- claude
 ```
 

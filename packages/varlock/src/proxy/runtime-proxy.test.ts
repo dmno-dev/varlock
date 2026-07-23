@@ -147,7 +147,7 @@ describe('startLocalProxyRuntime', () => {
   test('refuses a non-loopback bind without a data-plane token', async () => {
     await expect(startLocalProxyRuntime({
       managedItems: [], rules: [], egressMode: 'permissive', listenHost: '0.0.0.0',
-    })).rejects.toThrow(/non-loopback listen address requires a data-plane token/);
+    })).rejects.toThrow(/serving the tunnel off-loopback requires a data-plane token/);
   });
 
   test('accepts a non-loopback bind when a token is supplied, and can be stopped', async () => {
