@@ -53,12 +53,12 @@ Values can come in via `envs` as above (the schema validates them at load), or t
 
 Both approaches above put real values inside sandboxes. For agentic workloads, the [varlock credential proxy](/guides/proxy/) removes them entirely: sandboxes hold only [placeholders](/guides/proxy/#placeholders), and the proxy injects real values into requests at the wire, on verified TLS connections to hosts your schema allows. A compromised or prompt-injected agent can exfiltrate nothing but placeholders, and every request is checked against your [`@proxy` rules](/guides/proxy/#routing-rules) and recorded in the [audit log](/guides/proxy/#auditing).
 
-E2B sandboxes are remote, so they cannot reach a proxy listening on your machine's loopback. The bridge is a small WebSocket tunnel ([chisel](https://github.com/jpillora/chisel)), which E2B's public sandbox URLs carry fine. There are two shapes, depending on where you want the proxy (and your real secrets) to live:
+E2B sandboxes are remote, so they cannot reach a proxy on your machine's loopback. varlock has a built-in tunnel for this: the broker serves a WebSocket tunnel on its proxy port (which E2B's public sandbox URLs carry), and [`varlock proxy run --url`](/reference/cli-commands/#proxy) runs in the sandbox to reach it. No external tool is involved. There are two shapes, depending on where the proxy (and your real secrets) live:
 
-- **[Broker sandbox](#broker-sandbox)**: the proxy runs in one dedicated E2B sandbox; agent sandboxes tunnel to it. Fits orchestrators and fleets, where there is no long-lived machine of your own in the loop.
-- **[Proxy on your machine](#proxy-on-your-machine)**: the proxy stays local and secrets never leave your machine; a minimal relay sandbox is the rendezvous point. Fits the dev loop.
+- **[Broker sandbox](#broker-sandbox)**: the proxy runs in one dedicated E2B sandbox; agent sandboxes connect to it. Fits orchestrators and fleets, where there is no long-lived machine of your own in the loop.
+- **[Proxy on your machine](#proxy-on-your-machine)**: the proxy stays local and secrets never leave your machine, exposed to the sandbox through a tunnel service. Fits the dev loop.
 
-Both shapes leave the proxy listening on loopback at every hop, which is exactly how it wants to be deployed. The tunnel is what makes the loopback ends meet.
+Either way the agent runs `varlock proxy run --url <url> --token <token> -- <command>`, which opens the tunnel, wires the sandbox to a loopback proxy, and pulls its placeholder env and CA certs from the broker automatically. It is the same `proxy run` you use locally, with `--url` naming a proxy that lives elsewhere.
 
 ### Schema setup
 
@@ -77,7 +77,7 @@ ANTHROPIC_API_KEY=
 STRIPE_SECRET_KEY=
 ```
 
-Explicit placeholders matter here: your orchestrator code passes them to agent sandboxes via `envs`, so they need to be values you know up front rather than generated ones.
+An explicit [`@placeholder`](/reference/item-decorators/#placeholder) is optional (the sandbox pulls whatever the schema produces from the broker), but worth setting when an SDK checks the key format client-side: a realistic-looking placeholder passes that check where a generic `vlk_placeholder_…` would not.
 
 [`@proxyConfig={egress="strict"}`](/guides/proxy/#egress-modes) blocks any proxied request that does not match a rule. Start with the default permissive mode if your agents need broad internet access through the proxy, and tighten later.
 
@@ -85,13 +85,12 @@ You will also need an [E2B API key](https://e2b.dev/docs) for the orchestrator t
 
 ### Broker sandbox
 
-One long-lived sandbox (the broker) runs `varlock proxy start` plus a chisel server. Agent sandboxes run a chisel client that gives them a local port which lands on the broker's loopback proxy.
+One long-lived sandbox (the broker) runs `varlock proxy start --listen`, which serves the tunnel on its proxy port. Agent sandboxes reach it with `varlock proxy run --url`.
 
 ```
-[agent sandbox]                     [broker sandbox]
-  your agent                          varlock proxy :8080 (loopback)
-  HTTPS_PROXY=127.0.0.1:8888   ws    chisel server :8000
-  chisel client  ─────────────────▶  (public getHost URL)
+[agent sandbox]                          [broker sandbox]
+  varlock proxy run --url  ── ws ──▶  proxy :8080 + tunnel
+  (loopback proxy + agent)              (public getHost URL)
 ```
 
 #### Start the broker
@@ -99,84 +98,59 @@ One long-lived sandbox (the broker) runs `varlock proxy start` plus a chisel ser
 ```ts title="orchestrate.ts"
 import { Sandbox } from 'e2b';
 
-const CHISEL_URL = 'https://github.com/jpillora/chisel/releases/download/v1.10.1/chisel_1.10.1_linux_amd64.gz';
-const TUNNEL_AUTH = `varlock:${crypto.randomUUID()}`;
+// One token, shared by the broker and every agent. Generate it yourself.
+const PROXY_TOKEN = crypto.randomUUID();
 const VARLOCK = '/home/user/.config/varlock/bin/varlock';
 
 const broker = await Sandbox.create({ timeoutMs: 60 * 60 * 1000 });
 
-// install varlock + chisel
 await broker.commands.run('curl -sSfL https://varlock.dev/install.sh | sh -s');
-await broker.commands.run(`curl -sSL ${CHISEL_URL} | gunzip > /tmp/chisel && chmod +x /tmp/chisel`);
 
-// schema + real values
+// schema + real values (the only place real secrets live)
 await broker.files.write('/home/user/proj/.env.schema', envSchemaContents);
 await broker.files.write('/home/user/proj/.env.local', `ANTHROPIC_API_KEY=${realAnthropicKey}\nSTRIPE_SECRET_KEY=${realStripeKey}\n`);
 
-// start the proxy (loopback) and wait for its CA certs
+// start the proxy bound off-loopback so the tunnel is reachable; the token is
+// pinned via VARLOCK_PROXY_TOKEN so we already know it.
 await broker.commands.run(
-  `cd /home/user/proj && ${VARLOCK} proxy start --port 8080 --cert-dir /home/user/proxy-certs > /home/user/proxy.log 2>&1`,
-  { background: true, timeoutMs: 0 },
+  `cd /home/user/proj && ${VARLOCK} proxy start --listen 0.0.0.0 --port 8080 > /home/user/proxy.log 2>&1`,
+  { background: true, timeoutMs: 0, envs: { VARLOCK_PROXY_TOKEN: PROXY_TOKEN } },
 );
-await broker.commands.run('until test -f /home/user/proxy-certs/combined-ca.pem; do sleep 0.2; done', { timeoutMs: 30_000 });
+// ready once the port answers (a bare GET returns 400, which is fine; we only
+// need the listener up, so no -f).
+await broker.commands.run("until curl -s -o /dev/null http://127.0.0.1:8080 --proxy ''; do sleep 0.2; done", { timeoutMs: 30_000 });
 
-// expose the tunnel server on the broker's public URL
-await broker.commands.run(
-  `/tmp/chisel server --host 0.0.0.0 --port 8000 --auth '${TUNNEL_AUTH}' > /home/user/chisel.log 2>&1`,
-  { background: true, timeoutMs: 0 },
-);
-const brokerHost = broker.getHost(8000);
-
-// pull the CA certs out so agents can trust the proxy
-const caCert = await broker.files.read('/home/user/proxy-certs/ca-cert.pem');
-const combinedCa = await broker.files.read('/home/user/proxy-certs/combined-ca.pem');
+const brokerHost = broker.getHost(8080); // e.g. 8080-<id>.e2b.app
 ```
 
 Writing `.env.local` from the orchestrator is the simplest bootstrap. If you would rather resolve secrets inside the broker, install a [plugin](/guides/plugins/) and provide its service-account token instead; either way there is one bootstrap credential for the broker, instead of real secrets in every agent sandbox.
 
 #### Start agent sandboxes
 
-Each agent gets the standard proxy wiring (the same env vars `varlock proxy run` injects locally), the CA certs, the placeholders, and a chisel client:
+An agent needs nothing but varlock and `proxy run --url`. It pulls its placeholder env and CA certs from the broker over the tunnel, so there is no env or cert plumbing to pass:
 
 ```ts title="orchestrate.ts (continued)"
-const agent = await Sandbox.create({
-  timeoutMs: 60 * 60 * 1000,
-  envs: {
-    HTTP_PROXY: 'http://127.0.0.1:8888',
-    HTTPS_PROXY: 'http://127.0.0.1:8888',
-    NO_PROXY: 'localhost,127.0.0.1,::1',
-    NODE_EXTRA_CA_CERTS: '/home/user/certs/ca-cert.pem',
-    SSL_CERT_FILE: '/home/user/certs/combined-ca.pem',
-    REQUESTS_CA_BUNDLE: '/home/user/certs/combined-ca.pem',
-    CURL_CA_BUNDLE: '/home/user/certs/combined-ca.pem',
-    GIT_SSL_CAINFO: '/home/user/certs/combined-ca.pem',
-    // placeholders only - real values exist only in the broker
-    ANTHROPIC_API_KEY: 'sk-ant-api03-000000000000000000000000',
-    STRIPE_SECRET_KEY: 'sk_test_00000000000000000000000000',
-  },
-});
+const agent = await Sandbox.create({ timeoutMs: 60 * 60 * 1000 });
+await agent.commands.run('curl -sSfL https://varlock.dev/install.sh | sh -s');
 
-await agent.commands.run(`curl -sSL ${CHISEL_URL} | gunzip > /tmp/chisel && chmod +x /tmp/chisel`);
-await agent.files.write('/home/user/certs/ca-cert.pem', caCert);
-await agent.files.write('/home/user/certs/combined-ca.pem', combinedCa);
+// connect to the broker and run the workload through the tunnel. The agent only
+// ever holds placeholders; the broker injects real values at the wire.
 await agent.commands.run(
-  `/tmp/chisel client --auth '${TUNNEL_AUTH}' https://${brokerHost} 8888:127.0.0.1:8080 > /home/user/chisel.log 2>&1`,
-  { background: true, timeoutMs: 0 },
+  `${VARLOCK} proxy run --url wss://${brokerHost} --token ${PROXY_TOKEN} -- your-agent-command`,
 );
-
-// now run your agent workload; its egress goes through the broker's policy
-await agent.commands.run('your-agent-command');
 ```
 
-Baking varlock and chisel into a [custom template](https://e2b.dev/docs/template/quickstart) instead of installing at startup makes sandbox creation faster; the wiring is the same.
+:::note[Installing varlock]
+The install script drops a self-contained binary and works on any sandbox. E2B's base template ships Node 20, which is **below** varlock's Node 22.3 requirement, so `npm i -g varlock` installs but won't run there. If you build a [custom template](https://e2b.dev/docs/template/quickstart) with Node 22.3+ (or bun), `npm i -g varlock` is a lighter install (~9 MB vs the ~100 MB binary). Either way, baking varlock into the template skips the per-sandbox install entirely, which matters most when a fleet spawns many sandboxes.
+:::
 
 To see what agents are doing, run [`varlock proxy audit`](/reference/cli-commands/#proxy) (or `proxy status --watch`) inside the broker: every request records its host, path, decision, and which keys were injected.
 
 #### Lock down agent egress
 
-So far the proxy governs proxied traffic, but an agent could still make direct connections that bypass `HTTPS_PROXY`. Those requests carry placeholders at worst, so no secrets are at stake, but E2B can close the gap entirely with its [network egress rules](https://e2b.dev/docs/sandbox/internet-access): restrict the agent to the broker's URL and every request has to go through varlock policy.
+So far the proxy governs proxied traffic, but an agent could still make direct connections that bypass the tunnel. Those requests carry placeholders at worst, so no secrets are at stake, but E2B can close the gap entirely with its [network egress rules](https://e2b.dev/docs/sandbox/internet-access): restrict the agent to the broker's URL and every request has to go through varlock policy.
 
-Apply the restriction **after** provisioning, not at `Sandbox.create`. The agent needs open egress briefly to download chisel (skip that step by baking chisel into your template), and the clamp does not disturb the established tunnel:
+Apply the restriction **after** provisioning, not at `Sandbox.create`. The agent needs open egress briefly to install varlock (skip that by baking it into your template), and the clamp does not disturb an established tunnel:
 
 ```ts
 await agent.updateNetwork({
@@ -189,46 +163,37 @@ This is enforced by E2B's infrastructure outside the VM, so nothing the agent do
 
 #### Trust model
 
-Be clear-eyed about what this shape protects against. The broker holds real secrets inside E2B's cloud, so E2B's infrastructure is inside your trust boundary, same as it would be for secrets passed to any sandbox. What changes is the blast radius on your side: agents never hold secrets, so a compromised agent sandbox yields placeholders, an authenticated tunnel endpoint, and only whatever requests your rules and egress mode allow. Rotation, policy, and audit live in one place instead of N sandboxes.
+Be clear-eyed about what this shape protects against. The broker holds real secrets inside E2B's cloud, so E2B's infrastructure is inside your trust boundary, same as it would be for secrets passed to any sandbox. What changes is the blast radius on your side: agents never hold secrets, so a compromised agent sandbox yields placeholders and only whatever requests your rules and egress mode allow. Rotation, policy, and audit live in one place instead of N sandboxes.
 
 Two practical notes:
 
 - No human is attached to the broker, so treat its policy as static: allow rules, `block` rules, `@proxy=omit`, and strict egress. To change policy, [edit the schema and reload](/guides/proxy/#editing-the-schema-while-a-session-is-running) from the orchestrator, or restart the broker.
-- Agents hold the tunnel credential, deliberately. Tunnel auth exists to keep the rest of the internet off your broker's public URL, not to keep agents out; the proxy's rules are the gate that applies to agents.
+- The token authenticates the tunnel and, over it, unlocks the placeholder env an agent adopts. Agents hold it deliberately; it is the credential to *use* the broker, not to read its secrets, which never leave it. Treat it like any shared secret (rotate by restarting the broker with a new one).
 
 ### Proxy on your machine
 
-For local development, keep the proxy (and your secrets, resolver plugins, and biometric unlock) on your machine. Your laptop is not reachable from E2B's cloud, so a minimal relay sandbox stands in the middle: chisel in reverse mode lets your machine dial out to the relay and publish its loopback proxy there, and agents connect to the relay exactly as they connect to a broker.
+For local development, keep the proxy (and your secrets, resolver plugins, and biometric unlock) on your machine. Your laptop is not reachable from E2B's cloud, so expose the proxy through a tunnel service and point `run --url` at that public URL. The data-plane token authenticates the tunnel, so a public URL is safe: an unauthenticated request cannot open the tunnel or reach the proxy.
 
-```
-[agent sandbox]            [relay sandbox]              [your machine]
-  your agent                 chisel server :8000          varlock proxy :8080
-  chisel client ── ws ──▶    --reverse       ◀── ws ──   chisel client (R:8080)
-```
-
-The relay never sees plaintext secrets: TLS runs end to end between the agent's client and the varlock proxy on your machine, so the relay carries ciphertext.
-
-Start the relay (`--reverse` is the only difference from the broker's server):
-
-```ts
-const relay = await Sandbox.create({ timeoutMs: 60 * 60 * 1000 });
-await relay.commands.run(`curl -sSL ${CHISEL_URL} | gunzip > /tmp/chisel && chmod +x /tmp/chisel`);
-await relay.commands.run(
-  `/tmp/chisel server --reverse --host 0.0.0.0 --port 8000 --auth '${TUNNEL_AUTH}' > /home/user/chisel.log 2>&1`,
-  { background: true, timeoutMs: 0 },
-);
-const relayHost = relay.getHost(8000);
-```
-
-On your machine, start the proxy and reverse-publish it into the relay ([install chisel](https://github.com/jpillora/chisel#install) locally, e.g. `brew install chisel-tunnel`):
+Start the proxy off-loopback and expose it (any tunnel that carries WebSockets works; [ngrok](https://ngrok.com/) shown, [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) or a [Tailscale funnel](https://tailscale.com/kb/1223/funnel) work too):
 
 ```bash
-varlock proxy start --port 8080 --cert-dir ./proxy-certs
+export VARLOCK_PROXY_TOKEN=$(uuidgen)
+varlock proxy start --listen 0.0.0.0 --port 8080
 # in another terminal
-chisel client --auth "$TUNNEL_AUTH" "https://$RELAY_HOST" R:8080:127.0.0.1:8080
+ngrok http 8080          # prints e.g. https://abc123.ngrok.app
 ```
 
-Agent sandboxes are wired exactly as in the [broker recipe](#start-agent-sandboxes), pointing their chisel client at `relayHost` and using the CA certs from your local `./proxy-certs`. Requests from agents now resolve against your local schema, the interactive daemon's live request log and [hot reload](/guides/proxy/#editing-the-schema-while-a-session-is-running) work as usual, and `varlock proxy audit` on your machine shows the fleet's traffic.
+Then run agents against the tunnel URL (as `wss://`), reusing the same token:
+
+```ts
+const agent = await Sandbox.create({ timeoutMs: 60 * 60 * 1000 });
+await agent.commands.run('curl -sSfL https://varlock.dev/install.sh | sh -s');
+await agent.commands.run(
+  `/home/user/.config/varlock/bin/varlock proxy run --url wss://abc123.ngrok.app --token ${process.env.VARLOCK_PROXY_TOKEN} -- your-agent-command`,
+);
+```
+
+Requests from agents now resolve against your local schema, the interactive daemon's live request log and [hot reload](/guides/proxy/#editing-the-schema-while-a-session-is-running) work as usual, and `varlock proxy audit` on your machine shows the fleet's traffic. Because the tunnel carries TLS end to end between the agent and your proxy, the tunnel service only ever sees ciphertext.
 
 ### Alternative: E2B request transforms
 
@@ -236,7 +201,7 @@ E2B has a beta feature ([`network.rules`](https://e2b.dev/docs/sandbox/internet-
 
 ## Limitations
 
-- The proxy data plane has no client authentication of its own yet; reachability is the gate. In these recipes that gate is the chisel tunnel's auth, and the proxy itself never listens off loopback. Do not expose the proxy port through a raw public TCP tunnel.
+- The tunnel is gated by one shared token (`VARLOCK_PROXY_TOKEN`). Anyone who holds it can open the tunnel and adopt the placeholder env, so treat it as a secret and rotate it by restarting the broker. The control endpoint stays loopback-only regardless.
 - Interactive daemon features (the live request log, pressing `r` to reload) need a human at the proxy's TTY: available in the [proxy-on-your-machine](#proxy-on-your-machine) shape, not in the broker shape.
-- A broker sandbox is a single point of failure for its fleet. Manage its lifetime explicitly (`timeoutMs`, or E2B's pause/resume) and let agent chisel clients reconnect if it restarts.
+- A broker sandbox is a single point of failure for its fleet. Manage its lifetime explicitly (`timeoutMs`, or E2B's pause/resume); `proxy run --url` opens a fresh tunnel per connection, so transient blips recover, but a broker restart resets its CA (agents started before it will not trust the new one).
 - Domain-based `allowOut` rules match by SNI and Host header, per E2B's docs; IP-literal traffic needs CIDR rules.
