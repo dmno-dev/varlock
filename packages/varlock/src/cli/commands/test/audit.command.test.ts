@@ -197,8 +197,9 @@ describe('audit command', () => {
     loadVarlockEnvGraphMock.mockResolvedValue({
       configSchema: {
         API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
-        IGNORED_UNUSED: { getDec: vi.fn().mockReturnValue(true) }, // # @auditIgnore
-        EXPLICIT_FALSE_UNUSED: { getDec: vi.fn().mockReturnValue(false) }, // # @auditIgnore=false
+        // getDec returns an ItemDecoratorInstance, not a bare boolean
+        IGNORED_UNUSED: { getDec: vi.fn().mockReturnValue({ parsedDecorator: { simplifiedValue: true } }) }, // # @auditIgnore
+        EXPLICIT_FALSE_UNUSED: { getDec: vi.fn().mockReturnValue({ parsedDecorator: { simplifiedValue: false } }) }, // # @auditIgnore=false
       },
       graphAdjacencyList: { API_KEY: [], IGNORED_UNUSED: [], EXPLICIT_FALSE_UNUSED: [] },
       sortedDataSources: [],
