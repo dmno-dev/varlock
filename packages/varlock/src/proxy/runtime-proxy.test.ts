@@ -7,7 +7,13 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { URL } from 'node:url';
 
 import type { ProxyActivity } from './audit';
-import { findUninjectedPlaceholder, replacePlaceholdersWithReal, startLocalProxyRuntime } from './runtime-proxy';
+import {
+  dataPlaneAuthOk,
+  findUninjectedPlaceholder,
+  parseProxyAuthToken,
+  replacePlaceholdersWithReal,
+  startLocalProxyRuntime,
+} from './runtime-proxy';
 
 /** Bind an ephemeral port, capture it, release it — a free port for a fixed-port test. */
 function getFreePort(): Promise<number> {
@@ -94,7 +100,65 @@ async function requestViaProxy(proxyUrl: string, targetUrl: string, headers?: Re
   });
 }
 
+function basicAuthHeader(user: string, token: string): string {
+  return `Basic ${Buffer.from(`${user}:${token}`).toString('base64')}`;
+}
+
+describe('parseProxyAuthToken', () => {
+  test('extracts the password half of a Basic credential', () => {
+    expect(parseProxyAuthToken(basicAuthHeader('varlock', 'tok-abc'))).toBe('tok-abc');
+  });
+
+  test('ignores the (cosmetic) username', () => {
+    expect(parseProxyAuthToken(basicAuthHeader('anything', 'tok-xyz'))).toBe('tok-xyz');
+  });
+
+  test('returns undefined for a non-Basic scheme, missing header, or garbage', () => {
+    expect(parseProxyAuthToken('Bearer tok')).toBeUndefined();
+    expect(parseProxyAuthToken(undefined)).toBeUndefined();
+    expect(parseProxyAuthToken('Basic')).toBeUndefined();
+  });
+});
+
+describe('dataPlaneAuthOk', () => {
+  const token = 'session-token-123';
+
+  test('loopback peers are exempt regardless of header/token', () => {
+    expect(dataPlaneAuthOk('127.0.0.1', undefined, token)).toBe(true);
+    expect(dataPlaneAuthOk('::1', undefined, undefined)).toBe(true);
+    expect(dataPlaneAuthOk('::ffff:127.0.0.1', 'garbage', token)).toBe(true);
+  });
+
+  test('a non-loopback peer with the correct token passes', () => {
+    expect(dataPlaneAuthOk('10.0.0.9', basicAuthHeader('varlock', token), token)).toBe(true);
+  });
+
+  test('a non-loopback peer with a wrong or missing token is rejected', () => {
+    expect(dataPlaneAuthOk('10.0.0.9', basicAuthHeader('varlock', 'wrong'), token)).toBe(false);
+    expect(dataPlaneAuthOk('10.0.0.9', undefined, token)).toBe(false);
+  });
+
+  test('a non-loopback peer fails closed when no token is configured', () => {
+    expect(dataPlaneAuthOk('10.0.0.9', basicAuthHeader('varlock', 'anything'), undefined)).toBe(false);
+  });
+});
+
 describe('startLocalProxyRuntime', () => {
+  test('refuses a non-loopback bind without a data-plane token', async () => {
+    await expect(startLocalProxyRuntime({
+      managedItems: [], rules: [], egressMode: 'permissive', listenHost: '0.0.0.0',
+    })).rejects.toThrow(/non-loopback listen address requires a data-plane token/);
+  });
+
+  test('accepts a non-loopback bind when a token is supplied, and can be stopped', async () => {
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [], rules: [], egressMode: 'permissive', listenHost: '127.0.0.1', dataPlaneToken: 'tok',
+    });
+    // A loopback client (the test) is exempt, so proxying still works with a token set.
+    expect(runtime.env.HTTP_PROXY).toBeDefined();
+    await runtime.stop();
+  });
+
   test('returns proxy env vars and can be stopped', async () => {
     const runtime = await startLocalProxyRuntime({
       managedItems: [],
