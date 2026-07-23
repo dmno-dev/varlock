@@ -34,10 +34,12 @@ bun run --filter varlock-framework-tests test
 
 The shared harness provides `FrameworkTestEnv`, which manages the full lifecycle:
 
-1. **Pack** — varlock packages are built and packed into `.tgz` tarballs (cached in `.packed/`; run `bun run repack` to refresh after source changes)
+1. **Pack** — varlock packages are built and packed into `.tgz` tarballs (cached in `.packed/`; run `bun run repack` to refresh after source changes). Set `usePublished: true` on the fixture config to skip packing and install declared versions from npm instead (used by the release benchmarking suite).
 2. **Setup** — a temp project is created in `.test-projects/`, deps are installed via pnpm
 3. **Scenario** — template files are copied, a build command runs, and output is asserted
 4. **Teardown** — temp project is removed (set `KEEP_TEST_DIRS=1` to preserve for debugging)
+
+Imperative APIs (`setup`, `prepareFiles`, `runScenario`, `teardown`) live in `harness/fixture-env.ts` and can be imported without Vitest. Vitest helpers (`describeScenario`, `describeDevScenario`, `runTest`) are layered in `harness/test-fixture.ts`.
 
 ### Adding a new framework
 
