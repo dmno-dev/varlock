@@ -24,7 +24,10 @@ import { getUserVarlockDir } from '../user-config-dir';
 import { resolveNativeBinary } from './binary-resolver';
 import { isWSL } from './wsl-detect';
 import type {
-  KeychainFixAccessResult, KeychainItemMeta, KeychainItemRef, KeychainSetResult,
+  KeychainDeleteResult,
+  KeychainItemMeta,
+  KeychainItemRef,
+  KeychainSetResult,
 } from './types';
 
 /** Timeout for daemon IPC messages that don't involve user interaction */
@@ -340,7 +343,13 @@ export class DaemonClient {
     });
   }
 
-  async keychainGet(opts: { service?: string; account?: string; keychain?: string; field?: string }): Promise<string> {
+  async keychainGet(opts: {
+    service?: string;
+    account?: string;
+    keychain?: string;
+    field?: string;
+    useFallback?: boolean;
+  }): Promise<string> {
     return this.withRetry(async () => {
       await this.ensureConnected();
       // Password reads may trigger biometric; metadata field reads won't,
@@ -387,21 +396,6 @@ export class DaemonClient {
     });
   }
 
-  async keychainFixAccess(opts: {
-    service: string;
-    account?: string;
-    keychain?: string;
-  }): Promise<KeychainFixAccessResult> {
-    return this.withRetry(async () => {
-      await this.ensureConnected();
-      const result = await this.sendMessage({
-        action: 'keychain-fix-access',
-        payload: opts,
-      }, INTERACTIVE_TIMEOUT_MS);
-      return result as KeychainFixAccessResult;
-    });
-  }
-
   async keychainSet(opts: {
     service: string;
     account?: string;
@@ -415,6 +409,21 @@ export class DaemonClient {
         payload: opts,
       }, BIOMETRIC_TIMEOUT_MS);
       return result as KeychainSetResult;
+    });
+  }
+
+  async keychainDelete(opts: {
+    service: string;
+    account: string;
+    keychain?: string;
+  }): Promise<KeychainDeleteResult> {
+    return this.withRetry(async () => {
+      await this.ensureConnected();
+      const result = await this.sendMessage({
+        action: 'keychain-delete',
+        payload: opts,
+      }, BIOMETRIC_TIMEOUT_MS);
+      return result as KeychainDeleteResult;
     });
   }
 

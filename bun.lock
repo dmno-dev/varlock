@@ -446,6 +446,7 @@
         "varlock": "./bin/cli.js",
       },
       "devDependencies": {
+        "@bomb.sh/tab": "^0.0.15",
         "@clack/core": "^1.0.0",
         "@clack/prompts": "^1.0.0",
         "@env-spec/parser": "workspace:*",

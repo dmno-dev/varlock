@@ -11,6 +11,7 @@ enum KeychainError: LocalizedError {
     case unhandledError(OSStatus)
     case keychainNotFound(String)
     case ambiguousMatch(service: String, accounts: [String])
+    case ownershipTransferFailed(recreateError: Error, restoreError: Error?)
 
     var code: String {
         switch self {
@@ -28,6 +29,8 @@ enum KeychainError: LocalizedError {
             return "keychainNotFound"
         case .ambiguousMatch:
             return "ambiguousMatch"
+        case .ownershipTransferFailed:
+            return "ownershipTransferFailed"
         }
     }
 
@@ -51,8 +54,21 @@ enum KeychainError: LocalizedError {
         case .ambiguousMatch(let service, let accounts):
             let accountList = accounts.map { "\"\($0)\"" }.joined(separator: ", ")
             return "Multiple keychain items found for service \"\(service)\" with accounts: \(accountList). Specify account to disambiguate."
+        case .ownershipTransferFailed(let recreateError, let restoreError):
+            let recreateMessage = keychainErrorDetail(recreateError)
+            if let restoreError = restoreError {
+                return "Ownership transfer failed while recreating the keychain item (\(recreateMessage)); restoring the secret value also failed (\(keychainErrorDetail(restoreError)))."
+            }
+            return "Ownership transfer failed while recreating the keychain item (\(recreateMessage)); the secret value was preserved or restored."
         }
     }
+}
+
+private func keychainErrorDetail(_ error: Error) -> String {
+    if let keychainError = error as? KeychainError {
+        return keychainError.localizedDescription
+    }
+    return error.localizedDescription
 }
 
 /// Metadata about a keychain item (no secret values)
@@ -196,12 +212,12 @@ final class KeychainManager {
     /// Fetch the password value for a keychain item.
     /// At least one of service or account must be provided.
     /// Throws if not found, access denied, or ambiguous match.
-    static func getItem(service: String? = nil, account: String? = nil, keychainName: String? = nil) throws -> String {
+    static func getItem(service: String? = nil, account: String? = nil, keychainName: String? = nil, useFallback: Bool = true) throws -> String {
         // Try generic password first, then internet password
-        if let value = try? getItemOfClass(kSecClassGenericPassword, service: service, account: account, keychainName: keychainName) {
+        if let value = try? getItemOfClass(kSecClassGenericPassword, service: service, account: account, keychainName: keychainName, useFallback: useFallback) {
             return value
         }
-        return try getItemOfClass(kSecClassInternetPassword, service: service, account: account, keychainName: keychainName)
+        return try getItemOfClass(kSecClassInternetPassword, service: service, account: account, keychainName: keychainName, useFallback: useFallback)
     }
 
     /// Fetch a metadata field (account, label, etc.) from a keychain item instead of the password.
@@ -249,7 +265,7 @@ final class KeychainManager {
         throw KeychainError.itemNotFound
     }
 
-    private static func getItemOfClass(_ itemClass: CFString, service: String?, account: String?, keychainName: String?) throws -> String {
+    private static func getItemOfClass(_ itemClass: CFString, service: String?, account: String?, keychainName: String?, useFallback: Bool = true) throws -> String {
         // When account is nil and service is set, check for ambiguity
         if account == nil, let service = service {
             var countQuery: [CFString: Any] = [
@@ -312,26 +328,89 @@ final class KeychainManager {
         case errSecItemNotFound:
             throw KeychainError.itemNotFound
         case errSecAuthFailed, errSecInteractionNotAllowed:
+            if useFallback,
+               itemClass == kSecClassGenericPassword,
+               let service = service,
+               let value = try? getGenericPasswordViaSecurityCLI(service: service, account: account, keychainName: keychainName) {
+                return value
+            }
             throw KeychainError.accessDenied("Authentication failed or interaction not allowed")
         default:
+            if useFallback,
+               itemClass == kSecClassGenericPassword,
+               let service = service,
+               let value = try? getGenericPasswordViaSecurityCLI(service: service, account: account, keychainName: keychainName) {
+                return value
+            }
             throw KeychainError.unhandledError(status)
         }
+    }
+
+    private static func getGenericPasswordViaSecurityCLI(service: String, account: String?, keychainName: String?) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+
+        var arguments = ["find-generic-password", "-s", service, "-w"]
+        if let account = account {
+            arguments.append(contentsOf: ["-a", account])
+        }
+        if let keychainName = keychainName, let keychainPath = resolveKeychainPath(named: keychainName) {
+            arguments.append(keychainPath)
+        }
+        process.arguments = arguments
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+            let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
+            if errorOutput.contains("could not be found") || errorOutput.contains("specified item could not be found") {
+                throw KeychainError.itemNotFound
+            }
+            throw KeychainError.unhandledError(OSStatus(process.terminationStatus))
+        }
+
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        guard var value = String(data: data, encoding: .utf8) else {
+            throw KeychainError.unexpectedData
+        }
+        value = value.replacingOccurrences(of: "\r?\n$", with: "", options: .regularExpression)
+        return value
     }
 
     // MARK: - Add Item
 
     /// Create or update a generic password item.
     /// Returns true when an existing item was updated, false when a new item was created.
-    static func setGenericPassword(service: String, account: String, value: String, update: Bool = false) throws -> Bool {
+    static func setGenericPassword(service: String, account: String, value: String, update: Bool = false, keychainName: String? = nil) throws -> Bool {
         guard let valueData = value.data(using: .utf8) else {
             throw KeychainError.unexpectedData
         }
 
-        let lookup: [CFString: Any] = [
+        let keychainRef: SecKeychain?
+        if let keychainName = keychainName {
+            guard let resolvedKeychain = resolveKeychain(named: keychainName) else {
+                throw KeychainError.keychainNotFound(keychainName)
+            }
+            keychainRef = resolvedKeychain
+        } else {
+            keychainRef = nil
+        }
+
+        var lookup: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: account,
         ]
+        if let keychainRef = keychainRef {
+            lookup[kSecMatchSearchList] = [keychainRef]
+        }
 
         if update {
             let attrs: [CFString: Any] = [
@@ -352,6 +431,10 @@ final class KeychainManager {
         var addQuery = lookup
         addQuery[kSecAttrLabel] = account.isEmpty ? service : account
         addQuery[kSecValueData] = valueData
+        if let keychainRef = keychainRef {
+            addQuery[kSecUseKeychain] = keychainRef
+            addQuery.removeValue(forKey: kSecMatchSearchList)
+        }
 
         let status = SecItemAdd(addQuery as CFDictionary, nil)
         switch status {
@@ -403,17 +486,9 @@ final class KeychainManager {
         }
     }
 
-    // MARK: - ACL Management
-
-    /// Attempt to add the given application path to the ACL of a keychain item.
-    /// This uses the legacy Keychain API which supports per-application access control.
-    /// Returns true if the ACL was modified, false if no change was needed.
-    /// macOS will prompt the user for authentication to authorize the change.
     static func addToACL(service: String, account: String? = nil, keychainName: String? = nil, appPath: String) throws -> Bool {
-        // We need the item reference for ACL manipulation
         let itemRef = try getItemRef(service: service, account: account, keychainName: keychainName)
 
-        // Get current access object (uses legacy API wrappers from KeychainLegacyACL.swift)
         let (accessStatus, access) = LegacyKeychain.itemCopyAccess(itemRef)
         guard accessStatus == errSecSuccess, let currentAccess = access else {
             if accessStatus == errSecNoAccessForItem {
@@ -422,29 +497,22 @@ final class KeychainManager {
             throw KeychainError.unhandledError(accessStatus)
         }
 
-        // Get all ACL entries
         let (aclListStatus, aclListRef) = LegacyKeychain.accessCopyACLList(currentAccess)
         guard aclListStatus == errSecSuccess, let aclList = aclListRef as? [SecACL] else {
             throw KeychainError.accessDenied("Cannot read ACL list")
         }
 
-        // Create trusted application for our binary
         let (trustStatus, trustedApp) = LegacyKeychain.trustedApplicationCreate(path: appPath)
         guard trustStatus == errSecSuccess, let newTrustedApp = trustedApp else {
             throw KeychainError.unhandledError(trustStatus)
         }
 
         var modified = false
-
-        // Find ACL entries that control decryption/reading and add our app
         for acl in aclList {
             let (contentsStatus, appList, description, promptSelector) = LegacyKeychain.aclCopyContents(acl)
             guard contentsStatus == errSecSuccess else { continue }
-
-            // nil appList means "allow all apps" — no change needed
             guard let currentApps = appList as? [SecTrustedApplication] else { continue }
 
-            // Check if our app is already in the list
             var alreadyPresent = false
             for app in currentApps {
                 let (dataStatus, appData) = LegacyKeychain.trustedApplicationCopyData(app)
@@ -468,7 +536,6 @@ final class KeychainManager {
         }
 
         if modified {
-            // Apply the modified access object back to the item
             let setStatus = LegacyKeychain.itemSetAccess(itemRef, currentAccess)
             if setStatus != errSecSuccess {
                 throw KeychainError.unhandledError(setStatus)
@@ -476,6 +543,31 @@ final class KeychainManager {
         }
 
         return modified
+    }
+
+    static func deleteGenericPassword(service: String, account: String, keychainName: String? = nil) throws {
+        var query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+        ]
+
+        if let keychainName = keychainName {
+            guard let keychainRef = resolveKeychain(named: keychainName) else {
+                throw KeychainError.keychainNotFound(keychainName)
+            }
+            query[kSecMatchSearchList] = [keychainRef]
+        }
+
+        let status = SecItemDelete(query as CFDictionary)
+        switch status {
+        case errSecSuccess:
+            return
+        case errSecItemNotFound:
+            throw KeychainError.itemNotFound
+        default:
+            throw KeychainError.unhandledError(status)
+        }
     }
 
     // MARK: - Private Helpers
@@ -548,6 +640,19 @@ final class KeychainManager {
     /// Resolve a human-friendly keychain name to a SecKeychain reference.
     /// Supports: "Login", "System", or a full/partial path.
     private static func resolveKeychain(named name: String) -> SecKeychain? {
+        guard let path = resolveKeychainPath(named: name) else {
+            return nil
+        }
+
+        let (status, keychain) = LegacyKeychain.keychainOpen(path: path)
+        guard status == errSecSuccess, let kc = keychain else {
+            return nil
+        }
+
+        return kc
+    }
+
+    private static func resolveKeychainPath(named name: String) -> String? {
         let lowered = name.lowercased()
 
         // Well-known keychains
@@ -568,12 +673,7 @@ final class KeychainManager {
             return nil
         }
 
-        let (status, keychain) = LegacyKeychain.keychainOpen(path: path)
-        guard status == errSecSuccess, let kc = keychain else {
-            return nil
-        }
-
-        return kc
+        return path
     }
 
     /// Extract keychain file path from item attributes (if available).
