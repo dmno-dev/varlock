@@ -85,7 +85,7 @@ You will also need an [E2B API key](https://e2b.dev/docs) for the orchestrator t
 
 ### Broker sandbox
 
-One long-lived sandbox (the broker) runs `varlock proxy start --listen`, which serves the tunnel on its proxy port. Agent sandboxes reach it with `varlock proxy run --url`.
+One long-lived sandbox (the broker) runs `varlock proxy start --tunnel`, which serves the tunnel on its proxy port. Agent sandboxes reach it with `varlock proxy run --url`.
 
 ```
 [agent sandbox]                          [broker sandbox]
@@ -113,7 +113,7 @@ await broker.files.write('/home/user/proj/.env.local', `ANTHROPIC_API_KEY=${real
 // start the proxy bound off-loopback so the tunnel is reachable; the token is
 // pinned via VARLOCK_PROXY_TOKEN so we already know it.
 await broker.commands.run(
-  `cd /home/user/proj && ${VARLOCK} proxy start --listen 0.0.0.0 --port 8080 > /home/user/proxy.log 2>&1`,
+  `cd /home/user/proj && ${VARLOCK} proxy start --tunnel --port 8080 > /home/user/proxy.log 2>&1`,
   { background: true, timeoutMs: 0, envs: { VARLOCK_PROXY_TOKEN: PROXY_TOKEN } },
 );
 // ready once the port answers (a bare GET returns 400, which is fine; we only
@@ -178,7 +178,7 @@ Start the proxy off-loopback and expose it (any tunnel that carries WebSockets w
 
 ```bash
 export VARLOCK_PROXY_TOKEN=$(uuidgen)
-varlock proxy start --listen 0.0.0.0 --port 8080
+varlock proxy start --tunnel --port 8080
 # in another terminal
 ngrok http 8080          # prints e.g. https://abc123.ngrok.app
 ```
