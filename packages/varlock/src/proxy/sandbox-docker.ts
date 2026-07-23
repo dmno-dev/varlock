@@ -1,7 +1,7 @@
-import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import { exec } from '../lib/exec';
+import { buildGuestEnvWiring, caDirFromSessionEnv } from './guest-wiring';
 
 /**
  * Container-runtime sandbox backend (`proxy run --sandbox=docker|podman`).
@@ -37,11 +37,6 @@ const GUEST_PROXY_PORT = 8888;
 const PROXY_HOSTNAME = 'varlock-proxy';
 /** Small, widely-used socat image for the forwarder. Pulled on first use. */
 const FORWARDER_IMAGE = 'alpine/socat:1.8.0.0';
-
-/** CA-bundle env vars the proxy injects — all repoint to the in-guest mount. */
-const CA_PATH_ENV_VARS = ['NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE', 'GIT_SSL_CAINFO'];
-/** Proxy-URL env vars — all repoint at the in-guest forwarder. */
-const PROXY_URL_ENV_VARS = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'];
 
 export type ContainerRuntime = 'docker' | 'podman';
 
@@ -86,24 +81,13 @@ export function buildContainerWiring(opts: {
   // SSL_CERT_FILE, ...) into ONE certs dir. We mount the whole dir read-only and
   // repoint each var at its OWN file's basename inside the mount — flattening
   // them all to one file would give OpenSSL the wrong bundle.
-  const caHostSource = CA_PATH_ENV_VARS
-    .map((key) => opts.sessionProxyEnv[key])
-    .find((value): value is string => Boolean(value));
-  if (!caHostSource) {
-    throw new Error('Proxy session env is missing a CA bundle path. Restart the proxy session.');
-  }
-  const caHostDir = path.dirname(caHostSource);
-  const guestProxyUrl = `http://${PROXY_HOSTNAME}:${GUEST_PROXY_PORT}`;
-
-  // Start from the proxy env (CA + NO_PROXY + proxy URL) then overlay the child
-  // view (placeholders/non-secrets). Repoint the CA + proxy vars for in-guest.
-  const merged: Record<string, string> = { ...opts.sessionProxyEnv, ...opts.childEnv };
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(merged)) {
-    if (CA_PATH_ENV_VARS.includes(key)) env[key] = `${GUEST_CA_DIR}/${path.basename(value)}`;
-    else if (PROXY_URL_ENV_VARS.includes(key)) env[key] = guestProxyUrl;
-    else env[key] = value;
-  }
+  const caHostDir = caDirFromSessionEnv(opts.sessionProxyEnv);
+  const env = buildGuestEnvWiring({
+    childEnv: opts.childEnv,
+    sessionProxyEnv: opts.sessionProxyEnv,
+    guestProxyUrl: `http://${PROXY_HOSTNAME}:${GUEST_PROXY_PORT}`,
+    guestCertDir: GUEST_CA_DIR,
+  });
   return { env, caHostDir };
 }
 

@@ -1,6 +1,10 @@
 import path from 'node:path';
+import os from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { watch as fsWatch, existsSync, statSync } from 'node:fs';
+import {
+  watch as fsWatch, existsSync, statSync, rmSync,
+} from 'node:fs';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 
 import ansis from 'ansis';
@@ -75,6 +79,8 @@ import { isCancel } from '@clack/prompts';
 import { select } from '../helpers/prompts';
 import { wrapCommandWithSandbox } from '../../proxy/sandbox-seatbelt';
 import { runContainerSandbox } from '../../proxy/sandbox-docker';
+import { buildGuestEnvWiring, caDirFromSessionEnv, guestLoopbackWiring } from '../../proxy/guest-wiring';
+import { fetchTunnelBootstrap, startTunnelClientListener } from '../../proxy/tunnel';
 import {
   parseSandboxSpec, isContainerKind, checkSandboxAvailable, type SandboxSpec,
 } from '../../proxy/sandbox';
@@ -395,7 +401,9 @@ function countPassthroughSecrets(policy: PreparedProxyPolicy): number {
  */
 function spawnProxiedChild(opts: {
   payload: SessionEnvPayload;
-  session: ProxySessionRecord;
+  /** Proxy wiring env (HTTP(S)_PROXY, CA paths, markers) the child routes through.
+   *  Local: `getProxySessionExportEnv(session)`. Remote: loopback tunnel wiring. */
+  sessionExportEnv: Record<string, string>;
   rawCommand: string;
   commandArgsOnly: Array<string>;
   injectVars: boolean;
@@ -412,7 +420,7 @@ function spawnProxiedChild(opts: {
 }) {
   const fullInjectedEnv = buildProxiedChildEnv({
     payload: opts.payload,
-    sessionExportEnv: getProxySessionExportEnv(opts.session),
+    sessionExportEnv: opts.sessionExportEnv,
     parentPid: process.pid,
     injectVars: opts.injectVars,
     injectBlob: opts.injectBlob,
@@ -653,6 +661,8 @@ async function createRuntimeAndSession(opts: {
   port?: number;
   /** Directory to write the CA cert into (else a fresh temp dir). */
   certDir?: string;
+  /** Address the proxy binds (default loopback). Non-loopback mints a data-plane token. */
+  listenHost?: string;
 }): Promise<{
   runtime: Awaited<ReturnType<typeof startLocalProxyRuntime>>;
   session: ProxySessionRecord;
@@ -665,6 +675,14 @@ async function createRuntimeAndSession(opts: {
   // on purpose: the uuid is a DISPLAYED identifier (status output, child env),
   // this token is never printed anywhere (0600 record + owner memory only).
   const endpointToken = randomUUID();
+  // Data-plane credential, only when binding off-loopback (a remote sandbox needs
+  // to reach the proxy). Non-loopback peers must present it (as Proxy-Authorization
+  // or the tunnel handshake); loopback peers stay exempt. An orchestrator can pin
+  // it via VARLOCK_PROXY_TOKEN so the same value goes to the broker and the agents'
+  // `proxy run --url`; otherwise it's minted. Separate from endpointToken (control plane).
+  const bindIsLoopback = opts.listenHost === undefined
+    || opts.listenHost === 'localhost' || opts.listenHost === '::1' || opts.listenHost.startsWith('127.');
+  const dataPlaneToken = bindIsLoopback ? undefined : (process.env.VARLOCK_PROXY_TOKEN || randomUUID());
   let lastEndpointAuthWarnAt = 0;
   const statsWriter = createSessionStatsWriter(identity.uuid, EMPTY_PROXY_SESSION_STATS);
   // When grants are enabled, a session/duration approval is remembered so future
@@ -691,6 +709,8 @@ async function createRuntimeAndSession(opts: {
     egressMode: opts.policy.egressMode,
     ...(opts.port !== undefined ? { port: opts.port } : {}),
     ...(opts.certDir !== undefined ? { certDir: opts.certDir } : {}),
+    ...(opts.listenHost !== undefined ? { listenHost: opts.listenHost } : {}),
+    ...(dataPlaneToken !== undefined ? { dataPlaneToken } : {}),
     approvalProvider,
     onActivity: (activity) => {
       statsWriter.onActivity(activity);
@@ -735,6 +755,7 @@ async function createRuntimeAndSession(opts: {
     startedAt: now,
     egressMode: opts.policy.egressMode,
     endpointToken,
+    ...(dataPlaneToken !== undefined ? { dataPlaneToken } : {}),
     schemaFingerprint: opts.policy.schemaFingerprint,
     placeholderOverrides: opts.policy.placeholderByKey,
     ...(opts.policy.omittedKeys.length ? { omittedKeys: opts.policy.omittedKeys } : {}),
@@ -1346,12 +1367,13 @@ function startSchemaDriftWatcher(opts: {
 }
 
 /**
- * Read the fixed loopback `--port` and `--cert-dir` from a run/start invocation.
- * Both are optional (ephemeral port + temp cert dir otherwise); they let a caller
- * wire tools to a known proxy endpoint / CA path before the proxy boots.
+ * Read the fixed `--port`, `--cert-dir`, and `--tunnel` bind address from a
+ * run/start invocation. All optional (ephemeral port + temp cert dir + loopback
+ * bind otherwise); they let a caller wire tools to a known proxy endpoint / CA
+ * path before the proxy boots, and serve the tunnel off-loopback for a remote client.
  */
-function resolveProxyBindOptions(ctx: any): { port?: number; certDir?: string } {
-  const out: { port?: number; certDir?: string } = {};
+function resolveProxyBindOptions(ctx: any): { port?: number; certDir?: string; listenHost?: string } {
+  const out: { port?: number; certDir?: string; listenHost?: string } = {};
   const portRaw = ctx.values.port;
   if (portRaw !== undefined && portRaw !== '') {
     const port = Number(portRaw);
@@ -1362,6 +1384,10 @@ function resolveProxyBindOptions(ctx: any): { port?: number; certDir?: string } 
   }
   const certDir = ctx.values['cert-dir'];
   if (certDir) out.certDir = path.resolve(String(certDir));
+  // `--tunnel` (custom-parsed: bare → 0.0.0.0) is the off-loopback bind that also
+  // serves the WS tunnel + mints the data-plane token.
+  const tunnel = ctx.values.tunnel;
+  if (tunnel !== undefined && tunnel !== '') out.listenHost = String(tunnel);
   return out;
 }
 
@@ -1370,6 +1396,13 @@ async function runAction(ctx: any) {
   const rawCommand = commandToRunAsArgs[0]!;
   const commandArgsOnly = commandToRunAsArgs.slice(1);
   const commandToRunStr = commandToRunAsArgs.join(' ');
+
+  // `--url` targets a proxy running elsewhere (a broker), reached over the
+  // built-in tunnel — the remote analog of attaching to a local session.
+  if (ctx.values.url) {
+    // eslint-disable-next-line no-use-before-define
+    return runRemoteThroughTunnel(ctx, { rawCommand, commandArgsOnly, commandToRunStr });
+  }
 
   let sandboxSpec: SandboxSpec | undefined;
   try {
@@ -1511,7 +1544,7 @@ async function runAction(ctx: any) {
   } else {
     commandProcess = spawnProxiedChild({
       payload,
-      session,
+      sessionExportEnv: getProxySessionExportEnv(session),
       rawCommand,
       commandArgsOnly,
       injectVars,
@@ -1529,17 +1562,46 @@ async function runAction(ctx: any) {
     await updateProxySessionRecord(session.uuid, { childPid: commandProcess.pid });
   }
 
+  // eslint-disable-next-line no-use-before-define
+  const exitCode = await awaitProxiedChild(commandProcess, {
+    commandToRunStr,
+    cleanup,
+    sandboxTeardown,
+    onSummary: statsWriter
+      ? () => {
+        const stats = statsWriter!.stats;
+        console.error(`Proxy session ${session.id} summary: req=${stats.totalRequests} matched=${stats.matchedRequests} blocked=${stats.blockedRequests}`);
+      }
+      : undefined,
+  });
+  return gracefulExit(exitCode);
+}
+
+/**
+ * Shared tail for running a proxied child: forward signals, await exit, run
+ * cleanup, and surface a summary. Used by both the local `run` paths and the
+ * remote `run --url` path so the spawn/redaction/teardown logic can't diverge.
+ */
+async function awaitProxiedChild(
+  commandProcess: ReturnType<typeof spawnProxiedChild>,
+  opts: {
+    commandToRunStr: string;
+    cleanup: () => Promise<void>;
+    sandboxTeardown?: () => void;
+    onSummary?: () => void;
+  },
+): Promise<number> {
   process.on('exit', () => {
     commandProcess?.kill(9);
     // Sync best-effort container cleanup: the `finally` below may not run when
     // gracefulExit tears the process down on a signal.
-    sandboxTeardown?.();
+    opts.sandboxTeardown?.();
   });
 
   ['SIGTERM', 'SIGINT'].forEach((signal) => {
     process.on(signal, () => {
       commandProcess?.kill(9);
-      sandboxTeardown?.();
+      opts.sandboxTeardown?.();
       gracefulExit(1);
     });
   });
@@ -1553,29 +1615,25 @@ async function runAction(ctx: any) {
       exitCode = 1;
     } else {
       console.log((error as Error).message);
-      console.log(`command [${commandToRunStr}] failed`);
+      console.log(`command [${opts.commandToRunStr}] failed`);
       console.log('try running the same command without varlock');
       console.log('if you get a different result, varlock may be the problem...');
       exitCode = (error as any).exitCode || 1;
     }
   } finally {
-    // Tear down the container sandbox (forwarder + networks) before stopping the
-    // host proxy, so nothing lingers if teardown races the proxy shutdown.
-    if (sandboxTeardown) {
+    // Tear down the container sandbox before other cleanup, so nothing lingers.
+    if (opts.sandboxTeardown) {
       try {
-        sandboxTeardown();
+        opts.sandboxTeardown();
       } catch {
         // best-effort cleanup
       }
     }
-    await cleanup();
-    if (statsWriter) {
-      const stats = statsWriter.stats;
-      console.error(`Proxy session ${session.id} summary: req=${stats.totalRequests} matched=${stats.matchedRequests} blocked=${stats.blockedRequests}`);
-    }
+    await opts.cleanup();
+    opts.onSummary?.();
   }
 
-  return gracefulExit(exitCode);
+  return exitCode;
 }
 
 async function startAction(ctx: any) {
@@ -1615,6 +1673,16 @@ async function startAction(ctx: any) {
     '· run other proxy commands in this folder to target it automatically',
     ansis.dim(`  (or pass \`--session ${session.id}\` elsewhere)`),
   ].join('\n'));
+  if (session.dataPlaneToken) {
+    // Off-loopback bind: the WS tunnel is live. Surface the credential a remote
+    // guest needs — it is meant to travel (unlike the endpoint token), so it is
+    // shown here so an orchestrator can hand it to `proxy run --url`.
+    logLines([
+      `· tunnel: serving off-loopback (${bindOptions.listenHost})`,
+      ansis.dim('  a client elsewhere runs through it with:'),
+      ansis.dim(`  varlock proxy run --url wss://<this-host> --token ${session.dataPlaneToken} -- <command>`),
+    ]);
+  }
   if (allowReload) {
     logLines([
       `· reload: manual${autoNote}`,
@@ -1726,13 +1794,106 @@ async function envAction(ctx: any) {
     throw new CliExitError('Invalid --format for `proxy env`. Use "shell" or "json".');
   }
 
-  const env = getProxySessionExportEnv(session);
+  const proxyUrlOverride = ctx.values['proxy-url'];
+  const certDirOverride = ctx.values['cert-dir'];
+  // Full env for a remote sandbox: wiring PLUS the placeholder child view. Also
+  // implied by the repoint flags, which only make sense in this mode.
+  const wantFullEnv = Boolean(ctx.values.full || proxyUrlOverride || certDirOverride);
+
+  let env: Record<string, string>;
+  if (!wantFullEnv) {
+    // Default: this session's own wiring env (the loopback HTTP(S)_PROXY + CA
+    // paths a caller sources locally), including the proxy-child markers.
+    env = getProxySessionExportEnv(session);
+  } else {
+    // The authoritative child view (placeholders + non-secret values), fetched
+    // from the running proxy over its loopback+token control endpoint — the same
+    // payload an attaching child adopts. Repoint the proxy URL / CA dir for where
+    // the guest reaches them (defaults: this session's own address + cert dir),
+    // drop the host-only ancestry markers, and embed the data-plane token when
+    // the proxy is bound off-loopback so the guest authenticates automatically.
+    const payload = await fetchSessionEnvPayload(session);
+    env = buildGuestEnvWiring({
+      childEnv: payload.env,
+      sessionProxyEnv: session.env,
+      guestProxyUrl: proxyUrlOverride ?? session.env.HTTPS_PROXY ?? session.env.https_proxy ?? '',
+      guestCertDir: certDirOverride ?? caDirFromSessionEnv(session.env),
+      ...(session.dataPlaneToken ? { dataPlaneToken: session.dataPlaneToken } : {}),
+    });
+  }
+
   if (format === 'json') {
     console.log(JSON.stringify(env, null, 2));
     return;
   }
-
   console.log(toShellExports(env));
+}
+
+/**
+ * Remote path of `proxy run`: reach a proxy running elsewhere (a broker started
+ * with `--tunnel`) over the built-in tunnel, then run the command through it.
+ * Self-wires from the broker's bootstrap (the same child-view payload a local
+ * attach adopts, plus CA certs), so the guest holds only placeholders and no env
+ * or certs need to be supplied out of band. Shares the spawn/redaction/teardown
+ * tail with the local paths via spawnProxiedChild + awaitProxiedChild.
+ */
+async function runRemoteThroughTunnel(ctx: any, cmd: {
+  rawCommand: string;
+  commandArgsOnly: Array<string>;
+  commandToRunStr: string;
+}) {
+  const url = String(ctx.values.url);
+  const token = ctx.values.token ?? process.env.VARLOCK_PROXY_TOKEN;
+  if (!token) {
+    throw new CliExitError('Missing --token (or VARLOCK_PROXY_TOKEN). It is the broker\'s data-plane token (minted by `proxy start --tunnel`).');
+  }
+  // Local-proxy flags don't apply when the proxy runs elsewhere.
+  if (ctx.values.sandbox !== undefined || ctx.values.port !== undefined || ctx.values['cert-dir'] !== undefined || ctx.values.tunnel !== undefined) {
+    throw new CliExitError('`--sandbox`, `--port`, `--cert-dir`, and `--tunnel` describe a local proxy and cannot be combined with `--url`.');
+  }
+
+  // 1. Fetch the bootstrap (encoded child-view payload + CA certs) over the WS.
+  const bootstrap = await fetchTunnelBootstrap(url, token).catch((error) => {
+    throw new CliExitError(`Could not reach the broker tunnel at ${url}.`, {
+      details: (error as Error).message,
+      suggestion: 'Check the URL and --token, and that the broker started with `--tunnel`.',
+    });
+  });
+  const payload = decodeSessionEnvPayload(bootstrap.payloadJson);
+
+  // 2. Write the CA bundle into a private temp dir the guest env will trust.
+  const certDir = await mkdtemp(path.join(os.tmpdir(), 'varlock-guest-certs-'));
+  await Promise.all(
+    Object.entries(bootstrap.certs).map(([name, pem]) => writeFile(path.join(certDir, name), pem, 'utf8')),
+  );
+
+  // 3. Run the loopback proxy listener whose connections ride the tunnel.
+  const listener = await startTunnelClientListener({ url, token });
+  const guestProxyUrl = `http://127.0.0.1:${listener.port}`;
+
+  // 4. Spawn the command through the same path a local run uses: the wiring is the
+  //    loopback proxy + the guest cert dir; redaction seeds from the payload graph.
+  const { injectVars, injectBlob } = resolveInjectMode(ctx.values.inject);
+  const commandProcess = spawnProxiedChild({
+    payload,
+    sessionExportEnv: guestLoopbackWiring(guestProxyUrl, certDir),
+    rawCommand: cmd.rawCommand,
+    commandArgsOnly: cmd.commandArgsOnly,
+    injectVars,
+    injectBlob,
+    redactStdoutFlag: ctx.values['redact-stdout'],
+  });
+
+  const exitCode = await awaitProxiedChild(commandProcess, {
+    commandToRunStr: cmd.commandToRunStr,
+    cleanup: async () => {
+      try {
+        listener.close();
+      } catch { /* already closed */ }
+      rmSync(certDir, { recursive: true, force: true });
+    },
+  });
+  return gracefulExit(exitCode);
 }
 
 async function statusAction(ctx: any) {
@@ -2227,16 +2388,39 @@ const bindArgs = {
     description: 'Directory to write the CA cert into (`ca-cert.pem` + `combined-ca.pem`), so tools can trust a '
       + 'known CA path before the proxy starts (else a fresh temp dir).',
   },
+  tunnel: {
+    type: 'custom',
+    // Bare `--tunnel` → bind 0.0.0.0; `--tunnel=<addr>` → a specific interface.
+    parse: (value: string) => (value === '' || value == null ? '0.0.0.0' : value),
+    description: 'Serve the built-in WebSocket tunnel so a client elsewhere can run through this proxy '
+      + '(`proxy run --url`). Binds off-loopback (bare `--tunnel` = 0.0.0.0; `--tunnel=<addr>` picks an interface) '
+      + 'and mints a per-session data-plane token clients must present (pin it with VARLOCK_PROXY_TOKEN). The '
+      + 'control endpoint stays loopback-only.',
+  },
+} as const;
+
+// The remote analog of `--session`: which proxy to target when it runs elsewhere.
+const remoteArgs = {
+  url: {
+    type: 'string',
+    description: 'Run through a proxy running elsewhere (a broker started with `--tunnel`): its tunnel URL '
+      + '(wss://... or ws://...). Reached over the built-in WebSocket tunnel. Requires --token.',
+  },
+  token: {
+    type: 'string',
+    description: 'Data-plane token for `--url` (or set VARLOCK_PROXY_TOKEN). The broker prints it on start.',
+  },
 } as const;
 
 const runCommand = define({
   name: 'run',
-  description: 'Run a command through the proxy: attach to this directory\'s session, or start one',
+  description: 'Run a command through the proxy: attach to this directory\'s session, start one, or `--url` a remote broker',
   args: {
     ...sessionArg,
     ...pathArg,
     ...allowReloadArg,
     ...bindArgs,
+    ...remoteArgs,
     new: {
       type: 'boolean',
       description: 'Start a fresh proxy instead of attaching to a running one for this directory',
@@ -2301,6 +2485,22 @@ const envCommand = define({
       type: 'string',
       short: 'f',
       description: 'Output format: shell (default) or json',
+    },
+    full: {
+      type: 'boolean',
+      description: 'Emit the full env a proxied agent runs with (real values for non-secrets, placeholders for '
+        + 'secrets), not just the wiring. Use this to build the env for a remote sandbox; combine with '
+        + '--proxy-url / --cert-dir to repoint it.',
+    },
+    'proxy-url': {
+      type: 'string',
+      description: 'Repoint the proxy-URL vars for a guest that reaches the proxy elsewhere '
+        + '(e.g. http://127.0.0.1:8888 for a tunnel). Implies --full. Default: this session\'s own address.',
+    },
+    'cert-dir': {
+      type: 'string',
+      description: 'Repoint the CA-path vars at the dir a guest reads the bundle from. Implies --full. '
+        + 'Default: this session\'s own cert dir.',
     },
   },
   run: (ctx: any) => envAction(ctx),
@@ -2406,7 +2606,10 @@ Proxy command surface:
   varlock proxy run --sandbox=docker --sandbox-image my-agent -- claude   # run the child in a container
   varlock proxy start
   varlock proxy rules                           # summarize the effective @proxy config (no proxy started)
-  varlock proxy env --session abc12
+  varlock proxy env --session abc12             # this session's wiring env (source locally)
+  varlock proxy env --full --proxy-url http://127.0.0.1:8888 --cert-dir /home/user/certs --format json   # full env for a remote sandbox
+  varlock proxy start --tunnel                                  # broker: serve the WS tunnel off-loopback
+  varlock proxy run --url wss://8000-abc.e2b.app --token TOKEN -- claude   # guest: run through a remote broker
   varlock proxy status
   varlock proxy audit --session abc12
   varlock proxy reload --session abc12

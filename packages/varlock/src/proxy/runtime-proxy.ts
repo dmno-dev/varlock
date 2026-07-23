@@ -23,6 +23,7 @@ import {
 import {
   PROXY_TOKEN_HEADER, SESSION_ENV_ENDPOINT_PATH, VARLOCK_INTERNAL_HOST,
 } from './session-env-payload';
+import { attachTunnelServer, type TunnelBootstrap } from './tunnel';
 import type {
   ProxyApprovalEach, ProxyEgressMode, ProxyManagedItem, ProxyRule,
 } from './types';
@@ -109,6 +110,20 @@ export type StartLocalProxyRuntimeInput = {
    * wrote are removed (an ephemeral temp dir is removed whole).
    */
   certDir?: string;
+  /**
+   * Address the proxy listener binds. Defaults to loopback (`127.0.0.1`). Binding
+   * a non-loopback address (e.g. `0.0.0.0`, to reach the proxy from a remote
+   * sandbox) exposes the data plane off-host, so it REQUIRES `dataPlaneToken` —
+   * the runtime throws otherwise. The control endpoint stays loopback-only
+   * regardless of this.
+   */
+  listenHost?: string;
+  /**
+   * Per-session data-plane credential. When set, a non-loopback peer must present
+   * it as `Proxy-Authorization: Basic base64(varlock:<token>)`; loopback peers are
+   * exempt (same-uid trust, unchanged). Distinct from the control-endpoint token.
+   */
+  dataPlaneToken?: string;
 };
 
 /** Command-side metadata attached to the served payload (for owner-terminal visibility). */
@@ -344,6 +359,46 @@ function tokenMatches(provided: unknown, expected: string): boolean {
 function isLoopbackAddress(addr: string | undefined): boolean {
   if (!addr) return false;
   return addr === '::1' || addr === '::ffff:127.0.0.1' || addr.startsWith('127.');
+}
+
+/** True if a listen host binds only loopback (so remote peers can't reach it). */
+function isLoopbackBind(host: string): boolean {
+  return host === 'localhost' || isLoopbackAddress(host);
+}
+
+/** Extract the token from a `Proxy-Authorization: Basic base64(user:token)` header. */
+export function parseProxyAuthToken(header: string | Array<string> | undefined): string | undefined {
+  const value = Array.isArray(header) ? header[0] : header;
+  if (typeof value !== 'string') return undefined;
+  const spaceIdx = value.indexOf(' ');
+  if (spaceIdx === -1) return undefined;
+  const scheme = value.slice(0, spaceIdx);
+  const encoded = value.slice(spaceIdx + 1).trim();
+  if (scheme.toLowerCase() !== 'basic' || !encoded) return undefined;
+  let decoded: string;
+  try {
+    decoded = Buffer.from(encoded, 'base64').toString('utf8');
+  } catch {
+    return undefined;
+  }
+  const colon = decoded.indexOf(':');
+  // Basic is `user:pass`; the token is the password half (username is cosmetic).
+  return colon === -1 ? decoded : decoded.slice(colon + 1);
+}
+
+/**
+ * Data-plane gate. Loopback peers are same-uid-trusted and always pass (the
+ * historical model). A non-loopback peer — only reachable when the listener is
+ * bound off-loopback — must present the session's `Proxy-Authorization` token.
+ */
+export function dataPlaneAuthOk(
+  peerAddr: string | undefined,
+  header: string | Array<string> | undefined,
+  token: string | undefined,
+): boolean {
+  if (isLoopbackAddress(peerAddr)) return true;
+  if (!token) return false; // non-loopback bind without a token: fail closed
+  return tokenMatches(parseProxyAuthToken(header), token);
 }
 
 /** Transport-specific inputs for a proxied request, shared by the MITM-tunnel and
@@ -629,7 +684,16 @@ export async function startLocalProxyRuntime({
   internalEndpoint,
   port,
   certDir,
+  listenHost,
+  dataPlaneToken,
 }: StartLocalProxyRuntimeInput): Promise<ProxyRuntimeContext> {
+  const bindHost = listenHost ?? LOCALHOST;
+  if (!isLoopbackBind(bindHost) && !dataPlaneToken) {
+    // Belt-and-suspenders: the command layer mints a token whenever it passes a
+    // non-loopback listenHost. If we got here without one, refuse to expose an
+    // unauthenticated proxy off-loopback rather than fail open.
+    throw new Error('varlock proxy: serving the tunnel off-loopback requires a data-plane token.');
+  }
   // Mutable so `reconfigure` can hot-swap the enforced policy on a live proxy.
   // The request handlers below close over these bindings, so reassigning them
   // changes behavior on the next request (in-flight requests already snapshotted).
@@ -960,6 +1024,13 @@ export async function startLocalProxyRuntime({
 
   // Handles absolute-form proxy requests (mostly plain HTTP).
   const proxyServer = http.createServer(async (clientReq, clientRes) => {
+    if (!dataPlaneAuthOk(clientReq.socket.remoteAddress, clientReq.headers['proxy-authorization'], dataPlaneToken)) {
+      clientRes.statusCode = 407;
+      clientRes.setHeader('Proxy-Authenticate', 'Basic realm="varlock"');
+      clientRes.end('Proxy authentication required');
+      return;
+    }
+
     const urlRaw = clientReq.url;
     if (!urlRaw) {
       clientRes.statusCode = 400;
@@ -1006,6 +1077,15 @@ export async function startLocalProxyRuntime({
     if (normalizeHost(hostInfo.host) === VARLOCK_INTERNAL_HOST && !isLoopbackAddress(connectPeer)) {
       internalEndpoint?.onAuthFailure?.();
       clientSocket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      clientSocket.destroy();
+      return;
+    }
+
+    // Data-plane auth for CONNECT: loopback is exempt, a non-loopback peer must
+    // present the session token. Checked after the varlock.internal loopback gate
+    // (which already rejected non-loopback control-plane attempts).
+    if (!dataPlaneAuthOk(connectPeer, req.headers['proxy-authorization'], dataPlaneToken)) {
+      clientSocket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="varlock"\r\nConnection: close\r\n\r\n');
       clientSocket.destroy();
       return;
     }
@@ -1075,7 +1155,7 @@ export async function startLocalProxyRuntime({
       }
     };
     proxyServer.once('error', onListenError);
-    proxyServer.listen(port ?? 0, LOCALHOST, () => {
+    proxyServer.listen(port ?? 0, bindHost, () => {
       proxyServer.off('error', onListenError);
       resolve();
     });
@@ -1089,6 +1169,29 @@ export async function startLocalProxyRuntime({
     throw new Error('Failed to start local proxy runtime');
   }
   const proxyUrl = `http://${LOCALHOST}:${address.port}`;
+
+  // With a data-plane token (off-loopback bind), also serve the CONNECT-over-WS
+  // tunnel on this same listener so a remote sandbox can reach the proxy through
+  // provider HTTP ingress. The bootstrap hands the guest its child-view values
+  // and the CA certs; each `connect` stream is bridged to this proxy's loopback
+  // port (where it's exempt from the token check — the WS handshake already
+  // authenticated it). The combined bundle mirrors what's written to disk.
+  const combinedCaPem = `${ca.certPem}\n${tls.rootCertificates.join('\n')}\n`;
+  const buildTunnelBootstrap = (): TunnelBootstrap => ({
+    // The same encoded child-view payload the control endpoint serves, so a
+    // remote guest adopts exactly what a local attach would (incl. the graph for
+    // redaction). Empty-but-valid until the first setSessionEnvPayloadJson.
+    payloadJson: sessionEnvPayloadJson ?? '{"env":{},"omittedKeys":[],"serializedGraph":{"config":{}}}',
+    certs: { 'ca-cert.pem': ca.certPem, 'combined-ca.pem': combinedCaPem },
+  });
+  const tunnel = dataPlaneToken
+    ? attachTunnelServer(proxyServer, {
+      token: dataPlaneToken,
+      proxyPort: address.port,
+      buildBootstrap: buildTunnelBootstrap,
+      onAuthFailure: () => internalEndpoint?.onAuthFailure?.(),
+    })
+    : undefined;
 
   return {
     env: {
@@ -1116,6 +1219,8 @@ export async function startLocalProxyRuntime({
       egressMode = next.egressMode;
     },
     stop: async () => {
+      // Detach the tunnel WS server first so it stops accepting upgrades.
+      tunnel?.close();
       // `server.close()` only calls back once every connection has drained, and
       // an idle keep-alive socket never closes on its own — so without forcing
       // connections closed, stop() (and the daemon's SIGTERM cleanup) hangs
