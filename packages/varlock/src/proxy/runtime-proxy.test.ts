@@ -108,6 +108,20 @@ describe('checkSubstitutionGuards', () => {
       .toMatchObject({ kind: 'location', location: 'body' });
   });
 
+  test('the any-header default excludes denylisted forward/log headers (cookie, x-forwarded-*, ...)', () => {
+    // Placeholder redirected into a header the upstream might forward/log — blocked
+    // even though the item allows "any header".
+    for (const name of ['cookie', 'x-forwarded-for', 'host', 'referer', 'user-agent']) {
+      const req = { ...emptyReq, headers: [{ name, value: 'x vlk_ph_key y' }] };
+      expect(checkSubstitutionGuards(req, [item()])).toMatchObject({ kind: 'location', location: 'header' });
+    }
+  });
+
+  test('an explicit header:<name> target overrides the denylist', () => {
+    const req = { ...emptyReq, headers: [{ name: 'cookie', value: 'session=vlk_ph_key' }] };
+    expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'header', name: 'cookie' }] })])).toBeUndefined();
+  });
+
   test('pins to a specific header name', () => {
     const allowed = item({ targets: [{ location: 'header', name: 'authorization' }] });
     const inAuth = { ...emptyReq, headers: [{ name: 'authorization', value: 'Bearer vlk_ph_key' }] };

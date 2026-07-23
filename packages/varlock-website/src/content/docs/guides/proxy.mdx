@@ -198,7 +198,7 @@ Even in `permissive` mode, if a request carries a placeholder that **no rule inj
 
 Matching a rule decides **which host** a secret may go to. Two more guards decide **where inside the request** the placeholder gets swapped for the real value, and **how many times**. They exist because the proxy substitutes by finding the placeholder in the outbound bytes: without limits, an agent that was prompt-injected could place the placeholder somewhere the real value then leaks. The classic case is a request to an allowed host that forwards the value onward, e.g. asking a mail API to send an email whose body contains the placeholder.
 
-**`substituteIn` — where the swap may happen.** By default a secret is only substituted into request **headers** (any header). That covers the common case, since most APIs authenticate with an `Authorization` or `X-Api-Key` header. If the placeholder shows up anywhere a target doesn't allow, the request is **blocked** rather than substituted, so the real value never lands somewhere it could be exfiltrated. Targets can be as broad or as specific as you want:
+**`substituteIn`, where the swap may happen.** By default a secret is only substituted into request **headers** (any header). That covers the common case, since most APIs authenticate with an `Authorization` or `X-Api-Key` header. If the placeholder shows up anywhere a target doesn't allow, the request is **blocked** rather than substituted, so the real value never lands somewhere it could be exfiltrated. Targets can be as broad or as specific as you want:
 
 | Target | Allows substitution in |
 |---|---|
@@ -210,6 +210,8 @@ Matching a rule decides **which host** a secret may go to. Two more guards decid
 
 Pin as tightly as the API allows: `header:authorization` blocks the secret being swapped into any other header (some providers forward custom headers onward), and a body path blocks it landing in any other field.
 
+The bare `header` default still excludes a handful of headers that are never a legitimate secret and are common forward/log sinks: `cookie`, `host`, `x-forwarded-*`, `forwarded`, `via`, `referer`, `origin`, and `user-agent`. A placeholder landing in one of those is blocked even under the any-header default. If an API genuinely authenticates through one (a session cookie, say), name it explicitly with `substituteIn=[header:cookie]` and the explicit target wins.
+
 ```env-spec title=".env.schema"
 # OAuth token exchange carries the secret in a form field:
 # @proxy(domain="api.example.com", path="/oauth/token", substituteIn=[header, "body:client_secret"])
@@ -220,7 +222,7 @@ CLIENT_SECRET=yourPreferredPlugin()
 
 A body path is a dotted path into a JSON body (`client_secret`, `data.token`, `items[0].key`) or a field name in an `application/x-www-form-urlencoded` body. The content type selects the parser; a body that can't be parsed as declared fails closed.
 
-**`maxOccurrences` — how many copies.** A valid request uses a secret a fixed number of times (almost always once). By default the placeholder may appear at most **once** per request; a second copy is treated as an exfiltration attempt (duplicate the token into an attacker-visible field while still making a working call) and the request is blocked. Raise it only for an API that legitimately repeats the same secret:
+**`maxOccurrences`, how many copies.** A valid request uses a secret a fixed number of times (almost always once). By default the placeholder may appear at most **once** per request; a second copy is treated as an exfiltration attempt (duplicate the token into an attacker-visible field while still making a working call) and the request is blocked. Raise it only for an API that legitimately repeats the same secret:
 
 ```env-spec title=".env.schema"
 # @proxy(domain="api.example.com", substituteIn=["header:authorization", "body:signature"], maxOccurrences=2)

@@ -25,7 +25,7 @@ import {
   PROXY_TOKEN_HEADER, SESSION_ENV_ENDPOINT_PATH, VARLOCK_INTERNAL_HOST,
 } from './session-env-payload';
 import {
-  proxySubstitutionTargetKey,
+  isNeverAutoSubstituteHeader, proxySubstitutionTargetKey,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule,
   type ProxySubstitutionLocation, type ProxySubstitutionTarget,
 } from './types';
@@ -246,10 +246,21 @@ async function runApprovalGate(input: {
   }
 }
 
-/** Number of non-overlapping occurrences of `needle` in `haystack`. */
+/**
+ * Number of non-overlapping occurrences of `needle` in `haystack`. Uses an
+ * indexOf scan rather than `split` so it stays O(n) time / O(1) extra space: an
+ * untrusted agent controls the request and could repeat a placeholder many times,
+ * and `split` would allocate an array proportional to the match count.
+ */
 function countOccurrences(haystack: string, needle: string): number {
   if (!needle) return 0;
-  return haystack.split(needle).length - 1;
+  let count = 0;
+  let idx = haystack.indexOf(needle);
+  while (idx !== -1) {
+    count += 1;
+    idx = haystack.indexOf(needle, idx + needle.length);
+  }
+  return count;
 }
 
 /** A request decomposed into the parts the substitution guards inspect. */
@@ -310,6 +321,17 @@ function locationSuggestion(location: ProxySubstitutionLocation, targets: Array<
   return `currently allowed: [${current.join(', ')}]. To allow it here, add ${add} to substituteIn`;
 }
 
+/** Header-specific hint: names the offending header and whether it was excluded from the any-header default. */
+function headerSuggestion(name: string | undefined, denied: boolean, targets: Array<ProxySubstitutionTarget>): string {
+  const current = targets.map(proxySubstitutionTargetKey);
+  const where = name ? `the "${name}" header` : 'that header';
+  const add = name ? `header:${name}` : 'header:<name>';
+  const deniedNote = denied
+    ? ` (${name} is excluded from the any-header default because it's commonly forwarded or logged)`
+    : '';
+  return `currently allowed: [${current.join(', ')}]${deniedNote}. To allow it in ${where}, add ${add} to substituteIn`;
+}
+
 /**
  * Enforce the substitution guards on the injected items for a request, *before*
  * any placeholder is swapped for its real value. Returns the first violation, or
@@ -347,18 +369,24 @@ export function checkSubstitutionGuards(
     const queryNames = targets.flatMap((t) => (t.location === 'query' && t.name ? [t.name] : []));
     const bodyPaths = targets.flatMap((t) => (t.location === 'body' ? [t.path] : []));
 
-    // Headers: total occurrences vs. those in an allowed header.
+    // Headers: total occurrences vs. those in an allowed header. The any-header
+    // default excludes a denylist of never-secret forward/log headers; an explicit
+    // header:<name> target still wins (so a named denied header is allowed).
     let headerTotal = 0;
     let headerAllowed = 0;
+    let offendingHeader: string | undefined;
     for (const h of req.headers) {
       const c = countOccurrences(h.value, ph);
       if (!c) continue;
       headerTotal += c;
-      if (anyHeader || headerNames.has(h.name)) headerAllowed += c;
+      const allowed = headerNames.has(h.name) || (anyHeader && !isNeverAutoSubstituteHeader(h.name));
+      if (allowed) headerAllowed += c;
+      else offendingHeader ||= h.name;
     }
     if (headerAllowed < headerTotal) {
+      const denied = anyHeader && !!offendingHeader && isNeverAutoSubstituteHeader(offendingHeader);
       return {
-        kind: 'location', item, location: 'header', suggestion: locationSuggestion('header', targets),
+        kind: 'location', item, location: 'header', suggestion: headerSuggestion(offendingHeader, denied, targets),
       };
     }
 

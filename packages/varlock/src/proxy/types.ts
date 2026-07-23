@@ -47,6 +47,23 @@ export function proxySubstitutionTargetKey(target: ProxySubstitutionTarget): str
   return target.name ? `${target.location}:${target.name}` : target.location;
 }
 
+/**
+ * Headers the bare `header` (any-header) default will NOT substitute into: they're
+ * never a legitimate place for a managed secret and are common forward/log sinks,
+ * so a placeholder landing here is almost always an attempt to redirect the one
+ * allowed substitution somewhere it leaks (e.g. a header the upstream forwards to a
+ * webhook). Any `x-forwarded-*` header is covered by prefix. This narrows only the
+ * default — an explicit `header:<name>` target (even for one of these) still wins,
+ * for the rare API that genuinely authenticates via, say, a cookie.
+ */
+export const PROXY_NEVER_AUTO_SUBSTITUTE_HEADERS: ReadonlyArray<string> = ['cookie', 'host', 'forwarded', 'via', 'referer', 'origin', 'user-agent'];
+
+/** Whether the any-header default excludes this header (see `PROXY_NEVER_AUTO_SUBSTITUTE_HEADERS`). */
+export function isNeverAutoSubstituteHeader(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower.startsWith('x-forwarded-') || PROXY_NEVER_AUTO_SUBSTITUTE_HEADERS.includes(lower);
+}
+
 /** Result of parsing one `substituteIn` entry: the structured target, or an error message. */
 export type ParsedProxySubstitutionTarget = | { ok: true; target: ProxySubstitutionTarget }
   | { ok: false; error: string };
