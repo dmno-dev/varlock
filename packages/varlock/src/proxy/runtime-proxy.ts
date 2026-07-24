@@ -1365,6 +1365,7 @@ export async function startLocalProxyRuntime({
       REQUESTS_CA_BUNDLE: combinedCaPath,
       CURL_CA_BUNDLE: combinedCaPath,
       GIT_SSL_CAINFO: combinedCaPath,
+      CARGO_HTTP_CAINFO: combinedCaPath,
       // Node's built-in fetch (undici) ignores HTTP(S)_PROXY unless this flag
       // is set (node >= 24; older nodes ignore the flag and still bypass).
       // Without it, fetch traffic silently goes DIRECT to the upstream,
