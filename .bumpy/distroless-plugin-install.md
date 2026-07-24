@@ -2,4 +2,4 @@
 varlock: patch
 ---
 
-plugin auto-install now works in shell-less/distroless images (extracts tarballs natively instead of shelling out to `tar`)
+plugins now work in shell-less/distroless images: tarballs extract natively (no `tar`/shell dependency), and `varlock flatten --vendor-plugins` downloads plugins into the output for a fully self-contained artifact

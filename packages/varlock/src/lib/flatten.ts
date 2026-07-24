@@ -13,6 +13,7 @@ import {
 } from '@env-spec/parser';
 import { tryCatch } from '@env-spec/utils/try-catch';
 import { pathExists } from '@env-spec/utils/fs-utils';
+import { downloadPluginToCache } from '../env-graph/lib/plugins';
 
 /**
  * `varlock flatten` support - copies every env file reachable via @import into a
@@ -33,6 +34,7 @@ import { pathExists } from '@env-spec/utils/fs-utils';
  */
 
 const IMPORTS_DIR_NAME = '.env-imports';
+const PLUGINS_DIR_NAME = '.env-plugins';
 
 export class FlattenError extends Error {}
 
@@ -42,8 +44,10 @@ export type FlattenResult = {
   copiedFiles: Array<{ src: string, dest: string }>;
   /** local (gitignored-style) env files that were skipped */
   skippedLocalFiles: Array<string>;
-  /** npm plugins that had their version pinned in rewritten files */
+  /** npm plugins that had their version pinned in rewritten files (auto-installed at runtime) */
   pinnedPlugins: Array<{ moduleName: string, version: string, filePath: string }>;
+  /** npm plugins that were downloaded and vendored into the output dir (--vendor-plugins) */
+  vendoredPlugins: Array<{ moduleName: string, version: string, dest: string }>;
   warnings: Array<string>;
 };
 
@@ -56,7 +60,21 @@ export type FlattenOptions = {
   outDir?: string;
   /** include .env.local / .env.*.local files (default false - they usually hold machine-local secrets) */
   includeLocal?: boolean;
+  /**
+   * Copy npm `@plugin()` packages into the output dir, rewriting the declarations to local
+   * paths. Makes the artifact fully self-contained: no runtime npm fetch, and works in
+   * shell-less/offline/distroless runtimes. Prefers the copy already installed in node_modules
+   * (no network); only downloads from npm when a plugin is not installed locally. When false
+   * (default), npm plugins are only version-pinned for runtime auto-install.
+   */
+  vendorPlugins?: boolean;
 };
+
+/** stable, filesystem-safe directory name for a vendored plugin (e.g. `varlock-infisical-plugin_2.1.0`) */
+function vendoredPluginDirName(moduleName: string, version: string) {
+  const safeName = moduleName.replaceAll('/', '-').replaceAll('@', '');
+  return `${safeName}_${version}`;
+}
 
 function isEnvFileName(name: string) {
   return name === '.env' || name.startsWith('.env.');
@@ -95,20 +113,21 @@ function makeStaticPathValue(newPath: string, quote?: '"' | "'" | '`') {
 }
 
 /** walk up from `fromDir` (stopping at workspaceRoot) looking for node_modules/<moduleName> */
-async function findInstalledPluginVersion(
+async function findInstalledPlugin(
   moduleName: string,
   fromDir: string,
   workspaceRootPath: string,
-): Promise<string | undefined> {
+): Promise<{ version: string, dir: string } | undefined> {
   let currentDir = fromDir;
   while (currentDir) {
-    const candidatePath = path.join(currentDir, 'node_modules', moduleName, 'package.json');
+    const pluginDir = path.join(currentDir, 'node_modules', moduleName);
+    const candidatePath = path.join(pluginDir, 'package.json');
     if (await pathExists(candidatePath)) {
       const packageJson = await tryCatch(
         async () => JSON.parse(await fs.readFile(candidatePath, 'utf8')),
         () => undefined,
       );
-      if (packageJson?.version) return packageJson.version as string;
+      if (packageJson?.version) return { version: packageJson.version as string, dir: pluginDir };
     }
     if (currentDir === workspaceRootPath) break;
     const parentDir = path.dirname(currentDir);
@@ -123,6 +142,7 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
   const workspaceRootPath = path.resolve(opts.workspaceRootPath);
   const outDir = path.resolve(packageDir, opts.outDir || '.env-flat');
   const includeLocal = !!opts.includeLocal;
+  const vendorPlugins = !!opts.vendorPlugins;
 
   if (outDir === packageDir || packageDir.startsWith(outDir + path.sep)) {
     throw new FlattenError('flatten output directory cannot contain the package directory');
@@ -133,8 +153,12 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     copiedFiles: [],
     skippedLocalFiles: [],
     pinnedPlugins: [],
+    vendoredPlugins: [],
     warnings: [],
   };
+
+  // dedupe downloads: `${moduleName}@${version}` -> absolute dest plugin dir
+  const vendoredPluginDirs = new Map<string, string>();
 
   // src abs path -> dest abs path, for everything already handled (also breaks import cycles)
   const processedFiles = new Map<string, string>();
@@ -178,6 +202,43 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     await fs.mkdir(path.dirname(destAbs), { recursive: true });
     await fs.cp(pluginAbs, destAbs, { recursive: true });
     result.copiedFiles.push({ src: pluginAbs, dest: destAbs });
+  }
+
+  /**
+   * Copy an npm plugin at an exact version into the output's plugins dir. Prefers the copy
+   * already installed in `node_modules` (`localDir`, no network); only downloads from npm when
+   * the plugin is not installed locally. Copies each module@version only once per run.
+   */
+  async function vendorNpmPlugin(moduleName: string, version: string, localDir?: string): Promise<string> {
+    const cacheKey = `${moduleName}@${version}`;
+    const cached = vendoredPluginDirs.get(cacheKey);
+    if (cached) return cached;
+
+    const destPluginDir = path.join(outDir, PLUGINS_DIR_NAME, vendoredPluginDirName(moduleName, version));
+    // dereference: the installed entry may be a symlink (pnpm store, workspace link) - copy the
+    // real files so the output stays self-contained. Falls back to downloading (native extract,
+    // no shell) when the plugin is not present in node_modules.
+    const sourceDir = localDir ?? await downloadPluginToCache(moduleName, version);
+    await fs.rm(destPluginDir, { recursive: true, force: true });
+    await fs.mkdir(path.dirname(destPluginDir), { recursive: true });
+    await fs.cp(sourceDir, destPluginDir, { recursive: true, dereference: true });
+
+    // warn if the vendored package pulls in runtime deps that aren't bundled - those won't
+    // travel with the tarball (varlock plugins are expected to bundle their dependencies)
+    const vendoredPkgJson = await tryCatch(
+      async () => JSON.parse(await fs.readFile(path.join(destPluginDir, 'package.json'), 'utf8')),
+      () => undefined,
+    );
+    if (vendoredPkgJson?.dependencies && Object.keys(vendoredPkgJson.dependencies).length) {
+      result.warnings.push(
+        `@plugin(${cacheKey}) declares runtime dependencies that are not bundled into the package - `
+        + 'they will be missing from the vendored copy. Only self-contained plugins can be vendored.',
+      );
+    }
+
+    vendoredPluginDirs.set(cacheKey, destPluginDir);
+    result.vendoredPlugins.push({ moduleName, version, dest: destPluginDir });
+    return destPluginDir;
   }
 
   async function rewriteImportDecorator(
@@ -281,34 +342,85 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     // other protocols are not supported by the plugin loader yet
     if (/^(https?|npm|jsr|git):/.test(sourceDescriptor)) return false;
 
+    const atLocation = sourceDescriptor.indexOf('@', 1);
+    const moduleName = atLocation === -1 ? sourceDescriptor : sourceDescriptor.slice(0, atLocation);
+    const versionDescriptor = atLocation === -1 ? undefined : sourceDescriptor.slice(atLocation + 1);
+    const relFromPackage = path.relative(packageDir, srcAbs);
+    const isPackageInternal = !relFromPackage.startsWith('..') && !path.isAbsolute(relFromPackage);
+
+    // resolve the concrete version to use: an already-pinned exact version, otherwise the
+    // version installed in node_modules (works for bare names and semver ranges alike)
+    const pinnedExact = versionDescriptor && semver.valid(versionDescriptor) ? versionDescriptor : undefined;
+
+    if (vendorPlugins) {
+      // vendor every npm plugin (package-internal included) so the artifact needs no node_modules
+      // and no runtime npm fetch - rewrite the declaration to point at the copied local package
+      const installed = await findInstalledPlugin(moduleName, path.dirname(srcAbs), workspaceRootPath);
+
+      // prefer copying the installed package (no network); only fall back to downloading when the
+      // resolved version is not what is installed locally (or nothing is installed at all)
+      let version: string | undefined;
+      let localDir: string | undefined;
+      if (pinnedExact) {
+        version = pinnedExact;
+        if (installed?.version === pinnedExact) localDir = installed.dir;
+      } else if (installed) {
+        if (versionDescriptor && !semver.satisfies(installed.version, versionDescriptor)) {
+          result.warnings.push(
+            `@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)} - installed version ${installed.version} does not satisfy the declared range, left untouched`,
+          );
+          return false;
+        }
+        version = installed.version;
+        localDir = installed.dir;
+      }
+      if (!version) {
+        result.warnings.push(
+          `@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)} could not be resolved to a concrete version to vendor - install the plugin or pin an exact version`,
+        );
+        return false;
+      }
+
+      let destPluginDir: string;
+      try {
+        destPluginDir = await vendorNpmPlugin(moduleName, version, localDir);
+      } catch (err) {
+        result.warnings.push(
+          `@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)} could not be vendored: ${(err as Error).message}`,
+        );
+        return false;
+      }
+      args.data.values[0] = makeStaticPathValue(
+        relativeImportPath(path.dirname(destAbs), destPluginDir),
+        sourceArg.data.quote,
+      );
+      return true;
+    }
+
     // npm plugin declared in a file that lives inside the package - it resolves from the
     // package's own node_modules at runtime, so leave it alone
-    const relFromPackage = path.relative(packageDir, srcAbs);
-    if (!relFromPackage.startsWith('..') && !path.isAbsolute(relFromPackage)) return false;
+    if (isPackageInternal) return false;
 
     // npm plugin declared in an imported external file - after flattening it can no longer
     // resolve from the original package's node_modules, so pin the version that is installed
     // there now; at runtime varlock can then auto-download it if it is not installed locally
-    const atLocation = sourceDescriptor.indexOf('@', 1);
-    const moduleName = atLocation === -1 ? sourceDescriptor : sourceDescriptor.slice(0, atLocation);
-    const versionDescriptor = atLocation === -1 ? undefined : sourceDescriptor.slice(atLocation + 1);
-    if (versionDescriptor && semver.valid(versionDescriptor)) return false; // already pinned
+    if (pinnedExact) return false; // already pinned
 
-    const installedVersion = await findInstalledPluginVersion(moduleName, path.dirname(srcAbs), workspaceRootPath);
-    if (!installedVersion) {
+    const installed = await findInstalledPlugin(moduleName, path.dirname(srcAbs), workspaceRootPath);
+    if (!installed) {
       result.warnings.push(
         `@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)} could not be resolved to pin a version - install the plugin in this package or pin an exact version manually`,
       );
       return false;
     }
-    if (versionDescriptor && !semver.satisfies(installedVersion, versionDescriptor)) {
+    if (versionDescriptor && !semver.satisfies(installed.version, versionDescriptor)) {
       result.warnings.push(
-        `@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)} - installed version ${installedVersion} does not satisfy the declared range, left untouched`,
+        `@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)} - installed version ${installed.version} does not satisfy the declared range, left untouched`,
       );
       return false;
     }
-    args.data.values[0] = makeStaticPathValue(`${moduleName}@${installedVersion}`, sourceArg.data.quote);
-    result.pinnedPlugins.push({ moduleName, version: installedVersion, filePath: srcAbs });
+    args.data.values[0] = makeStaticPathValue(`${moduleName}@${installed.version}`, sourceArg.data.quote);
+    result.pinnedPlugins.push({ moduleName, version: installed.version, filePath: srcAbs });
     return true;
   }
 

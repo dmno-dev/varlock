@@ -1,5 +1,5 @@
 import {
-  describe, test, expect, beforeEach, afterEach,
+  describe, test, expect, beforeEach, afterEach, vi,
 } from 'vitest';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
@@ -8,6 +8,14 @@ import os from 'node:os';
 import outdent from 'outdent';
 import { flattenEnvFiles, FlattenError } from '../flatten';
 import { EnvGraph, DirectoryDataSource } from '../../env-graph';
+import { downloadPluginToCache } from '../../env-graph/lib/plugins';
+
+// vendoring downloads plugins from npm - stub the download so tests stay offline.
+// The stub materializes a fake extracted plugin package that flatten then copies.
+vi.mock('../../env-graph/lib/plugins', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../env-graph/lib/plugins')>();
+  return { ...actual, downloadPluginToCache: vi.fn() };
+});
 
 let baseDir: string;
 let workspaceDir: string;
@@ -49,12 +57,51 @@ async function loadValues(dir: string) {
 
 const API_DIR = 'packages/api';
 
-function apiFlatten(opts?: { outDir?: string, includeLocal?: boolean }) {
+function apiFlatten(opts?: { outDir?: string, includeLocal?: boolean, vendorPlugins?: boolean }) {
   return flattenEnvFiles({
     packageDir: path.join(workspaceDir, API_DIR),
     workspaceRootPath: workspaceDir,
     ...opts,
   });
+}
+
+/** write a realistic self-contained installed plugin package under node_modules */
+async function writeInstalledPlugin(
+  moduleName: string,
+  version: string,
+  extraPkgFields: Record<string, any> = {},
+  atDir = workspaceDir,
+) {
+  const pluginDir = path.join(atDir, 'node_modules', moduleName);
+  await fs.mkdir(path.join(pluginDir, 'dist'), { recursive: true });
+  await fs.writeFile(
+    path.join(pluginDir, 'package.json'),
+    JSON.stringify({
+      name: moduleName, version, exports: { './plugin': './dist/plugin.cjs' }, ...extraPkgFields,
+    }),
+  );
+  await fs.writeFile(path.join(pluginDir, 'dist', 'plugin.cjs'), `// installed ${moduleName}@${version}\n`);
+  return pluginDir;
+}
+
+/**
+ * Make `downloadPluginToCache` (the network fallback) return a freshly-created fake extracted
+ * plugin package, so the download path has real bytes to copy without touching the network.
+ * Returns the spy so tests can assert whether the fallback was used.
+ */
+function stubPluginDownload() {
+  const spy = vi.mocked(downloadPluginToCache);
+  spy.mockImplementation(async (moduleName: string, version: string) => {
+    const cacheDir = path.join(baseDir, 'fake-cache', `${moduleName.replaceAll('/', '-')}-${version}`);
+    await fs.mkdir(path.join(cacheDir, 'dist'), { recursive: true });
+    await fs.writeFile(
+      path.join(cacheDir, 'package.json'),
+      JSON.stringify({ name: moduleName, version, exports: { './plugin': './dist/plugin.cjs' } }),
+    );
+    await fs.writeFile(path.join(cacheDir, 'dist', 'plugin.cjs'), `// downloaded ${moduleName}@${version}\n`);
+    return cacheDir;
+  });
+  return spy;
 }
 
 describe('flattenEnvFiles', () => {
@@ -223,6 +270,168 @@ describe('flattenEnvFiles', () => {
     const schemaOut = await readOut(result.outDir, '.env.schema');
     expect(schemaOut).toContain('@plugin(./.env-imports/shared-plugin.js)');
     expect(await readOut(result.outDir, '.env-imports/shared-plugin.js')).toBe('export default {};\n');
+  });
+
+  describe('--vendor-plugins', () => {
+    afterEach(() => vi.mocked(downloadPluginToCache).mockReset());
+
+    test('copies the installed package (no download) and rewrites to a local path', async () => {
+      const spy = stubPluginDownload();
+      await writeInstalledPlugin('@varlock/fake-plugin', '1.2.3');
+      await writeTree({
+        '.env.shared': outdent`
+          # @plugin(@varlock/fake-plugin)
+          # ---
+          ROOT_SHARED=from-root
+        `,
+        [`${API_DIR}/.env.schema`]: outdent`
+          # @import(../../.env.shared)
+          # ---
+          API_ITEM=api-value
+        `,
+      });
+
+      const result = await apiFlatten({ vendorPlugins: true });
+
+      // installed locally, so it was copied - never downloaded
+      expect(spy).not.toHaveBeenCalled();
+
+      // the external file now points at the vendored local package, not an npm descriptor
+      const sharedOut = await readOut(result.outDir, '.env-imports/.env.shared');
+      expect(sharedOut).toContain('@plugin(../.env-plugins/varlock-fake-plugin_1.2.3)');
+      expect(sharedOut).not.toContain('@varlock/fake-plugin@');
+
+      // the installed package bytes were copied into the output
+      const vendoredPkg = await readOut(result.outDir, '.env-plugins/varlock-fake-plugin_1.2.3/package.json');
+      expect(JSON.parse(vendoredPkg).name).toBe('@varlock/fake-plugin');
+      expect(await readOut(result.outDir, '.env-plugins/varlock-fake-plugin_1.2.3/dist/plugin.cjs')).toContain('installed @varlock/fake-plugin@1.2.3');
+
+      expect(result.vendoredPlugins).toEqual([expect.objectContaining({ moduleName: '@varlock/fake-plugin', version: '1.2.3' })]);
+      expect(result.pinnedPlugins).toEqual([]);
+    });
+
+    test('follows symlinked installs (pnpm store / workspace links)', async () => {
+      // real package lives elsewhere; node_modules entry is a symlink to it, like pnpm/workspaces
+      const realPkgDir = path.join(baseDir, 'store', 'fake-plugin');
+      await fs.mkdir(path.join(realPkgDir, 'dist'), { recursive: true });
+      await fs.writeFile(path.join(realPkgDir, 'package.json'), JSON.stringify({ name: '@varlock/fake-plugin', version: '4.0.0', exports: { './plugin': './dist/plugin.cjs' } }));
+      await fs.writeFile(path.join(realPkgDir, 'dist', 'plugin.cjs'), '// symlinked build\n');
+      const nmScope = path.join(workspaceDir, 'node_modules', '@varlock');
+      await fs.mkdir(nmScope, { recursive: true });
+      await fs.symlink(realPkgDir, path.join(nmScope, 'fake-plugin'), 'dir');
+
+      await writeTree({
+        [`${API_DIR}/.env.schema`]: outdent`
+          # @plugin(@varlock/fake-plugin)
+          # ---
+          API_ITEM=api-value
+        `,
+      });
+
+      const result = await apiFlatten({ vendorPlugins: true });
+      // real files copied through the symlink, not a dangling link
+      const vendoredPlugin = path.join(result.outDir, '.env-plugins/varlock-fake-plugin_4.0.0/dist/plugin.cjs');
+      expect((await fs.lstat(vendoredPlugin)).isSymbolicLink()).toBe(false);
+      expect(await fs.readFile(vendoredPlugin, 'utf8')).toContain('symlinked build');
+    });
+
+    test('also vendors package-internal npm plugins (no node_modules at runtime)', async () => {
+      stubPluginDownload();
+      await writeInstalledPlugin('@varlock/internal-plugin', '2.0.0');
+      await writeTree({
+        [`${API_DIR}/.env.schema`]: outdent`
+          # @plugin(@varlock/internal-plugin)
+          # ---
+          API_ITEM=api-value
+        `,
+      });
+
+      const result = await apiFlatten({ vendorPlugins: true });
+
+      const schemaOut = await readOut(result.outDir, '.env.schema');
+      expect(schemaOut).toContain('@plugin(./.env-plugins/varlock-internal-plugin_2.0.0)');
+      expect(result.vendoredPlugins).toHaveLength(1);
+    });
+
+    test('downloads as a fallback when the pinned exact version is not installed', async () => {
+      const spy = stubPluginDownload();
+      await writeTree({
+        [`${API_DIR}/.env.schema`]: outdent`
+          # @plugin(@varlock/fake-plugin@3.1.0)
+          # ---
+          API_ITEM=api-value
+        `,
+      });
+
+      const result = await apiFlatten({ vendorPlugins: true });
+      expect(spy).toHaveBeenCalledWith('@varlock/fake-plugin', '3.1.0');
+      expect(await readOut(result.outDir, '.env-plugins/varlock-fake-plugin_3.1.0/dist/plugin.cjs')).toContain('downloaded @varlock/fake-plugin@3.1.0');
+      expect(result.vendoredPlugins).toEqual([expect.objectContaining({ moduleName: '@varlock/fake-plugin', version: '3.1.0' })]);
+    });
+
+    test('downloads when the installed version does not match a pinned exact version', async () => {
+      const spy = stubPluginDownload();
+      await writeInstalledPlugin('@varlock/fake-plugin', '1.0.0'); // installed != pinned
+      await writeTree({
+        [`${API_DIR}/.env.schema`]: '# @plugin(@varlock/fake-plugin@3.1.0)\n# ---\nAPI_ITEM=x\n',
+      });
+
+      const result = await apiFlatten({ vendorPlugins: true });
+      expect(spy).toHaveBeenCalledWith('@varlock/fake-plugin', '3.1.0');
+      expect(result.vendoredPlugins).toEqual([expect.objectContaining({ version: '3.1.0' })]);
+    });
+
+    test('copies each module@version only once when referenced from multiple files', async () => {
+      const spy = stubPluginDownload();
+      await writeInstalledPlugin('@varlock/fake-plugin', '1.2.3');
+      await writeTree({
+        '.env.shared': '# @plugin(@varlock/fake-plugin)\n# ---\nROOT_SHARED=x\n',
+        '.env.other': '# @plugin(@varlock/fake-plugin)\n# ---\nOTHER=y\n',
+        [`${API_DIR}/.env.schema`]: outdent`
+          # @import(../../.env.shared)
+          # @import(../../.env.other)
+          # ---
+          API_ITEM=api-value
+        `,
+      });
+
+      const result = await apiFlatten({ vendorPlugins: true });
+      expect(spy).not.toHaveBeenCalled();
+      expect(result.vendoredPlugins).toHaveLength(1);
+    });
+
+    test('warns when a vendored plugin has unbundled runtime dependencies', async () => {
+      stubPluginDownload();
+      await writeInstalledPlugin('@varlock/fake-plugin', '1.0.0', { dependencies: { 'some-dep': '^1.0.0' } });
+      await writeTree({
+        [`${API_DIR}/.env.schema`]: outdent`
+          # @plugin(@varlock/fake-plugin)
+          # ---
+          API_ITEM=api-value
+        `,
+      });
+
+      const result = await apiFlatten({ vendorPlugins: true });
+      expect(result.warnings.some((w) => w.includes('not bundled'))).toBe(true);
+    });
+
+    test('warns and skips when no concrete version can be resolved', async () => {
+      const spy = stubPluginDownload();
+      await writeTree({
+        [`${API_DIR}/.env.schema`]: outdent`
+          # @plugin(@varlock/unresolvable-plugin)
+          # ---
+          API_ITEM=api-value
+        `,
+      });
+
+      const result = await apiFlatten({ vendorPlugins: true });
+      expect(spy).not.toHaveBeenCalled();
+      expect(result.vendoredPlugins).toEqual([]);
+      expect(result.warnings.some((w) => w.includes('unresolvable-plugin'))).toBe(true);
+      // left untouched
+      expect(await readOut(result.outDir, '.env.schema')).toContain('@plugin(@varlock/unresolvable-plugin)');
+    });
   });
 
   test('handles circular imports without hanging', async () => {
