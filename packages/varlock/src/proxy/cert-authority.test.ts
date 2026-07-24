@@ -37,6 +37,26 @@ describe('cert-authority (in-memory CA)', () => {
     expect(leaf.keyPem).toContain('BEGIN PRIVATE KEY');
   });
 
+  test('CA and leaf carry key identifiers for strict verifiers', async () => {
+    // Python 3.13+ enables VERIFY_X509_STRICT by default, which rejects chains
+    // missing an SKI on the CA or an AKI on the leaf (RFC 5280). A regression
+    // here breaks every modern python client through the proxy.
+    const ca = await createEphemeralCa();
+    const leaf = await createHostCert(ca, 'api.example.com');
+
+    const caCert = new x509.X509Certificate(ca.certPem);
+    const leafCert = new x509.X509Certificate(leaf.certPem);
+
+    const caSki = caCert.getExtension(x509.SubjectKeyIdentifierExtension);
+    const leafSki = leafCert.getExtension(x509.SubjectKeyIdentifierExtension);
+    const leafAki = leafCert.getExtension(x509.AuthorityKeyIdentifierExtension);
+    expect(caSki).toBeTruthy();
+    expect(leafSki).toBeTruthy();
+    expect(leafAki).toBeTruthy();
+    // Chain building matches the leaf AKI to the CA SKI byte-for-byte.
+    expect(leafAki!.keyId).toBe(caSki!.keyId);
+  });
+
   test('a leaf does not verify against an unrelated CA', async () => {
     const ca = await createEphemeralCa();
     const otherCa = await createEphemeralCa();

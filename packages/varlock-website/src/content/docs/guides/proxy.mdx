@@ -295,12 +295,16 @@ Sessions are durable records: they persist after the proxy stops (visible with `
 - **Proxy address:** `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` (and lowercase), with `NO_PROXY` excluding localhost.
 - **CA trust:** `NODE_EXTRA_CA_CERTS` (Node.js), `REQUESTS_CA_BUNDLE` (Python `requests`), `CURL_CA_BUNDLE` (curl), `GIT_SSL_CAINFO` (git), and `SSL_CERT_FILE` (OpenSSL-based tools).
 
+The proxy URL carries no credentials, and the proxy never asks clients for proxy authentication (no `407` challenges). Session scoping is enforced by the proxy itself, so clients with limited proxy-auth support (like Python's `urllib`) work with the plain `HTTPS_PROXY` url.
+
 The proxy uses an **ephemeral, in-memory certificate authority** generated per run; only its public certificate is written to a temp file for the child to trust. The CA private key and all per-host certificates never leave memory.
 
 **Stdout/stderr redaction** is decided per stream: a stream attached to an interactive terminal passes through raw (so TUIs like `claude` render correctly), while a piped or redirected stream is scrubbed of sensitive values, including the real values the proxy injects at the wire, in case an upstream response echoes one back. Override with `--redact-stdout` / `--no-redact-stdout`.
 
 :::note[Clients that don't read these env vars]
 Tools that ignore the standard proxy/CA environment variables (many GUI apps, browsers, and some language runtimes with their own trust stores) won't be transparently proxied. The target here is CLI tools and agents, which generally do respect them.
+
+One known offender: the Python that ships with macOS (`/usr/bin/python3`, built against Apple's LibreSSL) ignores `SSL_CERT_FILE`, so its `urllib` fails TLS verification against the proxy. Pythons from python.org, Homebrew, pyenv, or `uv` honor it. On the system Python, either use `requests` (which reads `REQUESTS_CA_BUNDLE`) or pass the bundle explicitly: `ssl.create_default_context(cafile=os.environ["SSL_CERT_FILE"])`.
 :::
 
 ### Pinning the port and CA location
