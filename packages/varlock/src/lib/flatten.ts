@@ -194,13 +194,34 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     claimedDests.set(destAbs, srcAbs);
   }
 
+  /**
+   * Warn if a copied/vendored plugin package declares runtime `dependencies`. Those live in
+   * `node_modules` and do not travel with the copied package, so the plugin would fail to load
+   * from the flattened output. Plugins are expected to be self-contained (a single built file,
+   * or a package that bundles its dependencies). No-op for single-file plugins (no package.json).
+   */
+  async function warnIfUnbundledDeps(pkgDir: string, label: string) {
+    const pkgJson = await tryCatch(
+      async () => JSON.parse(await fs.readFile(path.join(pkgDir, 'package.json'), 'utf8')),
+      () => undefined,
+    );
+    if (pkgJson?.dependencies && Object.keys(pkgJson.dependencies).length) {
+      result.warnings.push(
+        `${label} declares runtime dependencies that are not bundled into the package - they will `
+        + 'be missing from the flattened copy. Plugins must be self-contained (a single built file, '
+        + 'or a package that bundles its dependencies).',
+      );
+    }
+  }
+
   /** copy a local-path plugin source (single file or self-contained package dir) into the output */
-  async function copyPluginSource(pluginAbs: string, destAbs: string) {
+  async function copyPluginSource(pluginAbs: string, destAbs: string, label: string) {
     if (processedFiles.has(pluginAbs)) return;
     processedFiles.set(pluginAbs, destAbs);
     claimDest(destAbs, pluginAbs);
     await fs.mkdir(path.dirname(destAbs), { recursive: true });
-    await fs.cp(pluginAbs, destAbs, { recursive: true });
+    await fs.cp(pluginAbs, destAbs, { recursive: true, dereference: true });
+    await warnIfUnbundledDeps(destAbs, label);
     result.copiedFiles.push({ src: pluginAbs, dest: destAbs });
   }
 
@@ -223,18 +244,7 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     await fs.mkdir(path.dirname(destPluginDir), { recursive: true });
     await fs.cp(sourceDir, destPluginDir, { recursive: true, dereference: true });
 
-    // warn if the vendored package pulls in runtime deps that aren't bundled - those won't
-    // travel with the tarball (varlock plugins are expected to bundle their dependencies)
-    const vendoredPkgJson = await tryCatch(
-      async () => JSON.parse(await fs.readFile(path.join(destPluginDir, 'package.json'), 'utf8')),
-      () => undefined,
-    );
-    if (vendoredPkgJson?.dependencies && Object.keys(vendoredPkgJson.dependencies).length) {
-      result.warnings.push(
-        `@plugin(${cacheKey}) declares runtime dependencies that are not bundled into the package - `
-        + 'they will be missing from the vendored copy. Only self-contained plugins can be vendored.',
-      );
-    }
+    await warnIfUnbundledDeps(destPluginDir, `@plugin(${cacheKey})`);
 
     vendoredPluginDirs.set(cacheKey, destPluginDir);
     result.vendoredPlugins.push({ moduleName, version, dest: destPluginDir });
@@ -332,7 +342,7 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
         result.warnings.push(`@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)} does not exist - left untouched`);
         return false;
       }
-      await copyPluginSource(pluginAbs, destPlugin);
+      await copyPluginSource(pluginAbs, destPlugin, `@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)}`);
       const newPluginPath = relativeImportPath(path.dirname(destAbs), destPlugin);
       if (newPluginPath === sourceDescriptor) return false;
       args.data.values[0] = makeStaticPathValue(newPluginPath, sourceArg.data.quote);

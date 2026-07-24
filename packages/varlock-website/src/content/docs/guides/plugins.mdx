@@ -53,10 +53,19 @@ When using the standalone binary (no `package.json` present), you must specify a
 When downloading a third-party (non-`@varlock/*`) plugin for the first time, Varlock will prompt you to confirm before downloading. Once confirmed and cached, subsequent runs will not re-prompt. You can also install the plugin via your `package.json` to skip the prompt entirely.
 :::
 
+### Local plugins
+
+You can point `@plugin()` at a local path instead of an npm package, either a single file or a package directory:
+
+```env-spec title=".env.schema"
+# @plugin(./my-plugin.js)   # single file
+# @plugin(../shared/plugin/) # package directory (trailing slash)
+```
+
+Local plugins must be **self-contained**: a single built file, or a package that bundles its dependencies. Varlock loads a plugin from its file directly and does not install anything for it, so a plugin that relies on separate `node_modules` dependencies will fail to load once it is moved away from where those dependencies live (for example in a compiled binary, or in the output of [`varlock flatten`](/reference/cli-commands/#flatten)). If you author a plugin with dependencies, bundle it into a single file first. The official `@varlock/*` plugins are each a single bundled file.
+
 {/*
 INFO TO ADD LATER
-- local single file
-- local path (monorepo)
 - https url
 - git
 - generic npm/jsr

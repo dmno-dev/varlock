@@ -272,6 +272,33 @@ describe('flattenEnvFiles', () => {
     expect(await readOut(result.outDir, '.env-imports/shared-plugin.js')).toBe('export default {};\n');
   });
 
+  test('warns when a copied local package plugin declares unbundled dependencies', async () => {
+    await writeTree({
+      'my-plugin/package.json': JSON.stringify({
+        name: 'my-plugin', version: '1.0.0', exports: { './plugin': './plugin.js' }, dependencies: { 'some-dep': '^1.0.0' },
+      }),
+      'my-plugin/plugin.js': 'module.exports = {};\n',
+      [`${API_DIR}/.env.schema`]: outdent`
+        # @plugin(../../my-plugin/)
+        # ---
+        API_ITEM=api-value
+      `,
+    });
+    const result = await apiFlatten();
+    // still copied and rewritten, but flags the dependency gap
+    expect(await readOut(result.outDir, '.env-imports/my-plugin/package.json')).toContain('my-plugin');
+    expect(result.warnings.some((w) => w.includes('not bundled'))).toBe(true);
+  });
+
+  test('does not warn for a self-contained single-file local plugin', async () => {
+    await writeTree({
+      'plugin.js': 'module.exports = {};\n',
+      [`${API_DIR}/.env.schema`]: '# @plugin(../../plugin.js)\n# ---\nAPI_ITEM=x\n',
+    });
+    const result = await apiFlatten();
+    expect(result.warnings.some((w) => w.includes('not bundled'))).toBe(false);
+  });
+
   describe('--vendor-plugins', () => {
     afterEach(() => vi.mocked(downloadPluginToCache).mockReset());
 
