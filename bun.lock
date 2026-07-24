@@ -166,7 +166,7 @@
     },
     "packages/plugins/1password": {
       "name": "@varlock/1password-plugin",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "devDependencies": {
         "@1password/sdk": "0.4.1-beta.1",
         "@1password/sdk-core": "0.4.1-beta.1",
@@ -441,7 +441,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "1.13.0",
+      "version": "1.13.1",
       "bin": {
         "varlock": "./bin/cli.js",
       },
