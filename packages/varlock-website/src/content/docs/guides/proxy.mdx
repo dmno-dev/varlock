@@ -204,7 +204,8 @@ Matching a rule decides **which host** a secret may go to. Two more guards decid
 |---|---|
 | `header` | any request header value (the default) |
 | `header:authorization` | only the named header (case-insensitive) |
-| `query` | anywhere in the path + query string |
+| `path` | anywhere in the URL path, for APIs that carry a token in the path (`/v1/{token}/data`) |
+| `query` | anywhere in the query string |
 | `query:api_key` | only the named query parameter's value |
 | `body:client_secret` | only the value at that body path (see below) |
 | `body:*` | anywhere in the body (escape hatch for unparseable bodies, see below) |

@@ -502,6 +502,36 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     await upstream.close();
   });
 
+  test('substitutes a token carried in the URL path (substituteIn=[path])', async () => {
+    let upstreamPath = '';
+    const upstream = await startUpstream((req, res) => {
+      upstreamPath = req.url ?? '';
+      res.statusCode = 200;
+      res.end('ok');
+    });
+
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [{ key: 'PATH_TOKEN', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['PATH_TOKEN'], substituteIn: ['path'] }],
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    const response = await sendAndRead(
+      tlsSocket,
+      `GET /v1/sk-stub-PLACEHOLDER/data HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`,
+    );
+
+    expect(response.split('\r\n')[0]).toContain('200');
+    expect(upstreamPath).toBe('/v1/sk-stub-REALKEY/data');
+    expect(upstreamPath).not.toContain('PLACEHOLDER');
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
   test('blocks a request that repeats the placeholder more than the occurrence cap', async () => {
     let upstreamHit = false;
     const upstream = await startUpstream((_req, res) => {

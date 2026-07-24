@@ -314,22 +314,32 @@ function bodyStringLeaves(body: string, contentType: string | undefined): Array<
   return out;
 }
 
-/** Human hint naming the current targets and how to allow the offending location, for the block message. */
-function locationSuggestion(location: ProxySubstitutionLocation, targets: Array<ProxySubstitutionTarget>): string {
-  const current = targets.map(proxySubstitutionTargetKey);
-  const add = location === 'body' ? 'body:<path> (or body:* to allow anywhere in the body)' : location;
-  return `currently allowed: [${current.join(', ')}]. To allow it here, add ${add} to substituteIn`;
+/** A copy-pasteable `substituteIn=[...]` that keeps the current targets and adds `entry`. */
+function substituteInExample(targets: Array<ProxySubstitutionTarget>, entry: string): string {
+  return `substituteIn=[${[...targets.map(proxySubstitutionTargetKey), entry].join(', ')}]`;
 }
 
-/** Header-specific hint: names the offending header and whether it was excluded from the any-header default. */
+/** Human hint naming the current targets and the exact substituteIn edit to allow the offending location. */
+function locationSuggestion(location: ProxySubstitutionLocation, targets: Array<ProxySubstitutionTarget>): string {
+  const current = targets.map(proxySubstitutionTargetKey);
+  const entry = location === 'body' ? 'body:<path>' : location;
+  const extraByLocation: Partial<Record<ProxySubstitutionLocation, string>> = {
+    body: ' (name the field, e.g. body:client_secret, or body:* to allow anywhere in the body)',
+    query: ' (or query:<param> to pin one parameter)',
+  };
+  const extra = extraByLocation[location] ?? '';
+  return `currently allowed: [${current.join(', ')}]. To allow it in the ${location}, set ${substituteInExample(targets, entry)} on the @proxy rule${extra}`;
+}
+
+/** Header-specific hint: names the offending header, the exact substituteIn edit, and any denylist note. */
 function headerSuggestion(name: string | undefined, denied: boolean, targets: Array<ProxySubstitutionTarget>): string {
   const current = targets.map(proxySubstitutionTargetKey);
   const where = name ? `the "${name}" header` : 'that header';
-  const add = name ? `header:${name}` : 'header:<name>';
+  const entry = name ? `header:${name}` : 'header:<name>';
   const deniedNote = denied
     ? ` (${name} is excluded from the any-header default because it's commonly forwarded or logged)`
     : '';
-  return `currently allowed: [${current.join(', ')}]${deniedNote}. To allow it in ${where}, add ${add} to substituteIn`;
+  return `currently allowed: [${current.join(', ')}]${deniedNote}. To allow it in ${where}, set ${substituteInExample(targets, entry)} on the @proxy rule`;
 }
 
 /**
@@ -365,11 +375,18 @@ export function checkSubstitutionGuards(
     const { targets } = item;
     const anyHeader = targets.some((t) => t.location === 'header' && !t.name);
     const headerNames = new Set(targets.flatMap((t) => (t.location === 'header' && t.name ? [t.name] : [])));
+    const anyPath = targets.some((t) => t.location === 'path');
     const anyQuery = targets.some((t) => t.location === 'query' && !t.name);
     const queryNames = targets.flatMap((t) => (t.location === 'query' && t.name ? [t.name] : []));
     const bodyPaths = targets.flatMap((t) => (t.location === 'body' ? [t.path] : []));
     // `body:*` is the explicit escape hatch for bodies we can't parse into a path.
     const bodyAnywhere = bodyPaths.includes('*');
+
+    // Split the request target into the URL path and the query string: they are
+    // separate substitution locations (`path` vs `query`/`query:<param>`).
+    const queryStart = req.requestTarget.indexOf('?');
+    const pathPart = queryStart === -1 ? req.requestTarget : req.requestTarget.slice(0, queryStart);
+    const queryPart = queryStart === -1 ? '' : req.requestTarget.slice(queryStart + 1);
 
     // Headers: total occurrences vs. those in an allowed header. The any-header
     // default excludes a denylist of never-secret forward/log headers; an explicit
@@ -392,15 +409,22 @@ export function checkSubstitutionGuards(
       };
     }
 
-    // Query / request target: total occurrences vs. those in an allowed param.
-    const queryTotal = countOccurrences(req.requestTarget, ph);
+    // URL path: all-or-nothing (`path` allows a token anywhere in the path).
+    const pathTotal = countOccurrences(pathPart, ph);
+    if (pathTotal > 0 && !anyPath) {
+      return {
+        kind: 'location', item, location: 'path', suggestion: locationSuggestion('path', targets),
+      };
+    }
+
+    // Query string: total occurrences vs. those in an allowed param.
+    const queryTotal = countOccurrences(queryPart, ph);
     let queryAllowed = 0;
     if (queryTotal) {
       if (anyQuery) {
         queryAllowed = queryTotal;
       } else if (queryNames.length) {
-        const qs = req.requestTarget.slice(req.requestTarget.indexOf('?') + 1);
-        const params = req.requestTarget.includes('?') ? new URLSearchParams(qs) : new URLSearchParams();
+        const params = new URLSearchParams(queryPart);
         for (const name of queryNames) for (const v of params.getAll(name)) queryAllowed += countOccurrences(v, ph);
       }
     }
@@ -429,7 +453,7 @@ export function checkSubstitutionGuards(
       };
     }
 
-    const total = headerTotal + queryTotal + bodyTotal;
+    const total = headerTotal + pathTotal + queryTotal + bodyTotal;
     if (total > item.maxOccurrences) return { kind: 'occurrences', item, count: total };
   }
   return undefined;
@@ -1003,10 +1027,10 @@ export async function startLocalProxyRuntime({
           ...baseActivity, ...ruleId, matched: true, blocked: true, decision,
         });
         const message = violation.kind === 'location'
-          ? `Blocked by the varlock credential proxy: the placeholder for ${violation.item.key} appears in the request ${violation.location}, `
-            + `but this @proxy rule doesn't allow substituting it there (${violation.suggestion}). `
-            + 'Otherwise this looks like an attempt to place the secret somewhere it could leak.'
-          : `Blocked by the varlock credential proxy: the placeholder for ${violation.item.key} appears ${violation.count} times in this request, but at most ${violation.item.maxOccurrences} is allowed. `
+          ? `Blocked by the varlock credential proxy: ${violation.item.key}'s placeholder appears in the ${violation.location} of this request, which its @proxy rule doesn't allow. `
+            + `${violation.suggestion}. `
+            + 'If that placement was not intentional, it may be an attempt to place the secret somewhere it could leak.'
+          : `Blocked by the varlock credential proxy: ${violation.item.key}'s placeholder appears ${violation.count} times in this request, but at most ${violation.item.maxOccurrences} is allowed. `
             + 'A valid request uses the secret once; extra copies can exfiltrate it. If this API legitimately repeats it, raise maxOccurrences on the @proxy rule.';
         respondBlocked(res, 403, message, t.tunnelTeardown);
         return;

@@ -10,17 +10,19 @@ export const PROXY_APPROVAL_EACH_VALUES: ReadonlyArray<ProxyApprovalEach> = ['ho
 
 /**
  * Which part of a request a managed item's placeholder may be substituted into: a
- * header value, the request target (path + query string), or the request body.
+ * header value, the URL path, the query string, or the request body.
  */
-export type ProxySubstitutionLocation = 'header' | 'query' | 'body';
+export type ProxySubstitutionLocation = 'header' | 'path' | 'query' | 'body';
 
-export const PROXY_SUBSTITUTION_LOCATION_VALUES: ReadonlyArray<ProxySubstitutionLocation> = ['header', 'query', 'body'];
+export const PROXY_SUBSTITUTION_LOCATION_VALUES: ReadonlyArray<ProxySubstitutionLocation> = ['header', 'path', 'query', 'body'];
 
 /**
  * A specific place a placeholder is allowed to be substituted:
  *  - `{ location: 'header' }` — any request header value.
  *  - `{ location: 'header', name }` — only the named header (case-insensitive), e.g. `authorization`.
- *  - `{ location: 'query' }` — anywhere in the request target (path + query string).
+ *  - `{ location: 'path' }` — anywhere in the URL path (the part before `?`), for APIs
+ *    that carry a token in the path itself, e.g. `/v1/{token}/data`.
+ *  - `{ location: 'query' }` — anywhere in the query string (the part after `?`).
  *  - `{ location: 'query', name }` — only the named query parameter's value.
  *  - `{ location: 'body', path }` — only the value at the given body path (JSON dotted
  *    path or form field). Body substitution ALWAYS requires a path, since "anywhere
@@ -31,6 +33,7 @@ export const PROXY_SUBSTITUTION_LOCATION_VALUES: ReadonlyArray<ProxySubstitution
  *    occurrence cap low.
  */
 export type ProxySubstitutionTarget = | { location: 'header'; name?: string }
+  | { location: 'path' }
   | { location: 'query'; name?: string }
   | { location: 'body'; path: string };
 
@@ -48,6 +51,7 @@ export const DEFAULT_PROXY_SUBSTITUTION_TARGETS: ReadonlyArray<ProxySubstitution
 /** A stable key for de-duplicating / comparing targets (location + name/path). */
 export function proxySubstitutionTargetKey(target: ProxySubstitutionTarget): string {
   if (target.location === 'body') return `body:${target.path}`;
+  if (target.location === 'path') return 'path';
   return target.name ? `${target.location}:${target.name}` : target.location;
 }
 
@@ -73,11 +77,11 @@ export type ParsedProxySubstitutionTarget = | { ok: true; target: ProxySubstitut
   | { ok: false; error: string };
 
 /**
- * Parse one `substituteIn` entry (`header`, `header:authorization`, `query`,
- * `query:api_key`, `body:client_secret`) into a structured target. Returns a
- * discriminated result so both the schema validator and the runtime share one
- * grammar. Header names are lower-cased (HTTP header names are case-insensitive);
- * query params and body paths keep their case.
+ * Parse one `substituteIn` entry (`header`, `header:authorization`, `path`,
+ * `query`, `query:api_key`, `body:client_secret`) into a structured target.
+ * Returns a discriminated result so both the schema validator and the runtime
+ * share one grammar. Header names are lower-cased (HTTP header names are
+ * case-insensitive); query params and body paths keep their case.
  */
 export function parseProxySubstitutionTarget(raw: string): ParsedProxySubstitutionTarget {
   const trimmed = raw.trim();
@@ -86,10 +90,14 @@ export function parseProxySubstitutionTarget(raw: string): ParsedProxySubstituti
   const arg = sep === -1 ? '' : trimmed.slice(sep + 1).trim();
   const invalid = () => ({
     ok: false as const,
-    error: `invalid substituteIn target ${JSON.stringify(raw)}. Valid forms: header, header:<name>, query, query:<param>, body:<path>`,
+    error: `invalid substituteIn target ${JSON.stringify(raw)}. Valid forms: header, header:<name>, path, query, query:<param>, body:<path>`,
   });
   if (location === 'header') return { ok: true, target: arg ? { location: 'header', name: arg.toLowerCase() } : { location: 'header' } };
   if (location === 'query') return { ok: true, target: arg ? { location: 'query', name: arg } : { location: 'query' } };
+  if (location === 'path') {
+    if (arg) return { ok: false, error: 'substituteIn: path takes no argument (the URL path has no named segments). Use "path" on its own to allow a token anywhere in the path' };
+    return { ok: true, target: { location: 'path' } };
+  }
   if (location === 'body') {
     if (!arg) {
       return {

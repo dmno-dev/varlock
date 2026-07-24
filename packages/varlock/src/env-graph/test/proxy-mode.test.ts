@@ -149,6 +149,7 @@ describe('proxy decorators', () => {
       # @proxy(domain="api.a.com", substituteIn="body:client_secret")
       # @proxy(domain="api.b.com", substituteIn=[header, "body:token"])
       # @proxy(domain="api.c.com", substituteIn="body:*")
+      # @proxy(domain="api.d.com", substituteIn=[path, "query:api_key"])
       # ---
       BASELINE=1
     `);
@@ -156,7 +157,19 @@ describe('proxy decorators', () => {
       { domain: ['api.a.com'], substituteIn: ['body:client_secret'] },
       { domain: ['api.b.com'], substituteIn: ['header', 'body:token'] },
       { domain: ['api.c.com'], substituteIn: ['body:*'] },
+      { domain: ['api.d.com'], substituteIn: ['path', 'query:api_key'] },
     ]);
+  });
+
+  test('path takes no argument (path:<x> is rejected)', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", substituteIn="path:segment")
+      API_KEY=secret
+    `);
+    const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
+    expect(errors.some((e) => /path takes no argument/.test(e.message))).toBe(true);
   });
 
   test('maxOccurrences parses onto the rule', async () => {

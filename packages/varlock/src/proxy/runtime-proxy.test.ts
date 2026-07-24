@@ -130,6 +130,23 @@ describe('checkSubstitutionGuards', () => {
     expect(checkSubstitutionGuards(inOther, [allowed])).toMatchObject({ kind: 'location', location: 'header' });
   });
 
+  test('blocks a placeholder in the URL path by default, allows it with substituteIn=[path]', () => {
+    const req = { ...emptyReq, requestTarget: '/v1/vlk_ph_key/data' };
+    expect(checkSubstitutionGuards(req, [item()])).toMatchObject({ kind: 'location', location: 'path' });
+    expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'path' }] })])).toBeUndefined();
+  });
+
+  test('path and query are distinct: a path token is not covered by bare query (and vice versa)', () => {
+    const inPath = { ...emptyReq, requestTarget: '/v1/vlk_ph_key/data?page=2' };
+    expect(checkSubstitutionGuards(inPath, [item({ targets: [{ location: 'query' }] })]))
+      .toMatchObject({ kind: 'location', location: 'path' });
+    const inQuery = { ...emptyReq, requestTarget: '/v1/data?token=vlk_ph_key' };
+    expect(checkSubstitutionGuards(inQuery, [item({ targets: [{ location: 'path' }] })]))
+      .toMatchObject({ kind: 'location', location: 'query' });
+    // ...and bare query does cover the query string
+    expect(checkSubstitutionGuards(inQuery, [item({ targets: [{ location: 'query' }] })])).toBeUndefined();
+  });
+
   test('allows a placeholder in a named query param', () => {
     const req = { ...emptyReq, requestTarget: '/v1?api_key=vlk_ph_key' };
     expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'query', name: 'api_key' }] })])).toBeUndefined();
