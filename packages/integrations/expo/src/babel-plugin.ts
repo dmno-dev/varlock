@@ -126,7 +126,7 @@ export default function varlockExpoBabelPlugin(api: BabelAPI) {
   const t = api.types;
 
   // Build the set of non-dynamic keys that can be statically replaced
-  const warnedSensitiveKeys = new Set<string>();
+  const warnedKeys = new Set<string>();
   const staticKeys = new Set<string>();
   for (const itemKey in config) {
     const item = config[itemKey];
@@ -162,13 +162,21 @@ export default function varlockExpoBabelPlugin(api: BabelAPI) {
             if (!isDynamic) return;
             debug(`ENV.${key} is dynamic - skipping static replacement`);
 
-            if (config[key].isSensitive && !isServerFile(state.filename) && !warnedSensitiveKeys.has(key)) {
-              warnedSensitiveKeys.add(key);
+            // any non-inlined (dynamic) value is unavailable in native code - warn either
+            // way, leading with the reason that applies (secrecy vs runtime-resolution)
+            if (!isServerFile(state.filename) && !warnedKeys.has(key)) {
+              warnedKeys.add(key);
+              const reason = config[key].isSensitive
+                ? `ENV.${key} is marked @sensitive and was not inlined.`
+                : `ENV.${key} is dynamic (runtime-resolved) and was not inlined.`;
+              const availability = config[key].isSensitive
+                ? '  Sensitive values are only accessible in Expo server routes (+api files).'
+                : '  Dynamic values are only accessible in Expo server routes (+api files).';
               // eslint-disable-next-line no-console
               console.warn([
-                `⚠️  @varlock/expo-integration: ENV.${key} is marked @sensitive and was not inlined.`,
+                `⚠️  @varlock/expo-integration: ${reason}`,
                 `  → ${state.filename ?? '<unknown file>'}`,
-                '  Sensitive values are only accessible in Expo server routes (+api files).',
+                availability,
                 '  Accessing this value in native code will throw at runtime.',
               ].join('\n'));
             }

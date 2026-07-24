@@ -200,6 +200,23 @@ describe('varlockExpoBabelPlugin – sensitive var build-time warnings', () => {
     warnSpy.mockRestore();
   });
 
+  it('warns when a public+dynamic var is accessed in a native (non-server) file', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    visitMemberExpression('ENV', 'PUBLIC_DYNAMIC_URL', false, '/app/screens/Home.tsx');
+    expect(warnSpy).toHaveBeenCalledOnce();
+    const message = warnSpy.mock.calls[0][0] as string;
+    expect(message).toContain('PUBLIC_DYNAMIC_URL');
+    expect(message).toContain('dynamic');
+    warnSpy.mockRestore();
+  });
+
+  it('does NOT warn when a public+dynamic var is accessed in a server +api file', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    visitMemberExpression('ENV', 'PUBLIC_DYNAMIC_URL', false, '/app/api/auth+api.ts');
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
   it('does NOT warn for non-sensitive vars regardless of file type', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     visitMemberExpression('ENV', 'API_URL', false, '/app/screens/Home.tsx');

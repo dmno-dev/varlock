@@ -73,6 +73,7 @@ console.log(ENV.PUBLIC_RUNTIME_FLAG);
 | Astro | Works in SSR paths | Auto-injected endpoint in SSR mode (configurable) |
 | SvelteKit | Works in SSR paths | Add a `+server.ts` endpoint |
 | Vite (generic) | Works in SSR/server runtime | Add your own server endpoint |
+| Cloudflare Workers | Works in the worker at runtime (values hydrate from bindings at boot) | Add your own route serving `getPublicDynamicEnv()` |
 
 See framework-specific recipes:
 - [Next.js](/integrations/nextjs/)
@@ -88,6 +89,8 @@ Baking a public+dynamic value into prerendered output defeats its purpose: you m
 - **Vite-based frameworks** (Astro, SvelteKit, etc.): accessing a public+dynamic key while a build/prerender is running throws an error. Set `_VARLOCK_DYNAMIC_BUILD_ACCESS_MODE=warn` to downgrade it to a warning (e.g. while migrating an existing app).
 
 Sensitive values are not subject to this guard. Reading a sensitive value server-side during a static build (e.g. using an API key to fetch data while generating pages) is fine; leak detection separately errors if the value itself ends up in the built output.
+
+One caveat on freshness: `@dynamic` guarantees a value is never inlined into client bundles or prerendered output. How fresh the *server-side* value is depends on how your deployment delivers env: platforms where varlock resolves at server boot (Node servers, Next.js) re-read on each deploy/boot, while modes that bake a resolved blob into the server artifact at build time (e.g. Vite `ssrInjectMode: 'resolved-env'` on serverless adapters) serve values as of the build. If you need per-boot freshness on those platforms, deliver the value through the platform's runtime env instead.
 
 ## Filtering by static/dynamic
 

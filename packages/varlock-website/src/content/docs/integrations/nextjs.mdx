@@ -284,6 +284,8 @@ export function ClientWidget() {
 
 If you want to return only a subset, pass keys to `getPublicDynamicEnv(['KEY_A', 'KEY_B'])`.
 
+Note that in the browser, reading a dynamic+public key *before* `loadPublicDynamicEnv()` completes returns `undefined` (unlike Vite-based frameworks, Next client bundles do not currently carry the declared dynamic key list, so varlock cannot raise its usual "not hydrated yet" error there). Gate rendering on the load completing, or handle the `undefined` initial state.
+
 :::tip[Keep unaffected pages static]
 Do not put client dynamic-env loading in your root layout unless every route needs it. Prefer a route group/segment-level layout or a local component so pages that do not use dynamic+public values can still be prerendered.
 :::

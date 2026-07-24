@@ -129,6 +129,31 @@ export function defineViteTests(
           },
         ],
       });
+
+      viteEnv.describeScenario('public+dynamic var not inlined in client code', {
+        command: 'vite build',
+        templateFiles: {
+          '.env.schema': 'schemas/.env.schema.dynamic',
+          'vite.config.ts': 'vite-configs/vite.config.ts',
+          'index.html': 'html/basic.html',
+          'src/main.ts': 'pages/dynamic-ref-page.ts',
+        },
+        fileAssertions: [
+          {
+            description: 'dynamic public value is not inlined; key stays a runtime reference',
+            fileGlob: 'dist/assets/*.js',
+            // the key name appears via the runtime ENV access and the injected
+            // __varlockPublicDynamicKeys list; the value must not
+            shouldContain: ['PUBLIC_DYNAMIC_VAR', '__varlockPublicDynamicKeys'],
+            shouldNotContain: ['public-dynamic-value', 'super-secret-value'],
+          },
+          {
+            description: 'static public var is still replaced',
+            fileGlob: 'dist/assets/*.js',
+            shouldContain: ['public-test-value'],
+          },
+        ],
+      });
     });
 
     // ---- HTML constant replacement ----
@@ -170,6 +195,23 @@ export function defineViteTests(
           {
             description: 'error mentions sensitive config item',
             shouldContain: ['SECRET_KEY', 'sensitive'],
+          },
+        ],
+      });
+
+      viteEnv.describeScenario('public+dynamic var in HTML causes build failure', {
+        command: 'vite build',
+        expectSuccess: false,
+        templateFiles: {
+          '.env.schema': 'schemas/.env.schema.dynamic',
+          'vite.config.ts': 'vite-configs/vite.config.ts',
+          'index.html': 'html/dynamic-html.html',
+          'src/main.ts': 'pages/minimal-page.ts',
+        },
+        outputAssertions: [
+          {
+            description: 'error mentions dynamic config item',
+            shouldContain: ['PUBLIC_DYNAMIC_VAR', 'dynamic'],
           },
         ],
       });
