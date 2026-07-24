@@ -6,6 +6,13 @@
 
 
 
+
+## 2.0.1
+<sub>2026-07-24</sub>
+
+- [#938](https://github.com/dmno-dev/varlock/pull/938)  *(patch)*
+  CLI batch reads now use op inject instead of op run -- env -0, fixing failures on Windows where no unix env binary exists
+
 ## 2.0.0
 <sub>2026-06-23</sub>
 

@@ -19,6 +19,12 @@
 
 
 
+
+## 1.13.1
+<sub>2026-07-24</sub>
+
+- [#933](https://github.com/dmno-dev/varlock/pull/933)  *(patch)* - fix `varlock audit` ignoring `@auditIgnore` on schema items
+
 ## 1.13.0
 <sub>2026-07-21</sub>
 
