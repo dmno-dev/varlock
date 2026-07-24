@@ -237,9 +237,48 @@ In a monorepo, `.env.schema` often uses [`@import()`](/guides/import/) to pull s
 
 When Docker's build context is limited to `apps/web/`, those imported files are **not** in the context, so `varlock load` fails with missing file errors.
 
-### Workaround: copy imported files explicitly
+### `varlock flatten`
 
-Until a dedicated **`varlock flatten`** command ships (to inline the import graph into a local directory for Docker builds), copy every file the import graph needs:
+[`varlock flatten`](/reference/cli-commands/#flatten) collapses the whole import graph into one self-contained directory (default `.env-flat/`) and rewrites the `@import` paths, so the package's env files no longer reach outside the package:
+
+```bash
+cd apps/web && varlock flatten
+```
+
+The output directory contains rewritten copies of the package's own env files at its root, plus everything they import mirrored under `.env-imports/`. It is position-independent: copy its **contents** over your app directory (replacing the originals, whose imports still point outside) and `varlock load` / `varlock run` work with nothing else present.
+
+The most common flow runs `flatten` in the **builder stage** of a multi-stage build, while the full monorepo is still around, then overlays the output in the final stage:
+
+```dockerfile title="Dockerfile: multi-stage with flatten"
+# builder stage has the full monorepo
+FROM node:22-slim AS builder
+WORKDIR /repo
+COPY . .
+RUN npm install
+RUN cd apps/web && npx varlock flatten
+RUN cd apps/web && npm run build
+
+FROM node:22-slim
+COPY --from=ghcr.io/dmno-dev/varlock:1.6.0 /usr/local/bin/varlock /usr/local/bin/varlock
+WORKDIR /app
+COPY --from=builder /repo/apps/web /app
+# overlay the flattened env files over the originals
+COPY --from=builder /repo/apps/web/.env-flat/ /app/
+ENTRYPOINT ["varlock", "run", "--"]
+CMD ["node", "dist/server.js"]
+```
+
+You can also run `flatten` on the host or in CI before `docker build`, when the build context is limited to the package directory. It never resolves values or executes plugins, so it needs no secrets wherever it runs. Add the output directory to `.gitignore` (and make sure `.dockerignore` does not exclude it).
+
+A few behaviors worth knowing (see the [command reference](/reference/cli-commands/#flatten) for the full list):
+
+- `.env.local` / `.env.[env].local` files are **skipped by default**, so machine-local secrets don't end up in image layers. Use `--include-local` if you really want them.
+- Conditionally-enabled imports (`enabled=`) are copied too, with their conditions preserved, since production may enable imports your build machine doesn't.
+- `@plugin()` declarations in copied files get pinned to the installed version, so the standalone binary can [auto-install them](/guides/plugins/) in the container without the sibling package's `node_modules`.
+
+### Alternative: copy imported files explicitly
+
+If you prefer not to add a build step, copy every file the import graph needs:
 
 ```dockerfile title="Dockerfile: monorepo env files"
 # Build from repo root: docker build -f apps/web/Dockerfile .
@@ -255,10 +294,6 @@ RUN varlock load
 ```
 
 Alternatively, set the build context to the **monorepo root** and use `docker build -f apps/web/Dockerfile .` so all import paths resolve naturally, at the cost of a larger context and slower builds.
-
-:::note[Coming soon]
-A planned `varlock flatten` command will automate inlining imported env files for Docker builds. Until then, explicit `COPY` lines or a root build context are the supported approaches.
-:::
 
 ## Plugins in containers
 
@@ -280,6 +315,40 @@ DATABASE_URL=op(op://prod/db/connection-string) # @sensitive
 ```
 
 In **Node-based images** where varlock is an npm dependency, install plugins in `package.json` and reference them without a version (or with a range for validation only). See the [Plugins guide](/guides/plugins/#plugin-installation) for details.
+
+### Distroless and shell-less base images
+
+Auto-install works in minimal base images (Google distroless, `scratch`-based, etc.) that have no shell and no `tar` binary. The standalone binary downloads and extracts pinned plugin versions itself, so official `@varlock/*` plugins resolve at runtime with no extra setup.
+
+Runtime auto-install still has two limits: **third-party (non-`@varlock`) plugins** need a one-time trust confirmation (an interactive terminal), and any auto-install needs **network access to npm** at container start. For a fully self-contained image that has neither, vendor the plugins at build time.
+
+#### Vendor plugins with `flatten --vendor-plugins` (recommended)
+
+If you already use [`varlock flatten`](/reference/cli-commands/#flatten) for a monorepo build, add `--vendor-plugins`. It downloads each `@plugin()` package and copies it into the output (`.env-plugins/`), rewriting the declarations to local paths. The flattened directory then resolves with **no runtime npm fetch, no shell, and no trust prompt**, because the download and confirmation happened during the build:
+
+```dockerfile title="Dockerfile (excerpt)"
+# builder stage (has the full monorepo + network)
+RUN cd packages/api && varlock flatten --vendor-plugins
+
+# final distroless stage
+COPY --from=builder /repo/packages/api/.env-flat/ /app/
+```
+
+This is the most complete option: it covers third-party plugins and offline runtimes, which runtime auto-install cannot.
+
+#### Or pre-cache with `install-plugin`
+
+Without flatten, pre-cache plugins in a stage that has a shell and copy the cache across. Pin the cache location with `XDG_CONFIG_HOME` so both stages agree:
+
+```dockerfile title="Dockerfile (excerpt)"
+ENV XDG_CONFIG_HOME=/varlock-config
+
+# builder stage: pre-cache the plugin into $XDG_CONFIG_HOME/varlock/plugins-cache
+RUN varlock install-plugin my-plugin@1.2.3
+
+# final stage: reuse the populated cache (set the same XDG_CONFIG_HOME here too)
+COPY --from=builder /varlock-config /varlock-config
+```
 
 :::caution[Plugin cache in CI/containers]
 Ephemeral containers often run in memory cache mode. If your job invokes varlock multiple times and plugin fetches are slow, set [`_VARLOCK_CACHE_KEY`](/guides/caching/#disk-caching-in-ci-with-_varlock_cache_key) as a CI secret. See the [Caching guide](/guides/caching/) for details.
@@ -403,7 +472,7 @@ For cloud deployments, prefer [service account tokens](/guides/plugins/) or [OID
 
 ### Missing `@import` files
 
-See [Monorepos and partial build context](#monorepos-and-partial-build-context). The error usually lists a path outside your Docker build context. Add explicit `COPY` instructions or widen the context to the monorepo root.
+See [Monorepos and partial build context](#monorepos-and-partial-build-context). The error usually lists a path outside your Docker build context. Run [`varlock flatten`](/reference/cli-commands/#flatten) while the full monorepo is available, add explicit `COPY` instructions, or widen the context to the monorepo root.
 
 ### Wrong environment loaded
 
