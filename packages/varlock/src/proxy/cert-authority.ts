@@ -10,6 +10,8 @@ import {
   KeyUsage, KeyUsageFlags, id_ce_keyUsage as OID_KEY_USAGE,
   ExtendedKeyUsage, id_ce_extKeyUsage as OID_EXT_KEY_USAGE, id_kp_serverAuth as OID_KP_SERVER_AUTH,
   SubjectAlternativeName, id_ce_subjectAltName as OID_SUBJECT_ALT_NAME, GeneralName,
+  SubjectKeyIdentifier, id_ce_subjectKeyIdentifier as OID_SUBJECT_KEY_IDENTIFIER,
+  AuthorityKeyIdentifier, KeyIdentifier, id_ce_authorityKeyIdentifier as OID_AUTHORITY_KEY_IDENTIFIER,
 } from '@peculiar/asn1-x509';
 import { ecdsaWithSHA256, ECDSASigValue } from '@peculiar/asn1-ecc';
 
@@ -51,6 +53,8 @@ export type EphemeralCa = {
   privateKey: CryptoKey;
   /** Issuer DN of the CA, reused as the issuer field of every minted leaf. */
   issuerName: Name;
+  /** The CA's subject key identifier, embedded as each minted leaf's AKI so chains build under strict verifiers. */
+  subjectKeyId: ArrayBuffer;
   certPem: string;
 };
 
@@ -151,11 +155,18 @@ async function subjectPublicKeyInfo(publicKey: CryptoKey): Promise<SubjectPublic
   return AsnConvert.parse(spki, SubjectPublicKeyInfo);
 }
 
+/** RFC 5280 method-1 key identifier: SHA-1 of the subjectPublicKey BIT STRING contents. */
+async function keyIdentifierFor(publicKey: CryptoKey): Promise<ArrayBuffer> {
+  const spki = await subjectPublicKeyInfo(publicKey);
+  return cryptoApi.subtle.digest('SHA-1', spki.subjectPublicKey);
+}
+
 /** Generate a fresh in-memory CA. Private key stays in memory; only the cert is exported. */
 export async function createEphemeralCa(): Promise<EphemeralCa> {
   const keys = await generateKeyPair();
   const { notBefore, notAfter } = validityWindow();
   const issuerName = commonNameDn('varlock-proxy-ca');
+  const subjectKeyId = await keyIdentifierFor(keys.publicKey);
 
   const tbs = new TBSCertificate({
     version: Version.v3,
@@ -169,11 +180,16 @@ export async function createEphemeralCa(): Promise<EphemeralCa> {
       extension(OID_BASIC_CONSTRAINTS, true, new BasicConstraints({ cA: true })),
       // eslint-disable-next-line no-bitwise -- combining KeyUsage flags is the intended bitmask API
       extension(OID_KEY_USAGE, true, new KeyUsage(KeyUsageFlags.keyCertSign | KeyUsageFlags.cRLSign)),
+      // RFC 5280 requires an SKI on CA certs; strict verifiers (python 3.13+
+      // sets VERIFY_X509_STRICT by default) reject chains without it.
+      extension(OID_SUBJECT_KEY_IDENTIFIER, false, new SubjectKeyIdentifier(subjectKeyId)),
     ]),
   });
 
   const certPem = await signCertificate(tbs, keys.privateKey);
-  return { privateKey: keys.privateKey, issuerName, certPem };
+  return {
+    privateKey: keys.privateKey, issuerName, subjectKeyId, certPem,
+  };
 }
 
 /** Mint a leaf cert for a host, signed by the CA. Both keys stay in memory. */
@@ -200,6 +216,13 @@ export async function createHostCert(ca: EphemeralCa, host: string): Promise<Min
       extension(OID_KEY_USAGE, true, new KeyUsage(KeyUsageFlags.digitalSignature)),
       extension(OID_EXT_KEY_USAGE, false, new ExtendedKeyUsage([OID_KP_SERVER_AUTH])),
       extension(OID_SUBJECT_ALT_NAME, false, new SubjectAlternativeName([sanEntry])),
+      // Strict verifiers (python 3.13+ sets VERIFY_X509_STRICT by default)
+      // require an AKI on non-self-issued certs matching the issuer's SKI, and
+      // recommend an SKI on every cert (RFC 5280).
+      extension(OID_SUBJECT_KEY_IDENTIFIER, false, new SubjectKeyIdentifier(await keyIdentifierFor(keys.publicKey))),
+      extension(OID_AUTHORITY_KEY_IDENTIFIER, false, new AuthorityKeyIdentifier({
+        keyIdentifier: new KeyIdentifier(ca.subjectKeyId),
+      })),
     ]),
   });
 
