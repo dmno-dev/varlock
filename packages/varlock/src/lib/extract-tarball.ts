@@ -110,7 +110,7 @@ export async function extractTarballBuffer(tgzBuffer: Buffer, destDir: string): 
     // advance past the data, rounded up to the next block boundary
     offset += Math.ceil(size / BLOCK_SIZE) * BLOCK_SIZE;
 
-    // PAX extended header (per-file 'x' or global 'g') — records apply to the next entry
+    // PAX extended header (per-file 'x' or global 'g') - records apply to the next entry
     if (typeflag === 'x' || typeflag === 'g') {
       const records = parsePaxRecords(buf.subarray(dataStart, dataEnd));
       if (records.path !== undefined) nextPath = records.path;
@@ -118,13 +118,13 @@ export async function extractTarballBuffer(tgzBuffer: Buffer, destDir: string): 
       continue;
     }
 
-    // GNU long name / long link — data holds the full path for the next entry
+    // GNU long name / long link - data holds the full path for the next entry
     if (typeflag === 'L') {
       nextPath = buf.subarray(dataStart, dataEnd).toString('utf-8').replace(/\0+$/, '');
       continue;
     }
     if (typeflag === 'K') {
-      continue; // long linkname — only relevant to links, which we skip anyway
+      continue; // long linkname - only relevant to links, which we skip anyway
     }
 
     const entryName = nextPath ?? (prefix ? `${prefix}/${rawName}` : rawName);

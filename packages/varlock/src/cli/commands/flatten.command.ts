@@ -40,7 +40,7 @@ Examples:
   varlock flatten                    # flatten env files from the current directory into .env-flat/
   varlock flatten --out-dir dist/env # custom output location
   varlock flatten --include-local    # also include .env.local files (careful - these often hold secrets)
-  varlock flatten --vendor-plugins   # also download npm plugins into the output (self-contained, no runtime install)
+  varlock flatten --vendor-plugins   # also copy npm plugins into the output (self-contained, no runtime install)
 
 Typical Dockerfile usage (builder stage has the full monorepo):
   RUN cd packages/api && varlock flatten
