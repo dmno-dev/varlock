@@ -7,7 +7,11 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { URL } from 'node:url';
 
 import type { ProxyActivity } from './audit';
-import { findUninjectedPlaceholder, replacePlaceholdersWithReal, startLocalProxyRuntime } from './runtime-proxy';
+import {
+  checkSubstitutionGuards, findUninjectedPlaceholder, replacePlaceholdersWithReal, startLocalProxyRuntime,
+  type SubstitutionGuardRequest,
+} from './runtime-proxy';
+import type { RequestScopedManagedItem } from './policy';
 
 /** Bind an ephemeral port, capture it, release it — a free port for a fixed-port test. */
 function getFreePort(): Promise<number> {
@@ -62,6 +66,139 @@ describe('replacePlaceholdersWithReal', () => {
     ];
     const input = 'a=vlk_x&b=vlk_x_1';
     expect(replacePlaceholdersWithReal(input, managedItems as any)).toBe('a=REAL_A&b=REAL_B');
+  });
+});
+
+describe('checkSubstitutionGuards', () => {
+  const emptyReq: SubstitutionGuardRequest = {
+    headers: [], requestTarget: '/', body: '', contentType: undefined,
+  };
+  const item = (over: Partial<RequestScopedManagedItem> = {}): RequestScopedManagedItem => ({
+    key: 'API_KEY',
+    placeholder: 'vlk_ph_key',
+    realValue: 'sk-real',
+    targets: [{ location: 'header' }],
+    maxOccurrences: 1,
+    ...over,
+  });
+  const jsonBody = (obj: unknown): Partial<SubstitutionGuardRequest> => ({
+    body: JSON.stringify(obj), contentType: 'application/json',
+  });
+
+  test('allows a placeholder in an allowed header within the occurrence cap', () => {
+    const req = { ...emptyReq, headers: [{ name: 'authorization', value: 'Bearer vlk_ph_key' }] };
+    expect(checkSubstitutionGuards(req, [item()])).toBeUndefined();
+  });
+
+  test('blocks a placeholder in the body under the any-header default', () => {
+    const req = { ...emptyReq, ...jsonBody({ note: 'vlk_ph_key' }) };
+    expect(checkSubstitutionGuards(req, [item()])).toMatchObject({ kind: 'location', location: 'body' });
+  });
+
+  test('allows a body placeholder only at the exact path it was widened to', () => {
+    const req = { ...emptyReq, ...jsonBody({ client_secret: 'vlk_ph_key' }) };
+    expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'body', path: 'client_secret' }] })])).toBeUndefined();
+  });
+
+  test('blocks a body placeholder at a DIFFERENT path than the one allowed (the exfil case)', () => {
+    // body:client_secret is allowed, but the agent put the placeholder in `note`
+    // instead — a path-level guard catches this; a coarse "body" bucket would not.
+    const req = { ...emptyReq, ...jsonBody({ note: 'vlk_ph_key' }) };
+    expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'body', path: 'client_secret' }] })]))
+      .toMatchObject({ kind: 'location', location: 'body' });
+  });
+
+  test('the any-header default excludes denylisted forward/log headers (cookie, x-forwarded-*, ...)', () => {
+    // Placeholder redirected into a header the upstream might forward/log — blocked
+    // even though the item allows "any header".
+    for (const name of ['cookie', 'x-forwarded-for', 'host', 'referer', 'user-agent']) {
+      const req = { ...emptyReq, headers: [{ name, value: 'x vlk_ph_key y' }] };
+      expect(checkSubstitutionGuards(req, [item()])).toMatchObject({ kind: 'location', location: 'header' });
+    }
+  });
+
+  test('an explicit header:<name> target overrides the denylist', () => {
+    const req = { ...emptyReq, headers: [{ name: 'cookie', value: 'session=vlk_ph_key' }] };
+    expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'header', name: 'cookie' }] })])).toBeUndefined();
+  });
+
+  test('pins to a specific header name', () => {
+    const allowed = item({ targets: [{ location: 'header', name: 'authorization' }] });
+    const inAuth = { ...emptyReq, headers: [{ name: 'authorization', value: 'Bearer vlk_ph_key' }] };
+    expect(checkSubstitutionGuards(inAuth, [allowed])).toBeUndefined();
+    const inOther = { ...emptyReq, headers: [{ name: 'x-evil', value: 'vlk_ph_key' }] };
+    expect(checkSubstitutionGuards(inOther, [allowed])).toMatchObject({ kind: 'location', location: 'header' });
+  });
+
+  test('blocks a placeholder in the URL path by default, allows it with substituteIn=[path]', () => {
+    const req = { ...emptyReq, requestTarget: '/v1/vlk_ph_key/data' };
+    expect(checkSubstitutionGuards(req, [item()])).toMatchObject({ kind: 'location', location: 'path' });
+    expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'path' }] })])).toBeUndefined();
+  });
+
+  test('path and query are distinct: a path token is not covered by bare query (and vice versa)', () => {
+    const inPath = { ...emptyReq, requestTarget: '/v1/vlk_ph_key/data?page=2' };
+    expect(checkSubstitutionGuards(inPath, [item({ targets: [{ location: 'query' }] })]))
+      .toMatchObject({ kind: 'location', location: 'path' });
+    const inQuery = { ...emptyReq, requestTarget: '/v1/data?token=vlk_ph_key' };
+    expect(checkSubstitutionGuards(inQuery, [item({ targets: [{ location: 'path' }] })]))
+      .toMatchObject({ kind: 'location', location: 'query' });
+    // ...and bare query does cover the query string
+    expect(checkSubstitutionGuards(inQuery, [item({ targets: [{ location: 'query' }] })])).toBeUndefined();
+  });
+
+  test('allows a placeholder in a named query param', () => {
+    const req = { ...emptyReq, requestTarget: '/v1?api_key=vlk_ph_key' };
+    expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'query', name: 'api_key' }] })])).toBeUndefined();
+    // ...but not in a different param
+    const other = { ...emptyReq, requestTarget: '/v1?leak=vlk_ph_key' };
+    expect(checkSubstitutionGuards(other, [item({ targets: [{ location: 'query', name: 'api_key' }] })]))
+      .toMatchObject({ kind: 'location', location: 'query' });
+  });
+
+  test('blocks when a placeholder appears more times than the occurrence cap', () => {
+    // Valid use in the header PLUS an exfil copy at the same body path (both allowed).
+    const req = {
+      ...emptyReq,
+      headers: [{ name: 'authorization', value: 'Bearer vlk_ph_key' }],
+      ...jsonBody({ client_secret: 'vlk_ph_key' }),
+    };
+    const allowed = item({ targets: [{ location: 'header' }, { location: 'body', path: 'client_secret' }] });
+    expect(checkSubstitutionGuards(req, [allowed])).toMatchObject({ kind: 'occurrences', count: 2 });
+  });
+
+  test('allows repeated occurrences when maxOccurrences is raised', () => {
+    const req = {
+      ...emptyReq,
+      headers: [{ name: 'authorization', value: 'Bearer vlk_ph_key' }],
+      ...jsonBody({ client_secret: 'vlk_ph_key' }),
+    };
+    const allowed = item({ targets: [{ location: 'header' }, { location: 'body', path: 'client_secret' }], maxOccurrences: 2 });
+    expect(checkSubstitutionGuards(req, [allowed])).toBeUndefined();
+  });
+
+  test('fails closed when a body:path target is set but the body cannot be parsed', () => {
+    const req = { ...emptyReq, body: 'vlk_ph_key not-json', contentType: 'application/json' };
+    expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'body', path: 'client_secret' }] })]))
+      .toMatchObject({ kind: 'location', location: 'body' });
+  });
+
+  test('body:* allows the placeholder anywhere in an unparseable (e.g. XML) body', () => {
+    const xml = '<soap:Envelope><auth><token>vlk_ph_key</token></auth></soap:Envelope>';
+    const req = { ...emptyReq, body: xml, contentType: 'application/xml' };
+    expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'body', path: '*' }] })])).toBeUndefined();
+  });
+
+  test('body:* still respects the occurrence cap', () => {
+    // Two copies in an unstructured body — anywhere is allowed, but the default cap is 1.
+    const req = { ...emptyReq, body: 'sig=vlk_ph_key&dup=vlk_ph_key', contentType: 'text/plain' };
+    expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'body', path: '*' }] })]))
+      .toMatchObject({ kind: 'occurrences', count: 2 });
+  });
+
+  test('ignores items with an empty placeholder', () => {
+    const req = { ...emptyReq, body: 'anything' };
+    expect(checkSubstitutionGuards(req, [item({ placeholder: '' })])).toBeUndefined();
   });
 });
 

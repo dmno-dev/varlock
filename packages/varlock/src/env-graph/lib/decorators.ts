@@ -14,7 +14,7 @@ import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
 import { parseKeyFilterArgs, applyKeyFilter, type KeyFilter } from './key-filter';
 import { parseDuration } from '../../lib/duration';
-import { PROXY_APPROVAL_EACH_VALUES } from '../../proxy/types';
+import { PROXY_APPROVAL_EACH_VALUES, parseProxySubstitutionTarget } from '../../proxy/types';
 
 
 export abstract class DecoratorInstance {
@@ -379,11 +379,11 @@ function assertProxyStringListArg(
  * literal and `keys` as an array literal; rejects positional args; validates the
  * approval options.
  */
-const VALID_PROXY_OPTIONS = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'rules'] as const;
+const VALID_PROXY_OPTIONS = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'maxOccurrences', 'rules'] as const;
 /** Per-entry options inside the `rules=[{...}]` array form. Each entry is a
  * policy refinement for the parent's `domain`, so it cannot re-set `domain` or
  * `keys` (injection is controlled by the parent rule). */
-const VALID_PROXY_RULE_ENTRY_OPTIONS = ['path', 'method', 'block', 'approval'] as const;
+const VALID_PROXY_RULE_ENTRY_OPTIONS = ['path', 'method', 'block', 'approval', 'substituteIn', 'maxOccurrences'] as const;
 /** Inner options of the `approval={...}` object form. */
 const VALID_APPROVAL_OPTIONS = ['enabled', 'each', 'maxDuration'] as const;
 
@@ -403,6 +403,39 @@ function assertProxyStringArg(resolver: Resolver | undefined, option: string): v
   if (!resolver?.isStatic) return;
   if (typeof resolver.staticValue !== 'string' || !resolver.staticValue.trim()) {
     throw new SchemaError(`@proxy: ${option} must be a non-empty string`);
+  }
+}
+
+/**
+ * `substituteIn` is a single target or an array literal of targets, each one of
+ * `header`, `header:<name>`, `query`, `query:<param>`, or `body:<path>`. Statically
+ * validates literal entries via the shared target parser; dynamic expressions are
+ * re-checked at resolve time.
+ */
+function assertProxySubstituteInArg(resolver: Resolver | undefined): void {
+  if (!resolver) return;
+  const check = (v: unknown) => {
+    if (typeof v !== 'string') throw new SchemaError('@proxy: substituteIn entries must be strings, e.g. substituteIn=[header, body:client_secret]');
+    const parsed = parseProxySubstitutionTarget(v);
+    if (!parsed.ok) throw new SchemaError(`@proxy: ${parsed.error}`);
+  };
+  if (resolver instanceof ArrayLiteralResolver) {
+    const els = resolver.arrArgs ?? [];
+    if (!els.length) throw new SchemaError('@proxy: substituteIn array cannot be empty');
+    for (const el of els) {
+      if (el.isStatic) check(el.staticValue);
+    }
+    return;
+  }
+  if (resolver.isStatic) check(resolver.staticValue);
+}
+
+/** A static `maxOccurrences` must be an integer >= 1. */
+function assertProxyMaxOccurrencesArg(resolver: Resolver | undefined): void {
+  if (!resolver?.isStatic) return;
+  const val = resolver.staticValue;
+  if (typeof val !== 'number' || !Number.isInteger(val) || val < 1) {
+    throw new SchemaError(`@proxy: maxOccurrences must be an integer >= 1, not ${JSON.stringify(val)}`);
   }
 }
 
@@ -472,6 +505,8 @@ function assertProxyRulesArg(resolver: Resolver | undefined): void {
     assertProxyStringArg(inner.path, 'path');
     assertProxyBooleanArg(inner.block, 'block');
     assertProxyApprovalArg(inner.approval);
+    assertProxySubstituteInArg(inner.substituteIn);
+    assertProxyMaxOccurrencesArg(inner.maxOccurrences);
   }
 }
 
@@ -496,6 +531,8 @@ function validateProxyFunctionArgs(argsVal: Resolver): void {
   assertProxyStringArg(argsVal.objArgs?.path, 'path');
   assertProxyBooleanArg(argsVal.objArgs?.block, 'block');
   assertProxyApprovalArg(argsVal.objArgs?.approval);
+  assertProxySubstituteInArg(argsVal.objArgs?.substituteIn);
+  assertProxyMaxOccurrencesArg(argsVal.objArgs?.maxOccurrences);
   assertProxyRulesArg(argsVal.objArgs?.rules);
 
   if (argsVal.arrArgs?.length) {

@@ -304,7 +304,7 @@ OPENAI_API_KEY=yourPreferredPlugin()
 
 Routes an item's secret through the [credential proxy](/guides/proxy/) so an untrusted child process only ever sees a placeholder, while the real value is injected into matching outbound requests at the network boundary. Using `@proxy(...)` on an item implies [`@sensitive`](#sensitive).
 
-**Function form** `@proxy(domain=..., [path], [method], [block], [approval], [keys], [rules])`:
+**Function form** `@proxy(domain=..., [path], [method], [block], [approval], [keys], [substituteIn], [maxOccurrences], [rules])`:
 
 | Option | Meaning |
 |---|---|
@@ -314,7 +314,9 @@ Routes an item's secret through the [credential proxy](/guides/proxy/) so an unt
 | `block` | `block=true` denies matching requests outright. |
 | `approval` | `approval=true` holds matching requests for an interactive yes/no in the `proxy start` terminal before they proceed. A self-contained one-shot `proxy run` has no terminal to prompt in and denies them. |
 | `keys` | Array of additional item names to inject for this rule, e.g. `keys=[OTHER_KEY]`. |
-| `rules` | Array of policy refinements sharing this rule's `domain`, e.g. `rules=[{path="/v1/**", block=true}]`. Each entry may set `path`/`method`/`block`/`approval` (not `domain`/`keys`) and injects nothing on its own. See the [Grouping rules guide](/guides/proxy/#grouping-rules-for-one-domain). |
+| `substituteIn` | Where the placeholder may be swapped for the real value: `header` (default), `header:<name>`, `path`, `query`, `query:<param>`, or `body:<path>`, e.g. `[header, "body:client_secret"]`. Body always requires a path (`body:*` allows anywhere, for bodies that can't be parsed into a path). A placeholder anywhere no target allows blocks the request instead of substituting. See [Substitution surface](/guides/proxy/#substitution-surface). |
+| `maxOccurrences` | Max times the placeholder may appear in one request before it's blocked (default `1`). See [Substitution surface](/guides/proxy/#substitution-surface). |
+| `rules` | Array of policy refinements sharing this rule's `domain`, e.g. `rules=[{path="/v1/**", block=true}]`. Each entry may set `path`/`method`/`block`/`approval`/`substituteIn`/`maxOccurrences` (not `domain`/`keys`) and injects nothing on its own. See the [Grouping rules guide](/guides/proxy/#grouping-rules-for-one-domain). |
 
 The same decorator in the **header** creates a _detached_ policy rule (no injection unless it lists `keys`).
 
