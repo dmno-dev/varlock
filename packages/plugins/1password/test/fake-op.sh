@@ -14,37 +14,33 @@ case "$1" in
   whoami)
     echo "Test User <test@example.com>"
     ;;
-  run)
-    # op run --no-masking [--account X] -- env -0
-    # Reads VARLOCK_1P_INJECT_* env vars, resolves op:// references from config,
-    # and outputs null-separated KEY=value pairs (like `env -0`).
+  inject)
+    # op inject [--account X]
+    # Reads a template from stdin, resolves {{ op://... }} references from
+    # config, and prints the substituted template. Mimics real op inject
+    # behavior: fails the whole batch on the first bad reference, strips
+    # control characters (except newline/tab) from output, and appends a
+    # trailing newline.
     node -e "
       const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE', 'utf-8'));
       const responses = cfg.responses || {};
       const errors = cfg.errors || {};
-      const refs = [];
+      const template = require('fs').readFileSync(0, 'utf-8');
 
-      for (const [key, ref] of Object.entries(process.env)) {
-        if (!key.startsWith('VARLOCK_1P_INJECT_')) continue;
-        refs.push({ key, ref });
-      }
+      const refs = [...template.matchAll(/\{\{\s*(op:\/\/[^}]+?)\s*\}\}/g)].map((m) => m[1]);
 
       // Check for errors first (real op fails entire batch on first error)
-      for (const { ref } of refs) {
+      for (const ref of refs) {
         if (errors[ref]) {
           process.stderr.write('[ERROR] 2024/01/01 00:00:00 ' + errors[ref] + '\n');
           process.exit(1);
         }
       }
 
-      // Output resolved values as null-separated pairs
-      const results = [];
-      for (const { key, ref } of refs) {
-        if (ref in responses) {
-          results.push(key + '=' + responses[ref]);
-        }
-      }
-      process.stdout.write(results.join('\0') + '\0');
+      const output = template.replace(/\{\{\s*(op:\/\/[^}]+?)\s*\}\}/g, (match, ref) => {
+        return ref in responses ? responses[ref] : match;
+      });
+      process.stdout.write(output.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '') + '\n');
     "
     ;;
   environment)

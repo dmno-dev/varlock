@@ -232,6 +232,23 @@ describe('1password plugin', () => {
       expectValues: { SECRET: 'p@ss=w0rd&foo' },
     }));
 
+    test('handles multiline values (e.g. private keys)', opTest({
+      opConfig: {
+        responses: {
+          'op://vault/item/key': '-----BEGIN KEY-----\nline1\nline2\n-----END KEY-----',
+          'op://vault/item/other': 'single-line',
+        },
+      },
+      schema: outdent`
+        PRIVATE_KEY=op("op://vault/item/key")
+        OTHER=op("op://vault/item/other")
+      `,
+      expectValues: {
+        PRIVATE_KEY: '-----BEGIN KEY-----\nline1\nline2\n-----END KEY-----',
+        OTHER: 'single-line',
+      },
+    }));
+
     test('bad vault reference rejects that item and retries the rest', opTest({
       opConfig: {
         responses: { 'op://good-vault/item/field': 'good-value' },
