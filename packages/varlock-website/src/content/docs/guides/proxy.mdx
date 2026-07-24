@@ -345,12 +345,32 @@ The proxy uses an **ephemeral, in-memory certificate authority** generated per r
 
 **Stdout/stderr redaction** is decided per stream: a stream attached to an interactive terminal passes through raw (so TUIs like `claude` render correctly), while a piped or redirected stream is scrubbed of sensitive values, including the real values the proxy injects at the wire, in case an upstream response echoes one back. Override with `--redact-stdout` / `--no-redact-stdout`.
 
-:::note[Clients that don't read these env vars]
-Tools that ignore the standard proxy/CA environment variables (many GUI apps, browsers, and some language runtimes with their own trust stores) won't be transparently proxied. The target here is CLI tools and agents, which generally do respect them.
+### Client compatibility
 
-One known offender: the Python that ships with macOS (`/usr/bin/python3`, built against Apple's LibreSSL) ignores `SSL_CERT_FILE`, so its `urllib` fails TLS verification against the proxy. Pythons from python.org, Homebrew, pyenv, or `uv` honor it. On the system Python, either use `requests` (which reads `REQUESTS_CA_BUNDLE`) or pass the bundle explicitly: `ssl.create_default_context(cafile=os.environ["SSL_CERT_FILE"])`.
+The proxy works with any client that honors the standard proxy and CA env vars above. Status of common clients:
 
-The same class of issue affects clients that verify TLS against the macOS system keychain instead of the CA env vars: Go programs on macOS (including CLIs like `gh` and `terraform`), .NET on macOS, macOS system Ruby, and Rust tools built with platform-verifier crates. These honor `HTTPS_PROXY` but reject the proxy's certificate. On Linux, Go and .NET read `SSL_CERT_FILE` and work. There is no env-var fix on macOS; run those tools outside the proxy or on Linux (e.g. `--sandbox=docker`).
+| Client | Works? | Notes |
+| --- | --- | --- |
+| curl, git, wget | yes | `--http2` is fine: ALPN negotiates down to HTTP/1.1 |
+| Python: python.org, Homebrew, pyenv, `uv` builds | yes | urllib, requests, and httpx all verified, including python 3.13+ strict verification |
+| Python: macOS system (`/usr/bin/python3`) | partial | proxied, but ignores `SSL_CERT_FILE` so urllib fails TLS verification; see workarounds below |
+| Node built-in `fetch` (Node 24+) | yes | via the injected `NODE_USE_ENV_PROXY=1` |
+| Node built-in `fetch` (Node < 24) | no | silently bypasses the proxy and sends placeholders directly upstream; use axios/got or Node 24+ |
+| Node axios, got | yes | implement env-proxy support themselves |
+| Bun `fetch` | yes | |
+| Deno | yes | via the injected `DENO_CERT` |
+| Go programs (incl. `gh`, `terraform`, `kubectl`) | Linux yes, macOS no | on macOS Go verifies against the system keychain and rejects the proxy CA |
+| .NET | Linux yes, macOS no | same system-keychain issue as Go |
+| Ruby | build-dependent | OpenSSL-linked builds work; macOS system Ruby has the same `SSL_CERT_FILE` issue as system Python |
+| Rust (reqwest etc.) | build-dependent | `native-tls`/OpenSSL backends honor `SSL_CERT_FILE`; `rustls` platform-verifier or bundled-roots builds reject the proxy CA |
+| JVM tools (java, gradle, maven) | no | the JVM ignores both the proxy and CA env vars on every platform; needs `-Dhttps.proxyHost`/`-Dhttps.proxyPort` and a custom truststore |
+| gRPC clients | no on matched hosts | gRPC requires HTTP/2 and the proxy's TLS interception is HTTP/1.1 only; hosts without a `@proxy` rule tunnel through untouched |
+| WebSockets (`wss://`) | no on matched hosts | upgrades through the interception path are unsupported; hosts without a `@proxy` rule tunnel through untouched |
+
+:::note[Workarounds]
+- **macOS system Python:** use `requests` (reads `REQUESTS_CA_BUNDLE`), or pass the bundle explicitly: `ssl.create_default_context(cafile=os.environ["SSL_CERT_FILE"])`. Pythons from python.org, Homebrew, pyenv, or `uv` need nothing.
+- **macOS system-keychain clients (Go, .NET, Rust platform verifiers):** these honor `HTTPS_PROXY` but verify TLS against the system keychain, which does not contain the proxy's ephemeral CA. There is no env-var fix; run those tools on Linux (e.g. [`--sandbox=docker`](/guides/sandboxing/), where they read `SSL_CERT_FILE`) or outside the proxy.
+- **GUI apps and browsers** generally ignore these env vars entirely; the target here is CLI tools and agents.
 :::
 
 ### Pinning the port and CA location
@@ -423,7 +443,8 @@ The proxy is a local, same-machine tool. Know what it does and doesn't cover bef
 - **Injection requires a verified public-TLS host.** Secrets are injected only onto connections whose TLS identity is verified against public CAs. The proxy refuses to inject over cleartext `http://` or into a self-signed/local upstream, by design.
 - **Default egress is not containment.** `egress=permissive` (the default) does not restrict where the agent can connect; it just never injects to unmatched hosts. Use `egress=strict` (and ideally a sandbox) if you want to constrain egress.
 - **Hot-reload is human-applied.** `proxy reload` (or pressing `r` in an interactive `proxy start`) re-resolves the schema and swaps the live policy; a reload requested from inside the proxied agent is refused and logged so the agent can't self-approve a schema edit. Availability follows [`@proxyConfig={reload=...}`](/reference/root-decorators/#proxyconfig) (default `auto`: on for an interactive daemon, off for headless or one-shot runs). But the agent-refusal is a self-reported signal, not authentication: an agent that strips its proxy markers (or runs out-of-tree) can still trigger a reload on a shared uid. A real out-of-band approver is planned to close this; until then, prefer a sandbox.
-- **Only proxy-aware clients are covered.** The child is pointed at the proxy via standard `HTTP(S)_PROXY` / CA env vars. A client that ignores those (or pins its own CA) bypasses the proxy entirely; it just won't get a working secret.
+- **Only proxy-aware clients are covered.** The child is pointed at the proxy via standard `HTTP(S)_PROXY` / CA env vars. A client that ignores those (or pins its own CA) bypasses the proxy entirely; it just won't get a working secret. See [client compatibility](#client-compatibility) for the status of common clients.
+- **TLS interception is HTTP/1.1 only.** Normal clients negotiate down via ALPN and work fine, but protocols that require HTTP/2 (gRPC) or a connection upgrade (WebSockets) are unsupported on hosts with a `@proxy` rule. Hosts without a rule tunnel through untouched.
 
 ## Reference
 
