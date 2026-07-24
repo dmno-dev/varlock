@@ -117,6 +117,13 @@ const parseFailureWarnedFiles = new Set<string>();
  * comments, and template literal text are never touched.
  * Falls back to regex replacement if the file fails to parse.
  */
+/** keys that are public AND dynamic - the ones browsers hydrate at runtime */
+function getPublicDynamicKeys(envGraph: SerializedEnvGraph): Array<string> {
+  return Object.entries(envGraph.config)
+    .filter(([, item]) => (item.isDynamic ?? item.isSensitive) && !item.isSensitive)
+    .map(([key]) => key);
+}
+
 function inlineEnvValues(source: string, filePath: string, envGraph: SerializedEnvGraph): string {
   const replacerTransform = getReplacerTransformCached(envGraph);
   try {
@@ -247,6 +254,22 @@ function webpackLoader(this: LoaderContext, source: string) {
         initGuard += 'require(\'varlock/patch-console\').patchGlobalConsole();';
       }
       result = prependAfterDirectives(result, initGuard);
+    }
+  } else {
+    // Client components: inject the declared public+dynamic key list so the runtime
+    // hydration helpers (loadPublicDynamicEnv, setPublicDynamicEnv payload filtering,
+    // hydration-state checks) work in the browser. Key NAMES only - never values.
+    // `??=` so a fresher runtime-computed list (server-side initVarlockEnv, or a dev
+    // reload) is never clobbered by the build-time snapshot. This is the injection
+    // path for turbopack (whose loader runs for browser-context files); webpack client
+    // compilations have no loader, so the webpack plugin injects the same snippet
+    // into the client runtime chunk instead.
+    const publicDynamicKeys = getPublicDynamicKeys(envGraph);
+    if (publicDynamicKeys.length) {
+      result = prependAfterDirectives(
+        result,
+        `globalThis.__varlockPublicDynamicKeys ??= ${JSON.stringify(publicDynamicKeys)};`,
+      );
     }
   }
 

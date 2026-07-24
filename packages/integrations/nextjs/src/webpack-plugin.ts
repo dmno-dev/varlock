@@ -251,6 +251,34 @@ export function createWebpackConfigFn(
                     compilation.updateAsset(name, injectVarlockInitIntoWebpackRuntime());
                   }
                 }
+              } else {
+                // Client (browser) compilation — inject the declared public+dynamic key
+                // list into the client webpack runtime chunk (loaded before any app
+                // chunk), so the runtime hydration helpers (loadPublicDynamicEnv,
+                // payload filtering, hydration-state checks) work in the browser.
+                // Key NAMES only - never values. Client compilations have no loader,
+                // so this is the webpack analog of the loader's client-component
+                // injection used by turbopack.
+                let publicDynamicKeys: Array<string> = [];
+                try {
+                  const graph = JSON.parse(process.env.__VARLOCK_ENV || '{}') as SerializedEnvGraph;
+                  publicDynamicKeys = Object.entries(graph.config || {})
+                    .filter(([, item]) => (item.isDynamic ?? item.isSensitive) && !item.isSensitive)
+                    .map(([key]) => key);
+                } catch {
+                  // bad/missing blob - skip injection rather than break the build
+                }
+                if (publicDynamicKeys.length) {
+                  const snippet = `globalThis.__varlockPublicDynamicKeys ??= ${JSON.stringify(publicDynamicKeys)};`;
+                  for (const assetName of Object.keys(compilation.assets)) {
+                    // prod: static/chunks/webpack-<hash>.js, dev: static/chunks/webpack.js
+                    if (/(^|\/)webpack(-[^/]*)?\.js$/.test(assetName)) {
+                      compilation.updateAsset(assetName, (origSource: any) => (
+                        new webpack.sources.RawSource(`${snippet}\n${origSource.source()}`)
+                      ));
+                    }
+                  }
+                }
               }
             },
           );

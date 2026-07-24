@@ -356,12 +356,21 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
             skip: nextVersion === 14,
             templateFiles: {
               'app/page.tsx': 'pages/dynamic-direct-page.tsx',
+              'app/components/dynamic-client-widget.tsx': 'pages/dynamic-client-widget.tsx',
               '.env.schema': 'schemas/.env.schema.dynamic-public',
             },
             outputAssertions: [
               {
                 description: 'route is treated as dynamic (not prerendered)',
                 shouldContain: ['┌ ƒ /'],
+              },
+            ],
+            fileAssertions: [
+              {
+                description: 'client bundles carry the declared public+dynamic key list, never the value',
+                fileGlob: '.next/static/chunks/**/*.js',
+                shouldContain: ['__varlockPublicDynamicKeys', 'PUBLIC_DYNAMIC_VAR'],
+                shouldNotContain: ['public-dynamic-var'],
               },
             ],
           });
