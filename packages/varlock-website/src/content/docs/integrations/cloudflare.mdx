@@ -226,6 +226,35 @@ Generates Cloudflare Worker types (the `Env` interface) including all varlock-ma
 
 ----
 
+## Dynamic+public config
+
+On Workers, all values reach the worker at runtime (hydrated from bindings at boot), so [`@dynamic`](/reference/item-decorators/#dynamic) mainly affects the **client build**: with the Vite plugin approach, public+dynamic keys are excluded from build-time inlining in browser assets. Worker-side code keeps using `ENV.KEY` as usual.
+For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
+
+There is no automatically injected endpoint on Cloudflare. For browser code that needs a public+dynamic value at runtime, add a route in your worker that serves `getPublicDynamicEnv()`:
+
+```ts title="in your worker fetch handler / router"
+import { getPublicDynamicEnv } from 'varlock/env';
+
+// e.g. inside your fetch handler:
+if (url.pathname === '/__varlock/public-env') {
+  return Response.json(getPublicDynamicEnv(), {
+    headers: { 'cache-control': 'no-store' },
+  });
+}
+```
+
+```ts title="client code"
+import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+
+await loadPublicDynamicEnv();
+console.log(ENV.PUBLIC_RUNTIME_FLAG);
+```
+
+Note that worker values update on deploy (or when you update the underlying secret/var), not per request. The endpoint serves whatever the worker booted with.
+
+----
+
 ## Log redaction and leak prevention
 
 Both integration approaches automatically enable **log redaction** (sensitive values are masked in console output) and **response leak detection** (responses are scanned for accidentally exposed secrets). These are enabled by default and can be disabled in your `.env.schema` using root decorators:
