@@ -73,7 +73,7 @@ console.log(ENV.PUBLIC_RUNTIME_FLAG);
 | Astro | Works in SSR paths | Auto-injected endpoint in SSR mode (configurable) |
 | SvelteKit | Works in SSR paths | Add a `+server.ts` endpoint |
 | Vite (generic) | Works in SSR/server runtime | Add your own server endpoint |
-| Cloudflare Workers | Works in the worker at runtime (values hydrate from bindings at boot) | Add your own route serving `getPublicDynamicEnv()` |
+| Cloudflare Workers | Works in the worker at runtime (values fixed at deploy) | Usually unnecessary (client assets typically rebuild on deploy); for build-once-deploy-many setups, add a route serving `getPublicDynamicEnv()` |
 | TanStack Start | Works in SSR/server routes (via the Vite integration) | Add a server route (see the Vite recipe) |
 | Expo | Server routes (`+api` files) only; native code cannot read dynamic values directly (build-time warning) | Expose an `+api` route and hydrate with an absolute endpoint URL |
 

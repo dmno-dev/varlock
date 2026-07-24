@@ -228,10 +228,12 @@ Generates Cloudflare Worker types (the `Env` interface) including all varlock-ma
 
 ## Dynamic+public config
 
-On Workers, all values reach the worker at runtime (hydrated from bindings at boot), so [`@dynamic`](/reference/item-decorators/#dynamic) mainly affects the **client build**: with the Vite plugin approach, public+dynamic keys are excluded from build-time inlining in browser assets. Worker-side code keeps using `ENV.KEY` as usual.
+On Workers, [`@dynamic`](/reference/item-decorators/#dynamic) usually changes nothing in practice. Worker values are fixed at deploy time (`varlock-wrangler deploy` resolves your env and uploads it), and client assets are typically rebuilt in the same pipeline, so a static public value and a dynamic one change at exactly the same moment. If you build and deploy together, you can ignore this section; there is no downside to leaving `@dynamic` markers in a schema shared with other platforms (worker-side code reads `ENV.KEY` the same either way).
+
+Where it does matter is when build and deploy are decoupled: for example, building client assets once and deploying that same build to several environments, where deploy-time resolution gives each environment different values. An inlined public value is frozen from the build; a public+dynamic value can instead be served by the worker with its deploy-time value.
 For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
 
-There is no automatically injected endpoint on Cloudflare. For browser code that needs a public+dynamic value at runtime, add a route in your worker that serves `getPublicDynamicEnv()`:
+There is no automatically injected endpoint on Cloudflare. For that decoupled setup, add a route in your worker that serves `getPublicDynamicEnv()`:
 
 ```ts title="in your worker fetch handler / router"
 import { getPublicDynamicEnv } from 'varlock/env';
@@ -251,7 +253,7 @@ await loadPublicDynamicEnv();
 console.log(ENV.PUBLIC_RUNTIME_FLAG);
 ```
 
-Note that worker values update on deploy (or when you update the underlying secret/var), not per request. The endpoint serves whatever the worker booted with.
+The endpoint serves whatever the worker was deployed with, not per-request-fresh values.
 
 ----
 
