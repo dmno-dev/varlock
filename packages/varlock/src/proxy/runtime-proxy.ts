@@ -833,6 +833,10 @@ export async function startLocalProxyRuntime({
     );
     delete upstreamHeaders['proxy-connection'];
     delete upstreamHeaders.connection;
+    // Hop-by-hop: addressed to this proxy, never the upstream. A client with
+    // credentials in its proxy url (e.g. a copied HTTPS_PROXY with userinfo)
+    // must not have them forwarded to the destination host.
+    delete upstreamHeaders['proxy-authorization'];
     if (t.upstreamHostHeader !== undefined) upstreamHeaders.host = t.upstreamHostHeader;
     if (rewrittenBody.byteLength !== body.byteLength) {
       upstreamHeaders['content-length'] = String(rewrittenBody.byteLength);

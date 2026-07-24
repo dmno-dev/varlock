@@ -87,6 +87,9 @@ export async function createEphemeralCa(): Promise<EphemeralCa> {
       new x509.BasicConstraintsExtension(true, undefined, true),
       // eslint-disable-next-line no-bitwise -- combining KeyUsage flags is the intended bitmask API
       new x509.KeyUsagesExtension(x509.KeyUsageFlags.keyCertSign | x509.KeyUsageFlags.cRLSign, true),
+      // RFC 5280 requires an SKI on CA certs; strict verifiers (python 3.13+
+      // sets VERIFY_X509_STRICT by default) reject chains without it.
+      await x509.SubjectKeyIdentifierExtension.create(keys.publicKey),
     ],
   });
 
@@ -114,6 +117,11 @@ export async function createHostCert(ca: EphemeralCa, host: string): Promise<Min
       // IP-literal hosts need an IP SAN (clients verify IPs against iPAddress,
       // not dNSName); hostnames use a DNS SAN.
       new x509.SubjectAlternativeNameExtension([{ type: isIP(host) ? 'ip' : 'dns', value: host }]),
+      // Strict verifiers (python 3.13+ sets VERIFY_X509_STRICT by default)
+      // require an AKI on non-self-issued certs; it must match the CA's SKI,
+      // which both being derived from the CA public key guarantees.
+      await x509.SubjectKeyIdentifierExtension.create(keys.publicKey),
+      await x509.AuthorityKeyIdentifierExtension.create(ca.cert.publicKey),
     ],
   });
 

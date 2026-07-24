@@ -237,6 +237,40 @@ describe('startLocalProxyRuntime', () => {
     });
   });
 
+  test('strips Proxy-Authorization instead of forwarding it upstream (hop-by-hop)', async () => {
+    // A client with credentials in its proxy url (userinfo) sends
+    // Proxy-Authorization addressed to the proxy; the upstream must not see it.
+    let upstreamSawProxyAuth: string | undefined;
+    const upstream = http.createServer((req, res) => {
+      upstreamSawProxyAuth = req.headers['proxy-authorization'] as string | undefined;
+      res.statusCode = 200;
+      res.end('ok');
+    });
+    await new Promise<void>((resolve) => {
+      upstream.listen(0, '127.0.0.1', () => resolve());
+    });
+    const addr = upstream.address();
+    if (!addr || typeof addr === 'string') throw new Error('Failed to start test upstream');
+
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [],
+      rules: [{ domain: ['127.0.0.1'], itemKeys: [] }],
+      egressMode: 'permissive',
+    });
+
+    const res = await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}/`, {
+      'proxy-authorization': 'Basic c29tZXRva2VuOg==',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(upstreamSawProxyAuth).toBeUndefined();
+
+    await runtime.stop();
+    await new Promise<void>((resolve) => {
+      upstream.close(() => resolve());
+    });
+  });
+
   test('emits a blocked-egress activity in strict mode (no secrets in the activity)', async () => {
     const activities: Array<ProxyActivity> = [];
     const runtime = await startLocalProxyRuntime({
