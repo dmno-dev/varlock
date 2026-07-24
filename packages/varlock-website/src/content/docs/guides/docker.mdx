@@ -316,6 +316,26 @@ DATABASE_URL=op(op://prod/db/connection-string) # @sensitive
 
 In **Node-based images** where varlock is an npm dependency, install plugins in `package.json` and reference them without a version (or with a range for validation only). See the [Plugins guide](/guides/plugins/#plugin-installation) for details.
 
+### Distroless and shell-less base images
+
+Auto-install works in minimal base images (Google distroless, `scratch`-based, etc.) that have no shell and no `tar` binary. The standalone binary downloads and extracts pinned plugin versions itself, so official `@varlock/*` plugins resolve at runtime with no extra setup.
+
+Two things still need a shell or a pre-cache step somewhere in the build:
+
+- **Third-party (non-`@varlock`) plugins** require a one-time trust confirmation, which needs an interactive terminal. In a non-interactive build, pre-cache them in a stage that has a shell and copy the cache across. Pin the cache location with `XDG_CONFIG_HOME` so both stages agree:
+
+  ```dockerfile title="Dockerfile (excerpt)"
+  ENV XDG_CONFIG_HOME=/varlock-config
+
+  # builder stage: pre-cache the plugin into $XDG_CONFIG_HOME/varlock/plugins-cache
+  RUN varlock install-plugin my-plugin@1.2.3
+
+  # final stage: reuse the populated cache (set the same XDG_CONFIG_HOME here too)
+  COPY --from=builder /varlock-config /varlock-config
+  ```
+
+- **Offline / air-gapped images** with no npm access: pre-cache the same way, since auto-install fetches from the npm registry at runtime.
+
 :::caution[Plugin cache in CI/containers]
 Ephemeral containers often run in memory cache mode. If your job invokes varlock multiple times and plugin fetches are slow, set [`_VARLOCK_CACHE_KEY`](/guides/caching/#disk-caching-in-ci-with-_varlock_cache_key) as a CI secret. See the [Caching guide](/guides/caching/) for details.
 :::

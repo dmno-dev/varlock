@@ -1,9 +1,7 @@
 /// <reference path="../../globals.d.ts" />
 import path from 'node:path';
-import { exec as execCb } from 'node:child_process';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
-import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import crypto from 'node:crypto';
@@ -20,6 +18,7 @@ import type { CacheStoreLike } from '../../lib/cache/cache-store';
 import { parseTtl } from '../../lib/cache/ttl-parser';
 import { resolveCacheTtl } from '../../lib/cache/resolve-cache-ttl';
 import { confirm } from '../../cli/helpers/prompts';
+import { extractTarball } from '../../lib/extract-tarball';
 
 
 import { FileBasedDataSource, type EnvGraphDataSource } from './data-source';
@@ -551,7 +550,6 @@ async function isPluginCached(url: string): Promise<boolean> {
 }
 
 async function downloadPlugin(url: string) {
-  const exec = promisify(execCb);
   const cacheDir = path.join(getUserVarlockDir(), 'plugins-cache');
   const indexPath = path.join(cacheDir, 'index.json');
   await fs.mkdir(cacheDir, { recursive: true });
@@ -588,10 +586,12 @@ async function downloadPlugin(url: string) {
     }).on('error', reject);
   });
 
-  // Extract tgz to a temp folder
+  // Extract tgz to a temp folder. We extract natively (zlib + a small tar
+  // reader) rather than shelling out to `tar`, so plugin auto-install works in
+  // minimal/distroless images that have neither a shell nor a `tar` binary.
   const tmpExtractDir = path.join(cacheDir, `tmp-extract-${crypto.randomBytes(8).toString('hex')}`);
   await fs.mkdir(tmpExtractDir);
-  await exec(`tar -xzf ${tmpTgz} -C ${tmpExtractDir}`);
+  await extractTarball(tmpTgz, tmpExtractDir);
 
   // Find package.json (assume in package/ or root)
   let pkgJsonPath = path.join(tmpExtractDir, 'package', 'package.json');
