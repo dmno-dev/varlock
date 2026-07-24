@@ -683,13 +683,14 @@ varlock codegen -p ./envs -p ./overrides
 
 Copies every env file reachable via [`@import()`](/guides/import/) into one self-contained directory and rewrites the `@import` paths. Use it when only part of a monorepo is available at runtime, most commonly the final stage of a Docker build. See [the Docker guide](/guides/docker/#monorepos-and-partial-build-context) for the full workflow.
 
-Values are never resolved and plugins are never executed: this is a purely structural transform, safe to run in CI without secrets.
+By default, values are never resolved and plugins are never executed: this is a purely structural transform, safe to run in CI without secrets. (`--vendor-plugins` adds a build-time npm download, but still never resolves values.)
 
 Details of the transform:
 - Files imported from outside the package are mirrored under `.env-imports/` inside the output directory, preserving their workspace-relative paths, so relative imports between copied files keep working.
 - Imports that are conditionally disabled (via `enabled=`) are still copied, with the condition preserved, since a different environment may enable them at runtime.
 - `.env.local` and `.env.[env].local` files are skipped by default (use `--include-local` to include them).
 - `@plugin()` declarations in copied files get their versions pinned to whatever is currently installed, so varlock can [auto-install them](/guides/plugins/) where the original package's `node_modules` is not available. Plugins declared via a local path are copied into the output.
+- With `--vendor-plugins`, npm `@plugin()` packages are downloaded and copied into `.env-plugins/` and the declarations are rewritten to local paths, so the output resolves with no runtime install. This is the way to run plugins in shell-less, offline, or distroless images. See [plugins in containers](/guides/docker/#distroless-and-shell-less-base-images).
 - Imports pointing outside the workspace root (including `~/` home-directory imports) are left untouched with a warning.
 
 ```bash
@@ -699,6 +700,7 @@ varlock flatten [options]
 **Options:**
 - `--out-dir <path>`: Output directory, relative to the current directory (default `.env-flat`)
 - `--include-local`: Include `.env.local` / `.env.*.local` files (excluded by default)
+- `--vendor-plugins`: Download npm plugins and copy them into the output so no runtime install is needed (needs network at flatten time)
 
 **Examples:**
 ```bash
@@ -707,6 +709,9 @@ varlock flatten
 
 # Custom output location
 varlock flatten --out-dir dist/env
+
+# Also vendor plugins for a self-contained, distroless-ready output
+varlock flatten --vendor-plugins
 ```
 
 The output directory is a generated artifact: add it to `.gitignore`, and rerun `flatten` whenever your env files change.

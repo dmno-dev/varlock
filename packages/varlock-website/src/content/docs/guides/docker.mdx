@@ -320,21 +320,35 @@ In **Node-based images** where varlock is an npm dependency, install plugins in 
 
 Auto-install works in minimal base images (Google distroless, `scratch`-based, etc.) that have no shell and no `tar` binary. The standalone binary downloads and extracts pinned plugin versions itself, so official `@varlock/*` plugins resolve at runtime with no extra setup.
 
-Two things still need a shell or a pre-cache step somewhere in the build:
+Runtime auto-install still has two limits: **third-party (non-`@varlock`) plugins** need a one-time trust confirmation (an interactive terminal), and any auto-install needs **network access to npm** at container start. For a fully self-contained image that has neither, vendor the plugins at build time.
 
-- **Third-party (non-`@varlock`) plugins** require a one-time trust confirmation, which needs an interactive terminal. In a non-interactive build, pre-cache them in a stage that has a shell and copy the cache across. Pin the cache location with `XDG_CONFIG_HOME` so both stages agree:
+#### Vendor plugins with `flatten --vendor-plugins` (recommended)
 
-  ```dockerfile title="Dockerfile (excerpt)"
-  ENV XDG_CONFIG_HOME=/varlock-config
+If you already use [`varlock flatten`](/reference/cli-commands/#flatten) for a monorepo build, add `--vendor-plugins`. It downloads each `@plugin()` package and copies it into the output (`.env-plugins/`), rewriting the declarations to local paths. The flattened directory then resolves with **no runtime npm fetch, no shell, and no trust prompt**, because the download and confirmation happened during the build:
 
-  # builder stage: pre-cache the plugin into $XDG_CONFIG_HOME/varlock/plugins-cache
-  RUN varlock install-plugin my-plugin@1.2.3
+```dockerfile title="Dockerfile (excerpt)"
+# builder stage (has the full monorepo + network)
+RUN cd packages/api && varlock flatten --vendor-plugins
 
-  # final stage: reuse the populated cache (set the same XDG_CONFIG_HOME here too)
-  COPY --from=builder /varlock-config /varlock-config
-  ```
+# final distroless stage
+COPY --from=builder /repo/packages/api/.env-flat/ /app/
+```
 
-- **Offline / air-gapped images** with no npm access: pre-cache the same way, since auto-install fetches from the npm registry at runtime.
+This is the most complete option: it covers third-party plugins and offline runtimes, which runtime auto-install cannot.
+
+#### Or pre-cache with `install-plugin`
+
+Without flatten, pre-cache plugins in a stage that has a shell and copy the cache across. Pin the cache location with `XDG_CONFIG_HOME` so both stages agree:
+
+```dockerfile title="Dockerfile (excerpt)"
+ENV XDG_CONFIG_HOME=/varlock-config
+
+# builder stage: pre-cache the plugin into $XDG_CONFIG_HOME/varlock/plugins-cache
+RUN varlock install-plugin my-plugin@1.2.3
+
+# final stage: reuse the populated cache (set the same XDG_CONFIG_HOME here too)
+COPY --from=builder /varlock-config /varlock-config
+```
 
 :::caution[Plugin cache in CI/containers]
 Ephemeral containers often run in memory cache mode. If your job invokes varlock multiple times and plugin fetches are slow, set [`_VARLOCK_CACHE_KEY`](/guides/caching/#disk-caching-in-ci-with-_varlock_cache_key) as a CI secret. See the [Caching guide](/guides/caching/) for details.

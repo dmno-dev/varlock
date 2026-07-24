@@ -21,6 +21,11 @@ export const commandSpec = define({
       description: 'Include .env.local / .env.*.local files (excluded by default)',
       default: false,
     },
+    'vendor-plugins': {
+      type: 'boolean',
+      description: 'Download npm plugins and copy them into the output so no runtime install is needed (for shell-less/offline/distroless runtimes)',
+      default: false,
+    },
   },
   examples: `
 In a monorepo, a package's env files may @import files from sibling packages or the
@@ -35,6 +40,7 @@ Examples:
   varlock flatten                    # flatten env files from the current directory into .env-flat/
   varlock flatten --out-dir dist/env # custom output location
   varlock flatten --include-local    # also include .env.local files (careful - these often hold secrets)
+  varlock flatten --vendor-plugins   # also download npm plugins into the output (self-contained, no runtime install)
 
 Typical Dockerfile usage (builder stage has the full monorepo):
   RUN cd packages/api && varlock flatten
@@ -60,6 +66,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       workspaceRootPath,
       outDir: String(ctx.values['out-dir']),
       includeLocal: !!ctx.values['include-local'],
+      vendorPlugins: !!ctx.values['vendor-plugins'],
     });
   } catch (err) {
     if (err instanceof FlattenError) throw new CliExitError(err.message);
@@ -76,6 +83,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   if (result.pinnedPlugins.length) {
     console.log('\nPinned plugin versions (so they can auto-install without the original package present):');
     for (const p of result.pinnedPlugins) {
+      console.log(ansis.gray(`  ${p.moduleName}@${p.version}`));
+    }
+  }
+
+  if (result.vendoredPlugins.length) {
+    console.log(`\nVendored ${result.vendoredPlugins.length} plugin${result.vendoredPlugins.length === 1 ? '' : 's'} into ${ansis.bold(`${relOutDir}/.env-plugins`)}/ (no runtime install needed):`);
+    for (const p of result.vendoredPlugins) {
       console.log(ansis.gray(`  ${p.moduleName}@${p.version}`));
     }
   }
